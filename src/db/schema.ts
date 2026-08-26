@@ -568,4 +568,117 @@ CREATE TABLE settings_kv (
 );
 `,
   },
+  {
+    name: "0002-loans",
+    sql: `
+--------------------------------------------------------------------------------
+-- F18 · Loans (06-loans.md). Promoted to P1 by 10 §2 E9.
+--
+-- A loan is a specialisation of a Tracking account, which is what makes
+-- F18.g structural: to_budget only ever counts Budget accounts, so a
+-- liability can never reach Ready to Assign.
+--------------------------------------------------------------------------------
+
+CREATE TABLE loans (
+  id                   TEXT PRIMARY KEY,
+  account_id           TEXT NOT NULL REFERENCES accounts(id),
+  lender               TEXT NOT NULL,
+  nickname             TEXT,
+  loan_type            TEXT NOT NULL,
+  -- R14: sanctioned, disbursed and undrawn are three distinct figures.
+  -- Only disbursed is a liability.
+  sanctioned           INTEGER NOT NULL,
+  sanction_date        TEXT NOT NULL,
+  -- R16: fixed per loan at creation, changeable only with an explicit recompute.
+  interest_model       TEXT NOT NULL DEFAULT 'reducing'
+                       CHECK (interest_model IN
+                         ('reducing','flat','moratorium-serviced','moratorium-capitalised')),
+  benchmark            TEXT,
+  tenure_months        INTEGER NOT NULL,
+  first_instalment_date TEXT,
+  instalment_day       INTEGER,
+  repayment_account_id TEXT REFERENCES accounts(id),
+  -- R14: the loan's own envelope, symmetric with a card's (R6). Cannot be
+  -- deleted while the loan is open.
+  payment_category_id  TEXT REFERENCES categories(id),
+  -- R14/R22.3: set when the loan predates the app, so lifetime figures are
+  -- labelled "from DD-MM-YYYY" rather than presented as complete.
+  history_from         TEXT,
+  -- R14: a loan created mid-life has no tranche records, but it is not
+  -- undrawn. This is what was already disbursed when the loan was added,
+  -- so "undrawn" does not report the whole sanction as available.
+  disbursed_at_creation INTEGER NOT NULL DEFAULT 0,
+  closed_at            TEXT,
+  created_at           TEXT NOT NULL,
+  created_by           TEXT REFERENCES members(id)
+);
+CREATE INDEX idx_loans_account ON loans(account_id);
+
+-- R15: each release of principal, with a destination. The destination is the
+-- whole point: a tranche paid to a builder must never look like spendable money.
+CREATE TABLE loan_disbursements (
+  id                     TEXT PRIMARY KEY,
+  loan_id                TEXT NOT NULL REFERENCES loans(id),
+  date                   TEXT NOT NULL,
+  amount                 INTEGER NOT NULL,
+  destination            TEXT NOT NULL CHECK (destination IN ('budget-account','third-party')),
+  destination_account_id TEXT REFERENCES accounts(id),
+  note                   TEXT,
+  created_at             TEXT NOT NULL
+);
+CREATE INDEX idx_disbursements_loan ON loan_disbursements(loan_id, date);
+
+-- R16/R20.1: a rate change is a new dated period, never an edit to the old one.
+CREATE TABLE loan_rates (
+  id              TEXT PRIMARY KEY,
+  loan_id         TEXT NOT NULL REFERENCES loans(id),
+  effective_from  TEXT NOT NULL,
+  annual_rate_pct REAL NOT NULL,
+  note            TEXT,
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX idx_loan_rates ON loan_rates(loan_id, effective_from);
+
+-- R18: recorded actuals. Authoritative for the outstanding balance, which is
+-- why the projection re-anchors to these rather than the reverse.
+CREATE TABLE loan_payments (
+  id             TEXT PRIMARY KEY,
+  loan_id        TEXT NOT NULL REFERENCES loans(id),
+  date           TEXT NOT NULL,
+  amount         INTEGER NOT NULL,
+  principal      INTEGER NOT NULL,
+  interest       INTEGER NOT NULL,
+  -- R18.3: an estimated split stays visually distinct from a confirmed one.
+  estimated      INTEGER NOT NULL DEFAULT 0,
+  kind           TEXT NOT NULL DEFAULT 'instalment'
+                 CHECK (kind IN ('instalment','prepayment','extra','charge','foreclosure')),
+  transaction_id TEXT REFERENCES transactions(id),
+  note           TEXT,
+  created_at     TEXT NOT NULL,
+  created_by     TEXT REFERENCES members(id)
+);
+CREATE INDEX idx_loan_payments ON loan_payments(loan_id, date);
+
+-- R18.8 · Loan reconciliation against a lender statement.
+--
+-- Drift (R18.4) is only meaningful against a balance the *lender* stated.
+-- Comparing the projection to our own ledger would report every extra payment
+-- as drift, which is the household doing something deliberate rather than the
+-- projection going wrong.
+CREATE TABLE loan_statements (
+  id                 TEXT PRIMARY KEY,
+  loan_id            TEXT NOT NULL REFERENCES loans(id),
+  as_of              TEXT NOT NULL,
+  lender_outstanding INTEGER NOT NULL,
+  interest_paid_ytd  INTEGER,
+  instalments_remaining INTEGER,
+  -- The app's own figure at the time, kept so the drift can be reasoned about.
+  app_outstanding    INTEGER NOT NULL,
+  resolved           INTEGER NOT NULL DEFAULT 0,
+  created_at         TEXT NOT NULL,
+  created_by         TEXT REFERENCES members(id)
+);
+CREATE INDEX idx_loan_statements ON loan_statements(loan_id, as_of);
+`,
+  },
 ];
