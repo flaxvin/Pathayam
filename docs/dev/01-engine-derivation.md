@@ -98,20 +98,40 @@ follows R2 literally. It is contained by itemising the breakdown — the RTA
 popover shows "assigned in future months" as its own line — and the historical
 answer proper comes from the as-of-date view (`08` F25.11).
 
-### R2's worked example
+### R2's worked example, and the state it leaves implicit
 
 > Budget accounts hold ₹1,20,000. ₹10,000 held for next month. Last month
 > over-spent cash by ₹2,500. Assigned this month ₹85,000, assigned to next
 > month ₹5,000. RTA = ₹17,500.
 
-Entering August every category sits at zero and nothing has been spent in
-August, so `Σ to_budget − Σ past assignments` is the whole ₹1,20,000:
+The example states its outputs but not the July that produced them, and **not
+every July reaching those inputs gives ₹17,500**. If July ends with every
+category at zero, the answer is ₹20,000, not ₹17,500 — because a cash
+overspend has already left the bank, so it is inside the ₹1,20,000 balance
+*and* subtracted again as the carry.
+
+The reading that is self-consistent is that July also left a positive balance
+carrying forward. Reconstructed:
+
+| July | |
+|---|---|
+| Income | ₹1,42,500 |
+| Assigned to Groceries | ₹20,000 |
+| Assigned to Travel | ₹2,500 |
+| Spent from Groceries | ₹22,500 → overspent ₹2,500 |
+
+Then August opens with Travel holding ₹2,500, bank balance
+`1,42,500 − 22,500 = ₹1,20,000` ✓, and:
 
 ```
-1,20,000 − 85,000 − 5,000 − 10,000 − 2,500 = 17,500 ✓
+RTA = 1,42,500 − (20,000 + 2,500 + 85,000 + 5,000) − 10,000 − 2,500 = ₹17,500 ✓
 ```
 
-Reproduced as a test in `engine.test.ts`.
+The identity confirms it: `1,20,000 = 87,500 (categories) + 17,500 (RTA)
++ 10,000 (held) + 5,000 (September)`.
+
+Reproduced as a test in `engine.test.ts`, with the reconstruction spelled out
+so the assumption is visible rather than buried.
 
 ---
 
