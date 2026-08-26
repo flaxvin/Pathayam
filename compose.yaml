@@ -1,37 +1,50 @@
-# Homelab deployment (Q8: behind a Cloudflare Tunnel).
+# Deployment (Q8: homelab behind a Cloudflare Tunnel).
+#
+#   docker compose up -d              production
+#   docker compose --profile dev up   development, with the dev login bypass
 #
 # With the server-only client data policy (R35), uptime is load-bearing rather
 # than hygiene: if this container is down the app is unusable, not degraded.
-# See 09 §7, and keep the backup job in 08 R40 running.
+# That is also why R40.8's heartbeat matters — nothing in here survives to
+# report its own absence.
+
+name: budget
 
 services:
+  # ---------------------------------------------------------------------------
+  # Production
+  # ---------------------------------------------------------------------------
   budget:
-    build: .
+    build:
+      context: .
+      target: runtime
+    image: budget-app:latest
     restart: unless-stopped
+    # Bound to loopback: the tunnel reaches it, the LAN does not.
     ports:
-      - "127.0.0.1:8080:8080"
+      - "127.0.0.1:${PORT:-8080}:8080"
     volumes:
       - budget-data:/data
     environment:
-      # Must match the public URL exactly — OAuth redirects and cookie
-      # scoping both depend on it.
-      BASE_URL: ${BASE_URL:?set BASE_URL, e.g. https://budget.example.com}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?set GOOGLE_CLIENT_ID}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?set GOOGLE_CLIENT_SECRET}
+      # Must match the public URL exactly — OAuth redirects and cookie scoping
+      # both depend on it.
+      BASE_URL: ${BASE_URL:?set BASE_URL in .env, e.g. https://budget.example.com}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?set GOOGLE_CLIENT_ID in .env}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?set GOOGLE_CLIENT_SECRET in .env}
 
-      # Behind a tunnel or reverse proxy, so the client IP arrives in a header.
       TRUST_PROXY: "true"
-
       LOG_LEVEL: ${LOG_LEVEL:-info}
       SESSION_DAYS: ${SESSION_DAYS:-30}
 
-      # R40.4: a failed backup or restore verification is the one failure class
-      # where silence loses data, so it goes to a webhook rather than the
-      # health page alone (Q24).
+      # R40.4 (Q24): the one failure class where silence loses data.
       BACKUP_WEBHOOK_URL: ${BACKUP_WEBHOOK_URL:-}
+      # R40.8: pinged on a *successful* verified restore. The monitor alerts on
+      # the ping's absence, which is the only way this box being down can raise
+      # an alarm — see 10 §3.2.
+      HEARTBEAT_URL: ${HEARTBEAT_URL:-}
 
       # F28: modules disableable per deployment. Multi-currency is off because
-      # Q18 settled on ₹-only accounts.
+      # Q18 settled on rupee-only accounts.
       FEATURE_LOANS: ${FEATURE_LOANS:-true}
       FEATURE_ASSETS: ${FEATURE_ASSETS:-true}
       FEATURE_MULTI_CURRENCY: ${FEATURE_MULTI_CURRENCY:-false}
@@ -39,6 +52,68 @@ services:
       # DEV_LOGIN is deliberately absent. The bypass is not in this image at
       # all (R38.5), and the app refuses to start if it is enabled anywhere
       # production-shaped (R38.3).
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "fetch('http://127.0.0.1:8080/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      start_period: 10s
+      retries: 3
+
+  # ---------------------------------------------------------------------------
+  # Development — docker compose --profile dev up
+  #
+  # Source is mounted and Node watches it, so an edit restarts the server
+  # without a rebuild. DEV_LOGIN is safe here only because BASE_URL is
+  # localhost and no real OAuth credentials are set; config.ts refuses to start
+  # if either of those changes (R38.3).
+  # ---------------------------------------------------------------------------
+  dev:
+    profiles: ["dev"]
+    build:
+      context: .
+      target: dev
+    command: ["npm", "run", "dev"]
+    restart: unless-stopped
+    ports:
+      - "${DEV_PORT:-8080}:8080"
+    volumes:
+      - ./src:/app/src:ro
+      - dev-data:/data
+    environment:
+      NODE_ENV: development
+      BASE_URL: http://localhost:${DEV_PORT:-8080}
+      DEV_LOGIN: "true"
+      LOG_LEVEL: debug
+      DATA_DIR: /data
+
+  # One-shot: docker compose --profile seed up seed
+  seed:
+    profiles: ["seed"]
+    build:
+      context: .
+      target: dev
+    command: ["npm", "run", "seed"]
+    volumes:
+      - ./src:/app/src:ro
+      - dev-data:/data
+    environment:
+      NODE_ENV: development
+      DATA_DIR: /data
+
+  # One-shot: docker compose --profile test up test
+  test:
+    profiles: ["test"]
+    build:
+      context: .
+      target: dev
+    command: ["sh", "-c", "npm test && npm run typecheck"]
+    volumes:
+      - ./src:/app/src:ro
 
 volumes:
   budget-data:
+  dev-data:

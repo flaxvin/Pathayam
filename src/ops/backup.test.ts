@@ -14,6 +14,7 @@ import { createTransaction } from "../domain/transactions.ts";
 import {
   createBackup, listBackups, pruneBackups, controlTotals, verifyRestore,
   runBackupJob, reportFailure, exportEverything, exportTransactionsCsv, lastJobRun,
+  pingHeartbeat,
 } from "./backup.ts";
 
 const RAVI = "m-ravi";
@@ -38,6 +39,17 @@ function setup(dir: string): { db: DB; accountId: string } {
   });
 
   return { db, accountId: account.id };
+}
+
+/**
+ * A path that cannot become a directory, because its parent is a file. Used to
+ * force a backup failure deterministically — an unwritable path would depend
+ * on the uid, and the tests run as root inside the container.
+ */
+function unwritablePath(dir: string): string {
+  const blocker = join(dir, "blocker");
+  writeFileSync(blocker, "not a directory");
+  return join(blocker, "backups");
 }
 
 function withTempDir<T>(fn: (dir: string) => T): T {
@@ -194,7 +206,6 @@ describe("R40.4 · alerting on failure", () => {
   test("posts to the configured webhook when verification fails", async () => {
     await withTempDir(async (dir) => {
       const { db } = setup(dir);
-      const backupDir = join(dir, "backups");
 
       const calls: { url: string; body: unknown }[] = [];
       const fakeFetch = (async (url: unknown, init?: { body?: string }) => {
@@ -202,9 +213,9 @@ describe("R40.4 · alerting on failure", () => {
         return { ok: true } as Response;
       }) as unknown as typeof fetch;
 
-      // No backup exists, so verification must fail and alert.
+      // The backup cannot even be written, so the job must fail and alert.
       const result = await runBackupJob(db, {
-        backupDir: "/nonexistent/path/that/cannot/be/written",
+        backupDir: unwritablePath(dir),
         webhookUrl: "https://hooks.example/budget",
         fetchImpl: fakeFetch,
       });
@@ -212,7 +223,6 @@ describe("R40.4 · alerting on failure", () => {
       assert.equal(result.ok, false);
       assert.equal(calls.length, 1);
       assert.equal((calls[0]!.body as { event: string }).event, "restore-verification-failed");
-      void backupDir;
       db.close();
     });
   });
@@ -326,5 +336,94 @@ describe("F15 · export", () => {
       assert.match(csv, /"milk, bread and ""eggs"""/);
       db.close();
     });
+  });
+});
+
+describe("R40.8 · the dead-man's switch", () => {
+  test("pings the monitor on a successful verified restore", async () => {
+    await withTempDir(async (dir) => {
+      const { db } = setup(dir);
+      const pings: string[] = [];
+      const fakeFetch = (async (url: unknown) => {
+        pings.push(String(url));
+        return { ok: true } as Response;
+      }) as unknown as typeof fetch;
+
+      const result = await runBackupJob(db, {
+        backupDir: join(dir, "backups"),
+        webhookUrl: null,
+        heartbeatUrl: "https://hc.example/abc",
+        fetchImpl: fakeFetch,
+      });
+
+      assert.equal(result.ok, true, result.summary);
+      assert.deepEqual(pings, ["https://hc.example/abc"]);
+      assert.equal(lastJobRun(db, "heartbeat").status, "ok");
+      db.close();
+    });
+  });
+
+  test("stays silent when the job fails — silence is the alert", async () => {
+    await withTempDir(async (dir) => {
+      const { db } = setup(dir);
+
+      const heartbeats: string[] = [];
+      const webhooks: string[] = [];
+      const fakeFetch = (async (url: unknown, init?: { method?: string; body?: string }) => {
+        (init?.body ? webhooks : heartbeats).push(String(url));
+        return { ok: true } as Response;
+      }) as unknown as typeof fetch;
+
+      // The job cannot even take a snapshot.
+      const result = await runBackupJob(db, {
+        backupDir: unwritablePath(dir),
+        webhookUrl: "https://hooks.example/budget",
+        heartbeatUrl: "https://hc.example/abc",
+        fetchImpl: fakeFetch,
+      });
+
+      assert.equal(result.ok, false);
+      // Pinging on a failed run would tell the monitor everything is fine,
+      // which is the exact opposite of what R40.8 is for.
+      assert.deepEqual(heartbeats, [], "no heartbeat on a failed run");
+      assert.equal(webhooks.length, 1, "the box is still up, so R40.4 can report it");
+      db.close();
+    });
+  });
+
+  test("an unreachable monitor does not fail the job", async () => {
+    await withTempDir(async (dir) => {
+      const { db } = setup(dir);
+      const fakeFetch = (async () => {
+        throw new Error("network unreachable");
+      }) as unknown as typeof fetch;
+
+      const result = await runBackupJob(db, {
+        backupDir: join(dir, "backups"),
+        webhookUrl: null,
+        heartbeatUrl: "https://hc.example/abc",
+        fetchImpl: fakeFetch,
+      });
+
+      assert.equal(result.ok, true, "the restore verified; only the ping failed");
+      const beat = lastJobRun(db, "heartbeat");
+      assert.equal(beat.status, "failed");
+      assert.match(beat.detail!, /alert on the missing ping/);
+      db.close();
+    });
+  });
+
+  test("records that no monitor is configured, rather than reporting success", async () => {
+    await withTempDir(async (dir) => {
+      const { db } = setup(dir);
+      await runBackupJob(db, { backupDir: join(dir, "backups"), webhookUrl: null });
+      assert.equal(lastJobRun(db, "heartbeat").status, "skipped");
+      db.close();
+    });
+  });
+
+  test("pingHeartbeat does nothing without a URL", async () => {
+    const beat = await pingHeartbeat(null);
+    assert.equal(beat.ok, false);
   });
 });

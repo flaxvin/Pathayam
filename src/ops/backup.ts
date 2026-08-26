@@ -15,6 +15,12 @@
  * - **R40.7** a backup must be restorable *without the application*. It is a
  *   plain SQLite file produced by `VACUUM INTO`, readable by the `sqlite3`
  *   CLI, plus a JSON export in an open documented shape.
+ *
+ * R40.8 (`10` §3.2) adds the failure this module could not otherwise report:
+ * if the box is down, no process here is left to fire R40.4's webhook, and the
+ * one failure Q24 said must never be silent is silent exactly when it matters.
+ * The answer is a heartbeat on *success* to a monitor that alerts on the
+ * absence of a ping — see `pingHeartbeat`.
  */
 
 import { DatabaseSync } from "node:sqlite";
@@ -237,6 +243,38 @@ export function verifyRestore(db: DB, backupDir: string): VerificationResult {
 }
 
 /**
+ * R40.8 · The dead-man's switch.
+ *
+ * Pings an external monitor **only on success**. The monitor alerts on the
+ * *absence* of a ping, which is what makes this cover the failure R40.4
+ * cannot: a box that is down, a tunnel that dropped, or a job that never ran
+ * has no process left to report itself.
+ *
+ * R40.8.2: the alerting path must not depend on any component of this
+ * deployment being alive — so nothing here is retried, queued or persisted. A
+ * ping that does not arrive *is* the alert.
+ *
+ * R40.8.4: the monitor's expected interval is the verification schedule plus
+ * slack, configured at the monitor rather than here, so one slow run does not
+ * page anyone at 2am.
+ */
+export async function pingHeartbeat(
+  heartbeatUrl: string | null,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ ok: boolean; at: string }> {
+  const at = nowIST();
+  if (!heartbeatUrl) return { ok: false, at };
+  try {
+    const response = await fetchImpl(heartbeatUrl, { method: "POST" });
+    return { ok: response.ok, at };
+  } catch {
+    // A missed ping is the signal, so failing to send one is not an error
+    // worth escalating here — the monitor will notice.
+    return { ok: false, at };
+  }
+}
+
+/**
  * R40.4 · A failed or skipped verification alerts through the configured
  * channel, not merely a log line. Q24 narrowed outbound alerts to exactly this
  * one failure class, because it is the one where silence loses data.
@@ -304,7 +342,14 @@ export function lastJobRun(db: DB, job: string): JobStatus {
 /** The whole scheduled job: back up, verify, prune, alert on failure. */
 export async function runBackupJob(
   db: DB,
-  opts: { backupDir: string; webhookUrl: string | null; keep?: number; fetchImpl?: typeof fetch },
+  opts: {
+    backupDir: string;
+    webhookUrl: string | null;
+    /** R40.8: external monitor pinged on success. */
+    heartbeatUrl?: string | null;
+    keep?: number;
+    fetchImpl?: typeof fetch;
+  },
 ): Promise<VerificationResult> {
   let backup: BackupResult;
   try {
@@ -324,7 +369,20 @@ export async function runBackupJob(
   const verification = verifyRestore(db, opts.backupDir);
   recordJobRun(db, "restore-verification", verification.ok ? "ok" : "failed", verification.summary);
 
-  if (!verification.ok) {
+  if (verification.ok) {
+    // R40.8.1: the heartbeat goes out only when the restore actually verified.
+    // Pinging on a failed run would tell the monitor everything is fine.
+    const beat = await pingHeartbeat(opts.heartbeatUrl ?? null, opts.fetchImpl);
+    recordJobRun(
+      db, "heartbeat",
+      beat.ok ? "ok" : opts.heartbeatUrl ? "failed" : "skipped",
+      beat.ok
+        ? "Acknowledged by the external monitor."
+        : opts.heartbeatUrl
+          ? "The monitor could not be reached. It will alert on the missing ping."
+          : "No heartbeat monitor configured.",
+    );
+  } else {
     await reportFailure(opts.webhookUrl, verification, opts.fetchImpl);
   }
 

@@ -98,6 +98,7 @@ function main(): void {
       void runBackupJob(db, {
         backupDir: config.backupDir,
         webhookUrl: config.backupWebhookUrl,
+        heartbeatUrl: config.heartbeatUrl,
       })
         .then((result) => {
           log({
