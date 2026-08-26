@@ -104,3 +104,41 @@ export function ensureHousehold(db: DB): void {
 export function newId(): string {
   return randomUUID();
 }
+
+// ---------------------------------------------------------------------------
+// Typed query helpers
+//
+// node:sqlite returns rows as Record<string, SQLOutputValue>, which does not
+// narrow to a row interface on its own. These centralise the one cast so call
+// sites stay readable and no individual query has to restate it.
+// ---------------------------------------------------------------------------
+
+export type SqlParam = string | number | bigint | null | Uint8Array;
+
+export function queryAll<T>(db: DB, sql: string, ...params: SqlParam[]): T[] {
+  return db.prepare(sql).all(...params) as unknown as T[];
+}
+
+export function queryOne<T>(db: DB, sql: string, ...params: SqlParam[]): T | null {
+  const row = db.prepare(sql).get(...params);
+  return (row ?? null) as unknown as T | null;
+}
+
+/** For a query whose row must exist — a missing one is a programming error. */
+export function queryOneOrThrow<T>(db: DB, sql: string, ...params: SqlParam[]): T {
+  const row = queryOne<T>(db, sql, ...params);
+  if (row === null) throw new Error(`Expected exactly one row: ${sql}`);
+  return row;
+}
+
+/** A single scalar, e.g. a COUNT or a SUM. */
+export function queryValue<T>(db: DB, sql: string, ...params: SqlParam[]): T | null {
+  const row = db.prepare(sql).get(...params) as Record<string, unknown> | undefined;
+  if (!row) return null;
+  const values = Object.values(row);
+  return (values[0] ?? null) as T | null;
+}
+
+export function execute(db: DB, sql: string, ...params: SqlParam[]): number {
+  return Number(db.prepare(sql).run(...params).changes);
+}
