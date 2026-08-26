@@ -38,6 +38,11 @@ import {
   renderAddTransaction, renderMoveMoney, renderAutoAssignPreview, renderHold,
   renderExplain, explainLineFor, renderNotFound,
 } from "./web/pages/actions.ts";
+import { renderReview, renderImport } from "./web/pages/review.ts";
+import { parseStatement } from "./import/csv.ts";
+import {
+  ingest, listStaged, approveStaged, rejectStaged, mergeStaged, undoBatch, listBatches,
+} from "./import/pipeline.ts";
 import {
   createAccount, listAccounts, getAccount, listCards, paymentCategoryFor,
   type AccountKind,
@@ -930,10 +935,157 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   );
 
   // -------------------------------------------------------------------------
+  // S4 · Review — the one destination for everything needing a human
+  // -------------------------------------------------------------------------
+  router.get("/review", (ctx) => {
+    const month = monthParam(ctx);
+    const view = buildBudgetView(db, month);
+    const outstanding = creditOutstanding(db);
+
+    const unfundedCards = [...view.categories.values()]
+      .filter((c) => c.paymentAccountId)
+      .map((c) => ({
+        accountId: c.paymentAccountId!,
+        name: c.name,
+        categoryId: c.id,
+        unfunded: cardFunding(
+          c.paymentAccountId!,
+          outstanding.get(c.paymentAccountId!) ?? 0,
+          c.state.balance,
+          view.monthState.unfundedByAccount[c.paymentAccountId!] ?? 0,
+        ).unfunded,
+      }))
+      .filter((c) => c.unfunded > 0);
+
+    return render(
+      ctx,
+      "Review",
+      renderReview({
+        staged: listStaged(db),
+        uncategorised: queryAll<{
+          id: string; date: string; amount: number; payee: string | null; account: string;
+        }>(
+          db,
+          `SELECT t.id, t.date, t.amount, p.name AS payee, a.name AS account
+             FROM transactions t
+             JOIN accounts a ON a.id = t.account_id
+             LEFT JOIN payees p ON p.id = t.payee_id
+            WHERE t.deleted_at IS NULL AND t.is_split = 0 AND t.category_id IS NULL
+              AND t.transfer_pair_id IS NULL AND a.kind != 'tracking'
+            ORDER BY t.date DESC LIMIT 50`,
+        ),
+        overspent: view.overspentCategories,
+        unfundedCards,
+        brokenCheckpoints: queryAll<{
+          accountId: string; name: string; asOf: string; reason: string | null;
+        }>(
+          db,
+          `SELECT r.account_id AS accountId, a.name AS name, r.as_of AS asOf,
+                  r.broken_reason AS reason
+             FROM reconciliations r JOIN accounts a ON a.id = r.account_id
+            WHERE r.broken_at IS NOT NULL ORDER BY r.as_of DESC`,
+        ),
+        proposedRules: queryAll<{ id: string; name: string }>(
+          db, `SELECT id, name FROM rules WHERE proposed = 1 AND dismissed_at IS NULL`,
+        ),
+        categories: [...view.categories.values()],
+        bufferReading: view.buffer.reading,
+        month,
+      }),
+    );
+  });
+
+  router.post("/review/approve", (ctx) =>
+    mutate(ctx, (a) => {
+      approveStaged(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+        requiredField(ctx.body, "staged_id"),
+        { categoryId: field(ctx.body, "category_id") || null },
+      );
+      return { redirect: "/review", message: "Added to your ledger." };
+    }),
+  );
+
+  router.post("/review/reject", (ctx) =>
+    mutate(ctx, (a) => {
+      rejectStaged(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+        requiredField(ctx.body, "staged_id"));
+      return { redirect: "/review", message: "Dismissed." };
+    }),
+  );
+
+  router.post("/review/merge", (ctx) =>
+    mutate(ctx, (a) => {
+      mergeStaged(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+        requiredField(ctx.body, "staged_id"));
+      return { redirect: "/review", message: "Merged into the transaction you already had." };
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // S10 · Import
+  // -------------------------------------------------------------------------
+  router.get("/import", (ctx) =>
+    render(ctx, "Import", renderImport({
+      accounts: listAccounts(db),
+      batches: listBatches(db),
+    })),
+  );
+
+  router.post("/import", (ctx) =>
+    mutate(ctx, (a) => {
+      const text = requiredField(ctx.body, "csv");
+      const accountId = requiredField(ctx.body, "account_id");
+      const fileName = field(ctx.body, "file_name") || "pasted.csv";
+
+      const { result, mapping } = parseStatement(text);
+      if (!mapping) {
+        // 03 §5: a file with no recognisable columns is a mapping task, not an
+        // error — but the mapping UI is not built yet, so say so plainly
+        // rather than failing with something opaque.
+        throw new HttpError(
+          400,
+          "I couldn't find a header row with a date, a description and an amount. " +
+            "Check that the header line is included in what you pasted.",
+        );
+      }
+
+      const outcome = ingest(db, actorFor(a, "import", ctx.req.headers["idempotency-key"] as string), {
+        accountId, source: "csv", adapter: "csv", fileName,
+        records: result.records, errors: result.errors, rowsRead: result.rowsRead,
+      });
+
+      const parts = [`${outcome.staged} to review`];
+      if (outcome.autoApproved) parts.push(`${outcome.autoApproved} auto-approved`);
+      if (outcome.duplicates) parts.push(`${outcome.duplicates} possible duplicates`);
+      if (outcome.skipped) parts.push(`${outcome.skipped} already present`);
+      if (outcome.errors) parts.push(`${outcome.errors} rows I couldn't read`);
+
+      return {
+        redirect: outcome.staged > 0 ? "/review" : "/import",
+        message: `Read ${outcome.batch.rows_read} rows — ${parts.join(", ")}.`,
+      };
+    }),
+  );
+
+  router.post("/import/undo", (ctx) =>
+    mutate(ctx, (a) => {
+      const result = undoBatch(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+        requiredField(ctx.body, "batch_id"));
+      return {
+        redirect: "/import",
+        message:
+          `Removed ${result.removed} transactions` +
+          (result.keptBecauseEdited.length
+            ? `. ${result.keptBecauseEdited.length} had been edited since and were left alone.`
+            : "."),
+      };
+    }),
+  );
+
+  // -------------------------------------------------------------------------
   // Placeholders for screens still to come, so navigation never dead-ends
   // -------------------------------------------------------------------------
   for (const [path, title] of [
-    ["/review", "Review"],
     ["/more", "More"],
     ["/reports", "Reports"],
     ["/query", "Query"],
@@ -941,7 +1093,6 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     ["/goals", "Goals"],
     ["/payees", "Payees"],
     ["/rules", "Rules"],
-    ["/import", "Import"],
     ["/search", "Search"],
     ["/categories", "Categories"],
   ] as const) {

@@ -135,7 +135,15 @@ function extractMerchant(narration: string, vpa: string | null, reference: strin
     if (!/^\d+$/.test(local)) return capitalise(local.replace(/[._-]+/g, " "));
   }
 
-  const parts = narration
+  // A leading channel token is a rail, not a merchant: "NEFT-ACT FIBERNET"
+  // should read "Act Fibernet". Only stripped at the start and only when a
+  // separator follows, so a hyphen inside a real name survives.
+  const withoutRail = narration.replace(
+    new RegExp(`^\\s*(?:${CHANNELS.join("|")})\\s*[-/: ]\\s*`, "i"),
+    "",
+  );
+
+  const parts = withoutRail
     .split(/[/|]/)
     .map((p) => p.trim())
     .filter(Boolean)
