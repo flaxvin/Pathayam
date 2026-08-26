@@ -1,0 +1,44 @@
+# Homelab deployment (Q8: behind a Cloudflare Tunnel).
+#
+# With the server-only client data policy (R35), uptime is load-bearing rather
+# than hygiene: if this container is down the app is unusable, not degraded.
+# See 09 §7, and keep the backup job in 08 R40 running.
+
+services:
+  budget:
+    build: .
+    restart: unless-stopped
+    ports:
+      - "127.0.0.1:8080:8080"
+    volumes:
+      - budget-data:/data
+    environment:
+      # Must match the public URL exactly — OAuth redirects and cookie
+      # scoping both depend on it.
+      BASE_URL: ${BASE_URL:?set BASE_URL, e.g. https://budget.example.com}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?set GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?set GOOGLE_CLIENT_SECRET}
+
+      # Behind a tunnel or reverse proxy, so the client IP arrives in a header.
+      TRUST_PROXY: "true"
+
+      LOG_LEVEL: ${LOG_LEVEL:-info}
+      SESSION_DAYS: ${SESSION_DAYS:-30}
+
+      # R40.4: a failed backup or restore verification is the one failure class
+      # where silence loses data, so it goes to a webhook rather than the
+      # health page alone (Q24).
+      BACKUP_WEBHOOK_URL: ${BACKUP_WEBHOOK_URL:-}
+
+      # F28: modules disableable per deployment. Multi-currency is off because
+      # Q18 settled on ₹-only accounts.
+      FEATURE_LOANS: ${FEATURE_LOANS:-true}
+      FEATURE_ASSETS: ${FEATURE_ASSETS:-true}
+      FEATURE_MULTI_CURRENCY: ${FEATURE_MULTI_CURRENCY:-false}
+
+      # DEV_LOGIN is deliberately absent. The bypass is not in this image at
+      # all (R38.5), and the app refuses to start if it is enabled anywhere
+      # production-shaped (R38.3).
+
+volumes:
+  budget-data:
