@@ -116,6 +116,8 @@ export class Scenario {
     f.activity[categoryId] = (f.activity[categoryId] ?? 0) + amount;
     f.creditActivity[categoryId] = (f.creditActivity[categoryId] ?? 0) + amount;
     f.creditAccountFlow[accountId] = (f.creditAccountFlow[accountId] ?? 0) + amount;
+    const byAccount = (f.creditActivityByAccount[categoryId] ??= {});
+    byAccount[accountId] = (byAccount[accountId] ?? 0) + amount;
     return this;
   }
 

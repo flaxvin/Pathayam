@@ -87,6 +87,24 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
     if (f) f.creditActivity[r.category_id] = r.amount;
   }
 
+  // The same credit activity split by card, so a credit overspend can be
+  // attributed to the account that carries the debt (R6).
+  for (const r of queryAll<{ month: string; category_id: string; account_id: string; amount: number }>(
+    db,
+    `${CATEGORISED_CTE}
+     SELECT substr(c.date,1,7) AS month, c.category_id AS category_id,
+            c.account_id AS account_id, SUM(c.amount) AS amount
+       FROM categorised c
+       JOIN accounts a ON a.id = c.account_id
+      WHERE a.kind = 'credit'
+      GROUP BY month, c.category_id, c.account_id`,
+  )) {
+    const f = ensure(r.month);
+    if (!f) continue;
+    const byAccount = (f.creditActivityByAccount[r.category_id] ??= {});
+    byAccount[r.account_id] = r.amount;
+  }
+
   // R6: negated, this is each payment category's activity. The card's opening
   // balance is deliberately excluded — the envelope starts at ₹0.
   for (const r of queryAll<{ month: string; account_id: string; amount: number }>(

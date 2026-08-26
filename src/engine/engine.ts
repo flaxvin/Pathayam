@@ -71,6 +71,8 @@ export function computeBudget(input: EngineInput): BudgetState {
   let budgetBalance = 0;
   let pendingCashOverspend = 0;
   let pendingCreditOverspend = 0;
+  const absorbedByAccount: Record<string, Paise> = {};
+  let pendingOverspendByAccount: Record<string, Paise> = {};
 
   for (const month of months) {
     const f = facts[month] ?? emptyMonth();
@@ -84,6 +86,9 @@ export function computeBudget(input: EngineInput): BudgetState {
     // zero — at *this* rollover, not in the month it was incurred. While the
     // month is still open the shortfall is visible on the category itself.
     cumulativeCreditAbsorbed += pendingCreditOverspend;
+    for (const [accountId, amount] of Object.entries(pendingOverspendByAccount)) {
+      absorbedByAccount[accountId] = (absorbedByAccount[accountId] ?? 0) + amount;
+    }
 
     const toBudget = f.budgetAccountFlow - f.budgetCategorisedFlow - f.budgetTransferFlow;
     cumulativeIncome += toBudget;
@@ -96,6 +101,7 @@ export function computeBudget(input: EngineInput): BudgetState {
     let nextCarry = new Map<string, Paise>();
     let cashOverspendThisMonth = 0;
     let creditAbsorbedThisMonth = 0;
+    const overspendByAccountThisMonth: Record<string, Paise> = {};
 
     for (const meta of categories) {
       const opening = carryForward.get(meta.id) ?? 0;
@@ -122,6 +128,30 @@ export function computeBudget(input: EngineInput): BudgetState {
 
         cashOverspendThisMonth += cashOverspend;
         creditAbsorbedThisMonth += creditOverspend;
+
+        // Attribute the shortfall to the card(s) that actually carry the debt,
+        // in proportion to what this category charged to each. Without this
+        // the figure exists only in aggregate and S2b cannot name a card.
+        if (creditOverspend > 0) {
+          const byAccount = f.creditActivityByAccount[meta.id] ?? {};
+          const outflows = Object.entries(byAccount)
+            .map(([accountId, amount]) => [accountId, Math.max(0, -amount)] as const)
+            .filter(([, amount]) => amount > 0);
+          const totalOutflow = outflows.reduce((sum, [, amount]) => sum + amount, 0);
+
+          if (totalOutflow > 0) {
+            let distributed = 0;
+            outflows.forEach(([accountId, amount], index) => {
+              const share =
+                index === outflows.length - 1
+                  ? creditOverspend - distributed
+                  : Math.round((creditOverspend * amount) / totalOutflow);
+              distributed += share;
+              overspendByAccountThisMonth[accountId] =
+                (overspendByAccountThisMonth[accountId] ?? 0) + share;
+            });
+          }
+        }
       }
 
       categoryStates.set(meta.id, {
@@ -160,11 +190,15 @@ export function computeBudget(input: EngineInput): BudgetState {
       heldForNextMonth: f.held,
       budgetAccountBalance: budgetBalance,
       unfundedCreditAbsorbed: cumulativeCreditAbsorbed,
+      // Absorbed at earlier rollovers, plus what this month is short right
+      // now. Both are money the payment envelope appears to hold but does not.
+      unfundedByAccount: mergeAmounts(absorbedByAccount, overspendByAccountThisMonth),
     });
 
     carryForward = nextCarry;
     pendingCashOverspend = cashOverspendThisMonth;
     pendingCreditOverspend = creditAbsorbedThisMonth;
+    pendingOverspendByAccount = overspendByAccountThisMonth;
   }
 
   return states;
@@ -188,6 +222,15 @@ function activityFor(
 function rtaStateOf(rta: Paise): RtaState {
   if (rta === 0) return "zero";
   return rta > 0 ? "positive" : "negative";
+}
+
+function mergeAmounts(
+  a: Record<string, Paise>,
+  b: Record<string, Paise>,
+): Record<string, Paise> {
+  const out: Record<string, Paise> = { ...a };
+  for (const [key, value] of Object.entries(b)) out[key] = (out[key] ?? 0) + value;
+  return out;
 }
 
 function sumValues(record: Record<string, Paise>): Paise {
@@ -243,13 +286,20 @@ export function cardFunding(
   accountId: string,
   outstanding: Paise,
   paymentCategoryBalance: Paise,
+  /**
+   * Credit overspend attributed to this card — `MonthState.unfundedByAccount`.
+   * Without it the shortfall from a credit overspend is invisible: the payment
+   * envelope and the debt move together, so comparing them always gives zero.
+   */
+  attributedOverspend: Paise = 0,
 ): CardFunding {
   const owed = Math.max(0, -outstanding);
+  const reallyFunded = paymentCategoryBalance - attributedOverspend;
   return {
     accountId,
     outstanding,
     funded: paymentCategoryBalance,
-    unfunded: Math.max(0, owed - paymentCategoryBalance),
+    unfunded: Math.max(0, owed - reallyFunded),
   };
 }
 

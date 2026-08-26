@@ -12,7 +12,8 @@
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "test": "node --test --experimental-strip-types 'src/**/*.test.ts'",
     "dev": "node --experimental-strip-types --watch src/main.ts",
-    "start": "node dist/main.js"
+    "start": "node dist/main.js",
+    "seed": "node --experimental-strip-types src/seed.ts"
   },
   "devDependencies": {
     "typescript": "^5.6.0",

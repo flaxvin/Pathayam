@@ -1,0 +1,214 @@
+/**
+ * Assembles everything the budget screen needs, in one place.
+ *
+ * Kept separate from rendering so the numbers can be asserted without parsing
+ * HTML, and so a page never reaches past it into the engine or the database.
+ */
+
+import type { DB } from "../db/db.ts";
+import { queryAll } from "../db/db.ts";
+import type { Paise } from "../core/money.ts";
+import type { MonthKey, IsoDate } from "../core/dates.ts";
+import { todayIST, monthOf } from "../core/dates.ts";
+import {
+  computeBudget, targetProgress, totalUnderfunded, computeBuffer, isFullyFunded,
+  cardFunding, futureMonthCaveat, type CardFunding, type Buffer,
+} from "../engine/engine.ts";
+import type { CategoryState, MonthState, TargetProgress, Target } from "../engine/types.ts";
+import {
+  loadEngineInput, loadCategoryGroups, loadTargets, averageDailySpend,
+  creditOutstanding, householdSettings,
+} from "../engine/repository.ts";
+
+export interface CategoryView {
+  id: string;
+  name: string;
+  groupId: string;
+  hidden: boolean;
+  isPaymentCategory: boolean;
+  paymentAccountId: string | null;
+  state: CategoryState;
+  target: Target | null;
+  progress: TargetProgress | null;
+  /** A2: a word for the state, so colour is never the only signal. */
+  stateLabel: string;
+  stateClass: string;
+  /** Only a cash overspend is the user's to cover from another envelope (R5). */
+  needsCover: boolean;
+}
+
+export interface GroupView {
+  id: string;
+  name: string;
+  kind: string;
+  categories: CategoryView[];
+  assigned: Paise;
+  activity: Paise;
+  balance: Paise;
+}
+
+export interface BudgetView {
+  month: MonthKey;
+  currentMonth: MonthKey;
+  today: IsoDate;
+  monthState: MonthState;
+  groups: GroupView[];
+  categories: Map<string, CategoryView>;
+  underfunded: { amount: Paise; categoryCount: number };
+  buffer: Buffer;
+  fullyFunded: boolean;
+  cards: CardFunding[];
+  /** R10: "based on money you have today", or null in the present or past. */
+  futureCaveat: string | null;
+  overspentCategories: CategoryView[];
+}
+
+export function buildBudgetView(db: DB, month?: MonthKey): BudgetView {
+  const today = todayIST();
+  const currentMonth = monthOf(today);
+  const target = month ?? currentMonth;
+
+  const input = loadEngineInput(db, { through: target });
+  const budget = computeBudget(input);
+  const monthState = budget.get(target) ?? budget.get(input.months.at(-1)!)!;
+
+  const targets = new Map(loadTargets(db).map((t) => [t.categoryId, t]));
+  const groupMetas = loadCategoryGroups(db);
+  const groupById = new Map(groupMetas.map((g) => [g.id, g]));
+
+  const categories = new Map<string, CategoryView>();
+  const progressList: TargetProgress[] = [];
+
+  for (const meta of input.categories) {
+    const state = monthState.categories.get(meta.id);
+    if (!state) continue;
+
+    const t = targets.get(meta.id) ?? null;
+    // F3.2: a hidden category leaves the underfunded totals.
+    const progress = t && !meta.hidden ? targetProgress(t, state, target, today) : null;
+    if (progress) progressList.push(progress);
+
+    const view: CategoryView = {
+      id: meta.id,
+      name: meta.name,
+      groupId: meta.groupId,
+      hidden: meta.hidden,
+      isPaymentCategory: meta.paymentAccountId !== null,
+      paymentAccountId: meta.paymentAccountId,
+      state,
+      target: t,
+      progress,
+      ...describeState(state, progress),
+    };
+    categories.set(meta.id, view);
+  }
+
+  const groups: GroupView[] = [];
+  for (const g of groupMetas) {
+    if (g.hidden) continue;
+    const members = [...categories.values()].filter((c) => c.groupId === g.id && !c.hidden);
+    if (members.length === 0 && g.kind !== "normal") continue;
+    groups.push({
+      id: g.id,
+      name: g.name,
+      kind: g.kind,
+      categories: members,
+      assigned: members.reduce((sum, c) => sum + c.state.assigned, 0),
+      activity: members.reduce((sum, c) => sum + c.state.activity, 0),
+      balance: members.reduce((sum, c) => sum + c.state.balance, 0),
+    });
+  }
+
+  const outstanding = creditOutstanding(db);
+  const cards: CardFunding[] = [];
+  for (const c of categories.values()) {
+    if (!c.paymentAccountId) continue;
+    cards.push(
+      cardFunding(
+        c.paymentAccountId,
+        outstanding.get(c.paymentAccountId) ?? 0,
+        c.state.balance,
+        monthState.unfundedByAccount[c.paymentAccountId] ?? 0,
+      ),
+    );
+  }
+
+  return {
+    month: target,
+    currentMonth,
+    today,
+    monthState,
+    groups,
+    categories,
+    underfunded: totalUnderfunded(progressList),
+    buffer: computeBuffer(monthState.categories, input.categories, averageDailySpend(db, today)),
+    fullyFunded: isFullyFunded(progressList, monthState.readyToAssign),
+    cards,
+    futureCaveat: futureMonthCaveat(target, currentMonth),
+    overspentCategories: [...categories.values()].filter((c) => c.state.balance < 0),
+  };
+}
+
+/**
+ * A2: colour must never be the only signal for a funded or overspent state, so
+ * every state carries a word as well as a class.
+ */
+function describeState(
+  state: CategoryState,
+  progress: TargetProgress | null,
+): { stateLabel: string; stateClass: string; needsCover: boolean } {
+  if (state.balance < 0) {
+    // R6: a credit overspend created no cash, so it is not covered from
+    // another envelope the way a cash overspend is — the two need different
+    // words and different actions.
+    if (state.creditOverspend > 0 && state.cashOverspend === 0) {
+      return { stateLabel: "Overspent on a card", stateClass: "state-overspent", needsCover: false };
+    }
+    return { stateLabel: "Overspent", stateClass: "state-overspent", needsCover: true };
+  }
+  if (!progress) {
+    return { stateLabel: state.balance > 0 ? "Funded" : "Empty", stateClass: "", needsCover: false };
+  }
+  switch (progress.state) {
+    case "unfunded": return { stateLabel: "Not funded", stateClass: "", needsCover: false };
+    case "partial": return { stateLabel: "Partly funded", stateClass: "", needsCover: false };
+    case "over-funded": return { stateLabel: "Over-funded", stateClass: "", needsCover: false };
+    default: return { stateLabel: "Funded", stateClass: "", needsCover: false };
+  }
+}
+
+/**
+ * S4's badge: everything that needs a human, counted in one place so the
+ * number in the nav and the number on the page cannot disagree.
+ */
+export function reviewCount(db: DB): number {
+  const staged =
+    queryAll<{ n: number }>(
+      db, `SELECT COUNT(*) AS n FROM staged_transactions WHERE status = 'pending'`,
+    )[0]?.n ?? 0;
+
+  const uncategorised =
+    queryAll<{ n: number }>(
+      db,
+      `SELECT COUNT(*) AS n FROM transactions t
+         JOIN accounts a ON a.id = t.account_id
+        WHERE t.deleted_at IS NULL AND t.is_split = 0 AND t.category_id IS NULL
+          AND t.transfer_pair_id IS NULL AND a.kind != 'tracking'`,
+    )[0]?.n ?? 0;
+
+  const brokenCheckpoints =
+    queryAll<{ n: number }>(
+      db, `SELECT COUNT(*) AS n FROM reconciliations WHERE broken_at IS NOT NULL`,
+    )[0]?.n ?? 0;
+
+  const proposedRules =
+    queryAll<{ n: number }>(
+      db, `SELECT COUNT(*) AS n FROM rules WHERE proposed = 1 AND dismissed_at IS NULL`,
+    )[0]?.n ?? 0;
+
+  return staged + uncategorised + brokenCheckpoints + proposedRules;
+}
+
+export function isSetupComplete(db: DB): boolean {
+  return householdSettings(db)?.setup_completed_at !== null;
+}

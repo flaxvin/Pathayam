@@ -484,6 +484,92 @@ describe("R6 · Credit cards", () => {
     assert.equal(formatPaise(funding.unfunded), "₹3,200");
   });
 
+  test("a credit overspend leaves the card's balance partly unfunded", () => {
+    // The trap this guards: the payment envelope's balance and the debt move
+    // together by construction, so comparing them alone always gives zero and
+    // the shortfall R6 wants flagged would be invisible.
+    const state = computeBudget(
+      new Scenario()
+        .category("shopping")
+        .paymentCategory("pay-hdfc", "acct-hdfc")
+        .income(AUG, 50_000)
+        .assign(AUG, "shopping", 1_000)
+        .spendCard(AUG, "acct-hdfc", "shopping", 4_200)
+        .build(),
+    ).get(AUG)!;
+
+    const payEnvelope = cat(state, "pay-hdfc").balance;
+    assert.equal(payEnvelope, rupees(4_200), "the envelope looks fully funded…");
+    assert.equal(state.unfundedByAccount["acct-hdfc"], rupees(3_200), "…but ₹3,200 of it isn't real");
+
+    const funding = cardFunding(
+      "acct-hdfc",
+      rupees(-4_200),
+      payEnvelope,
+      state.unfundedByAccount["acct-hdfc"] ?? 0,
+    );
+    assert.equal(funding.unfunded, rupees(3_200));
+  });
+
+  test("attributes a shortfall across the cards that carry the debt", () => {
+    const state = computeBudget(
+      new Scenario()
+        .category("travel")
+        .paymentCategory("pay-hdfc", "acct-hdfc")
+        .paymentCategory("pay-axis", "acct-axis")
+        .income(AUG, 50_000)
+        .assign(AUG, "travel", 2_000)
+        .spendCard(AUG, "acct-hdfc", "travel", 6_000)
+        .spendCard(AUG, "acct-axis", "travel", 2_000)
+        .build(),
+    ).get(AUG)!;
+
+    // ₹6,000 short, split 3:1 by what each card was charged.
+    assert.equal(state.unfundedByAccount["acct-hdfc"], rupees(4_500));
+    assert.equal(state.unfundedByAccount["acct-axis"], rupees(1_500));
+    assert.equal(
+      (state.unfundedByAccount["acct-hdfc"] ?? 0) + (state.unfundedByAccount["acct-axis"] ?? 0),
+      rupees(6_000),
+      "the split loses nothing",
+    );
+  });
+
+  test("keeps the shortfall visible after the category resets at rollover", () => {
+    const state = computeBudget(
+      new Scenario()
+        .category("shopping")
+        .paymentCategory("pay-hdfc", "acct-hdfc")
+        .income(AUG, 50_000)
+        .assign(AUG, "shopping", 1_000)
+        .spendCard(AUG, "acct-hdfc", "shopping", 4_200)
+        .month(SEP)
+        .build(),
+    );
+
+    // The category reopens at zero, so the only remaining record of the gap is
+    // this figure — which is exactly why it is cumulative.
+    assert.equal(cat(state.get(SEP)!, "shopping").balance, 0);
+    assert.equal(state.get(SEP)!.unfundedByAccount["acct-hdfc"], rupees(3_200));
+  });
+
+  test("a fully funded card reports no shortfall", () => {
+    const state = computeBudget(
+      new Scenario()
+        .category("groceries")
+        .paymentCategory("pay-hdfc", "acct-hdfc")
+        .income(AUG, 50_000)
+        .assign(AUG, "groceries", 12_000)
+        .spendCard(AUG, "acct-hdfc", "groceries", 1_800)
+        .build(),
+    ).get(AUG)!;
+
+    assert.equal(state.unfundedByAccount["acct-hdfc"], undefined);
+    assert.equal(
+      cardFunding("acct-hdfc", rupees(-1_800), cat(state, "pay-hdfc").balance, 0).unfunded,
+      0,
+    );
+  });
+
   test("reports no shortfall once the envelope covers the balance", () => {
     assert.equal(cardFunding("a", rupees(-18_400), rupees(18_400)).unfunded, 0);
     assert.equal(cardFunding("a", rupees(-18_400), rupees(20_000)).unfunded, 0);
