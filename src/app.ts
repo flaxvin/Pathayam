@@ -65,15 +65,21 @@ import {
   createTransaction, createTransfer, updateTransaction, deleteTransaction,
   getTransaction, getSplits, listPayees, payeeStats, tagsFor,
 } from "./domain/transactions.ts";
-import { accountBalances, creditOutstanding, loadAutoAssignRules, loadEngineInput } from "./engine/repository.ts";
+import {
+  accountBalances, creditOutstanding, loadAutoAssignRules, loadEngineInput,
+  householdSettings,
+} from "./engine/repository.ts";
 import { computeBudget, planAutoAssign, suggestCoverSources, cardFunding } from "./engine/engine.ts";
 import { historyFor, queryEvents, appendEvent } from "./core/events.ts";
+import {
+  withForwardRecompute, setOverspendModel, type RecomputeResult,
+} from "./engine/recompute.ts";
 import {
   renderHealth, overallState, type HealthGroup,
 } from "./web/pages/health.ts";
 import {
   createBackup, verifyRestore, listBackups, lastJobRun, recordJobRun,
-  exportEverything, exportTransactionsCsv,
+  exportEverything, exportTransactionsCsv, pingHeartbeat,
 } from "./ops/backup.ts";
 
 export interface AppDeps {
@@ -409,11 +415,23 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const rawAmount = field(ctx.body, "amount") ?? "";
       const amount = rawAmount.trim() === "" ? 0 : amountField(rawAmount);
 
-      setAssigned(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), month, categoryId, amount);
       const category = getCategory(db, categoryId);
+      const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+
+      // R7.g: an assignment in a past month changes every derived figure from
+      // there to now. Nothing is stored, so the figures are already right —
+      // this logs the ripple so it can be explained.
+      const { recompute } = withForwardRecompute(
+        db, actor,
+        { month, cause: `Changed what ${category?.name ?? "a category"} was assigned` },
+        () => setAssigned(db, actor, month, categoryId, amount),
+      );
+
       return {
         redirect: `/?month=${month}`,
-        message: `Assigned ${formatPaise(amount)} to ${category?.name ?? "that category"}.`,
+        message:
+          `Assigned ${formatPaise(amount)} to ${category?.name ?? "that category"}.` +
+          rippleNote(recompute),
       };
     }),
   );
@@ -449,13 +467,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/move", (ctx) =>
     mutate(ctx, (a) => {
       const month = monthParam(ctx);
-      moveMoney(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
-        month,
-        fromCategoryId: requiredField(ctx.body, "from_category_id"),
-        toCategoryId: requiredField(ctx.body, "to_category_id"),
-        amount: amountField(field(ctx.body, "amount")),
-      });
-      return { redirect: `/?month=${month}`, message: "Money moved." };
+      const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+      const { recompute } = withForwardRecompute(
+        db, actor, { month, cause: "Moved money between categories" },
+        () =>
+          moveMoney(db, actor, {
+            month,
+            fromCategoryId: requiredField(ctx.body, "from_category_id"),
+            toCategoryId: requiredField(ctx.body, "to_category_id"),
+            amount: amountField(field(ctx.body, "amount")),
+          }),
+      );
+      return { redirect: `/?month=${month}`, message: "Money moved." + rippleNote(recompute) };
     }),
   );
 
@@ -857,6 +880,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const a = auth(ctx);
     const members = listMembers(db);
     const sessions = listSessions(db, a.member.id);
+    const overspendModel = householdSettings(db)?.overspend_model ?? "reduce-rta";
 
     return render(
       ctx,
@@ -880,6 +904,44 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               </select>
             </div>
             <button type="submit">Save</button>
+          </form>
+        </section>
+
+        <section class="card">
+          <h2>When a category is overspent</h2>
+          <p class="faint" style="margin-top:-.25rem">
+            Both work. They differ only in where the shortfall lands, and you can
+            switch back at any time without losing anything.
+          </p>
+          <form method="post" action="/settings/overspend-model">
+            <div class="field">
+              <label>
+                <input type="radio" name="model" value="reduce-rta"
+                       ${raw(overspendModel === "reduce-rta" ? "checked" : "")}>
+                Take it out of next month's Ready to Assign
+              </label>
+              <p class="field-hint">
+                The category starts the next month at zero. Keeps the pain in the one
+                place you actually look, and stops a category building up invisible
+                debt over several months.
+              </p>
+            </div>
+            <div class="field">
+              <label>
+                <input type="radio" name="model" value="carry-negative"
+                       ${raw(overspendModel === "carry-negative" ? "checked" : "")}>
+                Carry the negative balance on the category
+              </label>
+              <p class="field-hint">
+                The category starts the next month in the red and Ready to Assign is
+                untouched. More locally honest — the overspend stays attached to
+                whatever caused it.
+              </p>
+            </div>
+            <button type="submit">Save</button>
+            <p class="field-hint">
+              Changing this recomputes every month you have data for.
+            </p>
           </form>
         </section>
 
@@ -947,6 +1009,24 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       `,
     );
   });
+
+  router.post("/settings/overspend-model", (ctx) =>
+    mutate(ctx, (a) => {
+      const model = field(ctx.body, "model");
+      if (model !== "reduce-rta" && model !== "carry-negative") {
+        throw new HttpError(400, "Unknown overspend model.");
+      }
+      // R7.g.4: this is a full-history recompute, logged as its own batch.
+      const result = setOverspendModel(db, actorFor(a), model);
+      return {
+        redirect: "/settings",
+        message:
+          result.changed.length === 0
+            ? "No change."
+            : `Recomputed ${result.changed.length} ${result.changed.length === 1 ? "month" : "months"}.`,
+      };
+    }),
+  );
 
   router.post("/members/invite", (ctx) =>
     mutate(ctx, (a) => {
@@ -1092,15 +1172,29 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (guard) return guard;
 
     const magnitude = Math.abs(amountField(field(ctx.body, "amount")));
-    updateTransaction(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, {
-      amount: field(ctx.body, "direction") === "in" ? magnitude : -magnitude,
-      date: newDate,
-      categoryId: field(ctx.body, "category_id") || null,
-      memo: field(ctx.body, "memo") || null,
-      cleared: field(ctx.body, "cleared") === "1",
-    });
+    const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
 
-    return { redirect: withNotice(`/accounts/${transaction.account_id}`, "Saved.") };
+    // Guard the earlier of the two dates: moving a transaction backwards means
+    // the ripple starts where it lands, not where it was.
+    const rippleFrom = monthOf(newDate < transaction.date ? newDate : transaction.date);
+    const { recompute } = withForwardRecompute(
+      db, actor, { month: rippleFrom, cause: "Edited a transaction" },
+      () =>
+        updateTransaction(db, actor, id, {
+          amount: field(ctx.body, "direction") === "in" ? magnitude : -magnitude,
+          date: newDate,
+          categoryId: field(ctx.body, "category_id") || null,
+          memo: field(ctx.body, "memo") || null,
+          cleared: field(ctx.body, "cleared") === "1",
+        }),
+    );
+
+    return {
+      redirect: withNotice(
+        `/accounts/${transaction.account_id}`,
+        "Saved." + rippleNote(recompute),
+      ),
+    };
   });
 
   router.post("/transaction/:id/delete", (ctx) => {
@@ -1116,11 +1210,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     );
     if (guard) return guard;
 
-    deleteTransaction(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id);
+    const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+    const { recompute } = withForwardRecompute(
+      db, actor, { month: monthOf(transaction.date), cause: "Deleted a transaction" },
+      () => deleteTransaction(db, actor, id),
+    );
     return {
       redirect: withNotice(
         `/accounts/${transaction.account_id}`,
-        "Deleted. You can restore it for the next 30 days.",
+        "Deleted. You can restore it for the next 30 days." + rippleNote(recompute),
       ),
     };
   });
@@ -1411,6 +1509,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   function healthGroups(): HealthGroup[] {
     const backup = lastJobRun(db, "backup");
     const verification = lastJobRun(db, "restore-verification");
+    const heartbeat = lastJobRun(db, "heartbeat");
     const backups = listBackups(config.backupDir);
     const errors24h =
       queryOne<{ n: number }>(
@@ -1503,6 +1602,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               ? "A webhook is configured, so a failed backup or verification will reach you."
               : "No webhook configured. A failed backup would only appear on this page.",
           },
+          {
+            // R40.8.3: shown beside the last verified restore, because it
+            // covers the failure that one structurally cannot report.
+            name: "Heartbeat to the outside world",
+            state: !config.heartbeatUrl
+              ? "degraded"
+              : heartbeat.status === "ok" ? "healthy"
+              : heartbeat.status === null ? "unknown"
+              : "failed",
+            reason: !config.heartbeatUrl
+              ? "Not configured. If this machine goes down, nothing here survives to tell you — " +
+                "an external monitor that alerts on a missing ping is the only thing that can."
+              : heartbeat.detail ?? "Configured, but no verification has run yet.",
+            lastRun: heartbeat.lastRun,
+          },
         ],
       },
       {
@@ -1543,6 +1657,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, () => {
       const result = verifyRestore(db, config.backupDir);
       recordJobRun(db, "restore-verification", result.ok ? "ok" : "failed", result.summary);
+
+      // Fired without awaiting: a slow monitor must not hold up the page, and
+      // a ping that never arrives is itself the alert (R40.8.2).
+      if (result.ok && config.heartbeatUrl) {
+        void pingHeartbeat(config.heartbeatUrl).then((beat) =>
+          recordJobRun(
+            db, "heartbeat", beat.ok ? "ok" : "failed",
+            beat.ok
+              ? "Acknowledged by the external monitor."
+              : "The monitor could not be reached. It will alert on the missing ping.",
+          ),
+        );
+      }
+
       return { redirect: "/health", message: result.summary };
     }),
   );
@@ -1602,6 +1730,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       },
     };
   }
+}
+
+/**
+ * R7.g.3 · Say so when an edit rippled into later months, rather than leaving
+ * the user to notice that a figure elsewhere moved.
+ */
+function rippleNote(recompute: RecomputeResult): string {
+  const later = recompute.changed.filter((c) => c.readyToAssignBefore !== c.readyToAssignAfter);
+  if (later.length === 0) return "";
+  return ` This also changed ${later.length} later ${later.length === 1 ? "month" : "months"}.`;
 }
 
 /** DD-MM-YYYY for a date input, matching what parseDate accepts back (L3). */

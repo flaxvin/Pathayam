@@ -19,73 +19,90 @@ assets (both P2). See [What is and isn't built](#what-is-and-isnt-built).
 
 ## Running it
 
-Needs **Node 24 or newer** — the app uses the built-in `node:sqlite`, so there
-is no native module to compile and no runtime dependency to install.
+Everything runs through Docker Compose. Node is not needed on the host.
 
 ```bash
-npm install
+cp .env.example .env
 ```
 
-### Development
+Fill in `BASE_URL` and the two Google OAuth values — Compose refuses to start
+without them rather than booting something half-configured.
 
-```bash
-npm run seed
-```
-
-That creates a household with two members, four accounts (including an add-on
-card), the Indian starting template, and a month of transactions that
-deliberately includes a cash overspend, a credit overspend and a card payment —
-so the screens show real behaviour rather than an empty grid.
-
-```bash
-DEV_LOGIN=true npm run dev
-```
-
-Then open <http://localhost:8080> and sign in as Ravi or Priya.
-
-`DEV_LOGIN` bypasses authentication completely. The app **refuses to start**
-if it is set alongside anything production-shaped — `NODE_ENV=production`, a
-public hostname, real Google OAuth credentials, or a database holding more
-than a seed dataset (R38.3). A LAN address counts as development, so a homelab
-machine can still use it.
-
-### Tests
-
-```bash
-npm test
-```
-
-The engine suite encodes the worked ₹ examples from `02` §4 and asserts the
-accounting identity from
-[`docs/dev/01-engine-derivation.md`](docs/dev/01-engine-derivation.md) after
-every scenario. If a change breaks that identity, the change is wrong.
-
-```bash
-npm run typecheck
-```
-
----
-
-## Deploying
+### Production
 
 ```bash
 docker compose up -d
 ```
 
-Set these first:
+Serves on `127.0.0.1:8080` by default, so a tunnel or reverse proxy reaches it
+and the LAN does not. `docker compose logs -f budget` for structured logs,
+`docker compose ps` for health.
+
+### Development
+
+```bash
+docker compose --profile seed up seed
+docker compose --profile dev up
+```
+
+The seed creates a household with two members, four accounts (including an
+add-on card), the Indian starting template, and a month of transactions that
+deliberately includes a cash overspend, a credit overspend and a card payment
+— so the screens show real behaviour rather than an empty grid.
+
+Then open <http://localhost:8080> and sign in as Ravi or Priya. The source is
+mounted, so an edit restarts the server without a rebuild.
+
+The dev profile sets `DEV_LOGIN`, which **bypasses authentication completely**.
+The app refuses to start if it is set alongside anything production-shaped —
+`NODE_ENV=production`, a public hostname, real Google OAuth credentials, or a
+database holding more than a seed dataset (R38.3). A LAN address counts as
+development, so a homelab machine can still use it.
+
+The two profiles build from different Docker stages. The bypass exists only in
+the `dev` stage; the production image is built without it and a build-time
+assertion fails if it survives (R38.5).
+
+### Tests
+
+```bash
+docker compose --profile test up test
+```
+
+Runs the suite and the typecheck. The engine tests encode the worked ₹ examples
+from `02` §4 and assert the accounting identity from
+[`docs/dev/01-engine-derivation.md`](docs/dev/01-engine-derivation.md) after
+every scenario. If a change breaks that identity, the change is wrong.
+
+Also checks the docs for stale normative lines (`10` §3.4):
+
+```bash
+python3 docs/verify_docs.py
+```
+
+### Without Docker
+
+`npm install && npm test` works if you have Node 24+, and `npm run dev` will
+start a server — but Compose is the supported path and the only one the
+production image is built from.
+
+---
+
+## Configuration
 
 | Variable | Required | Notes |
 |---|---|---|
 | `BASE_URL` | yes | The public origin, exactly. OAuth redirects and cookie scoping depend on it. |
 | `GOOGLE_CLIENT_ID` | yes | From the Google Cloud console. |
 | `GOOGLE_CLIENT_SECRET` | yes | |
-| `TRUST_PROXY` | behind a proxy | So the client IP is read from `X-Forwarded-For`. |
+| `PORT` | no | Host port for the production service. Default 8080. |
 | `SESSION_DAYS` | no | Default 30 (Q22). |
 | `BACKUP_WEBHOOK_URL` | recommended | Where a failed backup or restore verification reports (R40.4). |
+| `HEARTBEAT_URL` | **recommended** | Pinged on a *successful* verified restore. See [Backup](#backup) — this is the only thing that can tell you the box is down (R40.8). |
 | `FEATURE_LOANS`, `FEATURE_ASSETS`, `FEATURE_MULTI_CURRENCY` | no | Per-deployment module flags (F28). Multi-currency is off by default (Q18). |
 
-`DEV_LOGIN` is not listed because the bypass is **deleted from the production
-image** rather than merely disabled in it (R38.5).
+`DEV_LOGIN` is not listed because the bypass is **not in the production image
+at all** (R38.5).
 
 ### Google OAuth setup
 
@@ -101,10 +118,12 @@ All members are peers. There is no owner, no viewer, and no approval step
 ### Backup
 
 The whole dataset is one SQLite file in the data volume, in an open format
-readable by the `sqlite3` CLI without this application (R40.7):
+readable by the `sqlite3` CLI without this application (R40.7). Backups are
+written by the scheduled job, and can be taken by hand from the health page or
+copied out with:
 
 ```bash
-docker compose exec budget sh -c 'sqlite3 /data/budget.sqlite ".backup /data/backup.sqlite"'
+docker compose cp budget:/data/budget.sqlite ./budget-backup.sqlite
 ```
 
 **Taking a backup is not the same as being able to recover**, so the scheduled
@@ -117,6 +136,14 @@ matched"* — and a failure fires the webhook rather than only a log line
 The scratch handle is opened read-only, so verification cannot touch the live
 database even by mistake (R40.5). Both can also be run by hand from the health
 page.
+
+**Set `HEARTBEAT_URL`.** R40.4's webhook fires *from this deployment*, so in
+the worst failure — box down, tunnel down, job never ran — there is no process
+left to send it, and the one failure that must never be silent is silent
+exactly when it matters. `HEARTBEAT_URL` is pinged only on a **successful**
+verified restore, at a monitor that alerts on the ping's *absence* (R40.8).
+Point it at any dead-man's-switch service and set the expected interval to the
+verification schedule plus slack, so one slow run does not page anyone.
 
 ---
 

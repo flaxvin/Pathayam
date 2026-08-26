@@ -29,6 +29,12 @@ export interface Config {
   features: { loans: boolean; assets: boolean; multiCurrency: boolean };
   /** R40.4: where a failed backup or restore verification reports to. */
   backupWebhookUrl: string | null;
+  /**
+   * R40.8: an external monitor pinged on a *successful* verified restore. It
+   * alerts on the absence of a ping, which is the only way the deployment
+   * being down can raise an alarm — no process here survives to send one.
+   */
+  heartbeatUrl: string | null;
   /** Set behind a reverse proxy that terminates TLS. */
   trustProxy: boolean;
 }
@@ -72,6 +78,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       multiCurrency: bool(env.FEATURE_MULTI_CURRENCY, false), // Q18: ₹ only
     },
     backupWebhookUrl: env.BACKUP_WEBHOOK_URL || null,
+    heartbeatUrl: env.HEARTBEAT_URL || null,
     trustProxy: bool(env.TRUST_PROXY, false),
   };
 
