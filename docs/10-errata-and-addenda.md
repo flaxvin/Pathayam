@@ -34,6 +34,9 @@ Each row names the stale text, the correcting text that now governs, and the clo
 | E9 | `05` §2 | Loans in P2 (parts 1–2); CAS import in P3 ("Assets, part 3") | **`09` §8 supersedes `05`'s phasing where they differ:** the three single-disbursement loans and CDSL CAS import are **P1**. (Also: "Attachments / receipt capture at scale" is listed twice in P3 — a duplicate, not two scopes.) | Q11, Q17 |
 | E10 | `07` F19.14 | "The app SHOULD support importing a holdings statement… **[P3 — see §12 Q17.]**" | Reads: "The app **MUST** support importing the CDSL CAS as a batch of lots through the review queue. **P1.**" `07` §12 already records the upgrade; the requirement line now matches it. | Q17 |
 | E11 | `01` §13 | Refused: "Investment, insurance and net-worth tracking." | Investment and net-worth tracking were brought into scope 26-08-2026, contained by R30 (`05` §5, `07`). Insurance policy tracking remains refused. The rest of the row's reasoning — why this is dangerous — is exactly why R30 exists. | Net-worth reversal |
+| E12 | `02` F14.3 | "Notifications MUST degrade gracefully where the platform cannot deliver push (§9): in-app badge and a digest on next open MUST always work." | Reads: "The in-app badge and the digest on next open are the only notification channels, on every platform. Backup failures additionally fire an outbound webhook (R40.4), and a successful verified restore pings an external heartbeat (R40.8)." The conditional implied push still exists somewhere; it does not exist anywhere (Q21). `09` §6.1 corrected F14.1 but left F14.3 standing. | Q21 |
+
+**E12 was found by `verify_docs.py`** (§3.4), on its first run, in a line ten manual passes had missed. That is the argument for building it.
 
 ---
 

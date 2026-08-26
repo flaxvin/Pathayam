@@ -111,6 +111,8 @@ services:
       context: .
       target: dev
     command: ["sh", "-c", "npm test && npm run typecheck"]
+    # verify_docs.py runs on the host — the image carries no Python, and the
+    # docs are not copied into it.
     volumes:
       - ./src:/app/src:ro
 
