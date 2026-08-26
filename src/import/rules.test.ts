@@ -437,3 +437,16 @@ describe("payee normalisation for comparison", () => {
     assert.notEqual(normalisePayee("Swiggy"), normalisePayee("Zomato"));
   });
 });
+
+describe("merchant extraction — rails versus names", () => {
+  test("strips a leading channel prefix", () => {
+    assert.equal(extractNarrationFields("NEFT-ACT FIBERNET BROADBAND").merchant, "Act Fibernet Broadband");
+    assert.equal(extractNarrationFields("IMPS/JOHN DOE").merchant, "John Doe");
+  });
+
+  test("keeps a hyphen that belongs to the name", () => {
+    // Only a leading rail token followed by a separator is removed, so a
+    // hyphenated merchant is left intact.
+    assert.equal(extractNarrationFields("BIG-BAZAAR RETAIL").merchant, "Big-bazaar Retail");
+  });
+});
