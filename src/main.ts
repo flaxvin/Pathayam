@@ -15,6 +15,7 @@ import { HttpError } from "./http/router.ts";
 import { pruneIdempotencyKeys } from "./core/idempotency.ts";
 import { pruneExpiredSessions, pruneAuthAttempts } from "./auth/sessions.ts";
 import { purgeDeleted } from "./domain/transactions.ts";
+import { runBackupJob } from "./ops/backup.ts";
 
 const LEVELS = { debug: 10, info: 20, warn: 30, error: 40 } as const;
 
@@ -90,6 +91,25 @@ function main(): void {
       } catch (err) {
         log({ level: "error", msg: "housekeeping failed", error: String(err) });
       }
+
+      // R40.2: the scheduled job is a restore *verification*, not merely a
+      // backup — being able to recover is the thing being checked. A failure
+      // alerts through the webhook rather than only a log line (R40.4).
+      void runBackupJob(db, {
+        backupDir: config.backupDir,
+        webhookUrl: config.backupWebhookUrl,
+      })
+        .then((result) => {
+          log({
+            level: result.ok ? "info" : "error",
+            msg: "restore verification",
+            ok: result.ok,
+            summary: result.summary,
+          });
+        })
+        .catch((err) => {
+          log({ level: "error", msg: "backup job threw", error: String(err) });
+        });
     },
     6 * 60 * 60 * 1000,
   );
