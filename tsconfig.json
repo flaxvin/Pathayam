@@ -17,6 +17,10 @@
     "sourceMap": true,
     "erasableSyntaxOnly": true,
     "verbatimModuleSyntax": false,
+    // Source imports carry ".ts" so Node can run them directly via type
+    // stripping; tsc rewrites them to ".js" on emit for the built container.
+    "allowImportingTsExtensions": true,
+    "rewriteRelativeImportExtensions": true,
     "types": ["node"]
   },
   "include": ["src/**/*.ts"],
