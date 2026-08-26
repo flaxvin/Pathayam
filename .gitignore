@@ -1,0 +1,17 @@
+node_modules/
+dist/
+*.log
+
+# Runtime data — never committed
+data/
+*.sqlite
+*.sqlite-journal
+*.sqlite-wal
+*.sqlite-shm
+backups/
+attachments/
+
+# Local environment
+.env
+.env.*
+!.env.example
