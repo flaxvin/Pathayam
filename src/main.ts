@@ -1,0 +1,124 @@
+/**
+ * Entry point.
+ *
+ * The order matters: configuration is validated (which may refuse to start,
+ * R38.3), then the database is opened and migrated, then the second half of
+ * the dev-login gate runs against the data, and only then does the server
+ * listen.
+ */
+
+import { loadConfig, assertDevLoginSafeAgainstData, UnsafeConfiguration, devLoginModulePresent } from "./config.ts";
+import { openDatabase, ensureHousehold, queryOne } from "./db/db.ts";
+import { createHttpServer } from "./http/server.ts";
+import { buildApp, renderErrorPage } from "./app.ts";
+import { HttpError } from "./http/router.ts";
+import { pruneIdempotencyKeys } from "./core/idempotency.ts";
+import { pruneExpiredSessions, pruneAuthAttempts } from "./auth/sessions.ts";
+import { purgeDeleted } from "./domain/transactions.ts";
+
+const LEVELS = { debug: 10, info: 20, warn: 30, error: 40 } as const;
+
+function main(): void {
+  let config;
+  try {
+    config = loadConfig();
+  } catch (err) {
+    if (err instanceof UnsafeConfiguration) {
+      console.error(`\n${err.message}`);
+      process.exit(1);
+    }
+    throw err;
+  }
+
+  // S7: structured output, one level control, and no financial values in a
+  // log line — which is why nothing below ever logs a request body.
+  const threshold = LEVELS[config.logLevel];
+  const log = (line: Record<string, unknown>) => {
+    const level = (line.level as keyof typeof LEVELS) ?? "info";
+    if (LEVELS[level] < threshold) return;
+    console.log(JSON.stringify({ at: new Date().toISOString(), ...line }));
+  };
+
+  const db = openDatabase({ path: config.databasePath });
+  ensureHousehold(db);
+
+  try {
+    const count = queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM transactions`)?.n ?? 0;
+    assertDevLoginSafeAgainstData(config, count);
+  } catch (err) {
+    if (err instanceof UnsafeConfiguration) {
+      console.error(`\n${err.message}`);
+      process.exit(1);
+    }
+    throw err;
+  }
+
+  const { router, middleware } = buildApp({ db, config });
+
+  const server = createHttpServer({
+    router,
+    baseUrl: config.baseUrl,
+    trustProxy: config.trustProxy,
+    middleware,
+    logger: log,
+    onError(err, ctx) {
+      const accept = ctx.req.headers.accept ?? "";
+      const status = err instanceof HttpError ? err.status : 500;
+      const message =
+        err instanceof HttpError
+          ? err.message
+          : "Something went wrong on the server. Nothing you typed has been lost.";
+
+      if (accept.includes("application/json")) {
+        return { status, json: { error: message } };
+      }
+      return { status, body: renderErrorPage(status, message) };
+    },
+  });
+
+  // Housekeeping. Deliberately in-process rather than a cron container: the
+  // deployment is one box (Q8), and a job that needs a second container is a
+  // job that silently stops running.
+  const housekeeping = setInterval(
+    () => {
+      try {
+        const keys = pruneIdempotencyKeys(db);
+        const sessions = pruneExpiredSessions(db);
+        const attempts = pruneAuthAttempts(db);
+        const purged = purgeDeleted(db);
+        log({ level: "debug", msg: "housekeeping", keys, sessions, attempts, purged });
+      } catch (err) {
+        log({ level: "error", msg: "housekeeping failed", error: String(err) });
+      }
+    },
+    6 * 60 * 60 * 1000,
+  );
+  housekeeping.unref();
+
+  server.listen(config.port, config.host, () => {
+    log({
+      level: "info",
+      msg: "listening",
+      url: config.baseUrl,
+      environment: config.environment,
+      // F23.13: in production this must always read false.
+      devLoginPresent: devLoginModulePresent(),
+      devLoginEnabled: config.devLogin,
+    });
+    if (config.devLogin) {
+      console.log("\n  ⚠  DEV_LOGIN is on — authentication is bypassed on this machine.\n");
+    }
+  });
+
+  for (const signal of ["SIGINT", "SIGTERM"] as const) {
+    process.on(signal, () => {
+      log({ level: "info", msg: "shutting down", signal });
+      server.close(() => {
+        db.close();
+        process.exit(0);
+      });
+    });
+  }
+}
+
+main();

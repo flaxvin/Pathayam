@@ -166,6 +166,40 @@ account, so its spending is already inside the same sum, settled by the same
 payment category. The `card_id` column is what makes R6.c/R6.d — which card,
 which member — answerable.
 
+### 5.1 The unfunded figure cannot be derived by subtraction
+
+R6 describes the warning as "the payment category holds less than the card
+balance". Implemented literally that never fires, and the reason is worth
+recording because it is not obvious:
+
+```
+payment envelope balance = assigned + (− card flow)
+card debt                = − card flow
+```
+
+The two move together by construction. Subtracting one from the other gives
+`assigned`, never a shortfall.
+
+What actually goes missing is upstream. A ₹4,200 card purchase from a category
+holding ₹1,000 still moves ₹4,200 into the payment envelope — but ₹3,200 of it
+came from an envelope that had nothing to give. The envelope *looks* funded;
+₹3,200 of it is not real money.
+
+So the figure is the **credit overspend itself**, carried per card:
+
+```
+unfunded(card) = max(0, debt − (payment envelope − credit overspend on that card))
+```
+
+Where a category was charged to several cards, the overspend is split between
+them in proportion to what each was charged, so S2b can name a card rather than
+report a household-level total.
+
+This only became visible by running the app against seeded data — every
+engine test passed while the warning could never fire. It is covered now by
+`engine.test.ts` under "a credit overspend leaves the card's balance partly
+unfunded".
+
 ---
 
 ## 6. Overspending, and telling the two kinds apart

@@ -57,6 +57,13 @@ export interface MonthlyFacts {
    * opening balance. Negated, this is the payment category's activity (R6).
    */
   creditAccountFlow: Record<string, Paise>;
+  /**
+   * Credit-charged activity broken down by category *and* card account.
+   * Needed to attribute a credit overspend back to the card that carries the
+   * debt — see `unfundedByAccount` on MonthState.
+   * Shape: categoryId -> accountId -> signed paise.
+   */
+  creditActivityByAccount: Record<string, Record<string, Paise>>;
   /** Net change in Budget-account balances, including openings dated here. */
   budgetAccountFlow: Paise;
   /** The categorised portion of that flow. */
@@ -73,6 +80,7 @@ export function emptyMonth(): MonthlyFacts {
     activity: {},
     creditActivity: {},
     creditAccountFlow: {},
+    creditActivityByAccount: {},
     budgetAccountFlow: 0,
     budgetCategorisedFlow: 0,
     budgetTransferFlow: 0,
@@ -141,6 +149,15 @@ export interface MonthState {
    * "₹3,200 of this balance isn't funded yet".
    */
   unfundedCreditAbsorbed: Paise;
+  /**
+   * Per Credit account, how much of its balance no envelope is really
+   * covering (R6). This is *not* derivable by comparing the payment
+   * category's balance against the debt: those two move together by
+   * construction, so the comparison is always zero. A credit overspend
+   * inflates the payment envelope with money the spending category never
+   * had, and this is the figure that records it.
+   */
+  unfundedByAccount: Record<string, Paise>;
 }
 
 export type BudgetState = Map<MonthKey, MonthState>;

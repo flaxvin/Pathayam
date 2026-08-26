@@ -164,12 +164,21 @@ export function send(ctx: RequestContext, response: Response): void {
   if (response.redirect) {
     // Fetch cannot follow a cross-document redirect usefully, so the client
     // script asks for JSON and navigates itself (see client.ts).
+    // response.headers must survive a redirect: a sign-in sets its session
+    // cookie on exactly this path, and dropping it silently means the user
+    // bounces straight back to the sign-in screen.
     if (wantsJson(ctx)) {
-      res.writeHead(200, { "Content-Type": "application/json; charset=utf-8" });
+      res.writeHead(200, {
+        "Content-Type": "application/json; charset=utf-8",
+        ...response.headers,
+      });
       res.end(JSON.stringify({ redirect: response.redirect }));
       return;
     }
-    res.writeHead(response.status ?? 303, { Location: response.redirect });
+    res.writeHead(response.status ?? 303, {
+      Location: response.redirect,
+      ...response.headers,
+    });
     res.end();
     return;
   }

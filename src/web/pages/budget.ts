@@ -1,0 +1,245 @@
+/**
+ * S1 · The budget screen. Everything else in the app is subordinate to this.
+ *
+ * The one hard layout requirement is F3.6: Ready to Assign must be visible at
+ * all times, on every viewport, without scrolling — hence the sticky bar.
+ */
+
+import { html, raw, when, type SafeHtml } from "../../http/html.ts";
+import { formatPaise, formatCompact, speakPaise, type Paise } from "../../core/money.ts";
+import { formatMonth, addMonths, type MonthKey } from "../../core/dates.ts";
+import type { BudgetView, CategoryView, GroupView } from "../viewmodel.ts";
+
+export function renderBudget(view: BudgetView): SafeHtml {
+  return html`
+    ${renderMonthBar(view.month, view.currentMonth)}
+    ${renderReadyToAssign(view)}
+    ${when(view.futureCaveat, () => html`
+      <p class="notice notice-info">
+        This month is <strong>${view.futureCaveat}</strong> — no income has been assumed that
+        hasn't arrived yet.
+      </p>
+    `)}
+    ${renderCardWarnings(view)}
+    ${view.groups.length === 0 ? renderEmptyState() : view.groups.map((g) => renderGroup(g, view.month))}
+    ${renderFooterActions(view)}
+  `;
+}
+
+function renderMonthBar(month: MonthKey, currentMonth: MonthKey): SafeHtml {
+  // F3.7: navigable back to the first month with data, and forward 24 months.
+  const previous = addMonths(month, -1);
+  const next = addMonths(month, 1);
+  return html`
+    <div class="row-between" style="margin-bottom:.75rem">
+      <nav class="month-switch" aria-label="Month">
+        <a href="?month=${previous}" rel="prev" aria-label="Go to ${formatMonth(previous)}">‹</a>
+        <span class="month-name">${formatMonth(month)}</span>
+        <a href="?month=${next}" rel="next" aria-label="Go to ${formatMonth(next)}">›</a>
+      </nav>
+      ${when(month !== currentMonth, () => html`
+        <a class="button button-small button-quiet" href="?month=${currentMonth}">Back to this month</a>
+      `)}
+    </div>
+  `;
+}
+
+function renderReadyToAssign(view: BudgetView): SafeHtml {
+  const rta = view.monthState.readyToAssign;
+  const state = view.monthState.rtaState;
+
+  // R2's three display states. Each carries a word as well as a colour (A2).
+  const wording =
+    state === "negative"
+      ? "You've assigned more than you have — move some back."
+      : state === "zero"
+        ? "Every rupee has a job."
+        : "Still to assign.";
+
+  return html`
+    <section class="rta-bar rta-${state}" aria-labelledby="rta-label">
+      <div class="row-between">
+        <div>
+          <div class="rta-label" id="rta-label">Ready to Assign</div>
+          <div class="rta-figure">
+            <span aria-hidden="true">${formatPaise(rta)}</span>
+            <span class="sr-only">${speakPaise(rta)}</span>
+          </div>
+          <div class="rta-secondary muted">
+            ${wording}
+            <!-- F25.10: every computed figure carries an explain affordance. -->
+            <a class="explain-link" data-explain href="/explain/ready-to-assign?month=${view.month}">
+              How is this worked out?
+            </a>
+          </div>
+        </div>
+        <div style="text-align:right">
+          ${when(view.monthState.heldForNextMonth > 0, () => html`
+            <div class="chip chip-info" style="margin-bottom:.35rem">
+              ${formatPaise(view.monthState.heldForNextMonth)} held for next month
+            </div>
+          `)}
+          <div class="faint">${view.buffer.reading}</div>
+        </div>
+      </div>
+
+      ${when(view.underfunded.categoryCount > 0, () => html`
+        <p class="rta-secondary">
+          <a href="#first-underfunded">
+            ${formatPaise(view.underfunded.amount)} underfunded across
+            ${view.underfunded.categoryCount}
+            ${view.underfunded.categoryCount === 1 ? "category" : "categories"}
+          </a>
+          ·
+          <a href="/auto-assign?month=${view.month}">Auto-assign</a>
+        </p>
+      `)}
+
+      ${when(view.fullyFunded, () => html`
+        <p class="notice notice-success" style="margin:.6rem 0 0">
+          Fully funded — every target met and nothing left to assign.
+        </p>
+      `)}
+    </section>
+  `;
+}
+
+/** R6 / F8.3: the shortfall stated in words, not as a bare number (03 §7). */
+function renderCardWarnings(view: BudgetView): SafeHtml {
+  const unfunded = view.cards.filter((c) => c.unfunded > 0);
+  if (unfunded.length === 0) return raw("");
+
+  return html`
+    ${unfunded.map((card) => {
+      const category = [...view.categories.values()].find((c) => c.paymentAccountId === card.accountId);
+      return html`
+        <p class="notice notice-warning">
+          <strong>${formatPaise(card.unfunded)}</strong> of your ${category?.name ?? "card"}
+          balance isn't funded yet.
+          <a href="/move?to=${category?.id ?? ""}&amount=${card.unfunded}&month=${view.month}">
+            Fund it
+          </a>
+        </p>
+      `;
+    })}
+  `;
+}
+
+function renderGroup(group: GroupView, month: MonthKey): SafeHtml {
+  return html`
+    <details class="category-group" open>
+      <summary>
+        <span>${group.name}</span>
+        <span class="group-totals">
+          <span>Assigned ${formatCompact(group.assigned)}</span>
+          <span>Balance ${formatCompact(group.balance)}</span>
+        </span>
+      </summary>
+      ${group.categories.map((c) => renderCategoryRow(c, month))}
+      ${when(group.categories.length === 0, () => html`
+        <p class="faint" style="padding:.75rem 1rem">Nothing in this group yet.</p>
+      `)}
+    </details>
+  `;
+}
+
+function renderCategoryRow(category: CategoryView, month: MonthKey): SafeHtml {
+  const { state, progress } = category;
+  const anchor = progress && progress.underfunded > 0 ? ' id="first-underfunded"' : "";
+
+  return html`
+    <div class="category-row ${category.stateClass}"${raw(anchor)}>
+      <div class="category-name">
+        <a href="/category/${category.id}?month=${month}">${category.name}</a>
+      </div>
+
+      <div class="category-meta">
+        <span class="chip">${category.stateLabel}</span>
+        ${when(progress, () => renderTargetBar(progress!))}
+        ${when(category.isPaymentCategory, () => html`
+          <span class="faint">Settles this card's balance</span>
+        `)}
+        ${when(category.needsCover, () => html`
+          <!-- R5: no more than two taps from a red category. -->
+          <a class="button button-small button-danger"
+             href="/move?to=${category.id}&amount=${-state.balance}&month=${month}">
+            Cover ${formatPaise(-state.balance)}
+          </a>
+        `)}
+      </div>
+
+      <div class="assign-cell">
+        <form method="post" action="/assign" data-reload-on-success="true">
+          <input type="hidden" name="month" value="${month}">
+          <input type="hidden" name="category_id" value="${category.id}">
+          <label class="sr-only" for="assign-${category.id}">
+            Assigned to ${category.name}
+          </label>
+          <input id="assign-${category.id}" name="amount" data-assign-input
+                 type="text" inputmode="decimal" autocomplete="off"
+                 value="${state.assigned === 0 ? "" : (state.assigned / 100).toFixed(2)}"
+                 placeholder="0.00">
+          <noscript><button class="button-small" type="submit">Assign</button></noscript>
+        </form>
+      </div>
+
+      <div class="category-balance">
+        <a class="explain-link" data-explain
+           href="/explain/category/${category.id}?month=${month}"
+           title="${formatPaise(state.balance)}">
+          <span aria-hidden="true">${formatPaise(state.balance)}</span>
+          <span class="sr-only">Balance ${speakPaise(state.balance)}. Explain this number.</span>
+        </a>
+        <div class="faint">Spent ${formatPaise(-state.activity)}</div>
+      </div>
+    </div>
+  `;
+}
+
+function renderTargetBar(progress: { needed: Paise; underfunded: Paise; state: string }): SafeHtml {
+  const assigned = progress.needed - progress.underfunded;
+  const percent = progress.needed > 0 ? Math.min(100, Math.round((assigned / progress.needed) * 100)) : 100;
+  const className =
+    progress.state === "unfunded" ? "unfunded" : progress.state === "partial" ? "partial" : "";
+
+  return html`
+    <span class="target-bar ${className}" role="img"
+          aria-label="${percent}% of this month's target assigned">
+      <span style="width:${percent}%"></span>
+    </span>
+    <span class="faint">
+      ${formatPaise(assigned)} of ${formatPaise(progress.needed)}
+    </span>
+  `;
+}
+
+function renderFooterActions(view: BudgetView): SafeHtml {
+  return html`
+    <div class="card">
+      <div class="row" style="flex-wrap:wrap">
+        <a class="button" href="/auto-assign?month=${view.month}">Auto-assign this month</a>
+        <a class="button" href="/move?month=${view.month}">Move money</a>
+        <a class="button" href="/hold?month=${view.month}">Hold for next month</a>
+        <a class="button button-quiet" href="/categories">Manage categories</a>
+      </div>
+    </div>
+  `;
+}
+
+/**
+ * 03 §5: the empty budget is not a blank grid. One call to action, with the
+ * starting-template offer.
+ */
+function renderEmptyState(): SafeHtml {
+  return html`
+    <div class="card empty-state">
+      <div class="empty-icon" aria-hidden="true">◧</div>
+      <h2>Nothing to budget yet</h2>
+      <p>Add your first account and its current balance, and Ready to Assign becomes a real number.</p>
+      <p>
+        <a class="button button-primary" href="/accounts/new">Add your first account</a>
+        <a class="button" href="/setup">Start from a template</a>
+      </p>
+    </div>
+  `;
+}
