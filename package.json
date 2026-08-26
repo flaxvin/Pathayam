@@ -1,0 +1,21 @@
+{
+  "name": "budget-app",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Strict envelope budgeting for one Indian household. Server-only, self-hosted.",
+  "type": "module",
+  "engines": {
+    "node": ">=24.0.0"
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test --experimental-strip-types 'src/**/*.test.ts'",
+    "dev": "node --experimental-strip-types --watch src/main.ts",
+    "start": "node dist/main.js"
+  },
+  "devDependencies": {
+    "typescript": "^5.6.0",
+    "@types/node": "^22.0.0"
+  }
+}
