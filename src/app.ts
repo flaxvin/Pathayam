@@ -11,9 +11,12 @@
 import type { DB } from "./db/db.ts";
 import { queryAll, queryOne } from "./db/db.ts";
 import type { Config } from "./config.ts";
-import { Router, field, requiredField, HttpError, NotFound, type RequestContext, type Response } from "./http/router.ts";
+import {
+  Router, field, fieldList, requiredField, HttpError, NotFound,
+  type RequestContext, type Response,
+} from "./http/router.ts";
 import { clientIp, wantsJson } from "./http/server.ts";
-import { html, raw } from "./http/html.ts";
+import { html, raw, when } from "./http/html.ts";
 import { page, MANIFEST, type Theme } from "./web/layout.ts";
 import { STYLESHEET } from "./web/styles.ts";
 import { CLIENT_SCRIPT } from "./web/client.ts";
@@ -39,6 +42,14 @@ import {
   renderExplain, explainLineFor, renderNotFound,
 } from "./web/pages/actions.ts";
 import { renderReview, renderImport } from "./web/pages/review.ts";
+import {
+  renderReconcileStart, renderReconcileDifference, renderReconcileDone,
+  renderCheckpointConfirmation,
+} from "./web/pages/reconcile.ts";
+import {
+  reconcile, reconciliationStatus, listCheckpoints, clearedBalanceAsOf,
+  guardHistoricalEdit, breakCheckpoints, CheckpointConfirmationRequired,
+} from "./domain/reconciliation.ts";
 import { parseStatement } from "./import/csv.ts";
 import {
   ingest, listStaged, approveStaged, rejectStaged, mergeStaged, undoBatch, listBatches,
@@ -50,7 +61,10 @@ import {
 import {
   setAssigned, moveMoney, setHeld, getHeld, listCategories, getCategory,
 } from "./domain/budget.ts";
-import { createTransaction, createTransfer, listPayees, payeeStats, tagsFor } from "./domain/transactions.ts";
+import {
+  createTransaction, createTransfer, updateTransaction, deleteTransaction,
+  getTransaction, getSplits, listPayees, payeeStats, tagsFor,
+} from "./domain/transactions.ts";
 import { accountBalances, creditOutstanding, loadAutoAssignRules, loadEngineInput } from "./engine/repository.ts";
 import { computeBudget, planAutoAssign, suggestCoverSources, cardFunding } from "./engine/engine.ts";
 import { historyFor, queryEvents } from "./core/events.ts";
@@ -935,6 +949,279 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   );
 
   // -------------------------------------------------------------------------
+  // Transaction detail and edit — where R7.b's confirmation actually fires
+  // -------------------------------------------------------------------------
+  router.get("/transaction/:id", (ctx) => {
+    const transaction = getTransaction(db, ctx.params.id!);
+    if (!transaction) throw new NotFound("That transaction does not exist.");
+
+    const account = getAccount(db, transaction.account_id)!;
+    const view = buildBudgetView(db, monthOf(transaction.date));
+    // F4.9 / F25.12: the raw imported values and the full event history.
+    const history = historyFor(db, "transaction", transaction.id);
+    const rules = queryAll<{ name: string }>(
+      db,
+      `SELECT r.name FROM rule_applications ra JOIN rules r ON r.id = ra.rule_id
+        WHERE ra.transaction_id = ?`,
+      transaction.id,
+    );
+
+    return render(
+      ctx,
+      "Transaction",
+      html`
+        <h1>${formatPaise(Math.abs(transaction.amount))}</h1>
+        <p class="muted">${account.nickname || account.name} · ${transaction.date}</p>
+
+        <form method="post" action="/transaction/${transaction.id}" class="card">
+          <div class="grid-2">
+            <div class="field">
+              <label for="t-amount">Amount</label>
+              <input id="t-amount" name="amount" class="amount-input" type="text" inputmode="decimal"
+                     value="${(Math.abs(transaction.amount) / 100).toFixed(2)}">
+            </div>
+            <div class="field">
+              <label for="t-direction">Direction</label>
+              <select id="t-direction" name="direction">
+                <option value="out" ${raw(transaction.amount < 0 ? "selected" : "")}>Money out</option>
+                <option value="in" ${raw(transaction.amount >= 0 ? "selected" : "")}>Money in</option>
+              </select>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="t-category">Category</label>
+            <select id="t-category" name="category_id">
+              <option value="">Uncategorised</option>
+              ${[...view.categories.values()]
+                .filter((c) => !c.isPaymentCategory && !c.hidden)
+                .map(
+                  (c) => html`
+                    <option value="${c.id}" ${raw(c.id === transaction.category_id ? "selected" : "")}>
+                      ${c.name}
+                    </option>
+                  `,
+                )}
+            </select>
+          </div>
+
+          <div class="grid-2">
+            <div class="field">
+              <label for="t-date">Date</label>
+              <input id="t-date" name="date" type="text" value="${formatDateOut(transaction.date)}">
+            </div>
+            <div class="field">
+              <label for="t-memo">Memo</label>
+              <input id="t-memo" name="memo" value="${transaction.memo ?? ""}">
+            </div>
+          </div>
+
+          <div class="field">
+            <label>
+              <input type="checkbox" name="cleared" value="1"
+                     ${raw(transaction.cleared ? "checked" : "")}> Cleared the bank
+            </label>
+          </div>
+
+          <button class="button-primary" type="submit">Save</button>
+          <button class="button-danger" type="submit" formaction="/transaction/${transaction.id}/delete">
+            Delete
+          </button>
+        </form>
+
+        <!-- P4 / N4: the original record is never overwritten, and is shown. -->
+        ${when(transaction.raw_narration, () => html`
+          <section class="card">
+            <h2>As the bank sent it</h2>
+            <p class="faint" style="word-break:break-all">${transaction.raw_narration}</p>
+            ${when(transaction.raw_amount, () => html`
+              <p class="faint">Amount as written: ${transaction.raw_amount}</p>
+            `)}
+          </section>
+        `)}
+
+        ${when(rules.length > 0, () => html`
+          <section class="card">
+            <h2>Rules that touched this</h2>
+            ${rules.map((r) => html`<span class="chip chip-info">${r.name}</span> `)}
+          </section>
+        `)}
+
+        <section class="card">
+          <h2>History</h2>
+          <ul class="explain-list">
+            ${history.map(
+              (e) => html`
+                <li>
+                  <div>${e.summary ?? e.action}</div>
+                  <div class="explain-when">
+                    ${e.at.slice(0, 10)} · ${memberName(e.actorMemberId)}
+                  </div>
+                </li>
+              `,
+            )}
+          </ul>
+        </section>
+      `,
+    );
+  });
+
+  router.post("/transaction/:id", (ctx) => {
+    const a = auth(ctx);
+    const id = ctx.params.id!;
+    const transaction = getTransaction(db, id);
+    if (!transaction) throw new NotFound("That transaction does not exist.");
+
+    const dateRaw = field(ctx.body, "date");
+    const newDate = dateRaw ? parseDate(dateRaw) ?? transaction.date : transaction.date;
+    const confirmed = field(ctx.body, "confirm_checkpoint") === "1";
+
+    // R7.b: guard against *both* dates — moving a transaction out of a
+    // reconciled period falsifies that period just as much as moving one in.
+    const guard = guardCheckpoints(
+      ctx, a, transaction.account_id, [transaction.date, newDate], confirmed,
+      `/transaction/${id}`, `/transaction/${id}`,
+    );
+    if (guard) return guard;
+
+    const magnitude = Math.abs(amountField(field(ctx.body, "amount")));
+    updateTransaction(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, {
+      amount: field(ctx.body, "direction") === "in" ? magnitude : -magnitude,
+      date: newDate,
+      categoryId: field(ctx.body, "category_id") || null,
+      memo: field(ctx.body, "memo") || null,
+      cleared: field(ctx.body, "cleared") === "1",
+    });
+
+    return { redirect: withNotice(`/accounts/${transaction.account_id}`, "Saved.") };
+  });
+
+  router.post("/transaction/:id/delete", (ctx) => {
+    const a = auth(ctx);
+    const id = ctx.params.id!;
+    const transaction = getTransaction(db, id);
+    if (!transaction) throw new NotFound("That transaction does not exist.");
+
+    const confirmed = field(ctx.body, "confirm_checkpoint") === "1";
+    const guard = guardCheckpoints(
+      ctx, a, transaction.account_id, [transaction.date], confirmed,
+      `/transaction/${id}/delete`, `/transaction/${id}`,
+    );
+    if (guard) return guard;
+
+    deleteTransaction(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id);
+    return {
+      redirect: withNotice(
+        `/accounts/${transaction.account_id}`,
+        "Deleted. You can restore it for the next 30 days.",
+      ),
+    };
+  });
+
+  /**
+   * R7.b–R7.c in one place: demand a confirmation naming the checkpoint, then
+   * break it. Returns a Response to render the confirmation, or null to carry
+   * on with the edit.
+   */
+  function guardCheckpoints(
+    ctx: RequestContext, a: AuthContext, accountId: string, dates: string[],
+    confirmed: boolean, action: string, cancelHref: string,
+  ): Response | null {
+    const account = getAccount(db, accountId)!;
+    const affected = new Map<string, ReturnType<typeof listCheckpoints>[number]>();
+
+    for (const date of new Set(dates)) {
+      try {
+        for (const c of guardHistoricalEdit(db, accountId, date, confirmed)) {
+          affected.set(c.id, c);
+        }
+      } catch (err) {
+        if (!(err instanceof CheckpointConfirmationRequired)) throw err;
+        const fields: Record<string, string> = {};
+        for (const [key, value] of Object.entries(ctx.body)) {
+          fields[key] = Array.isArray(value) ? value[0]! : value;
+        }
+        return render(
+          ctx,
+          "Already reconciled",
+          renderCheckpointConfirmation({
+            accountName: account.nickname || account.name,
+            checkpoints: err.checkpoints,
+            action,
+            hiddenFields: fields,
+            cancelHref,
+          }),
+        );
+      }
+    }
+
+    // R7.c/R7.e: mark them broken, with both values in the log. R7.f: they are
+    // never repaired — only a fresh reconciliation asserts the balance again.
+    breakCheckpoints(
+      db, actorFor(a), [...affected.values()],
+      `a transaction dated on or before it was changed`,
+    );
+    return null;
+  }
+
+  // -------------------------------------------------------------------------
+  // S2c · Reconcile (F9), with the Q5 checkpoint-breakage rule
+  // -------------------------------------------------------------------------
+  router.get("/accounts/:id/reconcile", (ctx) => {
+    const account = getAccount(db, ctx.params.id!);
+    if (!account) throw new NotFound("That account does not exist.");
+    const today = todayIST();
+
+    return render(
+      ctx,
+      `Reconcile ${account.name}`,
+      renderReconcileStart({
+        account,
+        status: reconciliationStatus(db, account.id, today),
+        checkpoints: listCheckpoints(db, account.id),
+        today,
+        clearedBalance: clearedBalanceAsOf(db, account.id, today),
+      }),
+    );
+  });
+
+  router.post("/accounts/:id/reconcile", (ctx) => {
+    const account = getAccount(db, ctx.params.id!);
+    if (!account) throw new NotFound("That account does not exist.");
+    const a = auth(ctx);
+
+    const asOfRaw = field(ctx.body, "as_of");
+    const asOf = asOfRaw ? parseDate(asOfRaw) ?? todayIST() : todayIST();
+    const bankBalance = amountField(field(ctx.body, "bank_balance"), "The bank's balance");
+    const clearIds = fieldList(ctx.body, "clear");
+    const allowAdjustment = field(ctx.body, "allow_adjustment") === "1";
+
+    const result = reconcile(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+      accountId: account.id,
+      bankBalance,
+      asOf,
+      clearTransactionIds: clearIds,
+      allowAdjustment,
+    });
+
+    if (result.status === "needs-decision") {
+      // F9.2: never guess. Show the difference and the uncleared list, and let
+      // the user pick one of the three options.
+      return render(
+        ctx,
+        `Reconcile ${account.name}`,
+        renderReconcileDifference({ account, preview: result.preview }),
+      );
+    }
+
+    return render(
+      ctx,
+      "Reconciled",
+      renderReconcileDone({ account, checkpoint: result.checkpoint, adjustment: result.adjustment }),
+    );
+  });
+
+  // -------------------------------------------------------------------------
   // S4 · Review — the one destination for everything needing a human
   // -------------------------------------------------------------------------
   router.get("/review", (ctx) => {
@@ -1133,6 +1420,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       },
     };
   }
+}
+
+/** DD-MM-YYYY for a date input, matching what parseDate accepts back (L3). */
+function formatDateOut(date: string): string {
+  return `${date.slice(8, 10)}-${date.slice(5, 7)}-${date.slice(0, 4)}`;
 }
 
 function numberOrNull(value: string | undefined): number | null {
