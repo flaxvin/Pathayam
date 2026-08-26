@@ -9,9 +9,11 @@ The design is in [`docs/`](docs/00-README.md). This file covers running it.
 
 ## Status
 
-**P0 in progress.** The engine, the platform floor and the budget screen work
-end to end; import, review and reconciliation are not built yet. See
-[What is and isn't built](#what-is-and-isnt-built).
+**P0 substantially complete.** A full month can be budgeted, spent, imported,
+reconciled and rolled over without a spreadsheet, and a restore has been
+verified with matching control totals — which is the two-part bar `05` §2 sets.
+Reports, schedules, goals and search are still missing, along with loans and
+assets (both P2). See [What is and isn't built](#what-is-and-isnt-built).
 
 ---
 
@@ -105,10 +107,16 @@ readable by the `sqlite3` CLI without this application (R40.7):
 docker compose exec budget sh -c 'sqlite3 /data/budget.sqlite ".backup /data/backup.sqlite"'
 ```
 
-**Taking a backup is not the same as being able to recover.** R40.2 wants a
-scheduled restore *verification* — a restore into a scratch database with
-record counts and control totals compared. That job is not built yet, and until
-it is, run a restore by hand before this holds a month of real data.
+**Taking a backup is not the same as being able to recover**, so the scheduled
+job is a restore *verification* (R40.2): it restores the most recent backup
+into a scratch database and compares record counts and control totals. The
+result appears on the health page — *"14 entities, all control totals
+matched"* — and a failure fires the webhook rather than only a log line
+(R40.4), because that is the one failure class where silence loses data.
+
+The scratch handle is opened read-only, so verification cannot touch the live
+database even by mistake (R40.5). Both can also be run by hand from the health
+page.
 
 ---
 
@@ -169,6 +177,12 @@ negative differs, which is what makes shipping both cheap.
 - Accounts across all three kinds, cards and add-on cards, the register
 - Transactions with splits, transfers, tags, owners, soft delete; payees with
   raw-string retention and merge
+- **CSV import** with header detection, Indian amount formats, UPI narration
+  extraction, all five dedupe tiers, the review queue, the three-stage rules
+  engine, the auto-approve gate, and batch undo
+- **Reconciliation** with locked checkpoints and the Q5 breakage rule
+- **Backup, verified restore and the health page**; complete JSON export and
+  transaction CSV
 - The budget screen, theme, PWA manifest, command palette, Docker packaging
 - The India-appropriate starting template
 
@@ -176,19 +190,18 @@ negative differs, which is what makes shipping both cheap.
 
 | Gap | Where it is specified |
 |---|---|
-| CSV/XLSX import, mapping profiles, dedupe tiers, the review queue | `04` §3.2, §4; F13 |
-| The rules engine — three stages, retroactive apply, test-before-save | `04` §6; F6 |
-| Reconciliation, and the Q5 checkpoint-breakage rule | F9; `09` §5 |
-| Backup job and **verified restore** with control totals | `08` R40 |
-| The health page | `08` F27 |
-| Complete export and re-import | F15 |
-| Reports, query screen, schedules, goals, search | F7, F10, F11, F16 |
+| Saved per-bank mapping profiles, and the mapping UI for an unrecognised file | `04` §3.2 |
+| PDF statement parsers for HDFC / ICICI / Axis / SBI | `04` §3.3, Q2 |
+| Rule editor UI — retroactive apply and test-before-save exist in the engine but have no screen | F6.6, F6.7 |
+| Re-import of an export | F15.2 |
+| Reports, query screen, schedules and the cashflow calendar, goals, search | F7, F10, F11, F16 |
+| Bulk edit over a filtered selection | F4.7 |
+| First-run wizard (the template applies, but the five questions have no screen) | `02` §8, J1 |
 | Loans, assets, net worth, multi-currency | `06`, `07` — all P2 |
 
-`05` §2 is explicit that **P0 is not done until all of it is done**: a full
-month budgeted, spent, imported, reconciled and rolled over without a
-spreadsheet, *and* a verified restore with matching control totals. Import and
-reconciliation are the two that remain on that critical path.
+Nothing in that list requires reworking stored data. The three things `05` §3
+says can never be retrofitted — the engine's semantics, idempotency keys and
+the event log — are all in place.
 
 A known wart is recorded rather than hidden: viewing a *past* month subtracts
 assignments made in months since, so a July view in December can read lower

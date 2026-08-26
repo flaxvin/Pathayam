@@ -10,7 +10,7 @@
 
 import type { DB } from "./db/db.ts";
 import { queryAll, queryOne } from "./db/db.ts";
-import type { Config } from "./config.ts";
+import { devLoginModulePresent, type Config } from "./config.ts";
 import {
   Router, field, fieldList, requiredField, HttpError, NotFound,
   type RequestContext, type Response,
@@ -31,7 +31,7 @@ import {
 import { beginOAuth, exchangeCode } from "./auth/google.ts";
 import { withIdempotency, IdempotencyConflict } from "./core/idempotency.ts";
 import { parseAmount, evaluateAmountExpression, formatPaise } from "./core/money.ts";
-import { parseDate, todayIST, monthOf, isMonthKey, formatMonth, type MonthKey } from "./core/dates.ts";
+import { parseDate, todayIST, addDays, monthOf, isMonthKey, formatMonth, type MonthKey } from "./core/dates.ts";
 import { buildBudgetView, reviewCount } from "./web/viewmodel.ts";
 import { renderBudget } from "./web/pages/budget.ts";
 import {
@@ -67,7 +67,14 @@ import {
 } from "./domain/transactions.ts";
 import { accountBalances, creditOutstanding, loadAutoAssignRules, loadEngineInput } from "./engine/repository.ts";
 import { computeBudget, planAutoAssign, suggestCoverSources, cardFunding } from "./engine/engine.ts";
-import { historyFor, queryEvents } from "./core/events.ts";
+import { historyFor, queryEvents, appendEvent } from "./core/events.ts";
+import {
+  renderHealth, overallState, type HealthGroup,
+} from "./web/pages/health.ts";
+import {
+  createBackup, verifyRestore, listBackups, lastJobRun, recordJobRun,
+  exportEverything, exportTransactionsCsv,
+} from "./ops/backup.ts";
 
 export interface AppDeps {
   db: DB;
@@ -1398,14 +1405,189 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     );
   }
 
-  /** F27.3: a machine-readable endpoint for external monitoring. */
-  router.get("/healthz", () => ({
-    json: {
-      status: "ok",
-      version: "0.1.0",
-      database: queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM members`) ? "connected" : "unknown",
-    },
-  }));
+  // -------------------------------------------------------------------------
+  // F27 · Health, F26 · backup, F15 · export
+  // -------------------------------------------------------------------------
+  function healthGroups(): HealthGroup[] {
+    const backup = lastJobRun(db, "backup");
+    const verification = lastJobRun(db, "restore-verification");
+    const backups = listBackups(config.backupDir);
+    const errors24h =
+      queryOne<{ n: number }>(
+        db,
+        `SELECT COUNT(*) AS n FROM job_runs WHERE status = 'failed' AND started_at >= ?`,
+        addDays(todayIST(), -1),
+      )?.n ?? 0;
+    const queue = reviewCount(db);
+
+    return [
+      {
+        name: "Application",
+        checks: [
+          {
+            name: "Version",
+            state: "healthy",
+            reason: `0.1.0, running in ${config.environment}.`,
+          },
+          {
+            // F23.13: in production this must always read "not present".
+            name: "Development login bypass",
+            state: devLoginModulePresent() ? (config.devLogin ? "failed" : "degraded") : "healthy",
+            reason: devLoginModulePresent()
+              ? config.devLogin
+                ? "Present AND enabled — authentication is bypassed on this instance."
+                : "Present in this build but disabled. A production image should not contain it at all."
+              : "Not present in this build.",
+          },
+          {
+            name: "Modules",
+            state: "healthy",
+            reason:
+              `Loans ${config.features.loans ? "on" : "off"}, ` +
+              `assets ${config.features.assets ? "on" : "off"}, ` +
+              `multi-currency ${config.features.multiCurrency ? "on" : "off"}.`,
+          },
+        ],
+      },
+      {
+        name: "Data",
+        checks: [
+          {
+            name: "Database",
+            state: "healthy",
+            reason: `Connected. ${queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM transactions WHERE deleted_at IS NULL`)?.n ?? 0} transactions, ` +
+              `${queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM events`)?.n ?? 0} events.`,
+          },
+          {
+            name: "Review queue",
+            state: queue === 0 ? "healthy" : queue > 25 ? "degraded" : "healthy",
+            reason:
+              queue === 0
+                ? "Nothing waiting."
+                : `${queue} item${queue === 1 ? "" : "s"} waiting for a decision.`,
+            action: queue > 0 ? { label: "Open", href: "/review" } : null,
+          },
+        ],
+      },
+      {
+        name: "Backup",
+        checks: [
+          {
+            name: "Last backup",
+            state: backup.status === "ok" ? "healthy" : backup.status === null ? "unknown" : "failed",
+            reason:
+              backup.status === null
+                ? "No backup has run on this instance yet."
+                : `${backups.length} kept. ${backup.detail ?? ""}`,
+            lastRun: backup.lastRun,
+            action: { label: "Back up now", href: "/health/backup" },
+          },
+          {
+            // R40.3: the figure `08` J24 reads on a Sunday morning.
+            name: "Last verified restore",
+            state:
+              verification.status === "ok" ? "healthy"
+              : verification.status === null ? "unknown"
+              : "failed",
+            reason:
+              verification.status === null
+                ? "Never verified. Taking a backup is not the same as being able to recover — run this before real data lands."
+                : verification.detail ?? "",
+            lastRun: verification.lastRun,
+            action: { label: "Verify now", href: "/health/verify" },
+          },
+          {
+            name: "Failure alerts",
+            state: config.backupWebhookUrl ? "healthy" : "degraded",
+            reason: config.backupWebhookUrl
+              ? "A webhook is configured, so a failed backup or verification will reach you."
+              : "No webhook configured. A failed backup would only appear on this page.",
+          },
+        ],
+      },
+      {
+        name: "Jobs",
+        checks: [
+          {
+            name: "Errors in the last 24 hours",
+            state: errors24h === 0 ? "healthy" : "degraded",
+            reason: errors24h === 0 ? "None." : `${errors24h} job run${errors24h === 1 ? "" : "s"} failed.`,
+          },
+          {
+            name: "Idempotency keys",
+            state: "healthy",
+            reason:
+              `${queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM idempotency_keys`)?.n ?? 0} held. ` +
+              `A high count is the fingerprint of a flaky network or a client retry bug.`,
+          },
+        ],
+      },
+    ];
+  }
+
+  router.get("/health", (ctx) => render(ctx, "Health", renderHealth(healthGroups())));
+
+  router.post("/health/backup", (ctx) =>
+    mutate(ctx, (a) => {
+      const backup = createBackup(db, config.backupDir);
+      recordJobRun(db, "backup", "ok", `${backup.path} (${backup.bytes} bytes)`);
+      appendEvent(db, actorFor(a, "job"), {
+        entity: "backup", entityId: backup.path, action: "create",
+        summary: `Backed up to ${backup.path}`,
+      });
+      return { redirect: "/health", message: `Backed up ${backup.bytes} bytes.` };
+    }),
+  );
+
+  router.post("/health/verify", (ctx) =>
+    mutate(ctx, () => {
+      const result = verifyRestore(db, config.backupDir);
+      recordJobRun(db, "restore-verification", result.ok ? "ok" : "failed", result.summary);
+      return { redirect: "/health", message: result.summary };
+    }),
+  );
+
+  /** F15.1: the complete budget, in one action, in an open documented format. */
+  router.get("/export.json", (ctx) => {
+    auth(ctx);
+    return {
+      body: JSON.stringify(exportEverything(db), null, 2),
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Disposition": `attachment; filename="budget-${todayIST()}.json"`,
+      },
+    };
+  });
+
+  router.get("/export.csv", (ctx) => {
+    auth(ctx);
+    return {
+      body: exportTransactionsCsv(db),
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="transactions-${todayIST()}.csv"`,
+      },
+    };
+  });
+
+  /**
+   * F27.3 · A machine-readable endpoint for external monitoring: one overall
+   * status plus per-check detail.
+   */
+  router.get("/healthz", () => {
+    const groups = healthGroups();
+    const overall = overallState(groups);
+    return {
+      status: overall === "failed" ? 503 : 200,
+      json: {
+        status: overall,
+        version: "0.1.0",
+        checks: groups.flatMap((g) =>
+          g.checks.map((c) => ({ group: g.name, name: c.name, state: c.state, reason: c.reason })),
+        ),
+      },
+    };
+  });
 
   return { router, middleware };
 
