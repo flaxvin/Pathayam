@@ -18,6 +18,7 @@ import { createAccount, createCard, paymentCategoryFor } from "./domain/accounts
 import { listCategories, setAssigned } from "./domain/budget.ts";
 import { createTransaction, createTransfer } from "./domain/transactions.ts";
 import { applyStartingTemplate } from "./domain/starting-budget.ts";
+import { createLoan, recordInstalment, recordDisbursement, recordLoanStatement } from "./domain/loans.ts";
 import { rupees } from "./core/money.ts";
 import { todayIST, monthOf, addDays } from "./core/dates.ts";
 
@@ -138,7 +139,53 @@ function main(): void {
     amount: rupees(5_000), date: addDays(today, -10),
   });
 
-  console.log(`Seeded a household: 2 members, 4 accounts, ${categories.size} categories.`);
+  // 09 §2: the three real loans, all single-disbursement (Q11). No home loan,
+  // so tranche drawdown stays P3 — the model exists, the data does not.
+  const axisLoan = createLoan(db, actor, {
+    lender: "Axis Bank", nickname: "Axis personal loan", loanType: "personal",
+    // Q11/06 R16 M2: personal loans are frequently quoted flat, and entering a
+    // flat loan as reducing understates its cost by several points.
+    interestModel: "flat", annualRatePct: 11.5,
+    sanctioned: rupees(5_00_000), sanctionDate: "2026-08-14",
+    tenureMonths: 48, firstInstalmentDate: "2026-09-05",
+    repaymentAccountId: savings.id,
+  });
+
+  const unionLoan = createLoan(db, actor, {
+    lender: "Union Bank of India", nickname: "Education loan", loanType: "education",
+    // Q11b: past moratorium, full EMI — the simplest case, M1.
+    interestModel: "reducing", annualRatePct: 10.25,
+    sanctioned: rupees(12_00_000), sanctionDate: "2021-07-01",
+    tenureMonths: 120, firstInstalmentDate: "2025-08-05",
+    currentOutstanding: rupees(9_40_000),
+    historyFrom: "2026-08-01",
+    repaymentAccountId: savings.id,
+  });
+
+  // R15: a personal loan credited to a Budget account arrives as income and
+  // has to be assigned. A builder-paid tranche would not — that is the
+  // distinction R15.3 exists for.
+  recordDisbursement(db, actor, {
+    loanId: axisLoan.id, date: "2026-08-14", amount: rupees(5_00_000),
+    destination: "budget-account", destinationAccountId: savings.id,
+  });
+
+  recordInstalment(db, actor, {
+    loanId: unionLoan.id, date: addDays(today, -12), amount: rupees(16_000),
+    principal: rupees(7_970), interest: rupees(8_030),
+    fromAccountId: savings.id,
+  });
+
+  // R18.8: drift is only measurable against a balance the lender stated.
+  recordLoanStatement(db, actor, {
+    loanId: unionLoan.id, asOf: addDays(today, -5),
+    lenderOutstanding: rupees(9_33_180),
+    interestPaidYtd: rupees(8_030),
+  });
+
+  console.log(
+    `Seeded a household: 2 members, 4 accounts, ${categories.size} categories, 2 loans.`,
+  );
   console.log(`Run with DEV_LOGIN=true and sign in as Ravi or Priya.`);
   db.close();
 }

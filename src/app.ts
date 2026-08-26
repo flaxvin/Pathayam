@@ -81,6 +81,15 @@ import {
   createBackup, verifyRestore, listBackups, lastJobRun, recordJobRun,
   exportEverything, exportTransactionsCsv, pingHeartbeat,
 } from "./ops/backup.ts";
+import {
+  renderLoanList, renderLoanDetail, renderNewLoanForm, renderRecordInstalment,
+  renderPrepaymentComparison,
+} from "./web/pages/loans.ts";
+import {
+  createLoan, listLoans, getLoan, projectLoan, recordInstalment, listPayments,
+  listDisbursements, listRatePeriods, debtOverview, type LoanType,
+} from "./domain/loans.ts";
+import { comparePrepayment, NegativeAmortisation } from "./loans/amortisation.ts";
 
 export interface AppDeps {
   db: DB;
@@ -1500,6 +1509,283 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           </div>
         `,
       ),
+    );
+  }
+
+
+  // -------------------------------------------------------------------------
+  // S12 · Loans (F18). P1 per 10 §2 E9.
+  // -------------------------------------------------------------------------
+  function requireLoans(): void {
+    // F28.2: a disabled module disappears rather than appearing greyed out.
+    if (!config.features.loans) throw new NotFound();
+  }
+
+  router.get("/loans", (ctx) => {
+    requireLoans();
+    const projections = listLoans(db)
+      .map((l) => projectLoan(db, l.id))
+      .filter((p): p is NonNullable<typeof p> => p !== null);
+    return render(ctx, "Loans", renderLoanList(projections, debtOverview(db)));
+  });
+
+  router.get("/loans/new", (ctx) => {
+    requireLoans();
+    return render(
+      ctx, "Add a loan",
+      renderNewLoanForm({
+        accounts: listAccounts(db)
+          .filter((a) => a.kind === "budget")
+          .map((a) => ({ id: a.id, name: a.nickname || a.name })),
+      }),
+    );
+  });
+
+  router.post("/loans/new", (ctx) =>
+    mutate(ctx, (a) => {
+      requireLoans();
+      const outstandingRaw = field(ctx.body, "current_outstanding");
+      const historyFrom = field(ctx.body, "history_from");
+      const firstDue = field(ctx.body, "first_instalment_date");
+
+      const loan = createLoan(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+        lender: requiredField(ctx.body, "lender"),
+        nickname: field(ctx.body, "nickname") || null,
+        loanType: requiredField(ctx.body, "loan_type") as LoanType,
+        sanctioned: amountField(field(ctx.body, "sanctioned"), "Sanctioned amount"),
+        sanctionDate: parseDate(field(ctx.body, "sanction_date") ?? "") ?? todayIST(),
+        interestModel: (field(ctx.body, "interest_model") ?? "reducing") as "reducing" | "flat",
+        annualRatePct: Number(requiredField(ctx.body, "annual_rate")),
+        tenureMonths: Number(requiredField(ctx.body, "tenure_months")),
+        firstInstalmentDate: firstDue ? parseDate(firstDue) : null,
+        repaymentAccountId: field(ctx.body, "repayment_account_id") || null,
+        currentOutstanding: outstandingRaw?.trim() ? amountField(outstandingRaw) : null,
+        historyFrom: historyFrom ? parseDate(historyFrom) : null,
+      });
+
+      return { redirect: `/loans/${loan.id}`, message: `Added the ${loan.lender} loan.` };
+    }),
+  );
+
+  /**
+   * R19.7 · The what-if calculator, usable before any loan exists (Q14). This
+   * is the feature people will open the app for, so it is not behind a loan.
+   */
+  router.get("/loans/what-if", (ctx) => {
+    requireLoans();
+    return render(
+      ctx, "Prepayment calculator",
+      renderPrepaymentComparison({
+        comparison: comparePrepayment({
+          principal: rupeesFromQuery(ctx, "principal", 50_00_000),
+          annualRatePct: Number(ctx.query.get("rate") ?? 8.5),
+          months: Number(ctx.query.get("months") ?? 240),
+          prepayment: rupeesFromQuery(ctx, "amount", 5_00_000),
+          atMonth: Number(ctx.query.get("at_month") ?? 24),
+        }),
+        loan: null,
+        amount: rupeesFromQuery(ctx, "amount", 5_00_000),
+        atMonth: Number(ctx.query.get("at_month") ?? 24),
+        action: "/loans/what-if",
+      }),
+    );
+  });
+
+  router.post("/loans/what-if", (ctx) => {
+    requireLoans();
+    auth(ctx);
+    const principal = amountField(field(ctx.body, "principal"), "Loan amount");
+    const months = Number(requiredField(ctx.body, "months"));
+    const rate = Number(requiredField(ctx.body, "rate"));
+    const amount = amountField(field(ctx.body, "amount"), "Prepayment");
+    const atMonth = Number(field(ctx.body, "at_month") ?? 12);
+
+    return render(
+      ctx, "Prepayment calculator",
+      renderPrepaymentComparison({
+        comparison: comparePrepayment({ principal, annualRatePct: rate, months, prepayment: amount, atMonth }),
+        loan: null, amount, atMonth, action: "/loans/what-if",
+      }),
+    );
+  });
+
+  router.get("/loans/:id", (ctx) => {
+    requireLoans();
+    const projection = projectLoan(db, ctx.params.id!);
+    if (!projection) throw new NotFound("That loan does not exist.");
+    return render(
+      ctx,
+      projection.loan.nickname || projection.loan.lender,
+      renderLoanDetail({
+        projection,
+        payments: listPayments(db, projection.loan.id),
+        disbursements: listDisbursements(db, projection.loan.id),
+        rates: listRatePeriods(db, projection.loan.id),
+      }),
+    );
+  });
+
+  /** R17.2 · The schedule exportable to CSV. */
+  router.get("/loans/:id/schedule.csv", (ctx) => {
+    requireLoans();
+    auth(ctx);
+    const projection = projectLoan(db, ctx.params.id!);
+    if (!projection) throw new NotFound("That loan does not exist.");
+
+    const rows = [
+      "number,due_date,opening,instalment,principal,interest,closing,cumulative_interest",
+      ...projection.schedule.instalments.map((i) =>
+        [
+          i.number, i.dueDate ?? "", i.opening / 100, i.payment / 100,
+          i.principal / 100, i.interest / 100, i.closing / 100, i.cumulativeInterest / 100,
+        ].join(","),
+      ),
+    ].join("\n");
+
+    return {
+      body: rows,
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="schedule-${projection.loan.id}.csv"`,
+      },
+    };
+  });
+
+  router.get("/loans/:id/pay", (ctx) => {
+    requireLoans();
+    const projection = projectLoan(db, ctx.params.id!);
+    if (!projection) throw new NotFound("That loan does not exist.");
+    return render(
+      ctx, "Record an instalment",
+      renderRecordInstalment({
+        projection,
+        accounts: listAccounts(db)
+          .filter((a) => a.kind === "budget")
+          .map((a) => ({ id: a.id, name: a.nickname || a.name })),
+        today: todayIST(),
+      }),
+    );
+  });
+
+  router.post("/loans/:id/pay", (ctx) =>
+    mutate(ctx, (a) => {
+      requireLoans();
+      const loanId = ctx.params.id!;
+      const principalRaw = field(ctx.body, "principal");
+      const interestRaw = field(ctx.body, "interest");
+
+      recordInstalment(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+        loanId,
+        date: parseDate(field(ctx.body, "date") ?? "") ?? todayIST(),
+        amount: amountField(field(ctx.body, "amount")),
+        principal: principalRaw?.trim() ? amountField(principalRaw) : null,
+        interest: interestRaw?.trim() ? amountField(interestRaw) : null,
+        fromAccountId: field(ctx.body, "from_account_id") || null,
+      });
+
+      return { redirect: `/loans/${loanId}`, message: "Instalment recorded." };
+    }),
+  );
+
+  router.get("/loans/:id/prepay", (ctx) => {
+    requireLoans();
+    const projection = projectLoan(db, ctx.params.id!);
+    if (!projection) throw new NotFound("That loan does not exist.");
+
+    const amount = rupeesFromQuery(ctx, "amount", 1_00_000);
+    const atMonth = Number(ctx.query.get("at_month") ?? 1);
+    const view = buildBudgetView(db);
+
+    return render(
+      ctx, "Prepay",
+      renderPrepaymentComparison({
+        comparison: comparePrepayment({
+          principal: projection.outstanding,
+          annualRatePct: projection.ratePct,
+          months: Math.max(1, projection.schedule.months),
+          prepayment: amount,
+          atMonth,
+        }),
+        loan: projection.loan,
+        amount,
+        atMonth,
+        action: `/loans/${projection.loan.id}/prepay`,
+        // R19.4: the funding source must be explicit.
+        fundingSources: [...view.categories.values()]
+          .filter((c) => !c.isPaymentCategory && c.state.balance > 0)
+          .map((c) => ({ id: c.id, name: c.name, balance: c.state.balance })),
+        emergencyFundWarning: emergencyFundWarning(view, amount),
+      }),
+    );
+  });
+
+  router.post("/loans/:id/prepay", (ctx) => {
+    requireLoans();
+    const a = auth(ctx);
+    const loanId = ctx.params.id!;
+    const projection = projectLoan(db, loanId);
+    if (!projection) throw new NotFound("That loan does not exist.");
+
+    const amount = amountField(field(ctx.body, "amount"), "Prepayment");
+    const atMonth = Number(field(ctx.body, "at_month") ?? 1);
+
+    // The preview button recalculates rather than committing.
+    if (field(ctx.body, "preview") === "1") {
+      return { redirect: `/loans/${loanId}/prepay?amount=${amount}&at_month=${atMonth}` };
+    }
+
+    const chargeRaw = field(ctx.body, "charge");
+    const charge = chargeRaw?.trim() ? amountField(chargeRaw) : 0;
+    const mode = field(ctx.body, "mode") === "emi" ? "emi" : "tenure";
+    const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+
+    recordInstalment(db, actor, {
+      loanId,
+      date: todayIST(),
+      amount,
+      principal: amount,
+      interest: 0,
+      kind: "prepayment",
+      fromAccountId: projection.loan.repayment_account_id,
+      note: `Prepayment, applied by reducing the ${mode === "emi" ? "instalment" : "tenure"}`,
+    });
+
+    if (charge > 0) {
+      // R19.5: recorded as a separate cost, and included in the net saving.
+      recordInstalment(db, actor, {
+        loanId, date: todayIST(), amount: charge, principal: 0, interest: charge,
+        kind: "charge", note: "Prepayment charge",
+      });
+    }
+
+    return {
+      redirect: withNotice(
+        `/loans/${loanId}`,
+        `Prepaid ${formatPaise(amount)}, applied by reducing the ${mode === "emi" ? "instalment" : "tenure"}.`,
+      ),
+    };
+  });
+
+  function rupeesFromQuery(ctx: RequestContext, name: string, fallbackRupees: number): number {
+    const raw = ctx.query.get(name);
+    if (!raw) return fallbackRupees * 100;
+    const parsed = Number(raw);
+    return Number.isFinite(parsed) ? Math.round(parsed) : fallbackRupees * 100;
+  }
+
+  /**
+   * R19.6 · Warn when a prepayment would leave the emergency fund short, and
+   * never block it (P2 — the app has no authority to prevent spending).
+   */
+  function emergencyFundWarning(
+    view: ReturnType<typeof buildBudgetView>, amount: number,
+  ): string | null {
+    const fund = [...view.categories.values()].find((c) => /emergency/i.test(c.name));
+    if (!fund || fund.state.balance >= amount) return null;
+    return (
+      `This is more than your ${fund.name} holds (${formatPaise(fund.state.balance)}). ` +
+      `Paying down debt is usually right, but an emergency fund is what stops the next ` +
+      `surprise going back onto a card. Your call.`
     );
   }
 
