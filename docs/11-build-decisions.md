@@ -489,6 +489,90 @@ arrive in produced two things that went straight into the build:
   domain cannot impersonate a bank into being trusted — there is a test for
   that.
 
+### B32 · The running balance decides the sign, not the column position
+
+*28-08-2026, from a real statement.* B29's assignment-by-column was reasonable
+and wrong, and only a real file could show it. Across **848 rows** of an actual
+Axis account, debit figures occupied character columns 67–85 and credit figures
+81–99. **They overlap.** The columns are right-aligned to a ragged edge, so a
+₹640 debit is printed further right than a ₹2,500 debit and lands squarely
+under the "Credit" heading.
+
+A parser that trusts position therefore inverts a large share of transactions
+while looking completely healthy — no exception, no empty result, just a
+statement where half the spending is income.
+
+Every Indian bank statement prints a running balance, and the movement between
+two rows **is** the amount, sign included. On that same file it resolved 845 of
+848 rows to the exact printed figure, and the three it did not are rows where
+the printed figure genuinely disagrees. So:
+
+1. Balance movement decides the amount.
+2. Column position is the fallback, for statements with no balance column.
+3. The printed figure **verifies** the movement rather than deriving it; a
+   disagreement is reported (IL3) rather than resolved silently.
+
+This also made layout largely irrelevant, which matters more than the fix
+itself: the parser no longer needs a per-bank column map to get signs right, so
+the seven banks whose layouts remain unverified are far less risky than B30
+assumed.
+
+### B33 · Narration wraps upward, and losing it breaks three things at once
+
+The same file: a payee is printed across two lines with the **date on the
+second**.
+
+```
+                     UPI/P2M/400111223000/Zoomcar
+ 01-12-2025          /Making/Kotak Mahindra Bank    640.00      148212.55
+```
+
+Reading only dated lines yields "/Making/Kotak Mahindra Bank" — the merchant is
+on the line above. That is not a cosmetic loss: payee matching, rule matching
+and dedupe all key off the narration, so all three degrade together and none of
+them says why. Continuation lines are now carried down into the row.
+
+### B34 · The statement's own closing balance is an integrity check worth surfacing
+
+Once amounts come from balance movements, the parse can be checked against a
+number the bank printed and the parser never touched: opening balance, plus
+every parsed amount, should equal the closing balance. On the real file —
+₹11,33,172.01 plus ₹−9,98,303.49 — it lands on ₹1,34,868.52, exactly what the
+statement says.
+
+It is reported to the household in those words, because nothing else this app
+does gets that kind of independent confirmation, and because "it reconciles" is
+the difference between trusting an import and spot-checking 848 rows.
+
+### B35 · PR5 is reversed, opt-in, and the settings screen says so
+
+*28-08-2026.* Unattended fetching (`04` §3.4) cannot coexist with PR5's
+*"never persisted"*, because Indian banks derive the password from your name,
+date of birth or PAN — so storing those **is** storing the password, and
+storing only the derived string would be worse (same exposure, and it breaks
+silently when a bank changes its rule).
+
+Specified as PR5.1–PR5.6 in `10` §3.6. Three boundaries are enforced by tests
+rather than by intention: never in an export (F15 output travels), never in the
+event log (R37 keeps it forever), never returned unmasked to a screen. Stored
+in the clear, consistent with `08` S9's refusal of at-rest encryption and its
+reasoning about key management.
+
+The settings copy states the cost in plain terms — *"this is the same as saving
+your statement passwords, which the app otherwise never keeps"* — because a
+household consenting to a reversal should be consenting to the real thing.
+
+### B36 · The password candidates are a list, and every one is tried
+
+A bank that wanted DDMM last year wants DDMMYYYY this year. `bankId` only
+**reorders** the candidates; all of them are still attempted, so a changed rule
+costs a few milliseconds instead of a failed import. Trying a wrong password
+against a local file has no cost worth optimising — there is no server to
+rate-limit and no account to lock.
+
+What opened it is reported as a description — "your PAN", "your name and date
+of birth" — never as the value.
+
 ---
 
-*Entries B32 onward are recorded as the work happens.*
+*Entries B37 onward are recorded as the work happens.*

@@ -318,3 +318,73 @@ export function renderDigestSettings(muted: Set<DigestKind>): SafeHtml {
     </section>
   `;
 }
+
+// ---------------------------------------------------------------------------
+// `10` §3.6 · What statement passwords are worked out from
+// ---------------------------------------------------------------------------
+
+/**
+ * The one screen in the app that asks for a government identifier, so it says
+ * plainly what it is for, what it costs, and that nothing needs it.
+ *
+ * N9 and the honesty rules apply with force here: this reverses PR5, and a
+ * household agreeing to it should be agreeing to the real thing rather than to
+ * a reassuring summary of it.
+ */
+export function renderStatementIdentity(
+  masked: { name: string; pan: string | null; dob: string | null } | null,
+): SafeHtml {
+  return html`
+    <section class="card" id="statements">
+      <h2>Opening statements without typing a password</h2>
+      <p class="faint" style="margin-top:-.25rem">
+        Indian banks do not let you pick a statement password — each works it
+        out from your name, your date of birth or your PAN, and every bank picks
+        differently. If you save those here, the app can work them out too.
+      </p>
+
+      <p class="notice notice-warning">
+        <strong>This is worth understanding before you do it.</strong> Saving
+        these is the same as saving your statement passwords, which the app
+        otherwise never keeps. They are stored on your own server, are left out
+        of every export, and never appear in any log — but they are stored.
+        Everything works without this; you will just be asked for a password
+        each time.
+      </p>
+
+      ${when(masked, () => html`
+        <table>
+          <tbody>
+            <tr><td>Name</td><td>${masked!.name}</td></tr>
+            <tr><td>PAN</td><td>${masked!.pan ?? "Not saved"}</td></tr>
+            <tr><td>Date of birth</td><td>${masked!.dob ?? "Not saved"}</td></tr>
+          </tbody>
+        </table>
+        <form method="post" action="/settings/identity" style="margin:.6rem 0">
+          <input type="hidden" name="clear" value="1">
+          <button class="button-small button-danger" type="submit">Remove these</button>
+        </form>
+      `)}
+
+      <form method="post" action="/settings/identity">
+        <div class="field">
+          <label for="id-name">Your name, as the bank prints it</label>
+          <input id="id-name" name="name" required autocomplete="off"
+                 value="${masked?.name ?? ""}" placeholder="Ravi Kumar">
+          <p class="field-hint">Most passwords start with the first four letters of this.</p>
+        </div>
+        <div class="field">
+          <label for="id-dob">Date of birth</label>
+          <input id="id-dob" name="dob" autocomplete="off" inputmode="numeric"
+                 placeholder="DDMMYYYY">
+        </div>
+        <div class="field">
+          <label for="id-pan">PAN</label>
+          <input id="id-pan" name="pan" autocomplete="off" spellcheck="false"
+                 placeholder="Optional — brokers use it">
+        </div>
+        <button type="submit">Save</button>
+      </form>
+    </section>
+  `;
+}

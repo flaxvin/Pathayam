@@ -1004,4 +1004,43 @@ CREATE TABLE family_loans (
 CREATE INDEX idx_family_loans_account ON family_loans(account_id);
 `,
   },
+  {
+    name: "0010-statement-identity",
+    sql: `
+--------------------------------------------------------------------------------
+-- 10 §3.6 · What statement passwords are derived from.
+--
+-- This table exists because Indian banks do not let you choose a statement
+-- password: each derives it from your name, your date of birth or your PAN,
+-- and every bank picks differently. Unattended fetching (04 §3.4) is
+-- impossible without holding those three values.
+--
+-- **It reverses PR5**, which says statement passwords are used in memory for a
+-- single import and never persisted. Storing the ingredients is storing the
+-- password. That reversal is deliberate, opt-in, and recorded in 10 §3.6 with
+-- its cost; it is not an oversight.
+--
+-- Stored in the clear, consistent with 08 S9: that decision declined
+-- database encryption at rest on the reasoning that the key must live where
+-- the app can read it, and chose to encrypt the *backups* instead. Adding
+-- bespoke field encryption here would be exactly the key-management step S9
+-- rejected, for the same little benefit.
+--
+-- Two things this table is NOT allowed to do, enforced in code:
+--   · appear in an export (F15 exports the budget; this is not budget data,
+--     and an export travels)
+--   · appear in the event log or any log line
+--------------------------------------------------------------------------------
+
+CREATE TABLE statement_identity (
+  member_id TEXT PRIMARY KEY REFERENCES members(id),
+  -- As printed on the statement: the "first four letters" rule uses this.
+  name      TEXT NOT NULL,
+  pan       TEXT,
+  -- DDMMYYYY, the form every bank's own instructions use.
+  dob       TEXT,
+  updated_at TEXT NOT NULL
+);
+`,
+  },
 ];

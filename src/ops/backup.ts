@@ -398,8 +398,19 @@ export async function runBackupJob(
  * F15.1 · The complete budget in one action, in an open documented format, and
  * re-importable into this app (F15.2). Includes the event log (R37.5).
  */
+/**
+ * `10` §3.6 · Never exported, whatever else is.
+ *
+ * F15 exports the whole budget in one action so it can be carried elsewhere,
+ * and that is exactly why this table must not be in it: a PAN and a date of
+ * birth are not budget data, and an export travels — to another machine, a
+ * cloud drive, an email. The values stay on the server that needs them.
+ */
+const NEVER_EXPORTED = ["statement_identity"];
+
 export function exportEverything(db: DB): Record<string, unknown> {
-  const tables = [...COUNTED_TABLES, "household", "import_profiles", "rule_applications", "review_dismissals"];
+  const tables = [...COUNTED_TABLES, "household", "import_profiles", "rule_applications", "review_dismissals"]
+    .filter((table) => !NEVER_EXPORTED.includes(table));
   const data: Record<string, unknown> = {};
   for (const table of tables) {
     data[table] = queryAll<Record<string, unknown>>(db, `SELECT * FROM ${table}`);
