@@ -117,6 +117,23 @@ import {
 import {
   createCategory, renameCategory, setCategoryHidden, listGroups,
 } from "./domain/budget.ts";
+import {
+  renderPortfolio, renderHoldingDetail, renderSalePreview, renderNetWorth,
+  renderAddHolding, type PortfolioRow,
+} from "./web/pages/portfolio.ts";
+import {
+  createAssetAccount, listAssetAccounts, findOrCreateInstrument, recordPurchase,
+  recordSale, recordPrice, latestValuation, listHoldings, viewHolding,
+  priceHistory, previewHoldingSale, getInstrument, listInstruments,
+  type InstrumentKind,
+} from "./domain/assets.ts";
+import {
+  netWorthStatement, snapshotNetWorth, netWorthChange, netWorthHistory,
+} from "./domain/networth.ts";
+import {
+  units as toUnits, price as toUnitPrice, xirr, formatUnits,
+} from "./portfolio/holdings.ts";
+import { mfapi, searchSchemes, fetchFxRate } from "./portfolio/providers.ts";
 
 export interface AppDeps {
   db: DB;
@@ -2262,6 +2279,309 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       startBlank(db, actorFor(a));
       return { redirect: "/accounts/new", message: "Starting blank. Add your first account." };
+    }),
+  );
+
+
+  // -------------------------------------------------------------------------
+  // S13 · Portfolio · S14 · Net worth (F19, F20). P2.
+  // -------------------------------------------------------------------------
+  function requireAssets(): void {
+    // F28.2: a disabled module disappears rather than appearing greyed out.
+    if (!config.features.assets) throw new NotFound();
+  }
+
+  router.get("/portfolio", (ctx) => {
+    requireAssets();
+    const accounts = new Map(listAssetAccounts(db).map((a) => [a.id, a.name]));
+
+    const rows: PortfolioRow[] = listHoldings(db)
+      .map((h) => {
+        const view = viewHolding(db, h.id);
+        return view ? { view, accountName: accounts.get(view.holding.account_id) ?? "" } : null;
+      })
+      .filter((r): r is PortfolioRow => r !== null);
+
+    // F19.16 · A portfolio-level XIRR, labelled money-weighted.
+    const flows = rows.flatMap((r) => [
+      ...r.view.lots.map((l) => ({ date: l.tradeDate, amount: -l.cost })),
+      { date: todayIST(), amount: r.view.marketValue },
+    ]);
+
+    const manualAssets = listAssetAccounts(db)
+      .filter((a) => listHoldings(db, a.id).length === 0)
+      .map((a) => {
+        const valuation = latestValuation(db, a.id);
+        return valuation
+          ? {
+              id: a.id, name: a.name, subtype: a.subtype,
+              value: valuation.value, asOf: valuation.asOf, stale: valuation.stale,
+            }
+          : null;
+      })
+      .filter((a): a is NonNullable<typeof a> => a !== null);
+
+    return render(
+      ctx, "Portfolio",
+      renderPortfolio({
+        rows, manualAssets,
+        portfolioXirr: flows.length >= 2 ? xirr(flows) : null,
+      }),
+    );
+  });
+
+  router.get("/portfolio/add", (ctx) => {
+    requireAssets();
+    const query = ctx.query.get("q") ?? "";
+    const view = buildBudgetView(db);
+
+    // The search is a server-side call (P7) and needs no key (§6.2).
+    return Promise.resolve(
+      query ? searchSchemes(query) : Promise.resolve([]),
+    ).then((results) =>
+      render(
+        ctx, "Add a holding",
+        renderAddHolding({
+          assetAccounts: listAssetAccounts(db).map((a) => ({ id: a.id, name: a.name })),
+          budgetAccounts: listAccounts(db)
+            .filter((a) => a.kind === "budget")
+            .map((a) => ({ id: a.id, name: a.nickname || a.name })),
+          categories: [...view.categories.values()]
+            .filter((c) => !c.isPaymentCategory && !c.hidden)
+            .map((c) => ({ id: c.id, name: c.name })),
+          searchResults: results,
+          query,
+          today: todayIST(),
+        }),
+      ),
+    );
+  });
+
+  router.post("/portfolio/add", (ctx) =>
+    mutate(ctx, (a) => {
+      requireAssets();
+      const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+
+      const schemeCode = field(ctx.body, "scheme_code");
+      const instrument = findOrCreateInstrument(db, actor, {
+        name: requiredField(ctx.body, "name"),
+        kind: (field(ctx.body, "kind") ?? "mutual-fund") as InstrumentKind,
+        symbol: schemeCode ?? field(ctx.body, "symbol") ?? null,
+        currency: field(ctx.body, "currency") || "INR",
+        provider: schemeCode ? "mfapi" : "manual",
+      });
+
+      // Choosing a scheme from the search is step one; the purchase follows.
+      if (field(ctx.body, "step") === "details") {
+        return {
+          redirect: `/portfolio/add?q=${encodeURIComponent(field(ctx.body, "name") ?? "")}`,
+          message: `${instrument.name} is ready — enter the purchase below.`,
+        };
+      }
+
+      const amountRaw = field(ctx.body, "amount");
+      const unitPrice = Number(requiredField(ctx.body, "unit_price"));
+      if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
+        throw new HttpError(400, "That price is not a number I can use.");
+      }
+
+      const feesRaw = field(ctx.body, "fees");
+      const lot = recordPurchase(db, actor, {
+        accountId: requiredField(ctx.body, "account_id"),
+        instrumentId: instrument.id,
+        tradeDate: parseDate(field(ctx.body, "trade_date") ?? "") ?? todayIST(),
+        price: toUnitPrice(unitPrice),
+        amount: amountRaw?.trim() ? amountField(amountRaw) : undefined,
+        units: amountRaw?.trim() ? undefined : toUnits(Number(field(ctx.body, "units") ?? 0)),
+        fees: feesRaw?.trim() ? amountField(feesRaw) : 0,
+        fromAccountId: field(ctx.body, "from_account_id") || null,
+        categoryId: field(ctx.body, "category_id") || null,
+      });
+
+      // R26.7: the purchase price seeds the history, so a holding is never
+      // valueless just because no refresh has run yet.
+      recordPrice(db, {
+        instrumentId: instrument.id, price: lot.price,
+        asOf: lot.tradeDate, source: "purchase",
+      });
+
+      return {
+        redirect: "/portfolio",
+        message: `Added ${formatUnits(lot.units)} units of ${instrument.name}.`,
+      };
+    }),
+  );
+
+  router.get("/portfolio/:id", (ctx) => {
+    requireAssets();
+    const view = viewHolding(db, ctx.params.id!);
+    if (!view) throw new NotFound("That holding does not exist.");
+    const account = listAssetAccounts(db).find((a) => a.id === view.holding.account_id);
+
+    return render(
+      ctx, view.instrument.name,
+      renderHoldingDetail({
+        view,
+        accountName: account?.name ?? "",
+        history: priceHistory(db, view.instrument.id, 40),
+        today: todayIST(),
+      }),
+    );
+  });
+
+  router.get("/portfolio/:id/sell", (ctx) => {
+    requireAssets();
+    const view = viewHolding(db, ctx.params.id!);
+    if (!view) throw new NotFound("That holding does not exist.");
+
+    const unitsRaw = ctx.query.get("units") ?? "";
+    const priceRaw = ctx.query.get("price") ?? (view.quote ? String(view.quote.price / 1_000_000) : "");
+
+    let preview = null;
+    if (unitsRaw && priceRaw) {
+      const quantity = toUnits(Number(unitsRaw));
+      const unitPrice = toUnitPrice(Number(priceRaw));
+      if (quantity > 0 && unitPrice > 0 && quantity <= view.units) {
+        preview = previewHoldingSale(db, view.holding.id, quantity, unitPrice, {
+          saleDate: todayIST(),
+        });
+      }
+    }
+
+    return render(
+      ctx, `Sell ${view.instrument.name}`,
+      renderSalePreview({
+        view, preview,
+        unitsToSell: unitsRaw,
+        priceInput: priceRaw,
+        accounts: listAccounts(db)
+          .filter((a) => a.kind === "budget")
+          .map((a) => ({ id: a.id, name: a.nickname || a.name })),
+        today: todayIST(),
+      }),
+    );
+  });
+
+  router.post("/portfolio/:id/sell", (ctx) =>
+    mutate(ctx, (a) => {
+      requireAssets();
+      const holdingId = ctx.params.id!;
+      const preview = recordSale(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+        holdingId,
+        units: toUnits(Number(requiredField(ctx.body, "units"))),
+        price: toUnitPrice(Number(requiredField(ctx.body, "price"))),
+        date: todayIST(),
+        toAccountId: field(ctx.body, "to_account_id") || null,
+      });
+
+      return {
+        redirect: "/portfolio",
+        message:
+          `Sold for ${formatPaise(preview.proceeds)} — realised ` +
+          `${preview.realisedGain >= 0 ? "gain" : "loss"} ` +
+          `${formatPaise(Math.abs(preview.realisedGain))}.`,
+      };
+    }),
+  );
+
+  /** F19.6 / P6 · A manual refresh, subject to the same ceiling. */
+  router.post("/portfolio/refresh", async (ctx) => {
+    requireAssets();
+    const a = auth(ctx);
+    let updated = 0;
+    const problems: string[] = [];
+
+    for (const instrument of listInstruments(db)) {
+      if (instrument.manual_only === 1 || instrument.provider !== "mfapi" || !instrument.symbol) {
+        continue;
+      }
+      const outcome = await mfapi.fetchPrice(instrument.symbol);
+      execute(
+        db,
+        `INSERT INTO price_fetches (instrument_id, provider, requested_at, status, detail)
+         VALUES (?,?,?,?,?)`,
+        instrument.id, "mfapi", nowIST(),
+        outcome.ok ? "ok" : outcome.reason,
+        outcome.ok ? `${outcome.price} as of ${outcome.asOf}` : outcome.message,
+      );
+
+      if (outcome.ok) {
+        // R26.5: a failure never overwrites a good cached price.
+        recordPrice(db, {
+          instrumentId: instrument.id, price: outcome.price,
+          asOf: outcome.asOf, source: "mfapi",
+        });
+        updated++;
+      } else {
+        problems.push(`${instrument.name}: ${outcome.message}`);
+      }
+    }
+
+    // R32: FX alongside, since a foreign holding needs both to be current.
+    const usd = await fetchFxRate("USD", "INR");
+    if (usd.ok) {
+      execute(
+        db,
+        `INSERT INTO fx_rates (base, quote, as_of, rate, source, fetched_at) VALUES (?,?,?,?,?,?)
+           ON CONFLICT(base, quote, as_of) DO UPDATE SET rate = excluded.rate`,
+        "USD", "INR", usd.asOf, usd.price / 1_000_000, "frankfurter", nowIST(),
+      );
+    }
+
+    appendEvent(db, actorFor(a, "job"), {
+      entity: "prices", entityId: todayIST(), action: "refresh",
+      after: { updated, problems: problems.length },
+      summary: `Refreshed ${updated} prices` + (problems.length ? `, ${problems.length} failed` : ""),
+    });
+
+    return {
+      redirect: withNotice(
+        "/portfolio",
+        problems.length === 0
+          ? `Refreshed ${updated} prices.`
+          : `Refreshed ${updated}. ${problems.length} couldn't be fetched — cached prices are still shown, with their dates.`,
+      ),
+    };
+  });
+
+  router.get("/net-worth", (ctx) => {
+    requireAssets();
+    const statement = netWorthStatement(db);
+    const history = netWorthHistory(db);
+    const previous = history.at(-2);
+
+    return render(
+      ctx, "Net worth",
+      renderNetWorth({
+        statement,
+        change: previous ? netWorthChange(db, previous.as_of, todayIST()) : null,
+        history,
+      }),
+    );
+  });
+
+  router.post("/net-worth/snapshot", (ctx) =>
+    mutate(ctx, (a) => {
+      requireAssets();
+      const snapshot = snapshotNetWorth(db, actorFor(a));
+      return {
+        redirect: "/net-worth",
+        message: `Recorded ${formatPaise(snapshot.net_worth)} as of ${snapshot.as_of}.`,
+      };
+    }),
+  );
+
+  router.post("/assets/new", (ctx) =>
+    mutate(ctx, (a) => {
+      requireAssets();
+      const valueRaw = field(ctx.body, "value");
+      const account = createAssetAccount(db, actorFor(a), {
+        name: requiredField(ctx.body, "name"),
+        subtype: requiredField(ctx.body, "subtype") as "physical",
+        openingValue: valueRaw?.trim() ? amountField(valueRaw) : undefined,
+        asOf: parseDate(field(ctx.body, "as_of") ?? "") ?? todayIST(),
+      });
+      return { redirect: "/portfolio", message: `Added ${account.name}.` };
     }),
   );
 

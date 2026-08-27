@@ -114,6 +114,13 @@ describe("R30 · the firewall", () => {
     const budgetPage = readFileSync(new URL("../web/pages/budget.ts", import.meta.url), "utf8");
     assert.ok(!/net\s*worth/i.test(budgetPage), "the budget screen must not mention net worth");
     assert.ok(!/portfolio/i.test(budgetPage), "nor portfolio value");
+
+    // A *link* to those screens in the sidebar is not a breach — `03` §2 puts
+    // them there, and F28.2 requires a disabled module to disappear from
+    // navigation, so an enabled one must appear. What FW3 forbids is the
+    // figure, and the check above is on the screen that renders figures.
+    const layout = readFileSync(new URL("../web/layout.ts", import.meta.url), "utf8");
+    assert.ok(layout.includes("/net-worth"), "the sidebar link is expected");
   });
 
   test("FW4 — buying is money leaving the budget, through a category", () => {
