@@ -21,6 +21,12 @@ import { applyStartingTemplate } from "./domain/starting-budget.ts";
 import { createLoan, recordInstalment, recordDisbursement, recordLoanStatement } from "./domain/loans.ts";
 import { createSchedule } from "./domain/schedules.ts";
 import { createGoal } from "./domain/goals.ts";
+import {
+  createAssetAccount, findOrCreateInstrument, recordPurchase, recordPrice,
+  recordFxRate, recordValuation,
+} from "./domain/assets.ts";
+import { snapshotNetWorth } from "./domain/networth.ts";
+import { units as toUnits, price as toPrice } from "./portfolio/holdings.ts";
 import { rupees } from "./core/money.ts";
 import { todayIST, monthOf, addDays } from "./core/dates.ts";
 
@@ -213,8 +219,60 @@ function main(): void {
     categoryIds: [id("Travel home")],
   });
 
+  // 07 §4 · The portfolio. Q16: mostly mutual funds, which is why MFAPI
+  // covers it and Alpha Vantage stays optional.
+  const demat = createAssetAccount(db, actor, { name: "Zerodha", subtype: "investment" });
+
+  const flexiCap = findOrCreateInstrument(db, actor, {
+    name: "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
+    kind: "mutual-fund", symbol: "122639", isin: "INF879O01019", provider: "mfapi",
+  });
+
+  // Three SIP instalments — the worked example in 07 §4.
+  for (const [date, nav] of [
+    ["2026-01-05", 80.0], ["2026-02-05", 82.5], ["2026-03-05", 78.0],
+  ] as const) {
+    recordPurchase(db, actor, {
+      accountId: demat.id, instrumentId: flexiCap.id, tradeDate: date,
+      price: toPrice(nav), amount: rupees(25_000),
+      fromAccountId: savings.id, categoryId: id("Investments"),
+    });
+    recordPrice(db, { instrumentId: flexiCap.id, price: toPrice(nav), asOf: date, source: "seed" });
+  }
+  recordPrice(db, { instrumentId: flexiCap.id, price: toPrice(86.4), asOf: today, source: "seed" });
+
+  // 07 §5 · A foreign holding, so R34's decomposition has something to say.
+  const apple = findOrCreateInstrument(db, actor, {
+    name: "Apple Inc", kind: "equity", symbol: "AAPL",
+    currency: "USD", provider: "alphavantage",
+  });
+  recordFxRate(db, { base: "USD", quote: "INR", rate: 83.0, asOf: "2026-02-10", source: "seed" });
+  recordFxRate(db, { base: "USD", quote: "INR", rate: 95.51, asOf: today, source: "seed" });
+  recordPurchase(db, actor, {
+    accountId: demat.id, instrumentId: apple.id, tradeDate: "2026-02-10",
+    price: toPrice(150), units: toUnits(10), fxRate: 83.0,
+    fromAccountId: savings.id, categoryId: id("Investments"),
+  });
+  recordPrice(db, { instrumentId: apple.id, price: toPrice(150), asOf: "2026-02-10", source: "seed" });
+  recordPrice(db, { instrumentId: apple.id, price: toPrice(180), asOf: today, source: "seed" });
+
+  // R23.2 · Manually valued assets, each with a dated valuation.
+  for (const [name, subtype, value] of [
+    ["EPF and PPF", "retirement", 14_50_000],
+    ["Gold", "commodity", 2_85_000],
+    ["Property (at cost)", "physical", 62_00_000],
+  ] as const) {
+    const account = createAssetAccount(db, actor, { name, subtype });
+    recordValuation(db, actor, { accountId: account.id, value: rupees(value), asOf: monthStart });
+  }
+
+  // R29.2 · A dated history, so the trend is real rather than reconstructed.
+  snapshotNetWorth(db, actor, monthStart);
+  snapshotNetWorth(db, actor, today);
+
   console.log(
-    `Seeded a household: 2 members, 4 accounts, ${categories.size} categories, 2 loans, 5 schedules.`,
+    `Seeded a household: 2 members, 4 accounts, ${categories.size} categories, ` +
+      `2 loans, 5 schedules, 5 asset accounts.`,
   );
   console.log(`Run with DEV_LOGIN=true and sign in as Ravi or Priya.`);
   db.close();

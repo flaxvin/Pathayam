@@ -31,7 +31,7 @@ import { formatPaise, type Paise } from "../core/money.ts";
 import { createAccount, getAccount } from "./accounts.ts";
 import { createTransaction } from "./transactions.ts";
 import {
-  makeLot, previewSale, totalUnits, costBasis, averageCost, marketValue,
+  makeLot, previewSale, totalUnits, costBasis, averageCost, averageUnitPrice, marketValue,
   unrealisedGain, absoluteReturn, xirr, holdingCashFlows, decomposeGain,
   applySplit, applyReturnOfCapital, formatUnits,
   type Lot, type Holding, type Milliunits, type MicroRupees,
@@ -479,7 +479,10 @@ export interface HoldingView {
   lots: Lot[];
   units: Milliunits;
   costBasis: Paise;
+  /** Base currency per unit — what the units cost you. */
   averageCost: MicroRupees;
+  /** The instrument's own currency per unit — what a broker shows. */
+  averageUnitPrice: MicroRupees;
   quote: Quote | null;
   fx: FxQuote | null;
   marketValue: Paise;
@@ -528,7 +531,9 @@ export function viewHolding(
     instrument.currency !== baseCurrency && firstLot && quote
       ? decomposeGain({
           quantity: totalUnits(holding),
-          priceAtPurchase: averageCost(holding),
+          // The price paid in the instrument's own currency — averageCost is
+          // in base, and feeding that in would count the FX move twice.
+          priceAtPurchase: averageUnitPrice(holding),
           priceNow: quote.price,
           fxAtPurchase: firstLot.fxRate ?? rate,
           fxNow: rate,
@@ -542,6 +547,7 @@ export function viewHolding(
     units: totalUnits(holding),
     costBasis: costBasis(holding),
     averageCost: averageCost(holding),
+    averageUnitPrice: averageUnitPrice(holding),
     quote,
     fx,
     marketValue: marketValue(holding, unitPrice, rate),

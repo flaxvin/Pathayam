@@ -13,7 +13,7 @@ import {
   units, price, makeLot, totalUnits, costBasis, averageCost, marketValue,
   unrealisedGain, absoluteReturn, previewSale, xirr, holdingCashFlows,
   mustShowXirr, decomposeGain, applySplit, applyReturnOfCapital, valueOf,
-  formatUnits, type Holding,
+  formatUnits, averageUnitPrice, type Holding,
 } from "./holdings.ts";
 
 /** Whole rupees and paise, as `07` quotes them. */
@@ -330,5 +330,43 @@ describe("precision", () => {
     assert.equal(averageCost(empty), 0);
     assert.equal(absoluteReturn(empty, price(100)), 0);
     assert.equal(formatPaise(marketValue(empty, price(100))), "₹0");
+  });
+});
+
+describe("R33 · a foreign lot's basis is frozen at the trade-date rate", () => {
+  test("$1,500 at 83.00 is recorded as ₹1,24,500, not ₹1,500", () => {
+    const lot = makeLot({
+      id: "us", tradeDate: "2026-02-10", units: units(10), price: price(150), fxRate: 83.0,
+    });
+    assert.equal(R2(lot.cost), "124500.00");
+    assert.equal(lot.fxRate, 83.0, "and the rate itself is kept");
+  });
+
+  test("the holding's gain then matches 07 §5 exactly", () => {
+    const holding: Holding = {
+      lots: [makeLot({
+        id: "us", tradeDate: "2026-02-10", units: units(10), price: price(150), fxRate: 83.0,
+      })],
+    };
+    assert.equal(R2(costBasis(holding)), "124500.00");
+    assert.equal(R2(marketValue(holding, price(180), 95.51)), "171918.00");
+    assert.equal(R2(unrealisedGain(holding, price(180), 95.51)), "47418.00");
+  });
+
+  test("average unit price stays in the instrument's own currency", () => {
+    const holding: Holding = {
+      lots: [makeLot({
+        id: "us", tradeDate: "2026-02-10", units: units(10), price: price(150), fxRate: 83.0,
+      })],
+    };
+    // $150 a share, not ₹12,450 — which is what R34's decomposition needs.
+    assert.equal(averageUnitPrice(holding), price(150));
+    assert.equal(averageCost(holding), price(12_450), "base-currency cost per unit");
+  });
+
+  test("a rupee lot is unaffected by any of this", () => {
+    const lot = makeLot({ id: "x", tradeDate: "2026-01-05", amount: rupees(25_000), price: price(80) });
+    assert.equal(lot.cost, rupees(25_000));
+    assert.equal(lot.fxRate, null);
   });
 });

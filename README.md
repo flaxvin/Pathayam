@@ -9,11 +9,11 @@ The design is in [`docs/`](docs/00-README.md). This file covers running it.
 
 ## Status
 
-**P0 complete, P1 substantially complete.** A full month can be budgeted,
-spent, imported, reconciled and rolled over without a spreadsheet, and a
-restore has been verified with matching control totals — the two-part bar
-`05` §2 sets. P1's loans, cashflow calendar, schedule detection and goals are
-built. Assets, net worth and multi-currency (`07`, all P2) are not.
+**P0 complete, P1 complete, P2 substantially complete.** A full month can be
+budgeted, spent, imported, reconciled and rolled over without a spreadsheet,
+and a restore has been verified with matching control totals — the two-part bar
+`05` §2 sets. Loans, the cashflow calendar, goals, and the assets / net worth /
+multi-currency module are all built.
 
 The corrections and additions in
 [`docs/10-errata-and-addenda.md`](docs/10-errata-and-addenda.md) are adopted,
@@ -186,7 +186,10 @@ instead of three.
 **The engine is pure and tested against worked examples.** `05` §7 names the
 worst risk in the project as engine semantics going subtly wrong and surfacing
 in month four, costing a rewrite of every stored figure. The mitigation is the
-test suite in `src/engine/engine.test.ts`, written before any UI.
+test suite in `src/engine/engine.test.ts`, written before any UI. The same
+pattern is repeated for loans and for the portfolio: the maths is pure, has no
+database, and is pinned against the worked figures in `06` §12 and `07` §10
+before any screen exists.
 
 Both overspend models ship, neither is a stub (Q1). A test asserts the
 household ends up equally well off under each — only the term absorbing the
@@ -227,6 +230,13 @@ per-tranche disbursement destinations, instalment recording with the lender's
 split, drift against a lender statement, and the prepayment comparison that
 `06` §1 says the module exists for.
 
+**Assets and net worth** — holdings as units with FIFO lots, cost basis, XIRR
+as the headline return, corporate actions, the net worth statement with R29.4's
+four-way decomposition and a dated history, MFAPI and Frankfurter adapters
+behind one provider interface, and the asset-gain versus FX-gain split that
+sums exactly. **R30's ten firewall invariants are a test suite** — including
+one that drops the price tables outright and renders the budget screen.
+
 **The shell** — budget screen, theme, PWA manifest, command palette, first-run
 wizard, the India-appropriate starting template, Docker Compose.
 
@@ -234,8 +244,10 @@ wizard, the India-appropriate starting template, Docker Compose.
 
 | Gap | Where it is specified |
 |---|---|
-| Assets, holdings, net worth, multi-currency | `07` — P2, and the R30 firewall with it |
 | CDSL CAS import | `07` F19.14, promoted to P1 by errata E10 |
+| The AMFI fallback adapter behind the provider interface | `10` §3.3 — MFAPI is a third-party wrapper and can vanish |
+| Scheduled price refresh (manual refresh works) | `07` P4 |
+| Asset allocation by class and geography | F19.11 |
 | Gmail alert parsing, SMS forwarding | `04` §3.4, §3.5 — P1/P2 |
 | PDF statement parsers for HDFC / ICICI / Axis / SBI | `04` §3.3, Q2 |
 | Saved per-bank mapping profiles, and the mapping UI | `04` §3.2 |

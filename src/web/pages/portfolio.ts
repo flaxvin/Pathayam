@@ -1,0 +1,718 @@
+/**
+ * S13 · Portfolio · S14 · Net worth.
+ *
+ * `07` §8: XIRR is the headline return, every value carries its price date
+ * (R26.2 — "a portfolio value with no as-of date is not a number, it is a
+ * rumour"), and a foreign holding states its FX split in words.
+ *
+ * Deliberately absent from the budget screen. FW3 forbids it there.
+ */
+
+import { html, raw, when, type SafeHtml } from "../../http/html.ts";
+import { formatPaise, formatCompact, type Paise } from "../../core/money.ts";
+import { formatDate, type IsoDate } from "../../core/dates.ts";
+import { formatUnits, formatPrice } from "../../portfolio/holdings.ts";
+import type { HoldingView } from "../../domain/assets.ts";
+import { ASSET_LABELS, type AssetSubtype } from "../../domain/assets.ts";
+import type {
+  NetWorthStatement, NetWorthChange, Snapshot,
+} from "../../domain/networth.ts";
+
+export interface PortfolioRow {
+  view: HoldingView;
+  accountName: string;
+}
+
+export function renderPortfolio(opts: {
+  rows: PortfolioRow[];
+  manualAssets: { id: string; name: string; subtype: string; value: Paise; asOf: IsoDate; stale: boolean }[];
+  portfolioXirr: number | null;
+}): SafeHtml {
+  const invested = opts.rows.reduce((sum, r) => sum + r.view.costBasis, 0);
+  const value = opts.rows.reduce((sum, r) => sum + r.view.marketValue, 0);
+  const gain = value - invested;
+
+  if (opts.rows.length === 0 && opts.manualAssets.length === 0) {
+    return html`
+      <div class="row-between" style="margin-bottom:1rem"><h1>Portfolio</h1></div>
+      <div class="card empty-state">
+        <div class="empty-icon" aria-hidden="true">△</div>
+        <h2>Nothing tracked yet</h2>
+        <p>
+          Holdings are recorded as <strong>units</strong>, not as a rupee balance you
+          retype each month — that is what makes cost basis, realised gains and
+          XIRR computable at all.
+        </p>
+        <p><a class="button button-primary" href="/portfolio/add">Add a holding</a></p>
+      </div>
+    `;
+  }
+
+  return html`
+    <div class="row-between" style="margin-bottom:1rem">
+      <h1>Portfolio</h1>
+      <div class="row">
+        <form method="post" action="/portfolio/refresh">
+          <button class="button-small" type="submit">Refresh prices</button>
+        </form>
+        <a class="button button-primary" href="/portfolio/add">Add a holding</a>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="row" style="gap:2rem;flex-wrap:wrap">
+        ${figure("Invested", invested)}
+        ${figure("Market value", value)}
+        ${figure("Unrealised gain", gain)}
+        ${when(opts.portfolioXirr !== null, () => html`
+          <div>
+            <div class="faint">XIRR <span class="chip">money-weighted</span></div>
+            <strong class="amount" style="font-size:1.15rem">
+              ${opts.portfolioXirr!.toFixed(2)}%
+            </strong>
+          </div>
+        `)}
+      </div>
+    </div>
+
+    ${when(opts.rows.length > 0, () => html`
+      <section class="card">
+        <h2>Holdings</h2>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Instrument</th>
+                <th scope="col" class="num">Units</th>
+                <th scope="col" class="num">Avg cost</th>
+                <th scope="col" class="num">Price</th>
+                <th scope="col" class="num">Value</th>
+                <th scope="col" class="num">Gain</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${opts.rows.map((r) => renderHoldingRow(r))}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    `)}
+
+    ${when(opts.manualAssets.length > 0, () => html`
+      <section class="card">
+        <h2>Other assets</h2>
+        <p class="faint" style="margin-top:-.25rem">
+          Valued by hand. Each keeps a dated history, so net worth over time is
+          real rather than today's figure applied backwards.
+        </p>
+        ${opts.manualAssets.map(
+          (a) => html`
+            <div class="row-between" style="padding:.5rem 0;border-top:1px solid var(--border)">
+              <div>
+                <strong>${a.name}</strong>
+                <span class="chip">${ASSET_LABELS[a.subtype as AssetSubtype] ?? a.subtype}</span>
+                <div class="faint">
+                  as of ${formatDate(a.asOf)}
+                  ${when(a.stale, () => html`
+                    <span class="chip chip-warning">not valued recently</span>
+                  `)}
+                </div>
+              </div>
+              <strong class="amount">${formatPaise(a.value)}</strong>
+            </div>
+          `,
+        )}
+      </section>
+    `)}
+  `;
+}
+
+function renderHoldingRow(row: PortfolioRow): SafeHtml {
+  const v = row.view;
+  return html`
+    <tr>
+      <td>
+        <a href="/portfolio/${v.holding.id}">${v.instrument.name}</a>
+        <div class="faint">${row.accountName}</div>
+      </td>
+      <td class="num">${formatUnits(v.units)}</td>
+      <td class="num">
+        <!-- The price paid in the instrument's own currency, as a broker shows
+             it. For a foreign holding the base-currency cost per unit would
+             mean something different and read as wrong. -->
+        ${v.instrument.currency === "INR" ? "₹" : "$"}${formatPrice(v.averageUnitPrice)}
+      </td>
+      <td class="num">
+        ${v.quote
+          ? html`${v.instrument.currency === "INR" ? "₹" : "$"}${formatPrice(v.quote.price)}`
+          : html`<span class="faint">—</span>`}
+        ${when(v.quote, () => html`
+          <!-- R26.2: a value with no as-of date is a rumour, not a number. -->
+          <div class="faint">
+            ${formatDate(v.quote!.asOf)}
+            ${when(v.quote!.stale, () => html`<span class="chip chip-warning">stale</span>`)}
+          </div>
+        `)}
+      </td>
+      <td class="num amount">${formatPaise(v.marketValue)}</td>
+      <td class="num amount ${v.unrealisedGain < 0 ? "amount-negative" : "amount-positive"}">
+        ${formatPaise(v.unrealisedGain)}
+        <div class="faint">${v.absoluteReturn.toFixed(1)}%</div>
+      </td>
+    </tr>
+  `;
+}
+
+function figure(label: string, amount: Paise): SafeHtml {
+  return html`
+    <div>
+      <div class="faint">${label}</div>
+      <strong class="amount ${amount < 0 ? "amount-negative" : ""}" style="font-size:1.15rem">
+        ${formatPaise(amount)}
+      </strong>
+    </div>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// S13a · Holding detail
+// ---------------------------------------------------------------------------
+
+export function renderHoldingDetail(opts: {
+  view: HoldingView;
+  accountName: string;
+  history: { asOf: IsoDate; price: number; source: string }[];
+  today: IsoDate;
+}): SafeHtml {
+  const v = opts.view;
+
+  return html`
+    <div class="row-between" style="margin-bottom:1rem">
+      <div>
+        <h1 style="margin-bottom:.15rem">${v.instrument.name}</h1>
+        <p class="faint" style="margin:0">
+          ${opts.accountName} · ${formatUnits(v.units)} units
+          ${when(v.instrument.isin, () => html` · ${v.instrument.isin}`)}
+        </p>
+      </div>
+      <a class="button button-primary" href="/portfolio/${v.holding.id}/sell">Sell units</a>
+    </div>
+
+    <section class="card">
+      <h2>Where it stands</h2>
+      <div class="row" style="gap:2rem;flex-wrap:wrap">
+        ${figure("Invested", v.costBasis)}
+        ${figure("Market value", v.marketValue)}
+        ${figure("Unrealised gain", v.unrealisedGain)}
+        <div>
+          <!-- R27.1: XIRR is the headline for anything with more than one lot. -->
+          <div class="faint">XIRR <span class="chip">money-weighted</span></div>
+          <strong class="amount" style="font-size:1.15rem">
+            ${v.xirr !== null ? `${v.xirr.toFixed(2)}%` : "—"}
+          </strong>
+        </div>
+      </div>
+
+      <p class="field-hint">
+        ${v.quote
+          ? html`Priced at ₹${formatPrice(v.quote.price)} as of
+                 <strong>${formatDate(v.quote.asOf)}</strong> from ${v.quote.source}.
+                 ${when(v.quote.stale, () => html`
+                   That price is older than expected — the figures above still stand,
+                   they are just as of that date.
+                 `)}`
+          : html`No price recorded yet, so the value above uses average cost.
+                 <a href="/portfolio/${v.holding.id}/price">Enter one</a>`}
+      </p>
+
+      ${when(v.xirr !== null && Math.abs(v.absoluteReturn - v.xirr!) >= 2, () => html`
+        <p class="field-hint">
+          Absolute return says ${v.absoluteReturn.toFixed(2)}%, XIRR says
+          ${v.xirr!.toFixed(2)}%. The difference is time: absolute return treats
+          money you invested last month as though it had been in since the start.
+        </p>
+      `)}
+
+      ${when(v.decomposition?.sentence, () => html`
+        <!-- R34.1: required above 20%, because "+38%" would be true and useless. -->
+        <p class="notice notice-info">
+          <strong>${v.decomposition!.sentence}</strong><br>
+          ${formatPaise(v.decomposition!.assetGain)} came from the price and
+          ${formatPaise(v.decomposition!.fxGain)} from the exchange rate,
+          totalling ${formatPaise(v.decomposition!.totalGain)}.
+        </p>
+      `)}
+
+      ${when(v.realisedGain !== 0 || v.dividends !== 0, () => html`
+        <div class="row" style="gap:2rem;flex-wrap:wrap;margin-top:.5rem">
+          <!-- R27.4: realised and unrealised are never summed unlabelled. -->
+          ${when(v.realisedGain !== 0, () => figure("Realised gain", v.realisedGain))}
+          ${when(v.dividends !== 0, () => figure("Dividends received", v.dividends))}
+        </div>
+      `)}
+    </section>
+
+    <section class="card">
+      <h2>Lots</h2>
+      <p class="faint" style="margin-top:-.25rem">
+        Oldest first — the order a sale consumes them in. Holding periods are shown
+        so you can see what is long-term; this app classifies nothing and computes
+        no tax.
+      </p>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Bought</th>
+              <th scope="col" class="num">Units</th>
+              <th scope="col" class="num">Price</th>
+              <th scope="col" class="num">Cost</th>
+              <th scope="col" class="num">Held</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${v.lots.map(
+              (lot) => html`
+                <tr>
+                  <td>${formatDate(lot.tradeDate)}</td>
+                  <td class="num">${formatUnits(lot.units)}</td>
+                  <td class="num">₹${formatPrice(lot.price)}</td>
+                  <td class="num amount">${formatPaise(lot.cost)}</td>
+                  <td class="num faint">${daysLabel(lot.tradeDate, opts.today)}</td>
+                </tr>
+              `,
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    ${when(opts.history.length > 0, () => html`
+      <section class="card">
+        <h2>Price history</h2>
+        <div class="table-scroll" style="max-height:18rem;overflow-y:auto">
+          <table>
+            <thead>
+              <tr><th scope="col">Date</th><th scope="col" class="num">Price</th><th scope="col">Source</th></tr>
+            </thead>
+            <tbody>
+              ${opts.history.map(
+                (h) => html`
+                  <tr>
+                    <td>${formatDate(h.asOf)}</td>
+                    <td class="num">₹${formatPrice(h.price)}</td>
+                    <td class="faint">${h.source}</td>
+                  </tr>
+                `,
+              )}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    `)}
+  `;
+}
+
+function daysLabel(from: IsoDate, to: IsoDate): string {
+  const days = Math.round(
+    (Date.parse(`${to}T00:00:00Z`) - Date.parse(`${from}T00:00:00Z`)) / 86_400_000,
+  );
+  if (days < 365) return `${days}d`;
+  return `${Math.floor(days / 365)}y ${days % 365}d`;
+}
+
+// ---------------------------------------------------------------------------
+// S13c · The FIFO sale preview
+// ---------------------------------------------------------------------------
+
+export function renderSalePreview(opts: {
+  view: HoldingView;
+  preview: {
+    consumed: { tradeDate: IsoDate; units: number; price: number; cost: Paise; holdingPeriodDays: number }[];
+    proceeds: Paise;
+    costOfUnitsSold: Paise;
+    realisedGain: Paise;
+    unitsRemaining: number;
+    description: string;
+  } | null;
+  unitsToSell: string;
+  priceInput: string;
+  accounts: { id: string; name: string }[];
+  today: IsoDate;
+}): SafeHtml {
+  const v = opts.view;
+
+  return html`
+    <h1>Sell ${v.instrument.name}</h1>
+    <p class="muted">${formatUnits(v.units)} units held.</p>
+
+    <form method="get" action="/portfolio/${v.holding.id}/sell" class="card">
+      <div class="grid-2">
+        <div class="field">
+          <label for="units">Units to sell</label>
+          <input id="units" name="units" type="text" inputmode="decimal"
+                 value="${opts.unitsToSell}" required>
+        </div>
+        <div class="field">
+          <label for="price">Price per unit</label>
+          <input id="price" name="price" type="text" inputmode="decimal"
+                 value="${opts.priceInput}" required>
+        </div>
+      </div>
+      <button type="submit">Preview</button>
+    </form>
+
+    ${when(opts.preview, () => html`
+      <div class="card">
+        <h2>What this sells</h2>
+        <!-- S13c: exactly which lots are consumed, before confirming. -->
+        <p class="notice notice-info">${opts.preview!.description}</p>
+
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">From</th>
+                <th scope="col" class="num">Units</th>
+                <th scope="col" class="num">Bought at</th>
+                <th scope="col" class="num">Cost</th>
+                <th scope="col" class="num">Held</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${opts.preview!.consumed.map(
+                (c) => html`
+                  <tr>
+                    <td>${formatDate(c.tradeDate)}</td>
+                    <td class="num">${formatUnits(c.units)}</td>
+                    <td class="num">₹${formatPrice(c.price)}</td>
+                    <td class="num amount">${formatPaise(c.cost)}</td>
+                    <td class="num faint">${c.holdingPeriodDays}d</td>
+                  </tr>
+                `,
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        <div class="row" style="gap:2rem;flex-wrap:wrap;margin-top:1rem">
+          ${figure("Proceeds", opts.preview!.proceeds)}
+          ${figure("Cost of those units", opts.preview!.costOfUnitsSold)}
+          ${figure("Realised gain", opts.preview!.realisedGain)}
+        </div>
+
+        <form method="post" action="/portfolio/${v.holding.id}/sell" style="margin-top:1rem">
+          <input type="hidden" name="units" value="${opts.unitsToSell}">
+          <input type="hidden" name="price" value="${opts.priceInput}">
+          <div class="field">
+            <label for="to_account">Where do the proceeds land?</label>
+            <select id="to_account" name="to_account_id">
+              <option value="">Leave the cash outside the budget</option>
+              ${opts.accounts.map((a) => html`<option value="${a.id}">${a.name}</option>`)}
+            </select>
+            <p class="field-hint">
+              The <strong>full proceeds</strong> arrive as money to assign, not just the
+              gain. Cash is cash — the gain is a separate fact about the past.
+            </p>
+          </div>
+          <button class="button-primary" type="submit">Record the sale</button>
+          <a class="button button-quiet" href="/portfolio/${v.holding.id}">Cancel</a>
+        </form>
+      </div>
+    `)}
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// S14 · Net worth
+// ---------------------------------------------------------------------------
+
+export function renderNetWorth(opts: {
+  statement: NetWorthStatement;
+  change: NetWorthChange | null;
+  history: Snapshot[];
+}): SafeHtml {
+  const s = opts.statement;
+
+  return html`
+    <div class="row-between" style="margin-bottom:1rem">
+      <h1>Net worth</h1>
+      <form method="post" action="/net-worth/snapshot">
+        <button class="button-small" type="submit">Snapshot today</button>
+      </form>
+    </div>
+
+    <div class="card">
+      <div class="faint">As of ${formatDate(s.asOf)}</div>
+      <div class="rta-figure ${s.netWorth < 0 ? "amount-negative" : ""}">
+        ${formatPaise(s.netWorth)}
+      </div>
+      ${when(s.hasStaleInputs, () => html`
+        <!-- R29.1: the figure carries the staleness of its worst input. -->
+        <p class="faint">
+          Some inputs haven't been updated recently — the oldest is from
+          ${formatDate(s.worstInputDate!)}. The figure is still the best available;
+          it is just as of those dates.
+        </p>
+      `)}
+    </div>
+
+    ${s.untrackedAssetWarnings.map(
+      (warning) => html`<p class="notice notice-warning">${warning}</p>`,
+    )}
+
+    ${when(opts.change, () => renderWaterfall(opts.change!))}
+
+    <section class="card">
+      <h2>Assets <span class="amount">${formatPaise(s.totalAssets)}</span></h2>
+      ${s.assetGroups.map((g) => renderGroup(g))}
+    </section>
+
+    <section class="card">
+      <h2>Liabilities <span class="amount">${formatPaise(s.totalLiabilities)}</span></h2>
+      ${s.liabilityGroups.map((g) => renderGroup(g))}
+    </section>
+
+    ${when(opts.history.length > 1, () => renderHistory(opts.history))}
+  `;
+}
+
+/** R29.4 · Four numbers that mean four different things. */
+function renderWaterfall(change: NetWorthChange): SafeHtml {
+  const parts: [string, Paise, string][] = [
+    ["Money saved", change.moneySaved, "What you actually put aside"],
+    ["Market movement", change.marketMovement, "Prices moving, not your doing"],
+    ["Exchange rate", change.fxMovement, "The rupee moving, not your doing"],
+    ["Debt repaid", change.debtRepaid, "Principal cleared"],
+  ].filter(([, value]) => value !== 0) as [string, Paise, string][];
+
+  return html`
+    <section class="card">
+      <h2>Since ${formatDate(change.from)}</h2>
+      <p class="muted">${change.reading}</p>
+      ${parts.map(
+        ([label, value, blurb]) => html`
+          <div class="row-between" style="padding:.5rem 0;border-top:1px solid var(--border)">
+            <div>
+              <strong>${label}</strong>
+              <div class="faint">${blurb}</div>
+            </div>
+            <strong class="amount ${value < 0 ? "amount-negative" : "amount-positive"}">
+              ${value > 0 ? "+" : ""}${formatPaise(value)}
+            </strong>
+          </div>
+        `,
+      )}
+      <p class="field-hint">
+        A net worth that rose because the rupee weakened is not the same
+        achievement as one that rose because you repaid principal.
+      </p>
+    </section>
+  `;
+}
+
+function renderGroup(group: { name: string; total: Paise; lines: { label: string; value: Paise; asOf: IsoDate | null; stale: boolean }[] }): SafeHtml {
+  return html`
+    <details ${raw(group.lines.length <= 6 ? "open" : "")}>
+      <summary style="min-height:44px;display:flex;align-items:center;cursor:pointer;gap:.75rem">
+        <strong style="flex:1">${group.name}</strong>
+        <span class="amount">${formatPaise(group.total)}</span>
+      </summary>
+      ${group.lines.map(
+        (line) => html`
+          <div class="row-between" style="padding:.4rem 0 .4rem 1rem;border-top:1px solid var(--border)">
+            <span>
+              ${line.label}
+              ${when(line.stale, () => html`<span class="chip chip-warning">stale</span>`)}
+              ${when(line.asOf, () => html`<span class="faint"> ${formatDate(line.asOf!)}</span>`)}
+            </span>
+            <span class="amount">${formatPaise(line.value)}</span>
+          </div>
+        `,
+      )}
+    </details>
+  `;
+}
+
+function renderHistory(history: Snapshot[]): SafeHtml {
+  const peak = Math.max(...history.map((h) => Math.abs(h.net_worth)), 1);
+  return html`
+    <section class="card">
+      <h2>Over time</h2>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">As of</th>
+              <th scope="col" class="num">Assets</th>
+              <th scope="col" class="num">Liabilities</th>
+              <th scope="col" class="num">Net worth</th>
+              <th scope="col" style="width:35%"></th>
+            </tr>
+          </thead>
+          <tbody>
+            ${history.map(
+              (h) => html`
+                <tr>
+                  <td>${formatDate(h.as_of)}</td>
+                  <td class="num amount">
+                    ${formatCompact(h.cash + h.investments + h.other_assets)}
+                  </td>
+                  <td class="num amount amount-negative">
+                    ${formatCompact(h.credit_cards + h.loans)}
+                  </td>
+                  <td class="num amount"><strong>${formatCompact(h.net_worth)}</strong></td>
+                  <td>
+                    <span class="target-bar" style="max-width:100%;height:8px" aria-hidden="true">
+                      <span style="width:${Math.round((Math.abs(h.net_worth) / peak) * 100)}%"></span>
+                    </span>
+                  </td>
+                </tr>
+              `,
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// S13b · Add a holding
+// ---------------------------------------------------------------------------
+
+export function renderAddHolding(opts: {
+  assetAccounts: { id: string; name: string }[];
+  budgetAccounts: { id: string; name: string }[];
+  categories: { id: string; name: string }[];
+  searchResults: { schemeCode: string; schemeName: string }[];
+  query: string;
+  today: IsoDate;
+}): SafeHtml {
+  return html`
+    <h1>Add a holding</h1>
+
+    <form method="get" action="/portfolio/add" class="card">
+      <div class="field">
+        <label for="q">Find a mutual fund</label>
+        <input id="q" name="q" value="${opts.query}" placeholder="parag parikh flexi cap">
+        <p class="field-hint">
+          Searches AMFI's scheme list. <strong>Direct and Regular are different
+          schemes with different NAVs</strong>, so pick the exact plan — the full
+          name is shown for that reason.
+        </p>
+      </div>
+      <button type="submit">Search</button>
+    </form>
+
+    ${when(opts.searchResults.length > 0, () => html`
+      <section class="card">
+        <h2>Pick the exact plan</h2>
+        ${opts.searchResults.map(
+          (r) => html`
+            <form method="post" action="/portfolio/add" style="padding:.5rem 0;border-top:1px solid var(--border)">
+              <input type="hidden" name="scheme_code" value="${r.schemeCode}">
+              <input type="hidden" name="name" value="${r.schemeName}">
+              <div class="row-between">
+                <span>${r.schemeName} <span class="faint">${r.schemeCode}</span></span>
+                <button class="button-small" type="submit" name="step" value="details">Choose</button>
+              </div>
+            </form>
+          `,
+        )}
+      </section>
+    `)}
+
+    <section class="card">
+      <h2>Or enter it by hand</h2>
+      <form method="post" action="/portfolio/add">
+        <input type="hidden" name="step" value="create">
+        <div class="grid-2">
+          <div class="field">
+            <label for="name">Instrument</label>
+            <input id="name" name="name" required placeholder="Parag Parikh Flexi Cap - Direct - Growth">
+          </div>
+          <div class="field">
+            <label for="kind">Kind</label>
+            <select id="kind" name="kind">
+              <option value="mutual-fund">Mutual fund</option>
+              <option value="equity">Equity</option>
+              <option value="etf">ETF</option>
+              <option value="commodity">Commodity</option>
+              <option value="other">Other</option>
+            </select>
+          </div>
+        </div>
+
+        <div class="grid-2">
+          <div class="field">
+            <label for="account_id">Held in</label>
+            <select id="account_id" name="account_id" required>
+              ${opts.assetAccounts.map((a) => html`<option value="${a.id}">${a.name}</option>`)}
+            </select>
+          </div>
+          <div class="field">
+            <label for="currency">Currency</label>
+            <select id="currency" name="currency">
+              <option value="INR">₹ Indian rupee</option>
+              <option value="USD">$ US dollar</option>
+            </select>
+          </div>
+        </div>
+
+        <fieldset>
+          <legend>The purchase</legend>
+          <div class="grid-2">
+            <div class="field">
+              <label for="amount">Amount invested</label>
+              <input id="amount" name="amount" class="amount-input" type="text" inputmode="decimal">
+              <p class="field-hint">Units are worked out from the price — how a SIP works.</p>
+            </div>
+            <div class="field">
+              <label for="unit_price">Price per unit</label>
+              <input id="unit_price" name="unit_price" type="text" inputmode="decimal" required>
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label for="trade_date">Bought on</label>
+              <input id="trade_date" name="trade_date" value="${formatDate(opts.today)}">
+            </div>
+            <div class="field">
+              <label for="fees">Fees and charges</label>
+              <input id="fees" name="fees" class="amount-input" type="text" inputmode="decimal" placeholder="0.00">
+              <p class="field-hint">Added to what the units cost you, by default.</p>
+            </div>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Where the money came from</legend>
+          <div class="grid-2">
+            <div class="field">
+              <label for="from_account_id">Paid from</label>
+              <select id="from_account_id" name="from_account_id">
+                <option value="">Don't record a payment</option>
+                ${opts.budgetAccounts.map((a) => html`<option value="${a.id}">${a.name}</option>`)}
+              </select>
+            </div>
+            <div class="field">
+              <label for="category_id">Category</label>
+              <select id="category_id" name="category_id">
+                <option value="">None</option>
+                ${opts.categories.map((c) => html`<option value="${c.id}">${c.name}</option>`)}
+              </select>
+            </div>
+          </div>
+          <p class="field-hint">
+            Buying is money <strong>leaving</strong> the budget. Recording the category
+            it came from keeps your envelope arithmetic whole, and stops reports
+            counting an investment as spending.
+          </p>
+        </fieldset>
+
+        <button class="button-primary" type="submit">Add it</button>
+      </form>
+    </section>
+  `;
+}

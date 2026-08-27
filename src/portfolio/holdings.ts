@@ -85,9 +85,15 @@ export interface Lot {
   price: MicroRupees;
   /** R24.5: capitalised into the basis by default. */
   fees: Paise;
-  /** What this lot cost, including capitalised fees. */
+  /**
+   * What this lot cost **in base currency**, including capitalised fees.
+   *
+   * R33: for a foreign holding the trade-date rate is frozen *into the cost
+   * basis*, so this is what actually left the bank — never revalued (FW8).
+   * `price` stays in the instrument's own currency.
+   */
   cost: Paise;
-  /** R33: frozen at trade date for a foreign holding, never revalued (FW8). */
+  /** R33.1 · The rate at trade date. Frozen, and never retrospectively changed. */
   fxRate: number | null;
 }
 
@@ -130,13 +136,18 @@ export function makeLot(input: LotInput): Lot {
     throw new RangeError("A lot needs either units or an amount.");
   }
 
+  // R33: a foreign purchase's basis is frozen at the trade-date rate. Without
+  // this a $1,500 lot would sit in the books as ₹1,500.
+  const rate = input.fxRate ?? 1;
+  const paidInBase = rate === 1 ? paid : Math.round(paid * rate);
+
   return {
     id: input.id,
     tradeDate: input.tradeDate,
     units: quantity,
     price: input.price,
     fees,
-    cost: capitalise ? paid + fees : paid,
+    cost: capitalise ? paidInBase + fees : paidInBase,
     fxRate: input.fxRate ?? null,
   };
 }
@@ -152,6 +163,20 @@ export function totalUnits(holding: Holding): Milliunits {
 /** R27 · Cost basis of the units still held. */
 export function costBasis(holding: Holding): Paise {
   return holding.lots.reduce((sum, lot) => sum + lot.cost, 0);
+}
+
+/**
+ * The weighted average *price* paid, in the instrument's own currency.
+ *
+ * Distinct from `averageCost`, which is in base currency. For a foreign
+ * holding the two differ by the exchange rate, and R34's decomposition needs
+ * this one — feeding it a base-currency figure would double-count the FX move.
+ */
+export function averageUnitPrice(holding: Holding): MicroRupees {
+  const quantity = totalUnits(holding);
+  if (quantity === 0) return 0;
+  const weighted = holding.lots.reduce((sum, lot) => sum + lot.units * lot.price, 0);
+  return Math.round(weighted / quantity);
 }
 
 /** R25.3 · Shown for readability, never used to compute a realised gain. */
