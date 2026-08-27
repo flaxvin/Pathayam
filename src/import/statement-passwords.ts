@@ -86,6 +86,10 @@ export function passwordCandidates(
     add(key.toLowerCase() + ddmm);
     add(key.charAt(0).toUpperCase() + key.slice(1).toLowerCase() + ddmm);
 
+    // RBL uses a two-digit year: RAVI010170. Found by trying, not documented.
+    add(key.toUpperCase() + ddmm + d.yyyy.slice(2));
+    add(key.toLowerCase() + ddmm + d.yyyy.slice(2));
+
     add(ddmmyyyy);
     add(ddmm);
     add(d.yyyy + d.mm + d.dd);

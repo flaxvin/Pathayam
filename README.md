@@ -216,13 +216,15 @@ payees with raw-string retention and merge. CSV import with header detection,
 Indian amount formats, UPI narration extraction, all five dedupe tiers, the
 review queue, the three-stage rules engine with test-before-save, the
 auto-approve gate, and batch undo. **Statement PDFs**, read in-process, for
-HDFC, ICICI, Axis, SBI, Union Bank, Canara, YES Bank, IndusInd, Kotak and broker
-contract notes. The sign of every transaction comes from the **running
+HDFC, ICICI, Axis, SBI, Union Bank, Canara, YES Bank, IndusInd, Kotak, RBL,
+HSBC and broker contract notes — refined against 81 real statements from 13
+institutions, of which 58 open and 1,856 transactions parse. The sign of every transaction comes from the **running
 balance**, not from which column a figure appears under — real statements
 right-align to a ragged edge, so debit and credit columns overlap and position
 inverts roughly half the rows while looking healthy. The parse is then checked
 against the statement's own closing balance: on a real 848-row Axis statement it
-reconciles to the paisa. Optionally, the app can work out statement passwords
+reconciles to the paisa, and every one of the twelve files that prints both an
+opening and a closing balance reconciles exactly. Optionally, the app can work out statement passwords
 from your saved name, date of birth and PAN, so nobody has to type one —
 opt-in, never exported, never logged, and the settings screen says plainly what
 it costs. A file the app

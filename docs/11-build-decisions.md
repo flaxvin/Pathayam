@@ -573,6 +573,95 @@ rate-limit and no account to lock.
 What opened it is reported as a description — "your PAN", "your name and date
 of birth" — never as the value.
 
+### B37 · The bank's password is usually the **owner** password, not the user one
+
+*28-08-2026, against 81 real statements.* Six institutions would not open with
+any derived candidate, and it looked like the derivation was wrong. It was not.
+qpdf's verdict on a Union Bank statement:
+
+> Supplied password is owner password. User password = «a customer number»
+
+*(the number is the account holder's internal customer id, redacted here)*
+
+The bank's own email tells the customer to type first-four-of-name plus DDMM —
+`RAVI0101` for their worked example. That string
+is the **owner** password. The user password is an internal customer number
+nobody is given. A decryptor implementing only Algorithm 6 therefore rejects
+the one password the bank documented.
+
+Algorithm 7 recovers the user password by decrypting `/O` with a key derived
+from the owner password, and it is now tried for every candidate. Union Bank
+went from 0 of 6 files to 6 of 6, all reconciling.
+
+**The lesson beyond PDFs:** when a documented input fails, check whether the
+documentation and the implementation mean the same thing by the word. An
+independent implementation said "owner password" in one line; another day of
+brute-forcing candidates would not have.
+
+### B38 · Everything that "obviously" ends a table appears above one
+
+Table-end detection began with `Summary`, `Closing Balance` and
+`IMPORTANT INFORMATION`. Each is a section heading printed *before* the
+transactions in at least one real statement — Axis leads with a summary block
+and a closing-balance footnote, HDFC's card with IMPORTANT INFORMATION — and
+each silently discarded **every row** of the files it appeared in. Axis fell
+from 895 rows to 173 and reconciliation went from clean to broken.
+
+What survives is the one marker with no ambiguity: Union Bank's `LINKED LOAN &
+ADVANCES` appendix, whose rows carry a date and a balance and would otherwise
+import as an ₹18 lakh movement that never happened.
+
+A heuristic that discards data needs far stronger evidence than one that keeps
+it. This list is now short on purpose.
+
+### B39 · What real statements do that invented ones do not
+
+Each of these cost a broken parse and is now a regression test. They are worth
+listing because none of them was imaginable from the format documentation:
+
+| What | Where it showed up |
+|---|---|
+| Narration wraps **around** the dated line, not just above it | Union Bank puts one fragment above and one below the same row |
+| Rows open with a **serial number** before the date | Union Bank |
+| The date is followed by `\| 23:08` | HDFC card |
+| A **single space** separates date and narration, so column splitting never sees two fields | YES Bank |
+| A trailing **branch code** after the balance | Axis |
+| The rupee sign decodes as the letter **C** | HDFC card — the font maps ₹ to 0x43, so a faithful extractor reports `C 491.00` |
+| The letterhead is the **customer's postal address**; the bank is named only by its IFSC prefix | Axis |
+| Per-glyph positioning splits words: `A XIS BANK`, `R elationship` | Axis |
+| A **statement period** — `15/02/2026 To 14/03/2026 … Credit Limit: Rs. 3,00,000.00` — parses as the largest transaction on the file | YES Bank |
+| Summary labels sit in the table's vertical band and glue onto payees | Axis, HDFC, ICICI |
+
+The last two are the dangerous class: they do not fail, they produce plausible
+wrong numbers. A ₹3,00,000 "purchase" would have gone through dedupe, rules and
+the review queue looking exactly like a transaction.
+
+### B40 · Fragments are assigned to the nearest row, and must be indented past the date
+
+Attaching every wrapped line to the row above — the obvious rule — glues each
+row's *opening* fragment onto its predecessor, so every payee lands one
+transaction late. Nearest-row-wins, ties going upward, handles both Axis
+(fragment above) and Union Bank (fragments both sides), because a wrapped cell
+is vertically centred on its own row.
+
+A fragment must also be **indented past its row's date column**, which is what
+distinguishes a wrapped payee from a letterhead: the letterhead starts at the
+left margin.
+
+### B41 · Where this got to, and what it still cannot open
+
+Against 81 real statements from 13 institutions:
+
+- **58 of 77** open. All 12 files that print both an opening and a closing
+  balance reconcile exactly — 0 failures.
+- **1,856 transactions** parsed from 52 files.
+- **19 remain locked**: SBI accounts, SBI Card, Canara and HSBC use a password
+  derivable from neither PAN, date of birth nor name — verified against qpdf,
+  so it is the password and not the reader. Those need the household to type it
+  once, which is the path that already exists.
+- RBL prints two tables side by side on the page, so its rows interleave with
+  an account summary. Left unparsed rather than guessed at.
+
 ---
 
-*Entries B37 onward are recorded as the work happens.*
+*Entries B42 onward are recorded as the work happens.*

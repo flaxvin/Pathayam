@@ -155,6 +155,14 @@ institution picks differently — verified from the emails themselves:
 | ICICI Bank | "Enter all letters in small case without adding any special characters, spaces or salutation" |
 | Upstox, INDmoney | "use your PAN (in lowercase)" |
 | SBI, IndusInd, Canara | date of birth, generally DDMMYYYY |
+| RBL Bank | first four letters plus DDMM**YY** — a two-digit year, found by trying |
+
+**A statement password is usually the PDF's *owner* password.** Verified
+28-08-2026: qpdf reports of a Union Bank statement that `RAVI0101` — the string
+the bank's own email tells the customer to use — is the owner password, and
+that the user password is an internal customer number never disclosed. A reader
+that checks only the user password rejects the documented one. Both paths must
+be tried.
 
 So storing "the password" and storing "the name, the date of birth and the PAN"
 are the same act. Pretending otherwise by storing only the derived string would

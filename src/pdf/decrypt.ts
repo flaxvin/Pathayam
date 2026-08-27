@@ -86,6 +86,48 @@ function legacyFileKey(
   return key;
 }
 
+/**
+ * Algorithm 7 — recover the **user** password from the owner password.
+ *
+ * This exists because Indian bank statements need it. qpdf's verdict on a real
+ * Union Bank statement was, in its own words, that the supplied password was
+ * the **owner** password and that the user password was a customer number. The bank sets the friendly derived string —
+ * `RAVI0101`, exactly as their email describes — as the **owner** password,
+ * and leaves the user password as an internal customer number nobody is told.
+ *
+ * A decryptor that only tries the user password (Algorithm 6) therefore
+ * rejects the very password the bank told the customer to use. Six of this
+ * household's institutions behaved that way.
+ *
+ * The owner key decrypts /O to reveal the user password, which then goes
+ * through Algorithm 2 as normal.
+ */
+function userPasswordFromOwner(
+  owner: Uint8Array, o: Uint8Array, revision: number, lengthBytes: number,
+): Uint8Array {
+  let key = new Uint8Array(createHash("md5").update(pad(owner)).digest());
+
+  if (revision >= 3) {
+    for (let i = 0; i < 50; i++) {
+      key = new Uint8Array(createHash("md5").update(key.subarray(0, lengthBytes)).digest());
+    }
+  }
+
+  const rc4Key = key.subarray(0, revision === 2 ? 5 : lengthBytes);
+
+  if (revision === 2) return rc4(rc4Key, o.subarray(0, 32));
+
+  // R3+ applies twenty RC4 passes, counting *down*, each with the key XORed by
+  // the round number — the reverse of how /O was built.
+  let value = o.subarray(0, 32);
+  for (let i = 19; i >= 0; i--) {
+    const round = new Uint8Array(rc4Key.length);
+    for (let j = 0; j < rc4Key.length; j++) round[j] = rc4Key[j]! ^ i;
+    value = rc4(round, value);
+  }
+  return value;
+}
+
 /** Algorithm 6 — does this key actually open the file? */
 function legacyKeyIsRight(
   key: Uint8Array, u: Uint8Array, id: Uint8Array, revision: number,
@@ -233,10 +275,19 @@ function fileKey(doc: PdfDocument, encrypt: PdfDict, password: string): Encrypti
   }
 
   const lengthBytes = Math.max(5, Math.min(16, Math.floor(keyBits / 8)));
+
   for (const candidate of candidates) {
+    // As the user password.
     const key = legacyFileKey(candidate, o, p, id, r, lengthBytes, encryptMetadata);
     if (legacyKeyIsRight(key, u, id, r)) {
       return { key, aes, perObjectKey: true };
+    }
+
+    // As the owner password — which is what a bank statement usually is.
+    const recovered = userPasswordFromOwner(candidate, o, r, lengthBytes);
+    const ownerKey = legacyFileKey(recovered, o, p, id, r, lengthBytes, encryptMetadata);
+    if (legacyKeyIsRight(ownerKey, u, id, r)) {
+      return { key: ownerKey, aes, perObjectKey: true };
     }
   }
   throw new WrongPassword();

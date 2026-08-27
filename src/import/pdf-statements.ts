@@ -46,7 +46,7 @@ export { WrongPassword };
 
 export type BankId =
   | "hdfc" | "icici" | "axis" | "sbi"
-  | "union" | "canara" | "yes" | "indusind" | "kotak"
+  | "union" | "canara" | "yes" | "indusind" | "kotak" | "rbl" | "hsbc"
   /** Contract notes and funds statements from a broker, not a bank. */
   | "broker";
 
@@ -72,7 +72,7 @@ export const BANKS: BankProfile[] = [
       "capitals followed by your date of birth as DDMM.",
     // An IFSC prefix is the one identifier a statement cannot be vague about,
     // and it survives a letterhead that is just the customer's address.
-    signatures: [/HDFC\s*BANK/i, /hdfcbank\.com/i, /\bIFSC[^A-Z]{0,12}HDFC\d/i],
+    signatures: [/HDFC\s*BANK/i, /hdfcbank\.com/i, /\bIFSC\b[^\n]{0,24}?\bHDFC\d/i],
   },
   {
     id: "icici",
@@ -80,7 +80,7 @@ export const BANKS: BankProfile[] = [
     passwordHint:
       "All letters in lower case, no spaces or salutation — usually the first " +
       "four letters of your name followed by your date of birth as DDMM.",
-    signatures: [/ICICI\s*Bank/i, /icicibank\.com/i, /\bIFSC[^A-Z]{0,12}ICIC\d/i],
+    signatures: [/ICICI\s*Bank/i, /icicibank\.com/i, /\bIFSC\b[^\n]{0,24}?\bICIC\d/i],
   },
   {
     id: "axis",
@@ -91,7 +91,7 @@ export const BANKS: BankProfile[] = [
     signatures: [
       /AXIS\s*BANK/i, /axisbank\.com/i,
       // UTIB is Axis's IFSC prefix, from the days it was UTI Bank.
-      /\bIFSC[^A-Z]{0,12}UTIB\d/i, /Statement\s+of\s+Axis\s+Account/i,
+      /\bIFSC\b[^\n]{0,24}?\bUTIB\d/i, /Statement\s+of\s+Axis\s+Account/i,
     ],
   },
   {
@@ -102,7 +102,7 @@ export const BANKS: BankProfile[] = [
       "you registered for e-statements.",
     signatures: [
       /State\s*Bank\s*of\s*India/i, /\bSBI\b/, /onlinesbi/i,
-      /\bIFSC[^A-Z]{0,12}SBIN\d/i,
+      /\bIFSC\b[^\n]{0,24}?\bSBIN\d/i,
     ],
   },
 ];
@@ -124,7 +124,7 @@ BANKS.push(
     passwordHint:
       "The first four characters of your name in CAPITALS, then your date and " +
       "month of birth as DDMM. For Ravi Kumar born 01/01/1970: RAVI0101.",
-    signatures: [/Union\s*Bank\s*of\s*India/i, /unionbankofindia/i, /\bIFSC[^A-Z]{0,12}UBIN\d/i],
+    signatures: [/Union\s*Bank\s*of\s*India/i, /unionbankofindia/i, /\bIFSC\b[^\n]{0,24}?\bUBIN\d/i],
   },
   {
     id: "canara",
@@ -132,7 +132,7 @@ BANKS.push(
     passwordHint:
       "Usually your date of birth as DDMMYYYY, or the first four letters of " +
       "your name in capitals followed by DDMM.",
-    signatures: [/Canara\s*Bank/i, /canarabank\.com/i, /\bIFSC[^A-Z]{0,12}CNRB\d/i],
+    signatures: [/Canara\s*Bank/i, /canarabank\.com/i, /\bIFSC\b[^\n]{0,24}?\bCNRB\d/i],
   },
   {
     id: "yes",
@@ -140,7 +140,7 @@ BANKS.push(
     passwordHint:
       "The first four letters of your name in capitals followed by your date " +
       "and month of birth as DDMM.",
-    signatures: [/\bYES\s*BANK\b/i, /yesbank\.in/i, /\bIFSC[^A-Z]{0,12}YESB\d/i],
+    signatures: [/\bYES\s*BANK\b/i, /yesbank\.in/i, /\bIFSC\b[^\n]{0,24}?\bYESB\d/i],
   },
   {
     id: "indusind",
@@ -148,7 +148,7 @@ BANKS.push(
     passwordHint:
       "Usually your date of birth as DDMMYYYY, or the first four letters of " +
       "your name followed by DDMM.",
-    signatures: [/IndusInd\s*Bank/i, /indusind\.com/i, /\bIFSC[^A-Z]{0,12}INDB\d/i],
+    signatures: [/IndusInd\s*Bank/i, /indusind\.com/i, /\bIFSC\b[^\n]{0,24}?\bINDB\d/i],
   },
   {
     id: "kotak",
@@ -156,7 +156,23 @@ BANKS.push(
     passwordHint:
       "The first four letters of your name in lower case followed by your " +
       "date and month of birth as DDMM.",
-    signatures: [/Kotak\s*Mahindra/i, /kotak\.com/i, /\bIFSC[^A-Z]{0,12}KKBK\d/i],
+    signatures: [/Kotak\s*Mahindra/i, /kotak\.com/i, /\bIFSC\b[^\n]{0,24}?\bKKBK\d/i],
+  },
+  {
+    id: "rbl",
+    name: "RBL Bank",
+    passwordHint:
+      "The first four letters of your name in capitals followed by your date " +
+      "of birth as DDMMYY — a two-digit year, unusually.",
+    signatures: [/\bRBL\s*Bank/i, /rblbank\.com/i, /\bIFSC\b[^\n]{0,24}?\bRATN\d/i],
+  },
+  {
+    id: "hsbc",
+    name: "HSBC India",
+    passwordHint:
+      "Usually your date of birth as DDMMYYYY, or the password you set for " +
+      "e-statements.",
+    signatures: [/\bHSBC\b/i, /hsbc\.co\.in/i, /\bIFSC\b[^\n]{0,24}?\bHSBC\d/i],
   },
   {
     id: "broker",
@@ -180,13 +196,35 @@ export function detectBank(text: string): BankProfile | null {
    * document, because "UPI-DMART-dmart@hdfcbank" appears in ICICI statements
    * every month and a narration must never decide the producer.
    */
+  /*
+   * The head is the first stretch of the document with its **transaction rows
+   * removed**, rather than everything before the first row.
+   *
+   * Both halves matter. Excluding rows is what stops a narration deciding:
+   * "UPI-DMART-dmart@hdfcbank" appears in ICICI statements every month. And
+   * looking past the first row is what finds Axis's "Relationship Statement",
+   * which prints its first transaction four lines in and names the bank well
+   * below that.
+   */
   const lines = text.split("\n");
-  const firstRow = lines.findIndex((line) =>
-    /^\s*\d{1,2}[-\s/](?:\d|[A-Za-z]{3})/.test(line),
-  );
-  const head = lines.slice(0, firstRow === -1 ? 30 : firstRow).join("\n");
+  const head = lines
+    .filter((line) => findDate(line) === null)
+    .slice(0, 40)
+    .join("\n");
 
-  return BANKS.find((bank) => bank.signatures.some((s) => s.test(head))) ?? null;
+  /*
+   * Matched against the text with its spaces removed as well as as-is.
+   *
+   * Some generators position every glyph individually, and the extractor then
+   * reports what is genuinely there: "R elationship Statement", "A XIS BANK".
+   * A signature written the way a human reads it would never match, and the
+   * statement would be treated as coming from an unknown bank.
+   */
+  const squashed = head.replace(/\s+/g, "");
+
+  return BANKS.find((bank) =>
+    bank.signatures.some((s) => s.test(head) || s.test(squashed)),
+  ) ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -241,8 +279,23 @@ export function parseStatementAmount(raw: string): { value: number; credit: bool
   const debit = /\bdr\b\.?$/i.test(text);
   const bracketed = /^\(.*\)$/.test(text);
 
-  const digits = text.replace(/\b[cd]r\b\.?/i, "").replace(/[(),\s₹]/g, "");
-  if (!/^-?\d*\.?\d+$/.test(digits)) return null;
+  /*
+   * A leading currency mark is stripped, including the letter "C".
+   *
+   * That is not a typo. HDFC's card statement embeds the rupee sign in a font
+   * whose encoding maps it to code 0x43, so a faithful extractor reports
+   * "C 491.00" where the page shows "₹ 491.00". Leaving it attached means the
+   * cell is not recognised as money — so it lands in the payee instead, and
+   * the row's sign is decided by the wrong rule.
+   */
+  const withoutCurrency = text
+    .replace(/\b[cd]r\b\.?/i, "")
+    .replace(/^\s*(?:Rs\.?|INR|₹|C)\s*(?=[\d(])/i, "");
+
+  const digits = withoutCurrency.replace(/[(),\s₹]/g, "");
+  // A leading "+" is how HDFC marks a refund on a card, so it has to survive
+  // as far as the sign logic rather than making the cell unreadable.
+  if (!/^[-+]?\d*\.?\d+$/.test(digits)) return null;
 
   const value = Math.abs(Number(digits));
   if (!Number.isFinite(value)) return null;
@@ -261,7 +314,13 @@ function toPaise(value: number): Paise {
  * `src/pdf/text.ts`), which is the seam every parser below relies on.
  */
 function columns(line: string): string[] {
-  return line.split(/\s{2,}/).map((c) => c.trim()).filter((c) => c !== "");
+  // A tab is one whitespace character but always a column boundary, so it is
+  // widened before splitting — some generators emit tabs instead of spacing.
+  return line
+    .replace(/\t/g, "  ")
+    .split(/\s{2,}/)
+    .map((c) => c.trim())
+    .filter((c) => c !== "");
 }
 
 interface RowShape {
@@ -336,7 +395,15 @@ export function readHeader(lines: string[]): HeaderColumns | null {
       }
     }
 
-    if (found.debit !== null || found.credit !== null) return found;
+    /*
+     * Both columns, or none.
+     *
+     * A single match is almost always a false positive — the words "credit
+     * card" appear all over a card statement, and one stray hit put every
+     * purchase on the credit side, turning ₹61,000 of spending into ₹61,000 of
+     * income. A real debit/credit table names both.
+     */
+    if (found.debit !== null && found.credit !== null) return found;
   }
   return null;
 }
@@ -360,7 +427,8 @@ function maskDates(line: string): string {
 function figuresWithOffsets(line: string): { text: string; start: number; end: number }[] {
   const out: { text: string; start: number; end: number }[] = [];
   const masked = maskDates(line);
-  const pattern = /\(?\s*₹?\s*\d[\d,]*\.?\d*\s*\)?(?:\s*(?:Cr|Dr)\.?)?/gi;
+  const pattern =
+    /(?:Rs\.?|INR|₹|C)?\s*\(?\s*[-+]?\s*\d[\d,]*\.?\d*\s*\)?(?:\s*(?:Cr|Dr)\.?)?/gi;
 
   let match: RegExpExecArray | null;
   while ((match = pattern.exec(masked)) !== null) {
@@ -380,6 +448,85 @@ function figuresWithOffsets(line: string): { text: string; start: number; end: n
 }
 
 /**
+ * Where the date sits on a line, if it does.
+ *
+ * Found by regex rather than by taking the first column, because real
+ * statements put things in front of it and around it:
+ *
+ *   `  1   11-02-2026   UPIAR/…`   — Union Bank prints a serial number first
+ *   `17/03/2026| 23:08  PYU*Swiggy` — HDFC's card appends a time with a pipe
+ *   `15/02/2026 UPI_ZOOMCAR IND`    — YES Bank uses a single space, so column
+ *                                     splitting never separates them
+ *
+ * Only the first stretch of the line is searched: a date inside a narration
+ * ("EMI due 05-09-2026") must not be mistaken for the transaction date.
+ */
+const DATE_ANYWHERE =
+  /(\b\d{1,2}[-\s/](?:\d{1,2}|[A-Za-z]{3,9})[-\s/]\d{2,4}\b)/;
+
+export function findDate(line: string, within = 46): {
+  date: IsoDate; start: number; end: number;
+} | null {
+  // Measured from the first non-space character, not from column zero. HDFC's
+  // card statement indents its table by forty characters, and a window fixed
+  // to the left edge of the page never reaches the date.
+  const indent = line.length - line.trimStart().length;
+  const head = line.slice(indent, indent + within);
+  const match = DATE_ANYWHERE.exec(head);
+  if (!match) return null;
+
+  const date = parseStatementDate(match[1]!);
+  if (!date) return null;
+
+  // Anything before the date must be a serial number or blank — otherwise this
+  // is prose that happens to contain a date.
+  const before = head.slice(0, match.index).trim();
+  if (before !== "" && !/^\d{1,4}[.)]?$/.test(before)) return null;
+
+  return {
+    date,
+    start: indent + match.index,
+    end: indent + match.index + match[1]!.length,
+  };
+}
+
+/**
+ * Lines that end a transaction table.
+ *
+ * Deliberately almost empty, and that is the lesson. The obvious candidates —
+ * "Summary", "Closing Balance", "IMPORTANT INFORMATION" — all turned out to
+ * appear *above* the transactions in at least one real statement: Axis prints
+ * a Summary block and a closing-balance footnote first, HDFC's card leads with
+ * IMPORTANT INFORMATION. Each one silently discarded every row of the file it
+ * appeared in.
+ *
+ * What survives is the case with no ambiguity: Union Bank's "LINKED LOAN &
+ * ADVANCES" appendix, whose rows carry a date and a balance and would
+ * otherwise import as transactions worth ₹18 lakh.
+ */
+const TABLE_END = [
+  /^linked\s+(casa|deposits|loan|lockers)/i,
+  /^end\s+of\s+statement/i,
+];
+
+/**
+ * A marker that says which way the money went, when there is no balance column
+ * to work it out from.
+ *
+ * Credit cards need this: they print one amount column, and a refund is marked
+ * with `Cr`, a leading `+`, or a minus sign depending on the issuer.
+ */
+function markedSign(line: string, from: number): 1 | -1 | null {
+  const tail = line.slice(from);
+  if (/\bcr\b\.?\s*$/i.test(tail)) return 1;
+  if (/\bdr\b\.?\s*$/i.test(tail)) return -1;
+  // ICICI prints a bare minus in front of a refund; HDFC a plus.
+  if (/[+]\s*[₹C]?\s*[\d,]+\.\d{2}/.test(tail)) return 1;
+  if (/-\s*[₹C]?\s*[\d,]+\.\d{2}/.test(tail)) return 1;
+  return null;
+}
+
+/**
  * A statement row.
  *
  * `previousBalance` is what makes the sign trustworthy — see the module
@@ -392,23 +539,32 @@ function parseRow(
   previousBalance: number | null,
   continuation: string[],
 ): { row: RowShape; balance: number | null; suspect: boolean } | null {
-  const cells = columns(line);
-  if (cells.length < 2) return null;
-
-  const date = parseStatementDate(cells[0]!);
-  if (!date) return null;
+  const found = findDate(line);
+  if (!found) return null;
 
   const figures = figuresWithOffsets(line);
   if (figures.length === 0) return null;
 
-  // Narration is everything that is not a date, a bare reference, or a figure —
-  // plus whatever wrapped onto the lines above (see `parseStatementText`).
-  const referenceCell = cells.slice(1).find((c) => /^[A-Z]?\d{6,20}$/.test(c.trim()));
-  const own = cells
-    .slice(1)
+  // Narration is what is left of the line after the date, once figures, dates
+  // and bare reference numbers are taken out.
+  const after = line.slice(found.end);
+  const referenceCell = columns(after).find((c) => /^[A-Z]?\d{6,20}$/.test(c.trim()));
+  const own = columns(after)
     .filter((c) => parseStatementDate(c) === null)
+    .filter((c) => findDate(c, c.length) === null)
     .filter((c) => c !== referenceCell)
-    .filter((c) => parseStatementAmount(c) === null);
+    // Any cell *containing* a figure, not just one that parses cleanly as
+    // money: HDFC prints a bullet glyph after the amount, and "491.00 l" is
+    // not a number but is certainly not a payee either.
+    .filter((c) => !/\d[\d,]*\.\d{2}/.test(c))
+    .filter((c) => parseStatementAmount(c) === null)
+    // A stray time from "17/03/2026| 23:08", and column rules.
+    .map((c) => c.replace(/^[|\s]+/, "").replace(/^\d{1,2}:\d{2}(:\d{2})?$/, ""))
+    // A lone currency mark, sign or bullet left over once the figure beside it
+    // was removed. Keeping them puts "C" and "+" in the payee name, which then
+    // reaches payee matching and rules.
+    .map((c) => c.replace(/[\s+*·•|]*(?:Rs\.?|INR|₹|C)?[\s+*·•|]*$/i, "").trim())
+    .filter((c) => c.trim() !== "");
 
   const narration = [...continuation, ...own].join(" ").replace(/\s+/g, " ").trim();
   if (narration === "") return null;
@@ -416,17 +572,21 @@ function parseRow(
   const value = (f: { text: string }): number | null =>
     parseStatementAmount(f.text)?.value ?? null;
 
-  // The balance is the rightmost figure that has paise. A trailing branch code
-  // — Axis prints "1460" after the balance — is an integer, and excluding it is
-  // the difference between reading a balance and reading a branch.
+  // Figures with paise are money. A trailing branch code — Axis prints "1460"
+  // after the balance — is a bare integer, and reading it as a balance would
+  // corrupt every row after it.
   const withPaise = figures.filter((f) => /\.\d{2}\b/.test(f.text));
-  const balanceFigure = withPaise.length >= 2 ? withPaise[withPaise.length - 1]! : null;
+  const money = withPaise.length > 0 ? withPaise : figures;
+
+  // A balance column only exists if the header says so. Without that, the last
+  // figure is the amount, not a running total.
+  const hasBalance = header?.balance != null && money.length >= 2;
+  const balanceFigure = hasBalance ? money[money.length - 1]! : null;
   const balance = balanceFigure ? value(balanceFigure) : null;
 
-  // The transaction figure: the last one before the balance.
-  const amountFigure = balanceFigure
-    ? withPaise[withPaise.length - 2] ?? null
-    : withPaise[withPaise.length - 1] ?? null;
+  const amountFigure = hasBalance
+    ? money[money.length - 2] ?? null
+    : money[money.length - 1] ?? null;
   const printed = amountFigure ? value(amountFigure) : null;
 
   let amount: number | null = null;
@@ -437,16 +597,19 @@ function parseRow(
     const moved = Math.round((balance - previousBalance) * 100) / 100;
     if (moved !== 0) {
       amount = moved;
-      // The printed figure should equal the movement. When it does not, the
-      // row is kept but flagged — a missing row above, or a layout this parser
-      // has misread.
       if (printed !== null && Math.abs(Math.abs(moved) - printed) > 0.011) suspect = true;
     }
   }
 
-  // 2 · No balance to work from: fall back to which column the figure sits
-  //     under. Weaker — real columns overlap — but it is all there is for a
-  //     statement that prints no running balance.
+  // 2 · A marker says which way it went — Cr, Dr, a leading + or -. This is
+  //     how every credit card states it, since they print no running balance.
+  if (amount === null && printed !== null && amountFigure) {
+    const sign = markedSign(line, amountFigure.start - 3);
+    if (sign !== null) amount = sign * printed;
+  }
+
+  // 3 · Which column the figure sits under. Weakest — real debit and credit
+  //     columns overlap — so it is last and it flags the row.
   if (amount === null && header && printed !== null && amountFigure) {
     const overlap = (span: Span | null): number =>
       span === null
@@ -455,23 +618,21 @@ function parseRow(
 
     const debit = overlap(header.debit);
     const credit = overlap(header.credit);
-    amount = credit > debit ? printed : -printed;
-    // Position is a guess wherever the columns overlap, which is most of the
-    // time; say so rather than implying certainty (N9).
-    suspect = true;
+    if (debit > -Infinity || credit > -Infinity) {
+      amount = credit > debit ? printed : -printed;
+      suspect = true;
+    }
   }
 
-  // 3 · A signed single column — a credit card, where "Cr" marks the refunds.
-  if (amount === null && printed !== null && amountFigure) {
-    const parsed = parseStatementAmount(amountFigure.text)!;
-    amount = parsed.credit ? printed : -printed;
-  }
+  // 4 · Nothing said otherwise. On a card statement a bare figure is a
+  //     purchase, which is the overwhelming majority of rows.
+  if (amount === null && printed !== null) amount = -printed;
 
   if (amount === null || amount === 0) return null;
 
   return {
     row: {
-      date,
+      date: found.date,
       narration,
       reference: referenceCell?.trim() ?? null,
       amount: toPaise(amount),
@@ -520,6 +681,8 @@ const LAYOUTS: Partial<Record<BankId, { separateColumns: boolean; skip: RegExp[]
   yes: { separateColumns: true, skip: [/^date\b/i, /^description/i, /transaction details/i] },
   indusind: { separateColumns: true, skip: [/^date\b/i, /^particulars/i, /^description/i] },
   kotak: { separateColumns: true, skip: [/^date\b/i, /^narration/i, /^description/i] },
+  rbl: { separateColumns: false, skip: [/^date\b/i, /account summary/i] },
+  hsbc: { separateColumns: false, skip: [/^date\b/i, /^description/i] },
   broker: { separateColumns: true, skip: [/^date\b/i, /contract note/i] },
 };
 
@@ -565,10 +728,7 @@ export interface StatementParse extends ParseResult {
  * same way `parseCasText` is.
  */
 export function parseStatementText(text: string, bankId?: BankId): StatementParse {
-  const bank = bankId
-    ? BANKS.find((b) => b.id === bankId) ?? null
-    : detectBank(text);
-
+  const bank = bankId ? BANKS.find((b) => b.id === bankId) ?? null : detectBank(text);
   const layout = bank ? LAYOUTS[bank.id] : null;
   const records: RawRecord[] = [];
   const errors: ParseError[] = [];
@@ -576,61 +736,139 @@ export function parseStatementText(text: string, bankId?: BankId): StatementPars
   const lines = text.split("\n");
   const header = readHeader(lines);
 
-  let rowNumber = 0;
+  // The opening balance may be printed *after* the rows — Union Bank puts it
+  // in a summary block below the table — so it is found in a pass of its own
+  // rather than picked up on the way past.
   let previousBalance: number | null = null;
+  for (const line of lines) {
+    const open = openingBalanceOf(line);
+    if (open !== null) { previousBalance = open; break; }
+  }
 
   /*
-   * Narration wraps, and it wraps *upward*. A real Axis row prints
+   * Pass one: classify every line.
    *
-   *     UPI/P2M/400111223000/Zoomcar
-   *     01-12-2025   /Making/Kotak Mahindra Bank   640.00   148212.55
+   * Narration wraps around the dated line rather than before it. Axis prints
+   * the payee's first half above; Union Bank prints one fragment above and
+   * another below the same row:
    *
-   * so the first half of the payee sits on the line before the date. Reading
-   * only dated lines gives "/Making/Kotak Mahindra Bank" and loses the payee
-   * entirely — which then breaks payee matching, rules and dedupe together.
+   *       UPIAR/400111222888/DR/
+   *   1   11-02-2026            855.00       11,625.55 Cr
+   *       CRED/UTIB/cred.utility@a
+   *
+   * because the cell is wrapped and the date is vertically centred in its row.
+   * So a fragment is assigned to the **nearest** dated line, ties going to the
+   * one above. Attaching everything to the row above — the obvious first
+   * guess — glues each row's opening fragment onto its predecessor, and the
+   * payee ends up on the wrong transaction.
    */
-  let pending: string[] = [];
+  type Line = { raw: string; kind: "row" | "fragment" | "ignore"; date?: IsoDate };
+  const classified: Line[] = [];
+  let ended = false;
 
-  for (const line of lines) {
-    const trimmed = line.trimEnd();
-    const bare = trimmed.trim();
-    if (bare === "") { pending = []; continue; }
+  for (const raw of lines) {
+    const bare = raw.trim();
 
-    // An opening balance is not a transaction, but it is the anchor every
-    // balance movement below is measured from.
-    const opening = openingBalanceOf(bare);
-    if (opening !== null) {
-      previousBalance = opening;
-      pending = [];
+    if (bare === "") { classified.push({ raw, kind: "ignore" }); continue; }
+
+    if (TABLE_END.some((p) => p.test(bare))) {
+      ended = true;
+      classified.push({ raw, kind: "ignore" });
+      continue;
+    }
+    if (UNIVERSAL_SKIP.some((p) => p.test(bare)) || layout?.skip.some((p) => p.test(bare))) {
+      classified.push({ raw, kind: "ignore" });
       continue;
     }
 
-    if (UNIVERSAL_SKIP.some((s) => s.test(bare)) || layout?.skip.some((s) => s.test(bare))) {
-      pending = [];
+    const found = findDate(raw);
+
+    /*
+     * A statement period is not a transaction.
+     *
+     * YES Bank heads its table with "15/02/2026 To 14/03/2026 … Credit Limit:
+     * Rs. 3,00,000.00", which begins with a date and ends with a figure — so
+     * it parses as a ₹3,00,000 debit unless the range is recognised for what
+     * it is.
+     */
+    const isPeriod =
+      found !== null &&
+      /\d{1,2}[-\s/][\w]{2,9}[-\s/]\d{2,4}\s*(?:to|through|–|—)\s*\d{1,2}[-\s/][\w]{2,9}[-\s/]\d{2,4}/i
+        .test(bare);
+
+    if (found && !ended && !isPeriod) {
+      classified.push({ raw, kind: "row", date: found.date });
       continue;
     }
+    if (found) { classified.push({ raw, kind: "ignore" }); continue; }
 
-    if (!/^\d{1,2}[-\s/](?:\d|[A-Za-z]{3})/.test(bare)) {
-      // Not a dated row. It is either a continuation of the row below it or
-      // page furniture; carrying at most a few lines keeps an address block
-      // from being glued onto a transaction.
-      if (!/^\d/.test(bare) && bare.length < 120) {
-        pending.push(bare.replace(/\s{2,}/g, " "));
-        if (pending.length > 3) pending.shift();
-      } else {
-        pending = [];
-      }
-      continue;
+    const fragment = bare.replace(/\s{2,}/g, " ");
+
+    /*
+     * A wrapped payee, not a label.
+     *
+     * Statements pack summary fields into the same vertical band as the table
+     * — "Opening Balance 4,19,620.65", "Credit Limit:", "CKYC ID : …" — and
+     * each one that slips through is glued onto a real transaction's payee,
+     * where it then reaches payee matching, rules and dedupe. A genuine
+     * wrapped payee does not carry a money figure.
+     */
+    const looksLikeLabel =
+      /\d[\d,]*\.\d{2}/.test(fragment) ||
+      /\b(balance|limit|summary|statement\s+period|ckyc|customer\s+id|total|due\s+date)\b/i
+        .test(fragment);
+
+    const looksLikeNarration =
+      fragment.length < 120 &&
+      /[A-Za-z]/.test(fragment) &&
+      !/^[\d,.\s]+$/.test(fragment) &&
+      !looksLikeLabel;
+
+    classified.push({ raw, kind: looksLikeNarration ? "fragment" : "ignore" });
+  }
+
+  // Pass two: give each fragment to its nearest row.
+  const rowIndexes = classified.flatMap((l, i) => (l.kind === "row" ? [i] : []));
+  const extra = new Map<number, string[]>();
+
+  for (const [i, line] of classified.entries()) {
+    if (line.kind !== "fragment") continue;
+
+    let nearest = -1;
+    let best = Infinity;
+    for (const r of rowIndexes) {
+      // Ties go above, and a fragment more than three lines from any row is
+      // page furniture rather than a wrapped cell.
+      const distance = Math.abs(r - i) + (r < i ? 0 : 0.5);
+      if (distance < best) { best = distance; nearest = r; }
     }
+    if (nearest === -1 || best > 3) continue;
 
+    /*
+     * A wrapped cell is indented past its row's date column; a letterhead or a
+     * page heading starts at the left margin. Without this the bank's own name
+     * is glued onto the first transaction as part of the payee.
+     */
+    const rowDate = findDate(classified[nearest]!.raw);
+    const indent = line.raw.length - line.raw.trimStart().length;
+    if (rowDate && indent <= rowDate.start) continue;
+
+    const list = extra.get(nearest) ?? [];
+    list.push(line.raw.trim().replace(/\s{2,}/g, " "));
+    extra.set(nearest, list);
+  }
+
+  // Pass three: parse.
+  let rowNumber = 0;
+  for (const index of rowIndexes) {
+    const line = classified[index]!;
     rowNumber++;
-    const parsed = parseRow(trimmed, header, previousBalance, pending);
-    pending = [];
 
+    const parsed = parseRow(line.raw, header, previousBalance, extra.get(index) ?? []);
     if (!parsed) {
       errors.push({
         rowNumber,
-        cells: columns(bare),
+        cells: columns(line.raw.trim()),
         reason: "This looked like a transaction but its columns could not be read.",
       });
       continue;
@@ -638,13 +876,10 @@ export function parseStatementText(text: string, bankId?: BankId): StatementPars
 
     if (parsed.balance !== null) previousBalance = parsed.balance;
 
-    // IL3 · A row whose printed figure disagrees with the balance movement is
-    // reported *as well as* kept. Dropping it would hide a gap; hiding the
-    // disagreement would assert a number the statement does not support.
     if (parsed.suspect) {
       errors.push({
         rowNumber,
-        cells: columns(bare),
+        cells: columns(line.raw.trim()),
         reason:
           "The amount printed on this row does not match how the balance moved. " +
           "It has been imported at the balance movement — check it.",
@@ -658,7 +893,7 @@ export function parseStatementText(text: string, bankId?: BankId): StatementPars
       narration: parsed.row.narration,
       reference: parsed.row.reference,
       raw: {
-        date: columns(bare)[0] ?? "",
+        date: line.raw.trim().slice(0, 12),
         amount: String(parsed.row.amount / 100),
         narration: parsed.row.narration,
       },
@@ -774,6 +1009,8 @@ export const STATEMENT_SENDERS: { pattern: RegExp; bank: BankId | null; what: st
   { pattern: /@ubi\.bank\.in$/i, bank: "union", what: "Union Bank account statement" },
   { pattern: /^estatement@yes\.bank\.in$/i, bank: "yes", what: "YES Bank credit card statement" },
   { pattern: /@canarabank\.com$/i, bank: "canara", what: "Canara Bank credit card statement" },
+  { pattern: /@rbl\.bank\.in$/i, bank: "rbl", what: "RBL Bank credit card statement" },
+  { pattern: /@mail\.hsbc\.co\.in$/i, bank: "hsbc", what: "HSBC statement" },
   { pattern: /@indusind\.com$/i, bank: "indusind", what: "IndusInd statement" },
   { pattern: /@transactions\.upstox\.com$/i, bank: "broker", what: "Upstox funds or demat statement" },
   { pattern: /@transactions\.indmoney\.com$/i, bank: "broker", what: "INDmoney statement" },

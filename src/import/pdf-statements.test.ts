@@ -272,3 +272,211 @@ describe("04 §3.4 · which sender means which institution", () => {
     assert.equal(senderFor("notestatement@icici.bank.in"), null);
   });
 });
+
+/**
+ * The traps real statements set.
+ *
+ * Every case below cost a broken parse against an actual file, and each is
+ * written as the smallest text that reproduces it. They are synthetic — no
+ * real statement is in this repository — but the *shapes* are copied exactly
+ * from what the reader produced.
+ */
+describe("04 §3.3 · what real statements do that invented ones do not", () => {
+  test("narration wraps around the dated line, not merely above it", () => {
+    // Union Bank wraps a cell across three lines with the date in the middle,
+    // so the fragment above and the fragment below belong to the same row.
+    // Attaching everything to the row above — the obvious rule — glues each
+    // row's opening fragment onto its predecessor and puts the payee on the
+    // wrong transaction.
+    const text = `Union Bank of India
+ SI    Date        Particulars      Chq Num    Withdrawal    Deposit      Balance
+Opening Balance : 12,480.55
+              UPIAR/400111222888/DR/
+  1   11-02-2026                               855.00                    11,625.55
+              CRED/UTIB/cred.utility@a
+              NEFT:RAVI KUMAR
+  2   25-02-2026                                            30,000.00    41,625.55`;
+
+    const result = parseStatementText(text);
+    assert.equal(result.records.length, 2);
+    assert.match(result.records[0]!.narration, /UPIAR\/400111222888/);
+    assert.match(result.records[0]!.narration, /CRED\/UTIB/);
+    assert.match(result.records[1]!.narration, /NEFT:RAVI KUMAR/);
+    assert.ok(!result.records[1]!.narration.includes("CRED/UTIB"));
+  });
+
+  test("a row may open with a serial number before the date", () => {
+    const result = parseStatementText(`Union Bank of India
+ SI    Date        Particulars   Withdrawal   Deposit   Balance
+Opening Balance : 1,000.00
+  1   11-02-2026  SOMETHING       100.00                 900.00`);
+    assert.equal(result.records.length, 1);
+    assert.equal(result.records[0]!.amount, -10_000);
+  });
+
+  test("a date followed by a time still reads", () => {
+    // HDFC's card prints "17/03/2026| 23:08", and the time must not end up in
+    // the payee either.
+    const result = parseStatementText(`HDFC BANK Credit Card
+       DATE & TIME          TRANSACTION DESCRIPTION            AMOUNT
+       17/03/2026| 23:08    PYU*Swiggy Food Bangalore          491.00`);
+    assert.equal(result.records.length, 1);
+    assert.equal(result.records[0]!.date, "2026-03-17");
+    assert.ok(!result.records[0]!.narration.includes("23:08"));
+    assert.match(result.records[0]!.narration, /Swiggy/);
+  });
+
+  test("a single space between date and narration is still two columns", () => {
+    // YES Bank uses one space, so splitting on whitespace runs never separates
+    // them and the date is never found.
+    const result = parseStatementText(`YES BANK Credit Card
+Date Description Amount
+15/02/2026  UPI_ZOOMCAR IND - Ref No: RT400111222999000111222   Business Services   4,137.00 Dr`);
+    assert.equal(result.records.length, 1);
+    assert.equal(result.records[0]!.amount, -413_700);
+    assert.match(result.records[0]!.narration, /ZOOMCAR/);
+  });
+
+  test("Cr and Dr decide the sign when there is no balance column", () => {
+    const result = parseStatementText(`YES BANK
+Date Description Amount
+15/02/2026  A PURCHASE    100.00 Dr
+16/02/2026  A REFUND       40.00 Cr`);
+    assert.deepEqual(result.records.map((r) => r.amount), [-10_000, 4_000]);
+  });
+
+  test("a leading plus marks a credit on a card", () => {
+    const result = parseStatementText(`HDFC BANK Credit Card
+DATE & TIME  TRANSACTION DESCRIPTION  AMOUNT
+18/03/2026| 00:00   10% Swiggy Cashback          +  1,500.00
+18/03/2026| 00:00   Swiggy Cashback_Reversal        21.70`);
+    assert.deepEqual(result.records.map((r) => r.amount), [150_000, -2_170]);
+  });
+
+  test("a mis-encoded rupee sign does not become the payee", () => {
+    /*
+     * HDFC embeds the rupee sign in a font whose encoding maps it to 0x43, so
+     * a faithful extractor reports "C 491.00" where the page shows "₹ 491.00".
+     * Left attached, the cell stops looking like money — so it lands in the
+     * payee and the row's sign is then decided by the wrong rule.
+     */
+    const result = parseStatementText(`HDFC BANK Credit Card
+DATE & TIME  TRANSACTION DESCRIPTION  AMOUNT
+17/03/2026| 23:08   ZEPTO MARKETPLACE Bangalore      C  2,319.95`);
+    assert.equal(result.records[0]!.amount, -231_995);
+    assert.equal(result.records[0]!.narration, "ZEPTO MARKETPLACE Bangalore");
+  });
+
+  test("a trailing branch code is not a balance", () => {
+    // Axis prints "1460" after the balance. Reading it as the running balance
+    // corrupts every row after it.
+    const result = parseStatementText(`AXIS BANK LTD
+ Tran Date  Particulars   Debit   Credit   Balance   Init.Br
+OPENING BALANCE                                      1,000.00
+ 01-12-2025  A PAYMENT      640.00                     360.00 1460`);
+    assert.equal(result.records.length, 1);
+    assert.equal(result.records[0]!.amount, -64_000);
+  });
+
+  test("an appendix that looks like transactions is not imported", () => {
+    // Union Bank ends with LINKED LOAN & ADVANCES, whose rows carry a date and
+    // a balance. Importing them adds an ₹18 lakh movement that never happened.
+    const result = parseStatementText(`Union Bank of India
+ SI  Date      Particulars   Withdrawal   Deposit   Balance
+Opening Balance : 1,000.00
+  1  11-02-2026  A PAYMENT     100.00                900.00
+LINKED LOAN & ADVANCES
+  1  EL008  7494XXXXXXX0018  04-08-2020  25,51,000.00  18,22,371.00`);
+    assert.equal(result.records.length, 1);
+    assert.equal(result.records[0]!.amount, -10_000);
+  });
+
+  test("words the bank prints above its table do not end it", () => {
+    /*
+     * "Summary", "Closing Balance" and "IMPORTANT INFORMATION" all appear
+     * *above* the transactions in at least one real statement — Axis leads
+     * with a summary block and a closing-balance footnote, HDFC's card with
+     * IMPORTANT INFORMATION. Treating any of them as the end of the table
+     * silently discarded every row of those files.
+     */
+    const result = parseStatementText(`AXIS BANK LTD
+Summary
+^Amount represents Closing Balance as on month end.
+IMPORTANT INFORMATION
+ Tran Date  Particulars  Debit  Credit  Balance
+OPENING BALANCE                               1,000.00
+ 01-07-2026  A PAYMENT    100.00              900.00`);
+    assert.equal(result.records.length, 1);
+  });
+
+  test("a letterhead below the first row is still a letterhead", () => {
+    // Axis's Relationship Statement prints a transaction four lines in and
+    // names the bank below it.
+    const text = `Statement for the period
+ 01-07-2026  A PAYMENT   100.00   900.00
+AXIS BANK LTD
+ Tran Date  Particulars  Debit  Credit  Balance`;
+    assert.equal(detectBank(text)!.id, "axis");
+  });
+
+  test("a bank whose name is split by kerning is still recognised", () => {
+    // Per-glyph positioning makes the extractor report exactly what is there:
+    // "A XIS BANK", "R elationship Statement".
+    assert.equal(detectBank("R elationship Statement\nA XIS BANK LTD")!.id, "axis");
+  });
+
+  test("an IFSC prefix identifies the bank when nothing else does", () => {
+    // A real Axis statement's letterhead is the customer's postal address.
+    const text = `RAVI KUMAR
+C705 MEDITERRANEA
+THANE                        IFSC Code :UTIB0001460`;
+    assert.equal(detectBank(text)!.id, "axis");
+  });
+});
+
+describe("04 §3.3 · things that look like transactions and are not", () => {
+  test("a statement period is not a ₹3,00,000 purchase", () => {
+    /*
+     * YES Bank heads its table with the period and the credit limit on one
+     * line. It starts with a date and ends with a figure, so it parses as a
+     * transaction — and the largest one on the statement.
+     */
+    const result = parseStatementText(`YES BANK Credit Card
+              15/02/2026 To 14/03/2026        Credit Limit:      Rs. 3,00,000.00
+15/02/2026  UPI_ZOOMCAR IND - Ref No: RT2604   Business Services   4,137.00 Dr`);
+
+    assert.equal(result.records.length, 1);
+    assert.equal(result.records[0]!.amount, -413_700);
+  });
+
+  test("two dates in a row are fine when they are not a range", () => {
+    // SBI prints a transaction date and a value date, and "TO TRANSFER" in the
+    // narration — none of which makes the row a period header.
+    const result = parseStatementText(`STATE BANK OF INDIA
+Txn Date   Value Date   Description   Ref No.   Debit   Credit   Balance
+2 Aug 2026   2 Aug 2026   TO TRANSFER-UPI/DR/SWIGGY   431202   450.00      9,550.00`);
+    assert.equal(result.records.length, 1);
+  });
+
+  test("a summary field in the table's band is not part of a payee", () => {
+    // Statements pack labels into the same vertical band as the rows. Each one
+    // that slips through is glued onto a real transaction's payee, where it
+    // reaches payee matching, rules and dedupe.
+    const result = parseStatementText(`AXIS BANK LTD
+ Tran Date  Particulars   Debit   Credit   Balance
+OPENING BALANCE                                    1,000.00
+              No. Opening Balance 4,19,620.65
+ 01-07-2026   A REAL PAYMENT      100.00            900.00`);
+
+    assert.equal(result.records.length, 1);
+    assert.equal(result.records[0]!.narration, "A REAL PAYMENT");
+  });
+
+  test("a letterhead is not glued to the first transaction", () => {
+    const result = parseStatementText(`HDFC BANK Credit Card
+RAVI KUMAR [CKYC ID : 90001234567890 ]
+DATE & TIME  TRANSACTION DESCRIPTION  AMOUNT
+17/03/2026| 23:08   ZEPTO MARKETPLACE Bangalore      C  2,319.95`);
+    assert.equal(result.records[0]!.narration, "ZEPTO MARKETPLACE Bangalore");
+  });
+});
