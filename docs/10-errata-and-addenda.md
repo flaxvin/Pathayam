@@ -36,7 +36,11 @@ Each row names the stale text, the correcting text that now governs, and the clo
 | E11 | `01` §13 | Refused: "Investment, insurance and net-worth tracking." | Investment and net-worth tracking were brought into scope 26-08-2026, contained by R30 (`05` §5, `07`). Insurance policy tracking remains refused. The rest of the row's reasoning — why this is dangerous — is exactly why R30 exists. | Net-worth reversal |
 | E12 | `02` F14.3 | "Notifications MUST degrade gracefully where the platform cannot deliver push (§9): in-app badge and a digest on next open MUST always work." | Reads: "The in-app badge and the digest on next open are the only notification channels, on every platform. Backup failures additionally fire an outbound webhook (R40.4), and a successful verified restore pings an external heartbeat (R40.8)." The conditional implied push still exists somewhere; it does not exist anywhere (Q21). `09` §6.1 corrected F14.1 but left F14.3 standing. | Q21 |
 
+| E13 | `07` §4, §10 | Market value ₹80,874.13 · unrealised gain ₹5,874.13 · FIFO cost of units sold ₹32,218.75 · realised gain ₹2,341.25 | **The rule and the illustration disagree; the rule governs.** These figures are computed from *unrounded* units (936.043123…), as `verify_portfolio.py` does. But **R24.3 is normative** and stores derived units to three decimals — which is what a registrar actually allots, and what the household's own statement will say. At 936.043 units the figures are **₹80,874.12**, **₹5,874.12**, **₹32,218.76** and **₹2,341.24**. The paisa differences are all the same root cause. | R24.3 |
+
 **E12 was found by `verify_docs.py`** (§3.4), on its first run, in a line ten manual passes had missed. That is the argument for building it.
+
+**E13 was found by implementing R24.3 and failing to reproduce §10.** Worth stating why the rule wins: at NAV 82.50, ₹25,000 buys 303.030 units, not 303.0303…, so those units cost fractionally more than the NAV each. Pro-rating what was actually paid — rather than recomputing units × NAV — is also the only convention under which **selling a holding entirely realises exactly the gain that was showing as unrealised the moment before**. A user would notice that contradiction; they will not notice a paisa.
 
 ---
 
