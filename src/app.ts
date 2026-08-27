@@ -9,7 +9,7 @@
  */
 
 import type { DB } from "./db/db.ts";
-import { queryAll, queryOne, execute } from "./db/db.ts";
+import { queryAll, queryOne, execute, newId } from "./db/db.ts";
 import { devLoginModulePresent, type Config } from "./config.ts";
 import {
   Router, field, fieldList, requiredField, HttpError, NotFound,
@@ -31,7 +31,7 @@ import {
 import { beginOAuth, exchangeCode } from "./auth/google.ts";
 import { withIdempotency, IdempotencyConflict } from "./core/idempotency.ts";
 import { parseAmount, evaluateAmountExpression, formatPaise } from "./core/money.ts";
-import { parseDate, todayIST, addDays, monthOf, isMonthKey, formatMonth, type MonthKey } from "./core/dates.ts";
+import { parseDate, todayIST, nowIST, addDays, monthOf, isMonthKey, formatMonth, type MonthKey } from "./core/dates.ts";
 import { buildBudgetView, reviewCount } from "./web/viewmodel.ts";
 import { renderBudget } from "./web/pages/budget.ts";
 import {
@@ -102,6 +102,21 @@ import {
   projectCashflow, describeCashflow, subscriptions, type Recurrence,
 } from "./domain/schedules.ts";
 import { listGoals, createGoal, goalProgress, completeGoal } from "./domain/goals.ts";
+import {
+  renderMore, renderPayees, renderRules, renderCategories, renderFirstRun,
+  type PayeeRow, type RuleRow,
+} from "./web/pages/manage.ts";
+import { loadRules } from "./import/pipeline.ts";
+import { testRule, type Rule, type RuleSubject, extractNarrationFields } from "./import/rules.ts";
+import {
+  applyStartingTemplate, startBlank,
+} from "./domain/starting-budget.ts";
+import {
+  mergePayees, getPayee,
+} from "./domain/transactions.ts";
+import {
+  createCategory, renameCategory, setCategoryHidden, listGroups,
+} from "./domain/budget.ts";
 
 export interface AppDeps {
   db: DB;
@@ -1495,30 +1510,6 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }),
   );
 
-  // -------------------------------------------------------------------------
-  // Placeholders for screens still to come, so navigation never dead-ends
-  // -------------------------------------------------------------------------
-  for (const [path, title] of [
-    ["/more", "More"],
-    ["/payees", "Payees"],
-    ["/rules", "Rules"],
-    ["/categories", "Categories"],
-  ] as const) {
-    router.get(path, (ctx) =>
-      render(
-        ctx,
-        title,
-        html`
-          <div class="card empty-state">
-            <h2>${title}</h2>
-            <p>This screen isn't built yet.</p>
-            <p><a class="button" href="/">Back to the budget</a></p>
-          </div>
-        `,
-      ),
-    );
-  }
-
 
   // -------------------------------------------------------------------------
   // S12 · Loans (F18). P1 per 10 §2 E9.
@@ -1990,6 +1981,287 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const resolution = (field(ctx.body, "resolution") ?? "release") as "spend" | "roll" | "release";
       completeGoal(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), ctx.params.id!, resolution);
       return { redirect: "/goals", message: "Goal completed." };
+    }),
+  );
+
+
+  // -------------------------------------------------------------------------
+  // S5 More · F5 payees · F6 rules · F3 categories · J1 first run
+  // -------------------------------------------------------------------------
+  router.get("/more", (ctx) =>
+    render(ctx, "More", renderMore({ loans: config.features.loans, assets: config.features.assets })),
+  );
+
+  router.get("/payees", (ctx) => {
+    const rows: PayeeRow[] = listPayees(db).map((p) => {
+      const stats = payeeStats(db, p.id);
+      return {
+        id: p.id,
+        name: p.name,
+        count: stats.count,
+        total: stats.total,
+        lastSeen: stats.lastSeen,
+        aliases: queryAll<{ raw: string }>(
+          db, `SELECT raw FROM payee_aliases WHERE payee_id = ? LIMIT 5`, p.id,
+        ).map((r) => r.raw),
+        usualCategory: stats.usualCategoryId
+          ? getCategory(db, stats.usualCategoryId)?.name ?? null
+          : null,
+      };
+    });
+    return render(ctx, "Payees", renderPayees(rows));
+  });
+
+  router.post("/payees/merge", (ctx) =>
+    mutate(ctx, (a) => {
+      const loser = requiredField(ctx.body, "loser_id");
+      const winner = requiredField(ctx.body, "winner_id");
+      mergePayees(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), loser, winner);
+      return {
+        redirect: "/payees",
+        message: `Merged into ${getPayee(db, winner)?.name ?? "that payee"}. Every raw string came across.`,
+      };
+    }),
+  );
+
+  function ruleRows(db2: DB, proposed: boolean): RuleRow[] {
+    return queryAll<{
+      id: string; name: string; stage: string; conditions_json: string;
+      actions_json: string; enabled: number; times_applied: number;
+    }>(
+      db2,
+      `SELECT * FROM rules WHERE proposed = ? AND dismissed_at IS NULL ORDER BY created_at DESC`,
+      proposed ? 1 : 0,
+    ).map((r) => ({
+      id: r.id, name: r.name, stage: r.stage as Rule["stage"], match: "all",
+      conditions: JSON.parse(r.conditions_json) as Rule["conditions"],
+      actions: JSON.parse(r.actions_json) as Rule["actions"],
+      enabled: r.enabled === 1,
+      timesApplied: r.times_applied,
+    }));
+  }
+
+  function ruleFromBody(ctx: RequestContext): Rule {
+    return {
+      id: "draft",
+      name: requiredField(ctx.body, "name"),
+      stage: "default",
+      match: "all",
+      conditions: [
+        {
+          field: requiredField(ctx.body, "field") as Rule["conditions"][number]["field"],
+          op: requiredField(ctx.body, "op") as Rule["conditions"][number]["op"],
+          value: requiredField(ctx.body, "value"),
+        },
+      ],
+      actions: [{ type: "setCategory", categoryId: requiredField(ctx.body, "category_id") }],
+      enabled: true,
+    };
+  }
+
+  function rulesPage(
+    ctx: RequestContext,
+    test?: Parameters<typeof renderRules>[0]["test"],
+    draft?: Parameters<typeof renderRules>[0]["draft"],
+  ) {
+    const view = buildBudgetView(db);
+    return render(
+      ctx, "Rules",
+      renderRules({
+        rules: ruleRows(db, false),
+        proposed: ruleRows(db, true),
+        categories: [...view.categories.values()]
+          .filter((c) => !c.isPaymentCategory && !c.hidden)
+          .map((c) => ({ id: c.id, name: c.name })),
+        test,
+        draft,
+      }),
+    );
+  }
+
+  router.get("/rules", (ctx) => rulesPage(ctx));
+
+  /** F6.7 · Test against history before saving, with before/after and a count. */
+  router.post("/rules/test", (ctx) => {
+    auth(ctx);
+    const rule = ruleFromBody(ctx);
+    const view = buildBudgetView(db);
+
+    const subjects: RuleSubject[] = queryAll<{
+      narration: string | null; payee: string | null; account_id: string;
+      amount: number; date: string; memo: string | null; category_id: string | null;
+      cleared: number; source: string;
+    }>(
+      db,
+      `SELECT t.raw_narration AS narration, p.name AS payee, t.account_id, t.amount, t.date,
+              t.memo, t.category_id, t.cleared, t.source
+         FROM transactions t LEFT JOIN payees p ON p.id = t.payee_id
+        WHERE t.deleted_at IS NULL ORDER BY t.date DESC LIMIT 500`,
+    ).map((r) => {
+      const narration = r.narration ?? r.payee ?? "";
+      return {
+        narration, importedPayee: r.payee, payee: r.payee, accountId: r.account_id,
+        amount: r.amount, date: r.date, memo: r.memo, tags: [],
+        categoryId: r.category_id, cleared: r.cleared === 1, source: r.source,
+        cardLast4: null, ...extractNarrationFields(narration),
+      };
+    });
+
+    const result = testRule(rule, subjects);
+    return rulesPage(
+      ctx,
+      {
+        matched: result.matched,
+        samples: result.samples,
+        categoryNames: new Map([...view.categories].map(([id, c]) => [id, c.name])),
+      },
+      {
+        name: rule.name,
+        field: String(rule.conditions[0]!.field),
+        op: String(rule.conditions[0]!.op),
+        value: String(rule.conditions[0]!.value),
+        categoryId: (rule.actions[0] as { categoryId: string }).categoryId,
+        stage: rule.stage,
+      },
+    );
+  });
+
+  router.post("/rules/new", (ctx) =>
+    mutate(ctx, (a) => {
+      const rule = ruleFromBody(ctx);
+      const id = newId();
+      execute(
+        db,
+        `INSERT INTO rules (id,name,stage,conditions_json,actions_json,enabled,proposed,created_at,created_by)
+         VALUES (?,?,?,?,?,1,0,?,?)`,
+        id, rule.name, rule.stage,
+        JSON.stringify(rule.conditions), JSON.stringify(rule.actions),
+        nowIST(), a.member.id,
+      );
+      appendEvent(db, actorFor(a), {
+        entity: "rule", entityId: id, action: "create", after: rule,
+        summary: `Added the rule "${rule.name}"`,
+      });
+      return { redirect: "/rules", message: `Saved. It will apply to anything imported from now on.` };
+    }),
+  );
+
+  router.post("/rules/confirm", (ctx) =>
+    mutate(ctx, (a) => {
+      const id = requiredField(ctx.body, "rule_id");
+      execute(db, `UPDATE rules SET proposed = 0 WHERE id = ?`, id);
+      appendEvent(db, actorFor(a), {
+        entity: "rule", entityId: id, action: "confirm",
+        summary: `Confirmed a proposed rule`,
+      });
+      return { redirect: "/rules", message: "Rule confirmed." };
+    }),
+  );
+
+  router.post("/rules/dismiss", (ctx) =>
+    mutate(ctx, (a) => {
+      // L5: dismissing a proposal suppresses that specific proposal for good.
+      const id = requiredField(ctx.body, "rule_id");
+      execute(db, `UPDATE rules SET dismissed_at = ? WHERE id = ?`, nowIST(), id);
+      appendEvent(db, actorFor(a), {
+        entity: "rule", entityId: id, action: "dismiss",
+        summary: `Dismissed a proposed rule; it won't be suggested again`,
+      });
+      return { redirect: "/rules", message: "Won't suggest that again." };
+    }),
+  );
+
+  router.post("/rules/:id/delete", (ctx) =>
+    mutate(ctx, (a) => {
+      const id = ctx.params.id!;
+      execute(db, `UPDATE rules SET enabled = 0, dismissed_at = ? WHERE id = ?`, nowIST(), id);
+      appendEvent(db, actorFor(a), {
+        entity: "rule", entityId: id, action: "delete",
+        summary: `Removed a rule. Transactions it already touched are unchanged.`,
+      });
+      return { redirect: "/rules", message: "Removed." };
+    }),
+  );
+
+  router.get("/categories", (ctx) => {
+    const view = buildBudgetView(db);
+    return render(
+      ctx, "Categories",
+      renderCategories(
+        listGroups(db).map((g) => ({
+          id: g.id,
+          name: g.name,
+          kind: g.kind,
+          categories: [...view.categories.values()]
+            .filter((c) => c.groupId === g.id)
+            .map((c) => ({
+              id: c.id, name: c.name, hidden: c.hidden,
+              balance: c.state.balance, isPayment: c.isPaymentCategory,
+            })),
+        })),
+      ),
+    );
+  });
+
+  router.post("/categories/new", (ctx) =>
+    mutate(ctx, (a) => {
+      createCategory(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+        groupId: requiredField(ctx.body, "group_id"),
+        name: requiredField(ctx.body, "name"),
+      });
+      return { redirect: "/categories", message: "Category added." };
+    }),
+  );
+
+  router.post("/categories/:id/rename", (ctx) =>
+    mutate(ctx, (a) => {
+      renameCategory(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+        ctx.params.id!, requiredField(ctx.body, "name"));
+      return { redirect: "/categories", message: "Renamed." };
+    }),
+  );
+
+  router.post("/categories/:id/hide", (ctx) =>
+    mutate(ctx, (a) => {
+      const hidden = field(ctx.body, "hidden") === "1";
+      setCategoryHidden(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+        ctx.params.id!, hidden);
+      return {
+        redirect: "/categories",
+        message: hidden ? "Hidden. It keeps its balance and history." : "Unhidden.",
+      };
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // J1 · First run
+  // -------------------------------------------------------------------------
+  router.get("/setup", (ctx) => {
+    const a = auth(ctx);
+    return render(ctx, "Set up", renderFirstRun({ memberName: a.member.name }), { bare: true });
+  });
+
+  router.post("/setup", (ctx) =>
+    mutate(ctx, (a) => {
+      const result = applyStartingTemplate(db, actorFor(a), {
+        monthlyIncome: amountField(field(ctx.body, "monthly_income"), "Monthly income"),
+        hasEmis: field(ctx.body, "has_emis") === "1",
+        hasSchoolFees: field(ctx.body, "has_school_fees") === "1",
+        hasDomesticHelp: field(ctx.body, "has_domestic_help") === "1",
+      });
+      return {
+        redirect: "/accounts/new",
+        message:
+          `${result.categories} categories ready. Now add the account your salary ` +
+          `lands in — that's when Ready to Assign becomes a real number.`,
+      };
+    }),
+  );
+
+  router.post("/setup/blank", (ctx) =>
+    mutate(ctx, (a) => {
+      startBlank(db, actorFor(a));
+      return { redirect: "/accounts/new", message: "Starting blank. Add your first account." };
     }),
   );
 

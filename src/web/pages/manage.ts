@@ -1,0 +1,480 @@
+/**
+ * S5 · More hub · F5 payees · F6 rules editor · F3 categories · J1 first run.
+ *
+ * The rules editor doubles as a batch editor (F6.6) and can be tested against
+ * history before saving (F6.7) — both because a rule the household cannot
+ * predict is a rule they will not trust, and N9 forbids presenting a heuristic
+ * as a fact.
+ */
+
+import { html, raw, when, type SafeHtml } from "../../http/html.ts";
+import { formatPaise, type Paise } from "../../core/money.ts";
+import { formatDate, type IsoDate } from "../../core/dates.ts";
+import type { Rule, RuleStage, RuleSubject } from "../../import/rules.ts";
+
+// ---------------------------------------------------------------------------
+// S5 · The More hub
+// ---------------------------------------------------------------------------
+
+export function renderMore(features: { loans: boolean; assets: boolean }): SafeHtml {
+  const group = (title: string, items: [string, string, string][]) => html`
+    <section class="card">
+      <h2>${title}</h2>
+      ${items.map(
+        ([href, label, blurb]) => html`
+          <a href="${href}" style="display:block;padding:.6rem 0;border-top:1px solid var(--border);text-decoration:none;color:inherit">
+            <strong style="color:var(--accent)">${label}</strong>
+            <div class="faint">${blurb}</div>
+          </a>
+        `,
+      )}
+    </section>
+  `;
+
+  return html`
+    <h1>More</h1>
+
+    ${group("Understand", [
+      ["/reports", "Reports", "Income against spending, and where it goes"],
+      ["/query", "Query", "One table, filtered and grouped however you like"],
+      ["/schedules", "Schedules & cashflow", "Will you make it to the 30th?"],
+      ["/goals", "Goals", "Long-horizon savings, kept off the monthly grid"],
+    ])}
+
+    ${when(features.loans, () =>
+      group("Debt", [
+        ["/loans", "Loans", "What each one really costs, and what prepaying buys"],
+        ["/loans/what-if", "Prepayment calculator", "Model it before committing a rupee"],
+      ]),
+    )}
+
+    ${group("Keep it tidy", [
+      ["/payees", "Payees", "Merge duplicates; every raw string is kept"],
+      ["/rules", "Rules", "Automate categorisation, testable before you save"],
+      ["/categories", "Categories", "Rename, reorder, hide"],
+      ["/import", "Import", "Statements in, review queue out"],
+    ])}
+
+    ${group("Operate", [
+      ["/health", "Health", "The page you open at 2am"],
+      ["/settings", "Settings", "Household, appearance, devices"],
+    ])}
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// F5 · Payees
+// ---------------------------------------------------------------------------
+
+export interface PayeeRow {
+  id: string;
+  name: string;
+  count: number;
+  total: Paise;
+  lastSeen: IsoDate | null;
+  aliases: string[];
+  usualCategory: string | null;
+}
+
+export function renderPayees(rows: PayeeRow[]): SafeHtml {
+  return html`
+    <h1>Payees</h1>
+    <p class="muted">
+      Every raw string the bank has ever used for a payee is kept, so a cleaned
+      name never loses what it came from.
+    </p>
+
+    ${rows.length === 0
+      ? html`<div class="card empty-state"><p>No payees yet.</p></div>`
+      : html`
+          <section class="card">
+            ${rows.map(
+              (p) => html`
+                <div style="padding:.6rem 0;border-top:1px solid var(--border)">
+                  <div class="row-between">
+                    <div>
+                      <strong>${p.name}</strong>
+                      ${when(p.usualCategory, () => html`<span class="chip">${p.usualCategory}</span>`)}
+                      <div class="faint">
+                        ${p.count} transactions · ${formatPaise(Math.abs(p.total))} total
+                        ${when(p.lastSeen, () => html` · last ${formatDate(p.lastSeen!)}`)}
+                      </div>
+                      ${when(p.aliases.length > 0, () => html`
+                        <div class="faint" style="word-break:break-all">
+                          Also seen as: ${p.aliases.slice(0, 3).join(" · ")}
+                        </div>
+                      `)}
+                    </div>
+                  </div>
+                </div>
+              `,
+            )}
+          </section>
+
+          <section class="card">
+            <h2>Merge two payees</h2>
+            <p class="faint" style="margin-top:-.25rem">
+              All history and every raw string move across. Nothing is lost, and it
+              can be undone.
+            </p>
+            <form method="post" action="/payees/merge">
+              <div class="grid-2">
+                <div class="field">
+                  <label for="loser">Merge this one…</label>
+                  <select id="loser" name="loser_id" required>
+                    ${rows.map((p) => html`<option value="${p.id}">${p.name}</option>`)}
+                  </select>
+                </div>
+                <div class="field">
+                  <label for="winner">…into this one</label>
+                  <select id="winner" name="winner_id" required>
+                    ${rows.map((p) => html`<option value="${p.id}">${p.name}</option>`)}
+                  </select>
+                </div>
+              </div>
+              <button type="submit">Merge</button>
+            </form>
+          </section>
+        `}
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// F6 · Rules
+// ---------------------------------------------------------------------------
+
+export interface RuleRow extends Rule {
+  timesApplied: number;
+}
+
+export function renderRules(opts: {
+  rules: RuleRow[];
+  proposed: RuleRow[];
+  categories: { id: string; name: string }[];
+  test?: {
+    matched: number;
+    samples: { before: RuleSubject; after: RuleSubject }[];
+    categoryNames: Map<string, string>;
+  } | null;
+  draft?: { name: string; field: string; op: string; value: string; categoryId: string; stage: RuleStage } | null;
+}): SafeHtml {
+  return html`
+    <h1>Rules</h1>
+    <p class="muted">
+      Rules propose; you confirm. Nothing here is applied to your ledger without
+      passing through Review first, and a rule can be tried against your own
+      history before you save it.
+    </p>
+
+    ${when(opts.proposed.length > 0, () => html`
+      <section class="card">
+        <h2>Proposed from what you've been doing <span class="chip">${opts.proposed.length}</span></h2>
+        ${opts.proposed.map(
+          (r) => html`
+            <form method="post" action="/rules/confirm"
+                  class="row-between" style="padding:.5rem 0;border-top:1px solid var(--border)">
+              <input type="hidden" name="rule_id" value="${r.id}">
+              <span>${r.name}</span>
+              <span class="row">
+                <button class="button-small button-primary" type="submit">Use it</button>
+                <button class="button-small" type="submit" formaction="/rules/dismiss">No thanks</button>
+              </span>
+            </form>
+          `,
+        )}
+      </section>
+    `)}
+
+    <section class="card">
+      <h2>Add a rule</h2>
+      <form method="post" action="/rules/new">
+        <div class="field">
+          <label for="rule-name">Name it</label>
+          <input id="rule-name" name="name" required
+                 value="${opts.draft?.name ?? ""}" placeholder="Swiggy → Eating out">
+        </div>
+
+        <fieldset>
+          <legend>When</legend>
+          <div class="grid-2">
+            <div class="field">
+              <label for="cond-field">This</label>
+              <select id="cond-field" name="field">
+                ${[
+                  ["merchant", "the merchant"],
+                  ["narration", "the bank's whole description"],
+                  ["vpa", "the UPI address"],
+                  ["channel", "the channel (UPI, NEFT, ATM…)"],
+                  ["importedPayee", "the imported payee"],
+                  ["absoluteAmount", "the amount"],
+                  ["cardLast4", "the card's last four digits"],
+                ].map(
+                  ([value, label]) => html`
+                    <option value="${value}" ${raw(opts.draft?.field === value ? "selected" : "")}>
+                      ${label}
+                    </option>
+                  `,
+                )}
+              </select>
+            </div>
+            <div class="field">
+              <label for="cond-op">…does this</label>
+              <select id="cond-op" name="op">
+                ${[
+                  ["contains", "contains"], ["is", "is exactly"],
+                  ["startsWith", "starts with"], ["matches", "matches a pattern"],
+                  ["greaterThan", "is more than"], ["lessThan", "is less than"],
+                ].map(
+                  ([value, label]) => html`
+                    <option value="${value}" ${raw(opts.draft?.op === value ? "selected" : "")}>${label}</option>
+                  `,
+                )}
+              </select>
+            </div>
+          </div>
+          <div class="field">
+            <label for="cond-value">…this</label>
+            <input id="cond-value" name="value" required value="${opts.draft?.value ?? ""}" placeholder="Swiggy">
+            <p class="field-hint">
+              Matching on the merchant rather than the whole description keeps the rule
+              working when the order number changes — which it does every time.
+            </p>
+          </div>
+        </fieldset>
+
+        <fieldset>
+          <legend>Then</legend>
+          <div class="field">
+            <label for="action-category">Put it in</label>
+            <select id="action-category" name="category_id" required>
+              ${opts.categories.map(
+                (c) => html`
+                  <option value="${c.id}" ${raw(opts.draft?.categoryId === c.id ? "selected" : "")}>
+                    ${c.name}
+                  </option>
+                `,
+              )}
+            </select>
+          </div>
+        </fieldset>
+
+        <!-- F6.7: try it against history before saving, with before/after. -->
+        <button type="submit" formaction="/rules/test">Try it on my history</button>
+        <button class="button-primary" type="submit">Save the rule</button>
+      </form>
+
+      ${when(opts.test, () => renderRuleTest(opts.test!))}
+    </section>
+
+    <section class="card">
+      <h2>Your rules</h2>
+      ${opts.rules.length === 0
+        ? html`<p class="faint">None yet.</p>`
+        : html`
+            <p class="faint" style="margin-top:-.25rem">
+              Rules run in three stages — clean up, then categorise, then tag — and
+              within a stage the broad ones run before the narrow ones. You never
+              have to order them yourself.
+            </p>
+            ${opts.rules.map(
+              (r) => html`
+                <div class="row-between" style="padding:.5rem 0;border-top:1px solid var(--border)">
+                  <div>
+                    <strong>${r.name}</strong>
+                    <span class="chip">${r.stage}</span>
+                    <div class="faint">
+                      ${r.conditions.map((c) => `${c.field} ${c.op} ${String(c.value)}`).join(", ")}
+                      · applied ${r.timesApplied} times
+                    </div>
+                  </div>
+                  <form method="post" action="/rules/${r.id}/delete">
+                    <button class="button-small button-danger" type="submit">Remove</button>
+                  </form>
+                </div>
+              `,
+            )}
+          `}
+    </section>
+  `;
+}
+
+/** F6.7 · A match count and a before/after preview, before anything is saved. */
+function renderRuleTest(test: {
+  matched: number;
+  samples: { before: RuleSubject; after: RuleSubject }[];
+  categoryNames: Map<string, string>;
+}): SafeHtml {
+  return html`
+    <div class="notice ${test.matched > 0 ? "notice-success" : "notice-warning"}" style="margin-top:1rem">
+      ${test.matched === 0
+        ? html`That rule matches nothing in your history. It will still apply to
+               anything new that fits — but check the wording first.`
+        : html`Matches <strong>${test.matched}</strong> ${test.matched === 1 ? "transaction" : "transactions"}
+               in your history.`}
+    </div>
+
+    ${when(test.samples.length > 0, () => html`
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">What the bank sent</th>
+              <th scope="col">Now</th>
+              <th scope="col">Would become</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${test.samples.map(
+              (s) => html`
+                <tr>
+                  <td class="faint" style="word-break:break-all">${s.before.narration}</td>
+                  <td>${s.before.categoryId ? test.categoryNames.get(s.before.categoryId) ?? "—" : "—"}</td>
+                  <td>
+                    <strong>
+                      ${s.after.categoryId ? test.categoryNames.get(s.after.categoryId) ?? "—" : "—"}
+                    </strong>
+                  </td>
+                </tr>
+              `,
+            )}
+          </tbody>
+        </table>
+      </div>
+    `)}
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// F3 · Categories
+// ---------------------------------------------------------------------------
+
+export function renderCategories(groups: {
+  id: string;
+  name: string;
+  kind: string;
+  categories: { id: string; name: string; hidden: boolean; balance: Paise; isPayment: boolean }[];
+}[]): SafeHtml {
+  return html`
+    <h1>Categories</h1>
+
+    ${groups.map(
+      (g) => html`
+        <section class="card">
+          <div class="row-between">
+            <h2>${g.name}</h2>
+            ${when(g.kind !== "normal", () => html`<span class="chip">managed by the app</span>`)}
+          </div>
+          ${g.categories.map(
+            (c) => html`
+              <div class="row-between" style="padding:.5rem 0;border-top:1px solid var(--border)">
+                <form method="post" action="/categories/${c.id}/rename" class="row" style="flex:1">
+                  <input name="name" value="${c.name}" style="max-width:20rem"
+                         ${raw(c.isPayment ? "readonly" : "")}>
+                  ${when(!c.isPayment, () => html`
+                    <button class="button-small" type="submit">Rename</button>
+                  `)}
+                </form>
+                <span class="row">
+                  <span class="amount">${formatPaise(c.balance)}</span>
+                  ${when(!c.isPayment, () => html`
+                    <form method="post" action="/categories/${c.id}/hide">
+                      <input type="hidden" name="hidden" value="${c.hidden ? "0" : "1"}">
+                      <button class="button-small button-quiet" type="submit">
+                        ${c.hidden ? "Unhide" : "Hide"}
+                      </button>
+                    </form>
+                  `)}
+                </span>
+              </div>
+            `,
+          )}
+        </section>
+      `,
+    )}
+
+    <section class="card">
+      <h2>Add a category</h2>
+      <form method="post" action="/categories/new">
+        <div class="grid-2">
+          <div class="field">
+            <label for="cat-name">Name</label>
+            <input id="cat-name" name="name" required>
+          </div>
+          <div class="field">
+            <label for="cat-group">In</label>
+            <select id="cat-group" name="group_id" required>
+              ${groups
+                .filter((g) => g.kind === "normal")
+                .map((g) => html`<option value="${g.id}">${g.name}</option>`)}
+            </select>
+          </div>
+        </div>
+        <button type="submit">Add</button>
+      </form>
+    </section>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// J1 · First run
+// ---------------------------------------------------------------------------
+
+/**
+ * `02` §8: "The empty state is where budgeting apps lose people."
+ *
+ * Five questions, a generated budget, one account, and the moment that matters
+ * — Ready to Assign becoming a real number. Skippable at every step (J1).
+ */
+export function renderFirstRun(opts: { memberName: string }): SafeHtml {
+  return html`
+    <div style="max-width:34rem;margin:2rem auto">
+      <h1>Let's get you a working budget</h1>
+      <p class="muted">
+        Under ten minutes. Everything here is a starting point you'll edit —
+        nothing is locked in.
+      </p>
+
+      <form method="post" action="/setup" class="card">
+        <div class="field">
+          <label for="income">Roughly what lands each month, after tax?</label>
+          <input id="income" name="monthly_income" class="amount-input" type="text"
+                 inputmode="decimal" required placeholder="1,65,000">
+          <p class="field-hint">
+            Used only to suggest starting amounts. It is never treated as income
+            you have — this app only budgets money you actually hold.
+          </p>
+        </div>
+
+        <fieldset>
+          <legend>So we can leave out what doesn't apply</legend>
+          <div class="field">
+            <label><input type="checkbox" name="has_emis" value="1" checked> I have EMIs or loan repayments</label>
+          </div>
+          <div class="field">
+            <label><input type="checkbox" name="has_school_fees" value="1"> I pay school or college fees</label>
+          </div>
+          <div class="field">
+            <label><input type="checkbox" name="has_domestic_help" value="1" checked> I pay domestic help</label>
+          </div>
+        </fieldset>
+
+        <button class="button-primary" type="submit">Build my starting budget</button>
+      </form>
+
+      <div class="card">
+        <h2>Rather start empty?</h2>
+        <p class="muted">
+          You'll get one group and nothing else, and can build it up yourself.
+        </p>
+        <form method="post" action="/setup/blank">
+          <button type="submit">Start blank instead</button>
+        </form>
+      </div>
+
+      <p class="faint">
+        Signed in as ${opts.memberName}. You can add the rest of the household
+        from Settings once you're set up.
+      </p>
+    </div>
+  `;
+}

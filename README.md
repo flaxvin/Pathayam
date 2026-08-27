@@ -9,11 +9,16 @@ The design is in [`docs/`](docs/00-README.md). This file covers running it.
 
 ## Status
 
-**P0 substantially complete.** A full month can be budgeted, spent, imported,
-reconciled and rolled over without a spreadsheet, and a restore has been
-verified with matching control totals — which is the two-part bar `05` §2 sets.
-Reports, schedules, goals and search are still missing, along with loans and
-assets (both P2). See [What is and isn't built](#what-is-and-isnt-built).
+**P0 complete, P1 substantially complete.** A full month can be budgeted,
+spent, imported, reconciled and rolled over without a spreadsheet, and a
+restore has been verified with matching control totals — the two-part bar
+`05` §2 sets. P1's loans, cashflow calendar, schedule detection and goals are
+built. Assets, net worth and multi-currency (`07`, all P2) are not.
+
+The corrections and additions in
+[`docs/10-errata-and-addenda.md`](docs/10-errata-and-addenda.md) are adopted,
+including R7.g's forward recompute and R40.8's dead-man's switch. `E12` in that
+document was found by `verify_docs.py`, which is in this repo.
 
 ---
 
@@ -193,42 +198,58 @@ negative differs, which is what makes shipping both cheap.
 
 ### Working
 
-- The budgeting engine, R1–R13, including both overspend models, credit-card
-  payment envelopes, add-on cards, targets, auto-assign with preview, move
-  money with ranked suggestions, hold-for-next-month, and the Buffer metric
-- The event log with universal undo, and "explain this number" on category
-  balances and Ready to Assign
-- Idempotent writes with bounded client retry and three unambiguous outcomes
-- Google SSO, the allow-list enforced on every request, sessions with
-  per-device revocation, read-only impersonation, the gated dev bypass
-- Accounts across all three kinds, cards and add-on cards, the register
-- Transactions with splits, transfers, tags, owners, soft delete; payees with
-  raw-string retention and merge
-- **CSV import** with header detection, Indian amount formats, UPI narration
-  extraction, all five dedupe tiers, the review queue, the three-stage rules
-  engine, the auto-approve gate, and batch undo
-- **Reconciliation** with locked checkpoints and the Q5 breakage rule
-- **Backup, verified restore and the health page**; complete JSON export and
-  transaction CSV
-- The budget screen, theme, PWA manifest, command palette, Docker packaging
-- The India-appropriate starting template
+**The engine** — R1–R13, both overspend models, credit-card payment envelopes,
+add-on cards, targets, auto-assign with preview, move money with ranked
+suggestions, hold-for-next-month, Buffer, and R7.g's forward recompute.
+
+**The platform floor** — the append-only event log with universal undo and
+"explain this number"; idempotent writes with bounded client retry; Google SSO
+with the allow-list enforced on every request; sessions with per-device
+revocation; read-only impersonation; the gated dev bypass.
+
+**Money in** — accounts across all three kinds, cards and add-on cards, the
+register, transactions with splits/transfers/tags/owners and soft delete,
+payees with raw-string retention and merge. CSV import with header detection,
+Indian amount formats, UPI narration extraction, all five dedupe tiers, the
+review queue, the three-stage rules engine with test-before-save, the
+auto-approve gate, and batch undo.
+
+**Making sure it's right** — reconciliation with locked checkpoints and the Q5
+breakage rule; backup, verified restore, the heartbeat and the health page;
+complete JSON export and transaction CSV.
+
+**Understanding it** — reports, the one query screen everything drills into,
+search across raw imported strings, schedules with detection, the cashflow
+calendar, and goals.
+
+**Debt** — loans with the full amortisation engine, all four interest models,
+per-tranche disbursement destinations, instalment recording with the lender's
+split, drift against a lender statement, and the prepayment comparison that
+`06` §1 says the module exists for.
+
+**The shell** — budget screen, theme, PWA manifest, command palette, first-run
+wizard, the India-appropriate starting template, Docker Compose.
 
 ### Not built yet
 
 | Gap | Where it is specified |
 |---|---|
-| Saved per-bank mapping profiles, and the mapping UI for an unrecognised file | `04` §3.2 |
+| Assets, holdings, net worth, multi-currency | `07` — P2, and the R30 firewall with it |
+| CDSL CAS import | `07` F19.14, promoted to P1 by errata E10 |
+| Gmail alert parsing, SMS forwarding | `04` §3.4, §3.5 — P1/P2 |
 | PDF statement parsers for HDFC / ICICI / Axis / SBI | `04` §3.3, Q2 |
-| Rule editor UI — retroactive apply and test-before-save exist in the engine but have no screen | F6.6, F6.7 |
-| Re-import of an export | F15.2 |
-| Reports, query screen, schedules and the cashflow calendar, goals, search | F7, F10, F11, F16 |
-| Bulk edit over a filtered selection | F4.7 |
-| First-run wizard (the template applies, but the five questions have no screen) | `02` §8, J1 |
-| Loans, assets, net worth, multi-currency | `06`, `07` — all P2 |
+| Saved per-bank mapping profiles, and the mapping UI | `04` §3.2 |
+| Rule learning from behaviour; retroactive apply | `04` §6.4; F6.6 |
+| Attachments / receipt capture | Q10 |
+| Month-close ritual | `08` S5, Q26 — P1 |
+| Personal API tokens; module feature-flag UI | F30; F28 |
+| Tranche drawdown, pre-EMI, moratorium models | `06` R15, R16 M4 — modelled, seeded with no data (Q11) |
 
 Nothing in that list requires reworking stored data. The three things `05` §3
 says can never be retrofitted — the engine's semantics, idempotency keys and
-the event log — are all in place.
+the event log — are all in place, and every source of transactions terminates
+in the same review queue, which is what `04` §1 says makes the remaining
+ingestion work additive rather than a rewrite.
 
 A known wart is recorded rather than hidden: viewing a *past* month subtracts
 assignments made in months since, so a July view in December can read lower
