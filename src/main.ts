@@ -16,6 +16,7 @@ import { pruneIdempotencyKeys } from "./core/idempotency.ts";
 import { pruneExpiredSessions, pruneAuthAttempts } from "./auth/sessions.ts";
 import { purgeDeleted } from "./domain/transactions.ts";
 import { runBackupJob } from "./ops/backup.ts";
+import { refreshPrices } from "./portfolio/refresh.ts";
 
 const LEVELS = { debug: 10, info: 20, warn: 30, error: 40 } as const;
 
@@ -111,6 +112,34 @@ function main(): void {
         .catch((err) => {
           log({ level: "error", msg: "backup job threw", error: String(err) });
         });
+
+      // `07` P4 · Prices, on their own per-class cadence. The tick is every six
+      // hours but `refreshPrices` decides whether anything is actually due —
+      // a NAV published at 23:00 IST does not exist at noon, and asking for it
+      // four times an evening is how a free provider stops being free.
+      //
+      // F28: skipped entirely when the assets module is off, so a household
+      // that does not track investments makes no outbound calls at all.
+      if (config.features.assets) {
+        void refreshPrices(db, { memberId: null, source: "job" }, {
+          alphaVantageKey: config.alphaVantageKey,
+        })
+          .then((result) => {
+            if (result.attempted === 0) return;
+            log({
+              level: result.failed > 0 ? "warn" : "info",
+              msg: "price refresh",
+              updated: result.updated,
+              failed: result.failed,
+              skipped: result.skipped,
+            });
+          })
+          .catch((err) => {
+            // P9 / FW9: a failed refresh is never fatal. The last price stays,
+            // with its date shown.
+            log({ level: "error", msg: "price refresh threw", error: String(err) });
+          });
+      }
     },
     6 * 60 * 60 * 1000,
   );

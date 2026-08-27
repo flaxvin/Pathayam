@@ -36,7 +36,7 @@ import type { IsoDate } from "../core/dates.ts";
 import { todayIST } from "../core/dates.ts";
 import { price as toMicroRupees, type MicroRupees } from "./holdings.ts";
 
-export type ProviderName = "mfapi" | "frankfurter" | "alphavantage" | "manual";
+export type ProviderName = "mfapi" | "amfi" | "frankfurter" | "alphavantage" | "manual";
 
 export interface PriceResult {
   ok: true;
@@ -298,8 +298,143 @@ export const alphaVantage: Provider = {
   },
 };
 
+/**
+ * `10` §3.3 · AMFI, the fallback behind MFAPI.
+ *
+ * MFAPI is a third-party JSON wrapper over AMFI's published NAVs, not AMFI
+ * itself, and can disappear without notice or recourse. This reads the source
+ * directly. R24.6's stored ISIN is what makes the swap possible: MFAPI is
+ * keyed by scheme code, AMFI by ISIN, and a holding carrying both is a holding
+ * that survives losing either.
+ *
+ * Format verified 27-08-2026 against the live file — the errata asked for
+ * exactly that before coding:
+ *
+ *   Scheme Code;ISIN Div Payout/ISIN Growth;ISIN Div Reinvestment;Scheme Name;
+ *   Plan;Option;Net Asset Value;Date
+ *   135762;INF846K01WO1;-;Axis Children's Fund;Direct Plan;Growth Option;30.4829;27-Aug-2026
+ *
+ * Two things the format demands. A scheme carries **two** ISINs — growth or
+ * payout in column 2, reinvestment in column 3 — and a holding may be
+ * identified by either. And the file is one 1.5MB document covering every
+ * scheme in India, so fetching it per instrument would be absurd: it is
+ * fetched once and served from memory for the rest of the refresh run.
+ */
+const AMFI_NAV_URL = "https://www.amfiindia.com/spages/NAVAll.txt";
+
+/** How long a fetched file stays usable. One refresh run, not one day. */
+const AMFI_CACHE_MS = 10 * 60 * 1000;
+
+interface AmfiEntry {
+  nav: MicroRupees;
+  asOf: IsoDate;
+  name: string;
+}
+
+let amfiCache: { at: number; byIsin: Map<string, AmfiEntry> } | null = null;
+
+/** Exposed for tests, and for a health page that wants a cold read. */
+export function clearAmfiCache(): void {
+  amfiCache = null;
+}
+
+const AMFI_MONTHS: Record<string, string> = {
+  jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
+  jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
+};
+
+/** AMFI dates are DD-Mmm-YYYY. */
+export function parseAmfiDate(value: string): IsoDate | null {
+  const match = /^(\d{1,2})-([A-Za-z]{3})-(\d{4})$/.exec(value.trim());
+  if (!match) return null;
+  const month = AMFI_MONTHS[match[2]!.toLowerCase()];
+  return month ? `${match[3]}-${month}-${match[1]!.padStart(2, "0")}` as IsoDate : null;
+}
+
+export function parseAmfiFile(text: string): Map<string, AmfiEntry> {
+  const byIsin = new Map<string, AmfiEntry>();
+
+  for (const line of text.split(/\r?\n/)) {
+    // Scheme lines have eight fields; AMC headings and blank separators do not.
+    const parts = line.split(";");
+    if (parts.length < 8) continue;
+
+    const nav = Number(parts[6]!.trim());
+    const asOf = parseAmfiDate(parts[7] ?? "");
+    if (!Number.isFinite(nav) || nav <= 0 || !asOf) continue;
+
+    const entry: AmfiEntry = {
+      nav: Math.round(nav * 1_000_000) as MicroRupees,
+      asOf,
+      name: (parts[3] ?? "").trim(),
+    };
+
+    // Both ISIN columns map to the same scheme; "-" means the plan has no
+    // ISIN of that kind.
+    for (const isin of [parts[1], parts[2]]) {
+      const key = (isin ?? "").trim().toUpperCase();
+      if (key && key !== "-") byIsin.set(key, entry);
+    }
+  }
+
+  return byIsin;
+}
+
+export const amfi: Provider = {
+  name: "amfi",
+  // AMFI publishes a static file. There is no key and no documented limit —
+  // but it is 1.5MB, so the cache above is the real ceiling.
+  dailyCallCeiling: null,
+
+  async fetchPrice(isin: string, opts: FetchOptions = {}): Promise<PriceOutcome> {
+    const key = isin.trim().toUpperCase();
+    if (!/^[A-Z]{2}[A-Z0-9]{9}\d$/.test(key)) {
+      return fail(
+        "amfi", "unparseable",
+        "AMFI is keyed by ISIN, and that does not look like one.",
+      );
+    }
+
+    if (!amfiCache || Date.now() - amfiCache.at > AMFI_CACHE_MS) {
+      const doFetch = opts.fetchImpl ?? fetch;
+      const controller = new AbortController();
+      const timer = setTimeout(() => controller.abort(), opts.timeoutMs ?? 30_000);
+      try {
+        const response = await doFetch(AMFI_NAV_URL, { signal: controller.signal });
+        if (!response.ok) {
+          return fail("amfi", "unavailable", `AMFI returned ${response.status}.`);
+        }
+        amfiCache = { at: Date.now(), byIsin: parseAmfiFile(await response.text()) };
+      } catch {
+        return fail("amfi", "unavailable", "AMFI could not be reached.");
+      } finally {
+        clearTimeout(timer);
+      }
+    }
+
+    const entry = amfiCache.byIsin.get(key);
+    if (!entry) {
+      return fail("amfi", "not-found", "No scheme in AMFI's file carries that ISIN.");
+    }
+
+    return {
+      ok: true,
+      price: entry.nav,
+      currency: "INR",
+      // R26.2: the date AMFI published it, never the date we fetched it. Some
+      // rows in that file are years old, and pretending otherwise would be the
+      // exact failure FW9 exists to prevent.
+      asOf: entry.asOf,
+      source: "amfi",
+      name: entry.name,
+      isin: key,
+    };
+  },
+};
+
 export const PROVIDERS: Record<string, Provider> = {
   mfapi,
+  amfi,
   alphavantage: alphaVantage,
 };
 
