@@ -21,7 +21,7 @@ export interface ReviewData {
   overspent: CategoryView[];
   unfundedCards: { accountId: string; name: string; unfunded: Paise; categoryId: string }[];
   brokenCheckpoints: { accountId: string; name: string; asOf: IsoDate; reason: string | null }[];
-  proposedRules: { id: string; name: string }[];
+  proposedRules: { id: string; name: string; because: string | null }[];
   categories: CategoryView[];
   bufferReading: string;
   month: string;
@@ -267,7 +267,11 @@ function renderProposedRules(data: ReviewData): SafeHtml {
           <form method="post" action="/rules/confirm"
                 class="row-between" style="padding:.5rem 0;border-top:1px solid var(--border)">
             <input type="hidden" name="rule_id" value="${r.id}">
-            <span>${r.name}</span>
+            <span>
+              ${r.name}
+              <!-- N9: state what it was inferred from, never just the conclusion. -->
+              ${when(r.because, () => html`<div class="faint">${r.because}</div>`)}
+            </span>
             <span class="row">
               <button class="button-small button-primary" type="submit">Use it</button>
               <button class="button-small" type="submit" formaction="/rules/dismiss">No thanks</button>
@@ -283,9 +287,126 @@ function renderProposedRules(data: ReviewData): SafeHtml {
 // S10 · Import
 // ---------------------------------------------------------------------------
 
+export interface MappingPrompt {
+  accountId: string;
+  fileName: string;
+  csv: string;
+  /** The rows exactly as parsed — 04 §3.2 keeps them visible throughout. */
+  rows: string[][];
+  candidateHeaders: { index: number; cells: string[] }[];
+  headerRow: number;
+  choices: { index: number; label: string; sample: string }[];
+  error?: string | null;
+}
+
+/**
+ * `04` §3.2 · The mapping UI.
+ *
+ * "The mapping UI shows the raw rows throughout; an unrecognised file is a
+ * mapping task, not an error." So this screen never says something went
+ * wrong — it shows what arrived and asks which column is which.
+ */
+export function renderMapping(opts: MappingPrompt): SafeHtml {
+  const column = (name: string, label: string, hint: string, required = false) => html`
+    <div class="field">
+      <label for="${name}">${label}</label>
+      <select id="${name}" name="${name}" ${raw(required ? "required" : "")}>
+        ${raw(required ? "" : '<option value="-1">Not in this file</option>')}
+        ${opts.choices.map(
+          (c) => html`
+            <option value="${c.index}">
+              ${c.label}${c.sample ? ` — e.g. ${c.sample}` : ""}
+            </option>
+          `,
+        )}
+      </select>
+      <p class="field-hint">${hint}</p>
+    </div>
+  `;
+
+  return html`
+    <h1>Which column is which?</h1>
+    <p class="muted">
+      This file doesn't match anything seen before, so it needs setting up once.
+      After that, every statement from this bank imports without asking.
+    </p>
+    ${when(opts.error, () => html`<p class="notice notice-error">${opts.error}</p>`)}
+
+    <section class="card">
+      <h2>What arrived</h2>
+      <div class="table-scroll">
+        <table>
+          <tbody>
+            ${opts.rows.slice(0, 8).map(
+              (row, index) => html`
+                <tr style="${index === opts.headerRow ? "background:var(--accent-soft)" : ""}">
+                  <td class="faint">${index}</td>
+                  ${row.map((cell) => html`<td>${cell}</td>`)}
+                </tr>
+              `,
+            )}
+          </tbody>
+        </table>
+      </div>
+    </section>
+
+    <form method="post" action="/import/map" class="card">
+      <input type="hidden" name="account_id" value="${opts.accountId}">
+      <input type="hidden" name="file_name" value="${opts.fileName}">
+      <textarea name="csv" hidden>${opts.csv}</textarea>
+
+      <div class="field">
+        <label for="header_row">Which row holds the column names?</label>
+        <select id="header_row" name="header_row">
+          ${opts.candidateHeaders.map(
+            (c) => html`
+              <option value="${c.index}" ${raw(c.index === opts.headerRow ? "selected" : "")}>
+                Row ${c.index}: ${c.cells.slice(0, 5).join(" · ")}
+              </option>
+            `,
+          )}
+        </select>
+        <p class="field-hint">
+          Statements often carry account details above the table, so this is
+          rarely the first row.
+        </p>
+      </div>
+
+      ${column("date", "Date", "The date the transaction happened.", true)}
+      ${column("narration", "Description", "Whatever the bank calls the other party.", true)}
+
+      <fieldset>
+        <legend>The amount</legend>
+        <p class="field-hint" style="margin-top:0">
+          Most Indian statements use separate withdrawal and deposit columns.
+          Some use one signed column instead — fill in whichever your file has.
+        </p>
+        ${column("debit", "Money out", "The withdrawal or debit column.")}
+        ${column("credit", "Money in", "The deposit or credit column.")}
+        ${column("amount", "Or one signed column", "Negative for money out.")}
+      </fieldset>
+
+      <fieldset>
+        <legend>Optional</legend>
+        ${column("reference", "Reference number", "Used to match the same transaction arriving twice.")}
+        ${column("balance", "Running balance", "Not used for anything yet; recorded if present.")}
+      </fieldset>
+
+      <div class="field">
+        <label for="profile_name">Remember this as</label>
+        <input id="profile_name" name="profile_name" required placeholder="HDFC Savings statement">
+        <p class="field-hint">Next month's file with these columns will import without asking.</p>
+      </div>
+
+      <button class="button-primary" type="submit">Read the file</button>
+    </form>
+  `;
+}
+
 export function renderImport(opts: {
   accounts: Account[];
   batches: ImportBatch[];
+  profiles: { id: string; name: string; last_used_at: string | null }[];
   error?: string | null;
   preview?: {
     accountId: string;
@@ -328,6 +449,30 @@ export function renderImport(opts: {
         Nothing goes into your ledger yet — every row lands in Review first.
       </p>
     </form>
+
+    ${when(opts.profiles.length > 0, () => html`
+      <section class="card">
+        <h2>Saved column mappings</h2>
+        <p class="faint" style="margin-top:-.25rem">
+          Recognised automatically by their column names, so a file from one of
+          these banks imports without setting anything up.
+        </p>
+        ${opts.profiles.map(
+          (p) => html`
+            <form method="post" action="/import/profiles/${p.id}/delete"
+                  class="row-between" style="padding:.4rem 0;border-top:1px solid var(--border)">
+              <span>
+                ${p.name}
+                ${when(p.last_used_at, () => html`
+                  <span class="faint">· last used ${p.last_used_at!.slice(0, 10)}</span>
+                `)}
+              </span>
+              <button class="button-small button-quiet" type="submit">Forget</button>
+            </form>
+          `,
+        )}
+      </section>
+    `)}
 
     ${when(opts.batches.length > 0, () => html`
       <section class="card">

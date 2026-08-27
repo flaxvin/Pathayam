@@ -215,7 +215,13 @@ register, transactions with splits/transfers/tags/owners and soft delete,
 payees with raw-string retention and merge. CSV import with header detection,
 Indian amount formats, UPI narration extraction, all five dedupe tiers, the
 review queue, the three-stage rules engine with test-before-save, the
-auto-approve gate, and batch undo.
+auto-approve gate, and batch undo. A file the app cannot read is a mapping
+task, not an error: the columns are named against the raw rows, the mapping is
+saved per bank, and the next file with that header signature imports without
+asking. Rules are proposed from what you actually do — the second time you
+categorise a payee, or when you clean up an imported name — and every proposal
+states the inference it came from and waits in Review. A confirmed rule can be
+applied to history, with the count and a preview first.
 
 **Making sure it's right** — reconciliation with locked checkpoints and the Q5
 breakage rule; backup, verified restore, the heartbeat and the health page;
@@ -250,8 +256,6 @@ wizard, the India-appropriate starting template, Docker Compose.
 | Asset allocation by class and geography | F19.11 |
 | Gmail alert parsing, SMS forwarding | `04` §3.4, §3.5 — P1/P2 |
 | PDF statement parsers for HDFC / ICICI / Axis / SBI | `04` §3.3, Q2 |
-| Saved per-bank mapping profiles, and the mapping UI | `04` §3.2 |
-| Rule learning from behaviour; retroactive apply | `04` §6.4; F6.6 |
 | Attachments / receipt capture | Q10 |
 | Month-close ritual | `08` S5, Q26 — P1 |
 | Personal API tokens; module feature-flag UI | F30; F28 |

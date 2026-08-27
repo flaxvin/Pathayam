@@ -145,6 +145,8 @@ export function renderPayees(rows: PayeeRow[]): SafeHtml {
 
 export interface RuleRow extends Rule {
   timesApplied: number;
+  /** N9 · What the app inferred it from, for a proposal. Null for hand-written rules. */
+  because?: string | null;
 }
 
 export function renderRules(opts: {
@@ -174,7 +176,10 @@ export function renderRules(opts: {
             <form method="post" action="/rules/confirm"
                   class="row-between" style="padding:.5rem 0;border-top:1px solid var(--border)">
               <input type="hidden" name="rule_id" value="${r.id}">
-              <span>${r.name}</span>
+              <span>
+                ${r.name}
+                ${when(r.because, () => html`<div class="faint">${r.because}</div>`)}
+              </span>
               <span class="row">
                 <button class="button-small button-primary" type="submit">Use it</button>
                 <button class="button-small" type="submit" formaction="/rules/dismiss">No thanks</button>
@@ -287,9 +292,15 @@ export function renderRules(opts: {
                       · applied ${r.timesApplied} times
                     </div>
                   </div>
-                  <form method="post" action="/rules/${r.id}/delete">
-                    <button class="button-small button-danger" type="submit">Remove</button>
-                  </form>
+                  <span class="row">
+                    <!-- F6.6: the rule editor doubles as a batch editor. -->
+                    <form method="post" action="/rules/${r.id}/apply">
+                      <button class="button-small" type="submit">Apply to existing</button>
+                    </form>
+                    <form method="post" action="/rules/${r.id}/delete">
+                      <button class="button-small button-danger" type="submit">Remove</button>
+                    </form>
+                  </span>
                 </div>
               `,
             )}
