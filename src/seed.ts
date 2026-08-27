@@ -19,6 +19,8 @@ import { listCategories, setAssigned } from "./domain/budget.ts";
 import { createTransaction, createTransfer } from "./domain/transactions.ts";
 import { applyStartingTemplate } from "./domain/starting-budget.ts";
 import { createLoan, recordInstalment, recordDisbursement, recordLoanStatement } from "./domain/loans.ts";
+import { createSchedule } from "./domain/schedules.ts";
+import { createGoal } from "./domain/goals.ts";
 import { rupees } from "./core/money.ts";
 import { todayIST, monthOf, addDays } from "./core/dates.ts";
 
@@ -183,8 +185,36 @@ function main(): void {
     interestPaidYtd: rupees(8_030),
   });
 
+  // F7: standing instructions, so the cashflow calendar has something to
+  // project against. Rent on the 1st is what makes "will I make it to the
+  // 30th" a real question rather than a hypothetical one.
+  const schedule = (
+    name: string, amount: number, day: number, category: string,
+    opts: { subscription?: boolean } = {},
+  ) =>
+    createSchedule(db, actor, {
+      name, amount: rupees(-amount), recurrence: "monthly",
+      nextDue: `${monthOf(addDays(today, 32))}-${String(day).padStart(2, "0")}`,
+      categoryId: id(category), accountId: savings.id,
+      isSubscription: opts.subscription,
+    });
+
+  schedule("Rent", 41_000, 1, "Rent");
+  schedule("ACT Fibernet", 1_199, 8, "Broadband", { subscription: true });
+  schedule("Netflix", 649, 12, "DTH / OTT subscriptions", { subscription: true });
+  schedule("Electricity", 3_200, 15, "Electricity");
+  schedule("Domestic help", 5_000, 5, "Domestic help");
+
+  // F11: a goal, measured by a category's balance rather than money of its own.
+  createGoal(db, actor, {
+    name: "Kerala trip",
+    targetAmount: rupees(60_000),
+    targetDate: `${monthOf(addDays(today, 150))}-01`,
+    categoryIds: [id("Travel home")],
+  });
+
   console.log(
-    `Seeded a household: 2 members, 4 accounts, ${categories.size} categories, 2 loans.`,
+    `Seeded a household: 2 members, 4 accounts, ${categories.size} categories, 2 loans, 5 schedules.`,
   );
   console.log(`Run with DEV_LOGIN=true and sign in as Ravi or Priya.`);
   db.close();
