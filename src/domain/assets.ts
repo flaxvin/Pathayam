@@ -268,6 +268,12 @@ export function recordPurchase(
     /** The Budget account the money left, and the category it consumed. */
     fromAccountId?: string | null;
     categoryId?: string | null;
+    /**
+     * Where this lot came from, when it came from a statement. Recorded so a
+     * re-issued statement recognises it even after R25.4 has split it — see
+     * migration 0006.
+     */
+    sourceRef?: string | null;
   },
 ): Lot {
   return transact(db, () => {
@@ -300,10 +306,10 @@ export function recordPurchase(
 
     execute(
       db,
-      `INSERT INTO lots (id,holding_id,trade_date,units,price,fees,cost,fx_rate,transaction_id,created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO lots (id,holding_id,trade_date,units,price,fees,cost,fx_rate,transaction_id,source_ref,created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?)`,
       lot.id, holding.id, lot.tradeDate, lot.units, lot.price, lot.fees, lot.cost,
-      lot.fxRate, transactionId, nowIST(),
+      lot.fxRate, transactionId, input.sourceRef ?? null, nowIST(),
     );
 
     const instrument = getInstrument(db, input.instrumentId);
@@ -589,6 +595,8 @@ export function recordSale(
     charges?: Paise;
     /** Where the money landed. Leaving it null keeps the cash outside the budget. */
     toAccountId?: string | null;
+    /** The statement row this came from, if any. See migration 0006. */
+    sourceRef?: string | null;
   },
 ): SalePreview {
   return transact(db, () => {
@@ -628,10 +636,11 @@ export function recordSale(
     execute(
       db,
       `INSERT INTO holding_events
-         (id,holding_id,date,kind,units,price,amount,realised_gain,transaction_id,created_at,created_by)
-       VALUES (?,?,?,'sale',?,?,?,?,?,?,?)`,
+         (id,holding_id,date,kind,units,price,amount,realised_gain,transaction_id,source_ref,created_at,created_by)
+       VALUES (?,?,?,'sale',?,?,?,?,?,?,?,?)`,
       newId(), input.holdingId, input.date, input.units, input.price,
-      preview.proceeds, preview.realisedGain, transactionId, nowIST(), actor.memberId,
+      preview.proceeds, preview.realisedGain, transactionId,
+      input.sourceRef ?? null, nowIST(), actor.memberId,
     );
 
     appendEvent(db, actor, {
@@ -662,6 +671,8 @@ export function recordDividend(
     toAccountId?: string | null;
     /** Set for reinvestment — the NAV the new units were allotted at. */
     reinvestAtPrice?: MicroRupees | null;
+    /** The statement row this came from, if any. See migration 0006. */
+    sourceRef?: string | null;
   },
 ): void {
   transact(db, () => {
@@ -694,11 +705,11 @@ export function recordDividend(
 
     execute(
       db,
-      `INSERT INTO holding_events (id,holding_id,date,kind,amount,transaction_id,created_at,created_by)
-       VALUES (?,?,?,?,?,?,?,?)`,
+      `INSERT INTO holding_events (id,holding_id,date,kind,amount,transaction_id,source_ref,created_at,created_by)
+       VALUES (?,?,?,?,?,?,?,?,?)`,
       newId(), input.holdingId, input.date,
       reinvested ? "dividend-reinvested" : "dividend",
-      input.amount, transactionId, nowIST(), actor.memberId,
+      input.amount, transactionId, input.sourceRef ?? null, nowIST(), actor.memberId,
     );
 
     appendEvent(db, actor, {
