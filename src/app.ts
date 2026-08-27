@@ -41,7 +41,16 @@ import {
   renderAddTransaction, renderMoveMoney, renderAutoAssignPreview, renderHold,
   renderExplain, explainLineFor, renderNotFound,
 } from "./web/pages/actions.ts";
-import { renderReview, renderImport } from "./web/pages/review.ts";
+import { renderReview, renderImport, renderMapping } from "./web/pages/review.ts";
+import {
+  recognise, saveProfile, listProfiles, markProfileUsed, deleteProfile,
+  mappingFromSelections, validateMapping, columnChoices, candidateHeaderRows,
+  parseWith,
+} from "./import/profiles.ts";
+import {
+  proposeCategoryRules, proposePayeeRule, previewRetroactive, applyRetroactive,
+  suppress, learningEnabled, setLearningEnabled,
+} from "./import/learning.ts";
 import {
   renderReconcileStart, renderReconcileDifference, renderReconcileDone,
   renderCheckpointConfirmation,
@@ -112,7 +121,7 @@ import {
   applyStartingTemplate, startBlank,
 } from "./domain/starting-budget.ts";
 import {
-  mergePayees, getPayee,
+  mergePayees, getPayee, resolvePayee,
 } from "./domain/transactions.ts";
 import {
   createCategory, renameCategory, setCategoryHidden, listGroups,
@@ -934,6 +943,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const members = listMembers(db);
     const sessions = listSessions(db, a.member.id);
     const overspendModel = householdSettings(db)?.overspend_model ?? "reduce-rta";
+    const learning = learningEnabled(db);
 
     return render(
       ctx,
@@ -955,6 +965,28 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                   `,
                 )}
               </select>
+            </div>
+            <button type="submit">Save</button>
+          </form>
+        </section>
+
+        <section class="card">
+          <h2>Suggestions from what you do</h2>
+          <p class="faint" style="margin-top:-.25rem">
+            When you categorise the same payee twice, or clean up an imported name,
+            the app can offer a rule for it. Suggestions always wait in Review —
+            nothing is ever applied to your ledger on its own.
+          </p>
+          <form method="post" action="/settings/learning">
+            <div class="field">
+              <label>
+                <input type="checkbox" name="enabled" value="1" ${raw(learning ? "checked" : "")}>
+                Suggest rules from what I've been doing
+              </label>
+              <p class="field-hint">
+                Turning this off stops new suggestions. Rules you've already
+                confirmed keep working.
+              </p>
             </div>
             <button type="submit">Save</button>
           </form>
@@ -1062,6 +1094,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       `,
     );
   });
+
+  /** L4 · Learning is disableable, globally. */
+  router.post("/settings/learning", (ctx) =>
+    mutate(ctx, (a) => {
+      const enabled = field(ctx.body, "enabled") === "1";
+      setLearningEnabled(db, actorFor(a), enabled);
+      return {
+        redirect: "/settings",
+        message: enabled
+          ? "The app will suggest rules again."
+          : "Rule suggestions are off. Nothing you've already confirmed changes.",
+      };
+    }),
+  );
 
   router.post("/settings/overspend-model", (ctx) =>
     mutate(ctx, (a) => {
@@ -1227,6 +1273,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const magnitude = Math.abs(amountField(field(ctx.body, "amount")));
     const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
 
+    // L1 · A renamed payee is the signal. Resolved here so the rename and the
+    // rest of the edit land in one update, and so the *old* name is still
+    // readable when we decide whether anything actually changed.
+    const newPayee = (field(ctx.body, "payee") ?? "").trim();
+    const previousPayee = transaction.payee_id ? getPayee(db, transaction.payee_id)?.name ?? null : null;
+    const renamed = newPayee !== "" && newPayee !== previousPayee;
+    const payeeId = renamed
+      ? resolvePayee(db, actor, newPayee, transaction.raw_narration).id
+      : undefined;
+
     // Guard the earlier of the two dates: moving a transaction backwards means
     // the ripple starts where it lands, not where it was.
     const rippleFrom = monthOf(newDate < transaction.date ? newDate : transaction.date);
@@ -1239,13 +1295,28 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           categoryId: field(ctx.body, "category_id") || null,
           memo: field(ctx.body, "memo") || null,
           cleared: field(ctx.body, "cleared") === "1",
+          ...(payeeId !== undefined ? { payeeId } : {}),
         }),
     );
+
+    // L1 · Cleaning up an imported payee proposes a pre-stage rule mapping the
+    // raw string to the clean name, so next month's identical narration
+    // arrives already named. Only for imported rows: a manually typed
+    // transaction has no bank string to key a rule on.
+    let learned = "";
+    if (renamed && transaction.raw_narration && learningEnabled(db)) {
+      const proposal = proposePayeeRule(db, actorFor(a), {
+        rawNarration: transaction.raw_narration, cleanName: newPayee,
+      });
+      if (proposal) {
+        learned = " There's a rule to confirm in Review, so this one renames itself next time.";
+      }
+    }
 
     return {
       redirect: withNotice(
         `/accounts/${transaction.account_id}`,
-        "Saved." + rippleNote(recompute),
+        "Saved." + rippleNote(recompute) + learned,
       ),
     };
   });
@@ -1430,8 +1501,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
              FROM reconciliations r JOIN accounts a ON a.id = r.account_id
             WHERE r.broken_at IS NOT NULL ORDER BY r.as_of DESC`,
         ),
-        proposedRules: queryAll<{ id: string; name: string }>(
-          db, `SELECT id, name FROM rules WHERE proposed = 1 AND dismissed_at IS NULL`,
+        proposedRules: queryAll<{ id: string; name: string; because: string | null }>(
+          db, `SELECT id, name, because FROM rules WHERE proposed = 1 AND dismissed_at IS NULL`,
         ),
         categories: [...view.categories.values()],
         bufferReading: view.buffer.reading,
@@ -1446,7 +1517,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         requiredField(ctx.body, "staged_id"),
         { categoryId: field(ctx.body, "category_id") || null },
       );
-      return { redirect: "/review", message: "Added to your ledger." };
+
+      // L2 · Categorising the same payee a second time proposes a rule. The
+      // proposal goes to Review and is never applied (L3) — so this can run on
+      // every approval without ever changing anything on its own.
+      const proposals = learningEnabled(db) ? proposeCategoryRules(db, actorFor(a)) : [];
+
+      return {
+        redirect: "/review",
+        message:
+          "Added to your ledger." +
+          (proposals.length > 0
+            ? ` Spotted a pattern — there ${proposals.length === 1 ? "is a rule" : `are ${proposals.length} rules`} to confirm below.`
+            : ""),
+      };
     }),
   );
 
@@ -1473,31 +1557,55 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     render(ctx, "Import", renderImport({
       accounts: listAccounts(db),
       batches: listBatches(db),
+      profiles: listProfiles(db).map((p) => ({
+        id: p.id, name: p.name, last_used_at: p.last_used_at,
+      })),
     })),
   );
 
-  router.post("/import", (ctx) =>
-    mutate(ctx, (a) => {
-      const text = requiredField(ctx.body, "csv");
-      const accountId = requiredField(ctx.body, "account_id");
-      const fileName = field(ctx.body, "file_name") || "pasted.csv";
+  router.post("/import", (ctx) => {
+    const text = requiredField(ctx.body, "csv");
+    const accountId = requiredField(ctx.body, "account_id");
+    const fileName = field(ctx.body, "file_name") || "pasted.csv";
 
-      const { result, mapping } = parseStatement(text);
-      if (!mapping) {
-        // 03 §5: a file with no recognisable columns is a mapping task, not an
-        // error — but the mapping UI is not built yet, so say so plainly
-        // rather than failing with something opaque.
-        throw new HttpError(
-          400,
-          "I couldn't find a header row with a date, a description and an amount. " +
-            "Check that the header line is included in what you pasted.",
-        );
-      }
+    // 04 §3.2 · A saved profile first, then a guess, then the mapping UI.
+    // Checked before the mutation, because an unrecognised file is a *task*
+    // that renders a screen, not a write that redirects.
+    const recognition = recognise(db, text, accountId);
+    if (recognition.kind === "unknown") {
+      auth(ctx);
+      const headerRow = candidateHeaderRows(recognition.rows)[0]?.index ?? 0;
+      return render(
+        ctx, "Which column is which?",
+        renderMapping({
+          accountId, fileName, csv: text,
+          rows: recognition.rows,
+          candidateHeaders: candidateHeaderRows(recognition.rows),
+          headerRow,
+          choices: columnChoices(recognition.rows, headerRow),
+        }),
+      );
+    }
+
+    return mutate(ctx, (a) => {
+      const mapping =
+        recognition.kind === "profile" ? recognition.profile.mapping : recognition.mapping;
+      if (recognition.kind === "profile") markProfileUsed(db, recognition.profile.id);
+
+      const result = parseWith(recognition.rows, mapping);
 
       const outcome = ingest(db, actorFor(a, "import", ctx.req.headers["idempotency-key"] as string), {
         accountId, source: "csv", adapter: "csv", fileName,
         records: result.records, errors: result.errors, rowsRead: result.rowsRead,
       });
+
+      // A guess that worked is worth remembering, so next month asks nothing.
+      if (recognition.kind === "guessed" && result.records.length > 0) {
+        saveProfile(db, actorFor(a), {
+          name: `${getAccount(db, accountId)?.name ?? "Statement"} columns`,
+          accountId, headers: recognition.headers, mapping,
+        });
+      }
 
       const parts = [`${outcome.staged} to review`];
       if (outcome.autoApproved) parts.push(`${outcome.autoApproved} auto-approved`);
@@ -1509,6 +1617,65 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         redirect: outcome.staged > 0 ? "/review" : "/import",
         message: `Read ${outcome.batch.rows_read} rows — ${parts.join(", ")}.`,
       };
+    });
+  });
+
+  /**
+   * `04` §3.2 · The mapping UI. Reached when a file matches nothing known —
+   * a mapping task, not an error, so nothing here reports a failure.
+   */
+  router.post("/import/map", (ctx) =>
+    mutate(ctx, (a) => {
+      const text = requiredField(ctx.body, "csv");
+      const accountId = requiredField(ctx.body, "account_id");
+      const fileName = field(ctx.body, "file_name") || "pasted.csv";
+      const pick = (name: string) => {
+        const value = Number(field(ctx.body, name));
+        return Number.isInteger(value) && value >= 0 ? value : null;
+      };
+
+      const mapping = mappingFromSelections({
+        headerRow: pick("header_row") ?? 0,
+        date: pick("date") ?? -1,
+        narration: pick("narration") ?? -1,
+        amount: pick("amount"),
+        debit: pick("debit"),
+        credit: pick("credit"),
+        balance: pick("balance"),
+        reference: pick("reference"),
+      });
+
+      const problem = validateMapping(mapping);
+      if (problem) throw new HttpError(400, problem);
+
+      const recognition = recognise(db, text, accountId);
+      const result = parseWith(recognition.rows, mapping);
+
+      saveProfile(db, actorFor(a), {
+        name: requiredField(ctx.body, "profile_name"),
+        accountId,
+        headers: recognition.rows[mapping.headerRow] ?? [],
+        mapping,
+      });
+
+      const outcome = ingest(db, actorFor(a, "import"), {
+        accountId, source: "csv", adapter: "csv", fileName,
+        records: result.records, errors: result.errors, rowsRead: result.rowsRead,
+      });
+
+      return {
+        redirect: outcome.staged > 0 ? "/review" : "/import",
+        message:
+          `Read ${outcome.batch.rows_read} rows, and remembered these columns — ` +
+          `the next file like this will import without asking.`,
+      };
+    }),
+  );
+
+  router.post("/import/profiles/:id/delete", (ctx) =>
+    mutate(ctx, (a) => {
+      deleteProfile(db, actorFor(a), ctx.params.id!);
+      return { redirect: "/import", message: "Forgotten." };
     }),
   );
 
@@ -2044,7 +2211,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   function ruleRows(db2: DB, proposed: boolean): RuleRow[] {
     return queryAll<{
       id: string; name: string; stage: string; conditions_json: string;
-      actions_json: string; enabled: number; times_applied: number;
+      actions_json: string; enabled: number; times_applied: number; because: string | null;
     }>(
       db2,
       `SELECT * FROM rules WHERE proposed = ? AND dismissed_at IS NULL ORDER BY created_at DESC`,
@@ -2054,6 +2221,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       conditions: JSON.parse(r.conditions_json) as Rule["conditions"],
       actions: JSON.parse(r.actions_json) as Rule["actions"],
       enabled: r.enabled === 1,
+      because: r.because,
       timesApplied: r.times_applied,
     }));
   }
@@ -2163,6 +2331,84 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }),
   );
 
+  /** F6.6 · Apply a rule to matching existing transactions, count first. */
+  router.post("/rules/:id/apply", (ctx) => {
+    const a = auth(ctx);
+    const rules = ruleRows(db, false).concat(ruleRows(db, true));
+    const rule = rules.find((r) => r.id === ctx.params.id);
+    if (!rule) throw new NotFound("That rule does not exist.");
+
+    if (field(ctx.body, "confirm") !== "1") {
+      // F6.6 requires the count and a preview *before* commit.
+      const preview = previewRetroactive(db, rule);
+      return render(
+        ctx, "Apply to existing transactions",
+        html`
+          <h1>Apply "${rule.name}" to what's already here?</h1>
+          ${preview.count === 0
+            ? html`
+                <div class="card empty-state">
+                  <p>Nothing in your history matches this rule. It still applies to
+                     anything imported from now on.</p>
+                  <p><a class="button" href="/rules">Back to rules</a></p>
+                </div>
+              `
+            : html`
+                <div class="card">
+                  <p class="notice notice-info">
+                    Matches <strong>${preview.count}</strong>
+                    ${preview.count === 1 ? "transaction" : "transactions"};
+                    <strong>${preview.changing}</strong> would actually change.
+                    The rest already agree with it.
+                  </p>
+                  <div class="table-scroll" style="max-height:22rem;overflow-y:auto">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th scope="col">Date</th>
+                          <th scope="col">Payee</th>
+                          <th scope="col">Now</th>
+                          <th scope="col">Would become</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${preview.matches.map(
+                          (m) => html`
+                            <tr>
+                              <td>${m.date}</td>
+                              <td>${m.payee ?? "—"}</td>
+                              <td class="faint">${m.currentCategory ?? "Uncategorised"}</td>
+                              <td><strong>${m.proposedCategory ?? "—"}</strong></td>
+                            </tr>
+                          `,
+                        )}
+                      </tbody>
+                    </table>
+                  </div>
+                  <form method="post" action="/rules/${rule.id}/apply" style="margin-top:1rem">
+                    <input type="hidden" name="confirm" value="1">
+                    <button class="button-primary" type="submit">
+                      Change ${preview.changing}
+                      ${preview.changing === 1 ? "transaction" : "transactions"}
+                    </button>
+                    <a class="button button-quiet" href="/rules">Cancel</a>
+                  </form>
+                  <p class="field-hint">Undoable in one action for the next 30 days.</p>
+                </div>
+              `}
+        `,
+      );
+    }
+
+    const changed = applyRetroactive(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), rule);
+    return {
+      redirect: withNotice(
+        "/rules",
+        `Recategorised ${changed} ${changed === 1 ? "transaction" : "transactions"}.`,
+      ),
+    };
+  });
+
   router.post("/rules/confirm", (ctx) =>
     mutate(ctx, (a) => {
       const id = requiredField(ctx.body, "rule_id");
@@ -2179,7 +2425,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       // L5: dismissing a proposal suppresses that specific proposal for good.
       const id = requiredField(ctx.body, "rule_id");
+      const rule = ruleRows(db, true).find((r) => r.id === id);
       execute(db, `UPDATE rules SET dismissed_at = ? WHERE id = ?`, nowIST(), id);
+
+      // L5 · Dismissing suppresses *that specific proposal* permanently, so
+      // the same suggestion never comes back.
+      if (rule) {
+        const condition = rule.conditions[0];
+        const action = rule.actions[0] as { categoryId?: string; payee?: string } | undefined;
+        suppress(
+          db,
+          action?.categoryId ? "learned-rule" : "learned-payee",
+          `${String(condition?.value ?? "")}:${action?.categoryId ?? action?.payee ?? ""}`,
+          a.member.id,
+        );
+      }
+
       appendEvent(db, actorFor(a), {
         entity: "rule", entityId: id, action: "dismiss",
         summary: `Dismissed a proposed rule; it won't be suggested again`,

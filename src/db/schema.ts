@@ -873,4 +873,19 @@ CREATE TABLE net_worth_snapshots (
 );
 `,
   },
+  {
+    name: "0005-rule-reasons",
+    sql: `
+--------------------------------------------------------------------------------
+-- N9 · A proposed rule must say what it was inferred from.
+--
+-- The reason was previously written only to the event log, which meant Review
+-- showed "Swiggy → Eating out" with no way to see why. That presents a
+-- heuristic as a fact — exactly what N9 forbids. It is stored on the rule so
+-- the sentence sits next to the button that acts on it.
+--------------------------------------------------------------------------------
+
+ALTER TABLE rules ADD COLUMN because TEXT;
+`,
+  },
 ];

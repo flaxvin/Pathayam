@@ -363,4 +363,35 @@ describe("I5 · idempotency with rows still awaiting review", () => {
     assert.equal(listStaged(db).length, 2);
     db.close();
   });
+
+  test("renaming the downloaded file does not defeat it", () => {
+    const { db, account } = setup();
+    importStatement(db, account.id, STATEMENT, "statement.csv");
+
+    // The same statement, saved under the name the household actually gave it.
+    // A row's identity is what the row says, not what the file was called.
+    const second = importStatement(db, account.id, STATEMENT, "hdfc-august-2026.csv");
+
+    assert.equal(second.staged, 0);
+    assert.equal(second.skipped, 3);
+    assert.equal(listStaged(db).length, 3, "the queue must not double");
+    db.close();
+  });
+
+  test("D2 · two genuinely identical rows both survive, and re-import skips both", () => {
+    const { db, account } = setup();
+    // Two people, same shop, same amount, same day (H5). Two rows in the file.
+    const twice = `Date,Narration,Chq./Ref.No.,Withdrawal Amt.,Deposit Amt.,Closing Balance
+04-08-2026,UPI/P2M/000000000001/CHAI POINT,,60.00,,143039.50
+04-08-2026,UPI/P2M/000000000001/CHAI POINT,,60.00,,142979.50`;
+
+    const first = importStatement(db, account.id, twice, "a.csv");
+    assert.equal(first.staged, 2, "both must be kept — D2 forbids collapsing them");
+
+    const second = importStatement(db, account.id, twice, "b.csv");
+    assert.equal(second.staged, 0);
+    assert.equal(second.skipped, 2);
+    assert.equal(listStaged(db).length, 2);
+    db.close();
+  });
 });
