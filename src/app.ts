@@ -9,7 +9,7 @@
  */
 
 import type { DB } from "./db/db.ts";
-import { queryAll, queryOne } from "./db/db.ts";
+import { queryAll, queryOne, execute } from "./db/db.ts";
 import { devLoginModulePresent, type Config } from "./config.ts";
 import {
   Router, field, fieldList, requiredField, HttpError, NotFound,
@@ -90,6 +90,18 @@ import {
   listDisbursements, listRatePeriods, debtOverview, type LoanType,
 } from "./domain/loans.ts";
 import { comparePrepayment, NegativeAmortisation } from "./loans/amortisation.ts";
+import {
+  renderQuery, renderReports, renderSchedules, renderGoals,
+} from "./web/pages/analysis.ts";
+import {
+  queryTransactions, groupTotals, periodPresets, periodFor, incomeVsExpense,
+  loanInterestByFinancialYear, rowsToCsv, type GroupBy, type TransactionFilter,
+} from "./domain/reports.ts";
+import {
+  listSchedules, createSchedule, markPaid, skipOccurrence, detectSchedules,
+  projectCashflow, describeCashflow, subscriptions, type Recurrence,
+} from "./domain/schedules.ts";
+import { listGoals, createGoal, goalProgress, completeGoal } from "./domain/goals.ts";
 
 export interface AppDeps {
   db: DB;
@@ -1488,13 +1500,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
   for (const [path, title] of [
     ["/more", "More"],
-    ["/reports", "Reports"],
-    ["/query", "Query"],
-    ["/schedules", "Schedules"],
-    ["/goals", "Goals"],
     ["/payees", "Payees"],
     ["/rules", "Rules"],
-    ["/search", "Search"],
     ["/categories", "Categories"],
   ] as const) {
     router.get(path, (ctx) =>
@@ -1788,6 +1795,203 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       `surprise going back onto a card. Your call.`
     );
   }
+
+
+  // -------------------------------------------------------------------------
+  // S6 Reports · S7 Query · F16 Search
+  // -------------------------------------------------------------------------
+  function filterFromQuery(ctx: RequestContext): { filter: TransactionFilter; period: ReturnType<typeof periodFor> } {
+    const period = periodFor(ctx.query.get("period") ?? "this-month");
+    const account = ctx.query.get("account");
+    const category = ctx.query.get("category");
+
+    return {
+      period,
+      filter: {
+        from: period.from,
+        to: period.to,
+        text: ctx.query.get("q") ?? undefined,
+        accountIds: account ? [account] : undefined,
+        categoryIds: category ? [category] : undefined,
+        limit: 1000,
+      },
+    };
+  }
+
+  function queryPage(ctx: RequestContext, title?: string) {
+    const { filter, period } = filterFromQuery(ctx);
+    const groupBy = (ctx.query.get("group_by") ?? "category") as GroupBy;
+    const rows = queryTransactions(db, filter);
+
+    return render(
+      ctx,
+      title ?? "Query",
+      renderQuery({
+        rows,
+        groups: groupTotals(rows, groupBy),
+        groupBy,
+        period,
+        periods: periodPresets(),
+        text: ctx.query.get("q") ?? "",
+        accounts: listAccounts(db).map((a) => ({ id: a.id, name: a.nickname || a.name })),
+        categories: listCategories(db).map((c) => ({ id: c.id, name: c.name })),
+        selectedAccounts: filter.accountIds ?? [],
+        selectedCategories: filter.categoryIds ?? [],
+        title,
+      }),
+    );
+  }
+
+  router.get("/query", (ctx) => queryPage(ctx));
+
+  /** F16 · Search is the query screen with the text box in focus. */
+  router.get("/search", (ctx) => queryPage(ctx, "Search"));
+
+  router.get("/query.csv", (ctx) => {
+    auth(ctx);
+    const { filter } = filterFromQuery(ctx);
+    return {
+      body: rowsToCsv(queryTransactions(db, filter)),
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="query-${todayIST()}.csv"`,
+      },
+    };
+  });
+
+  router.get("/reports", (ctx) => {
+    const period = periodFor(ctx.query.get("period") ?? "last-12");
+    return render(
+      ctx, "Reports",
+      renderReports({
+        trend: incomeVsExpense(db, period.from, period.to),
+        period,
+        periods: periodPresets(),
+        loanInterest: config.features.loans ? loanInterestByFinancialYear(db) : [],
+      }),
+    );
+  });
+
+  // -------------------------------------------------------------------------
+  // S8 · Schedules and the cashflow calendar (F7)
+  // -------------------------------------------------------------------------
+  router.get("/schedules", (ctx) => {
+    const horizon = Number(ctx.query.get("days") ?? 60);
+    const cashflow = projectCashflow(db, { days: horizon });
+    const view = buildBudgetView(db);
+
+    return render(
+      ctx, "Schedules",
+      renderSchedules({
+        schedules: listSchedules(db),
+        detected: detectSchedules(db),
+        cashflow,
+        cashflowReading: describeCashflow(cashflow),
+        subscriptions: subscriptions(db),
+        horizon,
+        categoryNames: new Map([...view.categories].map(([id, c]) => [id, c.name])),
+      }),
+    );
+  });
+
+  router.post("/schedules/confirm", (ctx) =>
+    mutate(ctx, (a) => {
+      // F7.6: a detected schedule becomes real only when confirmed, and stops
+      // being marked "detected" once it is.
+      createSchedule(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+        name: requiredField(ctx.body, "name"),
+        payeeId: field(ctx.body, "payee_id") || null,
+        accountId: field(ctx.body, "account_id") || null,
+        categoryId: field(ctx.body, "category_id") || null,
+        amount: Number(field(ctx.body, "amount") ?? 0),
+        recurrence: (field(ctx.body, "recurrence") ?? "monthly") as Recurrence,
+        nextDue: field(ctx.body, "next_due") ?? todayIST(),
+      });
+      return { redirect: "/schedules", message: "Added to your schedules." };
+    }),
+  );
+
+  router.post("/schedules/dismiss", (ctx) =>
+    mutate(ctx, (a) => {
+      // Dismissal is remembered, so the same suggestion does not keep returning.
+      execute(
+        db,
+        `INSERT OR REPLACE INTO review_dismissals (kind, ref, at, member_id) VALUES (?,?,?,?)`,
+        "detected-schedule", requiredField(ctx.body, "payee_id"), todayIST(), a.member.id,
+      );
+      return { redirect: "/schedules", message: "Won't suggest that again." };
+    }),
+  );
+
+  router.post("/schedules/new", (ctx) =>
+    mutate(ctx, (a) => {
+      createSchedule(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+        name: requiredField(ctx.body, "name"),
+        amount: -Math.abs(amountField(field(ctx.body, "amount"))),
+        recurrence: (field(ctx.body, "recurrence") ?? "monthly") as Recurrence,
+        nextDue: parseDate(field(ctx.body, "next_due") ?? "") ?? todayIST(),
+        categoryId: field(ctx.body, "category_id") || null,
+        accountId: field(ctx.body, "account_id") || null,
+        isSubscription: field(ctx.body, "is_subscription") === "1",
+      });
+      return { redirect: "/schedules", message: "Schedule added." };
+    }),
+  );
+
+  router.post("/schedules/:id/paid", (ctx) =>
+    mutate(ctx, (a) => {
+      markPaid(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), ctx.params.id!);
+      return { redirect: "/schedules", message: "Marked paid." };
+    }),
+  );
+
+  router.post("/schedules/:id/skip", (ctx) =>
+    mutate(ctx, (a) => {
+      skipOccurrence(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), ctx.params.id!);
+      return { redirect: "/schedules", message: "Skipped this one." };
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // S9 · Goals (F11)
+  // -------------------------------------------------------------------------
+  router.get("/goals", (ctx) => {
+    const view = buildBudgetView(db);
+    const balances = new Map(
+      [...view.categories].map(([id, c]) => [id, { name: c.name, balance: c.state.balance }]),
+    );
+
+    return render(
+      ctx, "Goals",
+      renderGoals({
+        goals: goalProgress(db, balances),
+        categories: [...view.categories.values()]
+          .filter((c) => !c.isPaymentCategory && !c.hidden)
+          .map((c) => ({ id: c.id, name: c.name })),
+      }),
+    );
+  });
+
+  router.post("/goals/new", (ctx) =>
+    mutate(ctx, (a) => {
+      const targetDate = field(ctx.body, "target_date");
+      createGoal(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+        name: requiredField(ctx.body, "name"),
+        targetAmount: amountField(field(ctx.body, "target_amount"), "Target"),
+        targetDate: targetDate ? parseDate(targetDate) : null,
+        categoryIds: fieldList(ctx.body, "category_ids"),
+      });
+      return { redirect: "/goals", message: "Goal added." };
+    }),
+  );
+
+  router.post("/goals/:id/complete", (ctx) =>
+    mutate(ctx, (a) => {
+      const resolution = (field(ctx.body, "resolution") ?? "release") as "spend" | "roll" | "release";
+      completeGoal(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), ctx.params.id!, resolution);
+      return { redirect: "/goals", message: "Goal completed." };
+    }),
+  );
 
   // -------------------------------------------------------------------------
   // F27 · Health, F26 · backup, F15 · export

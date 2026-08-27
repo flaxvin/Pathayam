@@ -681,4 +681,45 @@ CREATE TABLE loan_statements (
 CREATE INDEX idx_loan_statements ON loan_statements(loan_id, as_of);
 `,
   },
+  {
+    name: "0003-goals",
+    sql: `
+--------------------------------------------------------------------------------
+-- F11 · Goals (piggy banks).
+--
+-- A goal holds no money of its own. Progress is the combined balance of the
+-- categories it is linked to, so the goal screen and the budget screen can
+-- never report different figures for the same rupees.
+--------------------------------------------------------------------------------
+
+CREATE TABLE goals (
+  id            TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  target_amount INTEGER NOT NULL,
+  target_date   TEXT,
+  note          TEXT,
+  completed_at  TEXT,
+  created_at    TEXT NOT NULL,
+  created_by    TEXT REFERENCES members(id)
+);
+
+-- F11.1: one or more categories, whose combined balance measures progress.
+CREATE TABLE goal_categories (
+  goal_id     TEXT NOT NULL REFERENCES goals(id) ON DELETE CASCADE,
+  category_id TEXT NOT NULL REFERENCES categories(id) ON DELETE CASCADE,
+  PRIMARY KEY (goal_id, category_id)
+);
+CREATE INDEX idx_goal_categories ON goal_categories(category_id);
+
+-- F10.3 · A saved view over the one query table, pinned to the More hub.
+CREATE TABLE saved_views (
+  id         TEXT PRIMARY KEY,
+  name       TEXT NOT NULL,
+  filter_json TEXT NOT NULL,
+  group_by   TEXT,
+  created_at TEXT NOT NULL,
+  created_by TEXT REFERENCES members(id)
+);
+`,
+  },
 ];
