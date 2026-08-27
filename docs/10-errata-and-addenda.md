@@ -69,7 +69,7 @@ R40.4's webhook fires **from the deployment**. In the worst failure class — bo
 
 MFAPI is a third-party JSON layer over AMFI's published NAVs [verified 26-08-2026], not AMFI itself; it can disappear without notice and without recourse. The mitigation is already half-built: R24.6 stores the ISIN on every holding.
 
-- A second NAV adapter SHOULD exist behind the same provider interface (`07` P1, P2), reading **AMFI's own published daily NAV file** and matching on ISIN. [unverified — the AMFI download endpoint was not checked this session; verify the URL and format before coding the adapter, per the doc set's own convention for unverified surfaces.]
+- A second NAV adapter SHOULD exist behind the same provider interface (`07` P1, P2), reading **AMFI's own published daily NAV file** and matching on ISIN. [**verified 27-08-2026** — `https://www.amfiindia.com/spages/NAVAll.txt`, 200, ~1.5 MB, semicolon-delimited: `Scheme Code;ISIN Div Payout/ISIN Growth;ISIN Div Reinvestment;Scheme Name;Plan;Option;Net Asset Value;Date`, with dates as `DD-Mmm-YYYY`. Two things the format forces on the adapter: a scheme carries **two** ISINs, growth/payout and reinvestment, and a holding may be identified by either; and rows are not all current — the live file contains rows dated years back, so R26.2's published date must be carried through rather than stamped with the fetch date.]
 - Until it exists, an MFAPI outage degrades to cached prices with staleness shown (FW9) and manual entry (R26.6) — annoying, never data-losing. This addendum is about not staying degraded.
 
 ### 3.4 Suggestion — `verify_docs.py` *(not adopted; a recommendation in the spirit of `verify_amortisation.py`)*

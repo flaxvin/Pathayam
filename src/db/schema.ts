@@ -946,4 +946,25 @@ CREATE TABLE digest_mutes (
 );
 `,
   },
+  {
+    name: "0008-price-fetch-log",
+    sql: `
+--------------------------------------------------------------------------------
+-- 07 P3 · "Every fetch MUST record: instrument, provider, request time,
+-- response status, **and the price returned**. This log is what makes a bad
+-- number explainable three months later."
+--
+-- The price and its publication date were the two the table was missing, which
+-- is precisely the pair that makes the log answer the question it exists for:
+-- not "did the call succeed" but "where did that number come from". The class
+-- is here so P4's per-class cadence can ask when it last ran.
+--------------------------------------------------------------------------------
+
+ALTER TABLE price_fetches ADD COLUMN class TEXT;
+ALTER TABLE price_fetches ADD COLUMN price INTEGER;
+ALTER TABLE price_fetches ADD COLUMN as_of TEXT;
+
+CREATE INDEX idx_price_fetches_class ON price_fetches(class, requested_at);
+`,
+  },
 ];

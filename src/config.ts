@@ -35,6 +35,14 @@ export interface Config {
    * being down can raise an alarm — no process here survives to send one.
    */
   heartbeatUrl: string | null;
+  /**
+   * `07` §6.4 · Alpha Vantage, for direct equities.
+   *
+   * Q16 makes this optional: the portfolio is mostly mutual funds, MFAPI needs
+   * no key, and P9 requires the app to work with every provider disabled. An
+   * absent key is a normal configuration, not a misconfiguration.
+   */
+  alphaVantageKey: string | null;
   /** Set behind a reverse proxy that terminates TLS. */
   trustProxy: boolean;
 }
@@ -72,6 +80,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     },
     devLogin: bool(env.DEV_LOGIN, false),
     sessionDays: int(env.SESSION_DAYS, 30), // Q22
+    alphaVantageKey: env.ALPHA_VANTAGE_KEY || null,
     features: {
       loans: bool(env.FEATURE_LOANS, true),
       assets: bool(env.FEATURE_ASSETS, true),

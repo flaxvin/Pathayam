@@ -43,6 +43,11 @@ services:
       # an alarm — see 10 §3.2.
       HEARTBEAT_URL: ${HEARTBEAT_URL:-}
 
+      # 07 §6.4: only needed for direct equities. Q16 settled that this
+      # portfolio is mostly mutual funds, and MFAPI needs no key — so leaving
+      # this empty is the expected configuration, not a missing one (P9).
+      ALPHA_VANTAGE_KEY: ${ALPHA_VANTAGE_KEY:-}
+
       # F28: modules disableable per deployment. Multi-currency is off because
       # Q18 settled on rupee-only accounts.
       FEATURE_LOANS: ${FEATURE_LOANS:-true}

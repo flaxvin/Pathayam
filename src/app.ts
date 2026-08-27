@@ -25,9 +25,13 @@ import {
   authenticate, parseCookies, sessionCookie, clearedSessionCookie, SESSION_COOKIE,
   actorFor, setTheme, listMembers, memberCount, inviteMember, createSession,
   startImpersonation, stopImpersonation, setImpersonationWrites, listSessions,
-  revokeSession, recordAuthAttempt, isRateLimited, findMemberByEmail,
+  revokeSession, recordAuthAttempt, isRateLimited, findMemberByEmail, getMember,
   type AuthContext,
 } from "./auth/sessions.ts";
+import {
+  authenticateToken, tokenMayReach, checkTokenRateLimit,
+  mintToken, listTokens, revokeToken, type TokenScope,
+} from "./auth/tokens.ts";
 import { beginOAuth, exchangeCode } from "./auth/google.ts";
 import { withIdempotency, IdempotencyConflict } from "./core/idempotency.ts";
 import { parseAmount, evaluateAmountExpression, formatPaise } from "./core/money.ts";
@@ -113,6 +117,7 @@ import {
 import { listGoals, createGoal, goalProgress, completeGoal } from "./domain/goals.ts";
 import {
   renderMore, renderPayees, renderRules, renderCategories, renderFirstRun,
+  renderTokens,
   type PayeeRow, type RuleRow,
 } from "./web/pages/manage.ts";
 import { loadRules } from "./import/pipeline.ts";
@@ -156,7 +161,8 @@ import {
 import {
   units as toUnits, price as toUnitPrice, xirr, formatUnits,
 } from "./portfolio/holdings.ts";
-import { mfapi, searchSchemes, fetchFxRate } from "./portfolio/providers.ts";
+import { searchSchemes } from "./portfolio/providers.ts";
+import { refreshPrices } from "./portfolio/refresh.ts";
 
 export interface AppDeps {
   db: DB;
@@ -196,7 +202,58 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     function authenticateRequest(ctx: RequestContext): Response | void {
       const path = ctx.url.pathname;
       const cookies = parseCookies(ctx.req.headers.cookie);
-      const auth = authenticate(db, cookies[SESSION_COOKIE] ?? null);
+      let auth = authenticate(db, cookies[SESSION_COOKIE] ?? null);
+
+      // F30 · A bearer token authenticates as its member, but is a narrower
+      // thing than a session: it cannot reach the routes in F30.6's list, it
+      // is rate-limited separately (F30.7), and a read-only one cannot write.
+      const bearer = authenticateToken(db, ctx.req.headers.authorization);
+      if (bearer && !auth) {
+        if (!tokenMayReach(path)) {
+          return {
+            status: 403,
+            json: {
+              error:
+                "An API token cannot reach this. Tokens cannot sign in, impersonate, " +
+                "mint other tokens, or change who is allowed in.",
+            },
+          };
+        }
+
+        const limit = checkTokenRateLimit(bearer.token.id);
+        if (!limit.allowed) {
+          return {
+            status: 429,
+            headers: { "Retry-After": String(limit.retryAfterSeconds) },
+            json: { error: "That token is going too fast. Try again shortly." },
+          };
+        }
+
+        if (ctx.method !== "GET" && bearer.scope === "read") {
+          return { status: 403, json: { error: "That token is read-only." } };
+        }
+
+        const member = getMember(db, bearer.token.member_id);
+        if (member) {
+          // F30.5 · Attributed to the member, naming the token.
+          ctx.locals.token = bearer.token;
+          auth = {
+            session: {
+              id: `token:${bearer.token.id}`, member_id: member.id,
+              created_at: bearer.token.created_at, last_seen_at: nowIST(),
+              expires_at: bearer.token.expires_at ?? "9999-12-31",
+              user_agent: null, ip_hint: null, revoked_at: null,
+              impersonating_member_id: null, impersonation_writes: 0,
+              impersonation_expires_at: null,
+            } as never,
+            member,
+            viewingAs: member,
+            impersonating: false,
+            canWrite: bearer.scope === "read-write",
+          };
+        }
+      }
+
       ctx.locals.auth = auth;
 
       if (PUBLIC_PATHS.has(path)) return;
@@ -219,6 +276,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
   // Helpers
   // -------------------------------------------------------------------------
+  /** F30.5 · Names the token on every event a token request causes. */
+  function actorSource(ctx: RequestContext): { source: "ui" | "api"; detail: string | null } {
+    const token = ctx.locals.token as { name: string } | undefined;
+    return token ? { source: "api", detail: token.name } : { source: "ui", detail: null };
+  }
+
   function auth(ctx: RequestContext): AuthContext {
     const value = ctx.locals.auth as AuthContext | null;
     if (!value) throw new HttpError(401, "Please sign in.");
@@ -2578,6 +2641,44 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   }
 
   // -------------------------------------------------------------------------
+  // `08` F30 · Personal API tokens.
+  // -------------------------------------------------------------------------
+
+  router.get("/tokens", (ctx) => {
+    const a = auth(ctx);
+    return render(ctx, "API tokens", renderTokens({
+      tokens: listTokens(db, a.member.id),
+      minted: null,
+    }));
+  });
+
+  router.post("/tokens", (ctx) => {
+    const a = auth(ctx);
+    const days = field(ctx.body, "expires_in_days");
+    const scope = field(ctx.body, "scope") === "read-write" ? "read-write" : "read";
+
+    const minted = mintToken(db, actorFor(a), {
+      name: requiredField(ctx.body, "name"),
+      scope: scope as TokenScope,
+      expiresInDays: days ? Number(days) : null,
+    });
+
+    // F30.4 · Rendered rather than redirected, because a redirect would have to
+    // carry the secret in a URL — where it would land in logs and history.
+    return render(ctx, "API tokens", renderTokens({
+      tokens: listTokens(db, a.member.id),
+      minted: { name: minted.token.name, secret: minted.secret },
+    }));
+  });
+
+  router.post("/tokens/:id/revoke", (ctx) =>
+    mutate(ctx, (a) => {
+      revokeToken(db, actorFor(a), ctx.params.id!);
+      return { redirect: "/tokens", message: "Revoked. Anything using it stops now." };
+    }),
+  );
+
+  // -------------------------------------------------------------------------
   // `08` S5 · The month-close ritual. P1 per Q26.
   // -------------------------------------------------------------------------
 
@@ -2964,62 +3065,46 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }),
   );
 
-  /** F19.6 / P6 · A manual refresh, subject to the same ceiling. */
+  /**
+   * F19.6 / P6 · A manual refresh, "subject to the same ceiling, with the
+   * remaining daily quota shown".
+   *
+   * `force` skips P4's cadence but not P5's ceiling — the cadence exists
+   * because a NAV published at 23:00 does not exist at noon, and a human who
+   * pressed the button knows that better than the schedule does. The ceiling
+   * exists because the provider does not care who pressed what.
+   */
   router.post("/portfolio/refresh", async (ctx) => {
     requireAssets();
     const a = auth(ctx);
-    let updated = 0;
-    const problems: string[] = [];
 
-    for (const instrument of listInstruments(db)) {
-      if (instrument.manual_only === 1 || instrument.provider !== "mfapi" || !instrument.symbol) {
-        continue;
-      }
-      const outcome = await mfapi.fetchPrice(instrument.symbol);
-      execute(
-        db,
-        `INSERT INTO price_fetches (instrument_id, provider, requested_at, status, detail)
-         VALUES (?,?,?,?,?)`,
-        instrument.id, "mfapi", nowIST(),
-        outcome.ok ? "ok" : outcome.reason,
-        outcome.ok ? `${outcome.price} as of ${outcome.asOf}` : outcome.message,
-      );
-
-      if (outcome.ok) {
-        // R26.5: a failure never overwrites a good cached price.
-        recordPrice(db, {
-          instrumentId: instrument.id, price: outcome.price,
-          asOf: outcome.asOf, source: "mfapi",
-        });
-        updated++;
-      } else {
-        problems.push(`${instrument.name}: ${outcome.message}`);
-      }
-    }
-
-    // R32: FX alongside, since a foreign holding needs both to be current.
-    const usd = await fetchFxRate("USD", "INR");
-    if (usd.ok) {
-      execute(
-        db,
-        `INSERT INTO fx_rates (base, quote, as_of, rate, source, fetched_at) VALUES (?,?,?,?,?,?)
-           ON CONFLICT(base, quote, as_of) DO UPDATE SET rate = excluded.rate`,
-        "USD", "INR", usd.asOf, usd.price / 1_000_000, "frankfurter", nowIST(),
-      );
-    }
-
-    appendEvent(db, actorFor(a, "job"), {
-      entity: "prices", entityId: todayIST(), action: "refresh",
-      after: { updated, problems: problems.length },
-      summary: `Refreshed ${updated} prices` + (problems.length ? `, ${problems.length} failed` : ""),
+    const outcome = await refreshPrices(db, actorFor(a, "ui"), {
+      force: true,
+      alphaVantageKey: config.alphaVantageKey,
     });
+
+    appendEvent(db, actorFor(a, "ui"), {
+      entity: "prices", entityId: todayIST(), action: "refresh",
+      after: { updated: outcome.updated, failed: outcome.failed },
+      summary:
+        `Refreshed ${outcome.updated} prices` +
+        (outcome.failed ? `, ${outcome.failed} failed` : ""),
+    });
+
+    const quota = outcome.quota
+      .filter((q: { ceiling: number | null }) => q.ceiling !== null)
+      .map((q: { provider: string; remaining: number | null; ceiling: number | null }) =>
+        `${q.provider}: ${q.remaining} of ${q.ceiling} left today`)
+      .join(", ");
 
     return {
       redirect: withNotice(
         "/portfolio",
-        problems.length === 0
-          ? `Refreshed ${updated} prices.`
-          : `Refreshed ${updated}. ${problems.length} couldn't be fetched — cached prices are still shown, with their dates.`,
+        (outcome.failed === 0
+          ? `Refreshed ${outcome.updated} prices.`
+          : `Refreshed ${outcome.updated}. ${outcome.failed} couldn't be fetched — ` +
+            `cached prices are still shown, with their dates.`) +
+        (quota ? ` (${quota})` : ""),
       ),
     };
   });

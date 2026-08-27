@@ -229,6 +229,11 @@ snapshot, and the only question that matters next — whether the new month is
 funded. It locks nothing; every past month stays editable. The F14 digest is
 in-app only, per member, and says nothing that exists to bring you back.
 
+**Scripting it** — personal API tokens, scoped read or read-write, shown once
+and stored only as a hash, rate-limited separately from your session, and
+structurally unable to sign in, impersonate, mint more tokens, or change who is
+allowed in.
+
 **Making sure it's right** — reconciliation with locked checkpoints and the Q5
 breakage rule; backup, verified restore, the heartbeat and the health page;
 complete JSON export and transaction CSV.
@@ -249,7 +254,10 @@ matched against what is already held so a statement that restates four months
 adds only what is new. Holdings as units with FIFO lots, cost basis, XIRR
 as the headline return, corporate actions, the net worth statement with R29.4's
 four-way decomposition and a dated history, MFAPI and Frankfurter adapters
-behind one provider interface, and the asset-gain versus FX-gain split that
+behind one provider interface — plus AMFI as the fallback the errata asks for,
+reading the registrar's own published file and matching on ISIN, so losing
+MFAPI costs nothing. Prices refresh on P4's per-class cadence, because a NAV
+published at 23:00 IST does not exist at noon. And the asset-gain versus FX-gain split that
 sums exactly. **R30's ten firewall invariants are a test suite** — including
 one that drops the price tables outright and renders the budget screen.
 
@@ -260,13 +268,11 @@ wizard, the India-appropriate starting template, Docker Compose.
 
 | Gap | Where it is specified |
 |---|---|
-| The AMFI fallback adapter behind the provider interface | `10` §3.3 — MFAPI is a third-party wrapper and can vanish |
-| Scheduled price refresh (manual refresh works) | `07` P4 |
 | Asset allocation by class and geography | F19.11 |
 | Gmail alert parsing, SMS forwarding | `04` §3.4, §3.5 — P1/P2 |
 | PDF statement parsers for HDFC / ICICI / Axis / SBI | `04` §3.3, Q2 — the PDF reader exists; only the per-bank layouts are missing |
 | Attachments / receipt capture | Q10 |
-| Personal API tokens; module feature-flag UI | F30; F28 |
+| Module feature-flag UI (flags work; they are environment variables) | F28 |
 | Tranche drawdown, pre-EMI, moratorium models | `06` R15, R16 M4 — modelled, seeded with no data (Q11) |
 
 Nothing in that list requires reworking stored data. The three things `05` §3

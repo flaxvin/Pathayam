@@ -62,6 +62,7 @@ export function renderMore(features: { loans: boolean; assets: boolean }): SafeH
     ${group("Operate", [
       ["/health", "Health", "The page you open at 2am"],
       ["/settings", "Settings", "Household, appearance, devices"],
+      ["/tokens", "API tokens", "For your own scripts, scoped and revocable"],
     ])}
   `;
 }
@@ -491,5 +492,106 @@ export function renderFirstRun(opts: { memberName: string }): SafeHtml {
         from Settings once you're set up.
       </p>
     </div>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// `08` F30 · Personal API tokens
+// ---------------------------------------------------------------------------
+
+export interface TokenRow {
+  id: string;
+  name: string;
+  scope: string;
+  created_at: string;
+  last_used_at: string | null;
+  expires_at: string | null;
+}
+
+export function renderTokens(opts: {
+  tokens: TokenRow[];
+  /** F30.4 · Present exactly once, immediately after minting. */
+  minted?: { name: string; secret: string } | null;
+}): SafeHtml {
+  return html`
+    <h1>API tokens</h1>
+    <p class="muted">
+      For your own scripts. A token acts as you, but it cannot sign in,
+      impersonate anyone, create more tokens, or change who is allowed into the
+      household — no matter what you do with it.
+    </p>
+
+    ${when(opts.minted, () => html`
+      <section class="card">
+        <h2>Here is "${opts.minted!.name}"</h2>
+        <p class="notice notice-warning">
+          <strong>Copy it now.</strong> Only a hash of it is stored, so this is
+          the last time it can be shown — not a policy, a fact about the
+          database.
+        </p>
+        <pre class="raw-block" style="user-select:all">${opts.minted!.secret}</pre>
+      </section>
+    `)}
+
+    ${opts.tokens.length === 0
+      ? html`<div class="card empty-state"><p>No tokens yet.</p></div>`
+      : html`
+          <section class="card">
+            <table>
+              <thead>
+                <tr>
+                  <th scope="col">Name</th>
+                  <th scope="col">Scope</th>
+                  <th scope="col">Created</th>
+                  <th scope="col">Last used</th>
+                  <th scope="col"></th>
+                </tr>
+              </thead>
+              <tbody>
+                ${opts.tokens.map(
+                  (t) => html`
+                    <tr>
+                      <td>${t.name}</td>
+                      <td>${t.scope === "read" ? "Read only" : "Read and write"}</td>
+                      <td class="faint">${t.created_at.slice(0, 10)}</td>
+                      <td class="faint">${t.last_used_at?.slice(0, 10) ?? "Never"}</td>
+                      <td>
+                        <form method="post" action="/tokens/${t.id}/revoke">
+                          <button class="button-small button-danger" type="submit">Revoke</button>
+                        </form>
+                      </td>
+                    </tr>
+                  `,
+                )}
+              </tbody>
+            </table>
+          </section>
+        `}
+
+    <section class="card">
+      <h2>Mint a token</h2>
+      <form method="post" action="/tokens">
+        <div class="field">
+          <label for="token-name">What is it for?</label>
+          <input id="token-name" name="name" required placeholder="Laptop export script">
+        </div>
+        <div class="field">
+          <label for="token-scope">What may it do?</label>
+          <select id="token-scope" name="scope">
+            <option value="read">Read only</option>
+            <option value="read-write">Read and write</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="token-expiry">Expire it after</label>
+          <select id="token-expiry" name="expires_in_days">
+            <option value="90">90 days</option>
+            <option value="365">A year</option>
+            <option value="">Never</option>
+          </select>
+        </div>
+        <button class="button-primary" type="submit">Mint it</button>
+      </form>
+    </section>
   `;
 }
