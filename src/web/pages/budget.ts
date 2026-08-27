@@ -10,10 +10,13 @@ import { formatPaise, formatCompact, speakPaise, type Paise } from "../../core/m
 import { formatMonth, addMonths, type MonthKey } from "../../core/dates.ts";
 import type { BudgetView, CategoryView, GroupView } from "../viewmodel.ts";
 
-export function renderBudget(view: BudgetView): SafeHtml {
+export function renderBudget(view: BudgetView, digest?: SafeHtml): SafeHtml {
   return html`
     ${renderMonthBar(view.month, view.currentMonth)}
     ${renderReadyToAssign(view)}
+    <!-- F14.3 as errata E12 leaves it: the digest on next open, in the one
+         place everyone lands. -->
+    ${digest ?? html``}
     ${when(view.futureCaveat, () => html`
       <p class="notice notice-info">
         This month is <strong>${view.futureCaveat}</strong> — no income has been assumed that

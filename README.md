@@ -223,6 +223,12 @@ categorise a payee, or when you clean up an imported name — and every proposal
 states the inference it came from and waits in Review. A confirmed rule can be
 applied to history, with the count and a preview first.
 
+**The monthly moment** — `08` S5's close ritual: what the month did, R29.4's
+four-way net worth decomposition rather than one flattering number, a dated
+snapshot, and the only question that matters next — whether the new month is
+funded. It locks nothing; every past month stays editable. The F14 digest is
+in-app only, per member, and says nothing that exists to bring you back.
+
 **Making sure it's right** — reconciliation with locked checkpoints and the Q5
 breakage rule; backup, verified restore, the heartbeat and the health page;
 complete JSON export and transaction CSV.
@@ -260,7 +266,6 @@ wizard, the India-appropriate starting template, Docker Compose.
 | Gmail alert parsing, SMS forwarding | `04` §3.4, §3.5 — P1/P2 |
 | PDF statement parsers for HDFC / ICICI / Axis / SBI | `04` §3.3, Q2 — the PDF reader exists; only the per-bank layouts are missing |
 | Attachments / receipt capture | Q10 |
-| Month-close ritual | `08` S5, Q26 — P1 |
 | Personal API tokens; module feature-flag UI | F30; F28 |
 | Tranche drawdown, pre-EMI, moratorium models | `06` R15, R16 M4 — modelled, seeded with no data (Q11) |
 

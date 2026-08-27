@@ -910,4 +910,40 @@ CREATE INDEX idx_lots_source_ref ON lots(source_ref);
 CREATE INDEX idx_holding_events_source_ref ON holding_events(source_ref);
 `,
   },
+  {
+    name: "0007-month-close",
+    sql: `
+--------------------------------------------------------------------------------
+-- 08 S5 · The month-close ritual, adopted at P1 by Q26.
+--
+-- Note what is *not* here: nothing that locks a month. R13's rollover is
+-- derived arithmetic rather than a job, and R7.g keeps every past month
+-- editable. A close records that a human looked at the month and took a net
+-- worth snapshot; it is a statement about attention, not a state transition.
+-- The figures are stored so the history reads back without recomputing four
+-- years of ledger, not because they are authoritative — they are not
+-- (R7.g.1).
+--------------------------------------------------------------------------------
+
+CREATE TABLE month_closes (
+  month     TEXT PRIMARY KEY,
+  closed_at TEXT NOT NULL,
+  closed_by TEXT REFERENCES members(id),
+  note      TEXT,
+  income    INTEGER NOT NULL DEFAULT 0,
+  spending  INTEGER NOT NULL DEFAULT 0,
+  assigned  INTEGER NOT NULL DEFAULT 0
+);
+
+-- F14.2 · Every notification type is individually toggleable per member.
+-- A row means "off": the useful default is on, and a member who has never
+-- touched settings should get the digest.
+CREATE TABLE digest_mutes (
+  member_id TEXT NOT NULL REFERENCES members(id),
+  kind      TEXT NOT NULL,
+  muted_at  TEXT NOT NULL,
+  PRIMARY KEY (member_id, kind)
+);
+`,
+  },
 ];

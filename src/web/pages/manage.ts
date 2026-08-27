@@ -55,6 +55,10 @@ export function renderMore(features: { loans: boolean; assets: boolean }): SafeH
       ["/import", "Import", "Statements in, review queue out"],
     ])}
 
+    ${group("Once a month", [
+      ["/months", "Close the month", "What it did, and whether the next one is funded"],
+    ])}
+
     ${group("Operate", [
       ["/health", "Health", "The page you open at 2am"],
       ["/settings", "Settings", "Household, appearance, devices"],
