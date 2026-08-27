@@ -43,7 +43,11 @@ export function renderPortfolio(opts: {
           retype each month — that is what makes cost basis, realised gains and
           XIRR computable at all.
         </p>
-        <p><a class="button button-primary" href="/portfolio/add">Add a holding</a></p>
+        <p>
+          <!-- Q17: the CAS is the primary route in, so it leads. -->
+          <a class="button button-primary" href="/portfolio/cas">Import a CAS</a>
+          <a class="button" href="/portfolio/add">Add a holding by hand</a>
+        </p>
       </div>
     `;
   }
@@ -55,6 +59,7 @@ export function renderPortfolio(opts: {
         <form method="post" action="/portfolio/refresh">
           <button class="button-small" type="submit">Refresh prices</button>
         </form>
+        <a class="button" href="/portfolio/cas">Import a CAS</a>
         <a class="button button-primary" href="/portfolio/add">Add a holding</a>
       </div>
     </div>
@@ -714,5 +719,243 @@ export function renderAddHolding(opts: {
         <button class="button-primary" type="submit">Add it</button>
       </form>
     </section>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// `07` F19.14 · CAS import
+// ---------------------------------------------------------------------------
+
+/**
+ * The upload form.
+ *
+ * PR5 is the thing to notice: the password field is `autocomplete="off"` and
+ * the form never round-trips it. It is used to open one file and then it is
+ * gone — there is no field on any record that could hold it.
+ */
+export function renderCasUpload(opts: {
+  accounts: { id: string; name: string }[];
+  error?: string | null;
+}): SafeHtml {
+  return html`
+    <h1>Import a CAS</h1>
+    <p class="muted">
+      A CDSL Consolidated Account Statement covers every folio you hold, across
+      every registrar. Import the PDF exactly as it arrived — it stays
+      password-protected, and the password is used to open it and then
+      forgotten.
+    </p>
+
+    ${when(opts.error, () => html`<p class="notice notice-error">${opts.error}</p>`)}
+
+    ${opts.accounts.length === 0
+      ? html`
+          <div class="card empty-state">
+            <p>There is no investment account to import into yet.</p>
+            <p><a class="button" href="/accounts/new?kind=tracking">Add one</a></p>
+          </div>
+        `
+      : html`
+          <section class="card">
+            <form method="post" action="/portfolio/cas" enctype="multipart/form-data">
+              <div class="field">
+                <label for="statement">The statement</label>
+                <input id="statement" name="statement" type="file" accept="application/pdf,.pdf" required>
+                <p class="field-hint">The PDF as the registrar sent it. Nothing is uploaded anywhere else.</p>
+              </div>
+
+              <div class="field">
+                <label for="password">Its password</label>
+                <input id="password" name="password" type="password"
+                       autocomplete="off" spellcheck="false">
+                <p class="field-hint">
+                  Usually your PAN in capitals. Leave it empty if the file opens
+                  without one. It is never saved.
+                </p>
+              </div>
+
+              <div class="field">
+                <label for="cas-account">Where new holdings go</label>
+                <select id="cas-account" name="account_id" required>
+                  ${opts.accounts.map((a) => html`<option value="${a.id}">${a.name}</option>`)}
+                </select>
+                <p class="field-hint">
+                  Anything you already hold stays in the account it is already in.
+                </p>
+              </div>
+
+              <button class="button-primary" type="submit">Read it</button>
+              <a class="button button-quiet" href="/portfolio">Cancel</a>
+            </form>
+          </section>
+        `}
+  `;
+}
+
+export interface CasReviewRow {
+  date: IsoDate;
+  kind: string;
+  description: string;
+  amount: Paise;
+  units: number;
+  nav: number;
+  status: "new" | "already-held" | "skipped";
+  note: string | null;
+}
+
+export interface CasReviewScheme {
+  index: number;
+  name: string;
+  folio: string;
+  amc: string;
+  isin: string | null;
+  newInstrument: boolean;
+  destination: string | null;
+  rows: CasReviewRow[];
+  newLots: number;
+  invested: Paise;
+  unitsDisagreement: number | null;
+}
+
+/**
+ * What the statement would do, before it does anything (`04` I2).
+ *
+ * Every row is shown, including the ones already held — a review that hides
+ * what it decided to ignore is asking to be trusted rather than checked.
+ */
+export function renderCasReview(opts: {
+  period: { from: IsoDate; to: IsoDate } | null;
+  schemes: CasReviewScheme[];
+  unparsed: string[];
+  totals: { newLots: number; alreadyHeld: number; invested: Paise };
+  token: string;
+}): SafeHtml {
+  const statusChip = (status: CasReviewRow["status"]) =>
+    status === "new"
+      ? html`<span class="chip chip-positive">New</span>`
+      : status === "already-held"
+        ? html`<span class="chip">Already held</span>`
+        : html`<span class="chip chip-warning">Skipped</span>`;
+
+  return html`
+    <h1>What this statement says</h1>
+    <p class="muted">
+      ${when(opts.period, () => html`
+        Covering ${formatDate(opts.period!.from)} to ${formatDate(opts.period!.to)}.
+      `)}
+      Nothing is recorded until you confirm it below.
+    </p>
+
+    <section class="card">
+      <div class="row-between">
+        <div>
+          <strong>${opts.totals.newLots}</strong>
+          ${opts.totals.newLots === 1 ? "new entry" : "new entries"}
+          ${when(opts.totals.alreadyHeld > 0, () => html`
+            <span class="faint">
+              · ${opts.totals.alreadyHeld} already recorded by an earlier statement
+            </span>
+          `)}
+        </div>
+        <div><strong>${formatPaise(opts.totals.invested)}</strong> invested</div>
+      </div>
+    </section>
+
+    ${when(opts.unparsed.length > 0, () => html`
+      <section class="card">
+        <!-- IL3: never swallow a row that could not be read. -->
+        <h2>Lines that did not parse <span class="chip chip-warning">${opts.unparsed.length}</span></h2>
+        <p class="faint" style="margin-top:-.25rem">
+          These looked like transactions but could not be read. Nothing was
+          guessed from them — add anything that matters by hand.
+        </p>
+        <pre class="raw-block">${opts.unparsed.join("\n")}</pre>
+      </section>
+    `)}
+
+    <form method="post" action="/portfolio/cas/confirm">
+      <input type="hidden" name="token" value="${opts.token}">
+
+      ${opts.schemes.map(
+        (scheme) => html`
+          <section class="card">
+            <div class="row-between">
+              <div>
+                <strong>${scheme.name}</strong>
+                ${when(scheme.newInstrument, () => html`<span class="chip chip-positive">New scheme</span>`)}
+                <div class="faint">
+                  ${scheme.amc} · Folio ${scheme.folio}
+                  ${when(scheme.isin, () => html` · ISIN ${scheme.isin}`)}
+                </div>
+              </div>
+              <label class="row">
+                <input type="checkbox" name="scheme" value="${scheme.index}"
+                       ${raw(scheme.newLots > 0 && scheme.unitsDisagreement === null ? "checked" : "")}>
+                Import this one
+              </label>
+            </div>
+
+            ${when(scheme.unitsDisagreement !== null, () => html`
+              <!-- N9: a discrepancy is stated, never absorbed. -->
+              <p class="notice notice-warning">
+                This statement closes at a different number of units than its own
+                rows add up to — off by
+                ${formatUnits(Math.abs(scheme.unitsDisagreement!))}.
+                A row is probably missing. Importing it would leave this holding
+                disagreeing with your statement, so it is unticked by default.
+              </p>
+            `)}
+
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Date</th>
+                    <th scope="col">What</th>
+                    <th scope="col" class="numeric">Amount</th>
+                    <th scope="col" class="numeric">Units</th>
+                    <th scope="col" class="numeric">NAV</th>
+                    <th scope="col">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${scheme.rows.map(
+                    (row) => html`
+                      <tr class="${row.status === "new" ? "" : "faint"}">
+                        <td>${formatDate(row.date)}</td>
+                        <td>
+                          ${row.description}
+                          ${when(row.note, () => html`<div class="faint">${row.note}</div>`)}
+                        </td>
+                        <td class="numeric">${formatPaise(row.amount)}</td>
+                        <td class="numeric">${formatUnits(row.units)}</td>
+                        <td class="numeric">${formatPrice(row.nav)}</td>
+                        <td>${statusChip(row.status)}</td>
+                      </tr>
+                    `,
+                  )}
+                </tbody>
+              </table>
+            </div>
+
+            ${when(scheme.destination, () => html`
+              <p class="field-hint">Lands in ${scheme.destination}.</p>
+            `)}
+          </section>
+        `,
+      )}
+
+      <div class="card">
+        <button class="button-primary" type="submit">
+          Record ${opts.totals.newLots}
+          ${opts.totals.newLots === 1 ? "entry" : "entries"}
+        </button>
+        <a class="button button-quiet" href="/portfolio">Discard this statement</a>
+        <p class="field-hint">
+          The whole import undoes in one action. The statement itself is not
+          kept, and neither is its password.
+        </p>
+      </div>
+    </form>
   `;
 }

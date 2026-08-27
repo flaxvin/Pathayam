@@ -888,4 +888,26 @@ CREATE TABLE net_worth_snapshots (
 ALTER TABLE rules ADD COLUMN because TEXT;
 `,
   },
+  {
+    name: "0006-cas-source-refs",
+    sql: `
+--------------------------------------------------------------------------------
+-- 09 §6.2 · A CAS restates months it has already reported, so importing one
+-- must reconcile rather than duplicate.
+--
+-- Matching a statement row against a lot by trade date and units looks
+-- sufficient and is not: R25.4 splits a lot on a partial sale, so the original
+-- 500-unit purchase is a 400-unit residual by the time the next statement
+-- arrives, and the row that created it no longer matches anything. The row's
+-- identity has to be *recorded*, not inferred from state that legitimately
+-- changes underneath it.
+--------------------------------------------------------------------------------
+
+ALTER TABLE lots ADD COLUMN source_ref TEXT;
+ALTER TABLE holding_events ADD COLUMN source_ref TEXT;
+
+CREATE INDEX idx_lots_source_ref ON lots(source_ref);
+CREATE INDEX idx_holding_events_source_ref ON holding_events(source_ref);
+`,
+  },
 ];

@@ -92,6 +92,20 @@ function matchSegments(pattern: string[], actual: string[]): Record<string, stri
 /** Cap on a request body. Nothing this app accepts is legitimately larger. */
 const MAX_BODY_BYTES = 5 * 1024 * 1024;
 
+/**
+ * Files from a multipart upload, keyed by field name.
+ *
+ * Kept separate from the string body because a PDF is not text and must never
+ * be round-tripped through a string — UTF-8 decoding a statement replaces
+ * every invalid byte and quietly destroys it.
+ */
+export type UploadedFile = { filename: string; bytes: Uint8Array };
+const uploads = new WeakMap<IncomingMessage, Map<string, UploadedFile>>();
+
+export function fileField(req: IncomingMessage, name: string): UploadedFile | null {
+  return uploads.get(req)?.get(name) ?? null;
+}
+
 export async function readBody(req: IncomingMessage): Promise<Record<string, string | string[]>> {
   const contentType = req.headers["content-type"] ?? "";
   const chunks: Buffer[] = [];
@@ -103,7 +117,15 @@ export async function readBody(req: IncomingMessage): Promise<Record<string, str
     chunks.push(chunk as Buffer);
   }
 
-  const text = Buffer.concat(chunks).toString("utf8");
+  const raw = Buffer.concat(chunks);
+
+  if (contentType.startsWith("multipart/form-data")) {
+    const boundary = /boundary=(?:"([^"]+)"|([^;]+))/.exec(contentType);
+    if (!boundary) throw new BadRequest("That upload was missing its boundary marker.");
+    return parseMultipart(req, raw, (boundary[1] ?? boundary[2] ?? "").trim());
+  }
+
+  const text = raw.toString("utf8");
   if (text === "") return {};
 
   if (contentType.includes("application/json")) {
@@ -123,6 +145,68 @@ export async function readBody(req: IncomingMessage): Promise<Record<string, str
     const values = params.getAll(key);
     out[key] = values.length > 1 ? values : values[0]!;
   }
+  return out;
+}
+
+/**
+ * `multipart/form-data`, enough of it for a file and some text fields.
+ *
+ * Parsed over the raw bytes rather than a decoded string, so a binary part
+ * survives intact. Only what a browser form actually sends is handled — no
+ * nested multiparts, no transfer encodings.
+ */
+function parseMultipart(
+  req: IncomingMessage, raw: Buffer, boundary: string,
+): Record<string, string | string[]> {
+  const out: Record<string, string | string[]> = {};
+  const files = new Map<string, UploadedFile>();
+  const delimiter = Buffer.from(`--${boundary}`);
+
+  let start = raw.indexOf(delimiter);
+  if (start < 0) throw new BadRequest("That upload could not be read.");
+
+  while (start >= 0) {
+    let cursor = start + delimiter.length;
+    // `--` after the boundary marks the end of the whole body.
+    if (raw[cursor] === 0x2d && raw[cursor + 1] === 0x2d) break;
+    while (raw[cursor] === 0x0d || raw[cursor] === 0x0a) cursor++;
+
+    const headerEnd = raw.indexOf("\r\n\r\n", cursor);
+    if (headerEnd < 0) break;
+
+    const headers = raw.subarray(cursor, headerEnd).toString("utf8");
+    const next = raw.indexOf(delimiter, headerEnd);
+    if (next < 0) break;
+
+    // The CRLF immediately before the next boundary belongs to the delimiter.
+    let end = next;
+    if (raw[end - 1] === 0x0a) end--;
+    if (raw[end - 1] === 0x0d) end--;
+    const content = raw.subarray(headerEnd + 4, end);
+
+    const nameMatch = /name="([^"]*)"/i.exec(headers);
+    const fileMatch = /filename="([^"]*)"/i.exec(headers);
+    const name = nameMatch?.[1];
+
+    if (name) {
+      if (fileMatch) {
+        // An empty file input still sends a part; it is not an upload.
+        if (fileMatch[1] !== "" && content.length > 0) {
+          files.set(name, { filename: fileMatch[1]!, bytes: new Uint8Array(content) });
+        }
+      } else {
+        const value = content.toString("utf8");
+        const existing = out[name];
+        if (existing === undefined) out[name] = value;
+        else if (Array.isArray(existing)) existing.push(value);
+        else out[name] = [existing, value];
+      }
+    }
+
+    start = next;
+  }
+
+  if (files.size > 0) uploads.set(req, files);
   return out;
 }
 

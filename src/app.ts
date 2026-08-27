@@ -12,7 +12,7 @@ import type { DB } from "./db/db.ts";
 import { queryAll, queryOne, execute, newId } from "./db/db.ts";
 import { devLoginModulePresent, type Config } from "./config.ts";
 import {
-  Router, field, fieldList, requiredField, HttpError, NotFound,
+  Router, field, fieldList, fileField, requiredField, HttpError, NotFound,
   type RequestContext, type Response,
 } from "./http/router.ts";
 import { clientIp, wantsJson } from "./http/server.ts";
@@ -128,8 +128,13 @@ import {
 } from "./domain/budget.ts";
 import {
   renderPortfolio, renderHoldingDetail, renderSalePreview, renderNetWorth,
-  renderAddHolding, type PortfolioRow,
+  renderAddHolding, renderCasUpload, renderCasReview,
+  type PortfolioRow, type CasReviewScheme,
 } from "./web/pages/portfolio.ts";
+import { parseCasPdf, WrongPassword } from "./import/cas.ts";
+import {
+  planCasImport, applyCasPlan, casDestinations, stashPlan, takePlan,
+} from "./import/cas-plan.ts";
 import {
   createAssetAccount, listAssetAccounts, findOrCreateInstrument, recordPurchase,
   recordSale, recordPrice, latestValuation, listHoldings, viewHolding,
@@ -1560,6 +1565,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       profiles: listProfiles(db).map((p) => ({
         id: p.id, name: p.name, last_used_at: p.last_used_at,
       })),
+      casEnabled: config.features.assets,
     })),
   );
 
@@ -2590,6 +2596,138 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       }),
     );
   });
+
+  // -------------------------------------------------------------------------
+  // `07` F19.14 · CAS import. A MUST at P1 per Q17 and errata E10.
+  // -------------------------------------------------------------------------
+
+  router.get("/portfolio/cas", (ctx) => {
+    requireAssets();
+    auth(ctx);
+    return render(ctx, "Import a CAS", renderCasUpload({
+      accounts: casDestinations(db),
+      error: ctx.query.get("error"),
+    }));
+  });
+
+  router.post("/portfolio/cas", (ctx) => {
+    requireAssets();
+    const a = auth(ctx);
+
+    const upload = fileField(ctx.req, "statement");
+    if (!upload) {
+      return render(ctx, "Import a CAS", renderCasUpload({
+        accounts: casDestinations(db),
+        error: "Choose the statement PDF first.",
+      }));
+    }
+
+    // PR5 · The password lives exactly this long. It is read from the request,
+    // handed to the parser, and never assigned to anything that outlives the
+    // call — not the plan, not the stash, not the event log.
+    const password = field(ctx.body, "password") ?? "";
+    const accountId = requiredField(ctx.body, "account_id");
+
+    let statement;
+    try {
+      statement = parseCasPdf(upload.bytes, password);
+    } catch (error) {
+      // A wrong password is the one failure worth naming precisely; everything
+      // else is a file this app could not read, which is the same to the user.
+      const message = error instanceof WrongPassword
+        ? "That password did not open the statement. It is usually your PAN, in capitals."
+        : `That file could not be read as a CAS. ${(error as Error).message}`;
+      return render(ctx, "Import a CAS", renderCasUpload({
+        accounts: casDestinations(db), error: message,
+      }));
+    }
+
+    if (statement.schemes.length === 0) {
+      return render(ctx, "Import a CAS", renderCasUpload({
+        accounts: casDestinations(db),
+        error:
+          "That PDF opened, but no folios were found in it. If it is a CAS, " +
+          "it may be a format this app has not seen — nothing was imported.",
+      }));
+    }
+
+    const plan = planCasImport(db, statement, accountId);
+    const token = newId();
+    stashPlan(token, plan, a.member.id);
+
+    const accountNames = new Map(listAssetAccounts(db).map((acc) => [acc.id, acc.name]));
+
+    return render(ctx, "What this statement says", renderCasReview({
+      period: plan.period,
+      unparsed: plan.unparsed,
+      totals: plan.totals,
+      token,
+      schemes: plan.schemes.map((scheme, index): CasReviewScheme => ({
+        index,
+        name: scheme.scheme.name,
+        folio: scheme.scheme.folio,
+        amc: scheme.scheme.amc,
+        isin: scheme.scheme.isin,
+        newInstrument: scheme.newInstrument,
+        destination: scheme.accountId ? accountNames.get(scheme.accountId) ?? null : null,
+        newLots: scheme.newLots,
+        invested: scheme.invested,
+        unitsDisagreement: scheme.unitsDisagreement,
+        rows: scheme.rows.map((r) => ({
+          date: r.row.date,
+          kind: r.row.kind,
+          description: r.row.description,
+          amount: r.row.amount,
+          units: r.row.units,
+          nav: r.row.nav,
+          status: r.status,
+          note: r.note,
+        })),
+      })),
+    }));
+  });
+
+  router.post("/portfolio/cas/confirm", (ctx) =>
+    mutate(ctx, (a) => {
+      requireAssets();
+
+      const plan = takePlan(requiredField(ctx.body, "token"), a.member.id);
+      if (!plan) {
+        return {
+          redirect: "/portfolio/cas?error=" + encodeURIComponent(
+            "That statement is no longer open — read it again and confirm within half an hour.",
+          ),
+        };
+      }
+
+      const chosen = fieldList(ctx.body, "scheme").map(Number).filter(Number.isInteger);
+      if (chosen.length === 0) {
+        return { redirect: "/portfolio", message: "Nothing was ticked, so nothing was imported." };
+      }
+
+      const result = applyCasPlan(
+        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), plan, chosen,
+      );
+
+      const parts = [`${result.lots} ${result.lots === 1 ? "lot" : "lots"}`];
+      if (result.sales > 0) {
+        parts.push(`${result.sales} ${result.sales === 1 ? "redemption" : "redemptions"}`);
+      }
+      if (result.dividends > 0) {
+        parts.push(`${result.dividends} ${result.dividends === 1 ? "payout" : "payouts"}`);
+      }
+      if (result.instruments > 0) {
+        parts.push(`${result.instruments} new ${result.instruments === 1 ? "scheme" : "schemes"}`);
+      }
+
+      return {
+        redirect: "/portfolio",
+        message:
+          `Recorded ${parts.join(", ")}. ` +
+          `New schemes start on manual pricing — set a NAV source when you want live values.`,
+      };
+    }),
+  );
 
   router.get("/portfolio/add", (ctx) => {
     requireAssets();

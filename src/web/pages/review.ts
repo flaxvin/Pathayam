@@ -407,6 +407,8 @@ export function renderImport(opts: {
   accounts: Account[];
   batches: ImportBatch[];
   profiles: { id: string; name: string; last_used_at: string | null }[];
+  /** F28.2: the pointer disappears with the module rather than 404ing. */
+  casEnabled: boolean;
   error?: string | null;
   preview?: {
     accountId: string;
@@ -418,6 +420,13 @@ export function renderImport(opts: {
 }): SafeHtml {
   return html`
     <h1>Import a statement</h1>
+    ${when(opts.casEnabled, () => html`
+      <p class="muted">
+        This page reads bank and card statements as CSV. A
+        <a href="/portfolio/cas">CDSL CAS</a> — the monthly one covering your
+        mutual funds — is a PDF and goes in over there.
+      </p>
+    `)}
     ${when(opts.error, () => html`<p class="notice notice-error">${opts.error}</p>`)}
 
     <form method="post" action="/import" class="card" enctype="multipart/form-data">

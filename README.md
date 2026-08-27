@@ -236,7 +236,11 @@ per-tranche disbursement destinations, instalment recording with the lender's
 split, drift against a lender statement, and the prepayment comparison that
 `06` §1 says the module exists for.
 
-**Assets and net worth** — holdings as units with FIFO lots, cost basis, XIRR
+**Assets and net worth** — the CDSL CAS import, which is the primary way
+holdings get in: a password-protected PDF is read in the process (no external
+tool, no library), the password is used once and never stored, and every row is
+matched against what is already held so a statement that restates four months
+adds only what is new. Holdings as units with FIFO lots, cost basis, XIRR
 as the headline return, corporate actions, the net worth statement with R29.4's
 four-way decomposition and a dated history, MFAPI and Frankfurter adapters
 behind one provider interface, and the asset-gain versus FX-gain split that
@@ -250,12 +254,11 @@ wizard, the India-appropriate starting template, Docker Compose.
 
 | Gap | Where it is specified |
 |---|---|
-| CDSL CAS import | `07` F19.14, promoted to P1 by errata E10 |
 | The AMFI fallback adapter behind the provider interface | `10` §3.3 — MFAPI is a third-party wrapper and can vanish |
 | Scheduled price refresh (manual refresh works) | `07` P4 |
 | Asset allocation by class and geography | F19.11 |
 | Gmail alert parsing, SMS forwarding | `04` §3.4, §3.5 — P1/P2 |
-| PDF statement parsers for HDFC / ICICI / Axis / SBI | `04` §3.3, Q2 |
+| PDF statement parsers for HDFC / ICICI / Axis / SBI | `04` §3.3, Q2 — the PDF reader exists; only the per-bank layouts are missing |
 | Attachments / receipt capture | Q10 |
 | Month-close ritual | `08` S5, Q26 — P1 |
 | Personal API tokens; module feature-flag UI | F30; F28 |
