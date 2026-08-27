@@ -722,4 +722,155 @@ CREATE TABLE saved_views (
 );
 `,
   },
+  {
+    name: "0004-assets",
+    sql: `
+--------------------------------------------------------------------------------
+-- F19 · Assets, holdings and net worth · F20 · Multi-currency (07).
+--
+-- R30 is what makes this safe to have: asset accounts are Tracking accounts,
+-- so their value can never reach Ready to Assign (FW1), and no table here is
+-- ever read by the budget engine.
+--------------------------------------------------------------------------------
+
+-- R24.6: identified by provider symbol AND ISIN where available, so changing
+-- price provider does not orphan the holding.
+CREATE TABLE instruments (
+  id            TEXT PRIMARY KEY,
+  name          TEXT NOT NULL,
+  kind          TEXT NOT NULL
+                CHECK (kind IN ('mutual-fund','equity','etf','bond','commodity','other')),
+  symbol        TEXT,
+  isin          TEXT,
+  currency      TEXT NOT NULL DEFAULT 'INR',
+  provider      TEXT NOT NULL DEFAULT 'manual'
+                CHECK (provider IN ('mfapi','alphavantage','manual')),
+  -- R26.6: an instrument may be pinned to manual pricing permanently.
+  manual_only   INTEGER NOT NULL DEFAULT 0,
+  -- P4: refresh cadence differs by class; equities burn a scarce quota.
+  refresh       TEXT NOT NULL DEFAULT 'daily'
+                CHECK (refresh IN ('daily','weekly','never')),
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX idx_instruments_isin ON instruments(isin);
+
+CREATE TABLE holdings (
+  id            TEXT PRIMARY KEY,
+  account_id    TEXT NOT NULL REFERENCES accounts(id),
+  instrument_id TEXT NOT NULL REFERENCES instruments(id),
+  note          TEXT,
+  closed_at     TEXT,
+  created_at    TEXT NOT NULL
+);
+CREATE UNIQUE INDEX idx_holdings_unique ON holdings(account_id, instrument_id)
+  WHERE closed_at IS NULL;
+
+-- R25.1: every purchase creates a lot, and lots are never merged.
+CREATE TABLE lots (
+  id          TEXT PRIMARY KEY,
+  holding_id  TEXT NOT NULL REFERENCES holdings(id),
+  trade_date  TEXT NOT NULL,
+  -- Integer milliunits (1e-3), per R24.3.
+  units       INTEGER NOT NULL,
+  -- Integer micro-rupees (1e-6) per unit; a NAV carries five decimals.
+  price       INTEGER NOT NULL,
+  fees        INTEGER NOT NULL DEFAULT 0,
+  -- Paise, including capitalised fees (R24.5).
+  cost        INTEGER NOT NULL,
+  -- R33.1: frozen at trade date and never revalued (FW8).
+  fx_rate     REAL,
+  -- The transaction that paid for it, so FW4's transfer is traceable.
+  transaction_id TEXT REFERENCES transactions(id),
+  closed_at   TEXT,
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX idx_lots_holding ON lots(holding_id, trade_date);
+
+-- R27 · Sales, dividends and corporate actions. Kept apart from lots because
+-- a realised gain is a fact about the past, not a position.
+CREATE TABLE holding_events (
+  id            TEXT PRIMARY KEY,
+  holding_id    TEXT NOT NULL REFERENCES holdings(id),
+  date          TEXT NOT NULL,
+  kind          TEXT NOT NULL CHECK (kind IN
+                  ('sale','dividend','dividend-reinvested','split','bonus',
+                   'merger','rights','return-of-capital')),
+  units         INTEGER,
+  price         INTEGER,
+  amount        INTEGER,
+  -- R27.4: realised gains are never folded into an unlabelled "gain".
+  realised_gain INTEGER,
+  ratio         REAL,
+  detail_json   TEXT,
+  transaction_id TEXT REFERENCES transactions(id),
+  created_at    TEXT NOT NULL,
+  created_by    TEXT REFERENCES members(id)
+);
+CREATE INDEX idx_holding_events ON holding_events(holding_id, date);
+
+-- R26.7: a price history, so portfolio value over time is real history rather
+-- than today's price applied backwards.
+CREATE TABLE prices (
+  instrument_id TEXT NOT NULL REFERENCES instruments(id),
+  -- R26.2/R26.8: the date the price was actually published, never interpolated.
+  as_of         TEXT NOT NULL,
+  price         INTEGER NOT NULL,
+  source        TEXT NOT NULL,
+  fetched_at    TEXT NOT NULL,
+  PRIMARY KEY (instrument_id, as_of)
+);
+
+-- P3: every fetch is logged, which is what makes a bad number explainable
+-- three months later.
+CREATE TABLE price_fetches (
+  id            INTEGER PRIMARY KEY AUTOINCREMENT,
+  instrument_id TEXT REFERENCES instruments(id),
+  provider      TEXT NOT NULL,
+  requested_at  TEXT NOT NULL,
+  status        TEXT NOT NULL,
+  detail        TEXT
+);
+CREATE INDEX idx_price_fetches ON price_fetches(provider, requested_at);
+
+-- R32 · FX rates, with publication dates and full history (R32.6), because
+-- historical net worth cannot be recomputed without it.
+CREATE TABLE fx_rates (
+  base          TEXT NOT NULL,
+  quote         TEXT NOT NULL,
+  as_of         TEXT NOT NULL,
+  rate          REAL NOT NULL,
+  source        TEXT NOT NULL,
+  fetched_at    TEXT NOT NULL,
+  PRIMARY KEY (base, quote, as_of)
+);
+
+-- R23.2 · A manually valued asset stores a dated history, not one mutable
+-- number. Net worth over time is meaningless otherwise.
+CREATE TABLE asset_valuations (
+  id          TEXT PRIMARY KEY,
+  account_id  TEXT NOT NULL REFERENCES accounts(id),
+  as_of       TEXT NOT NULL,
+  value       INTEGER NOT NULL,
+  note        TEXT,
+  created_at  TEXT NOT NULL,
+  created_by  TEXT REFERENCES members(id)
+);
+CREATE INDEX idx_asset_valuations ON asset_valuations(account_id, as_of);
+
+-- R29.2 · A dated net worth history, snapshotted at least monthly, so the
+-- trend is real rather than reconstructed from today's prices.
+CREATE TABLE net_worth_snapshots (
+  as_of             TEXT PRIMARY KEY,
+  cash              INTEGER NOT NULL,
+  investments       INTEGER NOT NULL,
+  other_assets      INTEGER NOT NULL,
+  credit_cards      INTEGER NOT NULL,
+  loans             INTEGER NOT NULL,
+  net_worth         INTEGER NOT NULL,
+  -- R29.1: the staleness of its worst input, so the figure carries its caveat.
+  worst_price_date  TEXT,
+  created_at        TEXT NOT NULL
+);
+`,
+  },
 ];
