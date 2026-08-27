@@ -321,6 +321,93 @@ describe("repository → engine", () => {
   });
 });
 
+describe("transfers out of the budget", () => {
+  /**
+   * The case the derivation's §3 did not name: a transfer whose other side is
+   * a *tracking* account. Budget↔budget nets to zero and budget↔credit is a
+   * card payment, but this one is money genuinely leaving the budget.
+   */
+  function lendOut(db: DB) {
+    const bank = createAccount(db, actor, {
+      name: "HDFC", kind: "budget", subtype: "savings",
+      openingDate: "2026-08-01", openingBalance: rupees(200_000),
+    });
+    const tracked = createAccount(db, actor, {
+      name: "Lent to Ammu", kind: "tracking", subtype: "family-loan",
+      openingDate: "2026-08-01",
+    });
+    createTransfer(db, actor, {
+      fromAccountId: bank.id, toAccountId: tracked.id,
+      amount: rupees(50_000), date: "2026-08-05",
+    });
+    return { bank, tracked };
+  }
+
+  test("money moved to a tracking account leaves Ready to Assign", () => {
+    const db = setup();
+    lendOut(db);
+
+    // R1: Ready to Assign is money you have. Money in someone else's hands,
+    // or in an asset, is not money you have.
+    const state = computeBudget(loadEngineInput(db, { through: AUG })).get(AUG)!;
+    assert.equal(state.readyToAssign, rupees(150_000));
+    db.close();
+  });
+
+  test("and the identity still holds", () => {
+    const db = setup();
+    lendOut(db);
+
+    // This is the assertion that would have caught it: excluding the leg made
+    // the budget balance drop while RTA and every category stayed put, leaving
+    // a residual of exactly the amount transferred.
+    for (const [, state] of computeBudget(loadEngineInput(db, { through: AUG }))) {
+      assert.equal(identityResidual(state), 0);
+    }
+    db.close();
+  });
+
+  test("a categorised transfer out is absorbed by its envelope instead", () => {
+    const db = setup();
+    const { bank, tracked } = lendOut(db);
+    const group = createGroup(db, actor, "Saving");
+    const investing = createCategory(db, actor, { groupId: group.id, name: "Investing" });
+    setAssigned(db, actor, AUG, investing.id, rupees(20_000));
+
+    const [out] = createTransfer(db, actor, {
+      fromAccountId: bank.id, toAccountId: tracked.id,
+      amount: rupees(20_000), date: "2026-08-10",
+    });
+    execute(db, `UPDATE transactions SET category_id = ? WHERE id = ?`, investing.id, out.id);
+
+    // FW4's shape: the envelope records it, so RTA is untouched by this one.
+    const state = computeBudget(loadEngineInput(db, { through: AUG })).get(AUG)!;
+    assert.equal(state.readyToAssign, rupees(130_000));
+    assert.equal(state.categories.get(investing.id)!.balance, 0);
+    assert.equal(identityResidual(state), 0);
+    db.close();
+  });
+
+  test("a budget-to-budget transfer still nets to nothing", () => {
+    const db = setup();
+    const a = createAccount(db, actor, {
+      name: "HDFC", kind: "budget", subtype: "savings",
+      openingDate: "2026-08-01", openingBalance: rupees(200_000),
+    });
+    const b = createAccount(db, actor, {
+      name: "ICICI", kind: "budget", subtype: "savings", openingDate: "2026-08-01",
+    });
+    createTransfer(db, actor, {
+      fromAccountId: a.id, toAccountId: b.id, amount: rupees(50_000), date: "2026-08-05",
+    });
+
+    const state = computeBudget(loadEngineInput(db, { through: AUG })).get(AUG)!;
+    assert.equal(state.readyToAssign, rupees(200_000));
+    assert.equal(identityResidual(state), 0);
+    db.close();
+  });
+});
+
 describe("balances and derived figures", () => {
   test("separates cleared from uncleared (F2.8)", () => {
     const db = setup();

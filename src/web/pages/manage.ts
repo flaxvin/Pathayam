@@ -45,6 +45,7 @@ export function renderMore(features: { loans: boolean; assets: boolean }): SafeH
       group("Debt", [
         ["/loans", "Loans", "What each one really costs, and what prepaying buys"],
         ["/loans/what-if", "Prepayment calculator", "Model it before committing a rupee"],
+        ["/family", "Lending in the family", "Lent and borrowed, without interest maths"],
       ]),
     )}
 

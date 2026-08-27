@@ -18,7 +18,13 @@ export type AccountKind = "budget" | "credit" | "tracking";
 export const ACCOUNT_SUBTYPES: Record<AccountKind, string[]> = {
   budget: ["savings", "current", "cash", "wallet"],
   credit: ["credit-card", "charge-card"],
-  tracking: ["loan", "emi", "fixed-deposit", "recurring-deposit", "asset", "liability"],
+  // `10` §3.5 · F2.10 adds family-loan: money lent to or borrowed from a
+  // person. Tracking, so FW1 keeps it out of the budget, but distinct from
+  // "asset"/"liability" because its balance is derived rather than typed.
+  tracking: [
+    "loan", "emi", "fixed-deposit", "recurring-deposit", "asset", "liability",
+    "family-loan",
+  ],
 };
 
 export const SUBTYPE_LABELS: Record<string, string> = {
@@ -32,6 +38,7 @@ export const SUBTYPE_LABELS: Record<string, string> = {
   emi: "EMI",
   "fixed-deposit": "Fixed deposit",
   "recurring-deposit": "Recurring deposit",
+  "family-loan": "Lent to or borrowed from family",
   asset: "Other asset",
   liability: "Other liability",
 };

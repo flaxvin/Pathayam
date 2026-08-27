@@ -24,6 +24,7 @@ import { nowIST, todayIST, monthOf, addMonths, formatDate, type IsoDate } from "
 import { formatPaise, type Paise } from "../core/money.ts";
 import { accountBalances } from "../engine/repository.ts";
 import { listLoans, projectLoan } from "./loans.ts";
+import { familyLoanNetWorth } from "./family-loans.ts";
 import {
   listAssetAccounts, listHoldings, viewHolding, latestValuation, ASSET_LABELS,
   type AssetSubtype,
@@ -166,6 +167,19 @@ export function netWorthStatement(
     }
   }
 
+  // FL8 · Private lending counts, on both sides. Lent money is an asset and
+  // borrowed money is a liability, both at the derived balance — there is no
+  // typed figure to go stale, so neither carries a staleness flag.
+  const family = familyLoanNetWorth(db);
+  for (const line of family.lent) {
+    otherAssetLines.push({ ...line, asOf, stale: false });
+  }
+  const familyLines: NetWorthLine[] = family.borrowed.map(
+    (line: { label: string; accountId: string; value: Paise }) => ({
+      ...line, asOf, stale: false,
+    }),
+  );
+
   const group = (name: string, lines: NetWorthLine[]): NetWorthGroup => ({
     name,
     lines,
@@ -181,6 +195,7 @@ export function netWorthStatement(
   const liabilityGroups = [
     group("Credit cards", cardLines),
     group("Loans", loanLines),
+    group("Owed to family", familyLines),
   ].filter((g) => g.lines.length > 0);
 
   const totalAssets = assetGroups.reduce((sum, g) => sum + g.total, 0);

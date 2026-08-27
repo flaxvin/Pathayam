@@ -967,4 +967,41 @@ ALTER TABLE price_fetches ADD COLUMN as_of TEXT;
 CREATE INDEX idx_price_fetches_class ON price_fetches(class, requested_at);
 `,
   },
+  {
+    name: "0009-family-loans",
+    sql: `
+--------------------------------------------------------------------------------
+-- 10 §3.5 · F2.10, FL1-FL9 · Private lending within the family.
+--
+-- What is NOT in this table is the point: there is no balance column. FL2
+-- makes the outstanding figure derived from dated advances and repayments,
+-- which are ordinary transfers against the account below — that is the entire
+-- difference between this and a Tracking account, and the reason the subtype
+-- exists rather than a note in a memo field.
+--
+-- There is also no rate, no tenure and no schedule. FL5: these arrangements
+-- are made as an agreed total ("give me back Rs 55,000"), and 06's
+-- amortisation machinery has nothing to say about them.
+--------------------------------------------------------------------------------
+
+CREATE TABLE family_loans (
+  id            TEXT PRIMARY KEY,
+  -- The Tracking account holding the transfers. FW1 keeps it out of the budget.
+  account_id    TEXT NOT NULL REFERENCES accounts(id),
+  -- FL1: a name, not a member. The other side is usually not in the household.
+  counterparty  TEXT NOT NULL,
+  direction     TEXT NOT NULL CHECK (direction IN ('lent','borrowed')),
+  -- FL5: an agreed total, never a rate.
+  agreed_total  INTEGER,
+  note          TEXT,
+  started_at    TEXT NOT NULL,
+  closed_at     TEXT,
+  -- FL7: the honest end state, and the transaction that recorded it.
+  written_off_at           TEXT,
+  write_off_transaction_id TEXT REFERENCES transactions(id),
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX idx_family_loans_account ON family_loans(account_id);
+`,
+  },
 ];

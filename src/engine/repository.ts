@@ -154,14 +154,30 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
     if (f) f.budgetCategorisedFlow += r.amount;
   }
 
-  // Transfer legs never reach RTA — a card payment must reduce the payment
-  // envelope, not the pool. See docs/dev/01-engine-derivation.md §3.
+  // Transfer legs are excluded from RTA only when the transfer is *internal to
+  // the budget* — budget↔budget nets to zero, and budget↔credit must reduce the
+  // card's payment envelope rather than the pool (R6). See
+  // docs/dev/01-engine-derivation.md §3.
+  //
+  // A transfer to or from a **tracking** account is a third case, and it is not
+  // internal: one side is outside the budget entirely. Lending ₹50,000 to
+  // family, buying an asset, or repaying loan principal all remove money that
+  // R1 counts as "money you have", so the budget-side leg must behave like any
+  // other flow — reducing RTA when it carries no category, and consumed by the
+  // envelope when it does. Excluding it here instead let money leave the budget
+  // with nothing recording it, and broke the identity by exactly the amount
+  // transferred.
   for (const r of queryAll<{ month: string; amount: number }>(
     db,
     `SELECT substr(t.date,1,7) AS month, SUM(t.amount) AS amount
        FROM transactions t
        JOIN accounts a ON a.id = t.account_id
-      WHERE t.deleted_at IS NULL AND a.kind = 'budget' AND t.transfer_pair_id IS NOT NULL
+       JOIN transactions other
+         ON other.transfer_pair_id = t.transfer_pair_id AND other.id <> t.id
+       JOIN accounts otherAccount ON otherAccount.id = other.account_id
+      WHERE t.deleted_at IS NULL AND a.kind = 'budget'
+        AND t.transfer_pair_id IS NOT NULL
+        AND otherAccount.kind IN ('budget','credit')
       GROUP BY month`,
   )) {
     const f = ensure(r.month);
