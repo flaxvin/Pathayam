@@ -1,10 +1,11 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
-  parseStatementText, parseStatementPdf, parseStatementDate, parseStatementAmount,
-  detectBank, senderFor, readHeader, BANKS, WrongPassword,
+  parseStatementText, parseStatementPdf, openStatement, parseStatementDate,
+  parseStatementAmount, detectBank, senderFor, readHeader, BANKS, WrongPassword,
 } from "./pdf-statements.ts";
-import { STATEMENTS, STATEMENT_PASSWORD } from "./statements.test-data.ts";
+import { STATEMENTS, STATEMENT_PASSWORD, STATEMENT_IDENTITY } from "./statements.test-data.ts";
+import { passwordCandidates, describeCandidate } from "./statement-passwords.ts";
 
 /**
  * The fixtures are real PDFs run through the real reader, so these tests
@@ -135,6 +136,26 @@ Tran Date  Chq No  Particulars  Debit  Credit  Balance
       result.records.map((r) => [r.date, r.amount]),
       [["2026-08-03", -45_000], ["2026-08-05", 14_500_000], ["2026-08-11", -145_050]],
     );
+  });
+
+  test("`10` §3.6 · a saved identity opens it with nobody present", () => {
+    // The whole point of the reversal: no human types anything. "Ravi Kumar"
+    // born 01/01/1970 gives RAVI0101, which is the password this file has.
+    const result = openStatement(
+      STATEMENTS.hdfcEncrypted,
+      passwordCandidates(STATEMENT_IDENTITY, "hdfc"),
+    );
+    assert.ok(result, "the derived candidates should include the right one");
+    assert.equal(result!.parse.bank!.id, "hdfc");
+    assert.equal(result!.parse.records.length, 3);
+    // What opened it is described, never quoted back.
+    assert.equal(describeCandidate(result!.candidate, STATEMENT_IDENTITY),
+      "your name and date of birth");
+  });
+
+  test("an identity that derives nothing useful does not open it", () => {
+    const wrong = { name: "Someone Else", pan: null, dob: "02021980" };
+    assert.equal(openStatement(STATEMENTS.hdfcEncrypted, passwordCandidates(wrong)), null);
   });
 
   test("PR5 · a wrong password fails by name, never as an empty statement", () => {

@@ -133,6 +133,64 @@ provider — and its absence is felt every month.
 
 ---
 
+### 3.6 PR5 reversed, deliberately — statement password derivation *(extends `04` PR5, §3.4)*
+
+*Decided 28-08-2026.* **PR5 as written cannot coexist with unattended statement
+fetching**, and this records the choice rather than letting the code quietly
+make it.
+
+PR5 says: *"Statement passwords are used in-memory for a single import and never
+persisted."* That is correct for a household that uploads a file and types a
+password. It is impossible for `04` §3.4's Gmail path, where nobody is present
+to type anything.
+
+**Why the app cannot simply not store a password.** Indian banks do not let you
+choose one. Each derives it from something they already know, and every
+institution picks differently — verified from the emails themselves:
+
+| Institution | Its own words |
+|---|---|
+| Union Bank of India | "first four characters of your name in uppercase followed by Date/Month(DDMM) of your birth" — *RAVI0101* |
+| Axis Bank | "first four letters of your name … followed by your date and month of birth in ddmm format. The password is case sensitive (lowercase)" |
+| ICICI Bank | "Enter all letters in small case without adding any special characters, spaces or salutation" |
+| Upstox, INDmoney | "use your PAN (in lowercase)" |
+| SBI, IndusInd, Canara | date of birth, generally DDMMYYYY |
+
+So storing "the password" and storing "the name, the date of birth and the PAN"
+are the same act. Pretending otherwise by storing only the derived string would
+be *worse*: the same exposure, plus a value that silently stops working when a
+bank changes its rule.
+
+**PR5 is therefore amended:**
+
+- PR5.1 Statement passwords supplied by hand MUST still be used in memory for a
+  single import and never persisted. This is unchanged and remains the default.
+- PR5.2 A household MAY **opt in** to storing the name, date of birth and PAN
+  that statement passwords are derived from, solely so statements can be opened
+  without a human present.
+- PR5.3 These values MUST NOT appear in an export (`08` F15), in the event log
+  (R37), or in any log line. Each is asserted by a test.
+- PR5.4 They MUST be shown masked wherever they are displayed.
+- PR5.5 The derived password MUST NOT be stored — only the ingredients.
+- PR5.6 The feature MUST be removable in one action, and the app MUST work
+  fully without it.
+
+**Stored in the clear**, consistent with `08` S9. That decision declined
+database encryption at rest — *"the database key must live where the app can
+read it at start, so it protects against a stolen disk and little else — while
+adding a key-management step that, if fumbled, loses everything"* — and chose
+to encrypt the **backups** instead. Encrypting these two fields specifically
+would be exactly the key-management step S9 rejected, for the same small
+benefit. The containment is PR5.3's boundaries, not a cipher.
+
+**The honest cost.** A household that opts in has moved a government identifier
+and a date of birth onto the same box that holds their ledger. `08` §7's threat
+model already assumes that box is trusted; this makes the consequence of it
+being wrong slightly worse. That is the trade, it is opt-in, and the settings
+screen states it in those terms rather than reassuring terms.
+
+---
+
 ## 4. Precedence, restated
 
 Where documents disagree, the order of authority is:

@@ -47,8 +47,11 @@ import {
 } from "./web/pages/actions.ts";
 import { renderReview, renderImport, renderMapping } from "./web/pages/review.ts";
 import {
-  parseStatementPdf, BANKS, WrongPassword as StatementWrongPassword,
+  parseStatementPdf, openStatement, BANKS,
+  WrongPassword as StatementWrongPassword,
 } from "./import/pdf-statements.ts";
+import { passwordCandidates, describeCandidate } from "./import/statement-passwords.ts";
+import { getIdentity, setIdentity, clearIdentity, maskedIdentity } from "./import/identity.ts";
 import {
   recognise, saveProfile, listProfiles, markProfileUsed, deleteProfile,
   mappingFromSelections, validateMapping, columnChoices, candidateHeaderRows,
@@ -148,6 +151,7 @@ import {
 } from "./domain/digest.ts";
 import {
   renderMonthClose, renderClosedMonths, renderDigest, renderDigestSettings,
+  renderStatementIdentity,
 } from "./web/pages/month-close.ts";
 import {
   renderPortfolio, renderHoldingDetail, renderSalePreview, renderNetWorth,
@@ -1064,6 +1068,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           </form>
         </section>
 
+        ${renderStatementIdentity(maskedIdentity(db, a.member.id))}
+
         ${renderDigestSettings(mutedKinds(db, a.viewingAs.id))}
 
         <section class="card">
@@ -1744,15 +1750,36 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     if (!upload) return importPage("Choose the statement PDF first.");
 
-    // PR5 · Read from the request, handed to the parser, never assigned to
-    // anything that outlives the call.
+    /*
+     * A typed password wins; otherwise the stored identity derives candidates
+     * (`10` §3.6). Typing one is still the path for a household that has not
+     * opted in, and PR5's original shape — used once, never persisted — is
+     * exactly what happens on that path.
+     */
+    const typed = field(ctx.body, "password") ?? "";
+    const identity = getIdentity(db, a.member.id);
+
     let parsed;
+    let opened = "";
     try {
-      parsed = parseStatementPdf(upload.bytes, field(ctx.body, "password") ?? "");
+      if (typed !== "") {
+        parsed = parseStatementPdf(upload.bytes, typed);
+      } else if (identity) {
+        const result = openStatement(upload.bytes, passwordCandidates(identity));
+        if (!result) throw new StatementWrongPassword();
+        parsed = result.parse;
+        opened = ` It opened with ${describeCandidate(result.candidate, identity)}.`;
+      } else {
+        parsed = parseStatementPdf(upload.bytes, "");
+      }
     } catch (error) {
       return importPage(
         error instanceof StatementWrongPassword
-          ? "That password did not open the statement. The hints below say what each bank uses."
+          ? (identity
+              ? "None of the passwords worked out from your saved details opened this. " +
+                "Type it below, or check the details in Settings."
+              : "That statement needs a password. The hints below say what each bank uses — " +
+                "or save your details in Settings and the app will work it out.")
           : `That file could not be read. ${(error as Error).message}`,
       );
     }
@@ -1794,11 +1821,23 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (outcome.skipped > 0) parts.push(`${outcome.skipped} already present`);
     if (parsed.errors.length > 0) parts.push(`${parsed.errors.length} unreadable rows`);
 
+    // The statement's own closing balance, which is the strongest confirmation
+    // available that every row was read and read correctly.
+    const reconciled = parsed.reconciliation?.ok
+      ? " It reconciles against the statement's own closing balance."
+      : parsed.reconciliation
+        ? ` It does not reconcile — off by ${formatPaise(Math.abs(parsed.reconciliation.difference))}, ` +
+          `so a row is probably missing. Check before approving.`
+        : "";
+
+    // Not wrapped in `mutate()` — this handler renders a page on failure, and
+    // `mutate` can only redirect — so the notice is built here.
     return {
-      redirect: outcome.staged > 0 ? "/review" : "/import",
-      message:
+      redirect: withNotice(
+        outcome.staged > 0 ? "/review" : "/import",
         `Read ${parsed.bank ? `your ${parsed.bank.name} statement` : "the statement"} — ` +
-        `${parts.join(", ")}.`,
+          `${parts.join(", ")}.${opened}${reconciled}`,
+      ),
     };
   });
 
@@ -2937,6 +2976,25 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       if (!isMonthKey(month)) throw new NotFound("That is not a month.");
       reopenMonth(db, actorFor(a), month);
       return { redirect: "/months", message: `${formatMonth(month)} is open again.` };
+    }),
+  );
+
+  /** `10` §3.6 · What statement passwords are worked out from. */
+  router.post("/settings/identity", (ctx) =>
+    mutate(ctx, (a) => {
+      if (field(ctx.body, "clear") === "1") {
+        clearIdentity(db, actorFor(a));
+        return { redirect: "/settings#statements", message: "Removed. You'll be asked for a password each time." };
+      }
+      setIdentity(db, actorFor(a), {
+        name: requiredField(ctx.body, "name"),
+        pan: field(ctx.body, "pan") || null,
+        dob: field(ctx.body, "dob") || null,
+      });
+      return {
+        redirect: "/settings#statements",
+        message: "Saved. Statements should now open without you typing anything.",
+      };
     }),
   );
 

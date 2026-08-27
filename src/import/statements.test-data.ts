@@ -3,18 +3,30 @@
  * decrypt → extract → recognise → parse.
  *
  * They are **not** this household's statements. Every real one is
- * password-protected behind a PAN or a date of birth — data PR5 says is used
- * once at import and never stored, and which has no business in a repository.
- * The layouts are modelled on each bank's published format and are
- * [unverified against a live file]; see the header of `pdf-statements.ts`.
+ * password-protected behind a PAN or a date of birth, and those have no
+ * business in a repository. The layouts are modelled on each bank's published
+ * format; see the header of `pdf-statements.ts` for what is and is not
+ * verified against a live file.
  *
  * Generated once with reportlab and, for the encrypted one, qpdf:
  *
- *   qpdf --allow-weak-crypto --encrypt hdfc0101 hdfc0101 128 --use-aes=n \
+ *   qpdf --allow-weak-crypto --encrypt RAVI0101 RAVI0101 128 --use-aes=n \
  *        -- hdfc.pdf hdfc-enc.pdf
  */
 
-export const STATEMENT_PASSWORD = "hdfc0101";
+/**
+ * Deliberately derivable from the synthetic identity below, so the tests prove
+ * the whole derivation path and not merely the decryption: "Ravi Kumar" born
+ * 01/01/1970 gives RAVI0101 — which is Union Bank's own worked example, quoted
+ * verbatim in their statement email.
+ */
+export const STATEMENT_PASSWORD = "RAVI0101";
+
+export const STATEMENT_IDENTITY = {
+  name: "Ravi Kumar",
+  pan: "ABCDE1234F",
+  dob: "01011970",
+};
 
 const HDFC_B64 =
   "JVBERi0xLjMKJZOMi54gUmVwb3J0TGFiIEdlbmVyYXRlZCBQREYgZG9jdW1lbnQgKG9wZW5zb3VyY2UpCjEgMCBvYmoKPDwK" +
@@ -134,35 +146,35 @@ const SBI_B64 =
 
 const HDFC_ENCRYPTED_B64 =
   "JVBERi0xLjQKJb/3ov4KMSAwIG9iago8PCAvUGFnZU1vZGUgL1VzZU5vbmUgL1BhZ2VzIDMgMCBSIC9UeXBlIC9DYXRhbG9n" +
-  "ID4+CmVuZG9iagoyIDAgb2JqCjw8IC9BdXRob3IgPDhhMzZlOTYyNTJiMjEwNjIwMj4gL0NyZWF0aW9uRGF0ZSA8YWY2MmI0" +
-  "M2MxOWU5NGYyZjQzNzI3MjIzYzE5OGY3YzE4MmU3YTU2YmQ4YTAwMD4gL0NyZWF0b3IgPDhhMzZlOTYyNTJiMjEwNjIwMj4g" +
-  "L0tleXdvcmRzICgpIC9Nb2REYXRlIDxhZjYyYjQzYzE5ZTk0ZjJmNDM3MjcyMjNjMTk4ZjdjMTgyZTdhNTZiZDhhMDAwPiAv" +
-  "UHJvZHVjZXIgPGI5M2RmNjYzNTlhYjMzNzYxMzZhMTI1N2IzOGQ4ZjliY2JhNWYxM2U5MWIwMGE5ZDMzNDk1ZWNiZDUyZDY3" +
-  "ZDhhZTZjYzY3MD4gL1N1YmplY3QgPDllMzZmNTdjNGViYzE2NzExODJmMjY+IC9UaXRsZSA8OWUzNmYyNjU1ZmIzMWE3Mz4g" +
+  "ID4+CmVuZG9iagoyIDAgb2JqCjw8IC9BdXRob3IgPGMxN2VlOWY0Y2M5NGQ5NGM3YT4gL0NyZWF0aW9uRGF0ZSA8ZTQyYWI0" +
+  "YWE4N2NmODYwMTNiYzEwODZkZDE2NjIzMDdiODVkZDIxYzlhNzc5Mj4gL0NyZWF0b3IgPGMxN2VlOWY0Y2M5NGQ5NGM3YT4g" +
+  "L0tleXdvcmRzICgpIC9Nb2REYXRlIDxlNDJhYjRhYTg3Y2Y4NjAxM2JjMTA4NmRkMTY2MjMwN2I4NWRkMjFjOWE3NzkyPiAv" +
+  "UHJvZHVjZXIgPGYyNzVmNmY1Yzc4ZGZhNTg2YmQ5NjgxOWEzNzM1YjVkZjExZjg2NDlkMzY3OTg1YmEyMDIxZWUxMmE0YWE4" +
+  "NWRlNmExNTQxNT4gL1N1YmplY3QgPGQ1N2VmNWVhZDA5YWRmNWY2MDljNWM+IC9UaXRsZSA8ZDU3ZWYyZjNjMTk1ZDM1ZD4g" +
   "L1RyYXBwZWQgL0ZhbHNlID4+CmVuZG9iagozIDAgb2JqCjw8IC9Db3VudCAxIC9LaWRzIFsgNCAwIFIgXSAvVHlwZSAvUGFn" +
   "ZXMgPj4KZW5kb2JqCjQgMCBvYmoKPDwgL0NvbnRlbnRzIDUgMCBSIC9NZWRpYUJveCBbIDAgMCA1OTUuMjc1NiA4NDEuODg5" +
   "OCBdIC9QYXJlbnQgMyAwIFIgL1Jlc291cmNlcyA8PCAvRm9udCA2IDAgUiAvUHJvY1NldCBbIC9QREYgL1RleHQgL0ltYWdl" +
   "QiAvSW1hZ2VDIC9JbWFnZUkgXSA+PiAvUm90YXRlIDAgL1RyYW5zIDw8ID4+IC9UeXBlIC9QYWdlID4+CmVuZG9iago1IDAg" +
-  "b2JqCjw8IC9MZW5ndGggNTM2IC9GaWx0ZXIgL0ZsYXRlRGVjb2RlID4+CnN0cmVhbQp/LfhSeKD0ddp/nFCngK8lmUQyQZCz" +
-  "2LvxmAFWcJ9+gypbXEj5MMk3xQhisFkFpFyGwGb1B6Mf5UUdILsGFEK+p9myaES0RE/3A0HUgIyTesfh//Rs4+lYKedik7Ys" +
-  "/m5mhDFMs2XMST6UZT5Vz8+C1iGU7KbeJdYU/70aT69lH4IxlDVRNqJtQ+zl6BU84gaHd/JW+qjE9qm7isc796YWQhK/vHG1" +
-  "bhmnZOPeJ94+JYIsmBDQs9Q3vjO0l97vidFnatudtSEwS2a4pven6C5hSQxXmcr9sBvjLgpTttBsXXuxCFN+yEiSGRz4B7U9" +
-  "unB2tabhgeEUpvMgYadoRDD0YbVI0KwJ/IIutvYYhZtTWTPDxv3PROvVTRIX3Jmvgeeic+lSrgr5xAmH3SIUuiu7siK8WoCs" +
-  "QQ2JA+e4Lq4R7aby2akLPM/SLzAgD3aPDUr+6WQ8ggemGLDEN6gJ39l9F95YSskg9jptTY80gw7aaWr2Q7U6+RIoaW8eJLRG" +
-  "CmqSGggVrdBr0d4emaiop1W4wrn9rZ5PrJUOhC8nTLiZLcGH3GbE+io56nKGRTwlEwSHNuD8NEh7OsSrPnOlZVnIUb+OUqFE" +
-  "slRUcs7Ysfvla4tB0cygKwepX+3hKczNAnZGkIdy4iSrWIml55UnvnbFKfj1JT+KYCiFAnrPfTPxBfW5A6pG4E1+/B7D8BfS" +
-  "ElMofWv3f/audGVuZHN0cmVhbQplbmRvYmoKNiAwIG9iago8PCAvRjEgNyAwIFIgL0YyIDggMCBSID4+CmVuZG9iago3IDAg" +
+  "b2JqCjw8IC9MZW5ndGggNTM2IC9GaWx0ZXIgL0ZsYXRlRGVjb2RlID4+CnN0cmVhbQogtrw6s9DMEN48rVWI2SBROyGAINnL" +
+  "sTzwywR6x4DAsHQg/C70Gsf+KcidNkTSTLfLIMSQ6oFnn2HW2uvQ/weyOmJPUP4N8oMTTfgpzkdXWLMEVAfz9K63GXuLiv3i" +
+  "pB+V1H8OiiCGZmgriPQFCk2vFR2Ias6y4NlVElttGPI6spjH1uaSUG6Jp0jyGLs+ttX4oUSxf8J7uohOj2eQrycJCxrLHC5j" +
+  "tRvqpMUiLspDIuWeSM/bicbJHqTXZ+xnq05r3tYCW0GXL1hKgpDpMcLKIl0V0dFcYcPP1hzsDyBPr97M/N7GJseSivypLnv1" +
+  "iFHxkrnaeUXcWCBtKh5HQgmt9VM99KX8D6hcOpmRbUiQYuqtH4F5P9qMmsRFssV/+nXpGkudCdA1Pask8ckZhif5ATsYF/1j" +
+  "INfOHJa62jSosDh/A9BPRgaZoARCKe4J+C/2wBMRnDf2niGRbE1iRup21U2/Iy7mpyw8SRZjd1rRLInq/TqaNXD6maGLiMaf" +
+  "sxTRkCzGPI4xhPcNITmE7THCD3rWfslG4oFFv3O4SyyAMrJ14dLuWKmaH8KCs6ui5ApTdkNw/Vg5uU0qtKQWc5UOc/csdrmm" +
+  "RpfK6TlS8+Y43ZUMLpBNbK35tpj8yzAr7mpg9OYH8biEguz1eUFXPR1DZTstL/mdaFgG2dskWCKQp3muiyJ9cgZpYKpi+dE+" +
+  "I/6EKEadtzlIy2VuZHN0cmVhbQplbmRvYmoKNiAwIG9iago8PCAvRjEgNyAwIFIgL0YyIDggMCBSID4+CmVuZG9iago3IDAg" +
   "b2JqCjw8IC9CYXNlRm9udCAvSGVsdmV0aWNhIC9FbmNvZGluZyAvV2luQW5zaUVuY29kaW5nIC9OYW1lIC9GMSAvU3VidHlw" +
   "ZSAvVHlwZTEgL1R5cGUgL0ZvbnQgPj4KZW5kb2JqCjggMCBvYmoKPDwgL0Jhc2VGb250IC9IZWx2ZXRpY2EtQm9sZCAvRW5j" +
   "b2RpbmcgL1dpbkFuc2lFbmNvZGluZyAvTmFtZSAvRjIgL1N1YnR5cGUgL1R5cGUxIC9UeXBlIC9Gb250ID4+CmVuZG9iago5" +
-  "IDAgb2JqCjw8IC9GaWx0ZXIgL1N0YW5kYXJkIC9MZW5ndGggMTI4IC9PIDxiYzU4ZGU5NGFiZGY1Y2ZiNjFlY2RiMzU5ZTE3" +
-  "ODJmMjJmMmE0NjZlNjU2MTI4ZTZlNzEyZGVmYTU0ODBjOGE2PiAvUCAtNCAvUiAzIC9VIDw1YzAzYmQxMjVlMjdlOGQ5OTQy" +
-  "ZWFhNzYzYTU0NGI0OTAwMjE0NDY5OTBiOWU0MTE0MDcxYTRkOTEwNDk4NGMxPiAvViAyID4+CmVuZG9iagp4cmVmCjAgMTAK" +
+  "IDAgb2JqCjw8IC9GaWx0ZXIgL1N0YW5kYXJkIC9MZW5ndGggMTI4IC9PIDxmODI4ZjY0YjhmMjQyM2Q1NjA4MzRmZTkwMGU1" +
+  "N2EzNTNkOWQ2ZDkzY2IwZDQwOTZmNTE3MDU0NTU0YTY3MmVlPiAvUCAtNCAvUiAzIC9VIDw5YjVhNjczZWYwZjczNjVmMjU3" +
+  "MGI1ZDdiMWYwOGU5ODAwMjE0NDY5OTBiOWU0MTE0MDcxYTRkOTEwNDk4NGMxPiAvViAyID4+CmVuZG9iagp4cmVmCjAgMTAK" +
   "MDAwMDAwMDAwMCA2NTUzNSBmIAowMDAwMDAwMDE1IDAwMDAwIG4gCjAwMDAwMDAwODMgMDAwMDAgbiAKMDAwMDAwMDQ1OCAw" +
   "MDAwMCBuIAowMDAwMDAwNTE3IDAwMDAwIG4gCjAwMDAwMDA3MTYgMDAwMDAgbiAKMDAwMDAwMTMyMyAwMDAwMCBuIAowMDAw" +
   "MDAxMzY0IDAwMDAwIG4gCjAwMDAwMDE0NzEgMDAwMDAgbiAKMDAwMDAwMTU4MyAwMDAwMCBuIAp0cmFpbGVyIDw8IC9JbmZv" +
-  "IDIgMCBSIC9Sb290IDEgMCBSIC9TaXplIDEwIC9JRCBbPGJiNDcyMTNjMTU5YjdmZTE0NzI4NmVmNzNhYmU3MGUyPjwwY2Uw" +
-  "YjhjYzg5MDk0NTY1YTA1ZTllNTE4Njk5NzA0Mz5dIC9FbmNyeXB0IDkgMCBSID4+CnN0YXJ0eHJlZgoxNzkwCiUlRU9GCg==";
+  "IDIgMCBSIC9Sb290IDEgMCBSIC9TaXplIDEwIC9JRCBbPGJiNDcyMTNjMTU5YjdmZTE0NzI4NmVmNzNhYmU3MGUyPjxmNGM3" +
+  "NzhkNjg3MTE2ZWU0N2U4ODkyZWU3ZmVhNTFlND5dIC9FbmNyeXB0IDkgMCBSID4+CnN0YXJ0eHJlZgoxNzkwCiUlRU9GCg==";
 
 export const STATEMENTS = {
   hdfc: bytes(HDFC_B64),

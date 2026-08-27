@@ -215,13 +215,17 @@ register, transactions with splits/transfers/tags/owners and soft delete,
 payees with raw-string retention and merge. CSV import with header detection,
 Indian amount formats, UPI narration extraction, all five dedupe tiers, the
 review queue, the three-stage rules engine with test-before-save, the
-auto-approve gate, and batch undo. **Statement PDFs for HDFC, ICICI, Axis and
-SBI**, read in-process: the password is used once and never stored, and columns
-are matched to the table's own headings by position — which is the only thing
-that tells an empty withdrawal column from an empty deposit one, and so the only
-thing that stops a salary being imported as an expense. Those four layouts are
-written from the banks' published formats rather than from opening real
-statements, and are marked unverified until one is checked. A file the app
+auto-approve gate, and batch undo. **Statement PDFs**, read in-process, for
+HDFC, ICICI, Axis, SBI, Union Bank, Canara, YES Bank, IndusInd, Kotak and broker
+contract notes. The sign of every transaction comes from the **running
+balance**, not from which column a figure appears under — real statements
+right-align to a ragged edge, so debit and credit columns overlap and position
+inverts roughly half the rows while looking healthy. The parse is then checked
+against the statement's own closing balance: on a real 848-row Axis statement it
+reconciles to the paisa. Optionally, the app can work out statement passwords
+from your saved name, date of birth and PAN, so nobody has to type one —
+opt-in, never exported, never logged, and the settings screen says plainly what
+it costs. A file the app
 cannot read is a mapping
 task, not an error: the columns are named against the raw rows, the mapping is
 saved per bank, and the next file with that header signature imports without
