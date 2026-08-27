@@ -350,13 +350,30 @@ function extractPieces(doc: PdfDocument, content: Uint8Array, fonts: PdfDict): P
 /**
  * Rebuild lines from positioned pieces.
  *
- * The two thresholds are the whole trick. Pieces within 2 units vertically are
- * the same line — generators nudge baselines by fractions. A horizontal gap
- * wider than a third of the font's nominal width is a column, and becomes
- * whitespace wide enough for a column-splitting regex to see.
+ * Pieces within 2 units vertically are the same line — generators nudge
+ * baselines by fractions of a point constantly.
+ *
+ * Horizontally, each piece is placed at the **column its x-position implies**,
+ * padded with spaces, rather than separated by a fixed gap. That costs a little
+ * arithmetic and buys the one thing a fixed separator cannot: a table whose
+ * columns still line up vertically. A statement row where the deposit column
+ * is empty is indistinguishable from one where the withdrawal column is empty
+ * unless the surviving figure is still sitting under its own heading — see
+ * `readHeader` in `import/pdf-statements.ts`, which is what reads them.
  */
 function layout(pieces: Piece[]): string {
   if (pieces.length === 0) return "";
+
+  // How wide one character is, in text-space units. Taken from the pieces
+  // themselves rather than assumed, because font size varies down the page and
+  // a fixed guess would drift columns apart by the bottom of a statement.
+  const widths = pieces
+    .filter((p) => p.text.length > 0 && p.width > 0)
+    .map((p) => p.width / p.text.length)
+    .sort((a, b) => a - b);
+  const charWidth = widths.length > 0 ? widths[Math.floor(widths.length / 2)]! : 5;
+
+  const left = Math.min(...pieces.map((p) => p.x));
 
   const lines: Piece[][] = [];
   for (const piece of [...pieces].sort((a, b) => b.y - a.y || a.x - b.x)) {
@@ -369,13 +386,13 @@ function layout(pieces: Piece[]): string {
     .map((line) => {
       line.sort((a, b) => a.x - b.x);
       let out = "";
-      let cursor = line[0]!.x;
       for (const piece of line) {
-        const gap = piece.x - cursor;
-        if (gap > 3) out += "  ";
-        else if (gap > 0.8 && !out.endsWith(" ")) out += " ";
+        const column = Math.max(0, Math.round((piece.x - left) / charWidth));
+        // Never let padding swallow a piece: two adjacent words keep one space
+        // between them even if their computed columns collide.
+        if (column > out.length) out += " ".repeat(column - out.length);
+        else if (out.length > 0 && !out.endsWith(" ")) out += " ";
         out += piece.text;
-        cursor = piece.x + piece.width;
       }
       return out.replace(/[ \t]+$/, "");
     })
