@@ -135,6 +135,12 @@ import {
   monthCloseView, closeMonth, reopenMonth, closedMonths, monthAwaitingClose, isClosed,
 } from "./domain/month-close.ts";
 import {
+  createFamilyLoan, recordAdvance, recordRepayment, viewFamilyLoan,
+  writeOffFamilyLoan, closeFamilyLoan, listFamilyLoans,
+  type LendingDirection,
+} from "./domain/family-loans.ts";
+import { renderFamilyLoans, renderFamilyLoan } from "./web/pages/family-loans.ts";
+import {
   digestFor, mutedKinds, setMutedKinds, DIGEST_KINDS, type DigestKind,
 } from "./domain/digest.ts";
 import {
@@ -2639,6 +2645,124 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // F28.2: a disabled module disappears rather than appearing greyed out.
     if (!config.features.assets) throw new NotFound();
   }
+
+  // -------------------------------------------------------------------------
+  // `10` §3.5 · F2.10 · Private lending within the family.
+  // -------------------------------------------------------------------------
+
+  /** Budget accounts money can actually move from. */
+  function cashAccounts() {
+    return listAccounts(db)
+      .filter((a) => a.kind === "budget" && !a.closed_at)
+      .map((a) => ({ id: a.id, name: a.name }));
+  }
+
+  router.get("/family", (ctx) => {
+    auth(ctx);
+    const loans = listFamilyLoans(db, { includeClosed: true })
+      .map((l) => viewFamilyLoan(db, l.id))
+      .filter((v): v is NonNullable<typeof v> => v !== null);
+
+    return render(ctx, "Lending in the family", renderFamilyLoans({
+      loans, accounts: cashAccounts(),
+    }));
+  });
+
+  router.post("/family/new", (ctx) =>
+    mutate(ctx, (a) => {
+      const agreed = field(ctx.body, "agreed_total");
+      const loan = createFamilyLoan(db, actorFor(a), {
+        counterparty: requiredField(ctx.body, "counterparty"),
+        direction: field(ctx.body, "direction") === "borrowed" ? "borrowed" : "lent" as LendingDirection,
+        agreedTotal: agreed ? amountField(agreed) : null,
+        note: field(ctx.body, "note") || null,
+      });
+      return {
+        redirect: `/family/${loan.id}`,
+        message: "Now record what has actually moved — the balance comes from that.",
+      };
+    }),
+  );
+
+  router.get("/family/:id", (ctx) => {
+    auth(ctx);
+    const view = viewFamilyLoan(db, ctx.params.id!);
+    if (!view) throw new NotFound("That arrangement does not exist.");
+
+    const entries = queryAll<{ date: string; amount: number; memo: string | null }>(
+      db,
+      `SELECT date, amount, memo FROM transactions
+        WHERE account_id = ? AND deleted_at IS NULL ORDER BY date DESC, created_at DESC`,
+      view.loan.account_id,
+    );
+
+    const budgetView = buildBudgetView(db);
+    return render(ctx, view.loan.counterparty, renderFamilyLoan({
+      view,
+      accounts: cashAccounts(),
+      categories: [...budgetView.categories.values()]
+        .filter((c) => !c.isPaymentCategory && !c.hidden)
+        .map((c) => ({ id: c.id, name: c.name })),
+      entries: entries.map((e) => ({ ...e, amount: e.amount as never })),
+      confirmingWriteOff: ctx.query.get("confirm") === "write-off",
+    }));
+  });
+
+  router.post("/family/:id/advance", (ctx) =>
+    mutate(ctx, (a) => {
+      const dateRaw = field(ctx.body, "date");
+      recordAdvance(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+        loanId: ctx.params.id!,
+        amount: Math.abs(amountField(requiredField(ctx.body, "amount"))),
+        date: dateRaw ? parseDate(dateRaw) ?? todayIST() : todayIST(),
+        fromAccountId: requiredField(ctx.body, "account_id"),
+      });
+      return { redirect: `/family/${ctx.params.id}`, message: "Recorded." };
+    }),
+  );
+
+  router.post("/family/:id/repayment", (ctx) =>
+    mutate(ctx, (a) => {
+      const dateRaw = field(ctx.body, "date");
+      recordRepayment(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+        loanId: ctx.params.id!,
+        amount: Math.abs(amountField(requiredField(ctx.body, "amount"))),
+        date: dateRaw ? parseDate(dateRaw) ?? todayIST() : todayIST(),
+        accountId: requiredField(ctx.body, "account_id"),
+      });
+      return { redirect: `/family/${ctx.params.id}`, message: "Recorded." };
+    }),
+  );
+
+  router.post("/family/:id/write-off", (ctx) => {
+    const a = auth(ctx);
+    const id = ctx.params.id!;
+
+    // FL7 is irreversible-looking even though it undoes, so it is confirmed
+    // with the amount and the consequence stated.
+    if (field(ctx.body, "confirm") !== "1") {
+      return { redirect: `/family/${id}?confirm=write-off` };
+    }
+
+    const amount = writeOffFamilyLoan(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+      loanId: id,
+      categoryId: requiredField(ctx.body, "category_id"),
+    });
+
+    return {
+      redirect: withNotice(
+        "/family",
+        `Wrote off ${formatPaise(amount)}. Every advance and repayment is still there.`,
+      ),
+    };
+  });
+
+  router.post("/family/:id/close", (ctx) =>
+    mutate(ctx, (a) => {
+      closeFamilyLoan(db, actorFor(a), ctx.params.id!);
+      return { redirect: "/family", message: "Closed, with the history kept." };
+    }),
+  );
 
   // -------------------------------------------------------------------------
   // `08` F30 · Personal API tokens.

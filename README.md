@@ -242,6 +242,12 @@ complete JSON export and transaction CSV.
 search across raw imported strings, schedules with detection, the cashflow
 calendar, and goals.
 
+**Lending in the family** — money lent to or borrowed from people rather than
+institutions, with no interest engine and no schedule, because those
+arrangements do not have them. The balance is derived from what actually moved,
+lending is not spending, repayment is not income, and a write-off is available
+because an app that cannot express one forces you to lie or delete history.
+
 **Debt** — loans with the full amortisation engine, all four interest models,
 per-tranche disbursement destinations, instalment recording with the lender's
 split, drift against a lender statement, and the prepayment comparison that

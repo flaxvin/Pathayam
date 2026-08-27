@@ -78,6 +78,61 @@ The errata in §2 are exactly the class of defect a 30-line script catches: norm
 
 ---
 
+### 3.5 F2.10 — private lending within the family *(extends `02` F2, `06`)*
+
+*Raised 28-08-2026.* Money lent to or borrowed from family and friends is a real
+and recurring part of this household's finances, and the document set has
+nowhere to put it. Both existing homes are wrong:
+
+- **As a loan (`06`)** — the machinery does not fit. There is usually no
+  interest rate, no EMI, no amortisation schedule, and no lender statement, so
+  R18.8's drift measurement has nothing to measure against and R15–R17's
+  interest models have nothing to model. Forcing an interest rate of zero to
+  make the screens render is how a module becomes a lie.
+- **As a Tracking account (F2.4 "other asset" / "other liability")** — the
+  balance is a number the household retypes, untethered from the events that
+  created it. That loses exactly what they want to know: *what is outstanding,
+  since when, and what has been repaid.*
+
+**F2.10 The app MUST support a `family-loan` Tracking subtype**, for money lent
+to or borrowed from a person rather than an institution.
+
+- FL1 A family loan MUST record a **counterparty** (a name, not a member — the
+  other side is usually not in the household) and a **direction**: money *lent*
+  is an asset, money *borrowed* is a liability.
+- FL2 The balance MUST be **derived from dated advances and repayments**, never
+  typed. This is the whole difference from a Tracking account, and the reason
+  the subtype exists.
+- FL3 An advance or repayment MUST be recordable as a **transfer from or to a
+  Budget account**, so the cash side is real: lending ₹50,000 reduces a bank
+  balance, and R1's "Ready to Assign is money you have" stays true.
+- FL4 An advance MUST NOT be spending and a repayment MUST NOT be income.
+  Lending money does not consume an envelope, and being repaid is not earnings.
+  Both are transfers; only a **written-off** balance is an expense (FL7).
+- FL5 Interest is **optional and simple**, expressed as an agreed total rather
+  than a rate, because that is how these arrangements are actually made
+  ("give me back ₹55,000"). The app MUST NOT compute an amortisation schedule
+  for a family loan.
+- FL6 A family loan MUST expose, without being asked: the outstanding balance,
+  the date of the original advance, the date and amount of the last repayment,
+  and how long it has been outstanding. **N18 applies with force** — the app
+  states how long, and says nothing about it.
+- FL7 A balance MUST be **write-off-able** in one action, as a dated expense to
+  a category the household chooses, with the original advances retained (P4).
+  Writing off is the honest end state for a loan that will not be repaid, and an
+  app that cannot express it forces the household to lie or to delete history.
+- FL8 A family loan MUST count in net worth under R29.4's existing groups — lent
+  money as an asset, borrowed money as a liability — and MUST NOT appear on the
+  budget screen (FW3).
+- FL9 No reminder, no nudge, no ageing alert. `02` N18 forbids the app being
+  used to apply pressure, and the person on the other side of a family loan is
+  not a debtor to be managed.
+
+**Priority: P1.** It is a small module — no schedule, no interest engine, no
+provider — and its absence is felt every month.
+
+---
+
 ## 4. Precedence, restated
 
 Where documents disagree, the order of authority is:
