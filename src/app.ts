@@ -31,7 +31,7 @@ import {
 import { beginOAuth, exchangeCode } from "./auth/google.ts";
 import { withIdempotency, IdempotencyConflict } from "./core/idempotency.ts";
 import { parseAmount, evaluateAmountExpression, formatPaise } from "./core/money.ts";
-import { parseDate, todayIST, nowIST, addDays, monthOf, isMonthKey, formatMonth, type MonthKey } from "./core/dates.ts";
+import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, type MonthKey } from "./core/dates.ts";
 import { buildBudgetView, reviewCount } from "./web/viewmodel.ts";
 import { renderBudget } from "./web/pages/budget.ts";
 import {
@@ -126,6 +126,15 @@ import {
 import {
   createCategory, renameCategory, setCategoryHidden, listGroups,
 } from "./domain/budget.ts";
+import {
+  monthCloseView, closeMonth, reopenMonth, closedMonths, monthAwaitingClose, isClosed,
+} from "./domain/month-close.ts";
+import {
+  digestFor, mutedKinds, setMutedKinds, DIGEST_KINDS, type DigestKind,
+} from "./domain/digest.ts";
+import {
+  renderMonthClose, renderClosedMonths, renderDigest, renderDigestSettings,
+} from "./web/pages/month-close.ts";
 import {
   renderPortfolio, renderHoldingDetail, renderSalePreview, renderNetWorth,
   renderAddHolding, renderCasUpload, renderCasReview,
@@ -470,9 +479,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // S1 · Budget
   // -------------------------------------------------------------------------
   router.get("/", (ctx) => {
+    const a = auth(ctx);
     const month = monthParam(ctx);
     const view = buildBudgetView(db, month);
-    return render(ctx, formatMonth(month), renderBudget(view));
+
+    // The digest belongs to the person reading, not to the month being read,
+    // so it only shows on the current month.
+    const digest = month === view.currentMonth
+      ? renderDigest(digestFor(db, a.viewingAs.id))
+      : undefined;
+
+    return render(ctx, formatMonth(month), renderBudget(view, digest));
   });
 
   router.post("/assign", (ctx) =>
@@ -974,6 +991,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             <button type="submit">Save</button>
           </form>
         </section>
+
+        ${renderDigestSettings(mutedKinds(db, a.viewingAs.id))}
 
         <section class="card">
           <h2>Suggestions from what you do</h2>
@@ -2557,6 +2576,68 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // F28.2: a disabled module disappears rather than appearing greyed out.
     if (!config.features.assets) throw new NotFound();
   }
+
+  // -------------------------------------------------------------------------
+  // `08` S5 · The month-close ritual. P1 per Q26.
+  // -------------------------------------------------------------------------
+
+  router.get("/months", (ctx) => {
+    auth(ctx);
+    return render(ctx, "Month closes", renderClosedMonths({
+      months: closedMonths(db),
+      awaiting: monthAwaitingClose(db),
+    }));
+  });
+
+  router.get("/months/:month/close", (ctx) => {
+    auth(ctx);
+    const month = ctx.params.month!;
+    if (!isMonthKey(month)) throw new NotFound("That is not a month.");
+    return render(
+      ctx, `Closing ${formatMonth(month)}`, renderMonthClose(monthCloseView(db, month)),
+    );
+  });
+
+  router.post("/months/:month/close", (ctx) =>
+    mutate(ctx, (a) => {
+      const month = ctx.params.month!;
+      if (!isMonthKey(month)) throw new NotFound("That is not a month.");
+
+      const result = closeMonth(
+        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+        month, field(ctx.body, "note") || null,
+      );
+
+      return {
+        redirect: `/?month=${addMonths(month, 1)}`,
+        message:
+          `${formatMonth(month)} is closed` +
+          (result.snapshotTaken ? ", and net worth is snapshotted" : "") +
+          `. Here is ${formatMonth(addMonths(month, 1))}.`,
+      };
+    }),
+  );
+
+  router.post("/months/:month/reopen", (ctx) =>
+    mutate(ctx, (a) => {
+      const month = ctx.params.month!;
+      if (!isMonthKey(month)) throw new NotFound("That is not a month.");
+      reopenMonth(db, actorFor(a), month);
+      return { redirect: "/months", message: `${formatMonth(month)} is open again.` };
+    }),
+  );
+
+  /** F14.2 · Individually toggleable per member. */
+  router.post("/settings/digest", (ctx) =>
+    mutate(ctx, (a) => {
+      // The form posts what the member *wants*; the table stores what they do
+      // not, so a member who has never opened settings still gets told.
+      const wanted = new Set(fieldList(ctx.body, "kind"));
+      const muted = DIGEST_KINDS.filter((k) => !wanted.has(k)) as DigestKind[];
+      setMutedKinds(db, actorFor(a), muted);
+      return { redirect: "/settings#notifications", message: "Saved." };
+    }),
+  );
 
   router.get("/portfolio", (ctx) => {
     requireAssets();
