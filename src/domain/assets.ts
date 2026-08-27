@@ -1,0 +1,796 @@
+/**
+ * F19 · Asset accounts, holdings and lots — the database side of `07`.
+ *
+ * The maths lives in `portfolio/holdings.ts` and knows nothing about storage.
+ *
+ * ## R30, the firewall
+ *
+ * `07` §1: "The firewall is the whole design." `05` §5 excluded net worth
+ * because every budgeting app that added it became a dashboard; the exclusion
+ * was reversed, and R30 is the containment that makes the reversal safe.
+ *
+ * Two of its invariants are structural here rather than enforced:
+ *
+ * - **FW1** — an asset account is a Tracking account, and `to_budget` only
+ *   ever counts Budget accounts (`docs/dev/01-engine-derivation.md` §3). No
+ *   code path exists that could put market value into Ready to Assign.
+ * - **FW7** — a price refresh writes to `prices`, which the budget engine
+ *   never reads. It cannot create, modify or delete a transaction because it
+ *   has no access to that table from here.
+ *
+ * The rest are enforced explicitly, and `assets.test.ts` asserts all ten.
+ * Q15 declined making R30 a build gate, so these are tests and a review item,
+ * not a blocker — see `09` §7 for the accepted risk.
+ */
+
+import type { DB } from "../db/db.ts";
+import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
+import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
+import { nowIST, todayIST, formatDate, daysBetween, type IsoDate } from "../core/dates.ts";
+import { formatPaise, type Paise } from "../core/money.ts";
+import { createAccount, getAccount } from "./accounts.ts";
+import { createTransaction } from "./transactions.ts";
+import {
+  makeLot, previewSale, totalUnits, costBasis, averageCost, marketValue,
+  unrealisedGain, absoluteReturn, xirr, holdingCashFlows, decomposeGain,
+  applySplit, applyReturnOfCapital, formatUnits,
+  type Lot, type Holding, type Milliunits, type MicroRupees,
+  type SalePreview, type GainDecomposition,
+} from "../portfolio/holdings.ts";
+
+export type InstrumentKind = "mutual-fund" | "equity" | "etf" | "bond" | "commodity" | "other";
+export type PriceProvider = "mfapi" | "alphavantage" | "manual";
+
+export interface Instrument {
+  id: string;
+  name: string;
+  kind: InstrumentKind;
+  symbol: string | null;
+  isin: string | null;
+  currency: string;
+  provider: PriceProvider;
+  manual_only: number;
+  refresh: "daily" | "weekly" | "never";
+}
+
+export interface HoldingRecord {
+  id: string;
+  account_id: string;
+  instrument_id: string;
+  note: string | null;
+  closed_at: string | null;
+}
+
+export const ASSET_SUBTYPES = [
+  "investment", "retirement", "deposit", "physical", "commodity", "receivable",
+] as const;
+export type AssetSubtype = (typeof ASSET_SUBTYPES)[number];
+
+export const ASSET_LABELS: Record<AssetSubtype, string> = {
+  investment: "Investment account",
+  retirement: "Retirement balance",
+  deposit: "Deposit",
+  physical: "Physical asset",
+  commodity: "Commodity holding",
+  receivable: "Receivable",
+};
+
+/** R23.3 · A manual valuation goes stale, and says so. */
+export const VALUATION_STALE_DAYS = 180;
+/** R32.4 · A rate older than this is flagged wherever a converted figure shows. */
+export const FX_STALE_DAYS = 5;
+
+// ---------------------------------------------------------------------------
+// R23 · Asset accounts
+// ---------------------------------------------------------------------------
+
+export function createAssetAccount(
+  db: DB, actor: Actor,
+  input: {
+    name: string;
+    subtype: AssetSubtype;
+    institution?: string | null;
+    currency?: string;
+    /** For a manually valued asset — R23.2 records it as dated history. */
+    openingValue?: Paise;
+    asOf?: IsoDate;
+  },
+) {
+  return transact(db, () => {
+    // FW1: a Tracking account, so it can never fund the budget.
+    const account = createAccount(db, actor, {
+      name: input.name,
+      kind: "tracking",
+      subtype: "asset",
+      institution: input.institution ?? null,
+      openingBalance: 0,
+      openingDate: input.asOf ?? todayIST(),
+    });
+
+    execute(
+      db, `UPDATE accounts SET subtype = ?, currency = ? WHERE id = ?`,
+      input.subtype, input.currency ?? "INR", account.id,
+    );
+
+    if (input.openingValue !== undefined && input.openingValue > 0) {
+      recordValuation(db, actor, {
+        accountId: account.id,
+        value: input.openingValue,
+        asOf: input.asOf ?? todayIST(),
+      });
+    }
+
+    appendEvent(db, actor, {
+      entity: "asset-account", entityId: account.id, action: "create",
+      after: { name: input.name, subtype: input.subtype },
+      summary: `Added ${ASSET_LABELS[input.subtype].toLowerCase()} "${input.name}"`,
+    });
+
+    return getAccount(db, account.id)!;
+  });
+}
+
+export function listAssetAccounts(db: DB, opts: { includeClosed?: boolean } = {}) {
+  return queryAll<{
+    id: string; name: string; subtype: string; currency: string;
+    institution: string | null; closed_at: string | null;
+  }>(
+    db,
+    `SELECT id, name, subtype, currency, institution, closed_at FROM accounts
+      WHERE kind = 'tracking' AND subtype IN (${ASSET_SUBTYPES.map(() => "?").join(",")})
+      ${opts.includeClosed ? "" : "AND closed_at IS NULL"}
+      ORDER BY name`,
+    ...ASSET_SUBTYPES,
+  );
+}
+
+/** R23.2 · A dated valuation, never a mutable single number. */
+export function recordValuation(
+  db: DB, actor: Actor,
+  input: { accountId: string; value: Paise; asOf: IsoDate; note?: string | null },
+): void {
+  transact(db, () => {
+    execute(
+      db,
+      `INSERT INTO asset_valuations (id,account_id,as_of,value,note,created_at,created_by)
+       VALUES (?,?,?,?,?,?,?)`,
+      newId(), input.accountId, input.asOf, input.value, input.note ?? null,
+      nowIST(), actor.memberId,
+    );
+    appendEvent(db, actor, {
+      entity: "asset-account", entityId: input.accountId, action: "value",
+      after: { value: input.value, asOf: input.asOf },
+      summary: `Valued at ${formatPaise(input.value)} as of ${formatDate(input.asOf)}`,
+    });
+  });
+}
+
+export interface Valuation {
+  value: Paise;
+  asOf: IsoDate;
+  /** R23.3 · Flagged after the configured interval, never silently trusted. */
+  stale: boolean;
+  ageDays: number;
+}
+
+export function latestValuation(
+  db: DB, accountId: string, today = todayIST(),
+): Valuation | null {
+  const row = queryOne<{ value: number; as_of: string }>(
+    db,
+    `SELECT value, as_of FROM asset_valuations WHERE account_id = ?
+      ORDER BY as_of DESC, created_at DESC LIMIT 1`,
+    accountId,
+  );
+  if (!row) return null;
+
+  const ageDays = daysBetween(row.as_of, today);
+  return {
+    value: row.value,
+    asOf: row.as_of,
+    stale: ageDays > VALUATION_STALE_DAYS,
+    ageDays,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// R24 · Instruments and holdings
+// ---------------------------------------------------------------------------
+
+export function findOrCreateInstrument(
+  db: DB, actor: Actor,
+  input: {
+    name: string; kind: InstrumentKind; symbol?: string | null; isin?: string | null;
+    currency?: string; provider?: PriceProvider; manualOnly?: boolean;
+  },
+): Instrument {
+  return transact(db, () => {
+    // R24.6: match on ISIN first — it survives a change of price provider.
+    const existing =
+      (input.isin
+        ? queryOne<Instrument>(db, `SELECT * FROM instruments WHERE isin = ?`, input.isin)
+        : null) ??
+      (input.symbol
+        ? queryOne<Instrument>(
+            db, `SELECT * FROM instruments WHERE symbol = ? AND provider = ?`,
+            input.symbol, input.provider ?? "manual",
+          )
+        : null);
+    if (existing) return existing;
+
+    const id = newId();
+    execute(
+      db,
+      `INSERT INTO instruments (id,name,kind,symbol,isin,currency,provider,manual_only,refresh,created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      id, input.name, input.kind, input.symbol ?? null, input.isin ?? null,
+      input.currency ?? "INR", input.provider ?? "manual",
+      input.manualOnly ? 1 : 0,
+      // P4: equities burn a scarce daily quota; funds do not.
+      input.kind === "equity" || input.kind === "etf" ? "daily" : "daily",
+      nowIST(),
+    );
+
+    const instrument = queryOne<Instrument>(db, `SELECT * FROM instruments WHERE id = ?`, id)!;
+    appendEvent(db, actor, {
+      entity: "instrument", entityId: id, action: "create", after: instrument,
+      summary: `Added the instrument "${input.name}"`,
+    });
+    return instrument;
+  });
+}
+
+export function getInstrument(db: DB, id: string): Instrument | null {
+  return queryOne<Instrument>(db, `SELECT * FROM instruments WHERE id = ?`, id);
+}
+
+export function listInstruments(db: DB): Instrument[] {
+  return queryAll<Instrument>(db, `SELECT * FROM instruments ORDER BY name`);
+}
+
+/**
+ * FW4 · Buying an investment is money **leaving the budget**: a transfer from
+ * a Budget account, consuming a savings/investment category, so envelope
+ * arithmetic stays whole and reports do not count it as consumption.
+ */
+export function recordPurchase(
+  db: DB, actor: Actor,
+  input: {
+    accountId: string;
+    instrumentId: string;
+    tradeDate: IsoDate;
+    price: MicroRupees;
+    units?: Milliunits;
+    amount?: Paise;
+    fees?: Paise;
+    capitaliseFees?: boolean;
+    fxRate?: number | null;
+    /** The Budget account the money left, and the category it consumed. */
+    fromAccountId?: string | null;
+    categoryId?: string | null;
+  },
+): Lot {
+  return transact(db, () => {
+    const holding = findOrCreateHolding(db, actor, input.accountId, input.instrumentId);
+    const lot = makeLot({
+      id: newId(),
+      tradeDate: input.tradeDate,
+      price: input.price,
+      units: input.units,
+      amount: input.amount,
+      fees: input.fees,
+      capitaliseFees: input.capitaliseFees,
+      fxRate: input.fxRate,
+    });
+
+    let transactionId: string | null = null;
+    if (input.fromAccountId) {
+      // FW4 in practice: the budget sees money leaving a category, never a
+      // portfolio value arriving.
+      const paid = createTransaction(db, actor, {
+        accountId: input.fromAccountId,
+        amount: -lot.cost,
+        date: input.tradeDate,
+        categoryId: input.categoryId ?? null,
+        memo: `Bought ${formatUnits(lot.units)} units`,
+        cleared: true,
+      });
+      transactionId = paid.id;
+    }
+
+    execute(
+      db,
+      `INSERT INTO lots (id,holding_id,trade_date,units,price,fees,cost,fx_rate,transaction_id,created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      lot.id, holding.id, lot.tradeDate, lot.units, lot.price, lot.fees, lot.cost,
+      lot.fxRate, transactionId, nowIST(),
+    );
+
+    const instrument = getInstrument(db, input.instrumentId);
+    appendEvent(db, actor, {
+      entity: "holding", entityId: holding.id, action: "purchase", after: lot,
+      summary:
+        `Bought ${formatUnits(lot.units)} units of ${instrument?.name ?? "an instrument"} ` +
+        `for ${formatPaise(lot.cost)} on ${formatDate(lot.tradeDate)}`,
+    });
+
+    return lot;
+  });
+}
+
+function findOrCreateHolding(
+  db: DB, actor: Actor, accountId: string, instrumentId: string,
+): HoldingRecord {
+  const existing = queryOne<HoldingRecord>(
+    db,
+    `SELECT * FROM holdings WHERE account_id = ? AND instrument_id = ? AND closed_at IS NULL`,
+    accountId, instrumentId,
+  );
+  if (existing) return existing;
+
+  const id = newId();
+  execute(
+    db, `INSERT INTO holdings (id,account_id,instrument_id,created_at) VALUES (?,?,?,?)`,
+    id, accountId, instrumentId, nowIST(),
+  );
+  void actor;
+  return queryOne<HoldingRecord>(db, `SELECT * FROM holdings WHERE id = ?`, id)!;
+}
+
+export function listHoldings(db: DB, accountId?: string): HoldingRecord[] {
+  return accountId
+    ? queryAll<HoldingRecord>(
+        db, `SELECT * FROM holdings WHERE account_id = ? AND closed_at IS NULL`, accountId,
+      )
+    : queryAll<HoldingRecord>(db, `SELECT * FROM holdings WHERE closed_at IS NULL`);
+}
+
+export function lotsFor(db: DB, holdingId: string): Lot[] {
+  return queryAll<{
+    id: string; trade_date: string; units: number; price: number;
+    fees: number; cost: number; fx_rate: number | null;
+  }>(
+    db,
+    `SELECT * FROM lots WHERE holding_id = ? AND closed_at IS NULL ORDER BY trade_date, created_at`,
+    holdingId,
+  ).map((r) => ({
+    id: r.id, tradeDate: r.trade_date, units: r.units, price: r.price,
+    fees: r.fees, cost: r.cost, fxRate: r.fx_rate,
+  }));
+}
+
+export function holdingOf(db: DB, holdingId: string): Holding {
+  return { lots: lotsFor(db, holdingId) };
+}
+
+// ---------------------------------------------------------------------------
+// R26 · Prices
+// ---------------------------------------------------------------------------
+
+export interface Quote {
+  price: MicroRupees;
+  asOf: IsoDate;
+  source: string;
+  /** R26.4 · Marked, and the value still shown — never blanked, never zeroed. */
+  stale: boolean;
+  ageDays: number;
+}
+
+export function recordPrice(
+  db: DB,
+  input: { instrumentId: string; price: MicroRupees; asOf: IsoDate; source: string },
+): void {
+  // R26.5: a later fetch never overwrites a good price for the same date with
+  // a worse one — the primary key makes a re-fetch idempotent.
+  execute(
+    db,
+    `INSERT INTO prices (instrument_id, as_of, price, source, fetched_at) VALUES (?,?,?,?,?)
+       ON CONFLICT(instrument_id, as_of) DO UPDATE SET price = excluded.price,
+         source = excluded.source, fetched_at = excluded.fetched_at`,
+    input.instrumentId, input.asOf, input.price, input.source, nowIST(),
+  );
+}
+
+/**
+ * R26.8 · The last *published* price, labelled with its actual date. Never
+ * interpolated, never forward-filled silently.
+ */
+export function latestPrice(
+  db: DB, instrumentId: string, asOf = todayIST(), staleAfterDays = 4,
+): Quote | null {
+  const row = queryOne<{ price: number; as_of: string; source: string }>(
+    db,
+    `SELECT price, as_of, source FROM prices WHERE instrument_id = ? AND as_of <= ?
+      ORDER BY as_of DESC LIMIT 1`,
+    instrumentId, asOf,
+  );
+  if (!row) return null;
+
+  const ageDays = daysBetween(row.as_of, asOf);
+  return {
+    price: row.price, asOf: row.as_of, source: row.source,
+    stale: ageDays > staleAfterDays, ageDays,
+  };
+}
+
+export function priceHistory(
+  db: DB, instrumentId: string, limit = 400,
+): { asOf: IsoDate; price: MicroRupees; source: string }[] {
+  return queryAll<{ as_of: string; price: number; source: string }>(
+    db,
+    `SELECT as_of, price, source FROM prices WHERE instrument_id = ?
+      ORDER BY as_of DESC LIMIT ?`,
+    instrumentId, limit,
+  ).map((r) => ({ asOf: r.as_of, price: r.price, source: r.source }));
+}
+
+// ---------------------------------------------------------------------------
+// R32 · FX rates
+// ---------------------------------------------------------------------------
+
+export function recordFxRate(
+  db: DB,
+  input: { base: string; quote: string; rate: number; asOf: IsoDate; source: string },
+): void {
+  execute(
+    db,
+    `INSERT INTO fx_rates (base, quote, as_of, rate, source, fetched_at) VALUES (?,?,?,?,?,?)
+       ON CONFLICT(base, quote, as_of) DO UPDATE SET rate = excluded.rate,
+         source = excluded.source, fetched_at = excluded.fetched_at`,
+    input.base, input.quote, input.asOf, input.rate, input.source, nowIST(),
+  );
+}
+
+export interface FxQuote {
+  rate: number;
+  asOf: IsoDate;
+  source: string;
+  stale: boolean;
+}
+
+/** R32.3 · The last published rate, labelled with its actual date. */
+export function fxRate(
+  db: DB, base: string, quote: string, asOf = todayIST(),
+): FxQuote | null {
+  if (base === quote) {
+    return { rate: 1, asOf, source: "identity", stale: false };
+  }
+  const row = queryOne<{ rate: number; as_of: string; source: string }>(
+    db,
+    `SELECT rate, as_of, source FROM fx_rates WHERE base = ? AND quote = ? AND as_of <= ?
+      ORDER BY as_of DESC LIMIT 1`,
+    base, quote, asOf,
+  );
+  if (!row) return null;
+
+  return {
+    rate: row.rate, asOf: row.as_of, source: row.source,
+    stale: daysBetween(row.as_of, asOf) > FX_STALE_DAYS,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// R27 · The full picture for one holding
+// ---------------------------------------------------------------------------
+
+export interface HoldingView {
+  holding: HoldingRecord;
+  instrument: Instrument;
+  lots: Lot[];
+  units: Milliunits;
+  costBasis: Paise;
+  averageCost: MicroRupees;
+  quote: Quote | null;
+  fx: FxQuote | null;
+  marketValue: Paise;
+  unrealisedGain: Paise;
+  absoluteReturn: number;
+  /** R27.1 · The default headline for anything with more than one lot. */
+  xirr: number | null;
+  realisedGain: Paise;
+  /** R28 / R27.5 · Tracked separately, never folded into price gains. */
+  dividends: Paise;
+  /** R34 · Only for a foreign holding. */
+  decomposition: GainDecomposition | null;
+}
+
+export function viewHolding(
+  db: DB, holdingId: string, asOf = todayIST(), baseCurrency = "INR",
+): HoldingView | null {
+  const record = queryOne<HoldingRecord>(db, `SELECT * FROM holdings WHERE id = ?`, holdingId);
+  if (!record) return null;
+
+  const instrument = getInstrument(db, record.instrument_id)!;
+  const holding = holdingOf(db, holdingId);
+  const quote = latestPrice(db, instrument.id, asOf);
+  const fx =
+    instrument.currency === baseCurrency
+      ? { rate: 1, asOf, source: "identity", stale: false }
+      : fxRate(db, instrument.currency, baseCurrency, asOf);
+
+  const rate = fx?.rate ?? 1;
+  const unitPrice = quote?.price ?? averageCost(holding);
+
+  const events = queryAll<{ kind: string; realised_gain: number | null; amount: number | null }>(
+    db, `SELECT kind, realised_gain, amount FROM holding_events WHERE holding_id = ?`, holdingId,
+  );
+
+  const realisedGain = events
+    .filter((e) => e.kind === "sale")
+    .reduce((sum, e) => sum + (e.realised_gain ?? 0), 0);
+  const dividends = events
+    .filter((e) => e.kind === "dividend")
+    .reduce((sum, e) => sum + (e.amount ?? 0), 0);
+
+  // R34: only meaningful when the instrument is priced in another currency.
+  const firstLot = holding.lots[0];
+  const decomposition =
+    instrument.currency !== baseCurrency && firstLot && quote
+      ? decomposeGain({
+          quantity: totalUnits(holding),
+          priceAtPurchase: averageCost(holding),
+          priceNow: quote.price,
+          fxAtPurchase: firstLot.fxRate ?? rate,
+          fxNow: rate,
+        })
+      : null;
+
+  return {
+    holding: record,
+    instrument,
+    lots: holding.lots,
+    units: totalUnits(holding),
+    costBasis: costBasis(holding),
+    averageCost: averageCost(holding),
+    quote,
+    fx,
+    marketValue: marketValue(holding, unitPrice, rate),
+    unrealisedGain: unrealisedGain(holding, unitPrice, rate),
+    absoluteReturn: absoluteReturn(holding, unitPrice, rate),
+    xirr:
+      holding.lots.length > 0
+        ? xirr(holdingCashFlows(holding, unitPrice, asOf, rate))
+        : null,
+    realisedGain,
+    dividends,
+    decomposition,
+  };
+}
+
+// ---------------------------------------------------------------------------
+// R25, R28 · Sales and corporate actions
+// ---------------------------------------------------------------------------
+
+/** S13c · The FIFO preview, before anything is confirmed. */
+export function previewHoldingSale(
+  db: DB, holdingId: string, quantity: Milliunits, unitPrice: MicroRupees,
+  opts: { charges?: Paise; saleDate?: IsoDate } = {},
+): SalePreview {
+  return previewSale(holdingOf(db, holdingId), quantity, unitPrice, opts);
+}
+
+/**
+ * FW5 · Sale proceeds landing in a Budget account are income to Ready to
+ * Assign — **the full proceeds, not the gain**. Cash is cash.
+ */
+export function recordSale(
+  db: DB, actor: Actor,
+  input: {
+    holdingId: string;
+    units: Milliunits;
+    price: MicroRupees;
+    date: IsoDate;
+    charges?: Paise;
+    /** Where the money landed. Leaving it null keeps the cash outside the budget. */
+    toAccountId?: string | null;
+  },
+): SalePreview {
+  return transact(db, () => {
+    const preview = previewSale(holdingOf(db, input.holdingId), input.units, input.price, {
+      charges: input.charges,
+      saleDate: input.date,
+    });
+
+    // R25.4: consumed lots are closed and partials rewritten at their original
+    // price and date, so the surviving units keep their holding period.
+    for (const consumed of preview.consumed) {
+      const survivor = preview.remainingLots.find((l) => l.id === consumed.lotId);
+      if (survivor) {
+        execute(
+          db, `UPDATE lots SET units = ?, cost = ? WHERE id = ?`,
+          survivor.units, survivor.cost, consumed.lotId,
+        );
+      } else {
+        execute(db, `UPDATE lots SET closed_at = ? WHERE id = ?`, nowIST(), consumed.lotId);
+      }
+    }
+
+    let transactionId: string | null = null;
+    if (input.toAccountId) {
+      // Uncategorised on purpose: that is what makes it reach Ready to Assign
+      // as income needing assignment (FW5, derivation §3).
+      const received = createTransaction(db, actor, {
+        accountId: input.toAccountId,
+        amount: preview.proceeds,
+        date: input.date,
+        memo: `Sold ${formatUnits(input.units)} units`,
+        cleared: true,
+      });
+      transactionId = received.id;
+    }
+
+    execute(
+      db,
+      `INSERT INTO holding_events
+         (id,holding_id,date,kind,units,price,amount,realised_gain,transaction_id,created_at,created_by)
+       VALUES (?,?,?,'sale',?,?,?,?,?,?,?)`,
+      newId(), input.holdingId, input.date, input.units, input.price,
+      preview.proceeds, preview.realisedGain, transactionId, nowIST(), actor.memberId,
+    );
+
+    appendEvent(db, actor, {
+      entity: "holding", entityId: input.holdingId, action: "sale",
+      after: { units: input.units, proceeds: preview.proceeds, realisedGain: preview.realisedGain },
+      // R27.4: realised and unrealised are never summed into one figure.
+      summary:
+        `Sold ${formatUnits(input.units)} units for ${formatPaise(preview.proceeds)} — ` +
+        `realised ${preview.realisedGain >= 0 ? "gain" : "loss"} ` +
+        `${formatPaise(Math.abs(preview.realisedGain))}`,
+    });
+
+    return preview;
+  });
+}
+
+/**
+ * FW6 · A dividend credited to a Budget account is income. A reinvested one is
+ * not — it becomes a new lot and never touches the budget.
+ */
+export function recordDividend(
+  db: DB, actor: Actor,
+  input: {
+    holdingId: string;
+    date: IsoDate;
+    amount: Paise;
+    /** Set for a cash payout; leave null for reinvestment. */
+    toAccountId?: string | null;
+    /** Set for reinvestment — the NAV the new units were allotted at. */
+    reinvestAtPrice?: MicroRupees | null;
+  },
+): void {
+  transact(db, () => {
+    const reinvested = input.reinvestAtPrice != null;
+    let transactionId: string | null = null;
+
+    if (!reinvested && input.toAccountId) {
+      const received = createTransaction(db, actor, {
+        accountId: input.toAccountId,
+        amount: input.amount,
+        date: input.date,
+        memo: "Dividend",
+        cleared: true,
+      });
+      transactionId = received.id;
+    }
+
+    if (reinvested) {
+      const lot = makeLot({
+        id: newId(), tradeDate: input.date,
+        price: input.reinvestAtPrice!, amount: input.amount,
+      });
+      execute(
+        db,
+        `INSERT INTO lots (id,holding_id,trade_date,units,price,fees,cost,created_at)
+         VALUES (?,?,?,?,?,0,?,?)`,
+        lot.id, input.holdingId, lot.tradeDate, lot.units, lot.price, lot.cost, nowIST(),
+      );
+    }
+
+    execute(
+      db,
+      `INSERT INTO holding_events (id,holding_id,date,kind,amount,transaction_id,created_at,created_by)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      newId(), input.holdingId, input.date,
+      reinvested ? "dividend-reinvested" : "dividend",
+      input.amount, transactionId, nowIST(), actor.memberId,
+    );
+
+    appendEvent(db, actor, {
+      entity: "holding", entityId: input.holdingId, action: "dividend",
+      after: { amount: input.amount, reinvested },
+      summary: reinvested
+        ? `Reinvested a ${formatPaise(input.amount)} dividend into new units`
+        : `Received a ${formatPaise(input.amount)} dividend as cash`,
+    });
+  });
+}
+
+/** R28 · A split or bonus. Units multiply; total cost basis is unchanged. */
+export function recordSplit(
+  db: DB, actor: Actor,
+  input: { holdingId: string; date: IsoDate; ratio: number; kind?: "split" | "bonus" },
+): void {
+  transact(db, () => {
+    const after = applySplit(holdingOf(db, input.holdingId), input.ratio);
+    for (const lot of after.lots) {
+      execute(db, `UPDATE lots SET units = ?, price = ? WHERE id = ?`, lot.units, lot.price, lot.id);
+    }
+
+    // R28.2: the price history is adjusted too, so a chart does not show a
+    // false crash on the split date.
+    const holdingRow = queryOne<{ instrument_id: string }>(
+      db, `SELECT instrument_id FROM holdings WHERE id = ?`, input.holdingId,
+    );
+    if (holdingRow) {
+      execute(
+        db, `UPDATE prices SET price = CAST(price / ? AS INTEGER)
+              WHERE instrument_id = ? AND as_of < ?`,
+        input.ratio, holdingRow.instrument_id, input.date,
+      );
+    }
+
+    execute(
+      db,
+      `INSERT INTO holding_events (id,holding_id,date,kind,ratio,created_at,created_by)
+       VALUES (?,?,?,?,?,?,?)`,
+      newId(), input.holdingId, input.date, input.kind ?? "split",
+      input.ratio, nowIST(), actor.memberId,
+    );
+
+    appendEvent(db, actor, {
+      entity: "holding", entityId: input.holdingId, action: "split",
+      after: { ratio: input.ratio },
+      summary:
+        `Applied a ${input.ratio}-for-1 ${input.kind ?? "split"}. ` +
+        `Units multiplied; the cost basis is unchanged, because nothing was bought.`,
+    });
+  });
+}
+
+/** R28 · Reduces the basis rather than creating a gain. */
+export function recordReturnOfCapital(
+  db: DB, actor: Actor, input: { holdingId: string; date: IsoDate; amount: Paise },
+): void {
+  transact(db, () => {
+    const after = applyReturnOfCapital(holdingOf(db, input.holdingId), input.amount);
+    for (const lot of after.lots) {
+      execute(db, `UPDATE lots SET cost = ? WHERE id = ?`, lot.cost, lot.id);
+    }
+    execute(
+      db,
+      `INSERT INTO holding_events (id,holding_id,date,kind,amount,created_at,created_by)
+       VALUES (?,?,?,'return-of-capital',?,?,?)`,
+      newId(), input.holdingId, input.date, input.amount, nowIST(), actor.memberId,
+    );
+    appendEvent(db, actor, {
+      entity: "holding", entityId: input.holdingId, action: "return-of-capital",
+      after: { amount: input.amount },
+      summary:
+        `Recorded a ${formatPaise(input.amount)} return of capital — this reduces ` +
+        `what the holding cost you, rather than counting as a gain.`,
+    });
+  });
+}
+
+registerUndoHandler("holding", (db, event) => {
+  if (event.action === "purchase") {
+    const lot = event.after as Lot;
+    execute(db, `DELETE FROM lots WHERE id = ?`, lot.id);
+    return `Removed the purchase of ${formatUnits(lot.units)} units`;
+  }
+  return `Reversed a change to the holding`;
+});
+
+registerUndoHandler("asset-account", (db, event) => {
+  if (event.action === "create") {
+    execute(db, `DELETE FROM asset_valuations WHERE account_id = ?`, event.entityId!);
+    execute(db, `DELETE FROM accounts WHERE id = ?`, event.entityId!);
+    return `Removed the asset account that was added`;
+  }
+  return `Reversed a change to the asset account`;
+});
+
+registerUndoHandler("instrument", (db, event) => {
+  execute(db, `DELETE FROM instruments WHERE id = ?`, event.entityId!);
+  return `Removed the instrument that was added`;
+});
