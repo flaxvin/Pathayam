@@ -410,6 +410,85 @@ every seam where two implementations of the same definition meet**.
 `repository.test.ts` already opened by saying those two paths can drift. They
 had.
 
+### B28 · Text extraction preserves column alignment, because that is the data
+
+*28-08-2026.* The extractor originally emitted two spaces for any column gap.
+That is enough to split a CAS row, where every column is populated, and it is
+**not** enough for a bank statement, where the whole difficulty is that an empty
+column vanishes:
+
+```
+03/08/26  UPI-SWIGGY   431202847592  03/08/26  450.00              144550.00
+05/08/26  NEFT-SALARY  N123456789    05/08/26            145000.00 289550.00
+```
+
+Collapsed to two-space gaps, both rows read as "date, text, ref, date, figure,
+figure". Nothing in that says the first ₹450 is a withdrawal and the second
+₹1,45,000 is a deposit — and getting it backwards does not fail loudly. It
+silently inverts a transaction, which is the worst thing an importer can do.
+
+`layout()` now places each piece at the character column its x-position
+implies, using a character width derived from the pieces themselves rather than
+assumed. Column positions survive, and `readHeader` reads the table's headings
+to find out where "Withdrawal Amt." actually is.
+
+**The bug this surfaced in the test method.** The first fixtures were
+hand-typed strings with two-space separators — an approximation of what
+extraction produces. They passed while the real chain would have failed,
+because the approximation had thrown away the very property under test. The
+fixtures are now real PDFs run through the real reader, and the tests exercise
+decrypt → extract → recognise → parse end to end.
+
+### B29 · A figure belongs to the column it sits under, not to the nearest one
+
+The first assignment asked, per column, "which figure is nearest?". In the ICICI
+layout the deposit column begins a few characters past the end of the
+*withdrawal* heading, so the withdrawal column claims the deposit figure and
+every salary becomes an expense.
+
+Inverted: each figure is assigned to **its own** best column, scored by span
+overlap rather than edge distance. Overlap is indifferent to whether a bank
+left- or right-aligns its figures, and the banks do not agree with each other
+about that.
+
+### B30 · The statement layouts are unverified, and say so
+
+*28-08-2026.* The parsers for HDFC, ICICI, Axis and SBI are written from the
+banks' published formats, **not** from opening this household's own statements.
+
+Every real statement is password-protected — Axis wants the first four letters
+of the name plus DDMM of birth, ICICI wants lowercase personal details, the
+brokers want a PAN. Those are precisely the values PR5 says are used once at
+import and never stored, and they have no business being handed to a build
+process or living in a repository as a test fixture.
+
+So the module carries an `[unverified against a live file]` tag, the same
+convention `10` §3.3 used before AMFI was checked, and the fixtures are
+synthetic PDFs generated for the purpose. Two things make an incorrect guess
+survivable rather than damaging:
+
+1. **An unrecognised statement is a mapping task, not an error.** Failing to
+   detect a bank, or parsing zero rows, routes the extracted text to the same
+   mapping UI an unrecognised CSV goes to (B6's §3.2 path). The household names
+   the columns once.
+2. **Each layout is a small table with its own test**, so correcting one
+   against a real file is a line, not a rewrite.
+
+### B31 · What the inbox was actually good for
+
+The statements themselves could not be opened, but reading the emails they
+arrive in produced two things that went straight into the build:
+
+- **The per-bank password rules**, now shown in the import screen. "It is
+  usually your PAN, in lowercase" is the difference between an import that
+  works and one that is abandoned at the password box, and every bank states
+  its own rule in its own email.
+- **The sender-to-institution map** (`STATEMENT_SENDERS`), which `04` §3.4
+  needs for Gmail ingestion and which also routes a CDSL CAS to the portfolio
+  importer rather than the bank one. Its patterns are anchored, so a lookalike
+  domain cannot impersonate a bank into being trusted — there is a test for
+  that.
+
 ---
 
-*Entries B28 onward are recorded as the work happens.*
+*Entries B32 onward are recorded as the work happens.*

@@ -409,6 +409,8 @@ export function renderImport(opts: {
   profiles: { id: string; name: string; last_used_at: string | null }[];
   /** F28.2: the pointer disappears with the module rather than 404ing. */
   casEnabled: boolean;
+  /** `04` §3.3 · What each bank puts on its statement password. */
+  banks: { id: string; name: string; passwordHint: string }[];
   error?: string | null;
   preview?: {
     accountId: string;
@@ -420,6 +422,43 @@ export function renderImport(opts: {
 }): SafeHtml {
   return html`
     <h1>Import a statement</h1>
+    <section class="card">
+      <h2>A statement PDF</h2>
+      <p class="faint" style="margin-top:-.25rem">
+        HDFC, ICICI, Axis and SBI are recognised automatically. Anything else
+        still works — you name its columns once and it is remembered.
+      </p>
+      <form method="post" action="/import/pdf" enctype="multipart/form-data">
+        <div class="field">
+          <label for="pdf-account">Which account?</label>
+          <select id="pdf-account" name="account_id" required>
+            ${opts.accounts.map((a) => html`<option value="${a.id}">${a.name}</option>`)}
+          </select>
+        </div>
+        <div class="field">
+          <label for="pdf-file">The statement</label>
+          <input id="pdf-file" name="statement" type="file" accept="application/pdf,.pdf" required>
+        </div>
+        <div class="field">
+          <label for="pdf-password">Its password</label>
+          <input id="pdf-password" name="password" type="password"
+                 autocomplete="off" spellcheck="false">
+          <p class="field-hint">Leave empty if it opens without one. It is never saved.</p>
+          <details style="margin-top:.4rem">
+            <summary class="faint">What is my statement password?</summary>
+            <ul class="faint">
+              ${opts.banks.map((b) => html`<li><strong>${b.name}</strong> — ${b.passwordHint}</li>`)}
+            </ul>
+            <p class="faint">
+              These are what each bank's own email says. If none of them work,
+              check the email the statement arrived in.
+            </p>
+          </details>
+        </div>
+        <button class="button-primary" type="submit">Read it</button>
+      </form>
+    </section>
+
     ${when(opts.casEnabled, () => html`
       <p class="muted">
         This page reads bank and card statements as CSV. A

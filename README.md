@@ -215,7 +215,14 @@ register, transactions with splits/transfers/tags/owners and soft delete,
 payees with raw-string retention and merge. CSV import with header detection,
 Indian amount formats, UPI narration extraction, all five dedupe tiers, the
 review queue, the three-stage rules engine with test-before-save, the
-auto-approve gate, and batch undo. A file the app cannot read is a mapping
+auto-approve gate, and batch undo. **Statement PDFs for HDFC, ICICI, Axis and
+SBI**, read in-process: the password is used once and never stored, and columns
+are matched to the table's own headings by position — which is the only thing
+that tells an empty withdrawal column from an empty deposit one, and so the only
+thing that stops a salary being imported as an expense. Those four layouts are
+written from the banks' published formats rather than from opening real
+statements, and are marked unverified until one is checked. A file the app
+cannot read is a mapping
 task, not an error: the columns are named against the raw rows, the mapping is
 saved per bank, and the next file with that header signature imports without
 asking. Rules are proposed from what you actually do — the second time you
@@ -275,8 +282,7 @@ wizard, the India-appropriate starting template, Docker Compose.
 | Gap | Where it is specified |
 |---|---|
 | Asset allocation by class and geography | F19.11 |
-| Gmail alert parsing, SMS forwarding | `04` §3.4, §3.5 — P1/P2 |
-| PDF statement parsers for HDFC / ICICI / Axis / SBI | `04` §3.3, Q2 — the PDF reader exists; only the per-bank layouts are missing |
+| Gmail alert parsing, SMS forwarding | `04` §3.4, §3.5 — P1/P2. The sender-to-institution map is built; the fetching is not |
 | Attachments / receipt capture | Q10 |
 | Module feature-flag UI (flags work; they are environment variables) | F28 |
 | Tranche drawdown, pre-EMI, moratorium models | `06` R15, R16 M4 — modelled, seeded with no data (Q11) |

@@ -47,6 +47,9 @@ import {
 } from "./web/pages/actions.ts";
 import { renderReview, renderImport, renderMapping } from "./web/pages/review.ts";
 import {
+  parseStatementPdf, BANKS, WrongPassword as StatementWrongPassword,
+} from "./import/pdf-statements.ts";
+import {
   recognise, saveProfile, listProfiles, markProfileUsed, deleteProfile,
   mappingFromSelections, validateMapping, columnChoices, candidateHeaderRows,
   parseWith,
@@ -1654,6 +1657,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         id: p.id, name: p.name, last_used_at: p.last_used_at,
       })),
       casEnabled: config.features.assets,
+      banks: BANKS.map((b) => ({ id: b.id, name: b.name, passwordHint: b.passwordHint })),
     })),
   );
 
@@ -1712,6 +1716,90 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         message: `Read ${outcome.batch.rows_read} rows — ${parts.join(", ")}.`,
       };
     });
+  });
+
+  /**
+   * `04` §3.3 · A statement PDF.
+   *
+   * It converges on `ingest()` like every other source, so dedupe, rules, the
+   * review queue and the auto-approve gate are shared rather than reimplemented
+   * — `04` §1's whole point.
+   */
+  router.post("/import/pdf", (ctx) => {
+    const a = auth(ctx);
+    const accountId = requiredField(ctx.body, "account_id");
+    const upload = fileField(ctx.req, "statement");
+
+    const importPage = (error: string) =>
+      render(ctx, "Import", renderImport({
+        accounts: listAccounts(db),
+        batches: listBatches(db),
+        profiles: listProfiles(db).map((p) => ({
+          id: p.id, name: p.name, last_used_at: p.last_used_at,
+        })),
+        casEnabled: config.features.assets,
+        banks: BANKS.map((b) => ({ id: b.id, name: b.name, passwordHint: b.passwordHint })),
+        error,
+      }));
+
+    if (!upload) return importPage("Choose the statement PDF first.");
+
+    // PR5 · Read from the request, handed to the parser, never assigned to
+    // anything that outlives the call.
+    let parsed;
+    try {
+      parsed = parseStatementPdf(upload.bytes, field(ctx.body, "password") ?? "");
+    } catch (error) {
+      return importPage(
+        error instanceof StatementWrongPassword
+          ? "That password did not open the statement. The hints below say what each bank uses."
+          : `That file could not be read. ${(error as Error).message}`,
+      );
+    }
+
+    // `04` §3.2's rule, applied to PDFs: a file this app cannot read is a
+    // mapping task, not an error. The extracted rows go to the same screen an
+    // unrecognised CSV goes to.
+    if (parsed.records.length === 0) {
+      const rows = parsed.text.split("\n").map((line) => line.split(/\s{2,}/));
+      const headerRow = candidateHeaderRows(rows)[0]?.index ?? 0;
+      return render(
+        ctx, "Which column is which?",
+        renderMapping({
+          accountId,
+          fileName: upload.filename,
+          csv: rows.map((r) => r.join("\t")).join("\n"),
+          rows,
+          candidateHeaders: candidateHeaderRows(rows),
+          headerRow,
+          choices: columnChoices(rows, headerRow),
+        }),
+      );
+    }
+
+    const outcome = ingest(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+      accountId,
+      source: "pdf",
+      adapter: parsed.bank?.id ?? "pdf",
+      fileName: upload.filename,
+      records: parsed.records,
+      errors: parsed.errors,
+      rowsRead: parsed.rowsRead,
+    });
+
+    const parts: string[] = [];
+    if (outcome.staged > 0) parts.push(`${outcome.staged} to review`);
+    if (outcome.autoApproved > 0) parts.push(`${outcome.autoApproved} auto-approved`);
+    if (outcome.duplicates > 0) parts.push(`${outcome.duplicates} suspected duplicates`);
+    if (outcome.skipped > 0) parts.push(`${outcome.skipped} already present`);
+    if (parsed.errors.length > 0) parts.push(`${parsed.errors.length} unreadable rows`);
+
+    return {
+      redirect: outcome.staged > 0 ? "/review" : "/import",
+      message:
+        `Read ${parsed.bank ? `your ${parsed.bank.name} statement` : "the statement"} — ` +
+        `${parts.join(", ")}.`,
+    };
   });
 
   /**
