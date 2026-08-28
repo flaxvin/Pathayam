@@ -848,4 +848,25 @@ one is taken.
 
 ---
 
-*Entries B50 onward are recorded as the work happens.*
+### B50 · The API-token deny-list guarded a route that did not exist
+
+*28-08-2026 · F30.6.* While writing [`docs/API.md`](API.md) the deny-list in
+[`tokens.ts`](../src/auth/tokens.ts) was checked route by route against the
+router, and its first entry — `/settings/members`, "the allow-list" — matched
+**no route at all**. The actual allow-list mutation is `POST /members/invite`,
+which no prefix covered, so `tokenMayReach("/members/invite")` returned `true`:
+a read-write personal API token could invite a member into the household,
+exactly the "change who is allowed in" that F30.6 forbids. The test only
+asserted the phantom `/settings/members*` paths, so it was green while the real
+route was open — the "new route that quietly becomes reachable" failure the
+deny-list's own comment warns about.
+
+Fixed by adding `/members` to `FORBIDDEN_PREFIXES` (keeping `/settings/members`
+for any future settings sub-page) and extending the test to assert `/members`
+and `/members/invite` are unreachable. The lesson recorded here: a deny-list is
+only as good as its correspondence to the live routes, and that correspondence
+has to be tested against paths that actually exist, not intended ones.
+
+---
+
+*Entries B51 onward are recorded as the work happens.*
