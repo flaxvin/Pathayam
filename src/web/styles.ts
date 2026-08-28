@@ -450,4 +450,13 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
 .chart-hbar-value { font-size: .85rem; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--text-muted); }
 
 .goal-ring-row { display: flex; align-items: center; gap: 1rem; }
+
+.insight-list { list-style: none; margin: .25rem 0 0; padding: 0; }
+.insight { display: flex; gap: .6rem; padding: .55rem 0; border-top: 1px solid var(--border); font-size: .95rem; }
+.insight:first-child { border-top: none; }
+.insight-mark { flex: 0 0 1.1rem; text-align: center; font-size: .8rem; line-height: 1.5; }
+.insight-up .insight-mark { color: var(--danger); }
+.insight-down .insight-mark { color: var(--positive); }
+.insight-new .insight-mark { color: var(--accent); }
+.insight a { margin-left: .35rem; white-space: nowrap; }
 `;
