@@ -276,7 +276,7 @@ four-way decomposition and a dated history, MFAPI and Frankfurter adapters
 behind one provider interface — plus AMFI as the fallback the errata asks for,
 reading the registrar's own published file and matching on ISIN, so losing
 MFAPI costs nothing. Prices refresh on P4's per-class cadence, because a NAV
-published at 23:00 IST does not exist at noon. And the asset-gain versus FX-gain split that
+published at 23:00 IST does not exist at noon. And asset allocation by class — with foreign holdings split by geography and currency, and a fund left unclassified rather than guessed into a bucket (N9) — and the asset-gain versus FX-gain split that
 sums exactly. **R30's ten firewall invariants are a test suite** — including
 one that drops the price tables outright and renders the budget screen.
 
@@ -287,7 +287,6 @@ wizard, the India-appropriate starting template, Docker Compose.
 
 | Gap | Where it is specified |
 |---|---|
-| Asset allocation by class and geography | F19.11 |
 | Gmail alert parsing, SMS forwarding | `04` §3.4, §3.5 — P1/P2. The sender-to-institution map is built; the fetching is not |
 | Attachments / receipt capture | Q10 |
 | Module feature-flag UI (flags work; they are environment variables) | F28 |

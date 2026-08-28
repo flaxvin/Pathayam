@@ -59,6 +59,7 @@ export function renderPortfolio(opts: {
         <form method="post" action="/portfolio/refresh">
           <button class="button-small" type="submit">Refresh prices</button>
         </form>
+        <a class="button" href="/portfolio/allocation">Allocation</a>
         <a class="button" href="/portfolio/cas">Import a CAS</a>
         <a class="button button-primary" href="/portfolio/add">Add a holding</a>
       </div>
@@ -957,5 +958,115 @@ export function renderCasReview(opts: {
         </p>
       </div>
     </form>
+  `;
+}
+
+// ---------------------------------------------------------------------------
+// F19.11 · Asset allocation
+// ---------------------------------------------------------------------------
+
+interface AllocSlice { key: string; label: string; value: Paise; share: number }
+
+/**
+ * The allocation report.
+ *
+ * The unclassified figure leads when it is non-zero, because a percentage that
+ * silently omits a third of the portfolio is worse than one that says so (N9).
+ * Each unclassified holding carries its own one-tap classifier.
+ */
+export function renderAllocation(opts: {
+  byClass: AllocSlice[];
+  byRegion: AllocSlice[];
+  byCurrency: AllocSlice[];
+  total: Paise;
+  unclassified: { value: Paise; holdings: { instrumentId: string; name: string; value: Paise }[] };
+  classes: { key: string; label: string }[];
+  hasForeign: boolean;
+}): SafeHtml {
+  const bar = (slices: AllocSlice[]) => html`
+    <div class="alloc-bar" role="img"
+         style="display:flex;height:.75rem;border-radius:.375rem;overflow:hidden;margin:.4rem 0 .8rem">
+      ${slices.map(
+        (s, i) => html`<span title="${s.label} ${Math.round(s.share * 100)}%"
+          style="width:${(s.share * 100).toFixed(2)}%;background:var(--chart-${(i % 6) + 1},var(--accent));opacity:${1 - (i % 6) * 0.12}"></span>`,
+      )}
+    </div>
+  `;
+
+  const table = (slices: AllocSlice[]) => html`
+    <table>
+      <tbody>
+        ${slices.map(
+          (s) => html`
+            <tr>
+              <td>${s.label}</td>
+              <td class="num">${Math.round(s.share * 100)}%</td>
+              <td class="num amount">${formatPaise(s.value)}</td>
+            </tr>
+          `,
+        )}
+      </tbody>
+    </table>
+  `;
+
+  return html`
+    <div class="row-between" style="margin-bottom:1rem">
+      <h1>Allocation</h1>
+      <a class="button" href="/portfolio">Back to portfolio</a>
+    </div>
+
+    ${when(opts.total === 0 && opts.unclassified.value === 0, () => html`
+      <div class="card empty-state">
+        <p>Nothing to allocate yet. Add a holding and it appears here.</p>
+      </div>
+    `)}
+
+    ${when(opts.unclassified.value > 0, () => html`
+      <section class="card">
+        <h2>Not yet classified <span class="chip chip-warning">${formatPaise(opts.unclassified.value)}</span></h2>
+        <p class="faint" style="margin-top:-.25rem">
+          A mutual fund's type is not something the app can read from its name,
+          so the percentages below leave these out until you set them. Nothing
+          is guessed into a bucket.
+        </p>
+        ${opts.unclassified.holdings.map(
+          (h) => html`
+            <form method="post" action="/portfolio/instrument/${h.instrumentId}/classify"
+                  class="row-between" style="padding:.5rem 0;border-top:1px solid var(--border);gap:.6rem;flex-wrap:wrap">
+              <span><strong>${h.name}</strong> <span class="faint">${formatPaise(h.value)}</span></span>
+              <span class="row" style="gap:.4rem">
+                <select name="asset_class" required>
+                  <option value="">Classify as…</option>
+                  ${opts.classes.map((c) => html`<option value="${c.key}">${c.label}</option>`)}
+                </select>
+                <button class="button-small button-primary" type="submit">Set</button>
+              </span>
+            </form>
+          `,
+        )}
+      </section>
+    `)}
+
+    ${when(opts.total > 0, () => html`
+      <section class="card">
+        <h2>By class</h2>
+        ${bar(opts.byClass)}
+        ${table(opts.byClass)}
+        <p class="field-hint">Percentages are of ${formatPaise(opts.total)} classified.</p>
+      </section>
+
+      ${when(opts.hasForeign, () => html`
+        <section class="card">
+          <h2>By geography</h2>
+          ${bar(opts.byRegion)}
+          ${table(opts.byRegion)}
+        </section>
+
+        <section class="card">
+          <h2>By currency</h2>
+          ${table(opts.byCurrency)}
+        </section>
+      `)}
+    `)}
   `;
 }

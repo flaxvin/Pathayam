@@ -694,4 +694,26 @@ the same export and event-log tests as the rest of the identity.
 
 ---
 
-*Entries B43 onward are recorded as the work happens.*
+### B43 · Allocation is by asset class, which the instrument kind cannot supply
+
+*28-08-2026 · F19.11.* The obvious source for "allocation by class" is the
+instrument's kind — but a `mutual-fund` kind says nothing about whether the
+fund is equity, debt or gold, so grouping by it reports a portfolio as "100%
+mutual-fund". Class is therefore a field of its own (migration 0012), seeded
+from kind only where the kind decides it: an ETF is equity, a bond is debt, a
+commodity is gold. A mutual fund's class starts null.
+
+N9 governs the null. An unclassified fund is **not** folded into a bucket on a
+guess — it is reported as its own figure, above the percentages, with a one-tap
+classifier, and the shares are of the *classified* total so they never imply a
+precision the data does not have. Manually-valued assets need no such step:
+their subtype fixes the class unambiguously — a deposit is cash, a flat is real
+estate.
+
+Geography and currency (the SHOULD half) fall out for free: an instrument's
+currency already distinguishes an international holding, so region defaults from
+it and the split appears only when a foreign holding exists.
+
+---
+
+*Entries B44 onward are recorded as the work happens.*

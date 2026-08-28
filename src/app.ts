@@ -155,6 +155,7 @@ import {
 } from "./web/pages/month-close.ts";
 import {
   renderPortfolio, renderHoldingDetail, renderSalePreview, renderNetWorth,
+  renderAllocation,
   renderAddHolding, renderCasUpload, renderCasReview,
   type PortfolioRow, type CasReviewScheme,
 } from "./web/pages/portfolio.ts";
@@ -166,10 +167,12 @@ import {
   createAssetAccount, listAssetAccounts, findOrCreateInstrument, recordPurchase,
   recordSale, recordPrice, latestValuation, listHoldings, viewHolding,
   priceHistory, previewHoldingSale, getInstrument, listInstruments,
+  classifyInstrument, ASSET_CLASSES, ASSET_CLASS_LABELS,
   type InstrumentKind,
 } from "./domain/assets.ts";
 import {
   netWorthStatement, snapshotNetWorth, netWorthChange, netWorthHistory,
+  assetAllocation,
 } from "./domain/networth.ts";
 import {
   units as toUnits, price as toUnitPrice, xirr, formatUnits,
@@ -3268,6 +3271,34 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         redirect: "/portfolio",
         message: `Added ${formatUnits(lot.units)} units of ${instrument.name}.`,
       };
+    }),
+  );
+
+  router.get("/portfolio/allocation", (ctx) => {
+    requireAssets();
+    auth(ctx);
+    const a = assetAllocation(db);
+    const foreign = a.byCurrency.some((c) => c.key !== "INR") || a.byRegion.length > 1;
+    return render(ctx, "Allocation", renderAllocation({
+      byClass: a.byClass,
+      byRegion: a.byRegion,
+      byCurrency: a.byCurrency,
+      total: a.total,
+      unclassified: a.unclassified,
+      classes: ASSET_CLASSES.map((k) => ({ key: k, label: ASSET_CLASS_LABELS[k] })),
+      hasForeign: foreign,
+    }));
+  });
+
+  router.post("/portfolio/instrument/:id/classify", (ctx) =>
+    mutate(ctx, (a) => {
+      requireAssets();
+      const raw = field(ctx.body, "asset_class");
+      const assetClass = raw && (ASSET_CLASSES as readonly string[]).includes(raw)
+        ? (raw as (typeof ASSET_CLASSES)[number])
+        : null;
+      classifyInstrument(db, actorFor(a), ctx.params.id!, { assetClass });
+      return { redirect: "/portfolio/allocation", message: assetClass ? "Classified." : "Cleared." };
     }),
   );
 

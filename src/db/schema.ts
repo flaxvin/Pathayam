@@ -1055,4 +1055,31 @@ CREATE TABLE statement_identity (
 ALTER TABLE statement_identity ADD COLUMN mobile TEXT;
 `,
   },
+  {
+    name: "0012-asset-allocation",
+    sql: `
+--------------------------------------------------------------------------------
+-- 07 F19.11 · Asset allocation by class (MUST) and by geography (SHOULD).
+--
+-- The instrument's *kind* — 'mutual-fund', 'equity' — does not answer the
+-- allocation question: a mutual fund is equity or debt or gold, and grouping
+-- by kind would report a portfolio as "100% mutual-fund". So class is stored
+-- separately, defaulted from kind where the kind decides it (an ETF is equity)
+-- and left null where it does not (a mutual fund needs classifying). N9: an
+-- unclassified holding is shown as unclassified, never guessed into a bucket.
+--
+-- Region carries the F20 geography split, kept orthogonal to class so an
+-- international equity fund is both.
+--------------------------------------------------------------------------------
+
+ALTER TABLE instruments ADD COLUMN asset_class TEXT;
+ALTER TABLE instruments ADD COLUMN region TEXT;
+
+-- Seed the classes the kind already determines. Mutual funds and 'other' stay
+-- null until the household sets them.
+UPDATE instruments SET asset_class = 'equity' WHERE kind IN ('equity','etf');
+UPDATE instruments SET asset_class = 'debt'   WHERE kind = 'bond';
+UPDATE instruments SET asset_class = 'gold'   WHERE kind = 'commodity';
+`,
+  },
 ];
