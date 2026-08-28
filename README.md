@@ -212,7 +212,7 @@ revocation; read-only impersonation; the gated dev bypass.
 
 **Money in** — accounts across all three kinds, cards and add-on cards, the
 register, transactions with splits/transfers/tags/owners and soft delete,
-payees with raw-string retention and merge. CSV import with header detection,
+payees with raw-string retention and merge; receipt attachments stored in the database (Q10), served server-only with no-store so no device caches one. CSV import with header detection,
 Indian amount formats, UPI narration extraction, all five dedupe tiers, the
 review queue, the three-stage rules engine with test-before-save, the
 auto-approve gate, and batch undo. **Statement PDFs**, read in-process, for
@@ -294,7 +294,6 @@ wizard, the India-appropriate starting template, Docker Compose.
 | Gap | Where it is specified |
 |---|---|
 | SMS forwarding | `04` §3.5 — P2, needs an Android companion; iOS cannot read SMS (a platform limit, not a gap) |
-| Attachments / receipt capture | Q10 |
 | Module feature-flag UI (flags work; they are environment variables) | F28 |
 | Tranche drawdown, pre-EMI, moratorium models | `06` R15, R16 M4 — modelled, seeded with no data (Q11) |
 

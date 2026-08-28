@@ -1109,4 +1109,38 @@ CREATE TABLE gmail_connections (
 );
 `,
   },
+  {
+    name: "0014-attachments",
+    sql: `
+--------------------------------------------------------------------------------
+-- Q10 / F4.5 · Receipt attachments on a transaction.
+--
+-- The bytes live here, as a BLOB, not on a parallel disk tree. On a one-box
+-- homelab (Q8) that is the simplest thing that satisfies Q10's two demands at
+-- once: the backup is a copy of this database, so an attachment is backed up
+-- automatically and "counts toward backup size"; and it is a row, so it counts
+-- toward the restore-verification control totals (R40.2) with no special
+-- handling.
+--
+-- Server-only and never cached on the device (R35): every view is a fresh
+-- fetch served with no-store. There is no offline access to a receipt.
+--
+-- sha256 is stored so an identical re-upload is recognised, and so a corrupted
+-- restore is detectable byte-for-byte, not merely by row count.
+--------------------------------------------------------------------------------
+
+CREATE TABLE attachments (
+  id             TEXT PRIMARY KEY,
+  transaction_id TEXT NOT NULL REFERENCES transactions(id) ON DELETE CASCADE,
+  filename       TEXT NOT NULL,
+  mime           TEXT NOT NULL,
+  size           INTEGER NOT NULL,
+  sha256         TEXT NOT NULL,
+  bytes          BLOB NOT NULL,
+  uploaded_by    TEXT REFERENCES members(id),
+  created_at     TEXT NOT NULL
+);
+CREATE INDEX idx_attachments_txn ON attachments(transaction_id);
+`,
+  },
 ];

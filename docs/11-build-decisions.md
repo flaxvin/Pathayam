@@ -777,4 +777,28 @@ to fail.
 
 ---
 
-*Entries B47 onward are recorded as the work happens.*
+### B47 · Receipt bytes live in the database, not on a disk tree
+
+*28-08-2026 · Q10.* The config carried an `attachmentDir`, implying a parallel
+file store. Storing the bytes as a BLOB in the database is the better fit for a
+one-box homelab (Q8), because it satisfies Q10's two demands with no extra
+machinery: the backup is a copy of this database, so a receipt is backed up
+automatically and "counts toward backup size"; and it is a row, so it counts
+toward restore-verification control totals (R40.2) — a truncated blob is caught
+by the bytes total, not just the row count. A parallel file tree would have
+needed its own backup path and its own verification.
+
+R35 is the route's job, not the store's: a receipt is served with
+`Cache-Control: no-store` and there is no client copy, so every view is a fresh
+fetch and nothing is cached on the device. The `attachmentDir` config is now
+unused; left in place rather than removed, since a future large-file variant
+might want it.
+
+An identical re-upload to the same transaction is recognised by sha256 and
+returns the existing record — the same photo attached twice is a slip, not two
+receipts. Only images and PDFs are accepted; a receipt is never something
+executable.
+
+---
+
+*Entries B48 onward are recorded as the work happens.*
