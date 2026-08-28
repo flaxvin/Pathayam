@@ -926,9 +926,24 @@ boundary.
 category link) are the same shape as B46's backup-coverage gap: a set that must
 stay in step drifted because nothing forced it to. So the fix is not just the
 links but a test — `web/link-coverage.test.ts` — that parses every `href` and
-form `action` out of the pages and asserts each resolves to a registered route,
-under the same specificity the live router now uses. It caught a dead link the
-human pass did not, which is the point.
+form `action` out of `src/web` (pages, layout, and the command palette) and
+asserts each resolves to a registered route, under the same specificity the live
+router now uses. It caught a dead link the human pass did not, which is the
+point.
+
+**A second sweep — the reverse direction.** The link test catches a link with no
+route; it cannot catch a *route with no link*. A scan for POST handlers no form
+reaches (allowing for dynamic `action="${…}"` forms) surfaced two more dead
+features. `POST /months/:month/reopen` (`reopenMonth`) had no control — the
+closed-month notice now carries a Reopen button. Worse, `POST
+/impersonate/writes` — R38.10's write-enable toggle — was a **catch-22**: no UI
+rendered it, *and* the read-only guard blocked it (`path !== "/impersonate/exit"`),
+so the guard's own "Enable writes first" pointed at a route the guard itself
+forbade. The banner now renders the toggle, and the guard lets
+`/impersonate/writes` through in read-only mode (it *is* the toggle). Verified
+end to end: start → read-only → enable → a write succeeds. An automated
+orphan-route test was considered and left out: dynamic form actions make it too
+noisy to be trustworthy, and noise is how a guard gets ignored.
 
 ---
 

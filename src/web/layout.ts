@@ -68,7 +68,7 @@ export function page(options: LayoutOptions, content: SafeHtml): string {
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
 </head>
 <body data-features="${[features.loans ? "loans" : "", features.assets ? "assets" : ""].filter(Boolean).join(" ")}">
-${String(renderBanners(impersonating, devMode))}
+${String(renderBanners(impersonating, devMode, path))}
 ${bare ? "" : String(renderHeader(theme, memberName))}
 <a class="skip-link" href="#main">Skip to content</a>
 ${bare
@@ -86,6 +86,7 @@ ${String(renderBottomNav(path, reviewCount))}`}
 function renderBanners(
   impersonating: LayoutOptions["impersonating"],
   devMode: boolean | undefined,
+  path: string,
 ): SafeHtml {
   return html`
     ${when(
@@ -101,6 +102,15 @@ function renderBanners(
       () => html`
         <div class="banner banner-impersonation" role="alert">
           <span>Viewing as ${impersonating!.name}${impersonating!.readOnly ? " — read only" : " — writes enabled"}</span>
+          <!-- B51: R38.10's write toggle shipped as POST /impersonate/writes but
+               had no control; read-only impersonation could never be lifted. -->
+          <form method="post" action="/impersonate/writes" style="display:inline">
+            <input type="hidden" name="allow" value="${impersonating!.readOnly ? "1" : "0"}">
+            <input type="hidden" name="return_to" value="${escape(path)}">
+            <button class="button-small" type="submit">
+              ${impersonating!.readOnly ? "Enable writes" : "Back to read-only"}
+            </button>
+          </form>
           <form method="post" action="/impersonate/exit" style="display:inline">
             <button class="button-small" type="submit">Exit</button>
           </form>

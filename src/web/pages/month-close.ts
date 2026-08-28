@@ -33,11 +33,17 @@ export function renderMonthClose(view: MonthCloseView): SafeHtml {
     `)}
 
     ${when(view.closedAt, () => html`
-      <p class="notice notice-info">
-        Already closed on ${formatDate(view.closedAt!.slice(0, 10) as never)}
-        ${when(view.closedBy, () => html` by ${view.closedBy}`)}.
-        Closing it again just refreshes the figures.
-      </p>
+      <div class="notice notice-info row-between" style="align-items:center">
+        <span>
+          Already closed on ${formatDate(view.closedAt!.slice(0, 10) as never)}
+          ${when(view.closedBy, () => html` by ${view.closedBy}`)}.
+          Closing it again just refreshes the figures.
+        </span>
+        <!-- B51: reopenMonth shipped, but nothing rendered a control for it. -->
+        <form method="post" action="/months/${view.month}/reopen" style="display:inline">
+          <button class="button-small" type="submit">Reopen</button>
+        </form>
+      </div>
     `)}
 
     <section class="card">
