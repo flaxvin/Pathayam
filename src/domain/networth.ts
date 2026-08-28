@@ -27,7 +27,8 @@ import { listLoans, projectLoan } from "./loans.ts";
 import { familyLoanNetWorth } from "./family-loans.ts";
 import {
   listAssetAccounts, listHoldings, viewHolding, latestValuation, ASSET_LABELS,
-  type AssetSubtype,
+  ASSET_CLASS_LABELS,
+  type AssetSubtype, type AssetClass,
 } from "./assets.ts";
 
 export interface NetWorthLine {
@@ -367,4 +368,129 @@ export function backfillMonthlySnapshots(
     created++;
   }
   return created;
+}
+
+// ---------------------------------------------------------------------------
+// F19.11 · Asset allocation
+// ---------------------------------------------------------------------------
+
+/**
+ * How a manually-valued asset account maps to an allocation class.
+ *
+ * A fixed deposit is cash-like, a flat is real estate, gold is gold. These are
+ * unambiguous from the subtype, unlike a mutual fund from its kind — so they
+ * need no per-account classification.
+ */
+const SUBTYPE_CLASS: Record<AssetSubtype, AssetClass> = {
+  investment: "equity",
+  retirement: "debt",
+  deposit: "cash",
+  physical: "real-estate",
+  commodity: "gold",
+  receivable: "other",
+};
+
+export interface AllocationSlice {
+  key: string;
+  label: string;
+  value: Paise;
+  /** Of the classified total; the unclassified bucket is reported separately. */
+  share: number;
+}
+
+export interface AssetAllocation {
+  byClass: AllocationSlice[];
+  byRegion: AllocationSlice[];
+  byCurrency: AllocationSlice[];
+  total: Paise;
+  /**
+   * F19.11 / N9 · Holdings whose class the household has not set. Reported as
+   * its own figure rather than folded into a bucket, so the allocation never
+   * implies a precision it does not have.
+   */
+  unclassified: { value: Paise; holdings: { instrumentId: string; name: string; value: Paise }[] };
+}
+
+/**
+ * F19.11 · Allocation across the whole portfolio — unit holdings and
+ * manually-valued assets alike, at market value as of `asOf`.
+ *
+ * Percentages are of the *classified* total. An unclassified fund is not
+ * counted into equity or debt on a guess; it is surfaced so the household can
+ * classify it, and until they do the shares stay honest about what is known.
+ */
+export function assetAllocation(
+  db: DB, asOf: IsoDate = todayIST(), baseCurrency = "INR",
+): AssetAllocation {
+  const byClass = new Map<string, number>();
+  const byRegion = new Map<string, number>();
+  const byCurrency = new Map<string, number>();
+  const unclassifiedHoldings: { instrumentId: string; name: string; value: Paise }[] = [];
+  let unclassifiedValue = 0;
+  let classifiedTotal = 0;
+
+  const addClassified = (
+    cls: AssetClass, region: string, currency: string, value: number,
+  ) => {
+    byClass.set(cls, (byClass.get(cls) ?? 0) + value);
+    byRegion.set(region, (byRegion.get(region) ?? 0) + value);
+    byCurrency.set(currency, (byCurrency.get(currency) ?? 0) + value);
+    classifiedTotal += value;
+  };
+
+  // Unit holdings.
+  for (const holding of listHoldings(db)) {
+    const view = viewHolding(db, holding.id, asOf, baseCurrency);
+    if (!view || view.marketValue <= 0) continue;
+
+    const cls = view.instrument.asset_class;
+    if (!cls) {
+      unclassifiedValue += view.marketValue;
+      unclassifiedHoldings.push({
+        instrumentId: view.instrument.id, name: view.instrument.name, value: view.marketValue,
+      });
+      continue;
+    }
+    addClassified(
+      cls,
+      view.instrument.region ?? "domestic",
+      view.instrument.currency,
+      view.marketValue,
+    );
+  }
+
+  // Manually-valued asset accounts. Their subtype fixes the class.
+  for (const account of listAssetAccounts(db)) {
+    if (listHoldings(db, account.id).length > 0) continue; // a unit account, counted above
+    const valuation = latestValuation(db, account.id, asOf);
+    if (!valuation || valuation.value <= 0) continue;
+
+    addClassified(
+      SUBTYPE_CLASS[account.subtype as AssetSubtype] ?? "other",
+      account.currency === "INR" ? "domestic" : "international",
+      account.currency,
+      valuation.value,
+    );
+  }
+
+  const toSlices = (
+    m: Map<string, number>, label: (k: string) => string,
+  ): AllocationSlice[] =>
+    [...m.entries()]
+      .map(([key, value]) => ({
+        key, label: label(key), value: value as Paise,
+        share: classifiedTotal > 0 ? value / classifiedTotal : 0,
+      }))
+      .sort((a, b) => b.value - a.value);
+
+  return {
+    byClass: toSlices(byClass, (k) => ASSET_CLASS_LABELS[k as AssetClass] ?? k),
+    byRegion: toSlices(byRegion, (k) => (k === "domestic" ? "India" : "International")),
+    byCurrency: toSlices(byCurrency, (k) => k),
+    total: classifiedTotal as Paise,
+    unclassified: {
+      value: unclassifiedValue as Paise,
+      holdings: unclassifiedHoldings.sort((a, b) => b.value - a.value),
+    },
+  };
 }

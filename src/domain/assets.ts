@@ -39,6 +39,33 @@ import {
 } from "../portfolio/holdings.ts";
 
 export type InstrumentKind = "mutual-fund" | "equity" | "etf" | "bond" | "commodity" | "other";
+
+/** F19.11 · The allocation buckets, in the sense Indian investing uses. */
+export const ASSET_CLASSES = ["equity", "debt", "hybrid", "gold", "cash", "real-estate", "other"] as const;
+export type AssetClass = (typeof ASSET_CLASSES)[number];
+
+export const ASSET_CLASS_LABELS: Record<AssetClass, string> = {
+  equity: "Equity",
+  debt: "Debt",
+  hybrid: "Hybrid",
+  gold: "Gold",
+  cash: "Cash & deposits",
+  "real-estate": "Real estate",
+  other: "Other",
+};
+
+export type Region = "domestic" | "international";
+
+/** The class a kind unambiguously implies; null where it does not (a fund). */
+export function classFromKind(kind: InstrumentKind): AssetClass | null {
+  switch (kind) {
+    case "equity":
+    case "etf": return "equity";
+    case "bond": return "debt";
+    case "commodity": return "gold";
+    default: return null; // mutual-fund, other — the household classifies these
+  }
+}
 export type PriceProvider = "mfapi" | "alphavantage" | "manual";
 
 export interface Instrument {
@@ -51,6 +78,9 @@ export interface Instrument {
   provider: PriceProvider;
   manual_only: number;
   refresh: "daily" | "weekly" | "never";
+  /** F19.11 · null until classified; a fund's kind cannot imply it. */
+  asset_class: AssetClass | null;
+  region: Region | null;
 }
 
 export interface HoldingRecord {
@@ -221,13 +251,18 @@ export function findOrCreateInstrument(
     const id = newId();
     execute(
       db,
-      `INSERT INTO instruments (id,name,kind,symbol,isin,currency,provider,manual_only,refresh,created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?)`,
+      `INSERT INTO instruments
+         (id,name,kind,symbol,isin,currency,provider,manual_only,refresh,asset_class,region,created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
       id, input.name, input.kind, input.symbol ?? null, input.isin ?? null,
       input.currency ?? "INR", input.provider ?? "manual",
       input.manualOnly ? 1 : 0,
       // P4: equities burn a scarce daily quota; funds do not.
       input.kind === "equity" || input.kind === "etf" ? "daily" : "daily",
+      // F19.11: seed the class the kind decides; leave a fund's null (N9).
+      classFromKind(input.kind),
+      // F20: a non-INR instrument is international by default.
+      (input.currency ?? "INR") === "INR" ? "domestic" : "international",
       nowIST(),
     );
 
@@ -237,6 +272,39 @@ export function findOrCreateInstrument(
       summary: `Added the instrument "${input.name}"`,
     });
     return instrument;
+  });
+}
+
+/**
+ * F19.11 · Set an instrument's class and region.
+ *
+ * A fund's kind cannot imply its class — the household is the authority — so
+ * this is how "Unclassified" gets emptied. Logged, because a reclassification
+ * changes what every allocation report shows.
+ */
+export function classifyInstrument(
+  db: DB, actor: Actor, instrumentId: string,
+  input: { assetClass: AssetClass | null; region?: Region | null },
+): void {
+  transact(db, () => {
+    const before = getInstrument(db, instrumentId);
+    if (!before) throw new Error("That instrument does not exist.");
+
+    execute(
+      db, `UPDATE instruments SET asset_class = ?, region = ? WHERE id = ?`,
+      input.assetClass,
+      input.region ?? before.region ?? (before.currency === "INR" ? "domestic" : "international"),
+      instrumentId,
+    );
+
+    appendEvent(db, actor, {
+      entity: "instrument", entityId: instrumentId, action: "classify",
+      before: { asset_class: before.asset_class, region: before.region },
+      after: { asset_class: input.assetClass, region: input.region ?? before.region },
+      summary: input.assetClass
+        ? `Classified ${before.name} as ${ASSET_CLASS_LABELS[input.assetClass]}`
+        : `Cleared the class on ${before.name}`,
+    });
   });
 }
 
