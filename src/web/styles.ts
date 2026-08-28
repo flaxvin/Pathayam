@@ -442,6 +442,12 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
   flex: 0 0 auto; vertical-align: middle; margin-right: .1rem;
 }
 
+.linkish {
+  background: none; border: none; padding: 0; margin: 0; font: inherit;
+  color: var(--accent); cursor: pointer; text-decoration: underline;
+}
+.linkish:hover { color: var(--text); }
+
 .sparkline-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: .75rem 1rem; margin-top: .5rem; }
 .sparkline-cell { display: flex; flex-direction: column; gap: .1rem; }
 .sparkline-name { font-size: .8rem; color: var(--text-muted); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }

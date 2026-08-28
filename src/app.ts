@@ -89,7 +89,8 @@ import {
   type AccountKind,
 } from "./domain/accounts.ts";
 import {
-  setAssigned, addAssigned, moveMoney, setHeld, getHeld, listCategories, getCategory,
+  setAssigned, addAssigned, copyAssignmentsFromMonth, moveMoney, setHeld, getHeld,
+  listCategories, getCategory,
 } from "./domain/budget.ts";
 import {
   createTransaction, createTransfer, updateTransaction, deleteTransaction,
@@ -127,7 +128,7 @@ import {
 import { renderOverview } from "./web/pages/overview.ts";
 import {
   queryTransactions, groupTotals, periodPresets, periodFor, incomeVsExpense,
-  loanInterestByFinancialYear, categoryTrend, spendingCalendar, rowsToCsv,
+  loanInterestByFinancialYear, categoryTrend, spendingCalendar, spendByTag, rowsToCsv,
   type GroupBy, type TransactionFilter,
 } from "./domain/reports.ts";
 import { spendingInsights, type Insight } from "./domain/insights.ts";
@@ -741,6 +742,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         redirect: `/?month=${month}`,
         message: `Assigned ${formatPaise(plan.totalAssigned)} across ${plan.proposals.length} categories.`,
       };
+    }),
+  );
+
+  // F3.9 · Fill this month's empty categories from last month's assignments.
+  router.post("/copy-last-month", (ctx) =>
+    mutate(ctx, (a) => {
+      const month = monthParam(ctx);
+      const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+      const { recompute, result } = withForwardRecompute(
+        db, actor, { month, cause: "Filled from last month's budget" },
+        () => copyAssignmentsFromMonth(db, actor, month, addMonths(month, -1)),
+      );
+      const msg = result.filled === 0
+        ? "Nothing to fill — last month had no assignments the empty categories could take."
+        : `Filled ${result.filled} ${result.filled === 1 ? "category" : "categories"} with ${formatPaise(result.total)} from last month.`;
+      return { redirect: `/?month=${month}`, message: msg + rippleNote(recompute) };
     }),
   );
 
@@ -2598,6 +2615,26 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const monthTrend = incomeVsExpense(db, `${month}-01`, todayIST());
     const monthSpend = (monthTrend.at(-1)?.spending ?? 0) as Paise;
 
+    // #12 · Months of runway = liquid cash ÷ typical monthly spend (mean of the
+    // three complete months before this one, so a partial month doesn't skew it).
+    const bals = accountBalances(db);
+    const cash = listAccounts(db)
+      .filter((acc) => acc.kind === "budget")
+      .reduce((sum, acc) => sum + Math.max(0, bals.get(acc.id)?.working ?? 0), 0);
+    const priorMonths = incomeVsExpense(db, `${addMonths(month, -3)}-01`, `${month}-01`);
+    const avgMonthlySpend = priorMonths.length
+      ? priorMonths.reduce((s, m) => s + m.spending, 0) / priorMonths.length
+      : 0;
+    const runwayMonths = avgMonthlySpend > 0 ? cash / avgMonthlySpend : null;
+
+    // #13 · Bills due in the next fortnight, each with a one-tap "mark paid".
+    const soon = addDays(todayIST(), 14);
+    const dueSoon = listSchedules(db)
+      .filter((s) => s.next_due && s.next_due <= soon && (s.amount ?? 0) < 0)
+      .sort((x, y) => (x.next_due ?? "").localeCompare(y.next_due ?? ""))
+      .slice(0, 6)
+      .map((s) => ({ id: s.id, name: s.name, amount: Math.abs(s.amount ?? 0) as Paise, nextDue: s.next_due! }));
+
     return render(
       ctx, "Overview",
       renderOverview({
@@ -2608,12 +2645,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         netWorthHistory: config.features.assets ? netWorthHistory(db) : [],
         cashflow,
         cashflowReading: describeCashflow(cashflow),
-        upcoming: cashflow.days
-          .filter((d) => d.outflows.length > 0 || d.inflows.length > 0)
-          .slice(0, 5),
         unfundedCards,
         insights: spendingInsights(db, todayIST(), 4),
         monthSpend,
+        cash: cash as Paise,
+        runwayMonths,
+        dueSoon,
       }),
     );
   });
@@ -2671,6 +2708,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         trend: incomeVsExpense(db, period.from, period.to),
         categorySpend: categorySpend.map((g) => ({ label: g.label, value: g.value })),
         categoryTrends,
+        tagSpend: spendByTag(db, period.from, period.to),
         spendingCalendar: spendingCalendar(db, addDays(todayIST(), -119), todayIST()),
         sankey: { income: monthIncome, month: bview.month, groups: sankeyGroups },
         period,
