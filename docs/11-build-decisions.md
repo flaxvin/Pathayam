@@ -664,4 +664,34 @@ Against 81 real statements from 13 institutions:
 
 ---
 
-*Entries B42 onward are recorded as the work happens.*
+### B42 · Four password rules need a card number or a mobile, not just PAN and DOB
+
+*28-08-2026.* The household supplied the exact rules for the four institutions
+B41 left locked, quoted from each statement email:
+
+- **SBI account** — last five of the registered mobile, then DOB as DDMMYY.
+- **SBI Card** — DOB as DDMMYYYY, then the card's last four.
+- **Canara** — the card's last four, alone.
+- **HSBC** — DOB as DDMMYY, then the card's last six.
+
+Each needs a datum the identity triple does not hold. The turn is that the app
+*already* stores a card's last four per account, for SMS matching (F2.9) — so
+Canara and SBI Card derive on the auto-fetch path with nothing extra, once the
+destination account's last four is handed to the derivation. SBI's account rule
+took one more optional identity field, the registered mobile; HSBC's last-six
+needs a fuller number than the stored last-four and so falls back to
+type-it-once.
+
+I could not crack the four real files, because the card and mobile digits are
+masked in the filenames and absent from the PDFs I hold — so the rules are
+verified the honest way instead: against each bank's own worked example, the
+same standard Union Bank's RAVI0101 met. What this closes is the *capability* —
+the household with these accounts configured will have the last four, and the
+statements will open.
+
+Migration 0011 adds the mobile column; it never leaves the server, asserted by
+the same export and event-log tests as the rest of the identity.
+
+---
+
+*Entries B43 onward are recorded as the work happens.*

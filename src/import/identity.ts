@@ -37,10 +37,10 @@ export function looksLikeDob(value: string): boolean {
 }
 
 export function getIdentity(db: DB, memberId: string): StatementIdentity | null {
-  const row = queryOne<{ name: string; pan: string | null; dob: string | null }>(
-    db, `SELECT name, pan, dob FROM statement_identity WHERE member_id = ?`, memberId,
+  const row = queryOne<{ name: string; pan: string | null; dob: string | null; mobile: string | null }>(
+    db, `SELECT name, pan, dob, mobile FROM statement_identity WHERE member_id = ?`, memberId,
   );
-  return row ? { name: row.name, pan: row.pan, dob: row.dob } : null;
+  return row ? { name: row.name, pan: row.pan, dob: row.dob, mobile: row.mobile } : null;
 }
 
 export interface MaskedIdentity {
@@ -49,6 +49,8 @@ export interface MaskedIdentity {
   pan: string | null;
   /** `06/01/••••` — the DDMM half is what most banks want anyway. */
   dob: string | null;
+  /** `•••••6620` — the last five, which is all SBI's rule reveals anyway. */
+  mobile: string | null;
 }
 
 export function maskedIdentity(db: DB, memberId: string): MaskedIdentity | null {
@@ -61,12 +63,13 @@ export function maskedIdentity(db: DB, memberId: string): MaskedIdentity | null 
       ? `${identity.pan.slice(0, 4).toUpperCase()}••••${identity.pan.slice(-2).toUpperCase()}`
       : null,
     dob: identity.dob ? `${identity.dob.slice(0, 2)}/${identity.dob.slice(2, 4)}/••••` : null,
+    mobile: identity.mobile ? `•••••${identity.mobile.slice(-4)}` : null,
   };
 }
 
 export function setIdentity(
   db: DB, actor: Actor,
-  input: { name: string; pan?: string | null; dob?: string | null },
+  input: { name: string; pan?: string | null; dob?: string | null; mobile?: string | null },
 ): void {
   const memberId = actor.memberId;
   if (!memberId) throw new Error("This belongs to a member.");
@@ -84,22 +87,27 @@ export function setIdentity(
     throw new Error("Enter the date of birth as DDMMYYYY.");
   }
 
+  const mobile = input.mobile?.replace(/\D/g, "") || null;
+  if (mobile && (mobile.length < 10 || mobile.length > 12)) {
+    throw new Error("Enter the full registered mobile number.");
+  }
+
   transact(db, () => {
     execute(
       db,
-      `INSERT INTO statement_identity (member_id, name, pan, dob, updated_at)
-       VALUES (?,?,?,?,?)
+      `INSERT INTO statement_identity (member_id, name, pan, dob, mobile, updated_at)
+       VALUES (?,?,?,?,?,?)
        ON CONFLICT(member_id) DO UPDATE SET
          name = excluded.name, pan = excluded.pan, dob = excluded.dob,
-         updated_at = excluded.updated_at`,
-      memberId, name, pan ? pan.toUpperCase() : null, dob, nowIST(),
+         mobile = excluded.mobile, updated_at = excluded.updated_at`,
+      memberId, name, pan ? pan.toUpperCase() : null, dob, mobile, nowIST(),
     );
 
     // R37 · The change is logged; the values are not. `after` is deliberately
     // a set of booleans — the log is permanent and widely read.
     appendEvent(db, actor, {
       entity: "statement-identity", entityId: memberId, action: "set",
-      after: { hasPan: pan !== null, hasDob: dob !== null },
+      after: { hasPan: pan !== null, hasDob: dob !== null, hasMobile: mobile !== null },
       summary: "Updated the details statement passwords are worked out from",
     });
   });

@@ -154,8 +154,21 @@ institution picks differently — verified from the emails themselves:
 | Axis Bank | "first four letters of your name … followed by your date and month of birth in ddmm format. The password is case sensitive (lowercase)" |
 | ICICI Bank | "Enter all letters in small case without adding any special characters, spaces or salutation" |
 | Upstox, INDmoney | "use your PAN (in lowercase)" |
-| SBI, IndusInd, Canara | date of birth, generally DDMMYYYY |
+| IndusInd | date of birth, generally DDMMYYYY |
 | RBL Bank | first four letters plus DDMM**YY** — a two-digit year, found by trying |
+| **SBI account** | last five of the registered mobile, then DOB as DDMMYY — *"mobile XXXXX12345 and DOB 16 Sept 1982 → 12345160982"* |
+| **SBI Card** | DOB as DDMMYYYY, then the card's last four — *"DOB 01.04.1980 & card 1234 → 010419801234"* |
+| **Canara** | the card's last four, alone — *"5111********5006 → 5006"* |
+| **HSBC** | DOB as DDMMYY, then the card's last six |
+
+The last four rules each need a datum the name/PAN/DOB triple does not carry —
+the registered mobile, or the card number. The card's last four the app
+already holds per account for SMS matching (F2.9), so Canara and SBI Card open
+on the auto-fetch path with nothing extra typed; the mobile is one more
+optional identity field; HSBC's last-six needs a fuller card number than the
+stored last-four, so it falls back to the type-it-once path. All four are
+verified in tests against the bank's own worked example, the same way Union
+Bank's was.
 
 **A statement password is usually the PDF's *owner* password.** Verified
 28-08-2026: qpdf reports of a Union Bank statement that `RAVI0101` — the string

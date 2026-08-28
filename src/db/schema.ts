@@ -1043,4 +1043,16 @@ CREATE TABLE statement_identity (
 );
 `,
   },
+  {
+    name: "0011-statement-identity-mobile",
+    sql: `
+--------------------------------------------------------------------------------
+-- 10 §3.6 · SBI's account statement derives its password from the last five
+-- digits of the registered mobile number plus the date of birth. That is the
+-- only rule that needs a mobile, so it is added rather than assumed — and, like
+-- every other field in this table, it never leaves the server (PR5.3).
+--------------------------------------------------------------------------------
+ALTER TABLE statement_identity ADD COLUMN mobile TEXT;
+`,
+  },
 ];

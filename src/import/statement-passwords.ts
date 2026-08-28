@@ -11,7 +11,15 @@
  *   · **ICICI** — the same, lowercase, "no special characters, spaces or
  *     salutation".
  *   · **Upstox, INDmoney, most brokers** — the PAN, lowercase.
- *   · **SBI Card, several others** — the date of birth as DDMMYYYY.
+ *   · **SBI Card** — the date of birth as DDMMYYYY, then the card's last four.
+ *   · **SBI account** — the last five of the registered mobile, then DDMMYY.
+ *   · **Canara** — the card's last four, alone.
+ *   · **HSBC** — the date of birth as DDMMYY, then the card's last six.
+ *
+ * The last four rules are quoted from each institution's own statement email,
+ * and each needs a digit the name/PAN/DOB triple does not carry — a card
+ * number (which the app already stores per account for SMS matching, F2.9) or
+ * the registered mobile. Those are threaded in rather than assumed.
  *
  * So a household that wants unattended statement fetching (`04` §3.4) has to
  * let the app hold the name, the PAN and the date of birth. **This reverses
@@ -39,6 +47,11 @@ export interface StatementIdentity {
   pan: string | null;
   /** DDMMYYYY, the form every bank's instructions use. */
   dob: string | null;
+  /**
+   * The registered mobile number, digits only. SBI's account statement uses
+   * its last five; nothing else here needs it, so it stays optional.
+   */
+  mobile?: string | null;
 }
 
 /** The first four characters of a name, ignoring spaces and punctuation. */
@@ -66,11 +79,23 @@ function parts(dob: string | null): { dd: string; mm: string; yyyy: string } | n
  * that quietly changed its rule still opens.
  */
 export function passwordCandidates(
-  identity: StatementIdentity, bankId?: BankId | null,
+  identity: StatementIdentity,
+  bankId?: BankId | null,
+  opts: { cardDigits?: (string | null | undefined)[] } = {},
 ): string[] {
   const key = nameKey(identity.name);
   const d = parts(identity.dob);
   const pan = identity.pan?.replace(/\s/g, "") ?? null;
+  const mobile = identity.mobile?.replace(/\D/g, "") || null;
+
+  // Every card/account number the app can offer, digits only. The account's
+  // stored last-four (F2.9) is the usual one; the household may have typed a
+  // fuller number, which unlocks HSBC's last-six.
+  const numbers = (opts.cardDigits ?? [])
+    .map((n) => (n ?? "").replace(/\D/g, ""))
+    .filter((n) => n.length >= 4);
+  const lastN = (n: number): string[] =>
+    [...new Set(numbers.filter((x) => x.length >= n).map((x) => x.slice(-n)))];
 
   const all: string[] = [];
   const add = (value: string | null | undefined) => {
@@ -95,6 +120,35 @@ export function passwordCandidates(
     add(d.yyyy + d.mm + d.dd);
     add(key.toUpperCase() + ddmmyyyy);
     add(key.toLowerCase() + ddmmyyyy);
+  }
+
+  /*
+   * Card- and mobile-based rules, each quoted from the institution's own
+   * statement, each needing a digit the name/PAN/DOB triple does not carry:
+   *
+   *   · SBI account — last five of the registered mobile, then DOB as DDMMYY.
+   *       "mobile XXXXX12345 and DOB 16 Sept 1982 -> 12345160982"
+   *   · SBI Card    — DOB as DDMMYYYY, then the last four of the card.
+   *       "DOB 01.04.1980 & card 1234 -> 010419801234"
+   *   · Canara      — the last four of the card, alone.
+   *       "5111********5006 -> 5006"
+   *   · HSBC        — DOB as DDMMYY, then the last six of the card.
+   */
+  if (d) {
+    const ddmm = d.dd + d.mm;
+    const ddmmyy = ddmm + d.yyyy.slice(2);
+    const ddmmyyyy = ddmm + d.yyyy;
+
+    if (mobile && mobile.length >= 5) add(mobile.slice(-5) + ddmmyy);      // SBI account
+    for (const four of lastN(4)) {
+      add(four);                                                           // Canara
+      add(ddmmyyyy + four);                                                // SBI Card
+      add(ddmmyy + four);
+    }
+    for (const six of lastN(6)) add(ddmmyy + six);                         // HSBC
+  } else {
+    // Canara needs only the card, so it works even with no date of birth.
+    for (const four of lastN(4)) add(four);
   }
 
   if (pan) {

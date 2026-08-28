@@ -332,7 +332,7 @@ export function renderDigestSettings(muted: Set<DigestKind>): SafeHtml {
  * a reassuring summary of it.
  */
 export function renderStatementIdentity(
-  masked: { name: string; pan: string | null; dob: string | null } | null,
+  masked: { name: string; pan: string | null; dob: string | null; mobile: string | null } | null,
 ): SafeHtml {
   return html`
     <section class="card" id="statements">
@@ -358,6 +358,7 @@ export function renderStatementIdentity(
             <tr><td>Name</td><td>${masked!.name}</td></tr>
             <tr><td>PAN</td><td>${masked!.pan ?? "Not saved"}</td></tr>
             <tr><td>Date of birth</td><td>${masked!.dob ?? "Not saved"}</td></tr>
+            <tr><td>Mobile</td><td>${masked!.mobile ?? "Not saved"}</td></tr>
           </tbody>
         </table>
         <form method="post" action="/settings/identity" style="margin:.6rem 0">
@@ -382,6 +383,11 @@ export function renderStatementIdentity(
           <label for="id-pan">PAN</label>
           <input id="id-pan" name="pan" autocomplete="off" spellcheck="false"
                  placeholder="Optional — brokers use it">
+        </div>
+        <div class="field">
+          <label for="id-mobile">Registered mobile</label>
+          <input id="id-mobile" name="mobile" autocomplete="off" inputmode="numeric"
+                 placeholder="Optional — SBI's account statement uses its last five">
         </div>
         <button type="submit">Save</button>
       </form>
