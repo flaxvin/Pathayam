@@ -192,20 +192,48 @@ export const CLIENT_SCRIPT = String.raw`
     return dialog;
   }
 
-  var COMMANDS = [
+  // F29: every screen and action. A 'feature' marks a command that belongs to
+  // a module; F28.2 hides it when that module is off, so a disabled module
+  // never appears in the palette any more than in the navigation.
+  var ALL_COMMANDS = [
     { label: "Go to Budget", href: "/", group: "Go to" },
     { label: "Go to Accounts", href: "/accounts", group: "Go to" },
     { label: "Go to Review", href: "/review", group: "Go to" },
     { label: "Go to Reports", href: "/reports", group: "Go to" },
+    { label: "Go to Query", href: "/query", group: "Go to" },
+    { label: "Go to Schedules", href: "/schedules", group: "Go to" },
+    { label: "Go to Goals", href: "/goals", group: "Go to" },
+    { label: "Go to Loans", href: "/loans", group: "Go to", feature: "loans" },
+    { label: "Go to Portfolio", href: "/portfolio", group: "Go to", feature: "assets" },
+    { label: "Go to Net worth", href: "/net-worth", group: "Go to", feature: "assets" },
+    { label: "Go to Allocation", href: "/portfolio/allocation", group: "Go to", feature: "assets" },
+    { label: "Go to Lending in the family", href: "/family", group: "Go to" },
+    { label: "Go to Payees", href: "/payees", group: "Go to" },
+    { label: "Go to Rules", href: "/rules", group: "Go to" },
     { label: "Go to Import", href: "/import", group: "Go to" },
+    { label: "Go to Month close", href: "/months", group: "Go to" },
     { label: "Go to Health", href: "/health", group: "Go to" },
     { label: "Go to Settings", href: "/settings", group: "Go to" },
     { label: "Add a transaction", href: "/add", group: "Do", shortcut: "A" },
     { label: "Move money between categories", href: "/move", group: "Do" },
     { label: "Auto-assign this month", href: "/auto-assign", group: "Do" },
     { label: "Reconcile an account", href: "/accounts", group: "Do" },
+    { label: "Import a CAS", href: "/portfolio/cas", group: "Do", feature: "assets" },
+    { label: "Prepayment calculator", href: "/loans/what-if", group: "Do", feature: "loans" },
     { label: "Toggle theme", href: "/settings/theme-toggle", group: "Do" },
   ];
+
+  function enabledFeatures() {
+    var attr = (document.body.getAttribute("data-features") || "").split(" ");
+    var set = {};
+    attr.forEach(function (f) { if (f) set[f] = true; });
+    return set;
+  }
+
+  var COMMANDS = (function () {
+    var features = enabledFeatures();
+    return ALL_COMMANDS.filter(function (c) { return !c.feature || features[c.feature]; });
+  })();
 
   function renderResults(query) {
     var results = document.getElementById("palette-results");

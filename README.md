@@ -294,7 +294,6 @@ wizard, the India-appropriate starting template, Docker Compose.
 | Gap | Where it is specified |
 |---|---|
 | SMS forwarding | `04` §3.5 — P2, needs an Android companion; iOS cannot read SMS (a platform limit, not a gap) |
-| Module feature-flag UI (flags work; they are environment variables) | F28 |
 | Tranche drawdown, pre-EMI, moratorium models | `06` R15, R16 M4 — modelled, seeded with no data (Q11) |
 
 Nothing in that list requires reworking stored data. The three things `05` §3

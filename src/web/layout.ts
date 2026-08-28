@@ -67,7 +67,7 @@ export function page(options: LayoutOptions, content: SafeHtml): string {
 <meta name="theme-color" content="${theme === "dark" ? "#11141a" : "#f6f7f9"}">
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
 </head>
-<body>
+<body data-features="${[features.loans ? "loans" : "", features.assets ? "assets" : ""].filter(Boolean).join(" ")}">
 ${String(renderBanners(impersonating, devMode))}
 ${bare ? "" : String(renderHeader(theme, memberName))}
 <a class="skip-link" href="#main">Skip to content</a>

@@ -801,4 +801,25 @@ executable.
 
 ---
 
-*Entries B48 onward are recorded as the work happens.*
+### B48 · Feature flags need no toggle UI — they need to disappear completely
+
+*28-08-2026 · F28.* The backlog called this "module feature-flag UI", but F28.5
+is explicit that flags are deployment-level, not per-member — so a runtime
+toggle would contradict the model (and the immutable-config approach). What F28
+actually asks for is F28.2: a disabled module vanishes from every surface, not
+greyed out.
+
+Routes already 404'd and the sidebar already gated, but the command palette
+carried a static list that both omitted the modules entirely and could not see
+the flags — it is client-side. Fixed by emitting the enabled modules as a
+`data-features` attribute on `<body>` and having the palette filter its command
+list against it. The palette is now complete (every screen and action) and
+flag-aware in one change. F28.4 — flags on the health page — was already there.
+
+Verified with assets disabled: the route 404s, the sidebar and palette both
+drop Portfolio, and the health page reads "assets off". No data is touched
+(F28.3); re-enabling restores it.
+
+---
+
+*Entries B49 onward are recorded as the work happens.*
