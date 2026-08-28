@@ -7,7 +7,7 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { donutChart, groupedBarChart, lineChart, progressRing, horizontalBars, sparkline, waterfall, seriesColor } from "./charts.ts";
+import { donutChart, groupedBarChart, lineChart, progressRing, horizontalBars, sparkline, waterfall, treemap, heatmapCalendar, sankeyBudget, seriesColor } from "./charts.ts";
 import type { Paise } from "../core/money.ts";
 
 const p = (n: number): Paise => n as Paise;
@@ -136,6 +136,46 @@ describe("S15 · charts", () => {
     assert.equal(rects.length, 3, "two steps plus the total, no opening bar");
     assert.doesNotMatch(svg, /NaN|height="-/);
     assert.match(svg, /Net change/);
+  });
+
+  test("a treemap tiles every positive item and no rectangle has negative size", () => {
+    const svg = treemap({
+      title: "Spend",
+      items: [
+        { label: "Rent", value: p(4100000) },
+        { label: "Food", value: p(1200000) },
+        { label: "Fuel", value: p(300000) },
+        { label: "Zero", value: p(0) },
+      ],
+    }).value;
+    assert.equal((svg.match(/<rect/g) ?? []).length, 3, "zero-value items are dropped");
+    assert.doesNotMatch(svg, /NaN|width="-|height="-/);
+  });
+
+  test("a heatmap places a cell per day and shades by value", () => {
+    const svg = heatmapCalendar({
+      title: "Daily",
+      days: [
+        { date: "2026-08-01" as never, value: p(0) },
+        { date: "2026-08-02" as never, value: p(5000) },
+        { date: "2026-08-05" as never, value: p(20000) },
+      ],
+    }).value;
+    assert.equal((svg.match(/<rect/g) ?? []).length, 3);
+    assert.match(svg, /fill-opacity/, "busy days are shaded");
+    assert.doesNotMatch(svg, /NaN/);
+  });
+
+  test("a budget sankey draws income, group and category nodes plus a Kept flow", () => {
+    const svg = sankeyBudget({
+      title: "Flow",
+      income: p(500000),
+      groups: [{ name: "Fixed", categories: [{ name: "Rent", value: p(100000) }] }],
+    }).value;
+    // Income node + Fixed group + Rent category + Kept group + Unspent category = 5 rects.
+    assert.equal((svg.match(/<rect/g) ?? []).length, 5);
+    assert.match(svg, /Kept/, "unspent income shows as a Kept flow");
+    assert.doesNotMatch(svg, /NaN|height="-/);
   });
 
   test("seriesColor cycles through the palette", () => {

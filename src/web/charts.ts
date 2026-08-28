@@ -15,6 +15,7 @@
 
 import { html, raw, escape, type SafeHtml } from "../http/html.ts";
 import { formatPaise, formatCompact, type Paise } from "../core/money.ts";
+import { daysBetween, type IsoDate } from "../core/dates.ts";
 
 /** Round to keep the SVG markup small; sub-pixel precision buys nothing. */
 const r2 = (n: number): number => Math.round(n * 100) / 100;
@@ -492,6 +493,207 @@ export function waterfall(opts: {
     `<svg viewBox="0 0 ${W} ${H}" width="100%" height="auto" role="img" ` +
     `aria-label="${escape(opts.title)}" style="max-width:100%"><title>${escape(opts.title)}</title>` +
     parts.join("") + `</svg>`;
+  return html`<div class="chart-wide">${raw(svg)}</div>`;
+}
+
+/** Day-of-week for an ISO date, 0 = Sunday. 2000-01-01 was a Saturday (6). */
+function dayOfWeek(date: IsoDate): number {
+  return ((6 + (daysBetween("2000-01-01", date) % 7)) % 7 + 7) % 7;
+}
+
+/**
+ * A GitHub-style spending heatmap — one cell per day, columns are weeks, rows
+ * are Sun–Sat, each cell's shade set by that day's spend. Days with nothing are
+ * the faint grid colour; the busiest day is fully saturated.
+ */
+export function heatmapCalendar(opts: {
+  title: string;
+  days: { date: IsoDate; value: number }[];
+  color?: string;
+}): SafeHtml {
+  if (opts.days.length === 0) return raw("");
+  const cell = 13, gap = 3, step = cell + gap;
+  const color = opts.color ?? "var(--danger)";
+  const sorted = [...opts.days].sort((a, b) => a.date.localeCompare(b.date));
+  const first = sorted[0]!.date;
+  const startDow = dayOfWeek(first);
+  const max = Math.max(1, ...sorted.map((d) => d.value));
+  const byDate = new Map(sorted.map((d) => [d.date, d.value]));
+
+  const cells: string[] = [];
+  let maxCol = 0;
+  for (const d of sorted) {
+    const idx = daysBetween(first, d.date) + startDow;
+    const col = Math.floor(idx / 7), row = idx % 7;
+    maxCol = Math.max(maxCol, col);
+    const v = byDate.get(d.date) ?? 0;
+    const opacity = v <= 0 ? 0 : 0.18 + 0.82 * (v / max);
+    cells.push(
+      `<rect x="${col * step}" y="${row * step}" width="${cell}" height="${cell}" rx="2.5" ` +
+      `fill="${v > 0 ? escape(color) : "var(--chart-grid)"}" ${v > 0 ? `fill-opacity="${r2(opacity)}"` : ""}>` +
+      `<title>${escape(d.date)}: ${escape(formatPaise(v as Paise))}</title></rect>`,
+    );
+  }
+  const w = (maxCol + 1) * step - gap;
+  const h = 7 * step - gap;
+  const svg =
+    `<svg viewBox="0 0 ${w} ${h}" width="100%" height="auto" role="img" ` +
+    `aria-label="${escape(opts.title)}" style="max-width:${w}px" preserveAspectRatio="xMinYMid meet">` +
+    `<title>${escape(opts.title)}</title>${cells.join("")}</svg>`;
+  return html`<div class="chart-wide" style="overflow-x:auto">${raw(svg)}</div>`;
+}
+
+/**
+ * A squarified treemap — nested rectangles sized by value, for spending by
+ * category or payee where the *relative* sizes are the point. Labels appear on
+ * tiles large enough to hold them.
+ */
+export function treemap(opts: {
+  title: string;
+  items: { label: string; value: Paise }[];
+  width?: number;
+  height?: number;
+}): SafeHtml {
+  const W = opts.width ?? 640, H = opts.height ?? 300;
+  const items = opts.items.filter((i) => i.value > 0).sort((a, b) => b.value - a.value);
+  if (items.length === 0) return raw("");
+  const total = items.reduce((s, i) => s + i.value, 0);
+
+  // Squarified layout (Bruls et al.), simplified: lay rows along the shorter
+  // side, keeping each row's tiles close to square.
+  type Tile = { label: string; value: Paise; x: number; y: number; w: number; h: number };
+  const tiles: Tile[] = [];
+  let x = 0, y = 0, w = W, h = H;
+  const area = (v: number) => (v / total) * W * H;
+  let i = 0;
+  while (i < items.length) {
+    const vertical = w >= h; // lay the row along the shorter dimension
+    const side = vertical ? h : w;
+    // Grow the row while it improves the worst aspect ratio.
+    let row: typeof items = [];
+    let best = Infinity;
+    let j = i;
+    for (; j < items.length; j++) {
+      const trial = [...row, items[j]!];
+      const sum = trial.reduce((s, it) => s + area(it.value), 0);
+      const thick = sum / side;
+      const worst = Math.max(
+        ...trial.map((it) => {
+          const len = area(it.value) / thick;
+          return Math.max(thick / len, len / thick);
+        }),
+      );
+      if (worst > best) break;
+      best = worst; row = trial;
+    }
+    const sum = row.reduce((s, it) => s + area(it.value), 0);
+    const thick = sum / side;
+    let off = 0;
+    for (const it of row) {
+      const len = area(it.value) / thick;
+      if (vertical) tiles.push({ ...it, x, y: y + off, w: thick, h: len });
+      else tiles.push({ ...it, x: x + off, y, w: len, h: thick });
+      off += len;
+    }
+    if (vertical) { x += thick; w -= thick; } else { y += thick; h -= thick; }
+    i = j;
+  }
+
+  const rects = tiles.map((t, k) => {
+    const showLabel = t.w > 54 && t.h > 26;
+    return (
+      `<g><rect x="${r2(t.x)}" y="${r2(t.y)}" width="${r2(Math.max(0, t.w - 2))}" height="${r2(Math.max(0, t.h - 2))}" ` +
+      `rx="3" fill="${seriesColor(k)}" fill-opacity="0.85">` +
+      `<title>${escape(t.label)}: ${escape(formatPaise(t.value))}</title></rect>` +
+      (showLabel
+        ? `<text x="${r2(t.x + 6)}" y="${r2(t.y + 17)}" font-size="12" fill="#fff" font-weight="600">${escape(t.label.length > Math.floor(t.w / 8) ? t.label.slice(0, Math.floor(t.w / 8)) + "…" : t.label)}</text>` +
+          `<text x="${r2(t.x + 6)}" y="${r2(t.y + 31)}" font-size="10.5" fill="#fff" fill-opacity="0.85">${escape(formatCompact(t.value))}</text>`
+        : "") +
+      `</g>`
+    );
+  });
+  const svg =
+    `<svg viewBox="0 0 ${W} ${H}" width="100%" height="auto" role="img" ` +
+    `aria-label="${escape(opts.title)}" style="max-width:100%"><title>${escape(opts.title)}</title>${rects.join("")}</svg>`;
+  return html`<div class="chart-wide">${raw(svg)}</div>`;
+}
+
+/**
+ * A budget-flow Sankey — Income on the left, spending category groups in the
+ * middle, individual categories on the right, with any unspent income shown as
+ * its own "Kept" flow. Band thickness is the amount; the point is seeing where
+ * a month's income actually went.
+ */
+export function sankeyBudget(opts: {
+  title: string;
+  income: Paise;
+  groups: { name: string; categories: { name: string; value: Paise }[] }[];
+  keptLabel?: string;
+}): SafeHtml {
+  const W = 660, H = 360, padT = 8, padB = 8, nodeW = 13, colGap = 8;
+  const plotH = H - padT - padB;
+
+  // A synthetic "Kept" group for income not spent, so every rupee of income has
+  // a destination and the columns balance.
+  const spent = opts.groups.reduce((s, g) => s + g.categories.reduce((c, x) => c + x.value, 0), 0);
+  const kept = Math.max(0, opts.income - spent) as Paise;
+  const groups = kept > 0
+    ? [...opts.groups, { name: opts.keptLabel ?? "Kept", categories: [{ name: "Unspent", value: kept }] }]
+    : opts.groups;
+  const totalFlow = Math.max(1, opts.income);
+  const scale = (plotH - Math.max(0, groups.length - 1) * 4) / totalFlow;
+
+  const x0 = padT;
+  const xL = 0, xM = (W - nodeW) / 2, xR = W - nodeW;
+
+  const parts: string[] = [];
+  const nodeRect = (x: number, y: number, h: number, color: string, label: string, amount: Paise, anchor: "start" | "end") => {
+    parts.push(`<rect x="${r2(x)}" y="${r2(y)}" width="${nodeW}" height="${r2(Math.max(1, h))}" rx="2" fill="${color}"><title>${escape(label)}: ${escape(formatPaise(amount))}</title></rect>`);
+    if (h > 12) {
+      const tx = anchor === "start" ? x + nodeW + 4 : x - 4;
+      parts.push(`<text x="${r2(tx)}" y="${r2(y + h / 2 + 3)}" text-anchor="${anchor}" font-size="10.5" fill="var(--text-muted)">${escape(label.length > 16 ? label.slice(0, 15) + "…" : label)}</text>`);
+    }
+  };
+  const band = (x1: number, y1: number, x2: number, y2: number, thick: number, color: string) => {
+    const mx = (x1 + x2) / 2;
+    parts.push(
+      `<path d="M${r2(x1)} ${r2(y1)} C${r2(mx)} ${r2(y1)} ${r2(mx)} ${r2(y2)} ${r2(x2)} ${r2(y2)} ` +
+      `L${r2(x2)} ${r2(y2 + thick)} C${r2(mx)} ${r2(y2 + thick)} ${r2(mx)} ${r2(y1 + thick)} ${r2(x1)} ${r2(y1 + thick)} Z" ` +
+      `fill="${color}" fill-opacity="0.28"/>`,
+    );
+  };
+
+  // Income node (left), full height.
+  const incomeH = opts.income * scale;
+  nodeRect(xL, x0, incomeH, "var(--positive)", "Income", opts.income, "start");
+
+  // Group nodes (middle) + category nodes (right), stacked; bands drawn as we go.
+  let incomeOff = x0;   // where the next band leaves the income node
+  let groupTop = x0;
+  groups.forEach((g, gi) => {
+    const gTotal = g.categories.reduce((s, c) => s + c.value, 0) as Paise;
+    const gH = gTotal * scale;
+    const color = seriesColor(gi);
+    nodeRect(xM, groupTop, gH, color, g.name, gTotal, "start");
+    // income → group band
+    band(xL + nodeW, incomeOff, xM, groupTop, gH, color);
+    incomeOff += gH;
+
+    // categories on the right, stacked; group → category bands
+    let catTop = groupTop;
+    let groupOut = groupTop;
+    for (const c of g.categories) {
+      const cH = c.value * scale;
+      nodeRect(xR, catTop, cH, color, c.name, c.value, "end");
+      band(xM + nodeW, groupOut, xR, catTop, cH, color);
+      groupOut += cH; catTop += cH;
+    }
+    groupTop += gH + 4;
+  });
+
+  const svg =
+    `<svg viewBox="0 0 ${W} ${H}" width="100%" height="auto" role="img" ` +
+    `aria-label="${escape(opts.title)}" style="max-width:100%"><title>${escape(opts.title)}</title>${parts.join("")}</svg>`;
   return html`<div class="chart-wide">${raw(svg)}</div>`;
 }
 

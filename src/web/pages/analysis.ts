@@ -10,11 +10,14 @@
 
 import { html, raw, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, formatCompact, type Paise } from "../../core/money.ts";
-import { formatDate, formatMonth, type IsoDate } from "../../core/dates.ts";
+import { formatDate, formatMonth, type IsoDate, type MonthKey } from "../../core/dates.ts";
 import type { QueryRow, GroupedTotal, GroupBy, Period, TrendPoint } from "../../domain/reports.ts";
 import type { Schedule, DetectedSchedule, Cashflow, CalendarDay } from "../../domain/schedules.ts";
 import type { GoalProgress } from "../../domain/goals.ts";
-import { groupedBarChart, lineChart, progressRing, horizontalBars, donutChart, sparkline } from "../charts.ts";
+import {
+  groupedBarChart, lineChart, progressRing, horizontalBars, donutChart, sparkline,
+  heatmapCalendar, treemap, sankeyBudget,
+} from "../charts.ts";
 import type { Insight, InsightKind } from "../../domain/insights.ts";
 
 // ---------------------------------------------------------------------------
@@ -219,6 +222,8 @@ export function renderReports(opts: {
   trend: TrendPoint[];
   categorySpend: { label: string; value: Paise }[];
   categoryTrends: { name: string; spent: number[] }[];
+  spendingCalendar: { date: IsoDate; value: Paise }[];
+  sankey: { income: Paise; month: MonthKey; groups: { name: string; categories: { name: string; value: Paise }[] }[] };
   period: Period;
   periods: Period[];
   loanInterest: { fy: number; label: string; interest: Paise; principal: Paise; lender: string }[];
@@ -332,6 +337,43 @@ export function renderReports(opts: {
         ${donutChart({
           title: "Spending by category over the period",
           slices: catSlices,
+        })}
+      </section>
+    `)}
+
+    ${when(opts.categorySpend.length > 2, () => html`
+      <section class="card">
+        <h2>Spending map</h2>
+        <p class="faint" style="margin-top:-.25rem">
+          Every category sized by what it took, ${opts.period.label.toLowerCase()}.
+        </p>
+        ${treemap({
+          title: "Spending by category as a treemap",
+          items: opts.categorySpend.map((c) => ({ label: c.label, value: c.value })),
+        })}
+      </section>
+    `)}
+
+    ${when(opts.spendingCalendar.some((d) => d.value > 0), () => html`
+      <section class="card">
+        <h2>Spending calendar</h2>
+        <p class="faint" style="margin-top:-.25rem">
+          Each day over the last ~17 weeks, shaded by what was spent.
+        </p>
+        ${heatmapCalendar({ title: "Daily spending heatmap", days: opts.spendingCalendar })}
+      </section>
+    `)}
+
+    ${when(opts.sankey.income > 0 && opts.sankey.groups.length > 0, () => html`
+      <section class="card">
+        <h2>Where your money went</h2>
+        <p class="faint" style="margin-top:-.25rem">
+          ${formatMonth(opts.sankey.month)}: income in, and where it flowed by group and category.
+        </p>
+        ${sankeyBudget({
+          title: "Income to spending flow for the month",
+          income: opts.sankey.income,
+          groups: opts.sankey.groups,
         })}
       </section>
     `)}
