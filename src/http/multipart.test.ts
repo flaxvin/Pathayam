@@ -82,4 +82,29 @@ describe("multipart uploads", () => {
     assert.equal(parsed.a, "1");
     assert.deepEqual(parsed.b, ["two", "three"]);
   });
+
+  test("B51 · a part with filename before name keeps the real field name", async () => {
+    // Browsers send name before filename, but a hand-built client (the Gmail
+    // and API multipart paths need not be browsers) may reverse them. The name
+    // regex used to match the `name="…"` inside `filename="…"`, capturing the
+    // filename as the field name and losing the upload.
+    const boundary = "----BudgetAppTestReversed";
+    const pdf = Buffer.from([0x25, 0x50, 0x44, 0x46, 0x80, 0xff]);
+    const body = Buffer.concat([
+      Buffer.from(
+        `--${boundary}\r\n` +
+          // filename FIRST, then name — the order that used to break it.
+          `Content-Disposition: form-data; filename="cas.pdf"; name="statement"\r\n\r\n`,
+      ),
+      pdf,
+      Buffer.from(`\r\n--${boundary}--\r\n`),
+    ]);
+    const req = request(`multipart/form-data; boundary=${boundary}`, body);
+    await readBody(req);
+
+    const file = fileField(req, "statement");
+    assert.ok(file, "the field name should be 'statement', not 'cas.pdf'");
+    assert.equal(file!.filename, "cas.pdf");
+    assert.deepEqual(Buffer.from(file!.bytes), pdf);
+  });
 });

@@ -148,6 +148,31 @@ export const CLIENT_SCRIPT = String.raw`
   // ---------------------------------------------------------------------------
   // Inline assign (F3.8) — commit on blur or Enter, revert on Escape
   // ---------------------------------------------------------------------------
+  // B51: reveal/hide a target element when a control changes, declaratively.
+  // The CSP forbids inline onchange handlers (script-src self), so a control
+  // that carried its logic in an onchange attribute silently did nothing. A
+  // control marks itself with data-reveal set to a target element id and,
+  // optionally, data-reveal-when set to a string (and data-reveal-prefix to
+  // match a prefix rather than the whole value). The target shows when the
+  // control value matches. Runs once on load and on every change.
+  function applyReveal(control) {
+    if (!control || !control.dataset || control.dataset.reveal === undefined) return;
+    var target = document.getElementById(control.dataset.reveal);
+    if (!target) return;
+    var when = control.dataset.revealWhen;
+    var value = control.value || "";
+    var show = when === undefined
+      ? Boolean(value)
+      : control.dataset.revealPrefix !== undefined
+        ? value.indexOf(when) === 0
+        : value === when;
+    target.style.display = show ? "" : "none";
+  }
+  document.addEventListener("change", function (event) {
+    applyReveal(event.target);
+  });
+  document.querySelectorAll("[data-reveal]").forEach(applyReveal);
+
   document.addEventListener("focusin", function (event) {
     var input = event.target;
     if (input && input.dataset && input.dataset.assignInput !== undefined) {

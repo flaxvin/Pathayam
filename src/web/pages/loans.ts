@@ -155,28 +155,7 @@ function renderLoanCard(p: LoanProjection): SafeHtml {
           figure("Interest saved", p.metrics.interestSaved, "projected"))}
       </div>
 
-      ${when(p.moratorium !== null, () => html`
-        <p class="notice ${p.moratorium!.capitalised ? "notice-warning" : "notice-info"}"
-           style="margin-top:.75rem">
-          ${p.moratorium!.capitalised
-            ? html`
-                In its <strong>${p.moratorium!.months}-month moratorium</strong>, with
-                interest <strong>capitalised</strong>. You pay nothing now, but
-                <strong>${formatPaise(p.moratorium!.capitalisedInterest)}</strong> of
-                interest is rolling into what you owe — repayment will start against
-                <strong>${formatPaise(p.moratorium!.balanceAtRepaymentStart)}</strong>,
-                not the original amount. Servicing the interest instead would avoid all
-                of that.
-              `
-            : html`
-                In its <strong>${p.moratorium!.months}-month moratorium</strong>, interest
-                <strong>serviced</strong> monthly — the principal stays put and nothing
-                is capitalised. Interest of
-                <strong>${formatPaise(p.moratorium!.totalServiced)}</strong> is paid
-                across the moratorium before full instalments begin.
-              `}
-        </p>
-      `)}
+      ${moratoriumNotice(p)}
 
       <div class="row" style="flex-wrap:wrap;margin-top:.75rem">
         <a class="button button-small" href="/loans/${loan.id}">Schedule</a>
@@ -185,6 +164,37 @@ function renderLoanCard(p: LoanProjection): SafeHtml {
       </div>
     </section>
   `;
+}
+
+/**
+ * B51 · R16's moratorium notice — shared by the list card and the loan detail
+ * page. It used to live only in the card, so the loan's own page, where a
+ * household goes to read about the loan, showed neither the moratorium state
+ * nor the capitalisation warning that makes M4 expensive.
+ */
+function moratoriumNotice(p: LoanProjection): SafeHtml {
+  return when(p.moratorium !== null, () => html`
+    <p class="notice ${p.moratorium!.capitalised ? "notice-warning" : "notice-info"}"
+       style="margin-top:.75rem">
+      ${p.moratorium!.capitalised
+        ? html`
+            In its <strong>${p.moratorium!.months}-month moratorium</strong>, with
+            interest <strong>capitalised</strong>. You pay nothing now, but
+            <strong>${formatPaise(p.moratorium!.capitalisedInterest)}</strong> of
+            interest is rolling into what you owe — repayment will start against
+            <strong>${formatPaise(p.moratorium!.balanceAtRepaymentStart)}</strong>,
+            not the original amount. Servicing the interest instead would avoid all
+            of that.
+          `
+        : html`
+            In its <strong>${p.moratorium!.months}-month moratorium</strong>, interest
+            <strong>serviced</strong> monthly — the principal stays put and nothing
+            is capitalised. Interest of
+            <strong>${formatPaise(p.moratorium!.totalServiced)}</strong> is paid
+            across the moratorium before full instalments begin.
+          `}
+    </p>
+  `);
 }
 
 /** R22.1 · Every metric says whether it is actual or projected, in the label. */
@@ -244,11 +254,21 @@ export function renderLoanDetail(opts: {
         ${figure("Disbursed", p.disbursed)}
         ${figure("Undrawn", p.undrawn)}
         ${figure("Outstanding", p.outstanding, "actual")}
+        ${figure("Monthly", p.preEmi ?? p.emi)}
       </div>
       <p class="field-hint">
         Only what has been disbursed is a liability. The undrawn balance is neither
         money you owe nor money you hold.
       </p>
+      ${when(p.preEmi !== null, () => html`
+        <!-- B51: the actual current obligation, absent from this page before. -->
+        <p class="notice notice-info">
+          While the loan is part-drawn the monthly obligation is a pre-EMI of
+          <strong>${formatPaise(p.preEmi!)}</strong>, interest only — full instalments
+          of ${formatPaise(p.emi)} begin once it is fully disbursed.
+        </p>
+      `)}
+      ${moratoriumNotice(p)}
     </section>
 
     <section class="card">
@@ -269,7 +289,7 @@ export function renderLoanDetail(opts: {
       `)}
       <p class="field-hint">
         ${p.metrics.progressPercent.toFixed(1)}% of the principal is repaid.
-        ${when(p.metrics.emisSaved > 0, () => html`
+        ${when(p.metrics.emisSaved > 0 && p.outstanding > 0, () => html`
           You are ${p.metrics.emisSaved} instalments ahead of the original schedule.
         `)}
       </p>
@@ -319,7 +339,7 @@ export function renderLoanDetail(opts: {
           <div class="field">
             <label for="d-dest">Where did it go?</label>
             <select id="d-dest" name="destination"
-                    onchange="document.getElementById('d-acct-field').style.display = this.value === 'budget-account' ? '' : 'none'">
+                    data-reveal="d-acct-field" data-reveal-when="budget-account">
               <option value="third-party">Paid directly to a third party (builder, dealer, institution)</option>
               <option value="budget-account">Credited to one of my accounts</option>
             </select>
@@ -675,7 +695,7 @@ export function renderNewLoanForm(opts: {
         <div class="field">
           <label for="interest_model">Interest model</label>
           <select id="interest_model" name="interest_model" required
-                  onchange="document.getElementById('moratorium-field').style.display = this.value.startsWith('moratorium') ? '' : 'none'">
+                  data-reveal="moratorium-field" data-reveal-when="moratorium" data-reveal-prefix>
             <option value="reducing">Reducing balance — interest on what you still owe</option>
             <option value="flat">Flat rate — interest on the original amount, for the whole term</option>
             <option value="moratorium-serviced">Moratorium, interest serviced — pay interest during, principal later</option>
@@ -825,6 +845,62 @@ export function renderRecordInstalment(opts: {
       </div>
 
       <button class="button-primary" type="submit">Record it</button>
+      <a class="button button-quiet" href="/loans/${p.loan.id}">Cancel</a>
+    </form>
+  `;
+}
+
+/**
+ * B51 · Record a lender's statement to resolve drift (R18.8).
+ *
+ * The drift warning's "Resolve it" link pointed at `/loans/:id/statement`,
+ * which had no route. `recordLoanStatement` already existed — this is the form
+ * it needed. Entering the lender's own outstanding recomputes the drift.
+ */
+export function renderLoanStatementForm(opts: {
+  projection: LoanProjection;
+  today: IsoDate;
+}): SafeHtml {
+  const p = opts.projection;
+  return html`
+    <h1>Record a lender statement</h1>
+    <p class="muted">${p.loan.nickname || p.loan.lender}</p>
+    <p class="notice notice-info">
+      This app currently computes <strong>${formatPaise(p.outstanding)}</strong> outstanding.
+      Enter what the lender's latest statement says, and the difference (if any) is shown
+      as drift with its likely causes — a mid-cycle rate reset, part-month interest, fees
+      added to principal, or a value-date difference.
+    </p>
+    <form method="post" action="/loans/${p.loan.id}/statement" class="card">
+      <div class="grid-2">
+        <div class="field">
+          <label for="lender_outstanding">Lender's outstanding</label>
+          <input id="lender_outstanding" name="lender_outstanding" class="amount-input"
+                 type="text" inputmode="decimal" autocomplete="off" required autofocus
+                 placeholder="0.00">
+        </div>
+        <div class="field">
+          <label for="as_of">Statement date</label>
+          <input id="as_of" name="as_of" type="text" autocomplete="off"
+                 value="${formatDate(opts.today)}" placeholder="DD-MM-YYYY">
+        </div>
+      </div>
+      <fieldset>
+        <legend>If the statement shows them <span class="faint">(optional)</span></legend>
+        <div class="grid-2">
+          <div class="field">
+            <label for="interest_paid_ytd">Interest paid this financial year</label>
+            <input id="interest_paid_ytd" name="interest_paid_ytd" class="amount-input"
+                   type="text" inputmode="decimal" autocomplete="off">
+          </div>
+          <div class="field">
+            <label for="instalments_remaining">Instalments remaining</label>
+            <input id="instalments_remaining" name="instalments_remaining" type="text"
+                   inputmode="numeric" autocomplete="off">
+          </div>
+        </div>
+      </fieldset>
+      <button class="button-primary" type="submit">Record statement</button>
       <a class="button button-quiet" href="/loans/${p.loan.id}">Cancel</a>
     </form>
   `;

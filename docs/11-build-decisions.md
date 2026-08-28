@@ -869,4 +869,67 @@ has to be tested against paths that actually exist, not intended ones.
 
 ---
 
-*Entries B51 onward are recorded as the work happens.*
+### B51 · A pass over the live app, not just the tests
+
+*28-08-2026.* A structured review (699 green tests, clean typecheck) still
+missed a class of defect that only a running instance shows: features complete
+on the server but unreachable from the client, and a data-corrupting half-write
+behind a control the CSP silently disabled. Each was reproduced against a live
+server before it was fixed.
+
+**The critical one — a silent half-write.** `recordDisbursement` booked the
+loan liability unconditionally but gated the cash leg on
+`destination === "budget-account" && destinationAccountId`. With the account id
+blank, the debt rose and no money arrived, while the handler reported "the money
+is in your account." Proven end to end: a disbursement row persisted as
+`budget-account` with a null account, a −₹1,00,000 liability leg, and no matching
+credit anywhere — exactly the failure class B32 names. Fixed by rejecting the
+combination in the domain function, before anything is written.
+
+**The app's own CSP defeating its own feature.** `script-src 'self'` (R35.4)
+blocks inline handlers, but two `onchange` attributes carried the only logic
+that revealed a hidden field — the disburse account selector (feeding the bug
+above) and the moratorium-length input (making B49's feature unusable). Replaced
+with a declarative `data-reveal` toggle and one delegated `change` listener in
+`client.ts`, verified executing in a real headless browser (hidden → shown →
+hidden as the model changes).
+
+**Routing made literal routes unreachable.** The matcher was first-match-wins by
+registration order, so `/portfolio/holdings.csv` (and lots/prices) were shadowed
+by the earlier `/portfolio/:id` and 404'd; `POST /assets/new` was 404'd by the
+`/assets/` static-asset guard. Fixed by scoring matches on literal-segment count
+(most specific wins, order-independent) and moving manual-asset routes under
+`/portfolio/`.
+
+**Five shipped-but-unwired features, plus one the review missed.** `POST
+/transfer`, `POST /schedules/new`, manual-asset create/revalue, manual price
+entry, add-on card management and loan-statement drift resolution all had
+working domain functions and handlers but no form or a link to a non-existent
+GET (a 405 or 404). Each got the missing form/route. A sixth — every category
+name on the budget grid linked to `/category/:id`, which has no route — was
+found by the new link-checker, not the human review. Recording a *card*
+statement (its own table and domain path) is genuinely unbuilt, so that one link
+was removed rather than pointed at a 404, and is noted in place.
+
+**Also:** the drift metric hardcoded `baselineMonths: loan.tenure_months` while
+`projectedMonths` derived from the schedule, so a loan with nothing drawn read
+"240 instalments ahead" — now both derive from the same schedule. The loan
+*detail* page rendered neither the pre-EMI nor the moratorium notice the list
+card did — lifted into a shared fragment. Housekeeping (restore verification
+included, R40.2) first ran only after a full six-hour interval, so a
+frequently-restarting box never verified — added a leading tick a minute after
+listen. The multipart `name="…"` regex matched inside `filename="…"` when a
+non-browser client sends the parameters in that order — anchored on a parameter
+boundary.
+
+**The lesson, made mechanical.** Two of these (the shadowed CSV, the dead
+category link) are the same shape as B46's backup-coverage gap: a set that must
+stay in step drifted because nothing forced it to. So the fix is not just the
+links but a test — `web/link-coverage.test.ts` — that parses every `href` and
+form `action` out of the pages and asserts each resolves to a registered route,
+under the same specificity the live router now uses. It caught a dead link the
+human pass did not, which is the point.
+
+---
+
+*Entries B52 onward are recorded as the work happens.*

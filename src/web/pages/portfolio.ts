@@ -13,7 +13,7 @@ import { formatPaise, formatCompact, type Paise } from "../../core/money.ts";
 import { formatDate, type IsoDate } from "../../core/dates.ts";
 import { formatUnits, formatPrice } from "../../portfolio/holdings.ts";
 import type { HoldingView } from "../../domain/assets.ts";
-import { ASSET_LABELS, type AssetSubtype } from "../../domain/assets.ts";
+import { ASSET_LABELS, ASSET_SUBTYPES, type AssetSubtype } from "../../domain/assets.ts";
 import type {
   NetWorthStatement, NetWorthChange, Snapshot,
 } from "../../domain/networth.ts";
@@ -62,6 +62,7 @@ export function renderPortfolio(opts: {
         <a class="button" href="/portfolio/allocation">Allocation</a>
         <a class="button" href="/portfolio/holdings.csv">Export CSV</a>
         <a class="button" href="/portfolio/cas">Import a CAS</a>
+        <a class="button" href="/portfolio/asset/new">Add an asset</a>
         <a class="button button-primary" href="/portfolio/add">Add a holding</a>
       </div>
     </div>
@@ -123,6 +124,7 @@ export function renderPortfolio(opts: {
                   ${when(a.stale, () => html`
                     <span class="chip chip-warning">not valued recently</span>
                   `)}
+                  · <a href="/portfolio/asset/${a.id}/revalue">Revalue</a>
                 </div>
               </div>
               <strong class="amount">${formatPaise(a.value)}</strong>
@@ -131,6 +133,124 @@ export function renderPortfolio(opts: {
         )}
       </section>
     `)}
+  `;
+}
+
+/**
+ * B51 · Add a hand-valued asset (a flat, gold, a deposit, a receivable).
+ *
+ * `createAssetAccount` was reachable only through `POST /assets/new`, which the
+ * `/assets/` static-asset guard shadowed — so the whole non-market half of net
+ * worth was seed-only. The route moved to `/portfolio/asset/new`; this is its
+ * form.
+ */
+export function renderNewAssetForm(opts: { today: IsoDate; error?: string | null }): SafeHtml {
+  return html`
+    <h1>Add an asset</h1>
+    <p class="faint">
+      Something valued by hand — property, gold, a fixed deposit, money owed to you.
+      It counts towards net worth and keeps a dated history; it never touches the budget.
+    </p>
+    ${when(opts.error, () => html`<p class="notice notice-error">${opts.error}</p>`)}
+    <form method="post" action="/portfolio/asset/new" class="card">
+      <div class="field">
+        <label for="name">Name</label>
+        <input id="name" name="name" autocomplete="off" required autofocus
+               placeholder="Flat in Kochi, Sovereign gold, SBI FD…">
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label for="subtype">Kind</label>
+          <select id="subtype" name="subtype">
+            ${ASSET_SUBTYPES.filter((s) => s !== "investment").map(
+              (s) => html`<option value="${s}">${ASSET_LABELS[s]}</option>`,
+            )}
+          </select>
+        </div>
+        <div class="field">
+          <label for="value">Current value</label>
+          <input id="value" name="value" class="amount-input" type="text"
+                 inputmode="decimal" autocomplete="off" placeholder="0.00">
+        </div>
+      </div>
+      <div class="field">
+        <label for="as_of">Valued as of</label>
+        <input id="as_of" name="as_of" type="text" autocomplete="off"
+               value="${formatDate(opts.today)}" placeholder="DD-MM-YYYY">
+      </div>
+      <button class="button-primary" type="submit">Add asset</button>
+      <a class="button button-quiet" href="/portfolio">Cancel</a>
+    </form>
+  `;
+}
+
+/** B51 · Record a fresh dated valuation for a hand-valued asset (R23.2). */
+export function renderRevalueAsset(opts: {
+  asset: { id: string; name: string; value: Paise; asOf: IsoDate };
+  today: IsoDate;
+}): SafeHtml {
+  return html`
+    <h1>Revalue ${opts.asset.name}</h1>
+    <p class="faint">
+      Last valued at ${formatPaise(opts.asset.value)} as of ${formatDate(opts.asset.asOf)}.
+      A new valuation is added to the history — the old one is kept, so net worth over
+      time stays honest.
+    </p>
+    <form method="post" action="/portfolio/asset/${opts.asset.id}/revalue" class="card">
+      <div class="grid-2">
+        <div class="field">
+          <label for="value">New value</label>
+          <input id="value" name="value" class="amount-input" type="text"
+                 inputmode="decimal" autocomplete="off" required autofocus placeholder="0.00">
+        </div>
+        <div class="field">
+          <label for="as_of">As of</label>
+          <input id="as_of" name="as_of" type="text" autocomplete="off"
+                 value="${formatDate(opts.today)}" placeholder="DD-MM-YYYY">
+        </div>
+      </div>
+      <button class="button-primary" type="submit">Save valuation</button>
+      <a class="button button-quiet" href="/portfolio">Cancel</a>
+    </form>
+  `;
+}
+
+/**
+ * B51 · Enter a price for a market instrument by hand (R26).
+ *
+ * The holding page's "Enter one" link pointed at `/portfolio/:id/price`, which
+ * did not exist. Useful when a feed has no quote — an unlisted bond, a fund the
+ * provider does not carry.
+ */
+export function renderManualPrice(opts: {
+  holdingId: string;
+  instrumentName: string;
+  currentPrice: string;
+  today: IsoDate;
+}): SafeHtml {
+  return html`
+    <h1>Price ${opts.instrumentName}</h1>
+    <p class="faint">
+      Enter the price per unit in the instrument's own currency. It is stored against
+      the date, exactly like a fetched price, and never silently overwritten.
+    </p>
+    <form method="post" action="/portfolio/${opts.holdingId}/price" class="card">
+      <div class="grid-2">
+        <div class="field">
+          <label for="price">Price per unit</label>
+          <input id="price" name="price" class="amount-input" type="text"
+                 inputmode="decimal" autocomplete="off" required autofocus
+                 value="${opts.currentPrice}" placeholder="0.00">
+        </div>
+        <div class="field">
+          <label for="as_of">As of</label>
+          <input id="as_of" name="as_of" type="text" autocomplete="off"
+                 value="${formatDate(opts.today)}" placeholder="DD-MM-YYYY">
+        </div>
+      </div>
+      <button class="button-primary" type="submit">Save price</button>
+      <a class="button button-quiet" href="/portfolio/${opts.holdingId}">Cancel</a>
+    </form>
   `;
 }
 

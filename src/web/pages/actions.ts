@@ -156,6 +156,86 @@ export function renderAddTransaction(opts: {
   `;
 }
 
+/**
+ * B51 · Record a transfer between two accounts.
+ *
+ * The POST handler shipped but nothing rendered a form for it — the only link,
+ * on the add-transaction page, went to a route with no GET, so it 405'd.
+ * Transfers are load-bearing (credit-card payments, asset purchases, family
+ * lending), so this is the form that was missing. `defaultTo` / `defaultFrom`
+ * honour the `?to=` / `?from=` query the "Record a payment" links pass.
+ */
+export function renderTransfer(opts: {
+  accounts: Account[];
+  defaultFrom: string | null;
+  defaultTo: string | null;
+  today: string;
+  error?: string | null;
+}): SafeHtml {
+  const { accounts, defaultFrom, defaultTo, today } = opts;
+
+  if (accounts.length < 2) {
+    return html`
+      <div class="card empty-state">
+        <div class="empty-icon" aria-hidden="true">⇄</div>
+        <h2>A transfer needs two accounts</h2>
+        <p>Add another account and you can move money between them.</p>
+        <p><a class="button button-primary" href="/accounts/new">Add an account</a></p>
+      </div>
+    `;
+  }
+
+  const accountOptions = (selected: string | null) =>
+    accounts.map(
+      (a) => html`
+        <option value="${a.id}" ${raw(a.id === selected ? "selected" : "")}>
+          ${a.nickname || a.name}
+        </option>
+      `,
+    );
+
+  return html`
+    <h1>Record a transfer</h1>
+    ${when(opts.error, () => html`<p class="notice notice-error">${opts.error}</p>`)}
+    <p class="faint">
+      Money leaves one account and lands in another. No spending category is touched —
+      paying a credit card off a bank account is exactly this.
+    </p>
+
+    <form method="post" action="/transfer" class="card">
+      <div class="field">
+        <label for="amount">Amount</label>
+        <input id="amount" name="amount" class="amount-input" type="text"
+               inputmode="decimal" autocomplete="off" required autofocus placeholder="0.00">
+      </div>
+
+      <div class="grid-2">
+        <div class="field">
+          <label for="from_account_id">From</label>
+          <select id="from_account_id" name="from_account_id" required>
+            ${accountOptions(defaultFrom)}
+          </select>
+        </div>
+        <div class="field">
+          <label for="to_account_id">To</label>
+          <select id="to_account_id" name="to_account_id" required>
+            ${accountOptions(defaultTo)}
+          </select>
+        </div>
+      </div>
+
+      <div class="field">
+        <label for="date">Date</label>
+        <input id="date" name="date" type="text" autocomplete="off"
+               value="${formatDate(today)}" placeholder="DD-MM-YYYY">
+      </div>
+
+      <button class="button-primary" type="submit">Record transfer</button>
+      <a class="button button-quiet" href="/accounts">Cancel</a>
+    </form>
+  `;
+}
+
 // ---------------------------------------------------------------------------
 // R5 · Move money
 // ---------------------------------------------------------------------------

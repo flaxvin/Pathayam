@@ -46,10 +46,11 @@ import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, f
 import { buildBudgetView, reviewCount } from "./web/viewmodel.ts";
 import { renderBudget } from "./web/pages/budget.ts";
 import {
-  renderAccountList, renderAccountDetail, renderNewAccountForm, type AccountRow, type RegisterRow,
+  renderAccountList, renderAccountDetail, renderNewAccountForm, renderManageCards,
+  type AccountRow, type RegisterRow,
 } from "./web/pages/accounts.ts";
 import {
-  renderAddTransaction, renderMoveMoney, renderAutoAssignPreview, renderHold,
+  renderAddTransaction, renderTransfer, renderMoveMoney, renderAutoAssignPreview, renderHold,
   renderExplain, explainLineFor, renderNotFound,
 } from "./web/pages/actions.ts";
 import { renderReview, renderImport, renderMapping } from "./web/pages/review.ts";
@@ -81,7 +82,8 @@ import {
   ingest, listStaged, approveStaged, rejectStaged, mergeStaged, undoBatch, listBatches,
 } from "./import/pipeline.ts";
 import {
-  createAccount, listAccounts, getAccount, listCards, paymentCategoryFor,
+  createAccount, listAccounts, getAccount, listCards, createCard, closeCard,
+  paymentCategoryFor,
   type AccountKind,
 } from "./domain/accounts.ts";
 import {
@@ -109,16 +111,16 @@ import {
 } from "./ops/backup.ts";
 import {
   renderLoanList, renderLoanDetail, renderNewLoanForm, renderRecordInstalment,
-  renderPrepaymentComparison,
+  renderPrepaymentComparison, renderLoanStatementForm,
 } from "./web/pages/loans.ts";
 import {
   createLoan, listLoans, getLoan, projectLoan, recordInstalment, listPayments,
-  recordDisbursement,
+  recordDisbursement, recordLoanStatement,
   listDisbursements, listRatePeriods, debtOverview, type LoanType,
 } from "./domain/loans.ts";
 import { comparePrepayment, NegativeAmortisation } from "./loans/amortisation.ts";
 import {
-  renderQuery, renderReports, renderSchedules, renderGoals,
+  renderQuery, renderReports, renderSchedules, renderNewScheduleForm, renderGoals,
 } from "./web/pages/analysis.ts";
 import {
   queryTransactions, groupTotals, periodPresets, periodFor, incomeVsExpense,
@@ -169,6 +171,7 @@ import {
   renderPortfolio, renderHoldingDetail, renderSalePreview, renderNetWorth,
   renderAllocation,
   renderAddHolding, renderCasUpload, renderCasReview,
+  renderNewAssetForm, renderRevalueAsset, renderManualPrice,
   type PortfolioRow, type CasReviewScheme,
 } from "./web/pages/portfolio.ts";
 import { parseCasPdf, WrongPassword } from "./import/cas.ts";
@@ -177,7 +180,7 @@ import {
 } from "./import/cas-plan.ts";
 import {
   createAssetAccount, listAssetAccounts, findOrCreateInstrument, recordPurchase,
-  recordSale, recordPrice, latestValuation, listHoldings, viewHolding,
+  recordSale, recordPrice, recordValuation, latestValuation, listHoldings, viewHolding,
   priceHistory, previewHoldingSale, getInstrument, listInstruments,
   classifyInstrument, ASSET_CLASSES, ASSET_CLASS_LABELS,
   exportHoldingsCsv, exportLotsCsv, exportPriceHistoryCsv, exportNetWorthCsv,
@@ -1000,11 +1003,34 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }),
   );
 
+  // B51: the form that was missing — POST /transfer shipped, but no GET
+  // rendered a form and the only link 405'd. Transfers underpin card payments,
+  // asset purchases and family lending.
+  router.get("/transfer", (ctx) => {
+    auth(ctx);
+    const accounts = listAccounts(db);
+    return render(
+      ctx,
+      "Record a transfer",
+      renderTransfer({
+        accounts,
+        defaultFrom: ctx.query.get("from"),
+        defaultTo: ctx.query.get("to"),
+        today: todayIST(),
+      }),
+    );
+  });
+
   router.post("/transfer", (ctx) =>
     mutate(ctx, (a) => {
+      const fromAccountId = requiredField(ctx.body, "from_account_id");
+      const toAccountId = requiredField(ctx.body, "to_account_id");
+      if (fromAccountId === toAccountId) {
+        throw new HttpError(400, "A transfer needs two different accounts.");
+      }
       createTransfer(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
-        fromAccountId: requiredField(ctx.body, "from_account_id"),
-        toAccountId: requiredField(ctx.body, "to_account_id"),
+        fromAccountId,
+        toAccountId,
         amount: Math.abs(amountField(field(ctx.body, "amount"))),
         date: parseDate(field(ctx.body, "date") ?? "") ?? todayIST(),
       });
@@ -1025,6 +1051,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       return { redirect: field(ctx.body, "return_to") || "/" };
     }),
   );
+
+  // B51: the command palette's "Toggle theme" linked here, but no route
+  // existed, so it 404'd. A quick flip between light and dark (anything not
+  // already dark becomes dark), stored against the real member, returning to
+  // where the user was.
+  router.get("/settings/theme-toggle", (ctx) => {
+    const a = auth(ctx);
+    const next: Theme = a.viewingAs.theme === "dark" ? "light" : "dark";
+    setTheme(db, actorFor(a), a.member.id, next);
+    const referer = ctx.req.headers.referer;
+    return { redirect: referer && referer.startsWith(config.baseUrl) ? referer : "/" };
+  });
 
   router.post("/impersonate/start", (ctx) =>
     mutate(ctx, (a) => {
@@ -1647,6 +1685,47 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     );
   });
 
+  // B51: manage the cards on an account, including add-on cards (F2.9). The
+  // "Manage cards" button linked here, but no route existed.
+  router.get("/accounts/:id/cards", (ctx) => {
+    auth(ctx);
+    const account = getAccount(db, ctx.params.id!);
+    if (!account) throw new NotFound("That account does not exist.");
+    return render(
+      ctx, `Cards on ${account.name}`,
+      renderManageCards({
+        account,
+        cards: listCards(db, account.id, { includeClosed: false }),
+        members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
+      }),
+    );
+  });
+
+  router.post("/accounts/:id/cards", (ctx) =>
+    mutate(ctx, (a) => {
+      const account = getAccount(db, ctx.params.id!);
+      if (!account) throw new NotFound("That account does not exist.");
+      const last4 = (field(ctx.body, "last4") ?? "").replace(/\D/g, "") || null;
+      createCard(db, actorFor(a), {
+        accountId: account.id,
+        label: requiredField(ctx.body, "label"),
+        last4,
+        isPrimary: false,
+        holderMemberId: field(ctx.body, "holder_member_id") || null,
+      });
+      return { redirect: `/accounts/${account.id}/cards`, message: "Card added." };
+    }),
+  );
+
+  router.post("/accounts/:id/cards/:cardId/close", (ctx) =>
+    mutate(ctx, (a) => {
+      const account = getAccount(db, ctx.params.id!);
+      if (!account) throw new NotFound("That account does not exist.");
+      closeCard(db, actorFor(a), ctx.params.cardId!);
+      return { redirect: `/accounts/${account.id}/cards`, message: "Card closed." };
+    }),
+  );
+
   // -------------------------------------------------------------------------
   // S4 · Review — the one destination for everything needing a human
   // -------------------------------------------------------------------------
@@ -2221,6 +2300,36 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }),
   );
 
+  // B51: record a lender statement to resolve drift (R18.8). The drift
+  // warning's "Resolve it" link pointed here, but no route existed.
+  router.get("/loans/:id/statement", (ctx) => {
+    requireLoans();
+    auth(ctx);
+    const projection = projectLoan(db, ctx.params.id!);
+    if (!projection) throw new NotFound("That loan does not exist.");
+    return render(
+      ctx, "Record a lender statement",
+      renderLoanStatementForm({ projection, today: todayIST() }),
+    );
+  });
+
+  router.post("/loans/:id/statement", (ctx) =>
+    mutate(ctx, (a) => {
+      requireLoans();
+      const loanId = ctx.params.id!;
+      const ytdRaw = field(ctx.body, "interest_paid_ytd");
+      const remainingRaw = field(ctx.body, "instalments_remaining");
+      recordLoanStatement(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+        loanId,
+        asOf: parseDate(field(ctx.body, "as_of") ?? "") ?? todayIST(),
+        lenderOutstanding: amountField(requiredField(ctx.body, "lender_outstanding")),
+        interestPaidYtd: ytdRaw?.trim() ? amountField(ytdRaw) : null,
+        instalmentsRemaining: remainingRaw?.trim() ? Number(remainingRaw) : null,
+      });
+      return { redirect: `/loans/${loanId}`, message: "Statement recorded." };
+    }),
+  );
+
   router.get("/loans/:id/prepay", (ctx) => {
     requireLoans();
     const projection = projectLoan(db, ctx.params.id!);
@@ -2417,6 +2526,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         subscriptions: subscriptions(db),
         horizon,
         categoryNames: new Map([...view.categories].map(([id, c]) => [id, c.name])),
+      }),
+    );
+  });
+
+  // B51: the manual form the "Add one" button pointed at (it 405'd before).
+  router.get("/schedules/new", (ctx) => {
+    const view = buildBudgetView(db);
+    return render(
+      ctx, "Add a schedule",
+      renderNewScheduleForm({
+        accounts: listAccounts(db).map((a) => ({ id: a.id, name: a.name, nickname: a.nickname })),
+        categories: [...view.categories.values()]
+          .filter((c) => !c.isPaymentCategory && !c.hidden)
+          .map((c) => ({ id: c.id, name: c.name })),
+        today: todayIST(),
       }),
     );
   });
@@ -3513,6 +3637,39 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     );
   });
 
+  // B51: enter a price by hand — the holding page's "Enter one" link 404'd.
+  router.get("/portfolio/:id/price", (ctx) => {
+    requireAssets();
+    auth(ctx);
+    const view = viewHolding(db, ctx.params.id!);
+    if (!view) throw new NotFound("That holding does not exist.");
+    return render(
+      ctx, `Price ${view.instrument.name}`,
+      renderManualPrice({
+        holdingId: view.holding.id,
+        instrumentName: view.instrument.name,
+        currentPrice: view.quote ? String(view.quote.price / 1_000_000) : "",
+        today: todayIST(),
+      }),
+    );
+  });
+
+  router.post("/portfolio/:id/price", (ctx) =>
+    mutate(ctx, (a) => {
+      requireAssets();
+      actorFor(a); // write-guard via mutate
+      const view = viewHolding(db, ctx.params.id!);
+      if (!view) throw new NotFound("That holding does not exist.");
+      recordPrice(db, {
+        instrumentId: view.instrument.id,
+        price: toUnitPrice(Number(requiredField(ctx.body, "price"))),
+        asOf: parseDate(field(ctx.body, "as_of") ?? "") ?? todayIST(),
+        source: "manual",
+      });
+      return { redirect: `/portfolio/${view.holding.id}`, message: "Price saved." };
+    }),
+  );
+
   router.get("/portfolio/:id/sell", (ctx) => {
     requireAssets();
     const view = viewHolding(db, ctx.params.id!);
@@ -3639,7 +3796,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }),
   );
 
-  router.post("/assets/new", (ctx) =>
+  // B51: the manual-asset routes. They used to live under `/assets/`, where the
+  // static-asset guard (`path.startsWith("/assets/")`) 404'd them before the
+  // router ever saw them — so hand-valued assets could not be created or
+  // revalued through the UI at all. Moved under `/portfolio/`.
+  router.get("/portfolio/asset/new", (ctx) => {
+    requireAssets();
+    auth(ctx);
+    return render(ctx, "Add an asset", renderNewAssetForm({ today: todayIST() }));
+  });
+
+  router.post("/portfolio/asset/new", (ctx) =>
     mutate(ctx, (a) => {
       requireAssets();
       const valueRaw = field(ctx.body, "value");
@@ -3650,6 +3817,38 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         asOf: parseDate(field(ctx.body, "as_of") ?? "") ?? todayIST(),
       });
       return { redirect: "/portfolio", message: `Added ${account.name}.` };
+    }),
+  );
+
+  router.get("/portfolio/asset/:id/revalue", (ctx) => {
+    requireAssets();
+    auth(ctx);
+    const account = listAssetAccounts(db).find((acc) => acc.id === ctx.params.id);
+    if (!account) throw new NotFound("That asset does not exist.");
+    const valuation = latestValuation(db, account.id);
+    return render(
+      ctx, `Revalue ${account.name}`,
+      renderRevalueAsset({
+        asset: {
+          id: account.id, name: account.name,
+          value: valuation?.value ?? 0, asOf: valuation?.asOf ?? todayIST(),
+        },
+        today: todayIST(),
+      }),
+    );
+  });
+
+  router.post("/portfolio/asset/:id/revalue", (ctx) =>
+    mutate(ctx, (a) => {
+      requireAssets();
+      const account = listAssetAccounts(db).find((acc) => acc.id === ctx.params.id);
+      if (!account) throw new NotFound("That asset does not exist.");
+      recordValuation(db, actorFor(a), {
+        accountId: account.id,
+        value: amountField(requiredField(ctx.body, "value")),
+        asOf: parseDate(field(ctx.body, "as_of") ?? "") ?? todayIST(),
+      });
+      return { redirect: "/portfolio", message: `Revalued ${account.name}.` };
     }),
   );
 
