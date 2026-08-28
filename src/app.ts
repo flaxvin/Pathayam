@@ -113,6 +113,7 @@ import {
 } from "./web/pages/loans.ts";
 import {
   createLoan, listLoans, getLoan, projectLoan, recordInstalment, listPayments,
+  recordDisbursement,
   listDisbursements, listRatePeriods, debtOverview, type LoanType,
 } from "./domain/loans.ts";
 import { comparePrepayment, NegativeAmortisation } from "./loans/amortisation.ts";
@@ -2058,9 +2059,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         loanType: requiredField(ctx.body, "loan_type") as LoanType,
         sanctioned: amountField(field(ctx.body, "sanctioned"), "Sanctioned amount"),
         sanctionDate: parseDate(field(ctx.body, "sanction_date") ?? "") ?? todayIST(),
-        interestModel: (field(ctx.body, "interest_model") ?? "reducing") as "reducing" | "flat",
+        interestModel: (field(ctx.body, "interest_model") ?? "reducing") as
+          "reducing" | "flat" | "moratorium-serviced" | "moratorium-capitalised",
         annualRatePct: Number(requiredField(ctx.body, "annual_rate")),
         tenureMonths: Number(requiredField(ctx.body, "tenure_months")),
+        moratoriumMonths: Number(field(ctx.body, "moratorium_months") ?? "0") || 0,
         firstInstalmentDate: firstDue ? parseDate(firstDue) : null,
         repaymentAccountId: field(ctx.body, "repayment_account_id") || null,
         currentOutstanding: outstandingRaw?.trim() ? amountField(outstandingRaw) : null,
@@ -2125,9 +2128,36 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         payments: listPayments(db, projection.loan.id),
         disbursements: listDisbursements(db, projection.loan.id),
         rates: listRatePeriods(db, projection.loan.id),
+        budgetAccounts: listAccounts(db)
+          .filter((acc) => acc.kind === "budget" && !acc.closed_at)
+          .map((acc) => ({ id: acc.id, name: acc.name })),
       }),
     );
   });
+
+  /** R15 · Record a tranche. */
+  router.post("/loans/:id/disburse", (ctx) =>
+    mutate(ctx, (a) => {
+      const loanId = ctx.params.id!;
+      const dateRaw = field(ctx.body, "date");
+      const destination = field(ctx.body, "destination") === "budget-account"
+        ? "budget-account" : "third-party";
+      recordDisbursement(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+        loanId,
+        amount: Math.abs(amountField(requiredField(ctx.body, "amount"))),
+        date: dateRaw ? parseDate(dateRaw) ?? todayIST() : todayIST(),
+        destination,
+        destinationAccountId: destination === "budget-account"
+          ? field(ctx.body, "destination_account_id") || null : null,
+      });
+      return {
+        redirect: `/loans/${loanId}`,
+        message: destination === "third-party"
+          ? "Recorded — your liability rose and your budget is untouched."
+          : "Recorded — the money is in your account and waiting to be assigned.",
+      };
+    }),
+  );
 
   /** R17.2 · The schedule exportable to CSV. */
   router.get("/loans/:id/schedule.csv", (ctx) => {
