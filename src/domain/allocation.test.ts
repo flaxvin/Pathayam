@@ -144,3 +144,39 @@ describe("07 F19.11 · asset allocation", () => {
     db.close();
   });
 });
+
+describe("07 F19.13 · portfolio CSV export", () => {
+  test("holdings, lots and prices export with human-readable units", async () => {
+    const { exportHoldingsCsv, exportLotsCsv, exportPriceHistoryCsv } =
+      await import("./assets.ts");
+    const { db, demat } = setup();
+    hold(db, demat.id, { name: "Nifty ETF", kind: "etf", n: 100, mkt: 200 });
+
+    const holdings = exportHoldingsCsv(db);
+    assert.match(holdings.split("\n")[0]!, /account,instrument,isin,kind,asset_class/);
+    assert.match(holdings, /Nifty ETF/);
+    assert.match(holdings, /100\.000,20000\.00/, "units to 3dp, cost in rupees");
+
+    const lots = exportLotsCsv(db);
+    assert.match(lots, /trade_date,units,price_per_unit/);
+    assert.match(lots, /2026-08-01,100\.000,200\.0000/);
+
+    assert.match(exportPriceHistoryCsv(db), /instrument,isin,as_of,price,source/);
+    db.close();
+  });
+
+  test("a field containing a comma is quoted", async () => {
+    const { exportHoldingsCsv } = await import("./assets.ts");
+    const { db, demat } = setup();
+    // A fund name with a comma must not break the CSV columns.
+    const inst = (await import("./assets.ts")).findOrCreateInstrument(db, actor, {
+      name: "HDFC Corp Bond, Direct", kind: "bond", provider: "manual",
+    });
+    (await import("./assets.ts")).recordPurchase(db, actor, {
+      accountId: demat.id, instrumentId: inst.id, tradeDate: "2026-08-01",
+      price: price(100), units: units(10),
+    });
+    assert.match(exportHoldingsCsv(db), /"HDFC Corp Bond, Direct"/);
+    db.close();
+  });
+});

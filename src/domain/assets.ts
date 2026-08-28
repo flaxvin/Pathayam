@@ -879,3 +879,106 @@ registerUndoHandler("instrument", (db, event) => {
   execute(db, `DELETE FROM instruments WHERE id = ?`, event.entityId!);
   return `Removed the instrument that was added`;
 });
+
+// ---------------------------------------------------------------------------
+// F19.13 · CSV export of holdings, lots, price history and the net-worth series
+// ---------------------------------------------------------------------------
+
+function csvField(value: unknown): string {
+  if (value === null || value === undefined) return "";
+  const text = String(value);
+  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
+}
+
+function toCsv(headers: string[], rows: (unknown[])[]): string {
+  return [headers.join(","), ...rows.map((r) => r.map(csvField).join(","))].join("\n");
+}
+
+/**
+ * F19.13 · One CSV per shape, so a spreadsheet can hold each without a join.
+ *
+ * Units are printed as their three-decimal value and prices as rupees, because
+ * this file is for a human in Excel — the milliunit/micro-rupee integers are an
+ * internal storage detail (E13), not something to export raw.
+ */
+export function exportHoldingsCsv(db: DB): string {
+  const rows = queryAll<{
+    account: string; instrument: string; isin: string | null; kind: string;
+    asset_class: string | null; region: string | null; currency: string;
+    units: number; cost: number;
+  }>(
+    db,
+    `SELECT a.name AS account, i.name AS instrument, i.isin, i.kind,
+            i.asset_class, i.region, i.currency,
+            COALESCE(SUM(l.units),0) AS units, COALESCE(SUM(l.cost),0) AS cost
+       FROM holdings h
+       JOIN accounts a ON a.id = h.account_id
+       JOIN instruments i ON i.id = h.instrument_id
+       LEFT JOIN lots l ON l.holding_id = h.id AND l.closed_at IS NULL
+      WHERE h.closed_at IS NULL
+      GROUP BY h.id
+      ORDER BY a.name, i.name`,
+  );
+  return toCsv(
+    ["account", "instrument", "isin", "kind", "asset_class", "region", "currency", "units", "cost_basis"],
+    rows.map((r) => [
+      r.account, r.instrument, r.isin, r.kind, r.asset_class, r.region, r.currency,
+      (r.units / 1000).toFixed(3), (r.cost / 100).toFixed(2),
+    ]),
+  );
+}
+
+export function exportLotsCsv(db: DB): string {
+  const rows = queryAll<{
+    account: string; instrument: string; trade_date: string;
+    units: number; price: number; fees: number; cost: number;
+    fx_rate: number | null; closed_at: string | null; source_ref: string | null;
+  }>(
+    db,
+    `SELECT a.name AS account, i.name AS instrument, l.trade_date,
+            l.units, l.price, l.fees, l.cost, l.fx_rate, l.closed_at, l.source_ref
+       FROM lots l
+       JOIN holdings h ON h.id = l.holding_id
+       JOIN accounts a ON a.id = h.account_id
+       JOIN instruments i ON i.id = h.instrument_id
+      ORDER BY i.name, l.trade_date, l.created_at`,
+  );
+  return toCsv(
+    ["account", "instrument", "trade_date", "units", "price_per_unit", "fees", "cost_basis", "fx_rate", "closed", "source"],
+    rows.map((r) => [
+      r.account, r.instrument, r.trade_date,
+      (r.units / 1000).toFixed(3), (r.price / 1_000_000).toFixed(4),
+      (r.fees / 100).toFixed(2), (r.cost / 100).toFixed(2),
+      r.fx_rate ?? "", r.closed_at ? "yes" : "no", r.source_ref ?? "",
+    ]),
+  );
+}
+
+export function exportPriceHistoryCsv(db: DB): string {
+  const rows = queryAll<{ instrument: string; isin: string | null; as_of: string; price: number; source: string }>(
+    db,
+    `SELECT i.name AS instrument, i.isin, p.as_of, p.price, p.source
+       FROM prices p JOIN instruments i ON i.id = p.instrument_id
+      ORDER BY i.name, p.as_of`,
+  );
+  return toCsv(
+    ["instrument", "isin", "as_of", "price", "source"],
+    rows.map((r) => [r.instrument, r.isin, r.as_of, (r.price / 1_000_000).toFixed(4), r.source]),
+  );
+}
+
+export function exportNetWorthCsv(db: DB): string {
+  const rows = queryAll<{
+    as_of: string; cash: number; investments: number; other_assets: number;
+    credit_cards: number; loans: number; net_worth: number; worst_price_date: string | null;
+  }>(db, `SELECT * FROM net_worth_snapshots ORDER BY as_of`);
+  return toCsv(
+    ["as_of", "cash", "investments", "other_assets", "credit_cards", "loans", "net_worth", "worst_price_date"],
+    rows.map((r) => [
+      r.as_of,
+      (r.cash / 100).toFixed(2), (r.investments / 100).toFixed(2), (r.other_assets / 100).toFixed(2),
+      (r.credit_cards / 100).toFixed(2), (r.loans / 100).toFixed(2), (r.net_worth / 100).toFixed(2),
+      r.worst_price_date ?? "",
+    ]),
+  );
+}
