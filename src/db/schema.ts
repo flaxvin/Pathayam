@@ -1157,4 +1157,33 @@ CREATE INDEX idx_attachments_txn ON attachments(transaction_id);
 ALTER TABLE loans ADD COLUMN moratorium_months INTEGER NOT NULL DEFAULT 0;
 `,
   },
+  {
+    name: "0016-card-statements",
+    sql: `
+--------------------------------------------------------------------------------
+-- 02 F2.3 / 06 R6 · A credit card's statement.
+--
+-- A card's billing cycle is not the calendar month, and the app cannot infer
+-- it — the statement date and due date are entered from the statement itself,
+-- with the statemented balance. Funding advice keys off the most recent one
+-- rather than the month boundary: the cash to clear the *statement* must be set
+-- aside by the *due date*, whatever days those fall on.
+--
+-- The balance is stored in paise as a positive number (what is owed). The
+-- minimum due is optional — recorded when known so the app can warn if only the
+-- minimum is funded, never to encourage paying just the minimum.
+--------------------------------------------------------------------------------
+CREATE TABLE card_statements (
+  id            TEXT PRIMARY KEY,
+  account_id    TEXT NOT NULL REFERENCES accounts(id),
+  statement_date TEXT NOT NULL,
+  due_date      TEXT NOT NULL,
+  amount        INTEGER NOT NULL,
+  minimum_due   INTEGER,
+  created_at    TEXT NOT NULL,
+  created_by    TEXT REFERENCES members(id)
+);
+CREATE INDEX idx_card_statements ON card_statements(account_id, statement_date);
+`,
+  },
 ];

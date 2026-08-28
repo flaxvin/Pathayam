@@ -5,7 +5,7 @@
 import { html, raw, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, speakPaise, type Paise } from "../../core/money.ts";
 import { formatDate, daysBetween, todayIST, type IsoDate } from "../../core/dates.ts";
-import type { Account, Card } from "../../domain/accounts.ts";
+import type { Account, Card, CardStatement } from "../../domain/accounts.ts";
 import { ACCOUNT_SUBTYPES, SUBTYPE_LABELS } from "../../domain/accounts.ts";
 import type { AccountBalances } from "../../engine/repository.ts";
 import type { CardFunding } from "../../engine/engine.ts";
@@ -282,17 +282,16 @@ function renderCardPanel(opts: {
               Last statement <strong>${formatPaise(opts.lastStatement.amount)}</strong>
               on ${formatDate(opts.lastStatement.date)},
               due ${formatDate(opts.lastStatement.due)}.
+              <a href="/accounts/${account.id}/statement">Record a new one</a>
             </p>
           `
         : html`
-            <!-- R6: statement cycles are not calendar months, so the app cannot
-                 infer them. F2.3 captures the days; the amount is entered.
-                 B51: recording a card statement (its own table + domain path) is
-                 not yet built, so there is no link here to a route that 404s.
-                 Until then, funding advice keys off the month boundary. -->
+            <!-- R6/F2.3: statement cycles are not calendar months, so the app
+                 cannot infer them — the statement is entered. -->
             <p class="faint">
-              No statement recorded yet. Statement cycles don't follow calendar months;
-              until per-card statement capture lands, funding advice keys off the month.
+              No statement recorded yet. Statement cycles don't follow calendar months,
+              so funding advice keys off the statement rather than the month boundary.
+              <a href="/accounts/${account.id}/statement">Record a statement</a>
             </p>
           `}
 
@@ -432,6 +431,59 @@ export function renderNewAccountForm(opts: { error?: string | null } = {}): Safe
  * the cards on the account, and a form to add an add-on card held by another
  * member — the mechanic Q-decisions made first-class.
  */
+/**
+ * F2.3 · Record a credit-card statement. The billing cycle is not the calendar
+ * month, so the statement date, due date and statemented balance are entered
+ * from the statement — funding advice then keys off the due date.
+ */
+export function renderCardStatementForm(opts: {
+  account: Account;
+  last: CardStatement | null;
+  today: IsoDate;
+}): SafeHtml {
+  return html`
+    <div class="row-between" style="margin-bottom:1rem">
+      <h1>Statement — ${opts.account.nickname || opts.account.name}</h1>
+      <a class="button button-quiet" href="/accounts/${opts.account.id}">Back to account</a>
+    </div>
+    ${when(opts.last, () => html`
+      <p class="faint">
+        Last recorded: ${formatPaise(opts.last!.amount)} on
+        ${formatDate(opts.last!.statement_date)}, due ${formatDate(opts.last!.due_date)}.
+      </p>
+    `)}
+    <form method="post" action="/accounts/${opts.account.id}/statement" class="card">
+      <div class="grid-2">
+        <div class="field">
+          <label for="amount">Statement balance</label>
+          <input id="amount" name="amount" class="amount-input" type="text"
+                 inputmode="decimal" autocomplete="off" required autofocus placeholder="0.00">
+          <p class="field-hint">The total shown on the statement — what is owed, not the minimum.</p>
+        </div>
+        <div class="field">
+          <label for="minimum_due">Minimum due <span class="faint">(optional)</span></label>
+          <input id="minimum_due" name="minimum_due" class="amount-input" type="text"
+                 inputmode="decimal" autocomplete="off" placeholder="0.00">
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label for="statement_date">Statement date</label>
+          <input id="statement_date" name="statement_date" type="text" autocomplete="off"
+                 value="${formatDate(opts.today)}" placeholder="DD-MM-YYYY">
+        </div>
+        <div class="field">
+          <label for="due_date">Due date</label>
+          <input id="due_date" name="due_date" type="text" autocomplete="off"
+                 required placeholder="DD-MM-YYYY">
+        </div>
+      </div>
+      <button class="button-primary" type="submit">Record statement</button>
+      <a class="button button-quiet" href="/accounts/${opts.account.id}">Cancel</a>
+    </form>
+  `;
+}
+
 export function renderManageCards(opts: {
   account: Account;
   cards: Card[];

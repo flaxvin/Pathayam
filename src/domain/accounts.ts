@@ -415,3 +415,67 @@ registerUndoHandler("account", (db, event) => {
   );
   return `Restored ${before.name}`;
 });
+
+// ---------------------------------------------------------------------------
+// F2.3 · Credit-card statements. A card's cycle is not the calendar month, so
+// the statement is entered rather than inferred; funding advice keys off it.
+// ---------------------------------------------------------------------------
+
+export interface CardStatement {
+  id: string;
+  account_id: string;
+  statement_date: IsoDate;
+  due_date: IsoDate;
+  amount: Paise;
+  minimum_due: Paise | null;
+  created_at: string;
+  created_by: string | null;
+}
+
+export function recordCardStatement(
+  db: DB, actor: Actor,
+  input: {
+    accountId: string;
+    statementDate: IsoDate;
+    dueDate: IsoDate;
+    amount: Paise;
+    minimumDue?: Paise | null;
+  },
+): CardStatement {
+  return transact(db, () => {
+    const account = getAccount(db, input.accountId);
+    if (!account) throw new Error("That account does not exist.");
+    if (account.kind !== "credit") {
+      throw new Error("Only a credit card has a statement.");
+    }
+    if (input.amount < 0) throw new Error("A statement balance is what is owed — zero or more.");
+
+    const id = newId();
+    execute(
+      db,
+      `INSERT INTO card_statements
+         (id,account_id,statement_date,due_date,amount,minimum_due,created_at,created_by)
+       VALUES (?,?,?,?,?,?,?,?)`,
+      id, input.accountId, input.statementDate, input.dueDate, input.amount,
+      input.minimumDue ?? null, nowIST(), actor.memberId,
+    );
+    const statement = queryOne<CardStatement>(db, `SELECT * FROM card_statements WHERE id = ?`, id)!;
+    appendEvent(db, actor, {
+      entity: "card-statement", entityId: id, action: "record", after: statement,
+      summary:
+        `Recorded a ${account.name} statement of ${formatPaise(input.amount)}` +
+        `, due ${input.dueDate}`,
+    });
+    return statement;
+  });
+}
+
+/** The most recent statement for a card, or null. */
+export function lastCardStatement(db: DB, accountId: string): CardStatement | null {
+  return queryOne<CardStatement>(
+    db,
+    `SELECT * FROM card_statements WHERE account_id = ?
+      ORDER BY statement_date DESC, created_at DESC LIMIT 1`,
+    accountId,
+  );
+}
