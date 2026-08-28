@@ -14,7 +14,7 @@ import { formatDate, formatMonth, type IsoDate } from "../../core/dates.ts";
 import type { QueryRow, GroupedTotal, GroupBy, Period, TrendPoint } from "../../domain/reports.ts";
 import type { Schedule, DetectedSchedule, Cashflow, CalendarDay } from "../../domain/schedules.ts";
 import type { GoalProgress } from "../../domain/goals.ts";
-import { groupedBarChart, lineChart } from "../charts.ts";
+import { groupedBarChart, lineChart, progressRing, horizontalBars, donutChart } from "../charts.ts";
 
 // ---------------------------------------------------------------------------
 // S7 · Query
@@ -211,11 +211,18 @@ function filterQueryString(opts: QueryOptions): string {
 
 export function renderReports(opts: {
   trend: TrendPoint[];
+  categorySpend: { label: string; value: Paise }[];
   period: Period;
   periods: Period[];
   loanInterest: { fy: number; label: string; interest: Paise; principal: Paise; lender: string }[];
 }): SafeHtml {
   const peak = Math.max(...opts.trend.flatMap((t) => [t.income, t.spending]), 1);
+  // Top categories individually; the long tail folded into one "Other" slice so
+  // the donut stays legible rather than becoming a colour wheel.
+  const TOP = 7;
+  const catSlices = opts.categorySpend.slice(0, TOP).map((c) => ({ label: c.label, value: c.value }));
+  const tail = opts.categorySpend.slice(TOP).reduce((s, c) => s + c.value, 0);
+  if (tail > 0) catSlices.push({ label: `Other (${opts.categorySpend.length - TOP})`, value: tail as Paise });
 
   return html`
     <h1>Reports</h1>
@@ -287,6 +294,17 @@ export function renderReports(opts: {
             </div>
           `}
     </section>
+
+    ${when(catSlices.length > 0, () => html`
+      <section class="card">
+        <h2>Spending by category</h2>
+        <p class="faint" style="margin-top:-.25rem">Over ${opts.period.label.toLowerCase()}.</p>
+        ${donutChart({
+          title: "Spending by category over the period",
+          slices: catSlices,
+        })}
+      </section>
+    `)}
 
     <section class="card">
       <h2>Where the money goes</h2>
@@ -369,6 +387,7 @@ export function renderSchedules(opts: {
 
     <section class="card">
       <h2>The next ${opts.horizon} days</h2>
+      ${cashflowChart(opts.cashflow)}
       ${renderCalendar(opts.cashflow)}
     </section>
 
@@ -446,24 +465,48 @@ export function renderSchedules(opts: {
 
     ${when(opts.subscriptions.length > 0, () => html`
       <section class="card">
-        <h2>Subscriptions</h2>
+        <h2>Subscriptions
+          <span class="faint" style="font-size:.9rem;font-weight:400">
+            ${formatPaise(opts.subscriptions.reduce((s, x) => s + x.annualised, 0))}/yr total
+          </span>
+        </h2>
         <p class="faint" style="margin-top:-.25rem">
           What each one costs over a year, which is the figure worth deciding on.
         </p>
-        ${opts.subscriptions.map(
-          (s) => html`
-            <div class="row-between" style="padding:.4rem 0;border-top:1px solid var(--border)">
-              <span>${s.schedule.name}</span>
-              <span>
-                <span class="faint">${formatPaise(Math.abs(s.schedule.amount ?? 0))} ${s.schedule.recurrence}</span>
-                <strong class="amount" style="margin-left:.75rem">${formatPaise(s.annualised)}/yr</strong>
-              </span>
-            </div>
-          `,
-        )}
+        ${horizontalBars({
+          title: "Annual cost of each subscription",
+          items: opts.subscriptions.map((s) => ({ label: s.schedule.name, value: s.annualised })),
+        })}
       </section>
     `)}
   `;
+}
+
+/**
+ * S15 · The cashflow trajectory — projected Budget-account balance across the
+ * window, with the floor as a reference. A dip below it is the answer to
+ * "will I make it?", already flagged in words above.
+ */
+function cashflowChart(cashflow: Cashflow): SafeHtml {
+  if (cashflow.days.length < 2) return raw("");
+  const points = [cashflow.openingBalance, ...cashflow.days.map((d) => d.projectedBalance)];
+  const xLabels = ["now", ...cashflow.days.map((d) => formatDate(d.date).slice(0, 5))];
+  const series = [{
+    label: "Projected balance",
+    color: cashflow.firstShortfall ? "var(--danger)" : "var(--accent)",
+    points: points.map((p) => p / 100),
+    fill: true,
+  }];
+  // The floor as a flat reference line, when it isn't zero.
+  if (cashflow.floor > 0) {
+    series.push({
+      label: "Floor",
+      color: "var(--text-faint)",
+      points: points.map(() => cashflow.floor / 100),
+      fill: false,
+    });
+  }
+  return lineChart({ title: "Projected balance over the window", xLabels, series });
 }
 
 /**
@@ -654,27 +697,24 @@ function renderGoalCard(g: GoalProgress): SafeHtml {
   const percent = Math.round(g.percent);
   return html`
     <section class="card">
-      <div class="row-between">
-        <div>
-          <h2 style="margin-bottom:.15rem">${g.goal.name}</h2>
+      <div class="goal-ring-row">
+        ${progressRing({
+          percent: g.percent,
+          title: `${g.goal.name}: ${percent}% saved`,
+          color: g.reached ? "var(--positive)" : "var(--accent)",
+        })}
+        <div style="flex:1 1 auto;min-width:0">
+          <div class="row-between">
+            <h2 style="margin-bottom:.15rem">${g.goal.name}</h2>
+            ${when(g.reached, () => html`<span class="chip chip-positive">reached</span>`)}
+          </div>
           <p class="faint" style="margin:0">
             ${formatPaise(g.saved)} of ${formatPaise(g.goal.target_amount)}
             ${when(g.goal.target_date, () => html` · by ${formatDate(g.goal.target_date!)}`)}
           </p>
-        </div>
-        <div style="text-align:right">
-          <strong style="font-size:1.3rem">${percent}%</strong>
-          ${when(g.reached, () => html`<div><span class="chip chip-positive">reached</span></div>`)}
+          <p class="muted" style="margin:.35rem 0 0">${g.reading}</p>
         </div>
       </div>
-
-      <span class="target-bar ${g.reached ? "" : percent > 0 ? "partial" : "unfunded"}"
-            style="max-width:100%;height:8px;margin:.5rem 0" role="img"
-            aria-label="${percent}% of ${formatPaise(g.goal.target_amount)} saved">
-        <span style="width:${percent}%"></span>
-      </span>
-
-      <p class="muted" style="margin:.25rem 0">${g.reading}</p>
 
       <div class="faint">
         Held in ${g.categories.map((c) => c.name).join(", ")}

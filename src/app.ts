@@ -2512,6 +2512,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ctx, "Reports",
       renderReports({
         trend: incomeVsExpense(db, period.from, period.to),
+        categorySpend: groupTotals(
+          queryTransactions(db, { from: period.from, to: period.to, direction: "out" }),
+          "category",
+        )
+          .map((g) => ({ label: g.label, value: Math.abs(g.total) }))
+          .filter((g) => g.value > 0)
+          .sort((a, b) => b.value - a.value),
         period,
         periods: periodPresets(),
         loanInterest: config.features.loans ? loanInterestByFinancialYear(db) : [],

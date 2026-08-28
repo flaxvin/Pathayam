@@ -315,6 +315,69 @@ export function lineChart(opts: {
   `;
 }
 
+/**
+ * A radial progress ring — a percentage as an arc. Clamped to 0–100 for the
+ * sweep; the caption can still say "reached" past the target.
+ */
+export function progressRing(opts: {
+  percent: number;
+  title: string;
+  center?: string;
+  size?: number;
+  color?: string;
+}): SafeHtml {
+  const size = opts.size ?? 88;
+  const stroke = size * 0.12;
+  const r = (size - stroke) / 2;
+  const cx = size / 2, cy = size / 2;
+  const c = 2 * Math.PI * r;
+  const pct = Math.max(0, Math.min(100, opts.percent));
+  const dash = (pct / 100) * c;
+  const color = opts.color ?? "var(--accent)";
+  const center = opts.center ?? `${Math.round(opts.percent)}%`;
+  const svg =
+    `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" ` +
+    `aria-label="${escape(opts.title)}" style="flex:0 0 auto">` +
+    `<title>${escape(opts.title)}</title>` +
+    `<circle cx="${cx}" cy="${cy}" r="${r2(r)}" fill="none" stroke="var(--chart-grid)" stroke-width="${r2(stroke)}"/>` +
+    `<circle cx="${cx}" cy="${cy}" r="${r2(r)}" fill="none" stroke="${escape(color)}" ` +
+    `stroke-width="${r2(stroke)}" stroke-linecap="round" ` +
+    `stroke-dasharray="${r2(dash)} ${r2(c - dash)}" stroke-dashoffset="0" ` +
+    `transform="rotate(-90 ${cx} ${cy})"/>` +
+    `<text x="${cx}" y="${cy + size * 0.055}" text-anchor="middle" font-size="${r2(size * 0.24)}" ` +
+    `font-weight="700" fill="var(--text)">${escape(center)}</text>` +
+    `</svg>`;
+  return raw(svg);
+}
+
+/**
+ * Horizontal bars — a ranked list where the label matters as much as the size
+ * (subscriptions by annual cost, spending by category). Bars scale to the
+ * largest value; each row shows its own figure.
+ */
+export function horizontalBars(opts: {
+  title: string;
+  items: { label: string; value: Paise; color?: string }[];
+}): SafeHtml {
+  const peak = Math.max(1, ...opts.items.map((i) => i.value));
+  return html`
+    <div class="chart-hbars" role="img" aria-label="${opts.title}">
+      ${opts.items.map(
+        (it, i) => html`
+          <div class="chart-hbar">
+            <span class="chart-hbar-label">${it.label}</span>
+            <span class="chart-hbar-track">
+              <span class="chart-hbar-fill"
+                    style="width:${((it.value / peak) * 100).toFixed(1)}%;background:${raw(escape(it.color ?? seriesColor(i)))}"></span>
+            </span>
+            <span class="chart-hbar-value">${formatPaise(it.value)}</span>
+          </div>
+        `,
+      )}
+    </div>
+  `;
+}
+
 // A tiny local `when` so this module needs no page import.
 function when(cond: unknown, fn: () => SafeHtml): SafeHtml {
   return cond ? fn() : raw("");
