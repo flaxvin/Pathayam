@@ -29,8 +29,8 @@ services:
       # Must match the public URL exactly — OAuth redirects and cookie scoping
       # both depend on it.
       BASE_URL: ${BASE_URL:?set BASE_URL in .env, e.g. https://budget.example.com}
-      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID:?set GOOGLE_CLIENT_ID in .env}
-      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET:?set GOOGLE_CLIENT_SECRET in .env}
+      GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
+      GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
 
       TRUST_PROXY: "true"
       LOG_LEVEL: ${LOG_LEVEL:-info}

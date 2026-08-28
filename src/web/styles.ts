@@ -441,4 +441,13 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
   display: inline-block; width: 12px; height: 12px; border-radius: 3px;
   flex: 0 0 auto; vertical-align: middle; margin-right: .1rem;
 }
+
+.chart-hbars { display: flex; flex-direction: column; gap: .5rem; }
+.chart-hbar { display: grid; grid-template-columns: minmax(6rem, 34%) 1fr auto; align-items: center; gap: .6rem; }
+.chart-hbar-label { font-size: .9rem; color: var(--text); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.chart-hbar-track { background: var(--chart-grid); border-radius: 4px; height: 12px; overflow: hidden; }
+.chart-hbar-fill { display: block; height: 100%; border-radius: 4px; min-width: 2px; }
+.chart-hbar-value { font-size: .85rem; text-align: right; white-space: nowrap; font-variant-numeric: tabular-nums; color: var(--text-muted); }
+
+.goal-ring-row { display: flex; align-items: center; gap: 1rem; }
 `;
