@@ -750,4 +750,31 @@ calls out, and it only became visible by looking at a real one.
 
 ---
 
-*Entries B46 onward are recorded as the work happens.*
+### B46 · Backup verification and export drifted behind the schema
+
+*28-08-2026.* `COUNTED_TABLES` — the set the F15 export carries and the R40.2
+restore verification counts — was written for the P0 budget engine and never
+grew as loans, assets, goals, family lending and month-close were added. The
+consequence was quiet and serious: a backup that dropped the entire portfolio,
+every loan and every goal would still pass verification with matching totals,
+and an export of "everything" would omit all of it. Restore verification is a
+P0 "nothing ships without it" guarantee, and it was only half-covering the app.
+
+Fixed by making `COUNTED_TABLES` the authority on durable household data, with
+an explicit `EPHEMERAL` counterpart naming what is deliberately excluded —
+sessions, API tokens, auth attempts, idempotency keys, job runs, the
+price-fetch log — because those legitimately differ between a snapshot and its
+verification and are not data to restore. The two secret tables stay in
+`NEVER_EXPORTED`. Magnitude totals were added for the subsystems where a
+row-count match is not enough: total lot units and cost, total loan disbursed,
+the net-worth series — so a restore that keeps a lot row but zeroes its units
+now fails.
+
+This is the same seam the identity-vs-inference entries keep finding: a set
+that must stay in step with the schema drifted because nothing forced it to.
+The test `coverage.test.ts` now pins it, and a dropped-lots restore is asserted
+to fail.
+
+---
+
+*Entries B47 onward are recorded as the work happens.*

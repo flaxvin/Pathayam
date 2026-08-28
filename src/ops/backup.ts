@@ -43,17 +43,62 @@ export interface ControlTotals {
   assignmentTotal: Paise;
   splitTotal: Paise;
   accountOpeningTotal: Paise;
+  /** Milliunits across every lot — silent unit loss shows here. */
+  lotUnitsTotal: number;
+  /** Paise cost basis across every lot. */
+  lotCostTotal: Paise;
+  /** Paise disbursed across every loan. */
+  loanDisbursedTotal: Paise;
+  /** Paise across every recorded net-worth snapshot. */
+  netWorthSnapshotTotal: Paise;
   eventCount: number;
   /** Highest event sequence — a truncated log shows up here immediately. */
   maxEventSeq: number;
 }
 
+/*
+ * Every durable household table.
+ *
+ * This is the set the export carries (F15) and the set restore-verification
+ * counts (R40.2). It was originally the P0 budget engine only; loans, assets,
+ * goals, family lending and month-close were added later and — until they were
+ * added here — a backup could silently drop the entire portfolio and still pass
+ * verification. The seam between "the budget" and "everything the app stores"
+ * is exactly where that drift happens, so this list is now the authority.
+ *
+ * Deliberately absent (see EPHEMERAL below): security, session and operational
+ * tables, which legitimately differ between a snapshot and now and are not
+ * household data to restore.
+ */
 const COUNTED_TABLES = [
+  // Budget engine
   "members", "accounts", "cards", "category_groups", "categories", "assignments",
   "held_for_next_month", "targets", "autoassign_rules", "payees", "payee_aliases",
   "transactions", "transaction_splits", "tags", "transaction_tags",
   "import_batches", "staged_transactions", "rules", "reconciliations", "schedules",
   "events",
+  // Loans (06)
+  "loans", "loan_disbursements", "loan_payments", "loan_rates", "loan_statements",
+  // Assets & net worth (07)
+  "instruments", "holdings", "lots", "holding_events", "prices", "fx_rates",
+  "asset_valuations", "net_worth_snapshots",
+  // Family lending, goals, month-close, saved state
+  "family_loans", "goals", "goal_categories", "month_closes", "saved_views",
+  "settings_kv", "digest_mutes",
+];
+
+/**
+ * Tables the export and control totals deliberately skip.
+ *
+ * `NEVER_EXPORTED` (statement identity, Gmail token) are secrets. The rest are
+ * ephemeral or operational — a session, a rate-limit attempt, an idempotency
+ * key, a job run, a price-fetch log — none of which is household data and all
+ * of which legitimately change between a backup and its verification, so
+ * counting them would raise false failures.
+ */
+const EPHEMERAL = [
+  "sessions", "api_tokens", "auth_attempts", "idempotency_keys",
+  "job_runs", "price_fetches",
 ];
 
 export function controlTotals(db: DB | DatabaseSync): ControlTotals {
@@ -73,6 +118,14 @@ export function controlTotals(db: DB | DatabaseSync): ControlTotals {
       queryValue<number>(handle, `SELECT COALESCE(SUM(amount),0) FROM transaction_splits`) ?? 0,
     accountOpeningTotal:
       queryValue<number>(handle, `SELECT COALESCE(SUM(opening_balance),0) FROM accounts`) ?? 0,
+    lotUnitsTotal:
+      queryValue<number>(handle, `SELECT COALESCE(SUM(units),0) FROM lots`) ?? 0,
+    lotCostTotal:
+      queryValue<number>(handle, `SELECT COALESCE(SUM(cost),0) FROM lots`) ?? 0,
+    loanDisbursedTotal:
+      queryValue<number>(handle, `SELECT COALESCE(SUM(amount),0) FROM loan_disbursements`) ?? 0,
+    netWorthSnapshotTotal:
+      queryValue<number>(handle, `SELECT COALESCE(SUM(net_worth),0) FROM net_worth_snapshots`) ?? 0,
     eventCount: queryValue<number>(handle, `SELECT COUNT(*) FROM events`) ?? 0,
     maxEventSeq: queryValue<number>(handle, `SELECT COALESCE(MAX(seq),0) FROM events`) ?? 0,
   };
@@ -207,6 +260,25 @@ export function verifyRestore(db: DB, backupDir: string): VerificationResult {
     if (live.counts.assignments === restored.counts.assignments) {
       compare("sum of all assignments", live.assignmentTotal, restored.assignmentTotal);
     }
+
+    // The portfolio and loan magnitudes, guarded on their own row counts so a
+    // lot or disbursement written after the snapshot cannot raise a false
+    // failure. Without these, a restore that kept every lot row but zeroed its
+    // units would pass.
+    const totalIf = (
+      countTable: string, name: string, liveValue: number, restoredValue: number,
+    ) => {
+      if ((live.counts[countTable] ?? 0) === (restored.counts[countTable] ?? 0)
+          && liveValue !== restoredValue) {
+        mismatches.push(
+          `${name}: backup and live differ with the same ${countTable} count — the copy is not faithful`,
+        );
+      }
+    };
+    totalIf("lots", "total units held", live.lotUnitsTotal, restored.lotUnitsTotal);
+    totalIf("lots", "total cost basis", live.lotCostTotal, restored.lotCostTotal);
+    totalIf("loan_disbursements", "total loan disbursed", live.loanDisbursedTotal, restored.loanDisbursedTotal);
+    totalIf("net_worth_snapshots", "net-worth history", live.netWorthSnapshotTotal, restored.netWorthSnapshotTotal);
 
     // Event log integrity: the sequence must be contiguous from 1, or events
     // have been lost and R37.3's replay guarantee no longer holds.
