@@ -14,6 +14,7 @@ import { formatDate, formatMonth, type IsoDate } from "../../core/dates.ts";
 import type { QueryRow, GroupedTotal, GroupBy, Period, TrendPoint } from "../../domain/reports.ts";
 import type { Schedule, DetectedSchedule, Cashflow, CalendarDay } from "../../domain/schedules.ts";
 import type { GoalProgress } from "../../domain/goals.ts";
+import { groupedBarChart, lineChart } from "../charts.ts";
 
 // ---------------------------------------------------------------------------
 // S7 · Query
@@ -228,6 +229,25 @@ export function renderReports(opts: {
       ${opts.trend.length === 0
         ? html`<p class="faint">Not enough history yet.</p>`
         : html`
+            ${groupedBarChart({
+              title: "Income and spending, month by month",
+              groups: opts.trend.map((t) => ({
+                label: formatMonth(t.month).slice(0, 3),
+                values: [t.income, t.spending],
+              })),
+              series: [
+                { label: "In", color: "var(--positive)" },
+                { label: "Out", color: "var(--danger)" },
+              ],
+            })}
+            ${lineChart({
+              title: "Net saved each month",
+              xLabels: opts.trend.map((t) => formatMonth(t.month).slice(0, 3)),
+              series: [{
+                label: "Net", color: "var(--accent)", fill: true,
+                points: opts.trend.map((t) => t.net / 100),
+              }],
+            })}
             <div class="table-scroll">
               <table>
                 <thead>

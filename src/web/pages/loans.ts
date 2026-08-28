@@ -12,6 +12,7 @@ import { formatDate, type IsoDate } from "../../core/dates.ts";
 import type { LoanProjection, Loan, LoanPayment, Disbursement, DebtRow } from "../../domain/loans.ts";
 import { LOAN_TYPE_LABELS } from "../../domain/loans.ts";
 import type { PrepaymentComparison, Schedule, RateResetOptions } from "../../loans/amortisation.ts";
+import { lineChart } from "../charts.ts";
 
 export function renderLoanList(rows: LoanProjection[], debt: DebtRow[]): SafeHtml {
   if (rows.length === 0) {
@@ -197,6 +198,83 @@ function moratoriumNotice(p: LoanProjection): SafeHtml {
   `);
 }
 
+/**
+ * S15 · The amortisation curve — how the outstanding balance falls to zero over
+ * the projected schedule. Sampled so a 240-month loan stays a smooth line, not
+ * 240 points of markup.
+ */
+function loanBalanceSection(p: LoanProjection): SafeHtml {
+  const rows = p.schedule.instalments;
+  if (rows.length < 2 || p.outstanding <= 0) return raw("");
+
+  const step = Math.max(1, Math.ceil(rows.length / 48));
+  const sampled = rows.filter((_, i) => i % step === 0 || i === rows.length - 1);
+  // Prepend today's outstanding as the starting point.
+  const points = [p.outstanding / 100, ...sampled.map((r) => r.closing / 100)];
+  const labelFor = (r: (typeof rows)[number]) =>
+    r.dueDate ? formatDate(r.dueDate).slice(3) : `#${r.number}`;
+  const xLabels = ["now", ...sampled.map(labelFor)];
+
+  return html`
+    <section class="card">
+      <h2>How it pays down</h2>
+      <p class="faint" style="margin-top:-.25rem">
+        The projected balance from today to close, if nothing changes.
+        ${when(p.schedule.months > 0, () => html`
+          About ${p.schedule.months} instalments left.
+        `)}
+      </p>
+      ${lineChart({
+        title: "Projected outstanding balance over the remaining schedule",
+        xLabels,
+        series: [{ label: "Outstanding", color: "var(--accent)", points, fill: true }],
+      })}
+    </section>
+  `;
+}
+
+/**
+ * S15 · The drawdown — cumulative disbursed against the sanction, for a loan
+ * that draws in tranches. Only shown when there is more than one draw or an
+ * undrawn balance remains, since a single-shot loan has nothing to plot.
+ */
+function loanDrawdownSection(p: LoanProjection, disbursements: Disbursement[]): SafeHtml {
+  if (disbursements.length < 2 && p.undrawn <= 0) return raw("");
+  if (disbursements.length === 0) return raw("");
+
+  const sorted = [...disbursements].sort((a, b) => a.date.localeCompare(b.date));
+  let cum = 0;
+  const drawn: number[] = [];
+  const labels: string[] = [];
+  for (const d of sorted) {
+    cum += d.amount;
+    drawn.push(cum / 100);
+    labels.push(formatDate(d.date).slice(3));
+  }
+  // A trailing "today" point so an undrawn balance is visible as a flat line
+  // below the sanction ceiling.
+  if (p.undrawn > 0) { drawn.push(cum / 100); labels.push("now"); }
+  const sanctionLine = drawn.map(() => p.loan.sanctioned / 100);
+
+  return html`
+    <section class="card">
+      <h2>Drawdown</h2>
+      <p class="faint" style="margin-top:-.25rem">
+        ${formatPaise(p.disbursed)} drawn of ${formatPaise(p.loan.sanctioned)} sanctioned
+        ${when(p.undrawn > 0, () => html`· ${formatPaise(p.undrawn)} still undrawn`)}.
+      </p>
+      ${lineChart({
+        title: "Cumulative amount drawn against the sanction",
+        xLabels: labels,
+        series: [
+          { label: "Sanctioned", color: "var(--text-faint)", points: sanctionLine },
+          { label: "Drawn", color: "var(--chart-3)", points: drawn, fill: true },
+        ],
+      })}
+    </section>
+  `;
+}
+
 /** R22.1 · Every metric says whether it is actual or projected, in the label. */
 function figure(label: string, amount: Paise, basis?: "actual" | "projected"): SafeHtml {
   return html`
@@ -270,6 +348,9 @@ export function renderLoanDetail(opts: {
       `)}
       ${moratoriumNotice(p)}
     </section>
+
+    ${loanBalanceSection(p)}
+    ${loanDrawdownSection(p, opts.disbursements)}
 
     <section class="card">
       <h2>Lifetime</h2>

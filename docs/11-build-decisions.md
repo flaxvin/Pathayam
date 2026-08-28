@@ -947,4 +947,34 @@ noisy to be trustworthy, and noise is how a guard gets ignored.
 
 ---
 
-*Entries B52 onward are recorded as the work happens.*
+### B52 · Charts are server-rendered SVG, not a library
+
+*28-08-2026 · S15.* The reports, allocation, net-worth and loan screens now
+carry real charts — donuts for allocation and asset composition, grouped bars
+for income vs spending, line/area for net worth over time, net saved per month,
+and a loan's amortisation curve and tranche drawdown. Every one is inline SVG
+emitted by `web/charts.ts`, coloured by CSS custom properties
+(`--chart-1..8`, defined per theme in `styles.ts`).
+
+The constraints made the choice: R35.4's CSP forbids third-party script, and B1
+forbids runtime dependencies, so a charting library was never on the table —
+which is fine, because a self-hosted budget for one household does not need
+1,000 kB of Chart.js to draw a pie. SVG the server already knows how to
+produce, themed by the tokens that already exist, is smaller and repaints with
+the theme for free. Each chart keeps A2: it sits beside the table or legend that
+carries the same numbers as text, and declares `role="img"` with a human title,
+so it is decoration over data rather than the only way to read it.
+
+Two edges caught in review against a live instance, both now tested in
+`charts.test.ts`: a single 100% donut slice (arc paths degenerate at 360°, so it
+falls back to a full-ring circle), and a line that should span its data rather
+than zero — a ₹0.5 L change on a ₹71 L net worth is invisible against a zero
+baseline, so `zeroBaseline: false` scales to the data with padding, while a
+figure that crosses zero (net saved, a balance falling to nil) keeps the zero
+line. The first cut of that had `Math.min(...all, 0)`, which quietly forced zero
+back into the range and flattened the line anyway — the kind of bug only a
+screenshot shows.
+
+---
+
+*Entries B53 onward are recorded as the work happens.*
