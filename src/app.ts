@@ -1765,7 +1765,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       if (typed !== "") {
         parsed = parseStatementPdf(upload.bytes, typed);
       } else if (identity) {
-        const result = openStatement(upload.bytes, passwordCandidates(identity));
+        // F2.9 · The destination account already stores the card/account's
+        // last four digits (for SMS matching), which is exactly what Canara's
+        // and SBI Card's passwords need. Hand them to the derivation.
+        const account = getAccount(db, accountId);
+        const result = openStatement(
+          upload.bytes,
+          passwordCandidates(identity, undefined, { cardDigits: [account?.last4] }),
+        );
         if (!result) throw new StatementWrongPassword();
         parsed = result.parse;
         opened = ` It opened with ${describeCandidate(result.candidate, identity)}.`;
@@ -2990,6 +2997,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         name: requiredField(ctx.body, "name"),
         pan: field(ctx.body, "pan") || null,
         dob: field(ctx.body, "dob") || null,
+        mobile: field(ctx.body, "mobile") || null,
       });
       return {
         redirect: "/settings#statements",
