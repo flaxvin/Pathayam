@@ -14,6 +14,7 @@ import { formatDate, type IsoDate } from "../../core/dates.ts";
 import { formatUnits, formatPrice } from "../../portfolio/holdings.ts";
 import type { HoldingView } from "../../domain/assets.ts";
 import { ASSET_LABELS, ASSET_SUBTYPES, type AssetSubtype } from "../../domain/assets.ts";
+import { donutChart, lineChart, seriesColor } from "../charts.ts";
 import type {
   NetWorthStatement, NetWorthChange, Snapshot,
 } from "../../domain/networth.ts";
@@ -592,6 +593,12 @@ export function renderNetWorth(opts: {
 
     <section class="card">
       <h2>Assets <span class="amount">${formatPaise(s.totalAssets)}</span></h2>
+      ${when(s.assetGroups.filter((g) => g.total > 0).length > 1, () => donutChart({
+        title: "What your assets are made of",
+        slices: s.assetGroups.map((g) => ({ label: g.name, value: g.total })),
+        centerLabel: formatCompact(s.totalAssets),
+        centerSub: "assets",
+      }))}
       ${s.assetGroups.map((g) => renderGroup(g))}
     </section>
 
@@ -663,9 +670,21 @@ function renderGroup(group: { name: string; total: Paise; lines: { label: string
 
 function renderHistory(history: Snapshot[]): SafeHtml {
   const peak = Math.max(...history.map((h) => Math.abs(h.net_worth)), 1);
+  const chrono = [...history].sort((a, b) => a.as_of.localeCompare(b.as_of)); // oldest → newest
   return html`
     <section class="card">
       <h2>Over time</h2>
+      ${lineChart({
+        title: "Net worth over time",
+        xLabels: chrono.map((h) => formatDate(h.as_of).slice(3)),
+        zeroBaseline: false,
+        series: [{
+          label: "Net worth",
+          color: "var(--accent)",
+          points: chrono.map((h) => h.net_worth / 100),
+          fill: true,
+        }],
+      })}
       <div class="table-scroll">
         <table>
           <thead>
@@ -1104,32 +1123,6 @@ export function renderAllocation(opts: {
   classes: { key: string; label: string }[];
   hasForeign: boolean;
 }): SafeHtml {
-  const bar = (slices: AllocSlice[]) => html`
-    <div class="alloc-bar" role="img"
-         style="display:flex;height:.75rem;border-radius:.375rem;overflow:hidden;margin:.4rem 0 .8rem">
-      ${slices.map(
-        (s, i) => html`<span title="${s.label} ${Math.round(s.share * 100)}%"
-          style="width:${(s.share * 100).toFixed(2)}%;background:var(--chart-${(i % 6) + 1},var(--accent));opacity:${1 - (i % 6) * 0.12}"></span>`,
-      )}
-    </div>
-  `;
-
-  const table = (slices: AllocSlice[]) => html`
-    <table>
-      <tbody>
-        ${slices.map(
-          (s) => html`
-            <tr>
-              <td>${s.label}</td>
-              <td class="num">${Math.round(s.share * 100)}%</td>
-              <td class="num amount">${formatPaise(s.value)}</td>
-            </tr>
-          `,
-        )}
-      </tbody>
-    </table>
-  `;
-
   return html`
     <div class="row-between" style="margin-bottom:1rem">
       <h1>Allocation</h1>
@@ -1171,21 +1164,30 @@ export function renderAllocation(opts: {
     ${when(opts.total > 0, () => html`
       <section class="card">
         <h2>By class</h2>
-        ${bar(opts.byClass)}
-        ${table(opts.byClass)}
+        ${donutChart({
+          title: "Portfolio allocation by asset class",
+          slices: opts.byClass.map((s) => ({ label: s.label, value: s.value })),
+          centerLabel: formatCompact(opts.total),
+          centerSub: "classified",
+        })}
         <p class="field-hint">Percentages are of ${formatPaise(opts.total)} classified.</p>
       </section>
 
       ${when(opts.hasForeign, () => html`
         <section class="card">
           <h2>By geography</h2>
-          ${bar(opts.byRegion)}
-          ${table(opts.byRegion)}
+          ${donutChart({
+            title: "Portfolio allocation by geography",
+            slices: opts.byRegion.map((s) => ({ label: s.label, value: s.value })),
+          })}
         </section>
 
         <section class="card">
           <h2>By currency</h2>
-          ${table(opts.byCurrency)}
+          ${donutChart({
+            title: "Portfolio allocation by currency",
+            slices: opts.byCurrency.map((s) => ({ label: s.label, value: s.value })),
+          })}
         </section>
       `)}
     `)}
