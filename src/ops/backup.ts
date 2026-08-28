@@ -51,6 +51,8 @@ export interface ControlTotals {
   loanDisbursedTotal: Paise;
   /** Paise across every recorded net-worth snapshot. */
   netWorthSnapshotTotal: Paise;
+  /** Q10 · total attachment bytes — a truncated blob shows here. */
+  attachmentBytesTotal: number;
   eventCount: number;
   /** Highest event sequence — a truncated log shows up here immediately. */
   maxEventSeq: number;
@@ -85,6 +87,8 @@ const COUNTED_TABLES = [
   // Family lending, goals, month-close, saved state
   "family_loans", "goals", "goal_categories", "month_closes", "saved_views",
   "settings_kv", "digest_mutes",
+  // Q10 · receipts. The bytes live in this table, so backup covers them.
+  "attachments",
 ];
 
 /**
@@ -126,6 +130,8 @@ export function controlTotals(db: DB | DatabaseSync): ControlTotals {
       queryValue<number>(handle, `SELECT COALESCE(SUM(amount),0) FROM loan_disbursements`) ?? 0,
     netWorthSnapshotTotal:
       queryValue<number>(handle, `SELECT COALESCE(SUM(net_worth),0) FROM net_worth_snapshots`) ?? 0,
+    attachmentBytesTotal:
+      queryValue<number>(handle, `SELECT COALESCE(SUM(size),0) FROM attachments`) ?? 0,
     eventCount: queryValue<number>(handle, `SELECT COUNT(*) FROM events`) ?? 0,
     maxEventSeq: queryValue<number>(handle, `SELECT COALESCE(MAX(seq),0) FROM events`) ?? 0,
   };
@@ -279,6 +285,7 @@ export function verifyRestore(db: DB, backupDir: string): VerificationResult {
     totalIf("lots", "total cost basis", live.lotCostTotal, restored.lotCostTotal);
     totalIf("loan_disbursements", "total loan disbursed", live.loanDisbursedTotal, restored.loanDisbursedTotal);
     totalIf("net_worth_snapshots", "net-worth history", live.netWorthSnapshotTotal, restored.netWorthSnapshotTotal);
+    totalIf("attachments", "receipt bytes", live.attachmentBytesTotal, restored.attachmentBytesTotal);
 
     // Event log integrity: the sequence must be contiguous from 1, or events
     // have been lost and R37.3's replay guarantee no longer holds.
@@ -485,7 +492,18 @@ export function exportEverything(db: DB): Record<string, unknown> {
     .filter((table) => !NEVER_EXPORTED.includes(table));
   const data: Record<string, unknown> = {};
   for (const table of tables) {
-    data[table] = queryAll<Record<string, unknown>>(db, `SELECT * FROM ${table}`);
+    const rows = queryAll<Record<string, unknown>>(db, `SELECT * FROM ${table}`);
+    // Q10 / F15.1 · attachments are part of the export, but their bytes are a
+    // BLOB — base64 it so the JSON is valid and portable rather than a raw byte
+    // array. Everything else is scalar already.
+    if (table === "attachments") {
+      for (const row of rows) {
+        if (row.bytes instanceof Uint8Array) {
+          row.bytes = Buffer.from(row.bytes).toString("base64");
+        }
+      }
+    }
+    data[table] = rows;
   }
 
   return {

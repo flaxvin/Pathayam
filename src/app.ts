@@ -148,6 +148,10 @@ import {
   monthCloseView, closeMonth, reopenMonth, closedMonths, monthAwaitingClose, isClosed,
 } from "./domain/month-close.ts";
 import {
+  addAttachment, listAttachments, deleteAttachment,
+  getBytes as getAttachmentBytes,
+} from "./domain/attachments.ts";
+import {
   createFamilyLoan, recordAdvance, recordRepayment, viewFamilyLoan,
   writeOffFamilyLoan, closeFamilyLoan, listFamilyLoans,
   type LendingDirection,
@@ -1350,6 +1354,36 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         `)}
 
         <section class="card">
+          <h2>Receipts</h2>
+          ${listAttachments(db, transaction.id).map(
+            (att) => html`
+              <div class="row-between" style="padding:.4rem 0;border-top:1px solid var(--border)">
+                <a href="/attachment/${att.id}" target="_blank" rel="noopener">
+                  ${att.mime.startsWith("image/") ? "🖼" : "📄"} ${att.filename}
+                  <span class="faint">${Math.round(att.size / 1024)} KB</span>
+                </a>
+                <form method="post" action="/attachment/${att.id}/delete">
+                  <button class="button-small button-danger" type="submit">Remove</button>
+                </form>
+              </div>
+            `,
+          )}
+          <form method="post" action="/transaction/${transaction.id}/attach"
+                enctype="multipart/form-data" style="margin-top:.6rem">
+            <div class="field">
+              <label for="receipt">Add a photo or PDF</label>
+              <input id="receipt" name="receipt" type="file"
+                     accept="image/*,application/pdf" capture="environment" required>
+              <p class="field-hint">
+                Stored on your server only — never on this device, and fetched
+                fresh each time you look.
+              </p>
+            </div>
+            <button type="submit">Attach</button>
+          </form>
+        </section>
+
+        <section class="card">
           <h2>History</h2>
           <ul class="explain-list">
             ${history.map(
@@ -1367,6 +1401,52 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       `,
     );
   });
+
+  // -------------------------------------------------------------------------
+  // Q10 · Receipt attachments.
+  // -------------------------------------------------------------------------
+
+  router.post("/transaction/:id/attach", (ctx) => {
+    const a = auth(ctx);
+    const id = ctx.params.id!;
+    const upload = fileField(ctx.req, "receipt");
+    if (!upload) {
+      return { redirect: withNotice(`/transaction/${id}`, "Choose a photo or PDF first.") };
+    }
+    addAttachment(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+      transactionId: id, filename: upload.filename, bytes: upload.bytes,
+    });
+    return { redirect: withNotice(`/transaction/${id}`, "Receipt attached.") };
+  });
+
+  /**
+   * R35 · Served with no-store, so no device ever caches a receipt. There is
+   * no client copy; every look is a fresh fetch from the server.
+   */
+  router.get("/attachment/:id", (ctx) => {
+    auth(ctx);
+    const found = getAttachmentBytes(db, ctx.params.id!);
+    if (!found) throw new NotFound("That attachment does not exist.");
+    return {
+      body: Buffer.from(found.bytes),
+      headers: {
+        "Content-Type": found.meta.mime,
+        "Content-Disposition": `inline; filename="${found.meta.filename.replace(/"/g, "")}"`,
+        "Cache-Control": "no-store, private",
+        "Content-Length": String(found.bytes.length),
+      },
+    };
+  });
+
+  router.post("/attachment/:id/delete", (ctx) =>
+    mutate(ctx, (a) => {
+      const transactionId = deleteAttachment(db, actorFor(a), ctx.params.id!);
+      return {
+        redirect: transactionId ? `/transaction/${transactionId}` : "/",
+        message: "Receipt removed.",
+      };
+    }),
+  );
 
   router.post("/transaction/:id", (ctx) => {
     const a = auth(ctx);
