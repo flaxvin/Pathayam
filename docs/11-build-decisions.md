@@ -977,4 +977,37 @@ screenshot shows.
 
 ---
 
-*Entries B53 onward are recorded as the work happens.*
+### B53 · An Overview screen, spending insights, and the card statement
+
+*29-08-2026 · S16 / F10.5 / F2.3.* Three additions that lean on data the app
+already held.
+
+**Overview (`/overview`)** is a read-only home that gathers the five
+most-checked numbers — Ready to Assign, net worth, month-to-date spend, the
+cashflow "will you make it?" projection, what's due next, and what's worth
+noticing — each linking to the screen that owns it. Nothing is computed anew;
+it composes the budget view, the cashflow projection, the net-worth statement
+and the insight engine. The budget grid stays the home for *doing*; this is the
+home for *seeing*, which is why it earns its own nav item rather than replacing
+the grid.
+
+**Spending insights (F10.5)** compare each category's current partial month to
+the mean of the three complete months before it, surfacing only moves past both
+a proportional bar (30%) and an absolute one (₹1,000), ranked by rupees moved.
+They are phrased as observations with the numbers attached — the app's standing
+rule is that it states what happened and draws no conclusions, so "dining is 45%
+above its three-month average" is in; "you should cut back" is not.
+
+**Card statements (F2.3)** close the one thing the B51 sweep found genuinely
+unbuilt. A credit card's cycle is not the calendar month and cannot be inferred,
+so the statement is entered — date, due date, balance, optional minimum. This is
+the reversal of B51's note that removed a link to a route that did not exist:
+the route, table (migration 0016) and domain path now exist behind it.
+
+All three sit alongside the chart work (donuts, bars, lines, the goal ring, the
+cashflow and net-worth trajectories) rather than replacing any table — A2 holds
+throughout, every visual beside the numbers it draws.
+
+---
+
+*Entries B54 onward are recorded as the work happens.*

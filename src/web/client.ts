@@ -224,6 +224,7 @@ export const CLIENT_SCRIPT = String.raw`
     { label: "Go to Budget", href: "/", group: "Go to" },
     { label: "Go to Accounts", href: "/accounts", group: "Go to" },
     { label: "Go to Review", href: "/review", group: "Go to" },
+    { label: "Go to Overview", href: "/overview", group: "Go to" },
     { label: "Go to Reports", href: "/reports", group: "Go to" },
     { label: "Go to Query", href: "/query", group: "Go to" },
     { label: "Go to Schedules", href: "/schedules", group: "Go to" },

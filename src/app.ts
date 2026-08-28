@@ -41,7 +41,7 @@ import {
 } from "./gmail/connection.ts";
 import { fetchGmail } from "./gmail/fetch.ts";
 import { withIdempotency, IdempotencyConflict } from "./core/idempotency.ts";
-import { parseAmount, evaluateAmountExpression, formatPaise } from "./core/money.ts";
+import { parseAmount, evaluateAmountExpression, formatPaise, type Paise } from "./core/money.ts";
 import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, type MonthKey } from "./core/dates.ts";
 import { buildBudgetView, reviewCount } from "./web/viewmodel.ts";
 import { renderBudget } from "./web/pages/budget.ts";
@@ -123,6 +123,7 @@ import { comparePrepayment, NegativeAmortisation } from "./loans/amortisation.ts
 import {
   renderQuery, renderReports, renderSchedules, renderNewScheduleForm, renderGoals,
 } from "./web/pages/analysis.ts";
+import { renderOverview } from "./web/pages/overview.ts";
 import {
   queryTransactions, groupTotals, periodPresets, periodFor, incomeVsExpense,
   loanInterestByFinancialYear, rowsToCsv, type GroupBy, type TransactionFilter,
@@ -2527,6 +2528,48 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       }),
     );
   }
+
+  // S16 · Overview — the read-only home that gathers the five most-checked
+  // numbers from the budget, cashflow, net worth and insight engine.
+  router.get("/overview", (ctx) => {
+    const view = buildBudgetView(db);
+    const month = view.month;
+    const cashflow = projectCashflow(db, { days: 60 });
+    const outstanding = creditOutstanding(db);
+    const unfundedCards = [...view.categories.values()]
+      .filter((c) => c.paymentAccountId)
+      .map((c) => ({
+        name: c.name,
+        amount: cardFunding(
+          c.paymentAccountId!,
+          outstanding.get(c.paymentAccountId!) ?? 0,
+          c.state.balance,
+          view.monthState.unfundedByAccount[c.paymentAccountId!] ?? 0,
+        ).unfunded,
+      }))
+      .filter((c) => c.amount > 0);
+    const monthTrend = incomeVsExpense(db, `${month}-01`, todayIST());
+    const monthSpend = (monthTrend.at(-1)?.spending ?? 0) as Paise;
+
+    return render(
+      ctx, "Overview",
+      renderOverview({
+        month,
+        rta: view.monthState.readyToAssign,
+        rtaState: view.monthState.rtaState,
+        netWorth: config.features.assets ? netWorthStatement(db).netWorth : (0 as Paise),
+        netWorthHistory: config.features.assets ? netWorthHistory(db) : [],
+        cashflow,
+        cashflowReading: describeCashflow(cashflow),
+        upcoming: cashflow.days
+          .filter((d) => d.outflows.length > 0 || d.inflows.length > 0)
+          .slice(0, 5),
+        unfundedCards,
+        insights: spendingInsights(db, todayIST(), 4),
+        monthSpend,
+      }),
+    );
+  });
 
   router.get("/query", (ctx) => queryPage(ctx));
 
