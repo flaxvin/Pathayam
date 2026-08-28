@@ -175,6 +175,7 @@ import {
   recordSale, recordPrice, latestValuation, listHoldings, viewHolding,
   priceHistory, previewHoldingSale, getInstrument, listInstruments,
   classifyInstrument, ASSET_CLASSES, ASSET_CLASS_LABELS,
+  exportHoldingsCsv, exportLotsCsv, exportPriceHistoryCsv, exportNetWorthCsv,
   type InstrumentKind,
 } from "./domain/assets.ts";
 import {
@@ -3736,6 +3737,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       },
     };
   });
+
+  /** F19.13 · Portfolio CSVs — one shape each. */
+  function csvDownload(name: string, body: string): Response {
+    return {
+      body,
+      headers: {
+        "Content-Type": "text/csv; charset=utf-8",
+        "Content-Disposition": `attachment; filename="${name}-${todayIST()}.csv"`,
+      },
+    };
+  }
+  router.get("/portfolio/holdings.csv", (ctx) => { requireAssets(); auth(ctx); return csvDownload("holdings", exportHoldingsCsv(db)); });
+  router.get("/portfolio/lots.csv", (ctx) => { requireAssets(); auth(ctx); return csvDownload("lots", exportLotsCsv(db)); });
+  router.get("/portfolio/prices.csv", (ctx) => { requireAssets(); auth(ctx); return csvDownload("prices", exportPriceHistoryCsv(db)); });
+  router.get("/net-worth.csv", (ctx) => { requireAssets(); auth(ctx); return csvDownload("net-worth", exportNetWorthCsv(db)); });
 
   /**
    * F27.3 · A machine-readable endpoint for external monitoring: one overall

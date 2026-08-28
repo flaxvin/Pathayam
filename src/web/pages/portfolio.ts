@@ -60,6 +60,7 @@ export function renderPortfolio(opts: {
           <button class="button-small" type="submit">Refresh prices</button>
         </form>
         <a class="button" href="/portfolio/allocation">Allocation</a>
+        <a class="button" href="/portfolio/holdings.csv">Export CSV</a>
         <a class="button" href="/portfolio/cas">Import a CAS</a>
         <a class="button button-primary" href="/portfolio/add">Add a holding</a>
       </div>

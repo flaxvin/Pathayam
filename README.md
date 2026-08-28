@@ -279,7 +279,7 @@ matched against what is already held so a statement that restates four months
 adds only what is new. Holdings as units with FIFO lots, cost basis, XIRR
 as the headline return, corporate actions, the net worth statement with R29.4's
 four-way decomposition and a dated history, MFAPI and Frankfurter adapters
-behind one provider interface — plus AMFI as the fallback the errata asks for,
+behind one provider interface — and CSV export of holdings, lots, price history and the net-worth series (F19.13); plus AMFI as the fallback the errata asks for,
 reading the registrar's own published file and matching on ISIN, so losing
 MFAPI costs nothing. Prices refresh on P4's per-class cadence, because a NAV
 published at 23:00 IST does not exist at noon. And asset allocation by class — with foreign holdings split by geography and currency, and a fund left unclassified rather than guessed into a bucket (N9) — and the asset-gain versus FX-gain split that
