@@ -81,8 +81,12 @@ function main(): void {
   // Housekeeping. Deliberately in-process rather than a cron container: the
   // deployment is one box (Q8), and a job that needs a second container is a
   // job that silently stops running.
-  const housekeeping = setInterval(
-    () => {
+  // B51: run the housekeeping body on a leading tick shortly after listen, not
+  // only every six hours. `setInterval` fires first after a full period, so a
+  // box that restarts more often than every six hours would *never* reach the
+  // restore verification — and R40.2 makes "can we actually recover" a
+  // ship-blocking guarantee, not a best-effort one.
+  const housekeepingTick = () => {
       try {
         const keys = pruneIdempotencyKeys(db);
         const sessions = pruneExpiredSessions(db);
@@ -140,10 +144,13 @@ function main(): void {
             log({ level: "error", msg: "price refresh threw", error: String(err) });
           });
       }
-    },
-    6 * 60 * 60 * 1000,
-  );
+  };
+  const housekeeping = setInterval(housekeepingTick, 6 * 60 * 60 * 1000);
   housekeeping.unref();
+  // The leading run, a minute after listen — long enough not to compete with
+  // startup, soon enough that a frequently-restarting box still verifies.
+  const housekeepingLead = setTimeout(housekeepingTick, 60 * 1000);
+  housekeepingLead.unref();
 
   server.listen(config.port, config.host, () => {
     log({

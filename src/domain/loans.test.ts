@@ -101,6 +101,48 @@ describe("06 R15 · tranche disbursement", () => {
       /against a sanction/,
     );
   });
+
+  test("B51 · a budget-account tranche with no account named is refused, not half-written", () => {
+    const { db } = setup();
+    const loan = createLoan(db, actor, {
+      lender: "Axis", loanType: "personal",
+      sanctioned: rupees(5_00_000), sanctionDate: "2026-04-01",
+      interestModel: "reducing", annualRatePct: 11, tenureMonths: 36,
+    });
+    // Before the guard this booked the liability and silently skipped the cash
+    // leg — the debt rose and the money vanished, while the handler reported
+    // "the money is in your account".
+    assert.throws(
+      () => recordDisbursement(db, actor, {
+        loanId: loan.id, amount: rupees(1_00_000), date: "2026-05-01",
+        destination: "budget-account", destinationAccountId: null,
+      }),
+      /which account/,
+    );
+    // Nothing was written: no disbursement row, no liability leg.
+    const rows = queryAll<{ n: number }>(
+      db, `SELECT COUNT(*) AS n FROM loan_disbursements WHERE loan_id = ?`, loan.id,
+    );
+    assert.equal(rows[0]!.n, 0, "no disbursement row should survive the rejection");
+    const liability = queryAll<{ n: number }>(
+      db, `SELECT COUNT(*) AS n FROM transactions t JOIN loans l ON l.account_id = t.account_id
+           WHERE l.id = ?`, loan.id,
+    );
+    assert.equal(liability[0]!.n, 0, "no liability leg should have been booked");
+  });
+
+  test("B51 · a loan with nothing drawn reports no instalments saved", () => {
+    const { db } = setup();
+    // A brand-new under-construction loan: empty schedule, nothing repaid. The
+    // old hardcoded baselineMonths made this read "240 instalments saved".
+    const loan = createLoan(db, actor, {
+      lender: "SBI", loanType: "home-under-construction",
+      sanctioned: rupees(50_00_000), sanctionDate: "2026-04-01",
+      interestModel: "reducing", annualRatePct: 8.5, tenureMonths: 240,
+    });
+    const p = projectLoan(db, loan.id)!;
+    assert.equal(p.metrics.emisSaved, 0, "nothing drawn means nothing saved");
+  });
 });
 
 describe("06 R16 M3/M4 · moratorium in the projection", () => {

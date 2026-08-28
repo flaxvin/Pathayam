@@ -56,12 +56,21 @@ export class Router {
 
   match(method: string, pathname: string): { handler: Handler; params: Record<string, string> } | null {
     const parts = split(pathname);
+    // B51: prefer the most *specific* match rather than the first registered.
+    // Registration order used to decide, so `/portfolio/holdings.csv` was
+    // shadowed by the earlier `/portfolio/:id` and served a 404 — a literal
+    // route made permanently unreachable by a param route sharing its shape.
+    // Scoring by literal-segment count makes the more specific route win
+    // regardless of order, which is the durable fix.
+    let best: { handler: Handler; params: Record<string, string>; score: number } | null = null;
     for (const route of this.routes) {
       if (route.method !== method) continue;
       const params = matchSegments(route.segments, parts);
-      if (params) return { handler: route.handler, params };
+      if (!params) continue;
+      const score = literalScore(route.segments);
+      if (!best || score > best.score) best = { handler: route.handler, params, score };
     }
-    return null;
+    return best ? { handler: best.handler, params: best.params } : null;
   }
 
   /** Whether any route exists at this path, to tell 404 from 405. */
@@ -73,6 +82,11 @@ export class Router {
 
 function split(pattern: string): string[] {
   return pattern.split("/").filter((s) => s.length > 0);
+}
+
+/** How specific a pattern is: one point per literal (non-`:param`) segment. */
+function literalScore(segments: string[]): number {
+  return segments.reduce((n, s) => (s.startsWith(":") ? n : n + 1), 0);
 }
 
 function matchSegments(pattern: string[], actual: string[]): Record<string, string> | null {
@@ -184,7 +198,11 @@ function parseMultipart(
     if (raw[end - 1] === 0x0d) end--;
     const content = raw.subarray(headerEnd + 4, end);
 
-    const nameMatch = /name="([^"]*)"/i.exec(headers);
+    // B51: anchor on a parameter boundary, or this matches the `name="…"`
+    // *inside* `filename="…"` when a client sends filename first — capturing
+    // the filename as the field name. Browsers send name before filename, but
+    // the Gmail and API multipart paths need not.
+    const nameMatch = /(?:^|;)\s*name="([^"]*)"/i.exec(headers);
     const fileMatch = /filename="([^"]*)"/i.exec(headers);
     const name = nameMatch?.[1];
 

@@ -446,6 +446,79 @@ export function renderSchedules(opts: {
   `;
 }
 
+/**
+ * B51 · Add a schedule by hand.
+ *
+ * `POST /schedules/new` shipped, but the "Add one" button linked to a GET that
+ * did not exist (405), so schedules could only ever arrive through the
+ * detector's confirm path. This is the manual form it pointed at.
+ */
+export function renderNewScheduleForm(opts: {
+  accounts: { id: string; name: string; nickname: string | null }[];
+  categories: { id: string; name: string }[];
+  today: IsoDate;
+}): SafeHtml {
+  return html`
+    <h1>Add a schedule</h1>
+    <p class="faint">
+      A recurring item the app should expect — rent, a SIP, a subscription. It shapes
+      the cashflow forecast; it does not move money on its own.
+    </p>
+    <form method="post" action="/schedules/new" class="card">
+      <div class="field">
+        <label for="name">What is it?</label>
+        <input id="name" name="name" autocomplete="off" required autofocus
+               placeholder="Rent, Netflix, SIP…">
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label for="amount">Amount</label>
+          <input id="amount" name="amount" class="amount-input" type="text"
+                 inputmode="decimal" autocomplete="off" placeholder="0.00">
+        </div>
+        <div class="field">
+          <label for="next_due">Next due</label>
+          <input id="next_due" name="next_due" type="text" autocomplete="off"
+                 value="${formatDate(opts.today)}" placeholder="DD-MM-YYYY">
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="field">
+          <label for="recurrence">How often</label>
+          <select id="recurrence" name="recurrence">
+            <option value="monthly">Monthly</option>
+            <option value="weekly">Weekly</option>
+            <option value="fortnightly">Fortnightly</option>
+            <option value="quarterly">Quarterly</option>
+            <option value="yearly">Yearly</option>
+          </select>
+        </div>
+        <div class="field">
+          <label for="account_id">Account</label>
+          <select id="account_id" name="account_id">
+            <option value="">Any / not set</option>
+            ${opts.accounts.map(
+              (a) => html`<option value="${a.id}">${a.nickname || a.name}</option>`,
+            )}
+          </select>
+        </div>
+      </div>
+      <div class="field">
+        <label for="category_id">Category</label>
+        <select id="category_id" name="category_id">
+          <option value="">Uncategorised</option>
+          ${opts.categories.map((c) => html`<option value="${c.id}">${c.name}</option>`)}
+        </select>
+      </div>
+      <div class="field">
+        <label><input type="checkbox" name="is_subscription" value="1"> This is a subscription</label>
+      </div>
+      <button class="button-primary" type="submit">Add schedule</button>
+      <a class="button button-quiet" href="/schedules">Cancel</a>
+    </form>
+  `;
+}
+
 /** 03 §6: a vertical list of days on mobile rather than a month grid. */
 function renderCalendar(cashflow: Cashflow): SafeHtml {
   const busy = cashflow.days.filter(

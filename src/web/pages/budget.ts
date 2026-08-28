@@ -153,7 +153,10 @@ function renderCategoryRow(category: CategoryView, month: MonthKey): SafeHtml {
   return html`
     <div class="category-row ${category.stateClass}"${raw(anchor)}>
       <div class="category-name">
-        <a href="/category/${category.id}?month=${month}">${category.name}</a>
+        <!-- B51: previously pointed at /category/:id, which had no route and
+             404'd. The category name now opens its explanation, matching the
+             info link below. -->
+        <a href="/explain/category/${category.id}?month=${month}">${category.name}</a>
       </div>
 
       <div class="category-meta">

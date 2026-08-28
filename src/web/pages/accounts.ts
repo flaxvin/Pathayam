@@ -286,11 +286,13 @@ function renderCardPanel(opts: {
           `
         : html`
             <!-- R6: statement cycles are not calendar months, so the app cannot
-                 infer them. F2.3 captures the days; the amount is entered. -->
+                 infer them. F2.3 captures the days; the amount is entered.
+                 B51: recording a card statement (its own table + domain path) is
+                 not yet built, so there is no link here to a route that 404s.
+                 Until then, funding advice keys off the month boundary. -->
             <p class="faint">
-              No statement recorded yet. Statement cycles don't follow calendar months, so
-              funding advice keys off the statement rather than the month boundary.
-              <a href="/accounts/${account.id}/statement">Record a statement</a>
+              No statement recorded yet. Statement cycles don't follow calendar months;
+              until per-card statement capture lands, funding advice keys off the month.
             </p>
           `}
 
@@ -419,5 +421,88 @@ export function renderNewAccountForm(opts: { error?: string | null } = {}): Safe
 
       <button class="button-primary" type="submit">Add account</button>
     </form>
+  `;
+}
+
+/**
+ * B51 · Manage the cards on an account (F2.9), including add-on cards.
+ *
+ * `createCard`/`listCards`/`closeCard` all existed, but the "Manage cards"
+ * button linked to `/accounts/:id/cards`, which had no route. This is the page:
+ * the cards on the account, and a form to add an add-on card held by another
+ * member — the mechanic Q-decisions made first-class.
+ */
+export function renderManageCards(opts: {
+  account: Account;
+  cards: Card[];
+  members: { id: string; name: string }[];
+  error?: string | null;
+}): SafeHtml {
+  const memberName = (id: string | null) =>
+    id ? (opts.members.find((m) => m.id === id)?.name ?? "someone") : null;
+
+  return html`
+    <div class="row-between" style="margin-bottom:1rem">
+      <h1>Cards on ${opts.account.nickname || opts.account.name}</h1>
+      <a class="button button-quiet" href="/accounts/${opts.account.id}">Back to account</a>
+    </div>
+    ${when(opts.error, () => html`<p class="notice notice-error">${opts.error}</p>`)}
+
+    <section class="card">
+      <h2>Cards</h2>
+      ${opts.cards.length === 0
+        ? html`<p class="faint">No cards recorded yet.</p>`
+        : opts.cards.map(
+            (c) => html`
+              <div class="row-between" style="padding:.5rem 0;border-top:1px solid var(--border)">
+                <div>
+                  <strong>${c.label}</strong>
+                  ${when(c.last4, () => html`<span class="faint"> · ending ${c.last4}</span>`)}
+                  ${c.is_primary
+                    ? html`<span class="chip">primary</span>`
+                    : html`<span class="chip">add-on</span>`}
+                  ${when(memberName(c.holder_member_id), () => html`
+                    <div class="faint">held by ${memberName(c.holder_member_id)}</div>
+                  `)}
+                </div>
+                ${when(!c.is_primary, () => html`
+                  <form method="post" action="/accounts/${opts.account.id}/cards/${c.id}/close">
+                    <button class="button-small" type="submit">Close</button>
+                  </form>
+                `)}
+              </div>
+            `,
+          )}
+    </section>
+
+    <section class="card">
+      <h2>Add an add-on card</h2>
+      <p class="faint" style="margin-top:-.25rem">
+        A card on this account held by another member — it shares this account's limit,
+        statement and single payment. Spending on it defaults to its holder (R6.e).
+      </p>
+      <form method="post" action="/accounts/${opts.account.id}/cards">
+        <div class="grid-2">
+          <div class="field">
+            <label for="label">Label</label>
+            <input id="label" name="label" autocomplete="off" required
+                   placeholder="Axis Atlas — Priya">
+          </div>
+          <div class="field">
+            <label for="last4">Last four digits</label>
+            <input id="last4" name="last4" inputmode="numeric" autocomplete="off"
+                   maxlength="4" placeholder="1234">
+          </div>
+        </div>
+        <div class="field">
+          <label for="holder_member_id">Held by</label>
+          <select id="holder_member_id" name="holder_member_id">
+            <option value="">Not set</option>
+            ${opts.members.map((m) => html`<option value="${m.id}">${m.name}</option>`)}
+          </select>
+        </div>
+        <button class="button-primary" type="submit">Add card</button>
+      </form>
+    </section>
   `;
 }

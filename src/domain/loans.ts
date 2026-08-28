@@ -255,6 +255,17 @@ export function recordDisbursement(
 ): Disbursement {
   if (input.amount <= 0) throw new Error("A disbursement needs an amount above zero.");
 
+  // B51: a disbursement credited to a budget account MUST name the account, or
+  // the cash leg below is silently skipped while the liability is still booked —
+  // a half-write that raises the debt and delivers no money (the failure class
+  // B32 names). Reject the combination rather than record something that is
+  // permanently inconsistent with itself.
+  if (input.destination === "budget-account" && !input.destinationAccountId) {
+    throw new Error(
+      "Say which account the money landed in, or record it as paid to a third party.",
+    );
+  }
+
   return transact(db, () => {
     const loan = getLoan(db, input.loanId);
     if (!loan) throw new Error("That loan does not exist.");
@@ -705,7 +716,13 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
       actualPrincipalRepaid: paidPrincipal,
       projectedRemainingInterest: schedule.totalInterest,
       baselineInterest: baseline.totalInterest,
-      baselineMonths: loan.tenure_months,
+      // B51: both sides must come from the same derivation. Hardcoding
+      // `loan.tenure_months` here while `projectedMonths` derived from the
+      // schedule meant a loan with nothing drawn — empty schedule, zero
+      // projected months — reported `tenure_months` instalments "saved" (240 on
+      // a fresh 20-year loan). `baseline.months` is 0 for an undrawn loan, so
+      // the two agree and the phantom saving disappears.
+      baselineMonths: baseline.months,
       projectedMonths: payments.filter((p) => p.kind === "instalment").length + schedule.months,
       fees: charges,
       fromDate: loan.history_from,
