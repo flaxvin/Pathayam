@@ -153,10 +153,11 @@ function renderCategoryRow(category: CategoryView, month: MonthKey): SafeHtml {
   return html`
     <div class="category-row ${category.stateClass}"${raw(anchor)}>
       <div class="category-name">
-        <!-- B51: previously pointed at /category/:id, which had no route and
-             404'd. The category name now opens its explanation, matching the
-             info link below. -->
-        <a href="/explain/category/${category.id}?month=${month}">${category.name}</a>
+        <!-- B55: the name drills into this category's transactions (F10.2), a
+             real page. "Explain this number" stays on the balance, as a popover.
+             (It used to link straight to the bare explain fragment, which
+             navigated to an unstyled page.) -->
+        <a href="/query?category=${category.id}&period=this-month">${category.name}</a>
       </div>
 
       <div class="category-meta">

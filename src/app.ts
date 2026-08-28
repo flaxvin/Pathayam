@@ -88,7 +88,7 @@ import {
   type AccountKind,
 } from "./domain/accounts.ts";
 import {
-  setAssigned, moveMoney, setHeld, getHeld, listCategories, getCategory,
+  setAssigned, addAssigned, moveMoney, setHeld, getHeld, listCategories, getCategory,
 } from "./domain/budget.ts";
 import {
   createTransaction, createTransfer, updateTransaction, deleteTransaction,
@@ -646,6 +646,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         toCategoryId: to,
         amount: amountParam ? Number(amountParam) : null,
         suggestions,
+        readyToAssign: view.monthState.readyToAssign,
       }),
     );
   });
@@ -654,14 +655,30 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       const month = monthParam(ctx);
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+      const from = requiredField(ctx.body, "from_category_id");
+      const to = requiredField(ctx.body, "to_category_id");
+      const amount = amountField(field(ctx.body, "amount"));
+
+      // B55: "Ready to Assign" is a valid source. Funding a category from it is
+      // just assigning income that had no job yet — so it adds to the target's
+      // assignment (which reduces RTA), rather than moving between two envelopes.
+      if (from === "rta") {
+        if (amount <= 0) throw new HttpError(400, "Enter an amount greater than zero.");
+        const { recompute } = withForwardRecompute(
+          db, actor, { month, cause: "Assigned from Ready to Assign" },
+          () => addAssigned(db, actor, month, to, amount),
+        );
+        return { redirect: `/?month=${month}`, message: "Assigned from Ready to Assign." + rippleNote(recompute) };
+      }
+
       const { recompute } = withForwardRecompute(
         db, actor, { month, cause: "Moved money between categories" },
         () =>
           moveMoney(db, actor, {
             month,
-            fromCategoryId: requiredField(ctx.body, "from_category_id"),
-            toCategoryId: requiredField(ctx.body, "to_category_id"),
-            amount: amountField(field(ctx.body, "amount")),
+            fromCategoryId: from,
+            toCategoryId: to,
+            amount,
           }),
       );
       return { redirect: `/?month=${month}`, message: "Money moved." + rippleNote(recompute) };
@@ -3225,6 +3242,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       return { redirect: `/family/${id}?confirm=write-off` };
     }
 
+    // Read which way the balance pointed before closing it, so the message
+    // matches: a debt to you is written off, a debt of yours is forgiven (B54).
+    const before = viewFamilyLoan(db, id);
+    const owedByYou = before?.owedByYou ?? false;
+
     const amount = writeOffFamilyLoan(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
       loanId: id,
       categoryId: requiredField(ctx.body, "category_id"),
@@ -3233,7 +3255,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return {
       redirect: withNotice(
         "/family",
-        `Wrote off ${formatPaise(amount)}. Every advance and repayment is still there.`,
+        (owedByYou
+          ? `Recorded ${formatPaise(amount)} forgiven. `
+          : `Wrote off ${formatPaise(amount)}. `) +
+          "Every line is still there.",
       ),
     };
   });

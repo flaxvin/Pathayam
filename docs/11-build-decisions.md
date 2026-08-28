@@ -1010,4 +1010,46 @@ throughout, every visual beside the numbers it draws.
 
 ---
 
-*Entries B54 onward are recorded as the work happens.*
+### B54 · Family lending is one ledger, not two directions
+
+*29-08-2026 · FL1–FL8.* The lent/borrowed split was removed. An arrangement is a
+single running ledger with a counterparty; who owes whom is read from the
+**sign** of the derived balance, not fixed at creation. Two neutral operations —
+money out ("you paid them") and money in ("they paid you") — and the balance
+nets them: positive means they owe you, negative means you owe them.
+
+This fixes a real bug. When repayments exceeded what was lent, the old code kept
+the direction fixed at "lent" and forced the outstanding positive with
+`Math.abs`, so the balance read as still-owed and the write-off booked a
+nonsensical expense against an account already negative. Now the balance simply
+tips negative and the write-off settles a non-zero balance either way — an
+expense when they owe you, income when a debt of yours is forgiven.
+
+The `direction` column stays but is inert: SQLite cannot drop a column named in
+a CHECK constraint without a full table rebuild, and the rebuild's risk is not
+worth it for a column nothing reads. `familyLoanNetWorth` splits by balance
+sign. Crucially, existing data needs no migration — every movement was always
+recorded in the economically-correct transfer direction, so reading the sign
+gives the same answer the direction column used to.
+
+### B55 · Ready to Assign is a source when funding a category; the name drills to transactions
+
+*29-08-2026 · R5 / F10.2.* Two budget-screen fixes.
+
+The move/cover screen (`/move`) could only move between two categories, so a red
+category could not be funded from Ready to Assign even when income sat there
+unassigned — you had to rob another envelope. Ready to Assign is now a source:
+picking it (or its suggestion button, shown when RTA is positive) *assigns* the
+amount to the target (`addAssigned`, which reduces RTA) rather than moving
+between envelopes. Direct assignment still lives on the budget grid; this makes
+the cover flow able to reach the same money.
+
+And the category *name* on the budget grid linked straight to the bare
+`/explain/category/:id` fragment — which, followed as a full navigation rather
+than the popover it was built for, rendered an unstyled page. The name now
+drills into that category's transactions (`/query?category=…`), a real page;
+"explain this number" stays on the balance, as the popover.
+
+---
+
+*Entries B56 onward are recorded as the work happens.*
