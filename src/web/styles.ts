@@ -459,4 +459,17 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
 .insight-down .insight-mark { color: var(--positive); }
 .insight-new .insight-mark { color: var(--accent); }
 .insight a { margin-left: .35rem; white-space: nowrap; }
+
+/* Overview dashboard (S16) */
+.overview-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 1rem; margin-bottom: 1rem; }
+.overview-grid-2 { display: grid; grid-template-columns: repeat(auto-fit, minmax(300px, 1fr)); gap: 1rem; }
+.overview-tile { display: flex; flex-direction: column; gap: .35rem; }
+.overview-label { color: var(--text-muted); font-size: .85rem; text-transform: uppercase; letter-spacing: .03em; }
+.overview-figure { font-size: 1.75rem; font-weight: 700; font-variant-numeric: tabular-nums; }
+.overview-list { list-style: none; margin: .25rem 0 0; padding: 0; }
+.overview-list li { display: flex; gap: .6rem; align-items: baseline; padding: .45rem 0; border-top: 1px solid var(--border); font-size: .92rem; }
+.overview-list li:first-child { border-top: none; }
+.overview-date { flex: 0 0 3.2rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.overview-items { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
+.overview-list .amount { white-space: nowrap; }
 `;

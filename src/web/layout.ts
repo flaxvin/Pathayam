@@ -181,6 +181,7 @@ function renderSidebar(
   // F28.2: a disabled module disappears from navigation rather than appearing
   // greyed out.
   const secondary: NavItem[] = [
+    { href: "/overview", label: "Overview", icon: "◱" },
     { href: "/reports", label: "Reports", icon: "▦" },
     { href: "/query", label: "Query", icon: "⌗" },
     { href: "/schedules", label: "Schedules", icon: "◷" },
