@@ -95,7 +95,13 @@ function renderReadyToAssign(view: BudgetView): SafeHtml {
           </a>
           ·
           <a href="/auto-assign?month=${view.month}">Auto-assign</a>
+          ·
+          <!-- F3.9: budget like last month, then adjust. -->
+          <button class="linkish" type="submit" form="fill-last-month">Fill from last month</button>
         </p>
+        <form id="fill-last-month" method="post" action="/copy-last-month" hidden>
+          <input type="hidden" name="month" value="${view.month}">
+        </form>
       `)}
 
       ${when(view.fullyFunded, () => html`

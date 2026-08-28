@@ -222,6 +222,7 @@ export function renderReports(opts: {
   trend: TrendPoint[];
   categorySpend: { label: string; value: Paise }[];
   categoryTrends: { name: string; spent: number[] }[];
+  tagSpend: { tag: string; spent: Paise; budget: Paise | null }[];
   spendingCalendar: { date: IsoDate; value: Paise }[];
   sankey: { income: Paise; month: MonthKey; groups: { name: string; categories: { name: string; value: Paise }[] }[] };
   period: Period;
@@ -351,6 +352,35 @@ export function renderReports(opts: {
           title: "Spending by category as a treemap",
           items: opts.categorySpend.map((c) => ({ label: c.label, value: c.value })),
         })}
+      </section>
+    `)}
+
+    ${when(opts.tagSpend.length > 0, () => html`
+      <section class="card">
+        <h2>By tag</h2>
+        <p class="faint" style="margin-top:-.25rem">
+          Tags work as ad-hoc budgets — here's what each took, ${opts.period.label.toLowerCase()}.
+        </p>
+        ${horizontalBars({
+          title: "Spending by tag",
+          items: opts.tagSpend.map((t) => ({ label: t.tag, value: t.spent })),
+        })}
+        ${when(opts.tagSpend.some((t) => t.budget !== null), () => html`
+          <table style="margin-top:.5rem">
+            <tbody>
+              ${opts.tagSpend.filter((t) => t.budget !== null).map((t) => html`
+                <tr>
+                  <td>${t.tag}</td>
+                  <td class="num">${formatPaise(t.spent)} of ${formatPaise(t.budget!)}</td>
+                  <td class="num ${t.spent > t.budget! ? "amount-negative" : "amount-positive"}">
+                    ${t.spent > t.budget! ? "over by " : ""}${formatPaise(Math.abs(t.budget! - t.spent) as Paise)}
+                    ${t.spent > t.budget! ? "" : " left"}
+                  </td>
+                </tr>
+              `)}
+            </tbody>
+          </table>
+        `)}
       </section>
     `)}
 

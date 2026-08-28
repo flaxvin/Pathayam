@@ -9,8 +9,8 @@
 
 import { html, raw, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, formatCompact, type Paise } from "../../core/money.ts";
-import { formatDate, formatMonth, type MonthKey } from "../../core/dates.ts";
-import type { Cashflow, CalendarDay } from "../../domain/schedules.ts";
+import { formatDate, formatMonth, type MonthKey, type IsoDate } from "../../core/dates.ts";
+import type { Cashflow } from "../../domain/schedules.ts";
 import type { Snapshot } from "../../domain/networth.ts";
 import type { Insight } from "../../domain/insights.ts";
 import { lineChart } from "../charts.ts";
@@ -23,10 +23,12 @@ export function renderOverview(opts: {
   netWorthHistory: Snapshot[];
   cashflow: Cashflow;
   cashflowReading: string;
-  upcoming: CalendarDay[];
   unfundedCards: { name: string; amount: Paise }[];
   insights: Insight[];
   monthSpend: Paise;
+  cash: Paise;
+  runwayMonths: number | null;
+  dueSoon: { id: string; name: string; amount: Paise; nextDue: IsoDate }[];
 }): SafeHtml {
   const chrono = [...opts.netWorthHistory].sort((a, b) => a.as_of.localeCompare(b.as_of));
 
@@ -59,6 +61,15 @@ export function renderOverview(opts: {
         <div class="overview-figure">${formatPaise(opts.monthSpend)}</div>
         <a class="faint" href="/reports">Reports →</a>
       </section>
+
+      <!-- #12 · Months of runway -->
+      ${when(opts.runwayMonths !== null, () => html`
+        <section class="card overview-tile">
+          <div class="overview-label">Months of runway</div>
+          <div class="overview-figure">${opts.runwayMonths!.toFixed(1)}</div>
+          <span class="faint">${formatCompact(opts.cash)} cash ÷ typical monthly spend</span>
+        </section>
+      `)}
     </div>
 
     <!-- Will you make it? -->
@@ -83,22 +94,24 @@ export function renderOverview(opts: {
     </section>
 
     <div class="overview-grid-2">
-      <!-- Upcoming bills -->
+      <!-- #13 · Bills due soon, each with a one-tap mark-paid -->
       <section class="card">
-        <h2>Next up</h2>
-        ${opts.upcoming.length === 0
-          ? html`<p class="faint">Nothing scheduled in the days ahead.</p>`
+        <div class="row-between">
+          <h2>Due soon</h2>
+          <a class="button button-small" href="/schedules">All schedules</a>
+        </div>
+        ${opts.dueSoon.length === 0
+          ? html`<p class="faint">Nothing due in the next two weeks.</p>`
           : html`
               <ul class="overview-list">
-                ${opts.upcoming.map((d) => html`
+                ${opts.dueSoon.map((s) => html`
                   <li>
-                    <span class="overview-date">${formatDate(d.date).slice(0, 5)}</span>
-                    <span class="overview-items">
-                      ${d.outflows.map((o) => o.label).concat(d.inflows.map((i) => i.label)).join(", ")}
-                    </span>
-                    <span class="amount ${dayNet(d) < 0 ? "amount-negative" : "amount-positive"}">
-                      ${formatCompact(dayNet(d))}
-                    </span>
+                    <span class="overview-date">${formatDate(s.nextDue).slice(0, 5)}</span>
+                    <span class="overview-items">${s.name}</span>
+                    <span class="amount amount-negative">${formatCompact(s.amount)}</span>
+                    <form method="post" action="/schedules/${s.id}/paid" style="display:inline">
+                      <button class="button-small" type="submit">Paid</button>
+                    </form>
                   </li>
                 `)}
               </ul>
@@ -139,10 +152,4 @@ export function renderOverview(opts: {
       </section>
     `)}
   `;
-}
-
-function dayNet(d: CalendarDay): Paise {
-  const inflow = d.inflows.reduce((s, i) => s + i.amount, 0);
-  const outflow = d.outflows.reduce((s, o) => s + o.amount, 0);
-  return (inflow - outflow) as Paise;
 }

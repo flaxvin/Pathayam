@@ -223,6 +223,32 @@ export function addAssigned(
 }
 
 /**
+ * F3.9 · Fill this month's still-empty categories with what they were assigned
+ * last month — "budget like last month", then adjust.
+ *
+ * Only categories currently at zero are touched, so it never overwrites work
+ * already done this month; each fill is an ordinary assignment (so it is
+ * undoable and explains itself), and the count of categories filled is
+ * returned. Recorded as one logical action by the caller's forward-recompute
+ * batch (R7.g).
+ */
+export function copyAssignmentsFromMonth(
+  db: DB, actor: Actor, month: MonthKey, fromMonth: MonthKey,
+): { filled: number; total: Paise } {
+  let filled = 0;
+  let total = 0 as Paise;
+  for (const category of listCategories(db)) {
+    if (getAssigned(db, month, category.id) !== 0) continue; // don't clobber
+    const prior = getAssigned(db, fromMonth, category.id);
+    if (prior <= 0) continue;
+    setAssigned(db, actor, month, category.id, prior);
+    filled++;
+    total = (total + prior) as Paise;
+  }
+  return { filled, total };
+}
+
+/**
  * R5 · Move money between categories.
  *
  * Two assignment deltas in one month, so RTA does not change (J4). Recorded as

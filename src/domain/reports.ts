@@ -243,6 +243,28 @@ export function incomeVsExpense(db: DB, from: IsoDate, to: IsoDate): TrendPoint[
 }
 
 /** F10.1 · One category's trend, for the category detail sheet. */
+/**
+ * F12 · Spend per tag over a window — tags work as ad-hoc budgets, so this is
+ * how much each one has actually taken, with its budget where one was set.
+ */
+export function spendByTag(
+  db: DB, from: IsoDate, to: IsoDate,
+): { tag: string; spent: Paise; budget: Paise | null }[] {
+  return queryAll<{ tag: string; spent: number; budget: number | null }>(
+    db,
+    `SELECT g.name AS tag,
+            COALESCE(SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END),0) AS spent,
+            g.budget_amount AS budget
+       FROM tags g
+       JOIN transaction_tags tt ON tt.tag_id = g.id
+       JOIN transactions t ON t.id = tt.transaction_id
+      WHERE t.deleted_at IS NULL AND t.date >= ? AND t.date <= ?
+      GROUP BY g.id HAVING spent > 0
+      ORDER BY spent DESC`,
+    from, to,
+  ).map((r) => ({ tag: r.tag, spent: r.spent as Paise, budget: r.budget as Paise | null }));
+}
+
 /** S15 · Total spend per day over a window, for the heatmap calendar. */
 export function spendingCalendar(
   db: DB, from: IsoDate, to: IsoDate,
