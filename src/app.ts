@@ -85,6 +85,7 @@ import {
 import {
   createAccount, listAccounts, getAccount, listCards, createCard, closeCard,
   recordCardStatement, lastCardStatement, paymentCategoryFor,
+  MANAGED_SUBTYPES, SUBTYPE_LABELS,
   type AccountKind,
 } from "./domain/accounts.ts";
 import {
@@ -861,6 +862,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const openingRaw = field(ctx.body, "opening_balance");
       const openingDateRaw = field(ctx.body, "opening_date");
       const kind = requiredField(ctx.body, "kind") as AccountKind;
+      const subtype = requiredField(ctx.body, "subtype");
+
+      // B56: a family loan or a loan is created through its own screen, which
+      // also writes the companion record the Lending / Loans pages read. Making
+      // one here would be an orphan account, so refuse and point the way.
+      const managed = MANAGED_SUBTYPES[subtype];
+      if (managed) {
+        throw new HttpError(
+          400,
+          `A ${SUBTYPE_LABELS[subtype] ?? subtype} is set up on ${managed.label} ` +
+          `(${managed.where}), which records more than a balance. Add it there instead.`,
+        );
+      }
+
       let opening = openingRaw?.trim() ? amountField(openingRaw, "Current balance") : 0;
 
       // F2.6: a credit card's balance is what you owe. Entering it as a
@@ -871,7 +886,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const account = createAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         name: requiredField(ctx.body, "name"),
         kind,
-        subtype: requiredField(ctx.body, "subtype"),
+        subtype,
         institution: field(ctx.body, "institution") || null,
         last4: field(ctx.body, "last4") || null,
         openingBalance: opening,

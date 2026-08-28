@@ -27,6 +27,22 @@ export const ACCOUNT_SUBTYPES: Record<AccountKind, string[]> = {
   ],
 };
 
+/**
+ * B56 · Subtypes that carry a companion record and so must be created through
+ * their own screen, never the generic "Add an account" form.
+ *
+ * A family-loan needs a `family_loans` row (created by `/family/new`) and a loan
+ * needs a `loans` row with its amortisation (created by `/loans/new`). Making a
+ * bare account of either subtype through the accounts form produced an orphan —
+ * a tracking balance that never appeared on the Lending or Loans page, because
+ * those pages read the companion table, not the account subtype.
+ */
+export const MANAGED_SUBTYPES: Record<string, { where: string; label: string }> = {
+  "family-loan": { where: "/family", label: "the Lending page" },
+  loan: { where: "/loans", label: "the Loans page" },
+  emi: { where: "/loans", label: "the Loans page" },
+};
+
 export const SUBTYPE_LABELS: Record<string, string> = {
   savings: "Savings account",
   current: "Current account",
