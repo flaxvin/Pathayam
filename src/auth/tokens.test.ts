@@ -111,6 +111,7 @@ describe("08 F30 · personal API tokens", () => {
     for (const path of [
       "/tokens", "/tokens/abc/revoke",
       "/impersonate", "/impersonate/exit",
+      "/members", "/members/invite",
       "/settings/members", "/settings/members/invite",
       "/auth/dev", "/auth/google/callback", "/signout",
     ]) {

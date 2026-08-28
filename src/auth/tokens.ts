@@ -47,7 +47,8 @@ export interface ApiToken {
  * household.
  */
 const FORBIDDEN_PREFIXES = [
-  "/settings/members",   // the allow-list (F30.6)
+  "/members",            // the household allow-list — /members/invite (F30.6)
+  "/settings/members",   // and any future settings sub-page for it (F30.6)
   "/tokens",             // minting more of itself (F30.6)
   "/impersonate",        // R38.12
   "/auth",               // sign-in, and the dev-bypass state (F30.6)

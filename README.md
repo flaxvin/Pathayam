@@ -18,6 +18,10 @@ Stack    TypeScript on Node 24+   node:sqlite   node:http   server-rendered HTML
 Deploy   Docker Compose · homelab behind Cloudflare Tunnel · SQLite on a volume
 ```
 
+![The budget screen — the month grid, Ready to Assign, credit-card payment envelopes, and the in-app digest](docs/screenshots/budget.png)
+
+<sub>The purple banner appears only when the development auth-bypass is on; it is absent in production.</sub>
+
 ---
 
 ## Contents
@@ -271,7 +275,7 @@ sequenceDiagram
   Google-->>App: matching messages
   App->>App: parse alert / decrypt statement → raw records
   App->>U: everything in Review
-  note over App: body is dropped; only fields are kept
+  note over App: body is dropped — only fields are kept
 ```
 
 ### Backup → verified restore (R40.2) — a shipping requirement
@@ -326,10 +330,26 @@ with the demo data.
 | **Settings** | `/settings` | Household, theme, devices, Gmail connection, statement identity, notification prefs, API tokens. |
 | **Health** | `/health` | Backup status, restore verification, price feeds, feature flags, error counts. |
 
-> Screenshots are not committed to keep the repo lean and because the UI is
-> theme-aware (light / dark / system) — capture your own from a running instance
-> if you want them in a fork. The [feature tour](#feature-tour) and
-> [flow diagrams](#how-the-core-flows-work) describe every screen's behaviour.
+### A look at the screens
+
+Captured from a running instance with the demo household. The UI is theme-aware
+(light / dark / system); these are the dark theme.
+
+| Portfolio | Net worth |
+|---|---|
+| [![Portfolio — holdings as units, XIRR, other assets](docs/screenshots/portfolio.png)](docs/screenshots/portfolio.png) | [![Net worth — the four-way decomposition and dated history](docs/screenshots/net-worth.png)](docs/screenshots/net-worth.png) |
+| **Allocation** | **Loans** |
+| [![Allocation — by class, region and currency](docs/screenshots/allocation.png)](docs/screenshots/allocation.png) | [![Loans — real cost, schedule, drift, prepayment](docs/screenshots/loans.png)](docs/screenshots/loans.png) |
+| **Accounts** | **Review queue** |
+| [![Accounts — cleared / uncleared / working balances](docs/screenshots/accounts.png)](docs/screenshots/accounts.png) | [![Review — imports, duplicates, uncategorised, proposed rules](docs/screenshots/review.png)](docs/screenshots/review.png) |
+| **Import** | **Schedules** |
+| [![Import — CSV paste and statement-PDF upload with password hints](docs/screenshots/import.png)](docs/screenshots/import.png) | [![Schedules — recurring items and the forward cashflow calendar](docs/screenshots/schedules.png)](docs/screenshots/schedules.png) |
+| **Goals** | **Reports** |
+| [![Goals — long-horizon savings with progress rings](docs/screenshots/goals.png)](docs/screenshots/goals.png) | [![Reports — income vs spend, category trends, loan interest by FY](docs/screenshots/reports.png)](docs/screenshots/reports.png) |
+| **Health** | **Settings** |
+| [![Health — backups, restore verification, price feeds, feature flags](docs/screenshots/health.png)](docs/screenshots/health.png) | [![Settings — household, Gmail, statement identity, API tokens](docs/screenshots/settings.png)](docs/screenshots/settings.png) |
+
+Click any image for the full-resolution capture.
 
 ---
 
@@ -568,4 +588,5 @@ start with [`00-README.md`](docs/00-README.md) for the map, or
 [`10-errata-and-addenda.md`](docs/10-errata-and-addenda.md) carries the
 corrections adopted during the build, and
 [`11-build-decisions.md`](docs/11-build-decisions.md) records why the code is
-shaped the way it is.
+shaped the way it is. For scripting the app over its personal API tokens, see
+the [**API reference**](docs/API.md).
