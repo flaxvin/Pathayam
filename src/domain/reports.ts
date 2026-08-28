@@ -243,6 +243,26 @@ export function incomeVsExpense(db: DB, from: IsoDate, to: IsoDate): TrendPoint[
 }
 
 /** F10.1 · One category's trend, for the category detail sheet. */
+/** S15 · Total spend per day over a window, for the heatmap calendar. */
+export function spendingCalendar(
+  db: DB, from: IsoDate, to: IsoDate,
+): { date: IsoDate; value: Paise }[] {
+  return queryAll<{ date: string; value: number }>(
+    db,
+    `WITH lines AS (
+       SELECT t.date AS date, t.amount AS amount
+         FROM transactions t WHERE t.is_split = 0 AND t.deleted_at IS NULL
+       UNION ALL
+       SELECT t.date, s.amount FROM transaction_splits s
+         JOIN transactions t ON t.id = s.transaction_id WHERE t.deleted_at IS NULL
+     )
+     SELECT substr(date,1,10) AS date, COALESCE(SUM(-amount),0) AS value
+       FROM lines WHERE amount < 0 AND date >= ? AND date <= ?
+      GROUP BY substr(date,1,10) ORDER BY date`,
+    from, to,
+  ).map((r) => ({ date: r.date as IsoDate, value: r.value as Paise }));
+}
+
 export function categoryTrend(
   db: DB, categoryId: string, months = 12, today = todayIST(),
 ): { month: MonthKey; assigned: Paise; spent: Paise }[] {

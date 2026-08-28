@@ -127,7 +127,8 @@ import {
 import { renderOverview } from "./web/pages/overview.ts";
 import {
   queryTransactions, groupTotals, periodPresets, periodFor, incomeVsExpense,
-  loanInterestByFinancialYear, categoryTrend, rowsToCsv, type GroupBy, type TransactionFilter,
+  loanInterestByFinancialYear, categoryTrend, spendingCalendar, rowsToCsv,
+  type GroupBy, type TransactionFilter,
 } from "./domain/reports.ts";
 import { spendingInsights, type Insight } from "./domain/insights.ts";
 import {
@@ -2649,6 +2650,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       name: g.label,
       spent: categoryTrend(db, g.key, 12).map((m) => m.spent / 100),
     }));
+
+    // S15 · The money-flow Sankey uses this month: income in, and where it went
+    // by group → category. Built from the budget view's own group structure.
+    const bview = buildBudgetView(db);
+    const monthIncome = (incomeVsExpense(db, `${bview.month}-01`, todayIST()).at(-1)?.income ?? 0) as Paise;
+    const sankeyGroups = bview.groups
+      .map((g) => ({
+        name: g.name,
+        categories: g.categories
+          .map((c) => ({ name: c.name, value: -c.state.activity as Paise }))
+          .filter((c) => c.value > 0),
+      }))
+      .filter((g) => g.categories.length > 0);
+
     return render(
       ctx, "Reports",
       renderReports({
@@ -2656,6 +2671,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         trend: incomeVsExpense(db, period.from, period.to),
         categorySpend: categorySpend.map((g) => ({ label: g.label, value: g.value })),
         categoryTrends,
+        spendingCalendar: spendingCalendar(db, addDays(todayIST(), -119), todayIST()),
+        sankey: { income: monthIncome, month: bview.month, groups: sankeyGroups },
         period,
         periods: periodPresets(),
         loanInterest: config.features.loans ? loanInterestByFinancialYear(db) : [],
