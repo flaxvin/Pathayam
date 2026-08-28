@@ -351,6 +351,23 @@ Captured from a running instance with the demo household. The UI is theme-aware
 
 Click any image for the full-resolution capture.
 
+### Charts
+
+Every chart is server-rendered inline SVG — no client-side charting library (the
+CSP forbids third-party script, and the app carries zero runtime dependencies).
+They repaint with the theme, and each sits beside the same numbers as text.
+
+| Allocation — donuts by class, geography and currency |
+|---|
+| [![Portfolio allocation as donut charts by asset class, geography and currency](docs/screenshots/charts_allocation.png)](docs/screenshots/charts_allocation.png) |
+
+| Loans — the amortisation curve and tranche drawdown | Reports — income vs spend, net saved |
+|---|---|
+| [![A loan's projected balance falling to zero over its remaining schedule](docs/screenshots/charts_loan.png)](docs/screenshots/charts_loan.png) | [![Grouped income-versus-spending bars and a net-saved line by month](docs/screenshots/charts_reports.png)](docs/screenshots/charts_reports.png) |
+
+Net worth adds an asset-composition donut and a net-worth-over-time line on its
+own screen.
+
 ---
 
 ## Production deployment
