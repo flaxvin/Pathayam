@@ -33,6 +33,13 @@ import {
   mintToken, listTokens, revokeToken, type TokenScope,
 } from "./auth/tokens.ts";
 import { beginOAuth, exchangeCode } from "./auth/google.ts";
+import {
+  beginGmailConnect, exchangeGmailCode, revokeToken as revokeGmailToken,
+} from "./gmail/oauth.ts";
+import {
+  saveConnection, deleteConnection, connectionView, getConnection,
+} from "./gmail/connection.ts";
+import { fetchGmail } from "./gmail/fetch.ts";
 import { withIdempotency, IdempotencyConflict } from "./core/idempotency.ts";
 import { parseAmount, evaluateAmountExpression, formatPaise } from "./core/money.ts";
 import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, type MonthKey } from "./core/dates.ts";
@@ -151,7 +158,7 @@ import {
 } from "./domain/digest.ts";
 import {
   renderMonthClose, renderClosedMonths, renderDigest, renderDigestSettings,
-  renderStatementIdentity,
+  renderStatementIdentity, renderGmailConnection,
 } from "./web/pages/month-close.ts";
 import {
   renderPortfolio, renderHoldingDetail, renderSalePreview, renderNetWorth,
@@ -402,6 +409,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // Sign in
   // -------------------------------------------------------------------------
   const pendingOAuth = new Map<string, { verifier: string; next: string; at: number }>();
+  const pendingGmail = new Map<string, { verifier: string; memberId: string; at: number }>();
 
   router.get("/signin", async (ctx) => {
     if (ctx.locals.auth) return { redirect: "/" };
@@ -1070,6 +1078,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             <button type="submit">Save</button>
           </form>
         </section>
+
+        ${renderGmailConnection(connectionView(db, a.member.id), config.google.clientId !== null)}
 
         ${renderStatementIdentity(maskedIdentity(db, a.member.id))}
 
@@ -2988,6 +2998,79 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       return { redirect: "/months", message: `${formatMonth(month)} is open again.` };
     }),
   );
+
+  // -------------------------------------------------------------------------
+  // `04` §3.4 · Gmail ingestion — a separate, opt-in connection.
+  // -------------------------------------------------------------------------
+
+  router.get("/gmail/connect", (ctx) => {
+    const a = auth(ctx);
+    if (!config.google.clientId) throw new HttpError(500, "Google is not configured.");
+    const start = beginGmailConnect({
+      clientId: config.google.clientId,
+      redirectUri: `${config.baseUrl}/gmail/callback`,
+    });
+    pendingGmail.set(start.state, { verifier: start.codeVerifier, memberId: a.member.id, at: Date.now() });
+    for (const [k, v] of pendingGmail) if (Date.now() - v.at > 10 * 60_000) pendingGmail.delete(k);
+    return { redirect: start.url };
+  });
+
+  router.get("/gmail/callback", async (ctx) => {
+    const a = auth(ctx);
+    const state = ctx.query.get("state") ?? "";
+    const pending = pendingGmail.get(state);
+    pendingGmail.delete(state);
+    if (!pending || pending.memberId !== a.member.id) {
+      throw new HttpError(400, "That Gmail connection link has expired. Try again.");
+    }
+    const code = ctx.query.get("code");
+    if (!code) return { redirect: "/settings#gmail" };
+
+    const tokens = await exchangeGmailCode({
+      clientId: config.google.clientId!,
+      clientSecret: config.google.clientSecret!,
+      redirectUri: `${config.baseUrl}/gmail/callback`,
+      code, codeVerifier: pending.verifier, fetchImpl: deps.fetchImpl,
+    });
+
+    saveConnection(db, actorFor(a), {
+      email: a.member.email, refreshToken: tokens.refreshToken, scope: tokens.scope,
+    });
+    return { redirect: withNotice("/settings#gmail", "Gmail connected. Fetch when you're ready.") };
+  });
+
+  router.post("/gmail/disconnect", (ctx) =>
+    mutate(ctx, (a) => {
+      const connection = getConnection(db, a.member.id);
+      if (connection) {
+        // Best-effort remote revoke; the local token is deleted regardless.
+        void revokeGmailToken(connection.refresh_token, deps.fetchImpl);
+      }
+      deleteConnection(db, actorFor(a));
+      return { redirect: "/settings#gmail", message: "Disconnected. The stored access was deleted." };
+    }),
+  );
+
+  router.post("/gmail/fetch", async (ctx) => {
+    const a = auth(ctx);
+    if (!getConnection(db, a.member.id)) throw new HttpError(400, "Gmail is not connected.");
+
+    const result = await fetchGmail(db, actorFor(a, "import"), {
+      clientId: config.google.clientId!,
+      clientSecret: config.google.clientSecret!,
+      fetchImpl: deps.fetchImpl,
+    });
+
+    const parts: string[] = [];
+    if (result.alerts.staged) parts.push(`${result.alerts.staged} alerts`);
+    if (result.statements.staged) parts.push(`${result.statements.staged} statement rows`);
+    if (result.alerts.unmatched) parts.push(`${result.alerts.unmatched} to an unknown account`);
+    const summary = parts.length
+      ? `Read ${result.scanned} messages — ${parts.join(", ")}, all in Review.`
+      : `Read ${result.scanned} messages — nothing new.`;
+
+    return { redirect: withNotice(result.alerts.staged || result.statements.staged ? "/review" : "/settings#gmail", summary) };
+  });
 
   /** `10` §3.6 · What statement passwords are worked out from. */
   router.post("/settings/identity", (ctx) =>

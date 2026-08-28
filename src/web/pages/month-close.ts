@@ -394,3 +394,69 @@ export function renderStatementIdentity(
     </section>
   `;
 }
+
+// ---------------------------------------------------------------------------
+// `04` §3.4 · The Gmail connection
+// ---------------------------------------------------------------------------
+
+/**
+ * Connect / disconnect Gmail, and fetch on demand.
+ *
+ * Like the statement identity, this asks for a real capability — read access
+ * to a mailbox — so it says plainly what it reads and what it keeps, rather
+ * than a reassuring summary.
+ */
+export function renderGmailConnection(
+  connection: { email: string; connectedAt: string; lastFetchedAt: string | null } | null,
+  configured: boolean,
+): SafeHtml {
+  return html`
+    <section class="card" id="gmail">
+      <h2>Fetching statements and alerts from Gmail</h2>
+      <p class="faint" style="margin-top:-.25rem">
+        Your bank emails a transaction alert within seconds of a spend, and a
+        statement each month. Connect Gmail and the app reads those — and only
+        those — into your review queue.
+      </p>
+
+      ${when(!configured, () => html`
+        <p class="notice notice-warning">
+          Google sign-in is not configured on this server, so Gmail cannot be
+          connected here.
+        </p>
+      `)}
+
+      <p class="notice notice-warning">
+        <strong>What this grants.</strong> Read-only access to your Gmail, used
+        only for messages from your banks' own addresses — nothing else is ever
+        opened. Only the amounts, dates and merchants are kept; the emails
+        themselves are not. The access is stored on your own server, left out of
+        every export, and deleted the moment you disconnect.
+      </p>
+
+      ${connection
+        ? html`
+            <table>
+              <tbody>
+                <tr><td>Connected mailbox</td><td>${connection.email}</td></tr>
+                <tr><td>Since</td><td>${connection.connectedAt.slice(0, 10)}</td></tr>
+                <tr><td>Last fetched</td><td>${connection.lastFetchedAt?.slice(0, 10) ?? "Never"}</td></tr>
+              </tbody>
+            </table>
+            <div class="row" style="gap:.5rem;margin-top:.6rem">
+              <form method="post" action="/gmail/fetch">
+                <button class="button-primary" type="submit">Fetch now</button>
+              </form>
+              <form method="post" action="/gmail/disconnect">
+                <button class="button-small button-danger" type="submit">Disconnect</button>
+              </form>
+            </div>
+          `
+        : html`
+            ${when(configured, () => html`
+              <p><a class="button button-primary" href="/gmail/connect">Connect Gmail</a></p>
+            `)}
+          `}
+    </section>
+  `;
+}
