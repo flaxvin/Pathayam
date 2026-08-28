@@ -1085,4 +1085,35 @@ duplicates.)
 
 ---
 
-*Entries B57 onward are recorded as the work happens.*
+### B57 · A second visuals batch — and the SVG primitives it needed
+
+*29-08-2026 · S15 / F3.9 / F12.* Eight more charts and four features, all over
+data the app already computed, all still server-rendered SVG beside the numbers
+they draw (A2 holds throughout).
+
+Charts added five reusable primitives to `web/charts.ts`: `sparkline` (inline,
+axis-free trends — on the Accounts list and per category on Reports),
+`waterfall` (the net-worth change, drawn as a *change* waterfall from zero so
+₹32k of market movement isn't dwarfed by a ₹71L net-worth level),
+`heatmapCalendar` (GitHub-style daily-spend calendar — a weekday computed from
+`daysBetween` against a known Saturday, since there is no weekday helper),
+`treemap` (squarified spending map), and `sankeyBudget` (income → group →
+category, with unspent income as a "Kept" flow so the columns balance). Plus a
+holdings donut on Portfolio and outstanding-by-loan bars on Loans.
+
+Features: **Fill from last month** (`copyAssignmentsFromMonth`, empty categories
+only, so it never clobbers this month's work), **tag analytics**
+(`spendByTag`, with budget-vs-actual where a tag carries an ad-hoc budget),
+**months of runway** (cash ÷ mean of the three prior complete months' spend —
+so it stays null rather than dividing by a partial month), and **due-soon bills**
+on the Overview with a one-tap mark-paid.
+
+Two scaling lessons recurred and are worth stating once: a chart's y-axis has to
+be chosen for what the reader is comparing (the change waterfall and the
+non-zero-baseline net-worth line both exist because a zero baseline squashed the
+signal), and a "typical" figure computed over recent months must exclude the
+current partial month or it lies.
+
+---
+
+*Entries B58 onward are recorded as the work happens.*
