@@ -7,7 +7,7 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { donutChart, groupedBarChart, lineChart, progressRing, horizontalBars, seriesColor } from "./charts.ts";
+import { donutChart, groupedBarChart, lineChart, progressRing, horizontalBars, sparkline, waterfall, seriesColor } from "./charts.ts";
 import type { Paise } from "../core/money.ts";
 
 const p = (n: number): Paise => n as Paise;
@@ -113,6 +113,29 @@ describe("S15 · charts", () => {
     assert.ok(widths.length >= 2);
     assert.ok(Math.max(...widths) <= 100.01, "no bar overflows its track");
     assert.equal(Math.max(...widths), 100, "the largest fills the track");
+  });
+
+  test("a sparkline scales to its own range and marks the end", () => {
+    const svg = sparkline({ points: [10, 5, 8, 20] }).value;
+    assert.match(svg, /<path/);
+    assert.match(svg, /<circle/, "the latest point is marked");
+    assert.doesNotMatch(svg, /NaN/);
+    // A flat series must not divide by zero.
+    assert.doesNotMatch(sparkline({ points: [7, 7, 7] }).value, /NaN/);
+    // Too few points renders nothing rather than a broken path.
+    assert.equal(sparkline({ points: [1] }).value, "");
+  });
+
+  test("a change waterfall floats steps from zero and totals them", () => {
+    const svg = waterfall({
+      title: "Change", opening: p(0), openingLabel: "", includeOpening: false,
+      steps: [{ label: "Saved", value: p(30000) }, { label: "Market", value: p(20000) }],
+      closingLabel: "Net change",
+    }).value;
+    const rects = svg.match(/<rect/g) ?? [];
+    assert.equal(rects.length, 3, "two steps plus the total, no opening bar");
+    assert.doesNotMatch(svg, /NaN|height="-/);
+    assert.match(svg, /Net change/);
   });
 
   test("seriesColor cycles through the palette", () => {
