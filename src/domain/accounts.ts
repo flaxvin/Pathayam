@@ -43,6 +43,18 @@ export const MANAGED_SUBTYPES: Record<string, { where: string; label: string }> 
   emi: { where: "/loans", label: "the Loans page" },
 };
 
+/**
+ * B56 · Tracking subtypes that are a plain balance and belong to no companion
+ * table — a fixed deposit, a manually-tracked "other asset" or "other
+ * liability". Net worth counts these by their balance (positive an asset,
+ * negative a liability); without this list they were created but appeared in no
+ * total, the same orphaning the managed subtypes suffered on their own pages.
+ * (Market-valued assets go through Portfolio instead, under ASSET_SUBTYPES.)
+ */
+export const SIMPLE_TRACKING_SUBTYPES = [
+  "asset", "liability", "fixed-deposit", "recurring-deposit",
+] as const;
+
 export const SUBTYPE_LABELS: Record<string, string> = {
   savings: "Savings account",
   current: "Current account",

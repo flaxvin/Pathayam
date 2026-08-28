@@ -1069,6 +1069,20 @@ flows (`/family/new`, `/loans/new`) still call `createAccount` with these
 subtypes — the ban is on the *generic* path only, which is the one that skipped
 the companion record.
 
+An audit for the same shape then found a second orphan: the plain tracking
+subtypes `asset`, `liability`, `fixed-deposit`, `recurring-deposit`. These carry
+no companion table and were counted by no net-worth path — not cash (budget),
+not a card (credit), not `listAssetAccounts` (which matches only Portfolio's
+`ASSET_SUBTYPES`), not a loan. So a "fixed deposit" created on the accounts form
+sat at ₹0 in net worth. Fixed by counting these `SIMPLE_TRACKING_SUBTYPES`
+accounts in `netWorthStatement` by their balance — positive an "Other asset",
+negative an "Other liability" — so no tracking account is orphaned from net
+worth. (The other multi-path entities checked out: instruments use
+`findOrCreateInstrument`, deduped by ISIN/symbol; payment categories are
+auto-created with the credit account and cannot be made through
+`/categories/new`; payees auto-create idempotently by name, with merge for
+duplicates.)
+
 ---
 
 *Entries B57 onward are recorded as the work happens.*

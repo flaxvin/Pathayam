@@ -25,6 +25,7 @@ import { formatPaise, type Paise } from "../core/money.ts";
 import { accountBalances } from "../engine/repository.ts";
 import { listLoans, projectLoan } from "./loans.ts";
 import { familyLoanNetWorth } from "./family-loans.ts";
+import { SIMPLE_TRACKING_SUBTYPES } from "./accounts.ts";
 import {
   listAssetAccounts, listHoldings, viewHolding, latestValuation, ASSET_LABELS,
   ASSET_CLASS_LABELS,
@@ -181,6 +182,28 @@ export function netWorthStatement(
     }),
   );
 
+  // B56 · Plain tracking accounts (a fixed deposit, an "other asset" or "other
+  // liability") count by their balance, so one created on the accounts form is
+  // never orphaned from net worth. Their subtypes belong to no companion table,
+  // so nothing above has already counted them.
+  const otherLiabilityLines: NetWorthLine[] = [];
+  const simpleTracking = queryAll<{ id: string; name: string; subtype: string }>(
+    db,
+    `SELECT id, name, subtype FROM accounts
+      WHERE kind = 'tracking' AND closed_at IS NULL
+        AND subtype IN (${SIMPLE_TRACKING_SUBTYPES.map(() => "?").join(",")})
+      ORDER BY name`,
+    ...SIMPLE_TRACKING_SUBTYPES,
+  );
+  for (const account of simpleTracking) {
+    const working = balances.get(account.id)?.working ?? 0;
+    if (working > 0) {
+      otherAssetLines.push({ label: account.name, accountId: account.id, value: working, asOf, stale: false });
+    } else if (working < 0) {
+      otherLiabilityLines.push({ label: account.name, accountId: account.id, value: -working, asOf, stale: false });
+    }
+  }
+
   const group = (name: string, lines: NetWorthLine[]): NetWorthGroup => ({
     name,
     lines,
@@ -197,6 +220,7 @@ export function netWorthStatement(
     group("Credit cards", cardLines),
     group("Loans", loanLines),
     group("Owed to family", familyLines),
+    group("Other liabilities", otherLiabilityLines),
   ].filter((g) => g.lines.length > 0);
 
   const totalAssets = assetGroups.reduce((sum, g) => sum + g.total, 0);
