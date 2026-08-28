@@ -246,9 +246,11 @@ export function renderMoveMoney(opts: {
   toCategoryId: string | null;
   amount: Paise | null;
   suggestions: CoverSource[];
+  readyToAssign: Paise;
   error?: string | null;
 }): SafeHtml {
   const target = opts.categories.find((c) => c.id === opts.toCategoryId);
+  const rtaAvailable = opts.readyToAssign > 0;
 
   return html`
     <h1>Move money</h1>
@@ -265,10 +267,18 @@ export function renderMoveMoney(opts: {
     <form method="post" action="/move" class="card">
       <input type="hidden" name="month" value="${opts.month}">
 
-      ${when(opts.suggestions.length > 0, () => html`
+      ${when(rtaAvailable || opts.suggestions.length > 0, () => html`
         <div class="field">
           <label>Suggested sources</label>
           <div class="row" style="flex-wrap:wrap">
+            ${when(rtaAvailable, () => html`
+              <!-- B55: Ready to Assign is a source too — funding a category from
+                   it is just assigning unassigned income. -->
+              <button type="submit" name="from_category_id" value="rta"
+                      class="button-small button-primary" data-no-retry="true">
+                Ready to Assign · ${formatPaise(opts.readyToAssign)}
+              </button>
+            `)}
             ${opts.suggestions.map(
               (s) => html`
                 <button type="submit" name="from_category_id" value="${s.categoryId}"
@@ -278,7 +288,7 @@ export function renderMoveMoney(opts: {
               `,
             )}
           </div>
-          <p class="field-hint">Suggestions only — you can move money from anywhere to anywhere.</p>
+          <p class="field-hint">Suggestions only — you can fund from Ready to Assign or move from any category.</p>
         </div>
       `)}
 
@@ -286,6 +296,9 @@ export function renderMoveMoney(opts: {
         <div class="field">
           <label for="from_category_id">From</label>
           <select id="from_category_id" name="from_category_id" required>
+            ${when(rtaAvailable, () => html`
+              <option value="rta">Ready to Assign — ${formatPaise(opts.readyToAssign)}</option>
+            `)}
             ${opts.categories.map(
               (c) => html`
                 <option value="${c.id}">${c.name} — ${formatPaise(c.state.balance)}</option>
@@ -314,8 +327,9 @@ export function renderMoveMoney(opts: {
       </div>
 
       <p class="field-hint">
-        Moving money between categories doesn't change Ready to Assign — the same rupees
-        are simply doing a different job.
+        Moving between categories doesn't change Ready to Assign — the same rupees
+        do a different job. Funding <em>from</em> Ready to Assign does reduce it: that
+        is assigning income that had no job yet.
       </p>
 
       <button class="button-primary" type="submit">Move it</button>
