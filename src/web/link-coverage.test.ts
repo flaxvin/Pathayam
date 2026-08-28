@@ -50,6 +50,9 @@ function registeredRoutes(): Route[] {
 /** The static-asset prefix guard in app.ts short-circuits before the router. */
 const STATIC_PREFIX = "/assets/";
 
+/** Paths the static middleware serves directly, never reaching the router. */
+const MIDDLEWARE_SERVED = new Set(["/manifest.webmanifest"]);
+
 function split(path: string): string[] {
   return path.split("/").filter((s) => s.length > 0);
 }
@@ -86,23 +89,39 @@ interface Link {
   file: string;
 }
 
-/** Extract href/action/formaction literals that start with "/" from a page. */
+/**
+ * Extract internal links from a source file. Two shapes:
+ *   · HTML attributes — `href="/…"`, `action="/…"`, `formaction="/…"`.
+ *   · The command palette's JS objects — `href: "/…"` (always a GET nav).
+ * Query strings and interpolations are left in the raw for the caller to strip.
+ */
 function linksIn(file: string, source: string): Link[] {
   const out: Link[] = [];
-  const re = /(href|action|formaction)="(\/[^"]*)"/g;
+  const attr = /(href|action|formaction)="(\/[^"]*)"/g;
   let m: RegExpExecArray | null;
-  while ((m = re.exec(source)) !== null) {
-    const attr = m[1]!;
-    out.push({ kind: attr === "href" ? "href" : "action", raw: m[2]!, file });
+  while ((m = attr.exec(source)) !== null) {
+    out.push({ kind: m[1] === "href" ? "href" : "action", raw: m[2]!, file });
+  }
+  // The palette (client.ts) declares navigations as `href: "/path"`.
+  const js = /href:\s*"(\/[^"]*)"/g;
+  while ((m = js.exec(source)) !== null) {
+    out.push({ kind: "href", raw: m[1]!, file });
   }
   return out;
 }
 
+/** Every non-test .ts under src/web — pages, layout, and the client script. */
 function pageFiles(): string[] {
-  const dir = join(here, "pages");
-  return readdirSync(dir)
-    .filter((f) => f.endsWith(".ts") && !f.endsWith(".test.ts"))
-    .map((f) => join(dir, f));
+  const out: string[] = [];
+  const walk = (dir: string) => {
+    for (const e of readdirSync(dir, { withFileTypes: true })) {
+      const full = join(dir, e.name);
+      if (e.isDirectory()) walk(full);
+      else if (e.name.endsWith(".ts") && !e.name.endsWith(".test.ts")) out.push(full);
+    }
+  };
+  walk(here);
+  return out;
 }
 
 describe("B51 · every rendered link resolves to a route", () => {
@@ -125,6 +144,7 @@ describe("B51 · every rendered link resolves to a route", () => {
         // Query string and fragment are not part of the route.
         const path = link.raw.split(/[?#]/)[0]!;
         if (path === STATIC_PREFIX.slice(0, -1) || path.startsWith(STATIC_PREFIX)) continue;
+        if (MIDDLEWARE_SERVED.has(path)) continue;
         // A pure interpolation with no literal segments is unknowable.
         const segs = linkSegments(path);
         if (segs.length === 0) continue;

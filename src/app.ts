@@ -296,7 +296,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
       // R38.10: impersonation is read-only unless the toggle was set. The
       // check lives here so no handler can be the one that forgets it.
-      if (ctx.method !== "GET" && !auth.canWrite && path !== "/impersonate/exit") {
+      // B51: `/impersonate/writes` must pass even in read-only mode — it *is*
+      // the toggle. Blocking it (as this did) made read-only impersonation a
+      // one-way door, contradicting the error's own "Enable writes first".
+      const IMPERSONATION_CONTROLS = new Set(["/impersonate/exit", "/impersonate/writes"]);
+      if (ctx.method !== "GET" && !auth.canWrite && !IMPERSONATION_CONTROLS.has(path)) {
         throw new HttpError(
           403,
           `You're viewing as ${auth.viewingAs.name} in read-only mode. Enable writes first, or exit.`,
@@ -1073,8 +1077,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/impersonate/writes", (ctx) =>
     mutate(ctx, (a) => {
-      setImpersonationWrites(db, actorFor(a), a.session.id, field(ctx.body, "allow") === "1");
-      return { redirect: "/settings" };
+      const allow = field(ctx.body, "allow") === "1";
+      setImpersonationWrites(db, actorFor(a), a.session.id, allow);
+      // B51: return to where the toggle was clicked (the banner is on every
+      // page), not always /settings.
+      const returnTo = field(ctx.body, "return_to");
+      return {
+        redirect: returnTo && returnTo.startsWith("/") ? returnTo : "/settings",
+        message: allow ? "Writes enabled while viewing as them." : "Back to read-only.",
+      };
     }),
   );
 
