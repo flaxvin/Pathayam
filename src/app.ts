@@ -126,6 +126,7 @@ import {
   queryTransactions, groupTotals, periodPresets, periodFor, incomeVsExpense,
   loanInterestByFinancialYear, rowsToCsv, type GroupBy, type TransactionFilter,
 } from "./domain/reports.ts";
+import { spendingInsights, type Insight } from "./domain/insights.ts";
 import {
   listSchedules, createSchedule, markPaid, skipOccurrence, detectSchedules,
   projectCashflow, describeCashflow, subscriptions, type Recurrence,
@@ -2511,6 +2512,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return render(
       ctx, "Reports",
       renderReports({
+        insights: spendingInsights(db),
         trend: incomeVsExpense(db, period.from, period.to),
         categorySpend: groupTotals(
           queryTransactions(db, { from: period.from, to: period.to, direction: "out" }),

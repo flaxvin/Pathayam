@@ -15,6 +15,7 @@ import type { QueryRow, GroupedTotal, GroupBy, Period, TrendPoint } from "../../
 import type { Schedule, DetectedSchedule, Cashflow, CalendarDay } from "../../domain/schedules.ts";
 import type { GoalProgress } from "../../domain/goals.ts";
 import { groupedBarChart, lineChart, progressRing, horizontalBars, donutChart } from "../charts.ts";
+import type { Insight, InsightKind } from "../../domain/insights.ts";
 
 // ---------------------------------------------------------------------------
 // S7 · Query
@@ -209,7 +210,12 @@ function filterQueryString(opts: QueryOptions): string {
 // S6 · Reports
 // ---------------------------------------------------------------------------
 
+function insightMark(kind: InsightKind): string {
+  return kind === "up" ? "▲" : kind === "down" ? "▼" : kind === "new" ? "＋" : "·";
+}
+
 export function renderReports(opts: {
+  insights: Insight[];
   trend: TrendPoint[];
   categorySpend: { label: string; value: Paise }[];
   period: Period;
@@ -230,6 +236,29 @@ export function renderReports(opts: {
       Each of these is the query screen with a filter already applied — open any of
       them and you can change it.
     </p>
+
+    ${when(opts.insights.length > 0, () => html`
+      <section class="card">
+        <h2>Worth noticing</h2>
+        <p class="faint" style="margin-top:-.25rem">
+          This month against the three before it. Plain observations — the app draws
+          no conclusions.
+        </p>
+        <ul class="insight-list">
+          ${opts.insights.map((i) => html`
+            <li class="insight insight-${i.kind}">
+              <span class="insight-mark" aria-hidden="true">${insightMark(i.kind)}</span>
+              <span>
+                ${i.text}
+                ${when(i.categoryId !== "", () => html`
+                  <a class="faint" href="/query?category=${i.categoryId}&period=this-month">see it</a>
+                `)}
+              </span>
+            </li>
+          `)}
+        </ul>
+      </section>
+    `)}
 
     <section class="card">
       <h2>Income and spending</h2>
