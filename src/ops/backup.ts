@@ -74,7 +74,7 @@ export interface ControlTotals {
  */
 const COUNTED_TABLES = [
   // Budget engine
-  "members", "accounts", "cards", "category_groups", "categories", "assignments",
+  "members", "accounts", "cards", "card_statements", "category_groups", "categories", "assignments",
   "held_for_next_month", "targets", "autoassign_rules", "payees", "payee_aliases",
   "transactions", "transaction_splits", "tags", "transaction_tags",
   "import_batches", "staged_transactions", "rules", "reconciliations", "schedules",

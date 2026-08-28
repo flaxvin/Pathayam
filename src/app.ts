@@ -47,6 +47,7 @@ import { buildBudgetView, reviewCount } from "./web/viewmodel.ts";
 import { renderBudget } from "./web/pages/budget.ts";
 import {
   renderAccountList, renderAccountDetail, renderNewAccountForm, renderManageCards,
+  renderCardStatementForm,
   type AccountRow, type RegisterRow,
 } from "./web/pages/accounts.ts";
 import {
@@ -83,7 +84,7 @@ import {
 } from "./import/pipeline.ts";
 import {
   createAccount, listAccounts, getAccount, listCards, createCard, closeCard,
-  paymentCategoryFor,
+  recordCardStatement, lastCardStatement, paymentCategoryFor,
   type AccountKind,
 } from "./domain/accounts.ts";
 import {
@@ -943,7 +944,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               )
             : null,
         paymentCategoryName: paymentCategory?.name ?? null,
-        lastStatement: null,
+        lastStatement: (() => {
+          if (account.kind !== "credit") return null;
+          const st = lastCardStatement(db, account.id);
+          return st ? { amount: st.amount, date: st.statement_date, due: st.due_date } : null;
+        })(),
         lastReconciled: recon?.as_of ?? null,
         checkpointBroken: Boolean(recon?.broken_at),
       }),
@@ -1735,6 +1740,39 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       if (!account) throw new NotFound("That account does not exist.");
       closeCard(db, actorFor(a), ctx.params.cardId!);
       return { redirect: `/accounts/${account.id}/cards`, message: "Card closed." };
+    }),
+  );
+
+  // F2.3 · Record a credit-card statement, so funding advice keys off the real
+  // billing cycle rather than the calendar month.
+  router.get("/accounts/:id/statement", (ctx) => {
+    auth(ctx);
+    const account = getAccount(db, ctx.params.id!);
+    if (!account) throw new NotFound("That account does not exist.");
+    if (account.kind !== "credit") throw new NotFound("Only a credit card has a statement.");
+    return render(
+      ctx, `Statement — ${account.name}`,
+      renderCardStatementForm({
+        account,
+        last: lastCardStatement(db, account.id),
+        today: todayIST(),
+      }),
+    );
+  });
+
+  router.post("/accounts/:id/statement", (ctx) =>
+    mutate(ctx, (a) => {
+      const account = getAccount(db, ctx.params.id!);
+      if (!account) throw new NotFound("That account does not exist.");
+      const minRaw = field(ctx.body, "minimum_due");
+      recordCardStatement(db, actorFor(a), {
+        accountId: account.id,
+        statementDate: parseDate(field(ctx.body, "statement_date") ?? "") ?? todayIST(),
+        dueDate: parseDate(requiredField(ctx.body, "due_date")) ?? todayIST(),
+        amount: Math.abs(amountField(requiredField(ctx.body, "amount"))),
+        minimumDue: minRaw?.trim() ? Math.abs(amountField(minRaw)) : null,
+      });
+      return { redirect: `/accounts/${account.id}`, message: "Statement recorded." };
     }),
   );
 
