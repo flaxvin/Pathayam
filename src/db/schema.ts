@@ -1082,4 +1082,31 @@ UPDATE instruments SET asset_class = 'debt'   WHERE kind = 'bond';
 UPDATE instruments SET asset_class = 'gold'   WHERE kind = 'commodity';
 `,
   },
+  {
+    name: "0013-gmail-connection",
+    sql: `
+--------------------------------------------------------------------------------
+-- 04 §3.4 · Gmail ingestion — the stored connection.
+--
+-- One mailbox per member ("one member's mailbox at a time"). The refresh token
+-- is a secret at rest granting read access to the mailbox, held under the same
+-- discipline as statement_identity: never exported (F15), never logged (R37),
+-- and deleted on revocation. The scope is gmail.readonly and nothing broader;
+-- message bodies are never stored — only the fields extracted into the ledger.
+--
+-- last_history_id / last_fetched_at let a fetch resume where it left off, so a
+-- daily poll re-reads only what is new.
+--------------------------------------------------------------------------------
+
+CREATE TABLE gmail_connections (
+  member_id       TEXT PRIMARY KEY REFERENCES members(id),
+  email           TEXT NOT NULL,
+  refresh_token   TEXT NOT NULL,
+  scope           TEXT NOT NULL,
+  connected_at    TEXT NOT NULL,
+  last_fetched_at TEXT,
+  last_history_id TEXT
+);
+`,
+  },
 ];

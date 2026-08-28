@@ -406,7 +406,7 @@ export async function runBackupJob(
  * birth are not budget data, and an export travels — to another machine, a
  * cloud drive, an email. The values stay on the server that needs them.
  */
-const NEVER_EXPORTED = ["statement_identity"];
+const NEVER_EXPORTED = ["statement_identity", "gmail_connections"];
 
 export function exportEverything(db: DB): Record<string, unknown> {
   const tables = [...COUNTED_TABLES, "household", "import_profiles", "rule_applications", "review_dismissals"]
