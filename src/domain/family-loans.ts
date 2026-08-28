@@ -37,14 +37,17 @@ import { createAccount, getAccount } from "./accounts.ts";
 import { createTransfer, createTransaction, deleteTransaction } from "./transactions.ts";
 import { accountBalances } from "../engine/repository.ts";
 
-/** FL1 · Money lent is an asset; money borrowed is a liability. */
-export type LendingDirection = "lent" | "borrowed";
-
 export interface FamilyLoan {
   id: string;
   account_id: string;
   counterparty: string;
-  direction: LendingDirection;
+  /**
+   * B54 · Vestigial. The lent/borrowed distinction was removed — an
+   * arrangement is one ledger and who owes whom is read from the *sign* of its
+   * balance, not fixed at creation. The column stays only because a credit
+   * card's CHECK constraint would block dropping it in SQLite; nothing reads it.
+   */
+  direction: string;
   /** FL5 · An agreed total, not a rate. Null when nothing extra was agreed. */
   agreed_total: Paise | null;
   note: string | null;
@@ -59,7 +62,6 @@ export function createFamilyLoan(
   db: DB, actor: Actor,
   input: {
     counterparty: string;
-    direction: LendingDirection;
     note?: string | null;
     agreedTotal?: Paise | null;
     startedAt?: IsoDate;
@@ -67,14 +69,11 @@ export function createFamilyLoan(
 ): FamilyLoan {
   return transact(db, () => {
     const started = input.startedAt ?? todayIST();
-    const name = input.direction === "lent"
-      ? `Lent to ${input.counterparty}`
-      : `Borrowed from ${input.counterparty}`;
 
     // FW1/FL8 · A Tracking account, so it can never fund the budget, and so
     // R30's firewall covers it without a special case.
     const account = createAccount(db, actor, {
-      name,
+      name: `Lending — ${input.counterparty}`,
       kind: "tracking",
       subtype: "family-loan",
       openingBalance: 0,
@@ -87,14 +86,16 @@ export function createFamilyLoan(
       `INSERT INTO family_loans
          (id,account_id,counterparty,direction,agreed_total,note,started_at,created_at)
        VALUES (?,?,?,?,?,?,?,?)`,
-      id, account.id, input.counterparty, input.direction,
+      // "direction" is the vestigial column; a fixed inert value satisfies the
+      // NOT NULL / CHECK without meaning anything (B54).
+      id, account.id, input.counterparty, "lent",
       input.agreedTotal ?? null, input.note ?? null, started, nowIST(),
     );
 
     appendEvent(db, actor, {
       entity: "family-loan", entityId: id, action: "create",
-      after: { counterparty: input.counterparty, direction: input.direction },
-      summary: `Started tracking money ${input.direction === "lent" ? "lent to" : "borrowed from"} ${input.counterparty}`,
+      after: { counterparty: input.counterparty },
+      summary: `Started tracking money with ${input.counterparty}`,
     });
 
     return getFamilyLoan(db, id)!;
@@ -115,11 +116,13 @@ export function listFamilyLoans(db: DB, opts: { includeClosed?: boolean } = {}):
 }
 
 /**
- * FL3 · An advance: money leaves a Budget account and the balance owed grows.
+ * FL3 · Money you paid them — it leaves a Budget account and lands in the
+ * arrangement, moving the balance toward "they owe you".
  *
- * Recorded as a transfer, which is what makes FL4 true without any special
- * casing — a transfer consumes no category, so lending does not read as
- * spending anywhere in the app.
+ * B54 · No direction: this is always money OUT. Whether the arrangement is a
+ * loan you made or a debt you are repaying is read from the running balance,
+ * not fixed. Recorded as a transfer, so FL4 holds without special casing — a
+ * transfer consumes no category, so it never reads as spending.
  */
 export function recordAdvance(
   db: DB, actor: Actor,
@@ -128,39 +131,27 @@ export function recordAdvance(
   transact(db, () => {
     const loan = requireOpen(db, input.loanId);
     if (input.amount <= 0) throw new Error("Enter an amount greater than zero.");
-
     const date = input.date ?? todayIST();
 
-    // Direction decides which way the money actually moves. Lending sends it
-    // out; borrowing brings it in.
-    if (loan.direction === "lent") {
-      createTransfer(db, actor, {
-        fromAccountId: input.fromAccountId,
-        toAccountId: loan.account_id,
-        amount: input.amount, date, cleared: true,
-        memo: input.memo ?? `Lent to ${loan.counterparty}`,
-      });
-    } else {
-      createTransfer(db, actor, {
-        fromAccountId: loan.account_id,
-        toAccountId: input.fromAccountId,
-        amount: input.amount, date, cleared: true,
-        memo: input.memo ?? `Borrowed from ${loan.counterparty}`,
-      });
-    }
+    createTransfer(db, actor, {
+      fromAccountId: input.fromAccountId,
+      toAccountId: loan.account_id,
+      amount: input.amount, date, cleared: true,
+      memo: input.memo ?? `Paid to ${loan.counterparty}`,
+    });
 
     appendEvent(db, actor, {
       entity: "family-loan", entityId: loan.id, action: "advance",
       after: { amount: input.amount, date },
-      summary:
-        loan.direction === "lent"
-          ? `Lent ${formatPaise(input.amount)} to ${loan.counterparty}`
-          : `Borrowed ${formatPaise(input.amount)} from ${loan.counterparty}`,
+      summary: `Paid ${formatPaise(input.amount)} to ${loan.counterparty}`,
     });
   });
 }
 
-/** FL3 · A repayment, in whichever direction the money is owed. */
+/**
+ * FL3 · Money they paid you — it lands in a Budget account and moves the
+ * balance toward "you owe them". Always money IN (B54).
+ */
 export function recordRepayment(
   db: DB, actor: Actor,
   input: { loanId: string; amount: Paise; date?: IsoDate; accountId: string; memo?: string | null },
@@ -168,46 +159,41 @@ export function recordRepayment(
   transact(db, () => {
     const loan = requireOpen(db, input.loanId);
     if (input.amount <= 0) throw new Error("Enter an amount greater than zero.");
-
     const date = input.date ?? todayIST();
 
-    if (loan.direction === "lent") {
-      createTransfer(db, actor, {
-        fromAccountId: loan.account_id,
-        toAccountId: input.accountId,
-        amount: input.amount, date, cleared: true,
-        memo: input.memo ?? `${loan.counterparty} repaid`,
-      });
-    } else {
-      createTransfer(db, actor, {
-        fromAccountId: input.accountId,
-        toAccountId: loan.account_id,
-        amount: input.amount, date, cleared: true,
-        memo: input.memo ?? `Repaid ${loan.counterparty}`,
-      });
-    }
+    createTransfer(db, actor, {
+      fromAccountId: loan.account_id,
+      toAccountId: input.accountId,
+      amount: input.amount, date, cleared: true,
+      memo: input.memo ?? `Received from ${loan.counterparty}`,
+    });
 
     appendEvent(db, actor, {
       entity: "family-loan", entityId: loan.id, action: "repayment",
       after: { amount: input.amount, date },
-      summary:
-        loan.direction === "lent"
-          ? `${loan.counterparty} repaid ${formatPaise(input.amount)}`
-          : `Repaid ${formatPaise(input.amount)} to ${loan.counterparty}`,
+      summary: `Received ${formatPaise(input.amount)} from ${loan.counterparty}`,
     });
   });
 }
 
 export interface FamilyLoanView {
   loan: FamilyLoan;
-  /** FL2 · Derived from the transfers, never stored. Always ≥ 0. */
+  /**
+   * FL2 · Derived from the transfers, never stored. Signed: positive means they
+   * owe you, negative means you owe them (B54).
+   */
+  balance: Paise;
+  /** `|balance|` — what is owed, whichever way it points. */
   outstanding: Paise;
-  advanced: Paise;
-  repaid: Paise;
+  owedToYou: boolean;
+  owedByYou: boolean;
+  /** Money you paid them (out), and money they paid you (in). */
+  paidOut: Paise;
+  paidIn: Paise;
   /** FL5 · What is still owed against an agreed total, when one was agreed. */
   agreedOutstanding: Paise | null;
-  firstAdvance: IsoDate | null;
-  lastRepayment: { date: IsoDate; amount: Paise } | null;
+  firstMovement: IsoDate | null;
+  lastMovement: { date: IsoDate; amount: Paise; incoming: boolean } | null;
   /** FL6 · How long, stated. Nothing is said about it (N18). */
   daysOutstanding: number | null;
   settled: boolean;
@@ -236,40 +222,43 @@ export function viewFamilyLoan(
     loan.account_id, loan.write_off_transaction_id ?? null,
   );
 
-  // The account's own sign already encodes the direction: lending leaves a
-  // positive tracking balance, borrowing a negative one. Reading the magnitude
-  // keeps one code path for both.
-  let advanced = 0;
-  let repaid = 0;
-  let firstAdvance: IsoDate | null = null;
-  let lastRepayment: { date: IsoDate; amount: Paise } | null = null;
-
-  const growing = loan.direction === "lent" ? 1 : -1;
+  // B54 · The sign of each transfer on the tracking account tells the story on
+  // its own: a positive amount is money you paid them (the account received),
+  // a negative amount is money they paid you (the account sent). No direction
+  // field is consulted.
+  let paidOut = 0;
+  let paidIn = 0;
+  let firstMovement: IsoDate | null = null;
+  let lastMovement: { date: IsoDate; amount: Paise; incoming: boolean } | null = null;
 
   for (const row of rows) {
-    if (row.amount * growing > 0) {
-      advanced += Math.abs(row.amount);
-      if (!firstAdvance) firstAdvance = row.date;
-    } else if (row.amount !== 0) {
-      repaid += Math.abs(row.amount);
-      lastRepayment = { date: row.date, amount: Math.abs(row.amount) as Paise };
-    }
+    if (row.amount === 0) continue;
+    if (!firstMovement) firstMovement = row.date;
+    if (row.amount > 0) paidOut += row.amount;
+    else paidIn += -row.amount;
+    lastMovement = { date: row.date, amount: Math.abs(row.amount) as Paise, incoming: row.amount < 0 };
   }
 
-  const balance = accountBalances(db).get(loan.account_id)?.working ?? 0;
-  const outstanding = Math.max(0, Math.abs(balance)) as Paise;
+  const balance = (accountBalances(db).get(loan.account_id)?.working ?? 0) as Paise;
+  const outstanding = Math.abs(balance) as Paise;
+  // Against an agreed total: what is still to come back, only meaningful while
+  // they still owe you.
+  const agreedOutstanding =
+    loan.agreed_total === null ? null : (Math.max(0, loan.agreed_total - paidIn) as Paise);
 
   return {
     loan,
+    balance,
     outstanding,
-    advanced: advanced as Paise,
-    repaid: repaid as Paise,
-    agreedOutstanding:
-      loan.agreed_total === null ? null : (Math.max(0, loan.agreed_total - repaid) as Paise),
-    firstAdvance,
-    lastRepayment,
-    daysOutstanding: firstAdvance && outstanding > 0 ? daysBetween(firstAdvance, today) : null,
-    settled: outstanding === 0 && advanced > 0,
+    owedToYou: balance > 0,
+    owedByYou: balance < 0,
+    paidOut: paidOut as Paise,
+    paidIn: paidIn as Paise,
+    agreedOutstanding,
+    firstMovement,
+    lastMovement,
+    daysOutstanding: firstMovement && outstanding > 0 ? daysBetween(firstMovement, today) : null,
+    settled: outstanding === 0 && (paidOut > 0 || paidIn > 0),
     writtenOff: loan.written_off_at !== null,
   };
 }
@@ -290,26 +279,28 @@ export function writeOffFamilyLoan(
     const view = viewFamilyLoan(db, input.loanId);
     if (!view) throw new Error("That does not exist.");
     if (view.loan.written_off_at) throw new Error("That has already been written off.");
-    if (view.outstanding <= 0) throw new Error("There is nothing outstanding to write off.");
-    if (view.loan.direction !== "lent") {
-      // Writing off money you *borrowed* is income, not an expense, and it is
-      // rare enough that guessing at the treatment would be worse than saying
-      // so. Recorded by hand as income to the category of their choosing.
-      throw new Error(
-        "Only money you lent can be written off here. If a debt you owed was " +
-        "forgiven, record it as income — it is not an expense.",
-      );
-    }
+    // B54 · A write-off closes any non-zero balance, whichever way it points —
+    // which is what stopped the old code cold when a repayment overshot what was
+    // lent and the balance tipped negative.
+    if (view.balance === 0) throw new Error("Nothing is outstanding to settle.");
 
     const date = input.date ?? todayIST();
 
-    // FL4's exception: this is the one movement that *is* an expense.
-    const expense = createTransaction(db, actor, {
+    // FL4's exception — this is the one movement that touches a category. When
+    // they owe you (balance > 0) the unrecovered money is an expense; when you
+    // owe them (balance < 0) a forgiven debt is income. Either way the balancing
+    // transaction on the tracking account brings it to zero.
+    const owedToYou = view.balance > 0;
+    const txn = createTransaction(db, actor, {
       accountId: view.loan.account_id,
-      amount: -view.outstanding,
+      amount: owedToYou ? (-view.outstanding as Paise) : (view.outstanding as Paise),
       date,
       categoryId: input.categoryId,
-      memo: input.note ?? `Written off — ${view.loan.counterparty}`,
+      memo:
+        input.note ??
+        (owedToYou
+          ? `Written off — ${view.loan.counterparty}`
+          : `Forgiven by ${view.loan.counterparty}`),
       cleared: true,
     });
 
@@ -317,15 +308,17 @@ export function writeOffFamilyLoan(
       db,
       `UPDATE family_loans SET written_off_at = ?, closed_at = ?, write_off_transaction_id = ?
         WHERE id = ?`,
-      nowIST(), nowIST(), expense.id, view.loan.id,
+      nowIST(), nowIST(), txn.id, view.loan.id,
     );
 
     appendEvent(db, actor, {
       entity: "family-loan", entityId: view.loan.id, action: "write-off",
       after: { amount: view.outstanding, date },
       summary:
-        `Wrote off ${formatPaise(view.outstanding)} lent to ${view.loan.counterparty}` +
-        (view.firstAdvance ? `, outstanding since ${formatDate(view.firstAdvance)}` : ""),
+        (owedToYou
+          ? `Wrote off ${formatPaise(view.outstanding)} owed by ${view.loan.counterparty}`
+          : `Recorded ${formatPaise(view.outstanding)} forgiven by ${view.loan.counterparty}`) +
+        (view.firstMovement ? `, since ${formatDate(view.firstMovement)}` : ""),
     });
 
     return view.outstanding;
@@ -360,10 +353,9 @@ export function reopenFamilyLoan(db: DB, actor: Actor, id: string): void {
 }
 
 /**
- * FL8 · What net worth should count, split by direction.
- *
- * Lent money is an asset and borrowed money is a liability, both at the derived
- * balance rather than at anything typed.
+ * FL8 · What net worth should count, split by which way the balance points
+ * (B54): money they owe you is an asset, money you owe them a liability — both
+ * at the derived balance, not anything typed.
  */
 export function familyLoanNetWorth(db: DB): {
   lent: { label: string; accountId: string; value: Paise }[];
@@ -376,14 +368,11 @@ export function familyLoanNetWorth(db: DB): {
     const view = viewFamilyLoan(db, loan.id);
     if (!view || view.outstanding <= 0) continue;
 
-    const line = {
-      label: loan.direction === "lent"
-        ? `Lent to ${loan.counterparty}`
-        : `Borrowed from ${loan.counterparty}`,
-      accountId: loan.account_id,
-      value: view.outstanding,
-    };
-    (loan.direction === "lent" ? lent : borrowed).push(line);
+    if (view.owedToYou) {
+      lent.push({ label: `${loan.counterparty} owes you`, accountId: loan.account_id, value: view.outstanding });
+    } else {
+      borrowed.push({ label: `You owe ${loan.counterparty}`, accountId: loan.account_id, value: view.outstanding });
+    }
   }
 
   return { lent, borrowed };

@@ -160,7 +160,6 @@ import {
 import {
   createFamilyLoan, recordAdvance, recordRepayment, viewFamilyLoan,
   writeOffFamilyLoan, closeFamilyLoan, listFamilyLoans,
-  type LendingDirection,
 } from "./domain/family-loans.ts";
 import { renderFamilyLoans, renderFamilyLoan } from "./web/pages/family-loans.ts";
 import {
@@ -3156,7 +3155,6 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const agreed = field(ctx.body, "agreed_total");
       const loan = createFamilyLoan(db, actorFor(a), {
         counterparty: requiredField(ctx.body, "counterparty"),
-        direction: field(ctx.body, "direction") === "borrowed" ? "borrowed" : "lent" as LendingDirection,
         agreedTotal: agreed ? amountField(agreed) : null,
         note: field(ctx.body, "note") || null,
       });
