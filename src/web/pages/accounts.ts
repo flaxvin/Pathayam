@@ -6,7 +6,7 @@ import { html, raw, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, speakPaise, type Paise } from "../../core/money.ts";
 import { formatDate, daysBetween, todayIST, type IsoDate } from "../../core/dates.ts";
 import type { Account, Card, CardStatement } from "../../domain/accounts.ts";
-import { ACCOUNT_SUBTYPES, SUBTYPE_LABELS } from "../../domain/accounts.ts";
+import { ACCOUNT_SUBTYPES, SUBTYPE_LABELS, MANAGED_SUBTYPES } from "../../domain/accounts.ts";
 import type { AccountBalances } from "../../engine/repository.ts";
 import type { CardFunding } from "../../engine/engine.ts";
 
@@ -362,12 +362,23 @@ export function renderNewAccountForm(opts: { error?: string | null } = {}): Safe
           <label for="subtype">Type</label>
           <select id="subtype" name="subtype" required>
             ${Object.entries(ACCOUNT_SUBTYPES).flatMap(([kind, subtypes]) =>
-              subtypes.map(
-                (s) => html`<option value="${s}" data-kind="${kind}">${SUBTYPE_LABELS[s] ?? s}</option>`,
-              ),
+              subtypes
+                // B56: a family loan or a loan carries a companion record, so it
+                // is created on its own screen, not here — offering it here made
+                // an orphan that never showed on Lending or Loans.
+                .filter((s) => !(s in MANAGED_SUBTYPES))
+                .map(
+                  (s) => html`<option value="${s}" data-kind="${kind}">${SUBTYPE_LABELS[s] ?? s}</option>`,
+                ),
             )}
           </select>
         </div>
+        <p class="field-hint">
+          Lending to family? Use <a href="/family">the Lending page</a>.
+          A loan or EMI? Use <a href="/loans">the Loans page</a>. Investments go
+          through <a href="/portfolio">Portfolio</a>. Each sets up more than a bare
+          balance, which is why they live on their own screen.
+        </p>
       </fieldset>
 
       <div class="grid-2">

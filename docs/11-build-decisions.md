@@ -1052,4 +1052,23 @@ drills into that category's transactions (`/query?category=…`), a real page;
 
 ---
 
-*Entries B56 onward are recorded as the work happens.*
+### B56 · Companion-record subtypes are created on their own screen, not the accounts form
+
+*29-08-2026 · F2.10 / R15.* The generic "Add an account" form offered every
+subtype, including `family-loan` and `loan`. But those carry a companion record
+— a `family_loans` row, a `loans` row with its amortisation — that the Lending
+and Loans pages read instead of the account subtype. Creating one through the
+accounts form made a bare tracking account with no companion, so it never
+appeared on its page: an orphan.
+
+Fixed by naming those subtypes `MANAGED_SUBTYPES` and (a) filtering them out of
+the accounts form, with a note pointing to the Lending / Loans / Portfolio
+screens, and (b) refusing them in `POST /accounts/new` with the same pointer, so
+a stale form or crafted request cannot make an orphan either. The dedicated
+flows (`/family/new`, `/loans/new`) still call `createAccount` with these
+subtypes — the ban is on the *generic* path only, which is the one that skipped
+the companion record.
+
+---
+
+*Entries B57 onward are recorded as the work happens.*
