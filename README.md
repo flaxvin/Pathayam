@@ -234,7 +234,13 @@ saved per bank, and the next file with that header signature imports without
 asking. Rules are proposed from what you actually do — the second time you
 categorise a payee, or when you clean up an imported name — and every proposal
 states the inference it came from and waits in Review. A confirmed rule can be
-applied to history, with the count and a preview first.
+applied to history, with the count and a preview first. **Gmail ingestion** is a
+separate opt-in grant — read-only, offline, the refresh token stored like the
+statement identity — that reads only the banks' own addresses: a transaction
+alert becomes a review-queue row within seconds of a spend, and a statement PDF
+is fetched, decrypted and parsed on arrival. An add-on card's alert, which lands
+in the primary holder's inbox, is routed to the right account and defaults its
+owner to the add-on holder.
 
 **The monthly moment** — `08` S5's close ritual: what the month did, R29.4's
 four-way net worth decomposition rather than one flattering number, a dated
@@ -287,7 +293,7 @@ wizard, the India-appropriate starting template, Docker Compose.
 
 | Gap | Where it is specified |
 |---|---|
-| Gmail alert parsing, SMS forwarding | `04` §3.4, §3.5 — P1/P2. The sender-to-institution map is built; the fetching is not |
+| SMS forwarding | `04` §3.5 — P2, needs an Android companion; iOS cannot read SMS (a platform limit, not a gap) |
 | Attachments / receipt capture | Q10 |
 | Module feature-flag UI (flags work; they are environment variables) | F28 |
 | Tranche drawdown, pre-EMI, moratorium models | `06` R15, R16 M4 — modelled, seeded with no data (Q11) |

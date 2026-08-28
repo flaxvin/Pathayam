@@ -716,4 +716,38 @@ it and the split appears only when a foreign holding exists.
 
 ---
 
-*Entries B44 onward are recorded as the work happens.*
+### B44 · Gmail is a second OAuth grant, not an extension of login
+
+*28-08-2026 · `04` §3.4.* Sign-in is already Google SSO, so it was tempting to
+widen its scope and get Gmail "for free". That is the wrong trade. Login asks
+for `openid email profile` and keeps nothing but the identity — no refresh
+token, no stored secret — and that minimalism protects every household that
+never wants Gmail read.
+
+So Gmail is its own opt-in grant: `gmail.readonly`, `access_type=offline` and
+`prompt=consent` (the two together are what actually yield a refresh token),
+with the token stored under the statement-identity discipline — migration 0013's
+table is out of every export and the event log, and disconnect deletes it and
+best-effort revokes it at Google. Login stays as small as it was.
+
+Two §3.4 constraints are structural rather than promised. The Gmail search query
+is built from the configured senders alone, so a message from any other address
+is never even requested. And a message is parsed into fields and dropped — only
+the extracted record reaches the ledger, never the body.
+
+### B45 · The alert parser was written against real alerts, and the add-on case is why
+
+Reading this household's actual alerts showed two shapes a spec would not have:
+Axis's label/value layout (`Amount Debited:` / `INR 600.00` on separate lines)
+and YES/IndusInd's single sentence. Both are parsed.
+
+The case that justified the whole exercise is the add-on card. Priya's card
+alert arrives in **Ravi's** inbox and greets "Dear Priya Menon". The parser
+surfaces that name, and the fetch layer routes the alert to the primary's Credit
+account while carrying the holder through so the transaction's owner defaults to
+the add-on holder (R6.e) rather than the mailbox owner — exactly what §3.4
+calls out, and it only became visible by looking at a real one.
+
+---
+
+*Entries B46 onward are recorded as the work happens.*

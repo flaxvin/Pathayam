@@ -301,6 +301,15 @@ export function listCards(db: DB, accountId: string, opts: { includeClosed?: boo
 }
 
 /** R6.e: an alert naming an add-on's last four resolves to that card. */
+/** F2.9 · Resolve an account by the last-four an alert or statement names. */
+export function findAccountByLast4(db: DB, last4: string): Account | null {
+  return queryOne<Account>(
+    db,
+    `SELECT * FROM accounts WHERE last4 = ? AND closed_at IS NULL ORDER BY created_at LIMIT 1`,
+    last4,
+  );
+}
+
 export function findCardByLast4(db: DB, last4: string): Card | null {
   return queryOne<Card>(
     db,
