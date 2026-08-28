@@ -268,7 +268,7 @@ lending is not spending, repayment is not income, and a write-off is available
 because an app that cannot express one forces you to lie or delete history.
 
 **Debt** — loans with the full amortisation engine, all four interest models,
-per-tranche disbursement destinations, instalment recording with the lender's
+per-tranche disbursement (recordable as you draw, third-party or to an account per R15), pre-EMI on the drawn amount, both moratorium models with the capitalisation cost quantified, instalment recording with the lender's
 split, drift against a lender statement, and the prepayment comparison that
 `06` §1 says the module exists for.
 
@@ -294,7 +294,6 @@ wizard, the India-appropriate starting template, Docker Compose.
 | Gap | Where it is specified |
 |---|---|
 | SMS forwarding | `04` §3.5 — P2, needs an Android companion; iOS cannot read SMS (a platform limit, not a gap) |
-| Tranche drawdown, pre-EMI, moratorium models | `06` R15, R16 M4 — modelled, seeded with no data (Q11) |
 
 Nothing in that list requires reworking stored data. The three things `05` §3
 says can never be retrofitted — the engine's semantics, idempotency keys and

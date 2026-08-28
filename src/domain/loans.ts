@@ -52,6 +52,7 @@ export interface Loan {
   interest_model: InterestModel;
   benchmark: string | null;
   tenure_months: number;
+  moratorium_months: number;
   first_instalment_date: IsoDate | null;
   instalment_day: number | null;
   repayment_account_id: string | null;
@@ -106,6 +107,8 @@ export interface CreateLoanInput {
   sanctioned: Paise;
   sanctionDate: IsoDate;
   interestModel: InterestModel;
+  /** R16 M3/M4 · Length of the moratorium; 0 for none. */
+  moratoriumMonths?: number;
   annualRatePct: number;
   benchmark?: string | null;
   tenureMonths: number;
@@ -139,12 +142,12 @@ export function createLoan(db: DB, actor: Actor, input: CreateLoanInput): Loan {
       db,
       `INSERT INTO loans
          (id,account_id,lender,nickname,loan_type,sanctioned,sanction_date,interest_model,
-          benchmark,tenure_months,first_instalment_date,instalment_day,repayment_account_id,
+          benchmark,tenure_months,moratorium_months,first_instalment_date,instalment_day,repayment_account_id,
           history_from,disbursed_at_creation,created_at,created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       id, account.id, input.lender, input.nickname ?? null, input.loanType,
       input.sanctioned, input.sanctionDate, input.interestModel,
-      input.benchmark ?? null, input.tenureMonths,
+      input.benchmark ?? null, input.tenureMonths, input.moratoriumMonths ?? 0,
       input.firstInstalmentDate ?? null, input.instalmentDay ?? null,
       input.repaymentAccountId ?? null,
       input.historyFrom ?? null,
@@ -567,8 +570,19 @@ export interface LoanProjection {
   undrawn: Paise;
   ratePct: number;
   emi: Paise;
-  /** R15: interest-only, while the loan is not yet fully drawn. */
+  /** R15: interest-only, while the loan is not yet fully drawn or in moratorium. */
   preEmi: Paise | null;
+  /** R16 M3/M4 · Present only while a moratorium loan is still in its moratorium. */
+  moratorium: {
+    months: number;
+    capitalised: boolean;
+    /** M4 · interest rolled into principal — the cost of not paying now. */
+    capitalisedInterest: Paise;
+    /** M3 · total interest serviced across the moratorium. */
+    totalServiced: Paise;
+    /** What the EMI phase amortises against. */
+    balanceAtRepaymentStart: Paise;
+  } | null;
   schedule: Schedule;
   /** R17.3: the schedule as at origination, so savings are measurable. */
   baseline: Schedule;
@@ -617,12 +631,36 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
         })
       : emptySchedule();
 
+  // R16 M3/M4 · A loan still in its moratorium amortises against the balance the
+  // moratorium leaves behind — the original principal if interest is serviced,
+  // or the grown principal if it is capitalised. Once repayment has begun (a
+  // recorded instalment), the moratorium is history and the live outstanding
+  // governs.
+  const inMoratorium =
+    (loan.interest_model === "moratorium-serviced" ||
+      loan.interest_model === "moratorium-capitalised") &&
+    loan.moratorium_months > 0 &&
+    payments.filter((pay) => pay.kind === "instalment").length === 0;
+
+  const moratoriumOutcome = inMoratorium && outstanding > 0
+    ? moratorium({
+        principal: outstanding,
+        annualRatePct: rate,
+        moratoriumMonths: loan.moratorium_months,
+        repaymentMonths: loan.tenure_months,
+        capitalise: loan.interest_model === "moratorium-capitalised",
+      })
+    : null;
+
+  const scheduleprincipal = moratoriumOutcome?.balanceAtRepaymentStart ?? outstanding;
+  const scheduleMonths = moratoriumOutcome ? loan.tenure_months : remainingMonths;
+
   const schedule =
     outstanding > 0
       ? buildSchedule({
-          principal: outstanding,
+          principal: scheduleprincipal,
           annualRatePct: rate,
-          months: remainingMonths,
+          months: scheduleMonths,
           firstInstalmentDate: loan.first_instalment_date ?? undefined,
         })
       : emptySchedule();
@@ -641,8 +679,24 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
     disbursed,
     undrawn: Math.max(0, loan.sanctioned - disbursed),
     ratePct: rate,
-    emi: outstanding > 0 ? emiFor(outstanding, rate, remainingMonths) : 0,
-    preEmi: fullyDrawn ? null : preEmi(disbursed, rate),
+    emi: moratoriumOutcome
+      ? moratoriumOutcome.emiAfter
+      : outstanding > 0 ? emiFor(outstanding, rate, remainingMonths) : 0,
+    // During a moratorium the monthly obligation is the servicing (M3) or the
+    // drawn-amount pre-EMI (an under-construction loan). Capitalised (M4) pays
+    // nothing now, which is exactly what makes it expensive later.
+    preEmi: moratoriumOutcome
+      ? (moratoriumOutcome.monthlyInterest > 0 ? moratoriumOutcome.monthlyInterest : null)
+      : fullyDrawn ? null : preEmi(disbursed, rate),
+    moratorium: moratoriumOutcome
+      ? {
+          months: loan.moratorium_months,
+          capitalised: loan.interest_model === "moratorium-capitalised",
+          capitalisedInterest: moratoriumOutcome.capitalisedInterest,
+          totalServiced: moratoriumOutcome.totalServiced,
+          balanceAtRepaymentStart: moratoriumOutcome.balanceAtRepaymentStart,
+        }
+      : null,
     schedule,
     baseline,
     metrics: lifetimeMetrics({

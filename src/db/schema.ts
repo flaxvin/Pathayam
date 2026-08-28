@@ -1143,4 +1143,18 @@ CREATE TABLE attachments (
 CREATE INDEX idx_attachments_txn ON attachments(transaction_id);
 `,
   },
+  {
+    name: "0015-loan-moratorium",
+    sql: `
+--------------------------------------------------------------------------------
+-- 06 R16 M3/M4 · How many months a loan's moratorium runs.
+--
+-- The interest_model already distinguishes the two moratorium kinds (serviced
+-- vs capitalised); this is the length. Zero for a loan with no moratorium,
+-- which is every loan the household currently holds — the column exists so an
+-- under-construction or education loan can be modelled when one is taken.
+--------------------------------------------------------------------------------
+ALTER TABLE loans ADD COLUMN moratorium_months INTEGER NOT NULL DEFAULT 0;
+`,
+  },
 ];

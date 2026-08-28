@@ -822,4 +822,30 @@ drop Portfolio, and the health page reads "assets off". No data is touched
 
 ---
 
-*Entries B49 onward are recorded as the work happens.*
+### B49 · Tranche/pre-EMI/moratorium was an engine that lacked its UI
+
+*28-08-2026 · R15/R16.* The amortisation engine already had all four interest
+models, `moratorium()`, `preEmi()` and the disbursement domain function with the
+third-party-vs-budget destination logic — proven against the docs' worked
+examples. What was missing was the wiring: no form to record a tranche, only two
+of four models on the new-loan form, and `projectLoan` never called
+`moratorium()`, so a moratorium loan projected as an ordinary one.
+
+All three are now closed. A disbursement form appears on the loan detail
+whenever undrawn balance remains, calling the existing `recordDisbursement`.
+The new-loan form offers the two moratorium models and a moratorium-length
+field (migration 0015). `projectLoan` runs `moratorium()` for an M3/M4 loan
+still in its moratorium: M3 reports the serviced interest as the monthly
+obligation and amortises the untouched principal afterward; M4 pays nothing now
+and amortises the *grown* balance, with the capitalised interest surfaced as the
+warning R16 demands. Once a first instalment is recorded the moratorium is
+history and the live outstanding governs.
+
+Built against the docs' figures, not real data — Q11 stands, the household holds
+no such loan — but complete and tested (the ₹50L under-construction tranche
+sequence, the ₹10L education moratorium both ways), so the path is ready the day
+one is taken.
+
+---
+
+*Entries B50 onward are recorded as the work happens.*

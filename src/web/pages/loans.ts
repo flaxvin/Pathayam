@@ -155,6 +155,29 @@ function renderLoanCard(p: LoanProjection): SafeHtml {
           figure("Interest saved", p.metrics.interestSaved, "projected"))}
       </div>
 
+      ${when(p.moratorium !== null, () => html`
+        <p class="notice ${p.moratorium!.capitalised ? "notice-warning" : "notice-info"}"
+           style="margin-top:.75rem">
+          ${p.moratorium!.capitalised
+            ? html`
+                In its <strong>${p.moratorium!.months}-month moratorium</strong>, with
+                interest <strong>capitalised</strong>. You pay nothing now, but
+                <strong>${formatPaise(p.moratorium!.capitalisedInterest)}</strong> of
+                interest is rolling into what you owe — repayment will start against
+                <strong>${formatPaise(p.moratorium!.balanceAtRepaymentStart)}</strong>,
+                not the original amount. Servicing the interest instead would avoid all
+                of that.
+              `
+            : html`
+                In its <strong>${p.moratorium!.months}-month moratorium</strong>, interest
+                <strong>serviced</strong> monthly — the principal stays put and nothing
+                is capitalised. Interest of
+                <strong>${formatPaise(p.moratorium!.totalServiced)}</strong> is paid
+                across the moratorium before full instalments begin.
+              `}
+        </p>
+      `)}
+
       <div class="row" style="flex-wrap:wrap;margin-top:.75rem">
         <a class="button button-small" href="/loans/${loan.id}">Schedule</a>
         <a class="button button-small" href="/loans/${loan.id}/pay">Record an instalment</a>
@@ -186,6 +209,7 @@ export function renderLoanDetail(opts: {
   payments: LoanPayment[];
   disbursements: Disbursement[];
   rates: { effective_from: IsoDate; annual_rate_pct: number }[];
+  budgetAccounts: { id: string; name: string }[];
 }): SafeHtml {
   const p = opts.projection;
   const loan = p.loan;
@@ -269,6 +293,45 @@ export function renderLoanDetail(opts: {
             </div>
           `,
         )}
+      </section>
+    `)}
+
+    ${when(p.undrawn > 0, () => html`
+      <section class="card">
+        <h2>Record a disbursement</h2>
+        <p class="faint" style="margin-top:-.25rem">
+          ${formatPaise(p.undrawn)} of the sanction is still undrawn. A tranche
+          paid to a builder or dealer raises what you owe but never touches your
+          budget; one credited to your account arrives as money to assign (R15).
+        </p>
+        <form method="post" action="/loans/${loan.id}/disburse">
+          <div class="grid-2">
+            <div class="field">
+              <label for="d-amount">Amount</label>
+              <input id="d-amount" name="amount" class="amount-input" type="text"
+                     inputmode="decimal" required>
+            </div>
+            <div class="field">
+              <label for="d-date">Date</label>
+              <input id="d-date" name="date" placeholder="Today">
+            </div>
+          </div>
+          <div class="field">
+            <label for="d-dest">Where did it go?</label>
+            <select id="d-dest" name="destination"
+                    onchange="document.getElementById('d-acct-field').style.display = this.value === 'budget-account' ? '' : 'none'">
+              <option value="third-party">Paid directly to a third party (builder, dealer, institution)</option>
+              <option value="budget-account">Credited to one of my accounts</option>
+            </select>
+          </div>
+          <div class="field" id="d-acct-field" style="display:none">
+            <label for="d-acct">Into which account?</label>
+            <select id="d-acct" name="destination_account_id">
+              ${opts.budgetAccounts.map((a) => html`<option value="${a.id}">${a.name}</option>`)}
+            </select>
+          </div>
+          <button class="button-primary" type="submit">Record it</button>
+        </form>
       </section>
     `)}
 
@@ -611,16 +674,27 @@ export function renderNewLoanForm(opts: {
         <legend>How the interest is charged</legend>
         <div class="field">
           <label for="interest_model">Interest model</label>
-          <select id="interest_model" name="interest_model" required>
+          <select id="interest_model" name="interest_model" required
+                  onchange="document.getElementById('moratorium-field').style.display = this.value.startsWith('moratorium') ? '' : 'none'">
             <option value="reducing">Reducing balance — interest on what you still owe</option>
             <option value="flat">Flat rate — interest on the original amount, for the whole term</option>
+            <option value="moratorium-serviced">Moratorium, interest serviced — pay interest during, principal later</option>
+            <option value="moratorium-capitalised">Moratorium, interest capitalised — pay nothing during, it rolls into principal</option>
           </select>
           <p class="field-hint">
             <strong>Check your sanction letter.</strong> Personal, car and gold loans
             are often quoted flat, and a flat rate is close to double what it sounds
-            like — 9% flat is about 15.7% in reducing-balance terms. Entering a flat
-            loan as reducing understates what it costs you.
+            like — 9% flat is about 15.7% in reducing-balance terms. A moratorium is
+            common on education loans and under-construction homes: servicing the
+            interest keeps the principal flat, while capitalising it rolls the unpaid
+            interest into what you owe — far more expensive, and worth seeing before
+            you choose it.
           </p>
+        </div>
+        <div class="field" id="moratorium-field" style="display:none">
+          <label for="moratorium_months">Moratorium length in months</label>
+          <input id="moratorium_months" name="moratorium_months" type="text"
+                 inputmode="numeric" placeholder="e.g. 48">
         </div>
       </fieldset>
 
