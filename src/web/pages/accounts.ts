@@ -7,6 +7,7 @@ import { formatPaise, speakPaise, type Paise } from "../../core/money.ts";
 import { formatDate, daysBetween, todayIST, type IsoDate } from "../../core/dates.ts";
 import type { Account, Card, CardStatement } from "../../domain/accounts.ts";
 import { ACCOUNT_SUBTYPES, SUBTYPE_LABELS, MANAGED_SUBTYPES } from "../../domain/accounts.ts";
+import { sparkline } from "../charts.ts";
 import type { AccountBalances } from "../../engine/repository.ts";
 import type { CardFunding } from "../../engine/engine.ts";
 
@@ -18,6 +19,8 @@ export interface AccountRow {
   checkpointBroken: boolean;
   funding?: CardFunding | null;
   dueDate?: IsoDate | null;
+  /** S15 · Recent running balance, oldest→newest, for an inline sparkline. */
+  balanceSeries?: number[];
 }
 
 export function renderAccountList(rows: AccountRow[]): SafeHtml {
@@ -94,14 +97,21 @@ function renderAccountRow(row: AccountRow): SafeHtml {
           `)}
         </div>
       </div>
-      <div style="text-align:right">
-        <strong class="amount ${balances.working < 0 ? "amount-negative" : ""}">
-          <span aria-hidden="true">${formatPaise(balances.working)}</span>
-          <span class="sr-only">${speakPaise(balances.working)}</span>
-        </strong>
-        ${when(balances.uncleared !== 0, () => html`
-          <div class="faint">${formatPaise(balances.uncleared)} uncleared</div>
-        `)}
+      <div style="text-align:right;display:flex;align-items:center;gap:.6rem">
+        ${when((row.balanceSeries?.length ?? 0) >= 2, () => sparkline({
+          points: row.balanceSeries!,
+          title: `${account.nickname || account.name} recent balance`,
+          color: balances.working < 0 ? "var(--danger)" : "var(--accent)",
+        }))}
+        <div>
+          <strong class="amount ${balances.working < 0 ? "amount-negative" : ""}">
+            <span aria-hidden="true">${formatPaise(balances.working)}</span>
+            <span class="sr-only">${speakPaise(balances.working)}</span>
+          </strong>
+          ${when(balances.uncleared !== 0, () => html`
+            <div class="faint">${formatPaise(balances.uncleared)} uncleared</div>
+          `)}
+        </div>
       </div>
     </div>
   `;

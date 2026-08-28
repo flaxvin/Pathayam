@@ -14,7 +14,7 @@ import { formatDate, formatMonth, type IsoDate } from "../../core/dates.ts";
 import type { QueryRow, GroupedTotal, GroupBy, Period, TrendPoint } from "../../domain/reports.ts";
 import type { Schedule, DetectedSchedule, Cashflow, CalendarDay } from "../../domain/schedules.ts";
 import type { GoalProgress } from "../../domain/goals.ts";
-import { groupedBarChart, lineChart, progressRing, horizontalBars, donutChart } from "../charts.ts";
+import { groupedBarChart, lineChart, progressRing, horizontalBars, donutChart, sparkline } from "../charts.ts";
 import type { Insight, InsightKind } from "../../domain/insights.ts";
 
 // ---------------------------------------------------------------------------
@@ -218,6 +218,7 @@ export function renderReports(opts: {
   insights: Insight[];
   trend: TrendPoint[];
   categorySpend: { label: string; value: Paise }[];
+  categoryTrends: { name: string; spent: number[] }[];
   period: Period;
   periods: Period[];
   loanInterest: { fy: number; label: string; interest: Paise; principal: Paise; lender: string }[];
@@ -332,6 +333,21 @@ export function renderReports(opts: {
           title: "Spending by category over the period",
           slices: catSlices,
         })}
+      </section>
+    `)}
+
+    ${when(opts.categoryTrends.some((t) => t.spent.some((v) => v > 0)), () => html`
+      <section class="card">
+        <h2>Category trends</h2>
+        <p class="faint" style="margin-top:-.25rem">Each category's spend over the last 12 months.</p>
+        <div class="sparkline-grid">
+          ${opts.categoryTrends.map((t) => html`
+            <div class="sparkline-cell">
+              <span class="sparkline-name">${t.name}</span>
+              ${sparkline({ points: t.spent, width: 110, height: 30, title: `${t.name} — 12-month spend` })}
+            </div>
+          `)}
+        </div>
       </section>
     `)}
 

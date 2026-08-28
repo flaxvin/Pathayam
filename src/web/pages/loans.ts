@@ -12,7 +12,7 @@ import { formatDate, type IsoDate } from "../../core/dates.ts";
 import type { LoanProjection, Loan, LoanPayment, Disbursement, DebtRow } from "../../domain/loans.ts";
 import { LOAN_TYPE_LABELS } from "../../domain/loans.ts";
 import type { PrepaymentComparison, Schedule, RateResetOptions } from "../../loans/amortisation.ts";
-import { lineChart } from "../charts.ts";
+import { lineChart, horizontalBars } from "../charts.ts";
 
 export function renderLoanList(rows: LoanProjection[], debt: DebtRow[]): SafeHtml {
   if (rows.length === 0) {
@@ -58,6 +58,15 @@ export function renderLoanList(rows: LoanProjection[], debt: DebtRow[]): SafeHtm
           <strong class="amount" style="font-size:1.3rem">${formatPaise(monthly)}</strong>
         </div>
       </div>
+      ${when(rows.filter((r) => r.outstanding > 0).length > 1, () => html`
+        <h3 style="margin:.75rem 0 .25rem;font-size:.95rem">Outstanding by loan</h3>
+        ${horizontalBars({
+          title: "Outstanding balance by loan",
+          items: rows
+            .filter((r) => r.outstanding > 0)
+            .map((r) => ({ label: r.loan.nickname || r.loan.lender, value: r.outstanding, color: "var(--danger)" })),
+        })}
+      `)}
     </div>
 
     ${rows.map((r) => renderLoanCard(r))}

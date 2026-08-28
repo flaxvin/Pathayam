@@ -378,6 +378,123 @@ export function horizontalBars(opts: {
   `;
 }
 
+/**
+ * A sparkline — a tiny, axis-free trend line for inline use (next to an account
+ * balance, a category name). Scales to its own min/max; a flat series draws a
+ * flat line rather than dividing by zero.
+ */
+export function sparkline(opts: {
+  points: number[];
+  width?: number;
+  height?: number;
+  color?: string;
+  title?: string;
+}): SafeHtml {
+  const w = opts.width ?? 96;
+  const h = opts.height ?? 26;
+  const pad = 2;
+  const pts = opts.points;
+  if (pts.length < 2) return raw("");
+  const hi = Math.max(...pts), lo = Math.min(...pts);
+  const span = hi - lo || 1;
+  const xAt = (i: number) => pad + (i / (pts.length - 1)) * (w - 2 * pad);
+  const yAt = (v: number) => pad + (h - 2 * pad) - ((v - lo) / span) * (h - 2 * pad);
+  const d = pts.map((v, i) => `${i === 0 ? "M" : "L"}${r2(xAt(i))} ${r2(yAt(v))}`).join(" ");
+  const [ex, ey] = [xAt(pts.length - 1), yAt(pts[pts.length - 1]!)];
+  const color = opts.color ?? "var(--accent)";
+  return raw(
+    `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" ` +
+    `aria-label="${escape(opts.title ?? "trend")}" style="vertical-align:middle">` +
+    (opts.title ? `<title>${escape(opts.title)}</title>` : "") +
+    `<path d="${d}" fill="none" stroke="${escape(color)}" stroke-width="1.5" ` +
+    `stroke-linejoin="round" stroke-linecap="round"/>` +
+    `<circle cx="${r2(ex)}" cy="${r2(ey)}" r="2" fill="${escape(color)}"/></svg>`,
+  );
+}
+
+export interface WaterfallStep {
+  label: string;
+  /** Signed contribution to the running total. */
+  value: Paise;
+}
+
+/**
+ * A waterfall — a running total built from signed steps, each bar floating from
+ * where the last one left off, with an opening and closing bar anchored to the
+ * axis. Made for the net-worth change (money saved / market / FX), where the
+ * point is exactly *which* movements built the total.
+ */
+export function waterfall(opts: {
+  title: string;
+  opening: Paise;
+  openingLabel: string;
+  steps: WaterfallStep[];
+  closingLabel: string;
+  /**
+   * Draw the opening value as its own anchored bar. Off for a *change*
+   * waterfall (opening 0), where a huge opening bar would dwarf the steps —
+   * then only the steps and their total are drawn, and the y-axis spans the
+   * change, so each component is legible.
+   */
+  includeOpening?: boolean;
+}): SafeHtml {
+  const W = 640, H = 260, padL = 8, padR = 8, padT = 16, padB = 44;
+  const plotW = W - padL - padR, plotH = H - padT - padB;
+  const includeOpening = opts.includeOpening ?? true;
+
+  // Build the bars: opening (anchored, optional), each step (floating), closing.
+  let running = opts.opening;
+  const runs: number[] = [opts.opening];
+  for (const s of opts.steps) { running += s.value; runs.push(running); }
+  const closing = running;
+
+  const values = [opts.opening, ...runs, closing];
+  const hi = Math.max(0, ...values);
+  const lo = Math.min(0, ...values);
+  const span = hi - lo || 1;
+  const yAt = (v: number) => padT + plotH - ((v - lo) / span) * plotH;
+
+  const bars: { label: string; from: number; to: number; kind: "anchor" | "up" | "down" }[] = [];
+  if (includeOpening) bars.push({ label: opts.openingLabel, from: 0, to: opts.opening, kind: "anchor" });
+  for (let i = 0; i < opts.steps.length; i++) {
+    const s = opts.steps[i]!;
+    bars.push({ label: s.label, from: runs[i]!, to: runs[i + 1]!, kind: s.value >= 0 ? "up" : "down" });
+  }
+  bars.push({ label: opts.closingLabel, from: 0, to: closing, kind: "anchor" });
+
+  const n = bars.length;
+  const slot = plotW / n;
+  const barW = Math.min(64, slot * 0.6);
+  const color = (k: string) => k === "anchor" ? "var(--accent)" : k === "up" ? "var(--positive)" : "var(--danger)";
+
+  const parts: string[] = [];
+  parts.push(`<line x1="${padL}" y1="${r2(yAt(0))}" x2="${W - padR}" y2="${r2(yAt(0))}" stroke="var(--border)"/>`);
+  bars.forEach((b, i) => {
+    const cx = padL + slot * (i + 0.5);
+    const x = cx - barW / 2;
+    const y1 = yAt(b.from), y2 = yAt(b.to);
+    const top = Math.min(y1, y2), height = Math.max(1, Math.abs(y2 - y1));
+    parts.push(
+      `<rect x="${r2(x)}" y="${r2(top)}" width="${r2(barW)}" height="${r2(height)}" rx="2" ` +
+      `fill="${color(b.kind)}"><title>${escape(b.label)}: ${escape(formatPaise((b.to - b.from) as Paise))}</title></rect>`,
+    );
+    // connector line to the next bar's start
+    if (i < n - 1) {
+      parts.push(`<line x1="${r2(x + barW)}" y1="${r2(y2)}" x2="${r2(padL + slot * (i + 1.5) - barW / 2)}" y2="${r2(y2)}" stroke="var(--border)" stroke-dasharray="2 2"/>`);
+    }
+    // label (two lines: name, amount)
+    const label = b.label.length > 12 ? b.label.slice(0, 11) + "…" : b.label;
+    parts.push(`<text x="${r2(cx)}" y="${H - 26}" text-anchor="middle" font-size="10.5" fill="var(--text-muted)">${escape(label)}</text>`);
+    parts.push(`<text x="${r2(cx)}" y="${H - 12}" text-anchor="middle" font-size="10.5" fill="var(--text)">${escape(formatCompact(b.to as Paise))}</text>`);
+  });
+
+  const svg =
+    `<svg viewBox="0 0 ${W} ${H}" width="100%" height="auto" role="img" ` +
+    `aria-label="${escape(opts.title)}" style="max-width:100%"><title>${escape(opts.title)}</title>` +
+    parts.join("") + `</svg>`;
+  return html`<div class="chart-wide">${raw(svg)}</div>`;
+}
+
 // A tiny local `when` so this module needs no page import.
 function when(cond: unknown, fn: () => SafeHtml): SafeHtml {
   return cond ? fn() : raw("");

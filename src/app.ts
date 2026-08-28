@@ -127,7 +127,7 @@ import {
 import { renderOverview } from "./web/pages/overview.ts";
 import {
   queryTransactions, groupTotals, periodPresets, periodFor, incomeVsExpense,
-  loanInterestByFinancialYear, rowsToCsv, type GroupBy, type TransactionFilter,
+  loanInterestByFinancialYear, categoryTrend, rowsToCsv, type GroupBy, type TransactionFilter,
 } from "./domain/reports.ts";
 import { spendingInsights, type Insight } from "./domain/insights.ts";
 import {
@@ -849,6 +849,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 view.monthState.unfundedByAccount[account.id] ?? 0,
               )
             : null,
+        // S15 · A recent running-balance series for an inline sparkline. Walk
+        // the last few dozen transactions back from the current balance.
+        balanceSeries: (() => {
+          const recent = queryAll<{ amount: number }>(
+            db,
+            `SELECT amount FROM transactions WHERE account_id = ? AND deleted_at IS NULL
+              ORDER BY date DESC, created_at DESC LIMIT 24`,
+            account.id,
+          );
+          if (recent.length < 2) return undefined;
+          let bal = balances.get(account.id)!.working;
+          const series = [bal];
+          for (const t of recent) { bal -= t.amount; series.push(bal); }
+          return series.reverse();
+        })(),
       };
     });
 
@@ -2621,18 +2636,26 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/reports", (ctx) => {
     const period = periodFor(ctx.query.get("period") ?? "last-12");
+    const categorySpend = groupTotals(
+      queryTransactions(db, { from: period.from, to: period.to, direction: "out" }),
+      "category",
+    )
+      .map((g) => ({ key: g.key, label: g.label, value: Math.abs(g.total) }))
+      .filter((g) => g.value > 0)
+      .sort((a, b) => b.value - a.value);
+    // S15 · A 12-month spend sparkline per top category — the shape of each,
+    // not just this period's size.
+    const categoryTrends = categorySpend.slice(0, 12).map((g) => ({
+      name: g.label,
+      spent: categoryTrend(db, g.key, 12).map((m) => m.spent / 100),
+    }));
     return render(
       ctx, "Reports",
       renderReports({
         insights: spendingInsights(db),
         trend: incomeVsExpense(db, period.from, period.to),
-        categorySpend: groupTotals(
-          queryTransactions(db, { from: period.from, to: period.to, direction: "out" }),
-          "category",
-        )
-          .map((g) => ({ label: g.label, value: Math.abs(g.total) }))
-          .filter((g) => g.value > 0)
-          .sort((a, b) => b.value - a.value),
+        categorySpend: categorySpend.map((g) => ({ label: g.label, value: g.value })),
+        categoryTrends,
         period,
         periods: periodPresets(),
         loanInterest: config.features.loans ? loanInterestByFinancialYear(db) : [],

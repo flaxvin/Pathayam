@@ -14,7 +14,7 @@ import { formatDate, type IsoDate } from "../../core/dates.ts";
 import { formatUnits, formatPrice } from "../../portfolio/holdings.ts";
 import type { HoldingView } from "../../domain/assets.ts";
 import { ASSET_LABELS, ASSET_SUBTYPES, type AssetSubtype } from "../../domain/assets.ts";
-import { donutChart, lineChart, seriesColor } from "../charts.ts";
+import { donutChart, lineChart, seriesColor, waterfall } from "../charts.ts";
 import type {
   NetWorthStatement, NetWorthChange, Snapshot,
 } from "../../domain/networth.ts";
@@ -83,6 +83,17 @@ export function renderPortfolio(opts: {
         `)}
       </div>
     </div>
+
+    ${when(opts.rows.length > 1, () => html`
+      <section class="card">
+        <h2>By holding</h2>
+        ${donutChart({
+          title: "Portfolio by holding",
+          slices: opts.rows.map((r) => ({ label: r.view.instrument.name, value: r.view.marketValue })),
+          centerLabel: formatCompact(value),
+        })}
+      </section>
+    `)}
 
     ${when(opts.rows.length > 0, () => html`
       <section class="card">
@@ -624,6 +635,14 @@ function renderWaterfall(change: NetWorthChange): SafeHtml {
     <section class="card">
       <h2>Since ${formatDate(change.from)}</h2>
       <p class="muted">${change.reading}</p>
+      ${when(parts.length > 0, () => waterfall({
+        title: "What moved net worth over the period",
+        opening: 0 as Paise,
+        openingLabel: "",
+        includeOpening: false,
+        steps: parts.map(([label, value]) => ({ label, value })),
+        closingLabel: "Net change",
+      }))}
       ${parts.map(
         ([label, value, blurb]) => html`
           <div class="row-between" style="padding:.5rem 0;border-top:1px solid var(--border)">
