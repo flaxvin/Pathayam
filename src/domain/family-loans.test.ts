@@ -7,7 +7,6 @@ import { rupees } from "../core/money.ts";
 import { historyFor, undoEvent } from "../core/events.ts";
 import { createAccount } from "./accounts.ts";
 import { createGroup, createCategory, setAssigned } from "./budget.ts";
-import { createTransaction } from "./transactions.ts";
 import { buildBudgetView } from "../web/viewmodel.ts";
 import { netWorthStatement } from "./networth.ts";
 import {
@@ -35,10 +34,10 @@ function setup() {
   return { db, bank, eatingOut, gifts };
 }
 
-describe("10 §3.5 · F2.10 · private lending within the family", () => {
-  test("FL2 · the outstanding balance is derived, never typed", () => {
+describe("10 §3.5 · F2.10 · private lending within the family (B54 · one ledger)", () => {
+  test("FL2 · the balance is derived from what moved, and points to who owes whom", () => {
     const { db, bank } = setup();
-    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu", direction: "lent" });
+    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu" });
 
     recordAdvance(db, actor, {
       loanId: loan.id, amount: rupees(50_000), date: "2026-08-05", fromAccountId: bank.id,
@@ -48,9 +47,11 @@ describe("10 §3.5 · F2.10 · private lending within the family", () => {
     });
 
     const view = viewFamilyLoan(db, loan.id, "2026-08-28")!;
+    assert.equal(view.balance, rupees(30_000), "they owe you the net");
     assert.equal(view.outstanding, rupees(30_000));
-    assert.equal(view.advanced, rupees(50_000));
-    assert.equal(view.repaid, rupees(20_000));
+    assert.equal(view.owedToYou, true);
+    assert.equal(view.paidOut, rupees(50_000));
+    assert.equal(view.paidIn, rupees(20_000));
 
     // There is nowhere to type a balance: the table has no column for one.
     const columns = db.prepare(`PRAGMA table_info(family_loans)`).all() as { name: string }[];
@@ -58,88 +59,99 @@ describe("10 §3.5 · F2.10 · private lending within the family", () => {
     db.close();
   });
 
-  test("FL3 · lending really does reduce what you have to assign", () => {
+  test("money out reduces what you have to assign; money in raises it", () => {
     const { db, bank } = setup();
+    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu" });
+
     const before = buildBudgetView(db, "2026-08").monthState.readyToAssign;
-
-    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu", direction: "lent" });
     recordAdvance(db, actor, {
       loanId: loan.id, amount: rupees(50_000), date: "2026-08-05", fromAccountId: bank.id,
     });
+    // R1: money in someone else's hands is not money you have.
+    assert.equal(buildBudgetView(db, "2026-08").monthState.readyToAssign, before - rupees(50_000));
 
-    // R1: Ready to Assign is money you have. Money in someone else's hands is
-    // not money you have.
-    const after = buildBudgetView(db, "2026-08").monthState.readyToAssign;
-    assert.equal(after, before - rupees(50_000));
-    db.close();
-  });
-
-  test("FL4 · lending is not spending, and repayment is not income", () => {
-    const { db, bank, eatingOut } = setup();
-    setAssigned(db, actor, "2026-08", eatingOut.id, rupees(8_000));
-
-    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu", direction: "lent" });
-    recordAdvance(db, actor, {
-      loanId: loan.id, amount: rupees(50_000), date: "2026-08-05", fromAccountId: bank.id,
-    });
+    // They pay you back — it returns to the budget.
     recordRepayment(db, actor, {
       loanId: loan.id, amount: rupees(50_000), date: "2026-08-20", accountId: bank.id,
     });
-
-    const view = buildBudgetView(db, "2026-08");
-
-    // No envelope was consumed on the way out...
-    const category = view.categories.get(eatingOut.id)!;
-    assert.equal(category.state.activity, 0);
-
-    // ...and nothing was earned on the way back. Both legs are transfers, so
-    // the month's income and spending are untouched.
-    const spent = [...view.categories.values()].reduce((sum, c) => sum + c.state.activity, 0);
-    assert.equal(spent, 0);
+    assert.equal(buildBudgetView(db, "2026-08").monthState.readyToAssign, before);
     db.close();
   });
 
-  test("borrowing works in the other direction", () => {
+  test("you can owe them: money in first, then paying it back", () => {
     const { db, bank } = setup();
-    const loan = createFamilyLoan(db, actor, { counterparty: "Appa", direction: "borrowed" });
+    const loan = createFamilyLoan(db, actor, { counterparty: "Appa" });
 
     const before = buildBudgetView(db, "2026-08").monthState.readyToAssign;
-    recordAdvance(db, actor, {
-      loanId: loan.id, amount: rupees(30_000), date: "2026-08-05", fromAccountId: bank.id,
-    });
-
-    // Money borrowed arrives in the bank and is assignable — but it is a
+    // They give you money — it lands in the bank and is assignable, but it is a
     // liability, not income.
+    recordRepayment(db, actor, {
+      loanId: loan.id, amount: rupees(30_000), date: "2026-08-05", accountId: bank.id,
+    });
     assert.equal(buildBudgetView(db, "2026-08").monthState.readyToAssign, before + rupees(30_000));
 
-    const view = viewFamilyLoan(db, loan.id, "2026-08-28")!;
+    let view = viewFamilyLoan(db, loan.id, "2026-08-28")!;
+    assert.equal(view.owedByYou, true);
+    assert.equal(view.balance, -rupees(30_000));
     assert.equal(view.outstanding, rupees(30_000));
-    assert.equal(view.advanced, rupees(30_000));
 
-    recordRepayment(db, actor, {
-      loanId: loan.id, amount: rupees(10_000), date: "2026-08-25", accountId: bank.id,
+    // You pay some back.
+    recordAdvance(db, actor, {
+      loanId: loan.id, amount: rupees(10_000), date: "2026-08-25", fromAccountId: bank.id,
     });
-    assert.equal(viewFamilyLoan(db, loan.id, "2026-08-28")!.outstanding, rupees(20_000));
+    view = viewFamilyLoan(db, loan.id, "2026-08-28")!;
+    assert.equal(view.outstanding, rupees(20_000));
+    assert.equal(view.owedByYou, true);
     db.close();
   });
 
-  test("FL6 · what is outstanding, since when, and what was last repaid", () => {
-    const { db, bank } = setup();
-    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu", direction: "lent" });
+  test("FL4 · neither leg is spending or income", () => {
+    const { db, bank, eatingOut } = setup();
+    setAssigned(db, actor, "2026-08", eatingOut.id, rupees(8_000));
+    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu" });
+    recordAdvance(db, actor, { loanId: loan.id, amount: rupees(50_000), date: "2026-08-05", fromAccountId: bank.id });
+    recordRepayment(db, actor, { loanId: loan.id, amount: rupees(50_000), date: "2026-08-20", accountId: bank.id });
 
-    recordAdvance(db, actor, {
-      loanId: loan.id, amount: rupees(50_000), date: "2026-06-10", fromAccountId: bank.id,
-    });
-    recordAdvance(db, actor, {
-      loanId: loan.id, amount: rupees(10_000), date: "2026-07-01", fromAccountId: bank.id,
-    });
-    recordRepayment(db, actor, {
-      loanId: loan.id, amount: rupees(15_000), date: "2026-08-02", accountId: bank.id,
-    });
+    const view = buildBudgetView(db, "2026-08");
+    const spent = [...view.categories.values()].reduce((sum, c) => sum + c.state.activity, 0);
+    assert.equal(spent, 0, "both legs are transfers");
+    db.close();
+  });
+
+  test("B54 · being repaid more than was lent does not break — the balance just flips", () => {
+    const { db, bank, gifts } = setup();
+    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu" });
+    recordAdvance(db, actor, { loanId: loan.id, amount: rupees(50_000), date: "2026-06-10", fromAccountId: bank.id });
+    // They overpay — they gave back ₹60,000 against ₹50,000 lent.
+    recordRepayment(db, actor, { loanId: loan.id, amount: rupees(60_000), date: "2026-07-10", accountId: bank.id });
 
     const view = viewFamilyLoan(db, loan.id, "2026-08-28")!;
-    assert.equal(view.firstAdvance, "2026-06-10", "since when — the first, not the latest");
-    assert.deepEqual(view.lastRepayment, { date: "2026-08-02", amount: rupees(15_000) });
+    assert.equal(view.balance, -rupees(10_000), "now you owe them the ₹10,000 overpaid");
+    assert.equal(view.outstanding, rupees(10_000));
+    assert.equal(view.owedByYou, true);
+    assert.equal(view.settled, false);
+
+    // The write-off used to break here (outstanding was forced positive and
+    // booked as an expense). Now it records the ₹10,000 as income and closes.
+    setAssigned(db, actor, "2026-08", gifts.id, 0);
+    const amount = writeOffFamilyLoan(db, actor, { loanId: loan.id, categoryId: gifts.id, date: "2026-08-15" });
+    assert.equal(amount, rupees(10_000));
+    const budget = buildBudgetView(db, "2026-08");
+    assert.equal(budget.categories.get(gifts.id)!.state.activity, rupees(10_000), "income, not an expense");
+    assert.equal(viewFamilyLoan(db, loan.id, "2026-08-28")!.outstanding, 0);
+    db.close();
+  });
+
+  test("FL6 · what is outstanding, since when, and what last moved", () => {
+    const { db, bank } = setup();
+    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu" });
+    recordAdvance(db, actor, { loanId: loan.id, amount: rupees(50_000), date: "2026-06-10", fromAccountId: bank.id });
+    recordAdvance(db, actor, { loanId: loan.id, amount: rupees(10_000), date: "2026-07-01", fromAccountId: bank.id });
+    recordRepayment(db, actor, { loanId: loan.id, amount: rupees(15_000), date: "2026-08-02", accountId: bank.id });
+
+    const view = viewFamilyLoan(db, loan.id, "2026-08-28")!;
+    assert.equal(view.firstMovement, "2026-06-10", "since when — the first, not the latest");
+    assert.deepEqual(view.lastMovement, { date: "2026-08-02", amount: rupees(15_000), incoming: true });
     assert.equal(view.daysOutstanding, 79);
     assert.equal(view.outstanding, rupees(45_000));
     db.close();
@@ -147,44 +159,27 @@ describe("10 §3.5 · F2.10 · private lending within the family", () => {
 
   test("a settled arrangement says so, and stops counting days", () => {
     const { db, bank } = setup();
-    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu", direction: "lent" });
-
-    recordAdvance(db, actor, {
-      loanId: loan.id, amount: rupees(5_000), date: "2026-06-10", fromAccountId: bank.id,
-    });
-    recordRepayment(db, actor, {
-      loanId: loan.id, amount: rupees(5_000), date: "2026-08-02", accountId: bank.id,
-    });
+    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu" });
+    recordAdvance(db, actor, { loanId: loan.id, amount: rupees(5_000), date: "2026-06-10", fromAccountId: bank.id });
+    recordRepayment(db, actor, { loanId: loan.id, amount: rupees(5_000), date: "2026-08-02", accountId: bank.id });
 
     const view = viewFamilyLoan(db, loan.id, "2026-08-28")!;
     assert.equal(view.settled, true);
     assert.equal(view.outstanding, 0);
-    // N18: nothing has been outstanding for 79 days, because nothing is.
     assert.equal(view.daysOutstanding, null);
     db.close();
   });
 
   test("FL5 · an agreed total, not a rate", () => {
     const { db, bank } = setup();
-    const loan = createFamilyLoan(db, actor, {
-      counterparty: "Ammu", direction: "lent", agreedTotal: rupees(55_000),
-    });
-
-    recordAdvance(db, actor, {
-      loanId: loan.id, amount: rupees(50_000), date: "2026-06-10", fromAccountId: bank.id,
-    });
-    recordRepayment(db, actor, {
-      loanId: loan.id, amount: rupees(20_000), date: "2026-08-02", accountId: bank.id,
-    });
+    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu", agreedTotal: rupees(55_000) });
+    recordAdvance(db, actor, { loanId: loan.id, amount: rupees(50_000), date: "2026-06-10", fromAccountId: bank.id });
+    recordRepayment(db, actor, { loanId: loan.id, amount: rupees(20_000), date: "2026-08-02", accountId: bank.id });
 
     const view = viewFamilyLoan(db, loan.id, "2026-08-28")!;
-    // The cash outstanding and what is owed under the agreement differ, and
-    // both are shown rather than one being derived away.
     assert.equal(view.outstanding, rupees(30_000));
     assert.equal(view.agreedOutstanding, rupees(35_000));
 
-    // There is nowhere to put a rate or a tenure — 06's machinery does not
-    // apply, and offering it would be a lie.
     const columns = db.prepare(`PRAGMA table_info(family_loans)`).all() as { name: string }[];
     for (const absent of ["rate", "interest_rate", "tenure_months", "emi"]) {
       assert.ok(!columns.some((c) => c.name === absent), `${absent} must not exist`);
@@ -192,60 +187,46 @@ describe("10 §3.5 · F2.10 · private lending within the family", () => {
     db.close();
   });
 
-  test("FL7 · a write-off is an expense, and keeps the history", () => {
+  test("FL7 · writing off a debt owed to you is an expense, and keeps the history", () => {
     const { db, bank, gifts } = setup();
-    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu", direction: "lent" });
-
-    recordAdvance(db, actor, {
-      loanId: loan.id, amount: rupees(50_000), date: "2026-06-10", fromAccountId: bank.id,
-    });
-    recordRepayment(db, actor, {
-      loanId: loan.id, amount: rupees(20_000), date: "2026-07-02", accountId: bank.id,
-    });
+    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu" });
+    recordAdvance(db, actor, { loanId: loan.id, amount: rupees(50_000), date: "2026-06-10", fromAccountId: bank.id });
+    recordRepayment(db, actor, { loanId: loan.id, amount: rupees(20_000), date: "2026-07-02", accountId: bank.id });
     setAssigned(db, actor, "2026-08", gifts.id, rupees(30_000));
 
-    const written = writeOffFamilyLoan(db, actor, {
-      loanId: loan.id, categoryId: gifts.id, date: "2026-08-15",
-    });
+    const written = writeOffFamilyLoan(db, actor, { loanId: loan.id, categoryId: gifts.id, date: "2026-08-15" });
     assert.equal(written, rupees(30_000));
 
-    // This is FL4's one exception: the write-off *is* an expense.
     const view = buildBudgetView(db, "2026-08");
-    assert.equal(view.categories.get(gifts.id)!.state.activity, -rupees(30_000));
+    assert.equal(view.categories.get(gifts.id)!.state.activity, -rupees(30_000), "the write-off is the one expense");
 
-    // P4: both advances are still there.
     const after = viewFamilyLoan(db, loan.id, "2026-08-28")!;
-    assert.equal(after.advanced, rupees(50_000));
-    assert.equal(after.repaid, rupees(20_000));
+    assert.equal(after.paidOut, rupees(50_000), "P4: the movements are still there");
+    assert.equal(after.paidIn, rupees(20_000));
     assert.equal(after.outstanding, 0);
     assert.equal(after.writtenOff, true);
     db.close();
   });
 
-  test("a forgiven debt you owed is not an expense, and says so", () => {
+  test("a debt you owed, forgiven, is recorded as income", () => {
     const { db, bank, gifts } = setup();
-    const loan = createFamilyLoan(db, actor, { counterparty: "Appa", direction: "borrowed" });
-    recordAdvance(db, actor, {
-      loanId: loan.id, amount: rupees(30_000), date: "2026-06-10", fromAccountId: bank.id,
-    });
+    const loan = createFamilyLoan(db, actor, { counterparty: "Appa" });
+    // They gave you ₹30,000; you now owe them.
+    recordRepayment(db, actor, { loanId: loan.id, amount: rupees(30_000), date: "2026-06-10", accountId: bank.id });
 
-    assert.throws(
-      () => writeOffFamilyLoan(db, actor, { loanId: loan.id, categoryId: gifts.id }),
-      /record it as income/,
-    );
+    const written = writeOffFamilyLoan(db, actor, { loanId: loan.id, categoryId: gifts.id, date: "2026-08-15" });
+    assert.equal(written, rupees(30_000));
+    assert.equal(buildBudgetView(db, "2026-08").categories.get(gifts.id)!.state.activity, rupees(30_000), "income");
     db.close();
   });
 
   test("R37 · a write-off undoes", () => {
     const { db, bank, gifts } = setup();
-    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu", direction: "lent" });
-    recordAdvance(db, actor, {
-      loanId: loan.id, amount: rupees(50_000), date: "2026-06-10", fromAccountId: bank.id,
-    });
+    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu" });
+    recordAdvance(db, actor, { loanId: loan.id, amount: rupees(50_000), date: "2026-06-10", fromAccountId: bank.id });
     writeOffFamilyLoan(db, actor, { loanId: loan.id, categoryId: gifts.id, date: "2026-08-15" });
 
-    const event = historyFor(db, "family-loan", loan.id)
-      .find((e) => e.action === "write-off")!;
+    const event = historyFor(db, "family-loan", loan.id).find((e) => e.action === "write-off")!;
     undoEvent(db, event.id, actor);
 
     const view = viewFamilyLoan(db, loan.id, "2026-08-28")!;
@@ -255,17 +236,13 @@ describe("10 §3.5 · F2.10 · private lending within the family", () => {
     db.close();
   });
 
-  test("FL8 · it counts in net worth, on the correct side", () => {
+  test("FL8 · it counts in net worth, on the side the balance points", () => {
     const { db, bank } = setup();
-    const lent = createFamilyLoan(db, actor, { counterparty: "Ammu", direction: "lent" });
-    const borrowed = createFamilyLoan(db, actor, { counterparty: "Appa", direction: "borrowed" });
+    const theyOwe = createFamilyLoan(db, actor, { counterparty: "Ammu" });
+    const youOwe = createFamilyLoan(db, actor, { counterparty: "Appa" });
 
-    recordAdvance(db, actor, {
-      loanId: lent.id, amount: rupees(50_000), date: "2026-08-05", fromAccountId: bank.id,
-    });
-    recordAdvance(db, actor, {
-      loanId: borrowed.id, amount: rupees(30_000), date: "2026-08-06", fromAccountId: bank.id,
-    });
+    recordAdvance(db, actor, { loanId: theyOwe.id, amount: rupees(50_000), date: "2026-08-05", fromAccountId: bank.id });
+    recordRepayment(db, actor, { loanId: youOwe.id, amount: rupees(30_000), date: "2026-08-06", accountId: bank.id });
 
     const split = familyLoanNetWorth(db);
     assert.equal(split.lent[0]!.value, rupees(50_000));
@@ -274,21 +251,15 @@ describe("10 §3.5 · F2.10 · private lending within the family", () => {
     const statement = netWorthStatement(db, "2026-08-28");
     const assets = statement.assetGroups.flatMap((g) => g.lines);
     const liabilities = statement.liabilityGroups.flatMap((g) => g.lines);
-
-    assert.ok(assets.some((l) => l.label === "Lent to Ammu" && l.value === rupees(50_000)));
-    assert.ok(liabilities.some((l) => l.label === "Borrowed from Appa" && l.value === rupees(30_000)));
+    assert.ok(assets.some((l) => l.label === "Ammu owes you" && l.value === rupees(50_000)));
+    assert.ok(liabilities.some((l) => l.label === "You owe Appa" && l.value === rupees(30_000)));
     db.close();
   });
 
   test("FW3 · it never appears on the budget screen", () => {
     const { db, bank } = setup();
-    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu", direction: "lent" });
-    recordAdvance(db, actor, {
-      loanId: loan.id, amount: rupees(50_000), date: "2026-08-05", fromAccountId: bank.id,
-    });
-
-    // It is a Tracking account, so FW1 already forbids it funding anything.
-    // This asserts the weaker, more visible claim: it is not a category.
+    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu" });
+    recordAdvance(db, actor, { loanId: loan.id, amount: rupees(50_000), date: "2026-08-05", fromAccountId: bank.id });
     const view = buildBudgetView(db, "2026-08");
     assert.ok(![...view.categories.values()].some((c) => c.name.includes("Ammu")));
     db.close();
@@ -296,29 +267,35 @@ describe("10 §3.5 · F2.10 · private lending within the family", () => {
 
   test("a settled arrangement can be closed, keeping every transaction", () => {
     const { db, bank } = setup();
-    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu", direction: "lent" });
-    recordAdvance(db, actor, {
-      loanId: loan.id, amount: rupees(5_000), date: "2026-06-10", fromAccountId: bank.id,
-    });
-    recordRepayment(db, actor, {
-      loanId: loan.id, amount: rupees(5_000), date: "2026-08-02", accountId: bank.id,
-    });
+    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu" });
+    recordAdvance(db, actor, { loanId: loan.id, amount: rupees(5_000), date: "2026-06-10", fromAccountId: bank.id });
+    recordRepayment(db, actor, { loanId: loan.id, amount: rupees(5_000), date: "2026-08-02", accountId: bank.id });
 
     closeFamilyLoan(db, actor, loan.id);
     assert.equal(listFamilyLoans(db).length, 0);
     assert.equal(listFamilyLoans(db, { includeClosed: true }).length, 1);
-
-    // The history survives closing.
-    assert.equal(viewFamilyLoan(db, loan.id, "2026-08-28")!.advanced, rupees(5_000));
+    assert.equal(viewFamilyLoan(db, loan.id, "2026-08-28")!.paidOut, rupees(5_000), "history survives closing");
     db.close();
   });
 
-  test("an advance must be a real amount", () => {
+  test("an amount must be a real amount", () => {
     const { db, bank } = setup();
-    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu", direction: "lent" });
+    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu" });
     assert.throws(
       () => recordAdvance(db, actor, { loanId: loan.id, amount: 0, fromAccountId: bank.id }),
       /greater than zero/,
+    );
+    db.close();
+  });
+
+  test("there is nothing to write off when the balance is zero", () => {
+    const { db, bank, gifts } = setup();
+    const loan = createFamilyLoan(db, actor, { counterparty: "Ammu" });
+    recordAdvance(db, actor, { loanId: loan.id, amount: rupees(5_000), date: "2026-06-10", fromAccountId: bank.id });
+    recordRepayment(db, actor, { loanId: loan.id, amount: rupees(5_000), date: "2026-07-10", accountId: bank.id });
+    assert.throws(
+      () => writeOffFamilyLoan(db, actor, { loanId: loan.id, categoryId: gifts.id }),
+      /Nothing is outstanding/,
     );
     db.close();
   });
