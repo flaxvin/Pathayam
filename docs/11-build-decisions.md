@@ -1116,4 +1116,33 @@ current partial month or it lies.
 
 ---
 
-*Entries B58 onward are recorded as the work happens.*
+### B58 · Goals own one managed envelope; auto-assign funds targets; assets cache-bust
+
+*29-08-2026.* A cluster of budget-screen corrections.
+
+**A stale `app.js` was hiding a fixed bug.** The PDF-import fix (multipart forms
+submit natively) was correct and verified in a browser, yet "still not working"
+for the household — because `/assets/app.js` is cached for an hour and the fresh
+HTML requested the same URL, so the browser kept serving the old script. The
+asset URLs now carry a content hash (`app.js?v=<hash>`), so a client change
+changes the URL and reaches the browser on the next page load. A client-side fix
+that a cache can suppress is not really shipped.
+
+**Goals own exactly one, app-managed envelope.** A goal no longer asks which
+category holds it; it creates one category named after itself in an `internal`
+"Savings goals" group, links it 1:1, and keeps its name in step on edit. Those
+categories carry no manual controls on the Categories screen (like a card's
+payment category). Deleting a goal hands the envelope back as a normal "Savings"
+category so its money is never lost. The manual "add a group" affordance was
+removed — groups are the app's to manage.
+
+**Auto-assign funds targets, not a hidden rules table.** It now fills each
+category to the target set on the Categories screen, in order, from Ready to
+Assign until it runs out — "assign to the budget first". The parallel
+`autoassign_rules` system had no configuration UI, so in practice it did
+nothing; the target a household actually sets is the configuration, and there is
+now only one place to set it.
+
+---
+
+*Entries B59 onward are recorded as the work happens.*

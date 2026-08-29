@@ -757,7 +757,6 @@ function renderCalendarDay(day: CalendarDay): SafeHtml {
 
 export function renderGoals(opts: {
   goals: GoalProgress[];
-  categories: { id: string; name: string }[];
 }): SafeHtml {
   return html`
     <div class="row-between" style="margin-bottom:1rem">
@@ -791,23 +790,13 @@ export function renderGoals(opts: {
                    type="text" inputmode="decimal" required>
           </div>
         </div>
-        <div class="grid-2">
-          <div class="field">
-            <label for="target_date">By when <span class="faint">(optional)</span></label>
-            <input id="target_date" name="target_date" placeholder="DD-MM-YYYY">
-            <p class="field-hint">With a date, the goal can tell you what to put aside each month.</p>
-          </div>
-          <div class="field">
-            <label for="category_ids">Where does it live?</label>
-            <select id="category_ids" name="category_ids">
-              <option value="">Create a savings envelope for it (recommended)</option>
-              ${opts.categories.map((c) => html`<option value="${c.id}">Use existing: ${c.name}</option>`)}
-            </select>
-            <p class="field-hint">
-              A goal is tracked against a budget category. Leave this to have one made
-              automatically, or point it at money you already keep somewhere.
-            </p>
-          </div>
+        <div class="field">
+          <label for="target_date">By when <span class="faint">(optional)</span></label>
+          <input id="target_date" name="target_date" placeholder="DD-MM-YYYY">
+          <p class="field-hint">
+            With a date, the goal tells you what to put aside each month. Each goal
+            gets its own savings envelope, created and kept in step automatically.
+          </p>
         </div>
         <button class="button-primary" type="submit">Add it</button>
       </form>

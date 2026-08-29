@@ -9,7 +9,22 @@
  * F21.2: no service worker is registered. There is no exception (R35.1).
  */
 
+import { createHash } from "node:crypto";
 import { html, raw, escape, when, type SafeHtml } from "../http/html.ts";
+import { CLIENT_SCRIPT } from "./client.ts";
+import { STYLESHEET } from "./styles.ts";
+
+/**
+ * Content-hash the client assets so their URLs change when they change. Without
+ * this, `/assets/app.js` was cached for an hour (R35 permits caching *code*),
+ * so a fix to the client script could not reach a browser that had loaded the
+ * page in the last hour — a stale app.js is exactly how a client-side bug
+ * "survives" a deploy. The hash makes the fresh HTML request the new file.
+ */
+const ASSET_VERSION = {
+  js: createHash("sha256").update(CLIENT_SCRIPT).digest("hex").slice(0, 10),
+  css: createHash("sha256").update(STYLESHEET).digest("hex").slice(0, 10),
+};
 
 export type Theme = "light" | "dark" | "system";
 
@@ -62,7 +77,7 @@ export function page(options: LayoutOptions, content: SafeHtml): string {
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <title>${escape(title)} · Budget</title>
-<link rel="stylesheet" href="/assets/app.css">
+<link rel="stylesheet" href="/assets/app.css?v=${ASSET_VERSION.css}">
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="${theme === "dark" ? "#11141a" : "#f6f7f9"}">
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
@@ -78,7 +93,7 @@ ${String(renderSidebar(path, reviewCount, features))}
 <main id="main">${String(renderNotice(notice))}${content}</main>
 </div>
 ${String(renderBottomNav(path, reviewCount))}`}
-<script src="/assets/app.js" defer></script>
+<script src="/assets/app.js?v=${ASSET_VERSION.js}" defer></script>
 </body>
 </html>`;
 }
