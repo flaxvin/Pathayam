@@ -798,10 +798,15 @@ export function renderGoals(opts: {
             <p class="field-hint">With a date, the goal can tell you what to put aside each month.</p>
           </div>
           <div class="field">
-            <label for="category_ids">Which category holds it?</label>
-            <select id="category_ids" name="category_ids" required>
-              ${opts.categories.map((c) => html`<option value="${c.id}">${c.name}</option>`)}
+            <label for="category_ids">Where does it live?</label>
+            <select id="category_ids" name="category_ids">
+              <option value="">Create a savings envelope for it (recommended)</option>
+              ${opts.categories.map((c) => html`<option value="${c.id}">Use existing: ${c.name}</option>`)}
             </select>
+            <p class="field-hint">
+              A goal is tracked against a budget category. Leave this to have one made
+              automatically, or point it at money you already keep somewhere.
+            </p>
           </div>
         </div>
         <button class="button-primary" type="submit">Add it</button>
@@ -846,6 +851,36 @@ function renderGoalCard(g: GoalProgress): SafeHtml {
           </div>
         </form>
       `)}
+
+      <!-- F11 · Edit and delete. -->
+      <details style="margin-top:.75rem">
+        <summary style="min-height:36px;display:flex;align-items:center;cursor:pointer;color:var(--text-muted);font-size:.9rem">
+          Edit or remove
+        </summary>
+        <form method="post" action="/goals/${g.goal.id}/edit" style="margin-top:.5rem">
+          <div class="grid-2">
+            <div class="field">
+              <label for="name-${g.goal.id}">Name</label>
+              <input id="name-${g.goal.id}" name="name" required value="${g.goal.name}">
+            </div>
+            <div class="field">
+              <label for="target-${g.goal.id}">Target</label>
+              <input id="target-${g.goal.id}" name="target_amount" class="amount-input"
+                     type="text" inputmode="decimal" required value="${(g.goal.target_amount / 100).toFixed(2)}">
+            </div>
+          </div>
+          <div class="field">
+            <label for="date-${g.goal.id}">By when <span class="faint">(optional)</span></label>
+            <input id="date-${g.goal.id}" name="target_date"
+                   value="${g.goal.target_date ? formatDate(g.goal.target_date) : ""}" placeholder="DD-MM-YYYY">
+          </div>
+          <button class="button-small button-primary" type="submit">Save changes</button>
+        </form>
+        <form method="post" action="/goals/${g.goal.id}/delete" style="margin-top:.5rem">
+          <button class="button-small button-danger" type="submit">Delete goal</button>
+          <span class="faint" style="margin-left:.5rem">The money stays in its category.</span>
+        </form>
+      </details>
     </section>
   `;
 }

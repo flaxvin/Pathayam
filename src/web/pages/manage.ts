@@ -369,10 +369,17 @@ export function renderCategories(groups: {
   id: string;
   name: string;
   kind: string;
-  categories: { id: string; name: string; hidden: boolean; balance: Paise; isPayment: boolean }[];
+  categories: {
+    id: string; name: string; hidden: boolean; balance: Paise; isPayment: boolean;
+    target: { amount: Paise; date: string | null } | null;
+  }[];
 }[]): SafeHtml {
   return html`
     <h1>Categories</h1>
+    <p class="muted">
+      Rename, set a target (what a category should hold), hide, or delete. A target
+      drives the underfunded figure and one-tap auto-assign.
+    </p>
 
     ${groups.map(
       (g) => html`
@@ -383,25 +390,42 @@ export function renderCategories(groups: {
           </div>
           ${g.categories.map(
             (c) => html`
-              <div class="row-between" style="padding:.5rem 0;border-top:1px solid var(--border)">
-                <form method="post" action="/categories/${c.id}/rename" class="row" style="flex:1">
-                  <input name="name" value="${c.name}" style="max-width:20rem"
-                         ${raw(c.isPayment ? "readonly" : "")}>
-                  ${when(!c.isPayment, () => html`
-                    <button class="button-small" type="submit">Rename</button>
-                  `)}
-                </form>
-                <span class="row">
+              <div style="padding:.6rem 0;border-top:1px solid var(--border)">
+                <div class="row-between">
+                  <form method="post" action="/categories/${c.id}/rename" class="row" style="flex:1;gap:.4rem">
+                    <input name="name" value="${c.name}" style="max-width:18rem"
+                           ${raw(c.isPayment ? "readonly" : "")}>
+                    ${when(!c.isPayment, () => html`<button class="button-small" type="submit">Rename</button>`)}
+                  </form>
                   <span class="amount">${formatPaise(c.balance)}</span>
-                  ${when(!c.isPayment, () => html`
+                </div>
+                ${when(!c.isPayment, () => html`
+                  <div class="row" style="gap:.6rem;flex-wrap:wrap;margin-top:.4rem;align-items:flex-end">
+                    <form method="post" action="/categories/${c.id}/target" class="row" style="gap:.4rem;align-items:flex-end">
+                      <div class="field" style="margin:0">
+                        <label style="font-size:.75rem" for="tgt-${c.id}">Monthly target</label>
+                        <input id="tgt-${c.id}" name="amount" class="amount-input" style="max-width:8rem"
+                               type="text" inputmode="decimal" placeholder="none"
+                               value="${c.target ? (c.target.amount / 100).toFixed(2) : ""}">
+                      </div>
+                      <div class="field" style="margin:0">
+                        <label style="font-size:.75rem" for="tgtd-${c.id}">By date (optional)</label>
+                        <input id="tgtd-${c.id}" name="target_date" style="max-width:8rem"
+                               placeholder="DD-MM-YYYY" value="${c.target?.date ? formatDate(c.target.date as never) : ""}">
+                      </div>
+                      <button class="button-small" type="submit">Set target</button>
+                    </form>
                     <form method="post" action="/categories/${c.id}/hide">
                       <input type="hidden" name="hidden" value="${c.hidden ? "0" : "1"}">
-                      <button class="button-small button-quiet" type="submit">
-                        ${c.hidden ? "Unhide" : "Hide"}
-                      </button>
+                      <button class="button-small button-quiet" type="submit">${c.hidden ? "Unhide" : "Hide"}</button>
                     </form>
-                  `)}
-                </span>
+                    <form method="post" action="/categories/${c.id}/delete"
+                          onsubmit="return confirm('Delete this category? It must be empty; its money is unaffected.')">
+                      <button class="button-small button-danger" type="submit"
+                              ${raw(c.balance !== 0 ? "disabled title=\"Move its balance out first\"" : "")}>Delete</button>
+                    </form>
+                  </div>
+                `)}
               </div>
             `,
           )}
@@ -409,10 +433,10 @@ export function renderCategories(groups: {
       `,
     )}
 
-    <section class="card">
-      <h2>Add a category</h2>
-      <form method="post" action="/categories/new">
-        <div class="grid-2">
+    <div class="grid-2">
+      <section class="card">
+        <h2>Add a category</h2>
+        <form method="post" action="/categories/new">
           <div class="field">
             <label for="cat-name">Name</label>
             <input id="cat-name" name="name" required>
@@ -425,10 +449,22 @@ export function renderCategories(groups: {
                 .map((g) => html`<option value="${g.id}">${g.name}</option>`)}
             </select>
           </div>
-        </div>
-        <button type="submit">Add</button>
-      </form>
-    </section>
+          <button type="submit">Add category</button>
+        </form>
+      </section>
+
+      <section class="card">
+        <h2>Add a group</h2>
+        <p class="faint" style="margin-top:-.25rem">A heading to organise categories under.</p>
+        <form method="post" action="/groups/new">
+          <div class="field">
+            <label for="grp-name">Name</label>
+            <input id="grp-name" name="name" required placeholder="Savings, Bills, …">
+          </div>
+          <button type="submit">Add group</button>
+        </form>
+      </section>
+    </div>
   `;
 }
 

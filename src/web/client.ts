@@ -136,6 +136,17 @@ export const CLIENT_SCRIPT = String.raw`
     if (form.method.toLowerCase() !== "post") return;
     if (form.dataset.noRetry === "true") return;
     if (!window.fetch) return; // Plain form post still works without JS.
+    // A file upload cannot be sent as URL-encoded — serialising a FormData with
+    // a File through URLSearchParams turns the file into the string
+    // "[object File]" and its bytes are lost. Let multipart forms (statement
+    // PDFs, CSV files, receipts) submit natively; the browser follows the
+    // server's redirect to the result page.
+    if (
+      form.enctype === "multipart/form-data" ||
+      form.querySelector('input[type="file"]')
+    ) {
+      return;
+    }
     event.preventDefault();
     submitWithRetry(form);
   });
