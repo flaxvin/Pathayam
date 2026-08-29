@@ -101,7 +101,7 @@ import {
   householdSettings,
 } from "./engine/repository.ts";
 import { computeBudget, planAutoAssign, suggestCoverSources, cardFunding } from "./engine/engine.ts";
-import { historyFor, queryEvents, appendEvent } from "./core/events.ts";
+import { historyFor, queryEvents, appendEvent, type Actor } from "./core/events.ts";
 import {
   withForwardRecompute, setOverspendModel, type RecomputeResult,
 } from "./engine/recompute.ts";
@@ -136,7 +136,7 @@ import {
   listSchedules, createSchedule, markPaid, skipOccurrence, detectSchedules,
   projectCashflow, describeCashflow, subscriptions, type Recurrence,
 } from "./domain/schedules.ts";
-import { listGoals, createGoal, goalProgress, completeGoal } from "./domain/goals.ts";
+import { listGoals, createGoal, updateGoal, deleteGoal, goalProgress, completeGoal } from "./domain/goals.ts";
 import {
   renderMore, renderPayees, renderRules, renderCategories, renderFirstRun,
   renderTokens,
@@ -151,7 +151,8 @@ import {
   mergePayees, getPayee, resolvePayee,
 } from "./domain/transactions.ts";
 import {
-  createCategory, renameCategory, setCategoryHidden, listGroups,
+  createCategory, renameCategory, setCategoryHidden, deleteCategory,
+  setTarget, clearTarget, getTarget, createGroup, listGroups,
 } from "./domain/budget.ts";
 import {
   monthCloseView, closeMonth, reopenMonth, closedMonths, monthAwaitingClose, isClosed,
@@ -2835,14 +2836,53 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/goals/new", (ctx) =>
     mutate(ctx, (a) => {
+      const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
       const targetDate = field(ctx.body, "target_date");
-      createGoal(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
-        name: requiredField(ctx.body, "name"),
+      const name = requiredField(ctx.body, "name");
+      const linkExisting = fieldList(ctx.body, "category_ids").filter(Boolean);
+
+      // F11.1 · A goal is measured against categories. By default it gets its
+      // own savings envelope so a new goal "just works" without the household
+      // first hand-building a category; linking existing categories stays an
+      // option for money already parked somewhere.
+      const categoryIds = linkExisting.length > 0
+        ? linkExisting
+        : [ensureSavingsCategory(actor, name).id];
+
+      createGoal(db, actor, {
+        name,
         targetAmount: amountField(field(ctx.body, "target_amount"), "Target"),
         targetDate: targetDate ? parseDate(targetDate) : null,
-        categoryIds: fieldList(ctx.body, "category_ids"),
+        categoryIds,
       });
       return { redirect: "/goals", message: "Goal added." };
+    }),
+  );
+
+  // F11 · Create (or reuse) the "Savings goals" group and a category in it for
+  // a goal that isn't linked to an existing one.
+  function ensureSavingsCategory(actor: Actor, goalName: string) {
+    const group = listGroups(db).find((g) => g.name === "Savings goals")
+      ?? createGroup(db, actor, "Savings goals");
+    return createCategory(db, actor, { groupId: group.id, name: goalName });
+  }
+
+  router.post("/goals/:id/edit", (ctx) =>
+    mutate(ctx, (a) => {
+      const targetDate = field(ctx.body, "target_date");
+      updateGoal(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), ctx.params.id!, {
+        name: requiredField(ctx.body, "name"),
+        targetAmount: amountField(field(ctx.body, "target_amount"), "Target"),
+        targetDate: targetDate?.trim() ? parseDate(targetDate) : null,
+      });
+      return { redirect: "/goals", message: "Goal updated." };
+    }),
+  );
+
+  router.post("/goals/:id/delete", (ctx) =>
+    mutate(ctx, (a) => {
+      deleteGoal(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), ctx.params.id!);
+      return { redirect: "/goals", message: "Goal removed. The money stays in its categories." };
     }),
   );
 
@@ -3158,10 +3198,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           kind: g.kind,
           categories: [...view.categories.values()]
             .filter((c) => c.groupId === g.id)
-            .map((c) => ({
-              id: c.id, name: c.name, hidden: c.hidden,
-              balance: c.state.balance, isPayment: c.isPaymentCategory,
-            })),
+            .map((c) => {
+              const t = c.isPaymentCategory ? null : getTarget(db, c.id);
+              return {
+                id: c.id, name: c.name, hidden: c.hidden,
+                balance: c.state.balance, isPayment: c.isPaymentCategory,
+                target: t ? { amount: t.amount ?? 0, date: t.target_date } : null,
+              };
+            }),
         })),
       ),
     );
@@ -3194,6 +3238,49 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         redirect: "/categories",
         message: hidden ? "Hidden. It keeps its balance and history." : "Unhidden.",
       };
+    }),
+  );
+
+  // F3.4 · Set, change or clear a category's target (what it should hold).
+  router.post("/categories/:id/target", (ctx) =>
+    mutate(ctx, (a) => {
+      const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+      const amountRaw = field(ctx.body, "amount");
+      if (!amountRaw?.trim()) {
+        clearTarget(db, actor, ctx.params.id!);
+        return { redirect: "/categories", message: "Target removed." };
+      }
+      const dateRaw = field(ctx.body, "target_date");
+      const type = dateRaw?.trim() ? "by-date" : "monthly";
+      setTarget(db, actor, ctx.params.id!, {
+        type,
+        amount: Math.abs(amountField(amountRaw, "Target")),
+        targetDate: dateRaw?.trim() ? parseDate(dateRaw) : null,
+      });
+      return { redirect: "/categories", message: "Target set." };
+    }),
+  );
+
+  // F3.5 · Delete a category (must be empty; its history can be remapped).
+  router.post("/categories/:id/delete", (ctx) =>
+    mutate(ctx, (a) => {
+      const id = ctx.params.id!;
+      const view = buildBudgetView(db);
+      const balance = view.categories.get(id)?.state.balance ?? 0;
+      deleteCategory(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, {
+        currentBalance: balance,
+        remapTo: field(ctx.body, "remap_to") || null,
+      });
+      return { redirect: "/categories", message: "Category deleted." };
+    }),
+  );
+
+  // F3.1 · Add a category group.
+  router.post("/groups/new", (ctx) =>
+    mutate(ctx, (a) => {
+      createGroup(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+        requiredField(ctx.body, "name"));
+      return { redirect: "/categories", message: "Group added." };
     }),
   );
 

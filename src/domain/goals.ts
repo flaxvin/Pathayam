@@ -180,6 +180,29 @@ export function completeGoal(
   });
 }
 
+/** F11 · Edit a goal's name, target and (optional) date. Links are unchanged. */
+export function updateGoal(
+  db: DB, actor: Actor, goalId: string,
+  input: { name: string; targetAmount: Paise; targetDate?: IsoDate | null; note?: string | null },
+): Goal {
+  if (input.targetAmount <= 0) throw new Error("A goal needs a target above zero.");
+  return transact(db, () => {
+    const before = getGoal(db, goalId);
+    if (!before) throw new Error("That goal does not exist.");
+    execute(
+      db,
+      `UPDATE goals SET name = ?, target_amount = ?, target_date = ?, note = ? WHERE id = ?`,
+      input.name, input.targetAmount, input.targetDate ?? null, input.note ?? before.note, goalId,
+    );
+    const after = getGoal(db, goalId)!;
+    appendEvent(db, actor, {
+      entity: "goal", entityId: goalId, action: "update", before, after,
+      summary: `Edited the goal "${input.name}" — ${formatPaise(input.targetAmount)}`,
+    });
+    return after;
+  });
+}
+
 export function deleteGoal(db: DB, actor: Actor, goalId: string): void {
   transact(db, () => {
     const goal = getGoal(db, goalId);
@@ -200,11 +223,15 @@ registerUndoHandler("goal", (db, event) => {
     execute(db, `DELETE FROM goals WHERE id = ?`, event.entityId!);
     return `Removed the goal that was added`;
   }
+  // Restore every field, so undoing an edit (name/target/date) or a completion
+  // both land back exactly where they were — not just completed_at.
   execute(
     db,
     `INSERT INTO goals (id,name,target_amount,target_date,note,completed_at,created_at)
      VALUES (?,?,?,?,?,?,?)
-       ON CONFLICT(id) DO UPDATE SET completed_at = excluded.completed_at`,
+       ON CONFLICT(id) DO UPDATE SET name = excluded.name,
+         target_amount = excluded.target_amount, target_date = excluded.target_date,
+         note = excluded.note, completed_at = excluded.completed_at`,
     before.id, before.name, before.target_amount, before.target_date,
     before.note, before.completed_at, before.created_at,
   );

@@ -13,7 +13,7 @@ The full functional design lives in [`docs/`](docs/00-README.md). This file is
 how you run it and what it does.
 
 ```
-Status   P0 · P1 complete   P2 substantially complete   740 tests   0 deps
+Status   P0 · P1 complete   P2 substantially complete   745 tests   0 deps
 Stack    TypeScript on Node 24+   node:sqlite   node:http   server-rendered HTML
 Deploy   Docker Compose · homelab behind Cloudflare Tunnel · SQLite on a volume
 ```

@@ -6,7 +6,7 @@
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
-import { nowIST, formatMonth, type MonthKey } from "../core/dates.ts";
+import { nowIST, formatMonth, type MonthKey, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 
 export interface CategoryGroup {
@@ -155,6 +155,64 @@ export function deleteCategory(
         : `Deleted "${before.name}"`,
     });
   });
+}
+
+/**
+ * F3.4 · Set (or replace) a category's target — what it should hold. Two shapes
+ * cover almost everything a household sets by hand: a flat **monthly** amount,
+ * and **by a date** (put aside X by then). The target drives the underfunded
+ * figure, auto-assign and the target bar; before this it could only be set by
+ * the first-run template and never edited.
+ */
+export function setTarget(
+  db: DB, actor: Actor, categoryId: string,
+  input: { type: "monthly" | "by-date"; amount: Paise; targetDate?: IsoDate | null },
+): void {
+  transact(db, () => {
+    const category = getCategory(db, categoryId);
+    if (!category) throw new Error("That category does not exist.");
+    if (input.amount <= 0) throw new Error("A target needs an amount above zero.");
+    if (input.type === "by-date" && !input.targetDate) {
+      throw new Error("A by-date target needs a date.");
+    }
+    const before = queryOne(db, `SELECT * FROM targets WHERE category_id = ?`, categoryId);
+    execute(
+      db,
+      `INSERT INTO targets (category_id,type,amount,target_date,created_at,updated_at)
+       VALUES (?,?,?,?,?,?)
+         ON CONFLICT(category_id) DO UPDATE SET type = excluded.type,
+           amount = excluded.amount, target_date = excluded.target_date,
+           updated_at = excluded.updated_at`,
+      categoryId, input.type, input.amount, input.targetDate ?? null, nowIST(), nowIST(),
+    );
+    appendEvent(db, actor, {
+      entity: "target", entityId: categoryId, action: before ? "update" : "create",
+      before, after: queryOne(db, `SELECT * FROM targets WHERE category_id = ?`, categoryId),
+      summary:
+        `Set ${category.name}'s target to ${formatPaise(input.amount)}` +
+        (input.type === "by-date" ? ` by ${input.targetDate}` : " a month"),
+    });
+  });
+}
+
+export function clearTarget(db: DB, actor: Actor, categoryId: string): void {
+  transact(db, () => {
+    const before = queryOne(db, `SELECT * FROM targets WHERE category_id = ?`, categoryId);
+    if (!before) return;
+    const category = getCategory(db, categoryId);
+    execute(db, `DELETE FROM targets WHERE category_id = ?`, categoryId);
+    appendEvent(db, actor, {
+      entity: "target", entityId: categoryId, action: "delete", before,
+      summary: `Removed ${category?.name ?? "a category"}'s target`,
+    });
+  });
+}
+
+/** The stored target for a category, if any (for the edit form). */
+export function getTarget(db: DB, categoryId: string): {
+  type: string; amount: Paise | null; target_date: IsoDate | null;
+} | null {
+  return queryOne(db, `SELECT type, amount, target_date FROM targets WHERE category_id = ?`, categoryId);
 }
 
 // ---------------------------------------------------------------------------
@@ -387,4 +445,22 @@ registerUndoHandler("category", (db, event) => {
     event.entityId!,
   );
   return `Restored "${before.name}"`;
+});
+
+interface TargetRow { category_id: string; type: string; amount: number | null; target_date: string | null; created_at: string; updated_at: string }
+registerUndoHandler("target", (db, event) => {
+  const before = event.before as TargetRow | undefined;
+  if (!before) {
+    execute(db, `DELETE FROM targets WHERE category_id = ?`, event.entityId!);
+    return `Removed the target that was set`;
+  }
+  execute(
+    db,
+    `INSERT INTO targets (category_id,type,amount,target_date,created_at,updated_at)
+     VALUES (?,?,?,?,?,?)
+       ON CONFLICT(category_id) DO UPDATE SET type=excluded.type, amount=excluded.amount,
+         target_date=excluded.target_date, updated_at=excluded.updated_at`,
+    before.category_id, before.type, before.amount, before.target_date, before.created_at, before.updated_at,
+  );
+  return `Restored the previous target`;
 });

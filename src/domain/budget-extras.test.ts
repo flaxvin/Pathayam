@@ -5,7 +5,7 @@ import type { Actor } from "../core/events.ts";
 import { nowIST } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import { createAccount } from "./accounts.ts";
-import { createGroup, createCategory, setAssigned, getAssigned, copyAssignmentsFromMonth } from "./budget.ts";
+import { createGroup, createCategory, setAssigned, getAssigned, copyAssignmentsFromMonth, setTarget, clearTarget, getTarget } from "./budget.ts";
 import { createTransaction } from "./transactions.ts";
 import { spendByTag } from "./reports.ts";
 
@@ -41,6 +41,30 @@ describe("F3.9 · fill from last month", () => {
     const { db } = setup();
     const { filled } = copyAssignmentsFromMonth(db, actor, "2026-08", "2026-07");
     assert.equal(filled, 0);
+  });
+});
+
+describe("F3.4 · category targets are editable", () => {
+  test("a monthly target can be set, changed and cleared", () => {
+    const { db, rent } = setup();
+    setTarget(db, actor, rent, { type: "monthly", amount: rupees(41000) });
+    assert.deepEqual(
+      { type: getTarget(db, rent)!.type, amount: getTarget(db, rent)!.amount },
+      { type: "monthly", amount: rupees(41000) },
+    );
+    // change it
+    setTarget(db, actor, rent, { type: "monthly", amount: rupees(45000) });
+    assert.equal(getTarget(db, rent)!.amount, rupees(45000));
+    // clear it
+    clearTarget(db, actor, rent);
+    assert.equal(getTarget(db, rent), null);
+  });
+
+  test("a by-date target needs a date", () => {
+    const { db, rent } = setup();
+    assert.throws(() => setTarget(db, actor, rent, { type: "by-date", amount: rupees(60000) }), /needs a date/);
+    setTarget(db, actor, rent, { type: "by-date", amount: rupees(60000), targetDate: "2027-01-01" });
+    assert.equal(getTarget(db, rent)!.target_date, "2027-01-01");
   });
 });
 
