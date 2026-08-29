@@ -84,6 +84,13 @@ export function getGoal(db: DB, id: string): Goal | null {
   return queryOne<Goal>(db, `SELECT * FROM goals WHERE id = ?`, id);
 }
 
+/** The category ids a goal is measured against (B58: exactly one per goal). */
+export function goalCategoryIds(db: DB, goalId: string): string[] {
+  return queryAll<{ category_id: string }>(
+    db, `SELECT category_id FROM goal_categories WHERE goal_id = ?`, goalId,
+  ).map((r) => r.category_id);
+}
+
 export function listGoals(db: DB, opts: { includeCompleted?: boolean } = {}): Goal[] {
   return queryAll<Goal>(
     db,

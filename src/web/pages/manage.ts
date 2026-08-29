@@ -389,17 +389,21 @@ export function renderCategories(groups: {
             ${when(g.kind !== "normal", () => html`<span class="chip">managed by the app</span>`)}
           </div>
           ${g.categories.map(
-            (c) => html`
+            (c) => {
+              // B58: a payment category, and any category in an app-managed
+              // group (a goal's savings envelope), carries no manual controls.
+              const managed = c.isPayment || g.kind !== "normal";
+              return html`
               <div style="padding:.6rem 0;border-top:1px solid var(--border)">
                 <div class="row-between">
                   <form method="post" action="/categories/${c.id}/rename" class="row" style="flex:1;gap:.4rem">
                     <input name="name" value="${c.name}" style="max-width:18rem"
-                           ${raw(c.isPayment ? "readonly" : "")}>
-                    ${when(!c.isPayment, () => html`<button class="button-small" type="submit">Rename</button>`)}
+                           ${raw(managed ? "readonly" : "")}>
+                    ${when(!managed, () => html`<button class="button-small" type="submit">Rename</button>`)}
                   </form>
                   <span class="amount">${formatPaise(c.balance)}</span>
                 </div>
-                ${when(!c.isPayment, () => html`
+                ${when(!managed, () => html`
                   <div class="row" style="gap:.6rem;flex-wrap:wrap;margin-top:.4rem;align-items:flex-end">
                     <form method="post" action="/categories/${c.id}/target" class="row" style="gap:.4rem;align-items:flex-end">
                       <div class="field" style="margin:0">
@@ -427,16 +431,17 @@ export function renderCategories(groups: {
                   </div>
                 `)}
               </div>
-            `,
+            `;
+            },
           )}
         </section>
       `,
     )}
 
-    <div class="grid-2">
-      <section class="card">
-        <h2>Add a category</h2>
-        <form method="post" action="/categories/new">
+    <section class="card">
+      <h2>Add a category</h2>
+      <form method="post" action="/categories/new">
+        <div class="grid-2">
           <div class="field">
             <label for="cat-name">Name</label>
             <input id="cat-name" name="name" required>
@@ -449,22 +454,10 @@ export function renderCategories(groups: {
                 .map((g) => html`<option value="${g.id}">${g.name}</option>`)}
             </select>
           </div>
-          <button type="submit">Add category</button>
-        </form>
-      </section>
-
-      <section class="card">
-        <h2>Add a group</h2>
-        <p class="faint" style="margin-top:-.25rem">A heading to organise categories under.</p>
-        <form method="post" action="/groups/new">
-          <div class="field">
-            <label for="grp-name">Name</label>
-            <input id="grp-name" name="name" required placeholder="Savings, Bills, …">
-          </div>
-          <button type="submit">Add group</button>
-        </form>
-      </section>
-    </div>
+        </div>
+        <button type="submit">Add category</button>
+      </form>
+    </section>
   `;
 }
 

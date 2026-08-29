@@ -28,15 +28,18 @@ export interface Category {
   payment_account_id: string | null;
 }
 
-export function createGroup(db: DB, actor: Actor, name: string): CategoryGroup {
+export function createGroup(
+  db: DB, actor: Actor, name: string,
+  kind: "normal" | "internal" = "normal",
+): CategoryGroup {
   return transact(db, () => {
     const id = newId();
     const sort =
       queryOne<{ n: number }>(db, `SELECT COALESCE(MAX(sort), 0) + 1 AS n FROM category_groups`)?.n ?? 1;
     execute(
       db,
-      `INSERT INTO category_groups (id,name,kind,sort,created_at) VALUES (?,?,'normal',?,?)`,
-      id, name, sort, nowIST(),
+      `INSERT INTO category_groups (id,name,kind,sort,created_at) VALUES (?,?,?,?,?)`,
+      id, name, kind, sort, nowIST(),
     );
     const group = queryOne<CategoryGroup>(db, `SELECT * FROM category_groups WHERE id = ?`, id)!;
     appendEvent(db, actor, {
@@ -85,6 +88,20 @@ export function listGroups(db: DB): CategoryGroup[] {
 
 export function getCategory(db: DB, id: string): Category | null {
   return queryOne<Category>(db, `SELECT * FROM categories WHERE id = ?`, id);
+}
+
+/** Move a category into another group (used to un-manage a goal's envelope). */
+export function moveCategoryToGroup(db: DB, actor: Actor, id: string, groupId: string): void {
+  transact(db, () => {
+    const before = getCategory(db, id);
+    if (!before) throw new Error("That category does not exist.");
+    execute(db, `UPDATE categories SET group_id = ? WHERE id = ?`, groupId, id);
+    appendEvent(db, actor, {
+      entity: "category", entityId: id, action: "move",
+      before, after: getCategory(db, id),
+      summary: `Moved "${before.name}" to another group`,
+    });
+  });
 }
 
 export function renameCategory(db: DB, actor: Actor, id: string, name: string): Category {

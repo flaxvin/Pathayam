@@ -97,10 +97,12 @@ import {
   getTransaction, getSplits, listPayees, payeeStats, tagsFor,
 } from "./domain/transactions.ts";
 import {
-  accountBalances, creditOutstanding, loadAutoAssignRules, loadEngineInput,
-  householdSettings,
+  accountBalances, creditOutstanding, householdSettings,
 } from "./engine/repository.ts";
-import { computeBudget, planAutoAssign, suggestCoverSources, cardFunding } from "./engine/engine.ts";
+import {
+  suggestCoverSources, cardFunding,
+  type AutoAssignPlan, type AutoAssignProposal,
+} from "./engine/engine.ts";
 import { historyFor, queryEvents, appendEvent, type Actor } from "./core/events.ts";
 import {
   withForwardRecompute, setOverspendModel, type RecomputeResult,
@@ -136,7 +138,7 @@ import {
   listSchedules, createSchedule, markPaid, skipOccurrence, detectSchedules,
   projectCashflow, describeCashflow, subscriptions, type Recurrence,
 } from "./domain/schedules.ts";
-import { listGoals, createGoal, updateGoal, deleteGoal, goalProgress, completeGoal } from "./domain/goals.ts";
+import { listGoals, createGoal, updateGoal, deleteGoal, goalCategoryIds, goalProgress, completeGoal } from "./domain/goals.ts";
 import {
   renderMore, renderPayees, renderRules, renderCategories, renderFirstRun,
   renderTokens,
@@ -151,7 +153,7 @@ import {
   mergePayees, getPayee, resolvePayee,
 } from "./domain/transactions.ts";
 import {
-  createCategory, renameCategory, setCategoryHidden, deleteCategory,
+  createCategory, renameCategory, moveCategoryToGroup, setCategoryHidden, deleteCategory,
   setTarget, clearTarget, getTarget, createGroup, listGroups,
 } from "./domain/budget.ts";
 import {
@@ -762,19 +764,34 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }),
   );
 
-  function buildAutoAssignPlan(month: MonthKey) {
-    const input = loadEngineInput(db, { through: month });
-    const budget = computeBudget(input);
-    const state = budget.get(month)!;
-    return planAutoAssign(loadAutoAssignRules(db), {
-      month,
-      readyToAssign: state.readyToAssign,
-      states: state.categories,
-      categories: input.categories,
-      incomeThisMonth: state.rtaBreakdown.incomeToDate,
-      historicalAssigned: new Map(input.months.map((m) => [m, input.facts[m]?.assigned ?? {}])),
-      today: todayIST(),
-    });
+  // B58 · Auto-assign funds each category to its target (the "budget"), in order,
+  // from Ready to Assign until it runs out. It reads the targets set on the
+  // Categories screen — there is no separate, hidden rules system to configure.
+  function buildAutoAssignPlan(month: MonthKey): AutoAssignPlan {
+    const view = buildBudgetView(db, month);
+    const rtaBefore = view.monthState.readyToAssign;
+    let remaining = rtaBefore;
+    const proposals: AutoAssignProposal[] = [];
+    for (const c of view.categories.values()) {
+      if (remaining <= 0) break;
+      // Hidden categories are out (F3.2); payment categories are funded by the
+      // card mechanic, not a target.
+      if (c.hidden || c.isPaymentCategory) continue;
+      const underfunded = c.progress?.underfunded ?? 0;
+      if (underfunded <= 0) continue;
+      const grant = Math.min(underfunded, remaining) as Paise;
+      remaining -= grant;
+      proposals.push({
+        categoryId: c.id,
+        from: c.state.assigned,
+        to: (c.state.assigned + grant) as Paise,
+        delta: grant,
+        reason: "to its target",
+        limitedByAvailableFunds: grant < underfunded,
+      });
+    }
+    const totalAssigned = proposals.reduce((s, p) => s + p.delta, 0) as Paise;
+    return { proposals, totalAssigned, rtaBefore, rtaAfter: (rtaBefore - totalAssigned) as Paise };
   }
 
   // -------------------------------------------------------------------------
@@ -2827,9 +2844,6 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ctx, "Goals",
       renderGoals({
         goals: goalProgress(db, balances),
-        categories: [...view.categories.values()]
-          .filter((c) => !c.isPaymentCategory && !c.hidden)
-          .map((c) => ({ id: c.id, name: c.name })),
       }),
     );
   });
@@ -2839,50 +2853,70 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
       const targetDate = field(ctx.body, "target_date");
       const name = requiredField(ctx.body, "name");
-      const linkExisting = fieldList(ctx.body, "category_ids").filter(Boolean);
 
-      // F11.1 · A goal is measured against categories. By default it gets its
-      // own savings envelope so a new goal "just works" without the household
-      // first hand-building a category; linking existing categories stays an
-      // option for money already parked somewhere.
-      const categoryIds = linkExisting.length > 0
-        ? linkExisting
-        : [ensureSavingsCategory(actor, name).id];
-
+      // B58 · A goal owns exactly one savings envelope, created and managed by
+      // the app in the "Savings goals" group — never hand-picked, never shared.
+      const category = ensureSavingsCategory(actor, name);
       createGoal(db, actor, {
         name,
         targetAmount: amountField(field(ctx.body, "target_amount"), "Target"),
         targetDate: targetDate ? parseDate(targetDate) : null,
-        categoryIds,
+        categoryIds: [category.id],
       });
-      return { redirect: "/goals", message: "Goal added." };
+      return { redirect: "/goals", message: "Goal added, with its own savings category." };
     }),
   );
 
-  // F11 · Create (or reuse) the "Savings goals" group and a category in it for
-  // a goal that isn't linked to an existing one.
+  // B58 · Create (or reuse) the app-managed "Savings goals" group and a fresh
+  // category in it for a goal. The group is `internal`, so its categories carry
+  // no manual controls on the Categories screen — the goal owns them.
   function ensureSavingsCategory(actor: Actor, goalName: string) {
-    const group = listGroups(db).find((g) => g.name === "Savings goals")
-      ?? createGroup(db, actor, "Savings goals");
+    const group = listGroups(db).find((g) => g.name === "Savings goals" && g.kind === "internal")
+      ?? createGroup(db, actor, "Savings goals", "internal");
     return createCategory(db, actor, { groupId: group.id, name: goalName });
   }
 
   router.post("/goals/:id/edit", (ctx) =>
     mutate(ctx, (a) => {
+      const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
       const targetDate = field(ctx.body, "target_date");
-      updateGoal(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), ctx.params.id!, {
-        name: requiredField(ctx.body, "name"),
+      const name = requiredField(ctx.body, "name");
+      updateGoal(db, actor, ctx.params.id!, {
+        name,
         targetAmount: amountField(field(ctx.body, "target_amount"), "Target"),
         targetDate: targetDate?.trim() ? parseDate(targetDate) : null,
       });
+      // Keep the owned category's name in step with the goal's.
+      for (const catId of goalCategoryIds(db, ctx.params.id!)) {
+        const cat = getCategory(db, catId);
+        if (cat && cat.name !== name) renameCategory(db, actor, catId, name);
+      }
       return { redirect: "/goals", message: "Goal updated." };
     }),
   );
 
   router.post("/goals/:id/delete", (ctx) =>
     mutate(ctx, (a) => {
-      deleteGoal(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), ctx.params.id!);
-      return { redirect: "/goals", message: "Goal removed. The money stays in its categories." };
+      const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+      const id = ctx.params.id!;
+      const view = buildBudgetView(db);
+      // B58 · The goal owns its category. On delete, hand the envelope back as a
+      // normal category (moved to a "Savings" group) so its money is never lost
+      // and the household can manage or empty it afterwards.
+      const catIds = goalCategoryIds(db, id);
+      const kept = catIds.reduce((sum, cid) => sum + (view.categories.get(cid)?.state.balance ?? 0), 0) as Paise;
+      deleteGoal(db, actor, id);
+      const normal = listGroups(db).find((g) => g.name === "Savings" && g.kind === "normal")
+        ?? (catIds.length > 0 ? createGroup(db, actor, "Savings", "normal") : null);
+      for (const catId of catIds) {
+        if (normal) moveCategoryToGroup(db, actor, catId, normal.id);
+      }
+      return {
+        redirect: "/goals",
+        message: kept > 0
+          ? `Goal removed. Its ${formatPaise(kept)} is now in a "Savings" category you can manage.`
+          : "Goal removed. Its empty savings category moved to a \"Savings\" group.",
+      };
     }),
   );
 
@@ -3275,14 +3309,6 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }),
   );
 
-  // F3.1 · Add a category group.
-  router.post("/groups/new", (ctx) =>
-    mutate(ctx, (a) => {
-      createGroup(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
-        requiredField(ctx.body, "name"));
-      return { redirect: "/categories", message: "Group added." };
-    }),
-  );
 
   // -------------------------------------------------------------------------
   // J1 · First run
