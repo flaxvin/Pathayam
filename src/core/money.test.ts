@@ -101,9 +101,24 @@ describe("formatCompact — L2", () => {
 
 describe("speakPaise — A5", () => {
   test("announces rupees rather than the symbol", () => {
-    assert.equal(speakPaise(rupees(1200)), "1200 rupees");
     assert.equal(speakPaise(rupees(1.5)), "1 rupee 50 paise");
     assert.equal(speakPaise(rupees(-40)), "minus 40 rupees");
+    assert.equal(speakPaise(rupees(999)), "999 rupees");
+  });
+
+  test("B95 · says large amounts the way the screen writes them", () => {
+    // The screen shows ₹52,75,874; saying "5275874 rupees" leaves a reader to
+    // render it in millions or spell it out digit by digit.
+    assert.equal(speakPaise(rupees(5275874)), "52 lakh 75 thousand 874 rupees");
+    assert.equal(speakPaise(rupees(1200)), "1 thousand 200 rupees");
+    assert.equal(speakPaise(rupees(100000)), "1 lakh rupees");
+    assert.equal(speakPaise(rupees(12500000)), "1 crore 25 lakh rupees");
+    assert.equal(speakPaise(rupees(-250000)), "minus 2 lakh 50 thousand rupees");
+  });
+
+  test("B95 · skips the groups that are empty", () => {
+    assert.equal(speakPaise(rupees(10000000)), "1 crore rupees");
+    assert.equal(speakPaise(rupees(1000045)), "10 lakh 45 rupees");
   });
 });
 
