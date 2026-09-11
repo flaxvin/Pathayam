@@ -317,6 +317,57 @@ function figure(label: string, amount: Paise): SafeHtml {
 // S13a · Holding detail
 // ---------------------------------------------------------------------------
 
+/**
+ * B72 · R28.2 · A split or a bonus issue.
+ *
+ * `recordSplit` adjusts every lot and the price history together, so a chart
+ * does not show a cliff where no value was lost. It was written and tested and
+ * had no screen, which meant a 1:5 split left the portfolio reporting a fifth
+ * of its real units until someone edited the database by hand.
+ */
+export function renderSplitForm(opts: {
+  holdingId: string;
+  instrumentName: string;
+  units: string;
+  today: IsoDate;
+}): SafeHtml {
+  return html`
+    <h1>Split or bonus · ${opts.instrumentName}</h1>
+    <p class="faint">
+      You hold ${opts.units} units. A split or a bonus changes how many units
+      you hold and what each one cost — never what the holding is worth. Every
+      lot and the whole price history move together, so the chart stays honest.
+    </p>
+    <form method="post" action="/portfolio/${opts.holdingId}/split" class="card">
+      <div class="grid-2">
+        <div class="field">
+          <label for="ratio">New units for each one held</label>
+          <input id="ratio" name="ratio" class="amount-input" type="text"
+                 inputmode="decimal" autocomplete="off" required autofocus placeholder="5">
+          <p class="field-hint">
+            A 1:5 split is 5. A 1:1 bonus is 2 — one new unit alongside the one
+            you held.
+          </p>
+        </div>
+        <div class="field">
+          <label for="split-date">Effective from</label>
+          <input id="split-date" name="date" type="text" autocomplete="off"
+                 value="${formatDate(opts.today)}" placeholder="DD-MM-YYYY">
+        </div>
+      </div>
+      <div class="field">
+        <label for="split-kind">Which is it?</label>
+        <select id="split-kind" name="kind">
+          <option value="split">A split</option>
+          <option value="bonus">A bonus issue</option>
+        </select>
+      </div>
+      <button class="button-primary" type="submit">Record it</button>
+      <a class="button button-quiet" href="/portfolio/${opts.holdingId}">Cancel</a>
+    </form>
+  `;
+}
+
 export function renderHoldingDetail(opts: {
   view: HoldingView;
   accountName: string;
@@ -334,7 +385,10 @@ export function renderHoldingDetail(opts: {
           ${when(v.instrument.isin, () => html` · ${v.instrument.isin}`)}
         </p>
       </div>
-      <a class="button button-primary" href="/portfolio/${v.holding.id}/sell">Sell units</a>
+      <div class="row">
+        <a class="button" href="/portfolio/${v.holding.id}/split">Split or bonus</a>
+        <a class="button button-primary" href="/portfolio/${v.holding.id}/sell">Sell units</a>
+      </div>
     </div>
 
     <section class="card">

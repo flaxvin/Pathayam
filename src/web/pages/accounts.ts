@@ -190,6 +190,13 @@ export function renderAccountDetail(opts: {
       </p>
     `)}
 
+    ${when(account.closed_at, () => html`
+      <p class="notice notice-info">
+        This account is closed. Its history and balances are kept, and it no
+        longer appears when you add a transaction.
+      </p>
+    `)}
+
     <div class="card">
       <div class="row" style="gap:2rem;flex-wrap:wrap">
         ${balanceFigure("Cleared", balances.cleared)}
@@ -197,6 +204,56 @@ export function renderAccountDetail(opts: {
         ${balanceFigure("Working", balances.working)}
       </div>
     </div>
+
+    <!--
+      B70 · F2.7 has said an account is "closeable without deletion" from the
+      start, and closeAccount, reopenAccount and updateAccount were all written.
+      None of them had a route, so in practice an account could be created and
+      never renamed or closed — and over a decade every account the household
+      has ever held stays in every dropdown for good.
+    -->
+    <details class="card">
+      <summary class="linkish">Rename or close this account</summary>
+
+      <form method="post" action="/accounts/${account.id}/edit" style="margin-top:.75rem">
+        <div class="grid-2">
+          <div class="field">
+            <label for="acc-name">Name</label>
+            <input id="acc-name" name="name" value="${account.name}" required>
+          </div>
+          <div class="field">
+            <label for="acc-nickname">What you call it (optional)</label>
+            <input id="acc-nickname" name="nickname" value="${account.nickname ?? ""}">
+          </div>
+        </div>
+        <div class="grid-2">
+          <div class="field">
+            <label for="acc-institution">Institution</label>
+            <input id="acc-institution" name="institution" value="${account.institution ?? ""}">
+          </div>
+          <div class="field">
+            <label for="acc-last4">Last four digits</label>
+            <input id="acc-last4" name="last4" inputmode="numeric" maxlength="4"
+                   value="${account.last4 ?? ""}">
+            <p class="field-hint">Used to match bank SMS and statements to this account.</p>
+          </div>
+        </div>
+        <button type="submit">Save</button>
+      </form>
+
+      <form method="post" action="/accounts/${account.id}/${account.closed_at ? "reopen" : "close"}"
+            style="margin-top:1rem;border-top:1px solid var(--border);padding-top:1rem">
+        ${account.closed_at
+          ? html`<button class="button-small" type="submit">Reopen this account</button>`
+          : html`
+              <p class="faint" style="margin-top:0">
+                Closing keeps every transaction and every balance. It only takes
+                the account out of the lists you pick from.
+              </p>
+              <button class="button-small button-danger" type="submit">Close this account</button>
+            `}
+      </form>
+    </details>
 
     ${when(account.kind === "credit", () => renderCardPanel(opts))}
     ${when(cards.length > 1, () => renderCardBreakdown(cards, account.id))}

@@ -322,6 +322,7 @@ export function renderLoanDetail(opts: {
       </div>
       <div class="row">
         <a class="button" href="/loans/${loan.id}/pay">Record an instalment</a>
+        <a class="button" href="/loans/${loan.id}/rate">Rate change</a>
         <a class="button button-primary" href="/loans/${loan.id}/prepay">Prepay</a>
       </div>
     </div>
@@ -698,7 +699,11 @@ export function renderPrepaymentComparison(opts: {
 // R20 · Rate reset
 // ---------------------------------------------------------------------------
 
-export function renderRateReset(opts: { loan: Loan; options: RateResetOptions }): SafeHtml {
+export function renderRateReset(opts: {
+  loan: Loan;
+  options: RateResetOptions;
+  effectiveFrom: IsoDate;
+}): SafeHtml {
   const o = opts.options;
   return html`
     <h1>Rate change · ${opts.loan.nickname || opts.loan.lender}</h1>
@@ -744,6 +749,38 @@ export function renderRateReset(opts: { loan: Loan; options: RateResetOptions })
         month's interest.
       </p>
     </div>
+
+    <!--
+      B71 · This comparison was built and rendered by nobody: recordRateChange
+      existed, rateResetOptions existed, this component existed, and no route
+      tied them together. A repo-linked home loan resets several times a year,
+      so the app modelled the most common event in an Indian loan and offered no
+      way to enter it.
+    -->
+    <form method="post" action="/loans/${opts.loan.id}/rate" class="card">
+      <h2>Record it</h2>
+      <div class="grid-2">
+        <div class="field">
+          <label for="rate-new">New rate (% a year)</label>
+          <input id="rate-new" name="annual_rate_pct" inputmode="decimal" required
+                 value="${o.newRatePct}">
+        </div>
+        <div class="field">
+          <label for="rate-from">Effective from</label>
+          <input id="rate-from" name="effective_from" placeholder="DD-MM-YYYY" required
+                 value="${formatDate(opts.effectiveFrom)}">
+        </div>
+      </div>
+      <div class="field">
+        <label for="rate-note">Note (optional)</label>
+        <input id="rate-note" name="note" placeholder="Repo rate cut, letter dated 3 Sept">
+      </div>
+      <p class="field-hint">
+        Recording the change re-derives the schedule from that date. What you
+        actually owe does not change — only how the remaining instalments split.
+      </p>
+      <button class="button-primary" type="submit">Record the rate change</button>
+    </form>
   `;
 }
 
