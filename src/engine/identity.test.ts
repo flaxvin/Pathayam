@@ -186,14 +186,11 @@ describe("B90 · the identity holds against a real database", () => {
    * amount and the two cancel. With none, the envelope rises and nothing falls,
    * so the category totals exceed what the budget accounts hold.
    *
-   * Marked `todo` rather than asserted, because the fix is a decision about R6
-   * and not mine to take alone. The likely answer is that an envelope should
-   * only ever reserve what a category actually gave up — leaving the debt
-   * visibly unbudgeted, which is both true and more useful than silently
-   * reserving for it. But that changes what R6 means, so it wants a deliberate
-   * choice rather than a quiet patch.
+   * Fixed by making the envelope reserve only what a category actually gave up.
+   * The debt still grows; it simply shows as unbudgeted, which is true and is
+   * what the card's funding warning is for.
    */
-  test("an uncategorised card charge keeps the identity", { todo: true }, () => {
+  test("an uncategorised card charge keeps the identity", () => {
     const db = openDatabase({ path: ":memory:", verbose: false });
     ensureHousehold(db);
     execute(db, `INSERT INTO members (id,email,name,created_at) VALUES (?,?,?,?)`,

@@ -190,9 +190,31 @@ export function computeBudget(input: EngineInput): BudgetState {
       heldForNextMonth: f.held,
       budgetAccountBalance: budgetBalance,
       unfundedCreditAbsorbed: cumulativeCreditAbsorbed,
-      // Absorbed at earlier rollovers, plus what this month is short right
-      // now. Both are money the payment envelope appears to hold but does not.
-      unfundedByAccount: mergeAmounts(absorbedByAccount, overspendByAccountThisMonth),
+      /*
+       * B98 · What this month is short, not every gap ever absorbed.
+       *
+       * This added `absorbedByAccount`, the running total of every credit
+       * overspend absorbed at every past rollover, on the reasoning that once
+       * the category reopens at zero that total is the only surviving record of
+       * the gap. The record is worth keeping — it is `unfundedCreditAbsorbed`,
+       * a term in the identity — but it was never discharged, so as a warning
+       * about *this* card *now* it only ever grew. Three years of ordinary use
+       * reached ₹6.86L against ₹56,603 of real debt.
+       *
+       * Case by case, what the household should be told a card is short:
+       *
+       *   spend filed and funded      envelope = debt, no open overspend  → 0
+       *   spend not yet filed         envelope < debt (B97)               → the gap
+       *   overspent this month        envelope = debt, category negative  → the overspend
+       *   overspent, since paid off   envelope = 0, debt = 0              → 0
+       *   overspent, not yet paid     envelope = debt, gap absorbed       → 0
+       *
+       * The last is the one that changed. Absorbing a gap moves it out of the
+       * category and into the identity's own term; the envelope still holds the
+       * debt, and paying the card is exactly as affordable as the budget says.
+       * Reporting it again here counted it twice.
+       */
+      unfundedByAccount: overspendByAccountThisMonth,
     });
 
     carryForward = nextCarry;
@@ -210,11 +232,25 @@ function activityFor(
   paymentCategoryByAccount: Map<string, string>,
 ): Paise {
   if (meta.paymentAccountId) {
-    // R6: the payment envelope tracks the change in the debt, so its activity
-    // is the negation of everything that happened on the card. One rule covers
-    // purchases, payments, fees and refunds alike.
+    /*
+     * R6: the payment envelope tracks the change in the debt, so its activity
+     * is the negation of what happened on the card — purchases, payments, fees
+     * and refunds under one rule.
+     *
+     * B97 · Except a charge nobody has filed yet. The envelope holds money a
+     * category gave up in order to meet the debt; an uncategorised charge took
+     * nothing from any category, so there is nothing to hold. Counting it
+     * raised the envelope with no matching fall anywhere, which put the
+     * identity out by the amount of every unreviewed card transaction — the
+     * ordinary state of a card import between landing and being reviewed.
+     *
+     * The debt still grows. It simply shows as unbudgeted, which is true, and
+     * is what the card's funding warning is for.
+     */
     void paymentCategoryByAccount;
-    return -(f.creditAccountFlow[meta.paymentAccountId] ?? 0);
+    const all = f.creditAccountFlow[meta.paymentAccountId] ?? 0;
+    const unfiled = f.creditUncategorisedFlow[meta.paymentAccountId] ?? 0;
+    return -(all - unfiled);
   }
   return f.activity[meta.id] ?? 0;
 }

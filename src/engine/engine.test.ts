@@ -532,7 +532,7 @@ describe("R6 · Credit cards", () => {
     );
   });
 
-  test("keeps the shortfall visible after the category resets at rollover", () => {
+  test("B98 · the gap is reported while the month is open, not for ever after", () => {
     const state = computeBudget(
       new Scenario()
         .category("shopping")
@@ -544,13 +544,23 @@ describe("R6 · Credit cards", () => {
         .build(),
     );
 
-    // The category reopens at zero, so the only remaining record of the gap is
-    // this figure — which is exactly why it is cumulative. Note that a credit
-    // overspend is *not* taken out of Ready to Assign: it is absorbed into
-    // `unfundedCreditAbsorbed`, its own term in the identity. The money behind
-    // the reservation has still never been assigned.
+    // While August is open the gap is real and hidden without this figure: the
+    // envelope reserved the full ₹4,200 and the debt grew by ₹4,200, so
+    // comparing them gives zero. Only the negative category shows it.
+    assert.equal(cat(state.get(AUG)!, "shopping").balance, rupees(-3_200));
+    assert.equal(state.get(AUG)!.unfundedByAccount["acct-hdfc"], rupees(3_200));
+
+    /*
+     * At the rollover the category reopens at zero and the gap moves into
+     * `unfundedCreditAbsorbed` — its own term in the identity, which is where
+     * the surviving record belongs. Reporting it *again* as this card's current
+     * shortfall counted it twice, and because nothing ever discharged it, the
+     * figure only grew: three years of ordinary use reached ₹6.86L against
+     * ₹56,603 of real card debt, on envelopes holding their balance exactly.
+     */
     assert.equal(cat(state.get(SEP)!, "shopping").balance, 0);
-    assert.equal(state.get(SEP)!.unfundedByAccount["acct-hdfc"], rupees(3_200));
+    assert.equal(state.get(SEP)!.unfundedByAccount["acct-hdfc"], undefined);
+    assert.equal(state.get(SEP)!.unfundedCreditAbsorbed, rupees(3_200));
   });
 
   test("B92 · a card is never reported short by more than it owes", () => {

@@ -64,6 +64,15 @@ export interface MonthlyFacts {
    * Shape: categoryId -> accountId -> signed paise.
    */
   creditActivityByAccount: Record<string, Record<string, Paise>>;
+  /**
+   * B97 · Card spending with no category on it, per card account.
+   *
+   * The payment envelope tracks money that a category gave up in order to meet
+   * the card's debt. A charge nobody has filed yet gave nothing up, so it must
+   * not raise the envelope — and until this existed it did, which broke the
+   * identity by the amount of every unreviewed card transaction.
+   */
+  creditUncategorisedFlow: Record<string, Paise>;
   /** Net change in Budget-account balances, including openings dated here. */
   budgetAccountFlow: Paise;
   /** The categorised portion of that flow. */
@@ -81,6 +90,7 @@ export function emptyMonth(): MonthlyFacts {
     creditActivity: {},
     creditAccountFlow: {},
     creditActivityByAccount: {},
+    creditUncategorisedFlow: {},
     budgetAccountFlow: 0,
     budgetCategorisedFlow: 0,
     budgetTransferFlow: 0,

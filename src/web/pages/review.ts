@@ -114,8 +114,14 @@ function renderStagedRow(row: StagedRow, categories: CategoryView[]): SafeHtml {
 
       <div class="row" style="margin-top:.5rem;flex-wrap:wrap">
         <label class="sr-only" for="cat-${row.id}">Category</label>
-        <select id="cat-${row.id}" name="category_id" style="flex:1;min-width:12rem">
-          <option value="">Uncategorised</option>
+        <!--
+          B99 · Money out names its envelope before it enters the ledger. Money
+          in does not: it lands in Ready to Assign, which is the model, so the
+          requirement follows the sign rather than being asked of everything.
+        -->
+        <select id="cat-${row.id}" name="category_id" style="flex:1;min-width:12rem"
+                ${raw(row.amount < 0 ? "required" : "")}>
+          <option value="">${row.amount < 0 ? "Choose where it came from…" : "No category needed"}</option>
           ${categories
             .filter((c) => !c.isPaymentCategory && !c.hidden)
             .map(
