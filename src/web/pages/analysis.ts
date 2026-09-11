@@ -25,8 +25,23 @@ import type { Insight, InsightKind } from "../../domain/insights.ts";
 // S7 · Query
 // ---------------------------------------------------------------------------
 
+/**
+ * B96 · How many rows the table itself draws.
+ *
+ * Named so it can be said out loud on the page. It was an unexplained
+ * `.slice(0, 300)` in the middle of the markup, which is how a screen ends up
+ * quietly answering a different question from the one it was asked.
+ */
+const QUERY_TABLE_ROWS = 300;
+
 export interface QueryOptions {
   rows: QueryRow[];
+  /** B96 · How many rows the filter matched, of which `rows` is one page. */
+  matched: number;
+  /** B96 · Summed over everything that matched, not just the rendered page. */
+  totals: { net: Paise; outflow: Paise; inflow: Paise };
+  /** The current filter as a query string, so the CSV link keeps it. */
+  csvQuery?: string;
   groups: GroupedTotal[];
   groupBy: GroupBy;
   period: Period;
@@ -40,9 +55,8 @@ export interface QueryOptions {
 }
 
 export function renderQuery(opts: QueryOptions): SafeHtml {
-  const total = opts.rows.reduce((sum, r) => sum + r.amount, 0);
-  const outflow = opts.rows.filter((r) => r.amount < 0).reduce((sum, r) => sum + r.amount, 0);
-  const inflow = opts.rows.filter((r) => r.amount > 0).reduce((sum, r) => sum + r.amount, 0);
+  // B96 · Over everything the filter matched. `rows` is only what is rendered.
+  const { net: total, outflow, inflow } = opts.totals;
 
   return html`
     <div class="row-between" style="margin-bottom:1rem">
@@ -123,12 +137,25 @@ export function renderQuery(opts: QueryOptions): SafeHtml {
         </div>
         <div>
           <div class="faint">Rows</div>
-          <strong style="font-size:1.15rem">${opts.rows.length}</strong>
+          <strong style="font-size:1.15rem">${opts.matched}</strong>
         </div>
       </div>
       <p class="field-hint">
         ${formatDate(opts.period.from)} to ${formatDate(opts.period.to)}
       </p>
+      <!--
+        B96 · Say so when the table is a page of the answer rather than all of
+        it. The figures above and the groups below are over everything that
+        matched; only this list is cut, and a list that is quietly cut on a
+        screen called Query is how a household comes to trust a wrong total.
+      -->
+      ${when(opts.matched > QUERY_TABLE_ROWS, () => html`
+        <p class="notice notice-info">
+          The table below lists the ${QUERY_TABLE_ROWS} most recent of ${opts.matched}.
+          Every figure on this page counts all ${opts.matched} —
+          <a href="/query.csv${opts.csvQuery ?? ""}">export the CSV</a> for the rest.
+        </p>
+      `)}
     </div>
 
     ${when(opts.groups.length > 0, () => html`
@@ -155,7 +182,7 @@ export function renderQuery(opts: QueryOptions): SafeHtml {
                   </tr>
                 </thead>
                 <tbody>
-                  ${opts.rows.slice(0, 300).map(
+                  ${opts.rows.slice(0, QUERY_TABLE_ROWS).map(
                     (r) => html`
                       <tr>
                         <td>${formatDate(r.date)}</td>

@@ -2957,14 +2957,26 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   function queryPage(ctx: RequestContext, title?: string) {
     const { filter, period } = filterFromQuery(ctx);
     const groupBy = (ctx.query.get("group_by") ?? "category") as GroupBy;
-    const rows = queryTransactions(db, filter);
+    /*
+     * B96 · Load everything the filter matches, render a page of it, and do all
+     * the arithmetic over the whole set. The cap was always about how much HTML
+     * to produce; it had quietly become the basis of the totals as well.
+     */
+    const all = queryTransactions(db, { ...filter, limit: Number.MAX_SAFE_INTEGER });
 
     return render(
       ctx,
       title ?? "Query",
       renderQuery({
-        rows,
-        groups: groupTotals(rows, groupBy),
+        rows: all,
+        matched: all.length,
+        csvQuery: ctx.url.search,
+        totals: {
+          net: all.reduce((sum, r) => sum + r.amount, 0) as Paise,
+          outflow: all.filter((r) => r.amount < 0).reduce((sum, r) => sum + r.amount, 0) as Paise,
+          inflow: all.filter((r) => r.amount > 0).reduce((sum, r) => sum + r.amount, 0) as Paise,
+        },
+        groups: groupTotals(all, groupBy),
         groupBy,
         period,
         periods: periodPresets(),
@@ -3058,7 +3070,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     auth(ctx);
     const { filter } = filterFromQuery(ctx);
     return {
-      body: rowsToCsv(queryTransactions(db, filter)),
+      // B96 · No cap here. A CSV is carried off and totalled elsewhere, so a
+      // silently partial one is worse than a slow one.
+      body: rowsToCsv(queryTransactions(db, { ...filter, limit: Number.MAX_SAFE_INTEGER })),
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": `attachment; filename="query-${todayIST()}.csv"`,
