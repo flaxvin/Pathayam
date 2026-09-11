@@ -86,10 +86,28 @@ function figures(db: DB, through: MonthKey): string {
   return JSON.stringify({ months, balances });
 }
 
+/**
+ * B89 · The same figures, derived from the ledger with the rollup ignored.
+ *
+ * This used to empty the tables and call `figures` again — which rebuilt them
+ * on the way in and compared the rollup against itself. The test passed while
+ * sealed months were adding every balance row to the wrong term and breaking
+ * the accounting identity. A test that cannot fail is worse than no test,
+ * because it is counted as cover.
+ */
 function withoutRollup(db: DB, through: MonthKey): string {
-  execute(db, `DELETE FROM month_rollups`);
-  execute(db, `DELETE FROM month_rollup_state`);
-  return figures(db, through);
+  const budget = computeBudget(loadEngineInput(db, { through, useRollup: false }));
+  const months = [...budget.entries()].map(([month, state]) => ({
+    month,
+    rta: state.readyToAssign,
+    categories: [...state.categories.entries()]
+      .map(([id, c]) => `${id}:${c.assigned}:${c.activity}:${c.balance}`)
+      .sort(),
+  }));
+  const balances = [...accountBalances(db).entries()]
+    .map(([id, b]) => `${id}:${b.cleared}:${b.uncleared}:${b.working}`)
+    .sort();
+  return JSON.stringify({ months, balances });
 }
 
 describe("B74 · the rollup never disagrees with the ledger", () => {
