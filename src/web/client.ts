@@ -101,6 +101,40 @@ export const CLIENT_SCRIPT = String.raw`
     }
   }
 
+  /*
+   * B80 · Carry the open/closed state of every disclosure across a swap.
+   *
+   * Groups on the budget screen are details elements, and the budget is seven
+   * screens on a phone, so collapsing the ones you are not working on is how
+   * the screen becomes usable. Replacing the markup threw that away: collapse
+   * two groups, assign a rupee, and everything sprang open again. A full page
+   * navigation did the same, but nobody noticed then because the page also
+   * jumped to the top — fixing the jump is what made this visible.
+   *
+   * Keyed on the summary's text rather than an id, because that is what the
+   * household actually recognises, and it survives a group being reordered or
+   * re-rendered. R35 is untouched: this lives for the length of one swap and is
+   * never written anywhere.
+   */
+  function disclosureState(root) {
+    var state = {};
+    root.querySelectorAll("details").forEach(function (el) {
+      var summary = el.querySelector("summary");
+      var key = el.id || (summary ? summary.textContent.trim() : "");
+      if (key) state[key] = el.open;
+    });
+    return state;
+  }
+
+  function restoreDisclosures(root, state) {
+    if (!state) return;
+    root.querySelectorAll("details").forEach(function (el) {
+      var summary = el.querySelector("summary");
+      var key = el.id || (summary ? summary.textContent.trim() : "");
+      if (key && Object.prototype.hasOwnProperty.call(state, key)) el.open = state[key];
+    });
+  }
+
   function initialiseContent(root) {
     root.querySelectorAll('input[name="return_to"]').forEach(function (input) {
       if (!input.value) input.value = window.location.pathname + window.location.search;
@@ -137,7 +171,9 @@ export const CLIENT_SCRIPT = String.raw`
         if (!fresh || !current) throw new Error("no main");
 
         var memo = stayPut ? rememberFocus() : null;
+        var disclosures = stayPut ? disclosureState(current) : null;
         current.innerHTML = fresh.innerHTML;
+        restoreDisclosures(current, disclosures);
 
         // The navigation chrome carries the current-page marker and the review
         // badge, so it has to move with the content.
@@ -347,6 +383,119 @@ export const CLIENT_SCRIPT = String.raw`
     var form = input.closest("form");
     if (form) form.requestSubmit();
   });
+
+  // ---------------------------------------------------------------------------
+  // B87 · Filter the budget grid
+  //
+  // Thirty-four categories is seven screens on a phone. Typing filters to what
+  // matches; the toggle narrows to what is short of its target or overspent.
+  // A group with nothing left in it hides itself, so the result reads as a
+  // short list rather than a page of empty headings.
+  //
+  // Runs on the client because a round trip per keystroke would be worse than
+  // scrolling, and stores nothing: it is a lens over the page, and it is gone
+  // the moment the page is.
+  // ---------------------------------------------------------------------------
+  function applyBudgetFilter() {
+    var box = document.querySelector("[data-budget-filter]");
+    var onlyNeedy = document.querySelector("[data-budget-underfunded]");
+    if (!box && !onlyNeedy) return;
+
+    var term = box ? box.value.trim().toLowerCase() : "";
+    var needyOnly = onlyNeedy ? onlyNeedy.checked : false;
+    var shown = 0;
+    var total = 0;
+
+    document.querySelectorAll(".category-row").forEach(function (row) {
+      total++;
+      var name = (row.getAttribute("data-category-name") || "").toLowerCase();
+      var matches = !term || name.indexOf(term) >= 0;
+      var needy = row.hasAttribute("data-needs-money");
+      var visible = matches && (!needyOnly || needy);
+      row.hidden = !visible;
+      if (visible) shown++;
+    });
+
+    // A group whose every row is hidden is noise; open the ones that survive so
+    // a match inside a collapsed group is not filtered into invisibility.
+    var filtering = Boolean(term) || needyOnly;
+    document.querySelectorAll("details.category-group").forEach(function (group) {
+      var any = false;
+      group.querySelectorAll(".category-row").forEach(function (row) {
+        if (!row.hidden) any = true;
+      });
+      group.hidden = filtering && !any;
+      if (filtering && any) group.open = true;
+    });
+
+    var count = document.querySelector("[data-budget-filter-count]");
+    if (count) {
+      count.hidden = !filtering;
+      count.textContent = shown === 0
+        ? "Nothing matches."
+        : "Showing " + shown + " of " + total + ".";
+    }
+  }
+
+  document.addEventListener("input", function (event) {
+    if (event.target && event.target.hasAttribute && event.target.hasAttribute("data-budget-filter")) {
+      applyBudgetFilter();
+    }
+  });
+  document.addEventListener("change", function (event) {
+    if (event.target && event.target.hasAttribute && event.target.hasAttribute("data-budget-underfunded")) {
+      applyBudgetFilter();
+    }
+  });
+
+  // ---------------------------------------------------------------------------
+  // B82 · A payee remembers where its money goes
+  //
+  // payeeStats already knows the category a payee's spending usually lands in,
+  // and the add form already received it — it simply never used it. Picking a
+  // known payee now fills the category in.
+  //
+  // Two rules keep it a convenience rather than a surprise: it only ever fills
+  // a category that is still unset, so a deliberate choice is never overridden,
+  // and it says what it did, because a field that changes by itself with no
+  // explanation is worse than one that stays empty.
+  // ---------------------------------------------------------------------------
+  function applyUsualCategory() {
+    var payee = document.getElementById("payee");
+    var category = document.getElementById("category_id");
+    if (!payee || !category || category.value !== "") return;
+
+    var list = document.getElementById("payee-options");
+    if (!list) return;
+    var typed = payee.value.trim().toLowerCase();
+    if (!typed) return;
+
+    var match = null;
+    list.querySelectorAll("option").forEach(function (option) {
+      if (option.value.trim().toLowerCase() === typed) match = option;
+    });
+    if (!match) return;
+
+    var usual = match.getAttribute("data-category");
+    if (!usual) return;
+    // The category may be hidden or gone; only select one that is really there.
+    var option = category.querySelector('option[value="' + usual + '"]');
+    if (!option) return;
+
+    category.value = usual;
+    var hint = document.querySelector("[data-category-hint]");
+    if (hint) {
+      hint.textContent =
+        "Filled in from where " + match.value + " usually goes. Change it if this one is different.";
+    }
+  }
+
+  document.addEventListener("change", function (event) {
+    if (event.target && event.target.id === "payee") applyUsualCategory();
+  });
+  document.addEventListener("blur", function (event) {
+    if (event.target && event.target.id === "payee") applyUsualCategory();
+  }, true);
 
   // ---------------------------------------------------------------------------
   // F29 · Command palette

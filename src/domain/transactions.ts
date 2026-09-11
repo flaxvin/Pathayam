@@ -403,7 +403,6 @@ export function createTransfer(db: DB, actor: Actor, input: TransferInput): [Tra
 export interface Payee {
   id: string;
   name: string;
-  default_category_id: string | null;
   default_account_id: string | null;
   merged_into_id: string | null;
 }

@@ -273,6 +273,9 @@ CREATE TABLE targets (
 CREATE TABLE payees (
   id                  TEXT PRIMARY KEY,
   name                TEXT NOT NULL,
+  -- Dropped again in 0020: it was never written or read, and payeeStats derives
+  -- the same answer from the ledger. Kept here so that migration has a column
+  -- to drop on a database created from scratch.
   default_category_id TEXT REFERENCES categories(id),
   default_account_id  TEXT REFERENCES accounts(id),
   -- F5.2: merging preserves history by pointing the loser at the winner
@@ -1346,6 +1349,24 @@ CREATE TABLE month_rollups (
 
 -- Everything sealed so far predates the balance rows, so it all rebuilds.
 DELETE FROM month_rollup_state;
+`,
+  },
+  {
+    name: "0020-drop-payee-default-category",
+    sql: `
+--------------------------------------------------------------------------------
+-- B82 · payees.default_category_id, which nothing ever wrote or read.
+--
+-- The intent was clearly that a payee should remember where its money goes, and
+-- that turned out to be answerable without storing anything: payeeStats already
+-- derives the usual category from the transactions themselves, which cannot
+-- drift from the ledger and needs no screen to maintain. The add form now uses
+-- that.
+--
+-- A stored override would be a second, quieter answer to the same question, and
+-- the first thing a household would notice is the two disagreeing.
+--------------------------------------------------------------------------------
+ALTER TABLE payees DROP COLUMN default_category_id;
 `,
   },
 ];

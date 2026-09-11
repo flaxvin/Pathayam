@@ -100,8 +100,21 @@ export interface FormatOptions {
 /** ₹12,34,567.89 — the canonical display form (L1). */
 export function formatPaise(amount: Paise, opts: FormatOptions = {}): string {
   const { symbol = true, alwaysPaise = false, signBeforeSymbol = true } = opts;
+  /*
+   * B77 · Round before splitting rupees from paise.
+   *
+   * Every amount in this app is an integer number of paise, and the `Paise`
+   * brand exists to keep it that way — but a brand is a promise the compiler
+   * checks, not one the runtime enforces, and a single `as Paise` on an average
+   * was enough to put a fraction in here. The split then produced
+   * "₹13,666.66.66666666674428" on the Overview.
+   *
+   * This is the last place a number becomes text, so it is the right place to
+   * be defensive: a wrong amount is a bug worth finding, but an unreadable one
+   * helps nobody.
+   */
   const negative = amount < 0;
-  const abs = Math.abs(amount);
+  const abs = Math.round(Math.abs(amount));
   const whole = Math.trunc(abs / RUPEE);
   const paise = abs - whole * RUPEE;
 

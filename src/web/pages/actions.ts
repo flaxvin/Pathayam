@@ -73,10 +73,19 @@ export function renderAddTransaction(opts: {
         <label for="payee">Payee</label>
         <input id="payee" name="payee" list="payee-options" autocomplete="off"
                placeholder="Start typing…">
+        <!--
+          B82 · The usual category rides along on each option.
+          payeeStats has worked out where a payee's money normally goes since
+          the beginning, and this form has been handed that answer and thrown it
+          away — leaving the household to pick "Groceries" for the hundredth
+          time on the screen they use most. The client reads this attribute and
+          fills the category in, and never overrides a choice already made.
+        -->
         <datalist id="payee-options">
           ${payees.map(
             (p) => html`
-              <option value="${p.name}">
+              <option value="${p.name}"
+                      ${raw(p.usualCategoryId ? `data-category="${p.usualCategoryId}"` : "")}>
                 ${p.lastAmount !== null
                   ? `last: ${formatPaise(Math.abs(p.lastAmount))}${p.lastDate ? ` on ${formatDate(p.lastDate)}` : ""}`
                   : ""}
@@ -102,7 +111,7 @@ export function renderAddTransaction(opts: {
               `,
             )}
         </select>
-        <p class="field-hint">
+        <p class="field-hint" data-category-hint>
           Each category shows what it holds, so you can see the consequence while entering.
         </p>
       </div>
@@ -137,11 +146,28 @@ export function renderAddTransaction(opts: {
         </div>
         <div class="field">
           <label for="tags">Tags</label>
-          <input id="tags" name="tags" autocomplete="off" placeholder="kerala-oct, reimbursable">
+          <input id="tags" name="tags" autocomplete="off" placeholder="kerala-oct, diwali">
           <p class="field-hint">Comma separated. A tag works as an ad-hoc budget without touching your categories.</p>
         </div>
         <div class="field">
           <label><input type="checkbox" name="cleared" value="1"> Already cleared the bank</label>
+        </div>
+        <!--
+          B84 · Money you have fronted and expect back.
+          The column, and the domain support for it, were written at the start
+          and no screen ever set them — so the hint on the tags field above used
+          to suggest typing the word "reimbursable" as a tag instead, working
+          around the app's own field. A tag cannot be settled; this can.
+        -->
+        <div class="field">
+          <label>
+            <input type="checkbox" name="reimbursable" value="1">
+            Someone owes me this back
+          </label>
+          <p class="field-hint">
+            It still leaves your envelope now. Review lists what is outstanding
+            until the money comes back.
+          </p>
         </div>
       </details>
 
@@ -357,7 +383,7 @@ export function renderAutoAssignPreview(opts: {
         <p>
           ${plan.rtaBefore <= 0
             ? "There's no money left to assign this month."
-            : "No categories have an auto-assign rule yet. Set one on a category to have it filled automatically."}
+            : "No category is short of its target. Set a target on a category and auto-assign will fund it."}
         </p>
         <p><a class="button" href="/?month=${month}">Back to the budget</a></p>
       </div>

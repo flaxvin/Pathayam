@@ -23,6 +23,8 @@ export interface ReviewData {
   brokenCheckpoints: { accountId: string; name: string; asOf: IsoDate; reason: string | null }[];
   proposedRules: { id: string; name: string; because: string | null }[];
   categories: CategoryView[];
+  /** B84 · Money fronted and not yet back. */
+  claims: { id: string; date: IsoDate; amount: Paise; payee: string | null; category: string | null }[];
   bufferReading: string;
   month: string;
 }
@@ -31,6 +33,9 @@ export function renderReview(data: ReviewData): SafeHtml {
   const total =
     data.staged.length + data.uncategorised.length + data.overspent.length +
     data.unfundedCards.length + data.brokenCheckpoints.length + data.proposedRules.length;
+  // Outstanding claims are shown but never counted: being owed money is a
+  // standing fact, not a task waiting on a decision, and a badge that never
+  // reaches zero stops meaning anything.
 
   if (total === 0) {
     // 03 §7: zero states are achievements, not emptiness.
@@ -49,6 +54,7 @@ export function renderReview(data: ReviewData): SafeHtml {
 
     ${when(data.staged.length > 0, () => renderStaged(data))}
     ${when(data.uncategorised.length > 0, () => renderUncategorised(data))}
+    ${when(data.claims.length > 0, () => renderClaims(data))}
     ${when(data.overspent.length > 0, () => renderOverspent(data))}
     ${when(data.unfundedCards.length > 0, () => renderUnfundedCards(data))}
     ${when(data.brokenCheckpoints.length > 0, () => renderBrokenCheckpoints(data))}
@@ -168,14 +174,73 @@ function renderUncategorised(data: ReviewData): SafeHtml {
       </p>
       ${data.uncategorised.map(
         (t) => html`
+          <div style="padding:.6rem 0;border-top:1px solid var(--border)">
+            <div class="row-between">
+              <div>
+                <a href="/transaction/${t.id}">${t.payee ?? "Unknown payee"}</a>
+                <div class="faint">${formatDate(t.date)} · ${t.account}</div>
+              </div>
+              <strong class="amount ${t.amount < 0 ? "amount-negative" : ""}">
+                ${formatPaise(t.amount)}
+              </strong>
+            </div>
+            <!--
+              B85 · The same control a staged import gets. Filing one of these
+              used to mean opening the transaction and working a full edit form.
+            -->
+            <form method="post" action="/transaction/${t.id}/categorise"
+                  class="row" style="gap:.4rem;margin-top:.4rem;flex-wrap:wrap">
+              <input type="hidden" name="return_to" value="/review">
+              <label class="sr-only" for="cat-${t.id}">Category for ${t.payee ?? "this transaction"}</label>
+              <select id="cat-${t.id}" name="category_id" style="max-width:16rem">
+                <option value="">Leave uncategorised</option>
+                ${data.categories
+                  .filter((c) => !c.isPaymentCategory && !c.hidden)
+                  .map((c) => html`
+                    <option value="${c.id}">${c.name} — ${formatPaise(c.state.balance)} left</option>
+                  `)}
+              </select>
+              <button class="button-small" type="submit">File it</button>
+            </form>
+          </div>
+        `,
+      )}
+    </section>
+  `;
+}
+
+/**
+ * B84 · Money the household has fronted.
+ *
+ * It has genuinely left the envelope, so it is not netted off anywhere — this
+ * is a list, not an adjustment. The point is only that nobody forgets to chase
+ * it, which is exactly what happened while the column existed and no screen
+ * read it.
+ */
+function renderClaims(data: ReviewData): SafeHtml {
+  const total = data.claims.reduce((sum, c) => sum + c.amount, 0) as Paise;
+  return html`
+    <section class="card">
+      <h2>You're owed <span class="chip">${formatPaise(total)}</span></h2>
+      <p class="faint" style="margin-top:-.25rem">
+        Already spent from its envelope. Mark it settled when the money is back —
+        record the repayment itself as ordinary income.
+      </p>
+      ${data.claims.map(
+        (c) => html`
           <div class="row-between" style="padding:.5rem 0;border-top:1px solid var(--border)">
             <div>
-              <a href="/transaction/${t.id}">${t.payee ?? "Unknown payee"}</a>
-              <div class="faint">${formatDate(t.date)} · ${t.account}</div>
+              <a href="/transaction/${c.id}">${c.payee ?? "Unknown payee"}</a>
+              <div class="faint">
+                ${formatDate(c.date)}${when(c.category, () => html` · ${c.category}`)}
+              </div>
             </div>
-            <strong class="amount ${t.amount < 0 ? "amount-negative" : ""}">
-              ${formatPaise(t.amount)}
-            </strong>
+            <span class="row" style="gap:.6rem;align-items:center">
+              <strong class="amount">${formatPaise(c.amount)}</strong>
+              <form method="post" action="/transaction/${c.id}/settled">
+                <button class="button-small" type="submit">Settled</button>
+              </form>
+            </span>
           </div>
         `,
       )}

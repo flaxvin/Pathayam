@@ -9,6 +9,7 @@
  */
 
 import { html, raw, when, type SafeHtml } from "../../http/html.ts";
+import type { GainsYear } from "../../domain/reports.ts";
 import { formatPaise, formatCompact, type Paise } from "../../core/money.ts";
 import { formatDate, formatMonth, type IsoDate, type MonthKey } from "../../core/dates.ts";
 import type { QueryRow, GroupedTotal, GroupBy, Period, TrendPoint } from "../../domain/reports.ts";
@@ -228,6 +229,8 @@ export function renderReports(opts: {
   period: Period;
   periods: Period[];
   loanInterest: { fy: number; label: string; interest: Paise; principal: Paise; lender: string }[];
+  /** B88 · Realised gains per FY, split by holding period. */
+  gains: GainsYear[];
 }): SafeHtml {
   const peak = Math.max(...opts.trend.flatMap((t) => [t.income, t.spending]), 1);
   // Top categories individually; the long tail folded into one "Other" slice so
@@ -465,6 +468,96 @@ export function renderReports(opts: {
             </tbody>
           </table>
         </div>
+      </section>
+    `)}
+
+    ${when(opts.gains.length > 0, () => html`
+      <section class="card">
+        <h2>Realised gains by financial year</h2>
+        <p class="faint" style="margin-top:-.25rem">
+          What each sale actually made, April to March. Split at twelve months
+          held — which threshold makes a gain long-term depends on the asset and
+          on the year's rules, so this reports the holding period and leaves the
+          rule to whoever files the return.
+        </p>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Year</th>
+                <th scope="col" class="num">Held 12 months or less</th>
+                <th scope="col" class="num">Held longer</th>
+                <th scope="col" class="num">Proceeds</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${opts.gains.map(
+                (y) => html`
+                  <tr>
+                    <td>${y.label}</td>
+                    <td class="num amount ${y.shortTerm < 0 ? "amount-negative" : ""}">
+                      ${formatPaise(y.shortTerm)}
+                    </td>
+                    <td class="num amount ${y.longTerm < 0 ? "amount-negative" : ""}">
+                      ${formatPaise(y.longTerm)}
+                    </td>
+                    <td class="num amount">${formatPaise(y.proceeds)}</td>
+                  </tr>
+                  ${when(y.unknownPeriod !== 0, () => html`
+                    <tr>
+                      <td colspan="4" class="faint">
+                        ${formatPaise(y.unknownPeriod)} of this year's gain was recorded
+                        before parcel detail was kept, so its holding period is unknown.
+                        Check those sales against your broker statement.
+                      </td>
+                    </tr>
+                  `)}
+                `,
+              )}
+            </tbody>
+          </table>
+        </div>
+
+        ${when(opts.gains.some((y) => y.parcels.length > 0), () => html`
+          <details style="margin-top:.75rem">
+            <summary class="linkish">Every parcel sold</summary>
+            <div class="table-scroll" style="margin-top:.5rem">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Sold</th>
+                    <th scope="col">Holding</th>
+                    <th scope="col">Bought</th>
+                    <th scope="col" class="num">Held</th>
+                    <th scope="col" class="num">Cost</th>
+                    <th scope="col" class="num">Proceeds</th>
+                    <th scope="col" class="num">Gain</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${opts.gains.flatMap((y) => y.parcels).map(
+                    (p) => html`
+                      <tr>
+                        <td>${formatDate(p.soldOn)}</td>
+                        <td>${p.instrument}</td>
+                        <td>${formatDate(p.acquiredOn)}</td>
+                        <td class="num">
+                          ${p.holdingPeriodDays} days
+                          ${when(p.longTerm, () => html`<span class="chip">over a year</span>`)}
+                        </td>
+                        <td class="num amount">${formatPaise(p.cost)}</td>
+                        <td class="num amount">${formatPaise(p.proceeds)}</td>
+                        <td class="num amount ${p.gain < 0 ? "amount-negative" : ""}">
+                          ${formatPaise(p.gain)}
+                        </td>
+                      </tr>
+                    `,
+                  )}
+                </tbody>
+              </table>
+            </div>
+          </details>
+        `)}
       </section>
     `)}
   `;
