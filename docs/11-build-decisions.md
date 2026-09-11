@@ -1145,4 +1145,313 @@ now only one place to set it.
 
 ---
 
-*Entries B59 onward are recorded as the work happens.*
+### B59–B64 · The client script, and four things it hid
+
+*11-09-2026.* A run of faults that all lived in the seam between a working
+server and the browser in front of it.
+
+**B59 · PDF import could not have worked.** The submit handler serialised every
+form through `new URLSearchParams(new FormData(form))`, which turns a `File`
+into the string `"[object File]"`. The domain parsing was correct and well
+tested; the bytes never arrived. Multipart forms submit natively now.
+
+**B60 · Every mutation threw away the scroll position** — and the success
+message with it, because the redirect branch returned before the status was
+ever set. Mutations fetch the target and swap the contents of `main` instead,
+holding the viewport and the caret. Scroll follows the *path*, not the whole
+URL: assigning redirects to `/?month=…` from `/`, and a stricter comparison read
+that as a page change. R35 is untouched — one more request, not a cache.
+
+**B61 · Two groups called "Savings goals".** The starting template creates one;
+the goal machinery created another. A household that ran the template and then
+added a goal saw two identically titled sections, one editable and one not. The
+managed group is "Goals", and an existing one is renamed rather than abandoned.
+Groups also had no undo handler at all, so every group create and rename event
+was logged looking undoable and was refused.
+
+**B62 · `main` shrank to its content on desktop.** `margin: 0 auto` centres the
+single-column layout, but on a grid item an auto margin also makes the item size
+to max-content. The budget grid rendered 836px wide inside a 1156px column, at a
+different width on every screen.
+
+**B63** · Stripping a trailing reference left the separator that introduced it,
+so `UPI-TEST MERCHANT-9876` became the payee `Test Merchant-`.
+
+**B64** · `04` §3.2 makes an unreadable file a mapping task rather than an
+error — but only when there is something to map. A scanned statement has no text
+layer, and the mapping screen offered "Column 1" for every field above an empty
+table.
+
+---
+
+### B65 · Universal undo was complete, tested, and reachable from one route
+
+*11-09-2026 · R37.* Every entity had a registered handler, `checkUndo` enforced
+the window and the supersession rule, and the tests covered all of it. Nothing
+in the web layer called `undoEvent`. `POST /import/undo` was the only route, so
+the one thing this household could undo was a whole import batch; every other
+handler was unreachable code that looked alive because it was green.
+
+The Activity screen is the door. R37.9's warning is the disclosure itself — where
+later changes touched the same record, the undo sits behind a list of exactly
+what it would discard.
+
+Calling it for real immediately found what it had been hiding. Undoing a created
+transaction failed on a foreign key: the handler deleted the transaction, its
+splits and its tags, and six other tables reference `transactions`. An imported
+row approved into it still pointed at it. That row goes back to *pending* now —
+the ledger entry is gone, so the import is unresolved again rather than approved
+into nothing — and where the transaction is load-bearing for a loan instalment,
+a portfolio lot, a holding event, a reconciliation adjustment or a family-loan
+write-off, the undo refuses and names what is holding it.
+
+A refusal also returned 409, which the client's retry contract treats as "the
+first attempt may still be in flight". A clear refusal became five silent
+retries and a network error. Refusals are 422.
+
+---
+
+### B66 · A 500 in production left no trace anywhere
+
+*11-09-2026 · S7.* Two reasonable decisions combined into a blind spot.
+[`http/server.ts`](../src/http/server.ts) logs the error and its stack, but only
+in the branch it takes when no `onError` hook handled the failure — and
+[`main.ts`](../src/main.ts) installs one that handles everything, so the
+household sees a styled page. The only remaining trace was the request line,
+logged at `debug`, and `logLevel` defaults to `info` in production. Meanwhile
+the health page's "errors in the last 24 hours" counted `job_runs`: scheduled
+jobs only.
+
+So a route that threw produced no log line and no signal on the one page you
+open when something is wrong. Confirmed by triggering a real 500 at
+`LOG_LEVEL=info` and finding an empty log and a healthy page.
+
+The hook logs the stack at the point that swallows it, and records the failure
+in `request_failures`, which the health page reads and names. S7 still holds: a
+method and a path with the query string stripped, never a body, never an amount.
+
+---
+
+### B67 · A tested engine nothing could execute
+
+*11-09-2026 · R9.* `planAutoAssign` was 76 lines with ten test call sites,
+driven by `autoassign_rules` — a table with no `INSERT` anywhere in the
+codebase, read by a loader nothing called. Targets had replaced it (B58). Its
+tests kept passing, which is exactly what made it easy to miss: green tests
+reporting health for unreachable code. Removed, with `saved_views`, which no
+code had ever referenced.
+
+---
+
+### B68 · 163 route handlers and not one test that invoked them
+
+*11-09-2026.* The suite was strong below the route layer and silent on it, which
+is where four of the previous five bugs lived — a screen reachable, wired, and
+broken. `link-coverage.test.ts` (B51) proves each rendered link points at a
+registered route; nothing proved the route on the other end runs.
+
+The harness boots the real app on an ephemeral port and drives it over HTTP, so
+middleware, auth, routing, body parsing and the error hook are all in the path.
+Every GET route runs against a seeded household in under a second, asserting
+none throws and none renders `NaN` or `[object Object]`.
+
+It found one on its first run. **B69** · `/loans/:id/prepay` answered 500 for a
+loan sanctioned but not yet drawn — an ordinary state R14 models explicitly, and
+one a tranche-released education loan sits in for years. The amortisation
+builder rightly refuses a principal of zero and the page handed it one.
+
+---
+
+### B70–B72 · Six stranded features, and a test so there is not a seventh
+
+*11-09-2026.* `reopenMonth` shipped with no control (B51). One envelope per goal
+shipped with no editor (B58). Undo was callable from one route (B65). An
+auto-assign engine ran on a table nothing wrote (B67). Every one passed the whole
+suite, because a function can be correct and unreachable at the same time and a
+unit test only asks the first question.
+
+`reachability.test.ts` asks the second. It reads each domain function's body to
+decide whether it writes — a verb list cannot tell `recordedDisbursements` from
+`recordDividend` — and fails when nothing anywhere references it. A second test
+does the same for rendered page components. The allowlist carries a reason per
+entry, so "not surfaced yet" is a decision somebody wrote down.
+
+What it found: **B70** an account could be created and never renamed or closed,
+though F2.7 promised otherwise, so every account the household had ever held
+stayed in every dropdown for good. **B71** a rate-reset comparison, styled and
+rendered by nobody — the most common event in an Indian floating-rate loan could
+not be entered at all. **B72** `recordSplit` adjusts every lot and the price
+history together, and without a screen a 1:5 split left the portfolio reporting a
+fifth of its real units.
+
+---
+
+### B73–B75 · Old history should cost months, not rows
+
+*11-09-2026 · R7.g.* The budget is derived from the whole ledger on every
+request, which is what makes forward recompute possible: edit any past month and
+every figure since re-derives, with no stored total to go stale. It cost 47ms at
+five years of history and 580ms at twenty.
+
+Profiling first, because the obvious answer was wrong. The month-by-month fold
+everyone would suspect was **7ms of 580**. 98% was SQL.
+
+**B73** · `loadEngineInput` ran the same CTE four times — activity, its
+credit-charged portion, that portion split by card, and the budget-side total
+were four full scans of transactions `UNION` splits. Grouping one scan by
+account as well as category yields all four. None of the reads were bounded
+either, so opening a month in 2019 scanned the whole ledger and discarded what
+fell outside.
+
+**B74** · A month more than six months old is one nobody is still entering
+receipts into, so its aggregates are computed once into `month_rollups`. The
+invalidation is a **trigger**, not a call in the domain layer, and that is the
+point: no code path — an import, a rule, a repair script, a feature nobody has
+written yet — can change a transaction without the rollup for its month
+disappearing in the same statement.
+
+**B75** · And the one that dwarfed the rest: `monthRange` asked for
+`MIN(substr(date,1,7))`, which no index can serve, so finding the first month
+read every row — on every call, from both the budget and the balances.
+
+    five years, 9k transactions     47ms → 14ms
+    twenty years, 60k              580ms → 60ms
+    twenty years, 240k           ~2,000ms → 61ms
+
+The last line is the shape that was wanted: four times the rows in the same
+months costs one millisecond more.
+
+---
+
+### B76 · Every table has to be someone's job
+
+*11-09-2026 · R40.2/F15.* Adding three tables showed that a new one joins
+neither the control totals nor the export unless somebody remembers to list it —
+silently, and for good, while restore verification keeps reporting a clean
+recovery. Every table in the schema must now be counted, named ephemeral, or
+named a secret.
+
+---
+
+### B77–B87 · What the Overview was claiming
+
+*11-09-2026.* A pass with fresh eyes over the screens rather than the code.
+
+**B78 · "Spent this month" read ₹1,060 in a month the household spent ₹22,010.**
+The figure counted cash leaving budget accounts, and 95% of the spending was on
+a credit card — in a household whose cards are the seeded Swiggy HDFC and Axis
+Atlas. The same page's insights, computed from envelope activity, cited ₹7,100
+on groceries alone, so it contradicted itself by twenty times. The same measure
+was the denominator of months-of-runway, which is the more dangerous of the two:
+it reported months of safety that were not there.
+
+Spending, in an envelope budget, is money leaving an envelope — R6 is explicit
+that a card charge consumes its category when it happens. `averageDailySpend`
+already used exactly that definition for R12's buffer; it simply had no monthly
+form.
+
+**B77** · An average of three integers was cast to `Paise` rather than rounded,
+and the Overview printed `₹13,666.66.66666666674428`. `formatPaise` rounds now
+too — it is the last place a number becomes text.
+
+**B79** · The sidebar badge said 1 while the page it links to said 3, counting
+four of the six things Review lists and weighing card funding differently from
+the page.
+
+**B80** · Collapsing a group and then assigning sprang every group open again. A
+full page navigation always did that; fixing the jump (B60) is what made it
+visible.
+
+**B82** · `payeeStats` has always worked out where a payee's money usually goes,
+and the add form was handed that answer and threw it away — leaving the
+household to pick "Groceries" for the hundredth time on the screen they use
+most. `payees.default_category_id`, which nothing ever wrote or read, is
+dropped: a stored override would be a second, quieter answer to the same
+question.
+
+**B84** · `transactions.reimbursable` was a column with domain support and no
+screen, so the tags hint worked around the app's own field by suggesting the
+word as a tag. A tag cannot be settled.
+
+**B85** · Review gave a staged import an inline category dropdown and a
+transaction already in the ledger a link to a full edit form that insists on an
+amount — the cheap half of the queue was the expensive one to clear.
+
+**B87** · Thirty-four categories is seven screens on a phone, and the answer to
+"how much is left for groceries" was to scroll until you saw it.
+
+---
+
+### B88 · Realised gains by financial year
+
+*11-09-2026 · R25.5.* The app already reports loan interest per FY per lender —
+the figure a home loan's 24(b) claim is built from — so it was one report short
+of the one that costs an evening every July.
+
+The FIFO engine has always computed a per-parcel holding period, R25.5 saying it
+is "exposed so long-term versus short-term is visible to the user", and
+`recordSale` wrote one aggregate gain and dropped it. A sale of units
+accumulated over four years is one number with four different answers inside it,
+and once the lots were closed and rewritten it was unrecoverable. Sales keep what
+they consumed now.
+
+It reports the holding period and **names no tax class**. Which threshold
+separates short from long depends on the asset and on the year's rules, and both
+change; deciding that here would be exactly the advice N9 declines to give.
+Sales recorded before parcels were kept are reported as unknown rather than
+guessed into a column.
+
+---
+
+### B89–B90 · A broken identity, and the test that was comparing a cache to itself
+
+*11-09-2026 · [`01-engine-derivation.md`](dev/01-engine-derivation.md) §1.* The
+sealed-row dispatch added in B74 was an if/else chain ending in a bare `else`. A
+fourth fact — the per-account balances `accountBalances` reads — was added to the
+rollup two commits later without touching it, so **every balance row was added to
+`budgetTransferFlow`**. The identity was out by a constant in every month old
+enough to seal: the exact condition that document describes as "if a change
+breaks this equation, the change is wrong".
+
+The uncomfortable half is why nothing noticed. `rollups.test.ts` existed to ask
+whether the rollup still agrees with the ledger, and its central test emptied the
+rollup tables and recomputed — but the next read rebuilds them on the way in, so
+both sides of the comparison went through the rollup. **It was comparing the
+rollup against itself.** Every assertion passed while the figures were wrong,
+which is worse than no test, because it was counted as cover.
+`loadEngineInput` takes `useRollup: false` now, and the test uses it for the
+honest second opinion.
+
+**B90** · And the guard that should have existed from the start. The identity is
+asserted after every scenario in `engine.test.ts` — against input built by
+`Scenario`, an in-memory fixture handed straight to the engine. Nothing asserted
+it against input assembled from actual rows, so a fault in `loadEngineInput`
+could not break a single engine test: the engine goes on computing correctly
+from wrong numbers. That is the `05` §7 risk by name — "engine semantics get
+subtly wrong and are discovered in month four".
+
+---
+
+### B91 · The footgun on the recovery path
+
+*11-09-2026 · R40.* The nightly job has proved since early on that a restore
+*would* work. Nothing ever said how to do one — and the obvious way destroys the
+database.
+
+SQLite in WAL mode keeps a `-wal` and a `-shm` beside the file, and after a
+crash — exactly when a restore is wanted — both are still there. Copying a backup
+over `budget.sqlite` leaves a fresh database next to a crashed instance's
+journal, and the first query answers *"database disk image is malformed"*. The
+household, having done the sensible thing at the worst possible moment, turns a
+recoverable afternoon into a lost ledger.
+
+[`src/restore.ts`](../src/restore.ts) lists what is available, refuses to run
+while the database looks open, keeps the file it replaced, removes the sidecars,
+and reads the restored copy back before claiming success. `ops/restore.test.ts`
+reproduces the corruption with a genuine hot WAL — a synthetic one proves
+nothing, because SQLite reads the header and ignores a file that is not a
+journal.
+
+---
+
+*Entries B92 onward are recorded as the work happens.*

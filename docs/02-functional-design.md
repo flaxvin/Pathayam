@@ -108,7 +108,7 @@ RTA = 1,20,000 − 10,000 − 2,500 − 85,000 − 5,000 = ₹17,500
 
 ### R3 — Positive balances roll forward
 
-A category ending a month with a positive balance opens the next month with that balance. No expiry, no sweep, unless an auto-assign rule with a ceiling or a `hold` behaviour says otherwise (R9).
+A category ending a month with a positive balance opens the next month with that balance. No expiry, no sweep. (The original design allowed an auto-assign rule with a ceiling to say otherwise; that rule engine was removed — see the note under R9.)
 
 ---
 
@@ -202,9 +202,11 @@ A category may carry at most one target. Target types:
 
 ### R9 — Auto-assign
 
-One action fills the month according to each category's target and auto-assign rule, spending only money actually available (R1) and stopping cleanly when it runs out.
+One action fills the month according to each category's target, spending only money actually available (R1) and stopping cleanly when it runs out. Ready to Assign is spent down the budget in order, so what the household budgeted for is funded before anything else.
 
-**Auto-assign rule types** (superset of targets, taken from Actual's template language but delivered as a form):
+> **Superseded, 11-09-2026 (B58, B67).** The rule table below was the original design and is kept for the record, not as a specification of the app. It was built, tested, and shipped with no screen that could write a rule — so in practice it never ran, and auto-assign did nothing. Targets, set on the Categories screen, turned out to be the configuration a household actually maintains, and having two places to express "what this category should hold" was the problem rather than the solution. `planAutoAssign` and the `autoassign_rules` table have been removed; the behaviour that survives is *fund each category to its target, in budget order*. If a richer rule type is ever wanted, it should extend the target, not sit beside it.
+
+**Auto-assign rule types** *(historical — see the note above)* (superset of targets, taken from Actual's template language but delivered as a form):
 
 | Type | Configured as | Behaviour |
 |---|---|---|
@@ -220,7 +222,7 @@ One action fills the month according to each category's target and auto-assign r
 | Copy | from N months ago | Mirror an earlier month |
 | Remainder sweep | weight, optional ceiling | Distribute whatever RTA is left, by weight |
 
-**Priority.** Each rule carries a priority band (1 = highest). Auto-assign runs band by band. Within a band, order is the category's display order. Non-highest bands never over-allocate beyond what remains. Remainder-sweep rules always run last regardless of band.
+**Priority** *(historical).* Each rule carries a priority band (1 = highest). Auto-assign runs band by band. Within a band, order is the category's display order. Non-highest bands never over-allocate beyond what remains. Remainder-sweep rules always run last regardless of band.
 
 **Non-negotiable UX requirement.** This is configured through a form with plain-language preview — *"Assign ₹4,000 on the 1st of every month, stopping when this category holds ₹20,000"* — not through text syntax. An **advanced mode** may expose an equivalent text expression for power users and for copy-paste between categories, but no household member should ever be required to learn it. This is the single biggest usability failure to avoid inheriting from Actual.
 
@@ -426,7 +428,7 @@ Modelled on Actual's design (`01` §3), with an India-oriented addition.
 
 - F11.1 A goal MUST have a name, target amount, optional target date, and MUST be linked to one or more categories whose combined balance measures progress.
 - F11.2 Goals MUST be displayed outside the monthly budget grid, on their own screen, with progress bars and required-monthly-contribution figures.
-- F11.3 A goal MAY generate an auto-assign rule of type *by date* on its linked category.
+- F11.3 A goal MAY set a *by date* target on its linked category. (Originally specified as an auto-assign rule; see the note under R9.)
 - F11.4 Completing a goal MUST offer to spend the balance, roll it to a new goal, or return it to RTA.
 
 ---
