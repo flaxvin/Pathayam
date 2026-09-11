@@ -299,7 +299,13 @@ export function cardFunding(
     accountId,
     outstanding,
     funded: paymentCategoryBalance,
-    unfunded: Math.max(0, owed - reallyFunded),
+    /*
+     * B92 · Bounded by the debt itself. However the shortfall is arrived at, a
+     * card cannot be short by more than it owes — and a figure larger than the
+     * balance it describes is one a household can disprove with arithmetic,
+     * which costs more trust than the warning was ever worth.
+     */
+    unfunded: Math.min(owed, Math.max(0, owed - reallyFunded)),
   };
 }
 

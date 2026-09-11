@@ -545,9 +545,21 @@ describe("R6 · Credit cards", () => {
     );
 
     // The category reopens at zero, so the only remaining record of the gap is
-    // this figure — which is exactly why it is cumulative.
+    // this figure — which is exactly why it is cumulative. Note that a credit
+    // overspend is *not* taken out of Ready to Assign: it is absorbed into
+    // `unfundedCreditAbsorbed`, its own term in the identity. The money behind
+    // the reservation has still never been assigned.
     assert.equal(cat(state.get(SEP)!, "shopping").balance, 0);
     assert.equal(state.get(SEP)!.unfundedByAccount["acct-hdfc"], rupees(3_200));
+  });
+
+  test("B92 · a card is never reported short by more than it owes", () => {
+    // The invariant that makes the figure checkable: whatever the reasoning
+    // behind a shortfall, a household can disprove one larger than the balance
+    // it describes, and a number they can disprove costs more than it buys.
+    assert.equal(cardFunding("a", rupees(-5_000), rupees(0), rupees(90_000)).unfunded, rupees(5_000));
+    assert.equal(cardFunding("a", rupees(-5_000), rupees(5_000), rupees(90_000)).unfunded, rupees(5_000));
+    assert.equal(cardFunding("a", rupees(0), rupees(0), rupees(90_000)).unfunded, 0);
   });
 
   test("a fully funded card reports no shortfall", () => {
