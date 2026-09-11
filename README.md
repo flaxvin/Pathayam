@@ -188,6 +188,8 @@ from.
 | **Backup & verified restore** | The scheduled job restores the latest backup into a scratch DB and matches control totals; failure fires a webhook, success pings a dead-man's-switch. |
 | **Health page** | The page you open at 2am — backup status, price-feed health, flags, error counts. |
 | **Command palette** | `Cmd/Ctrl-K` from anywhere; complete and flag-aware. |
+| **Realised gains by FY** | Every sale keeps the parcels it consumed, so gains split by holding period, April to March. It reports the holding period and names no tax class — which threshold applies depends on the asset and the year's rules, and that judgement stays with whoever files. |
+| **Money you're owed** | Mark a transaction reimbursable; Review lists what is outstanding until it comes back. |
 | **Universal undo** | Every action undoes within 30 days, from the event log, on [Activity](#screens). An undo is recorded as its own entry — nothing is edited or deleted. Where later edits touched the same record, it shows what it would discard before it does it, and it refuses outright when the record is load-bearing for a loan instalment, a portfolio lot or a reconciliation. |
 
 ---
@@ -318,9 +320,9 @@ with the demo data.
 | **Accounts** | `/accounts` | Every account with cleared/uncleared/working balances; each opens a register. |
 | **Register** | `/accounts/:id` | A running-balance transaction list for one account, with reconcile. |
 | **Transaction** | `/transaction/:id` | Edit, splits, tags, owner; raw imported values; full event history; **receipts**. |
-| **Review** | `/review` | Everything imported awaiting confirmation: imports, suspected duplicates, uncategorised, overspent, unfunded cards, proposed rules. |
+| **Review** | `/review` | Everything awaiting a decision: imports, suspected duplicates, uncategorised (filed inline), overspent, unfunded cards, proposed rules, and money you're owed. |
 | **Import** | `/import` | CSV paste / statement-PDF upload with password hints; saved mappings. |
-| **Reports** | `/reports` | Income vs. spend, category trends, loan interest by FY. |
+| **Reports** | `/reports` | Income vs. spend, category trends, loan interest by FY, realised gains by FY split by holding period. |
 | **Query** | `/query` | The filterable, groupable table; CSV export. |
 | **Schedules** | `/schedules` | Recurring items and the forward cashflow calendar. |
 | **Goals** | `/goals` | Long-horizon savings with progress rings. |
