@@ -120,7 +120,9 @@ from.
 | **Cover overspend** | One-tap move from another envelope, with ranked source suggestions. |
 | **Credit-card payment envelopes** | Card spending reserves the cash to clear it; the envelope tracks the debt, symmetric with a loan's. |
 | **Add-on cards** | A member's card on another's account; the transaction owner defaults to the cardholder (R6.e). |
-| **Targets & auto-assign** | Per-category targets, and one-tap fund-to-target with a preview before it commits. |
+| **Targets & auto-assign** | Per-category targets, and one-tap fund-to-target with a preview before it commits. Ready to Assign is spent down the budget in order, so what you budgeted for is funded first. |
+| **Reorder** | ↑/↓ on every category and group, so the grid reads in the order the household thinks in rather than the order things were created. Each move is one undoable step. |
+| **App-managed envelopes** | Card payment envelopes and one envelope per goal are created, named and retired by the app. They carry no manual controls, and are marked *managed by the app* so it is obvious why. |
 | **Hold for next month / Buffer** | Park income for next month; a one-month buffer is a first-class state. |
 | **Forward recompute (R7.g)** | Editing any past month re-derives every month since, under the active overspend model, as one undoable batch. |
 | **Explain this number** | Ready to Assign and every category balance drill into the events that produced them. |
@@ -327,8 +329,10 @@ with the demo data.
 | **Portfolio** | `/portfolio` | Holdings as units, XIRR, allocation, CAS import, CSV export. |
 | **Net worth** | `/net-worth` | The four-way decomposition and dated history. |
 | **Month close** | `/months` | The monthly ritual and closed-month history. |
+| **Categories** | `/categories` | Rename, set targets, reorder with ↑/↓, hide, delete. Payment and goal envelopes are marked *managed by the app*. |
 | **Settings** | `/settings` | Household, theme, devices, Gmail connection, statement identity, notification prefs, API tokens. |
 | **Health** | `/health` | Backup status, restore verification, price feeds, feature flags, error counts. |
+| **Terms / Privacy** | `/terms`, `/privacy` | Public, signed out — Google's consent screen requires both before it grants `gmail.readonly`. |
 
 ### A look at the screens
 
@@ -348,8 +352,22 @@ Captured from a running instance with the demo household. The UI is theme-aware
 | [![Goals — long-horizon savings with progress rings](docs/screenshots/goals.png)](docs/screenshots/goals.png) | [![Reports — income vs spend, category trends, loan interest by FY](docs/screenshots/reports.png)](docs/screenshots/reports.png) |
 | **Health** | **Settings** |
 | [![Health — backups, restore verification, price feeds, feature flags](docs/screenshots/health.png)](docs/screenshots/health.png) | [![Settings — household, Gmail, statement identity, API tokens](docs/screenshots/settings.png)](docs/screenshots/settings.png) |
+| **Categories** | **Overview** |
+| [![Categories — targets, reorder arrows, and app-managed envelopes](docs/screenshots/categories.png)](docs/screenshots/categories.png) | [![Overview — runway, due-soon bills, and the month at a glance](docs/screenshots/overview.png)](docs/screenshots/overview.png) |
 
 Click any image for the full-resolution capture.
+
+To regenerate them after a UI change, seed a demo household, start the dev
+server with the bypass on, and run the capture script:
+
+```bash
+node docs/dev/capture-screenshots.mjs --port 8080
+```
+
+It drives headless Chromium over the DevTools protocol — no driver library, so
+B1's zero-dependency rule holds for the tooling too. It signs in through
+`POST /auth/dev`, which only exists when `DEV_LOGIN` is set, and it strips the
+development banner so the images document the app rather than this machine.
 
 ### Charts
 
@@ -365,8 +383,16 @@ They repaint with the theme, and each sits beside the same numbers as text.
 |---|---|
 | [![A loan's projected balance falling to zero over its remaining schedule](docs/screenshots/charts_loan.png)](docs/screenshots/charts_loan.png) | [![Grouped income-versus-spending bars and a net-saved line by month](docs/screenshots/charts_reports.png)](docs/screenshots/charts_reports.png) |
 
-Net worth adds an asset-composition donut and a net-worth-over-time line on its
-own screen.
+| Schedules — the next 60 days of cashflow | Goals — progress rings |
+|---|---|
+| [![A forward cashflow calendar over the next sixty days](docs/screenshots/charts_cashflow.png)](docs/screenshots/charts_cashflow.png) | [![A savings goal drawn as a progress ring against its target date](docs/screenshots/charts_goals.png)](docs/screenshots/charts_goals.png) |
+
+Reports carries four more that are easier to read in place than cropped out: a
+spending **treemap**, a GitHub-style **spending calendar** heatmap, a **Sankey**
+of where the month's money went, and a **sparkline** per category. Net worth adds
+an asset-composition donut and a net-worth-over-time line. All of them are in the
+full-page [Reports](docs/screenshots/reports.png) and
+[Net worth](docs/screenshots/net-worth.png) captures.
 
 ---
 
@@ -392,9 +418,24 @@ is exposed on the LAN. Any reverse proxy that terminates TLS works the same way.
    - `https://budget.example.com/auth/google/callback` (sign-in)
    - `https://budget.example.com/gmail/callback` (only if you'll use Gmail fetch)
 3. Copy the **Client ID** and **Client secret** into `.env`.
-4. For Gmail fetch, also: **APIs & Services → Enable APIs → Gmail API**, and add
+4. On the **OAuth consent screen**, fill in the app's public URLs. Google
+   requires all three, and will not grant a restricted scope without the last
+   two:
+   - Application home page — `https://budget.example.com/`
+   - Privacy policy link — `https://budget.example.com/privacy`
+   - Terms of service link — `https://budget.example.com/terms`
+
+   Both pages ship with the app, are served signed out, and state exactly what
+   the Gmail connection reads and keeps — only configured bank senders are
+   queried, message bodies are parsed and dropped, and the refresh token is
+   excluded from exports and from the event log. The privacy page also carries
+   the Limited Use disclosure, which is mandatory for `gmail.readonly`. Read
+   both before you submit; they describe this code, so if you fork and change
+   how Gmail data is handled, they become wrong.
+5. For Gmail fetch, also: **APIs & Services → Enable APIs → Gmail API**, and add
    the `.../auth/gmail.readonly` scope on the consent screen. If the app is in
-   "testing", add each household member as a test user.
+   "testing", add each household member as a test user — at that point
+   verification is not required and the pages above are still worth having.
 
 ### 3. Configure
 

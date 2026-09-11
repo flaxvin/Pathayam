@@ -212,7 +212,12 @@ h3 { font-size: 1rem; }
 main { padding: 1rem; max-width: 1200px; margin: 0 auto; }
 @media (min-width: 900px) {
   .with-sidebar { display: grid; grid-template-columns: 220px 1fr; gap: 1.5rem; max-width: 1400px; margin: 0 auto; }
-  .with-sidebar main { padding: 1.5rem 1.5rem 4rem; max-width: none; }
+  /* B62: the auto margin above centres the single-column layout, but on a grid
+     item an auto margin also makes the item shrink to its max-content width and
+     sit centred in its track. That left the budget grid 836px wide inside a
+     1156px column — and, because max-content differs per screen, a different
+     width on every page. Reset it so main fills the track it was given. */
+  .with-sidebar main { padding: 1.5rem 1.5rem 4rem; max-width: none; margin: 0; }
 }
 
 /* Desktop sidebar (03 §2) */
