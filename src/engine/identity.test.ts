@@ -172,6 +172,58 @@ describe("B90 · the identity holds against a real database", () => {
     db.close();
   });
 
+  /*
+   * B97 · An uncategorised card charge breaks the identity by its own amount.
+   *
+   * Found by leaving a few imported card transactions unreviewed — which is not
+   * an edge case, it is the normal state of every card transaction between the
+   * import landing and somebody filing it. The review queue exists to hold
+   * exactly this.
+   *
+   * The payment envelope's activity is derived from the card's raw account flow
+   * (`creditAccountFlow`), so it reserves against every charge whatever its
+   * category. With a category, the spending category is consumed by the same
+   * amount and the two cancel. With none, the envelope rises and nothing falls,
+   * so the category totals exceed what the budget accounts hold.
+   *
+   * Marked `todo` rather than asserted, because the fix is a decision about R6
+   * and not mine to take alone. The likely answer is that an envelope should
+   * only ever reserve what a category actually gave up — leaving the debt
+   * visibly unbudgeted, which is both true and more useful than silently
+   * reserving for it. But that changes what R6 means, so it wants a deliberate
+   * choice rather than a quiet patch.
+   */
+  test("an uncategorised card charge keeps the identity", { todo: true }, () => {
+    const db = openDatabase({ path: ":memory:", verbose: false });
+    ensureHousehold(db);
+    execute(db, `INSERT INTO members (id,email,name,created_at) VALUES (?,?,?,?)`,
+      "m", "f@e.com", "Ravi", nowIST());
+    const bank = createAccount(db, actor, {
+      name: "Bank", kind: "budget", subtype: "savings",
+      openingDate: "2026-08-01", openingBalance: rupees(100000),
+    }).id;
+    const card = createAccount(db, actor, {
+      name: "Card", kind: "credit", subtype: "credit-card",
+      openingDate: "2026-08-01", openingBalance: 0,
+    }).id;
+    createCard(db, actor, { accountId: card, label: "Card", last4: "1111", holderMemberId: "m" });
+    const group = createGroup(db, actor, "Flexible");
+    const groceries = createCategory(db, actor, { groupId: group.id, name: "Groceries" }).id;
+    setAssigned(db, actor, "2026-08", groceries, rupees(5000));
+
+    // Categorised: the envelope reserves and the category gives up the same.
+    const txn = createTransaction(db, actor, {
+      accountId: card, amount: -rupees(800), date: "2026-08-10",
+      categoryId: groceries, payeeName: "Shop",
+    });
+    assertIdentityFrom(db, "2026-08", { useRollup: false });
+
+    // Exactly what an unreviewed import looks like.
+    execute(db, `UPDATE transactions SET category_id = NULL WHERE id = ?`, txn.id);
+    assertIdentityFrom(db, "2026-08", { useRollup: false });
+    db.close();
+  });
+
   test("a past month is as true as the present one", () => {
     const { db, now } = household(30);
     assertIdentityFrom(db, addMonths(now, -18), { useRollup: true });
