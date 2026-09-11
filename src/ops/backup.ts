@@ -72,7 +72,7 @@ export interface ControlTotals {
  * tables, which legitimately differ between a snapshot and now and are not
  * household data to restore.
  */
-const COUNTED_TABLES = [
+export const COUNTED_TABLES = [
   // Budget engine
   "members", "accounts", "cards", "card_statements", "category_groups", "categories", "assignments",
   "held_for_next_month", "targets", "payees", "payee_aliases",
@@ -100,9 +100,17 @@ const COUNTED_TABLES = [
  * of which legitimately change between a backup and its verification, so
  * counting them would raise false failures.
  */
-const EPHEMERAL = [
+export const EPHEMERAL = [
   "sessions", "api_tokens", "auth_attempts", "idempotency_keys",
   "job_runs", "price_fetches",
+  // B66 · Operational: a failed request's path and stack. Useful at 2am, not
+  // household data, and it would put a stack trace in an export that travels.
+  "request_failures",
+  // B74 · Derived. The rollup is a summary of the ledger that is already
+  // exported, it rebuilds itself on the next read, and it legitimately differs
+  // between a backup and its verification — counting it would raise a false
+  // failure, and exporting it would ship a cache.
+  "month_rollups", "month_rollup_state",
 ];
 
 export function controlTotals(db: DB | DatabaseSync): ControlTotals {
@@ -485,7 +493,7 @@ export async function runBackupJob(
  * birth are not budget data, and an export travels — to another machine, a
  * cloud drive, an email. The values stay on the server that needs them.
  */
-const NEVER_EXPORTED = ["statement_identity", "gmail_connections"];
+export const NEVER_EXPORTED = ["statement_identity", "gmail_connections"];
 
 export function exportEverything(db: DB): Record<string, unknown> {
   const tables = [...COUNTED_TABLES, "household", "import_profiles", "rule_applications", "review_dismissals"]
