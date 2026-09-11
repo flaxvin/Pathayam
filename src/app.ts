@@ -144,6 +144,14 @@ import {
   renderTokens,
   type PayeeRow, type RuleRow,
 } from "./web/pages/manage.ts";
+import { renderPrivacy, renderTerms } from "./web/pages/legal.ts";
+
+/**
+ * The date shown on the legal pages. It is a constant rather than "today"
+ * because a policy that claims to have been updated every time it is rendered
+ * tells the reader nothing. Bump it when the text changes.
+ */
+const LEGAL_UPDATED = "11 September 2026";
 import { loadRules } from "./import/pipeline.ts";
 import { testRule, type Rule, type RuleSubject, extractNarrationFields } from "./import/rules.ts";
 import {
@@ -154,7 +162,8 @@ import {
 } from "./domain/transactions.ts";
 import {
   createCategory, renameCategory, moveCategoryToGroup, setCategoryHidden, deleteCategory,
-  setTarget, clearTarget, getTarget, createGroup, listGroups,
+  setTarget, clearTarget, getTarget, createGroup, renameGroup, listGroups,
+  reorderCategory, reorderGroup,
 } from "./domain/budget.ts";
 import {
   monthCloseView, closeMonth, reopenMonth, closedMonths, monthAwaitingClose, isClosed,
@@ -211,7 +220,13 @@ export interface AppDeps {
   fetchImpl?: typeof fetch;
 }
 
-const PUBLIC_PATHS = new Set(["/signin", "/auth/google", "/auth/google/callback", "/auth/dev", "/healthz"]);
+// `/privacy` and `/terms` are public because Google's OAuth reviewer fetches
+// both while signed out; a sign-in redirect there fails verification for the
+// restricted `gmail.readonly` scope.
+const PUBLIC_PATHS = new Set([
+  "/signin", "/auth/google", "/auth/google/callback", "/auth/dev", "/healthz",
+  "/privacy", "/terms",
+]);
 const STATIC_PREFIX = "/assets/";
 
 export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: RequestContext) => Response | void)[] } {
@@ -471,6 +486,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 </p>
               `}
           ${devForm}
+          <p class="faint" style="margin-top:1.5rem;text-align:center">
+            <a href="/terms">Terms of service</a> · <a href="/privacy">Privacy policy</a>
+          </p>
         </div>
       `,
       { bare: true },
@@ -573,6 +591,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       headers: { "Set-Cookie": sessionCookie(token, { secure: false, days: config.sessionDays }) },
     };
   });
+
+  // Required by Google's OAuth consent screen, and linked from sign-in and
+  // Settings so a member can read them without hunting for a URL.
+  router.get("/privacy", (ctx) =>
+    render(ctx, "Privacy policy", renderPrivacy({ appName: "Budget", updated: LEGAL_UPDATED }), { bare: true }),
+  );
+
+  router.get("/terms", (ctx) =>
+    render(ctx, "Terms of service", renderTerms({ appName: "Budget", updated: LEGAL_UPDATED }), { bare: true }),
+  );
 
   router.post("/signout", (ctx) => {
     const a = auth(ctx);
@@ -1343,6 +1371,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               </div>
             `,
           )}
+        </section>
+
+        <section class="card">
+          <h2>About</h2>
+          <p class="faint">
+            <a href="/terms">Terms of service</a> ·
+            <a href="/privacy">Privacy policy</a>
+          </p>
+          <p class="faint">
+            The privacy policy is what Google's consent screen points at, and it
+            describes exactly what the Gmail connection reads and keeps.
+          </p>
         </section>
 
         <section class="card">
@@ -2870,10 +2910,31 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // B58 · Create (or reuse) the app-managed "Savings goals" group and a fresh
   // category in it for a goal. The group is `internal`, so its categories carry
   // no manual controls on the Categories screen — the goal owns them.
+  /**
+   * B61 · The app-managed group that holds one envelope per goal.
+   *
+   * It used to be called "Savings goals", which is also what the starting
+   * template calls its ordinary savings group — so a household that ran the
+   * template and then added a goal saw *two* sections with the same heading on
+   * the Categories page, one editable and one not. The managed group is called
+   * "Goals" instead, and an existing one is renamed rather than abandoned,
+   * because abandoning it would split goal envelopes across two groups.
+   */
+  const GOAL_GROUP = "Goals";
+  const LEGACY_GOAL_GROUP = "Savings goals";
+
+  function goalGroup(actor: Actor) {
+    const groups = listGroups(db);
+    const existing = groups.find(
+      (g) => g.kind === "internal" && (g.name === GOAL_GROUP || g.name === LEGACY_GOAL_GROUP),
+    );
+    if (!existing) return createGroup(db, actor, GOAL_GROUP, "internal");
+    if (existing.name !== GOAL_GROUP) return renameGroup(db, actor, existing.id, GOAL_GROUP);
+    return existing;
+  }
+
   function ensureSavingsCategory(actor: Actor, goalName: string) {
-    const group = listGroups(db).find((g) => g.name === "Savings goals" && g.kind === "internal")
-      ?? createGroup(db, actor, "Savings goals", "internal");
-    return createCategory(db, actor, { groupId: group.id, name: goalName });
+    return createCategory(db, actor, { groupId: goalGroup(actor).id, name: goalName });
   }
 
   router.post("/goals/:id/edit", (ctx) =>
@@ -2906,16 +2967,23 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const catIds = goalCategoryIds(db, id);
       const kept = catIds.reduce((sum, cid) => sum + (view.categories.get(cid)?.state.balance ?? 0), 0) as Paise;
       deleteGoal(db, actor, id);
-      const normal = listGroups(db).find((g) => g.name === "Savings" && g.kind === "normal")
+      // B61: prefer a savings group the household already has — the starting
+      // template's "Savings goals" is exactly the right home — over minting a
+      // third group nobody asked for.
+      const groups = listGroups(db);
+      const normal =
+        groups.find((g) => g.kind === "normal" && g.name === LEGACY_GOAL_GROUP)
+        ?? groups.find((g) => g.kind === "normal" && g.name === "Savings")
         ?? (catIds.length > 0 ? createGroup(db, actor, "Savings", "normal") : null);
       for (const catId of catIds) {
         if (normal) moveCategoryToGroup(db, actor, catId, normal.id);
       }
+      const where = normal?.name ?? "Savings";
       return {
         redirect: "/goals",
         message: kept > 0
-          ? `Goal removed. Its ${formatPaise(kept)} is now in a "Savings" category you can manage.`
-          : "Goal removed. Its empty savings category moved to a \"Savings\" group.",
+          ? `Goal removed. Its ${formatPaise(kept)} is now a category you manage, under "${where}".`
+          : `Goal removed. Its empty savings category moved to "${where}".`,
       };
     }),
   );
@@ -3292,6 +3360,25 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         targetDate: dateRaw?.trim() ? parseDate(dateRaw) : null,
       });
       return { redirect: "/categories", message: "Target set." };
+    }),
+  );
+
+  // F3.6 · Reorder a category within its group, or a group among groups.
+  router.post("/categories/:id/reorder", (ctx) =>
+    mutate(ctx, (a) => {
+      const dir = field(ctx.body, "direction") === "up" ? "up" : "down";
+      reorderCategory(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+        ctx.params.id!, dir);
+      return { redirect: "/categories", message: "Moved." };
+    }),
+  );
+
+  router.post("/groups/:id/reorder", (ctx) =>
+    mutate(ctx, (a) => {
+      const dir = field(ctx.body, "direction") === "up" ? "up" : "down";
+      reorderGroup(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+        ctx.params.id!, dir);
+      return { redirect: "/categories", message: "Moved." };
     }),
   );
 
