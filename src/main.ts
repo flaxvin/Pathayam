@@ -16,6 +16,7 @@ import { pruneIdempotencyKeys } from "./core/idempotency.ts";
 import { pruneExpiredSessions, pruneAuthAttempts } from "./auth/sessions.ts";
 import { purgeDeleted } from "./domain/transactions.ts";
 import { runBackupJob } from "./ops/backup.ts";
+import { recordRequestFailure, pruneRequestFailures } from "./ops/errors.ts";
 import { refreshPrices } from "./portfolio/refresh.ts";
 
 const LEVELS = { debug: 10, info: 20, warn: 30, error: 40 } as const;
@@ -71,6 +72,40 @@ function main(): void {
           ? err.message
           : "Something went wrong on the server. Nothing you typed has been lost.";
 
+      /*
+       * B66 · Handling the error here is what makes the household see a styled
+       * page instead of bare text — but returning a response from this hook
+       * also means `http/server.ts` never reaches the branch that logs the
+       * stack. So the logging happens here, at the point that swallows it.
+       *
+       * An HttpError is a deliberate answer (404, 422, "that needs a
+       * password") and is not a fault, so only an unexpected throw is
+       * recorded. It goes to the log *and* to the database, because the log is
+       * where you look when you already know something is wrong and the health
+       * page is where you find out that it is.
+       */
+      if (!(err instanceof HttpError)) {
+        log({
+          level: "error",
+          msg: "request failed",
+          method: ctx.method,
+          path: ctx.url.pathname,
+          error: err instanceof Error ? err.message : String(err),
+          stack: err instanceof Error ? err.stack : undefined,
+        });
+        try {
+          recordRequestFailure(db, {
+            method: ctx.method,
+            path: ctx.url.pathname,
+            status,
+            error: err,
+          });
+        } catch (recordError) {
+          // Never let the recorder turn a handled 500 into an unhandled one.
+          log({ level: "error", msg: "could not record the failure", error: String(recordError) });
+        }
+      }
+
       if (accept.includes("application/json")) {
         return { status, json: { error: message } };
       }
@@ -92,7 +127,8 @@ function main(): void {
         const sessions = pruneExpiredSessions(db);
         const attempts = pruneAuthAttempts(db);
         const purged = purgeDeleted(db);
-        log({ level: "debug", msg: "housekeeping", keys, sessions, attempts, purged });
+        const failures = pruneRequestFailures(db);
+        log({ level: "debug", msg: "housekeeping", keys, sessions, attempts, purged, failures });
       } catch (err) {
         log({ level: "error", msg: "housekeeping failed", error: String(err) });
       }

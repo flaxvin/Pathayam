@@ -21,7 +21,6 @@ import {
   type OverspendModel,
   type Target,
 } from "./types.ts";
-import type { AutoAssignRule } from "./engine.ts";
 
 /**
  * Every categorised amount, whether it came from a plain transaction or from
@@ -308,20 +307,6 @@ export function loadTargets(db: DB): Target[] {
     amount: r.amount,
     targetDate: r.target_date,
     period: r.period as Target["period"],
-  }));
-}
-
-export function loadAutoAssignRules(db: DB): AutoAssignRule[] {
-  return queryAll<{
-    category_id: string;
-    type: string;
-    params_json: string;
-    priority: number;
-  }>(db, `SELECT * FROM autoassign_rules WHERE enabled = 1`).map((r) => ({
-    categoryId: r.category_id,
-    type: r.type as AutoAssignRule["type"],
-    priority: r.priority,
-    ...(JSON.parse(r.params_json) as Partial<AutoAssignRule>),
   }));
 }
 

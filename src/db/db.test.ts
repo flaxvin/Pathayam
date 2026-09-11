@@ -45,7 +45,7 @@ describe("migrations", () => {
     for (const expected of [
       "household", "members", "sessions", "api_tokens", "events",
       "idempotency_keys", "accounts", "cards", "category_groups", "categories",
-      "assignments", "held_for_next_month", "targets", "autoassign_rules",
+      "assignments", "held_for_next_month", "targets",
       "payees", "payee_aliases", "transactions", "transaction_splits", "tags",
       "transaction_tags", "import_batches", "import_profiles",
       "staged_transactions", "rules", "rule_applications", "review_dismissals",

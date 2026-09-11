@@ -265,20 +265,6 @@ CREATE TABLE targets (
   updated_at   TEXT NOT NULL
 );
 
--- R9: the machine-executable form of a target. Configured through a form with
--- a plain-language preview (Q9) — params_json is never typed by a user in P0.
-CREATE TABLE autoassign_rules (
-  category_id TEXT PRIMARY KEY REFERENCES categories(id),
-  type        TEXT NOT NULL CHECK (type IN (
-                'fixed','fixed-ceiling','refill','refill-hold','rate-limited',
-                'periodic','by-date','percent-income','average-history',
-                'copy','remainder-sweep')),
-  params_json TEXT NOT NULL,
-  -- Band 1 is highest. Remainder sweeps always run last regardless of band.
-  priority    INTEGER NOT NULL DEFAULT 5,
-  enabled     INTEGER NOT NULL DEFAULT 1,
-  updated_at  TEXT NOT NULL
-);
 
 --------------------------------------------------------------------------------
 -- Payees (F5)
@@ -711,15 +697,6 @@ CREATE TABLE goal_categories (
 );
 CREATE INDEX idx_goal_categories ON goal_categories(category_id);
 
--- F10.3 · A saved view over the one query table, pinned to the More hub.
-CREATE TABLE saved_views (
-  id         TEXT PRIMARY KEY,
-  name       TEXT NOT NULL,
-  filter_json TEXT NOT NULL,
-  group_by   TEXT,
-  created_at TEXT NOT NULL,
-  created_by TEXT REFERENCES members(id)
-);
 `,
   },
   {
@@ -1184,6 +1161,49 @@ CREATE TABLE card_statements (
   created_by    TEXT REFERENCES members(id)
 );
 CREATE INDEX idx_card_statements ON card_statements(account_id, statement_date);
+`,
+  },
+  {
+    name: "0017-request-failures",
+    sql: `
+--------------------------------------------------------------------------------
+-- B66 · Request failures, so a 500 is visible after the fact.
+--
+-- job_runs records what the scheduled jobs did, and the health page counted
+-- failures from it — but a route that threw was recorded nowhere at all. In
+-- production the request log line is debug and filtered out, and onError
+-- handled the error before the server's error branch could log it, so a 500
+-- produced no output and no signal on the one page you open when something is
+-- wrong. This table is the record; the health page reads it alongside job_runs.
+--
+-- S7 applies as everywhere else: a path and a message, never a body and never a
+-- financial value.
+--------------------------------------------------------------------------------
+CREATE TABLE request_failures (
+  id        TEXT PRIMARY KEY,
+  at        TEXT NOT NULL,
+  method    TEXT NOT NULL,
+  path      TEXT NOT NULL,
+  status    INTEGER NOT NULL,
+  message   TEXT,
+  stack     TEXT
+);
+CREATE INDEX idx_request_failures ON request_failures(at);
+
+--------------------------------------------------------------------------------
+-- B67 · Two tables nothing can ever write.
+--
+-- autoassign_rules was the store behind the original rule-driven auto-assign.
+-- That was replaced by funding straight to each category's target, and the
+-- replacement reads targets. No code has inserted into this table since; it
+-- was read by a loader nothing called, feeding an engine function nothing
+-- reached. saved_views was never referenced by any code at all.
+--
+-- Both were still exported in every backup and still counted in control totals,
+-- which is the cost of keeping a table that cannot hold anything.
+--------------------------------------------------------------------------------
+DROP TABLE IF EXISTS autoassign_rules;
+DROP TABLE IF EXISTS saved_views;
 `,
   },
 ];

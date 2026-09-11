@@ -228,7 +228,6 @@ export function deleteCategory(
     }
     execute(db, `DELETE FROM assignments WHERE category_id = ?`, id);
     execute(db, `DELETE FROM targets WHERE category_id = ?`, id);
-    execute(db, `DELETE FROM autoassign_rules WHERE category_id = ?`, id);
     execute(db, `UPDATE categories SET deleted_at = ? WHERE id = ?`, nowIST(), id);
 
     appendEvent(db, actor, {

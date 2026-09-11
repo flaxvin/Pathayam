@@ -482,38 +482,17 @@ export function suggestCoverSources(
 
 // ---------------------------------------------------------------------------
 // R9 · Auto-assign
+//
+// B67: R9 originally planned the month from a table of per-category rules,
+// with eleven rule types and a plain-language describer. That was replaced by
+// funding each category straight to its target, which reads `targets` and
+// lives in `app.ts` — and the rule engine has been unreachable ever since,
+// because nothing ever wrote a row to `autoassign_rules` for it to read. Its
+// tests kept passing, which is exactly what made it easy to miss.
+//
+// What a plan *is* stays here, because the preview R9 requires is still built
+// from it.
 // ---------------------------------------------------------------------------
-
-export type AutoAssignRuleType =
-  | "fixed"
-  | "fixed-ceiling"
-  | "refill"
-  | "refill-hold"
-  | "rate-limited"
-  | "periodic"
-  | "by-date"
-  | "percent-income"
-  | "average-history"
-  | "copy"
-  | "remainder-sweep";
-
-export interface AutoAssignRule {
-  categoryId: string;
-  type: AutoAssignRuleType;
-  /** Band 1 is highest. Sweeps always run last regardless of band. */
-  priority: number;
-  amount?: Paise;
-  ceiling?: Paise;
-  percent?: number;
-  months?: number;
-  adjustPercent?: number;
-  adjustAmount?: Paise;
-  weight?: number;
-  targetDate?: IsoDate;
-  startDate?: IsoDate;
-  everyN?: number;
-  unit?: "day" | "week" | "month" | "year";
-}
 
 export interface AutoAssignProposal {
   categoryId: string;
@@ -521,7 +500,7 @@ export interface AutoAssignProposal {
   to: Paise;
   delta: Paise;
   reason: string;
-  /** True when the rule wanted more than the money left (R9). */
+  /** True when the target wanted more than the money left (R9). */
   limitedByAvailableFunds: boolean;
 }
 
@@ -530,240 +509,6 @@ export interface AutoAssignPlan {
   totalAssigned: Paise;
   rtaBefore: Paise;
   rtaAfter: Paise;
-}
-
-export interface AutoAssignContext {
-  month: MonthKey;
-  readyToAssign: Paise;
-  states: Map<string, CategoryState>;
-  categories: CategoryMeta[];
-  /** Income that reached RTA in this month, for percent-of-income rules. */
-  incomeThisMonth: Paise;
-  /** assigned[categoryId] for prior months, for average-of-history and copy. */
-  historicalAssigned: Map<MonthKey, Record<string, Paise>>;
-  today: IsoDate;
-}
-
-/**
- * Plan the month's assignments (R9).
- *
- * Never commits — it returns proposals for the preview that R9 requires before
- * anything is applied, and it spends only money actually available (R1),
- * stopping cleanly when it runs out rather than driving RTA negative.
- */
-export function planAutoAssign(
-  rules: AutoAssignRule[],
-  ctx: AutoAssignContext,
-): AutoAssignPlan {
-  const hiddenIds = new Set(ctx.categories.filter((c) => c.hidden).map((c) => c.id));
-  // F3.2: a hidden category is excluded from auto-assign.
-  const active = rules.filter((r) => !hiddenIds.has(r.categoryId));
-
-  const order = new Map(ctx.categories.map((c, i) => [c.id, i]));
-  const sweeps = active.filter((r) => r.type === "remainder-sweep");
-  const banded = active
-    .filter((r) => r.type !== "remainder-sweep")
-    .sort(
-      (a, b) =>
-        a.priority - b.priority ||
-        (order.get(a.categoryId) ?? 0) - (order.get(b.categoryId) ?? 0),
-    );
-
-  let remaining = ctx.readyToAssign;
-  const proposals: AutoAssignProposal[] = [];
-
-  for (const rule of banded) {
-    if (remaining <= 0) break;
-    const state = ctx.states.get(rule.categoryId);
-    if (!state) continue;
-
-    const { want, reason } = wantedFor(rule, state, ctx);
-    if (want <= 0) continue;
-
-    const grant = Math.min(want, remaining);
-    if (grant <= 0) continue;
-
-    remaining -= grant;
-    proposals.push({
-      categoryId: rule.categoryId,
-      from: state.assigned,
-      to: state.assigned + grant,
-      delta: grant,
-      reason,
-      limitedByAvailableFunds: grant < want,
-    });
-  }
-
-  // Remainder sweeps run last regardless of band (R9), splitting what is left
-  // by weight. Ceilings still apply, so a sweep cannot overfill a category.
-  if (remaining > 0 && sweeps.length > 0) {
-    const weights = sweeps.map((r) => r.weight ?? 1);
-    const shares = allocateByWeight(remaining, weights);
-    sweeps.forEach((rule, i) => {
-      const state = ctx.states.get(rule.categoryId);
-      if (!state) return;
-      let share = shares[i] ?? 0;
-      if (rule.ceiling !== undefined) {
-        const headroom = Math.max(0, rule.ceiling - (state.opening + state.assigned));
-        share = Math.min(share, headroom);
-      }
-      if (share <= 0) return;
-      remaining -= share;
-      proposals.push({
-        categoryId: rule.categoryId,
-        from: state.assigned,
-        to: state.assigned + share,
-        delta: share,
-        reason: "share of what was left over",
-        limitedByAvailableFunds: false,
-      });
-    });
-  }
-
-  const totalAssigned = proposals.reduce((sum, p) => sum + p.delta, 0);
-  return {
-    proposals,
-    totalAssigned,
-    rtaBefore: ctx.readyToAssign,
-    rtaAfter: ctx.readyToAssign - totalAssigned,
-  };
-}
-
-function wantedFor(
-  rule: AutoAssignRule,
-  state: CategoryState,
-  ctx: AutoAssignContext,
-): { want: Paise; reason: string } {
-  const already = state.assigned;
-  const balanceBeforeSpending = state.opening + state.assigned;
-
-  switch (rule.type) {
-    case "fixed":
-      return { want: Math.max(0, (rule.amount ?? 0) - already), reason: "fixed monthly amount" };
-
-    case "fixed-ceiling": {
-      const headroom = Math.max(0, (rule.ceiling ?? 0) - balanceBeforeSpending);
-      return {
-        want: Math.min(Math.max(0, (rule.amount ?? 0) - already), headroom),
-        reason: "fixed amount, up to the ceiling",
-      };
-    }
-
-    case "refill":
-      return {
-        want: Math.max(0, (rule.amount ?? 0) - balanceBeforeSpending),
-        reason: "top up to the target balance",
-      };
-
-    case "refill-hold":
-      return {
-        want: Math.max(0, (rule.amount ?? 0) - Math.max(balanceBeforeSpending, 0)),
-        reason: "top up to the target balance, keeping any surplus",
-      };
-
-    case "rate-limited": {
-      const periods = rule.startDate
-        ? Math.max(0, Math.floor(daysBetween(rule.startDate, ctx.today) / periodDays(rule.unit)) + 1)
-        : 1;
-      const ceiling = (rule.amount ?? 0) * periods;
-      return {
-        want: Math.max(0, Math.min(ceiling - balanceBeforeSpending, (rule.amount ?? 0) * periods - already)),
-        reason: "scaled by how much of the period has passed",
-      };
-    }
-
-    case "periodic": {
-      if (!rule.startDate || !rule.everyN) {
-        return { want: Math.max(0, (rule.amount ?? 0) - already), reason: "on cycle" };
-      }
-      const elapsed = monthsBetween(monthOf(rule.startDate), ctx.month);
-      const stride = rule.unit === "year" ? rule.everyN * 12 : rule.everyN;
-      const due = elapsed >= 0 && elapsed % stride === 0;
-      return {
-        want: due ? Math.max(0, (rule.amount ?? 0) - already) : 0,
-        reason: due ? "due this cycle" : "not due this cycle",
-      };
-    }
-
-    case "by-date": {
-      if (!rule.targetDate) return { want: 0, reason: "no target date" };
-      const remaining = Math.max(0, (rule.amount ?? 0) - balanceBeforeSpending);
-      const monthsLeft = Math.max(1, monthsBetween(ctx.month, monthOf(rule.targetDate)) + 1);
-      const share = monthsLeft <= 1 ? remaining : (allocate(remaining, monthsLeft)[0] ?? 0);
-      return { want: share, reason: `spread over ${monthsLeft} month(s) to the target date` };
-    }
-
-    case "percent-income": {
-      const want = Math.round((ctx.incomeThisMonth * (rule.percent ?? 0)) / 100);
-      return { want: Math.max(0, want - already), reason: `${rule.percent}% of this month's income` };
-    }
-
-    case "average-history": {
-      const n = rule.months ?? 3;
-      const values: Paise[] = [];
-      for (let i = 1; i <= n; i++) {
-        const m = addMonths(ctx.month, -i);
-        values.push(ctx.historicalAssigned.get(m)?.[rule.categoryId] ?? 0);
-      }
-      let avg = values.length ? Math.round(values.reduce((a, b) => a + b, 0) / values.length) : 0;
-      if (rule.adjustPercent) avg = Math.round(avg * (1 + rule.adjustPercent / 100));
-      if (rule.adjustAmount) avg += rule.adjustAmount;
-      return { want: Math.max(0, avg - already), reason: `average of the last ${n} months` };
-    }
-
-    case "copy": {
-      const m = addMonths(ctx.month, -(rule.months ?? 1));
-      const amount = ctx.historicalAssigned.get(m)?.[rule.categoryId] ?? 0;
-      return { want: Math.max(0, amount - already), reason: `same as ${m}` };
-    }
-
-    default:
-      return { want: 0, reason: "no rule" };
-  }
-}
-
-function periodDays(unit: AutoAssignRule["unit"]): number {
-  switch (unit) {
-    case "day": return 1;
-    case "week": return 7;
-    case "year": return 365;
-    default: return 30;
-  }
-}
-
-/**
- * R9's non-negotiable UX requirement: a plain-language preview, so no member
- * ever has to learn a template syntax (Q9 — form only in P0).
- */
-export function describeAutoAssignRule(rule: AutoAssignRule, format: (p: Paise) => string): string {
-  switch (rule.type) {
-    case "fixed":
-      return `Assign ${format(rule.amount ?? 0)} every month`;
-    case "fixed-ceiling":
-      return `Assign ${format(rule.amount ?? 0)} every month, stopping when this category holds ${format(rule.ceiling ?? 0)}`;
-    case "refill":
-      return `Top this category up to ${format(rule.amount ?? 0)} every month`;
-    case "refill-hold":
-      return `Top this category up to ${format(rule.amount ?? 0)} every month, and never remove a surplus`;
-    case "rate-limited":
-      return `Allow ${format(rule.amount ?? 0)} per ${rule.unit ?? "month"}, scaled by how much time has passed`;
-    case "periodic":
-      return `Assign ${format(rule.amount ?? 0)} every ${rule.everyN ?? 1} ${rule.unit ?? "month"}(s)`;
-    case "by-date":
-      return `Save ${format(rule.amount ?? 0)} by ${rule.targetDate}, spread across the months remaining`;
-    case "percent-income":
-      return `Assign ${rule.percent ?? 0}% of the income received this month`;
-    case "average-history":
-      return `Assign the average of the last ${rule.months ?? 3} months`;
-    case "copy":
-      return `Assign the same as ${rule.months ?? 1} month(s) ago`;
-    case "remainder-sweep":
-      return rule.ceiling !== undefined
-        ? `Sweep whatever is left over into this category, stopping at ${format(rule.ceiling)}`
-        : `Sweep whatever is left over into this category`;
-    default:
-      return "No rule";
-  }
 }
 
 // ---------------------------------------------------------------------------
