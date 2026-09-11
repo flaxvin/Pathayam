@@ -1882,10 +1882,30 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       updateTransaction(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, {
         categoryId,
       });
+
+      /*
+       * B100 · Filing a transaction is the signal, wherever it happened.
+       *
+       * L2 says categorising the same payee a second time proposes a rule, and
+       * `proposeCategoryRules` reads the ledger — but it was only ever called
+       * from the import-approval route. Three years of real use produced 131
+       * transactions from one merchant and not a single proposed rule, because
+       * none of that filing went through an import.
+       *
+       * The proposal still only proposes: it goes to Review and is never
+       * applied on its own (L3), so this is safe to run on every filing.
+       */
+      const proposals =
+        categoryId && learningEnabled(db) ? proposeCategoryRules(db, actorFor(a)) : [];
+
       const name = categoryId ? getCategory(db, categoryId)?.name ?? "a category" : null;
       return {
         redirect: field(ctx.body, "return_to") || "/review",
-        message: name ? `Filed under ${name}.` : "Category cleared.",
+        message:
+          (name ? `Filed under ${name}.` : "Category cleared.") +
+          (proposals.length > 0
+            ? ` Noticed a pattern — there ${proposals.length === 1 ? "is a rule" : "are rules"} to confirm in Review.`
+            : ""),
       };
     }),
   );
