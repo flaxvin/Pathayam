@@ -158,6 +158,16 @@ import { countRequestFailures, recentRequestFailures } from "./ops/errors.ts";
  * because a policy that claims to have been updated every time it is rendered
  * tells the reader nothing. Bump it when the text changes.
  */
+/**
+ * B93 · How many uncategorised rows one sitting is worth.
+ *
+ * It was fifty, and with an inline category picker on each that made the Review
+ * page 195KB — 69% of it the same nineteen options repeated. On the phone this
+ * app is mostly used on, that is a slow page for a queue nobody clears in one
+ * go anyway. Fifteen is a sitting; the rest are still counted in the heading.
+ */
+const UNCATEGORISED_PAGE = 15;
+
 const LEGAL_UPDATED = "11 September 2026";
 import { loadRules } from "./import/pipeline.ts";
 import { testRule, type Rule, type RuleSubject, extractNarrationFields } from "./import/rules.ts";
@@ -2115,14 +2125,37 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           id: string; date: string; amount: number; payee: string | null; account: string;
         }>(
           db,
-          `SELECT t.id, t.date, t.amount, p.name AS payee, a.name AS account
+          /*
+           * B93 · The category this payee's money usually goes to, worked out
+           * from the ledger, so the common case is one tap rather than a
+           * nineteen-option dropdown. `usual` is null for a payee never seen
+           * with a category, which is the case that still needs the full list.
+           */
+          `SELECT t.id, t.date, t.amount, p.name AS payee, a.name AS account,
+                  (SELECT prev.category_id
+                     FROM transactions prev
+                    WHERE prev.payee_id = t.payee_id AND prev.category_id IS NOT NULL
+                      AND prev.deleted_at IS NULL
+                    GROUP BY prev.category_id
+                    ORDER BY COUNT(*) DESC, MAX(prev.date) DESC
+                    LIMIT 1) AS usual_category_id
              FROM transactions t
              JOIN accounts a ON a.id = t.account_id
              LEFT JOIN payees p ON p.id = t.payee_id
             WHERE t.deleted_at IS NULL AND t.is_split = 0 AND t.category_id IS NULL
               AND t.transfer_pair_id IS NULL AND a.kind != 'tracking'
-            ORDER BY t.date DESC LIMIT 50`,
+              AND t.amount < 0
+            ORDER BY t.date DESC LIMIT ?`,
+          UNCATEGORISED_PAGE,
         ),
+        uncategorisedTotal: queryOne<{ n: number }>(
+          db,
+          `SELECT COUNT(*) AS n FROM transactions t
+             JOIN accounts a ON a.id = t.account_id
+            WHERE t.deleted_at IS NULL AND t.is_split = 0 AND t.category_id IS NULL
+              AND t.transfer_pair_id IS NULL AND a.kind != 'tracking'
+              AND t.amount < 0`,
+        )?.n ?? 0,
         claims: outstandingReimbursements(db),
         overspent: view.overspentCategories,
         unfundedCards,

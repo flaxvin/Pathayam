@@ -187,13 +187,31 @@ export function reviewCount(db: DB): number {
       db, `SELECT COUNT(*) AS n FROM staged_transactions WHERE status = 'pending'`,
     )[0]?.n ?? 0;
 
+  /*
+   * B94 · Money *in* with no category is not a pending decision.
+   *
+   * In an envelope budget, income's job is to arrive in Ready to Assign and
+   * wait to be given one — that is the model, and the engine already treats it
+   * exactly so. Counting it as "uncategorised" then asked the household to
+   * resolve something the app had already resolved correctly.
+   *
+   * Over three years of real data this was the *entire* queue: 109 items, every
+   * one of them a salary or NEFT credit, and not a single piece of genuinely
+   * uncategorised spending among them. The one thing the queue is for was
+   * buried under the one thing it should never have contained.
+   *
+   * A refund that ought to go back to the category it came from is the real
+   * exception, and it is a minority the app cannot pick out by itself. It stays
+   * findable on Query rather than shouting here.
+   */
   const uncategorised =
     queryAll<{ n: number }>(
       db,
       `SELECT COUNT(*) AS n FROM transactions t
          JOIN accounts a ON a.id = t.account_id
         WHERE t.deleted_at IS NULL AND t.is_split = 0 AND t.category_id IS NULL
-          AND t.transfer_pair_id IS NULL AND a.kind != 'tracking'`,
+          AND t.transfer_pair_id IS NULL AND a.kind != 'tracking'
+          AND t.amount < 0`,
     )[0]?.n ?? 0;
 
   const brokenCheckpoints =
