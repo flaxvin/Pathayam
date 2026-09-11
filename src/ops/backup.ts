@@ -75,7 +75,7 @@ export interface ControlTotals {
 const COUNTED_TABLES = [
   // Budget engine
   "members", "accounts", "cards", "card_statements", "category_groups", "categories", "assignments",
-  "held_for_next_month", "targets", "autoassign_rules", "payees", "payee_aliases",
+  "held_for_next_month", "targets", "payees", "payee_aliases",
   "transactions", "transaction_splits", "tags", "transaction_tags",
   "import_batches", "staged_transactions", "rules", "reconciliations", "schedules",
   "events",
@@ -85,7 +85,7 @@ const COUNTED_TABLES = [
   "instruments", "holdings", "lots", "holding_events", "prices", "fx_rates",
   "asset_valuations", "net_worth_snapshots",
   // Family lending, goals, month-close, saved state
-  "family_loans", "goals", "goal_categories", "month_closes", "saved_views",
+  "family_loans", "goals", "goal_categories", "month_closes",
   "settings_kv", "digest_mutes",
   // Q10 · receipts. The bytes live in this table, so backup covers them.
   "attachments",

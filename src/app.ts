@@ -149,6 +149,7 @@ import {
 } from "./web/pages/manage.ts";
 import { renderPrivacy, renderTerms } from "./web/pages/legal.ts";
 import { renderActivity } from "./web/pages/activity.ts";
+import { countRequestFailures, recentRequestFailures } from "./ops/errors.ts";
 
 /**
  * The date shown on the legal pages. It is a constant rather than "today"
@@ -2604,6 +2605,32 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const projection = projectLoan(db, ctx.params.id!);
     if (!projection) throw new NotFound("That loan does not exist.");
 
+    /*
+     * B69 · R14 keeps sanctioned, disbursed and undrawn apart, and a loan that
+     * is sanctioned but not yet drawn is an ordinary state — an education loan
+     * released in tranches sits there for years. The amortisation builder
+     * rightly refuses a principal of zero, and this page handed it one, so the
+     * prepayment screen answered 500 for a loan the rest of the app renders
+     * happily. There is nothing to prepay, and that is what it should say.
+     */
+    if (projection.outstanding <= 0) {
+      return render(
+        ctx, "Prepay",
+        html`
+          <h1>Prepay ${projection.loan.nickname ?? projection.loan.lender}</h1>
+          <div class="card empty-state">
+            <p>Nothing is outstanding on this loan, so there is nothing to prepay.</p>
+            <p class="faint">
+              ${projection.disbursed <= 0
+                ? "None of the sanctioned amount has been drawn yet."
+                : "It is fully repaid."}
+            </p>
+            <p><a class="button" href="/loans/${projection.loan.id}">Back to the loan</a></p>
+          </div>
+        `,
+      );
+    }
+
     const amount = rupeesFromQuery(ctx, "amount", 1_00_000);
     const atMonth = Number(ctx.query.get("at_month") ?? 1);
     const view = buildBudgetView(db);
@@ -4379,6 +4406,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         `SELECT COUNT(*) AS n FROM job_runs WHERE status = 'failed' AND started_at >= ?`,
         addDays(todayIST(), -1),
       )?.n ?? 0;
+    const requestFailures24h = countRequestFailures(db);
+    const recentFailures = requestFailures24h > 0 ? recentRequestFailures(db, 3) : [];
     const queue = reviewCount(db);
 
     return [
@@ -4485,9 +4514,25 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         name: "Jobs",
         checks: [
           {
-            name: "Errors in the last 24 hours",
+            name: "Job failures in the last 24 hours",
             state: errors24h === 0 ? "healthy" : "degraded",
             reason: errors24h === 0 ? "None." : `${errors24h} job run${errors24h === 1 ? "" : "s"} failed.`,
+          },
+          {
+            // B66 · Until this existed, a route that threw was counted nowhere:
+            // the check above only ever looked at scheduled jobs, so the page
+            // you open at 2am could read entirely healthy while every request
+            // to one screen was returning a 500.
+            name: "Request failures in the last 24 hours",
+            state: requestFailures24h === 0 ? "healthy" : "failed",
+            reason:
+              requestFailures24h === 0
+                ? "None."
+                : `${requestFailures24h} request${requestFailures24h === 1 ? "" : "s"} failed. ` +
+                  `Most recent: ${recentFailures
+                    .map((f) => `${f.method} ${f.path} — ${f.message ?? "no message"}`)
+                    .slice(0, 3)
+                    .join("; ")}`,
           },
           {
             name: "Idempotency keys",
