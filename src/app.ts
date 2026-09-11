@@ -482,7 +482,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                     Continue with Google
                   </a>
                   <p class="field-hint" style="margin-top:.75rem">
-                    Only household members on the allow-list can sign in.
+                    ${memberCount(db) === 0
+                      ? "This household has no members yet, so whoever signs in first " +
+                        "becomes one and can invite the rest (F1.3)."
+                      : "Only household members on the allow-list can sign in."}
                   </p>
                 </div>
               `
