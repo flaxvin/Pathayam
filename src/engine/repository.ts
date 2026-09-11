@@ -209,6 +209,19 @@ function sealMonths(db: DB, months: MonthKey[], through: MonthKey): MonthKey | n
 export interface LoadOptions {
   /** The latest month to compute. Defaults to the current month in IST. */
   through?: MonthKey;
+  /**
+   * B89 · Derive every month from the ledger, ignoring the rollup entirely.
+   *
+   * The rollup is a summary of the ledger, so the only question worth asking
+   * about it is whether it still agrees with what it summarises — and that
+   * cannot be asked from inside. Emptying the tables does not work: the next
+   * read rebuilds them and compares the rollup against itself, which is exactly
+   * how a dispatch bug that broke the accounting identity slipped through a
+   * test written to catch it.
+   *
+   * This is the honest second opinion.
+   */
+  useRollup?: boolean;
 }
 
 export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
@@ -253,7 +266,7 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
    * than rows. `sealMonths` builds any sealed month that is missing before this
    * runs, so the two together always cover the whole range exactly once.
    */
-  const sealedThrough = sealMonths(db, months, through);
+  const sealedThrough = opts.useRollup === false ? null : sealMonths(db, months, through);
   const liveFrom = sealedThrough ? firstDayOfMonth(addMonths(sealedThrough, 1)) : null;
 
   const applyCategorised = (r: {
@@ -292,9 +305,21 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
          FROM month_rollups WHERE month <= ?`,
       sealedThrough,
     )) {
+      /*
+       * B89 · Match the fact by name, never by "everything else".
+       *
+       * This was written as an if/else chain ending in a bare else, and then a
+       * fourth fact — the per-account balances accountBalances reads — was
+       * added to the rollup without touching it. Every balance row was
+       * therefore added to budgetTransferFlow, which broke the accounting
+       * identity the moment any month was old enough to seal.
+       *
+       * An unknown fact is now ignored rather than quietly absorbed into
+       * whichever term happened to be last.
+       */
       if (r.fact === "categorised") applyCategorised(r);
       else if (r.fact === "account-flow") applyAccountFlow(r);
-      else {
+      else if (r.fact === "transfer-flow") {
         const f = ensure(r.month);
         if (f) f.budgetTransferFlow += r.amount;
       }
