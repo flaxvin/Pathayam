@@ -83,7 +83,8 @@ import {
   ingest, listStaged, approveStaged, rejectStaged, mergeStaged, undoBatch, listBatches,
 } from "./import/pipeline.ts";
 import {
-  createAccount, listAccounts, getAccount, listCards, createCard, closeCard,
+  createAccount, updateAccount, closeAccount, reopenAccount,
+  listAccounts, getAccount, listCards, createCard, closeCard,
   recordCardStatement, lastCardStatement, paymentCategoryFor,
   MANAGED_SUBTYPES, SUBTYPE_LABELS,
   type AccountKind,
@@ -119,14 +120,14 @@ import {
 } from "./ops/backup.ts";
 import {
   renderLoanList, renderLoanDetail, renderNewLoanForm, renderRecordInstalment,
-  renderPrepaymentComparison, renderLoanStatementForm,
+  renderPrepaymentComparison, renderLoanStatementForm, renderRateReset,
 } from "./web/pages/loans.ts";
 import {
   createLoan, listLoans, getLoan, projectLoan, recordInstalment, listPayments,
-  recordDisbursement, recordLoanStatement,
+  recordDisbursement, recordLoanStatement, recordRateChange,
   listDisbursements, listRatePeriods, debtOverview, type LoanType,
 } from "./domain/loans.ts";
-import { comparePrepayment, NegativeAmortisation } from "./loans/amortisation.ts";
+import { comparePrepayment, rateResetOptions, NegativeAmortisation } from "./loans/amortisation.ts";
 import {
   renderQuery, renderReports, renderSchedules, renderNewScheduleForm, renderGoals,
 } from "./web/pages/analysis.ts";
@@ -193,7 +194,7 @@ import {
   renderPortfolio, renderHoldingDetail, renderSalePreview, renderNetWorth,
   renderAllocation,
   renderAddHolding, renderCasUpload, renderCasReview,
-  renderNewAssetForm, renderRevalueAsset, renderManualPrice,
+  renderNewAssetForm, renderRevalueAsset, renderManualPrice, renderSplitForm,
   type PortfolioRow, type CasReviewScheme,
 } from "./web/pages/portfolio.ts";
 import { parseCasPdf, WrongPassword } from "./import/cas.ts";
@@ -202,7 +203,7 @@ import {
 } from "./import/cas-plan.ts";
 import {
   createAssetAccount, listAssetAccounts, findOrCreateInstrument, recordPurchase,
-  recordSale, recordPrice, recordValuation, latestValuation, listHoldings, viewHolding,
+  recordSale, recordPrice, recordSplit, recordValuation, latestValuation, listHoldings, viewHolding,
   priceHistory, previewHoldingSale, getInstrument, listInstruments,
   classifyInstrument, ASSET_CLASSES, ASSET_CLASS_LABELS,
   exportHoldingsCsv, exportLotsCsv, exportPriceHistoryCsv, exportNetWorthCsv,
@@ -1019,6 +1020,54 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   });
 
   router.get("/accounts/new", (ctx) => render(ctx, "Add an account", renderNewAccountForm()));
+
+  /*
+   * B70 · F2.7 · Rename or close an account.
+   *
+   * `updateAccount`, `closeAccount` and `reopenAccount` were all written long
+   * ago and none of them had a route, so an account could be created and never
+   * touched again. Closing is not deletion: the history, the balances and the
+   * reconciliations all stay, and only the pick-lists lose it.
+   */
+  router.post("/accounts/:id/edit", (ctx) =>
+    mutate(ctx, (a) => {
+      const id = ctx.params.id!;
+      if (!getAccount(db, id)) throw new NotFound("That account does not exist.");
+      const text = (name: string) => {
+        const value = field(ctx.body, name)?.trim();
+        return value === undefined ? undefined : value === "" ? null : value;
+      };
+      updateAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, {
+        name: requiredField(ctx.body, "name"),
+        nickname: text("nickname"),
+        institution: text("institution"),
+        last4: text("last4"),
+      });
+      return { redirect: `/accounts/${id}`, message: "Saved." };
+    }),
+  );
+
+  router.post("/accounts/:id/close", (ctx) =>
+    mutate(ctx, (a) => {
+      const id = ctx.params.id!;
+      const account = getAccount(db, id);
+      if (!account) throw new NotFound("That account does not exist.");
+      closeAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id);
+      return {
+        redirect: `/accounts/${id}`,
+        message: `${account.nickname || account.name} is closed. Its history is untouched.`,
+      };
+    }),
+  );
+
+  router.post("/accounts/:id/reopen", (ctx) =>
+    mutate(ctx, (a) => {
+      const id = ctx.params.id!;
+      if (!getAccount(db, id)) throw new NotFound("That account does not exist.");
+      reopenAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id);
+      return { redirect: `/accounts/${id}`, message: "Reopened." };
+    }),
+  );
 
   router.post("/accounts/new", (ctx) =>
     mutate(ctx, (a) => {
@@ -2597,6 +2646,76 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         instalmentsRemaining: remainingRaw?.trim() ? Number(remainingRaw) : null,
       });
       return { redirect: `/loans/${loanId}`, message: "Statement recorded." };
+    }),
+  );
+
+  /*
+   * B71 · R20 · A rate change, and what it does to the schedule.
+   *
+   * `recordRateChange`, `rateResetOptions` and `renderRateReset` all existed;
+   * nothing connected them, so the single most common event in an Indian
+   * floating-rate loan — a repo-linked reset, several times a year — could not
+   * be entered at all. The GET previews both options the lender must offer; the
+   * POST commits the change.
+   */
+  router.get("/loans/:id/rate", (ctx) => {
+    requireLoans();
+    const projection = projectLoan(db, ctx.params.id!);
+    if (!projection) throw new NotFound("That loan does not exist.");
+
+    const newRatePct = Number(ctx.query.get("rate") ?? projection.ratePct);
+    const effectiveFrom = parseDate(ctx.query.get("from") ?? "") ?? todayIST();
+
+    if (projection.outstanding <= 0) {
+      return render(
+        ctx, "Rate change",
+        html`
+          <h1>Rate change</h1>
+          <div class="card empty-state">
+            <p>Nothing is outstanding on this loan, so a rate change has nothing to act on.</p>
+            <p><a class="button" href="/loans/${projection.loan.id}">Back to the loan</a></p>
+          </div>
+        `,
+      );
+    }
+
+    try {
+      return render(
+        ctx, "Rate change",
+        renderRateReset({
+          loan: projection.loan,
+          effectiveFrom,
+          options: rateResetOptions({
+            outstanding: projection.outstanding,
+            currentEmi: projection.emi,
+            remainingMonths: Math.max(1, projection.schedule.months),
+            oldRatePct: projection.ratePct,
+            newRatePct,
+          }),
+        }),
+      );
+    } catch (err) {
+      // R17.4 · An instalment below the new monthly interest never amortises.
+      // That is a real answer about the loan, not a fault.
+      if (err instanceof NegativeAmortisation) throw new HttpError(422, err.message);
+      throw err;
+    }
+  });
+
+  router.post("/loans/:id/rate", (ctx) =>
+    mutate(ctx, (a) => {
+      requireLoans();
+      const loanId = ctx.params.id!;
+      if (!projectLoan(db, loanId)) throw new NotFound("That loan does not exist.");
+      const from = parseDate(requiredField(ctx.body, "effective_from"));
+      if (!from) throw new HttpError(400, "That is not a date I can read.");
+      const rate = Number(requiredField(ctx.body, "annual_rate_pct"));
+      if (!Number.isFinite(rate) || rate < 0) throw new HttpError(400, "That is not a rate.");
+
+      recordRateChange(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+        loanId, effectiveFrom: from, annualRatePct: rate, note: field(ctx.body, "note") || null,
+      });
+      return { redirect: `/loans/${loanId}`, message: `Rate changed to ${rate}%.` };
     }),
   );
 
@@ -4207,6 +4326,46 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         source: "manual",
       });
       return { redirect: `/portfolio/${view.holding.id}`, message: "Price saved." };
+    }),
+  );
+
+  // B72 · R28.2 · A split or bonus, which adjusts every lot and the price
+  // history together. The domain function existed; the screen did not.
+  router.get("/portfolio/:id/split", (ctx) => {
+    requireAssets();
+    const view = viewHolding(db, ctx.params.id!);
+    if (!view) throw new NotFound("That holding does not exist.");
+    return render(
+      ctx, "Split or bonus",
+      renderSplitForm({
+        holdingId: view.holding.id,
+        instrumentName: view.instrument.name,
+        units: formatUnits(view.units),
+        today: todayIST(),
+      }),
+    );
+  });
+
+  router.post("/portfolio/:id/split", (ctx) =>
+    mutate(ctx, (a) => {
+      requireAssets();
+      const view = viewHolding(db, ctx.params.id!);
+      if (!view) throw new NotFound("That holding does not exist.");
+      const ratio = Number(requiredField(ctx.body, "ratio"));
+      if (!Number.isFinite(ratio) || ratio <= 0) {
+        throw new HttpError(400, "A split ratio has to be a number above zero.");
+      }
+      const kind = field(ctx.body, "kind") === "bonus" ? "bonus" : "split";
+      recordSplit(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+        holdingId: view.holding.id,
+        date: parseDate(field(ctx.body, "date") ?? "") ?? todayIST(),
+        ratio,
+        kind,
+      });
+      return {
+        redirect: `/portfolio/${view.holding.id}`,
+        message: `Recorded the ${kind}. Your units and their cost moved together.`,
+      };
     }),
   );
 
