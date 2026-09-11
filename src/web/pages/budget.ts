@@ -24,8 +24,36 @@ export function renderBudget(view: BudgetView, digest?: SafeHtml): SafeHtml {
       </p>
     `)}
     ${renderCardWarnings(view)}
+    ${when(view.groups.length > 0, () => renderFilter())}
     ${view.groups.length === 0 ? renderEmptyState() : view.groups.map((g) => renderGroup(g, view.month))}
     ${renderFooterActions(view)}
+  `;
+}
+
+/**
+ * B87 · Find a category without scrolling past thirty others.
+ *
+ * Thirty-four categories is seven screens on a phone, and the answer to "how
+ * much is left for groceries" was to scroll until you saw it. Groups collapse,
+ * which helps once you know where you are going, and does not help at all when
+ * you are looking for one envelope in the middle of the month.
+ *
+ * Filtering happens on the client so it responds to each keystroke — a round
+ * trip per letter would be worse than scrolling. Nothing is stored (R35); it is
+ * a lens on what is already on screen, and it resets whenever the page does.
+ */
+function renderFilter(): SafeHtml {
+  return html`
+    <div class="budget-filter">
+      <label class="sr-only" for="budget-filter">Find a category</label>
+      <input id="budget-filter" type="search" autocomplete="off"
+             placeholder="Find a category…" data-budget-filter>
+      <label class="budget-filter-toggle">
+        <input type="checkbox" data-budget-underfunded>
+        Only what needs money
+      </label>
+      <p class="faint" data-budget-filter-count hidden></p>
+    </div>
   `;
 }
 
@@ -155,9 +183,13 @@ function renderGroup(group: GroupView, month: MonthKey): SafeHtml {
 function renderCategoryRow(category: CategoryView, month: MonthKey): SafeHtml {
   const { state, progress } = category;
   const anchor = progress && progress.underfunded > 0 ? ' id="first-underfunded"' : "";
+  // B87 · What "needs money" means, decided here rather than inferred from a
+  // class name in the client: short of its target, or already overspent.
+  const needsMoney = (progress?.underfunded ?? 0) > 0 || state.balance < 0;
 
   return html`
-    <div class="category-row ${category.stateClass}"${raw(anchor)}>
+    <div class="category-row ${category.stateClass}"${raw(anchor)}
+         data-category-name="${category.name}"${raw(needsMoney ? " data-needs-money" : "")}>
       <div class="category-name">
         <!-- B55: the name drills into this category's transactions (F10.2), a
              real page. "Explain this number" stays on the balance, as a popover.

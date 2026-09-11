@@ -91,7 +91,10 @@ export function spendingInsights(
     const current = (months.get(thisMonth) ?? 0) as Paise;
     const priors = priorMonths.map((m) => months.get(m) ?? 0);
     const seen = priors.filter((v) => v > 0).length;
-    const baseline = (priors.reduce((s, v) => s + v, 0) / 3) as Paise;
+    // B77 · Rounded, not cast. An average of three integers is rarely an
+    // integer, and `as Paise` only silences the type — it does not make the
+    // value one. The Overview rendered the result as "₹13,666.66.66666666674428".
+    const baseline = Math.round(priors.reduce((s, v) => s + v, 0) / 3) as Paise;
 
     // Brand-new spending: nothing in the prior three months, something now.
     if (current > 0 && seen === 0) {

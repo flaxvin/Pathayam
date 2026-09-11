@@ -206,7 +206,37 @@ export function reviewCount(db: DB): number {
       db, `SELECT COUNT(*) AS n FROM rules WHERE proposed = 1 AND dismissed_at IS NULL`,
     )[0]?.n ?? 0;
 
-  return staged + uncategorised + brokenCheckpoints + proposedRules;
+  /*
+   * B79 · The badge counted four of the six things the Review page lists, so
+   * the sidebar said "1" while the page it links to said "3". The two it missed
+   * — an overspent category and a card balance with no money behind it — are
+   * the two most worth acting on, and a household seeing "1" had no reason to
+   * go and look.
+   *
+   * These need the month's derived state rather than a row count, which is why
+   * they were left out. That is cheap now (B73–B75), and a badge that
+   * disagrees with the page it points at is worse than the millisecond.
+   */
+  const view = buildBudgetView(db);
+  const overspent = view.overspentCategories.length;
+
+  // The same reckoning the Review page itself does — cardFunding weighs what
+  // the card actually owes against what its envelope holds, and counting the
+  // raw unfunded figure instead was how these two disagreed in the first place.
+  const outstanding = creditOutstanding(db);
+  const unfundedCards = [...view.categories.values()]
+    .filter((c) => c.paymentAccountId)
+    .filter(
+      (c) =>
+        cardFunding(
+          c.paymentAccountId!,
+          outstanding.get(c.paymentAccountId!) ?? 0,
+          c.state.balance,
+          view.monthState.unfundedByAccount[c.paymentAccountId!] ?? 0,
+        ).unfunded > 0,
+    ).length;
+
+  return staged + uncategorised + brokenCheckpoints + proposedRules + overspent + unfundedCards;
 }
 
 export function isSetupComplete(db: DB): boolean {

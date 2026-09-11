@@ -14,7 +14,7 @@ import type { DB } from "../db/db.ts";
 import { queryAll } from "../db/db.ts";
 import type { Paise } from "../core/money.ts";
 import {
-  todayIST, addDays, addMonths, monthOf, fiscalYearOf, fiscalYearRange,
+  todayIST, addDays, addMonths, monthOf, fiscalYearOf, fiscalYearRange, formatFiscalYear,
   type IsoDate, type MonthKey,
 } from "../core/dates.ts";
 
@@ -242,6 +242,49 @@ export function incomeVsExpense(db: DB, from: IsoDate, to: IsoDate): TrendPoint[
   }));
 }
 
+/**
+ * B78 · What the household actually spent in a month.
+ *
+ * `incomeVsExpense` above measures cash moving through budget accounts, which
+ * is the right question for a cashflow chart and the wrong one for "what did we
+ * spend". It filters `a.kind = 'budget'`, so every rupee charged to a credit
+ * card is invisible to it — and in this household most discretionary spending
+ * goes on a card. Measured on the demo data the gap was ₹1,060 against ₹22,010.
+ *
+ * Spending, in an envelope budget, is money leaving an envelope. R6 is explicit
+ * that a card charge consumes its category the moment it happens, whatever
+ * settles the card later. So this counts categorised outflow across every
+ * account kind, and excludes payment categories — paying the card off is not a
+ * second act of spending, it is settling the first.
+ *
+ * This is the same definition `averageDailySpend` already uses for R12's
+ * buffer; it simply had no monthly form, so the Overview reached for the
+ * cashflow number instead.
+ */
+export function envelopeSpendByMonth(db: DB, from: IsoDate, to: IsoDate): { month: string; spent: Paise }[] {
+  return queryAll<{ month: string; spent: number }>(
+    db,
+    `WITH categorised AS (
+       SELECT t.date AS date, t.category_id AS category_id, t.amount AS amount
+         FROM transactions t
+        WHERE t.deleted_at IS NULL AND t.is_split = 0 AND t.category_id IS NOT NULL
+          AND t.date >= ? AND t.date <= ?
+       UNION ALL
+       SELECT t.date, s.category_id, s.amount
+         FROM transaction_splits s
+         JOIN transactions t ON t.id = s.transaction_id
+        WHERE t.deleted_at IS NULL AND s.category_id IS NOT NULL
+          AND t.date >= ? AND t.date <= ?
+     )
+     SELECT substr(c.date,1,7) AS month, COALESCE(SUM(-c.amount),0) AS spent
+       FROM categorised c
+       JOIN categories cat ON cat.id = c.category_id
+      WHERE c.amount < 0 AND cat.payment_account_id IS NULL
+      GROUP BY month ORDER BY month`,
+    from, to, from, to,
+  ).map((r) => ({ month: r.month, spent: r.spent as Paise }));
+}
+
 /** F10.1 · One category's trend, for the category detail sheet. */
 /**
  * F12 · Spend per tag over a window — tags work as ad-hoc budgets, so this is
@@ -354,6 +397,149 @@ export function loanInterestByFinancialYear(
       label: `FY ${g.fy}-${String((g.fy + 1) % 100).padStart(2, "0")}`,
     }))
     .sort((a, b) => b.fy - a.fy || a.lender.localeCompare(b.lender));
+}
+
+/**
+ * B84 · What the household has paid for and expects back.
+ *
+ * `reimbursable` has been a column on every transaction, settable through the
+ * domain, since the beginning — with no screen that set it and no screen that
+ * showed it. Money fronted for an office claim or a sibling is real, and until
+ * it comes back it is the one kind of spending that is not really spending.
+ *
+ * Still counted against its envelope while it is outstanding, because that is
+ * the truth about the money right now: it has left. This only makes the amount
+ * visible so nobody forgets to chase it.
+ */
+export interface OutstandingClaim {
+  id: string;
+  date: IsoDate;
+  amount: Paise;
+  payee: string | null;
+  memo: string | null;
+  category: string | null;
+}
+
+export function outstandingReimbursements(db: DB): OutstandingClaim[] {
+  return queryAll<{
+    id: string; date: IsoDate; amount: number;
+    payee: string | null; memo: string | null; category: string | null;
+  }>(
+    db,
+    `SELECT t.id, t.date, t.amount, p.name AS payee, t.memo, c.name AS category
+       FROM transactions t
+       LEFT JOIN payees p ON p.id = t.payee_id
+       LEFT JOIN categories c ON c.id = t.category_id
+      WHERE t.deleted_at IS NULL AND t.reimbursable = 1
+      ORDER BY t.date DESC`,
+  ).map((r) => ({ ...r, amount: Math.abs(r.amount) as Paise }));
+}
+
+/**
+ * B88 · Realised gains, by financial year and holding period.
+ *
+ * The app already reports loan interest per FY per lender — the number a home
+ * loan's 24(b) claim is built from — so it is squarely in the business of
+ * handing the household the facts a return is assembled from. It stopped one
+ * report short of the one that actually costs an evening every July.
+ *
+ * What this does *not* do is compute tax. Which threshold separates short from
+ * long depends on the asset and on the year's rules, and both change; deciding
+ * that here would be exactly the advice the app declines to give (N9). So this
+ * splits at twelve months, names the split as a holding period rather than a
+ * tax class, and reports the days. Applying the right rule stays with whoever
+ * files the return.
+ *
+ * Sales recorded before parcels were stored (B88) have no breakdown. They are
+ * reported under `unknownPeriod` rather than guessed at, because a gain filed
+ * in the wrong column is worse than one the household is told to check.
+ */
+const LONG_TERM_DAYS = 365;
+
+export interface GainsParcel {
+  soldOn: IsoDate;
+  instrument: string;
+  acquiredOn: IsoDate;
+  holdingPeriodDays: number;
+  cost: Paise;
+  proceeds: Paise;
+  gain: Paise;
+  longTerm: boolean;
+}
+
+export interface GainsYear {
+  fy: number;
+  label: string;
+  shortTerm: Paise;
+  longTerm: Paise;
+  unknownPeriod: Paise;
+  proceeds: Paise;
+  parcels: GainsParcel[];
+}
+
+export function capitalGainsByYear(db: DB): GainsYear[] {
+  const sales = queryAll<{
+    date: IsoDate; realised_gain: number | null; amount: number | null;
+    detail_json: string | null; instrument: string;
+  }>(
+    db,
+    `SELECT e.date, e.realised_gain, e.amount, e.detail_json, i.name AS instrument
+       FROM holding_events e
+       JOIN holdings h ON h.id = e.holding_id
+       JOIN instruments i ON i.id = h.instrument_id
+      WHERE e.kind = 'sale'
+      ORDER BY e.date`,
+  );
+
+  const years = new Map<number, GainsYear>();
+  const yearFor = (fy: number): GainsYear => {
+    let year = years.get(fy);
+    if (!year) {
+      year = {
+        fy, label: formatFiscalYear(fy),
+        shortTerm: 0, longTerm: 0, unknownPeriod: 0, proceeds: 0, parcels: [],
+      };
+      years.set(fy, year);
+    }
+    return year;
+  };
+
+  for (const sale of sales) {
+    const year = yearFor(fiscalYearOf(sale.date));
+    year.proceeds = (year.proceeds + (sale.amount ?? 0)) as Paise;
+
+    let parcels: { tradeDate: IsoDate; cost: number; proceeds: number; holdingPeriodDays: number }[] = [];
+    try {
+      parcels = sale.detail_json ? (JSON.parse(sale.detail_json).parcels ?? []) : [];
+    } catch {
+      parcels = [];
+    }
+
+    if (parcels.length === 0) {
+      year.unknownPeriod = (year.unknownPeriod + (sale.realised_gain ?? 0)) as Paise;
+      continue;
+    }
+
+    for (const parcel of parcels) {
+      const gain = (parcel.proceeds - parcel.cost) as Paise;
+      const longTerm = parcel.holdingPeriodDays > LONG_TERM_DAYS;
+      if (longTerm) year.longTerm = (year.longTerm + gain) as Paise;
+      else year.shortTerm = (year.shortTerm + gain) as Paise;
+
+      year.parcels.push({
+        soldOn: sale.date,
+        instrument: sale.instrument,
+        acquiredOn: parcel.tradeDate,
+        holdingPeriodDays: parcel.holdingPeriodDays,
+        cost: parcel.cost as Paise,
+        proceeds: parcel.proceeds as Paise,
+        gain,
+        longTerm,
+      });
+    }
+  }
+
+  return [...years.values()].sort((a, b) => b.fy - a.fy);
 }
 
 /** F10.5 · Every report exports to CSV. */

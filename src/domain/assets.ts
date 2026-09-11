@@ -704,10 +704,35 @@ export function recordSale(
     execute(
       db,
       `INSERT INTO holding_events
-         (id,holding_id,date,kind,units,price,amount,realised_gain,transaction_id,source_ref,created_at,created_by)
-       VALUES (?,?,?,'sale',?,?,?,?,?,?,?,?)`,
+         (id,holding_id,date,kind,units,price,amount,realised_gain,detail_json,
+          transaction_id,source_ref,created_at,created_by)
+       VALUES (?,?,?,'sale',?,?,?,?,?,?,?,?,?)`,
       newId(), input.holdingId, input.date, input.units, input.price,
-      preview.proceeds, preview.realisedGain, transactionId,
+      preview.proceeds, preview.realisedGain,
+      /*
+       * B88 · Which parcels this sale consumed, and how long each was held.
+       *
+       * R25.5 already says the holding period is "exposed so long-term versus
+       * short-term is visible to the user", and the FIFO engine computes it per
+       * parcel — it was then thrown away at the point of writing, leaving a
+       * single aggregate gain. A sale of units bought across four years is one
+       * number with four different answers inside it, and by the time anyone
+       * asks, the lots have been closed and rewritten and it cannot be
+       * recovered.
+       *
+       * Stored as the sale's own record of what it consumed, so a gains
+       * statement is a reading of history rather than a reconstruction of it.
+       */
+      JSON.stringify({
+        parcels: preview.consumed.map((c) => ({
+          tradeDate: c.tradeDate,
+          units: c.units,
+          cost: c.cost,
+          proceeds: Math.round((c.units / input.units) * preview.proceeds),
+          holdingPeriodDays: c.holdingPeriodDays,
+        })),
+      }),
+      transactionId,
       input.sourceRef ?? null, nowIST(), actor.memberId,
     );
 

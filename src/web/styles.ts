@@ -294,6 +294,19 @@ legend { font-weight: 600; font-size: .9rem; padding: 0 .35rem; }
 /* Amounts get the numeric keypad with a decimal (A7) via inputmode in markup. */
 .amount-input { font-variant-numeric: tabular-nums; font-size: 1.25rem; }
 
+/* B87 · The budget filter. Sticks under the Ready-to-Assign bar so it stays
+   reachable while scrolling a long grid on a phone. */
+.budget-filter {
+  display: flex; gap: .6rem; align-items: center; flex-wrap: wrap;
+  margin-bottom: .75rem;
+}
+.budget-filter input[type="search"] { flex: 1 1 12rem; min-width: 0; }
+.budget-filter-toggle {
+  display: flex; align-items: center; gap: .35rem;
+  font-size: .85rem; color: var(--muted); white-space: nowrap;
+}
+.budget-filter [data-budget-filter-count] { flex-basis: 100%; margin: 0; }
+
 /* A long read: the legal pages. Measure capped for readability, and headings
    given room so the document scans rather than runs together. */
 .prose-page { max-width: 44rem; margin: 2rem auto; padding: 0 1rem; }

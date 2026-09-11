@@ -31,6 +31,7 @@ export function renderOverview(opts: {
   dueSoon: { id: string; name: string; amount: Paise; nextDue: IsoDate }[];
 }): SafeHtml {
   const chrono = [...opts.netWorthHistory].sort((a, b) => a.as_of.localeCompare(b.as_of));
+  const distinctMonths = new Set(chrono.map((h) => h.as_of.slice(0, 7))).size;
 
   return html`
     <div class="row-between" style="margin-bottom:1rem">
@@ -140,7 +141,24 @@ export function renderOverview(opts: {
       </section>
     </div>
 
-    ${when(chrono.length > 1, () => html`
+    <!--
+      B81 · A trend needs something to trend across. Two snapshots ten days
+      apart drew a confident diagonal under an axis reading "09-2026 → 09-2026",
+      which looks like a year of growth and is a fortnight of rounding. Below
+      two distinct months, say so — a household that has just set up should know
+      the line is coming, not be shown a fake one.
+    -->
+    ${when(chrono.length > 1 && distinctMonths < 2, () => html`
+      <section class="card">
+        <h2>Net worth over time</h2>
+        <p class="faint">
+          ${chrono.length} snapshot${chrono.length === 1 ? "" : "s"} so far, all within
+          one month. The trend appears once there are two months to compare.
+        </p>
+      </section>
+    `)}
+
+    ${when(chrono.length > 1 && distinctMonths >= 2, () => html`
       <section class="card">
         <h2>Net worth over time</h2>
         ${lineChart({

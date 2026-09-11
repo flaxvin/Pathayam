@@ -42,7 +42,7 @@ import {
 import { fetchGmail } from "./gmail/fetch.ts";
 import { withIdempotency, IdempotencyConflict } from "./core/idempotency.ts";
 import { parseAmount, evaluateAmountExpression, formatPaise, type Paise } from "./core/money.ts";
-import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, type MonthKey } from "./core/dates.ts";
+import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, lastDayOfMonth, fiscalYearOf, formatFiscalYear, type MonthKey, type IsoDate } from "./core/dates.ts";
 import { buildBudgetView, reviewCount } from "./web/viewmodel.ts";
 import { renderBudget } from "./web/pages/budget.ts";
 import {
@@ -134,6 +134,7 @@ import {
 import { renderOverview } from "./web/pages/overview.ts";
 import {
   queryTransactions, groupTotals, periodPresets, periodFor, incomeVsExpense,
+  envelopeSpendByMonth, outstandingReimbursements, capitalGainsByYear,
   loanInterestByFinancialYear, categoryTrend, spendingCalendar, spendByTag, rowsToCsv,
   type GroupBy, type TransactionFilter,
 } from "./domain/reports.ts";
@@ -1251,6 +1252,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         memo: field(ctx.body, "memo") || null,
         tags,
         cleared: field(ctx.body, "cleared") === "1",
+        reimbursable: field(ctx.body, "reimbursable") === "1",
       });
 
       return { redirect: "/", message: `Saved ${formatPaise(magnitude)}.` };
@@ -1829,6 +1831,52 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     };
   });
 
+  /*
+   * B85 · Put one transaction in an envelope, from wherever it is listed.
+   *
+   * The Review screen offers a staged import an inline category dropdown and
+   * an Approve button. A transaction already in the ledger with no category —
+   * the same decision, on the same screen — offered a link to a detail page and
+   * a full edit form that insists on an amount. The cheap half of the queue was
+   * the expensive one to clear.
+   */
+  router.post("/transaction/:id/categorise", (ctx) =>
+    mutate(ctx, (a) => {
+      const id = ctx.params.id!;
+      const transaction = getTransaction(db, id);
+      if (!transaction) throw new NotFound("That transaction does not exist.");
+
+      const categoryId = field(ctx.body, "category_id") || null;
+      if (categoryId && !getCategory(db, categoryId)) {
+        throw new HttpError(400, "That category does not exist.");
+      }
+      updateTransaction(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, {
+        categoryId,
+      });
+      const name = categoryId ? getCategory(db, categoryId)?.name ?? "a category" : null;
+      return {
+        redirect: field(ctx.body, "return_to") || "/review",
+        message: name ? `Filed under ${name}.` : "Category cleared.",
+      };
+    }),
+  );
+
+  /*
+   * B84 · The money came back. Clearing the flag is the whole lifecycle — the
+   * repayment itself is an ordinary transaction the household records like any
+   * other, and pretending otherwise would invent a second ledger.
+   */
+  router.post("/transaction/:id/settled", (ctx) =>
+    mutate(ctx, (a) => {
+      const id = ctx.params.id!;
+      if (!getTransaction(db, id)) throw new NotFound("That transaction does not exist.");
+      updateTransaction(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, {
+        reimbursable: false,
+      });
+      return { redirect: "/review", message: "Marked settled." };
+    }),
+  );
+
   router.post("/transaction/:id/delete", (ctx) => {
     const a = auth(ctx);
     const id = ctx.params.id!;
@@ -2072,6 +2120,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               AND t.transfer_pair_id IS NULL AND a.kind != 'tracking'
             ORDER BY t.date DESC LIMIT 50`,
         ),
+        claims: outstandingReimbursements(db),
         overspent: view.overspentCategories,
         unfundedCards,
         brokenCheckpoints: queryAll<{
@@ -2912,8 +2961,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         ).unfunded,
       }))
       .filter((c) => c.amount > 0);
-    const monthTrend = incomeVsExpense(db, `${month}-01`, todayIST());
-    const monthSpend = (monthTrend.at(-1)?.spending ?? 0) as Paise;
+    /*
+     * B78 · Both figures below are envelope spend, not cash through budget
+     * accounts. The tile read "Spent this month ₹1,060" on a month the
+     * household spent ₹22,010, because 95% of it was on cards — and the runway
+     * denominator had the same blind spot, which is the more dangerous of the
+     * two: it reported months of safety the household did not have.
+     */
+    const monthSpend =
+      (envelopeSpendByMonth(db, `${month}-01`, todayIST()).at(-1)?.spent ?? 0) as Paise;
 
     // #12 · Months of runway = liquid cash ÷ typical monthly spend (mean of the
     // three complete months before this one, so a partial month doesn't skew it).
@@ -2921,9 +2977,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const cash = listAccounts(db)
       .filter((acc) => acc.kind === "budget")
       .reduce((sum, acc) => sum + Math.max(0, bals.get(acc.id)?.working ?? 0), 0);
-    const priorMonths = incomeVsExpense(db, `${addMonths(month, -3)}-01`, `${month}-01`);
+    const priorMonths = envelopeSpendByMonth(
+      db, `${addMonths(month, -3)}-01`, lastDayOfMonth(addMonths(month, -1)),
+    );
     const avgMonthlySpend = priorMonths.length
-      ? priorMonths.reduce((s, m) => s + m.spending, 0) / priorMonths.length
+      ? priorMonths.reduce((s, m) => s + m.spent, 0) / priorMonths.length
       : 0;
     const runwayMonths = avgMonthlySpend > 0 ? cash / avgMonthlySpend : null;
 
@@ -3005,6 +3063,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ctx, "Reports",
       renderReports({
         insights: spendingInsights(db),
+        gains: config.features.assets ? capitalGainsByYear(db) : [],
         trend: incomeVsExpense(db, period.from, period.to),
         categorySpend: categorySpend.map((g) => ({ label: g.label, value: g.value })),
         categoryTrends,
