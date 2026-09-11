@@ -17,7 +17,11 @@ export interface ReviewData {
   staged: StagedRow[];
   uncategorised: {
     id: string; date: IsoDate; amount: Paise; payee: string | null; account: string;
+    /** B93 · Where this payee's money usually goes, if it has been seen before. */
+    usual_category_id?: string | null;
   }[];
+  /** B93 · How many are waiting in total, when more than one page of them is. */
+  uncategorisedTotal?: number;
   overspent: CategoryView[];
   unfundedCards: { accountId: string; name: string; unfunded: Paise; categoryId: string }[];
   brokenCheckpoints: { accountId: string; name: string; asOf: IsoDate; reason: string | null }[];
@@ -164,13 +168,28 @@ function renderDuplicateRow(row: StagedRow, categories: CategoryView[]): SafeHtm
   `;
 }
 
+/** B93 · The category this payee's money usually goes to, resolved to a name. */
+function usualOf(
+  data: ReviewData,
+  row: ReviewData["uncategorised"][number],
+): { id: string; name: string } | null {
+  if (!row.usual_category_id) return null;
+  const category = data.categories.find(
+    (c) => c.id === row.usual_category_id && !c.isPaymentCategory && !c.hidden,
+  );
+  return category ? { id: category.id, name: category.name } : null;
+}
+
 function renderUncategorised(data: ReviewData): SafeHtml {
   return html`
     <section class="card">
-      <h2>Uncategorised <span class="chip">${data.uncategorised.length}</span></h2>
+      <h2>Uncategorised <span class="chip">${data.uncategorisedTotal ?? data.uncategorised.length}</span></h2>
       <p class="faint" style="margin-top:-.25rem">
         These are in the ledger and already affect your balances, but no envelope
         has recorded them.
+        ${when((data.uncategorisedTotal ?? 0) > data.uncategorised.length, () => html`
+          Showing the ${data.uncategorised.length} most recent — file these and the next lot appears.
+        `)}
       </p>
       ${data.uncategorised.map(
         (t) => html`
@@ -187,21 +206,41 @@ function renderUncategorised(data: ReviewData): SafeHtml {
             <!--
               B85 · The same control a staged import gets. Filing one of these
               used to mean opening the transaction and working a full edit form.
+
+              B93 · And where the payee has been seen before, the usual category
+              is offered as a single button. Most of this queue is the same
+              handful of merchants over and over, so the common case should not
+              cost a trip through a nineteen-option list — and rendering that
+              list once per row was 69% of the page.
             -->
-            <form method="post" action="/transaction/${t.id}/categorise"
-                  class="row" style="gap:.4rem;margin-top:.4rem;flex-wrap:wrap">
-              <input type="hidden" name="return_to" value="/review">
-              <label class="sr-only" for="cat-${t.id}">Category for ${t.payee ?? "this transaction"}</label>
-              <select id="cat-${t.id}" name="category_id" style="max-width:16rem">
-                <option value="">Leave uncategorised</option>
-                ${data.categories
-                  .filter((c) => !c.isPaymentCategory && !c.hidden)
-                  .map((c) => html`
-                    <option value="${c.id}">${c.name} — ${formatPaise(c.state.balance)} left</option>
-                  `)}
-              </select>
-              <button class="button-small" type="submit">File it</button>
-            </form>
+            ${when(usualOf(data, t), () => html`
+              <form method="post" action="/transaction/${t.id}/categorise"
+                    class="row" style="gap:.4rem;margin-top:.4rem">
+                <input type="hidden" name="return_to" value="/review">
+                <input type="hidden" name="category_id" value="${usualOf(data, t)!.id}">
+                <button class="button-small button-primary" type="submit">
+                  File as ${usualOf(data, t)!.name}
+                </button>
+                <span class="faint">where ${t.payee ?? "this payee"} usually goes</span>
+              </form>
+            `)}
+            <details style="margin-top:.4rem">
+              <summary class="linkish">${usualOf(data, t) ? "Somewhere else" : "Choose a category"}</summary>
+              <form method="post" action="/transaction/${t.id}/categorise"
+                    class="row" style="gap:.4rem;margin-top:.4rem;flex-wrap:wrap">
+                <input type="hidden" name="return_to" value="/review">
+                <label class="sr-only" for="cat-${t.id}">Category for ${t.payee ?? "this transaction"}</label>
+                <select id="cat-${t.id}" name="category_id" style="max-width:16rem">
+                  <option value="">Leave uncategorised</option>
+                  ${data.categories
+                    .filter((c) => !c.isPaymentCategory && !c.hidden)
+                    .map((c) => html`
+                      <option value="${c.id}">${c.name} — ${formatPaise(c.state.balance)} left</option>
+                    `)}
+                </select>
+                <button class="button-small" type="submit">File it</button>
+              </form>
+            </details>
           </div>
         `,
       )}
