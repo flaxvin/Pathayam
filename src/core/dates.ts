@@ -122,6 +122,21 @@ export function formatDate(date: IsoDate): string {
   return `${date.slice(8, 10)}-${date.slice(5, 7)}-${date.slice(0, 4)}`;
 }
 
+/**
+ * "11-09-2026 14:52" — a logged timestamp, in the same DD-MM-YYYY order as
+ * every other date the app shows (L3).
+ *
+ * Takes the stored string as written rather than parsing it into a `Date`:
+ * every timestamp is already recorded in IST by `nowIST`, and re-parsing would
+ * reinterpret it in whatever zone the server happens to run in.
+ */
+export function formatDateTime(at: string): string {
+  const date = at.slice(0, 10);
+  const time = at.slice(11, 16);
+  if (!isIsoDate(date)) return at;
+  return time ? `${formatDate(date)} ${time}` : formatDate(date);
+}
+
 /** "August 2026" — the budget screen's month heading. */
 export function formatMonth(month: MonthKey): string {
   const name = MONTH_NAMES[Number(month.slice(5)) - 1] ?? month;

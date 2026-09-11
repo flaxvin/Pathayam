@@ -54,6 +54,7 @@ export function renderMore(features: { loans: boolean; assets: boolean }): SafeH
       ["/rules", "Rules", "Automate categorisation, testable before you save"],
       ["/categories", "Categories", "Rename, reorder, hide"],
       ["/import", "Import", "Statements in, review queue out"],
+      ["/activity", "Activity", "Every change, and the undo for it"],
     ])}
 
     ${group("Once a month", [

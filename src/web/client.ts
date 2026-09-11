@@ -388,6 +388,7 @@ export const CLIENT_SCRIPT = String.raw`
     { label: "Go to Rules", href: "/rules", group: "Go to" },
     { label: "Go to Import", href: "/import", group: "Go to" },
     { label: "Go to Month close", href: "/months", group: "Go to" },
+    { label: "Go to Activity", href: "/activity", group: "Go to" },
     { label: "Go to Health", href: "/health", group: "Go to" },
     { label: "Go to Settings", href: "/settings", group: "Go to" },
     { label: "Add a transaction", href: "/add", group: "Do", shortcut: "A" },

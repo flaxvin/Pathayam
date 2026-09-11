@@ -161,6 +161,24 @@ export function columnChoices(rows: string[][], headerRow: number): { index: num
 }
 
 /**
+ * B64 · Is there a table here at all?
+ *
+ * `04` §3.2 treats a file this app cannot read as a mapping task rather than an
+ * error — the user points at the columns and the profile is reused forever
+ * after. That only helps when there *are* columns. A scanned statement is an
+ * image with no text layer, so extraction yields nothing, and the mapping
+ * screen would offer "Column 1" for every field above an empty table.
+ *
+ * Two rows with two columns between them is the least that could be mapped:
+ * one header and one row of data.
+ */
+export function looksMappable(rows: string[][]): boolean {
+  const populated = rows.filter((row) => row.some((cell) => cell.trim() !== ""));
+  if (populated.length < 2) return false;
+  return populated.some((row) => row.filter((cell) => cell.trim() !== "").length >= 2);
+}
+
+/**
  * Rows that look like they might be the header, for a file where the guess
  * failed. Offered in the mapping UI so the user points at the right one rather
  * than counting lines.
