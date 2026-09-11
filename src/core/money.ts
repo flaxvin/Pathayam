@@ -157,13 +157,43 @@ function trimZeros(n: number): string {
  */
 export function speakPaise(amount: Paise): string {
   const negative = amount < 0;
-  const abs = Math.abs(amount);
+  const abs = Math.round(Math.abs(amount));
   const whole = Math.trunc(abs / RUPEE);
   const paise = abs - whole * RUPEE;
+
   const parts: string[] = [];
-  parts.push(`${whole} ${whole === 1 ? "rupee" : "rupees"}`);
+  const spoken = speakIndian(whole);
+  parts.push(`${spoken} ${whole === 1 ? "rupee" : "rupees"}`);
   if (paise !== 0) parts.push(`${paise} paise`);
   return `${negative ? "minus " : ""}${parts.join(" ")}`;
+}
+
+/**
+ * B95 · Say a number the way the rest of the app writes it.
+ *
+ * Everything on screen groups in the Indian system — `groupIndian` renders
+ * ₹52,75,874 and `formatCompact` says ₹52.76L — and the screen-reader text
+ * beside it said "5275874 rupees", which a reader renders in millions or spells
+ * out digit by digit. Ready to Assign is the single most important figure on
+ * the budget screen and it was the least intelligible one to anybody using it
+ * by ear (A5).
+ *
+ * Lakh and crore are not separators here; they are how the number is said.
+ */
+function speakIndian(whole: number): string {
+  if (whole < 1000) return String(whole);
+
+  const crore = Math.trunc(whole / 10_000_000);
+  const lakh = Math.trunc((whole % 10_000_000) / 100_000);
+  const thousand = Math.trunc((whole % 100_000) / 1000);
+  const rest = whole % 1000;
+
+  const said: string[] = [];
+  if (crore) said.push(`${crore} crore`);
+  if (lakh) said.push(`${lakh} lakh`);
+  if (thousand) said.push(`${thousand} thousand`);
+  if (rest) said.push(String(rest));
+  return said.join(" ");
 }
 
 // ---------------------------------------------------------------------------
