@@ -374,22 +374,42 @@ export function renderCategories(groups: {
     target: { amount: Paise; date: string | null } | null;
   }[];
 }[]): SafeHtml {
+  // F3.6 · Up/down nudges. Reordering is positional, so it is offered on every
+  // row and group — including app-managed ones, which carry no other controls.
+  const reorder = (action: string, isFirst: boolean, isLast: boolean) => html`
+    <span class="row" style="gap:.2rem">
+      <form method="post" action="${action}">
+        <input type="hidden" name="direction" value="up">
+        <button class="button-small button-quiet" type="submit" aria-label="Move up"
+                title="Move up" ${raw(isFirst ? "disabled" : "")}>↑</button>
+      </form>
+      <form method="post" action="${action}">
+        <input type="hidden" name="direction" value="down">
+        <button class="button-small button-quiet" type="submit" aria-label="Move down"
+                title="Move down" ${raw(isLast ? "disabled" : "")}>↓</button>
+      </form>
+    </span>
+  `;
+
   return html`
     <h1>Categories</h1>
     <p class="muted">
-      Rename, set a target (what a category should hold), hide, or delete. A target
-      drives the underfunded figure and one-tap auto-assign.
+      Rename, set a target (what a category should hold), reorder, hide, or delete.
+      A target drives the underfunded figure and one-tap auto-assign.
     </p>
 
     ${groups.map(
-      (g) => html`
+      (g, gi) => html`
         <section class="card">
           <div class="row-between">
             <h2>${g.name}</h2>
-            ${when(g.kind !== "normal", () => html`<span class="chip">managed by the app</span>`)}
+            <span class="row" style="gap:.5rem">
+              ${when(g.kind !== "normal", () => html`<span class="chip">managed by the app</span>`)}
+              ${reorder(`/groups/${g.id}/reorder`, gi === 0, gi === groups.length - 1)}
+            </span>
           </div>
           ${g.categories.map(
-            (c) => {
+            (c, ci) => {
               // B58: a payment category, and any category in an app-managed
               // group (a goal's savings envelope), carries no manual controls.
               const managed = c.isPayment || g.kind !== "normal";
@@ -401,6 +421,7 @@ export function renderCategories(groups: {
                            ${raw(managed ? "readonly" : "")}>
                     ${when(!managed, () => html`<button class="button-small" type="submit">Rename</button>`)}
                   </form>
+                  ${reorder(`/categories/${c.id}/reorder`, ci === 0, ci === g.categories.length - 1)}
                   <span class="amount">${formatPaise(c.balance)}</span>
                 </div>
                 ${when(!managed, () => html`

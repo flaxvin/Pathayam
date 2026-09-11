@@ -289,6 +289,14 @@ legend { font-weight: 600; font-size: .9rem; padding: 0 .35rem; }
 /* Amounts get the numeric keypad with a decimal (A7) via inputmode in markup. */
 .amount-input { font-variant-numeric: tabular-nums; font-size: 1.25rem; }
 
+/* A long read: the legal pages. Measure capped for readability, and headings
+   given room so the document scans rather than runs together. */
+.prose-page { max-width: 44rem; margin: 2rem auto; padding: 0 1rem; }
+.prose-page h2 { margin-top: 2rem; }
+.prose-page li { margin-bottom: .4rem; }
+.prose-page code { word-break: break-all; }
+.prose-page table { margin: 1rem 0; }
+
 /* ---------------------------------------------------------------------------
    Cards, tables, chips
    --------------------------------------------------------------------------- */

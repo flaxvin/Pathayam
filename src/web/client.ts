@@ -42,6 +42,142 @@ export const CLIENT_SCRIPT = String.raw`
     el.hidden = !text;
   }
 
+  // ---------------------------------------------------------------------------
+  // In-place page update
+  //
+  // Every mutation used to end in location.href or location.reload(), which
+  // threw away the scroll position: nudge a category at the bottom of a long
+  // Categories page and you were bounced to the top to find it. It also lost
+  // the success message, because the redirect branch returned before the
+  // status was ever shown.
+  //
+  // So instead of navigating, fetch the target, swap the contents of main, and
+  // leave the viewport where it was. R35 is untouched — nothing is stored on
+  // the device; this is one more request, not a cache.
+  // ---------------------------------------------------------------------------
+
+  function resolve(url) {
+    var a = document.createElement("a");
+    a.href = url;
+    return a;
+  }
+
+  // Scroll follows the *path*, not the whole URL. Assigning on the budget grid
+  // redirects to "/?month=2026-09" from "/", and a stricter comparison read
+  // that as a page change and threw the user back to the top of the grid — the
+  // exact thing this is here to prevent. A different path is a real navigation
+  // and does belong at the top.
+  function samePage(url) {
+    return resolve(url).pathname === window.location.pathname;
+  }
+
+  // Capture enough to put the user back where they were typing. The value is
+  // carried across only for the element that still has focus: if the swap
+  // lands while they are part-way through the next amount, their keystrokes
+  // must survive it.
+  function rememberFocus() {
+    var el = document.activeElement;
+    var main = document.getElementById("main");
+    if (!el || !el.id || !main || !main.contains(el)) return null;
+    var editable = /^(INPUT|TEXTAREA|SELECT)$/.test(el.tagName);
+    return {
+      id: el.id,
+      value: editable ? el.value : null,
+      start: editable && el.selectionStart !== undefined ? el.selectionStart : null,
+      end: editable && el.selectionEnd !== undefined ? el.selectionEnd : null,
+    };
+  }
+
+  function restoreFocus(memo) {
+    if (!memo) return;
+    var el = document.getElementById(memo.id);
+    if (!el) return;
+    if (memo.value !== null && el.value !== undefined) el.value = memo.value;
+    try {
+      el.focus({ preventScroll: true });
+      if (memo.start !== null && el.setSelectionRange) el.setSelectionRange(memo.start, memo.end);
+    } catch (e) {
+      // A hidden or disabled control cannot take focus. Nothing to do.
+    }
+  }
+
+  function initialiseContent(root) {
+    root.querySelectorAll('input[name="return_to"]').forEach(function (input) {
+      if (!input.value) input.value = window.location.pathname + window.location.search;
+    });
+    root.querySelectorAll("[data-reveal]").forEach(applyReveal);
+  }
+
+  function showPageNotice(message, kind) {
+    var main = document.getElementById("main");
+    if (!main || !message) return;
+    var el = document.createElement("div");
+    el.className = "notice notice-" + (kind || "success");
+    el.setAttribute("role", "status");
+    el.textContent = message;
+    main.insertBefore(el, main.firstChild);
+  }
+
+  function updatePage(url, message, kind, onFail) {
+    var stayPut = samePage(url);
+    var link = resolve(url);
+    var sameUrl = stayPut && link.search === window.location.search;
+    var x = window.scrollX;
+    var y = window.scrollY;
+
+    fetch(url, { headers: { Accept: "text/html" }, credentials: "same-origin" })
+      .then(function (response) {
+        if (!response.ok) throw new Error("not ok");
+        return response.text();
+      })
+      .then(function (markup) {
+        var doc = new DOMParser().parseFromString(markup, "text/html");
+        var fresh = doc.getElementById("main");
+        var current = document.getElementById("main");
+        if (!fresh || !current) throw new Error("no main");
+
+        var memo = stayPut ? rememberFocus() : null;
+        current.innerHTML = fresh.innerHTML;
+
+        // The navigation chrome carries the current-page marker and the review
+        // badge, so it has to move with the content.
+        [".sidebar", ".bottom-nav"].forEach(function (selector) {
+          var freshNav = doc.querySelector(selector);
+          var currentNav = document.querySelector(selector);
+          if (freshNav && currentNav) currentNav.innerHTML = freshNav.innerHTML;
+        });
+
+        if (doc.title) document.title = doc.title;
+        // Keep the address bar truthful even when the scroll is held: a month
+        // change has to survive a refresh or a bookmark.
+        if (!sameUrl && window.history && window.history.replaceState) {
+          if (stayPut) window.history.replaceState({}, "", url);
+          else if (window.history.pushState) window.history.pushState({}, "", url);
+        }
+
+        initialiseContent(current);
+        showPageNotice(message, kind);
+
+        if (stayPut) {
+          window.scrollTo(x, y);
+          restoreFocus(memo);
+        } else {
+          window.scrollTo(0, 0);
+        }
+      })
+      .catch(function () {
+        // If anything about the swap fails, fall back to the plain navigation
+        // rather than leaving a stale page on screen (R35.3).
+        if (onFail) onFail();
+        window.location.href = url;
+      });
+  }
+
+  // The swapped-in URL is a real history entry, so Back has to fetch it again.
+  window.addEventListener("popstate", function () {
+    window.location.reload();
+  });
+
   function submitWithRetry(form) {
     var submitButton = form.querySelector('button[type="submit"], button:not([type])');
     var originalLabel = submitButton ? submitButton.textContent : null;
@@ -98,14 +234,17 @@ export const CLIENT_SCRIPT = String.raw`
                 finish(payload.error || "That could not be saved.", "error");
                 return;
               }
+              form.dataset.idempotencyKey = "";
               if (payload.redirect) {
-                window.location.href = payload.redirect;
+                // Clear the form's own status first — the message is about to
+                // be shown against the refreshed page instead.
+                finish("", null);
+                updatePage(payload.redirect, payload.message || "Saved.", "success");
                 return;
               }
-              form.dataset.idempotencyKey = "";
               finish(payload.message || "Saved.", "success");
               if (form.dataset.reloadOnSuccess !== "false") {
-                window.location.reload();
+                updatePage(window.location.pathname + window.location.search, null, null);
               }
             });
         })

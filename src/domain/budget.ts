@@ -50,6 +50,20 @@ export function createGroup(
   });
 }
 
+export function renameGroup(db: DB, actor: Actor, id: string, name: string): CategoryGroup {
+  return transact(db, () => {
+    const before = queryOne<CategoryGroup>(db, `SELECT * FROM category_groups WHERE id = ?`, id);
+    if (!before) throw new Error("That group does not exist.");
+    execute(db, `UPDATE category_groups SET name = ? WHERE id = ?`, name, id);
+    const after = queryOne<CategoryGroup>(db, `SELECT * FROM category_groups WHERE id = ?`, id)!;
+    appendEvent(db, actor, {
+      entity: "category-group", entityId: id, action: "rename", before, after,
+      summary: `Renamed the group "${before.name}" to "${name}"`,
+    });
+    return after;
+  });
+}
+
 export function createCategory(
   db: DB, actor: Actor, input: { groupId: string; name: string; note?: string },
 ): Category {
@@ -100,6 +114,58 @@ export function moveCategoryToGroup(db: DB, actor: Actor, id: string, groupId: s
       entity: "category", entityId: id, action: "move",
       before, after: getCategory(db, id),
       summary: `Moved "${before.name}" to another group`,
+    });
+  });
+}
+
+/**
+ * F3.6 · Move a category one place up or down within its group. Renumbers the
+ * group to a clean sequence and swaps the two positions, so the order is always
+ * well-defined and a repeated nudge keeps working. Undoes as one step.
+ */
+export function reorderCategory(
+  db: DB, actor: Actor, id: string, direction: "up" | "down",
+): void {
+  transact(db, () => {
+    const cat = getCategory(db, id);
+    if (!cat) throw new Error("That category does not exist.");
+    const sibs = queryAll<{ id: string }>(
+      db, `SELECT id FROM categories WHERE group_id = ? AND deleted_at IS NULL ORDER BY sort, name`,
+      cat.group_id,
+    ).map((r) => r.id);
+    const i = sibs.indexOf(id);
+    const j = direction === "up" ? i - 1 : i + 1;
+    if (i < 0 || j < 0 || j >= sibs.length) return; // at the edge — nothing to do
+    const a = sibs[i]!, b = sibs[j]!;
+    sibs.forEach((cid, k) => execute(db, `UPDATE categories SET sort = ? WHERE id = ?`, k, cid));
+    execute(db, `UPDATE categories SET sort = ? WHERE id = ?`, j, a);
+    execute(db, `UPDATE categories SET sort = ? WHERE id = ?`, i, b);
+    appendEvent(db, actor, {
+      entity: "category-order", entityId: id, action: "reorder",
+      before: { a, aSort: i, b, bSort: j },
+      summary: `Moved "${cat.name}" ${direction}`,
+    });
+  });
+}
+
+/** F3.6 · Move a category group one place up or down. */
+export function reorderGroup(
+  db: DB, actor: Actor, id: string, direction: "up" | "down",
+): void {
+  transact(db, () => {
+    const groups = queryAll<{ id: string; name: string }>(
+      db, `SELECT id, name FROM category_groups ORDER BY sort, name`,
+    );
+    const i = groups.findIndex((g) => g.id === id);
+    const j = direction === "up" ? i - 1 : i + 1;
+    if (i < 0 || j < 0 || j >= groups.length) return;
+    groups.forEach((g, k) => execute(db, `UPDATE category_groups SET sort = ? WHERE id = ?`, k, g.id));
+    execute(db, `UPDATE category_groups SET sort = ? WHERE id = ?`, j, groups[i]!.id);
+    execute(db, `UPDATE category_groups SET sort = ? WHERE id = ?`, i, groups[j]!.id);
+    appendEvent(db, actor, {
+      entity: "group-order", entityId: id, action: "reorder",
+      before: { a: groups[i]!.id, aSort: i, b: groups[j]!.id, bSort: j },
+      summary: `Moved the group "${groups[i]!.name}" ${direction}`,
     });
   });
 }
@@ -480,4 +546,38 @@ registerUndoHandler("target", (db, event) => {
     before.category_id, before.type, before.amount, before.target_date, before.created_at, before.updated_at,
   );
   return `Restored the previous target`;
+});
+
+// B61 · Groups logged create and rename events from the start but had no undo
+// handler, so every one of them was refused — an event that looks undoable in
+// the log and is not is worse than no event at all.
+registerUndoHandler("category-group", (db, event) => {
+  const before = event.before as CategoryGroup | undefined;
+  if (!before) {
+    execute(db, `DELETE FROM category_groups WHERE id = ?`, event.entityId!);
+    return `Removed the group that was added`;
+  }
+  execute(
+    db,
+    `UPDATE category_groups SET name = ?, kind = ?, sort = ? WHERE id = ?`,
+    before.name, before.kind, before.sort, event.entityId!,
+  );
+  return `Restored the group "${before.name}"`;
+});
+
+// F3.6 · A reorder swaps two `sort` values (after a clean renumber). Undo puts
+// exactly those two back where they were; the renumber of the untouched rows is
+// order-preserving, so nothing else moves.
+interface SwapBefore { a: string; aSort: number; b: string; bSort: number }
+registerUndoHandler("category-order", (db, event) => {
+  const b = event.before as SwapBefore;
+  execute(db, `UPDATE categories SET sort = ? WHERE id = ?`, b.aSort, b.a);
+  execute(db, `UPDATE categories SET sort = ? WHERE id = ?`, b.bSort, b.b);
+  return `Restored the order`;
+});
+registerUndoHandler("group-order", (db, event) => {
+  const b = event.before as SwapBefore;
+  execute(db, `UPDATE category_groups SET sort = ? WHERE id = ?`, b.aSort, b.a);
+  execute(db, `UPDATE category_groups SET sort = ? WHERE id = ?`, b.bSort, b.b);
+  return `Restored the order`;
 });
