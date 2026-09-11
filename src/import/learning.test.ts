@@ -13,7 +13,7 @@ import {
 } from "./learning.ts";
 import {
   recognise, saveProfile, listProfiles, mappingFromSelections, validateMapping,
-  columnChoices, candidateHeaderRows, parseWith,
+  columnChoices, candidateHeaderRows, parseWith, looksMappable,
 } from "./profiles.ts";
 import type { Rule } from "./rules.ts";
 
@@ -417,5 +417,40 @@ Txn Date,Particulars,Debit,Credit
     assert.equal(recognise(db, HDFC, other.id).kind, "guessed");
     void todayIST();
     db.close();
+  });
+});
+
+describe("B64 · a scanned statement is not a mapping task", () => {
+  test("no text at all is not mappable", () => {
+    assert.equal(looksMappable([]), false);
+    assert.equal(looksMappable([[""]]), false);
+    assert.equal(looksMappable([["  "], ["\t"]]), false);
+  });
+
+  test("a single line, however wide, is not mappable — there is no data row", () => {
+    assert.equal(looksMappable([["Date", "Narration", "Debit", "Credit"]]), false);
+  });
+
+  test("one column down the page is not mappable", () => {
+    // What a PDF with a text layer but no table structure extracts as.
+    assert.equal(looksMappable([["STATEMENT OF ACCOUNT"], ["HDFC BANK"], ["Page 1 of 4"]]), false);
+  });
+
+  test("a header and one data row is the least that can be mapped", () => {
+    assert.equal(
+      looksMappable([["Date", "Narration", "Debit"], ["05-09-2026", "UPI-SHOP", "250.00"]]),
+      true,
+    );
+  });
+
+  test("preamble above a real table does not hide the table", () => {
+    assert.equal(
+      looksMappable([
+        ["STATEMENT OF ACCOUNT"],
+        ["Date", "Narration", "Debit", "Credit"],
+        ["05-09-2026", "UPI-SHOP", "250.00", ""],
+      ]),
+      true,
+    );
   });
 });

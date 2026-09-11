@@ -157,7 +157,15 @@ function extractMerchant(narration: string, vpa: string | null, reference: strin
   // `MERCHANT*SUBMERCHANT` collapses to MERCHANT (`04` §3.6).
   const candidate = parts.reduce((a, b) => (b.length > a.length ? b : a));
   const collapsed = candidate.split("*")[0]!.trim();
-  const cleaned = collapsed.replace(/\s*\d{4,}\s*$/, "").trim();
+  // B63: removing the trailing reference used to leave the separator that
+  // attached it, so "UPI-TEST MERCHANT-9876" became the payee "Test Merchant-".
+  // The separator goes with the number it introduced; a hyphen with a name on
+  // both sides ("Big-Bazaar") is untouched, because only a *trailing* run is
+  // stripped.
+  const cleaned = collapsed
+    .replace(/\s*\d{4,}\s*$/, "")
+    .replace(/[\s\-–—_:.,*#]+$/, "")
+    .trim();
   return cleaned ? titleCase(cleaned) : null;
 }
 

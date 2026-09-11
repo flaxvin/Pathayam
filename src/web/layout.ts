@@ -231,6 +231,7 @@ function renderSidebar(
         { href: "/payees", label: "Payees", icon: "☖" },
         { href: "/rules", label: "Rules", icon: "⚙" },
         { href: "/import", label: "Import", icon: "⇪" },
+        { href: "/activity", label: "Activity", icon: "↺" },
         { href: "/health", label: "Health", icon: "♡" },
         { href: "/settings", label: "Settings", icon: "⚒" },
       ].map(link)}

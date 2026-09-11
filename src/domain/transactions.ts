@@ -574,12 +574,59 @@ export function tagsFor(db: DB, transactionId: string): string[] {
 
 // ---------------------------------------------------------------------------
 
+/**
+ * B65 · Rows elsewhere that point at a transaction and must not be orphaned.
+ *
+ * Splits and tags belong to the transaction and cascade with it. These do not:
+ * each records that the transaction is load-bearing for something derived — an
+ * instalment against a loan, a lot in the portfolio, a reconciliation's
+ * adjustment. Deleting the transaction under them would leave that derived
+ * figure quietly wrong, so undo refuses and says which one is holding it.
+ */
+const TRANSACTION_DEPENDANTS: { table: string; column: string; describe: string }[] = [
+  { table: "loan_payments", column: "transaction_id", describe: "a loan instalment" },
+  { table: "lots", column: "transaction_id", describe: "a portfolio lot" },
+  { table: "holding_events", column: "transaction_id", describe: "a portfolio transaction" },
+  { table: "reconciliations", column: "adjustment_transaction_id", describe: "a reconciliation adjustment" },
+  { table: "family_loans", column: "write_off_transaction_id", describe: "a family-loan write-off" },
+];
+
+/** Thrown when an undo is refused for a reason the household can act on. */
+export class UndoRefused extends Error {}
+
 registerUndoHandler("transaction", (db, event) => {
   const before = event.before as Transaction | undefined;
   if (!before) {
-    execute(db, `DELETE FROM transaction_splits WHERE transaction_id = ?`, event.entityId!);
-    execute(db, `DELETE FROM transaction_tags WHERE transaction_id = ?`, event.entityId!);
-    execute(db, `DELETE FROM transactions WHERE id = ?`, event.entityId!);
+    const id = event.entityId!;
+
+    for (const dep of TRANSACTION_DEPENDANTS) {
+      const n = queryOne<{ n: number }>(
+        db, `SELECT COUNT(*) AS n FROM ${dep.table} WHERE ${dep.column} = ?`, id,
+      )?.n ?? 0;
+      if (n > 0) {
+        throw new UndoRefused(
+          `That transaction is recorded as ${dep.describe}, so removing it would ` +
+          `leave that wrong. Undo or delete ${dep.describe} first.`,
+        );
+      }
+    }
+
+    // An imported row that was approved into this transaction goes back to
+    // waiting in the review queue: the ledger entry is gone, so the import is
+    // unresolved again rather than approved-into-nothing.
+    execute(
+      db,
+      `UPDATE staged_transactions
+          SET status = 'pending', transaction_id = NULL, resolved_at = NULL, resolved_by = NULL
+        WHERE transaction_id = ?`,
+      id,
+    );
+    // A later import may have been flagged as a duplicate *of* this one.
+    execute(db, `UPDATE staged_transactions SET duplicate_of_id = NULL WHERE duplicate_of_id = ?`, id);
+
+    execute(db, `DELETE FROM transaction_splits WHERE transaction_id = ?`, id);
+    execute(db, `DELETE FROM transaction_tags WHERE transaction_id = ?`, id);
+    execute(db, `DELETE FROM transactions WHERE id = ?`, id);
     return `Removed the transaction that was added`;
   }
   execute(

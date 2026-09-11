@@ -63,7 +63,7 @@ import { passwordCandidates, describeCandidate } from "./import/statement-passwo
 import { getIdentity, setIdentity, clearIdentity, maskedIdentity } from "./import/identity.ts";
 import {
   recognise, saveProfile, listProfiles, markProfileUsed, deleteProfile,
-  mappingFromSelections, validateMapping, columnChoices, candidateHeaderRows,
+  mappingFromSelections, validateMapping, columnChoices, candidateHeaderRows, looksMappable,
   parseWith,
 } from "./import/profiles.ts";
 import {
@@ -103,7 +103,10 @@ import {
   suggestCoverSources, cardFunding,
   type AutoAssignPlan, type AutoAssignProposal,
 } from "./engine/engine.ts";
-import { historyFor, queryEvents, appendEvent, type Actor } from "./core/events.ts";
+import {
+  historyFor, queryEvents, appendEvent, checkUndo, undoEvent, DEFAULT_UNDO_WINDOW_DAYS,
+  type Actor,
+} from "./core/events.ts";
 import {
   withForwardRecompute, setOverspendModel, type RecomputeResult,
 } from "./engine/recompute.ts";
@@ -145,6 +148,7 @@ import {
   type PayeeRow, type RuleRow,
 } from "./web/pages/manage.ts";
 import { renderPrivacy, renderTerms } from "./web/pages/legal.ts";
+import { renderActivity } from "./web/pages/activity.ts";
 
 /**
  * The date shown on the legal pages. It is a constant rather than "today"
@@ -158,7 +162,7 @@ import {
   applyStartingTemplate, startBlank,
 } from "./domain/starting-budget.ts";
 import {
-  mergePayees, getPayee, resolvePayee,
+  mergePayees, getPayee, resolvePayee, UndoRefused,
 } from "./domain/transactions.ts";
 import {
   createCategory, renameCategory, moveCategoryToGroup, setCategoryHidden, deleteCategory,
@@ -591,6 +595,85 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       headers: { "Set-Cookie": sessionCookie(token, { secure: false, days: config.sessionDays }) },
     };
   });
+
+  // -------------------------------------------------------------------------
+  // R37 · Activity, and the only route to universal undo
+  //
+  // The undo machinery — a registered handler per entity, the supersession
+  // check, the append-only inverse — has been complete and tested since early
+  // on, but nothing in the web layer called it, so the only thing a household
+  // could actually undo was a whole import batch. This is the door.
+  // -------------------------------------------------------------------------
+  router.get("/activity", (ctx) => {
+    auth(ctx);
+    const entity = ctx.query.get("entity");
+    const events = queryEvents(db, { entity: entity ?? undefined, limit: 100 });
+
+    const entities = queryAll<{ entity: string }>(
+      db, `SELECT DISTINCT entity FROM events ORDER BY entity`,
+    ).map((r) => r.entity);
+
+    return render(
+      ctx, "Activity",
+      renderActivity({
+        entity,
+        entities,
+        windowDays: DEFAULT_UNDO_WINDOW_DAYS,
+        rows: events.map((e) => {
+          const check = checkUndo(db, e.id);
+          return {
+            id: e.id,
+            at: e.at,
+            summary: e.summary ?? "",
+            entity: e.entity,
+            action: e.action,
+            actor: memberName(e.actorMemberId),
+            onBehalfOf: e.realMemberId && e.realMemberId !== e.actorMemberId
+              ? memberName(e.realMemberId)
+              : null,
+            source: e.source,
+            blockedReason: check.ok ? null : check.reason ?? "This cannot be undone.",
+            supersededBy: check.supersededBy.map((s) => ({
+              at: s.at,
+              summary: s.summary ?? `${s.action} ${s.entity}`,
+            })),
+            isUndo: Boolean(e.undoOfEventId),
+            undone: Boolean(e.undoneByEventId),
+          };
+        }),
+      }),
+    );
+  });
+
+  router.post("/activity/:id/undo", (ctx) =>
+    mutate(ctx, (a) => {
+      const force = field(ctx.body, "force") === "1";
+      let result;
+      try {
+        result = undoEvent(
+          db, ctx.params.id!, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+          { force },
+        );
+      } catch (err) {
+        // B65 · A handler refuses when the record is load-bearing for something
+        // derived. That is an answer, not a fault — 422, so the client shows it
+        // instead of retrying it as a server error.
+        if (err instanceof UndoRefused) throw new HttpError(422, err.message);
+        throw err;
+      }
+      // R37.9 · A refusal is the app protecting later work. It is deliberately
+      // *not* 409: the client treats 409 as "the first attempt may still be in
+      // flight" and retries it, which turned a clear refusal into five silent
+      // retries and a network error.
+      if (!result.ok) {
+        throw new HttpError(422, result.reason ?? "That change could not be undone.");
+      }
+      return {
+        redirect: "/activity",
+        message: result.undoEvent?.summary ?? "Undone.",
+      };
+    }),
+  );
 
   // Required by Google's OAuth consent screen, and linked from sign-in and
   // Settings so a member can read them without hunting for a URL.
@@ -2143,6 +2226,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // unrecognised CSV goes to.
     if (parsed.records.length === 0) {
       const rows = parsed.text.split("\n").map((line) => line.split(/\s{2,}/));
+
+      // B64 · A mapping task needs columns to map. A scanned statement has
+      // none, and the mapping screen would offer "Column 1" for every field
+      // above a table of nothing. Say what is actually wrong instead.
+      if (!looksMappable(rows)) {
+        return importPage(
+          "There is no text in that PDF to read — it is almost certainly a scan " +
+          "or an image rather than a statement with selectable text. Ask the bank " +
+          "for the text version (net banking usually offers one), or import the " +
+          "CSV instead.",
+        );
+      }
+
       const headerRow = candidateHeaderRows(rows)[0]?.index ?? 0;
       return render(
         ctx, "Which column is which?",

@@ -450,3 +450,20 @@ describe("merchant extraction — rails versus names", () => {
     assert.equal(extractNarrationFields("BIG-BAZAAR RETAIL").merchant, "Big-bazaar Retail");
   });
 });
+
+describe("B63 · the separator that introduced a reference goes with it", () => {
+  test("a hyphen-attached reference does not leave a dangling hyphen", () => {
+    // What an HDFC UPI debit actually looks like.
+    assert.equal(extractNarrationFields("UPI-TEST MERCHANT-9876").merchant, "Test Merchant");
+    assert.equal(extractNarrationFields("UPI-ANOTHER SHOP-1234").merchant, "Another Shop");
+  });
+
+  test("a hyphen inside the name still survives", () => {
+    assert.equal(extractNarrationFields("BIG-BAZAAR RETAIL").merchant, "Big-bazaar Retail");
+    assert.equal(extractNarrationFields("UPI-BIG-BAZAAR-4455").merchant, "Big-bazaar");
+  });
+
+  test("a space-attached reference is still stripped", () => {
+    assert.equal(extractNarrationFields("POS/AMAZON 1234567890").merchant, "Amazon");
+  });
+});
