@@ -240,3 +240,49 @@ The table stores the net assigned figure per (month, category); the *event log*
 records that the change was a move and where it went. That is what lets J22
 answer with "₹1,850 moved out to Eating Out on 14-08 by Priya" rather than
 "assigned changed from 12,000 to 10,150".
+
+---
+
+## 8. The rollup, and why it cannot change any of the above
+
+*Added 11-09-2026 · B73–B75, B89–B90.*
+
+Everything above is derived from the ledger on every request. That is what makes
+R7.g possible — edit any month and every figure since re-derives, with no stored
+total to go stale — and it cost 580ms at twenty years of history.
+
+Months older than six are now summarised into `month_rollups` and read back
+instead of rescanned. This does not change the arithmetic. What it changes is
+where the numbers that go *into* §1 come from, which is a distinction worth
+being careful about, because a summary that drifts from the ledger breaks the
+identity without any of the rules above being wrong.
+
+Three things keep it honest:
+
+1. **Invalidation is a database trigger, not a call.** Any insert, update or
+   delete on `transactions` or `transaction_splits` drops the rollup for the
+   affected month — both months, when a transaction moves between them — in the
+   same statement. There is no code path, present or future, that can change a
+   transaction and forget.
+
+2. **The rollup can be bypassed.** `loadEngineInput(db, { useRollup: false })`
+   derives every month from the ledger. This exists so the summary can be
+   checked against the thing it summarises from outside, which is the only
+   position from which that question can be answered.
+
+3. **The identity is asserted from a real database.** `engine/identity.test.ts`
+   builds a household through the domain API and checks §1 over four months and
+   over thirty — once through the rollup, once bypassing it, and again for a
+   month eighteen months back.
+
+The third point is the lesson. §1 was asserted after every scenario in
+`engine.test.ts`, but those scenarios are built by `Scenario` and handed to the
+engine directly, so **no test asserted the identity against input assembled from
+rows**. When the sealed-row dispatch absorbed a fourth fact into the wrong term,
+every engine test stayed green: the engine was computing correctly from wrong
+numbers. The first suite to notice was one that started from the database.
+
+A test written to catch exactly this had also been passing, because it emptied
+the rollup and recomputed — and the next read rebuilt it on the way in, so both
+sides of the comparison went through the rollup. If you add a cache here, the
+check that it agrees with the ledger has to be able to *not use the cache*.
