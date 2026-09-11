@@ -9,6 +9,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { CLIENT_SCRIPT } from "./client.ts";
+import { STYLESHEET } from "./styles.ts";
 
 describe("S15 · the client script", () => {
   test("parses as JavaScript", () => {
@@ -45,5 +46,26 @@ describe("S15 · the client script", () => {
     );
     assert.match(CLIENT_SCRIPT, /function updatePage\(/);
     assert.match(CLIENT_SCRIPT, /window\.scrollTo\(x, y\)/);
+  });
+});
+
+describe("S15 · the stylesheet", () => {
+  test("is served whole — a stray backtick would truncate the template", () => {
+    // A backtick in a CSS comment ends the template literal, and the failure
+    // surfaces as a TypeScript syntax error a long way from the comment.
+    assert.equal(STYLESHEET.includes("`"), false);
+    assert.equal(STYLESHEET.includes("${"), false);
+  });
+
+  test("braces balance, so no rule was cut off mid-block", () => {
+    const opens = (STYLESHEET.match(/\{/g) ?? []).length;
+    const closes = (STYLESHEET.match(/\}/g) ?? []).length;
+    assert.equal(opens, closes, "unbalanced braces mean a truncated stylesheet");
+  });
+
+  test("B62 · main fills its grid track rather than shrink-wrapping", () => {
+    // The auto margin that centres the single-column layout must not survive
+    // into the sidebar grid, where it makes main size to max-content instead.
+    assert.match(STYLESHEET, /\.with-sidebar main \{[^}]*margin: 0;/);
   });
 });
