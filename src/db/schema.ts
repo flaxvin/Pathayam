@@ -1206,4 +1206,146 @@ DROP TABLE IF EXISTS autoassign_rules;
 DROP TABLE IF EXISTS saved_views;
 `,
   },
+  {
+    name: "0018-month-rollups",
+    sql: `
+--------------------------------------------------------------------------------
+-- B74 · Per-month rollups, so old history costs months rather than rows.
+--
+-- The budget is derived from the whole ledger, every time, which is what makes
+-- R7.g possible: edit any past month and every figure since re-derives with no
+-- stored total to go stale. The cost is that opening the budget scans every
+-- transaction the household has ever made. Measured: 41ms at five years, 389ms
+-- at twenty.
+--
+-- A month more than six months old is one nobody is still entering receipts
+-- into, so its aggregate is computed once and kept here. Recent months are
+-- still derived live on every request, and an edit to a sealed month simply
+-- drops that month's rollup and it is recomputed on the next read.
+--
+-- The invalidation is a trigger rather than a call in the domain layer, which
+-- is the whole point: there is no code path — an import, a rule, a repair
+-- script, a future feature nobody has written yet — that can change a
+-- transaction without the rollup for its month disappearing in the same
+-- statement. A cache that code has to remember to clear is the bug this
+-- codebase spends most of its effort avoiding.
+--------------------------------------------------------------------------------
+CREATE TABLE month_rollups (
+  month       TEXT NOT NULL,
+  -- Which of the engine's facts this row carries.
+  fact        TEXT NOT NULL CHECK (fact IN ('categorised','account-flow','transfer-flow')),
+  -- Empty string rather than NULL: SQLite treats NULLs in a primary key as
+  -- distinct, which would silently allow duplicates.
+  category_id TEXT NOT NULL DEFAULT '',
+  account_id  TEXT NOT NULL DEFAULT '',
+  kind        TEXT NOT NULL DEFAULT '',
+  amount      INTEGER NOT NULL,
+  PRIMARY KEY (month, fact, category_id, account_id)
+) WITHOUT ROWID;
+
+-- A month with no activity at all has no rows, which is indistinguishable from
+-- a month that has not been computed. This says which months are done.
+CREATE TABLE month_rollup_state (
+  month    TEXT PRIMARY KEY,
+  built_at TEXT NOT NULL
+);
+
+CREATE TRIGGER trg_rollup_tx_insert AFTER INSERT ON transactions
+BEGIN
+  DELETE FROM month_rollups      WHERE month = substr(NEW.date, 1, 7);
+  DELETE FROM month_rollup_state WHERE month = substr(NEW.date, 1, 7);
+END;
+
+-- An update can move a transaction between months, so both ends are dropped.
+CREATE TRIGGER trg_rollup_tx_update AFTER UPDATE ON transactions
+BEGIN
+  DELETE FROM month_rollups      WHERE month IN (substr(OLD.date, 1, 7), substr(NEW.date, 1, 7));
+  DELETE FROM month_rollup_state WHERE month IN (substr(OLD.date, 1, 7), substr(NEW.date, 1, 7));
+END;
+
+CREATE TRIGGER trg_rollup_tx_delete AFTER DELETE ON transactions
+BEGIN
+  DELETE FROM month_rollups      WHERE month = substr(OLD.date, 1, 7);
+  DELETE FROM month_rollup_state WHERE month = substr(OLD.date, 1, 7);
+END;
+
+-- A split carries its own category and amount, and its month comes from the
+-- transaction it belongs to.
+CREATE TRIGGER trg_rollup_split_insert AFTER INSERT ON transaction_splits
+BEGIN
+  DELETE FROM month_rollups WHERE month IN
+    (SELECT substr(date, 1, 7) FROM transactions WHERE id = NEW.transaction_id);
+  DELETE FROM month_rollup_state WHERE month IN
+    (SELECT substr(date, 1, 7) FROM transactions WHERE id = NEW.transaction_id);
+END;
+
+CREATE TRIGGER trg_rollup_split_update AFTER UPDATE ON transaction_splits
+BEGIN
+  DELETE FROM month_rollups WHERE month IN
+    (SELECT substr(date, 1, 7) FROM transactions WHERE id IN (OLD.transaction_id, NEW.transaction_id));
+  DELETE FROM month_rollup_state WHERE month IN
+    (SELECT substr(date, 1, 7) FROM transactions WHERE id IN (OLD.transaction_id, NEW.transaction_id));
+END;
+
+CREATE TRIGGER trg_rollup_split_delete AFTER DELETE ON transaction_splits
+BEGIN
+  DELETE FROM month_rollups WHERE month IN
+    (SELECT substr(date, 1, 7) FROM transactions WHERE id = OLD.transaction_id);
+  DELETE FROM month_rollup_state WHERE month IN
+    (SELECT substr(date, 1, 7) FROM transactions WHERE id = OLD.transaction_id);
+END;
+
+-- An account's kind decides which bucket its every transaction falls in, and
+-- its opening balance reaches RTA as income. Either changing re-colours history
+-- wholesale, so the safe answer is to drop everything and rebuild.
+CREATE TRIGGER trg_rollup_account_update AFTER UPDATE ON accounts
+WHEN OLD.kind <> NEW.kind
+  OR OLD.opening_balance <> NEW.opening_balance
+  OR OLD.opening_date <> NEW.opening_date
+BEGIN
+  DELETE FROM month_rollups;
+  DELETE FROM month_rollup_state;
+END;
+
+CREATE TRIGGER trg_rollup_account_insert AFTER INSERT ON accounts
+BEGIN
+  DELETE FROM month_rollups;
+  DELETE FROM month_rollup_state;
+END;
+`,
+  },
+  {
+    name: "0019-rollup-balances",
+    sql: `
+--------------------------------------------------------------------------------
+-- B74 · The rollup also carries account balances now.
+--
+-- A balance is the sum of every transaction ever recorded against an account,
+-- which was the other place a long history was paid for on every page load.
+-- It reads from the same sealed months as the budget facts, so it needs a
+-- fourth value in the fact column.
+--
+-- The table is dropped and recreated rather than altered: it holds nothing but
+-- a cache of figures derived from the ledger, so throwing it away costs one
+-- rebuild on the next read and is the safest way to change its shape. Doing it
+-- as a new migration rather than editing the last one means a database that
+-- already ran 0018 is corrected too.
+--------------------------------------------------------------------------------
+DROP TABLE IF EXISTS month_rollups;
+
+CREATE TABLE month_rollups (
+  month       TEXT NOT NULL,
+  fact        TEXT NOT NULL
+              CHECK (fact IN ('categorised','account-flow','transfer-flow','balance')),
+  category_id TEXT NOT NULL DEFAULT '',
+  account_id  TEXT NOT NULL DEFAULT '',
+  kind        TEXT NOT NULL DEFAULT '',
+  amount      INTEGER NOT NULL,
+  PRIMARY KEY (month, fact, category_id, account_id, kind)
+) WITHOUT ROWID;
+
+-- Everything sealed so far predates the balance rows, so it all rebuilds.
+DELETE FROM month_rollup_state;
+`,
+  },
 ];

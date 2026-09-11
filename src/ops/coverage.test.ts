@@ -3,13 +3,16 @@ import assert from "node:assert/strict";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { openDatabase, ensureHousehold, execute, type DB } from "../db/db.ts";
+import { openDatabase, ensureHousehold, execute, queryAll, type DB } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { nowIST, todayIST } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import { createAssetAccount, findOrCreateInstrument, recordPurchase, recordPrice } from "../domain/assets.ts";
 import { units, price } from "../portfolio/holdings.ts";
-import { createBackup, verifyRestore, controlTotals, exportEverything } from "./backup.ts";
+import {
+  createBackup, verifyRestore, controlTotals, exportEverything,
+  COUNTED_TABLES, EPHEMERAL, NEVER_EXPORTED,
+} from "./backup.ts";
 
 const RAVI = "m-ravi";
 const actor: Actor = { memberId: RAVI, source: "ui" };
@@ -92,5 +95,69 @@ describe("R40.2 / F15 · the portfolio is covered by backup and export", () => {
 
     db.close();
     rmSync(dir, { recursive: true, force: true });
+  });
+});
+
+/**
+ * B76 · Every table has to be someone's job.
+ *
+ * `COUNTED_TABLES` is hand-maintained, and the export is built from it. A table
+ * added without being listed is therefore absent from the control totals *and*
+ * from F15's export, silently and for good — the restore verification would
+ * keep reporting a clean recovery while never checking it. That is the same
+ * shape as every other bug this codebase has had: a thing that exists, works,
+ * and is connected to nothing.
+ *
+ * So: every table in the schema is counted, or named as ephemeral, or named as
+ * a secret. Adding a table means picking one.
+ */
+describe("B76 · no table escapes the backup contract", () => {
+  test("every table is counted, ephemeral, or a secret", () => {
+    const dir = mkdtempSync(join(tmpdir(), "budget-tables-"));
+    const db = setup(dir);
+    try {
+      const actual = queryAll<{ name: string }>(
+        db,
+        `SELECT name FROM sqlite_master
+          WHERE type = 'table' AND name NOT LIKE 'sqlite_%'
+          ORDER BY name`,
+      ).map((r) => r.name);
+
+      const accounted = new Set([
+        ...COUNTED_TABLES, ...EPHEMERAL, ...NEVER_EXPORTED,
+        // Named directly in exportEverything alongside COUNTED_TABLES.
+        "household", "import_profiles", "rule_applications", "review_dismissals",
+        "schema_migrations",
+      ]);
+
+      const orphans = actual.filter((t) => !accounted.has(t));
+      assert.deepEqual(
+        orphans,
+        [],
+        "add each to COUNTED_TABLES (household data), EPHEMERAL (operational or " +
+        "derived), or NEVER_EXPORTED (a secret)",
+      );
+    } finally {
+      db.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("nothing is claimed to be counted that does not exist", () => {
+    const dir = mkdtempSync(join(tmpdir(), "budget-tables-"));
+    const db = setup(dir);
+    try {
+      const actual = new Set(
+        queryAll<{ name: string }>(
+          db, `SELECT name FROM sqlite_master WHERE type = 'table'`,
+        ).map((r) => r.name),
+      );
+      const missing = [...COUNTED_TABLES, ...EPHEMERAL, ...NEVER_EXPORTED]
+        .filter((t) => !actual.has(t));
+      assert.deepEqual(missing, [], "these are listed but no longer in the schema");
+    } finally {
+      db.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
   });
 });
