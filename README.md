@@ -188,7 +188,7 @@ from.
 | **Backup & verified restore** | The scheduled job restores the latest backup into a scratch DB and matches control totals; failure fires a webhook, success pings a dead-man's-switch. |
 | **Health page** | The page you open at 2am — backup status, price-feed health, flags, error counts. |
 | **Command palette** | `Cmd/Ctrl-K` from anywhere; complete and flag-aware. |
-| **Universal undo** | Every action undoes within 30 days, from the event log. |
+| **Universal undo** | Every action undoes within 30 days, from the event log, on [Activity](#screens). An undo is recorded as its own entry — nothing is edited or deleted. Where later edits touched the same record, it shows what it would discard before it does it, and it refuses outright when the record is load-bearing for a loan instalment, a portfolio lot or a reconciliation. |
 
 ---
 
@@ -330,6 +330,7 @@ with the demo data.
 | **Net worth** | `/net-worth` | The four-way decomposition and dated history. |
 | **Month close** | `/months` | The monthly ritual and closed-month history. |
 | **Categories** | `/categories` | Rename, set targets, reorder with ↑/↓, hide, delete. Payment and goal envelopes are marked *managed by the app*. |
+| **Activity** | `/activity` | Every change ever made, and the undo for it. Where later edits touched the same record, the undo shows what it would discard first. |
 | **Settings** | `/settings` | Household, theme, devices, Gmail connection, statement identity, notification prefs, API tokens. |
 | **Health** | `/health` | Backup status, restore verification, price feeds, feature flags, error counts. |
 | **Terms / Privacy** | `/terms`, `/privacy` | Public, signed out — Google's consent screen requires both before it grants `gmail.readonly`. |
@@ -354,6 +355,8 @@ Captured from a running instance with the demo household. The UI is theme-aware
 | [![Health — backups, restore verification, price feeds, feature flags](docs/screenshots/health.png)](docs/screenshots/health.png) | [![Settings — household, Gmail, statement identity, API tokens](docs/screenshots/settings.png)](docs/screenshots/settings.png) |
 | **Categories** | **Overview** |
 | [![Categories — targets, reorder arrows, and app-managed envelopes](docs/screenshots/categories.png)](docs/screenshots/categories.png) | [![Overview — runway, due-soon bills, and the month at a glance](docs/screenshots/overview.png)](docs/screenshots/overview.png) |
+| **Activity** | |
+| [![Activity — every change, with its undo and the reason when it has none](docs/screenshots/activity.png)](docs/screenshots/activity.png) | |
 
 Click any image for the full-resolution capture.
 

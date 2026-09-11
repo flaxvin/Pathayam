@@ -54,6 +54,7 @@ const SHOTS = [
   ["health", "/health", { full: true }],
   ["settings", "/settings", { full: true }],
   ["categories", "/categories"],
+  ["activity", "/activity"],
 ];
 
 /**
