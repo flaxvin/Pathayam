@@ -97,8 +97,15 @@ export function renderAddTransaction(opts: {
 
       <div class="field">
         <label for="category_id">Category</label>
-        <select id="category_id" name="category_id">
-          <option value="">Uncategorised — I'll sort it later</option>
+        <!--
+          B99 · Required for money out. "I'll sort it later" was an option here
+          and later mostly never came; three years of real use left a standing
+          queue of expenses with no envelope behind them. Money in is exempt —
+          its job is to land in Ready to Assign and wait to be given one — and
+          the client drops the requirement when the direction is switched.
+        -->
+        <select id="category_id" name="category_id" required data-requires-category>
+          <option value="">Choose where it came from…</option>
           ${categories
             // R6: the payment envelope is driven by the card's own transactions.
             // Letting it be chosen directly would double-count the spend.
@@ -113,6 +120,7 @@ export function renderAddTransaction(opts: {
         </select>
         <p class="field-hint" data-category-hint>
           Each category shows what it holds, so you can see the consequence while entering.
+          Money coming in doesn't need one — it lands in Ready to Assign.
         </p>
       </div>
 

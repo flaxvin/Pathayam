@@ -1256,6 +1256,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         .map((t) => t.trim())
         .filter(Boolean);
 
+      /*
+       * B99 · An expense has to name the envelope it came out of.
+       *
+       * "Uncategorised — I'll sort it later" was an option on this form, and
+       * later mostly never came: three years of real use left a queue of them,
+       * each one money that had left the household with no envelope recording
+       * it. Income is different and stays optional — its job is to arrive in
+       * Ready to Assign and wait to be given one, which is the whole model.
+       */
+      if (direction !== "in" && !field(ctx.body, "category_id")) {
+        throw new HttpError(
+          400,
+          "Which envelope did this come out of? Money in doesn't need one — money out does.",
+        );
+      }
+
       createTransaction(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         accountId: requiredField(ctx.body, "account_id"),
         amount: direction === "in" ? magnitude : -magnitude,
@@ -2180,6 +2196,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/review/approve", (ctx) =>
     mutate(ctx, (a) => {
+      /*
+       * B99 · Approving is what puts a row in the ledger, so it is the same
+       * rule as manual entry: an expense names its envelope, income does not
+       * have to. Refusing here rather than at import is deliberate — the queue
+       * is exactly where an unfiled row is supposed to wait.
+       */
       approveStaged(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
         requiredField(ctx.body, "staged_id"),
         { categoryId: field(ctx.body, "category_id") || null },

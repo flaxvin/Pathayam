@@ -1369,4 +1369,34 @@ DELETE FROM month_rollup_state;
 ALTER TABLE payees DROP COLUMN default_category_id;
 `,
   },
+  {
+    name: "0021-rollup-credit-unfiled",
+    sql: `
+--------------------------------------------------------------------------------
+-- B97 · A fifth fact: card charges nobody has filed yet.
+--
+-- The payment envelope holds money a category gave up in order to meet a card's
+-- debt. An unreviewed charge gave nothing up, so it must not raise the envelope
+-- — and while it did, the accounting identity was out by the amount of every
+-- card transaction sitting in the review queue.
+--
+-- Dropped and recreated rather than altered, as in 0019: the table is a cache
+-- of figures derived from the ledger, so throwing it away costs one rebuild.
+--------------------------------------------------------------------------------
+DROP TABLE IF EXISTS month_rollups;
+
+CREATE TABLE month_rollups (
+  month       TEXT NOT NULL,
+  fact        TEXT NOT NULL
+              CHECK (fact IN ('categorised','account-flow','transfer-flow','balance','credit-unfiled')),
+  category_id TEXT NOT NULL DEFAULT '',
+  account_id  TEXT NOT NULL DEFAULT '',
+  kind        TEXT NOT NULL DEFAULT '',
+  amount      INTEGER NOT NULL,
+  PRIMARY KEY (month, fact, category_id, account_id, kind)
+) WITHOUT ROWID;
+
+DELETE FROM month_rollup_state;
+`,
+  },
 ];

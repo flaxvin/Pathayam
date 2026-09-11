@@ -385,6 +385,34 @@ export const CLIENT_SCRIPT = String.raw`
   });
 
   // ---------------------------------------------------------------------------
+  // B99 · An expense names its envelope; income does not have to
+  //
+  // The add form carries both the direction and the category, so the
+  // requirement has to follow the dropdown rather than being fixed in the
+  // markup. The server enforces it regardless — this only means the household
+  // is told before submitting rather than after.
+  // ---------------------------------------------------------------------------
+  function syncCategoryRequirement() {
+    var direction = document.getElementById("direction");
+    var category = document.querySelector("[data-requires-category]");
+    if (!direction || !category) return;
+
+    var isExpense = direction.value !== "in";
+    category.required = isExpense;
+    var blank = category.querySelector('option[value=""]');
+    if (blank) {
+      blank.textContent = isExpense
+        ? "Choose where it came from…"
+        : "No category needed — it lands in Ready to Assign";
+    }
+  }
+
+  document.addEventListener("change", function (event) {
+    if (event.target && event.target.id === "direction") syncCategoryRequirement();
+  });
+  syncCategoryRequirement();
+
+  // ---------------------------------------------------------------------------
   // B87 · Filter the budget grid
   //
   // Thirty-four categories is seven screens on a phone. Typing filters to what

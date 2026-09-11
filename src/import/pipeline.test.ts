@@ -23,7 +23,8 @@ function setup() {
     name: "HDFC Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01",
   });
   const group = createGroup(db, actor, "Flexible");
-  return { db, account, group };
+  const anyCategory = createCategory(db, actor, { groupId: group.id, name: "Everyday" }).id;
+  return { db, account, group, anyCategory };
 }
 
 const STATEMENT = `Date,Narration,Chq./Ref.No.,Withdrawal Amt.,Deposit Amt.,Closing Balance
@@ -56,9 +57,9 @@ describe("04 §2 · the pipeline", () => {
   });
 
   test("I5 — re-importing the same file creates nothing new", () => {
-    const { db, account } = setup();
+    const { db, account, anyCategory } = setup();
     importStatement(db, account.id);
-    for (const row of listStaged(db)) approveStaged(db, actor, row.id);
+    for (const row of listStaged(db)) approveStaged(db, actor, row.id, { categoryId: anyCategory });
 
     const second = importStatement(db, account.id);
     assert.equal(second.staged, 0);
@@ -68,11 +69,11 @@ describe("04 §2 · the pipeline", () => {
   });
 
   test("retains the raw record unchanged alongside the transaction (P4, I1)", () => {
-    const { db, account } = setup();
+    const { db, account, anyCategory } = setup();
     importStatement(db, account.id);
 
     const swiggy = listStaged(db).find((r) => r.raw_narration?.includes("SWIGGY"))!;
-    const txId = approveStaged(db, actor, swiggy.id);
+    const txId = approveStaged(db, actor, swiggy.id, { categoryId: anyCategory });
 
     const tx = queryOne<{ raw_narration: string; raw_amount: string }>(
       db, `SELECT raw_narration, raw_amount FROM transactions WHERE id = ?`, txId,
@@ -113,9 +114,9 @@ describe("04 §2 · the pipeline", () => {
   });
 
   test("signs a credit as income and a withdrawal as spending", () => {
-    const { db, account } = setup();
+    const { db, account, anyCategory } = setup();
     importStatement(db, account.id);
-    for (const row of listStaged(db)) approveStaged(db, actor, row.id);
+    for (const row of listStaged(db)) approveStaged(db, actor, row.id, { categoryId: anyCategory });
 
     assert.equal(accountBalances(db).get(account.id)!.working, rupees(143_099.5));
     db.close();
@@ -230,7 +231,7 @@ describe("F6 · rules through the pipeline", () => {
   });
 
   test("auto-approves only once a rule asks and a payee already exists (04 §6.5)", () => {
-    const { db, account, group } = setup();
+    const { db, account, group, anyCategory } = setup();
     const eatingOut = createCategory(db, actor, { groupId: group.id, name: "Eating Out" });
     addRule(db, eatingOut.id, { autoApprove: true });
 
@@ -238,7 +239,7 @@ describe("F6 · rules through the pipeline", () => {
     const first = importStatement(db, account.id, STATEMENT, "aug.csv");
     assert.equal(first.autoApproved, 0, "auto-approval is earned per payee, not granted globally");
 
-    for (const row of listStaged(db)) approveStaged(db, actor, row.id);
+    for (const row of listStaged(db)) approveStaged(db, actor, row.id, { categoryId: anyCategory });
 
     // Second month: Swiggy is now a known payee, so the same rule lets it through.
     const september = STATEMENT.replace(/-08-2026/g, "-09-2026").replace(/431202847592/g, "551102847592");
@@ -284,9 +285,9 @@ describe("IL1, IL2 · the import log and batch undo", () => {
   });
 
   test("undo removes what the batch created", () => {
-    const { db, account } = setup();
+    const { db, account, anyCategory } = setup();
     const { batch } = importStatement(db, account.id);
-    for (const row of listStaged(db)) approveStaged(db, actor, row.id);
+    for (const row of listStaged(db)) approveStaged(db, actor, row.id, { categoryId: anyCategory });
 
     const result = undoBatch(db, actor, batch.id);
     assert.equal(result.removed, 3);
@@ -298,13 +299,13 @@ describe("IL1, IL2 · the import log and batch undo", () => {
   });
 
   test("undo leaves anything edited since alone, and says so (IL2)", () => {
-    const { db, account, group } = setup();
+    const { db, account, group, anyCategory } = setup();
     const category = createCategory(db, actor, { groupId: group.id, name: "Eating Out" });
     const { batch } = importStatement(db, account.id);
 
     const rows = listStaged(db);
-    const editedId = approveStaged(db, actor, rows[0]!.id);
-    for (const row of rows.slice(1)) approveStaged(db, actor, row.id);
+    const editedId = approveStaged(db, actor, rows[0]!.id, { categoryId: anyCategory });
+    for (const row of rows.slice(1)) approveStaged(db, actor, row.id, { categoryId: anyCategory });
 
     // Someone categorised one of them before the undo.
     execute(db, `UPDATE transactions SET category_id = ?, updated_at = ? WHERE id = ?`,
@@ -354,9 +355,9 @@ describe("I5 · idempotency with rows still awaiting review", () => {
   });
 
   test("catches a partially reviewed file too", () => {
-    const { db, account } = setup();
+    const { db, account, anyCategory } = setup();
     importStatement(db, account.id);
-    approveStaged(db, actor, listStaged(db)[0]!.id);
+    approveStaged(db, actor, listStaged(db)[0]!.id, { categoryId: anyCategory });
 
     const second = importStatement(db, account.id);
     assert.equal(second.staged, 0);

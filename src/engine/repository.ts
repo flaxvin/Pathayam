@@ -117,6 +117,23 @@ function transferFlowSql(): string {
       GROUP BY month`;
 }
 
+/**
+ * B97 · Card charges with no category on them, per card.
+ *
+ * The payment envelope holds money a category gave up to meet the card's debt.
+ * A charge nobody has filed gave nothing up, so it must not raise the envelope.
+ */
+function creditUnfiledSql(): string {
+  return `SELECT substr(t.date,1,7) AS month, t.account_id AS account_id,
+            SUM(t.amount) AS amount
+       FROM transactions t
+       JOIN accounts a ON a.id = t.account_id
+      WHERE t.deleted_at IS NULL AND a.kind = 'credit'
+        AND t.is_split = 0 AND t.category_id IS NULL AND t.transfer_pair_id IS NULL
+        AND t.date >= ? AND t.date <= ?
+      GROUP BY month, t.account_id`;
+}
+
 /** Raw movement per account and cleared flag — what a balance is made of. */
 function balanceSql(): string {
   return `SELECT substr(t.date,1,7) AS month, t.account_id AS account_id,
@@ -193,6 +210,11 @@ function sealMonths(db: DB, months: MonthKey[], through: MonthKey): MonthKey | n
       db, balanceSql(), from, to,
     )) {
       insert(r.month, "balance", "", r.account_id, r.kind, r.amount);
+    }
+    for (const r of queryAll<{ month: string; account_id: string; amount: number }>(
+      db, creditUnfiledSql(), from, to,
+    )) {
+      insert(r.month, "credit-unfiled", "", r.account_id, "", r.amount);
     }
 
     const at = nowIST();
@@ -284,6 +306,13 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
     }
   };
 
+  const applyUnfiled = (r: { month: string; account_id: string; amount: number }) => {
+    const f = ensure(r.month);
+    if (!f) return;
+    f.creditUncategorisedFlow[r.account_id] =
+      (f.creditUncategorisedFlow[r.account_id] ?? 0) + r.amount;
+  };
+
   const applyAccountFlow = (r: { month: string; account_id: string; kind: string; amount: number }) => {
     const f = ensure(r.month);
     if (!f) return;
@@ -322,7 +351,7 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
       else if (r.fact === "transfer-flow") {
         const f = ensure(r.month);
         if (f) f.budgetTransferFlow += r.amount;
-      }
+      } else if (r.fact === "credit-unfiled") applyUnfiled(r);
     }
   }
 
@@ -336,6 +365,10 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
   for (const r of queryAll<{ month: string; account_id: string; kind: string; amount: number }>(
     db, accountFlowSql(), since, horizon,
   )) applyAccountFlow(r);
+
+  for (const r of queryAll<{ month: string; account_id: string; amount: number }>(
+    db, creditUnfiledSql(), since, horizon,
+  )) applyUnfiled(r);
 
   // F2.5: an opening balance arrives in RTA as income, in the month it is dated.
   // Not part of the rollup: it lives on the account, not on any transaction, so
