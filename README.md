@@ -13,7 +13,7 @@ The full functional design lives in [`docs/`](docs/00-README.md). This file is
 how you run it and what it does.
 
 ```
-Status   P0 · P1 complete   P2 substantially complete   797 tests   0 deps
+Status   P0 · P1 complete   P2 substantially complete   805 tests   0 deps
 Stack    TypeScript on Node 24+   node:sqlite   node:http   server-rendered HTML
 Deploy   Docker Compose · homelab behind Cloudflare Tunnel · SQLite on a volume
 ```
@@ -550,6 +550,30 @@ silently dropped the entire portfolio would fail here.
   plus slack, so one slow run doesn't page anyone at 2am.
 
 Both backup and verification can also be run by hand from the health page.
+
+### Restoring one
+
+The nightly job proves a restore *would* work. This is how you actually do one.
+
+**Stop the app first**, then:
+
+```bash
+docker compose exec budget node --experimental-strip-types src/restore.ts --list
+docker compose exec budget node --experimental-strip-types src/restore.ts --latest
+```
+
+It keeps the database it replaced as `budget.sqlite.replaced-<timestamp>`, reads
+the restored copy back, and prints the control totals. Start the app and check
+the health page.
+
+> **Do not copy a backup over `budget.sqlite` by hand.** SQLite keeps a `-wal`
+> and a `-shm` beside the database, and after a crash — exactly when you want a
+> restore — they are still there. Copying the file over leaves a fresh database
+> next to a crashed instance's journal, and the first query answers *"database
+> disk image is malformed"*: a bad afternoon turned into a lost ledger. The
+> sidecars have to go first, which is the one thing `restore.ts` exists to get
+> right. `src/ops/restore.test.ts` reproduces the corruption so the trap stays
+> documented.
 
 **Secrets never leave the box.** Statement passwords (PAN/DOB/mobile) and the
 Gmail refresh token are excluded from every export and never logged — asserted
