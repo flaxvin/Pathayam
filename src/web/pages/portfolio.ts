@@ -26,7 +26,13 @@ export interface PortfolioRow {
 
 export function renderPortfolio(opts: {
   rows: PortfolioRow[];
-  manualAssets: { id: string; name: string; subtype: string; value: Paise; asOf: IsoDate; stale: boolean }[];
+  manualAssets: {
+    id: string; name: string; subtype: string; value: Paise;
+    /** Null until the first valuation is recorded (B101). */
+    asOf: IsoDate | null;
+    stale: boolean;
+    valued: boolean;
+  }[];
   portfolioXirr: number | null;
 }): SafeHtml {
   const invested = opts.rows.reduce((sum, r) => sum + r.view.costBasis, 0);
@@ -120,7 +126,12 @@ export function renderPortfolio(opts: {
 
     ${when(opts.manualAssets.length > 0, () => html`
       <section class="card">
-        <h2>Other assets</h2>
+        <div class="row-between">
+          <h2>Other assets</h2>
+          ${when(opts.manualAssets.length > 1, () => html`
+            <a class="button button-small" href="/portfolio/valuations">Update all</a>
+          `)}
+        </div>
         <p class="faint" style="margin-top:-.25rem">
           Valued by hand. Each keeps a dated history, so net worth over time is
           real rather than today's figure applied backwards.
@@ -132,14 +143,24 @@ export function renderPortfolio(opts: {
                 <strong>${a.name}</strong>
                 <span class="chip">${ASSET_LABELS[a.subtype as AssetSubtype] ?? a.subtype}</span>
                 <div class="faint">
-                  as of ${formatDate(a.asOf)}
-                  ${when(a.stale, () => html`
-                    <span class="chip chip-warning">not valued recently</span>
-                  `)}
-                  · <a href="/portfolio/asset/${a.id}/revalue">Revalue</a>
+                  ${a.valued
+                    ? html`
+                        as of ${formatDate(a.asOf!)}
+                        ${when(a.stale, () => html`
+                          <span class="chip chip-warning">not valued recently</span>
+                        `)}
+                        · <a href="/portfolio/asset/${a.id}/revalue">Revalue</a>
+                      `
+                    : html`
+                        <!-- B101 · Created and never valued. It used to vanish. -->
+                        <span class="chip chip-warning">no value yet</span>
+                        · <a href="/portfolio/asset/${a.id}/revalue">Say what it's worth</a>
+                      `}
                 </div>
               </div>
-              <strong class="amount">${formatPaise(a.value)}</strong>
+              <strong class="amount ${a.valued ? "" : "faint"}">
+                ${a.valued ? formatPaise(a.value) : "—"}
+              </strong>
             </div>
           `,
         )}
@@ -197,6 +218,87 @@ export function renderNewAssetForm(opts: { today: IsoDate; error?: string | null
 }
 
 /** B51 · Record a fresh dated valuation for a hand-valued asset (R23.2). */
+/**
+ * B101 · R23.2 · Update every hand-valued pot in one sitting.
+ *
+ * Gold with one provider, gold with another, a pension balance — three pots
+ * that each send a monthly statement and none of which any feed can price. One
+ * at a time through the single-asset form is three round trips for what is
+ * really one monthly chore, which is how valuations come to be six months old.
+ *
+ * Each row keeps its own date, because the statements do not all arrive on the
+ * same day, and a valuation dated wrongly is worse than one left alone: R23.2
+ * keeps dated history so net worth over time is real.
+ */
+export function renderValuations(opts: {
+  assets: {
+    id: string; name: string; subtype: string;
+    value: Paise; asOf: IsoDate | null; stale: boolean; valued: boolean;
+  }[];
+  today: IsoDate;
+}): SafeHtml {
+  if (opts.assets.length === 0) {
+    return html`
+      <h1>Update valuations</h1>
+      <div class="card empty-state">
+        <p>Nothing here is valued by hand — everything is priced from a feed.</p>
+        <p><a class="button" href="/portfolio">Back to the portfolio</a></p>
+      </div>
+    `;
+  }
+
+  const needing = opts.assets.filter((a) => !a.valued || a.stale).length;
+
+  return html`
+    <h1>Update valuations</h1>
+    <p class="muted">
+      What each of these is worth today. Leave a box empty to leave that one
+      alone — nothing is changed unless you put a number in it.
+      ${when(needing > 0, () => html`
+        <strong>${needing}</strong> ${needing === 1 ? "needs" : "need"} attention.
+      `)}
+    </p>
+
+    <form method="post" action="/portfolio/valuations" class="card">
+      ${opts.assets.map(
+        (a) => html`
+          <div style="padding:.7rem 0;border-top:1px solid var(--border)">
+            <div class="row-between" style="gap:1rem;flex-wrap:wrap;align-items:flex-end">
+              <div style="min-width:0">
+                <strong>${a.name}</strong>
+                <span class="chip">${ASSET_LABELS[a.subtype as AssetSubtype] ?? a.subtype}</span>
+                <div class="faint">
+                  ${a.valued
+                    ? html`
+                        last ${formatPaise(a.value)} on ${formatDate(a.asOf!)}
+                        ${when(a.stale, () => html`<span class="chip chip-warning">not valued recently</span>`)}
+                      `
+                    : html`<span class="chip chip-warning">no value yet</span>`}
+                </div>
+              </div>
+              <div class="row" style="gap:.5rem;align-items:flex-end">
+                <div class="field" style="margin:0">
+                  <label style="font-size:.75rem" for="val-${a.id}">Worth now</label>
+                  <input id="val-${a.id}" name="value-${a.id}" class="amount-input"
+                         type="text" inputmode="decimal" autocomplete="off"
+                         style="max-width:9rem" placeholder="leave blank to skip">
+                </div>
+                <div class="field" style="margin:0">
+                  <label style="font-size:.75rem" for="asof-${a.id}">As of</label>
+                  <input id="asof-${a.id}" name="asof-${a.id}" style="max-width:8rem"
+                         value="${formatDate(opts.today)}" placeholder="DD-MM-YYYY">
+                </div>
+              </div>
+            </div>
+          </div>
+        `,
+      )}
+      <button class="button-primary" type="submit" style="margin-top:.75rem">Save valuations</button>
+      <a class="button button-quiet" href="/portfolio">Cancel</a>
+    </form>
+  `;
+}
+
 export function renderRevalueAsset(opts: {
   asset: { id: string; name: string; value: Paise; asOf: IsoDate };
   today: IsoDate;

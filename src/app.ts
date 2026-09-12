@@ -206,7 +206,7 @@ import {
   renderPortfolio, renderHoldingDetail, renderSalePreview, renderNetWorth,
   renderAllocation,
   renderAddHolding, renderCasUpload, renderCasReview,
-  renderNewAssetForm, renderRevalueAsset, renderManualPrice, renderSplitForm,
+  renderNewAssetForm, renderRevalueAsset, renderManualPrice, renderSplitForm, renderValuations,
   type PortfolioRow, type CasReviewScheme,
 } from "./web/pages/portfolio.ts";
 import { parseCasPdf, WrongPassword } from "./import/cas.ts";
@@ -4228,18 +4228,27 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       { date: todayIST(), amount: r.view.marketValue },
     ]);
 
+    /*
+     * B101 · An asset with no valuation yet is still an asset.
+     *
+     * This dropped them, so adding "SafeGold" and not immediately valuing it
+     * made the account disappear from Portfolio and from Net worth both — the
+     * account was in the database and nowhere on screen, with nothing
+     * prompting for the number that would bring it back. A thing that vanishes
+     * after you create it is the worst way to lose someone's trust in a ledger.
+     */
     const manualAssets = listAssetAccounts(db)
       .filter((a) => listHoldings(db, a.id).length === 0)
       .map((a) => {
         const valuation = latestValuation(db, a.id);
-        return valuation
-          ? {
-              id: a.id, name: a.name, subtype: a.subtype,
-              value: valuation.value, asOf: valuation.asOf, stale: valuation.stale,
-            }
-          : null;
-      })
-      .filter((a): a is NonNullable<typeof a> => a !== null);
+        return {
+          id: a.id, name: a.name, subtype: a.subtype,
+          value: valuation?.value ?? (0 as Paise),
+          asOf: valuation?.asOf ?? null,
+          stale: valuation?.stale ?? false,
+          valued: valuation !== null,
+        };
+      });
 
     return render(
       ctx, "Portfolio",
@@ -4729,6 +4738,67 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         asOf: parseDate(field(ctx.body, "as_of") ?? "") ?? todayIST(),
       });
       return { redirect: "/portfolio", message: `Added ${account.name}.` };
+    }),
+  );
+
+  /*
+   * B101 · R23.2 · Every hand-valued pot in one sitting.
+   *
+   * Gold with one provider, gold with another, a pension balance: three
+   * statements a month and no feed that can price any of them. One at a time is
+   * how a valuation comes to be six months old.
+   */
+  router.get("/portfolio/valuations", (ctx) => {
+    requireAssets();
+    auth(ctx);
+    return render(
+      ctx, "Update valuations",
+      renderValuations({
+        assets: listAssetAccounts(db)
+          .filter((a) => listHoldings(db, a.id).length === 0)
+          .map((a) => {
+            const valuation = latestValuation(db, a.id);
+            return {
+              id: a.id, name: a.name, subtype: a.subtype,
+              value: valuation?.value ?? (0 as Paise),
+              asOf: valuation?.asOf ?? null,
+              stale: valuation?.stale ?? false,
+              valued: valuation !== null,
+            };
+          }),
+        today: todayIST(),
+      }),
+    );
+  });
+
+  router.post("/portfolio/valuations", (ctx) =>
+    mutate(ctx, (a) => {
+      requireAssets();
+      const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+      const assets = listAssetAccounts(db).filter((x) => listHoldings(db, x.id).length === 0);
+
+      let saved = 0;
+      for (const asset of assets) {
+        // An empty box means "leave this one alone", which is what makes the
+        // screen usable when only one statement has arrived.
+        const raw = field(ctx.body, `value-${asset.id}`);
+        if (!raw?.trim()) continue;
+
+        const asOfRaw = field(ctx.body, `asof-${asset.id}`);
+        recordValuation(db, actor, {
+          accountId: asset.id,
+          value: Math.abs(amountField(raw, asset.name)) as Paise,
+          asOf: asOfRaw?.trim() ? parseDate(asOfRaw) ?? todayIST() : todayIST(),
+        });
+        saved++;
+      }
+
+      return {
+        redirect: "/portfolio",
+        message: saved === 0
+          ? "Nothing was filled in, so nothing changed."
+          : `Updated ${saved} valuation${saved === 1 ? "" : "s"}.`,
+      };
     }),
   );
 
