@@ -16,7 +16,7 @@ shown as a tag when shared, and an option to hide an account from "view as".
 | Private **assets and loans** | Yes, genuinely easy | 1–1.5 weeks |
 | Hide an account from "view as" | **Yes** — see §5 for the caveat that matters | 2–3 days |
 | Private **accounts**, budget still shared | **Not coherent** — see §3 | — |
-| Per-individual **budgets** | Yes, but it is a different product | **12–20 weeks** |
+| Per-individual **budgets** | Yes, but it is a different product | **12–20 weeks** — superseded, see below |
 
 The middle row is the finding worth having. Three of the four pieces are easy.
 The fourth is not a feature, it changes what the app *is*, and there is a
@@ -139,6 +139,10 @@ None of these exist today, and each is a design question before it is code:
 | **7 · Migration** | Existing households must land somewhere sensible without losing history or breaking the identity | 1–1.5 w |
 | | **Total** | **12–20 weeks** |
 
+> **Superseded.** This was estimated before the design existed. `15` settled the
+> five questions below and found the engine's arithmetic does not change at all,
+> which moved it to 12–17 weeks; `16` is the plan actually being followed.
+
 For comparison: `12` costed full SaaS multi-tenancy at 41–66 weeks and managed
 hosting at 14–19. **This is the same order of magnitude as the entire hosting
 programme**, for a single household feature.
@@ -223,5 +227,5 @@ its identity.
 
 Then use it for a few months before deciding on step 3. Separate budgets are a
 real and legitimate way for a household to run its money, and this app cannot do
-it today; but 12–20 weeks is a serious commitment for a two-person household, and
+it today; but four months is a serious commitment for a two-person household, and
 the cheap version may turn out to have been the actual want.
