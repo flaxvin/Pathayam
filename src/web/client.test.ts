@@ -10,6 +10,8 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { CLIENT_SCRIPT } from "./client.ts";
 import { STYLESHEET } from "./styles.ts";
+import { page } from "./layout.ts";
+import { raw } from "../http/html.ts";
 
 describe("S15 · the client script", () => {
   test("parses as JavaScript", () => {
@@ -67,5 +69,45 @@ describe("S15 · the stylesheet", () => {
     // The auto margin that centres the single-column layout must not survive
     // into the sidebar grid, where it makes main size to max-content instead.
     assert.match(STYLESHEET, /\.with-sidebar main \{[^}]*margin: 0;/);
+  });
+});
+
+describe("B103 · the in-place swap must not strip the page chrome", () => {
+  /*
+   * Entering the demo posts a form from /signin, which renders bare — no
+   * header, no sidebar, no bottom nav. The swap replaces the main element and
+   * the two navs, and on a bare page there are no navs to replace, so the
+   * budget grid arrived inside the sign-in shell with no navigation at all.
+   *
+   * The fix is a shell comparison before swapping. These tests pin the two
+   * halves of it: that the guard exists, and that the shells really do differ
+   * so the guard has something to catch.
+   */
+
+  test("the client compares shells and navigates instead of swapping", () => {
+    assert.match(
+      CLIENT_SCRIPT,
+      /hadChrome\s*!==\s*wantsChrome/,
+      "updatePage must fall back to a real navigation when the shell changes",
+    );
+    assert.match(
+      CLIENT_SCRIPT,
+      /wantsChrome\s*=\s*Boolean\(doc\.querySelector\(["']\.with-sidebar["']\)\)/,
+      "the target shell has to be read from the fetched document, not the current one",
+    );
+  });
+
+  test("a bare page and a full page really do have different shells", () => {
+    // Without this difference the guard above would be dead code.
+    const bare = page(
+      { title: "Sign in", theme: "system", bare: true },
+      raw("<p>hello</p>"),
+    );
+    const full = page({ title: "Budget", theme: "system" }, raw("<p>hello</p>"));
+
+    assert.ok(!bare.includes('class="with-sidebar"'), "a bare page has no sidebar shell");
+    assert.ok(!bare.includes('class="app-header"'), "a bare page has no header");
+    assert.ok(full.includes('class="with-sidebar"'), "a full page has the sidebar shell");
+    assert.ok(full.includes('class="app-header"'), "a full page has the header");
   });
 });
