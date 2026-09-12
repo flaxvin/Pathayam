@@ -1,10 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
-  loadConfig,
-  productionIndicators,
-  assertDevLoginSafeAgainstData,
-  UnsafeConfiguration,
+  loadConfig, productionIndicators, assertDevLoginSafeAgainstData, UnsafeConfiguration, assertDemoModeSafeAgainstData,
 } from "./config.ts";
 
 const base = { DATA_DIR: "/tmp/budget-test" };
@@ -87,5 +84,60 @@ describe("defaults", () => {
 
   test("strip a trailing slash from the base URL so redirects do not double up", () => {
     assert.equal(loadConfig({ ...base, BASE_URL: "https://x.example.com/" }).baseUrl, "https://x.example.com");
+  });
+});
+
+describe("R38 · demo mode is a separate bypass with its own guards", () => {
+  const base = { ...process.env, DATA_DIR: "/tmp/x", BASE_URL: "https://pathayam.example.com" };
+
+  test("off by default, so a household deployment is untouched", () => {
+    assert.equal(loadConfig({ ...base }).demoMode, false);
+  });
+
+  test("it may run on a public hostname, unlike the development bypass", () => {
+    // This is the whole difference between the two: DEV_LOGIN refuses anywhere
+    // production-shaped, and a public demo is production-shaped by definition.
+    assert.doesNotThrow(() => loadConfig({ ...base, DEMO_MODE: "true" }));
+    assert.throws(() => loadConfig({ ...base, DEV_LOGIN: "true" }), UnsafeConfiguration);
+  });
+
+  test("two bypasses at once is refused rather than resolved by precedence", () => {
+    assert.throws(
+      () => loadConfig({ ...base, DEMO_MODE: "true", DEV_LOGIN: "true", BASE_URL: "http://localhost:8080" }),
+      UnsafeConfiguration,
+    );
+  });
+
+  test("it refuses a database that somebody actually uses", () => {
+    const config = loadConfig({ ...base, DEMO_MODE: "true" });
+    assert.doesNotThrow(() =>
+      assertDemoModeSafeAgainstData(config, { gmailConnections: 0, statementIdentities: 0 }));
+
+    // A connected mailbox or a saved PAN cannot be explained away as demo data,
+    // and demo mode opens the front door to anyone who can reach the URL.
+    assert.throws(
+      () => assertDemoModeSafeAgainstData(config, { gmailConnections: 1, statementIdentities: 0 }),
+      /real use/,
+    );
+    assert.throws(
+      () => assertDemoModeSafeAgainstData(config, { gmailConnections: 0, statementIdentities: 1 }),
+      /real use/,
+    );
+  });
+
+  test("the refusal names the setting that is actually set", () => {
+    // Telling an operator to unset DEV_LOGIN when DEMO_MODE is the problem
+    // sends them looking for something that is not there.
+    const config = loadConfig({ ...base, DEMO_MODE: "true" });
+    assert.throws(
+      () => assertDemoModeSafeAgainstData(config, { gmailConnections: 1, statementIdentities: 0 }),
+      (err: Error) => err.message.includes("DEMO_MODE") && !err.message.includes("DEV_LOGIN"),
+    );
+  });
+
+  test("with demo mode off, the data guard does nothing at all", () => {
+    const config = loadConfig({ ...base });
+    assert.doesNotThrow(() =>
+      assertDemoModeSafeAgainstData(config, { gmailConnections: 9, statementIdentities: 9 }));
   });
 });

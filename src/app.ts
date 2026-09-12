@@ -244,8 +244,22 @@ export interface AppDeps {
 const PUBLIC_PATHS = new Set([
   "/signin", "/auth/google", "/auth/google/callback", "/auth/dev", "/healthz",
   "/privacy", "/terms",
+  // The demo front door has to be reachable by somebody with no session — that
+  // is its whole purpose. The route itself refuses unless DEMO_MODE is on.
+  "/demo/enter",
 ]);
 const STATIC_PREFIX = "/assets/";
+
+/**
+ * R38 · Things a public demonstration must not do. Each is refused with an
+ * explanation rather than a 404, because on a demo the honest answer is "not
+ * here", not "no such page". A no-op when demo mode is off, which is always,
+ * on a household's own deployment.
+ */
+function refuseInDemo(config: Config, what: string): void {
+  if (!config.demoMode) return;
+  throw new HttpError(403, `${what} is disabled on the demo. Run your own copy to use it.`);
+}
 
 export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: RequestContext) => Response | void)[] } {
   const { db, config } = deps;
@@ -377,6 +391,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             ? { name: a.viewingAs.name, readOnly: !a.canWrite }
             : null,
           devMode: config.devLogin,
+          demoMode: config.demoMode,
           path: ctx.url.pathname,
           reviewCount: a ? reviewCount(db) : 0,
           notice: opts.notice ?? noticeFrom(ctx),
@@ -483,8 +498,24 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       "Sign in",
       html`
         <div style="max-width:26rem;margin:3rem auto">
-          <h1>Budget</h1>
+          <h1>Pathayam</h1>
           <p class="muted">Envelope budgeting for your household.</p>
+          ${when(
+            config.demoMode,
+            () => html`
+              <div class="card">
+                <form method="post" action="/demo/enter">
+                  <button class="button button-primary" style="width:100%" type="submit">
+                    Enter the demo
+                  </button>
+                </form>
+                <p class="field-hint" style="margin-top:.75rem">
+                  Three years of invented transactions across every part of the app.
+                  Change whatever you like — it resets, and none of it is real.
+                </p>
+              </div>
+            `,
+          )}
           ${googleConfigured
             ? html`
                 <div class="card">
@@ -517,7 +548,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   });
 
   router.get("/auth/google", (ctx) => {
-    if (!config.google.clientId) throw new HttpError(500, "Google sign-in is not configured.");
+    /*
+     * Not configured is a *deployment* state, not a server fault — a demo
+     * instance never configures Google at all. A 500 here says the app broke;
+     * it did not, and the person reading it can do nothing about a 500.
+     */
+    if (!config.google.clientId) {
+      throw new HttpError(503, "Google sign-in is not configured on this deployment.");
+    }
     const redirectUri = `${config.baseUrl}/auth/google/callback`;
     const start = beginOAuth({ clientId: config.google.clientId, redirectUri });
 
@@ -593,6 +631,30 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return {
       redirect: pending.next,
       headers: { "Set-Cookie": sessionCookie(token, { secure: config.baseUrl.startsWith("https"), days: config.sessionDays }) },
+    };
+  });
+
+  /*
+   * The demo front door. Unlike the development bypass this is meant to run on
+   * a public hostname, so it is guarded by `DEMO_MODE` alone and signs everyone
+   * into the same fictional member — there is nothing to choose between and
+   * nothing real behind it.
+   */
+  router.post("/demo/enter", (ctx) => {
+    if (!config.demoMode) throw new NotFound();
+    const member = queryOne<{ id: string }>(
+      db, `SELECT id FROM members WHERE removed_at IS NULL ORDER BY created_at LIMIT 1`,
+    );
+    if (!member) throw new NotFound();
+
+    const { token } = createSession(db, member.id, {
+      userAgent: ctx.req.headers["user-agent"] ?? null,
+      ipHint: clientIp(ctx, config.trustProxy),
+      days: 1,
+    });
+    return {
+      redirect: "/",
+      headers: { "Set-Cookie": sessionCookie(token, { secure: false, days: 1 }) },
     };
   });
 
@@ -1591,12 +1653,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }),
   );
 
-  router.post("/members/invite", (ctx) =>
-    mutate(ctx, (a) => {
+  router.post("/members/invite", (ctx) => {
+    refuseInDemo(config, "Inviting members");
+    return mutate(ctx, (a) => {
       const member = inviteMember(db, actorFor(a), { email: requiredField(ctx.body, "email") });
       return { redirect: "/settings", message: `${member.email} can now sign in.` };
-    }),
-  );
+    });
+  });
 
   // -------------------------------------------------------------------------
   // Transaction detail and edit — where R7.b's confirmation actually fires
@@ -4031,6 +4094,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   });
 
   router.post("/tokens", (ctx) => {
+    refuseInDemo(config, "Creating API tokens");
     const a = auth(ctx);
     const days = field(ctx.body, "expires_in_days");
     const scope = field(ctx.body, "scope") === "read-write" ? "read-write" : "read";
@@ -4111,6 +4175,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
 
   router.get("/gmail/connect", (ctx) => {
+    refuseInDemo(config, "Connecting a mailbox");
     const a = auth(ctx);
     if (!config.google.clientId) throw new HttpError(500, "Google is not configured.");
     const start = beginGmailConnect({
@@ -4180,8 +4245,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   });
 
   /** `10` §3.6 · What statement passwords are worked out from. */
-  router.post("/settings/identity", (ctx) =>
-    mutate(ctx, (a) => {
+  router.post("/settings/identity", (ctx) => {
+    refuseInDemo(config, "Saving a statement identity");
+    return mutate(ctx, (a) => {
       if (field(ctx.body, "clear") === "1") {
         clearIdentity(db, actorFor(a));
         return { redirect: "/settings#statements", message: "Removed. You'll be asked for a password each time." };
@@ -4196,8 +4262,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         redirect: "/settings#statements",
         message: "Saved. Statements should now open without you typing anything.",
       };
-    }),
-  );
+    });
+  });
 
   /** F14.2 · Individually toggleable per member. */
   router.post("/settings/digest", (ctx) =>

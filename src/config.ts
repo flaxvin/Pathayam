@@ -24,6 +24,17 @@ export interface Config {
   google: { clientId: string | null; clientSecret: string | null };
   /** R38.1: dev-only sign-in as any seeded member, off by default. */
   devLogin: boolean;
+  /**
+   * A public demonstration instance: anyone who can reach it may enter and click
+   * around. Off by default, and every guard below is a no-op when it is off, so
+   * a private household deployment behaves exactly as it did before this
+   * existed.
+   *
+   * This is *not* the development bypass. That one exists to skip Google on a
+   * laptop and refuses to run anywhere production-shaped; this one is meant to
+   * run on a public hostname, and its protection is that the data is invented.
+   */
+  demoMode: boolean;
   sessionDays: number;
   /** F28: modules disableable per deployment. */
   features: { loans: boolean; assets: boolean; multiCurrency: boolean };
@@ -92,6 +103,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       clientSecret: env.GOOGLE_CLIENT_SECRET || null,
     },
     devLogin: bool(env.DEV_LOGIN, false),
+    demoMode: bool(env.DEMO_MODE, false),
     sessionDays: int(env.SESSION_DAYS, 30), // Q22
     alphaVantageKey: env.ALPHA_VANTAGE_KEY || null,
     features: {
@@ -105,6 +117,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   };
 
   assertDevLoginIsSafe(config);
+  assertDemoModeIsSafe(config);
   return config;
 }
 
@@ -122,12 +135,17 @@ export function devLoginModulePresent(): boolean {
 }
 
 export class UnsafeConfiguration extends Error {
-  constructor(indicators: string[]) {
+  /*
+   * The advice has to name the right setting. Both bypasses raise this, and a
+   * demo-mode refusal that told the operator to unset DEV_LOGIN would send them
+   * looking for something that is not set.
+   */
+  constructor(indicators: string[], setting: "DEV_LOGIN" | "DEMO_MODE" = "DEV_LOGIN") {
     super(
-      "Refusing to start: DEV_LOGIN is enabled but this looks like a production deployment.\n\n" +
+      `Refusing to start: ${setting} is enabled, and this deployment is not safe for it.\n\n` +
         indicators.map((i) => `  · ${i}`).join("\n") +
-        "\n\nDEV_LOGIN completely bypasses authentication. Unset it, or clear the\n" +
-        "indicators above if this really is a development machine.\n",
+        `\n\n${setting} bypasses authentication. Unset it, or resolve the\n` +
+        "indicators above if this really is the machine you meant.\n",
     );
     this.name = "UnsafeConfiguration";
   }
@@ -168,6 +186,40 @@ function isLocalHostname(host: string): boolean {
   if (/^10\./.test(host) || /^192\.168\./.test(host)) return true;
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
   return false;
+}
+
+/**
+ * Two sign-in bypasses at once is a configuration mistake rather than a
+ * capability, so it is refused rather than resolved in some precedence order.
+ */
+export function assertDemoModeIsSafe(config: Config): void {
+  if (!config.demoMode) return;
+  if (config.devLogin) {
+    throw new UnsafeConfiguration([
+      "DEMO_MODE and DEV_LOGIN are both set; enable exactly one",
+    ], "DEMO_MODE");
+  }
+}
+
+/**
+ * The guard that matters: demo mode opens the front door to anyone, so it must
+ * never come up against a database somebody actually uses. A connected mailbox
+ * or a saved statement identity means real use, and neither can be explained
+ * away as demo data, so the app refuses to start rather than exposing them.
+ */
+export function assertDemoModeSafeAgainstData(
+  config: Config,
+  signs: { gmailConnections: number; statementIdentities: number },
+): void {
+  if (!config.demoMode) return;
+  const found: string[] = [];
+  if (signs.gmailConnections > 0) found.push("a connected mailbox");
+  if (signs.statementIdentities > 0) found.push("a saved statement identity");
+  if (found.length > 0) {
+    throw new UnsafeConfiguration([
+      `this database holds ${found.join(" and ")} — it is in real use`,
+    ], "DEMO_MODE");
+  }
 }
 
 export function assertDevLoginIsSafe(config: Config): void {
