@@ -46,6 +46,54 @@
     });
   }
 
+  /* ---------------------------------------------------------- waitlist -- */
+  /*
+   * Put your form endpoint here and the form starts working. Left empty on
+   * purpose: a signup box that silently swallows addresses is worse than one
+   * that admits it is not connected yet, and somebody would have found out only
+   * by never hearing back.
+   */
+  var WAITLIST_ENDPOINT = "";
+
+  document.querySelectorAll("[data-waitlist]").forEach(function (form) {
+    var msg = form.querySelector("[data-waitlist-msg]");
+    var email = form.querySelector("input[type=email]");
+
+    form.addEventListener("submit", function (e) {
+      e.preventDefault();
+      var value = (email.value || "").trim();
+      if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) {
+        msg.textContent = "That does not look like an email address.";
+        msg.className = "waitlist__msg err";
+        email.focus();
+        return;
+      }
+
+      if (!WAITLIST_ENDPOINT) {
+        msg.textContent = "The waitlist is not connected yet — nothing was sent. " +
+                          "Until it is, the repository is the way in.";
+        msg.className = "waitlist__msg err";
+        return;
+      }
+
+      msg.textContent = "Sending…";
+      msg.className = "waitlist__msg";
+      fetch(WAITLIST_ENDPOINT, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", Accept: "application/json" },
+        body: JSON.stringify({ email: value, tier: form.getAttribute("data-waitlist") || "unknown" }),
+      }).then(function (r) {
+        if (!r.ok) throw new Error(String(r.status));
+        form.reset();
+        msg.textContent = "You are on the list. We will write once, when it opens.";
+        msg.className = "waitlist__msg ok";
+      }).catch(function () {
+        msg.textContent = "That did not go through. Try again in a moment.";
+        msg.className = "waitlist__msg err";
+      });
+    });
+  });
+
   /* -------------------------------------------------------------- demo -- */
   var demo = document.querySelector("[data-demo]");
   if (!demo) return;

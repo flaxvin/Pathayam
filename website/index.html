@@ -25,6 +25,7 @@
     <nav class="nav" aria-label="Main">
       <a href="index.html" aria-current="page">Home</a>
       <a href="features.html">Features</a>
+      <a href="pricing.html">Pricing</a>
       <a href="guides.html">Guides</a>
       <a href="api.html">API</a>
       <a class="btn btn--primary btn--nav" href="demo.html">Try the demo</a>
@@ -43,9 +44,9 @@
     </p>
     <div class="actions hero__actions">
       <a class="btn btn--primary" href="demo.html">Try the live demo</a>
-      <a class="btn btn--ghost" href="guides.html">Run it yourself</a>
+      <a class="btn btn--ghost" href="pricing.html">See pricing</a>
     </div>
-    <p class="hero__fine">Free and open source · Self-hosted · No account, no telemetry, no subscription</p>
+    <p class="hero__fine">Open source and free to self-host · Hosting from ₹149/month · No telemetry, ever</p>
     <figure class="hero__shot">
       <img src="img/budget.webp" width="1400" height="900"
            alt="The budget screen: category groups with assigned, activity and available columns, Ready to Assign at the top, and a digest of what needs attention.">
@@ -199,7 +200,7 @@
         <div class="card">
           <span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10" width="15" height="10" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
           <h3>Ask you to trust anybody</h3>
-          <p>No account, no server of ours, no telemetry, no third-party analytics. Bank connections are read-only and opt-in, and the credentials stay on your box.</p>
+          <p>No telemetry, no analytics, no third party. Self-host and nothing leaves your machine at all; host with us and your data sits in its own database, never a shared table with your row in it.</p>
         </div>
         <div class="card">
           <span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></span>
@@ -215,14 +216,34 @@
     </div>
   </section>
 
+  <section class="sec sec--band" id="waitlist">
+    <div class="wrap center">
+      <p class="eyebrow">Hosted, soon</p>
+      <h2 class="h-sec">Would you rather not run a container?</h2>
+      <p class="lede" style="margin-bottom:1.75rem;max-width:48ch">
+        Managed hosting is being built next — one database per household, in an
+        Indian region, from ₹149 a month. Tell us where to write.
+      </p>
+      <form class="waitlist" data-waitlist="home">
+        <div class="waitlist__row">
+          <label class="sr-only" for="wl-home">Email address</label>
+          <input id="wl-home" type="email" name="email" placeholder="you@example.com" required autocomplete="email">
+          <button class="btn btn--primary" type="submit">Join the waitlist</button>
+        </div>
+        <p class="waitlist__msg" data-waitlist-msg role="status"></p>
+        <p class="waitlist__note">No spam, no newsletter. One email when hosting opens.</p>
+      </form>
+    </div>
+  </section>
+
   <section class="sec">
     <div class="wrap">
       <div class="callout">
-        <h2>You can be running it in five minutes</h2>
+        <h2>Two ways in, and one of them is free forever</h2>
         <p>
-          One container, a seeded demo household with real behaviour already in it —
-          a cash overspend, a credit overspend and a card payment — so the screens
-          show something true the moment they open.
+          Run it yourself in five minutes — one container, your machine, every
+          feature. Or join the waitlist and we will run it for you when hosting
+          opens.
         </p>
         <a class="btn btn--primary" href="guides.html">Read the setup guide</a>
       </div>
@@ -237,6 +258,7 @@
         <h4>Pathayam</h4>
         <ul>
           <li><a href="features.html">Features</a></li>
+          <li><a href="pricing.html">Pricing</a></li>
           <li><a href="demo.html">Live demo</a></li>
         </ul>
       </div>
