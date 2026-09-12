@@ -1,7 +1,11 @@
 # Pathayam — Functional Design Document Set
 
-**Status:** Draft v0.1 · **Date:** 26-08-2026 · **Owner:** Ravi
-**Scope of this set:** functional design only. No data model, no API surface, no tech stack, no code.
+**Status:** Built · **Design frozen:** 26-08-2026 · **Owner:** Ravi
+**Scope of `01`–`10`:** functional design only — no data model, no API surface, no
+tech stack, no code. That boundary was useful while the design was being settled
+and is preserved as written. What the build then decided lives in
+`11-build-decisions.md`, the HTTP surface in `API.md`, and the engine's
+arithmetic in `dev/01-engine-derivation.md`.
 
 ---
 
@@ -58,9 +62,12 @@ Three supports:
 | `05-roadmap-and-open-questions.md` | P0–P3 phasing, the MVP cut line, success criteria, open questions needing your decision | You are planning what to build first |
 | `06-loans.md` | Loans and liabilities: drawdown, interest models, amortisation, prepayment, lifetime interest and interest saved. Engine rules R14–R22, module F18 | You are building loan tracking |
 | `07-assets-networth-currency.md` | Assets, unit-based holdings, net worth, and multi-currency. The hardcoded price and FX APIs with verified responses. Engine rules R23–R34, modules F19–F20 | You are building the portfolio, net worth or currency layer |
-| `09-decisions-log.md` | **Every open question closed.** The confirmed institution list (7 bank accounts, 14 cards, 3 loans), all Q1–Q26 answers, the add-on card mechanic, the editable-history resolution, and the revised build order | **Start here for what was actually decided** |
+| `09-decisions-log.md` | **Every open question closed.** The composite institution profile the parser matrix is built against, all Q1–Q26 answers, the add-on card mechanic, the editable-history resolution, and the revised build order | **Start here for what was actually decided** |
 | `08-platform-and-operations.md` | The server-only client data policy, idempotent writes, the event log with undo and "explain this number", debug login and impersonation, theme, verified backup restore, health page, feature flags, command palette, API token. Engine rules R35–R40, modules F21–F30. **Supersedes `02` §9** | You are building the client, auth, or anything operational |
+| `10-errata-and-addenda.md` | Corrections and additions to `01`–`09` found after they were frozen, kept separate rather than edited in, so the original reasoning stays readable | You are reading `01`–`09` and want to know what has since changed |
 | `11-build-decisions.md` | **What the build decided, and why.** The choices `02`–`08` could not predict, the places where implementing a rule taught us something it did not say, and the one deliberate departure. Written retroactively to B24 on 28-08-2026 | You are changing the code and want to know why it is shaped this way |
+| `API.md` | The HTTP surface: tokens and scopes, every route with its method and permission, the exports. Checked against the router by a test, in both directions | You are scripting against it, or adding a route |
+| `dev/01-engine-derivation.md` | The accounting identity the engine must satisfy, derived, plus the known wart in viewing past months | You are changing the engine and need to know what must stay true |
 | `verify_amortisation.py` | Runnable amortisation engine that re-verifies every rupee figure in `06`, plus an EMI and prepayment-comparison CLI | You want to check the loan maths, or model your own loan |
 | `verify_portfolio.py` | Runnable cost-basis, FIFO, XIRR and FX-decomposition engine that re-verifies every figure in `07` | You want to check the portfolio maths |
 

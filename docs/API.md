@@ -108,7 +108,7 @@ enforced as a deny-list in [`tokenMayReach`](../src/auth/tokens.ts)):
 | Prefix | Why it's blocked |
 |---|---|
 | `/tokens` | A token must not mint or revoke tokens — including itself. |
-| `/settings/members` | The household allow-list; a token must not change who is allowed in. |
+| `/members` | The household allow-list — `/members/invite` today. A token must not change who is allowed in. A settings sub-page for the same thing is denied alongside it, so it is covered before it exists. |
 | `/impersonate` | Impersonation is a session-only, logged human action (R38.12). |
 | `/auth` | Sign-in, SSO, and the dev-bypass state. |
 | `/signout` | Nothing for a token to sign out of. |
@@ -369,6 +369,9 @@ only (out of a token's reach).
 | GET/POST | `/move` | R/W | Move between envelopes. |
 | GET/POST | `/hold` | R/W | Hold income for next month. |
 | GET/POST | `/auto-assign` | R/W | Fund-to-target, with preview. |
+| GET | `/overview` | R | Runway, due-soon bills, the month at a glance. |
+| GET | `/more` | R | The hub of everything not in the primary nav. |
+| POST | `/copy-last-month` | W | Copy last month's assignments into this one. |
 | GET | `/explain/ready-to-assign` | R | Why RTA is what it is. |
 | GET | `/explain/category/:id` | R | Explain a category's number. |
 
@@ -379,12 +382,19 @@ only (out of a token's reach).
 | GET | `/accounts` | R | All accounts and balances. |
 | GET/POST | `/accounts/new` | R/W | Create an account. |
 | GET | `/accounts/:id` | R | One account's register. |
+| POST | `/accounts/:id/edit` · `/accounts/:id/close` · `/accounts/:id/reopen` | W | Rename, close (never delete) and reopen an account. |
+| GET/POST | `/accounts/:id/statement` | R/W | Record a card statement: amount, date, due date, minimum. |
+| GET | `/accounts/:id/cards` | R | Cards on one account, including add-ons. |
+| POST | `/accounts/:id/cards/:cardId/close` | W | Close an add-on card. |
+| GET | `/cards` | R | Every credit card in due-date order, with what is unfunded. |
 | GET/POST | `/accounts/:id/reconcile` | R/W | Reconcile to a statement balance. |
 | GET/POST | `/add` | R/W | Create a transaction. |
 | POST | `/transfer` | W | Transfer between accounts. |
 | GET | `/transaction/:id` | R | Transaction detail, splits, history. |
 | POST | `/transaction/:id` | W | Edit a transaction. |
 | POST | `/transaction/:id/delete` | W | Delete (undoable). |
+| POST | `/transaction/:id/categorise` | W | File one transaction into an envelope. Also the learning signal (B100). |
+| POST | `/transaction/:id/settled` | W | Mark a reimbursable transaction as repaid. |
 | POST | `/transaction/:id/attach` | W | Attach a receipt. |
 | GET | `/attachment/:id` | R | Fetch a receipt's bytes. |
 | POST | `/attachment/:id/delete` | W | Remove a receipt. |
@@ -405,7 +415,9 @@ only (out of a token's reach).
 | GET | `/payees` | R | Payees. |
 | POST | `/payees/merge` | W | Merge two payees. |
 | GET | `/categories` | R | Categories. |
-| POST | `/categories/new` · `/categories/:id/rename` · `/categories/:id/hide` | W | Manage categories. |
+| POST | `/categories/new` · `/categories/:id/rename` · `/categories/:id/hide` · `/categories/:id/delete` | W | Manage categories. |
+| POST | `/categories/:id/target` | W | Set or clear a category's target. |
+| POST | `/categories/:id/reorder` · `/groups/:id/reorder` | W | Move a category or group up or down. |
 
 ### Schedules, goals & loans
 
@@ -414,13 +426,15 @@ only (out of a token's reach).
 | GET | `/schedules` | R | Recurring items & cashflow calendar. |
 | POST | `/schedules/new` · `/schedules/confirm` · `/schedules/dismiss` · `/schedules/:id/paid` · `/schedules/:id/skip` | W | Manage schedules. |
 | GET | `/goals` | R | Savings goals. |
-| POST | `/goals/new` · `/goals/:id/complete` | W | Manage goals. |
+| POST | `/goals/new` · `/goals/:id/complete` · `/goals/:id/edit` · `/goals/:id/delete` | W | Manage goals. |
 | GET | `/loans` · `/loans/:id` | R | Loans and one loan's detail. |
 | GET/POST | `/loans/new` | R/W | Create a loan. |
 | GET/POST | `/loans/what-if` | R/W | Prepayment / rate what-if. |
 | POST | `/loans/:id/disburse` | W | Record a tranche drawdown. |
 | GET/POST | `/loans/:id/pay` | R/W | Record an instalment. |
 | GET/POST | `/loans/:id/prepay` | R/W | Record a prepayment. |
+| GET/POST | `/loans/:id/rate` | R/W | Record a rate reset. |
+| GET | `/loans/:id/statement` | R | One loan's statement view. |
 | GET | `/loans/:id/schedule.csv` | R | Amortisation schedule as CSV. |
 
 ### Family lending
@@ -445,7 +459,11 @@ only (out of a token's reach).
 | POST | `/portfolio/refresh` | W | Refresh prices. |
 | GET | `/net-worth` | R | Net-worth decomposition & history. |
 | POST | `/net-worth/snapshot` | W | Take a dated snapshot. |
-| POST | `/assets/new` | W | Add a hand-valued asset. |
+| GET/POST | `/portfolio/asset/new` | R/W | Add a hand-valued asset. |
+| GET/POST | `/portfolio/asset/:id/revalue` | R/W | Say what one asset is worth today. |
+| GET/POST | `/portfolio/valuations` | R/W | Update every hand-valued asset in one sitting. |
+| GET/POST | `/portfolio/:id/price` | R/W | Record a price for one instrument. |
+| GET/POST | `/portfolio/:id/split` | R/W | Record a stock split or bonus issue. |
 | GET | `/portfolio/holdings.csv` · `/portfolio/lots.csv` · `/portfolio/prices.csv` · `/net-worth.csv` | R | CSV exports. |
 
 ### Months, reports & query
@@ -464,6 +482,8 @@ only (out of a token's reach).
 |---|---|---|---|
 | GET | `/settings` | R | Household settings. |
 | POST | `/settings/theme` · `/settings/learning` · `/settings/overspend-model` · `/settings/identity` · `/settings/digest` | W | Change settings. |
+| GET | `/activity` | R | Every change ever made, with its undo. |
+| POST | `/activity/:id/undo` | W | Undo one recorded event (30 days, R37.8). |
 | GET | `/health` | R | Health dashboard (HTML). |
 | POST | `/health/backup` · `/health/verify` | W | Run a backup / verify a restore. |
 | POST | `/gmail/disconnect` · `/gmail/fetch` | W | Manage Gmail ingestion. |

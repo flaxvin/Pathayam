@@ -19,7 +19,7 @@ Three supports:
 ## 2. Navigation
 
 **Mobile (primary):** bottom bar, five items — Budget · Accounts · Add (centre, prominent) · Review · More.
-**Desktop/tablet:** left sidebar with the same five plus Reports, Schedules, Goals, Loans, Portfolio, Net worth, Settings; Budget grid uses the freed width for more columns.
+**Desktop/tablet:** left sidebar with the same five, grouped — *Analyse* (Overview, Cards, Reports, Query, Schedules, Goals, Loans, Portfolio, Net worth) and *Manage* (Payees, Rules, Import, Activity, Health, Settings); Budget grid uses the freed width for more columns.
 
 **Global, always available:**
 - Add transaction (FAB on mobile, `A` on desktop)
@@ -177,6 +177,32 @@ Household, members, categories management, rules, payees, tags, notifications, a
 Specified in full in `06-loans.md` §8. Summary: a portfolio list of all liabilities; a five-tab loan detail (Overview · Schedule · Payments · Disbursements · What-if); a prepayment sheet whose centrepiece is the tenure-versus-EMI comparison; a rate-change sheet; a record-instalment sheet; and a debt overview across all liabilities including credit cards.
 
 Loan payment categories appear in their own group on Budget (S1); instalments and expected disbursements appear on the cashflow calendar (S8); drift, unconfirmed rate resets, ending moratoria and underfunded instalments appear in Review (S4).
+
+---
+
+### S17 · Cards
+
+*Added after three years of realistic use made the gap obvious (B92, `11` §9).*
+`02` R6 models credit cards well and `09` §4 added add-on cards on top, but with
+several cards on different statement cycles the daily question is not *how is the
+payment envelope doing* — it is **which card is due next, and for how much**.
+Nothing answered it without opening each account in turn.
+
+**The screen** — every credit account in **due-date order**, nulls last, with a
+summary strip above: total owed, total not funded, and how many fall due within a
+week. Each card shows what is owed, what the payment envelope has set aside, and
+what has nothing behind it; where a statement has been recorded, its amount, date,
+due date and minimum. Urgency is stated in days rather than colour alone.
+
+**Rules:**
+
+- R6.h A shortfall MUST never be reported larger than the balance it describes
+  (B92). A household can disprove an impossible figure with arithmetic, and a
+  warning they can disprove costs more than it buys.
+- R6.i A card with no recorded statement MUST say so plainly rather than invent a
+  due date, and MUST still report its funding position.
+- R6.j Every shortfall MUST carry the action that fixes it, reaching the same
+  cover-overspend flow as S1.
 
 ---
 
