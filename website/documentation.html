@@ -1,0 +1,216 @@
+<!doctype html>
+<html lang="en-IN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Documentation</title>
+<meta name="description" content="How to run Pathayam, how the design documents fit together, and where the engine's arithmetic is derived.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Serif+Malayalam:wght@500&family=Zilla+Slab:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="masthead">
+  <div class="wrap masthead__inner">
+    <a class="brand" href="index.html">
+      <svg class="brand__mark" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4">
+        <rect x="2.2" y="5.5" width="15.6" height="11.3"/>
+        <path d="M1.4 5.5 10 2l8.6 3.5M2.2 9.3h15.6M2.2 13h15.6"/>
+      </svg>
+      Pathayam
+    </a>
+    <nav class="nav" aria-label="Main">
+      <a href="index.html">Home</a>
+      <a href="features.html">Features</a>
+      <a href="demo.html">Demo</a>
+      <a href="roadmap.html">Roadmap</a>
+      <a href="documentation.html" aria-current="page">Docs</a>
+      <a href="api.html">API</a>
+      <button class="theme-toggle" type="button" aria-label="Switch theme">☾</button>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+  <section class="wrap bin bin--intro">
+    <div class="bin__head">
+      <p class="eyebrow">Documentation</p>
+      <h2 style="font-size:var(--step-4)">The specification came first</h2>
+    </div>
+    <p class="lede">
+      Eleven documents settled the design before the code existed, and they were
+      kept as written rather than edited to match what got built. What the build
+      then decided — including where implementing a rule taught us something the
+      rule did not say — is recorded separately.
+    </p>
+  </section>
+
+  <section class="wrap bin">
+    <div class="bin__head"><p class="eyebrow">Getting started</p><h2>Running it</h2></div>
+    <div class="cols">
+      <div class="prose">
+        <p>
+          Everything runs through Docker Compose and Node is not needed on the
+          host. The seed builds a demo household that already contains a cash
+          overspend, a credit overspend and a card payment, so the screens show
+          real behaviour instead of an empty grid.
+        </p>
+        <p>
+          The dev profile sets a login bypass that exists only in the development
+          image. It refuses to start anywhere production-shaped — a public
+          hostname, real Google credentials, or <code>NODE_ENV=production</code>.
+        </p>
+        <p>
+          For a real deployment you need a domain, a Google OAuth client, and
+          somewhere to run one container. The database is a single SQLite file on a
+          volume; back that up and you have backed up everything.
+        </p>
+      </div>
+      <div style="display:grid;gap:1rem;align-content:start">
+<pre><code><span class="tok-c"># clone, configure, seed</span>
+cp .env.example .env
+docker compose --profile seed up seed
+
+<span class="tok-c"># development, auth bypass on</span>
+docker compose --profile dev up
+
+<span class="tok-c"># tests and typecheck</span>
+docker compose --profile test up test
+
+<span class="tok-c"># production</span>
+docker compose up -d</code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap bin">
+    <div class="bin__head"><p class="eyebrow">The set</p><h2>The documents</h2></div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Document</th><th>What it covers</th><th>Read it when</th></tr></thead>
+        <tbody>
+          <tr><td><code>01</code> Competitive analysis</td><td>Ten apps pulled apart, with explicit take and drop calls.</td><td>You want to know why a feature is in the spec</td></tr>
+          <tr><td><code>02</code> Functional design</td><td>Principles, the concept glossary, the engine rules with worked ₹ examples, and Indian localisation.</td><td>This is the core document</td></tr>
+          <tr><td><code>03</code> Screens &amp; flows</td><td>Screen inventory, user journeys, empty and error states, mobile adaptations.</td><td>You are building or reviewing UI</td></tr>
+          <tr><td><code>04</code> Ingestion &amp; automation</td><td>The ingestion paths, dedupe rules, review queue, rules engine, alert parsing.</td><td>You are building import or automation</td></tr>
+          <tr><td><code>05</code> Roadmap</td><td>Phasing, the cut line, success criteria.</td><td>You are planning what to build first</td></tr>
+          <tr><td><code>06</code> Loans</td><td>Drawdown, interest models, amortisation, prepayment, interest saved.</td><td>You are building loan tracking</td></tr>
+          <tr><td><code>07</code> Assets &amp; net worth</td><td>Holdings, net worth, multi-currency, and the price APIs with verified responses.</td><td>You are building the portfolio layer</td></tr>
+          <tr><td><code>08</code> Platform &amp; operations</td><td>Server-only client data, idempotent writes, the event log, impersonation, backups, health.</td><td>You are building anything operational</td></tr>
+          <tr><td><code>09</code> Decisions log</td><td>Every open question closed, the add-on card mechanic, the revised build order.</td><td><strong>Start here for what was actually decided</strong></td></tr>
+          <tr><td><code>10</code> Errata</td><td>Corrections found after the set was frozen, kept separate so the original reasoning stays readable.</td><td>You are reading 01–09</td></tr>
+          <tr><td><code>11</code> Build decisions</td><td>What the build decided and why, recorded as it happened — including the mistakes and what they cost.</td><td>You are changing the code</td></tr>
+          <tr><td>Engine derivation</td><td>The accounting identity derived from first principles, and the known wart in past-month views.</td><td>You are changing the engine</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="wrap bin">
+    <div class="bin__head">
+      <p class="eyebrow">The invariant</p>
+      <h2>What must stay true</h2>
+    </div>
+    <div class="cols">
+      <div class="prose">
+        <p>
+          One identity underpins the whole engine, and it is asserted after every
+          scenario in the test suite. If a change breaks it, the change is wrong —
+          including when the change looked like a bug fix.
+        </p>
+        <p>
+          It has earned its keep. It caught an uncategorised card charge that put
+          the books out by exactly its own amount, which is the ordinary state of
+          every imported card row between landing and being reviewed. It also
+          caught a caching layer that disagreed with the ledger it was summarising.
+        </p>
+      </div>
+      <div>
+        <div class="identity">
+          Σ budget-account balances<br>
+          &nbsp;&nbsp;= Σ category balances<br>
+          &nbsp;&nbsp;+ <b>Ready to Assign</b><br>
+          &nbsp;&nbsp;+ held for next month<br>
+          &nbsp;&nbsp;+ Σ future assignments<br>
+          &nbsp;&nbsp;− unfunded credit absorbed
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap bin">
+    <div class="bin__head"><p class="eyebrow">Conventions</p><h2>Two rules the documentation follows</h2></div>
+    <div class="cols">
+      <div class="panel">
+        <span class="panel__kicker">Verified</span>
+        <h3>Worked examples are tests</h3>
+        <p>
+          Every ₹ figure in the design documents is asserted somewhere in the
+          suite. A number in prose that nothing checks is a number that drifts, and
+          documentation that has drifted is worse than none.
+        </p>
+      </div>
+      <div class="panel">
+        <span class="panel__kicker">Checked</span>
+        <h3>The API reference is tested against the router</h3>
+        <p>
+          A test reads the route table and the router and compares them in both
+          directions, so a new route cannot ship undocumented and the reference
+          cannot describe something that does not exist.
+        </p>
+      </div>
+      <div class="panel">
+        <span class="panel__kicker">Fictional</span>
+        <h3>No real financial data, anywhere</h3>
+        <p>
+          Every household, account, card and figure in the repository is invented,
+          including in the sample statement PDFs. Real statements are locked behind
+          a PAN, and neither those nor what they open belong in a repository.
+        </p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot__grid">
+      <div>
+        <h4>Pathayam</h4>
+        <ul>
+          <li><a href="features.html">Features</a></li>
+          <li><a href="demo.html">Envelope demo</a></li>
+          <li><a href="roadmap.html">Roadmap</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Reference</h4>
+        <ul>
+          <li><a href="documentation.html">Documentation</a></li>
+          <li><a href="api.html">API guide</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Built with</h4>
+        <ul>
+          <li>TypeScript on Node 24+</li>
+          <li>node:sqlite · node:http</li>
+          <li>Zero runtime dependencies</li>
+        </ul>
+      </div>
+    </div>
+    <p class="foot__note">
+      Self-hosted software for one household. There is no service to sign up for,
+      nothing is sent anywhere, and the data stays on the machine you run it on.
+      Every figure and name in the screenshots is fictional.
+    </p>
+  </div>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>
