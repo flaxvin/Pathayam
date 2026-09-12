@@ -352,27 +352,55 @@ Only the third is what `10` §3.5 would have called a write-off, and it is the
 rarest of the three. The first two are just how a household with two incomes
 settles a month.
 
-### 4A.4 What "call it even" does to the figures
+### 4A.4 Where the money comes from
 
 Priya used the household's shared card for ₹2,000 of her own shopping, so her
 household envelope is +₹2,000 — **she is ₹2,000 behind.** The household says
 leave it.
 
+The obvious objection is the right one: *the money has to come from somewhere.*
+It does, and following the household's side to the end shows where.
+
 ```
-PRIYA'S BUDGET                   HOUSEHOLD BUDGET
-→ Household   +2,000 → 0         balance with Priya  2,000 → 0
-Ready to Assign      +2,000      Gifts and treats         −2,000
-0 = categories + RTA      ✓      0 = card payment 2,000 + Gifts −2,000   ✓
+                                   Joint   owed by   card pay   Gifts     RTA
+start                                  0         0          0       0       0
+1  Priya charges ₹2,000 on the card    0    +2,000     +2,000       0       0
+2  the household calls it even         0         0     +2,000  −2,000       0
+3  the bank is paid from Joint    −2,000         0          0  −2,000       0
+4  Gifts is funded, as any
+   envelope must be               −2,000         0          0       0  −2,000
 ```
 
-Both sides close. The rule underneath is the one `writeOffFamilyLoan` already
-encodes and it does not change with the vocabulary: what is not recovered is an
-expense for the person letting it go, and what is let go is income for the other.
+Every line satisfies `Σ accounts + owed to us = Σ categories + RTA`.
 
-**Calling it even does not pay the card bill.** The household still owes the bank
-₹2,000, which is exactly why the amount has to land in a real category rather
-than disappear — otherwise the payment arrives with nothing behind it and the
-household is short by a figure nobody can trace.
+**The money comes from the household's own Ready to Assign, at step 4.** Calling
+it even is the household buying Priya a ₹2,000 present — which is exactly what
+happened, so that is what it should cost and where it should appear.
+
+Step 2 on its own does not conjure anything. It moves an obligation from *Priya
+owes this* to *the household spent this*, and the spending still has to be
+funded like any other. Skip step 4 and Gifts simply sits at −₹2,000: an ordinary
+overspent envelope, which under the default overspend model comes off next
+month's Ready to Assign. The household pays either way.
+
+**Calling it even never pays the card bill.** Step 3 happens regardless — the
+bank is owed ₹2,000 whatever the two of them agree between themselves. That is
+the whole reason the amount must land in a real category: if it vanished at step
+2, the payment at step 3 would arrive against nothing and the household would be
+short by a figure with no history behind it.
+
+Priya's side is the mirror, and simpler:
+
+```
+→ Household   +2,000 → 0        the obligation goes
+Ready to Assign      +2,000     she received ₹2,000 of value for nothing
+0 = categories + RTA     ✓
+```
+
+Her Ready to Assign rises because she genuinely is ₹2,000 better off. The rule
+underneath is the one `writeOffFamilyLoan` already encodes, and the vocabulary
+does not change it: what is given up is an expense for the one giving it, and
+income for the one receiving it.
 
 ### 4A.5 What the action needs
 
