@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Live Demo</title>
-<meta name="description" content="Assign income to envelopes and watch Ready to Assign fall to zero — the same arithmetic the real app runs.">
+<meta name="description" content="Play with Pathayam's real budgeting engine in your browser: assign money, spend on a card, cover an overspend and roll into next month.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Noto+Serif+Malayalam:wght@500&display=swap">
@@ -25,10 +25,9 @@
     <nav class="nav" aria-label="Main">
       <a href="index.html">Home</a>
       <a href="features.html">Features</a>
-      <a href="roadmap.html">Roadmap</a>
-      <a href="documentation.html">Docs</a>
+      <a href="guides.html">Guides</a>
       <a href="api.html">API</a>
-      <a class="btn btn--primary btn--nav" href="demo.html">Try the demo</a>
+      <a class="btn btn--primary btn--nav" href="demo.html" aria-current="page">Try the demo</a>
       <button class="theme-toggle" type="button" aria-label="Switch theme">☾</button>
     </nav>
   </div>
@@ -38,21 +37,62 @@
   <section class="sec sec--tight">
     <div class="wrap center">
       <p class="eyebrow">Live demo</p>
-      <h1 style="font-size:var(--step-5);max-width:20ch;margin-inline:auto">Give every rupee a job.</h1>
-      <p class="lede" style="font-size:var(--step-2);max-width:52ch">September is part-budgeted and ₹60,000 still has no job. Type into Assigned, or fund every target at once, and watch Ready to Assign fall to zero.</p>
+      <h1 style="font-size:var(--step-5);max-width:19ch;margin-inline:auto">Play with the real engine</h1>
+      <p class="lede" style="font-size:var(--step-2);max-width:56ch">
+        Not a video and not a mockup. The arithmetic below is the app's own — assign
+        money, spend it, put it on a card, and roll into next month to see what
+        carries.
+      </p>
+      <div class="actions" style="margin-top:1.75rem">
+        <a class="btn btn--primary" href="#try">Start here</a>
+        <a class="btn btn--ghost" href="https://demo.pathayam.example/" rel="nofollow">Open the full app in demo mode</a>
+      </div>
+      <p class="hero__fine">
+        The full demo is a hosted instance with three years of fictional data and
+        every screen enabled. <strong>Link is a placeholder until it is deployed.</strong>
+      </p>
     </div>
   </section>
 
-  <section class="sec sec--tight">
+  <section class="sec sec--tight" id="try">
     <div class="wrap">
+      <div class="tabs" role="tablist" aria-label="Demo sections">
+        <button class="tab" type="button" role="tab" data-tab="budget" aria-selected="true">Budget</button>
+        <button class="tab" type="button" role="tab" data-tab="spend" aria-selected="false">Spend</button>
+        <button class="tab" type="button" role="tab" data-tab="month" aria-selected="false">Next month</button>
+      </div>
+
       <div class="demo" data-demo>
         <div class="demo__bar">
           <div class="rta">
             <span class="rta__l">Ready to Assign</span>
             <span class="rta__v" data-rta>₹60,000</span>
           </div>
-          <p class="rta__note">September 2026 · one household</p>
+          <p class="rta__note"><span data-month>September 2026</span> · card owes <b data-debt>₹11,600</b></p>
         </div>
+
+        <div data-panel="spend" hidden>
+          <div class="spendbar">
+            <label class="fld"><span>Category</span>
+              <select data-cat></select>
+            </label>
+            <label class="fld"><span>Amount</span>
+              <input type="text" inputmode="numeric" data-amt placeholder="800" size="8">
+            </label>
+            <label class="chk"><input type="checkbox" data-card> on the credit card</label>
+            <button class="btn btn--primary btn--sm" type="button" data-act="spend">Record it</button>
+            <button class="btn btn--ghost btn--sm" type="button" data-act="paycard">Pay the card off</button>
+          </div>
+        </div>
+
+        <div data-panel="month" hidden>
+          <div class="spendbar">
+            <button class="btn btn--ghost btn--sm" type="button" data-act="model">Overspend: reduce next month</button>
+            <button class="btn btn--ghost btn--sm" type="button" data-act="hold">Hold the spare for next month</button>
+            <button class="btn btn--primary btn--sm" type="button" data-act="roll">Roll into next month →</button>
+          </div>
+        </div>
+
         <div class="grid-head">
           <div>Category</div>
           <div style="text-align:right">Assigned</div>
@@ -60,39 +100,62 @@
           <div style="text-align:right">Available</div>
         </div>
         <div data-rows></div>
+
         <div class="demo__foot">
           <button class="btn btn--primary btn--sm" type="button" data-act="targets">Fund every target</button>
-          <button class="btn btn--ghost btn--sm" type="button" data-act="charge">Spend ₹2,400 more on eating out</button>
           <button class="btn btn--ghost btn--sm" type="button" data-act="reset">Reset</button>
           <p class="demo__msg" data-msg role="status"></p>
         </div>
       </div>
-      <p class="lede" style="margin-top:1.25rem;max-width:70ch">
-        Eating out is already over — that is what the red is for. The arithmetic is
-        the real engine's, one decimal place up: assigned minus activity is
-        available, and nothing appears from nowhere.
-      </p>
+
+      <div class="cols" style="margin-top:1.5rem">
+        <div>
+          <h3 style="font-size:var(--step-2);margin-bottom:0.6rem">What just happened</h3>
+          <ul class="log" data-log></ul>
+        </div>
+        <div class="note">
+          <b>Try this order.</b> Fund every target and watch Ready to Assign reach
+          zero. Then go to <em>Spend</em>, put ₹2,000 of groceries on the card, and
+          look at the payment envelope — the cash to clear it moved across on its
+          own. Then <em>Next month</em>, and roll.
+        </div>
+      </div>
     </div>
   </section>
 
   <section class="sec sec--band">
     <div class="wrap">
       <div class="center" style="margin-bottom:2.5rem">
-        <h2 class="h-sec">Three rules the demo is enforcing</h2>
-        <p class="lede">The same three the app enforces on real money.</p>
+        <h2 class="h-sec">Four rules it is enforcing</h2>
+        <p class="lede">The same four the app enforces on real money.</p>
       </div>
       <div class="cards">
         <div class="card">
-          <h3>You can only budget money you have</h3>
-          <p>Ready to Assign starts at what actually arrived. Assign more and it goes negative, and the app will not let that stand — a plan built on money you do not have is not a plan.</p>
+          <h3>You can only budget what you have</h3>
+          <p>Ready to Assign starts at what actually arrived. Assign more and it goes
+          negative, and the app keeps saying so until you take some back.</p>
+          <p><a href="guides.html#first-budget">Build your first budget →</a></p>
         </div>
         <div class="card">
           <h3>Overspending is never hidden</h3>
-          <p>Push an envelope below zero and it turns red and stays red. You choose how it resolves: cover it from elsewhere now, or let the rollover reduce next month.</p>
+          <p>Push an envelope below zero and it turns red with a <em>cover</em>
+          button. Take it from wherever has slack, or let the rollover handle it
+          under whichever model you picked.</p>
+          <p><a href="guides.html#overspend">When you go over →</a></p>
         </div>
         <div class="card">
-          <h3>Order is information</h3>
-          <p>Funding every target spends Ready to Assign down the budget in the order you arranged it, so what matters most is funded first and any shortfall lands where you will see it.</p>
+          <h3>Card spending reserves the cash</h3>
+          <p>Buy something on the card and the category gives the money up while the
+          payment envelope holds it. The statement is never a surprise, because the
+          money was set aside when you spent it.</p>
+          <p><a href="guides.html#cards">Credit cards →</a></p>
+        </div>
+        <div class="card">
+          <h3>Nothing appears from nowhere</h3>
+          <p>Every rupee is somewhere: in an envelope, in Ready to Assign, or held
+          for next month. Roll the month and watch leftovers carry rather than
+          evaporate.</p>
+          <p><a href="guides.html#assign">Assign, move and hold →</a></p>
         </div>
       </div>
     </div>
@@ -105,13 +168,13 @@
           <h2>What a nine-row demo leaves out</h2>
           <p class="lede">The real thing carries the parts that make this survivable past month three.</p>
           <ul class="checks" style="margin-top:1.5rem">
-            <li><strong>Cards.</strong> Spending on one reserves the cash to clear it, the moment the charge lands.</li>
-            <li><strong>Rollover.</strong> Next month opens with every leftover already in place.</li>
-            <li><strong>Money arriving on its own.</strong> Statements, CSVs and alerts become a review queue.</li>
-            <li><strong>Undo.</strong> Every action here would be reversible for thirty days.</li>
+            <li><strong>Money arriving on its own.</strong> Statement PDFs from eleven banks, CSVs and bank alerts, all landing in a review queue.</li>
+            <li><strong>Rules that learn.</strong> File a payee twice and a rule is proposed, never applied silently.</li>
+            <li><strong>Loans, investments and net worth</strong>, with the firewall that keeps growth out of the budget.</li>
+            <li><strong>Undo on everything</strong>, for thirty days, from an append-only log.</li>
           </ul>
           <div class="actions" style="margin-top:2rem">
-            <a class="btn btn--primary" href="documentation.html">Run the real thing</a>
+            <a class="btn btn--primary" href="guides.html">Read the guides</a>
             <a class="btn btn--ghost" href="features.html">See every feature</a>
           </div>
         </div>
@@ -133,13 +196,12 @@
         <ul>
           <li><a href="features.html">Features</a></li>
           <li><a href="demo.html">Live demo</a></li>
-          <li><a href="roadmap.html">Roadmap</a></li>
         </ul>
       </div>
       <div>
         <h4>Reference</h4>
         <ul>
-          <li><a href="documentation.html">Documentation</a></li>
+          <li><a href="guides.html">Documentation</a></li>
           <li><a href="api.html">API guide</a></li>
         </ul>
       </div>
