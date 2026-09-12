@@ -25,6 +25,16 @@ export interface Config {
   /** R38.1: dev-only sign-in as any seeded member, off by default. */
   devLogin: boolean;
   /**
+   * R38.6a · "View as another member", off unless explicitly enabled.
+   *
+   * It was built for a household where one person sets things up for another,
+   * and it is a poor fit for one where the two keep their money separate: a
+   * personal budget that a partner can step into is not a separate budget. So
+   * it is now an operator tool — for support on a hosted instance, and for
+   * reproducing a bug locally — rather than a household feature.
+   */
+  adminDebug: boolean;
+  /**
    * A public demonstration instance: anyone who can reach it may enter and click
    * around. Off by default, and every guard below is a no-op when it is off, so
    * a private household deployment behaves exactly as it did before this
@@ -104,6 +114,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     },
     devLogin: bool(env.DEV_LOGIN, false),
     demoMode: bool(env.DEMO_MODE, false),
+    adminDebug: bool(env.ADMIN_DEBUG, false),
     sessionDays: int(env.SESSION_DAYS, 30), // Q22
     alphaVantageKey: env.ALPHA_VANTAGE_KEY || null,
     features: {

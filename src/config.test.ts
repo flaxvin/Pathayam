@@ -141,3 +141,24 @@ describe("R38 · demo mode is a separate bypass with its own guards", () => {
       assertDemoModeSafeAgainstData(config, { gmailConnections: 9, statementIdentities: 9 }));
   });
 });
+
+describe("R38.6a · view-as is an operator tool, not a household feature", () => {
+  const base = { ...process.env, DATA_DIR: "/tmp/x", BASE_URL: "https://pathayam.example.com" };
+
+  test("off by default", () => {
+    // A personal budget a partner can step into is not a separate budget, so
+    // the default had to change once budgets stopped being shared.
+    assert.equal(loadConfig({ ...base }).adminDebug, false);
+  });
+
+  test("on only when the operator says so", () => {
+    assert.equal(loadConfig({ ...base, ADMIN_DEBUG: "true" }).adminDebug, true);
+  });
+
+  test("it is not tied to the demo or the development bypass", () => {
+    // Three separate switches, so enabling a demo never quietly enables the
+    // ability to read somebody else's budget.
+    assert.equal(loadConfig({ ...base, DEMO_MODE: "true" }).adminDebug, false);
+    assert.equal(loadConfig({ ...base, ADMIN_DEBUG: "true" }).demoMode, false);
+  });
+});
