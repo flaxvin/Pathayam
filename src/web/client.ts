@@ -550,6 +550,7 @@ export const CLIENT_SCRIPT = String.raw`
   var ALL_COMMANDS = [
     { label: "Go to Budget", href: "/", group: "Go to" },
     { label: "Go to Accounts", href: "/accounts", group: "Go to" },
+    { label: "Go to Cards", href: "/cards", group: "Go to" },
     { label: "Go to Review", href: "/review", group: "Go to" },
     { label: "Go to Overview", href: "/overview", group: "Go to" },
     { label: "Go to Reports", href: "/reports", group: "Go to" },

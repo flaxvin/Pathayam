@@ -37,6 +37,7 @@ export function renderMore(features: { loans: boolean; assets: boolean }): SafeH
     ${group("Understand", [
       ["/reports", "Reports", "Income against spending, and where it goes"],
       ["/query", "Query", "One table, filtered and grouped however you like"],
+      ["/cards", "Cards", "Which one is due next, and is it funded"],
       ["/schedules", "Schedules & cashflow", "Will you make it to the 30th?"],
       ["/goals", "Goals", "Long-horizon savings, kept off the monthly grid"],
     ])}
