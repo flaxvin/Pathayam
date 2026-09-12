@@ -295,6 +295,81 @@ so does her commitment. One rule, applied per line instead of per transaction.
 
 ---
 
+## 4A. Q3a · Forgiving what is owed
+
+A household is not a bank. Sometimes the answer to a balance is *never mind*, and
+an app that cannot record that forces people to either lie to it or stop using
+it. This is the same judgement `10` §3.5 already made for family lending, where
+`writeOffFamilyLoan` exists for exactly this reason.
+
+### 4A.1 The rule, borrowed from family lending
+
+That code states it in one line, and it is right here too:
+
+> When they owe you, the unrecovered money is an **expense**. When you owe them,
+> a forgiven debt is **income**.
+
+So forgiveness is never a number quietly deleted. It lands in somebody's budget
+as a real movement, filed to a category they choose, and shows up in Reports next
+to everything else.
+
+### 4A.2 One direction already works
+
+If Ravi has spent more on the household than he committed, his household envelope
+is negative — **the household owes him.** Him forgiving that is him covering his
+own negative envelope from his own Ready to Assign.
+
+```
+→ Household   −2,000 → 0
+Ready to Assign       −2,000
+0 = categories + RTA                       ✓
+```
+
+That is the ordinary cover-overspend flow, which has existed since R4. **No new
+action is needed**, and the wording on the button is the only thing to get right:
+covering a household envelope is forgiving a debt, and should say so.
+
+### 4A.3 The other direction needs one new action
+
+If Priya has used the household's card for herself, her household envelope is
+positive — **she owes the household.** Forgiving that has two halves:
+
+```
+PRIYA'S BUDGET                   HOUSEHOLD BUDGET
+→ Household   +2,000 → 0         due from Priya   2,000 → 0
+Ready to Assign      +2,000      Gifts                 −2,000
+0 = categories + RTA      ✓      0 = card payment 2,000 + Gifts −2,000   ✓
+```
+
+Income for her, an expense for the household, both identities closed. The
+household must still pay the bank the ₹2,000 — forgiving the debt does not
+forgive the bill, which is exactly why it has to land in a category rather than
+vanish.
+
+### 4A.4 What the action requires
+
+- **A category on the forgiver's side.** Not optional, for the same reason the
+  family-loan write-off demands one: an expense with no envelope is money leaving
+  the budget unrecorded.
+- **An amount.** Partial forgiveness is normal — ₹2,000 of a ₹6,200 balance —
+  and is just a smaller movement.
+- **Who did it, in the event log**, so a household balance that changed overnight
+  has an answer. Undoable within thirty days like everything else (R37).
+- **Consent belongs to the creditor.** A member forgives what is owed *to them*.
+  For money owed to the household, any member may act, because the household
+  budget is shared and the log records who.
+
+### 4A.5 Between two members
+
+Identical, and it is the add-on case: Priya owes Ravi for spending on his card
+(§3A.5). Ravi forgives, and it is income to her and an expense filed to a
+category in his budget. The claim is derived from her envelope either way, so
+there is no separate ledger to correct.
+
+One restriction carries over from §3A.4: forgiveness can only touch a claim that
+exists, and claims only arise through a shared instrument. Nobody can forgive a
+debt that was never created.
+
 ## 5. Q4 · Settling up
 
 **Mostly there is nothing to settle**, which is the quiet advantage of §3. A
@@ -375,7 +450,7 @@ that has to appear in the identity, the undo log, and the month-close ritual.
 |---|---|
 | 1 · `budgets` table, `budget_id` columns, migration into the household budget | 1.5–2 w |
 | 2 · Engine scoping: `loadEngineInput`, rollup cache keyed by budget, identity per budget | 2–3 w |
-| 3 · The household envelope: the derived claim in the identity, and spending on behalf | 2–3 w |
+| 3 · The household envelope: the derived claim in the identity, spending on behalf, and forgiveness (§4A) | 2.5–3.5 w |
 | 4 · Reads and writes across the app scoped to a budget | 2–3 w |
 | 5 · UI: switcher, both-view, share controls on accounts and cards, split-by-budget | 2–3 w |
 | 6 · Tests: identity per budget, the receivable, migration | 2–3 w |
