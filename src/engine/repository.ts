@@ -537,15 +537,18 @@ export function loadCategoryGroups(db: DB): CategoryGroupMeta[] {
     kind: string;
     sort: number;
     hidden_at: string | null;
-  }>(db, `SELECT id, name, kind, sort, hidden_at FROM category_groups ORDER BY sort, name`).map(
-    (r) => ({
-      id: r.id,
-      name: r.name,
-      kind: r.kind as CategoryGroupMeta["kind"],
-      sort: r.sort,
-      hidden: r.hidden_at !== null,
-    }),
-  );
+    budget_id: string | null;
+  }>(
+    db,
+    `SELECT id, name, kind, sort, hidden_at, budget_id FROM category_groups ORDER BY sort, name`,
+  ).map((r) => ({
+    id: r.id,
+    name: r.name,
+    kind: r.kind as CategoryGroupMeta["kind"],
+    sort: r.sort,
+    hidden: r.hidden_at !== null,
+    budgetId: r.budget_id,
+  }));
 }
 
 export function loadOverspendModel(db: DB): OverspendModel {

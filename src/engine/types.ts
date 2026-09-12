@@ -33,6 +33,8 @@ export interface CategoryGroupMeta {
   kind: "normal" | "credit-payments" | "loan-payments" | "internal";
   sort: number;
   hidden: boolean;
+  /** 15 · Which budget's envelopes these are. Null on a pre-migration row. */
+  budgetId?: string | null;
 }
 
 /**
