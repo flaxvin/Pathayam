@@ -18,7 +18,7 @@ The full functional design lives in [`docs/`](docs/00-README.md). This file is
 how you run it and what it does.
 
 ```
-Status   P0 · P1 complete   P2 substantially complete   811 tests   0 deps
+Status   P0 · P1 complete   P2 substantially complete   813 tests   0 deps
 Stack    TypeScript on Node 24+   node:sqlite   node:http   server-rendered HTML
 Deploy   Docker Compose · homelab behind Cloudflare Tunnel · SQLite on a volume
 ```
@@ -141,10 +141,11 @@ from.
 | **Cover overspend** | One-tap move from another envelope, with ranked source suggestions. |
 | **Credit-card payment envelopes** | Card spending reserves the cash to clear it; the envelope tracks the debt, symmetric with a loan's. |
 | **Add-on cards** | A member's card on another's account; the transaction owner defaults to the cardholder (R6.e). |
+| **Cards at a glance** | With several cards on different cycles, the daily question is *which one is due next and for how much*. One screen answers it, due date first, and a shortfall is never reported larger than the card actually owes. |
 | **Targets & auto-assign** | Per-category targets, and one-tap fund-to-target with a preview before it commits. Ready to Assign is spent down the budget in order, so what you budgeted for is funded first. |
 | **Reorder** | ↑/↓ on every category and group, so the grid reads in the order the household thinks in rather than the order things were created. Each move is one undoable step. |
 | **App-managed envelopes** | Card payment envelopes and one envelope per goal are created, named and retired by the app. They carry no manual controls, and are marked *managed by the app* so it is obvious why. |
-| **Hold for next month / Buffer** | Park income for next month; a one-month buffer is a first-class state. |
+| **Hold for next month / Buffer** | Park income for next month; a one-month buffer is a first-class state. When more than two months of typical spending is sitting unassigned — the shape of an income that arrives in lumps rather than monthly — the digest says so and offers a month. |
 | **Forward recompute (R7.g)** | Editing any past month re-derives every month since, under the active overspend model, as one undoable batch. |
 | **Explain this number** | Ready to Assign and every category balance drill into the events that produced them. |
 
@@ -160,7 +161,7 @@ from.
 | **CDSL CAS import** | The monthly consolidated statement is the primary way holdings get in; rows reconcile against existing lots rather than duplicating. |
 | **Five dedupe tiers** | Exact, strong (reference), probable, weak, and manual-vs-imported — no receipt appears twice from SMS + email + statement. |
 | **Review queue** | Nothing auto-posts; everything imported waits for a human, with raw rows shown throughout. |
-| **Learning rules** | Categorise a payee twice → a rule is proposed (never auto-applied); every proposal states the inference it came from. Confirmed rules apply to history with a preview. |
+| **Learning rules** | Categorise a payee twice → a rule is proposed (never auto-applied); every proposal states the inference it came from. Filing counts wherever it happens — from the transaction screen as much as from an import — so the app learns from how you actually work. Confirmed rules apply to history with a preview. |
 | **Gmail ingestion** | Opt-in, read-only, offline. Reads only the banks' own addresses: an alert becomes a review row within seconds; a statement PDF is fetched, decrypted and parsed on arrival. Add-on alerts route to the right account. |
 | **Receipt attachments** | A photo or PDF per transaction, stored server-side in the database, served `no-store` so no device caches it (Q10, R35). |
 
@@ -169,12 +170,12 @@ from.
 | Feature | What it does |
 |---|---|
 | **Reports** | Income vs. spending, spending by category over time, loan interest by financial year. |
-| **Query** | One filterable, groupable transaction table everything else drills into; CSV export. |
+| **Query** | One filterable, groupable transaction table everything else drills into; CSV export. Totals sum every matching row — the page you see is a page, and says so. |
 | **Search** | Across cleaned *and* raw imported strings. |
 | **Schedules & cashflow calendar** | Recurring transactions (with detection), and a forward balance projection — "will I make it to the 30th?". |
 | **Goals** | Long-horizon savings kept off the monthly grid. |
 | **Month close** | A once-a-month ritual: what the month did, R29.4's four-way net-worth change, a dated snapshot, and whether next month is funded. Locks nothing. |
-| **In-app digest** | Per-member notifications (unfunded card, overspend, month ready to close, cashflow dip) — in-app only, nothing to draw you back. |
+| **In-app digest** | Per-member notifications (unfunded card, subscription renewing, overspend, month ready to close, things waiting in Review, cashflow dip, a spare month unassigned) — in-app only, nothing to draw you back. Each kind is individually mutable. |
 
 ### Debt — loans (`06`)
 
@@ -339,19 +340,28 @@ with the demo data.
 |---|---|---|
 | **Budget** | `/` | The month grid: groups, categories, assigned/activity/available, Ready to Assign, the in-app digest. |
 | **Accounts** | `/accounts` | Every account with cleared/uncleared/working balances; each opens a register. |
+| **Cards** | `/cards` | Every credit card in the order it falls due: what is owed, what is set aside, what has nothing behind it, and the statement and due date when one has been recorded. |
 | **Register** | `/accounts/:id` | A running-balance transaction list for one account, with reconcile. |
 | **Transaction** | `/transaction/:id` | Edit, splits, tags, owner; raw imported values; full event history; **receipts**. |
+| **Add** | `/add` | One form for money in, money out and transfers. An expense must name its envelope. |
+| **Move money** | `/move` | Move between envelopes, with a note explaining that this never changes Ready to Assign. |
+| **Hold** | `/hold` | Keep part of this month’s Ready to Assign for next month — how you get to spending last month’s income. |
 | **Review** | `/review` | Everything awaiting a decision: imports, suspected duplicates, uncategorised (filed inline), overspent, unfunded cards, proposed rules, and money you're owed. |
 | **Import** | `/import` | CSV paste / statement-PDF upload with password hints; saved mappings. |
 | **Reports** | `/reports` | Income vs. spend, category trends, loan interest by FY, realised gains by FY split by holding period. |
-| **Query** | `/query` | The filterable, groupable table; CSV export. |
+| **Overview** | `/overview` | Runway, due-soon bills, the month at a glance. |
+| **Query** | `/query` | The filterable, groupable table; CSV export. Totals are summed over every matching row, not the page you can see. |
+| **Search** | `/search` | Everything, from one box — reachable with `/` from any screen. |
 | **Schedules** | `/schedules` | Recurring items and the forward cashflow calendar. |
 | **Goals** | `/goals` | Long-horizon savings with progress rings. |
 | **Loans** | `/loans`, `/loans/:id` | Each loan's real cost, schedule, drift, prepayment calculator, disbursements. |
 | **Family lending** | `/family` | Lent / borrowed, derived balances, write-off. |
 | **Portfolio** | `/portfolio` | Holdings as units, XIRR, allocation, CAS import, CSV export. |
+| **Valuations** | `/portfolio/valuations` | Every hand-valued pot — gold, retirement, anything outside CAS — updated in one sitting, each showing what it was last worth and when. |
 | **Net worth** | `/net-worth` | The four-way decomposition and dated history. |
 | **Month close** | `/months` | The monthly ritual and closed-month history. |
+| **Payees** | `/payees` | Every payee, what it is usually filed as, and merge. |
+| **Rules** | `/rules` | Automatic categorisation: what fires, what the app has proposed from your own filing, and a tester. |
 | **Categories** | `/categories` | Rename, set targets, reorder with ↑/↓, hide, delete. Payment and goal envelopes are marked *managed by the app*. |
 | **Activity** | `/activity` | Every change ever made, and the undo for it. Where later edits touched the same record, the undo shows what it would discard first. |
 | **Settings** | `/settings` | Household, theme, devices, Gmail connection, statement identity, notification prefs, API tokens. |
@@ -380,6 +390,8 @@ Captured from a running instance with the demo household. The UI is theme-aware
 | [![Categories — targets, reorder arrows, and app-managed envelopes](docs/screenshots/categories.png)](docs/screenshots/categories.png) | [![Overview — runway, due-soon bills, and the month at a glance](docs/screenshots/overview.png)](docs/screenshots/overview.png) |
 | **Activity** | **Cards** |
 | [![Activity — every change, with its undo and the reason when it has none](docs/screenshots/activity.png)](docs/screenshots/activity.png) | [![Cards — every card in the order it falls due, with what is unfunded](docs/screenshots/cards.png)](docs/screenshots/cards.png) |
+| **Query** | **Valuations** |
+| [![Query — the filterable, groupable table, with totals over every matching row](docs/screenshots/query.png)](docs/screenshots/query.png) | [![Valuations — every hand-valued pot updated in one sitting](docs/screenshots/valuations.png)](docs/screenshots/valuations.png) |
 
 Click any image for the full-resolution capture. Every figure, name and account
 number in them comes from `npm run seed` — a fictional household. No real

@@ -1454,4 +1454,179 @@ journal.
 
 ---
 
-*Entries B92 onward are recorded as the work happens.*
+### B92 · A shortfall larger than the debt it describes
+
+*11-09-2026 · R6.* Replaying three years of realistic traffic put this on the
+budget screen: *"Amazon Pay ICICI has ₹4,38,498 of its balance unfunded"* — on a
+card owing ₹19,467 whose payment envelope held ₹19,467 to the rupee. Across every
+card the app claimed ₹6,86,157 against ₹56,603 of real debt.
+
+Whatever the reasoning behind a shortfall, a card cannot be short by more than it
+owes, and a figure the household can disprove with arithmetic costs more trust
+than the warning was ever worth. [`engine.ts`](../src/engine/engine.ts) clamps it
+to the debt. The clamp holds regardless of which model is right underneath, which
+is why it went in before B97 and B98 worked out what was actually wrong.
+
+---
+
+### B93 · A review queue nobody could finish
+
+*11-09-2026 · `04` §1.* The queue rendered every waiting item on one page, and
+every row carried a full category dropdown — 19 options each. At realistic volume
+the page was **195,645 bytes**, most of it the same nineteen `<option>` elements
+repeated. A regression I had introduced myself the session before.
+
+It now pages at 15 and says how many are behind, and each row offers **"File as
+Groceries"** from that payee's own history rather than a dropdown to hunt
+through. **39,313 bytes**. The caveat is recorded honestly: at 109 waiting items
+that is seven passes, which is fine once rules are confirmed and worth revisiting
+if it is not.
+
+---
+
+### B94 · Income is not a pending decision
+
+*11-09-2026 · R1.* The review queue held 109 items and every single one was
+income. Not one piece of uncategorised spending — the thing the queue exists for
+— was visible behind them.
+
+In an envelope budget income's job is to arrive in Ready to Assign and wait to be
+given one. The engine already treated it exactly so; the queue was asking the
+household to resolve something the app had resolved correctly, and burying the
+real work while it asked. [`viewmodel.ts`](../src/web/viewmodel.ts) stops
+counting money *in* as uncategorised.
+
+---
+
+### B95 · The screen reader heard a different number
+
+*11-09-2026 · `08` accessibility.* Everything on screen groups in the Indian
+system — the grid renders ₹52,75,874 and the compact form says ₹52.76L — and the
+text beside it announced *"5275874 rupees"*, which a reader renders in millions or
+spells out digit by digit. Ready to Assign is the one figure the whole app is
+organised around.
+
+`speakPaise` now says *"52 lakh 75 thousand 874 rupees"*
+([`money.ts`](../src/core/money.ts)). The app was already meticulous about lakh
+and crore everywhere a sighted household looks; this is the same care extended to
+the household that listens.
+
+---
+
+### B96 · A table that answered from its own page
+
+*11-09-2026 · `03` S7.* Asked what the last twelve months cost, Query said
+**₹14,89,647**. The truth was **₹18,57,647** — understated by a fifth, silently.
+Eating out read ₹1,44,538 against ₹1,83,962.
+
+The cause was an unexplained `.slice(0, 300)` in the middle of the markup. It had
+been added to bound the HTML and had quietly become the basis of the arithmetic.
+The CSV export carried the same cap, so a wrong number could be taken away and
+totalled somewhere else. Totals are now summed over everything that matched, the
+table renders one page and says so, and the export is uncapped
+([`analysis.ts`](../src/web/pages/analysis.ts)). A limit that shapes a number
+needs a name you can say out loud on the page.
+
+---
+
+### B97 · The charge nobody has filed yet
+
+*11-09-2026 · R6.* An uncategorised card charge broke the accounting identity by
+exactly its own amount. Reproduced minimally: categorise an ₹800 card charge and
+the residual is ₹0; remove the category and it is −₹800. That is the *ordinary*
+state of every imported card transaction between landing and being reviewed.
+
+The payment envelope reserved against raw card flow regardless of category, so an
+unfiled charge raised the envelope with no matching fall anywhere. It now reserves
+only what a category actually gave up: an unfiled charge takes nothing from any
+envelope, so there is nothing to hold, and the debt still grows and still shows as
+unbudgeted — which is true, and is what the funding warning is for.
+
+---
+
+### B98 · What this month is short, not every gap ever absorbed
+
+*11-09-2026 · R6.* The companion to B97, and the one I got wrong first. An
+earlier attempt claimed a credit overspend reduces Ready to Assign by its own
+amount at rollover. It does not — it is absorbed into `unfundedCreditAbsorbed`, a
+separate term in the identity — and the change was reverted rather than shipped on
+reasoning that did not hold.
+
+Worked case by case the second time:
+
+| | envelope vs debt | reported |
+|---|---|---|
+| filed and funded | equal | 0 |
+| not yet filed | envelope short | the gap |
+| overspent this month | equal, category negative | the overspend |
+| overspent, since paid | both zero | 0 |
+| overspent, not yet paid | equal, gap absorbed | 0 |
+
+The last row is what changed. An absorbed gap's surviving record belongs in
+`unfundedCreditAbsorbed`; reporting it *again* as a current shortfall counted it
+twice. The ICICI card went from ₹4,38,498 to ₹12,827 — that month's actual
+Shopping overspend.
+
+---
+
+### B99 · An expense names its envelope
+
+*11-09-2026 · R1.* "I'll sort it later" was an option on the Add form, and later
+mostly never came: three years of realistic use left a standing queue of expenses
+with nothing behind them.
+
+Money out now requires a category. The rule lives in `approveStaged`
+([`pipeline.ts`](../src/import/pipeline.ts)) — the chokepoint both manual and
+automatic approval pass through — so it cannot be routed around by importing
+instead of typing. Money *in* stays exempt for B94's reason. The client mirrors
+the requirement off the direction dropdown so the household is told before
+submitting rather than after, but the server is what enforces it.
+
+---
+
+### B100 · Filing is the signal, wherever it happened
+
+*11-09-2026 · L2.* Three years of traffic produced 131 transactions from one
+grocery merchant, 127 from another, and **zero** proposed rules.
+
+`proposeCategoryRules` reads the ledger and would work from anywhere, but it was
+only ever called from the import-approval route. Categorising from the
+transaction screen — which is where a household actually files things — taught the
+app nothing. It now runs on filing too ([`app.ts`](../src/app.ts)). Filing one
+charge proposes six rules covering the top merchants, including one chain under
+three narration forms and another under two.
+
+---
+
+### B101 · The asset that had never been worth anything
+
+*11-09-2026 · `07`.* A hand-valued pot — gold, a retirement account, anything
+outside the CAS import — vanished from the Portfolio screen until its first
+valuation was recorded. Created, then invisible, at exactly the moment it most
+needed a prompt.
+
+The list no longer filters them out. An unvalued asset shows *"no value yet"* next
+to **"Say what it's worth"** ([`portfolio.ts`](../src/web/pages/portfolio.ts)),
+and `/portfolio/valuations` updates every hand-valued pot in one sitting, each
+showing what it was last worth and when.
+
+---
+
+### B102 · A month's worth of spare money
+
+*12-09-2026 · R11.* This household is not paid a salary. Money arrives in lumps —
+two to four credits a month, anywhere from ₹45,000 to ₹3.5 lakh — which is exactly
+the shape "hold for next month" exists for, and exactly the shape that never
+reached for it. The control had always been one tap away on the budget footer and
+nothing ever suggested it.
+
+The digest now does, when Ready to Assign exceeds two months of typical spending.
+It measures against R12's own trailing-spend denominator rather than a round
+number, because a large Ready to Assign means nothing until you know what a month
+takes. And it offers *a month*, not the surplus: the first version suggested
+holding ₹51,36,511, which is not advice — it moves a large number from one month
+to the next and says nothing about what to do with it.
+
+---
+
+*Entries B103 onward are recorded as the work happens.*
