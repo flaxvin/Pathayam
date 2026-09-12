@@ -44,7 +44,7 @@ import { withIdempotency, IdempotencyConflict } from "./core/idempotency.ts";
 import { parseAmount, evaluateAmountExpression, formatPaise, type Paise } from "./core/money.ts";
 import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, lastDayOfMonth, daysBetween, fiscalYearOf, formatFiscalYear, type MonthKey, type IsoDate } from "./core/dates.ts";
 import { buildBudgetView, reviewCount } from "./web/viewmodel.ts";
-import { renderBudget } from "./web/pages/budget.ts";
+import { renderBudget, renderBudgetSwitch } from "./web/pages/budget.ts";
 import {
   renderAccountList, renderAccountDetail, renderNewAccountForm, renderManageCards,
   renderCardStatementForm,
@@ -82,6 +82,9 @@ import { parseStatement } from "./import/csv.ts";
 import {
   ingest, listStaged, approveStaged, rejectStaged, mergeStaged, undoBatch, listBatches,
 } from "./import/pipeline.ts";
+import {
+  householdBudgetId, budgetsFor, lastBudget, rememberBudget, ensurePersonalBudget, listBudgets,
+} from "./domain/budgets.ts";
 import {
   createAccount, updateAccount, closeAccount, reopenAccount, listAccounts, getAccount, listCards, createCard, closeCard, recordCardStatement, lastCardStatement, paymentCategoryFor, MANAGED_SUBTYPES, SUBTYPE_LABELS, type AccountKind, hiddenAccountIds, type HolderScope,
 } from "./domain/accounts.ts";
@@ -422,6 +425,27 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   function holderScopeParam(ctx: RequestContext): HolderScope {
     const raw = ctx.query.get("whose");
     return raw === "mine" || raw === "joint" ? raw : "household";
+  }
+
+  /**
+   * 15 · Which budget the reader is looking at.
+   *
+   * Defaults to the household's, so a household that never opens a personal
+   * budget sees exactly the app it had. A budget that is not theirs to see
+   * falls back rather than erroring: a stale bookmark should land somewhere
+   * sensible, not on a wall.
+   */
+  function budgetParam(ctx: RequestContext): string {
+    const asked = ctx.query.get("budget");
+    if (asked) {
+      const mine = budgetsFor(db, viewer(ctx));
+      const found = mine.find((b) => b.id === asked);
+      if (found) {
+        rememberBudget(db, viewer(ctx), found.id);
+        return found.id;
+      }
+    }
+    return lastBudget(db, viewer(ctx)) ?? householdBudgetId(db);
   }
 
   function viewer(ctx: RequestContext): string | null {
@@ -796,7 +820,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/", (ctx) => {
     const a = auth(ctx);
     const month = monthParam(ctx);
-    const view = buildBudgetView(db, month);
+    const scope = budgetParam(ctx);
+    const view = buildBudgetView(db, month, scope);
 
     // The digest belongs to the person reading, not to the month being read,
     // so it only shows on the current month.
@@ -804,7 +829,32 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ? renderDigest(digestFor(db, a.viewingAs.id))
       : undefined;
 
-    return render(ctx, formatMonth(month), renderBudget(view, digest));
+    const mine = budgetsFor(db, viewer(ctx));
+    const switcher = renderBudgetSwitch(
+      mine.map((b) => ({ id: b.id, name: b.name, kind: b.kind, current: b.id === scope })),
+      // Offering to create one you already have is a dead button.
+      Boolean(viewer(ctx)) && !mine.some((b) => b.kind === "personal" && b.member_id === viewer(ctx)),
+      month,
+    );
+    return render(ctx, formatMonth(month), renderBudget(view, digest, switcher));
+  });
+
+  /*
+   * 15 · Your own budget, created on request.
+   *
+   * Not created for everybody up front: an empty personal budget nobody asked
+   * for is a second grid to ignore, and the household one is the right default
+   * for a household that pools its money.
+   */
+  router.post("/budgets/personal", (ctx) => {
+    return mutate(ctx, (a) => {
+      const budget = ensurePersonalBudget(db, a.member.id, a.member.name);
+      rememberBudget(db, a.member.id, budget.id);
+      return {
+        redirect: `/?budget=${budget.id}`,
+        message: `${budget.name}'s budget is ready. Move an account into it to give it money.`,
+      };
+    });
   });
 
   router.post("/assign", (ctx) =>

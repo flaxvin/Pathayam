@@ -10,8 +10,48 @@ import { formatPaise, formatCompact, speakPaise, type Paise } from "../../core/m
 import { formatMonth, addMonths, type MonthKey } from "../../core/dates.ts";
 import type { BudgetView, CategoryView, GroupView } from "../viewmodel.ts";
 
-export function renderBudget(view: BudgetView, digest?: SafeHtml): SafeHtml {
+export interface BudgetChoice {
+  id: string;
+  name: string;
+  kind: "household" | "personal";
+  current: boolean;
+}
+
+/**
+ * 15 · The switcher. Absent entirely when there is one budget, so a household
+ * that pools its money never sees a control for a distinction it has not made.
+ */
+export function renderBudgetSwitch(
+  budgets: BudgetChoice[], canCreateOwn: boolean, month: string,
+): SafeHtml {
+  if (budgets.length < 2 && !canCreateOwn) return raw("");
   return html`
+    <div class="scope-tabs" style="margin-bottom:.75rem">
+      ${budgets.map(
+        (b) => html`
+          <a class="button-small ${b.current ? "button-primary" : ""}"
+             href="/?budget=${b.id}&month=${month}">
+            ${b.kind === "household" ? "Household" : b.name}
+          </a>
+        `,
+      )}
+      ${when(
+        canCreateOwn,
+        () => html`
+          <form method="post" action="/budgets/personal" style="display:inline">
+            <button class="button-small" type="submit">+ My own budget</button>
+          </form>
+        `,
+      )}
+    </div>
+  `;
+}
+
+export function renderBudget(
+  view: BudgetView, digest?: SafeHtml, switcher?: SafeHtml,
+): SafeHtml {
+  return html`
+    ${switcher ?? html``}
     ${renderMonthBar(view.month, view.currentMonth)}
     ${renderReadyToAssign(view)}
     <!-- F14.3 as errata E12 leaves it: the digest on next open, in the one

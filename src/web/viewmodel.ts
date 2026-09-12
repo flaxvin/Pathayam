@@ -63,17 +63,24 @@ export interface BudgetView {
   overspentCategories: CategoryView[];
 }
 
-export function buildBudgetView(db: DB, month?: MonthKey): BudgetView {
+export function buildBudgetView(db: DB, month?: MonthKey, budgetId?: string): BudgetView {
   const today = todayIST();
   const currentMonth = monthOf(today);
   const target = month ?? currentMonth;
 
-  const input = loadEngineInput(db, { through: target });
+  /*
+   * 15 · Which budget's grid this is. Omitted means every budget at once, which
+   * is what a household with only the shared one has always seen — and what the
+   * month-close ritual and the digest still ask for until P5 scopes them.
+   */
+  const input = loadEngineInput(db, { through: target, budgetId });
   const budget = computeBudget(input);
   const monthState = budget.get(target) ?? budget.get(input.months.at(-1)!)!;
 
   const targets = new Map(loadTargets(db).map((t) => [t.categoryId, t]));
-  const groupMetas = loadCategoryGroups(db);
+  const groupMetas = loadCategoryGroups(db).filter(
+    (g) => budgetId === undefined || g.budgetId === undefined || g.budgetId === budgetId,
+  );
   const groupById = new Map(groupMetas.map((g) => [g.id, g]));
 
   const categories = new Map<string, CategoryView>();

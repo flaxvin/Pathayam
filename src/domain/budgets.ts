@@ -59,3 +59,30 @@ export function ensurePersonalBudget(db: DB, memberId: string, name: string): Bu
   );
   return getBudget(db, id)!;
 }
+
+/**
+ * Which budget this member was last looking at.
+ *
+ * Kept per member rather than per session, so switching to your own budget on
+ * the laptop does not leave the phone on the household's. It is a preference,
+ * not state the engine reads.
+ */
+export function lastBudget(db: DB, memberId: string | null): string | null {
+  if (!memberId) return null;
+  const row = queryOne<{ value: string }>(
+    db, `SELECT value FROM settings_kv WHERE key = ?`, `budget.last.${memberId}`,
+  );
+  if (!row) return null;
+  // A budget can be removed with its member; a stale pointer must not stick.
+  return getBudget(db, row.value) ? row.value : null;
+}
+
+export function rememberBudget(db: DB, memberId: string | null, budgetId: string): void {
+  if (!memberId) return;
+  execute(
+    db,
+    `INSERT INTO settings_kv (key, value, updated_at) VALUES (?, ?, ?)
+       ON CONFLICT(key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`,
+    `budget.last.${memberId}`, budgetId, nowIST(),
+  );
+}
