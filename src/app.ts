@@ -83,7 +83,7 @@ import {
   ingest, listStaged, approveStaged, rejectStaged, mergeStaged, undoBatch, listBatches,
 } from "./import/pipeline.ts";
 import {
-  householdBudgetId, budgetsFor, lastBudget, rememberBudget, ensurePersonalBudget, listBudgets,
+  householdBudgetId, budgetsFor, lastBudget, rememberBudget, ensurePersonalBudget, listBudgets, getBudget,
 } from "./domain/budgets.ts";
 import {
   createAccount, updateAccount, closeAccount, reopenAccount, listAccounts, getAccount, listCards, createCard, closeCard, recordCardStatement, lastCardStatement, paymentCategoryFor, MANAGED_SUBTYPES, SUBTYPE_LABELS, type AccountKind, hiddenAccountIds, type HolderScope,
@@ -1165,7 +1165,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return render(ctx, "Accounts", renderAccountList(rows));
   });
 
-  router.get("/accounts/new", (ctx) => render(ctx, "Add an account", renderNewAccountForm()));
+  router.get("/accounts/new", (ctx) =>
+    render(ctx, "Add an account", renderNewAccountForm({
+      members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
+      budgets: budgetsFor(db, viewer(ctx)).map((b) => ({ id: b.id, name: b.name, kind: b.kind })),
+    })));
 
   /*
    * B70 · F2.7 · Rename or close an account.
@@ -1189,6 +1193,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         institution: text("institution"),
         last4: text("last4"),
         holder_member_id: text("holder_member_id"),
+        // 15 · Moving an account between budgets is one undoable step, recorded
+        // like any other edit, because it moves money's home.
+        budget_id: text("budget_id"),
+        visibility: field(ctx.body, "visibility") === "private" ? "private"
+          : field(ctx.body, "visibility") === "household" ? "household" : undefined,
       });
       return { redirect: `/accounts/${id}`, message: "Saved." };
     }),
@@ -1252,6 +1261,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         openingDate: openingDateRaw ? parseDate(openingDateRaw) ?? todayIST() : todayIST(),
         statementDay: numberOrNull(field(ctx.body, "statement_day")),
         dueDay: numberOrNull(field(ctx.body, "due_day")),
+        // 15 · Whose money it is, and who can see it, are settled at creation
+        // rather than as a second edit nobody remembers to make.
+        budgetId: field(ctx.body, "budget_id") || undefined,
+        visibility: field(ctx.body, "visibility") === "private" ? "private" : undefined,
       });
 
       return { redirect: `/accounts/${account.id}`, message: `Added ${account.name}.` };
@@ -1323,6 +1336,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       renderAccountDetail({
         account,
         members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
+        budgets: budgetsFor(db, viewer(ctx)).map((b) => ({ id: b.id, name: b.name, kind: b.kind })),
         balances,
         rows,
         cards: listCards(db, account.id),
@@ -3909,11 +3923,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   );
 
   router.get("/categories", (ctx) => {
-    const view = buildBudgetView(db);
+    const budgetId = budgetParam(ctx);
+    const view = buildBudgetView(db, undefined, budgetId);
+    const budget = getBudget(db, budgetId);
     return render(
       ctx, "Categories",
       renderCategories(
-        listGroups(db).map((g) => ({
+        listGroups(db, budgetId).map((g) => ({
           id: g.id,
           name: g.name,
           kind: g.kind,
@@ -3928,9 +3944,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               };
             }),
         })),
+        budget ? { id: budget.id, name: budget.name, kind: budget.kind } : undefined,
       ),
     );
   });
+
+  // 15 · A group belongs to the budget being looked at, which is how a personal
+  // budget gets its first envelope without a second screen.
+  router.post("/groups/new", (ctx) =>
+    mutate(ctx, (a) => {
+      const group = createGroup(
+        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+        requiredField(ctx.body, "name"), "normal", budgetParam(ctx),
+      );
+      return { redirect: "/categories", message: `Added the group ${group.name}.` };
+    }),
+  );
 
   router.post("/categories/new", (ctx) =>
     mutate(ctx, (a) => {

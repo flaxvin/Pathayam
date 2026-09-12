@@ -39,7 +39,14 @@ export function openDatabase({ path, verbose = true }: OpenOptions): DB {
   return db;
 }
 
-export function migrate(db: DB, verbose = true): void {
+/**
+ * Apply every migration the build knows, or only the first `upTo` of them.
+ *
+ * `upTo` exists for one test: a table rebuild behaves differently on a database
+ * with rows in it, so the guard has to stop at the version before the rebuild,
+ * put data in, and then carry on. Nothing in the app passes it.
+ */
+export function migrate(db: DB, verbose = true, upTo = MIGRATIONS.length): void {
   const { user_version: current } = db
     .prepare("PRAGMA user_version")
     .get() as { user_version: number };
@@ -51,12 +58,33 @@ export function migrate(db: DB, verbose = true): void {
     );
   }
 
-  for (let i = current; i < MIGRATIONS.length; i++) {
+  for (let i = current; i < Math.min(upTo, MIGRATIONS.length); i++) {
     const migration = MIGRATIONS[i]!;
     if (verbose) console.log(`[db] applying ${migration.name}`);
+
+    // SQLite's recipe for rebuilding a table, and the pragma only takes effect
+    // outside a transaction — see Migration.rebuildsTable for what goes wrong
+    // otherwise, and why an empty database never shows it.
+    if (migration.rebuildsTable) db.exec("PRAGMA foreign_keys = OFF");
     db.exec("BEGIN");
     try {
       db.exec(migration.sql);
+
+      // With enforcement off, nothing has checked the result. This does, and it
+      // reports a genuine orphan rather than a counter left over from a DROP.
+      if (migration.rebuildsTable) {
+        const orphans = db.prepare("PRAGMA foreign_key_check").all() as {
+          table: string; parent: string; rowid: number | null;
+        }[];
+        if (orphans.length > 0) {
+          const first = orphans[0]!;
+          throw new Error(
+            `it left ${orphans.length} row(s) pointing at nothing — first: ` +
+            `${first.table} row ${first.rowid} references ${first.parent}`,
+          );
+        }
+      }
+
       // PRAGMA does not accept a bound parameter; the value is a loop index.
       db.exec(`PRAGMA user_version = ${i + 1}`);
       db.exec("COMMIT");
@@ -65,6 +93,8 @@ export function migrate(db: DB, verbose = true): void {
       throw new Error(`Migration ${migration.name} failed: ${(err as Error).message}`, {
         cause: err,
       });
+    } finally {
+      if (migration.rebuildsTable) db.exec("PRAGMA foreign_keys = ON");
     }
   }
 }

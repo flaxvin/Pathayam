@@ -32,6 +32,12 @@ export interface Category {
 export function createGroup(
   db: DB, actor: Actor, name: string,
   kind: "normal" | "internal" = "normal",
+  /**
+   * 15 · Which budget the group — and so every envelope in it — belongs to.
+   * Defaults to the household's, so a household that never opens a personal
+   * budget behaves exactly as it did.
+   */
+  budgetId?: string,
 ): CategoryGroup {
   return transact(db, () => {
     const id = newId();
@@ -41,7 +47,7 @@ export function createGroup(
       db,
       `INSERT INTO category_groups (id,name,kind,sort,created_at,budget_id)
          VALUES (?,?,?,?,?,?)`,
-      id, name, kind, sort, nowIST(), householdBudgetId(db),
+      id, name, kind, sort, nowIST(), budgetId ?? householdBudgetId(db),
     );
     const group = queryOne<CategoryGroup>(db, `SELECT * FROM category_groups WHERE id = ?`, id)!;
     appendEvent(db, actor, {
@@ -95,17 +101,27 @@ export function createCategory(
   });
 }
 
-export function listCategories(db: DB, opts: { includeHidden?: boolean } = {}): Category[] {
+export function listCategories(
+  db: DB, opts: { includeHidden?: boolean; budgetId?: string } = {},
+): Category[] {
   return queryAll<Category>(
     db,
     `SELECT c.* FROM categories c JOIN category_groups g ON g.id = c.group_id
       WHERE c.deleted_at IS NULL ${opts.includeHidden ? "" : "AND c.hidden_at IS NULL"}
+        ${opts.budgetId ? "AND c.budget_id = ?" : ""}
       ORDER BY g.sort, c.sort, c.name`,
+    ...(opts.budgetId ? [opts.budgetId] : []),
   );
 }
 
-export function listGroups(db: DB): CategoryGroup[] {
-  return queryAll<CategoryGroup>(db, `SELECT * FROM category_groups ORDER BY sort, name`);
+export function listGroups(db: DB, budgetId?: string): CategoryGroup[] {
+  return queryAll<CategoryGroup>(
+    db,
+    `SELECT * FROM category_groups
+       ${budgetId ? "WHERE budget_id = ?" : ""}
+      ORDER BY sort, name`,
+    ...(budgetId ? [budgetId] : []),
+  );
 }
 
 export function getCategory(db: DB, id: string): Category | null {
@@ -161,8 +177,18 @@ export function reorderGroup(
   db: DB, actor: Actor, id: string, direction: "up" | "down",
 ): void {
   transact(db, () => {
+    /*
+     * 15 · Renumber within the group's own budget. Renumbering across all of
+     * them would let one budget's groups take sort values that interleave with
+     * another's, and a nudge in one grid would shuffle the other.
+     */
+    const budget = queryOne<{ budget_id: string | null }>(
+      db, `SELECT budget_id FROM category_groups WHERE id = ?`, id,
+    )?.budget_id ?? householdBudgetId(db);
     const groups = queryAll<{ id: string; name: string }>(
-      db, `SELECT id, name FROM category_groups ORDER BY sort, name`,
+      db,
+      `SELECT id, name FROM category_groups WHERE budget_id = ? ORDER BY sort, name`,
+      budget,
     );
     const i = groups.findIndex((g) => g.id === id);
     const j = direction === "up" ? i - 1 : i + 1;

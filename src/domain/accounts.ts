@@ -11,6 +11,7 @@ import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST, todayIST, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
+import { Refusal } from "../core/refusal.ts";
 import { householdBudgetId } from "./budgets.ts";
 
 export type AccountKind = "budget" | "credit" | "tracking";
@@ -90,8 +91,10 @@ export interface Account {
   closed_at: string | null;
   /** H2 · Whose account this is. Null means the household's, jointly. */
   holder_member_id: string | null;
-  /** H2.2 · `private` is visible only to its holder. Tracking accounts only. */
+  /** H2.2 · `private` is visible only to its holder. */
   visibility: "household" | "private";
+  /** 15 · Which budget's money this is. Null for a Tracking account (FW1). */
+  budget_id: string | null;
 }
 
 export interface CreateAccountInput {
@@ -112,7 +115,10 @@ export interface CreateAccountInput {
   creditLimit?: Paise | null;
   /** H2 · Whose account this is. Omitted means the household's, jointly. */
   holderMemberId?: string | null;
-  /** H2.2 · Only a Tracking account may be private; see the migration. */
+  /**
+   * H2.2a · Private needs the account to sit outside the household budget: a
+   * Tracking account (which funds nothing) or one in a personal budget.
+   */
   visibility?: "household" | "private";
   /**
    * 15 · Whose money this account holds. Defaults to the household budget, so
@@ -134,10 +140,16 @@ export function createAccount(db: DB, actor: Actor, input: CreateAccountInput): 
    * Tracking accounts fund nothing (FW1), so they can be hidden honestly.
    */
   if (input.visibility === "private" && input.kind !== "tracking") {
-    throw new Error(
-      "Only a tracking account can be private. A budget or credit account feeds " +
-      "Ready to Assign, and hiding it would not actually hide the amount.",
-    );
+    // H2.2a · Allowed once the account sits in somebody's own budget, because
+    // the household's Ready to Assign no longer sums it.
+    const budget = input.budgetId ?? householdBudgetId(db);
+    if (budget === householdBudgetId(db)) {
+      throw new Refusal(
+        "An account in the household budget cannot be private — its balance is " +
+        "part of the household's Ready to Assign, so hiding it would not hide " +
+        "the amount. Move it to your own budget first.",
+      );
+    }
   }
   if (input.kind === "credit" && (input.openingBalance ?? 0) > 0) {
     throw new Error(
@@ -275,17 +287,30 @@ export function updateAccount(
   db: DB,
   actor: Actor,
   id: string,
-  patch: Partial<Pick<Account, "name" | "nickname" | "institution" | "last4" | "statement_day" | "due_day" | "credit_limit" | "sort" | "holder_member_id" | "visibility">>,
+  patch: Partial<Pick<Account, "name" | "nickname" | "institution" | "last4" | "statement_day" | "due_day" | "credit_limit" | "sort" | "holder_member_id" | "visibility" | "budget_id">>,
 ): Account {
   return transact(db, () => {
     const before = getAccount(db, id);
     if (!before) throw new Error("That account does not exist.");
 
-    if (patch.visibility === "private" && before.kind !== "tracking") {
-      throw new Error(
-        "Only a tracking account can be private. A budget or credit account feeds " +
-        "Ready to Assign, and hiding it would not actually hide the amount.",
-      );
+    /*
+     * Both halves of the move have to be checked, not just the one being set.
+     * Marking an account private and moving a private account into the
+     * household budget are the same mistake arriving from opposite directions,
+     * and the CHECK behind this catches it either way — but with a message
+     * about a constraint rather than about money.
+     */
+    const nextVisibility = patch.visibility ?? before.visibility;
+    const nextBudget = patch.budget_id ?? before.budget_id ?? householdBudgetId(db);
+    if (nextVisibility === "private" && before.kind !== "tracking") {
+      const budget = nextBudget;
+      if (budget === householdBudgetId(db)) {
+        throw new Refusal(
+          "An account in the household budget cannot be private — its balance is " +
+          "part of the household's Ready to Assign, so hiding it would not hide " +
+          "the amount. Move it to your own budget first.",
+        );
+      }
     }
 
     const fields = Object.keys(patch) as (keyof typeof patch)[];

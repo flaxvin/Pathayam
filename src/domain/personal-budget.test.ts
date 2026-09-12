@@ -12,8 +12,8 @@ import { openDatabase, ensureHousehold, execute, type DB } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { nowIST, todayIST, monthOf } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
-import { createAccount } from "./accounts.ts";
-import { createGroup, createCategory, setAssigned } from "./budget.ts";
+import { createAccount, listAccounts, getAccount } from "./accounts.ts";
+import { createGroup, createCategory, setAssigned, listGroups, listCategories } from "./budget.ts";
 import { buildBudgetView } from "../web/viewmodel.ts";
 import {
   householdBudgetId, ensurePersonalBudget, personalBudgetFor, budgetsFor,
@@ -123,6 +123,67 @@ describe("P2 · which budget you were last looking at", () => {
 
     execute(db, `DELETE FROM budgets WHERE id = ?`, mine.id);
     assert.equal(lastBudget(db, RAVI), null, "a budget that no longer exists must not stick");
+    db.close();
+  });
+});
+
+describe("P2 · the no-change property, stated as a test", () => {
+  /**
+   * The whole of P2 is a wager that a household which ignores personal budgets
+   * cannot tell the feature shipped. This is that wager written down: build a
+   * small household, record what every scoped read says, create two personal
+   * budgets, and assert nothing moved.
+   */
+  function snapshot(db: DB) {
+    const view = buildBudgetView(db, monthOf(todayIST()), householdBudgetId(db));
+    return {
+      rta: view.rta,
+      held: view.held,
+      groups: listGroups(db, householdBudgetId(db)).map((g) => g.name).sort(),
+      categories: listCategories(db, { budgetId: householdBudgetId(db) })
+        .map((c) => `${c.name}=${view.categories.get(c.id)?.state.balance ?? 0}`).sort(),
+      accounts: listAccounts(db).map((a) => `${a.name}=${a.balance}`).sort(),
+    };
+  }
+
+  test("opening personal budgets changes no household figure", () => {
+    const db = setup();
+    const cash = createAccount(db, actor, {
+      name: "Joint current", kind: "budget", subtype: "savings",
+      openingBalance: rupees(80_000), openingDate: todayIST(),
+    });
+    const group = createGroup(db, actor, "Spending");
+    const groceries = createCategory(db, actor, { groupId: group.id, name: "Groceries" });
+    setAssigned(db, actor, monthOf(todayIST()), groceries.id, rupees(12_000));
+
+    const before = snapshot(db);
+
+    ensurePersonalBudget(db, RAVI, "Ravi");
+    ensurePersonalBudget(db, PRIYA, "Priya");
+    // And a group in one of them, because an empty budget is a weak test.
+    const mine = createGroup(db, actor, "Mine", "normal", personalBudgetFor(db, RAVI)!.id);
+    createCategory(db, actor, { groupId: mine.id, name: "Books" });
+
+    assert.deepEqual(snapshot(db), before);
+    // The account stayed where it was, and so did its money.
+    assert.equal(getAccount(db, cash.id)!.budget_id, householdBudgetId(db));
+    db.close();
+  });
+
+  test("a personal budget's envelopes stay out of the household grid", () => {
+    const db = setup();
+    const budget = ensurePersonalBudget(db, RAVI, "Ravi");
+    const mine = createGroup(db, actor, "Mine", "normal", budget.id);
+    const books = createCategory(db, actor, { groupId: mine.id, name: "Books" });
+
+    assert.equal(listGroups(db, householdBudgetId(db)).some((g) => g.id === mine.id), false);
+    assert.equal(listGroups(db, budget.id).some((g) => g.id === mine.id), true);
+    assert.equal(
+      listCategories(db, { budgetId: householdBudgetId(db) }).some((c) => c.id === books.id),
+      false,
+    );
+    // An envelope inherits its group's budget rather than needing to be told.
+    assert.equal(books.budget_id, budget.id);
     db.close();
   });
 });

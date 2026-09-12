@@ -415,7 +415,8 @@ only (out of a token's reach).
 | POST | `/rules/test` · `/rules/new` · `/rules/:id/apply` · `/rules/:id/delete` · `/rules/confirm` · `/rules/dismiss` | W | Manage rules. |
 | GET | `/payees` | R | Payees. |
 | POST | `/payees/merge` | W | Merge two payees. |
-| GET | `/categories` | R | Categories. |
+| GET | `/categories` | R | Categories, for the budget being viewed (`?budget=`). |
+| POST | `/groups/new` | W | Add a category group to the budget being viewed. |
 | POST | `/categories/new` · `/categories/:id/rename` · `/categories/:id/hide` · `/categories/:id/delete` | W | Manage categories. |
 | POST | `/categories/:id/target` | W | Set or clear a category's target. |
 | POST | `/categories/:id/reorder` · `/groups/:id/reorder` | W | Move a category or group up or down. |

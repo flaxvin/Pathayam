@@ -367,15 +367,19 @@ function renderRuleTest(test: {
 // F3 · Categories
 // ---------------------------------------------------------------------------
 
-export function renderCategories(groups: {
-  id: string;
-  name: string;
-  kind: string;
-  categories: {
-    id: string; name: string; hidden: boolean; balance: Paise; isPayment: boolean;
-    target: { amount: Paise; date: string | null } | null;
-  }[];
-}[]): SafeHtml {
+export function renderCategories(
+  groups: {
+    id: string;
+    name: string;
+    kind: string;
+    categories: {
+      id: string; name: string; hidden: boolean; balance: Paise; isPayment: boolean;
+      target: { amount: Paise; date: string | null } | null;
+    }[];
+  }[],
+  /** 15 · Whose grid this is, so the heading says which money is being shaped. */
+  budget?: { id: string; name: string; kind: string },
+): SafeHtml {
   // F3.6 · Up/down nudges. Reordering is positional, so it is offered on every
   // row and group — including app-managed ones, which carry no other controls.
   const reorder = (action: string, isFirst: boolean, isLast: boolean) => html`
@@ -393,12 +397,28 @@ export function renderCategories(groups: {
     </span>
   `;
 
+  const isPersonal = budget?.kind === "personal";
+
   return html`
     <h1>Categories</h1>
     <p class="muted">
       Rename, set a target (what a category should hold), reorder, hide, or delete.
       A target drives the underfunded figure and one-tap auto-assign.
+      ${when(Boolean(budget), () => html`
+        These are the envelopes in
+        ${isPersonal ? html`<strong>${budget!.name}'s budget</strong>` : html`<strong>the household budget</strong>`}.
+      `)}
     </p>
+
+    ${when(groups.length === 0, () => html`
+      <section class="card">
+        <h2>Nothing here yet</h2>
+        <p class="muted">
+          This budget has no envelopes. Start a group below — <em>Mine</em> or
+          <em>Spending</em> does the job — and add envelopes to it.
+        </p>
+      </section>
+    `)}
 
     ${groups.map(
       (g, gi) => html`
@@ -460,6 +480,21 @@ export function renderCategories(groups: {
         </section>
       `,
     )}
+
+    <section class="card">
+      <h2>Add a group</h2>
+      <p class="muted">
+        A group is a heading the envelopes sit under. It belongs to this budget
+        and does not appear in the other one.
+      </p>
+      <form method="post" action="/groups/new" class="row" style="gap:.5rem;align-items:flex-end">
+        <div class="field" style="margin:0">
+          <label for="grp-name">Name</label>
+          <input id="grp-name" name="name" required placeholder="Spending">
+        </div>
+        <button type="submit">Add group</button>
+      </form>
+    </section>
 
     <section class="card">
       <h2>Add a category</h2>
