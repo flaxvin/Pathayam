@@ -1440,7 +1440,7 @@ database.
 
 SQLite in WAL mode keeps a `-wal` and a `-shm` beside the file, and after a
 crash — exactly when a restore is wanted — both are still there. Copying a backup
-over `budget.sqlite` leaves a fresh database next to a crashed instance's
+over `pathayam.sqlite` leaves a fresh database next to a crashed instance's
 journal, and the first query answers *"database disk image is malformed"*. The
 household, having done the sensible thing at the worst possible moment, turns a
 recoverable afternoon into a lost ledger.

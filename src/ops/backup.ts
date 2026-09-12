@@ -515,7 +515,7 @@ export function exportEverything(db: DB): Record<string, unknown> {
   }
 
   return {
-    format: "budget-app-export",
+    format: "pathayam-export",
     version: 1,
     exportedAt: nowIST(),
     exportedOn: todayIST(),

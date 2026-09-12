@@ -76,7 +76,7 @@ export function page(options: LayoutOptions, content: SafeHtml): string {
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
-<title>${escape(title)} · Budget</title>
+<title>${escape(title)} · Pathayam</title>
 <link rel="stylesheet" href="/assets/app.css?v=${ASSET_VERSION.css}">
 <link rel="manifest" href="/manifest.webmanifest">
 <meta name="theme-color" content="${theme === "dark" ? "#11141a" : "#f6f7f9"}">
@@ -141,7 +141,7 @@ function renderHeader(theme: Theme, memberName: string | null | undefined): Safe
   const next = theme === "dark" ? "light" : "dark";
   return html`
     <header class="app-header">
-      <a class="brand" href="/">Budget</a>
+      <a class="brand" href="/">Pathayam</a>
       <span class="spacer"></span>
       <a class="button button-quiet button-small" href="/search" aria-label="Search" title="Search (/)">⌕</a>
       <form method="post" action="/settings/theme">
@@ -246,8 +246,8 @@ function renderSidebar(
  * under R35 there is no programmatic prompt on either platform.
  */
 export const MANIFEST = JSON.stringify({
-  name: "Budget",
-  short_name: "Budget",
+  name: "Pathayam",
+  short_name: "Pathayam",
   description: "Envelope budgeting for one household.",
   start_url: "/",
   scope: "/",

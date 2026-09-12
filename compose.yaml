@@ -8,27 +8,27 @@
 # That is also why R40.8's heartbeat matters — nothing in here survives to
 # report its own absence.
 
-name: budget
+name: pathayam
 
 services:
   # ---------------------------------------------------------------------------
   # Production
   # ---------------------------------------------------------------------------
-  budget:
+  pathayam:
     build:
       context: .
       target: runtime
-    image: budget-app:latest
+    image: pathayam:latest
     restart: unless-stopped
     # Bound to loopback: the tunnel reaches it, the LAN does not.
     ports:
       - "127.0.0.1:${PORT:-8080}:8080"
     volumes:
-      - budget-data:/data
+      - pathayam-data:/data
     environment:
       # Must match the public URL exactly — OAuth redirects and cookie scoping
       # both depend on it.
-      BASE_URL: ${BASE_URL:?set BASE_URL in .env, e.g. https://budget.example.com}
+      BASE_URL: ${BASE_URL:?set BASE_URL in .env, e.g. https://pathayam.example.com}
       GOOGLE_CLIENT_ID: ${GOOGLE_CLIENT_ID}
       GOOGLE_CLIENT_SECRET: ${GOOGLE_CLIENT_SECRET}
 
@@ -122,5 +122,5 @@ services:
       - ./src:/app/src:ro
 
 volumes:
-  budget-data:
+  pathayam-data:
   dev-data:

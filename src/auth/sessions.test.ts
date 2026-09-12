@@ -291,7 +291,7 @@ describe("cookies", () => {
   test("parse handles multiple values and missing headers", () => {
     assert.deepEqual(parseCookies("a=1; b=two"), { a: "1", b: "two" });
     assert.deepEqual(parseCookies(undefined), {});
-    assert.deepEqual(parseCookies("budget_session=x%2Fy"), { budget_session: "x/y" });
+    assert.deepEqual(parseCookies("pathayam_session=x%2Fy"), { pathayam_session: "x/y" });
   });
 });
 

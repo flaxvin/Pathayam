@@ -6,7 +6,7 @@
  * a trap.
  *
  * SQLite in WAL mode keeps two sidecar files next to the database. Copying a
- * backup over `budget.sqlite` while a stale `-wal` and `-shm` remain leaves
+ * backup over `pathayam.sqlite` while a stale `-wal` and `-shm` remain leaves
  * SQLite holding a fresh database and one crashed instance's journal, and the
  * first query answers:
  *
@@ -53,7 +53,7 @@ function main(): void {
       `  --list            show what is available\n` +
       `  --latest          restore the most recent backup\n` +
       `  <path>            restore a specific file\n\n` +
-      `The live database is kept as budget.sqlite.replaced-<timestamp> either way.\n` +
+      `The live database is kept as <database>.replaced-<timestamp> either way.\n` +
       `Stop the app first.\n`,
     );
     return;

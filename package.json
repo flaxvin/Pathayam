@@ -1,8 +1,8 @@
 {
-  "name": "budget-app",
+  "name": "pathayam",
   "version": "0.1.0",
   "private": true,
-  "description": "Strict envelope budgeting for one Indian household. Server-only, self-hosted.",
+  "description": "Pathayam — strict envelope budgeting for one Indian household. Server-only, self-hosted.",
   "type": "module",
   "engines": {
     "node": ">=24.0.0"
