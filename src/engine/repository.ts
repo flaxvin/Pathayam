@@ -64,13 +64,33 @@ const CATEGORISED_CTE = `
  */
 export const ROLLUP_SEAL_AFTER_MONTHS = 6;
 
+/*
+ * 15 · Scoping to one budget.
+ *
+ * Every fact below already joins `accounts`, so restricting a load to one
+ * budget is one clause rather than a rewrite — and `computeBudget` never learns
+ * that budgets exist at all. It is handed a smaller set of facts and does the
+ * same arithmetic on it, which is why the identity holds per budget without the
+ * engine changing.
+ *
+ * An empty filter means every budget, which is what the export, the backup and
+ * a single-budget household all want.
+ */
+function budgetClause(budgetId: string | undefined, alias = "a"): string {
+  return budgetId ? ` AND ${alias}.budget_id = ?` : "";
+}
+function budgetParams(budgetId: string | undefined): string[] {
+  return budgetId ? [budgetId] : [];
+}
+
 /** The per-month, per-category, per-account spend, for a bounded window. */
-function categorisedSql(): string {
+function categorisedSql(budgetId?: string): string {
   return `${CATEGORISED_CTE}
      SELECT substr(c.date,1,7) AS month, c.category_id AS category_id,
             c.account_id AS account_id, a.kind AS kind, SUM(c.amount) AS amount
        FROM categorised c
        JOIN accounts a ON a.id = c.account_id
+      WHERE 1 = 1${budgetClause(budgetId)}
       GROUP BY month, c.category_id, c.account_id`;
 }
 
@@ -79,13 +99,13 @@ function categorisedSql(): string {
  * opening balance is deliberately excluded — the envelope starts at ₹0 — which
  * is why this reads transactions rather than balances.
  */
-function accountFlowSql(): string {
+function accountFlowSql(budgetId?: string): string {
   return `SELECT substr(t.date,1,7) AS month, t.account_id AS account_id,
             a.kind AS kind, SUM(t.amount) AS amount
        FROM transactions t
        JOIN accounts a ON a.id = t.account_id
       WHERE t.deleted_at IS NULL AND a.kind IN ('budget','credit')
-        AND t.date >= ? AND t.date <= ?
+        AND t.date >= ? AND t.date <= ?${budgetClause(budgetId)}
       GROUP BY month, t.account_id`;
 }
 
@@ -103,8 +123,8 @@ function accountFlowSql(): string {
  * it does. Excluding it here instead let money leave the budget with nothing
  * recording it, and broke the identity by exactly the amount transferred.
  */
-function transferFlowSql(): string {
-  return `SELECT substr(t.date,1,7) AS month, SUM(t.amount) AS amount
+function transferFlowSql(budgetId?: string): string {
+  return `SELECT substr(t.date,1,7) AS month, t.account_id AS account_id, SUM(t.amount) AS amount
        FROM transactions t
        JOIN accounts a ON a.id = t.account_id
        JOIN transactions other
@@ -113,8 +133,8 @@ function transferFlowSql(): string {
       WHERE t.deleted_at IS NULL AND a.kind = 'budget'
         AND t.transfer_pair_id IS NOT NULL
         AND otherAccount.kind IN ('budget','credit')
-        AND t.date >= ? AND t.date <= ?
-      GROUP BY month`;
+        AND t.date >= ? AND t.date <= ?${budgetClause(budgetId)}
+      GROUP BY month, t.account_id`;
 }
 
 /**
@@ -123,19 +143,19 @@ function transferFlowSql(): string {
  * The payment envelope holds money a category gave up to meet the card's debt.
  * A charge nobody has filed gave nothing up, so it must not raise the envelope.
  */
-function creditUnfiledSql(): string {
+function creditUnfiledSql(budgetId?: string): string {
   return `SELECT substr(t.date,1,7) AS month, t.account_id AS account_id,
             SUM(t.amount) AS amount
        FROM transactions t
        JOIN accounts a ON a.id = t.account_id
       WHERE t.deleted_at IS NULL AND a.kind = 'credit'
         AND t.is_split = 0 AND t.category_id IS NULL AND t.transfer_pair_id IS NULL
-        AND t.date >= ? AND t.date <= ?
+        AND t.date >= ? AND t.date <= ?${budgetClause(budgetId)}
       GROUP BY month, t.account_id`;
 }
 
 /** Raw movement per account and cleared flag — what a balance is made of. */
-function balanceSql(): string {
+function balanceSql(budgetId?: string): string {
   return `SELECT substr(t.date,1,7) AS month, t.account_id AS account_id,
             CAST(t.cleared AS TEXT) AS kind, SUM(t.amount) AS amount
        FROM transactions t
@@ -193,6 +213,13 @@ function sealMonths(db: DB, months: MonthKey[], through: MonthKey): MonthKey | n
       );
     };
 
+    /*
+     * 15 · The cache is built unscoped, on purpose. It summarises the ledger for
+     * every budget at once and carries the account or category on each row, so a
+     * scoped read filters it on the way out rather than needing one cache per
+     * budget — which would multiply the invalidation triggers by the number of
+     * members.
+     */
     for (const r of queryAll<{
       month: string; category_id: string; account_id: string; kind: string; amount: number;
     }>(db, categorisedSql(), from, to, from, to)) {
@@ -203,8 +230,13 @@ function sealMonths(db: DB, months: MonthKey[], through: MonthKey): MonthKey | n
     )) {
       insert(r.month, "account-flow", "", r.account_id, r.kind, r.amount);
     }
-    for (const r of queryAll<{ month: string; amount: number }>(db, transferFlowSql(), from, to)) {
-      insert(r.month, "transfer-flow", "", "", "", r.amount);
+    for (const r of queryAll<{ month: string; account_id: string; amount: number }>(
+      db, transferFlowSql(), from, to,
+    )) {
+      // 15 · Carrying the account is what lets a sealed month be read back for
+      // one budget. Grouped by month alone, as it was, a transfer leg could not
+      // be traced to whose money moved.
+      insert(r.month, "transfer-flow", "", r.account_id, "", r.amount);
     }
     for (const r of queryAll<{ month: string; account_id: string; kind: string; amount: number }>(
       db, balanceSql(), from, to,
@@ -231,6 +263,12 @@ function sealMonths(db: DB, months: MonthKey[], through: MonthKey): MonthKey | n
 export interface LoadOptions {
   /** The latest month to compute. Defaults to the current month in IST. */
   through?: MonthKey;
+  /**
+   * 15 · Which budget to compute. Omitted means every budget at once, which is
+   * what a household with only the one shared budget has always had and what
+   * the export and backup want.
+   */
+  budgetId?: string;
   /**
    * B89 · Derive every month from the ledger, ignoring the rollup entirely.
    *
@@ -262,11 +300,15 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
    * 2019 cost the same as looking at today.
    */
   const horizon = lastDayOfMonth(through);
+  const scope = opts.budgetId;
 
   for (const r of queryAll<{ month: string; category_id: string; amount: number }>(
     db,
-    `SELECT month, category_id, amount FROM assignments WHERE month <= ?`,
-    through,
+    `SELECT s.month AS month, s.category_id AS category_id, s.amount AS amount
+       FROM assignments s
+       JOIN categories c ON c.id = s.category_id
+      WHERE s.month <= ?${scope ? " AND c.budget_id = ?" : ""}`,
+    through, ...budgetParams(scope),
   )) {
     const f = ensure(r.month);
     if (f) f.assigned[r.category_id] = (f.assigned[r.category_id] ?? 0) + r.amount;
@@ -330,9 +372,20 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
       kind: string; amount: number;
     }>(
       db,
-      `SELECT month, fact, category_id, account_id, kind, amount
-         FROM month_rollups WHERE month <= ?`,
-      sealedThrough,
+      /*
+       * Every fact row carries the account it moved on, or the category it
+       * landed in, so one join scopes the whole cache. `categorised` rows carry
+       * both and agree today, because 15 §3 forbids a personal account funding a
+       * household envelope without a receivable.
+       */
+      `SELECT r.month AS month, r.fact AS fact, r.category_id AS category_id,
+              r.account_id AS account_id, r.kind AS kind, r.amount AS amount
+         FROM month_rollups r
+         LEFT JOIN accounts a   ON a.id = r.account_id
+         LEFT JOIN categories c ON c.id = r.category_id
+        WHERE r.month <= ?
+          ${scope ? "AND COALESCE(a.budget_id, c.budget_id) = ?" : ""}`,
+      sealedThrough, ...budgetParams(scope),
     )) {
       /*
        * B89 · Match the fact by name, never by "everything else".
@@ -360,14 +413,16 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
 
   for (const r of queryAll<{
     month: string; category_id: string; account_id: string; kind: string; amount: number;
-  }>(db, categorisedSql(), since, horizon, since, horizon)) applyCategorised(r);
+  }>(db, categorisedSql(scope), since, horizon, since, horizon, ...budgetParams(scope))) {
+    applyCategorised(r);
+  }
 
   for (const r of queryAll<{ month: string; account_id: string; kind: string; amount: number }>(
-    db, accountFlowSql(), since, horizon,
+    db, accountFlowSql(scope), since, horizon, ...budgetParams(scope),
   )) applyAccountFlow(r);
 
   for (const r of queryAll<{ month: string; account_id: string; amount: number }>(
-    db, creditUnfiledSql(), since, horizon,
+    db, creditUnfiledSql(scope), since, horizon, ...budgetParams(scope),
   )) applyUnfiled(r);
 
   // F2.5: an opening balance arrives in RTA as income, in the month it is dated.
@@ -376,15 +431,17 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
   for (const r of queryAll<{ month: string; amount: number }>(
     db,
     `SELECT substr(opening_date,1,7) AS month, SUM(opening_balance) AS amount
-       FROM accounts WHERE kind = 'budget' AND opening_date <= ? GROUP BY month`,
-    horizon,
+       FROM accounts
+      WHERE kind = 'budget' AND opening_date <= ?${scope ? " AND budget_id = ?" : ""}
+      GROUP BY month`,
+    horizon, ...budgetParams(scope),
   )) {
     const f = ensure(r.month);
     if (f) f.budgetAccountFlow += r.amount;
   }
 
   for (const r of queryAll<{ month: string; amount: number }>(
-    db, transferFlowSql(), since, horizon,
+    db, transferFlowSql(scope), since, horizon, ...budgetParams(scope),
   )) {
     const f = ensure(r.month);
     if (f) f.budgetTransferFlow += r.amount;
@@ -392,8 +449,9 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
 
   for (const r of queryAll<{ month: string; amount: number }>(
     db,
-    `SELECT month, amount FROM held_for_next_month WHERE month <= ?`,
-    through,
+    `SELECT month, amount FROM held_for_next_month
+      WHERE month <= ?${scope ? " AND budget_id = ?" : ""}`,
+    through, ...budgetParams(scope),
   )) {
     const f = ensure(r.month);
     if (f) f.held = r.amount;

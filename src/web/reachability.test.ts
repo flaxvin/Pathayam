@@ -35,6 +35,12 @@ const src = join(here, "..");
  * you mean it.
  */
 const NOT_YET_SURFACED: Record<string, string> = {
+  ensurePersonalBudget:
+    "15 · The budgets table and the engine scoping land first, with everything in " +
+    "the household budget and no behaviour change. Creating a personal budget is " +
+    "step 3 of that document's build order; until the UI for moving an account " +
+    "into one exists, a route that makes an empty budget would be a dead end.",
+
   restoreTransaction:
     "Reachable as Activity's undo of the delete event, which is the better route — " +
     "a separate 'restore' screen would need a list of deleted transactions first.",
