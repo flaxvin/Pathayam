@@ -350,6 +350,13 @@ Priya enters a ₹3,400 transaction on her phone. Within seconds Ravi's Budget s
 
 ## 7. Copy principles
 
+**Money between household members is not debt.** *Owes*, *debt*, *write off* and
+*forgive* belong to family lending, where the other party is outside the house.
+Between partners, say who is **ahead** or **behind** this month, and offer *put it
+down to me*, *I'll pick it up*, or *call it even* (`09` R6.n). The arithmetic is
+identical; the register is not, and an app that tells someone their partner is in
+debt to them is an app that gets closed.
+
 - State the number and the consequence, never just the number: *"₹3,200 of this balance isn't funded"*, not *"Unfunded: 3200"*.
 - Never scold. *"Eating out is over by ₹1,850 — cover it from another category?"*, not *"You overspent!"*.
 - Explain automated actions in the sentence that offers them: *"Assign ₹4,000 on the 1st of every month, stopping when this category holds ₹20,000"*.
