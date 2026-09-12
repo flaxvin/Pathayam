@@ -33,6 +33,7 @@ import {
   type IsoDate,
 } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
+import { averageDailySpend } from "../engine/repository.ts";
 import { buildBudgetView } from "../web/viewmodel.ts";
 import { monthAwaitingClose } from "./month-close.ts";
 import { projectCashflow } from "./schedules.ts";
@@ -40,7 +41,7 @@ import { projectCashflow } from "./schedules.ts";
 /** F14.2 · Each of these is individually mutable per member. */
 export const DIGEST_KINDS = [
   "card-due", "subscription-due", "overspent", "month-close",
-  "review-waiting", "cash-shortfall",
+  "review-waiting", "cash-shortfall", "hold-surplus",
 ] as const;
 export type DigestKind = (typeof DIGEST_KINDS)[number];
 
@@ -51,6 +52,7 @@ export const DIGEST_LABELS: Record<DigestKind, string> = {
   "month-close": "Last month is ready to close",
   "review-waiting": "Things have been waiting in Review",
   "cash-shortfall": "The cashflow projection dips below your floor",
+  "hold-surplus": "More is unassigned than a month usually costs",
 };
 
 export interface DigestItem {
@@ -66,6 +68,20 @@ export interface DigestItem {
 const REVIEW_PATIENCE_DAYS = 3;
 /** How far ahead a renewal counts as imminent. */
 const SUBSCRIPTION_HORIZON_DAYS = 7;
+
+/**
+ * B102 · R11 · When to suggest holding income back for next month.
+ *
+ * This household is not paid a salary. Money arrives in lumps — two to four
+ * credits a month, anywhere from ₹45,000 to ₹3.5 lakh — which is exactly the
+ * shape "hold for next month" exists for and exactly the shape that never
+ * prompts for it: the control has always been one tap away on the budget
+ * footer, and nothing ever suggested reaching for it.
+ *
+ * A whole extra month already sitting unassigned is the moment worth
+ * mentioning. Below that, a large Ready to Assign is just a month in progress.
+ */
+const HOLD_SUGGESTION_MONTHS = 1;
 
 export function digestFor(
   db: DB, memberId: string | null, today: IsoDate = todayIST(),
@@ -171,6 +187,42 @@ export function digestFor(
         `${days <= 7 ? " — that is within the week" : ""}.`,
       href: "/schedules?tab=calendar",
       urgent: days <= 7,
+    });
+  }
+
+  /*
+   * B102 · R11 · A whole extra month is sitting unassigned.
+   *
+   * The household that is paid in lumps rather than monthly is the one this
+   * matters to, and the one the app never spoke to: "hold for next month" has
+   * always been a tap away on the budget footer and nothing ever suggested it.
+   *
+   * The comparison is against what a month actually costs — `averageDailySpend`
+   * over the trailing window, which is R12's own denominator — rather than
+   * against a round number, because a large Ready to Assign means nothing until
+   * you know what a month takes.
+   */
+  const monthlySpend = averageDailySpend(db, today) * 30;
+  const rta = view.monthState.readyToAssign;
+  if (monthlySpend > 0 && rta > monthlySpend * (HOLD_SUGGESTION_MONTHS + 1)) {
+    /*
+     * Suggest a month, not the surplus. The point of R11 is that next month
+     * opens already funded from money that has arrived — holding everything
+     * unassigned would just move a large number from one month to the next and
+     * tell the household nothing about what to do with it.
+     *
+     * Rounded to the nearest ₹100, because "hold ₹17,166.60" reads as a figure
+     * the app computed and this is an estimate the household is free to ignore.
+     */
+    const suggestion = (Math.round(monthlySpend / 10_000) * 10_000) as Paise;
+    add({
+      kind: "hold-surplus",
+      text:
+        `${formatPaise(rta)} is unassigned — about ${(rta / monthlySpend).toFixed(1)} months ` +
+        `of typical spending. Hold ${formatPaise(suggestion)} for next month and it opens ` +
+        `already funded, which is how you get to spending last month's income.`,
+      href: `/hold?month=${monthOf(today)}`,
+      urgent: false,
     });
   }
 

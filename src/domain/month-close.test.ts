@@ -251,6 +251,34 @@ describe("02 F14 · the digest", () => {
     db.close();
   });
 
+  test("B102 · R11 · a month's worth of spare money suggests holding some back", () => {
+    // The household paid in lumps: July brought ₹1,45,000 and July cost
+    // ₹51,500, so August opens with far more unassigned than a month takes.
+    const { db, bank, eatingOut, rent } = setup();
+    july(db, bank.id, eatingOut.id, rent.id);
+
+    const items = digestFor(db, RAVI, "2026-08-15");
+    const hold = items.find((i) => i.kind === "hold-surplus");
+    assert.ok(hold, "sitting on a spare month is the moment to mention /hold");
+    assert.equal(hold!.href, "/hold?month=2026-08");
+    assert.equal(hold!.urgent, false, "a surplus is never an emergency");
+    // The amount offered is a month, not the whole surplus — see the note in
+    // digest.ts. July's ₹51,500 over the 90-day window is ~₹17,000 a month.
+    assert.match(hold!.text, /Hold ₹17,200 for next month/);
+  });
+
+  test("B102 · a month merely in progress is not a surplus", () => {
+    // Assigning the income away is exactly what the household is supposed to
+    // do, and doing it must not leave a nagging suggestion behind.
+    const { db, bank, eatingOut, rent } = setup();
+    july(db, bank.id, eatingOut.id, rent.id);
+    setAssigned(db, actor, "2026-08", rent.id, rupees(88_000));
+
+    const items = digestFor(db, RAVI, "2026-08-15");
+    assert.equal(items.find((i) => i.kind === "hold-surplus"), undefined);
+    db.close();
+  });
+
   test("a month waiting to be closed appears", () => {
     const { db, bank, eatingOut, rent } = setup();
     july(db, bank.id, eatingOut.id, rent.id);
