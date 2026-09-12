@@ -121,6 +121,10 @@ export function createAssetAccount(
     subtype: AssetSubtype;
     institution?: string | null;
     currency?: string;
+    /** H2 · Whose asset this is. Null means the household's. */
+    holderMemberId?: string | null;
+    /** H2.2 · Private assets are visible only to their holder. */
+    visibility?: "household" | "private";
     /** For a manually valued asset — R23.2 records it as dated history. */
     openingValue?: Paise;
     asOf?: IsoDate;
@@ -131,6 +135,8 @@ export function createAssetAccount(
     const account = createAccount(db, actor, {
       name: input.name,
       kind: "tracking",
+      holderMemberId: input.holderMemberId,
+      visibility: input.visibility,
       subtype: "asset",
       institution: input.institution ?? null,
       openingBalance: 0,
@@ -160,7 +166,10 @@ export function createAssetAccount(
   });
 }
 
-export function listAssetAccounts(db: DB, opts: { includeClosed?: boolean } = {}) {
+export function listAssetAccounts(
+  db: DB,
+  opts: { includeClosed?: boolean; viewerMemberId?: string | null } = {},
+) {
   return queryAll<{
     id: string; name: string; subtype: string; currency: string;
     institution: string | null; closed_at: string | null;
@@ -169,8 +178,11 @@ export function listAssetAccounts(db: DB, opts: { includeClosed?: boolean } = {}
     `SELECT id, name, subtype, currency, institution, closed_at FROM accounts
       WHERE kind = 'tracking' AND subtype IN (${ASSET_SUBTYPES.map(() => "?").join(",")})
       ${opts.includeClosed ? "" : "AND closed_at IS NULL"}
+      ${opts.viewerMemberId !== undefined
+        ? "AND (visibility = 'household' OR holder_member_id IS ?)" : ""}
       ORDER BY name`,
     ...ASSET_SUBTYPES,
+    ...(opts.viewerMemberId !== undefined ? [opts.viewerMemberId ?? null] : []),
   );
 }
 

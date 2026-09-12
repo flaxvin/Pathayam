@@ -101,6 +101,10 @@ export interface LoanPayment {
 // ---------------------------------------------------------------------------
 
 export interface CreateLoanInput {
+  /** H2 · Whose loan this is. Null means the household's. */
+  holderMemberId?: string | null;
+  /** H2.2 · A private loan is visible only to its holder. */
+  visibility?: "household" | "private";
   lender: string;
   nickname?: string | null;
   loanType: LoanType;
@@ -132,6 +136,8 @@ export function createLoan(db: DB, actor: Actor, input: CreateLoanInput): Loan {
       name: input.nickname || `${input.lender} ${LOAN_TYPE_LABELS[input.loanType]}`,
       kind: "tracking",
       subtype: "loan",
+      holderMemberId: input.holderMemberId,
+      visibility: input.visibility,
       institution: input.lender,
       openingBalance: -(input.currentOutstanding ?? 0),
       openingDate: input.sanctionDate,

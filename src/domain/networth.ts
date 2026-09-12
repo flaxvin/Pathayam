@@ -25,7 +25,7 @@ import { formatPaise, type Paise } from "../core/money.ts";
 import { accountBalances } from "../engine/repository.ts";
 import { listLoans, projectLoan } from "./loans.ts";
 import { familyLoanNetWorth } from "./family-loans.ts";
-import { SIMPLE_TRACKING_SUBTYPES } from "./accounts.ts";
+import { SIMPLE_TRACKING_SUBTYPES, hiddenAccountIds, type HolderScope } from "./accounts.ts";
 import {
   listAssetAccounts, listHoldings, viewHolding, latestValuation, ASSET_LABELS,
   ASSET_CLASS_LABELS,
@@ -63,13 +63,25 @@ export interface NetWorthStatement {
 
 export function netWorthStatement(
   db: DB, asOf = todayIST(), baseCurrency = "INR",
+  /**
+   * H2.2 · Who is looking. A private tracking account must not be counted into
+   * a total shown to somebody else: they can see every other line, so a total
+   * that includes what they cannot see publishes it by subtraction.
+   *
+   * Omitted means count everything, which is what a snapshot and the export
+   * want. Screens pass the authenticated member.
+   */
+  opts: { viewerMemberId?: string | null; scope?: HolderScope } = {},
 ): NetWorthStatement {
   const balances = accountBalances(db);
+  const hidden = opts.viewerMemberId === undefined
+    ? new Set<string>()
+    : hiddenAccountIds(db, opts.viewerMemberId ?? null, opts.scope ?? "household");
 
   // --- Assets ---------------------------------------------------------------
   const cashLines: NetWorthLine[] = queryAll<{ id: string; name: string }>(
     db, `SELECT id, name FROM accounts WHERE kind = 'budget' AND closed_at IS NULL ORDER BY name`,
-  ).map((a) => ({
+  ).filter((a) => !hidden.has(a.id)).map((a) => ({
     label: a.name,
     accountId: a.id,
     value: balances.get(a.id)?.working ?? 0,
@@ -88,6 +100,7 @@ export function netWorthStatement(
   };
 
   for (const account of listAssetAccounts(db)) {
+    if (hidden.has(account.id)) continue;
     const holdings = listHoldings(db, account.id);
 
     if (holdings.length > 0) {
@@ -129,6 +142,7 @@ export function netWorthStatement(
   const cardLines: NetWorthLine[] = queryAll<{ id: string; name: string }>(
     db, `SELECT id, name FROM accounts WHERE kind = 'credit' AND closed_at IS NULL ORDER BY name`,
   )
+    .filter((a) => !hidden.has(a.id))
     .map((a) => ({
       label: a.name,
       accountId: a.id,
@@ -196,6 +210,7 @@ export function netWorthStatement(
     ...SIMPLE_TRACKING_SUBTYPES,
   );
   for (const account of simpleTracking) {
+    if (hidden.has(account.id)) continue;
     const working = balances.get(account.id)?.working ?? 0;
     if (working > 0) {
       otherAssetLines.push({ label: account.name, accountId: account.id, value: working, asOf, stale: false });

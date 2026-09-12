@@ -1416,4 +1416,23 @@ DELETE FROM month_rollup_state;
 ALTER TABLE accounts ADD COLUMN holder_member_id TEXT REFERENCES members(id);
 `,
   },
+  {
+    name: "0023-account-visibility",
+    sql: `
+--------------------------------------------------------------------------------
+-- H2.2 · Private accounts
+--------------------------------------------------------------------------------
+-- Only a Tracking account may be private, and the reason is arithmetic rather
+-- than policy. Ready to Assign is a sum over every Budget account, so hiding one
+-- while showing the total publishes it anyway: subtract the visible balances
+-- from Ready to Assign plus what is assigned, and the hidden figure falls out.
+-- Tracking accounts fund nothing (FW1) and appear in no shared total the engine
+-- computes, so they can be hidden without lying about it.
+--
+-- The CHECK enforces that. It is not a convention someone can quietly break in
+-- a later migration.
+ALTER TABLE accounts ADD COLUMN visibility TEXT NOT NULL DEFAULT 'household'
+  CHECK (visibility IN ('household','private'));
+`,
+  },
 ];

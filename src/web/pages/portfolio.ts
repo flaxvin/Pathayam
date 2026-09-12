@@ -177,7 +177,51 @@ export function renderPortfolio(opts: {
  * worth was seed-only. The route moved to `/portfolio/asset/new`; this is its
  * form.
  */
-export function renderNewAssetForm(opts: { today: IsoDate; error?: string | null }): SafeHtml {
+/** H2 / H2.2 · Whose it is, and whether the household sees it. */
+export function renderHolderFields(
+  members: { id: string; name: string }[],
+  current: { holder?: string | null; visibility?: string | null } = {},
+): SafeHtml {
+  if (members.length < 2) return raw("");
+  return html`
+    <div class="grid-2">
+      <div class="field">
+        <label for="holder_member_id">Whose is it</label>
+        <select id="holder_member_id" name="holder_member_id">
+          <option value="">The household's, jointly</option>
+          ${members.map(
+            (m) => html`
+              <option value="${m.id}" ${raw(current.holder === m.id ? "selected" : "")}>
+                ${m.name}
+              </option>
+            `,
+          )}
+        </select>
+      </div>
+      <div class="field">
+        <label for="visibility">Who can see it</label>
+        <select id="visibility" name="visibility">
+          <option value="household" ${raw(current.visibility !== "private" ? "selected" : "")}>
+            Shared with the household
+          </option>
+          <option value="private" ${raw(current.visibility === "private" ? "selected" : "")}>
+            Private to whoever holds it
+          </option>
+        </select>
+        <p class="field-hint">
+          Private keeps it out of everyone else's screens and totals, including
+          when they view as you.
+        </p>
+      </div>
+    </div>
+  `;
+}
+
+export function renderNewAssetForm(opts: {
+  today: IsoDate;
+  members?: { id: string; name: string }[];
+  error?: string | null;
+}): SafeHtml {
   return html`
     <h1>Add an asset</h1>
     <p class="faint">
@@ -191,6 +235,7 @@ export function renderNewAssetForm(opts: { today: IsoDate; error?: string | null
         <input id="name" name="name" autocomplete="off" required autofocus
                placeholder="Flat in Kochi, Sovereign gold, SBI FD…">
       </div>
+      ${renderHolderFields(opts.members ?? [])}
       <div class="grid-2">
         <div class="field">
           <label for="subtype">Kind</label>
@@ -723,6 +768,9 @@ export function renderSalePreview(opts: {
 // ---------------------------------------------------------------------------
 
 export function renderNetWorth(opts: {
+  /** H2.3 · Whose figures these are. */
+  scope?: "household" | "mine" | "joint";
+  members?: { id: string; name: string }[];
   statement: NetWorthStatement;
   change: NetWorthChange | null;
   history: Snapshot[];
@@ -736,6 +784,25 @@ export function renderNetWorth(opts: {
         <button class="button-small" type="submit">Snapshot today</button>
       </form>
     </div>
+
+    ${when((opts.members ?? []).length > 1, () => html`
+      <div class="scope-tabs" style="margin-bottom:1rem">
+        ${(["household", "mine", "joint"] as const).map(
+          (v) => html`
+            <a class="button-small ${(opts.scope ?? "household") === v ? "button-primary" : ""}"
+               href="/net-worth?whose=${v}">
+              ${v === "household" ? "Everything I can see" : v === "mine" ? "Mine" : "Joint"}
+            </a>
+          `,
+        )}
+      </div>
+      ${when(opts.scope === "household", () => html`
+        <p class="faint" style="margin-top:-.5rem">
+          Anything another member has marked private is left out — of the lines and
+          of the total, because a total that included it would give it away.
+        </p>
+      `)}
+    `)}
 
     <div class="card">
       <div class="faint">As of ${formatDate(s.asOf)}</div>

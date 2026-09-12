@@ -83,11 +83,7 @@ import {
   ingest, listStaged, approveStaged, rejectStaged, mergeStaged, undoBatch, listBatches,
 } from "./import/pipeline.ts";
 import {
-  createAccount, updateAccount, closeAccount, reopenAccount,
-  listAccounts, getAccount, listCards, createCard, closeCard,
-  recordCardStatement, lastCardStatement, paymentCategoryFor,
-  MANAGED_SUBTYPES, SUBTYPE_LABELS,
-  type AccountKind,
+  createAccount, updateAccount, closeAccount, reopenAccount, listAccounts, getAccount, listCards, createCard, closeCard, recordCardStatement, lastCardStatement, paymentCategoryFor, MANAGED_SUBTYPES, SUBTYPE_LABELS, type AccountKind, hiddenAccountIds, type HolderScope,
 } from "./domain/accounts.ts";
 import {
   setAssigned, addAssigned, copyAssignmentsFromMonth, moveMoney, setHeld, getHeld,
@@ -415,6 +411,24 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    * a request without one still works (a plain form post from a browser with
    * no JavaScript), it simply is not replay-protected.
    */
+  /**
+   * H2.2 · Who is looking, for filtering private accounts.
+   *
+   * Deliberately the authenticated member rather than the one being viewed as.
+   * Reading `viewingAs` here would make "view as" a way to see exactly what the
+   * other person marked private, which is the thing the flag exists to prevent.
+   */
+  /** H2.3 · Whose figures the reader asked for: household, mine, or joint. */
+  function holderScopeParam(ctx: RequestContext): HolderScope {
+    const raw = ctx.query.get("whose");
+    return raw === "mine" || raw === "joint" ? raw : "household";
+  }
+
+  function viewer(ctx: RequestContext): string | null {
+    const a = ctx.locals.auth as AuthContext | null;
+    return a?.member.id ?? null;
+  }
+
   function mutate<T>(
     ctx: RequestContext,
     fn: (a: AuthContext) => { redirect?: string; message?: string; body?: T },
@@ -1050,7 +1064,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const view = buildBudgetView(db);
 
     const memberNames = new Map(listMembers(db).map((m) => [m.id, m.name]));
-    const rows: AccountRow[] = listAccounts(db).map((account) => {
+    const rows: AccountRow[] = listAccounts(db, { viewerMemberId: viewer(ctx) }).map((account) => {
       const recon = queryOne<{ as_of: string; broken_at: string | null }>(
         db,
         `SELECT as_of, broken_at FROM reconciliations WHERE account_id = ? ORDER BY as_of DESC LIMIT 1`,
@@ -1288,7 +1302,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
   router.get("/add", (ctx) => {
     const view = buildBudgetView(db);
-    const accounts = listAccounts(db);
+    const accounts = listAccounts(db, { viewerMemberId: viewer(ctx) });
     const lastUsed = queryOne<{ account_id: string }>(
       db,
       `SELECT account_id FROM transactions WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 1`,
@@ -1363,7 +1377,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // asset purchases and family lending.
   router.get("/transfer", (ctx) => {
     auth(ctx);
-    const accounts = listAccounts(db);
+    const accounts = listAccounts(db, { viewerMemberId: viewer(ctx) });
     return render(
       ctx,
       "Record a transfer",
@@ -2205,7 +2219,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const outstanding = creditOutstanding(db);
     const today = todayIST();
 
-    const cards: CardDue[] = listAccounts(db)
+    const cards: CardDue[] = listAccounts(db, { viewerMemberId: viewer(ctx) })
       .filter((a) => a.kind === "credit")
       .map((account) => {
         const payment = [...view.categories.values()]
@@ -2417,7 +2431,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
   router.get("/import", (ctx) =>
     render(ctx, "Import", renderImport({
-      accounts: listAccounts(db),
+      accounts: listAccounts(db, { viewerMemberId: viewer(ctx) }),
       batches: listBatches(db),
       profiles: listProfiles(db).map((p) => ({
         id: p.id, name: p.name, last_used_at: p.last_used_at,
@@ -2498,7 +2512,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     const importPage = (error: string) =>
       render(ctx, "Import", renderImport({
-        accounts: listAccounts(db),
+        accounts: listAccounts(db, { viewerMemberId: viewer(ctx) }),
         batches: listBatches(db),
         profiles: listProfiles(db).map((p) => ({
           id: p.id, name: p.name, last_used_at: p.last_used_at,
@@ -2717,7 +2731,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return render(
       ctx, "Add a loan",
       renderNewLoanForm({
-        accounts: listAccounts(db)
+        members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
+        accounts: listAccounts(db, { viewerMemberId: viewer(ctx) })
           .filter((a) => a.kind === "budget")
           .map((a) => ({ id: a.id, name: a.nickname || a.name })),
       }),
@@ -2734,6 +2749,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const loan = createLoan(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         lender: requiredField(ctx.body, "lender"),
         nickname: field(ctx.body, "nickname") || null,
+        holderMemberId: field(ctx.body, "holder_member_id") || null,
+        visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
         loanType: requiredField(ctx.body, "loan_type") as LoanType,
         sanctioned: amountField(field(ctx.body, "sanctioned"), "Sanctioned amount"),
         sanctionDate: parseDate(field(ctx.body, "sanction_date") ?? "") ?? todayIST(),
@@ -2806,7 +2823,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         payments: listPayments(db, projection.loan.id),
         disbursements: listDisbursements(db, projection.loan.id),
         rates: listRatePeriods(db, projection.loan.id),
-        budgetAccounts: listAccounts(db)
+        budgetAccounts: listAccounts(db, { viewerMemberId: viewer(ctx) })
           .filter((acc) => acc.kind === "budget" && !acc.closed_at)
           .map((acc) => ({ id: acc.id, name: acc.name })),
       }),
@@ -2871,7 +2888,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ctx, "Record an instalment",
       renderRecordInstalment({
         projection,
-        accounts: listAccounts(db)
+        accounts: listAccounts(db, { viewerMemberId: viewer(ctx) })
           .filter((a) => a.kind === "budget")
           .map((a) => ({ id: a.id, name: a.nickname || a.name })),
         today: todayIST(),
@@ -3176,7 +3193,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         period,
         periods: periodPresets(),
         text: ctx.query.get("q") ?? "",
-        accounts: listAccounts(db).map((a) => ({ id: a.id, name: a.nickname || a.name })),
+        accounts: listAccounts(db, { viewerMemberId: viewer(ctx) }).map((a) => ({ id: a.id, name: a.nickname || a.name })),
         categories: listCategories(db).map((c) => ({ id: c.id, name: c.name })),
         selectedAccounts: filter.accountIds ?? [],
         selectedCategories: filter.categoryIds ?? [],
@@ -3217,7 +3234,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // #12 · Months of runway = liquid cash ÷ typical monthly spend (mean of the
     // three complete months before this one, so a partial month doesn't skew it).
     const bals = accountBalances(db);
-    const cash = listAccounts(db)
+    const cash = listAccounts(db, { viewerMemberId: viewer(ctx) })
       .filter((acc) => acc.kind === "budget")
       .reduce((sum, acc) => sum + Math.max(0, bals.get(acc.id)?.working ?? 0), 0);
     const priorMonths = envelopeSpendByMonth(
@@ -3350,7 +3367,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return render(
       ctx, "Add a schedule",
       renderNewScheduleForm({
-        accounts: listAccounts(db).map((a) => ({ id: a.id, name: a.name, nickname: a.nickname })),
+        accounts: listAccounts(db, { viewerMemberId: viewer(ctx) }).map((a) => ({ id: a.id, name: a.name, nickname: a.nickname })),
         categories: [...view.categories.values()]
           .filter((c) => !c.isPaymentCategory && !c.hidden)
           .map((c) => ({ id: c.id, name: c.name })),
@@ -3989,8 +4006,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
 
   /** Budget accounts money can actually move from. */
-  function cashAccounts() {
-    return listAccounts(db)
+  function cashAccounts(ctx: RequestContext) {
+    return listAccounts(db, { viewerMemberId: viewer(ctx) })
       .filter((a) => a.kind === "budget" && !a.closed_at)
       .map((a) => ({ id: a.id, name: a.name }));
   }
@@ -4002,7 +4019,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       .filter((v): v is NonNullable<typeof v> => v !== null);
 
     return render(ctx, "Lending in the family", renderFamilyLoans({
-      loans, accounts: cashAccounts(),
+      loans, accounts: cashAccounts(ctx),
     }));
   });
 
@@ -4036,7 +4053,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const budgetView = buildBudgetView(db);
     return render(ctx, view.loan.counterparty, renderFamilyLoan({
       view,
-      accounts: cashAccounts(),
+      accounts: cashAccounts(ctx),
       categories: [...budgetView.categories.values()]
         .filter((c) => !c.isPaymentCategory && !c.hidden)
         .map((c) => ({ id: c.id, name: c.name })),
@@ -4307,9 +4324,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/portfolio", (ctx) => {
     requireAssets();
-    const accounts = new Map(listAssetAccounts(db).map((a) => [a.id, a.name]));
+    const scope = holderScopeParam(ctx);
+    const hidden = hiddenAccountIds(db, viewer(ctx), scope);
+    const accounts = new Map(
+      listAssetAccounts(db, { viewerMemberId: viewer(ctx) })
+        .filter((a) => !hidden.has(a.id))
+        .map((a) => [a.id, a.name]),
+    );
 
     const rows: PortfolioRow[] = listHoldings(db)
+      .filter((h) => accounts.has(h.account_id))
       .map((h) => {
         const view = viewHolding(db, h.id);
         return view ? { view, accountName: accounts.get(view.holding.account_id) ?? "" } : null;
@@ -4331,7 +4355,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * prompting for the number that would bring it back. A thing that vanishes
      * after you create it is the worst way to lose someone's trust in a ledger.
      */
-    const manualAssets = listAssetAccounts(db)
+    const manualAssets = listAssetAccounts(db, { viewerMemberId: viewer(ctx) })
       .filter((a) => listHoldings(db, a.id).length === 0)
       .map((a) => {
         const valuation = latestValuation(db, a.id);
@@ -4411,7 +4435,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const token = newId();
     stashPlan(token, plan, a.member.id);
 
-    const accountNames = new Map(listAssetAccounts(db).map((acc) => [acc.id, acc.name]));
+    const accountNames = new Map(listAssetAccounts(db, { viewerMemberId: viewer(ctx) }).map((acc) => [acc.id, acc.name]));
 
     return render(ctx, "What this statement says", renderCasReview({
       period: plan.period,
@@ -4497,8 +4521,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       render(
         ctx, "Add a holding",
         renderAddHolding({
-          assetAccounts: listAssetAccounts(db).map((a) => ({ id: a.id, name: a.name })),
-          budgetAccounts: listAccounts(db)
+          assetAccounts: listAssetAccounts(db, { viewerMemberId: viewer(ctx) }).map((a) => ({ id: a.id, name: a.name })),
+          budgetAccounts: listAccounts(db, { viewerMemberId: viewer(ctx) })
             .filter((a) => a.kind === "budget")
             .map((a) => ({ id: a.id, name: a.nickname || a.name })),
           categories: [...view.categories.values()]
@@ -4599,7 +4623,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     requireAssets();
     const view = viewHolding(db, ctx.params.id!);
     if (!view) throw new NotFound("That holding does not exist.");
-    const account = listAssetAccounts(db).find((a) => a.id === view.holding.account_id);
+    const account = listAssetAccounts(db, { viewerMemberId: viewer(ctx) }).find((a) => a.id === view.holding.account_id);
 
     return render(
       ctx, view.instrument.name,
@@ -4710,7 +4734,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         view, preview,
         unitsToSell: unitsRaw,
         priceInput: priceRaw,
-        accounts: listAccounts(db)
+        accounts: listAccounts(db, { viewerMemberId: viewer(ctx) })
           .filter((a) => a.kind === "budget")
           .map((a) => ({ id: a.id, name: a.nickname || a.name })),
         today: todayIST(),
@@ -4786,13 +4810,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/net-worth", (ctx) => {
     requireAssets();
-    const statement = netWorthStatement(db);
+    const scope = holderScopeParam(ctx);
+    const statement = netWorthStatement(db, todayIST(), "INR", {
+      viewerMemberId: viewer(ctx), scope,
+    });
     const history = netWorthHistory(db);
     const previous = history.at(-2);
 
     return render(
       ctx, "Net worth",
       renderNetWorth({
+        scope,
+        members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
         statement,
         change: previous ? netWorthChange(db, previous.as_of, todayIST()) : null,
         history,
@@ -4818,7 +4847,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/portfolio/asset/new", (ctx) => {
     requireAssets();
     auth(ctx);
-    return render(ctx, "Add an asset", renderNewAssetForm({ today: todayIST() }));
+    return render(ctx, "Add an asset", renderNewAssetForm({
+      today: todayIST(),
+      members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
+    }));
   });
 
   router.post("/portfolio/asset/new", (ctx) =>
@@ -4826,6 +4858,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       requireAssets();
       const valueRaw = field(ctx.body, "value");
       const account = createAssetAccount(db, actorFor(a), {
+        holderMemberId: field(ctx.body, "holder_member_id") || null,
+        visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
         name: requiredField(ctx.body, "name"),
         subtype: requiredField(ctx.body, "subtype") as "physical",
         openingValue: valueRaw?.trim() ? amountField(valueRaw) : undefined,
@@ -4848,7 +4882,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return render(
       ctx, "Update valuations",
       renderValuations({
-        assets: listAssetAccounts(db)
+        assets: listAssetAccounts(db, { viewerMemberId: viewer(ctx) })
           .filter((a) => listHoldings(db, a.id).length === 0)
           .map((a) => {
             const valuation = latestValuation(db, a.id);
@@ -4869,7 +4903,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       requireAssets();
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
-      const assets = listAssetAccounts(db).filter((x) => listHoldings(db, x.id).length === 0);
+      const assets = listAssetAccounts(db, { viewerMemberId: viewer(ctx) }).filter((x) => listHoldings(db, x.id).length === 0);
 
       let saved = 0;
       for (const asset of assets) {
@@ -4899,7 +4933,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/portfolio/asset/:id/revalue", (ctx) => {
     requireAssets();
     auth(ctx);
-    const account = listAssetAccounts(db).find((acc) => acc.id === ctx.params.id);
+    const account = listAssetAccounts(db, { viewerMemberId: viewer(ctx) }).find((acc) => acc.id === ctx.params.id);
     if (!account) throw new NotFound("That asset does not exist.");
     const valuation = latestValuation(db, account.id);
     return render(
@@ -4917,7 +4951,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/portfolio/asset/:id/revalue", (ctx) =>
     mutate(ctx, (a) => {
       requireAssets();
-      const account = listAssetAccounts(db).find((acc) => acc.id === ctx.params.id);
+      const account = listAssetAccounts(db, { viewerMemberId: viewer(ctx) }).find((acc) => acc.id === ctx.params.id);
       if (!account) throw new NotFound("That asset does not exist.");
       recordValuation(db, actorFor(a), {
         accountId: account.id,
