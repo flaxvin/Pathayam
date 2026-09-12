@@ -42,6 +42,7 @@ const SHOTS = [
   ["budget", "/", { full: true }],
   ["overview", "/overview", { full: true }],
   ["accounts", "/accounts"],
+  ["cards", "/cards", { full: true }],
   ["review", "/review"],
   ["reports", "/reports", { full: true }],
   ["goals", "/goals"],

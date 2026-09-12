@@ -13,7 +13,7 @@ The full functional design lives in [`docs/`](docs/00-README.md). This file is
 how you run it and what it does.
 
 ```
-Status   P0 · P1 complete   P2 substantially complete   805 tests   0 deps
+Status   P0 · P1 complete   P2 substantially complete   811 tests   0 deps
 Stack    TypeScript on Node 24+   node:sqlite   node:http   server-rendered HTML
 Deploy   Docker Compose · homelab behind Cloudflare Tunnel · SQLite on a volume
 ```
@@ -27,7 +27,7 @@ Deploy   Docker Compose · homelab behind Cloudflare Tunnel · SQLite on a volum
 ## Contents
 
 - [What it is](#what-it-is)
-- [Quick start (5 minutes)](#quick-start-5-minutes)
+- [Quick start (5 minutes)](#quick-start-5-minutes) — including [demo data](#demo-data)
 - [Feature tour](#feature-tour)
 - [How the core flows work](#how-the-core-flows-work) — diagrams
 - [Screens](#screens)
@@ -85,6 +85,22 @@ mounted and Node watches it, so an edit restarts the server without a rebuild.
 
 The seed deliberately includes a cash overspend, a credit overspend and a card
 payment, so the screens show real behaviour rather than an empty grid.
+
+### Demo data
+
+Every household, member, account, card, balance and transaction in this
+repository is fictional — in the seed, in the test fixtures, in the screenshots
+and in the worked examples throughout `docs/`. The sample bank statements under
+`src/import/statements.test-data.ts` are PDFs generated with reportlab against
+each bank's published layout, not anybody's statements; the one encrypted
+fixture is locked with a password derived from the fictional identity so the
+tests can exercise the whole decrypt-and-parse chain.
+
+That is a design constraint rather than a tidy-up. Real statements are
+password-protected behind a PAN or a date of birth, and neither those nor the
+files they open have any business in a repository. The institution list in
+`09-decisions-log.md` is likewise a composite — it is there to justify why the
+parser matrix has the shape it does, not to describe anyone's finances.
 
 > The dev profile sets `DEV_LOGIN`, which **bypasses authentication completely**.
 > It exists only in the `dev` Docker stage, is absent from the production image
@@ -357,10 +373,13 @@ Captured from a running instance with the demo household. The UI is theme-aware
 | [![Health — backups, restore verification, price feeds, feature flags](docs/screenshots/health.png)](docs/screenshots/health.png) | [![Settings — household, Gmail, statement identity, API tokens](docs/screenshots/settings.png)](docs/screenshots/settings.png) |
 | **Categories** | **Overview** |
 | [![Categories — targets, reorder arrows, and app-managed envelopes](docs/screenshots/categories.png)](docs/screenshots/categories.png) | [![Overview — runway, due-soon bills, and the month at a glance](docs/screenshots/overview.png)](docs/screenshots/overview.png) |
-| **Activity** | |
-| [![Activity — every change, with its undo and the reason when it has none](docs/screenshots/activity.png)](docs/screenshots/activity.png) | |
+| **Activity** | **Cards** |
+| [![Activity — every change, with its undo and the reason when it has none](docs/screenshots/activity.png)](docs/screenshots/activity.png) | [![Cards — every card in the order it falls due, with what is unfunded](docs/screenshots/cards.png)](docs/screenshots/cards.png) |
 
-Click any image for the full-resolution capture.
+Click any image for the full-resolution capture. Every figure, name and account
+number in them comes from `npm run seed` — a fictional household. No real
+financial data appears anywhere in this repository; see
+[Demo data](#demo-data).
 
 To regenerate them after a UI change, seed a demo household, start the dev
 server with the bypass on, and run the capture script:
