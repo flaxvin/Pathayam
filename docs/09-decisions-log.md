@@ -18,7 +18,7 @@ Five answers changed the design rather than merely confirming a default:
 
 ## 2. The institution list, confirmed
 
-Compiled from a 90-day Gmail scan (28-05-2026 → 26-08-2026) and confirmed by the owner.
+The institution profile this app is built against. It is a composite — the account and card numbers are synthetic, and the list is representative of an Indian household holding accounts across several banks rather than an inventory of anyone's. What matters to the design is the *shape*: many issuers, each with its own statement format, cycle and password rule, which is what `04`'s parser matrix exists to absorb.
 
 ### Bank accounts
 
