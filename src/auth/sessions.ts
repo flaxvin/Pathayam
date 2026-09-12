@@ -51,7 +51,7 @@ export interface AuthContext {
   canWrite: boolean;
 }
 
-export const SESSION_COOKIE = "budget_session";
+export const SESSION_COOKIE = "pathayam_session";
 
 // ---------------------------------------------------------------------------
 // Members

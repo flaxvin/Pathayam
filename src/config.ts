@@ -59,6 +59,19 @@ function int(value: string | undefined, fallback: number): number {
   return Number.isInteger(n) && n > 0 ? n : fallback;
 }
 
+/**
+ * The database is `pathayam.sqlite`, but an install that predates the rename
+ * has a `budget.sqlite` sitting next to it. Preferring the old file when it is
+ * the one that exists means the rename is not a silent data-loss event: the
+ * app would otherwise open a brand-new empty database and report no accounts,
+ * no history and no error, which is the worst possible way to be wrong.
+ */
+function defaultDatabasePath(dataDir: string): string {
+  const renamed = join(dataDir, "pathayam.sqlite");
+  const legacy = join(dataDir, "budget.sqlite");
+  return !existsSync(renamed) && existsSync(legacy) ? legacy : renamed;
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const environment = env.NODE_ENV === "production" ? "production" : "development";
   const dataDir = resolve(env.DATA_DIR ?? "./data");
@@ -69,7 +82,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     host: env.HOST ?? "0.0.0.0",
     baseUrl: (env.BASE_URL ?? `http://localhost:${port}`).replace(/\/$/, ""),
     dataDir,
-    databasePath: env.DATABASE_PATH ?? join(dataDir, "budget.sqlite"),
+    databasePath: env.DATABASE_PATH ?? defaultDatabasePath(dataDir),
     backupDir: env.BACKUP_DIR ?? join(dataDir, "backups"),
     attachmentDir: env.ATTACHMENT_DIR ?? join(dataDir, "attachments"),
     environment,

@@ -1,8 +1,13 @@
-# Budget
+# Pathayam
 
 A strict **envelope (zero-based) budgeting app** for one Indian household —
 self-hosted, server-rendered, installable as a PWA, with the ingestion and
 loan/asset machinery Indian banking actually needs.
+
+*Pathayam* (പത്തായം) is the tall wooden chest that stood in a Kerala house and
+held the year's harvest: you filled it once and drew from it deliberately, and
+what you took out in March was decided by what you put in at harvest. That is
+the whole idea here — money already earned, given a job before it is spent.
 
 Every rupee gets a job before it is spent. The engine is YNAB-grade (rollover,
 overspend handling, credit-card payment envelopes); the ingestion layer is built
@@ -429,7 +434,7 @@ is exposed on the LAN. Any reverse proxy that terminates TLS works the same way.
 ### 1. Prerequisites
 
 - A machine with Docker + Docker Compose.
-- A domain you control, e.g. `budget.example.com`.
+- A domain you control, e.g. `pathayam.example.com`.
 - A Cloudflare account (free) for the tunnel — or any TLS-terminating proxy.
 - A Google Cloud project for SSO (below).
 
@@ -439,15 +444,15 @@ is exposed on the LAN. Any reverse proxy that terminates TLS works the same way.
    project, then **APIs & Services → Credentials → Create Credentials → OAuth
    client ID → Web application**.
 2. Under **Authorised redirect URIs**, add **both**:
-   - `https://budget.example.com/auth/google/callback` (sign-in)
-   - `https://budget.example.com/gmail/callback` (only if you'll use Gmail fetch)
+   - `https://pathayam.example.com/auth/google/callback` (sign-in)
+   - `https://pathayam.example.com/gmail/callback` (only if you'll use Gmail fetch)
 3. Copy the **Client ID** and **Client secret** into `.env`.
 4. On the **OAuth consent screen**, fill in the app's public URLs. Google
    requires all three, and will not grant a restricted scope without the last
    two:
-   - Application home page — `https://budget.example.com/`
-   - Privacy policy link — `https://budget.example.com/privacy`
-   - Terms of service link — `https://budget.example.com/terms`
+   - Application home page — `https://pathayam.example.com/`
+   - Privacy policy link — `https://pathayam.example.com/privacy`
+   - Terms of service link — `https://pathayam.example.com/terms`
 
    Both pages ship with the app, are served signed out, and state exactly what
    the Gmail connection reads and keeps — only configured bank senders are
@@ -470,7 +475,7 @@ cp .env.example .env
 Set at least:
 
 ```dotenv
-BASE_URL=https://budget.example.com        # exact public origin
+BASE_URL=https://pathayam.example.com        # exact public origin
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
 HEARTBEAT_URL=https://hc-ping.com/<uuid>    # strongly recommended (see Backups)
@@ -484,7 +489,7 @@ rather than booting something half-configured.
 
 ```bash
 docker compose up -d
-docker compose logs -f budget     # structured logs
+docker compose logs -f pathayam     # structured logs
 docker compose ps                 # health status
 ```
 
@@ -496,18 +501,18 @@ With `cloudflared`:
 
 ```bash
 cloudflared tunnel create budget
-cloudflared tunnel route dns budget budget.example.com
+cloudflared tunnel route dns budget pathayam.example.com
 # ingress rule → service: http://127.0.0.1:8080
 cloudflared tunnel run budget
 ```
 
 (Or run `cloudflared` as its own container/service. Any proxy that forwards
-`https://budget.example.com` → `http://127.0.0.1:8080` and sets
+`https://pathayam.example.com` → `http://127.0.0.1:8080` and sets
 `X-Forwarded-For` works; `TRUST_PROXY=true` is already set in the compose file.)
 
 ### 6. First sign-in
 
-Open `https://budget.example.com`. **The first person to sign in becomes a
+Open `https://pathayam.example.com`. **The first person to sign in becomes a
 member** (F1.3) and adds the rest from Settings. Everyone else must be
 invited first — there is no self-service signup, and all members are peers
 (no owner, no viewer). Then run the first-run wizard to pick a starting
@@ -547,7 +552,7 @@ The whole dataset is **one SQLite file** in the data volume, in an open format
 the `sqlite3` CLI reads without this application (R40.7). Copy it out any time:
 
 ```bash
-docker compose cp budget:/data/budget.sqlite ./budget-backup.sqlite
+docker compose cp pathayam:/data/pathayam.sqlite ./pathayam-backup.sqlite
 ```
 
 **Taking a backup is not the same as being able to recover.** So the scheduled
@@ -577,15 +582,15 @@ The nightly job proves a restore *would* work. This is how you actually do one.
 **Stop the app first**, then:
 
 ```bash
-docker compose exec budget node --experimental-strip-types src/restore.ts --list
-docker compose exec budget node --experimental-strip-types src/restore.ts --latest
+docker compose exec pathayam node --experimental-strip-types src/restore.ts --list
+docker compose exec pathayam node --experimental-strip-types src/restore.ts --latest
 ```
 
-It keeps the database it replaced as `budget.sqlite.replaced-<timestamp>`, reads
+It keeps the database it replaced as `pathayam.sqlite.replaced-<timestamp>`, reads
 the restored copy back, and prints the control totals. Start the app and check
 the health page.
 
-> **Do not copy a backup over `budget.sqlite` by hand.** SQLite keeps a `-wal`
+> **Do not copy a backup over `pathayam.sqlite` by hand.** SQLite keeps a `-wal`
 > and a `-shm` beside the database, and after a crash — exactly when you want a
 > restore — they are still there. Copying the file over leaves a fresh database
 > next to a crashed instance's journal, and the first query answers *"database
@@ -604,13 +609,38 @@ by tests.
 
 ```bash
 git pull
-docker compose build budget
-docker compose up -d budget
+docker compose build pathayam
+docker compose up -d pathayam
 ```
 
 Schema migrations run automatically at startup, in order, inside transactions —
 each is append-only and applied once. There is no manual migration step. Take a
 backup first out of habit; the verified-restore job is your proof it worked.
+
+### Upgrading across the rename
+
+The app was called *Budget* before it was called *Pathayam*, and two names
+outside the database changed with it. The database file itself needs nothing:
+if `pathayam.sqlite` is absent and `budget.sqlite` is present, that is the one
+opened, so an existing install keeps its history without being told.
+
+The Docker volume is not so forgiving, because the Compose project name is part
+of it. Move it once, with the stack stopped:
+
+```bash
+docker compose down
+docker volume create pathayam_pathayam-data
+docker run --rm -v budget_budget-data:/from -v pathayam_pathayam-data:/to alpine \
+  sh -c 'cp -a /from/. /to/'
+docker compose up -d
+```
+
+Check the result before removing anything: `docker compose ps` should show the
+service healthy and the app should list your accounts. Only then
+`docker volume rm budget_budget-data`.
+
+Everyone is signed out once, because the session cookie was renamed too. Sign
+in again; nothing else is affected.
 
 ---
 

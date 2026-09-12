@@ -31,7 +31,7 @@ describe("R38.3 · the dev login bypass refuses to start near production", () =>
 
   test("refuses on a public hostname", () => {
     assert.throws(
-      () => loadConfig({ ...base, DEV_LOGIN: "true", BASE_URL: "https://budget.example.com" }),
+      () => loadConfig({ ...base, DEV_LOGIN: "true", BASE_URL: "https://pathayam.example.com" }),
       (err: unknown) =>
         err instanceof UnsafeConfiguration && /public hostname/.test(err.message),
     );
@@ -63,7 +63,7 @@ describe("R38.3 · the dev login bypass refuses to start near production", () =>
     const config = loadConfig({
       ...base,
       NODE_ENV: "production",
-      BASE_URL: "https://budget.example.com",
+      BASE_URL: "https://pathayam.example.com",
       GOOGLE_CLIENT_ID: "real",
       GOOGLE_CLIENT_SECRET: "secret",
     });

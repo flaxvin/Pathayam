@@ -695,11 +695,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // Required by Google's OAuth consent screen, and linked from sign-in and
   // Settings so a member can read them without hunting for a URL.
   router.get("/privacy", (ctx) =>
-    render(ctx, "Privacy policy", renderPrivacy({ appName: "Budget", updated: LEGAL_UPDATED }), { bare: true }),
+    render(ctx, "Privacy policy", renderPrivacy({ appName: "Pathayam", updated: LEGAL_UPDATED }), { bare: true }),
   );
 
   router.get("/terms", (ctx) =>
-    render(ctx, "Terms of service", renderTerms({ appName: "Budget", updated: LEGAL_UPDATED }), { bare: true }),
+    render(ctx, "Terms of service", renderTerms({ appName: "Pathayam", updated: LEGAL_UPDATED }), { bare: true }),
   );
 
   router.post("/signout", (ctx) => {

@@ -24,7 +24,7 @@ import { HttpError } from "../http/router.ts";
 import { buildApp, renderErrorPage } from "../app.ts";
 import type { Config } from "../config.ts";
 import { nowIST } from "../core/dates.ts";
-import { createSession } from "../auth/sessions.ts";
+import { createSession, SESSION_COOKIE } from "../auth/sessions.ts";
 import { recordRequestFailure } from "../ops/errors.ts";
 
 export interface TestApp {
@@ -108,7 +108,7 @@ export async function startTestApp(
   let cookie = "";
   if (opts.memberId !== null) {
     const { token } = createSession(db, opts.memberId ?? "m", { userAgent: "test", ipHint: null, days: 30 });
-    cookie = `budget_session=${token}`;
+    cookie = `${SESSION_COOKIE}=${token}`;
   }
 
   const withCookie = (init: RequestInit = {}): RequestInit => ({

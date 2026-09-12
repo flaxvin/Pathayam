@@ -1,4 +1,4 @@
-# Envelope Budgeting App — Functional Design Document Set
+# Pathayam — Functional Design Document Set
 
 **Status:** Draft v0.1 · **Date:** 26-08-2026 · **Owner:** Ravi
 **Scope of this set:** functional design only. No data model, no API surface, no tech stack, no code.

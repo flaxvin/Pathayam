@@ -37,8 +37,8 @@ this file, the code wins; please open an issue.
 | | |
 |---|---|
 | **Transport** | Plain HTTP/1.1. Behind a reverse proxy in production (TLS terminates there). |
-| **Base URL** | Your deployment's origin — `http://localhost:8080` in dev, e.g. `https://budget.example.com` in prod. |
-| **Two ways in** | A **session cookie** (`budget_session`, set by signing in through a browser) or a **bearer token** (`Authorization: Bearer bgt_…`, for scripts). |
+| **Base URL** | Your deployment's origin — `http://localhost:8080` in dev, e.g. `https://pathayam.example.com` in prod. |
+| **Two ways in** | A **session cookie** (`pathayam_session`, set by signing in through a browser) or a **bearer token** (`Authorization: Bearer bgt_…`, for scripts). |
 | **Token precedence** | A bearer token is honoured **only when there is no session cookie** on the request. Send one or the other, not both. |
 | **Identity** | A token acts *as the member who minted it*. Every write is attributed to that member and names the token in the event log (F30.5). |
 | **Format** | Send `Accept: application/json` to get JSON back from any route; otherwise you get HTML (or a redirect). |
@@ -81,7 +81,7 @@ is 32 random bytes, base64url-encoded.
 Send it in the `Authorization` header on every request:
 
 ```bash
-curl -sS https://budget.example.com/export.json \
+curl -sS https://pathayam.example.com/export.json \
   -H "Authorization: Bearer bgt_Xa3f9K2pLq7wYt0zR8sN1vB4cD6eF5gH2jK8mP0qRsT" \
   -H "Accept: application/json"
 ```
@@ -239,7 +239,7 @@ An unauthenticated liveness/health probe for external monitoring (F27.3).
 Returns `200` when healthy, `503` when any check has failed.
 
 ```bash
-curl -sS https://budget.example.com/healthz
+curl -sS https://pathayam.example.com/healthz
 ```
 ```json
 {
@@ -262,7 +262,7 @@ The **entire budget** as a single JSON document (F15) — the same export used f
 backups. Served as a download.
 
 ```bash
-curl -sS https://budget.example.com/export.json \
+curl -sS https://pathayam.example.com/export.json \
   -H "Authorization: Bearer bgt_…" -H "Accept: application/json" \
   -o budget-$(date +%F).json
 ```
@@ -276,7 +276,7 @@ curl -sS https://budget.example.com/export.json \
 Every transaction as CSV, for a spreadsheet.
 
 ```bash
-curl -sS https://budget.example.com/export.csv \
+curl -sS https://pathayam.example.com/export.csv \
   -H "Authorization: Bearer bgt_…" -o transactions.csv
 ```
 
@@ -293,10 +293,10 @@ Available when the assets feature is enabled. One shape each (F19.13):
 
 ```bash
 for f in holdings lots prices; do
-  curl -sS "https://budget.example.com/portfolio/$f.csv" \
+  curl -sS "https://pathayam.example.com/portfolio/$f.csv" \
     -H "Authorization: Bearer bgt_…" -o "$f.csv"
 done
-curl -sS https://budget.example.com/net-worth.csv \
+curl -sS https://pathayam.example.com/net-worth.csv \
   -H "Authorization: Bearer bgt_…" -o net-worth.csv
 ```
 
@@ -313,7 +313,7 @@ Each download's filename carries the current IST date, e.g.
 #!/usr/bin/env bash
 set -euo pipefail
 TOKEN="bgt_…"                       # a read-scoped token
-BASE="https://budget.example.com"
+BASE="https://pathayam.example.com"
 
 # Fail fast if the app is unhealthy.
 curl -fsS "$BASE/healthz" >/dev/null

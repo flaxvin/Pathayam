@@ -299,7 +299,7 @@ describe("F15 · export", () => {
         controlTotals: { transactionTotal: number };
       };
 
-      assert.equal(exported.format, "budget-app-export");
+      assert.equal(exported.format, "pathayam-export");
       assert.equal(exported.data.transactions!.length, 1);
       assert.equal(exported.data.assignments!.length, 1);
       assert.ok(exported.data.events!.length > 0, "R37.5 — the log is included");

@@ -2,7 +2,7 @@
  * B91 · The footgun on the recovery path.
  *
  * SQLite in WAL mode keeps a `-wal` and a `-shm` beside the database. Copying a
- * backup over `budget.sqlite` and leaving those in place gives SQLite a fresh
+ * backup over `pathayam.sqlite` and leaving those in place gives SQLite a fresh
  * database with a crashed instance's journal next to it, and the first query
  * answers "database disk image is malformed".
  *
@@ -32,7 +32,7 @@ const actor: Actor = { memberId: "m", source: "ui" };
 
 function household(dir: string) {
   mkdirSync(dir, { recursive: true });
-  const path = join(dir, "budget.sqlite");
+  const path = join(dir, "pathayam.sqlite");
   const db = openDatabase({ path, verbose: false });
   ensureHousehold(db);
   execute(db, `INSERT INTO members (id,email,name,created_at) VALUES (?,?,?,?)`,
