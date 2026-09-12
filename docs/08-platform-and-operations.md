@@ -159,6 +159,8 @@ Two mechanisms. They are not the same thing and MUST NOT share a code path.
 - R38.9 Every write performed while impersonating MUST record **both** identities: the acting member and the real one (R37.1). The audit trail must never lose who actually did it.
 - R38.10 Impersonation MUST default to **read-only**, with writes requiring an explicit, separately-confirmed toggle within the session.
 - R38.11 Impersonation MUST expire automatically (default 30 minutes) and on tab close.
+- R38.6a **View-as is off unless `ADMIN_DEBUG` is set**, and is an operator tool rather than a household feature. It was designed for a household where one member sets things up for another; with separate budgets (`15`) that premise fails, because a personal budget a partner can step into is not a separate budget. It remains for supporting a hosted customer and for reproducing a fault locally. The control and the routes are both absent when the flag is off.
+- R38.6b While view-as is active it MUST expose the **household budget only**. A personal budget is never readable through it, for the same reason H2.4 resolves account privacy against the authenticated member: a feature that reads what somebody kept separate is worse than no feature.
 - R38.12 Impersonation MUST NOT be available to a personal API token (R40).
 
 ### 6.3 Session handling

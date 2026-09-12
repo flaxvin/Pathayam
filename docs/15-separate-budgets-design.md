@@ -458,6 +458,22 @@ position by subtraction, which is the same mistake `14` §3 identified.
 Another member's personal budget is not visible at all. That is the point of
 separating them, and it needs no privacy flag: the budget itself is the boundary.
 
+**Including through "view as"** (`08` R38.6b). That feature is now off unless an
+operator enables it (R38.6a), and even then it shows the household budget only —
+a personal budget a partner can step into is not a separate budget.
+
+### 6.1 What happens at the end of a month
+
+- **A commitment stays and rolls.** Unspent money in a household envelope carries
+  into next month like every other envelope (R3), with no exception for being a
+  commitment. Taking it back is a deliberate move out of the envelope, because
+  automatically un-committing money the household was counting on is exactly the
+  kind of surprise this app exists to avoid.
+- **Each budget closes on its own.** The household month can close while a
+  personal one is still open, and the other way round. Coupling them would let
+  one person's procrastination block the other's ritual. The household's close
+  still reports what each member committed and how much of it was spent.
+
 ---
 
 ## 7. What this does to the schema

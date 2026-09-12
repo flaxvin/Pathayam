@@ -51,6 +51,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     google: { clientId: null, clientSecret: null },
     devLogin: false,
     demoMode: false,
+    adminDebug: false,
     sessionDays: 30,
     features: { loans: true, assets: true, multiCurrency: false },
     backupWebhookUrl: null,

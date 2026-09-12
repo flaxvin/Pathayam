@@ -1433,15 +1433,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return { redirect: referer && referer.startsWith(config.baseUrl) ? referer : "/" };
   });
 
-  router.post("/impersonate/start", (ctx) =>
-    mutate(ctx, (a) => {
+  router.post("/impersonate/start", (ctx) => {
+    if (!config.adminDebug) throw new NotFound();
+    return mutate(ctx, (a) => {
       startImpersonation(db, actorFor(a), a.session.id, requiredField(ctx.body, "member_id"));
       return { redirect: "/", message: "Now viewing as another member, read only." };
-    }),
-  );
+    });
+  });
 
-  router.post("/impersonate/writes", (ctx) =>
-    mutate(ctx, (a) => {
+  router.post("/impersonate/writes", (ctx) => {
+    if (!config.adminDebug) throw new NotFound();
+    return mutate(ctx, (a) => {
       const allow = field(ctx.body, "allow") === "1";
       setImpersonationWrites(db, actorFor(a), a.session.id, allow);
       // B51: return to where the toggle was clicked (the banner is on every
@@ -1451,10 +1453,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         redirect: returnTo && returnTo.startsWith("/") ? returnTo : "/settings",
         message: allow ? "Writes enabled while viewing as them." : "Back to read-only.",
       };
-    }),
-  );
+    });
+  });
 
   router.post("/impersonate/exit", (ctx) => {
+    if (!config.adminDebug) throw new NotFound();
     const a = auth(ctx);
     stopImpersonation(db, actorFor(a), a.session.id);
     return { redirect: "/" };
@@ -1595,12 +1598,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 </div>
                 ${m.id === a.member.id
                   ? html`<span class="chip">You</span>`
-                  : html`
-                      <form method="post" action="/impersonate/start">
-                        <input type="hidden" name="member_id" value="${m.id}">
-                        <button class="button-small" type="submit">View as</button>
-                      </form>
-                    `}
+                  : when(
+                      config.adminDebug,
+                      () => html`
+                        <form method="post" action="/impersonate/start">
+                          <input type="hidden" name="member_id" value="${m.id}">
+                          <button class="button-small" type="submit">View as</button>
+                        </form>
+                      `,
+                    )}
               </div>
             `,
           )}
