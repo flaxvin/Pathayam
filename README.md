@@ -18,7 +18,9 @@ The full functional design lives in [`docs/`](docs/00-README.md). This file is
 how you run it and what it does. There is also a [website](website/) —
 home, features, an interactive envelope demo, roadmap, documentation and an
 API guide — published from `website/` by
-[a Pages workflow](.github/workflows/pages.yml).
+[a Pages workflow](.github/workflows/pages.yml). Its waitlist form posts to a
+Google Sheet via [`website/waitlist.gs`](website/waitlist.gs); set the endpoint
+in `website/site.js` to switch it on.
 
 ```
 Status   P0 · P1 complete   P2 substantially complete   813 tests   0 deps

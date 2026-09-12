@@ -48,50 +48,71 @@
 
   /* ---------------------------------------------------------- waitlist -- */
   /*
-   * Put your form endpoint here and the form starts working. Left empty on
-   * purpose: a signup box that silently swallows addresses is worse than one
-   * that admits it is not connected yet, and somebody would have found out only
-   * by never hearing back.
+   * Paste the Apps Script /exec URL here and the form starts working. See
+   * waitlist.gs for the script and the five-step setup.
+   *
+   * Left empty on purpose until then: a signup box that silently swallows
+   * addresses is worse than one that admits it is not connected, because the
+   * only way anyone finds out is by never hearing back.
    */
   var WAITLIST_ENDPOINT = "";
 
   document.querySelectorAll("[data-waitlist]").forEach(function (form) {
     var msg = form.querySelector("[data-waitlist-msg]");
     var email = form.querySelector("input[type=email]");
+    var trap = form.querySelector("input[name=company]");
+    var button = form.querySelector("button");
 
     form.addEventListener("submit", function (e) {
       e.preventDefault();
       var value = (email.value || "").trim();
+
+      /* Stricter than the browser's own check, which accepts `a@b`. */
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) {
-        msg.textContent = "That does not look like an email address.";
-        msg.className = "waitlist__msg err";
+        say("That does not look like an email address.", "err");
         email.focus();
         return;
       }
-
       if (!WAITLIST_ENDPOINT) {
-        msg.textContent = "The waitlist is not connected yet — nothing was sent. " +
-                          "Until it is, the repository is the way in.";
-        msg.className = "waitlist__msg err";
+        say("The waitlist is not connected yet — nothing was sent. " +
+            "Until it is, the repository is the way in.", "err");
         return;
       }
 
-      msg.textContent = "Sending…";
-      msg.className = "waitlist__msg";
+      button.disabled = true;
+      say("Sending…", "");
+
+      /*
+       * `no-cors` with a text/plain body: an Apps Script web app does not send
+       * CORS headers, and this shape avoids the preflight it would fail. The
+       * cost is that the response is opaque — a resolved promise means the
+       * request left the browser, not that the row was written. Worth knowing
+       * before trusting the count in the sheet over the count here.
+       */
       fetch(WAITLIST_ENDPOINT, {
         method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify({ email: value, tier: form.getAttribute("data-waitlist") || "unknown" }),
-      }).then(function (r) {
-        if (!r.ok) throw new Error(String(r.status));
+        mode: "no-cors",
+        headers: { "Content-Type": "text/plain;charset=utf-8" },
+        body: JSON.stringify({
+          email: value,
+          tier: form.getAttribute("data-waitlist") || "unknown",
+          page: location.pathname,
+          company: trap ? trap.value : "",
+        }),
+      }).then(function () {
         form.reset();
-        msg.textContent = "You are on the list. We will write once, when it opens.";
-        msg.className = "waitlist__msg ok";
+        say("You are on the list. We will write once, when it opens.", "ok");
       }).catch(function () {
-        msg.textContent = "That did not go through. Try again in a moment.";
-        msg.className = "waitlist__msg err";
+        say("That did not go through. Try again in a moment.", "err");
+      }).then(function () {
+        button.disabled = false;
       });
     });
+
+    function say(text, kind) {
+      msg.textContent = text;
+      msg.className = "waitlist__msg" + (kind ? " " + kind : "");
+    }
   });
 
   /* -------------------------------------------------------------- demo -- */
