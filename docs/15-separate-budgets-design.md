@@ -231,11 +231,52 @@ Everything in §3 and §3A is one rule:
 | Household | Household | Nothing extra. The ordinary case. |
 | Personal | Household | Draws down that member's commitment; overspends it if there is not enough |
 | Household | Personal | That member owes the household |
-| Personal · A | Personal · B | Refused. Two people's private budgets should not entangle without the household in between. |
+| Personal · A | Personal · B | Allowed **only** through a shared instrument — see §3A.5 |
 
-The last row is a deliberate restriction rather than an oversight: allowing it
-would create claims nobody is watching, between two budgets neither member can
-see in full.
+The last row cannot simply be refused, because an add-on card is exactly that
+case and this household already has one.
+
+**The governing rule:** a claim may arise only between budgets linked by an
+instrument the household deliberately shared — an account in the household
+budget, or an add-on card held by another member. Filing across two personal
+budgets with no shared instrument between them is refused, because it would
+create a debt through no arrangement either person made.
+
+### 3A.5 Add-on cards
+
+An add-on is not an account (R6.a). It is a second card on somebody else's
+account: one limit, one statement, one payment, and **the primary holder is the
+one the bank can chase.** So the account's budget — and therefore the payment
+envelope — stays with the primary holder, whoever did the spending.
+
+Priya spends ₹6,200 on her add-on of Ravi's personal card and files it to her own
+Personal envelope.
+
+```
+PRIYA'S BUDGET                   RAVI'S BUDGET
+Personal            −6,200       Card payment        +6,200
+owed to Ravi        +6,200       due from Priya      +6,200
+0 = −6,200 + 6,200   ✓           0 + 6,200 = 6,200    ✓
+```
+
+Both close, and the claim states the true position: **Ravi's credit paid for
+Priya's shopping, so Priya owes Ravi.** It is the shared-card case of §3A.3 with
+a personal budget on the receiving side instead of the household, which is why it
+needs no separate mechanism.
+
+The other direction works out too. If she files the same charge to the
+household's Groceries envelope, the household owes Ravi — which is just Ravi
+spending on the household's behalf (§3.4), and it draws down his commitment.
+
+| Who spent | Filed to | Claim |
+|---|---|---|
+| Add-on holder | Their own envelope | Add-on holder owes the primary |
+| Add-on holder | A household envelope | Household owes the primary; drawn from the primary's commitment |
+| Primary | Their own envelope | None — one budget throughout |
+
+This is also why an add-on is worth keeping as a card rather than promoting it to
+an account: the liability genuinely is the primary's, and modelling it as a
+separate account would put the debt in the wrong budget.
 
 ## 4. Q3 · Splitting one receipt across budgets
 
