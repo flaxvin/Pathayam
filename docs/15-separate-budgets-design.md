@@ -295,80 +295,104 @@ so does her commitment. One rule, applied per line instead of per transaction.
 
 ---
 
-## 4A. Q3a · Forgiving what is owed
+## 4A. Q3a · When one of you has put in more
 
-A household is not a bank. Sometimes the answer to a balance is *never mind*, and
-an app that cannot record that forces people to either lie to it or stop using
-it. This is the same judgement `10` §3.5 already made for family lending, where
-`writeOffFamilyLoan` exists for exactly this reason.
+### 4A.1 The words matter, and "debt" is the wrong one
 
-### 4A.1 The rule, borrowed from family lending
+The app already has transactional language — *"Ammu owes you"*, *write off*,
+*forgiven* — and it is right where it lives: `10` §3.5's family lending is money
+lent to a cousin, which genuinely is a debt with a creditor.
 
-That code states it in one line, and it is right here too:
+**Between two people running a household it is the wrong register entirely.**
+Nobody says their partner is in default on the electricity. What they say is that
+one of them has put in more this month.
 
-> When they owe you, the unrecovered money is an **expense**. When you owe them,
-> a forgiven debt is **income**.
+| Not this | This |
+|---|---|
+| debt, claim, liability | what's outstanding between you, the balance |
+| Ravi owes the household ₹2,000 | the household is ₹2,000 behind with Ravi |
+| creditor, debtor | ahead, behind |
+| forgive, write off | call it even |
+| settle the debt | square up |
+| overspent the commitment | put in more than planned |
 
-So forgiveness is never a number quietly deleted. It lands in somebody's budget
-as a real movement, filed to a category they choose, and shows up in Reports next
-to everything else.
+The engine's internal terms can stay whatever is clearest for the arithmetic.
+This is about every word a person reads.
 
-### 4A.2 One direction already works
+### 4A.2 Covering your own shortfall is not forgiveness — it is a bigger share
 
-If Ravi has spent more on the household than he committed, his household envelope
-is negative — **the household owes him.** Him forgiving that is him covering his
-own negative envelope from his own Ready to Assign.
+Ravi planned ₹3,000 toward the household and ended up spending ₹5,000 of his own
+on groceries. His household envelope sits at −₹2,000, meaning **he is ₹2,000
+ahead** — he has put in more than he said he would.
+
+If **Ravi** resolves that from his own Ready to Assign, nothing has been forgiven.
+He has simply decided his share this month was ₹5,000.
 
 ```
 → Household   −2,000 → 0
-Ready to Assign       −2,000
-0 = categories + RTA                       ✓
+Ready to Assign       −2,000        0 = categories + RTA   ✓
 ```
 
-That is the ordinary cover-overspend flow, which has existed since R4. **No new
-action is needed**, and the wording on the button is the only thing to get right:
-covering a household envelope is forgiving a debt, and should say so.
+Mechanically this is the cover-overspend flow that has existed since R4, so there
+is nothing to build. What has to change is the **label**: on a household envelope
+the button is not *cover overspending*, it is **"Put it down to me"**, and what it
+means is that your share for the month has gone up.
 
-### 4A.3 The other direction needs one new action
+### 4A.3 Three different things, and only one of them is letting it go
 
-If Priya has used the household's card for herself, her household envelope is
-positive — **she owes the household.** Forgiving that has two halves:
+The same −₹2,000 can end three ways, and they are not the same act:
+
+| | What happens | What it means |
+|---|---|---|
+| **Put it down to me** | Ravi covers it from his own Ready to Assign | His share this month was simply larger |
+| **I'll pick it up** | Priya commits ₹2,000, and the household squares up with Ravi | She has taken on the shortfall; Ravi is made whole |
+| **Call it even** | Nobody pays. The balance is closed by agreement | The only one of the three that is actually letting something go |
+
+Only the third is what `10` §3.5 would have called a write-off, and it is the
+rarest of the three. The first two are just how a household with two incomes
+settles a month.
+
+### 4A.4 What "call it even" does to the figures
+
+Priya used the household's shared card for ₹2,000 of her own shopping, so her
+household envelope is +₹2,000 — **she is ₹2,000 behind.** The household says
+leave it.
 
 ```
 PRIYA'S BUDGET                   HOUSEHOLD BUDGET
-→ Household   +2,000 → 0         due from Priya   2,000 → 0
-Ready to Assign      +2,000      Gifts                 −2,000
+→ Household   +2,000 → 0         balance with Priya  2,000 → 0
+Ready to Assign      +2,000      Gifts and treats         −2,000
 0 = categories + RTA      ✓      0 = card payment 2,000 + Gifts −2,000   ✓
 ```
 
-Income for her, an expense for the household, both identities closed. The
-household must still pay the bank the ₹2,000 — forgiving the debt does not
-forgive the bill, which is exactly why it has to land in a category rather than
-vanish.
+Both sides close. The rule underneath is the one `writeOffFamilyLoan` already
+encodes and it does not change with the vocabulary: what is not recovered is an
+expense for the person letting it go, and what is let go is income for the other.
 
-### 4A.4 What the action requires
+**Calling it even does not pay the card bill.** The household still owes the bank
+₹2,000, which is exactly why the amount has to land in a real category rather
+than disappear — otherwise the payment arrives with nothing behind it and the
+household is short by a figure nobody can trace.
 
-- **A category on the forgiver's side.** Not optional, for the same reason the
-  family-loan write-off demands one: an expense with no envelope is money leaving
-  the budget unrecorded.
-- **An amount.** Partial forgiveness is normal — ₹2,000 of a ₹6,200 balance —
-  and is just a smaller movement.
-- **Who did it, in the event log**, so a household balance that changed overnight
-  has an answer. Undoable within thirty days like everything else (R37).
-- **Consent belongs to the creditor.** A member forgives what is owed *to them*.
-  For money owed to the household, any member may act, because the household
-  budget is shared and the log records who.
+### 4A.5 What the action needs
 
-### 4A.5 Between two members
+- **A category on the side giving it up.** Not optional, for the reason above.
+  *Gifts and treats* is the obvious default and the household can pick another.
+- **Partial amounts.** ₹2,000 of a ₹6,200 balance is ordinary.
+- **Who did it, in the event log.** A balance that changed overnight should have
+  an answer. Undoable for thirty days like everything else (R37).
+- **It belongs to whoever is ahead.** They are the one giving something up. For a
+  balance with the household, any member may act and the log records who.
 
-Identical, and it is the add-on case: Priya owes Ravi for spending on his card
-(§3A.5). Ravi forgives, and it is income to her and an expense filed to a
-category in his budget. The claim is derived from her envelope either way, so
-there is no separate ledger to correct.
+### 4A.6 Between the two of you
 
-One restriction carries over from §3A.4: forgiveness can only touch a claim that
-exists, and claims only arise through a shared instrument. Nobody can forgive a
-debt that was never created.
+Identical, and it is the add-on case (§3A.5): Priya is behind with Ravi because
+she used his card. He can put it down to himself, she can square up, or they can
+call it even — the same three endings, with a person on the other side instead of
+the household.
+
+§3A.4's restriction carries over: a balance only exists where a shared instrument
+created one, so there is never anything to call even that nobody arranged.
 
 ## 5. Q4 · Settling up
 
