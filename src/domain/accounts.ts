@@ -87,6 +87,8 @@ export interface Account {
   credit_limit: Paise | null;
   sort: number;
   closed_at: string | null;
+  /** H2 · Whose account this is. Null means the household's, jointly. */
+  holder_member_id: string | null;
 }
 
 export interface CreateAccountInput {
@@ -105,6 +107,8 @@ export interface CreateAccountInput {
   statementDay?: number | null;
   dueDay?: number | null;
   creditLimit?: Paise | null;
+  /** H2 · Whose account this is. Omitted means the household's, jointly. */
+  holderMemberId?: string | null;
 }
 
 export function createAccount(db: DB, actor: Actor, input: CreateAccountInput): Account {
@@ -127,8 +131,9 @@ export function createAccount(db: DB, actor: Actor, input: CreateAccountInput): 
       db,
       `INSERT INTO accounts
          (id,name,nickname,kind,subtype,institution,last4,currency,opening_balance,
-          opening_date,statement_day,due_day,credit_limit,sort,created_at,created_by)
-       VALUES (?,?,?,?,?,?,?,'INR',?,?,?,?,?,?,?,?)`,
+          opening_date,statement_day,due_day,credit_limit,sort,created_at,created_by,
+          holder_member_id)
+       VALUES (?,?,?,?,?,?,?,'INR',?,?,?,?,?,?,?,?,?)`,
       id,
       input.name,
       input.nickname ?? null,
@@ -144,6 +149,7 @@ export function createAccount(db: DB, actor: Actor, input: CreateAccountInput): 
       sort,
       nowIST(),
       actor.memberId,
+      input.holderMemberId ?? null,
     );
 
     if (input.kind === "credit") {
@@ -190,7 +196,7 @@ export function updateAccount(
   db: DB,
   actor: Actor,
   id: string,
-  patch: Partial<Pick<Account, "name" | "nickname" | "institution" | "last4" | "statement_day" | "due_day" | "credit_limit" | "sort">>,
+  patch: Partial<Pick<Account, "name" | "nickname" | "institution" | "last4" | "statement_day" | "due_day" | "credit_limit" | "sort" | "holder_member_id">>,
 ): Account {
   return transact(db, () => {
     const before = getAccount(db, id);

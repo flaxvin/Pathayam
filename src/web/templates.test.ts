@@ -52,3 +52,43 @@ describe("B83 · no backtick inside an HTML comment in a template", () => {
     );
   });
 });
+
+describe("B104 · no backtick inside any template literal's own comments", () => {
+  /*
+   * B83 guarded HTML comments in web pages. The same mistake has since happened
+   * twice more outside that scope — in a SQL comment inside a migration's
+   * template, and in a block comment inside the client script's String.raw
+   * template. Both ended the literal early: one failed to compile with an
+   * "octal literal" error 200 lines away, the other truncated the asset so the
+   * browser got a syntax error instead of the app.
+   *
+   * So the guard now covers the two other places code lives inside a template:
+   * SQL comments in migrations, and block comments in the client script.
+   */
+
+  test("SQL comments in migrations carry no backtick", () => {
+    const text = readFileSync(join(here, "..", "db", "schema.ts"), "utf8");
+    const offenders: string[] = [];
+    for (const match of text.matchAll(/^\s*--.*$/gm)) {
+      if (match[0].includes("`")) {
+        offenders.push(`schema.ts:${text.slice(0, match.index).split("\n").length} — ${match[0].trim()}`);
+      }
+    }
+    assert.deepEqual(offenders, [], "a backtick ends the migration's template literal");
+  });
+
+  test("the client script's comments carry no backtick", () => {
+    const text = readFileSync(join(here, "client.ts"), "utf8");
+    const start = text.indexOf("String.raw`");
+    assert.ok(start > 0, "the client script is a String.raw template");
+    // Everything after the opening delimiter is inside the literal.
+    const body = text.slice(start + "String.raw`".length);
+    const offenders: string[] = [];
+    for (const match of body.matchAll(/\/\*[\s\S]*?\*\/|\/\/.*$/gm)) {
+      if (match[0].includes("`")) {
+        offenders.push(`client.ts:${text.slice(0, start + match.index!).split("\n").length}`);
+      }
+    }
+    assert.deepEqual(offenders, [], "a backtick truncates the served client script");
+  });
+});

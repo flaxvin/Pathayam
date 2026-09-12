@@ -1399,4 +1399,21 @@ CREATE TABLE month_rollups (
 DELETE FROM month_rollup_state;
 `,
   },
+  {
+    name: "0022-account-holder",
+    sql: `
+--------------------------------------------------------------------------------
+-- H2 · Whose account is this
+--------------------------------------------------------------------------------
+-- Every account still funds the one shared budget — that is 02 §3 and it does
+-- not move. This records *whose* account it is, which a household with two
+-- current accounts and four cards knows perfectly well and previously could not
+-- tell the app.
+--
+-- Deliberately nullable and deliberately inert: nothing in the engine reads it.
+-- An account with a holder and an account without one behave identically, so a
+-- household that does not care never has to fill it in.
+ALTER TABLE accounts ADD COLUMN holder_member_id TEXT REFERENCES members(id);
+`,
+  },
 ];
