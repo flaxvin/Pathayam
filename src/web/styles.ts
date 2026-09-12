@@ -513,4 +513,5 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
 .overview-date { flex: 0 0 3.2rem; color: var(--text-muted); font-variant-numeric: tabular-nums; }
 .overview-items { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .overview-list .amount { white-space: nowrap; }
+.scope-tabs { display: flex; flex-wrap: wrap; gap: .4rem; }
 `;

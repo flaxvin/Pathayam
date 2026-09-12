@@ -13,6 +13,7 @@ import type { LoanProjection, Loan, LoanPayment, Disbursement, DebtRow } from ".
 import { LOAN_TYPE_LABELS } from "../../domain/loans.ts";
 import type { PrepaymentComparison, Schedule, RateResetOptions } from "../../loans/amortisation.ts";
 import { lineChart, horizontalBars } from "../charts.ts";
+import { renderHolderFields } from "./portfolio.ts";
 
 export function renderLoanList(rows: LoanProjection[], debt: DebtRow[]): SafeHtml {
   if (rows.length === 0) {
@@ -789,6 +790,7 @@ export function renderRateReset(opts: {
 // ---------------------------------------------------------------------------
 
 export function renderNewLoanForm(opts: {
+  members?: { id: string; name: string }[];
   accounts: { id: string; name: string }[];
   error?: string | null;
 }): SafeHtml {
@@ -797,6 +799,7 @@ export function renderNewLoanForm(opts: {
     ${when(opts.error, () => html`<p class="notice notice-error">${opts.error}</p>`)}
 
     <form method="post" action="/loans/new" class="card">
+      ${renderHolderFields(opts.members ?? [])}
       <div class="grid-2">
         <div class="field">
           <label for="lender">Lender</label>

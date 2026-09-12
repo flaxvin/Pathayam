@@ -63,6 +63,10 @@ export function createFamilyLoan(
   input: {
     counterparty: string;
     note?: string | null;
+    /** H2 · Whose arrangement this is. Null means the household's. */
+    holderMemberId?: string | null;
+    /** H2.2 · A private arrangement is visible only to its holder. */
+    visibility?: "household" | "private";
     agreedTotal?: Paise | null;
     startedAt?: IsoDate;
   },
@@ -75,6 +79,8 @@ export function createFamilyLoan(
     const account = createAccount(db, actor, {
       name: `Lending — ${input.counterparty}`,
       kind: "tracking",
+      holderMemberId: input.holderMemberId,
+      visibility: input.visibility,
       subtype: "family-loan",
       openingBalance: 0,
       openingDate: started,

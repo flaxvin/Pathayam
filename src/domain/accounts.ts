@@ -89,6 +89,8 @@ export interface Account {
   closed_at: string | null;
   /** H2 · Whose account this is. Null means the household's, jointly. */
   holder_member_id: string | null;
+  /** H2.2 · `private` is visible only to its holder. Tracking accounts only. */
+  visibility: "household" | "private";
 }
 
 export interface CreateAccountInput {
@@ -109,11 +111,26 @@ export interface CreateAccountInput {
   creditLimit?: Paise | null;
   /** H2 · Whose account this is. Omitted means the household's, jointly. */
   holderMemberId?: string | null;
+  /** H2.2 · Only a Tracking account may be private; see the migration. */
+  visibility?: "household" | "private";
 }
 
 export function createAccount(db: DB, actor: Actor, input: CreateAccountInput): Account {
   if (!ACCOUNT_SUBTYPES[input.kind]?.includes(input.subtype)) {
     throw new Error(`"${input.subtype}" is not a valid subtype for a ${input.kind} account.`);
+  }
+  /*
+   * H2.2 · Only a Tracking account may be private, and the reason is arithmetic.
+   * Ready to Assign is a sum over every Budget account, so hiding one while
+   * showing the total publishes it anyway — subtract the visible balances from
+   * Ready to Assign plus what is assigned and the hidden figure falls out.
+   * Tracking accounts fund nothing (FW1), so they can be hidden honestly.
+   */
+  if (input.visibility === "private" && input.kind !== "tracking") {
+    throw new Error(
+      "Only a tracking account can be private. A budget or credit account feeds " +
+      "Ready to Assign, and hiding it would not actually hide the amount.",
+    );
   }
   if (input.kind === "credit" && (input.openingBalance ?? 0) > 0) {
     throw new Error(
@@ -132,8 +149,8 @@ export function createAccount(db: DB, actor: Actor, input: CreateAccountInput): 
       `INSERT INTO accounts
          (id,name,nickname,kind,subtype,institution,last4,currency,opening_balance,
           opening_date,statement_day,due_day,credit_limit,sort,created_at,created_by,
-          holder_member_id)
-       VALUES (?,?,?,?,?,?,?,'INR',?,?,?,?,?,?,?,?,?)`,
+          holder_member_id,visibility)
+       VALUES (?,?,?,?,?,?,?,'INR',?,?,?,?,?,?,?,?,?,?)`,
       id,
       input.name,
       input.nickname ?? null,
@@ -150,6 +167,7 @@ export function createAccount(db: DB, actor: Actor, input: CreateAccountInput): 
       nowIST(),
       actor.memberId,
       input.holderMemberId ?? null,
+      input.visibility ?? "household",
     );
 
     if (input.kind === "credit") {
@@ -184,23 +202,83 @@ export function getAccount(db: DB, id: string): Account | null {
   return queryOne<Account>(db, `SELECT * FROM accounts WHERE id = ?`, id);
 }
 
-export function listAccounts(db: DB, opts: { includeClosed?: boolean } = {}): Account[] {
+export interface AccountListOptions {
+  includeClosed?: boolean;
+  /**
+   * H2.2 · Who is looking. Supplied, private accounts held by anybody else are
+   * left out. Omitted, everything is returned — which is what the engine, the
+   * backup and the export want, and what no screen should.
+   *
+   * Under "view as" this must be the *authenticated* member rather than the one
+   * being viewed as, so impersonating somebody does not become a way to read
+   * what they marked private.
+   */
+  viewerMemberId?: string | null;
+}
+
+export function listAccounts(db: DB, opts: AccountListOptions = {}): Account[] {
+  const where: string[] = [];
+  const params: (string | null)[] = [];
+  if (!opts.includeClosed) where.push("closed_at IS NULL");
+  if (opts.viewerMemberId !== undefined) {
+    where.push("(visibility = 'household' OR holder_member_id IS ?)");
+    params.push(opts.viewerMemberId ?? null);
+  }
   return queryAll<Account>(
     db,
-    `SELECT * FROM accounts ${opts.includeClosed ? "" : "WHERE closed_at IS NULL"}
+    `SELECT * FROM accounts ${where.length ? "WHERE " + where.join(" AND ") : ""}
       ORDER BY CASE kind WHEN 'budget' THEN 0 WHEN 'credit' THEN 1 ELSE 2 END, sort, name`,
+    ...params,
   );
+}
+
+/**
+ * H2.3 · Whose figures to count.
+ *
+ *   household — everything this viewer may see: shared, plus their own private
+ *   mine      — only what this member holds
+ *   joint     — only what nobody holds, which is the household's proper
+ *
+ * "household" is deliberately not "everything". Another member's private
+ * account is excluded from it, because a total that included it would publish
+ * it by subtraction to somebody who can see every other line.
+ */
+export type HolderScope = "household" | "mine" | "joint";
+
+/** H2.2/H2.3 · The account ids a viewer must not be shown under a scope. */
+export function hiddenAccountIds(
+  db: DB, viewerMemberId: string | null, scope: HolderScope = "household",
+): Set<string> {
+  const clauses = ["(visibility = 'private' AND holder_member_id IS NOT ?)"];
+  const params: (string | null)[] = [viewerMemberId];
+  if (scope === "mine") {
+    clauses.push("holder_member_id IS NOT ?");
+    params.push(viewerMemberId);
+  } else if (scope === "joint") {
+    clauses.push("holder_member_id IS NOT NULL");
+  }
+  const rows = queryAll<{ id: string }>(
+    db, `SELECT id FROM accounts WHERE ${clauses.join(" OR ")}`, ...params,
+  );
+  return new Set(rows.map((r) => r.id));
 }
 
 export function updateAccount(
   db: DB,
   actor: Actor,
   id: string,
-  patch: Partial<Pick<Account, "name" | "nickname" | "institution" | "last4" | "statement_day" | "due_day" | "credit_limit" | "sort" | "holder_member_id">>,
+  patch: Partial<Pick<Account, "name" | "nickname" | "institution" | "last4" | "statement_day" | "due_day" | "credit_limit" | "sort" | "holder_member_id" | "visibility">>,
 ): Account {
   return transact(db, () => {
     const before = getAccount(db, id);
     if (!before) throw new Error("That account does not exist.");
+
+    if (patch.visibility === "private" && before.kind !== "tracking") {
+      throw new Error(
+        "Only a tracking account can be private. A budget or credit account feeds " +
+        "Ready to Assign, and hiding it would not actually hide the amount.",
+      );
+    }
 
     const fields = Object.keys(patch) as (keyof typeof patch)[];
     if (fields.length > 0) {
