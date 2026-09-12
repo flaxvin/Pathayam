@@ -531,12 +531,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                   </p>
                 </div>
               `
-            : html`
-                <p class="notice notice-warning">
-                  Google sign-in isn't configured. Set GOOGLE_CLIENT_ID and
-                  GOOGLE_CLIENT_SECRET to enable it.
-                </p>
-              `}
+            : when(
+                !config.demoMode,
+                () => html`
+                  <p class="notice notice-warning">
+                    Google sign-in isn't configured. Set GOOGLE_CLIENT_ID and
+                    GOOGLE_CLIENT_SECRET to enable it.
+                  </p>
+                `,
+              )}
           ${devForm}
           <p class="faint" style="margin-top:1.5rem;text-align:center">
             <a href="/terms">Terms of service</a> · <a href="/privacy">Privacy policy</a>
@@ -1478,9 +1481,25 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           </form>
         </section>
 
-        ${renderGmailConnection(connectionView(db, a.member.id), config.google.clientId !== null)}
+        ${when(
+          !config.demoMode,
+          () => renderGmailConnection(connectionView(db, a.member.id), config.google.clientId !== null),
+        )}
 
-        ${renderStatementIdentity(maskedIdentity(db, a.member.id))}
+        ${when(!config.demoMode, () => renderStatementIdentity(maskedIdentity(db, a.member.id)))}
+        ${when(
+          config.demoMode,
+          () => html`
+            <section class="card">
+              <h2>Mailbox and statement passwords</h2>
+              <p class="faint" style="margin-top:-.25rem">
+                Connecting a mailbox and saving the identity that unlocks statement
+                PDFs are both turned off here — a public demo should hold neither.
+                Both work on your own copy.
+              </p>
+            </section>
+          `,
+        )}
 
         ${renderDigestSettings(mutedKinds(db, a.viewingAs.id))}
 
@@ -1567,15 +1586,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               </div>
             `,
           )}
-          <form method="post" action="/members/invite" style="margin-top:1rem">
-            <div class="field">
-              <label for="invite-email">Add a household member</label>
-              <input id="invite-email" name="email" type="email" required
-                     placeholder="partner@example.com">
-              <p class="field-hint">They'll be able to sign in with that Google account.</p>
-            </div>
-            <button type="submit">Add to the allow-list</button>
-          </form>
+          ${when(
+            !config.demoMode,
+            () => html`
+              <form method="post" action="/members/invite" style="margin-top:1rem">
+                <div class="field">
+                  <label for="invite-email">Add a household member</label>
+                  <input id="invite-email" name="email" type="email" required
+                         placeholder="partner@example.com">
+                  <p class="field-hint">They'll be able to sign in with that Google account.</p>
+                </div>
+                <button type="submit">Add to the allow-list</button>
+              </form>
+            `,
+          )}
         </section>
 
         <section class="card">
