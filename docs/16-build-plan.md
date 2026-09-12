@@ -146,11 +146,7 @@ teaches nobody anything.
 
 ## What would change this plan
 
-- **A member leaving the household** is not designed. Their personal budget,
-  their commitments and any balance outstanding all need an answer, and P2 is the
-  first point where the question becomes real.
-- **Reports across budgets** — whether *spending by category* spans the
-  household and the personal budgets, or reports per budget — is unanswered and
-  should be settled during P3 rather than discovered in P5.
-- **Goals** belong to a budget (`15` §7) but nothing says what happens to a goal
-  when its category moves between budgets.
+All three of the questions this section opened with now have answers, in `15`
+§6A and §6B: a leaving member's commitments are released and anything already
+spent becomes a family loan; reports offer every scope rather than picking one;
+and a goal is personal or shared from creation and cannot move.
