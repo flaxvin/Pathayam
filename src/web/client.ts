@@ -170,6 +170,23 @@ export const CLIENT_SCRIPT = String.raw`
         var current = document.getElementById("main");
         if (!fresh || !current) throw new Error("no main");
 
+        /*
+         * The sign-in, first-run and error screens render bare — no header, no
+         * sidebar, no bottom nav — so their DOM has nothing to swap chrome
+         * into. Swapping only the main element would drop the budget grid into the
+         * bare shell and leave the page with no navigation at all, which is
+         * exactly what entering the demo used to do: the form posts from
+         * /signin, and everything after it arrived chrome-less.
+         *
+         * Shells differing means a real navigation, not a swap.
+         */
+        var hadChrome = Boolean(document.querySelector(".with-sidebar"));
+        var wantsChrome = Boolean(doc.querySelector(".with-sidebar"));
+        if (hadChrome !== wantsChrome) {
+          window.location.href = url;
+          return;
+        }
+
         var memo = stayPut ? rememberFocus() : null;
         var disclosures = stayPut ? disclosureState(current) : null;
         current.innerHTML = fresh.innerHTML;
