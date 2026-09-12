@@ -15,7 +15,10 @@ for UPI noise, split credit-card cycles and password-protected statement PDFs;
 and it runs as a single container with **zero runtime dependencies**.
 
 The full functional design lives in [`docs/`](docs/00-README.md). This file is
-how you run it and what it does.
+how you run it and what it does. There is also a [website](website/) —
+home, features, an interactive envelope demo, roadmap, documentation and an
+API guide — published from `website/` by
+[a Pages workflow](.github/workflows/pages.yml).
 
 ```
 Status   P0 · P1 complete   P2 substantially complete   813 tests   0 deps

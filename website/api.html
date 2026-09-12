@@ -1,0 +1,277 @@
+<!doctype html>
+<html lang="en-IN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>API Guide</title>
+<meta name="description" content="Scripting Pathayam over personal API tokens: minting, scopes, the routes a token can reach, and what it never can.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Serif+Malayalam:wght@500&family=Zilla+Slab:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="masthead">
+  <div class="wrap masthead__inner">
+    <a class="brand" href="index.html">
+      <svg class="brand__mark" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4">
+        <rect x="2.2" y="5.5" width="15.6" height="11.3"/>
+        <path d="M1.4 5.5 10 2l8.6 3.5M2.2 9.3h15.6M2.2 13h15.6"/>
+      </svg>
+      Pathayam
+    </a>
+    <nav class="nav" aria-label="Main">
+      <a href="index.html">Home</a>
+      <a href="features.html">Features</a>
+      <a href="demo.html">Demo</a>
+      <a href="roadmap.html">Roadmap</a>
+      <a href="documentation.html">Docs</a>
+      <a href="api.html" aria-current="page">API</a>
+      <button class="theme-toggle" type="button" aria-label="Switch theme">☾</button>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+  <section class="wrap bin bin--intro">
+    <div class="bin__head">
+      <p class="eyebrow">API guide</p>
+      <h2 style="font-size:var(--step-4)">Every screen is already an endpoint</h2>
+    </div>
+    <p class="lede">
+      The app is server-rendered, so there is no separate API to keep in sync —
+      the routes below are the same ones the browser uses. A personal token
+      authenticates a script against them, and a test keeps this page honest by
+      comparing it against the router in both directions.
+    </p>
+  </section>
+
+  <section class="wrap bin">
+    <div class="bin__head"><p class="eyebrow">Getting a token</p><h2>Minting and using one</h2></div>
+    <div class="cols">
+      <div class="prose">
+        <p>
+          Tokens are created from Settings, scoped at creation, and shown exactly
+          once — only a hash is stored, so a lost token is replaced rather than
+          recovered. They are rate-limited separately from browser sessions.
+        </p>
+        <p>
+          A token carries <strong>read</strong> or <strong>read-write</strong>.
+          Nothing else is grantable, and neither scope can reach the routes listed
+          further down.
+        </p>
+      </div>
+      <div style="display:grid;gap:1rem;align-content:start">
+<pre><code><span class="tok-c"># every request, one header</span>
+curl -sS https://pathayam.example.com/export.json \
+  -H <span class="tok-s">"Authorization: Bearer bgt_…"</span>
+
+<span class="tok-c"># a write needs an idempotency key</span>
+curl -sS -X POST https://pathayam.example.com/assign \
+  -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
+  -H <span class="tok-s">"Idempotency-Key: 2026-09-a1b2"</span> \
+  -d <span class="tok-s">"month=2026-09&amp;category_id=…&amp;amount=4500"</span></code></pre>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap bin">
+    <div class="bin__head"><p class="eyebrow">Guarantees</p><h2>Two things worth knowing before you script</h2></div>
+    <div class="cols">
+      <div class="panel">
+        <span class="panel__kicker">Idempotency</span>
+        <h3>Retries cannot double-post</h3>
+        <p>
+          Every write accepts an <code>Idempotency-Key</code>. Replaying the same
+          key returns the original result rather than performing the action twice,
+          so a timeout you did not see is safe to retry.
+        </p>
+      </div>
+      <div class="panel">
+        <span class="panel__kicker">Undo</span>
+        <h3>Everything a token does is reversible</h3>
+        <p>
+          Writes land in the same append-only event log as everything else and
+          undo for thirty days. A script that gets it wrong is a mistake you can
+          walk back, not one you restore a backup for.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap bin" id="budget">
+    <div class="bin__head"><p class="eyebrow">Routes</p><h2>Budget &amp; money</h2></div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td class="m">GET</td><td><code>/</code></td><td><span class="pill pill--r">read</span></td><td>The month budget grid.</td></tr>
+          <tr><td class="m">GET</td><td><code>/overview</code></td><td><span class="pill pill--r">read</span></td><td>Runway, due-soon bills, the month at a glance.</td></tr>
+          <tr><td class="m">POST</td><td><code>/assign</code></td><td><span class="pill pill--w">write</span></td><td>Assign to a category.</td></tr>
+          <tr><td class="m">GET POST</td><td><code>/move</code></td><td><span class="pill pill--r">read</span> <span class="pill pill--w">write</span></td><td>Move between envelopes.</td></tr>
+          <tr><td class="m">GET POST</td><td><code>/hold</code></td><td><span class="pill pill--r">read</span> <span class="pill pill--w">write</span></td><td>Hold income for next month.</td></tr>
+          <tr><td class="m">GET POST</td><td><code>/auto-assign</code></td><td><span class="pill pill--r">read</span> <span class="pill pill--w">write</span></td><td>Fund to target, with a preview.</td></tr>
+          <tr><td class="m">POST</td><td><code>/copy-last-month</code></td><td><span class="pill pill--w">write</span></td><td>Copy last month's assignments into this one.</td></tr>
+          <tr><td class="m">GET</td><td><code>/explain/ready-to-assign</code></td><td><span class="pill pill--r">read</span></td><td>Why Ready to Assign is what it is.</td></tr>
+          <tr><td class="m">GET</td><td><code>/explain/category/:id</code></td><td><span class="pill pill--r">read</span></td><td>Explain one category's number.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="wrap bin" id="accounts">
+    <div class="bin__head"><p class="eyebrow">Routes</p><h2>Accounts, cards &amp; transactions</h2></div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td class="m">GET</td><td><code>/accounts</code></td><td><span class="pill pill--r">read</span></td><td>All accounts and balances.</td></tr>
+          <tr><td class="m">GET POST</td><td><code>/accounts/new</code></td><td><span class="pill pill--r">read</span> <span class="pill pill--w">write</span></td><td>Create an account.</td></tr>
+          <tr><td class="m">GET</td><td><code>/accounts/:id</code></td><td><span class="pill pill--r">read</span></td><td>One account's register.</td></tr>
+          <tr><td class="m">POST</td><td><code>/accounts/:id/edit</code></td><td><span class="pill pill--w">write</span></td><td>Rename, close or reopen — never delete.</td></tr>
+          <tr><td class="m">GET POST</td><td><code>/accounts/:id/statement</code></td><td><span class="pill pill--r">read</span> <span class="pill pill--w">write</span></td><td>Record a card statement: amount, date, due date, minimum.</td></tr>
+          <tr><td class="m">GET</td><td><code>/cards</code></td><td><span class="pill pill--r">read</span></td><td>Every credit card in due-date order, with what is unfunded.</td></tr>
+          <tr><td class="m">GET POST</td><td><code>/accounts/:id/reconcile</code></td><td><span class="pill pill--r">read</span> <span class="pill pill--w">write</span></td><td>Reconcile to a statement balance.</td></tr>
+          <tr><td class="m">GET POST</td><td><code>/add</code></td><td><span class="pill pill--r">read</span> <span class="pill pill--w">write</span></td><td>Create a transaction. Money out must name a category.</td></tr>
+          <tr><td class="m">POST</td><td><code>/transfer</code></td><td><span class="pill pill--w">write</span></td><td>Transfer between accounts.</td></tr>
+          <tr><td class="m">GET</td><td><code>/transaction/:id</code></td><td><span class="pill pill--r">read</span></td><td>Transaction detail, splits, history.</td></tr>
+          <tr><td class="m">POST</td><td><code>/transaction/:id/categorise</code></td><td><span class="pill pill--w">write</span></td><td>File one transaction. Also the learning signal.</td></tr>
+          <tr><td class="m">POST</td><td><code>/transaction/:id/delete</code></td><td><span class="pill pill--w">write</span></td><td>Delete — undoable for thirty days.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="wrap bin" id="review">
+    <div class="bin__head"><p class="eyebrow">Routes</p><h2>Review, import &amp; rules</h2></div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td class="m">GET</td><td><code>/review</code></td><td><span class="pill pill--r">read</span></td><td>Everything awaiting a decision.</td></tr>
+          <tr><td class="m">POST</td><td><code>/review/approve</code></td><td><span class="pill pill--w">write</span></td><td>Approve, reject or merge staged items.</td></tr>
+          <tr><td class="m">GET POST</td><td><code>/import</code></td><td><span class="pill pill--r">read</span> <span class="pill pill--w">write</span></td><td>CSV paste import.</td></tr>
+          <tr><td class="m">POST</td><td><code>/import/pdf</code></td><td><span class="pill pill--w">write</span></td><td>Statement-PDF upload.</td></tr>
+          <tr><td class="m">POST</td><td><code>/import/undo</code></td><td><span class="pill pill--w">write</span></td><td>Undo an entire import batch.</td></tr>
+          <tr><td class="m">GET</td><td><code>/rules</code></td><td><span class="pill pill--r">read</span></td><td>Rules, and what the app has proposed from your filing.</td></tr>
+          <tr><td class="m">POST</td><td><code>/rules/new</code></td><td><span class="pill pill--w">write</span></td><td>Create, confirm, dismiss, apply or delete a rule.</td></tr>
+          <tr><td class="m">POST</td><td><code>/rules/test</code></td><td><span class="pill pill--w">write</span></td><td>Dry-run a rule against history.</td></tr>
+          <tr><td class="m">GET</td><td><code>/payees</code></td><td><span class="pill pill--r">read</span></td><td>Payees, what they are usually filed as, and merge.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="wrap bin" id="data">
+    <div class="bin__head"><p class="eyebrow">Routes</p><h2>Query, activity &amp; export</h2></div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Purpose</th></tr></thead>
+        <tbody>
+          <tr><td class="m">GET</td><td><code>/query</code></td><td><span class="pill pill--r">read</span></td><td>The filterable, groupable table.</td></tr>
+          <tr><td class="m">GET</td><td><code>/query.csv</code></td><td><span class="pill pill--r">read</span></td><td>Query results as CSV, uncapped.</td></tr>
+          <tr><td class="m">GET</td><td><code>/reports</code></td><td><span class="pill pill--r">read</span></td><td>Income against spend, trends, loan interest by year.</td></tr>
+          <tr><td class="m">GET</td><td><code>/activity</code></td><td><span class="pill pill--r">read</span></td><td>Every change ever made, with its undo.</td></tr>
+          <tr><td class="m">POST</td><td><code>/activity/:id/undo</code></td><td><span class="pill pill--w">write</span></td><td>Undo one recorded event.</td></tr>
+          <tr><td class="m">GET</td><td><code>/export.json</code></td><td><span class="pill pill--r">read</span></td><td>Complete open-format export.</td></tr>
+          <tr><td class="m">GET</td><td><code>/export.csv</code></td><td><span class="pill pill--r">read</span></td><td>Everything as CSV.</td></tr>
+          <tr><td class="m">GET</td><td><code>/healthz</code></td><td><span class="pill pill--r">read</span></td><td>Machine health probe — public, no token needed.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+
+  <section class="wrap bin">
+    <div class="bin__head">
+      <p class="eyebrow">Refused</p>
+      <h2>What a token can never reach</h2>
+    </div>
+    <p class="lede" style="margin-bottom:1.5rem">
+      A deny-list of path prefixes rather than a note in a review checklist. A
+      token that could mint tokens turns one leak into permanent access, and a
+      token that could change the allow-list turns it into somebody else's
+      household.
+    </p>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Prefix</th><th>Why it is blocked</th></tr></thead>
+        <tbody>
+          <tr><td><code>/members</code></td><td>The household allow-list. A token must not change who is allowed in.</td></tr>
+          <tr><td><code>/tokens</code></td><td>A token must not mint or revoke tokens, including itself.</td></tr>
+          <tr><td><code>/impersonate</code></td><td>Impersonation is a session-only, logged, human action.</td></tr>
+          <tr><td><code>/auth</code></td><td>Sign-in, SSO, and the development bypass state.</td></tr>
+          <tr><td><code>/signout</code></td><td>There is nothing for a token to sign out of.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="wrap bin">
+    <div class="bin__head"><p class="eyebrow">Getting everything out</p><h2>Export is a first-class feature</h2></div>
+    <div class="cols">
+      <div class="prose">
+        <p>
+          <code>/export.json</code> returns the complete dataset in an open format
+          — every account, transaction, assignment, lot, loan and event. It is not
+          a summary and not a subset.
+        </p>
+        <p>
+          Three things are deliberately excluded and asserted absent by tests: the
+          statement identity used to derive PDF passwords, the Gmail refresh token,
+          and anything else that would let an export impersonate you.
+        </p>
+      </div>
+      <div class="prose">
+        <h3>Leaving</h3>
+        <p>
+          Self-hosted software should be easy to leave. The database is one SQLite
+          file you can open with any tool, the export is documented and stable, and
+          nothing about the format requires this app to read it.
+        </p>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot__grid">
+      <div>
+        <h4>Pathayam</h4>
+        <ul>
+          <li><a href="features.html">Features</a></li>
+          <li><a href="demo.html">Envelope demo</a></li>
+          <li><a href="roadmap.html">Roadmap</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Reference</h4>
+        <ul>
+          <li><a href="documentation.html">Documentation</a></li>
+          <li><a href="api.html">API guide</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Built with</h4>
+        <ul>
+          <li>TypeScript on Node 24+</li>
+          <li>node:sqlite · node:http</li>
+          <li>Zero runtime dependencies</li>
+        </ul>
+      </div>
+    </div>
+    <p class="foot__note">
+      Self-hosted software for one household. There is no service to sign up for,
+      nothing is sent anywhere, and the data stays on the machine you run it on.
+      Every figure and name in the screenshots is fictional.
+    </p>
+  </div>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

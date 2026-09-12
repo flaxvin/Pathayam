@@ -1,0 +1,175 @@
+<!doctype html>
+<html lang="en-IN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Envelope Demo</title>
+<meta name="description" content="An interactive miniature of the Pathayam budgeting engine: assign income to envelopes and watch Ready to Assign fall to zero.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Serif+Malayalam:wght@500&family=Zilla+Slab:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="masthead">
+  <div class="wrap masthead__inner">
+    <a class="brand" href="index.html">
+      <svg class="brand__mark" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4">
+        <rect x="2.2" y="5.5" width="15.6" height="11.3"/>
+        <path d="M1.4 5.5 10 2l8.6 3.5M2.2 9.3h15.6M2.2 13h15.6"/>
+      </svg>
+      Pathayam
+    </a>
+    <nav class="nav" aria-label="Main">
+      <a href="index.html">Home</a>
+      <a href="features.html">Features</a>
+      <a href="demo.html" aria-current="page">Demo</a>
+      <a href="roadmap.html">Roadmap</a>
+      <a href="documentation.html">Docs</a>
+      <a href="api.html">API</a>
+      <button class="theme-toggle" type="button" aria-label="Switch theme">☾</button>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+  <section class="wrap bin bin--intro">
+    <div class="bin__head">
+      <p class="eyebrow">Try it</p>
+      <h2 style="font-size:var(--step-4)">Give every rupee a job</h2>
+    </div>
+    <p class="lede" style="margin-bottom:2rem">
+      September is part-budgeted and ₹60,000 of this month's income still has no
+      job. Type into the <em>Assigned</em> column, or fund every target at once,
+      and watch Ready to Assign fall to zero. Eating out is already over — that is
+      what the red is for. The arithmetic is the real engine's, one decimal place
+      up: assigned minus activity is available, and nothing appears from nowhere.
+    </p>
+
+    <div class="demo" data-demo>
+      <div class="demo__bar">
+        <div class="rta">
+          <span class="rta__l">Ready to Assign</span>
+          <span class="rta__v" data-rta>₹1,45,000</span>
+        </div>
+        <p class="rta__note">September 2026 · one household</p>
+      </div>
+
+      <div class="grid-head">
+        <div>Category</div>
+        <div style="text-align:right">Assigned</div>
+        <div style="text-align:right">Activity</div>
+        <div style="text-align:right">Available</div>
+      </div>
+
+      <div data-rows></div>
+
+      <div class="demo__foot">
+        <button class="btn btn--primary btn--sm" type="button" data-act="targets">Fund every target</button>
+        <button class="btn btn--ghost btn--sm" type="button" data-act="charge">Spend ₹2,400 more on eating out</button>
+        <button class="btn btn--ghost btn--sm" type="button" data-act="reset">Reset</button>
+        <p class="demo__msg" data-msg role="status"></p>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap bin">
+    <div class="bin__head">
+      <p class="eyebrow">What just happened</p>
+      <h2>The three rules the demo is enforcing</h2>
+    </div>
+    <div class="cols">
+      <div class="panel">
+        <span class="panel__kicker">R1</span>
+        <h3>You can only budget money you have</h3>
+        <p>
+          Ready to Assign starts at what actually arrived. Assign more than that
+          and it goes negative — the app will not let that stand, because a plan
+          built on money you do not have is not a plan.
+        </p>
+      </div>
+      <div class="panel">
+        <span class="panel__kicker">R4</span>
+        <h3>Overspending is never hidden</h3>
+        <p>
+          Push an envelope below zero and it turns red and stays red. You choose
+          how it resolves: cover it from another envelope now, or let the rollover
+          reduce next month's Ready to Assign. Both models ship.
+        </p>
+      </div>
+      <div class="panel">
+        <span class="panel__kicker">R9</span>
+        <h3>Order is information</h3>
+        <p>
+          <em>Fund every target</em> spends Ready to Assign down the budget in the
+          order you arranged it, so what matters most is funded first and the
+          shortfall lands at the bottom where you can see it.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap bin">
+    <div class="bin__head">
+      <p class="eyebrow">The difference in the real thing</p>
+      <h2>What a seven-row demo leaves out</h2>
+    </div>
+    <div class="cols">
+      <div class="prose">
+        <ul class="checks">
+          <li><strong>Credit cards.</strong> Spending on a card moves money into a payment envelope, so the cash to clear the bill is reserved the moment the charge lands.</li>
+          <li><strong>Rollover.</strong> Next month opens with every envelope's leftover already in it, and overspending handled under whichever model you chose.</li>
+          <li><strong>Money arriving on its own.</strong> Statement PDFs, CSVs and bank alerts become review rows; nothing posts without a person.</li>
+          <li><strong>Undo.</strong> Every action above would be reversible for thirty days, from an append-only log.</li>
+        </ul>
+      </div>
+      <figure class="shot">
+        <img src="img/budget.webp" loading="lazy" width="1400" height="900"
+             alt="The real budget screen with credit card payment envelopes, target progress chips and the digest.">
+        <figcaption>The same grid in the app, with payment envelopes and targets.</figcaption>
+      </figure>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot__grid">
+      <div>
+        <h4>Pathayam</h4>
+        <ul>
+          <li><a href="features.html">Features</a></li>
+          <li><a href="demo.html">Envelope demo</a></li>
+          <li><a href="roadmap.html">Roadmap</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Reference</h4>
+        <ul>
+          <li><a href="documentation.html">Documentation</a></li>
+          <li><a href="api.html">API guide</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Built with</h4>
+        <ul>
+          <li>TypeScript on Node 24+</li>
+          <li>node:sqlite · node:http</li>
+          <li>Zero runtime dependencies</li>
+        </ul>
+      </div>
+    </div>
+    <p class="foot__note">
+      Self-hosted software for one household. There is no service to sign up for,
+      nothing is sent anywhere, and the data stays on the machine you run it on.
+      Every figure and name in the screenshots is fictional.
+    </p>
+  </div>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

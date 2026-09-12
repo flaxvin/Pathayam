@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="en-IN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Features</title>
+<meta name="description" content="What Pathayam does: the envelope engine, Indian bank ingestion, reports, loans, assets and the platform underneath.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Serif+Malayalam:wght@500&family=Zilla+Slab:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="masthead">
+  <div class="wrap masthead__inner">
+    <a class="brand" href="index.html">
+      <svg class="brand__mark" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4">
+        <rect x="2.2" y="5.5" width="15.6" height="11.3"/>
+        <path d="M1.4 5.5 10 2l8.6 3.5M2.2 9.3h15.6M2.2 13h15.6"/>
+      </svg>
+      Pathayam
+    </a>
+    <nav class="nav" aria-label="Main">
+      <a href="index.html">Home</a>
+      <a href="features.html" aria-current="page">Features</a>
+      <a href="demo.html">Demo</a>
+      <a href="roadmap.html">Roadmap</a>
+      <a href="documentation.html">Docs</a>
+      <a href="api.html">API</a>
+      <button class="theme-toggle" type="button" aria-label="Switch theme">☾</button>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+  <section class="wrap bin bin--intro">
+    <div class="bin__head">
+      <p class="eyebrow">Features</p>
+      <h2 style="font-size:var(--step-4)">Everything it does, and why</h2>
+    </div>
+    <p class="lede">
+      Grouped the way the design documents are: the engine first, because the
+      engine is the product; then how money gets in, which is the part that
+      decides whether a budgeting app survives month three.
+    </p>
+  </section>
+
+  <section class="wrap bin" id="engine">
+    <div class="bin__head"><p class="eyebrow">R1–R13</p><h2>The budget engine</h2></div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
+        <tbody>
+        <tr><td>Zero-based assignment</td><td>Assign every rupee to a category until Ready to Assign is 0.</td></tr>
+        <tr><td>Rollover</td><td>Each month a category carries its leftover — or its overspend — forward.</td></tr>
+        <tr><td>Two overspend models</td><td>Reduce next month's Ready to Assign (the default), or carry a negative category balance. Switchable, and switching re-derives every month since.</td></tr>
+        <tr><td>Cover overspend</td><td>One-tap move from another envelope, with ranked suggestions for where to take it from.</td></tr>
+        <tr><td>Credit-card payment envelopes</td><td>Card spending reserves the cash to clear it. The envelope tracks the debt, symmetric with a loan's.</td></tr>
+        <tr><td>Add-on cards</td><td>One member's card on another's account: one balance, one statement, one payment — but every transaction records which card and whose.</td></tr>
+        <tr><td>Cards at a glance</td><td>Every card in due-date order with what is owed, what is set aside and what has nothing behind it. A shortfall is never reported larger than the card owes.</td></tr>
+        <tr><td>Targets &amp; auto-assign</td><td>Per-category targets and one-tap fund-to-target with a preview. Ready to Assign is spent down the budget in order, so what you budgeted for first is funded first.</td></tr>
+        <tr><td>Hold for next month</td><td>Park income for next month; a one-month buffer is a first-class state. When more than two months of typical spending sits unassigned, the digest says so and offers a month.</td></tr>
+        <tr><td>Forward recompute</td><td>Editing any past month re-derives every month since, under the active overspend model, as one undoable batch.</td></tr>
+        <tr><td>Explain this number</td><td>Ready to Assign and every category balance drill into the events that produced them.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <section class="wrap bin" id="ingestion">
+    <div class="bin__head"><p class="eyebrow">Money in</p><h2>Ingestion</h2></div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
+        <tbody>
+        <tr><td>Manual entry</td><td>Amount expressions (<code>450+120</code>), splits, transfers, tags, owner, cleared flag, memo. Money out must name its envelope.</td></tr>
+        <tr><td>CSV import</td><td>Header detection, Indian amount formats, UPI narration extraction, saved per-bank column mappings.</td></tr>
+        <tr><td>Statement PDFs</td><td>Eleven banks — HDFC, ICICI, Axis, SBI, Union, Canara, YES, IndusInd, Kotak, RBL, HSBC — plus broker contract notes. Password-protected files opened in-process: no external tool, no library.</td></tr>
+        <tr><td>Password derivation</td><td>Optionally work the statement password out from your saved name, DOB, PAN, mobile or card last-four, so nobody types one. Opt-in, never exported, never logged.</td></tr>
+        <tr><td>Reconciliation check</td><td>Every parse is verified against the statement's own closing balance. On a real 848-row statement it reconciles to the paisa.</td></tr>
+        <tr><td>CDSL CAS import</td><td>The monthly consolidated statement is the primary way holdings get in. Rows reconcile against existing lots rather than duplicating.</td></tr>
+        <tr><td>Five dedupe tiers</td><td>Exact, strong by reference, probable, weak, and manual-versus-imported — so no receipt appears twice from an alert, an email and a statement.</td></tr>
+        <tr><td>Review queue</td><td>Nothing auto-posts. Everything imported waits for a person, with the raw row shown throughout.</td></tr>
+        <tr><td>Learning rules</td><td>File a payee twice and a rule is proposed — never auto-applied — stating the inference it came from. Filing counts wherever it happens, not only on import.</td></tr>
+        <tr><td>Gmail ingestion</td><td>Opt-in, read-only, offline. Reads only the banks' own addresses: an alert becomes a review row in seconds, a statement PDF is fetched, decrypted and parsed on arrival.</td></tr>
+        <tr><td>Receipt attachments</td><td>A photo or PDF per transaction, stored in the database and served <code>no-store</code> so no device caches it.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="cols" style="margin-top:2rem">
+      <figure class="shot">
+        <img src="img/import.webp" loading="lazy" width="1400" height="900" alt="The Import screen with CSV paste and statement-PDF upload, showing per-bank password hints.">
+        <figcaption>Import — paste a CSV or drop a statement, with the bank's own password hint.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="img/activity.webp" loading="lazy" width="1400" height="900" alt="The Activity screen listing every recorded change with an undo control beside each.">
+        <figcaption>Every import, and every row it created, undoes as one step.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="wrap bin" id="understanding">
+    <div class="bin__head"><p class="eyebrow">Making sense of it</p><h2>Understanding your money</h2></div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
+        <tbody>
+        <tr><td>Reports</td><td>Income versus spending, category trends over time, loan interest by financial year, realised gains by financial year split by holding period.</td></tr>
+        <tr><td>Query</td><td>One filterable, groupable transaction table that everything else drills into, with CSV export. Totals sum every matching row — the page you see is a page, and says so.</td></tr>
+        <tr><td>Search</td><td>Across cleaned <em>and</em> raw imported strings, from anywhere with <kbd>/</kbd>.</td></tr>
+        <tr><td>Schedules &amp; cashflow</td><td>Recurring transactions with detection, and a forward balance projection that answers &ldquo;will I make it to the 30th?&rdquo;</td></tr>
+        <tr><td>Goals</td><td>Long-horizon savings kept off the monthly grid.</td></tr>
+        <tr><td>Month close</td><td>A once-a-month ritual: what the month did, the four-way net-worth change, a dated snapshot, and whether next month is funded. Locks nothing.</td></tr>
+        <tr><td>In-app digest</td><td>Unfunded card, subscription renewing, overspend, month ready to close, things waiting in Review, cashflow dip, a spare month unassigned. In-app only — nothing exists to draw you back.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="cols" style="margin-top:2rem">
+      <figure class="shot">
+        <img src="img/query.webp" loading="lazy" width="1400" height="900"
+             alt="The Query screen: a filterable, groupable transaction table with totals.">
+        <figcaption>Query — totals cover every matching row, not just the page.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="img/reports.webp" loading="lazy" width="1400" height="900"
+             alt="The Reports screen with income versus spending bars and category trends.">
+        <figcaption>Reports — income against spend, and where it went.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="wrap bin" id="debt">
+    <div class="bin__head"><p class="eyebrow">R14–R22</p><h2>Debt and loans</h2></div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
+        <tbody>
+        <tr><td>Loan accounts</td><td>Reducing-balance and flat-rate models, with the equivalent reducing rate shown when a lender quotes flat.</td></tr>
+        <tr><td>Disbursements</td><td>Per-tranche destinations: a builder-paid tranche raises the liability only; a personal loan into savings arrives as income.</td></tr>
+        <tr><td>Amortisation &amp; drift</td><td>A full schedule for what-ifs, actual instalments carrying the lender's own split, and drift surfaced when the two disagree.</td></tr>
+        <tr><td>Prepayment engine</td><td>Tenure-versus-EMI comparison as the centrepiece, with interest saved and EMIs saved. Reduce tenure is the default.</td></tr>
+        <tr><td>Family lending</td><td>Lent and borrowed, derived balances, write-off.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="cols" style="margin-top:2rem">
+      <figure class="shot">
+        <img src="img/loans.webp" loading="lazy" width="1400" height="900" alt="The Loans screen showing each liability with its real cost, schedule and drift.">
+        <figcaption>Each loan's real cost, schedule and drift against the lender.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="img/charts_cashflow.webp" loading="lazy" width="1400" height="900" alt="A forward cashflow calendar projecting balances over the next sixty days.">
+        <figcaption>The forward projection — will the balance hold to the 30th?</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="wrap bin" id="assets">
+    <div class="bin__head"><p class="eyebrow">R23–R34</p><h2>Assets and net worth</h2></div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
+        <tbody>
+        <tr><td>Unit-based holdings</td><td>Units and FIFO lots rather than rupee balances, so cost basis, the realised/unrealised split and XIRR are all derivable.</td></tr>
+        <tr><td>Price feeds</td><td>Mutual funds and FX refresh automatically from keyless public APIs; equities use a free-tier key. Every price carries its date.</td></tr>
+        <tr><td>Hand-valued pots</td><td>Gold, retirement accounts, anything outside the consolidated statement — all updated in one sitting, each showing what it was last worth and when.</td></tr>
+        <tr><td>Net worth</td><td>The figure with its as-of date, history over time, and the period change decomposed into money saved, market movement, currency movement and debt repaid.</td></tr>
+        <tr><td>The R30 firewall</td><td>Net worth and portfolio value never appear on the budget screen, in any form. Unrealised gains are never income. That is an acceptance test, not a layout preference.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="cols" style="margin-top:2rem">
+      <figure class="shot">
+        <img src="img/portfolio.webp" loading="lazy" width="1400" height="900"
+             alt="The Portfolio screen with holdings as units, average cost and XIRR.">
+        <figcaption>Holdings as units, with XIRR as the headline return.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="img/valuations.webp" loading="lazy" width="1400" height="900"
+             alt="The bulk valuations screen listing hand-valued assets with their last known value and date.">
+        <figcaption>Every hand-valued pot, updated in one sitting.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="wrap bin" id="platform">
+    <div class="bin__head"><p class="eyebrow">R35–R40</p><h2>Platform and operations</h2></div>
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
+        <tbody>
+        <tr><td>Google SSO</td><td>A closed allow-list, enforced on every request. No password store.</td></tr>
+        <tr><td>Sessions &amp; impersonation</td><td>Per-device revocation, and read-only &ldquo;view as&rdquo; another member — always logged, writes behind an explicit toggle.</td></tr>
+        <tr><td>Personal API tokens</td><td>Scoped read or read-write, shown once and stored as a hash, rate-limited separately, and structurally unable to sign in or mint more tokens.</td></tr>
+        <tr><td>Universal undo</td><td>Every action undoes within thirty days from an append-only event log. The undo is itself an entry — nothing is edited or deleted. Where later edits touched the same record it shows what it would discard first, and it refuses outright when the record is load-bearing.</td></tr>
+        <tr><td>Backup &amp; verified restore</td><td>A scheduled job restores the latest backup into a scratch database and compares control totals. Failure fires a webhook; success pings a dead-man's switch.</td></tr>
+        <tr><td>Feature flags</td><td>Loans, assets and multi-currency each disableable per deployment. A disabled module vanishes from navigation, palette and reports.</td></tr>
+        <tr><td>Health page</td><td>The page you open at 2am: backup status, restore verification, price-feed health, flags, error counts.</td></tr>
+        <tr><td>Zero runtime dependencies</td><td>Node's standard library covers SQLite, HTTP, crypto and the test runner. The PDF reader and statement decryption are written in-repo.</td></tr>
+        </tbody>
+      </table>
+    </div>
+    <div class="cols" style="margin-top:2rem">
+      <figure class="shot">
+        <img src="img/overview.webp" loading="lazy" width="1400" height="900" alt="The Overview screen with runway, due-soon bills and the month at a glance.">
+        <figcaption>Overview — runway, what is due, and the month at a glance.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="img/charts_reports.webp" loading="lazy" width="1400" height="900" alt="Grouped income-versus-spending bars with a net-saved line by month.">
+        <figcaption>Charts are server-rendered inline SVG — no charting library.</figcaption>
+      </figure>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot__grid">
+      <div>
+        <h4>Pathayam</h4>
+        <ul>
+          <li><a href="features.html">Features</a></li>
+          <li><a href="demo.html">Envelope demo</a></li>
+          <li><a href="roadmap.html">Roadmap</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Reference</h4>
+        <ul>
+          <li><a href="documentation.html">Documentation</a></li>
+          <li><a href="api.html">API guide</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Built with</h4>
+        <ul>
+          <li>TypeScript on Node 24+</li>
+          <li>node:sqlite · node:http</li>
+          <li>Zero runtime dependencies</li>
+        </ul>
+      </div>
+    </div>
+    <p class="foot__note">
+      Self-hosted software for one household. There is no service to sign up for,
+      nothing is sent anywhere, and the data stays on the machine you run it on.
+      Every figure and name in the screenshots is fictional.
+    </p>
+  </div>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

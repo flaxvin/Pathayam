@@ -1,0 +1,243 @@
+<!doctype html>
+<html lang="en-IN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Pathayam</title>
+<meta name="description" content="A strict envelope budgeting app for one Indian household. Self-hosted, server-rendered, zero runtime dependencies.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&family=Noto+Serif+Malayalam:wght@500&family=Zilla+Slab:wght@400;500;600&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="masthead">
+  <div class="wrap masthead__inner">
+    <a class="brand" href="index.html">
+      <svg class="brand__mark" width="20" height="20" viewBox="0 0 20 20" aria-hidden="true" fill="none" stroke="currentColor" stroke-width="1.4">
+        <rect x="2.2" y="5.5" width="15.6" height="11.3"/>
+        <path d="M1.4 5.5 10 2l8.6 3.5M2.2 9.3h15.6M2.2 13h15.6"/>
+      </svg>
+      Pathayam
+    </a>
+    <nav class="nav" aria-label="Main">
+      <a href="index.html" aria-current="page">Home</a>
+      <a href="features.html">Features</a>
+      <a href="demo.html">Demo</a>
+      <a href="roadmap.html">Roadmap</a>
+      <a href="documentation.html">Docs</a>
+      <a href="api.html">API</a>
+      <button class="theme-toggle" type="button" aria-label="Switch theme">☾</button>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+
+  <section class="wrap hero">
+    <div class="hero__grid">
+      <div>
+        <h1>Every rupee gets a job <em>before</em> it is spent.</h1>
+        <p class="hero__sub">
+          A strict envelope budgeting app for one Indian household — self-hosted,
+          server-rendered, and built for the way Indian banking actually delivers
+          money: UPI noise, split card cycles, and statements locked behind a PAN.
+        </p>
+        <p class="hero__etym">
+          <span class="mal">പത്തായം</span> — the tall wooden chest that stood in a
+          Kerala house and held the year's harvest. You filled it once and drew
+          from it deliberately, and what you took out in March was decided by what
+          went in at harvest.
+        </p>
+        <div class="actions">
+          <a class="btn btn--primary" href="demo.html">Try the envelope demo</a>
+          <a class="btn btn--ghost" href="features.html">What it does</a>
+        </div>
+      </div>
+      <figure class="shot">
+        <img src="img/budget.webp" width="1400" height="900"
+             alt="The budget screen: category groups with assigned, activity and available columns, Ready to Assign at the top, and the in-app digest listing what needs attention.">
+        <figcaption>The budget screen — the month grid, Ready to Assign, and the digest.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <div class="wrap"><div class="slats"></div></div>
+
+  <section class="wrap bin bin--flush bin--tight">
+    <div class="stats">
+      <div class="stat"><span class="stat__n">813</span><span class="stat__l">tests, run on every change</span></div>
+      <div class="stat"><span class="stat__n">0</span><span class="stat__l">runtime dependencies</span></div>
+      <div class="stat"><span class="stat__n">11</span><span class="stat__l">bank statement parsers</span></div>
+      <div class="stat"><span class="stat__n">30</span><span class="stat__l">day undo, on everything</span></div>
+    </div>
+  </section>
+
+  <section class="wrap bin">
+    <div class="bin__head">
+      <p class="eyebrow">What it is</p>
+      <h2 class="sr-only">What it is</h2>
+    </div>
+    <div class="cols">
+      <div class="panel">
+        <span class="panel__kicker">The engine</span>
+        <h3>The model is the product</h3>
+        <p>
+          Rollover, overspend handling and credit-card payment envelopes are where
+          budgeting apps either get it right or quietly fudge it. Both overspend
+          models ship — reduce next month's Ready to Assign, or carry the negative
+          — and switching re-derives every month since.
+        </p>
+      </div>
+      <div class="panel">
+        <span class="panel__kicker">Money in</span>
+        <h3>India is an ingestion problem</h3>
+        <p>
+          Rupee formatting is trivial. Reconstructing a ledger from
+          <code>UPI/P2M/…/SWIGGY</code>, split card cycles and password-protected
+          statement PDFs is the actual work. Nothing auto-posts: every imported
+          row waits for a human, with its raw string kept.
+        </p>
+      </div>
+      <div class="panel">
+        <span class="panel__kicker">Where it runs</span>
+        <h3>One container, your box</h3>
+        <p>
+          Node's standard library covers everything — SQLite, HTTP, crypto, tests.
+          Even the PDF reader and the statement decryption are written in-repo
+          rather than pulled from npm. No telemetry, no third party, no account
+          with anyone.
+        </p>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap bin">
+    <div class="bin__head">
+      <p class="eyebrow">The invariant</p>
+      <h2>Money cannot be created by a screen</h2>
+    </div>
+    <div class="cols">
+      <div class="prose">
+        <p>
+          Every envelope app has an accounting identity underneath it. Most leave
+          it implicit, which is how a rounding error becomes a support ticket
+          nobody can reproduce. Here it is written down, and asserted after every
+          scenario in the test suite.
+        </p>
+        <p>
+          If a change breaks the identity, the change is wrong — including when
+          the change looked like a bug fix. That has caught real errors: an
+          uncategorised card charge that put the books out by its own amount,
+          and a rollup cache of my own that disagreed with the ledger it summarised.
+        </p>
+        <p><a href="documentation.html">How the engine is derived →</a></p>
+      </div>
+      <div>
+        <div class="identity">
+          Σ budget-account balances<br>
+          &nbsp;&nbsp;= Σ category balances<br>
+          &nbsp;&nbsp;+ <b>Ready to Assign</b><br>
+          &nbsp;&nbsp;+ held for next month<br>
+          &nbsp;&nbsp;+ Σ future assignments<br>
+          &nbsp;&nbsp;− unfunded credit absorbed
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="wrap bin">
+    <div class="bin__head">
+      <p class="eyebrow">The screens</p>
+      <h2>Plain URLs, rendered on the server</h2>
+      <p class="lede">
+        No client-side framework and no data stored on the device — every screen is
+        a URL you can open, bookmark or script against.
+      </p>
+    </div>
+    <div class="cols">
+      <figure class="shot">
+        <img src="img/cards.webp" loading="lazy" width="1400" height="900"
+             alt="The Cards screen listing credit cards in due-date order with owed, set aside and unfunded amounts.">
+        <figcaption>Cards, in the order they fall due — with what has nothing behind it.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="img/review.webp" loading="lazy" width="1400" height="900"
+             alt="The review queue showing imported transactions awaiting a decision, with one-tap filing suggestions.">
+        <figcaption>Nothing posts itself. Everything imported waits for a person.</figcaption>
+      </figure>
+      <figure class="shot">
+        <img src="img/net-worth.webp" loading="lazy" width="1400" height="900"
+             alt="The net worth screen showing the four-way decomposition and dated history chart.">
+        <figcaption>Net worth, decomposed — saved, market, currency, debt repaid.</figcaption>
+      </figure>
+    </div>
+  </section>
+
+  <section class="wrap bin">
+    <div class="bin__head">
+      <p class="eyebrow">Start here</p>
+      <h2>Five minutes to a running instance</h2>
+    </div>
+    <div class="cols">
+      <div class="prose">
+        <p>
+          Everything runs through Docker Compose, and Node is not needed on the
+          host. The seed builds a demo household with a cash overspend, a credit
+          overspend and a card payment already in it, so the screens show real
+          behaviour rather than an empty grid.
+        </p>
+        <p>
+          Every figure, name and account number in that demo — and in every
+          screenshot on this site — is fictional.
+        </p>
+      </div>
+      <pre><code><span class="tok-c"># a demo household with real behaviour</span>
+docker compose --profile seed up seed
+
+<span class="tok-c"># the dev server, auth bypass on</span>
+docker compose --profile dev up</code></pre>
+    </div>
+  </section>
+
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot__grid">
+      <div>
+        <h4>Pathayam</h4>
+        <ul>
+          <li><a href="features.html">Features</a></li>
+          <li><a href="demo.html">Envelope demo</a></li>
+          <li><a href="roadmap.html">Roadmap</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Reference</h4>
+        <ul>
+          <li><a href="documentation.html">Documentation</a></li>
+          <li><a href="api.html">API guide</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Built with</h4>
+        <ul>
+          <li>TypeScript on Node 24+</li>
+          <li>node:sqlite · node:http</li>
+          <li>Zero runtime dependencies</li>
+        </ul>
+      </div>
+    </div>
+    <p class="foot__note">
+      Self-hosted software for one household. There is no service to sign up for,
+      nothing is sent anywhere, and the data stays on the machine you run it on.
+    </p>
+  </div>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>
