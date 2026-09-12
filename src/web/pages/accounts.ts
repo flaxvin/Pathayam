@@ -13,6 +13,8 @@ import type { CardFunding } from "../../engine/engine.ts";
 
 export interface AccountRow {
   account: Account;
+  /** H2 · Whose account it is, when the household has said. */
+  holderName?: string | null;
   balances: AccountBalances;
   unclearedCount: number;
   lastReconciled: IsoDate | null;
@@ -89,6 +91,7 @@ function renderAccountRow(row: AccountRow): SafeHtml {
         ${when(account.last4, () => html`<span class="faint"> ····${account.last4}</span>`)}
         <div style="margin-top:.25rem;display:flex;gap:.4rem;flex-wrap:wrap">
           <span class="chip">${SUBTYPE_LABELS[account.subtype] ?? account.subtype}</span>
+          ${when(row.holderName, () => html`<span class="chip">${row.holderName}</span>`)}
           ${renderStateChip(row)}
           ${when(row.funding && row.funding.unfunded > 0, () => html`
             <span class="chip chip-warning">
@@ -157,6 +160,8 @@ export interface RegisterRow {
 
 export function renderAccountDetail(opts: {
   account: Account;
+  /** H2 · Who this account could belong to. Empty for a one-person household. */
+  members?: { id: string; name: string }[];
   balances: AccountBalances;
   rows: RegisterRow[];
   cards: Card[];
@@ -238,6 +243,24 @@ export function renderAccountDetail(opts: {
             <p class="field-hint">Used to match bank SMS and statements to this account.</p>
           </div>
         </div>
+        ${when((opts.members ?? []).length > 1, () => html`<div class="grid-2">
+          <div class="field">
+            <label for="acc-holder">Whose account is it</label>
+            <select id="acc-holder" name="holder_member_id">
+              <option value="">The household's, jointly</option>
+              ${(opts.members ?? []).map(
+                (m) => html`
+                  <option value="${m.id}" ${raw(account.holder_member_id === m.id ? "selected" : "")}>
+                    ${m.name}
+                  </option>
+                `,
+              )}
+            </select>
+            <p class="field-hint">
+              A label only. Every account funds the one shared budget either way.
+            </p>
+          </div>
+        </div>`)}
         <button type="submit">Save</button>
       </form>
 

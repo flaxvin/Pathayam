@@ -96,10 +96,19 @@ function main(): void {
   const savings = createAccount(db, actor, {
     name: "HDFC Savings", kind: "budget", subtype: "savings", institution: "HDFC Bank",
     last4: "6604", openingBalance: rupees(96_000), openingDate: opened,
+    holderMemberId: ravi.id,
+  });
+  // H2 · A two-person household usually has two of most things. Both fund the
+  // one shared budget; the holder is only a label saying whose it is.
+  const priyaSavings = createAccount(db, actor, {
+    name: "Kotak Savings", kind: "budget", subtype: "savings", institution: "Kotak Mahindra Bank",
+    last4: "6631", openingBalance: rupees(58_000), openingDate: opened,
+    holderMemberId: priya.id,
   });
   const current = createAccount(db, actor, {
     name: "ICICI Current", kind: "budget", subtype: "current", institution: "ICICI Bank",
     last4: "6612", openingBalance: rupees(24_000), openingDate: opened,
+    holderMemberId: ravi.id,
   });
   const cash = createAccount(db, actor, {
     name: "Cash", kind: "budget", subtype: "cash",
@@ -108,11 +117,17 @@ function main(): void {
   const hdfcCard = createAccount(db, actor, {
     name: "Swiggy HDFC", kind: "credit", subtype: "credit-card", institution: "HDFC Bank",
     last4: "4412", openingBalance: rupees(-6_200), openingDate: opened,
-    statementDay: 18, dueDay: 5,
+    statementDay: 18, dueDay: 5, holderMemberId: ravi.id,
+  });
+  const priyaCard = createAccount(db, actor, {
+    name: "Amazon Pay ICICI", kind: "credit", subtype: "credit-card", institution: "ICICI Bank",
+    last4: "7731", openingDate: opened, statementDay: 14, dueDay: 2,
+    holderMemberId: priya.id,
   });
   const axisCard = createAccount(db, actor, {
     name: "Axis Atlas", kind: "credit", subtype: "credit-card", institution: "Axis Bank",
     last4: "3150", openingDate: opened, statementDay: 22, dueDay: 10,
+    holderMemberId: ravi.id,
   });
   const addOn = createCard(db, actor, {
     accountId: axisCard.id, label: "Axis Atlas — Priya", last4: "3162", holderMemberId: priya.id,
@@ -136,6 +151,7 @@ function main(): void {
 
   const cardCat = paymentCategoryFor(db, hdfcCard.id)!;
   const axisCat = paymentCategoryFor(db, axisCard.id)!;
+  const priyaCat = paymentCategoryFor(db, priyaCard.id)!;
 
   // ------------------------------------------------------------------- loans
   // An education loan already years into repayment, and a personal loan taken
@@ -183,6 +199,11 @@ function main(): void {
   let goldValue = 1_90_000, npsValue = 2_40_000;
 
   // ------------------------------------------------------------- the history
+  /*
+   * H2 · Every transaction names who spent it. Left to default, a generated
+   * household looks like one person with a witness, which makes "by who spent
+   * it" a report with one bar in it.
+   */
   const spendOn = (
     account: string, category: string, amount: number, payee: string, date: string,
     opts: { cardId?: string; owner?: string } = {},
@@ -190,7 +211,8 @@ function main(): void {
     accountId: account, amount: rupees(-Math.max(10, amount)), date,
     categoryId: id(category), payeeName: payee,
     cleared: date < addDays(today, -3),
-    cardId: opts.cardId, ownerMemberId: opts.owner,
+    cardId: opts.cardId,
+    ownerMemberId: opts.owner ?? (rand() < 0.42 ? priya.id : ravi.id),
   });
 
   const day = (month: string, d: number): string =>
@@ -210,11 +232,16 @@ function main(): void {
       const d = between(2, 26);
       if (!live(d)) continue;
       const amount = tidy(between(38_000, 92_000) * (rand() < 0.12 ? 2.4 : 1));
+      // Priya earns too, into her own account, and it is attributed to her.
+      const hers = rand() < 0.38;
       createTransaction(db, actor, {
-        accountId: rand() < 0.7 ? savings.id : current.id,
+        accountId: hers ? priyaSavings.id : (rand() < 0.7 ? savings.id : current.id),
         amount: rupees(amount), date: day(month, d),
-        payeeName: pick(["Consulting retainer", "Client invoice", "Project milestone", "Retainer top-up"]),
+        payeeName: hers
+          ? pick(["Salary — Nirvana Labs", "Salary — Nirvana Labs", "Annual bonus"])
+          : pick(["Consulting retainer", "Client invoice", "Project milestone", "Retainer top-up"]),
         cleared: true,
+        ownerMemberId: hers ? priya.id : ravi.id,
       });
       received += amount; txns++;
     }
@@ -271,6 +298,12 @@ function main(): void {
       const d = between(1, 28); if (!live(d)) continue;
       spendOn(cash.id, "Vegetables", tidy(between(120, 640)), "Local market", day(month, d)); txns++;
     }
+    for (let k = 0; k < between(3, 7); k++) {
+      const d = between(1, 28); if (!live(d)) continue;
+      spendOn(priyaCard.id, pick(["Groceries", "Household", "Personal", "Eating out"]),
+              tidy(between(400, 4_200)), pick(SHOPS.concat(GROCERS)), day(month, d),
+              { owner: priya.id }); txns++;
+    }
     if (rand() < 0.55 && live(20)) {
       spendOn(savings.id, "Medical", tidy(between(500, 6_500)), pick(HEALTH), day(month, 20)); txns++;
     }
@@ -325,6 +358,7 @@ function main(): void {
       const owed = tidy(between(14_000, 34_000));
       setAssigned(db, actor, month, cardCat.id, rupees(rand() < 0.14 ? Math.round(owed * 0.72) : owed) as Paise);
       setAssigned(db, actor, month, axisCat.id, rupees(tidy(between(5_000, 14_000))) as Paise);
+      setAssigned(db, actor, month, priyaCat.id, rupees(tidy(between(4_000, 12_000))) as Paise);
       if (live(26)) {
         createTransfer(db, actor, {
           fromAccountId: savings.id, toAccountId: hdfcCard.id,
@@ -333,6 +367,10 @@ function main(): void {
         createTransfer(db, actor, {
           fromAccountId: savings.id, toAccountId: axisCard.id,
           amount: rupees(tidy(between(4_000, 12_000))), date: day(month, 27),
+        });
+        createTransfer(db, actor, {
+          fromAccountId: priyaSavings.id, toAccountId: priyaCard.id,
+          amount: rupees(tidy(between(3_500, 10_000))), date: day(month, 28),
         });
       }
     }

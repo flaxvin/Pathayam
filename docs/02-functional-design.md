@@ -547,6 +547,7 @@ Specified in full in `07-assets-networth-currency.md`, which also carries engine
 
 - H1 Both members see identical data; there is no owner (P5).
 - H2 Every transaction carries an **owner** — who spent it — defaulting to the entering member, editable.
+- H2.1 An **account** may name a holder — whose account it is — or stay joint. It is a label and nothing in the engine reads it: every account funds the one shared budget either way (§3), and an account with a holder behaves identically to one without. Cards already carry a holder of their own (`09` §4), which is a different thing: a card's holder defaults the owner of its transactions, an account's holder defaults nothing.
 - H3 The budget screen MUST show, on any assignment or move, who made the change and when, on demand.
 - H4 Concurrent edits to the same assignment are serialised by the server; last write wins, and the superseded value is retrievable from the event log (`08` R37). The user MUST NEVER see a merge conflict dialog. *(Simplified 26-08-2026: with no client cache there is no divergence to reconcile.)*
 - H5 Concurrent transaction entry MUST never merge or dedupe across members automatically within a 60-second window without flagging it — two people paying for two things at the same restaurant is normal.

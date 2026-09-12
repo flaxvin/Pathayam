@@ -1049,6 +1049,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const outstanding = creditOutstanding(db);
     const view = buildBudgetView(db);
 
+    const memberNames = new Map(listMembers(db).map((m) => [m.id, m.name]));
     const rows: AccountRow[] = listAccounts(db).map((account) => {
       const recon = queryOne<{ as_of: string; broken_at: string | null }>(
         db,
@@ -1060,6 +1061,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
       return {
         account,
+        holderName: account.holder_member_id ? memberNames.get(account.holder_member_id) ?? null : null,
         balances: balances.get(account.id)!,
         unclearedCount:
           queryOne<{ n: number }>(
@@ -1122,6 +1124,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         nickname: text("nickname"),
         institution: text("institution"),
         last4: text("last4"),
+        holder_member_id: text("holder_member_id"),
       });
       return { redirect: `/accounts/${id}`, message: "Saved." };
     }),
@@ -1255,6 +1258,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       account.nickname || account.name,
       renderAccountDetail({
         account,
+        members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
         balances,
         rows,
         cards: listCards(db, account.id),
