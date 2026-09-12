@@ -44,6 +44,8 @@ export interface LayoutOptions {
   impersonating?: { name: string; readOnly: boolean } | null;
   /** R38.4: distinct from impersonation, impossible to confuse with production. */
   devMode?: boolean;
+  /** A public demonstration instance: fictional data, and it says so. */
+  demoMode?: boolean;
   /** The path used to mark the current nav item. */
   path?: string;
   reviewCount?: number;
@@ -63,7 +65,7 @@ const PRIMARY_NAV: NavItem[] = [
 
 export function page(options: LayoutOptions, content: SafeHtml): string {
   const {
-    title, theme, path = "/", impersonating, devMode, notice, bare,
+    title, theme, path = "/", impersonating, devMode, demoMode, notice, bare,
     reviewCount = 0, memberName, features = { loans: true, assets: true },
   } = options;
 
@@ -83,7 +85,7 @@ export function page(options: LayoutOptions, content: SafeHtml): string {
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
 </head>
 <body data-features="${[features.loans ? "loans" : "", features.assets ? "assets" : ""].filter(Boolean).join(" ")}">
-${String(renderBanners(impersonating, devMode, path))}
+${String(renderBanners(impersonating, devMode, demoMode, path))}
 ${bare ? "" : String(renderHeader(theme, memberName))}
 <a class="skip-link" href="#main">Skip to content</a>
 ${bare
@@ -101,9 +103,21 @@ ${String(renderBottomNav(path, reviewCount))}`}
 function renderBanners(
   impersonating: LayoutOptions["impersonating"],
   devMode: boolean | undefined,
+  demoMode: boolean | undefined,
   path: string,
 ): SafeHtml {
   return html`
+    ${when(
+      demoMode,
+      () => html`
+        <div class="banner banner-demo" role="status">
+          <span>
+            Demo — every figure, name and account here is invented, and the data
+            resets periodically. Nothing you do affects anything real.
+          </span>
+        </div>
+      `,
+    )}
     ${when(
       devMode,
       () => html`

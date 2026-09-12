@@ -195,6 +195,11 @@ h3 { font-size: 1rem; }
 :root[data-theme="dark"] .banner-impersonation { background: #7d1414; color: #fff; }
 /* R38.4: visually distinct from impersonation, impossible to confuse. */
 .banner-dev { background: repeating-linear-gradient(45deg, #6b21a8, #6b21a8 12px, #581c87 12px, #581c87 24px); color: #fff; }
+.banner-demo {
+  background: #0f3d2a;
+  color: #d8f0e2;
+  border-bottom: 1px solid #17583d;
+}
 .banner-maintenance { background: var(--warning-bg); color: var(--warning); }
 .banner a, .banner button { color: inherit; }
 

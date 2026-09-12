@@ -7,7 +7,10 @@
  * listen.
  */
 
-import { loadConfig, assertDevLoginSafeAgainstData, UnsafeConfiguration, devLoginModulePresent } from "./config.ts";
+import {
+  loadConfig, assertDevLoginSafeAgainstData, assertDemoModeSafeAgainstData,
+  UnsafeConfiguration, devLoginModulePresent,
+} from "./config.ts";
 import { openDatabase, ensureHousehold, queryOne } from "./db/db.ts";
 import { createHttpServer } from "./http/server.ts";
 import { buildApp, renderErrorPage } from "./app.ts";
@@ -48,6 +51,10 @@ function main(): void {
   try {
     const count = queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM transactions`)?.n ?? 0;
     assertDevLoginSafeAgainstData(config, count);
+    assertDemoModeSafeAgainstData(config, {
+      gmailConnections: queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM gmail_connections`)?.n ?? 0,
+      statementIdentities: queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM statement_identity`)?.n ?? 0,
+    });
   } catch (err) {
     if (err instanceof UnsafeConfiguration) {
       console.error(`\n${err.message}`);
@@ -197,6 +204,7 @@ function main(): void {
       // F23.13: in production this must always read false.
       devLoginPresent: devLoginModulePresent(),
       devLoginEnabled: config.devLogin,
+      demoMode: config.demoMode,
     });
     if (config.devLogin) {
       console.log("\n  ⚠  DEV_LOGIN is on — authentication is bypassed on this machine.\n");
