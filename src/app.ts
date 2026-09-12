@@ -42,7 +42,7 @@ import {
 import { fetchGmail } from "./gmail/fetch.ts";
 import { withIdempotency, IdempotencyConflict } from "./core/idempotency.ts";
 import { parseAmount, evaluateAmountExpression, formatPaise, type Paise } from "./core/money.ts";
-import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, lastDayOfMonth, fiscalYearOf, formatFiscalYear, type MonthKey, type IsoDate } from "./core/dates.ts";
+import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, lastDayOfMonth, daysBetween, fiscalYearOf, formatFiscalYear, type MonthKey, type IsoDate } from "./core/dates.ts";
 import { buildBudgetView, reviewCount } from "./web/viewmodel.ts";
 import { renderBudget } from "./web/pages/budget.ts";
 import {
@@ -151,6 +151,7 @@ import {
 } from "./web/pages/manage.ts";
 import { renderPrivacy, renderTerms } from "./web/pages/legal.ts";
 import { renderActivity } from "./web/pages/activity.ts";
+import { renderCards, type CardDue } from "./web/pages/cards.ts";
 import { countRequestFailures, recentRequestFailures } from "./ops/errors.ts";
 
 /**
@@ -2098,6 +2099,67 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   // F2.3 · Record a credit-card statement, so funding advice keys off the real
   // billing cycle rather than the calendar month.
+  /*
+   * F2.3 / R6 · The cards, in the order they fall due.
+   *
+   * Seven cards on seven billing cycles, and the question asked most often —
+   * which do I pay next, how much, is it already set aside — had no screen.
+   * Every figure here already existed; none of them were ever put in due-date
+   * order on one page.
+   */
+  router.get("/cards", (ctx) => {
+    auth(ctx);
+    const month = monthParam(ctx);
+    const view = buildBudgetView(db, month);
+    const outstanding = creditOutstanding(db);
+    const today = todayIST();
+
+    const cards: CardDue[] = listAccounts(db)
+      .filter((a) => a.kind === "credit")
+      .map((account) => {
+        const payment = [...view.categories.values()]
+          .find((c) => c.paymentAccountId === account.id) ?? null;
+        const funded = payment?.state.balance ?? 0;
+        const funding = cardFunding(
+          account.id,
+          outstanding.get(account.id) ?? 0,
+          funded,
+          view.monthState.unfundedByAccount[account.id] ?? 0,
+        );
+        const statement = lastCardStatement(db, account.id);
+
+        return {
+          accountId: account.id,
+          name: account.nickname || account.name,
+          last4: account.last4,
+          owed: Math.max(0, -(outstanding.get(account.id) ?? 0)) as Paise,
+          funded,
+          unfunded: funding.unfunded,
+          statement: statement
+            ? {
+                amount: statement.amount, date: statement.statement_date,
+                due: statement.due_date, minimum: statement.minimum_due,
+              }
+            : null,
+          daysToDue: statement ? daysBetween(today, statement.due_date) : null,
+          paymentCategoryId: payment?.id ?? null,
+        };
+      })
+      /*
+       * Soonest first. A card with no statement has no due date to sort by, so
+       * it goes last rather than being guessed at — R6 reports the debt it can
+       * see and never invents a cycle.
+       */
+      .sort((a, b) => {
+        if (a.daysToDue === null && b.daysToDue === null) return b.owed - a.owed;
+        if (a.daysToDue === null) return 1;
+        if (b.daysToDue === null) return -1;
+        return a.daysToDue - b.daysToDue;
+      });
+
+    return render(ctx, "Cards", renderCards({ cards, month }));
+  });
+
   router.get("/accounts/:id/statement", (ctx) => {
     auth(ctx);
     const account = getAccount(db, ctx.params.id!);
