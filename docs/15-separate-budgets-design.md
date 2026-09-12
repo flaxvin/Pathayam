@@ -476,6 +476,44 @@ a personal budget a partner can step into is not a separate budget.
 
 ---
 
+## 6A. When a member leaves
+
+Removing a member already keeps their historical attributions (F1.6). With
+separate budgets there are two more things to settle, and neither may be silent.
+
+**Their commitments are released.** Money still sitting in their household
+envelope goes back to their own Ready to Assign. It was theirs; they simply
+promised it, and the promise ends with the arrangement. The household's claim
+falls by the same amount and its identity stays closed.
+
+**What was already spent becomes a family loan.** If the household had drawn on
+their commitment — or they had spent beyond it on the household's behalf — that
+balance does not evaporate because somebody left. It converts into an ordinary
+family-lending arrangement (`10` §3.5, F2.10), with them as the counterparty.
+
+That is the right destination rather than a convenient one. Family lending is
+exactly "money between this household and a person outside it", which is what
+they have just become. It already has advances, repayments, a derived balance and
+a write-off, so nothing new is built — and the transactional vocabulary R6.n
+forbids between partners is correct again, because they are no longer partners in
+the budget.
+
+**Every option is offered, not chosen for them.** Leaving presents the balance
+and the ways to end it — settle it now, convert it to a family loan, or call it
+even — with the consequence of each written next to it. The app never picks.
+
+## 6B. Goals belong to a budget, and cannot move
+
+A goal is personal or shared, **chosen when it is created and fixed after that**.
+
+The reason is that a goal is measured by its categories' balances (F11), so
+moving it between budgets would move money's meaning underneath a figure people
+have been watching for months — the trip fund that was yours becomes the
+household's, and the history stops describing the same thing.
+
+Creating a new goal in the other budget and closing this one is honest about what
+happened. Silently re-pointing it is not.
+
 ## 7. What this does to the schema
 
 | Table | Change |
