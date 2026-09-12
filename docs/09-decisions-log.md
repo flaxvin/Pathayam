@@ -129,6 +129,9 @@ Paytm (monthly statement) · Amazon Pay (balance, autopay, bill reminders) · CR
 - R6.a An **add-on card** is a sub-card of an existing Credit account, never a Credit account of its own.
 - R6.b The account has **one** outstanding balance, **one** statement, **one** due date and **one** payment category. Add-on spending consumes the same envelope money as primary spending.
 - R6.c Every transaction on the account MUST record **which card** it was made on (primary or a named add-on) and **which member** owns it (`02` H2).
+- R6.h A **shared** card is one whose account sits in the household budget (`15` §2). Any member MAY spend on it; the app records rather than controls, and R6.c already names the card and the member on every charge.
+- R6.i The bill MUST be paid in full from the card's own payment envelope, in the card's budget. The debt belongs to the budget that owns the card, however the spending was filed, so a shared card's payment is never split between members.
+- R6.j A charge on a shared card filed to a **personal** envelope MUST raise a claim from that member to the household (`15` §3A.3). It is settled against their household commitment, or by a transfer — never by adjusting what the household pays the bank.
 - R6.d The account view MUST be able to break spending down by card, so "what did the add-on spend this cycle" is one filter, not a mental exercise.
 - R6.e Transaction alerts arriving in the primary holder's inbox that name the add-on's last four MUST resolve to the add-on card and default their owner to that add-on's holder (`04` §3.4).
 - R6.f Closing an add-on MUST NOT close the account or its payment category.

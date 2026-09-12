@@ -158,6 +158,85 @@ what it always meant: money leaving one budget and arriving in another. It is th
 right tool when the household genuinely needs the cash in its own account — a
 standing instruction for rent, say. §3.1 is for when it does not.
 
+## 3A. Q2a · A shared card — who spends, and who pays
+
+### 3A.1 Who can spend from it
+
+**Anybody in the household, and the app does not try to stop them.** It records
+what happened; the bank decides who holds plastic. Sharing a card means putting
+it in the household budget (§2), which is a statement about whose *debt* it is,
+not about who is allowed to use it.
+
+Two things are already recorded on every charge and carry over unchanged:
+
+- **Which card** it was made on — the primary or a named add-on (R6.c).
+- **Which member** spent it (H2), defaulting to the card's holder.
+
+So "who spent from the shared card" is answerable today, per transaction, and
+the Cards screen and Query both already group by it.
+
+### 3A.2 Where the payment draws from
+
+**From the card's own payment envelope, which lives in the card's budget.** For a
+shared card that is the household's, and it is filled automatically by every
+charge — whoever made it.
+
+This falls out of an existing property rather than needing a rule: a credit
+balance is **not** on the left side of the identity. `budgetAccountBalance` sums
+Budget accounts only. A card charge therefore moves money between two envelopes
+and touches no account balance at all:
+
+```
+Groceries envelope   −₹2,000      the category gives the money up
+Card payment         +₹2,000      the envelope holds it against the debt
+budget accounts       unchanged   no cash has moved yet
+```
+
+Paying the bill is then a transfer from a household account to the card, which
+draws the payment envelope down and the account balance with it. **The household
+always pays the whole bill**, because the whole debt is the household's.
+
+### 3A.3 The case that needs the claim: personal spending on a shared card
+
+Priya buys ₹2,000 of her own clothes on the shared card and files it to her
+personal Clothes envelope. The card is the household's; the envelope is hers.
+
+```
+PRIYA'S BUDGET                   HOUSEHOLD BUDGET
+Clothes             −2,000       Card payment        +2,000
+owed to household   +2,000       due from Priya      +2,000
+0 = −2,000 + 2,000   ✓           0 + 2,000 = 2,000    ✓
+```
+
+Both close, and the claim says exactly the true thing: **she used the household's
+credit for herself, so she owes the household.** The household still pays the
+bank in full; the ₹2,000 is settled between the two of them, not by splitting the
+bill.
+
+Settling needs no new mechanism. Either she transfers ₹2,000 to a household
+account, or — far more usually — it is simply netted against her "→ Household"
+commitment (§3.1), which is the same claim with the opposite sign.
+
+### 3A.4 The one rule underneath all of this
+
+Everything in §3 and §3A is one rule:
+
+> **When a transaction's account is in one budget and its category is in another,
+> a claim arises between them.** The "→ Household" envelope is that claim
+> pre-funded, which is why spending on the household's behalf draws it down
+> instead of creating a debt.
+
+| Account's budget | Category's budget | Effect |
+|---|---|---|
+| Household | Household | Nothing extra. The ordinary case. |
+| Personal | Household | Draws down that member's commitment; overspends it if there is not enough |
+| Household | Personal | That member owes the household |
+| Personal · A | Personal · B | Refused. Two people's private budgets should not entangle without the household in between. |
+
+The last row is a deliberate restriction rather than an oversight: allowing it
+would create claims nobody is watching, between two budgets neither member can
+see in full.
+
 ## 4. Q3 · Splitting one receipt across budgets
 
 A supermarket trip that is half household groceries, half Priya's own things.
@@ -222,6 +301,7 @@ separating them, and it needs no privacy flag: the budget itself is the boundary
 | `category_groups`, `categories` | `budget_id` — envelopes belong to one budget |
 | `assignments`, `held_for_next_month`, `targets` | inherit through the category or gain `budget_id` |
 | `transaction_splits` | `budget_id` — for §4, the line's budget when it differs from the account's |
+| `cards` | no change. R6.c already records which card and which member for every charge, which is what §3A.1 answers |
 | `month_rollups`, `month_rollup_state` | keyed by `(budget_id, month)` |
 | `month_closes`, `goals` | `budget_id` |
 | — | **no new table.** The household's claim is the sum of the personal budgets' household envelopes (§3.2), so there is nothing separate to keep in step |
@@ -275,8 +355,9 @@ Each step leaves the app working and shippable, which matters over three months.
 3. **Create personal budgets, empty.** Members can see a second budget with
    nothing in it. Moving an account into one becomes possible.
 4. **Contributions** — §3.1, which needs no new primitive.
-5. **Spending on behalf** — §3.4, the second envelope touched by one
-   transaction. Done last, on top of an engine already proven per budget.
+5. **Cross-budget filing** — §3A.4's single rule, which covers spending on the
+   household's behalf and personal spending on a shared card at once. Done last,
+   on top of an engine already proven per budget.
 6. **Splits across budgets** — §4, which is §3.4 applied per line.
 
 Steps 1 and 2 are the foundation and carry the migration risk. Step 5 is where
