@@ -162,6 +162,8 @@ export function renderAccountDetail(opts: {
   account: Account;
   /** H2 · Who this account could belong to. Empty for a one-person household. */
   members?: { id: string; name: string }[];
+  /** 15 · The budgets this account could live in. */
+  budgets?: { id: string; name: string; kind: string }[];
   balances: AccountBalances;
   rows: RegisterRow[];
   cards: Card[];
@@ -243,6 +245,24 @@ export function renderAccountDetail(opts: {
             <p class="field-hint">Used to match bank SMS and statements to this account.</p>
           </div>
         </div>
+        ${when((opts.budgets ?? []).length > 1 && account.kind !== "tracking", () => html`
+          <div class="field">
+            <label for="acc-budget">Whose money it is</label>
+            <select id="acc-budget" name="budget_id">
+              ${(opts.budgets ?? []).map(
+                (b) => html`
+                  <option value="${b.id}" ${raw(account.budget_id === b.id ? "selected" : "")}>
+                    ${b.kind === "household" ? "The household budget" : `${b.name}'s budget`}
+                  </option>
+                `,
+              )}
+            </select>
+            <p class="field-hint">
+              Moving it moves its balance to that budget's Ready to Assign, and its
+              spending to that budget's envelopes.
+            </p>
+          </div>
+        `)}
         ${when((opts.members ?? []).length > 1, () => html`<div class="grid-2">
           <div class="field">
             <label for="acc-holder">Whose account is it</label>
@@ -427,12 +447,43 @@ function renderCardBreakdown(cards: Card[], accountId: string): SafeHtml {
 // New account form (F2)
 // ---------------------------------------------------------------------------
 
-export function renderNewAccountForm(opts: { error?: string | null } = {}): SafeHtml {
+export function renderNewAccountForm(opts: {
+  error?: string | null;
+  members?: { id: string; name: string }[];
+  budgets?: { id: string; name: string; kind: string }[];
+} = {}): SafeHtml {
   return html`
     <h1>Add an account</h1>
     ${when(opts.error, () => html`<p class="notice notice-error">${opts.error}</p>`)}
 
     <form method="post" action="/accounts/new" class="card">
+      ${when((opts.budgets ?? []).length > 1, () => html`
+        <div class="grid-2">
+          <div class="field">
+            <label for="new-budget">Whose money it is</label>
+            <select id="new-budget" name="budget_id">
+              ${(opts.budgets ?? []).map(
+                (b) => html`
+                  <option value="${b.id}">
+                    ${b.kind === "household" ? "The household budget" : `${b.name}'s budget`}
+                  </option>
+                `,
+              )}
+            </select>
+          </div>
+          <div class="field">
+            <label for="new-visibility">Who can see it</label>
+            <select id="new-visibility" name="visibility">
+              <option value="household">Shared with the household</option>
+              <option value="private">Private to me</option>
+            </select>
+            <p class="field-hint">
+              Private needs it to be in your own budget — the household's Ready to
+              Assign would otherwise give the balance away.
+            </p>
+          </div>
+        </div>
+      `)}
       <div class="field">
         <label for="name">Name</label>
         <input id="name" name="name" required autocomplete="off" placeholder="HDFC Savings">

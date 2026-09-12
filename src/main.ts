@@ -15,6 +15,7 @@ import { openDatabase, ensureHousehold, queryOne } from "./db/db.ts";
 import { createHttpServer } from "./http/server.ts";
 import { buildApp, renderErrorPage } from "./app.ts";
 import { HttpError } from "./http/router.ts";
+import { Refusal } from "./core/refusal.ts";
 import { pruneIdempotencyKeys } from "./core/idempotency.ts";
 import { pruneExpiredSessions, pruneAuthAttempts } from "./auth/sessions.ts";
 import { purgeDeleted } from "./domain/transactions.ts";
@@ -73,11 +74,13 @@ function main(): void {
     logger: log,
     onError(err, ctx) {
       const accept = ctx.req.headers.accept ?? "";
-      const status = err instanceof HttpError ? err.status : 500;
-      const message =
-        err instanceof HttpError
-          ? err.message
-          : "Something went wrong on the server. Nothing you typed has been lost.";
+      // A Refusal is the domain declining on purpose; it is handled exactly like
+      // an HttpError, because to the household they are the same thing.
+      const deliberate = err instanceof HttpError || err instanceof Refusal;
+      const status = err instanceof HttpError ? err.status : err instanceof Refusal ? err.status : 500;
+      const message = deliberate
+        ? (err as Error).message
+        : "Something went wrong on the server. Nothing you typed has been lost.";
 
       /*
        * B66 · Handling the error here is what makes the household see a styled
@@ -85,13 +88,13 @@ function main(): void {
        * also means `http/server.ts` never reaches the branch that logs the
        * stack. So the logging happens here, at the point that swallows it.
        *
-       * An HttpError is a deliberate answer (404, 422, "that needs a
-       * password") and is not a fault, so only an unexpected throw is
+       * An HttpError or a Refusal is a deliberate answer (404, 422, "that
+       * needs a password") and is not a fault, so only an unexpected throw is
        * recorded. It goes to the log *and* to the database, because the log is
        * where you look when you already know something is wrong and the health
        * page is where you find out that it is.
        */
-      if (!(err instanceof HttpError)) {
+      if (!deliberate) {
         log({
           level: "error",
           msg: "request failed",

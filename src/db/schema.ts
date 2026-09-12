@@ -13,6 +13,20 @@
 export interface Migration {
   name: string;
   sql: string;
+  /**
+   * Set when the migration rebuilds a table other tables point at.
+   *
+   * SQLite's own recipe for rebuilding a table requires `foreign_keys` to be
+   * OFF, and the pragma is a no-op inside a transaction — so the runner has to
+   * turn it off around the whole thing. `DROP TABLE` on a parent increments the
+   * deferred-violation counter for every child row, and re-parenting the rows
+   * by renaming the replacement back into place does not decrement it: the
+   * COMMIT fails with a violation that `PRAGMA foreign_key_check` cannot find.
+   *
+   * The runner still runs `foreign_key_check` before committing, so a rebuild
+   * that genuinely orphans a row is still refused.
+   */
+  rebuildsTable?: true;
 }
 
 export const MIGRATIONS: Migration[] = [
@@ -1500,6 +1514,96 @@ UPDATE month_closes        SET budget_id = 'budget-household';
 -- populated, so the cache is emptied and rebuilt rather than left half-right.
 DELETE FROM month_rollups;
 DELETE FROM month_rollup_state;
+`,
+  },
+  {
+    name: "0026-private-personal-accounts",
+    rebuildsTable: true,
+    sql: `
+--------------------------------------------------------------------------------
+-- H2.2a · Privacy follows the budget
+--------------------------------------------------------------------------------
+-- 0023 forbade a private Budget or Credit account, and was right while every
+-- account sat in the one household budget: Ready to Assign summed it, so hiding
+-- it published it by subtraction.
+--
+-- With personal budgets that stops being true. The household budget never sums a
+-- personal account — it sums only what its owner has committed (15 §3.3) — so a
+-- private account in a personal budget publishes nothing. SQLite cannot alter a
+-- CHECK in place, so the table is rebuilt.
+--
+-- Rebuilding a table half the schema points at needs one more thing: with
+-- foreign_keys ON, DROP TABLE accounts is an implicit DELETE of every row, and
+-- every transaction, card and reconciliation referencing one of them raises a
+-- violation. PRAGMA foreign_keys cannot be changed inside a transaction and
+-- every migration runs in one, so defer the checking instead — by COMMIT the
+-- table is back under its own name with all its rows, and the check passes.
+-- Found the way it should be: this migration failed on a real database with
+-- data in it while passing on every empty one in the test suite. The runner
+-- turns foreign_keys off around a migration marked rebuildsTable, and checks
+-- for real orphans before it commits.
+CREATE TABLE accounts_new (
+  id               TEXT PRIMARY KEY,
+  name             TEXT NOT NULL,
+  nickname         TEXT,
+  kind             TEXT NOT NULL CHECK (kind IN ('budget','credit','tracking')),
+  subtype          TEXT NOT NULL,
+  institution      TEXT,
+  last4            TEXT,
+  currency         TEXT NOT NULL DEFAULT 'INR',
+  opening_balance  INTEGER NOT NULL DEFAULT 0,
+  opening_date     TEXT NOT NULL,
+  statement_day    INTEGER,
+  due_day          INTEGER,
+  credit_limit     INTEGER,
+  sort             INTEGER NOT NULL DEFAULT 0,
+  created_at       TEXT NOT NULL,
+  created_by       TEXT,
+  closed_at        TEXT,
+  holder_member_id TEXT REFERENCES members(id),
+  budget_id        TEXT REFERENCES budgets(id),
+  visibility       TEXT NOT NULL DEFAULT 'household'
+                   CHECK (visibility IN ('household','private')),
+  -- The rule, restated: private is allowed for a Tracking account, or for one
+  -- whose budget is somebody's own. Never for an account in the household
+  -- budget, where the household's own Ready to Assign would give it away.
+  CHECK (
+    visibility = 'household'
+    OR kind = 'tracking'
+    OR (budget_id IS NOT NULL AND budget_id <> 'budget-household')
+  )
+);
+
+INSERT INTO accounts_new
+  SELECT id, name, nickname, kind, subtype, institution, last4, currency,
+         opening_balance, opening_date, statement_day, due_day, credit_limit,
+         sort, created_at, created_by, closed_at, holder_member_id, budget_id,
+         visibility
+    FROM accounts;
+
+DROP TABLE accounts;
+ALTER TABLE accounts_new RENAME TO accounts;
+
+CREATE INDEX idx_accounts_budget ON accounts(budget_id);
+
+-- DROP TABLE takes the table's triggers with it, and 0018's rollup
+-- invalidation lives on this one. Without these two the cache would go stale
+-- the moment an account was added or its kind changed, which is precisely the
+-- disagreement B74's test exists to catch — and did.
+CREATE TRIGGER trg_rollup_account_update AFTER UPDATE ON accounts
+WHEN OLD.kind <> NEW.kind
+  OR OLD.opening_balance <> NEW.opening_balance
+  OR OLD.opening_date <> NEW.opening_date
+BEGIN
+  DELETE FROM month_rollups;
+  DELETE FROM month_rollup_state;
+END;
+
+CREATE TRIGGER trg_rollup_account_insert AFTER INSERT ON accounts
+BEGIN
+  DELETE FROM month_rollups;
+  DELETE FROM month_rollup_state;
+END;
 `,
   },
 ];

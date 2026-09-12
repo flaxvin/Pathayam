@@ -15,11 +15,12 @@ Two phases are already done. They are listed so the sequence reads whole.
 | ✅ | **P0 · Budgets exist** | `budgets` table, `budget_id` on accounts and envelopes, everything backfilled into one household budget. No behaviour change. |
 | ✅ | **P1 · The engine is scoped** | `loadEngineInput` computes one budget. Identity holds per budget on cached and uncached paths, verified over 36 months. |
 | ✅ | **P1a · View-as gated** | Off unless `ADMIN_DEBUG`; household budget only when on (R38.6a–b). |
-| ⬜ | **P2 → P7** | Below. |
+| ✅ | **P2 · Personal budgets** | A member can open their own budget, move accounts into it, keep them private, and keep their own envelopes. A household that never opens one sees no change — asserted, not assumed. |
+| ⬜ | **P3 → P7** | Below. |
 
 ---
 
-## P2 · Personal budgets, and moving money's home into one
+## P2 · Personal budgets, and moving money's home into one — done
 
 **The first thing a household actually sees.** Until this ships, the rest is
 plumbing nobody can touch.
@@ -38,6 +39,20 @@ plumbing nobody can touch.
 **Done when:** two people can put their own current accounts and cards in their
 own budgets, keep them private, and see only their own grid — with the household
 budget still working exactly as it does today.
+
+**Two things found on the way**, neither of them in the estimate:
+
+- Migration 0026 rebuilds `accounts`, and a table rebuild behaves differently on
+  a database with rows in it. It passed 851 tests and failed on the first real
+  database it met, because `DROP TABLE` on a parent leaves SQLite's deferred
+  violation counter high and `PRAGMA foreign_key_check` cannot see it. The
+  runner now turns `foreign_keys` off around a migration marked `rebuildsTable`
+  and checks for genuine orphans before committing, and B105 runs every rebuild
+  against a populated database.
+- A domain refusal reached the household as *"Something went wrong on the
+  server"*, with a 500 and an entry on the Health page. `core/refusal.ts` gives
+  the domain a way to decline on purpose; it arrives as a 422 carrying the
+  sentence that was the reason for refusing (B106).
 
 ---
 

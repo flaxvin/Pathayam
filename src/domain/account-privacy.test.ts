@@ -3,8 +3,9 @@
  *
  * The rule that shapes all of this is arithmetic rather than policy: Ready to
  * Assign is a sum over every Budget account, so hiding one while showing the
- * total publishes it by subtraction. Only Tracking accounts — which fund
- * nothing — can be hidden honestly, and the first test pins that.
+ * total publishes it by subtraction. So a thing can be private only when no
+ * shared total is built on it: a Tracking account, which funds nothing, or an
+ * account in a personal budget, whose Ready to Assign is its owner's alone.
  */
 
 import { test, describe } from "node:test";
@@ -13,12 +14,13 @@ import { openDatabase, ensureHousehold, execute, type DB } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { nowIST, todayIST } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
-import { createAccount, updateAccount, listAccounts, hiddenAccountIds } from "./accounts.ts";
+import { createAccount, updateAccount, listAccounts, hiddenAccountIds, getAccount } from "./accounts.ts";
 import { createAssetAccount, recordValuation, listAssetAccounts } from "./assets.ts";
 import { createLoan } from "./loans.ts";
 import { createFamilyLoan } from "./family-loans.ts";
 import { netWorthStatement } from "./networth.ts";
 import { readFileSync } from "node:fs";
+import { ensurePersonalBudget, householdBudgetId } from "./budgets.ts";
 
 const RAVI = "m-ravi";
 const PRIYA = "m-priya";
@@ -35,7 +37,7 @@ function setup(): DB {
 }
 
 describe("H2.2 · only what funds nothing may be private", () => {
-  test("a budget or credit account cannot be made private, at create or edit", () => {
+  test("H2.2a · a budget or credit account in the HOUSEHOLD budget cannot be private", () => {
     const db = setup();
     for (const kind of ["budget", "credit"] as const) {
       assert.throws(
@@ -43,15 +45,39 @@ describe("H2.2 · only what funds nothing may be private", () => {
           name: "X", kind, subtype: kind === "budget" ? "savings" : "credit-card",
           visibility: "private", holderMemberId: RAVI,
         }),
-        /would not actually hide the amount/,
-        `${kind} accounts feed Ready to Assign, so hiding one is a false promise`,
+        /would not hide the amount/,
+        `the household's Ready to Assign sums a ${kind} account, so hiding one is a false promise`,
       );
     }
     const bank = createAccount(db, actor, {
       name: "HDFC", kind: "budget", subtype: "savings", holderMemberId: RAVI,
     });
     assert.throws(() => updateAccount(db, actor, bank.id, { visibility: "private" }),
-      /would not actually hide the amount/);
+      /would not hide the amount/);
+    db.close();
+  });
+
+  test("H2.2a · the same account may be private once it is in a personal budget", () => {
+    /*
+     * The rule did not weaken; what made it leak went away. A personal budget's
+     * accounts are never summed into the household's Ready to Assign — only the
+     * amount their owner commits is (15 §3.3) — so there is nothing to infer.
+     */
+    const db = setup();
+    const mine = ensurePersonalBudget(db, RAVI, "Ravi");
+
+    const card = createAccount(db, actor, {
+      name: "My card", kind: "credit", subtype: "credit-card",
+      holderMemberId: RAVI, visibility: "private", budgetId: mine.id,
+    });
+    assert.equal(getAccount(db, card.id)!.visibility, "private");
+
+    // And moving it back into the household budget while private is refused,
+    // rather than silently re-exposing it.
+    assert.throws(
+      () => updateAccount(db, actor, card.id, { budget_id: householdBudgetId(db) }),
+      /would not hide the amount/,
+    );
     db.close();
   });
 
@@ -180,5 +206,51 @@ describe("H2.2 · view as must not become a way around it", () => {
 
     assert.match(body, /a\?\.member\.id/, "must read the authenticated member");
     assert.doesNotMatch(body, /viewingAs/, "must not read the impersonated member");
+  });
+});
+
+describe("H2.2a · private in a personal budget", () => {
+  test("a private account can be created straight into a personal budget", () => {
+    const db = setup();
+    const budget = ensurePersonalBudget(db, PRIYA, "Priya");
+
+    const account = createAccount(db, actor, {
+      name: "Priya's savings",
+      kind: "budget",
+      subtype: "savings",
+      holderMemberId: PRIYA,
+      visibility: "private",
+      budgetId: budget.id,
+      openingBalance: rupees(5_000),
+    });
+
+    assert.equal(account.visibility, "private");
+    assert.equal(account.budget_id, budget.id);
+    // It funds her budget, not the household's — which is the whole reason it
+    // is allowed to be private at all.
+    assert.equal(
+      listAccounts(db, { viewerMemberId: PRIYA }).some((a) => a.id === account.id),
+      true,
+    );
+  });
+
+  test("moving an already-private account back to the household is refused in words", () => {
+    const db = setup();
+    const budget = ensurePersonalBudget(db, PRIYA, "Priya");
+    const account = createAccount(db, actor, {
+      name: "Priya's savings",
+      kind: "budget",
+      subtype: "savings",
+      holderMemberId: PRIYA,
+      visibility: "private",
+      budgetId: budget.id,
+    });
+
+    // The raw CHECK would catch this too, but with a sentence about a
+    // constraint rather than about money.
+    assert.throws(
+      () => updateAccount(db, actor, account.id, { budget_id: householdBudgetId(db) }),
+      /would not hide the amount/,
+    );
   });
 });
