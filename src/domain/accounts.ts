@@ -11,6 +11,7 @@ import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST, todayIST, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
+import { householdBudgetId } from "./budgets.ts";
 
 export type AccountKind = "budget" | "credit" | "tracking";
 
@@ -113,6 +114,12 @@ export interface CreateAccountInput {
   holderMemberId?: string | null;
   /** H2.2 · Only a Tracking account may be private; see the migration. */
   visibility?: "household" | "private";
+  /**
+   * 15 · Whose money this account holds. Defaults to the household budget, so
+   * an account created without thinking about it behaves as it always has.
+   * Ignored for Tracking accounts, which belong to no budget (FW1).
+   */
+  budgetId?: string;
 }
 
 export function createAccount(db: DB, actor: Actor, input: CreateAccountInput): Account {
@@ -149,8 +156,8 @@ export function createAccount(db: DB, actor: Actor, input: CreateAccountInput): 
       `INSERT INTO accounts
          (id,name,nickname,kind,subtype,institution,last4,currency,opening_balance,
           opening_date,statement_day,due_day,credit_limit,sort,created_at,created_by,
-          holder_member_id,visibility)
-       VALUES (?,?,?,?,?,?,?,'INR',?,?,?,?,?,?,?,?,?,?)`,
+          holder_member_id,visibility,budget_id)
+       VALUES (?,?,?,?,?,?,?,'INR',?,?,?,?,?,?,?,?,?,?,?)`,
       id,
       input.name,
       input.nickname ?? null,
@@ -168,6 +175,7 @@ export function createAccount(db: DB, actor: Actor, input: CreateAccountInput): 
       actor.memberId,
       input.holderMemberId ?? null,
       input.visibility ?? "household",
+      input.kind === "tracking" ? null : (input.budgetId ?? householdBudgetId(db)),
     );
 
     if (input.kind === "credit") {

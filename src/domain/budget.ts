@@ -8,6 +8,7 @@ import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST, formatMonth, type MonthKey, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
+import { householdBudgetId } from "./budgets.ts";
 
 export interface CategoryGroup {
   id: string;
@@ -38,8 +39,9 @@ export function createGroup(
       queryOne<{ n: number }>(db, `SELECT COALESCE(MAX(sort), 0) + 1 AS n FROM category_groups`)?.n ?? 1;
     execute(
       db,
-      `INSERT INTO category_groups (id,name,kind,sort,created_at) VALUES (?,?,?,?,?)`,
-      id, name, kind, sort, nowIST(),
+      `INSERT INTO category_groups (id,name,kind,sort,created_at,budget_id)
+         VALUES (?,?,?,?,?,?)`,
+      id, name, kind, sort, nowIST(), householdBudgetId(db),
     );
     const group = queryOne<CategoryGroup>(db, `SELECT * FROM category_groups WHERE id = ?`, id)!;
     appendEvent(db, actor, {
@@ -75,8 +77,14 @@ export function createCategory(
       )?.n ?? 1;
     execute(
       db,
-      `INSERT INTO categories (id,group_id,name,sort,note,created_at) VALUES (?,?,?,?,?,?)`,
+      `INSERT INTO categories (id,group_id,name,sort,note,created_at,budget_id)
+         VALUES (?,?,?,?,?,?,?)`,
       id, input.groupId, input.name, sort, input.note ?? null, nowIST(),
+      // 15 · A new envelope joins the budget its group is in, which is the
+      // household's unless somebody moved the group.
+      queryOne<{ budget_id: string | null }>(
+        db, `SELECT budget_id FROM category_groups WHERE id = ?`, input.groupId,
+      )?.budget_id ?? householdBudgetId(db),
     );
     const category = queryOne<Category>(db, `SELECT * FROM categories WHERE id = ?`, id)!;
     appendEvent(db, actor, {

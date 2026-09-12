@@ -1435,4 +1435,71 @@ ALTER TABLE accounts ADD COLUMN visibility TEXT NOT NULL DEFAULT 'household'
   CHECK (visibility IN ('household','private'));
 `,
   },
+  {
+    name: "0024-budgets",
+    sql: `
+--------------------------------------------------------------------------------
+-- 15 · Budgets — the unit that owns money
+--------------------------------------------------------------------------------
+-- A budget is what an account's money belongs to and what an envelope lives in.
+-- Exactly one household budget, and at most one personal budget per member.
+--
+-- This migration deliberately changes no behaviour. Every existing account and
+-- every existing envelope lands in the household budget, so a household that
+-- never touches the feature keeps precisely the app it had. The riskiest part
+-- of 15 is this backfill, and it is done first while nothing depends on it.
+CREATE TABLE budgets (
+  id         TEXT PRIMARY KEY,
+  kind       TEXT NOT NULL CHECK (kind IN ('household','personal')),
+  -- Null for the household budget; the owner for a personal one.
+  member_id  TEXT REFERENCES members(id),
+  name       TEXT NOT NULL,
+  created_at TEXT NOT NULL,
+  CHECK ((kind = 'household') = (member_id IS NULL))
+);
+
+-- SQLite treats NULLs as distinct in a UNIQUE constraint, so "exactly one
+-- household" and "one personal each" both need partial indexes rather than a
+-- table constraint.
+CREATE UNIQUE INDEX idx_budgets_one_household ON budgets(kind) WHERE kind = 'household';
+CREATE UNIQUE INDEX idx_budgets_member ON budgets(member_id) WHERE member_id IS NOT NULL;
+
+-- Tracking accounts stay null: FW1 keeps them out of every budget, which is why
+-- loans and assets need no change at all.
+ALTER TABLE accounts        ADD COLUMN budget_id TEXT REFERENCES budgets(id);
+ALTER TABLE category_groups ADD COLUMN budget_id TEXT REFERENCES budgets(id);
+ALTER TABLE categories      ADD COLUMN budget_id TEXT REFERENCES budgets(id);
+
+INSERT INTO budgets (id, kind, member_id, name, created_at)
+VALUES ('budget-household', 'household', NULL, 'Household', datetime('now'));
+
+UPDATE accounts        SET budget_id = 'budget-household' WHERE kind IN ('budget','credit');
+UPDATE category_groups SET budget_id = 'budget-household';
+UPDATE categories      SET budget_id = 'budget-household';
+
+CREATE INDEX idx_accounts_budget   ON accounts(budget_id);
+CREATE INDEX idx_categories_budget ON categories(budget_id);
+`,
+  },
+  {
+    name: "0025-budget-scoped-state",
+    sql: `
+--------------------------------------------------------------------------------
+-- 15 · The remaining per-budget state
+--------------------------------------------------------------------------------
+-- Held money and a closed month belong to one budget, not to the household in
+-- general. Both backfill to the household budget, so nothing changes today.
+ALTER TABLE held_for_next_month ADD COLUMN budget_id TEXT REFERENCES budgets(id);
+ALTER TABLE month_closes        ADD COLUMN budget_id TEXT REFERENCES budgets(id);
+
+UPDATE held_for_next_month SET budget_id = 'budget-household';
+UPDATE month_closes        SET budget_id = 'budget-household';
+
+-- The rollup now records which account a transfer leg moved, so a sealed month
+-- can be read back for one budget. Existing rows predate that column being
+-- populated, so the cache is emptied and rebuilt rather than left half-right.
+DELETE FROM month_rollups;
+DELETE FROM month_rollup_state;
+`,
+  },
 ];
