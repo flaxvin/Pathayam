@@ -1,0 +1,896 @@
+<!doctype html>
+<html lang="en-IN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Guides</title>
+<meta name="description" content="29 guides covering every screen in Pathayam: budgeting, statements, credit cards, loans, investments, backups and troubleshooting.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Noto+Serif+Malayalam:wght@500&display=swap">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="masthead">
+  <div class="wrap masthead__inner">
+    <a class="brand" href="index.html">
+      <svg class="brand__mark" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linejoin="round" aria-hidden="true">
+        <rect x="2.5" y="6" width="19" height="13" rx="1.5"/>
+        <path d="M1.5 6 12 2l10.5 4M2.5 10.5h19M2.5 15h19"/>
+      </svg>
+      Pathayam
+    </a>
+    <nav class="nav" aria-label="Main">
+      <a href="index.html">Home</a>
+      <a href="features.html">Features</a>
+      <a href="guides.html" aria-current="page">Guides</a>
+      <a href="api.html">API</a>
+      <a class="btn btn--primary btn--nav" href="demo.html">Try the demo</a>
+      <button class="theme-toggle" type="button" aria-label="Switch theme">☾</button>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="sec sec--tight">
+    <div class="wrap center">
+      <p class="eyebrow">Guides</p>
+      <h1 style="font-size:var(--step-5);max-width:18ch;margin-inline:auto">How to actually use it</h1>
+      <p class="lede" style="font-size:var(--step-2);max-width:56ch">
+        29 guides covering every screen in the app, in the order you will need
+        them. Start at the top if it is your first day, or jump to whatever you are
+        stuck on.
+      </p>
+      <div class="actions" style="margin-top:1.75rem">
+        <a class="btn btn--primary" href="demo.html">Open the demo</a>
+        <a class="btn btn--ghost" href="features.html">See every feature</a>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec sec--tight">
+    <div class="wrap">
+      <div class="docs">
+        <nav class="docs__rail" aria-label="Guides">
+          <h2>Contents</h2>
+          <ol>
+          <li class="rail-part">Getting started</li>
+            <li><a href="#install">Install and first run</a></li>
+            <li><a href="#accounts">Add your accounts</a></li>
+            <li><a href="#categories">Set up categories</a></li>
+          <li class="rail-part">The monthly loop</li>
+            <li><a href="#first-budget">Build your first budget</a></li>
+            <li><a href="#assign">Assign, move and hold</a></li>
+            <li><a href="#targets">Targets and auto-assign</a></li>
+            <li><a href="#spending">Record what you spend</a></li>
+            <li><a href="#overspend">When you go over</a></li>
+            <li><a href="#close">Close the month</a></li>
+          <li class="rail-part">Money coming in</li>
+            <li><a href="#import">Import statements and CSVs</a></li>
+            <li><a href="#review">The review queue</a></li>
+            <li><a href="#rules">Rules and automatic filing</a></li>
+            <li><a href="#gmail">Bank alerts by email</a></li>
+          <li class="rail-part">Cards and debt</li>
+            <li><a href="#cards">Credit cards</a></li>
+            <li><a href="#loans">Loans</a></li>
+            <li><a href="#family">Lending to family</a></li>
+          <li class="rail-part">Making sense of it</li>
+            <li><a href="#overview">Overview and runway</a></li>
+            <li><a href="#reports">Reports</a></li>
+            <li><a href="#query">Query and export</a></li>
+            <li><a href="#schedules">Schedules and cashflow</a></li>
+            <li><a href="#goals">Savings goals</a></li>
+          <li class="rail-part">Investments and net worth</li>
+            <li><a href="#portfolio">Portfolio</a></li>
+            <li><a href="#valuations">Hand-valued assets</a></li>
+            <li><a href="#allocation">Allocation</a></li>
+            <li><a href="#networth">Net worth</a></li>
+          <li class="rail-part">Running it</li>
+            <li><a href="#activity">Activity and undo</a></li>
+            <li><a href="#health">Backups and health</a></li>
+            <li><a href="#settings">Settings, members and tokens</a></li>
+            <li><a href="#troubleshoot">When something looks wrong</a></li>
+          </ol>
+        </nav>
+        <div>
+          <h2 class="guide-part" id="part-getting-started">Getting started</h2>
+          <article class="guide" id="install">
+            <h2>Install and first run</h2>
+<p>Everything runs in Docker, so Node is not needed on your machine. Five minutes
+from nothing to a budget you can click around.</p>
+<ol class="steps">
+  <li><div><strong>Make a config file.</strong> <code>cp .env.example .env</code>.
+    The defaults are fine for a first look.</div></li>
+  <li><div><strong>Seed a demo household.</strong>
+    <code>docker compose --profile seed up seed</code> — two members, four accounts
+    and a month of realistic behaviour including an overspend, so the screens have
+    something true in them.</div></li>
+  <li><div><strong>Start it.</strong> <code>docker compose --profile dev up</code>,
+    then open <code>localhost:8080</code>.</div></li>
+</ol>
+<div class="note"><b>The purple banner</b> means the development login bypass is on.
+It exists only in the development image, and the app refuses to start if it finds
+it anywhere production-shaped — a public hostname, real Google credentials, or
+<code>NODE_ENV=production</code>. You will never see it on a real deployment.</div>
+<h3>Going live</h3>
+<p>You need a domain, a Google OAuth client for sign-in, and somewhere to run one
+container. Set <code>BASE_URL</code> to your exact public origin — sign-in
+redirects and cookie scoping both depend on it being right — then
+<code>docker compose up -d</code>. Start from an empty budget rather than the seed.</p>
+<p>The first person to sign in becomes a member. Everyone else has to be invited
+from Settings, and the allow-list is checked on every request rather than only at
+sign-in.</p>
+          </article>
+          <article class="guide" id="accounts">
+            <h2>Add your accounts</h2>
+<p>Accounts come in three kinds, and picking the right one matters more than
+anything else you will do on this screen.</p>
+<ul>
+  <li><strong>Budget accounts</strong> — current, savings, cash. Money here funds
+    envelopes. The total across them is what you are allowed to budget.</li>
+  <li><strong>Credit accounts</strong> — credit cards. Spending creates a debt
+    <em>and</em> reserves the cash to clear it. See the cards guide.</li>
+  <li><strong>Tracking accounts</strong> — a PPF, an EPF, anything you want on the
+    net-worth figure but never want to budget from.</li>
+</ul>
+<p>Give each one its balance as of today. That balance becomes an opening
+transaction, so the arithmetic starts from a real number rather than zero.</p>
+<h3>Closing, not deleting</h3>
+<p>Accounts are closed rather than deleted, always. The history attached to them is
+real and other figures depend on it. A closed account disappears from the places you
+pick accounts and stays in the places you read history.</p>
+            <div class="shots ">
+              <figure class="frame">
+                <img src="img/accounts.webp" loading="lazy" width="1400" height="900" alt="Accounts, grouped into budget, credit and tracking.">
+                <figcaption>Accounts, grouped into budget, credit and tracking.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <article class="guide" id="categories">
+            <h2>Set up categories</h2>
+<p>Categories are the envelopes. Groups hold categories. Start with fewer than you
+think — five or six — and add more when reality demands it rather than in advance.</p>
+<p>A useful starting set: <em>Rent</em>, <em>Groceries</em>, <em>Eating out</em>,
+<em>Transport</em>, <em>Bills</em>, and one honest category called something like
+<em>Stuff I forget</em>.</p>
+<h3>Order is information</h3>
+<p>The arrows beside each category and group move them. This is not decoration:
+<strong>fund every target</strong> spends your money down the budget in exactly this
+order, so whatever sits at the top gets funded first and any shortfall lands at the
+bottom where you will notice it. Put the things that must happen above the things
+that would be nice.</p>
+<h3>Envelopes the app manages</h3>
+<p>Some categories are created and retired by the app itself — one per credit card
+for payments, and one per savings goal. They carry no manual controls and are marked
+<em>managed by the app</em>, so it is obvious why you cannot rename them.</p>
+<h3>Hiding and deleting</h3>
+<p>Hide a category you have stopped using and its history stays intact. Delete one
+only if it never had anything in it.</p>
+            <div class="shots ">
+              <figure class="frame">
+                <img src="img/categories.webp" loading="lazy" width="1400" height="900" alt="Categories with their targets and funding chips.">
+                <figcaption>Categories with their targets and funding chips.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <h2 class="guide-part" id="part-the-monthly-loop">The monthly loop</h2>
+          <article class="guide" id="first-budget">
+            <h2>Build your first budget</h2>
+<p>The rule is the whole method: <strong>you can only budget money you already
+have.</strong> Not money you expect, not next week's salary. What is in your budget
+accounts right now.</p>
+<p>That number appears at the top as <strong>Ready to Assign</strong>. Your job is
+to get it to zero — not by spending, but by giving every rupee a job.</p>
+<ol class="steps">
+  <li><div><strong>Fund what will definitely happen.</strong> Rent, the loan
+    instalment, the electricity bill.</div></li>
+  <li><div><strong>Fund what will probably happen.</strong> Groceries, transport,
+    the things you spend on weekly.</div></li>
+  <li><div><strong>Fund what you would like to happen.</strong> Savings, the trip,
+    the emergency fund. Whatever is left goes here.</div></li>
+</ol>
+<div class="note note--good"><b>Ready to Assign going negative</b> means you have
+promised money you do not have. The app will keep saying so until you take some back
+from somewhere. That nagging is the feature.</div>
+<h3>Reading the grid</h3>
+<p>Three columns per category. <strong>Assigned</strong> is what you gave it this
+month. <strong>Activity</strong> is what happened — spending is negative.
+<strong>Available</strong> is what is left, and it is the only number that matters
+when you are standing in a shop.</p>
+            <div class="shots ">
+              <figure class="frame">
+                <img src="img/budget.webp" loading="lazy" width="1400" height="900" alt="The month grid: assigned, activity and available.">
+                <figcaption>The month grid: assigned, activity and available.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <article class="guide" id="assign">
+            <h2>Assign, move and hold</h2>
+<p>Three different actions, and confusing them is the most common early mistake.</p>
+<h3>Assign</h3>
+<p>Moves money from Ready to Assign into a category. This is how the month gets
+budgeted. Ready to Assign falls.</p>
+<h3>Move</h3>
+<p>Moves money between two categories. <strong>Ready to Assign does not
+change</strong> — the total assigned is the same, it is just sitting somewhere else.
+This is how you cover an overspend, and it is not cheating. Eating out came out of
+the holiday fund, and now you know that.</p>
+<h3>Hold</h3>
+<p>Takes money out of this month's Ready to Assign and places it at the top of next
+month's. This is how you get a month ahead. See its own guide.</p>
+<div class="note"><b>Copy last month</b> repeats the previous month's assignments in
+one step, which makes a routine month about thirty seconds of work.</div>
+            <div class="shots ">
+              <figure class="frame">
+                <img src="img/budget.webp" loading="lazy" width="1400" height="900" alt="The month grid: assigned, activity and available.">
+                <figcaption>The month grid: assigned, activity and available.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <article class="guide" id="targets">
+            <h2>Targets and auto-assign</h2>
+<p>A target says what a category <em>needs</em>, so the app can tell you whether it
+has it. Rent needs ₹45,000 a month. An annual insurance premium needs ₹8,000 set
+aside each month so that in March it is simply there.</p>
+<p>Each category shows its progress against the target as a chip — funded, partly
+funded, or not funded — so a glance down the grid tells you where the month stands.</p>
+<h3>Fund every target</h3>
+<p>Once targets are set, one tap does the monthly sit-down. You get a preview of
+exactly what would be assigned before anything commits. Money is spent down the
+budget in your order, so a thin month funds the top of the list and leaves the
+shortfall visible at the bottom.</p>
+<div class="note note--good"><b>This does not run automatically at rollover</b>, and
+that is deliberate. The monthly sit-down is where you notice that groceries have
+crept up ₹2,000. An app that quietly did it for you is an app you stop reading.</div>
+            <div class="shots ">
+              <figure class="frame">
+                <img src="img/categories.webp" loading="lazy" width="1400" height="900" alt="Categories with their targets and funding chips.">
+                <figcaption>Categories with their targets and funding chips.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <article class="guide" id="spending">
+            <h2>Record what you spend</h2>
+<p><strong>Add</strong> sits in the middle of the navigation on purpose. Recording a
+transaction should take about five seconds.</p>
+<ul>
+  <li><strong>Amounts do arithmetic.</strong> Type <code>450+120</code> and it works
+    it out — useful when you are splitting a bill at the table.</li>
+  <li><strong>Money out must name a category.</strong> &ldquo;I will sort it
+    later&rdquo; is how you end up with a queue of hundreds. Money in is exempt,
+    because its job is to sit in Ready to Assign until you give it one.</li>
+  <li><strong>Splits</strong> handle one receipt covering several envelopes — the
+    supermarket run that was half groceries and half a birthday present.</li>
+  <li><strong>Transfers</strong> between your own accounts are never spending and
+    are never counted as such.</li>
+  <li><strong>Owner</strong> records who spent it, which matters on a shared budget
+    and on add-on cards.</li>
+  <li><strong>Cleared</strong> means the bank has confirmed it. Leave it unticked
+    until you have actually seen it on their record.</li>
+</ul>
+<h3>Receipts</h3>
+<p>Attach a photo or a PDF to any transaction. It is stored in the database rather
+than on a disk somewhere, and served so that no device caches a copy.</p>
+          </article>
+          <article class="guide" id="overspend">
+            <h2>When you go over</h2>
+<p>You will go over. The question a budgeting app has to answer honestly is what
+happens next, and there are two defensible answers. Choose one in Settings.</p>
+<ul>
+  <li><strong>Reduce next month</strong> (the default) — the overage comes off next
+    month's Ready to Assign and the category starts fresh at zero. Last month is
+    closed and paid for.</li>
+  <li><strong>Carry the negative</strong> — the category itself starts next month in
+    the red and has to be dug out. Harsher, and some people want exactly that.</li>
+</ul>
+<p>Whichever you pick, today's move is the same: <strong>cover it</strong>. Move
+money from another envelope. The app ranks suggestions by where there is most slack,
+so it takes one tap.</p>
+<div class="note"><b>Switching models re-derives your entire history</b> under the new
+one, as a single undoable step. Figures will change, which is correct — they were
+always the answer to a different question.</div>
+<h3>Overspending on a card is different</h3>
+<p>Cash overspending means you spent money you had not budgeted. Card overspending
+means you created a debt with nothing set aside to clear it, which is why the card
+shows an unfunded amount until you deal with it.</p>
+            <div class="shots ">
+              <figure class="frame">
+                <img src="img/budget.webp" loading="lazy" width="1400" height="900" alt="The month grid: assigned, activity and available.">
+                <figcaption>The month grid: assigned, activity and available.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <article class="guide" id="close">
+            <h2>Close the month</h2>
+<p>Ten minutes, once a month. Nothing is locked and a closed month can be reopened,
+so this is a ritual rather than a gate.</p>
+<p>It shows you four things:</p>
+<ul>
+  <li><strong>What the month did</strong> — earned, spent, saved, the savings rate,
+    and the biggest categories.</li>
+  <li><strong>How your net worth moved</strong>, split into money saved, market
+    movement, currency movement and debt repaid. Four different reasons a number
+    changed, separated.</li>
+  <li><strong>A dated snapshot</strong>, so the history is something recorded rather
+    than recalculated later from whatever the prices are now.</li>
+  <li><strong>Whether next month is funded.</strong></li>
+</ul>
+<div class="note note--good"><b>The app will remind you</b> once the month is over
+and nobody has closed it, then stop mentioning it if you mute that kind of
+reminder.</div>
+            <div class="shots ">
+              <figure class="frame">
+                <img src="img/overview.webp" loading="lazy" width="1400" height="900" alt="Overview — runway, what is due, the month so far.">
+                <figcaption>Overview — runway, what is due, the month so far.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <h2 class="guide-part" id="part-money-coming-in">Money coming in</h2>
+          <article class="guide" id="import">
+            <h2>Import statements and CSVs</h2>
+<p>Typing everything in by hand is how budgeting apps get abandoned. Three ways in,
+and all three land in the same queue rather than posting themselves.</p>
+<h3>Statement PDFs</h3>
+<p>Drop the file on the Import screen. Eleven banks are recognised from their own
+layouts — HDFC, ICICI, Axis, SBI, Union, Canara, YES, IndusInd, Kotak, RBL and HSBC —
+plus broker contract notes.</p>
+<p>Most Indian statements are password-protected, and each bank has its own rule.
+The screen shows you that bank's hint. If you save your statement identity in
+Settings, the app derives the password itself and you never type one.</p>
+<div class="note"><b>Every parse is verified</b> against the statement's own closing
+balance. If the two disagree the app says so rather than quietly importing something
+wrong. On a real 848-row statement it reconciles to the paisa.</div>
+<h3>CSV</h3>
+<p>Paste it in. Headers are detected, Indian number formats are understood, and once
+you map a bank's columns the mapping is saved and offered next time.</p>
+<h3>Undoing an import</h3>
+<p>Any import can be reversed in one step from the import log, taking every row it
+created with it. Worth knowing before your first attempt, because it makes
+experimenting safe.</p>
+            <div class="shots ">
+              <figure class="frame">
+                <img src="img/import.webp" loading="lazy" width="1400" height="900" alt="Import — paste a CSV or drop a statement PDF.">
+                <figcaption>Import — paste a CSV or drop a statement PDF.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <article class="guide" id="review">
+            <h2>The review queue</h2>
+<p>Nothing posts itself. Everything imported waits here with its raw text beside it,
+so you can always see exactly what the bank said rather than only what the app made
+of it.</p>
+<ul>
+  <li><strong>Uncategorised spending</strong> — file it. If you have filed that payee
+    before, the category is offered as a single tap rather than a dropdown to hunt
+    through.</li>
+  <li><strong>Possible duplicates</strong> — the same purchase arriving twice, once
+    from an alert and once from the statement. Five separate tiers of matching decide
+    how confident the app is; you merge or keep both.</li>
+  <li><strong>Overspent categories and unfunded cards</strong> — the two things most
+    worth acting on, so they are here rather than only on the budget screen.</li>
+  <li><strong>Proposed rules</strong> — see the next guide.</li>
+  <li><strong>Money you are owed</strong> — anything marked reimbursable stays listed
+    until it comes back.</li>
+</ul>
+<div class="note">Income never appears here. In an envelope budget, income's job is to
+arrive in Ready to Assign and wait to be given one, which the app has already done
+correctly — asking you to categorise it would be asking you to answer a question it
+already answered.</div>
+            <div class="shots ">
+              <figure class="frame">
+                <img src="img/review.webp" loading="lazy" width="1400" height="900" alt="The review queue, with the raw imported text kept.">
+                <figcaption>The review queue, with the raw imported text kept.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <article class="guide" id="rules">
+            <h2>Rules and automatic filing</h2>
+<p>File the same payee twice and the app proposes a rule, stating exactly what it
+inferred and from which transactions. It never applies one on its own.</p>
+<p>Confirm a rule and you are offered the chance to apply it to your existing
+history, with a preview of every transaction that would change before anything does.</p>
+<h3>Writing one yourself</h3>
+<p>Rules match on the payee, the narration, the amount, the account, or a combination,
+and can set a category, rename the payee, add tags or flag for review. There is a
+tester: paste in a narration and see what would fire.</p>
+<h3>Why it learns from filing rather than importing</h3>
+<p>Filing counts wherever it happens — from the review queue, from the transaction
+screen, from anywhere. That matters more than it sounds: an app that only learned
+from imports would watch you categorise the same delivery service a hundred and
+thirty times and never once offer to help.</p>
+            <div class="shots ">
+              <figure class="frame">
+                <img src="img/review.webp" loading="lazy" width="1400" height="900" alt="The review queue, with the raw imported text kept.">
+                <figcaption>The review queue, with the raw imported text kept.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <article class="guide" id="gmail">
+            <h2>Bank alerts by email</h2>
+<p>Optional, read-only, and off until you turn it on. Once connected, a bank alert
+becomes a queued row within seconds of arriving, which is as close to live as a
+budget gets without a bank integration.</p>
+<ul>
+  <li>It reads <strong>only the banks' own sending addresses</strong>, never the rest
+    of your mail.</li>
+  <li>Access is <strong>read-only</strong>. Nothing is sent, labelled, or deleted.</li>
+  <li>You connect your own Google project, so the credentials and the consent are
+    yours rather than a third party's.</li>
+  <li>Disconnecting revokes the token and stops the fetching immediately.</li>
+</ul>
+<h3>Statement emails too</h3>
+<p>When a bank sends the monthly statement as an attachment, it is fetched,
+decrypted using your saved identity, parsed and queued — the whole chain, without you
+opening the mail.</p>
+<div class="note"><b>Add-on card alerts</b> arrive in the primary holder's inbox but
+greet the cardholder by name. The parser carries that name through so the transaction
+can be attributed to the right person rather than the account holder.</div>
+            <div class="shots ">
+              <figure class="frame">
+                <img src="img/settings.webp" loading="lazy" width="1400" height="900" alt="Settings — members, identity, connections, tokens.">
+                <figcaption>Settings — members, identity, connections, tokens.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <h2 class="guide-part" id="part-cards-and-debt">Cards and debt</h2>
+          <article class="guide" id="cards">
+            <h2>Credit cards</h2>
+<p>This is where most budgeting apps get vague, so it is worth two minutes.
+<strong>Spending on a card is still spending.</strong></p>
+<p>Buy groceries on a card and two things happen at once: the Groceries envelope goes
+down by the amount, and the same amount moves into that card's <em>payment
+envelope</em>. The cash to clear the bill is reserved the moment the charge lands, so
+the statement is never a surprise.</p>
+<h3>The Cards screen</h3>
+<p>Every credit account in the order it falls due, with a summary strip across the
+top: total owed, total not funded, and how many fall due within a week.</p>
+<ol class="steps">
+  <li><div><strong>Look at what is unfunded.</strong> That is balance with no
+    envelope behind it — usually an overspend, or a charge nobody has filed yet.</div></li>
+  <li><div><strong>Fund it</strong> from another envelope, using the same cover flow
+    as an overspend.</div></li>
+  <li><div><strong>Record the payment</strong> as a transfer from a bank account to
+    the card. The payment envelope empties, the balance clears, and no category is
+    involved — the categories were charged when you spent.</div></li>
+</ol>
+<div class="note"><b>Record a statement</b> — amount, date, due date, minimum — and
+the card starts showing real due dates instead of &ldquo;whatever the bank says&rdquo;.</div>
+<h3>Add-on cards</h3>
+<p>A second card on someone else's account shares one limit, one statement and one
+payment. Add it as a card <em>on</em> that account rather than as an account of its
+own, and every transaction still records which card it was and whose.</p>
+            <div class="shots ">
+              <figure class="frame">
+                <img src="img/cards.webp" loading="lazy" width="1400" height="900" alt="Cards, in the order they fall due.">
+                <figcaption>Cards, in the order they fall due.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <article class="guide" id="loans">
+            <h2>Loans</h2>
+<p>Add a loan with its principal, rate and tenure. The one thing to get right is the
+<strong>interest model</strong>.</p>
+<div class="note"><b>A rate quoted &ldquo;flat&rdquo; is not what it sounds like.</b>
+Flat interest is charged on the original principal for the whole tenure, even as you
+pay it down. The app shows the equivalent reducing rate beside it, which is usually
+close to double the quoted number. Personal and gold loans are frequently quoted this
+way.</div>
+<h3>Instalments</h3>
+<p>Record each instalment with the lender's own principal and interest split rather
+than the app's projection. Where the two disagree, that is <strong>drift</strong>, and
+it is surfaced rather than silently absorbed — the app projects, the lender reconciles,
+and when they differ you want to know.</p>
+<h3>Before you prepay</h3>
+<p>Use the calculator. It puts <em>reduce the tenure</em> against <em>reduce the
+EMI</em> side by side and tells you what each saves. Reducing tenure almost always
+saves more — on a worked ₹50 lakh example it is several lakh more — and the app shows
+the figure rather than asking you to take that on faith.</p>
+<h3>Disbursements</h3>
+<p>A loan paid out in tranches records each one with its destination. A
+builder-paid tranche raises the liability without ever touching your budget; a personal
+loan landing in your savings arrives as money you can assign.</p>
+            <div class="shots cols2">
+              <figure class="frame">
+                <img src="img/loans.webp" loading="lazy" width="1400" height="900" alt="Loans — real cost, schedule and drift.">
+                <figcaption>Loans — real cost, schedule and drift.</figcaption>
+              </figure>
+              <figure class="frame">
+                <img src="img/charts_loan.webp" loading="lazy" width="1400" height="900" alt="A loan's balance falling to zero over its schedule.">
+                <figcaption>A loan's balance falling to zero over its schedule.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <article class="guide" id="family">
+            <h2>Lending to family</h2>
+<p>Money lent to or borrowed from a person rather than an institution, tracked
+without pretending it is a bank loan.</p>
+<ul>
+  <li><strong>Advances and repayments</strong> are recorded as they happen, and the
+    balance is derived rather than typed.</li>
+  <li><strong>The other side is a name</strong>, not a member of your household —
+    which is almost always the case.</li>
+  <li><strong>Write-off</strong> exists, because sometimes that is what happened, and
+    an app that cannot record it makes you lie to it.</li>
+</ul>
+<p>Outstanding amounts appear in the review queue so they do not quietly become
+gifts.</p>
+          </article>
+          <h2 class="guide-part" id="part-making-sense-of-it">Making sense of it</h2>
+          <article class="guide" id="overview">
+            <h2>Overview and runway</h2>
+<p>The screen to open when you want the month in one glance rather than in detail.</p>
+<ul>
+  <li><strong>Runway</strong> — how many days of typical spending your money covers,
+    measured against what you actually spend rather than a guess.</li>
+  <li><strong>Due soon</strong> — bills and card payments approaching, with whether
+    they are funded.</li>
+  <li><strong>The month so far</strong> — in against out, and where it went.</li>
+  <li><strong>Insights</strong> — a category well above its own three-month average,
+    a subscription about to renew, a spare month sitting unassigned.</li>
+</ul>
+<div class="note">Spending figures here include card spending. That sounds obvious
+and is the single most common way a budgeting app misleads you: a headline that counts
+only bank accounts can understate a card-heavy household by twenty times.</div>
+            <div class="shots ">
+              <figure class="frame">
+                <img src="img/overview.webp" loading="lazy" width="1400" height="900" alt="Overview — runway, what is due, the month so far.">
+                <figcaption>Overview — runway, what is due, the month so far.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <article class="guide" id="reports">
+            <h2>Reports</h2>
+<p>Four reports, all rendered on the server as plain SVG. No charting library, and
+nothing about your figures leaves the machine to be drawn.</p>
+<ul>
+  <li><strong>Income against spending</strong> by month, with a net-saved line, so
+    you can see whether the gap is widening or you just had one good month.</li>
+  <li><strong>Category trends</strong> over time — the report that catches groceries
+    drifting up ₹500 a month for a year.</li>
+  <li><strong>Loan interest by financial year</strong>, April to March, which is the
+    figure you need at tax time.</li>
+  <li><strong>Realised gains by financial year</strong>, split by how long each parcel
+    was held. It reports the holding period and names no tax category, because which
+    threshold applies depends on the asset and that year's rules — a judgement that
+    belongs to whoever files.</li>
+</ul>
+            <div class="shots cols2">
+              <figure class="frame">
+                <img src="img/reports.webp" loading="lazy" width="1400" height="900" alt="Reports — income against spending, by month.">
+                <figcaption>Reports — income against spending, by month.</figcaption>
+              </figure>
+              <figure class="frame">
+                <img src="img/charts_reports.webp" loading="lazy" width="1400" height="900" alt="Grouped bars with a net-saved line.">
+                <figcaption>Grouped bars with a net-saved line.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <article class="guide" id="query">
+            <h2>Query and export</h2>
+<p>One filterable, groupable table that every other screen drills into. Filter by
+date, category, account, payee or tag; group by category, payee, month or account.</p>
+<div class="note note--good"><b>The totals cover every row that matched</b>, not the
+rows rendered on screen. The table shows a page and says how many matched, and the CSV
+export carries the same uncapped figures. A total that silently described only the
+visible page would be worse than no total at all.</div>
+<h3>Search</h3>
+<p>Search runs across both the cleaned payee name and the <em>raw</em> imported
+narration. When you half-remember a transaction as &ldquo;something with ZEPTO in
+it&rdquo;, the raw string is what finds it.</p>
+<h3>Getting everything out</h3>
+<p>The full export is one file in an open format containing every account,
+transaction, assignment, lot, loan and event. Deliberately excluded, and asserted
+absent by tests: your statement identity and any connected mail token.</p>
+            <div class="shots ">
+              <figure class="frame">
+                <img src="img/query.webp" loading="lazy" width="1400" height="900" alt="Query — filter, group, and export what matched.">
+                <figcaption>Query — filter, group, and export what matched.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <article class="guide" id="schedules">
+            <h2>Schedules and cashflow</h2>
+<p>Recurring things — rent, EMIs, subscriptions, a transfer on the 25th — recorded
+once and then expected.</p>
+<ul>
+  <li><strong>Detection.</strong> The app notices something arriving monthly and
+    offers to make it a schedule rather than waiting for you to think of it.</li>
+  <li><strong>The calendar</strong> projects your balance forward, so the question
+    &ldquo;will I make it to the 30th?&rdquo; has an answer rather than a feeling.</li>
+  <li><strong>Dips below your floor</strong> are flagged in advance, which is the
+    entire point of projecting at all.</li>
+  <li><strong>Subscriptions</strong> are listed with annualised cost, because ₹149 a
+    month is ₹1,788 a year and the second number is the one that changes minds.</li>
+</ul>
+            <div class="shots cols2">
+              <figure class="frame">
+                <img src="img/schedules.webp" loading="lazy" width="1400" height="900" alt="Schedules and the forward cashflow calendar.">
+                <figcaption>Schedules and the forward cashflow calendar.</figcaption>
+              </figure>
+              <figure class="frame">
+                <img src="img/charts_cashflow.webp" loading="lazy" width="1400" height="900" alt="Sixty days of projected balance.">
+                <figcaption>Sixty days of projected balance.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <article class="guide" id="goals">
+            <h2>Savings goals</h2>
+<p>Long-horizon saving kept deliberately off the monthly grid, so a three-year goal
+does not clutter the screen you look at every week.</p>
+<p>Each goal has a target amount and optionally a date. The app works out what that
+means per month, shows progress as a ring, and tells you whether you are on track or
+what you would have to raise it to.</p>
+<div class="note">Each goal gets its own envelope, created and retired by the app.
+Money in it is really assigned — a goal is not a wish, it is money you have already
+set aside and can see.</div>
+            <div class="shots cols2">
+              <figure class="frame">
+                <img src="img/goals.webp" loading="lazy" width="1400" height="900" alt="Goals, drawn as progress rings.">
+                <figcaption>Goals, drawn as progress rings.</figcaption>
+              </figure>
+              <figure class="frame">
+                <img src="img/charts_goals.webp" loading="lazy" width="1400" height="900" alt="A goal against its target date.">
+                <figcaption>A goal against its target date.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <h2 class="guide-part" id="part-investments-and-net-worth">Investments and net worth</h2>
+          <article class="guide" id="portfolio">
+            <h2>Portfolio</h2>
+<p>Holdings are tracked as <strong>units with FIFO lots</strong>, never as a rupee
+balance. That is what makes cost basis, the realised-versus-unrealised split and a
+real return figure possible at all.</p>
+<ul>
+  <li><strong>XIRR is the headline return</strong>, not a naive percentage — it
+    accounts for money going in at different times, which is how anyone actually
+    invests.</li>
+  <li><strong>Every price carries its date</strong>, so a stale figure is visible as
+    stale rather than passing as current.</li>
+  <li><strong>Selling shows a preview</strong> naming the exact lots it will consume
+    before you confirm.</li>
+  <li><strong>Splits and bonus issues</strong> are recorded as events, so the unit
+    count changes without the history becoming wrong.</li>
+</ul>
+<h3>Getting holdings in</h3>
+<p>The monthly consolidated statement is the primary route: it already covers every
+fund folio and demat holding, and rows reconcile against lots you already have rather
+than duplicating them. Prices for funds and currencies refresh on their own.</p>
+            <div class="shots ">
+              <figure class="frame">
+                <img src="img/portfolio.webp" loading="lazy" width="1400" height="900" alt="Holdings as units, with XIRR.">
+                <figcaption>Holdings as units, with XIRR.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <article class="guide" id="valuations">
+            <h2>Hand-valued assets</h2>
+<p>Gold, a retirement account, property, anything that does not arrive in a
+consolidated statement. These need you to say what they are worth, and the app makes
+that one sitting rather than a hunt.</p>
+<p>The valuations screen lists every hand-valued pot at once with what it was last
+worth and when. Fill in the ones you know, leave the rest blank, save.</p>
+<div class="note"><b>Something never valued still appears</b>, marked <em>no value
+yet</em> with a prompt to say what it is worth. An asset that vanished until you
+valued it would disappear at exactly the moment it most needed the reminder.</div>
+<p>Anything not valued recently is flagged, so a gold holding last priced eight months
+ago cannot quietly hold up your net worth.</p>
+            <div class="shots ">
+              <figure class="frame">
+                <img src="img/valuations.webp" loading="lazy" width="1400" height="900" alt="Every hand-valued pot, in one sitting.">
+                <figcaption>Every hand-valued pot, in one sitting.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <article class="guide" id="allocation">
+            <h2>Allocation</h2>
+<p>Where your money actually sits, by asset class, by geography and by currency —
+three donut charts, drawn on the server.</p>
+<p>Instruments are classified once and remembered. The point of the screen is the
+gap between what you believe your allocation is and what it is, which is usually
+larger than expected and always more equity than people think.</p>
+            <div class="shots cols2">
+              <figure class="frame">
+                <img src="img/allocation.webp" loading="lazy" width="1400" height="900" alt="Allocation by class, region and currency.">
+                <figcaption>Allocation by class, region and currency.</figcaption>
+              </figure>
+              <figure class="frame">
+                <img src="img/charts_allocation.webp" loading="lazy" width="1400" height="900" alt="The three allocation donuts.">
+                <figcaption>The three allocation donuts.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <article class="guide" id="networth">
+            <h2>Net worth</h2>
+<p>The figure, with the date it is as of, and a history you can see the shape of.</p>
+<p>The change over any period is split four ways, which is the part that makes it
+useful rather than merely satisfying:</p>
+<ul>
+  <li><strong>Money saved</strong> — what you actually put aside</li>
+  <li><strong>Market movement</strong> — what prices did</li>
+  <li><strong>Currency movement</strong> — what the rupee did, kept separate from the
+    asset's own gain</li>
+  <li><strong>Debt repaid</strong> — the quiet one, and often the biggest</li>
+</ul>
+<div class="note note--good"><b>None of this appears on the budget screen</b>, in any
+form, by design. A good month in the market is not income and must never be
+assignable. That rule is enforced by a test rather than by good intentions.</div>
+            <div class="shots ">
+              <figure class="frame">
+                <img src="img/net-worth.webp" loading="lazy" width="1400" height="900" alt="Net worth, decomposed four ways.">
+                <figcaption>Net worth, decomposed four ways.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <h2 class="guide-part" id="part-running-it">Running it</h2>
+          <article class="guide" id="activity">
+            <h2>Activity and undo</h2>
+<p>Every change ever made, newest first, with the undo beside it. Thirty days.</p>
+<p>The log is append-only and the undo is <strong>itself an entry</strong> — nothing
+is edited away or deleted, so the record of what happened stays true even after you
+reverse it.</p>
+<ul>
+  <li><strong>Where a later change touched the same record</strong>, the undo tells you
+    what it would discard before it does anything.</li>
+  <li><strong>Where the record is load-bearing</strong> — a loan instalment, a
+    portfolio lot, a reconciliation — it refuses outright and says what depends on it.</li>
+  <li><strong>Imports undo as a batch</strong>, taking every row they created.</li>
+</ul>
+<h3>Explain this number</h3>
+<p>Ready to Assign and every category balance carry an explain link listing the
+events that produced them, in order. When a figure is not what you expected, this is
+the fastest route to why.</p>
+            <div class="shots ">
+              <figure class="frame">
+                <img src="img/activity.webp" loading="lazy" width="1400" height="900" alt="Activity — every change, with its undo.">
+                <figcaption>Activity — every change, with its undo.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <article class="guide" id="health">
+            <h2>Backups and health</h2>
+<p>Your data is one SQLite file. Back that up and you have backed up everything.</p>
+<div class="note note--good"><b>The scheduled job does more than copy.</b> It restores
+the latest backup into a scratch database and compares control totals against the
+live one. A backup nobody has ever restored is a hope, not a backup — so the app
+checks, and tells you when it last succeeded.</div>
+<h3>The Health screen</h3>
+<p>The one to open at 2am: backup status, last verified restore, price-feed health
+and remaining quota, feature flags, error counts, and whether the development bypass
+is present. Every check shows its state, when it last ran, and a plain-language
+reason.</p>
+<h3>Restoring</h3>
+<p>Use the restore command rather than copying a file over the database by hand.
+Copying leaves the database's write-ahead journal behind, and the first query then
+reports the database as malformed — turning a recoverable afternoon into a lost
+ledger at exactly the wrong moment. The command lists what is available, keeps what it
+replaced, and reads the restored copy back before claiming success.</p>
+            <div class="shots ">
+              <figure class="frame">
+                <img src="img/health.webp" loading="lazy" width="1400" height="900" alt="Health — backups, restore verification, feeds.">
+                <figcaption>Health — backups, restore verification, feeds.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <article class="guide" id="settings">
+            <h2>Settings, members and tokens</h2>
+<p>Everything that configures the household rather than the month.</p>
+<ul>
+  <li><strong>Members</strong> — the allow-list. Invite by email address; they sign in
+    with that Google account. Removing someone keeps their historical attributions.</li>
+  <li><strong>Overspend model</strong> — the choice described in the overspend guide.
+    Changing it re-derives your history.</li>
+  <li><strong>Statement identity</strong> — name, PAN, date of birth, mobile, used to
+    derive statement passwords. Never exported, never logged, and asserted absent from
+    exports by tests.</li>
+  <li><strong>Notifications</strong> — each kind of digest item can be muted
+    individually, per member.</li>
+  <li><strong>Theme</strong> — light, dark, or follow the system, stored server-side
+    so the first paint is already correct.</li>
+  <li><strong>Devices</strong> — every signed-in session, revocable one at a time.</li>
+  <li><strong>API tokens</strong> — scoped read or read-write, shown once, and unable
+    to sign in or mint more tokens. See the API reference.</li>
+  <li><strong>Feature flags</strong> — turn off loans, assets or multi-currency
+    entirely and they vanish from navigation and reports rather than sitting greyed
+    out.</li>
+</ul>
+<h3>Viewing as another member</h3>
+<p>Read-only by default, always logged, and shown as a banner on every screen while
+it is active. Writes require an explicit toggle within the session.</p>
+            <div class="shots ">
+              <figure class="frame">
+                <img src="img/settings.webp" loading="lazy" width="1400" height="900" alt="Settings — members, identity, connections, tokens.">
+                <figcaption>Settings — members, identity, connections, tokens.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <article class="guide" id="troubleshoot">
+            <h2>When something looks wrong</h2>
+<h3>A number is not what I expected</h3>
+<p>Use the explain link beside it. It lists the events that produced the figure, in
+order, which resolves nearly all of these in under a minute.</p>
+<h3>A past month reads lower than it did at the time</h3>
+<p>Known, and written down rather than hidden. Opening July in December subtracts
+assignments made since. The budget is a live document rather than a series of monthly
+photographs, and this is the price of that.</p>
+<h3>My card shows an unfunded amount I do not understand</h3>
+<p>Something was spent on the card without an envelope behind it. Usually a charge
+still sitting unfiled in the review queue, or a genuine overspend. Filing it or
+covering it clears the warning.</p>
+<h3>An import brought in the wrong things</h3>
+<p>Undo the batch from the import log; every row it created goes with it. Then check
+the column mapping and try again.</p>
+<h3>The same purchase is in there twice</h3>
+<p>The review queue's duplicate tier should have caught it. If one was entered by
+hand and the other imported, merge them from the queue — the merged row keeps the raw
+imported text.</p>
+<h3>Prices are stale</h3>
+<p>Check Health for the feed's status and remaining quota. Free providers have daily
+limits, and the app deliberately stops asking rather than burning through them.</p>
+<h3>I am locked out</h3>
+<p>Sign-in depends on <code>BASE_URL</code> exactly matching your public origin,
+because the OAuth redirect and the cookie scope are both derived from it. A mismatch
+after moving domains is the usual cause.</p>
+          </article>
+        </div>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="wrap">
+      <div class="callout">
+        <h2>Easier to try than to read about</h2>
+        <p>The demo runs the real engine in your browser. Nothing to install, nothing to sign up for.</p>
+        <a class="btn btn--primary" href="demo.html">Open the demo</a>
+      </div>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot__grid">
+      <div>
+        <h4>Pathayam</h4>
+        <ul>
+          <li><a href="features.html">Features</a></li>
+          <li><a href="demo.html">Live demo</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Reference</h4>
+        <ul>
+          <li><a href="guides.html">Documentation</a></li>
+          <li><a href="api.html">API guide</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Built with</h4>
+        <ul>
+          <li>TypeScript on Node 24+</li>
+          <li>node:sqlite · node:http</li>
+          <li>Zero runtime dependencies</li>
+        </ul>
+      </div>
+      <div>
+        <h4>The name</h4>
+        <ul>
+          <li><span class="mal">പത്തായം</span> — the wooden chest
+              that held a Kerala household's harvest, filled once and
+              drawn from deliberately.</li>
+        </ul>
+      </div>
+    </div>
+    <p class="foot__note">
+      Self-hosted software you run yourself. There is no service to sign up for,
+      nothing is sent anywhere, and your data stays on your machine. Every figure
+      and name in the screenshots is fictional.
+    </p>
+  </div>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>

@@ -5031,7 +5031,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       body: JSON.stringify(exportEverything(db), null, 2),
       headers: {
         "Content-Type": "application/json; charset=utf-8",
-        "Content-Disposition": `attachment; filename="budget-${todayIST()}.json"`,
+        "Content-Disposition": `attachment; filename="pathayam-${todayIST()}.json"`,
       },
     };
   });

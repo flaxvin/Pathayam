@@ -50,136 +50,272 @@
   var demo = document.querySelector("[data-demo]");
   if (!demo) return;
 
+  /*
+   * A working miniature of the engine. Every rule it enforces is one the real
+   * app enforces, because a demo that rounds the model off teaches the wrong
+   * thing about a product whose whole claim is that the model is exact:
+   *
+   *   available          = carried + assigned - activity
+   *   Ready to Assign    = income + held - Σ assigned
+   *   card spending      moves money from the category to the payment envelope,
+   *                      so the cash to clear the debt is reserved at once
+   *   rollover           carries leftovers, and handles overspend under
+   *                      whichever of the two models is selected
+   */
+  var MONTHS = ["September", "October", "November", "December", "January", "February"];
   var INCOME = 145000;
 
-  /* A month already part-budgeted, which is what a household actually opens to.
-     Targets sum to exactly the income, so "fund every target" lands Ready to
-     Assign on zero — and one envelope starts overspent, because the red state is
-     the one worth showing rather than hiding. Whole rupees here; the real engine
-     works in integer paise, the same idea one decimal place further down. */
   var SEED = [
-    { group: "Bills",               name: "Rent",             target: 45000, activity: 45000, assigned: 45000 },
-    { group: "Bills",               name: "Electricity",      target: 2400,  activity: 2180,  assigned: 2400 },
-    { group: "Bills",               name: "Internet",         target: 1200,  activity: 1200,  assigned: 1200 },
-    { group: "Bills",               name: "Maintenance",      target: 3300,  activity: 3300,  assigned: 3300 },
-    { group: "Flexible",            name: "Groceries",        target: 14000, activity: 12460, assigned: 14000 },
-    { group: "Flexible",            name: "Eating out",       target: 6000,  activity: 5320,  assigned: 4000 },
-    { group: "Flexible",            name: "Transport",        target: 3500,  activity: 2890,  assigned: 3500 },
-    { group: "Credit card payments", name: "Swiggy HDFC",     target: 11600, activity: 0,     assigned: 11600 },
-    { group: "Goals",               name: "Emergency fund",   target: 58000, activity: 0,     assigned: 0 }
+    { group: "Bills",     name: "Rent",           target: 45000, activity: 45000, assigned: 45000, carried: 0 },
+    { group: "Bills",     name: "Electricity",    target: 2400,  activity: 2180,  assigned: 2400,  carried: 0 },
+    { group: "Bills",     name: "Internet",       target: 1200,  activity: 1200,  assigned: 1200,  carried: 0 },
+    { group: "Bills",     name: "Maintenance",    target: 3300,  activity: 3300,  assigned: 3300,  carried: 0 },
+    { group: "Flexible",  name: "Groceries",      target: 14000, activity: 12460, assigned: 14000, carried: 0 },
+    { group: "Flexible",  name: "Eating out",     target: 6000,  activity: 5320,  assigned: 4000,  carried: 0 },
+    { group: "Flexible",  name: "Transport",      target: 3500,  activity: 2890,  assigned: 3500,  carried: 0 },
+    { group: "Cards",     name: "Swiggy HDFC payment", target: 11600, activity: 0, assigned: 11600, carried: 0, card: true },
+    { group: "Goals",     name: "Emergency fund", target: 58000, activity: 0,     assigned: 0,     carried: 0 }
   ];
 
-  var rows = SEED.map(function (r) {
-    return { group: r.group, name: r.name, target: r.target, activity: r.activity, assigned: r.assigned };
-  });
+  var st;
+  function reset() {
+    st = {
+      monthIx: 0,
+      income: INCOME,
+      heldForNext: 0,
+      cardDebt: 11600,
+      model: "reduce-rta",
+      rows: SEED.map(function (r) {
+        return { group: r.group, name: r.name, target: r.target, activity: r.activity,
+                 assigned: r.assigned, carried: r.carried, card: !!r.card };
+      }),
+      log: []
+    };
+  }
+  reset();
 
-  /* The Indian grouping the app uses everywhere: last three digits, then pairs. */
   function groupIndian(n) {
-    var s = String(Math.abs(n));
+    var s = String(Math.abs(Math.round(n)));
     if (s.length <= 3) return s;
-    var head = s.slice(0, -3);
-    var tail = s.slice(-3);
-    return head.replace(/\B(?=(\d{2})+(?!\d))/g, ",") + "," + tail;
+    return s.slice(0, -3).replace(/\B(?=(\d{2})+(?!\d))/g, ",") + "," + s.slice(-3);
   }
-  function rupees(n) {
-    return (n < 0 ? "-₹" : "₹") + groupIndian(n);
-  }
-
-  var elRta = demo.querySelector("[data-rta]");
-  var elBody = demo.querySelector("[data-rows]");
-  var elMsg = demo.querySelector("[data-msg]");
-
+  function rupees(n) { return (n < 0 ? "-₹" : "₹") + groupIndian(n); }
+  function avail(r) { return r.carried + r.assigned - r.activity; }
   function assignedTotal() {
-    return rows.reduce(function (a, r) { return a + r.assigned; }, 0);
+    return st.rows.reduce(function (a, r) { return a + r.assigned; }, 0);
+  }
+  function rta() { return st.income - st.heldForNext - assignedTotal(); }
+  function cardRow() {
+    return st.rows.filter(function (r) { return r.card; })[0];
+  }
+
+  var el = {
+    rta:   demo.querySelector("[data-rta]"),
+    rows:  demo.querySelector("[data-rows]"),
+    msg:   demo.querySelector("[data-msg]"),
+    month: demo.querySelector("[data-month]"),
+    debt:  demo.querySelector("[data-debt]"),
+    log:   document.querySelector("[data-log]"),
+    cat:   demo.querySelector("[data-cat]")
+  };
+
+  function note(text) {
+    st.log.unshift(text);
+    if (st.log.length > 8) st.log.pop();
   }
 
   function render() {
-    var rta = INCOME - assignedTotal();
+    var r2a = rta();
+    el.rta.textContent = rupees(r2a);
+    el.rta.classList.toggle("is-zero", r2a === 0);
+    el.rta.classList.toggle("is-neg", r2a < 0);
+    el.month.textContent = MONTHS[st.monthIx] + " 2026";
+    if (el.debt) el.debt.textContent = rupees(st.cardDebt);
 
-    elRta.textContent = rupees(rta);
-    elRta.classList.toggle("is-zero", rta === 0);
-    elRta.classList.toggle("is-neg", rta < 0);
-
-    var lastGroup = null;
-    var html = "";
-    rows.forEach(function (r, i) {
+    var lastGroup = null, html = "";
+    st.rows.forEach(function (r, i) {
       if (r.group !== lastGroup) {
         html += '<div class="row__group">' + r.group + "</div>";
         lastGroup = r.group;
       }
-      var available = r.assigned - r.activity;
-      var cls = available < 0 ? "over" : available === 0 ? "zero" : "ok";
+      var a = avail(r);
+      var cls = a < 0 ? "over" : a === 0 ? "zero" : "ok";
       html +=
         '<div class="row">' +
-          '<div class="row__name">' + r.name + "</div>" +
+          '<div class="row__name">' + r.name +
+            (r.card ? ' <span class="tagly">managed</span>' : "") +
+            (r.carried ? ' <span class="tagly">+' + rupees(r.carried) + " carried</span>" : "") +
+          "</div>" +
           '<div><label class="sr-only" for="a' + i + '">Assign to ' + r.name + "</label>" +
             '<input class="assign-input" id="a' + i + '" data-i="' + i + '" type="text" ' +
                    'inputmode="numeric" value="' + (r.assigned ? groupIndian(r.assigned) : "") +
                    '" placeholder="0"></div>' +
           '<div class="num" style="color:var(--muted)">' + (r.activity ? rupees(-r.activity) : "—") + "</div>" +
-          '<div class="num avail ' + cls + '">' + rupees(available) + "</div>" +
+          '<div class="num avail ' + cls + '">' + rupees(a) +
+            (a < 0 ? ' <button class="cover" type="button" data-cover="' + i + '">cover</button>' : "") +
+          "</div>" +
         "</div>";
     });
-    elBody.innerHTML = html;
+    el.rows.innerHTML = html;
 
-    var overspent = rows.filter(function (r) { return r.assigned - r.activity < 0; });
-    if (rta < 0) {
-      say("You have assigned more than arrived. Ready to Assign is never allowed to stay negative — take some back.");
-    } else if (overspent.length) {
-      say(overspent.length + (overspent.length === 1 ? " envelope is" : " envelopes are") +
-          " overspent. Cover it from another envelope, or let the rollover reduce next month.");
-    } else if (rta === 0) {
+    if (el.cat) {
+      el.cat.innerHTML = st.rows.map(function (r, i) {
+        return r.card ? "" : '<option value="' + i + '">' + r.name + "</option>";
+      }).join("");
+    }
+
+    if (el.log) {
+      el.log.innerHTML = st.log.length
+        ? st.log.map(function (t) { return "<li>" + t + "</li>"; }).join("")
+        : '<li class="muted">Nothing yet. Try spending something.</li>';
+    }
+
+    var over = st.rows.filter(function (r) { return avail(r) < 0; });
+    if (r2a < 0) {
+      say("You have assigned more than you have. Ready to Assign is never allowed to stay negative — take some back.");
+    } else if (over.length) {
+      say(over.length + (over.length === 1 ? " envelope is" : " envelopes are") +
+          " overspent. Cover it from another envelope, or let the rollover handle it.");
+    } else if (r2a === 0) {
       say("Every rupee has a job. That is the whole idea.");
     } else {
-      say(rupees(rta) + " still has no job.");
+      say(rupees(r2a) + " still has no job.");
     }
   }
+  function say(t) { el.msg.textContent = t; }
 
-  function say(text) { elMsg.textContent = text; }
-
-  elBody.addEventListener("input", function (e) {
+  /* Typing repaints only the derived figures, so the caret is never stolen. */
+  el.rows.addEventListener("input", function (e) {
     var input = e.target.closest(".assign-input");
     if (!input) return;
     var i = Number(input.getAttribute("data-i"));
-    var value = parseInt(input.value.replace(/[^0-9]/g, ""), 10);
-    rows[i].assigned = isNaN(value) ? 0 : value;
+    var v = parseInt(input.value.replace(/[^0-9]/g, ""), 10);
+    st.rows[i].assigned = isNaN(v) ? 0 : v;
 
-    /* Re-rendering on every keystroke would steal the caret, so only the
-       derived figures are repainted while the field has focus. */
-    var rta = INCOME - assignedTotal();
-    elRta.textContent = rupees(rta);
-    elRta.classList.toggle("is-zero", rta === 0);
-    elRta.classList.toggle("is-neg", rta < 0);
+    var r2a = rta();
+    el.rta.textContent = rupees(r2a);
+    el.rta.classList.toggle("is-zero", r2a === 0);
+    el.rta.classList.toggle("is-neg", r2a < 0);
 
-    var row = input.closest(".row");
-    var cell = row.querySelector(".avail");
-    var available = rows[i].assigned - rows[i].activity;
-    cell.textContent = rupees(available);
-    cell.className = "num avail " + (available < 0 ? "over" : available === 0 ? "zero" : "ok");
+    var cell = input.closest(".row").querySelector(".avail");
+    var a = avail(st.rows[i]);
+    cell.textContent = rupees(a);
+    cell.className = "num avail " + (a < 0 ? "over" : a === 0 ? "zero" : "ok");
+  });
+  el.rows.addEventListener("focusout", function () { window.setTimeout(render, 0); });
+
+  /* Cover an overspend from wherever has the most slack — the app ranks the
+     same way, which is why this is one tap there too. */
+  el.rows.addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-cover]");
+    if (!btn) return;
+    var i = Number(btn.getAttribute("data-cover"));
+    var need = -avail(st.rows[i]);
+    var best = -1, bestSlack = 0;
+    st.rows.forEach(function (r, j) {
+      /* Never a payment envelope: draining one leaves the card unfunded, which
+         is the problem the envelope exists to prevent. The app ranks the same
+         way, and for the same reason. */
+      if (j === i || r.card) return;
+      var s = avail(r);
+      if (s > bestSlack) { bestSlack = s; best = j; }
+    });
+    if (best < 0 || bestSlack < need) {
+      say("Nothing has enough slack to cover it. Take it from Ready to Assign, or let the rollover deal with it.");
+      return;
+    }
+    st.rows[best].assigned -= need;
+    st.rows[i].assigned += need;
+    note("Moved " + rupees(need) + " from " + st.rows[best].name + " to " + st.rows[i].name + ".");
+    render();
   });
 
-  elBody.addEventListener("focusout", function () { window.setTimeout(render, 0); });
+  demo.addEventListener("click", function (e) {
+    var btn = e.target.closest("[data-act]");
+    if (!btn) return;
+    var act = btn.getAttribute("data-act");
 
-  demo.querySelectorAll("[data-act]").forEach(function (btn) {
-    btn.addEventListener("click", function () {
-      var act = btn.getAttribute("data-act");
+    if (act === "targets") {
+      var left = st.income - st.heldForNext;
+      st.rows.forEach(function (r) {
+        var give = Math.max(0, Math.min(r.target - r.carried, left));
+        r.assigned = give; left -= give;
+      });
+      note("Funded every target, in budget order.");
 
-      if (act === "targets") {
-        /* R9: Ready to Assign is spent down the budget in order, so what you
-           budgeted for first is funded first and the shortfall lands last. */
-        var left = INCOME;
-        rows.forEach(function (r) {
-          var give = Math.min(r.target, left);
-          r.assigned = give;
-          left -= give;
-        });
-      } else if (act === "charge") {
-        var eat = rows.filter(function (r) { return r.name === "Eating out"; })[0];
-        eat.activity += 2400;
-      } else if (act === "reset") {
-        rows.forEach(function (r, i) { r.assigned = SEED[i].assigned; r.activity = SEED[i].activity; });
+    } else if (act === "spend") {
+      var i = Number(demo.querySelector("[data-cat]").value);
+      var amt = parseInt((demo.querySelector("[data-amt]").value || "").replace(/[^0-9]/g, ""), 10);
+      var onCard = demo.querySelector("[data-card]").checked;
+      if (!amt) { say("Put an amount in first."); return; }
+      st.rows[i].activity += amt;
+      if (onCard) {
+        /* R6: the category gives the money up and the payment envelope holds it,
+           so the cash to clear the debt is reserved the moment the charge lands. */
+        cardRow().carried += amt;
+        st.cardDebt += amt;
+        note("Spent " + rupees(amt) + " on " + st.rows[i].name + " with the card. " +
+             rupees(amt) + " moved into the payment envelope.");
+      } else {
+        note("Spent " + rupees(amt) + " on " + st.rows[i].name + " from the bank.");
       }
-      render();
+
+    } else if (act === "paycard") {
+      if (!st.cardDebt) { say("Nothing owed on the card."); return; }
+      var c = cardRow(), pot = avail(c);
+      if (pot < st.cardDebt) {
+        say("The payment envelope only holds " + rupees(pot) + " against " + rupees(st.cardDebt) +
+            " owed. Fund the difference first — that gap is the warning doing its job.");
+        return;
+      }
+      c.activity += st.cardDebt;
+      note("Paid " + rupees(st.cardDebt) + " off the card. The envelope emptied; no category was touched.");
+      st.cardDebt = 0;
+
+    } else if (act === "hold") {
+      var spare = rta();
+      if (spare <= 0) { say("There is nothing spare to hold."); return; }
+      st.heldForNext += spare;
+      note("Held " + rupees(spare) + " back for next month.");
+
+    } else if (act === "roll") {
+      var deficit = 0;
+      st.rows.forEach(function (r) {
+        var a = avail(r);
+        if (a < 0 && st.model === "reduce-rta") { deficit += -a; a = 0; }
+        r.carried = a; r.assigned = 0; r.activity = 0;
+      });
+      st.monthIx = Math.min(st.monthIx + 1, MONTHS.length - 1);
+      var broughtForward = st.heldForNext;
+      st.income = INCOME - deficit + broughtForward;
+      st.heldForNext = 0;
+      note("Rolled into " + MONTHS[st.monthIx] + ". Leftovers carried" +
+           (deficit ? ", and " + rupees(deficit) + " of overspend came off Ready to Assign" : "") +
+           (broughtForward ? ", plus " + rupees(broughtForward) + " held from last month" : "") + ".");
+
+    } else if (act === "model") {
+      st.model = st.model === "reduce-rta" ? "carry-negative" : "reduce-rta";
+      btn.textContent = st.model === "reduce-rta"
+        ? "Overspend: reduce next month" : "Overspend: carry the negative";
+      note("Overspend model is now " +
+           (st.model === "reduce-rta" ? "reduce next month's Ready to Assign" : "carry the negative category") + ".");
+
+    } else if (act === "reset") {
+      reset();
+    }
+    render();
+  });
+
+  /* Tabs, as plain buttons so the panels stay in the document for search. */
+  demo.parentElement.addEventListener("click", function (e) {
+    var t = e.target.closest("[data-tab]");
+    if (!t) return;
+    var name = t.getAttribute("data-tab");
+    document.querySelectorAll("[data-tab]").forEach(function (b) {
+      b.setAttribute("aria-selected", String(b === t));
+    });
+    document.querySelectorAll("[data-panel]").forEach(function (p) {
+      p.hidden = p.getAttribute("data-panel") !== name;
     });
   });
 
