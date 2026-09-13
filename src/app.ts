@@ -3771,15 +3771,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     // #13 · Bills due in the next fortnight, each with a one-tap "mark paid".
     const soon = addDays(todayIST(), 14);
+    // 15 §3A.4 · Either end, the same as the schedules screen: a household bill
+    // paid from somebody's own account is still a household bill.
     const budgetAccounts = new Set(
       listAccounts(db, { viewerMemberId: viewer(ctx) })
         .filter((acc) => acc.budget_id === scope)
         .map((acc) => acc.id),
     );
+    const budgetCategories = new Set(
+      listCategories(db, { includeHidden: true, budgetId: scope }).map((c) => c.id),
+    );
     const dueSoon = listSchedules(db)
       .filter((s) => s.next_due && s.next_due <= soon && (s.amount ?? 0) < 0)
-      // A standing instruction belongs to the account it comes out of.
-      .filter((s) => !s.account_id || budgetAccounts.has(s.account_id))
+      .filter((s) =>
+        (!s.account_id && !s.category_id)
+        || (s.account_id !== null && budgetAccounts.has(s.account_id))
+        || (s.category_id !== null && budgetCategories.has(s.category_id)))
       .sort((x, y) => (x.next_due ?? "").localeCompare(y.next_due ?? ""))
       .slice(0, 6)
       .map((s) => ({ id: s.id, name: s.name, amount: Math.abs(s.amount ?? 0) as Paise, nextDue: s.next_due! }));
@@ -3893,18 +3900,35 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const cashflow = projectCashflow(db, { days: horizon, budgetId: scope, viewerMemberId: viewer(ctx) });
     const view = buildBudgetView(db, undefined, scope);
 
-    // 15 · A standing instruction comes out of one account, so it belongs to
-    // that account's budget. One without an account is the household's.
-    const inScope = new Set(
+    /*
+     * 15 §3A.4 · A schedule belongs to a budget through **either** end: the
+     * account the money comes out of, or the envelope it lands in. Those differ
+     * exactly when one of you pays a shared bill from your own account, and the
+     * rent is then a household schedule and hers at once — which is the same rule
+     * Query uses for a transaction that crosses budgets.
+     *
+     * Scoping on the account alone made five household bills vanish from the
+     * household's list the moment the account paying them moved into a personal
+     * budget. The cashflow projection stays account-based, because that one is
+     * about whose cash actually leaves.
+     */
+    const accountsInScope = new Set(
       listAccounts(db, { viewerMemberId: viewer(ctx) })
         .filter((a) => a.budget_id === scope)
         .map((a) => a.id),
     );
+    const categoriesInScope = new Set(
+      listCategories(db, { includeHidden: true, budgetId: scope }).map((c) => c.id),
+    );
+    const inScopeSchedule = (s: { account_id: string | null; category_id: string | null }) =>
+      (!s.account_id && !s.category_id)
+      || (s.account_id !== null && accountsInScope.has(s.account_id))
+      || (s.category_id !== null && categoriesInScope.has(s.category_id));
 
     return render(
       ctx, "Schedules",
       renderSchedules({
-        schedules: listSchedules(db).filter((s) => !s.account_id || inScope.has(s.account_id)),
+        schedules: listSchedules(db).filter(inScopeSchedule),
         detected: detectSchedules(db),
         cashflow,
         cashflowReading: describeCashflow(cashflow),
