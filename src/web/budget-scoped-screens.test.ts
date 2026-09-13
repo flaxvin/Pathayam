@@ -16,8 +16,9 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { openDatabase, ensureHousehold, execute, type DB } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
-import { nowIST, todayIST, monthOf } from "../core/dates.ts";
+import { nowIST, todayIST, monthOf, addMonths } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
+import { closeMonth, closedMonths } from "../domain/month-close.ts";
 import { createAccount, listAccounts } from "../domain/accounts.ts";
 import { createGroup, createCategory, setAssigned, listCategories } from "../domain/budget.ts";
 import { createTransaction } from "../domain/transactions.ts";
@@ -203,5 +204,35 @@ describe("15 §3A.4 · a schedule belongs to a budget through either end", () =>
 
     assert.equal(inScope(household).some((s) => s.name === "Rent"), true, "the household's bill");
     assert.equal(inScope(mine).some((s) => s.name === "Rent"), true, "and his account pays it");
+  });
+});
+
+/**
+ * B126 · 15 §6.1 · And the list of month closes is one budget's too.
+ *
+ * Every budget closes its own month, and this page listed all of them: with
+ * three budgets that is every month three times over, the same figures
+ * repeated, with nothing on the row to say whose close each one was. It read
+ * like a page printing duplicates, which is the worst kind of wrong number —
+ * the kind that makes somebody doubt the ones that are right.
+ */
+describe("B126 · month closes belong to the budget you are looking at", () => {
+  test("each month appears once, for the budget in the switcher", () => {
+    const { db, household, mine } = twoBudgets();
+    const previous = addMonths(monthOf(todayIST()), -1);
+
+    closeMonth(db, actor, previous, null, household);
+    closeMonth(db, actor, previous, null, mine);
+
+    assert.equal(closedMonths(db).length, 2, "both budgets closed it");
+    assert.equal(
+      closedMonths(db, 24, household).length, 1,
+      "the household's list shows it once",
+    );
+    assert.equal(closedMonths(db, 24, mine).length, 1, "and so does his");
+    assert.equal(
+      closedMonths(db, 24, household)[0]!.budget_id, household,
+      "and it is the right one",
+    );
   });
 });

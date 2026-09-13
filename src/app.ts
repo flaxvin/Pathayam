@@ -5107,9 +5107,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/months", (ctx) => {
     auth(ctx);
+    /*
+     * B126 · 15 §6.1 · A month close is per budget, and this page listed every
+     * budget's. With three budgets that is every month three times over, the
+     * same figures repeated, with nothing on the row to say whose close each one
+     * was — a page that looked like it was printing duplicates. The switcher is
+     * on this screen; it now means something here too.
+     */
+    const budgetId = budgetParam(ctx);
     return render(ctx, "Month closes", renderClosedMonths({
-      months: closedMonths(db),
-      awaiting: monthAwaitingClose(db),
+      months: closedMonths(db, 24, budgetId),
+      awaiting: monthAwaitingClose(db, todayIST(), budgetId),
     }));
   });
 
