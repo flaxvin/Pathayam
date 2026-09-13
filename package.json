@@ -15,7 +15,8 @@
     "start": "node dist/main.js",
     "seed": "node --experimental-strip-types src/seed.ts",
     "demo": "node --experimental-strip-types src/demo.ts",
-    "shots": "node tools/shoot.mjs"
+    "shots": "node tools/shoot.mjs",
+    "icons": "node --experimental-strip-types tools/icons.mjs"
   },
   "devDependencies": {
     "typescript": "^5.6.0",
