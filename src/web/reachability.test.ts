@@ -56,9 +56,6 @@ const NOT_YET_SURFACED: Record<string, string> = {
   reanchorToLenderBalance:
     "Drift against the lender is surfaced on the loan page, which routes to the " +
     "statement form; re-anchoring directly would bypass that reconciliation.",
-  closeLoan:
-    "A loan closes by being repaid, which the instalment and prepayment screens " +
-    "already do. An explicit close is for a settlement, which is not yet modelled.",
 };
 
 /**

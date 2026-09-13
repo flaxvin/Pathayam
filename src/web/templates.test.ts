@@ -92,3 +92,31 @@ describe("B104 · no backtick inside any template literal's own comments", () =>
     assert.deepEqual(offenders, [], "a backtick truncates the served client script");
   });
 });
+
+describe("An anchor styled as a button carries the base class", () => {
+  /**
+   * `button, .button` holds the border, background, padding and min-height;
+   * `.button-small` and `.button-primary` only adjust them. On a `<button>` the
+   * element selector supplies the base, so a modifier alone looks right — on an
+   * `<a>` it does not, and the control renders as a bare link.
+   *
+   * The net-worth scope switcher and the lending Open link were both like this,
+   * and both looked wrong in a way that reads as a different design rather than a
+   * missing class.
+   */
+  test("no page has an anchor with only a button modifier", () => {
+    const offenders: string[] = [];
+    for (const file of sources(here)) {
+      const text = readFileSync(file, "utf8");
+      for (const match of text.matchAll(/<a\s+class="([^"]*)"/g)) {
+        const classes = match[1]!;
+        const hasModifier = /\bbutton-(small|primary|quiet|danger)\b/.test(classes);
+        const hasBase = /(^|\s)button(\s|$)/.test(classes.replace(/\$\{[^}]*\}/g, " "));
+        if (hasModifier && !hasBase) {
+          offenders.push(`${file.split("/").pop()}: class="${classes.slice(0, 60)}"`);
+        }
+      }
+    }
+    assert.deepEqual(offenders, [], "these render as links, not buttons");
+  });
+});

@@ -79,7 +79,7 @@ export function renderFamilyLoans(opts: {
         </div>
         <div style="text-align:right">
           <div class="figure ${view.owedByYou ? "amount-negative" : ""}">${formatPaise(view.outstanding)}</div>
-          <a class="button-small" href="/family/${view.loan.id}">Open</a>
+          <a class="button button-small" href="/family/${view.loan.id}">Open</a>
         </div>
       </div>
     </div>
