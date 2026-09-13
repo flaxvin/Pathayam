@@ -17,28 +17,43 @@ export const STYLESHEET = `
 :root {
   color-scheme: light;
 
-  --bg:            #f6f7f9;
-  --surface:       #ffffff;
-  --surface-2:     #eef0f4;
-  --border:        #d6dae1;
-  --border-strong: #b3bac5;
+  /*
+   * A warm ground rather than a clinical one.
+   *
+   * The light theme was #ffffff on #f6f7f9 — paper-white, and on a screen full
+   * of figures that is a lot of glare for something a household opens in the
+   * evening. Everything here carries a few degrees of warmth, the way paper
+   * does: the page is a faint sepia, cards are an off-white rather than pure
+   * white, and the borders and muted text follow so the whole thing reads as one
+   * material instead of warm panels floating on a cool background.
+   *
+   * Every pairing below was re-measured against its own surface rather than
+   * eyeballed: the faintest text is 5.2:1 and the faintest state colour 5.5:1
+   * against the panel it sits on, so nothing dropped through A2's AA floor.
+   * Warmth is worth nothing if it costs legibility.
+   */
+  --bg:            #f4f1ea;
+  --surface:       #fdfbf6;
+  --surface-2:     #ece7dc;
+  --border:        #ded7c9;
+  --border-strong: #bcb3a1;
 
-  --text:          #14181f;      /* 15.8:1 on --surface */
-  --text-muted:    #545c6b;      /*  7.1:1 on --surface */
-  --text-faint:    #6b7382;      /*  4.9:1 on --surface */
+  --text:          #1d1a15;      /* 16.8:1 on --surface */
+  --text-muted:    #5b5446;      /*  7.3:1 on --surface */
+  --text-faint:    #726a5a;      /*  5.2:1 on --surface */
 
-  --accent:        #1f5fa9;
+  --accent:        #1d5b9e;
   --accent-text:   #ffffff;
-  --accent-soft:   #e4edf8;
+  --accent-soft:   #e2ebf6;
 
   /* State colours. Each is AA against its own surface. */
   --positive:      #1a6b3c;
-  --positive-bg:   #e3f3e9;
-  --warning:       #8a5a00;
-  --warning-bg:    #fdf0d5;
-  --danger:        #ab2020;
-  --danger-bg:     #fbe6e6;
-  --info-bg:       #e8eefc;
+  --positive-bg:   #e2f0e5;
+  --warning:       #855600;
+  --warning-bg:    #f8eed4;
+  --danger:        #a82424;
+  --danger-bg:     #f7e4df;
+  --info-bg:       #e6ecf5;
 
   /* Categorical chart series — distinct, AA-legible on --surface. */
   --chart-1: #2f6db0;
@@ -49,10 +64,10 @@ export const STYLESHEET = `
   --chart-6: #0f8b8d;
   --chart-7: #8a6d1f;
   --chart-8: #5a6b7a;
-  --chart-grid: #e5e8ee;
+  --chart-grid: #e4ddd0;
 
   --focus:         #1f5fa9;
-  --shadow:        0 1px 2px rgba(15, 20, 30, .08), 0 4px 12px rgba(15, 20, 30, .06);
+  --shadow:        0 1px 2px rgba(60, 48, 30, .09), 0 4px 12px rgba(60, 48, 30, .07);
 
   --radius:        10px;
   --radius-sm:     6px;

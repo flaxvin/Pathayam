@@ -111,3 +111,24 @@ describe("B103 · the in-place swap must not strip the page chrome", () => {
     assert.ok(full.includes('class="app-header"'), "a full page has the header");
   });
 });
+
+/**
+ * B119 · The theme lives on the html element, and the in-place swap replaced
+ * main and the navigation and nothing else — so a toggle changed the stored
+ * preference, re-rendered the page, and left the old theme on screen until the
+ * next real navigation. It looked exactly like a button that does nothing.
+ */
+describe("B119 · a page swap carries the chrome with it", () => {
+  test("the theme attribute is copied, and cleared when it should be", () => {
+    assert.match(CLIENT_SCRIPT, /doc\.documentElement\.getAttribute\("data-theme"\)/);
+    assert.match(CLIENT_SCRIPT, /removeAttribute\("data-theme"\)/,
+      "absent means follow the system, so absence has to be copied too");
+  });
+
+  test("the header moves with the content", () => {
+    assert.match(
+      CLIENT_SCRIPT, /\[".sidebar", ".bottom-nav", ".app-header"\]/,
+      "the header carries the theme icon and which budget you are looking at",
+    );
+  });
+});
