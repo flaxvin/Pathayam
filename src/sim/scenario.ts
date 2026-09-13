@@ -83,6 +83,9 @@ import { units as toUnits, price as toPrice } from "../portfolio/holdings.ts";
 
 export const SCENARIO_MONTHS = 36;
 
+/** What the household keeps unassigned, so the next month starts with something. */
+const FLOAT = 60_000 * 100;
+
 /**
  * The member a demo instance signs you in as, and therefore the one who must
  * still be here when the simulation finishes.
@@ -549,18 +552,17 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
       did("copyAssignmentsFromMonth", () => copyAssignmentsFromMonth(db, actor, months[ix]!, months[ix - 1]!));
     }
 
-    const monthlyNeeds: [string, number][] = [
-      ["Rent", 38_000], ["Groceries", 22_000 + between(-800, 1_400)], ["Eating out", 9_000],
-      ["Cab / auto", 7_000], ["Electricity", 6_500], ["Domestic help", 5_000],
-      ["Medical", 4_000], ["Personal", 6_000], ["Household", 5_000], ["Broadband", 1_500],
-    ];
-    for (const [name, amount] of monthlyNeeds) {
-      if (!catIds.has(name)) continue;
-      const state = computeBudget(loadEngineInput(db, { through: month, budgetId: household })).get(month);
-      const already = state?.categories.get(cat(name))?.assigned ?? 0;
-      if (already < rupees(amount)) fund(cat(name), amount - already / 100);
+    /*
+     * The loans get their EMIs, because that is what their envelopes are for:
+     * the instalment is paid out of the envelope, the way a card's bill is.
+     */
+    for (const loan of listLoans(db)) {
+      const envelope = paymentCategoryForLoan(db, loan.id);
+      const p = projectLoan(db, loan.id);
+      if (!envelope || !p) continue;
+      const due = p.preEmi ?? p.emi;
+      if (due > 0) fund(envelope.id, due / 100);
     }
-    fund(gifts.id, 3_000);
 
     // The cards get what they are actually carrying, as far as there is money.
     for (const c of [cardCat, axisCat, priyaCardCat]) {
@@ -574,6 +576,19 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
       )?.total ?? 0);
       if (owed > 0) fund(c.id, owed / 100);
     }
+
+    const monthlyNeeds: [string, number][] = [
+      ["Rent", 38_000], ["Groceries", 22_000 + between(-800, 1_400)], ["Eating out", 9_000],
+      ["Cab / auto", 7_000], ["Electricity", 6_500], ["Domestic help", 5_000],
+      ["Medical", 4_000], ["Personal", 6_000], ["Household", 5_000], ["Broadband", 1_500],
+    ];
+    for (const [name, amount] of monthlyNeeds) {
+      if (!catIds.has(name)) continue;
+      const state = computeBudget(loadEngineInput(db, { through: month, budgetId: household })).get(month);
+      const already = state?.categories.get(cat(name))?.assigned ?? 0;
+      if (already < rupees(amount)) fund(cat(name), amount - already / 100);
+    }
+    fund(gifts.id, 3_000);
 
     if (ix % 7 === 3) {
       did("moveMoney", () => moveMoney(db, actor, {
@@ -855,6 +870,25 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
       if (give > 0) {
         did("addAssigned", () => addAssigned(db, actor, month, envelope, give as Paise));
       }
+
+      /*
+       * And if this month's income did not cover it, it comes out of savings —
+       * which is what savings are for, and what a person actually does. Without
+       * this a thin month simply skipped the commitment, the shortfall carried
+       * for ever, and the household page reported somebody nearly two lakh
+       * behind on a ₹40,000 agreement they had kept every month they could.
+       */
+      const short = wanted - give;
+      const savings = budgetId === hisBudget.id ? hisSavings.id : anilSavings.id;
+      if (short > 0) {
+        const held = state?.categories.get(savings)?.balance ?? 0;
+        const take = Math.min(short, Math.max(0, held));
+        if (take > 0) {
+          did("moveMoney", () => moveMoney(db, actor, {
+            month, fromCategoryId: savings, toCategoryId: envelope, amount: take as Paise,
+          }));
+        }
+      }
     }
     /*
      * Anil's share, paid out of his own account against household envelopes —
@@ -1007,7 +1041,15 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
       const envelope = queryOne<{ category_id: string }>(
         db, `SELECT category_id FROM goal_categories WHERE goal_id = ? LIMIT 1`, goal.id,
       )?.category_id;
-      if (envelope) fund(envelope, between(2_000, 5_000));
+      /*
+       * Never the last rupee. A household that assigns every paisa the day the
+       * salary lands has nothing to fund the first fortnight of the next month
+       * with, and every envelope reads "not funded" until payday — which is how
+       * the demo came to show four loans unfunded while every instalment had
+       * been paid on time. A float is what a buffer actually is.
+       */
+      const spare = available() - FLOAT;
+      if (envelope && spare > 0) fund(envelope, Math.min(rupees(between(2_000, 5_000)), spare) / 100);
     }
     // Ravi's own goal is funded out of his own budget, not the household's.
     {

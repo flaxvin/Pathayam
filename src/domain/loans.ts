@@ -844,14 +844,39 @@ export function recordInstalment(
           cleared: true,
         });
       } else {
-        // The payment envelope is reduced by the full amount, and the loan
-        // account rises by it — symmetric with a card payment (R6).
-        const [out] = createTransfer(db, actor, {
-          fromAccountId: input.fromAccountId,
-          toAccountId: loan.account_id,
+        /*
+         * B124 · The payment envelope is reduced by the full amount, and the
+         * loan account rises by it — symmetric with a card payment (R6), which
+         * is what `06` R14 says a loan's envelope is.
+         *
+         * It was a plain transfer, and a transfer to a tracking account carries
+         * no envelope: the money left the budget through Ready to Assign and the
+         * envelope kept everything ever assigned to it. So a household that
+         * budgeted for its EMI paid for it twice over — once into an envelope
+         * that only grew, and again out of the pool when the instalment
+         * actually went. Four loans in the demo sat at "not funded" for three
+         * years while every instalment was paid on time, which is exactly what
+         * that looks like from the outside.
+         *
+         * Filed to the loan's own envelope instead, it behaves the way the card
+         * does: the envelope is what pays, and Ready to Assign is untouched.
+         */
+        const payment = paymentCategoryForLoan(db, input.loanId);
+        const out = createTransaction(db, actor, {
+          accountId: input.fromAccountId,
+          amount: -input.amount as Paise,
+          date: input.date,
+          categoryId: payment?.id ?? null,
+          payeeName: loan.lender,
+          memo: `${loan.nickname || loan.lender} instalment`,
+          cleared: true,
+        });
+        createTransaction(db, actor, {
+          accountId: loan.account_id,
           amount: input.amount,
           date: input.date,
-          memo: `${loan.lender} instalment`,
+          memo: `${loan.nickname || loan.lender} instalment`,
+          cleared: true,
         });
         transactionId = out.id;
       }
