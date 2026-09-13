@@ -18,10 +18,10 @@ import { openDatabase, ensureHousehold, execute, type DB } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { nowIST, todayIST, monthOf } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
-import { createAccount } from "../domain/accounts.ts";
-import { createGroup, createCategory, setAssigned } from "../domain/budget.ts";
+import { createAccount, listAccounts } from "../domain/accounts.ts";
+import { createGroup, createCategory, setAssigned, listCategories } from "../domain/budget.ts";
 import { createTransaction } from "../domain/transactions.ts";
-import { createSchedule } from "../domain/schedules.ts";
+import { createSchedule, listSchedules } from "../domain/schedules.ts";
 import { projectCashflow } from "../domain/schedules.ts";
 import { queryTransactions, envelopeSpendByMonth, incomeVsExpense } from "../domain/reports.ts";
 import { buildBudgetView } from "./viewmodel.ts";
@@ -166,5 +166,42 @@ describe("B109 · reports offer every scope rather than picking one", () => {
     const his = incomeVsExpense(db, `${MONTH}-01`, todayIST(), mine);
     assert.notDeepEqual(hh, his);
     db.close();
+  });
+});
+
+describe("15 §3A.4 · a schedule belongs to a budget through either end", () => {
+  /**
+   * Found in a live database: five household bills — rent, broadband, Netflix,
+   * electricity, the domestic help — vanished from the household's schedule list
+   * the moment the account paying them moved into a personal budget. The account
+   * was hers; the envelopes were the household's. Scoping on the account alone
+   * answered "whose cash" when the list is asking "whose bills".
+   *
+   * The cashflow projection is deliberately still account-based: that one *is*
+   * asking whose cash leaves.
+   */
+  test("a household bill paid from a personal account is on both lists", () => {
+    const { db, household, mine, hisOwn, groceries } = twoBudgets();
+    createSchedule(db, actor, {
+      name: "Rent", amount: -rupees(38_000), recurrence: "monthly",
+      nextDue: todayIST(), accountId: hisOwn.id, categoryId: groceries,
+    });
+
+    const inScope = (scope: string) => {
+      const accounts = new Set(
+        listAccounts(db, { viewerMemberId: RAVI })
+          .filter((a) => a.budget_id === scope).map((a) => a.id),
+      );
+      const categories = new Set(
+        listCategories(db, { includeHidden: true, budgetId: scope }).map((c) => c.id),
+      );
+      return listSchedules(db).filter((s) =>
+        (!s.account_id && !s.category_id)
+        || (s.account_id !== null && accounts.has(s.account_id))
+        || (s.category_id !== null && categories.has(s.category_id)));
+    };
+
+    assert.equal(inScope(household).some((s) => s.name === "Rent"), true, "the household's bill");
+    assert.equal(inScope(mine).some((s) => s.name === "Rent"), true, "and his account pays it");
   });
 });
