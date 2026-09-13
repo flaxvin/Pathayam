@@ -12,6 +12,7 @@ import {
   addDays,
   daysBetween,
   resolveDayOfMonth,
+  statementPeriodOf,
   formatDate,
   formatMonth,
   parseDate,
@@ -94,6 +95,12 @@ describe("resolveDayOfMonth — F7.3", () => {
     assert.equal(resolveDayOfMonth("2026-02", 31, "skip"), null);
     assert.equal(resolveDayOfMonth("2026-02", 31, "next-day"), "2026-03-01");
   });
+
+  test("and February knows which years are long", () => {
+    assert.equal(resolveDayOfMonth("2024-02", 31, "last-day"), "2024-02-29");
+    assert.equal(resolveDayOfMonth("2026-02", 30, "last-day"), "2026-02-28");
+    assert.equal(resolveDayOfMonth("2026-04", 31, "last-day"), "2026-04-30");
+  });
 });
 
 describe("formatting — L3", () => {
@@ -152,5 +159,67 @@ describe("fiscal year — L4", () => {
   test("gives the range and the label", () => {
     assert.deepEqual(fiscalYearRange(2026), { from: "2026-04-01", to: "2027-03-31" });
     assert.equal(formatFiscalYear(2026), "FY 2026-27");
+  });
+});
+
+describe("statementPeriodOf — which cycle a card charge belongs to", () => {
+  /**
+   * A statement dated the 18th covers everything after the previous 18th up to
+   * and including this one. A charge on the 19th is next month's problem, and
+   * being a day out here is the difference between a cycle that reconciles
+   * against the paper statement and one that does not.
+   */
+  test("on the statement date itself, the cycle ends that day", () => {
+    const period = statementPeriodOf("2026-09-18", 18);
+    assert.equal(period.end, "2026-09-18");
+    assert.equal(period.start, "2026-08-19");
+  });
+
+  test("the day after starts the next cycle", () => {
+    const period = statementPeriodOf("2026-09-19", 18);
+    assert.equal(period.start, "2026-09-19");
+    assert.equal(period.end, "2026-10-18");
+  });
+
+  test("a charge mid-cycle lands in the cycle containing it", () => {
+    assert.deepEqual(
+      { ...statementPeriodOf("2026-10-02", 18) },
+      { start: "2026-09-19", end: "2026-10-18", label: "19 Sep – 18 Oct" },
+    );
+  });
+
+  test("a statement day of 31 clamps in every short month", () => {
+    // February's statement is dated the 28th, so its cycle runs 1–28 Feb.
+    const feb = statementPeriodOf("2026-02-10", 31);
+    assert.equal(feb.end, "2026-02-28");
+    assert.equal(feb.start, "2026-02-01");
+
+    // And the one after it starts on 1 March.
+    const mar = statementPeriodOf("2026-03-01", 31);
+    assert.equal(mar.start, "2026-03-01");
+    assert.equal(mar.end, "2026-03-31");
+
+    // A leap February gets the 29th.
+    assert.equal(statementPeriodOf("2024-02-10", 31).end, "2024-02-29");
+  });
+
+  test("every day of a year lands in exactly one cycle, with no gaps", () => {
+    // The property that matters: cycles tile the calendar. A gap or an overlap
+    // would put a charge on no statement or on two.
+    for (const day of [18, 1, 28, 31]) {
+      let cursor = "2026-01-01" as never;
+      let period = statementPeriodOf(cursor, day);
+      let guard = 0;
+      while (cursor < "2026-12-31" && guard++ < 400) {
+        assert.ok(cursor >= period.start && cursor <= period.end,
+          `${cursor} outside ${period.start}..${period.end} for day ${day}`);
+        cursor = addDays(cursor, 1);
+        const next = statementPeriodOf(cursor, day);
+        if (next.end !== period.end) {
+          assert.equal(next.start, addDays(period.end, 1), `gap after ${period.end} for day ${day}`);
+          period = next;
+        }
+      }
+    }
   });
 });

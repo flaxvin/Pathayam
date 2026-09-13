@@ -117,6 +117,49 @@ const MONTH_NAMES = [
   "July", "August", "September", "October", "November", "December",
 ];
 
+export interface StatementPeriod {
+  /** First day the cycle covers. */
+  start: IsoDate;
+  /** The statement date itself — the last day the cycle covers. */
+  end: IsoDate;
+  /** "19 Sep – 18 Oct", for a column or a heading. */
+  label: string;
+}
+
+/**
+ * Which statement cycle a card transaction falls in, given the card's statement
+ * day.
+ *
+ * A statement dated the 18th covers everything after the previous 18th up to and
+ * including this one, so a charge on the 19th belongs to *next* month's
+ * statement. Getting that boundary wrong by a day is the difference between a
+ * cycle that reconciles against the paper statement and one that does not, which
+ * is the whole reason to derive this rather than eyeball it.
+ *
+ * Short months clamp, the same way a due date does: with a statement day of 31,
+ * February's statement is dated the 28th (or the 29th).
+ */
+export function statementPeriodOf(date: IsoDate, statementDay: number): StatementPeriod {
+  const month = monthOf(date);
+  const thisMonths = resolveDayOfMonth(month, statementDay, "last-day")!;
+
+  // On or before this month's statement date, the cycle ends here; after it, the
+  // charge belongs to next month's.
+  const end = date <= thisMonths
+    ? thisMonths
+    : resolveDayOfMonth(addMonths(month, 1), statementDay, "last-day")!;
+
+  const previous = resolveDayOfMonth(addMonths(monthOf(end), -1), statementDay, "last-day")!;
+  const start = addDays(previous, 1);
+
+  return { start, end, label: `${shortDate(start)} – ${shortDate(end)}` };
+}
+
+/** "19 Sep" — compact enough for a table column. */
+function shortDate(date: IsoDate): string {
+  return `${Number(date.slice(8, 10))} ${MONTH_NAMES[Number(date.slice(5, 7)) - 1]!.slice(0, 3)}`;
+}
+
 /** DD-MM-YYYY (L3). */
 export function formatDate(date: IsoDate): string {
   return `${date.slice(8, 10)}-${date.slice(5, 7)}-${date.slice(0, 4)}`;

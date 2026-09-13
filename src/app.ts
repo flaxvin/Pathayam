@@ -43,7 +43,7 @@ import {
 import { fetchGmail } from "./gmail/fetch.ts";
 import { withIdempotency, IdempotencyConflict } from "./core/idempotency.ts";
 import { parseAmount, evaluateAmountExpression, formatPaise, type Paise } from "./core/money.ts";
-import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, lastDayOfMonth, daysBetween, fiscalYearOf, formatFiscalYear, type MonthKey, type IsoDate } from "./core/dates.ts";
+import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, lastDayOfMonth, daysBetween, fiscalYearOf, formatFiscalYear, statementPeriodOf, type MonthKey, type IsoDate } from "./core/dates.ts";
 import { buildBudgetView, reviewCount } from "./web/viewmodel.ts";
 import { renderBudget } from "./web/pages/budget.ts";
 import {
@@ -1467,6 +1467,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         isTransfer: r.transfer_pair_id !== null,
         cardLabel: r.card_label,
         ownerName: r.owner_name,
+        // R6 · The cycle this charge bills in, derived from the card's statement
+        // day. Cycles are not calendar months, so the register says which.
+        statementPeriod:
+          account.kind === "credit" && account.statement_day
+            ? statementPeriodOf(r.date, account.statement_day).label
+            : null,
         runningBalance: running,
       };
       running -= r.amount;

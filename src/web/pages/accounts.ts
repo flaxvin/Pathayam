@@ -191,6 +191,15 @@ export interface RegisterRow {
   cardLabel: string | null;
   ownerName: string | null;
   runningBalance: Paise;
+  /**
+   * R6 · Which statement cycle this charge falls in, derived from the card's
+   * statement day. Null for anything that is not on a card with one set.
+   *
+   * Statement cycles are not calendar months, which is exactly why the register
+   * needs to say so: "what is on this cycle so far" is otherwise a question you
+   * answer by counting rows against a paper statement.
+   */
+  statementPeriod: string | null;
 }
 
 export function renderAccountDetail(opts: {
@@ -295,8 +304,14 @@ export function renderAccountDetail(opts: {
             without deleting the account.
           -->
           <div class="grid-2">
-            ${dayOfMonthField("acc-statement-day", "statement_day", "Statement day", account.statement_day)}
-            ${dayOfMonthField("acc-due-day", "due_day", "Payment due day", account.due_day)}
+            ${dayOfMonthField("acc-statement-day", "statement_day", "Statement day", account.statement_day, {
+              hint: "Tags each charge with the cycle it bills in, on the register below. A cycle runs from the day after one statement to the next.",
+              shortMonth: true,
+            })}
+            ${dayOfMonthField("acc-due-day", "due_day", "Payment due day", account.due_day, {
+              shortMonth: true,
+              hint: "Used to project the payment on the cashflow calendar. In a month that is too short, it falls on the last day.",
+            })}
           </div>
         `)}
         ${when((opts.budgets ?? []).length > 1 && account.kind !== "tracking", () => html`
@@ -397,6 +412,9 @@ export function renderAccountDetail(opts: {
                          actually reads, and on a joint account this is the column
                          that answers the question being asked. -->
                     <th scope="col">Who</th>
+                    ${when(rows.some((r) => r.statementPeriod), () => html`
+                      <th scope="col">Statement</th>
+                    `)}
                     <th scope="col" class="num">Amount</th>
                     <th scope="col" class="num">Balance</th>
                     <th scope="col">Cleared</th>
@@ -417,6 +435,9 @@ export function renderAccountDetail(opts: {
                           ${r.tags.map((t) => html`<span class="chip">#${t}</span>`)}
                         </td>
                         <td class="faint">${r.ownerName ?? "—"}</td>
+                        ${when(rows.some((x) => x.statementPeriod), () => html`
+                          <td class="faint">${r.statementPeriod ?? "—"}</td>
+                        `)}
                         <td class="num amount ${r.amount < 0 ? "amount-negative" : "amount-positive"}">
                           ${formatPaise(r.amount)}
                         </td>
@@ -641,8 +662,8 @@ export function renderNewAccountForm(opts: {
       <fieldset>
         <legend>Credit cards only</legend>
         <div class="grid-2">
-          ${dayOfMonthField("statement_day", "statement_day", "Statement day", null)}
-          ${dayOfMonthField("due_day", "due_day", "Payment due day", null)}
+          ${dayOfMonthField("statement_day", "statement_day", "Statement day", null, { shortMonth: true })}
+          ${dayOfMonthField("due_day", "due_day", "Payment due day", null, { shortMonth: true })}
         </div>
         <p class="field-hint">
           Statement cycles rarely line up with calendar months, so these are recorded
@@ -796,12 +817,18 @@ export function renderManageCards(opts: {
  *
  * A statement day is not a date — it is the 18th of every month — so a date
  * picker would be the wrong control and a free-text box is a way to type 45.
- * Thirty-one options is the whole domain, and the last three say what they mean
- * in a short month, because the 31st of February is the question everyone asks.
+ * Thirty-one options is the whole domain.
+ *
+ * `shortMonth` says what a day past 28 means in February. Both fields clamp to
+ * the last day, and both say so — the due day because the cashflow projection
+ * resolves it to a real date, the statement day because it decides which cycle a
+ * charge bills in (`statementPeriodOf`).
  */
 function dayOfMonthField(
-  id: string, name: string, label: string, selected: number | null, hint?: string,
+  id: string, name: string, label: string, selected: number | null,
+  opts: { hint?: string; shortMonth?: boolean } = {},
 ): SafeHtml {
+  const { hint, shortMonth = false } = opts;
   return html`
     <div class="field">
       <label for="${id}">${label}</label>
@@ -810,7 +837,7 @@ function dayOfMonthField(
         ${Array.from({ length: 31 }, (_, i) => i + 1).map(
           (d) => html`
             <option value="${String(d)}" ${raw(d === selected ? "selected" : "")}>
-              ${ordinal(d)}${d > 28 ? " (or the last day, in a short month)" : ""}
+              ${ordinal(d)}${shortMonth && d > 28 ? " (or the last day, in a short month)" : ""}
             </option>
           `,
         )}
