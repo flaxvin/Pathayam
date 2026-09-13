@@ -64,7 +64,7 @@ const SHOTS = [
   { name: "charts_allocation", path: "/portfolio/allocation", clip: "svg" },
   { name: "charts_reports", path: "/reports", clip: "svg" },
   { name: "charts_cashflow", path: "/schedules", clip: "svg" },
-  { name: "charts_goals", path: "/goals", clip: "svg[viewBox^=\"0 0 1\"]" },
+  { name: "charts_goals", path: "/goals", clip: ".progress-ring" },
   { name: "charts_loan", path: "/loans", pick: "loan", clip: "svg" },
 ];
 
@@ -99,6 +99,17 @@ try {
   const entered = await fetch(`${base}/demo/enter`, { method: "POST", redirect: "manual" });
   const cookie = (entered.headers.get("set-cookie") ?? "").split(";")[0];
   if (!cookie) throw new Error("no session cookie from /demo/enter");
+
+  /*
+   * Pin the theme. The demo seeds whatever it seeds and a stray toggle sticks,
+   * so without this a rerun can quietly reshoot the whole set in the other
+   * theme — which shows up as a 28-file diff nobody asked for.
+   */
+  await fetch(`${base}/settings/theme`, {
+    method: "POST", redirect: "manual",
+    headers: { Cookie: cookie, "Content-Type": "application/x-www-form-urlencoded" },
+    body: "theme=dark",
+  });
 
   const paths = await resolvePaths(base, cookie);
 
