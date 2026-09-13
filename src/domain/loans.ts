@@ -125,6 +125,20 @@ export interface CreateLoanInput {
   historyFrom?: IsoDate | null;
   /** Defaults to the sanction — most mid-life loans are fully drawn. */
   disbursedAtCreation?: Paise | null;
+  /**
+   * R15 · Where the money actually went, when the loan is drawn at creation.
+   *
+   * The two cases are genuinely different and a household knows which it had. A
+   * car or education loan is paid straight to the dealer or the institution: the
+   * liability rises and the budget never sees a rupee, which is exactly what
+   * `third-party` means. A personal loan lands in your bank account and is income
+   * to assign like any other, which is `budget-account`.
+   *
+   * Omitted, nothing is recorded — which was the only behaviour until now, and
+   * left a personal loan's ₹5,00,000 missing from the account it arrived in.
+   */
+  disbursementDestination?: "budget-account" | "third-party";
+  disbursementAccountId?: string | null;
 }
 
 export function createLoan(db: DB, actor: Actor, input: CreateLoanInput): Loan {
@@ -158,10 +172,18 @@ export function createLoan(db: DB, actor: Actor, input: CreateLoanInput): Loan {
       input.firstInstalmentDate ?? null, input.instalmentDay ?? null,
       input.repaymentAccountId ?? null,
       input.historyFrom ?? null,
-      // A loan entered with a current balance was drawn before this app
-      // existed. Treating it as undrawn would report the whole sanction as
-      // still available, which it is not.
-      input.currentOutstanding ? (input.disbursedAtCreation ?? input.sanctioned) : 0,
+      /*
+       * A loan entered with a current balance was drawn before this app existed.
+       * Treating it as undrawn would report the whole sanction as still
+       * available, which it is not.
+       *
+       * Unless the household said where the money went — then a real disbursement
+       * is recorded below, and totalDisbursed sums both columns, so setting this
+       * one as well would draw the amount twice and trip the sanction check.
+       */
+      input.currentOutstanding && !input.disbursementDestination
+        ? (input.disbursedAtCreation ?? input.sanctioned)
+        : 0,
       nowIST(), actor.memberId,
     );
 
@@ -175,6 +197,24 @@ export function createLoan(db: DB, actor: Actor, input: CreateLoanInput): Loan {
 
     // R14: the payment category, symmetric with the credit-card one (R6).
     createLoanPaymentCategory(db, actor, id, input.nickname || input.lender);
+
+    /*
+     * R15 · Record where the drawn money went, if the household said. Doing it
+     * through recordDisbursement rather than inline is deliberate: that is where
+     * the sanction check, the cash leg and B51's refusal to book a liability
+     * without naming the account all live.
+     */
+    const drawn = input.currentOutstanding ? (input.disbursedAtCreation ?? input.sanctioned) : 0;
+    if (drawn > 0 && input.disbursementDestination) {
+      recordDisbursement(db, actor, {
+        loanId: id,
+        date: input.sanctionDate,
+        amount: drawn as Paise,
+        destination: input.disbursementDestination,
+        destinationAccountId: input.disbursementAccountId ?? null,
+        note: "Drawn when the loan was added",
+      });
+    }
 
     const loan = getLoan(db, id)!;
     appendEvent(db, actor, {

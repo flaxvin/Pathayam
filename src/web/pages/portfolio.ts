@@ -789,7 +789,7 @@ export function renderNetWorth(opts: {
       <div class="scope-tabs" style="margin-bottom:1rem">
         ${(["household", "mine", "joint"] as const).map(
           (v) => html`
-            <a class="button-small ${(opts.scope ?? "household") === v ? "button-primary" : ""}"
+            <a class="button button-small ${(opts.scope ?? "household") === v ? "button-primary" : ""}"
                href="/net-worth?whose=${v}">
               ${v === "household" ? "Everything I can see" : v === "mine" ? "Mine" : "Joint"}
             </a>

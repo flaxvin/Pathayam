@@ -132,7 +132,7 @@ import {
   renderPrepaymentComparison, renderLoanStatementForm, renderRateReset,
 } from "./web/pages/loans.ts";
 import {
-  createLoan, listLoans, getLoan, projectLoan, recordInstalment, listPayments,
+  createLoan, listLoans, getLoan, projectLoan, recordInstalment, listPayments, closeLoan,
   recordDisbursement, recordLoanStatement, recordRateChange,
   listDisbursements, listRatePeriods, debtOverview, type LoanType,
 } from "./domain/loans.ts";
@@ -3075,6 +3075,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         nickname: field(ctx.body, "nickname") || null,
         holderMemberId: field(ctx.body, "holder_member_id") || null,
         visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
+        // R15 · Where the drawn money landed, if the household said.
+        disbursementDestination:
+          field(ctx.body, "disbursement_destination") === "budget-account" ? "budget-account"
+            : field(ctx.body, "disbursement_destination") === "third-party" ? "third-party"
+              : undefined,
+        disbursementAccountId: field(ctx.body, "disbursement_account_id") || null,
         loanType: requiredField(ctx.body, "loan_type") as LoanType,
         sanctioned: amountField(field(ctx.body, "sanctioned"), "Sanctioned amount"),
         sanctionDate: parseDate(field(ctx.body, "sanction_date") ?? "") ?? todayIST(),
@@ -3150,11 +3156,56 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         budgetAccounts: listAccounts(db, { viewerMemberId: viewer(ctx) })
           .filter((acc) => acc.kind === "budget" && !acc.closed_at)
           .map((acc) => ({ id: acc.id, name: acc.name })),
+        // H2 / H2.2 · Read off the tracking account the loan hangs on.
+        members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
+        holderMemberId: getAccount(db, projection.loan.account_id)?.holder_member_id ?? null,
+        isPrivate: getAccount(db, projection.loan.account_id)?.visibility === "private",
       }),
     );
   });
 
   /** R15 · Record a tranche. */
+  /*
+   * H2 / H2.2 · Whose loan it is, changeable after the fact.
+   *
+   * It could be set when the loan was created and nowhere afterwards, so a loan
+   * entered before a household started keeping money separately was stuck as
+   * everybody's. The account it hangs on is where both live, so this is an
+   * ordinary account edit wearing the loan's clothes.
+   */
+  /*
+   * R21 · Closing a paid-off loan.
+   *
+   * closeLoan had been written and reachable from nowhere, parked on the
+   * reasoning that "a loan closes by being repaid". It does — and then it sat in
+   * the list at zero for ever, because nothing noticed. Repaying it is what makes
+   * it closeable; this is what files it away.
+   */
+  router.post("/loans/:id/close", (ctx) =>
+    mutate(ctx, (a) => {
+      const loan = getLoan(db, ctx.params.id!);
+      if (!loan) throw new NotFound("That loan does not exist.");
+      closeLoan(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+        loanId: loan.id,
+        date: todayIST(),
+      });
+      return { redirect: "/loans", message: `${loan.nickname || loan.lender} is closed.` };
+    }),
+  );
+
+  router.post("/loans/:id/holder", (ctx) =>
+    mutate(ctx, (a) => {
+      const loan = getLoan(db, ctx.params.id!);
+      if (!loan) throw new NotFound("That loan does not exist.");
+      updateAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+        loan.account_id, {
+          holder_member_id: field(ctx.body, "holder_member_id") || null,
+          visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
+        });
+      return { redirect: `/loans/${loan.id}`, message: "Saved." };
+    }),
+  );
+
   router.post("/loans/:id/disburse", (ctx) =>
     mutate(ctx, (a) => {
       const loanId = ctx.params.id!;

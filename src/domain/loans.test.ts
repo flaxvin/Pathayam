@@ -5,8 +5,10 @@ import type { Actor } from "../core/events.ts";
 import { nowIST } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import { createAccount } from "./accounts.ts";
+import { accountBalances } from "../engine/repository.ts";
 import {
   createLoan, projectLoan, recordDisbursement, recordInstalment,
+  closeLoan, listLoans, getLoan,
 } from "./loans.ts";
 
 const RAVI = "m-ravi";
@@ -202,5 +204,95 @@ describe("06 R16 M3/M4 · moratorium in the projection", () => {
     });
     const p = projectLoan(db, loan.id)!;
     assert.equal(p.moratorium, null, "a recorded instalment ends the moratorium view");
+  });
+});
+
+describe("R15 · where a new loan's money went", () => {
+  /**
+   * Creating a loan recorded the drawn amount as a number on the loan row and
+   * nothing else, so a personal loan whose ₹5,00,000 landed in a bank account
+   * left that account untouched — the money existed on the liability side and
+   * nowhere else. The two cases are genuinely different and a household knows
+   * which it had.
+   */
+  test("paid to a seller: the debt rises and the budget is untouched", () => {
+    const { db, bankId: bank } = setup();
+    const before = accountBalances(db).get(bank)?.working ?? 0;
+
+    createLoan(db, actor, {
+      lender: "HDFC", loanType: "car", sanctioned: rupees(5_00_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 9,
+      tenureMonths: 60, currentOutstanding: rupees(5_00_000),
+      disbursementDestination: "third-party",
+    });
+
+    assert.equal(accountBalances(db).get(bank)?.working ?? 0, before, "no money arrived");
+  });
+
+  test("paid into an account: the money is there to assign", () => {
+    const { db, bankId: bank } = setup();
+    const before = accountBalances(db).get(bank)?.working ?? 0;
+
+    createLoan(db, actor, {
+      lender: "Axis", loanType: "personal", sanctioned: rupees(3_00_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 14,
+      tenureMonths: 36, currentOutstanding: rupees(3_00_000),
+      disbursementDestination: "budget-account", disbursementAccountId: bank,
+    });
+
+    assert.equal(
+      accountBalances(db).get(bank)?.working ?? 0,
+      before + rupees(3_00_000),
+      "it landed where the household said it did",
+    );
+  });
+
+  test("saying an account is required when it went into one (B51)", () => {
+    const { db } = setup();
+    assert.throws(
+      () => createLoan(db, actor, {
+        lender: "Axis", loanType: "personal", sanctioned: rupees(1_00_000),
+        sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 14,
+        tenureMonths: 12, currentOutstanding: rupees(1_00_000),
+        disbursementDestination: "budget-account",
+      }),
+      /which account the money landed in/,
+    );
+  });
+
+  test("saying nothing records nothing, which is what it always did", () => {
+    const { db, bankId: bank } = setup();
+    const before = accountBalances(db).get(bank)?.working ?? 0;
+    createLoan(db, actor, {
+      lender: "Canara", loanType: "education", sanctioned: rupees(8_00_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 10,
+      tenureMonths: 84, currentOutstanding: rupees(8_00_000),
+    });
+    assert.equal(accountBalances(db).get(bank)?.working ?? 0, before);
+  });
+});
+
+describe("R21 · a loan that has been paid off", () => {
+  /**
+   * It used to sit in the list at zero for ever. Nothing noticed it was done and
+   * nothing could be done about it: closeLoan existed and was reachable from
+   * nowhere.
+   */
+  test("closing keeps every figure and files it away", () => {
+    const { db, bankId } = setup();
+    const loan = createLoan(db, actor, {
+      lender: "Axis", loanType: "personal", sanctioned: rupees(1_00_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 12,
+      tenureMonths: 12, currentOutstanding: rupees(1_00_000),
+      repaymentAccountId: bankId,
+    });
+
+    const metrics = closeLoan(db, actor, { loanId: loan.id, date: "2026-06-01" });
+    assert.ok(metrics, "the closure reports what it cost (R21.2)");
+
+    // Gone from the open list, still there when asked for everything.
+    assert.equal(listLoans(db).some((l) => l.id === loan.id), false);
+    assert.equal(listLoans(db, { includeClosed: true }).some((l) => l.id === loan.id), true);
+    assert.ok(getLoan(db, loan.id)?.closed_at, "and it is marked closed, not deleted");
   });
 });

@@ -308,6 +308,14 @@ export function renderLoanDetail(opts: {
   disbursements: Disbursement[];
   rates: { effective_from: IsoDate; annual_rate_pct: number }[];
   budgetAccounts: { id: string; name: string }[];
+  /**
+   * H2 / H2.2 · Whose loan it is, and who can see it. Settable at creation since
+   * the form was written, and changeable nowhere — so a loan entered before the
+   * household separated its money was stuck as everybody's.
+   */
+  members?: { id: string; name: string }[];
+  holderMemberId?: string | null;
+  isPrivate?: boolean;
 }): SafeHtml {
   const p = opts.projection;
   const loan = p.loan;
@@ -320,6 +328,10 @@ export function renderLoanDetail(opts: {
           ${LOAN_TYPE_LABELS[loan.loan_type]} · sanctioned ${formatPaise(loan.sanctioned)}
           on ${formatDate(loan.sanction_date)}
         </p>
+        <p style="margin:.3rem 0 0">
+          ${when(holderNameOf(opts), () => html`<span class="chip">${holderNameOf(opts)}</span>`)}
+          ${when(Boolean(opts.isPrivate), () => html`<span class="chip">private</span>`)}
+        </p>
       </div>
       <div class="row">
         <a class="button" href="/loans/${loan.id}/pay">Record an instalment</a>
@@ -327,6 +339,19 @@ export function renderLoanDetail(opts: {
         <a class="button button-primary" href="/loans/${loan.id}/prepay">Prepay</a>
       </div>
     </div>
+
+    ${when((opts.members ?? []).length > 1, () => html`
+      <details class="card">
+        <summary class="linkish">Whose loan this is</summary>
+        <form method="post" action="/loans/${loan.id}/holder" style="margin-top:.75rem">
+          ${renderHolderFields(opts.members ?? [], {
+            holder: opts.holderMemberId ?? null,
+            visibility: opts.isPrivate ? "private" : "household",
+          })}
+          <button type="submit">Save</button>
+        </form>
+      </details>
+    `)}
 
     ${when(loan.history_from, () => html`
       <!-- R22.3: never presented as complete when history predates the app. -->
@@ -889,6 +914,38 @@ export function renderNewLoanForm(opts: {
         </p>
       </fieldset>
 
+      <!--
+        R15 · Where the money went. The two cases are genuinely different and the
+        household knows which it had: a car or education loan is paid straight to
+        the dealer or the institution and the budget never sees a rupee, while a
+        personal loan lands in an account and is income to assign.
+      -->
+      <fieldset>
+        <legend>Where did the money go?</legend>
+        <div class="grid-2">
+          <div class="field">
+            <label for="disbursement_destination">It was paid</label>
+            <select id="disbursement_destination" name="disbursement_destination">
+              <option value="">Don't record it</option>
+              <option value="third-party">Straight to the seller or institution</option>
+              <option value="budget-account">Into one of our accounts</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="disbursement_account_id">Into which account</label>
+            <select id="disbursement_account_id" name="disbursement_account_id">
+              <option value="">—</option>
+              ${opts.accounts.map((a) => html`<option value="${a.id}">${a.name}</option>`)}
+            </select>
+          </div>
+        </div>
+        <p class="field-hint">
+          Paid to a seller, the debt goes up and your budget is untouched. Paid
+          into an account, the money arrives in Ready to Assign like any income.
+          Only recorded if you said what you owe today, above.
+        </p>
+      </fieldset>
+
       <div class="grid-2">
         <div class="field">
           <label for="first_instalment_date">First instalment due</label>
@@ -1034,4 +1091,13 @@ export function renderLoanStatementForm(opts: {
       <a class="button button-quiet" href="/loans/${p.loan.id}">Cancel</a>
     </form>
   `;
+}
+
+/** The holder's name, when the household has more than one person to distinguish. */
+function holderNameOf(opts: {
+  members?: { id: string; name: string }[];
+  holderMemberId?: string | null;
+}): string | null {
+  if ((opts.members ?? []).length < 2 || !opts.holderMemberId) return null;
+  return (opts.members ?? []).find((m) => m.id === opts.holderMemberId)?.name ?? null;
 }
