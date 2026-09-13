@@ -18,8 +18,12 @@ import assert from "node:assert/strict";
 import { freshDb, seedMember, startTestApp, type TestApp } from "./harness.test-data.ts";
 import type { Actor } from "../core/events.ts";
 import { rupees } from "../core/money.ts";
+import { todayIST } from "../core/dates.ts";
 import { createAccount } from "../domain/accounts.ts";
 import { createLoan } from "../domain/loans.ts";
+import { createGroup, createCategory } from "../domain/budget.ts";
+import { ensurePersonalBudget } from "../domain/budgets.ts";
+import { createTransaction } from "../domain/transactions.ts";
 import { createFamilyLoan } from "../domain/family-loans.ts";
 
 const RAVI = "m-ravi";
@@ -159,6 +163,116 @@ describe("H2.2 · the holder still sees their own", () => {
       const res = await app.get(`/loans/${loan.id}`);
       assert.equal(res.status, 200);
       assert.ok((await res.text()).includes("Bajaj"), "the holder sees their own lender");
+      assert.deepEqual(app.failures, []);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+/**
+ * H2.2 · And a private account's *transactions* are its holder's alone too.
+ *
+ * Every index respected the flag — the accounts list, net worth, the loans page
+ * — while `queryTransactions`, the query every other screen is built on,
+ * respected nothing. Query, its CSV export, Search and the whole reports page
+ * showed one member's private spending to the rest of the household: payee,
+ * amount, envelope, line by line. The flag was on the account and the ledger
+ * read straight past it.
+ */
+describe("H2.2 · private spending does not appear in anybody else's reports", () => {
+  const RENT = "Astonishingly Distinctive Payee";
+
+  async function household(): Promise<{ app: TestApp; close: () => Promise<void> }> {
+    const db = freshDb();
+    seedMember(db, RAVI, "Ravi");
+    seedMember(db, PRIYA, "Priya");
+
+    const shared = createAccount(db, ravi, {
+      name: "Joint", kind: "budget", subtype: "savings",
+      openingDate: "2026-01-01", openingBalance: rupees(1_00_000),
+    });
+    // A private account has to sit in its holder's own budget — the app refuses
+    // it in the household's, because a balance inside Ready to Assign cannot be
+    // hidden by hiding its name.
+    const his = ensurePersonalBudget(db, RAVI, "Ravi");
+    const secret = createAccount(db, ravi, {
+      name: "IDFC Savings", kind: "budget", subtype: "savings",
+      openingDate: "2026-01-01", openingBalance: rupees(2_00_000),
+      holderMemberId: RAVI, visibility: "private", budgetId: his.id,
+    });
+    const group = createGroup(db, ravi, "Everyday");
+    const category = createCategory(db, ravi, { groupId: group.id, name: "Books" });
+
+    createTransaction(db, ravi, {
+      accountId: secret.id, amount: -rupees(4_321) as Paise, date: todayIST(),
+      categoryId: category.id, payeeName: RENT, cleared: true, ownerMemberId: RAVI,
+    });
+    void shared;
+
+    const app = await startTestApp(db, { memberId: PRIYA });
+    return { app, close: () => app.close() };
+  }
+
+  test("not in Query, its CSV, or Search", async () => {
+    const { app, close } = await household();
+    try {
+      for (const path of ["/query", "/query.csv"]) {
+        const body = await (await app.get(path)).text();
+        assert.ok(
+          !body.includes(RENT),
+          `${path} shows Priya a payee from Ravi's private account`,
+        );
+        assert.ok(!body.includes("IDFC"), `${path} names the private account itself`);
+      }
+
+      /*
+       * Search echoes the term back into its own box, so the name being on the
+       * page proves nothing. What must not be there is the row: the account it
+       * was spent from, and the amount.
+       */
+      const found = await (await app.get(`/search?q=${encodeURIComponent(RENT)}`)).text();
+      assert.ok(!found.includes("IDFC"), "search names the private account");
+      assert.ok(!found.includes("4,321"), "search shows the amount spent on it");
+      assert.deepEqual(app.failures, []);
+    } finally {
+      await close();
+    }
+  });
+
+  test("nor anywhere on the reports page", async () => {
+    const { app, close } = await household();
+    try {
+      const body = await (await app.get("/reports")).text();
+      assert.ok(!body.includes(RENT), "the reports page names a private payee");
+      assert.deepEqual(app.failures, []);
+    } finally {
+      await close();
+    }
+  });
+
+  test("but the holder sees their own", async () => {
+    const db = freshDb();
+    seedMember(db, RAVI, "Ravi");
+    const his = ensurePersonalBudget(db, RAVI, "Ravi");
+    const secret = createAccount(db, ravi, {
+      name: "IDFC Savings", kind: "budget", subtype: "savings",
+      openingDate: "2026-01-01", openingBalance: rupees(2_00_000),
+      holderMemberId: RAVI, visibility: "private", budgetId: his.id,
+    });
+    const group = createGroup(db, ravi, "Everyday");
+    const category = createCategory(db, ravi, { groupId: group.id, name: "Books" });
+    createTransaction(db, ravi, {
+      accountId: secret.id, amount: -rupees(4_321) as Paise, date: todayIST(),
+      categoryId: category.id, payeeName: RENT, cleared: true, ownerMemberId: RAVI,
+    });
+
+    const app = await startTestApp(db, { memberId: RAVI });
+    try {
+      // Query is budget-scoped like every screen that means one budget's money,
+      // so his own budget is where his own account's spending lives.
+      const body = await (await app.get(`/query?budget=${encodeURIComponent(his.id)}`)).text();
+      assert.ok(body.includes(RENT), "Ravi cannot see his own spending");
       assert.deepEqual(app.failures, []);
     } finally {
       await app.close();

@@ -3885,6 +3885,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         accountIds: account ? [account] : undefined,
         categoryIds: category ? [category] : undefined,
         budgetId,
+        // H2.2 · Query, Search and the CSV all come through here, so this is the
+        // one place the viewer has to be named for all three of them.
+        viewerMemberId: viewer(ctx),
         limit: 1000,
       },
     };
@@ -3962,7 +3965,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * two: it reported months of safety the household did not have.
      */
     const monthSpend =
-      (envelopeSpendByMonth(db, `${month}-01`, todayIST(), scope).at(-1)?.spent ?? 0) as Paise;
+      (envelopeSpendByMonth(db, `${month}-01`, todayIST(), scope, viewer(ctx))
+        .at(-1)?.spent ?? 0) as Paise;
 
     // #12 · Months of runway = liquid cash ÷ typical monthly spend (mean of the
     // three complete months before this one, so a partial month doesn't skew it).
@@ -3971,7 +3975,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       .filter((acc) => acc.kind === "budget" && acc.budget_id === scope)
       .reduce((sum, acc) => sum + Math.max(0, bals.get(acc.id)?.working ?? 0), 0);
     const priorMonths = envelopeSpendByMonth(
-      db, `${addMonths(month, -3)}-01`, lastDayOfMonth(addMonths(month, -1)), scope,
+      db, `${addMonths(month, -3)}-01`, lastDayOfMonth(addMonths(month, -1)), scope, viewer(ctx),
     );
     const avgMonthlySpend = priorMonths.length
       ? priorMonths.reduce((s, m) => s + m.spent, 0) / priorMonths.length
@@ -4053,7 +4057,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         : undefined;
 
     const categorySpend = groupTotals(
-      queryTransactions(db, { from: period.from, to: period.to, direction: "out", budgetId: scope }),
+      queryTransactions(db, {
+        from: period.from, to: period.to, direction: "out", budgetId: scope,
+        viewerMemberId: viewer(ctx),
+      }),
       "category",
     )
       .map((g) => ({ key: g.key, label: g.label, value: Math.abs(g.total) }))
@@ -4070,7 +4077,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // by group → category. Built from the budget view's own group structure.
     const bview = buildBudgetView(db, undefined, scope);
     const monthIncome =
-      (incomeVsExpense(db, `${bview.month}-01`, todayIST(), scope).at(-1)?.income ?? 0) as Paise;
+      (incomeVsExpense(db, `${bview.month}-01`, todayIST(), scope, viewer(ctx)).at(-1)?.income ?? 0) as Paise;
     const sankeyGroups = bview.groups
       .map((g) => ({
         name: g.name,
@@ -4085,11 +4092,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       renderReports({
         insights: spendingInsights(db),
         gains: config.features.assets ? capitalGainsByYear(db) : [],
-        trend: incomeVsExpense(db, period.from, period.to, scope),
+        trend: incomeVsExpense(db, period.from, period.to, scope, viewer(ctx)),
         categorySpend: categorySpend.map((g) => ({ label: g.label, value: g.value })),
         categoryTrends,
-        tagSpend: spendByTag(db, period.from, period.to),
-        spendingCalendar: spendingCalendar(db, addDays(todayIST(), -119), todayIST()),
+        tagSpend: spendByTag(db, period.from, period.to, viewer(ctx)),
+        spendingCalendar: spendingCalendar(db, addDays(todayIST(), -119), todayIST(), viewer(ctx)),
         sankey: { income: monthIncome, month: bview.month, groups: sankeyGroups },
         period,
         periods: periodPresets(),
