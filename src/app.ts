@@ -99,7 +99,7 @@ import { renderDeparture } from "./web/pages/departure.ts";
 import { renderHousehold } from "./web/pages/household.ts";
 import {
   createAccount, updateAccount, closeAccount, reopenAccount, listAccounts, getAccount, listCards, createCard, closeCard, recordCardStatement, lastCardStatement, paymentCategoryFor, MANAGED_SUBTYPES, SUBTYPE_LABELS, type AccountKind, hiddenAccountIds, type HolderScope,
-} from "./domain/accounts.ts";
+ creditedSinceStatement,} from "./domain/accounts.ts";
 import {
   setAssigned, addAssigned, copyAssignmentsFromMonth, moveMoney, setHeld, getHeld,
   listCategories, getCategory, startPersonalBudget, deleteGroup, visibleBudgetIds,
@@ -2785,6 +2785,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               }
             : null,
           daysToDue: statement ? daysBetween(today, statement.due_date) : null,
+          paidSinceStatement: statement
+            ? creditedSinceStatement(db, account.id, statement.statement_date)
+            : (0 as Paise),
           paymentCategoryId: payment?.id ?? null,
         };
       })
