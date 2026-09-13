@@ -25,7 +25,31 @@ export interface AccountRow {
   balanceSeries?: number[];
 }
 
-export function renderAccountList(rows: AccountRow[]): SafeHtml {
+/**
+ * 15 · How to name the budget on a row, for the render in progress.
+ *
+ * Module-level because the row helper is reached through renderSection, which has
+ * no business knowing about budgets — and threading it through two signatures to
+ * reach one chip is worse than this.
+ */
+let budgetName: (id: string | null) => string | null = () => null;
+
+export function renderAccountList(
+  rows: AccountRow[],
+  /**
+   * 15 · What each budget is called, so a row can say which one funds it. Empty
+   * for a household with one budget, where saying so would be noise.
+   */
+  budgets: { id: string; name: string; kind: string }[] = [],
+): SafeHtml {
+  budgetName = (id: string | null): string | null => {
+    if (budgets.length < 2 || !id) return null;
+    const budget = budgets.find((b) => b.id === id);
+    if (!budget) return null;
+    // Not a bare name: the holder chip next to this one is also a name, and two
+    // chips reading "Ravi" for different reasons is worse than no chip at all.
+    return budget.kind === "household" ? "Household budget" : `${budget.name}'s budget`;
+  };
   const budget = rows.filter((r) => r.account.kind === "budget");
   const credit = rows.filter((r) => r.account.kind === "credit");
   const tracking = rows.filter((r) => r.account.kind === "tracking");
@@ -92,6 +116,17 @@ function renderAccountRow(row: AccountRow): SafeHtml {
         <div style="margin-top:.25rem;display:flex;gap:.4rem;flex-wrap:wrap">
           <span class="chip">${SUBTYPE_LABELS[account.subtype] ?? account.subtype}</span>
           ${when(row.holderName, () => html`<span class="chip">${row.holderName}</span>`)}
+          <!--
+            15 · Which budget funds it is the fact that changes the figures, so a
+            list of accounts has to show it once there is more than one budget.
+            Private says what it says: nobody else sees this row at all.
+          -->
+          ${when(budgetName(row.account.budget_id), () => html`
+            <span class="chip">${budgetName(row.account.budget_id)}</span>
+          `)}
+          ${when(row.account.visibility === "private", () => html`
+            <span class="chip">private</span>
+          `)}
           ${renderStateChip(row)}
           ${when(row.funding && row.funding.unfunded > 0, () => html`
             <span class="chip chip-warning">
