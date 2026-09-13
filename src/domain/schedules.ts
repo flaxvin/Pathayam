@@ -286,6 +286,8 @@ export function projectCashflow(
   db: DB,
   opts: {
     days?: number; floor?: Paise; today?: IsoDate;
+    /** H2.2 · Who is looking, so a private loan's instalment stays private. */
+    viewerMemberId?: string | null;
     /**
      * 15 · Whose cash is being projected. "Will I make it to the 30th" is a
      * question about one budget's accounts — answering it from the household's
@@ -346,8 +348,13 @@ export function projectCashflow(
     }
   }
 
-  // Loan instalments — usually the largest single outgoing in the month.
-  for (const loan of listLoans(db)) {
+  /*
+   * Loan instalments — usually the largest single outgoing in the month.
+   *
+   * H2.2 · Somebody else's private loan is not in this household's projection:
+   * its instalment would show as an outflow with no explanation attached to it.
+   */
+  for (const loan of listLoans(db, { viewerMemberId: opts.viewerMemberId })) {
     const projection = projectLoan(db, loan.id);
     if (!projection) continue;
     for (const instalment of projection.schedule.instalments) {

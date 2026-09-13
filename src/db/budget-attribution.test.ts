@@ -103,7 +103,7 @@ describe("B108 · every envelope, group and funding account has a budget", () =>
     const mine = ensurePersonalBudget(db, RAVI, "Ravi");
     const card = createAccount(db, actor, {
       name: "My card", kind: "credit", subtype: "credit-card",
-      budgetId: mine.id, visibility: "private",
+      budgetId: mine.id, visibility: "private", holderMemberId: RAVI,
       openingBalance: rupees(-2_000), openingDate: todayIST(),
     });
 

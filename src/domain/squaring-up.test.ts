@@ -372,7 +372,7 @@ describe("P5 · 15 §4A.6 · the other direction, which is the one that got away
 
     const account = createAccount(db, actor, {
       name: "His savings", kind: "budget", subtype: "savings",
-      budgetId: his.id, visibility: "private",
+      budgetId: his.id, visibility: "private", holderMemberId: RAVI,
       openingBalance: rupees(1_00_000), openingDate: todayIST(),
     });
     const shared = createGroup(db, actor, "Shared", "normal", household);

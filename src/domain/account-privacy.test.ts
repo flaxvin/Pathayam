@@ -219,7 +219,7 @@ describe("H2.2a · private in a personal budget", () => {
       kind: "budget",
       subtype: "savings",
       holderMemberId: PRIYA,
-      visibility: "private",
+      visibility: "private", holderMemberId: PRIYA,
       budgetId: budget.id,
       openingBalance: rupees(5_000),
     });
@@ -242,7 +242,7 @@ describe("H2.2a · private in a personal budget", () => {
       kind: "budget",
       subtype: "savings",
       holderMemberId: PRIYA,
-      visibility: "private",
+      visibility: "private", holderMemberId: PRIYA,
       budgetId: budget.id,
     });
 
@@ -282,5 +282,60 @@ describe("B107 · an unmentioned field is not a field set to null", () => {
     });
     assert.equal(updateAccount(db, actor, account.id, { holder_member_id: null }).holder_member_id, null);
     db.close();
+  });
+});
+
+describe("H2.2 · private means private to somebody", () => {
+  /**
+   * Asked what happens if a *household* thing — one with no holder — is marked
+   * private, the answer was: it disappears for everyone, including the person who
+   * set it, which makes it unfixable through the app because undoing it would
+   * require seeing it. The two controls sit side by side on the form and neither
+   * mentioned the other.
+   */
+  test("private with nobody holding it is refused, in words", () => {
+    const db = setup();
+    assert.throws(
+      () => createAccount(db, actor, {
+        name: "Orphan", kind: "tracking", subtype: "asset",
+        visibility: "private",
+      }),
+      /Private to whom/,
+    );
+  });
+
+  test("and refused on edit, from either direction", () => {
+    const db = setup();
+    const account = createAccount(db, actor, {
+      name: "Gold", kind: "tracking", subtype: "asset",
+      holderMemberId: RAVI, visibility: "private",
+    });
+
+    // Taking the holder away from something private.
+    assert.throws(
+      () => updateAccount(db, actor, account.id, { holder_member_id: null }),
+      /Private to whom/,
+    );
+    // And making something holderless private.
+    const joint = createAccount(db, actor, {
+      name: "Joint gold", kind: "tracking", subtype: "asset",
+    });
+    assert.throws(
+      () => updateAccount(db, actor, joint.id, { visibility: "private" }),
+      /Private to whom/,
+    );
+  });
+
+  test("with a holder, it is visible to them and nobody else", () => {
+    const db = setup();
+    const account = createAccount(db, actor, {
+      name: "Ravi's gold", kind: "tracking", subtype: "asset",
+      holderMemberId: RAVI, visibility: "private",
+    });
+    const visible = (viewer: string | null) =>
+      listAccounts(db, { viewerMemberId: viewer }).some((a) => a.id === account.id);
+
+    assert.equal(visible(RAVI), true, "its holder");
+    assert.equal(visible(PRIYA), false, "and nobody else");
   });
 });

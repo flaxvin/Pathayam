@@ -277,12 +277,47 @@ export function getLoan(db: DB, id: string): Loan | null {
   return queryOne<Loan>(db, `SELECT * FROM loans WHERE id = ?`, id);
 }
 
-export function listLoans(db: DB, opts: { includeClosed?: boolean } = {}): Loan[] {
+export function listLoans(
+  db: DB, opts: { includeClosed?: boolean; viewerMemberId?: string | null } = {},
+): Loan[] {
+  /*
+   * H2.2 · A private loan is visible only to its holder.
+   *
+   * This filter did not exist: the flag was offered on the form, stored, shown as
+   * a chip, and enforced nowhere — so a loan marked private appeared in everyone's
+   * list. A privacy control that records an intention and does not keep it is
+   * worse than not offering one, because somebody relies on it.
+   *
+   * The holder and the flag live on the tracking account the loan hangs off, the
+   * same as an asset's, so the rule is the same rule.
+   */
+  const where: string[] = [];
+  const params: (string | null)[] = [];
+  if (!opts.includeClosed) where.push("l.closed_at IS NULL");
+  if (opts.viewerMemberId !== undefined) {
+    where.push("(a.visibility <> 'private' OR a.holder_member_id IS ?)");
+    params.push(opts.viewerMemberId);
+  }
   return queryAll<Loan>(
     db,
-    `SELECT * FROM loans ${opts.includeClosed ? "" : "WHERE closed_at IS NULL"}
-      ORDER BY created_at`,
+    `SELECT l.* FROM loans l
+       JOIN accounts a ON a.id = l.account_id
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY l.created_at`,
+    ...params,
   );
+}
+
+/** H2.2 · Whether this viewer may see this loan at all. */
+export function canSeeLoan(db: DB, loanId: string, viewerMemberId: string | null): boolean {
+  const row = queryOne<{ n: number }>(
+    db,
+    `SELECT COUNT(*) AS n FROM loans l
+       JOIN accounts a ON a.id = l.account_id
+      WHERE l.id = ? AND (a.visibility <> 'private' OR a.holder_member_id IS ?)`,
+    loanId, viewerMemberId,
+  );
+  return (row?.n ?? 0) > 0;
 }
 
 export function paymentCategoryForLoan(db: DB, loanId: string): { id: string; name: string } | null {
@@ -904,12 +939,29 @@ export interface DebtRow {
   ratePct: number | null;
   monthlyObligation: Paise;
   monthsRemaining: number | null;
+  /** H2 · Whose debt it is; null means the household's, jointly. */
+  holderName: string | null;
 }
 
-export function debtOverview(db: DB): DebtRow[] {
+export function debtOverview(db: DB, viewerMemberId?: string | null): DebtRow[] {
   const rows: DebtRow[] = [];
 
-  for (const loan of listLoans(db)) {
+  /*
+   * H2 / H2.2 · Whose each debt is, and whose to leave out.
+   *
+   * "Everything you owe" is a total, so a private loan belonging to somebody else
+   * must not be in it — a total including it publishes the amount by subtraction,
+   * the same reasoning that governs accounts.
+   */
+  const holders = new Map(
+    queryAll<{ id: string; holder_member_id: string | null; name: string | null }>(
+      db,
+      `SELECT a.id, a.holder_member_id, m.name
+         FROM accounts a LEFT JOIN members m ON m.id = a.holder_member_id`,
+    ).map((r) => [r.id, r.name]),
+  );
+
+  for (const loan of listLoans(db, { viewerMemberId })) {
     const projection = projectLoan(db, loan.id);
     if (!projection) continue;
     rows.push({
@@ -919,11 +971,16 @@ export function debtOverview(db: DB): DebtRow[] {
       ratePct: projection.ratePct,
       monthlyObligation: projection.preEmi ?? projection.emi,
       monthsRemaining: projection.schedule.months || null,
+      holderName: holders.get(loan.account_id) ?? null,
     });
   }
 
   for (const card of queryAll<{ id: string; name: string }>(
-    db, `SELECT id, name FROM accounts WHERE kind = 'credit' AND closed_at IS NULL`,
+    db,
+    `SELECT id, name FROM accounts
+      WHERE kind = 'credit' AND closed_at IS NULL
+        ${viewerMemberId !== undefined ? "AND (visibility <> 'private' OR holder_member_id IS ?)" : ""}`,
+    ...(viewerMemberId !== undefined ? [viewerMemberId] : []),
   )) {
     const balance =
       queryOne<{ total: number }>(
@@ -936,6 +993,7 @@ export function debtOverview(db: DB): DebtRow[] {
     rows.push({
       name: card.name, kind: "card", balance: -balance,
       ratePct: null, monthlyObligation: 0, monthsRemaining: null,
+      holderName: holders.get(card.id) ?? null,
     });
   }
 

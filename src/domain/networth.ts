@@ -157,6 +157,10 @@ export function netWorthStatement(
   const assetNames = listAssetAccounts(db).map((a) => a.name.toLowerCase());
 
   for (const loan of listLoans(db)) {
+    // H2.2 · A private loan leaves somebody else's total as well as their list —
+    // the cash and asset lines above already do this, and the liabilities did not,
+    // so the debt side of a private arrangement was published to everyone.
+    if (hidden.has(loan.account_id)) continue;
     const projection = projectLoan(db, loan.id);
     if (!projection) continue;
     loanLines.push({

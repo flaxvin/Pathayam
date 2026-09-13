@@ -15,7 +15,18 @@ import type { PrepaymentComparison, Schedule, RateResetOptions } from "../../loa
 import { lineChart, horizontalBars } from "../charts.ts";
 import { renderHolderFields } from "./portfolio.ts";
 
-export function renderLoanList(rows: LoanProjection[], debt: DebtRow[]): SafeHtml {
+export function renderLoanList(
+  rows: LoanProjection[],
+  debt: DebtRow[],
+  /**
+   * H2 / H2.2 · Whose each loan is, keyed by loan id.
+   *
+   * Always shown, including "Joint" for the household's. A chip only when somebody
+   * holds it meant a household loan displayed nothing at all, which is
+   * indistinguishable from the feature being absent — and was read that way.
+   */
+  ownership: Map<string, { holderName: string | null; isPrivate: boolean }> = new Map(),
+): SafeHtml {
   if (rows.length === 0) {
     return html`
       <div class="row-between" style="margin-bottom:1rem">
@@ -70,7 +81,7 @@ export function renderLoanList(rows: LoanProjection[], debt: DebtRow[]): SafeHtm
       `)}
     </div>
 
-    ${rows.map((r) => renderLoanCard(r))}
+    ${rows.map((r) => renderLoanCard(r, ownership))}
 
     ${when(debt.length > 0, () => html`
       <section class="card">
@@ -80,6 +91,9 @@ export function renderLoanList(rows: LoanProjection[], debt: DebtRow[]): SafeHtm
             <thead>
               <tr>
                 <th scope="col">What</th>
+                <!-- H2 · Whose debt it is. On a household with two people, "who
+                     is paying this" is half the question the table is asked. -->
+                ${when(ownership.size > 0, () => html`<th scope="col">Whose</th>`)}
                 <th scope="col" class="num">Balance</th>
                 <th scope="col" class="num">Rate</th>
                 <th scope="col" class="num">Monthly</th>
@@ -91,6 +105,9 @@ export function renderLoanList(rows: LoanProjection[], debt: DebtRow[]): SafeHtm
                 (d) => html`
                   <tr>
                     <td>${d.name} <span class="chip">${d.kind === "loan" ? "loan" : "card"}</span></td>
+                    ${when(ownership.size > 0, () => html`
+                      <td class="faint">${d.holderName ?? "Joint"}</td>
+                    `)}
                     <td class="num amount amount-negative">${formatPaise(d.balance)}</td>
                     <td class="num">${d.ratePct !== null ? `${d.ratePct}%` : "—"}</td>
                     <td class="num amount">${d.monthlyObligation ? formatPaise(d.monthlyObligation) : "—"}</td>
@@ -106,7 +123,10 @@ export function renderLoanList(rows: LoanProjection[], debt: DebtRow[]): SafeHtm
   `;
 }
 
-function renderLoanCard(p: LoanProjection): SafeHtml {
+function renderLoanCard(
+  p: LoanProjection,
+  ownership: Map<string, { holderName: string | null; isPrivate: boolean }> = new Map(),
+): SafeHtml {
   const loan = p.loan;
   return html`
     <section class="card">
@@ -117,6 +137,14 @@ function renderLoanCard(p: LoanProjection): SafeHtml {
               ${loan.nickname || loan.lender}
             </a>
           </h2>
+          <p style="margin:.2rem 0 0">
+            ${when(ownership.size > 0, () => html`
+              <span class="chip">${ownership.get(loan.id)?.holderName ?? "Joint"}</span>
+            `)}
+            ${when(Boolean(ownership.get(loan.id)?.isPrivate), () => html`
+              <span class="chip">private</span>
+            `)}
+          </p>
           <p class="faint" style="margin:0">
             ${LOAN_TYPE_LABELS[loan.loan_type]} · ${p.ratePct}%
             ${when(p.equivalentReducingRatePct !== null, () => html`
@@ -329,11 +357,22 @@ export function renderLoanDetail(opts: {
           on ${formatDate(loan.sanction_date)}
         </p>
         <p style="margin:.3rem 0 0">
-          ${when(holderNameOf(opts), () => html`<span class="chip">${holderNameOf(opts)}</span>`)}
+          ${when((opts.members ?? []).length > 1, () => html`
+            <span class="chip">${holderNameOf(opts) ?? "Joint"}</span>
+          `)}
           ${when(Boolean(opts.isPrivate), () => html`<span class="chip">private</span>`)}
         </p>
       </div>
       <div class="row">
+        <!--
+          Whose it is was behind a collapsed line called "Whose loan this is",
+          which is the same mistake as an account's edit form hiding behind
+          "Rename or close": people reported the control as missing. It gets a
+          button beside the other actions.
+        -->
+        ${when((opts.members ?? []).length > 1, () => html`
+          <a class="button" href="#edit">Whose it is</a>
+        `)}
         <a class="button" href="/loans/${loan.id}/pay">Record an instalment</a>
         <a class="button" href="/loans/${loan.id}/rate">Rate change</a>
         <a class="button button-primary" href="/loans/${loan.id}/prepay">Prepay</a>
@@ -341,8 +380,8 @@ export function renderLoanDetail(opts: {
     </div>
 
     ${when((opts.members ?? []).length > 1, () => html`
-      <details class="card">
-        <summary class="linkish">Whose loan this is</summary>
+      <details class="card" id="edit">
+        <summary class="linkish">Whose loan this is, and who can see it</summary>
         <form method="post" action="/loans/${loan.id}/holder" style="margin-top:.75rem">
           ${renderHolderFields(opts.members ?? [], {
             holder: opts.holderMemberId ?? null,

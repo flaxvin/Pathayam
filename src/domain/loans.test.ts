@@ -8,8 +8,10 @@ import { createAccount } from "./accounts.ts";
 import { accountBalances } from "../engine/repository.ts";
 import {
   createLoan, projectLoan, recordDisbursement, recordInstalment,
-  closeLoan, listLoans, getLoan,
+  closeLoan, listLoans, getLoan, debtOverview,
 } from "./loans.ts";
+import { netWorthStatement } from "./networth.ts";
+import { todayIST } from "../core/dates.ts";
 
 const RAVI = "m-ravi";
 const actor: Actor = { memberId: RAVI, source: "ui" };
@@ -294,5 +296,77 @@ describe("R21 · a loan that has been paid off", () => {
     assert.equal(listLoans(db).some((l) => l.id === loan.id), false);
     assert.equal(listLoans(db, { includeClosed: true }).some((l) => l.id === loan.id), true);
     assert.ok(getLoan(db, loan.id)?.closed_at, "and it is marked closed, not deleted");
+  });
+});
+
+describe("H2.2 · a private loan is its holder's alone", () => {
+  /**
+   * The flag was offered on the form, stored, and shown as a chip — and enforced
+   * nowhere. `listLoans` had no viewer filter, so a loan marked private appeared
+   * in everybody's list, in the household's debt table, in the net-worth
+   * liabilities and as an instalment on everybody's cashflow calendar. A privacy
+   * control that records an intention and does not keep it is worse than not
+   * offering one, because somebody relies on it.
+   */
+  function twoMembers(db: ReturnType<typeof setup>["db"]) {
+    execute(db, `INSERT INTO members (id,email,name,created_at) VALUES (?,?,?,?)`,
+      "m-priya", "priya@example.com", "Priya", nowIST());
+  }
+
+  test("it is in its holder's list and nobody else's", () => {
+    const { db, bankId } = setup();
+    twoMembers(db);
+    const loan = createLoan(db, actor, {
+      lender: "Axis", loanType: "personal", sanctioned: rupees(2_00_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 14,
+      tenureMonths: 24, currentOutstanding: rupees(2_00_000),
+      repaymentAccountId: bankId, holderMemberId: RAVI, visibility: "private",
+    });
+
+    const sees = (viewer: string | null) =>
+      listLoans(db, { viewerMemberId: viewer }).some((l) => l.id === loan.id);
+    assert.equal(sees(RAVI), true);
+    assert.equal(sees("m-priya"), false);
+    // Omitting the viewer still returns everything, which the export wants.
+    assert.equal(listLoans(db).some((l) => l.id === loan.id), true);
+  });
+
+  test("and out of everybody else's debt table and net worth", () => {
+    const { db, bankId } = setup();
+    twoMembers(db);
+    createLoan(db, actor, {
+      lender: "Axis", loanType: "personal", sanctioned: rupees(2_00_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 14,
+      tenureMonths: 24, currentOutstanding: rupees(2_00_000),
+      repaymentAccountId: bankId, holderMemberId: RAVI, visibility: "private",
+    });
+
+    assert.equal(debtOverview(db, RAVI).some((d) => d.name.includes("Axis")), true);
+    assert.equal(debtOverview(db, "m-priya").some((d) => d.name.includes("Axis")), false);
+
+    /*
+     * The total matters as much as the row: Priya can see every other line, so a
+     * net worth that included his private loan would publish the amount by
+     * subtraction.
+     */
+    const his = netWorthStatement(db, todayIST(), "INR", { viewerMemberId: RAVI });
+    const hers = netWorthStatement(db, todayIST(), "INR", { viewerMemberId: "m-priya" });
+    assert.notEqual(his.netWorth, hers.netWorth);
+    assert.equal(hers.netWorth - his.netWorth, rupees(2_00_000), "exactly the hidden loan");
+  });
+
+  test("a shared loan carries the holder's name instead", () => {
+    const { db, bankId } = setup();
+    twoMembers(db);
+    createLoan(db, actor, {
+      lender: "Canara", loanType: "education", sanctioned: rupees(5_00_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 10,
+      tenureMonths: 60, currentOutstanding: rupees(5_00_000),
+      repaymentAccountId: bankId, holderMemberId: RAVI,
+    });
+
+    const row = debtOverview(db, "m-priya").find((d) => d.name.includes("Canara"));
+    assert.ok(row, "shared, so she sees it");
+    assert.equal(row!.holderName, "Ravi", "with whose it is on the row");
   });
 });

@@ -209,8 +209,10 @@ export function renderHolderFields(
           </option>
         </select>
         <p class="field-hint">
-          Private keeps it out of everyone else's screens and totals, including
-          when they view as you.
+          <strong>Shared</strong> means everyone in the household sees it, with
+          whoever holds it shown as a tag. <strong>Private</strong> means only the
+          holder sees it at all — it is left out of everyone else's screens and out
+          of their totals, because a total that included it would give it away.
         </p>
       </div>
     </div>
