@@ -67,7 +67,15 @@ export function renderPortfolio(opts: {
           <button class="button-small" type="submit">Refresh prices</button>
         </form>
         <a class="button" href="/portfolio/allocation">Allocation</a>
-        <a class="button" href="/portfolio/holdings.csv">Export CSV</a>
+        <!--
+          Three exports, three questions: holdings is what you hold, lots is what
+          each parcel cost and when — the one a capital-gains return is built
+          from — and prices is the history behind every valuation. Two of the
+          three were routed, tested and linked from nowhere.
+        -->
+        <a class="button" href="/portfolio/holdings.csv">Holdings CSV</a>
+        <a class="button" href="/portfolio/lots.csv">Lots CSV</a>
+        <a class="button" href="/portfolio/prices.csv">Prices CSV</a>
         <a class="button" href="/portfolio/cas">Import a CAS</a>
         <a class="button" href="/portfolio/asset/new">Add an asset</a>
         <a class="button button-primary" href="/portfolio/add">Add a holding</a>
@@ -843,9 +851,16 @@ export function renderNetWorth(opts: {
   return html`
     <div class="row-between" style="margin-bottom:1rem">
       <h1>Net worth</h1>
-      <form method="post" action="/net-worth/snapshot">
-        <button class="button-small" type="submit">Snapshot today</button>
-      </form>
+      <div class="row">
+        <!--
+          F15 · The export existed and nothing linked to it, so the one figure
+          people take to an accountant could only be got at by typing the URL.
+        -->
+        <a class="button button-small" href="/net-worth.csv">Export CSV</a>
+        <form method="post" action="/net-worth/snapshot">
+          <button class="button-small" type="submit">Snapshot today</button>
+        </form>
+      </div>
     </div>
 
     ${when((opts.members ?? []).length > 1, () => html`

@@ -83,6 +83,14 @@ export const STYLESHEET = `
   --chrome-2:      #dccfb5;      /* hover */
   --chrome-border: #c9bb9e;
   --chrome-muted:  #5b5446;      /*  5.4:1 on --chrome */
+  /*
+   * The logo takes the page's colour rather than bringing its own, so it has to
+   * be a token: the chest is drawn in currentColor and this is what that is.
+   * Terracotta reads on a light chrome (4.5:1) and disappears on a dark one, so
+   * the dark theme takes the gold instead — the same two colours the tile uses,
+   * swapped for the ground they land on.
+   */
+  --logo:          #9c4726;
 
   --focus:         #1f5fa9;
   --shadow:        0 1px 2px rgba(60, 48, 30, .09), 0 4px 12px rgba(60, 48, 30, .07);
@@ -135,6 +143,7 @@ export const STYLESHEET = `
     --chrome-2:      #232833;
     --chrome-border: #2b3341;
     --chrome-muted:  #a8b1c0;
+    --logo:          #eccb8a;   /* 11:1 on the dark chrome */
 
 
     --focus:         #6ba6f0;
@@ -178,6 +187,7 @@ export const STYLESHEET = `
   --chrome-2:      #232833;
   --chrome-border: #2b3341;
   --chrome-muted:  #a8b1c0;
+  --logo:          #eccb8a;   /* 11:1 on the dark chrome */
 
   --focus:         #6ba6f0;
   --shadow:        0 1px 2px rgba(0,0,0,.4), 0 4px 12px rgba(0,0,0,.3);
@@ -259,7 +269,11 @@ h3 { font-size: 1rem; }
   background: var(--chrome); border-bottom: 1px solid var(--chrome-border);
   display: flex; align-items: center; gap: .5rem; padding: .5rem 1rem;
 }
-.app-header .brand { font-weight: 700; letter-spacing: -.01em; text-decoration: none; color: var(--text); }
+.app-header .brand {
+  font-weight: 700; letter-spacing: -.01em; text-decoration: none; color: var(--text);
+  display: inline-flex; align-items: center; gap: .45rem;
+}
+.app-header .brand-mark { display: block; color: var(--logo); flex: none; }
 .app-header .spacer { flex: 1; }
 
 main { padding: 1rem; max-width: 1200px; margin: 0 auto; }

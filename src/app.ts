@@ -20,7 +20,8 @@ import { html, raw, when } from "./http/html.ts";
 import { page, MANIFEST, type Theme } from "./web/layout.ts";
 import { STYLESHEET } from "./web/styles.ts";
 import { CLIENT_SCRIPT } from "./web/client.ts";
-import { APP_ICON_SVG } from "./web/icon.ts";
+import { APP_ICON_SVG, APP_ICON_SMALL_SVG } from "./web/icon.ts";
+import { ICON_FILES } from "./web/icon-files.ts";
 import {
   authenticate, parseCookies, sessionCookie, clearedSessionCookie, SESSION_COOKIE,
   actorFor, setTheme, listMembers, memberCount, inviteMember, createSession,
@@ -292,6 +293,25 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       }
       if (path === "/assets/icon.svg") {
         return asset(APP_ICON_SVG, "image/svg+xml");
+      }
+      if (path === "/assets/icon-small.svg") {
+        return asset(APP_ICON_SMALL_SVG, "image/svg+xml");
+      }
+      /*
+       * F21.1 · The manifest has named these since it was written and nothing
+       * served them, so every one 404'd and Chrome never offered to install.
+       */
+      if (path.startsWith("/assets/") && path.endsWith(".png")) {
+        const file = ICON_FILES[path.slice("/assets/".length)];
+        if (file) {
+          return {
+            body: file,
+            headers: {
+              "Content-Type": "image/png",
+              "Cache-Control": "public, max-age=3600",
+            },
+          };
+        }
       }
       if (path === "/manifest.webmanifest") {
         return asset(MANIFEST, "application/manifest+json");
@@ -1847,9 +1867,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                           attribution, so it is a link to a page that says what will
                           happen rather than a button that does it.
                         -->
-                        ${when(!config.demoMode, () => html`
-                          <a class="button button-small" href="/members/${m.id}/remove">Remove</a>
-                        `)}
+                        <!--
+                          Shown on the demo too. The page is an explanation of
+                          what leaving costs and which endings are on offer —
+                          exactly what a demo is for — and the POST behind it
+                          still refuses. Hiding the link left the page reachable
+                          only by typing its URL.
+                        -->
+                        <a class="button button-small" href="/members/${m.id}/remove">Remove</a>
                       `}
                 </span>
               </div>

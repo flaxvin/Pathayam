@@ -13,6 +13,7 @@ import { createHash } from "node:crypto";
 import { html, raw, escape, when, type SafeHtml } from "../http/html.ts";
 import { CLIENT_SCRIPT } from "./client.ts";
 import { STYLESHEET } from "./styles.ts";
+import { ICON_BACKGROUND, APP_LOGO_SVG } from "./icon.ts";
 
 /**
  * Content-hash the client assets so their URLs change when they change. Without
@@ -102,8 +103,20 @@ export function page(options: LayoutOptions, content: SafeHtml): string {
 <title>${escape(title)} · Pathayam</title>
 <link rel="stylesheet" href="/assets/app.css?v=${ASSET_VERSION.css}">
 <link rel="manifest" href="/manifest.webmanifest">
-<meta name="theme-color" content="${theme === "dark" ? "#11141a" : "#f6f7f9"}">
+<meta name="theme-color" content="${theme === "dark" ? "#11141a" : ICON_BACKGROUND}">
+<!--
+  F21.1 · An SVG for the browsers that take one, PNGs for the ones that do not,
+  and the small mark at the two sizes where the full one turns to mush. iOS
+  ignores every one of these and takes apple-touch-icon, so that is here too;
+  without it a home-screen tile is a screenshot of the page.
+-->
 <link rel="icon" href="/assets/icon.svg" type="image/svg+xml">
+<link rel="icon" href="/assets/favicon-32.png" sizes="32x32" type="image/png">
+<link rel="icon" href="/assets/favicon-16.png" sizes="16x16" type="image/png">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Pathayam">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
 </head>
 <body data-features="${[features.loans ? "loans" : "", features.assets ? "assets" : ""].filter(Boolean).join(" ")}">
 ${String(renderBanners(impersonating, devMode, demoMode, path))}
@@ -182,7 +195,15 @@ function renderHeader(
   const next = theme === "dark" ? "light" : "dark";
   return html`
     <header class="app-header">
-      <a class="brand" href="/">Pathayam</a>
+      <!--
+        Inline rather than an <img>, because the mark is drawn in currentColor
+        and an image cannot inherit one: it is the logo taking the page's colour,
+        not a tile pasted into the header.
+      -->
+      <a class="brand" href="/">
+        ${raw(APP_LOGO_SVG.replace("<svg", '<svg class="brand-mark" width="24" height="24"'))}
+        Pathayam
+      </a>
       <!--
         15 · The switcher lived only in the sidebar, and the sidebar is a desktop
         affordance — so on a phone there was no way to move between the household
@@ -383,8 +404,10 @@ export const MANIFEST = JSON.stringify({
   start_url: "/",
   scope: "/",
   display: "standalone",
-  background_color: "#f6f7f9",
-  theme_color: "#f6f7f9",
+  // The warm ground the light theme paints, so the splash screen is the app's
+  // own colour rather than a white flash before it.
+  background_color: ICON_BACKGROUND,
+  theme_color: ICON_BACKGROUND,
   orientation: "portrait-primary",
   icons: [
     { src: "/assets/icon-192.png", sizes: "192x192", type: "image/png", purpose: "any" },

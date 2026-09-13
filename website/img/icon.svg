@@ -1,0 +1,16 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" width="64" height="64"
+     role="img" aria-label="Pathayam">
+  <rect width="64" height="64" rx="14" fill="#b0522c"/>
+  
+  <path d="M9 26 L32 8 L55 26 z" fill="#edc067"/>
+  <rect x="10" y="26" width="44" height="30" rx="3"
+        fill="#1c5748" stroke="#edc067" stroke-width="3.4"/>
+  
+  <g fill="none" stroke="#edc067" stroke-width="3.2"
+     stroke-linecap="round" stroke-linejoin="round">
+    <path d="M25 33 H39"/>
+    <path d="M25 38 H39"/>
+    <path d="M25 43.4 H32.6 C 37.4 43.4, 37.4 38, 32.6 38"/>
+    <path d="M29.8 43.4 L37.6 51.4"/>
+  </g>
+</svg>
