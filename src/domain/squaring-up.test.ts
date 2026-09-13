@@ -459,3 +459,58 @@ describe("P5 · the household table adds up on its face", () => {
     db.close();
   });
 });
+
+
+/**
+ * 15 §4A.3 · The one ending that actually lets something go leaves a record, and
+ * the record has to be somewhere a person can point at. `listEvenCalls` and
+ * `calledEvenTotal` were written and tested here, and read by no screen: the
+ * household page showed the three ways to settle and nothing about what had been
+ * settled. An agreement between two people about money is exactly the thing they
+ * will want to look up in six months.
+ */
+describe("P5 · 15 §4A.3 · what has been called even is on the record", () => {
+  test("it shows up in the household view, named by whose it was", () => {
+    const db = setup();
+    const hers = ensurePersonalBudget(db, PRIYA, "Priya");
+    ensureCommitmentEnvelope(db, actor, hers.id);
+
+    const card = createAccount(db, actor, {
+      name: "Household card", kind: "credit", subtype: "credit-card", openingDate: todayIST(),
+    });
+    createAccount(db, actor, {
+      name: "Her savings", kind: "budget", subtype: "savings",
+      budgetId: hers.id, openingBalance: rupees(40_000), openingDate: todayIST(),
+    });
+    const herGroup = createGroup(db, actor, "Mine", "normal", hers.id);
+    const clothes = createCategory(db, actor, { groupId: herGroup.id, name: "Clothes" });
+    setAssigned(db, actor, MONTH, clothes.id, rupees(2_000));
+    createTransaction(db, actor, {
+      accountId: card.id, amount: -rupees(2_000), date: todayIST(),
+      categoryId: clothes.id, ownerMemberId: PRIYA,
+    });
+
+    const envelope = commitmentEnvelope(db, hers.id)!;
+    assert.equal(
+      buildHouseholdView(db, MONTH).settled.length, 0,
+      "nothing has been let go yet",
+    );
+
+    callItEven(db, actor, {
+      envelopeId: envelope.id, amount: rupees(1_200), month: MONTH,
+      note: "Her birthday month",
+    });
+
+    const view = buildHouseholdView(db, MONTH);
+    assert.equal(view.settled.length, 1);
+    assert.equal(view.settled[0]!.amount, rupees(1_200));
+    assert.equal(view.settled[0]!.name, "Priya", "named by whose commitment it closed");
+    assert.equal(view.settled[0]!.note, "Her birthday month");
+    assert.equal(view.settledTotal, rupees(1_200), "and the running total agrees");
+    assert.ok(
+      view.settled[0]!.givingCategoryName.length > 0,
+      "and it says which envelope paid for it",
+    );
+    db.close();
+  });
+});

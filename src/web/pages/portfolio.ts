@@ -517,6 +517,66 @@ export function renderSplitForm(opts: {
   `;
 }
 
+/**
+ * R28 · A merger, which is the corporate action Indian fund investors actually
+ * meet — two schemes amalgamate and the units are reissued at a ratio.
+ *
+ * `applyMerger` was written and called by nothing, and the events table had
+ * allowed the kind since the day it was created. Without a screen the household
+ * had to choose between a wrong unit count and recording a sale that never
+ * happened — which would manufacture a capital gain and restart the clock on
+ * long-term treatment.
+ */
+export function renderMergerForm(opts: {
+  holdingId: string;
+  instrumentName: string;
+  units: string;
+  today: IsoDate;
+  instruments: { id: string; name: string }[];
+}): SafeHtml {
+  return html`
+    <h1>Merger &middot; ${opts.instrumentName}</h1>
+    <p class="faint">
+      You hold ${opts.units} units. When a scheme merges into another, your units
+      are reissued at a ratio — and your <strong>original cost and purchase dates
+      carry forward</strong>. Nothing is sold, so nothing is realised and the
+      holding period is not reset.
+    </p>
+    <form method="post" action="/portfolio/${opts.holdingId}/merge" class="card">
+      <div class="grid-2">
+        <div class="field">
+          <label for="merge-ratio">New units for each one held</label>
+          <input id="merge-ratio" name="ratio" class="amount-input" type="text"
+                 inputmode="decimal" autocomplete="off" required autofocus placeholder="0.8">
+          <p class="field-hint">
+            The letter states it as an exchange ratio: 8 units of the new scheme
+            for every 10 held is 0.8.
+          </p>
+        </div>
+        <div class="field">
+          <label for="merge-date">Effective from</label>
+          <input id="merge-date" name="date" type="date" autocomplete="off"
+                 value="${opts.today}">
+        </div>
+      </div>
+      <div class="field">
+        <label for="merge-into">Merged into</label>
+        <select id="merge-into" name="into_instrument_id">
+          <option value="">Keep it under its own name</option>
+          ${opts.instruments.map((i) => html`<option value="${i.id}">${i.name}</option>`)}
+        </select>
+        <p class="field-hint">
+          Pick the surviving scheme if you already track it. Otherwise add it
+          first, or leave this alone and rename the instrument later — the units
+          and the cost are what matter here.
+        </p>
+      </div>
+      <button class="button-primary" type="submit">Record the merger</button>
+      <a class="button button-quiet" href="/portfolio/${opts.holdingId}">Cancel</a>
+    </form>
+  `;
+}
+
 export function renderHoldingDetail(opts: {
   view: HoldingView;
   accountName: string;
@@ -536,6 +596,7 @@ export function renderHoldingDetail(opts: {
       </div>
       <div class="row">
         <a class="button" href="/portfolio/${v.holding.id}/split">Split or bonus</a>
+        <a class="button" href="/portfolio/${v.holding.id}/merge">Merger</a>
         <a class="button button-primary" href="/portfolio/${v.holding.id}/sell">Sell units</a>
       </div>
     </div>
