@@ -82,6 +82,19 @@ import { computeBudget } from "../engine/engine.ts";
 import { units as toUnits, price as toPrice } from "../portfolio/holdings.ts";
 
 export const SCENARIO_MONTHS = 36;
+
+/**
+ * The member a demo instance signs you in as, and therefore the one who must
+ * still be here when the simulation finishes.
+ *
+ * `/demo/enter` takes the oldest member who has not been removed, so this is
+ * Ravi by construction — but by construction is not the same as on purpose. He
+ * is named here, kept out of every departure, and checked by the test, because
+ * a scenario that removed him would leave the demo signing somebody in as a
+ * person the household no longer has: their own budget on screen, their name in
+ * the corner, and no row for them on the page that lists who is here.
+ */
+export const SIGNED_IN_AS = "ravi" as const;
 /** Month index (0-based) at which two members leave. */
 export const DEPARTURE_AT = 23;
 /** Month index at which one of them comes back. */
@@ -288,6 +301,18 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
   const anilGroup = did("createGroup", () => createGroup(db, actor, "Mine", "normal", anilBudget.id));
   const anilOut = did("createCategory", () =>
     createCategory(db, actor, { groupId: anilGroup.id, name: "Going out" }));
+  /*
+   * Somewhere for what is left to go. A personal budget whose income is larger
+   * than its commitment leaves a pile in Ready to Assign otherwise — ₹31 lakh of
+   * it by month thirty-six, which is not money management, it is money ignored.
+   * Assigning the surplus to a savings envelope is what a person actually does,
+   * and it is what makes the budget screen read as finished rather than
+   * abandoned.
+   */
+  const hisSavings = did("createCategory", () =>
+    createCategory(db, actor, { groupId: hisGroup.id, name: "Set aside" }));
+  const anilSavings = did("createCategory", () =>
+    createCategory(db, actor, { groupId: anilGroup.id, name: "Set aside" }));
 
   did("setTarget", () => setTarget(db, actor, hisEnvelope.id, { type: "monthly", amount: rupees(40_000) }));
   did("setTarget", () => setTarget(db, actor, anilEnvelope.id, { type: "monthly", amount: rupees(18_000) }));
@@ -464,11 +489,19 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
       }));
     }
 
-    // Anil's salary, into his own account — while he is here.
-    if (anilHere && live(30)) {
+    /*
+     * Anil's salary, into his own account — while he is here.
+     *
+     * On the 26th, not the 30th. A past month is only simulated to the 28th, so
+     * a payday on the 30th never happened at all: his budget ran for three years
+     * on its opening balance, Ready to Assign went further into the red every
+     * month, and every figure downstream of it was wrong in a way that looked
+     * like an engine bug rather than a missing transaction.
+     */
+    if (anilHere && live(26)) {
       did("createTransaction", () => createTransaction(db, actor, {
         accountId: acc.anilOwn, amount: rupees(tidy(between(52_000, 58_000))),
-        date: day(month, 30), payeeName: "Salary — Fern Systems",
+        date: day(month, 26), payeeName: "Salary — Fern Systems",
         cleared: true, ownerMemberId: anil.id,
       }));
     }
@@ -481,34 +514,78 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
       }));
     }
 
-    // ----------------------------------------------------------- assignment
+    /*
+     * ----------------------------------------------------------- assignment
+     *
+     * Zero-based means you can only assign money you actually have, so this
+     * reads Ready to Assign and stops when it runs out — the same discipline
+     * the app asks of a person, and the only way a simulated household stays a
+     * plausible one. Copying last month's numbers blind, which is what this did
+     * first, drifted into Ready to Assign at minus sixty-two lakh by month
+     * thirty-six: arithmetically consistent, and not a household anybody would
+     * recognise.
+     *
+     * Order is the priority: the roof first, then food and the bills, then the
+     * cards, then whatever is left goes to the goals.
+     */
+    const available = (): number => {
+      const state = computeBudget(loadEngineInput(db, { through: month, budgetId: household })).get(month);
+      return state?.readyToAssign ?? 0;
+    };
+    const fund = (categoryId: string, wanted: number): void => {
+      const room = available();
+      if (room <= 0) return;
+      const amount = Math.min(rupees(wanted), room);
+      if (amount <= 0) return;
+      did("addAssigned", () => addAssigned(db, actor, month, categoryId, amount as Paise));
+    };
+
     if (ix === 0) {
-      const seedAssign: [string, number][] = [
-        ["Rent", 38_000], ["Groceries", 22_000], ["Eating out", 9_000], ["Cab / auto", 7_000],
-        ["Electricity", 6_500], ["Medical", 4_000], ["Personal", 6_000], ["Household", 5_000],
-      ];
-      for (const [name, amount] of seedAssign) {
-        if (catIds.has(name)) {
-          did("setAssigned", () => setAssigned(db, actor, month, cat(name), rupees(amount) as Paise));
-        }
-      }
-      did("setAssigned", () => setAssigned(db, actor, month, gifts.id, rupees(3_000) as Paise));
-    } else {
-      did("copyAssignmentsFromMonth", () => copyAssignmentsFromMonth(db, actor, month, months[ix - 1]!));
-      // Drift, so no two months are identical.
-      did("addAssigned", () => addAssigned(db, actor, month, cat("Groceries"), rupees(between(-800, 1_400)) as Paise));
+      did("setAssigned", () => setAssigned(db, actor, month, cat("Rent"), rupees(1) as Paise));
+      did("copyAssignmentsFromMonth", () => copyAssignmentsFromMonth(db, actor, month, month));
+    } else if (ix % 9 === 4) {
+      // Once in a while they start from last month rather than from zero, which
+      // is what the button is for — and then top up below like any other month.
+      did("copyAssignmentsFromMonth", () => copyAssignmentsFromMonth(db, actor, months[ix]!, months[ix - 1]!));
     }
-    // The card envelopes get what the cards actually cost.
+
+    const monthlyNeeds: [string, number][] = [
+      ["Rent", 38_000], ["Groceries", 22_000 + between(-800, 1_400)], ["Eating out", 9_000],
+      ["Cab / auto", 7_000], ["Electricity", 6_500], ["Domestic help", 5_000],
+      ["Medical", 4_000], ["Personal", 6_000], ["Household", 5_000], ["Broadband", 1_500],
+    ];
+    for (const [name, amount] of monthlyNeeds) {
+      if (!catIds.has(name)) continue;
+      const state = computeBudget(loadEngineInput(db, { through: month, budgetId: household })).get(month);
+      const already = state?.categories.get(cat(name))?.assigned ?? 0;
+      if (already < rupees(amount)) fund(cat(name), amount - already / 100);
+    }
+    fund(gifts.id, 3_000);
+
+    // The cards get what they are actually carrying, as far as there is money.
     for (const c of [cardCat, axisCat, priyaCardCat]) {
-      if (c) did("setAssigned", () => setAssigned(db, actor, month, c.id, rupees(between(8_000, 26_000)) as Paise));
+      if (!c) continue;
+      const owed = -(queryOne<{ total: number }>(
+        db,
+        `SELECT COALESCE(SUM(t.amount),0) AS total FROM transactions t
+          WHERE t.account_id = (SELECT payment_account_id FROM categories WHERE id = ?)
+            AND t.deleted_at IS NULL AND substr(t.date,1,7) = ?`,
+        c.id, month,
+      )?.total ?? 0);
+      if (owed > 0) fund(c.id, owed / 100);
     }
+
     if (ix % 7 === 3) {
       did("moveMoney", () => moveMoney(db, actor, {
         month, fromCategoryId: cat("Personal"), toCategoryId: cat("Groceries"),
         amount: rupees(1_500) as Paise,
       }));
     }
-    if (ix === 11) did("setHeld", () => setHeld(db, actor, month, rupees(1_50_000) as Paise));
+    // Holding income back for next month, but only what there is to hold.
+    if (ix === 11) {
+      const spare = Math.min(rupees(1_50_000), Math.max(0, available()));
+      if (spare > 0) did("setHeld", () => setHeld(db, actor, month, spare as Paise));
+    }
 
     // --------------------------------------------------------- the spending
     const shops: [string, keyof typeof PAYEES, number, number][] = [
@@ -765,8 +842,19 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
       [anilBudget.id, anilEnvelope.id, 18_000, anilHere],
     ] as [string, string, number, boolean][]) {
       if (!present) continue;
-      did("setAssigned", () => setAssigned(db, actor, month, envelope, rupees(amount) as Paise));
-      void budgetId;
+      /*
+       * Committed out of what they have, not out of thin air. A commitment is an
+       * assignment like any other, so a month where the invoices were thin funds
+       * less of it — which is the state the household screen exists to show.
+       */
+      const state = computeBudget(loadEngineInput(db, { through: month, budgetId })).get(month);
+      const already = state?.categories.get(envelope)?.assigned ?? 0;
+      const room = Math.max(0, state?.readyToAssign ?? 0);
+      const wanted = Math.max(0, rupees(amount) - already);
+      const give = Math.min(wanted, room);
+      if (give > 0) {
+        did("addAssigned", () => addAssigned(db, actor, month, envelope, give as Paise));
+      }
     }
     /*
      * Anil's share, paid out of his own account against household envelopes —
@@ -812,6 +900,8 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
 
     // ------------------------------------------------------------- departure
     if (ix === DEPARTURE_AT) {
+      // Never the member the demo signs in as (SIGNED_IN_AS).
+      assertNotSignedIn(["anil", "meera"]);
       /*
        * Two members leave in the same month, settled two different ways,
        * because `15` §6A offers both and they are different arithmetic: one
@@ -909,13 +999,60 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
       did("completeGoal", () => completeGoal(db, actor, tripGoal.id, "spend"));
     }
 
-    // Fund the goals a little every month.
-    for (const goal of [tripGoal, laptopGoal, emergencyGoal]) {
+    /*
+     * The goals get what is left, which is the honest order: a savings goal is
+     * funded out of what the month did not need, not ahead of the rent.
+     */
+    for (const goal of [tripGoal, emergencyGoal]) {
       const envelope = queryOne<{ category_id: string }>(
         db, `SELECT category_id FROM goal_categories WHERE goal_id = ? LIMIT 1`, goal.id,
       )?.category_id;
-      if (envelope) {
-        did("addAssigned", () => addAssigned(db, actor, month, envelope, rupees(between(2_000, 5_000)) as Paise));
+      if (envelope) fund(envelope, between(2_000, 5_000));
+    }
+    // Ravi's own goal is funded out of his own budget, not the household's.
+    {
+      const envelope = queryOne<{ category_id: string }>(
+        db, `SELECT category_id FROM goal_categories WHERE goal_id = ? LIMIT 1`, laptopGoal.id,
+      )?.category_id;
+      const his = computeBudget(
+        loadEngineInput(db, { through: month, budgetId: hisBudget.id }),
+      ).get(month);
+      const room = his?.readyToAssign ?? 0;
+      if (envelope && room > 0) {
+        did("addAssigned", () => addAssigned(
+          db, actor, month, envelope, Math.min(rupees(between(2_000, 6_000)), room) as Paise,
+        ));
+      }
+    }
+
+    /*
+     * Whatever a personal budget has left at the end of the month goes to its
+     * own savings envelope. Zero-based means the month is not finished until
+     * Ready to Assign is nothing.
+     */
+    for (const [budgetId, envelope, present] of [
+      [hisBudget.id, hisSavings.id, true],
+      [anilBudget.id, anilSavings.id, anilHere],
+    ] as [string, string, boolean][]) {
+      if (!present) continue;
+      const state = computeBudget(loadEngineInput(db, { through: month, budgetId })).get(month);
+      const room = state?.readyToAssign ?? 0;
+      if (room > 0) {
+        did("addAssigned", () => addAssigned(db, actor, month, envelope, room as Paise));
+      } else if (room < 0) {
+        /*
+         * And the other direction, which is the half that matters. A month where
+         * the invoices were thin leaves Ready to Assign below zero, and a sweep
+         * that only ever adds cannot put that right — it just leaves the budget
+         * screen saying "you have assigned more than you have" for ever. Taking
+         * it back out of the savings envelope is what a person does, and what
+         * the app's own move-money is for.
+         */
+        const held = state?.categories.get(envelope)?.balance ?? 0;
+        const claw = Math.min(-room, Math.max(0, held));
+        if (claw > 0) {
+          did("addAssigned", () => addAssigned(db, actor, month, envelope, -claw as Paise));
+        }
       }
     }
 
@@ -973,6 +1110,21 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
     log,
     monthsBuilt,
   };
+}
+
+/**
+ * A guard rather than a comment: if somebody ever edits the departure to take
+ * out the member the demo signs in as, this stops them at the moment they run
+ * it rather than at the moment somebody opens the demo.
+ */
+function assertNotSignedIn(leaving: readonly string[]): void {
+  if (leaving.includes(SIGNED_IN_AS)) {
+    throw new Error(
+      `The scenario removes ${SIGNED_IN_AS}, who is the member a demo instance ` +
+      "signs in as. Pick somebody else to leave, or change SIGNED_IN_AS and the " +
+      "order the members are created in.",
+    );
+  }
 }
 
 /** Who is still here, for a test that wants to check the departure took. */

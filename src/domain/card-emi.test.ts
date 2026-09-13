@@ -310,3 +310,74 @@ describe("06 §7.4 · recording the monthly instalment", () => {
     );
   });
 });
+
+/**
+ * B123 · Dated from the charge, not from the button.
+ *
+ * Converting a charge from last year used to create a plan starting today and
+ * move the envelope money in today's month — so the household's funding for
+ * *this* month's card bill walked out of the door to pay for a purchase made
+ * fifteen months ago, and this month's payment envelope went ₹84,000 into the
+ * red. The plan belongs where the charge is.
+ */
+describe("06 §7.4 · the plan is dated from the charge it replaces", () => {
+  test("an old charge makes an old plan, not one starting today", () => {
+    const { db, charge } = cardWithCharge();
+    const old = "2026-02-11";
+    createTransaction(db, actor, {
+      accountId: charge.account_id, amount: -rupees(30_000) as Paise, date: old,
+      categoryId: charge.category_id, payeeName: "Croma", cleared: true,
+    });
+    const older = queryOne<{ id: string }>(
+      db, `SELECT id FROM transactions WHERE date = ? LIMIT 1`, old,
+    )!;
+
+    const result = convertToEmi(db, actor, {
+      transactionId: older.id, tenureMonths: 6, annualRatePct: 14,
+    });
+
+    const loan = queryOne<{ sanction_date: string }>(
+      db, `SELECT sanction_date FROM loans WHERE id = ?`, result.loan.id,
+    )!;
+    assert.equal(loan.sanction_date, old, "the plan starts where the purchase was");
+  });
+
+  test("and the envelope move lands in the charge's month, not this one", () => {
+    const { db, charge } = cardWithCharge();
+    const old = "2026-02-11";
+    createTransaction(db, actor, {
+      accountId: charge.account_id, amount: -rupees(30_000) as Paise, date: old,
+      categoryId: charge.category_id, payeeName: "Croma", cleared: true,
+    });
+    const older = queryOne<{ id: string }>(
+      db, `SELECT id FROM transactions WHERE date = ? LIMIT 1`, old,
+    )!;
+
+    convertToEmi(db, actor, { transactionId: older.id, tenureMonths: 6, annualRatePct: 14 });
+
+    const movedThisMonth = queryOne<{ n: number }>(
+      db,
+      `SELECT COUNT(*) AS n FROM assignments a
+         JOIN categories c ON c.id = a.category_id
+        WHERE a.month = ? AND c.payment_account_id IS NOT NULL AND a.amount < 0`,
+      MONTH,
+    )!.n;
+    assert.equal(
+      movedThisMonth, 0,
+      "this month's card funding was taken to pay for a purchase made months ago",
+    );
+  });
+
+  test("an explicit date still wins", () => {
+    const { db, charge } = cardWithCharge();
+    const result = convertToEmi(db, actor, {
+      transactionId: charge.id, tenureMonths: 6, annualRatePct: 14, date: "2026-05-02",
+    });
+    assert.equal(
+      queryOne<{ sanction_date: string }>(
+        db, `SELECT sanction_date FROM loans WHERE id = ?`, result.loan.id,
+      )!.sanction_date,
+      "2026-05-02",
+    );
+  });
+});
