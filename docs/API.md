@@ -431,7 +431,8 @@ only (out of a token's reach).
 | Method | Path | Token | Purpose |
 |---|---|---|---|
 | GET | `/schedules` | R | Recurring items & cashflow calendar. |
-| POST | `/schedules/new` · `/schedules/confirm` · `/schedules/dismiss` · `/schedules/:id/paid` · `/schedules/:id/skip` | W | Manage schedules. |
+| POST | `/schedules/new` · `/schedules/confirm` · `/schedules/dismiss` · `/schedules/:id/paid` · `/schedules/:id/skip` | W | Manage schedules. A schedule may be money in or money out. |
+| POST | `/schedules/:id/edit` · `/schedules/:id/delete` | W | Change or remove a schedule. Removing leaves everything it already recorded. |
 | GET | `/goals` | R | Savings goals. |
 | POST | `/goals/new` · `/goals/:id/complete` · `/goals/:id/edit` · `/goals/:id/delete` | W | Manage goals. |
 | GET | `/loans` · `/loans/:id` | R | Loans and one loan's detail. |

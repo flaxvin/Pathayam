@@ -18,6 +18,8 @@ import {
 import { formatPaise, type Paise } from "../core/money.ts";
 import { accountBalances } from "../engine/repository.ts";
 import { listLoans, projectLoan } from "./loans.ts";
+import { Refusal } from "../core/refusal.ts";
+import { createTransaction } from "./transactions.ts";
 
 export type Recurrence =
   | "daily" | "weekly" | "fortnightly" | "monthly" | "monthly-nth-weekday"
@@ -42,6 +44,29 @@ export interface Schedule {
   enabled: number;
 }
 
+/**
+ * B99, applied to schedules · Money going out names the envelope it comes from.
+ *
+ * The rule already held for a hand-entered transaction, and a schedule is a
+ * transaction the app will post on your behalf — so letting one through without a
+ * category is a way to manufacture exactly the uncategorised expenses B99 exists
+ * to stop, one a month, for ever. It also makes F7.4 impossible: an upcoming
+ * schedule cannot appear "against its category" on the budget screen when it has
+ * none.
+ *
+ * Money coming in is exempt for B99's own reason: its job is to land in Ready to
+ * Assign and wait to be given a job.
+ */
+function requireEnvelopeForOutgoing(amount: Paise | null | undefined, categoryId: string | null | undefined): void {
+  if ((amount ?? 0) < 0 && !categoryId) {
+    throw new Refusal(
+      "Which envelope does this come out of? A scheduled payment posts itself " +
+      "every month, so without one it would quietly build a queue of spending " +
+      "with nothing recording where it went. Money coming in does not need one.",
+    );
+  }
+}
+
 export function createSchedule(
   db: DB, actor: Actor,
   input: {
@@ -59,6 +84,7 @@ export function createSchedule(
     confidence?: string | null;
   },
 ): Schedule {
+  requireEnvelopeForOutgoing(input.amount, input.categoryId);
   return transact(db, () => {
     const id = newId();
     execute(
@@ -80,6 +106,69 @@ export function createSchedule(
       summary: `Added a ${input.recurrence} schedule for ${input.name}`,
     });
     return schedule;
+  });
+}
+
+/**
+ * Change a schedule.
+ *
+ * There was no way to: a schedule was permanent from the moment it was created,
+ * so a typo in the amount, a rent rise, or a subscription moving to a different
+ * day all meant living with the wrong figure in the cashflow projection — the one
+ * screen whose whole job is answering "will I make it to the 30th".
+ */
+export function updateSchedule(
+  db: DB, actor: Actor, id: string,
+  patch: Partial<Pick<Schedule,
+    "name" | "amount" | "recurrence" | "next_due" | "category_id" | "account_id"
+    | "short_month_policy" | "is_subscription" | "amount_is_estimate">>,
+): Schedule {
+  return transact(db, () => {
+    const before = getSchedule(db, id);
+    if (!before) throw new Refusal("That schedule does not exist.");
+    requireEnvelopeForOutgoing(
+      patch.amount !== undefined ? patch.amount : before.amount,
+      patch.category_id !== undefined ? patch.category_id : before.category_id,
+    );
+
+    // A key present but undefined means "not mentioned", not "set to null" — the
+    // same trap that wrote NULLs into accounts (B107).
+    const fields = (Object.keys(patch) as (keyof typeof patch)[])
+      .filter((f) => patch[f] !== undefined);
+    if (fields.length > 0) {
+      execute(
+        db,
+        `UPDATE schedules SET ${fields.map((f) => `${f} = ?`).join(", ")} WHERE id = ?`,
+        ...fields.map((f) => patch[f] as never),
+        id,
+      );
+    }
+
+    const after = getSchedule(db, id)!;
+    appendEvent(db, actor, {
+      entity: "schedule", entityId: id, action: "update", before, after,
+      summary: `Edited the schedule for ${after.name}`,
+    });
+    return after;
+  });
+}
+
+/**
+ * Remove a schedule.
+ *
+ * Nothing it ever did is touched: `markPaid` records real transactions, and those
+ * are the household's history. This removes only the expectation of the next one,
+ * which is what a cancelled subscription or a closed standing instruction means.
+ */
+export function deleteSchedule(db: DB, actor: Actor, id: string): void {
+  transact(db, () => {
+    const before = getSchedule(db, id);
+    if (!before) throw new Refusal("That schedule does not exist.");
+    execute(db, `DELETE FROM schedules WHERE id = ?`, id);
+    appendEvent(db, actor, {
+      entity: "schedule", entityId: id, action: "delete", before,
+      summary: `Removed the schedule for ${before.name}`,
+    });
   });
 }
 
@@ -120,16 +209,47 @@ function shiftMonthsKeepingDay(schedule: Schedule, from: IsoDate, months: number
 }
 
 /** F7.5 · Mark an occurrence paid, and move the schedule on. */
+/**
+ * F7.5 · Mark an occurrence paid — or arrived, for money coming in.
+ *
+ * This used to move `next_due` and nothing else, so the button appeared to do
+ * nothing: the rent was still unrecorded, the balance unchanged, and the only
+ * visible effect a date shifting by a month. A schedule exists because the
+ * payment happens; marking it paid is saying it happened, so it posts the
+ * transaction and then advances.
+ *
+ * A schedule with no amount or no account cannot post one — it is a reminder
+ * rather than an instruction — so it just advances, as it always did.
+ */
 export function markPaid(db: DB, actor: Actor, scheduleId: string, on: IsoDate = todayIST()): void {
   transact(db, () => {
     const schedule = getSchedule(db, scheduleId);
     if (!schedule) throw new Error("That schedule does not exist.");
+
+    let posted: string | null = null;
+    if (schedule.amount !== null && schedule.account_id) {
+      posted = createTransaction(db, actor, {
+        accountId: schedule.account_id,
+        amount: schedule.amount,
+        date: on,
+        categoryId: schedule.category_id,
+        payeeId: schedule.payee_id,
+        payeeName: schedule.payee_id ? null : schedule.name,
+        memo: `${schedule.name} — scheduled`,
+        cleared: false,
+      }).id;
+    }
+
     const next = nextOccurrence(schedule, on);
     execute(db, `UPDATE schedules SET next_due = ? WHERE id = ?`, next, scheduleId);
     appendEvent(db, actor, {
       entity: "schedule", entityId: scheduleId, action: "mark-paid",
-      before: { nextDue: schedule.next_due }, after: { nextDue: next },
-      summary: `Marked ${schedule.name} paid; next due ${next ? formatDate(next) : "never"}`,
+      before: { nextDue: schedule.next_due }, after: { nextDue: next, transactionId: posted },
+      summary:
+        (posted
+          ? `Recorded ${schedule.name} for ${formatPaise(Math.abs(schedule.amount ?? 0) as Paise)}`
+          : `Marked ${schedule.name} done`) +
+        `; next due ${next ? formatDate(next) : "never"}`,
     });
   });
 }
@@ -447,6 +567,37 @@ registerUndoHandler("schedule", (db, event) => {
     execute(db, `DELETE FROM schedules WHERE id = ?`, event.entityId!);
     return `Removed the schedule that was added`;
   }
-  execute(db, `UPDATE schedules SET next_due = ? WHERE id = ?`, before.next_due, event.entityId!);
-  return `Set the schedule back to ${before.next_due}`;
+
+  /*
+   * A deleted schedule comes back whole; an edited one goes back to what it was.
+   * Only `next_due` used to be restored, which was right while marking one paid
+   * was the only thing that could change it and wrong the moment a schedule
+   * could be edited at all.
+   */
+  if (event.action === "delete") {
+    execute(
+      db,
+      `INSERT INTO schedules
+         (id,name,account_id,payee_id,category_id,amount,amount_is_estimate,recurrence,
+          next_due,short_month_policy,is_subscription,detected,confidence,created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+      event.entityId!, before.name, before.account_id, before.payee_id, before.category_id,
+      before.amount, before.amount_is_estimate, before.recurrence, before.next_due,
+      before.short_month_policy, before.is_subscription, before.detected,
+      before.confidence, nowIST(),
+    );
+    return `Put the schedule for ${before.name} back`;
+  }
+
+  execute(
+    db,
+    `UPDATE schedules SET name = ?, amount = ?, recurrence = ?, next_due = ?,
+       category_id = ?, account_id = ?, short_month_policy = ?, is_subscription = ?,
+       amount_is_estimate = ?
+     WHERE id = ?`,
+    before.name, before.amount, before.recurrence, before.next_due,
+    before.category_id, before.account_id, before.short_month_policy,
+    before.is_subscription, before.amount_is_estimate, event.entityId!,
+  );
+  return `Set the schedule for ${before.name} back`;
 });

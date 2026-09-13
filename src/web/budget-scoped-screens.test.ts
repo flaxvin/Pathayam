@@ -70,7 +70,7 @@ function twoBudgets() {
     accountId: hisOwn.id, amount: -rupees(1_100), date: todayIST(), categoryId: books.id,
   });
 
-  return { db, household, mine: mine.id, joint, hisOwn, hisCard, groceries, books };
+  return { db, household, mine: mine.id, joint, hisOwn, hisCard, groceries: groceries.id, books: books.id };
 }
 
 describe("B109 · screens follow the budget being looked at", () => {
@@ -95,11 +95,11 @@ describe("B109 · screens follow the budget being looked at", () => {
   });
 
   test("the cashflow projection opens from the selected budget's cash", () => {
-    const { db, household, mine, joint, hisOwn } = twoBudgets();
+    const { db, household, mine, joint, hisOwn, books } = twoBudgets();
     // A standing instruction out of his account belongs to his projection alone.
     createSchedule(db, actor, {
       name: "Gym", amount: -rupees(1_500), recurrence: "monthly",
-      nextDue: todayIST(), accountId: hisOwn.id,
+      nextDue: todayIST(), accountId: hisOwn.id, categoryId: books,
     });
 
     const hh = projectCashflow(db, { days: 40, budgetId: household });
@@ -147,7 +147,7 @@ describe("B109 · reports offer every scope rather than picking one", () => {
      */
     const { db, household, mine, hisOwn, groceries } = twoBudgets();
     createTransaction(db, actor, {
-      accountId: hisOwn.id, amount: -rupees(700), date: todayIST(), categoryId: groceries.id,
+      accountId: hisOwn.id, amount: -rupees(700), date: todayIST(), categoryId: groceries,
     });
     const period = { from: `${MONTH}-01` as never, to: todayIST() };
 

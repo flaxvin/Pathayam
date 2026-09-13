@@ -8,8 +8,9 @@ import { createAccount } from "./accounts.ts";
 import { accountBalances } from "../engine/repository.ts";
 import {
   createLoan, projectLoan, recordDisbursement, recordInstalment,
-  closeLoan, listLoans, getLoan, debtOverview,
+  closeLoan, listLoans, getLoan, debtOverview, paymentCategoryForLoan, recordRateChange,
 } from "./loans.ts";
+import { getTarget } from "./budget.ts";
 import { netWorthStatement } from "./networth.ts";
 import { todayIST } from "../core/dates.ts";
 
@@ -368,5 +369,50 @@ describe("H2.2 · a private loan is its holder's alone", () => {
     const row = debtOverview(db, "m-priya").find((d) => d.name.includes("Canara"));
     assert.ok(row, "shared, so she sees it");
     assert.equal(row!.holderName, "Ravi", "with whose it is on the row");
+  });
+});
+
+describe("R8 + R14 · the loan's envelope asks for the instalment", () => {
+  /**
+   * The app knows the EMI exactly, so making somebody type it into a target — and
+   * retype it after every rate reset — asks them to maintain a figure the app
+   * computes. Without a target the envelope is also invisible to the underfunded
+   * total and to auto-assign, which are the two things that would put the money
+   * there.
+   */
+  test("a new loan's payment envelope carries the EMI as its monthly target", () => {
+    const { db, bankId } = setup();
+    const loan = createLoan(db, actor, {
+      lender: "Axis", loanType: "personal", sanctioned: rupees(3_00_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 12,
+      tenureMonths: 36, currentOutstanding: rupees(3_00_000), repaymentAccountId: bankId,
+    });
+
+    const payment = paymentCategoryForLoan(db, loan.id)!;
+    const target = getTarget(db, payment.id);
+    const projection = projectLoan(db, loan.id)!;
+
+    assert.ok(target, "it has one");
+    assert.equal(target!.type, "monthly");
+    assert.equal(target!.amount, projection.emi, "and it is the instalment");
+  });
+
+  test("a rate reset moves the target with the instalment", () => {
+    const { db, bankId } = setup();
+    const loan = createLoan(db, actor, {
+      lender: "Axis", loanType: "personal", sanctioned: rupees(3_00_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 12,
+      tenureMonths: 36, currentOutstanding: rupees(3_00_000), repaymentAccountId: bankId,
+    });
+    const payment = paymentCategoryForLoan(db, loan.id)!;
+    const before = getTarget(db, payment.id)!.amount;
+
+    recordRateChange(db, actor, {
+      loanId: loan.id, effectiveFrom: "2026-06-01", annualRatePct: 15,
+    });
+
+    const after = getTarget(db, payment.id)!.amount;
+    assert.notEqual(after, before, "the instalment changed, so the target did");
+    assert.equal(after, projectLoan(db, loan.id)!.emi);
   });
 });
