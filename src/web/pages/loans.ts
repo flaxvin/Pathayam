@@ -1006,7 +1006,7 @@ export function renderNewLoanForm(opts: {
 
 export function renderRecordInstalment(opts: {
   projection: LoanProjection;
-  accounts: { id: string; name: string }[];
+  accounts: { id: string; name: string; isCard?: boolean }[];
   today: IsoDate;
 }): SafeHtml {
   const p = opts.projection;
@@ -1057,17 +1057,31 @@ export function renderRecordInstalment(opts: {
       </fieldset>
 
       <div class="field">
-        <label for="from_account_id">Paid from</label>
+        <label for="from_account_id">
+          ${p.loan.loan_type === "credit-card-emi" ? "Charged to" : "Paid from"}
+        </label>
         <select id="from_account_id" name="from_account_id">
-          <option value="">Don't record a transfer</option>
+          <option value="">Don't record the money moving</option>
           ${opts.accounts.map(
             (a) => html`
               <option value="${a.id}" ${raw(a.id === p.loan.repayment_account_id ? "selected" : "")}>
-                ${a.name}
+                ${a.name}${a.isCard ? " (on the card)" : ""}
               </option>
             `,
           )}
         </select>
+        ${when(p.loan.loan_type === "credit-card-emi", () => html`
+          <!--
+            06 §7.4 · The instalment is on the card statement, not a bank debit.
+            Recording it against the card spends this plan's envelope and moves
+            the money into the card's payment envelope, so it is budgeted once.
+          -->
+          <p class="field-hint">
+            The bank charges this to the card, so record it there. It comes out of
+            this plan's envelope and lands in the card's, ready to clear the bill —
+            you fund it once.
+          </p>
+        `)}
       </div>
 
       <button class="button-primary" type="submit">Record it</button>

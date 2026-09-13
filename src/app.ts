@@ -150,8 +150,8 @@ import {
 } from "./domain/reports.ts";
 import { spendingInsights, type Insight } from "./domain/insights.ts";
 import {
-  listSchedules, createSchedule, markPaid, skipOccurrence, detectSchedules,
-  projectCashflow, describeCashflow, subscriptions, type Recurrence,
+  listSchedules, createSchedule, updateSchedule, deleteSchedule, markPaid, skipOccurrence,
+  detectSchedules, projectCashflow, describeCashflow, subscriptions, type Recurrence,
 } from "./domain/schedules.ts";
 import {
   listGoals, createGoal, updateGoal, deleteGoal, goalCategoryIds, goalProgress, completeGoal,
@@ -3376,9 +3376,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ctx, "Record an instalment",
       renderRecordInstalment({
         projection,
+        /*
+         * 06 §7.4 · A card EMI is charged to the card, so the card has to be on
+         * offer. Every other loan is paid from a bank account, and offering cards
+         * there would invite recording a payment that never happened.
+         */
         accounts: listAccounts(db, { viewerMemberId: viewer(ctx) })
-          .filter((a) => a.kind === "budget")
-          .map((a) => ({ id: a.id, name: a.nickname || a.name })),
+          .filter((a) =>
+            a.kind === "budget"
+            || (projection.loan.loan_type === "credit-card-emi" && a.kind === "credit"))
+          .map((a) => ({
+            id: a.id,
+            name: a.nickname || a.name,
+            isCard: a.kind === "credit",
+          })),
         today: todayIST(),
       }),
     );
@@ -3900,6 +3911,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         subscriptions: subscriptions(db),
         horizon,
         categoryNames: new Map([...view.categories].map(([id, c]) => [id, c.name])),
+        // The inline edit form needs the full lists, or saving would blank the
+        // fields it does not show.
+        categories: [...view.categories.values()]
+          .filter((c) => !c.isPaymentCategory && !c.hidden)
+          .map((c) => ({ id: c.id, name: c.name })),
+        accounts: listAccounts(db, { viewerMemberId: viewer(ctx) })
+          .filter((acc) => acc.kind === "budget" || acc.kind === "credit")
+          .map((acc) => ({ id: acc.id, name: acc.nickname || acc.name })),
       }),
     );
   });
@@ -3950,9 +3969,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/schedules/new", (ctx) =>
     mutate(ctx, (a) => {
+      /*
+       * Money in as well as money out. The route forced -Math.abs() on every
+       * amount, so a salary could not be scheduled at all — even though the
+       * cashflow projection has always had an inflows side and the whole question
+       * it answers ("will I make it to the 30th") depends on knowing when money
+       * arrives, not only when it leaves.
+       */
+      const magnitude = Math.abs(amountField(field(ctx.body, "amount")));
+      const direction = field(ctx.body, "direction") ?? "out";
+
       createSchedule(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         name: requiredField(ctx.body, "name"),
-        amount: -Math.abs(amountField(field(ctx.body, "amount"))),
+        amount: (direction === "in" ? magnitude : -magnitude) as Paise,
         recurrence: (field(ctx.body, "recurrence") ?? "monthly") as Recurrence,
         nextDue: parseDate(field(ctx.body, "next_due") ?? "") ?? todayIST(),
         categoryId: field(ctx.body, "category_id") || null,
@@ -3960,6 +3989,47 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         isSubscription: field(ctx.body, "is_subscription") === "1",
       });
       return { redirect: "/schedules", message: "Schedule added." };
+    }),
+  );
+
+  /*
+   * A schedule was permanent once created: no edit, no delete, neither written.
+   * A typo in the amount or a cancelled subscription stayed in the cashflow
+   * projection for good — the one screen whose entire job is telling you whether
+   * you will make it to the 30th.
+   */
+  router.post("/schedules/:id/edit", (ctx) =>
+    mutate(ctx, (a) => {
+      const amountRaw = field(ctx.body, "amount");
+      const magnitude = amountRaw?.trim() ? Math.abs(amountField(amountRaw, "Amount")) : null;
+      const direction = field(ctx.body, "direction") ?? "out";
+      const dueRaw = field(ctx.body, "next_due");
+
+      const schedule = updateSchedule(
+        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), ctx.params.id!,
+        {
+          name: field(ctx.body, "name") || undefined,
+          amount: magnitude === null
+            ? undefined
+            : ((direction === "in" ? magnitude : -magnitude) as Paise),
+          recurrence: (field(ctx.body, "recurrence") || undefined) as Recurrence | undefined,
+          next_due: dueRaw?.trim() ? (parseDate(dueRaw) ?? undefined) : undefined,
+          category_id: field(ctx.body, "category_id") || null,
+          account_id: field(ctx.body, "account_id") || null,
+          is_subscription: field(ctx.body, "is_subscription") === "1" ? 1 : 0,
+        },
+      );
+      return { redirect: "/schedules", message: `${schedule.name} updated.` };
+    }),
+  );
+
+  router.post("/schedules/:id/delete", (ctx) =>
+    mutate(ctx, (a) => {
+      deleteSchedule(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), ctx.params.id!);
+      return {
+        redirect: "/schedules",
+        message: "Removed. Anything it already recorded is untouched.",
+      };
     }),
   );
 

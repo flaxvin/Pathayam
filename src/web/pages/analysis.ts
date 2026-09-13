@@ -662,6 +662,13 @@ export function renderSchedules(opts: {
   subscriptions: { schedule: Schedule; annualised: Paise }[];
   horizon: number;
   categoryNames: Map<string, string>;
+  /**
+   * The full lists, for the inline edit form. Without them it showed neither the
+   * account nor the envelope — and the route reads both, so saving would have
+   * blanked whatever the form did not carry.
+   */
+  categories?: { id: string; name: string }[];
+  accounts?: { id: string; name: string }[];
 }): SafeHtml {
   return html`
     <h1>Schedules &amp; cashflow</h1>
@@ -697,27 +704,110 @@ export function renderSchedules(opts: {
         ? html`<p class="faint">Nothing scheduled yet.</p>`
         : opts.schedules.map(
             (s) => html`
-              <div class="row-between" style="padding:.6rem 0;border-top:1px solid var(--border)">
-                <div>
-                  <strong>${s.name}</strong>
-                  ${when(s.detected === 1, () => html`
-                    <!-- F7.8: detected is never presented as confirmed. -->
-                    <span class="chip chip-warning">detected — ${s.confidence} confidence</span>
-                  `)}
-                  <div class="faint">
-                    ${s.recurrence}${s.next_due ? ` · next ${formatDate(s.next_due)}` : ""}
-                    ${s.category_id ? ` · ${opts.categoryNames.get(s.category_id) ?? ""}` : ""}
+              <div style="padding:.6rem 0;border-top:1px solid var(--border)">
+                <div class="row-between">
+                  <div>
+                    <strong>${s.name}</strong>
+                    ${when((s.amount ?? 0) > 0, () => html`
+                      <span class="chip chip-positive">coming in</span>
+                    `)}
+                    ${when(s.detected === 1, () => html`
+                      <!-- F7.8: detected is never presented as confirmed. -->
+                      <span class="chip chip-warning">detected — ${s.confidence} confidence</span>
+                    `)}
+                    <div class="faint">
+                      ${s.recurrence}${s.next_due ? ` · next ${formatDate(s.next_due)}` : ""}
+                      ${s.category_id ? ` · ${opts.categoryNames.get(s.category_id) ?? ""}` : ""}
+                    </div>
+                  </div>
+                  <div class="row">
+                    <span class="amount ${(s.amount ?? 0) > 0 ? "amount-positive" : ""}">
+                      ${s.amount !== null ? formatPaise(Math.abs(s.amount)) : "—"}
+                    </span>
+                    <form method="post" action="/schedules/${s.id}/paid">
+                      <button class="button-small" type="submit">
+                        ${(s.amount ?? 0) > 0 ? "Arrived" : "Paid"}
+                      </button>
+                    </form>
+                    <form method="post" action="/schedules/${s.id}/skip">
+                      <button class="button-small button-quiet" type="submit">Skip</button>
+                    </form>
                   </div>
                 </div>
-                <div class="row">
-                  <span class="amount">${s.amount !== null ? formatPaise(Math.abs(s.amount)) : "—"}</span>
-                  <form method="post" action="/schedules/${s.id}/paid">
-                    <button class="button-small" type="submit">Paid</button>
+
+                <!--
+                  A schedule was permanent once created — no edit, no delete. A
+                  typo in the amount or a cancelled subscription stayed in the
+                  cashflow projection for good.
+                -->
+                <details style="margin-top:.4rem">
+                  <summary class="linkish" style="font-size:.85rem">Edit or remove</summary>
+                  <form method="post" action="/schedules/${s.id}/edit"
+                        class="row" style="gap:.4rem;align-items:flex-end;flex-wrap:wrap;margin-top:.5rem">
+                    <div class="field" style="margin:0">
+                      <label style="font-size:.75rem" for="sn-${s.id}">Name</label>
+                      <input id="sn-${s.id}" name="name" value="${s.name}" style="max-width:12rem">
+                    </div>
+                    <div class="field" style="margin:0">
+                      <label style="font-size:.75rem" for="sa-${s.id}">Amount</label>
+                      <input id="sa-${s.id}" name="amount" class="amount-input" type="text"
+                             inputmode="decimal" style="max-width:8rem"
+                             value="${s.amount !== null ? (Math.abs(s.amount) / 100).toFixed(2) : ""}">
+                    </div>
+                    <div class="field" style="margin:0">
+                      <label style="font-size:.75rem" for="sd-${s.id}">In or out</label>
+                      <select id="sd-${s.id}" name="direction">
+                        <option value="out" ${raw((s.amount ?? 0) <= 0 ? "selected" : "")}>Out</option>
+                        <option value="in" ${raw((s.amount ?? 0) > 0 ? "selected" : "")}>In</option>
+                      </select>
+                    </div>
+                    <div class="field" style="margin:0">
+                      <label style="font-size:.75rem" for="sr-${s.id}">How often</label>
+                      <select id="sr-${s.id}" name="recurrence">
+                        ${(["monthly", "weekly", "fortnightly", "quarterly", "yearly"] as const).map(
+                          (r) => html`
+                            <option value="${r}" ${raw(r === s.recurrence ? "selected" : "")}>${r}</option>
+                          `,
+                        )}
+                      </select>
+                    </div>
+                    <div class="field" style="margin:0">
+                      <label style="font-size:.75rem" for="su-${s.id}">Next due</label>
+                      <input id="su-${s.id}" name="next_due" type="date" value="${s.next_due ?? ""}">
+                    </div>
+                    <div class="field" style="margin:0">
+                      <label style="font-size:.75rem" for="sc-${s.id}">Envelope</label>
+                      <select id="sc-${s.id}" name="category_id" style="max-width:12rem">
+                        <option value="">Not set</option>
+                        ${(opts.categories ?? []).map(
+                          (c) => html`
+                            <option value="${c.id}" ${raw(c.id === s.category_id ? "selected" : "")}>
+                              ${c.name}
+                            </option>
+                          `,
+                        )}
+                      </select>
+                    </div>
+                    <div class="field" style="margin:0">
+                      <label style="font-size:.75rem" for="sacc-${s.id}">Account</label>
+                      <select id="sacc-${s.id}" name="account_id" style="max-width:12rem">
+                        <option value="">Not set</option>
+                        ${(opts.accounts ?? []).map(
+                          (acc) => html`
+                            <option value="${acc.id}" ${raw(acc.id === s.account_id ? "selected" : "")}>
+                              ${acc.name}
+                            </option>
+                          `,
+                        )}
+                      </select>
+                    </div>
+                    <button class="button-small" type="submit">Save</button>
                   </form>
-                  <form method="post" action="/schedules/${s.id}/skip">
-                    <button class="button-small button-quiet" type="submit">Skip</button>
+                  <form method="post" action="/schedules/${s.id}/delete" style="margin-top:.4rem"
+                        onsubmit="return confirm('Remove this schedule? Anything it already recorded stays.')">
+                    <button class="button-small button-danger" type="submit">Remove</button>
                   </form>
-                </div>
+                </details>
               </div>
             `,
           )}
@@ -837,12 +927,25 @@ export function renderNewScheduleForm(opts: {
                  inputmode="decimal" autocomplete="off" placeholder="0.00">
         </div>
         <div class="field">
+          <!--
+            F7 · Money arriving is a schedule too. Everything here was forced
+            negative, so a salary could not be recorded — and the cashflow
+            calendar's whole question, "will I make it to the 30th", depends on
+            knowing when money comes in as much as when it goes out.
+          -->
+          <label for="sched-direction">Money in or out</label>
+          <select id="sched-direction" name="direction">
+            <option value="out">Going out — a bill or a subscription</option>
+            <option value="in">Coming in — salary, rent received, a retainer</option>
+          </select>
+        </div>
+      </div>
+      <div class="grid-2">
+        <div class="field">
           <label for="next_due">Next due</label>
           <input id="next_due" name="next_due" type="date" autocomplete="off"
                  value="${opts.today}">
         </div>
-      </div>
-      <div class="grid-2">
         <div class="field">
           <label for="recurrence">How often</label>
           <select id="recurrence" name="recurrence">
@@ -864,11 +967,22 @@ export function renderNewScheduleForm(opts: {
         </div>
       </div>
       <div class="field">
-        <label for="category_id">Category</label>
+        <label for="category_id">Which envelope</label>
         <select id="category_id" name="category_id">
-          <option value="">Uncategorised</option>
+          <option value="">Not set — only for money coming in</option>
           ${opts.categories.map((c) => html`<option value="${c.id}">${c.name}</option>`)}
         </select>
+        <!--
+          F7.4 · A schedule shows on the budget screen against its category, and
+          B99's rule applies to a payment the app posts every month as much as to
+          one typed by hand — so money out needs an envelope, and "Uncategorised"
+          is no longer on offer for it.
+        -->
+        <p class="field-hint">
+          Money going out needs one: a scheduled payment posts itself, so without
+          an envelope it would quietly build a queue of spending with nothing
+          recording where it went. Money coming in lands in Ready to Assign.
+        </p>
       </div>
       <div class="field">
         <label><input type="checkbox" name="is_subscription" value="1"> This is a subscription</label>

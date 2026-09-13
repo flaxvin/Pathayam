@@ -15,6 +15,8 @@
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
+import { Refusal } from "../core/refusal.ts";
+import { setTarget } from "./budget.ts";
 import { nowIST, todayIST, formatDate, monthOf, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { createAccount, getAccount } from "./accounts.ts";
@@ -225,6 +227,9 @@ export function createLoan(db: DB, actor: Actor, input: CreateLoanInput): Loan {
       });
     }
 
+    // R8 · The envelope asks for the instalment from the start.
+    syncLoanPaymentTarget(db, actor, id);
+
     const loan = getLoan(db, id)!;
     appendEvent(db, actor, {
       entity: "loan", entityId: id, action: "create", after: loan,
@@ -348,6 +353,31 @@ export function paymentCategoryForLoan(db: DB, loanId: string): { id: string; na
  * is what stops a ₹40 lakh builder payment appearing as ₹40 lakh of spendable
  * money — the failure `06` §1 says every app gets wrong on day one.
  */
+/**
+ * R8 + R14 · Keep the loan's payment envelope asking for the instalment.
+ *
+ * A loan's envelope is where the EMI is budgeted, and the app knows the EMI
+ * exactly — so making somebody type it into a target, and retype it after every
+ * rate reset, is asking them to maintain a figure the app computes. Without a
+ * target the envelope is also invisible to the underfunded total and to
+ * auto-assign, which are the two things that would otherwise put the money there.
+ *
+ * Called after anything that can move the instalment: creating the loan, drawing
+ * on it, and a rate change.
+ */
+export function syncLoanPaymentTarget(db: DB, actor: Actor, loanId: string): void {
+  const payment = paymentCategoryForLoan(db, loanId);
+  if (!payment) return;
+
+  const projection = projectLoan(db, loanId);
+  // During a moratorium the obligation is the pre-EMI, which is what the
+  // household actually has to find each month (R16).
+  const due = projection?.preEmi ?? projection?.emi ?? 0;
+  if (due <= 0) return;
+
+  setTarget(db, actor, payment.id, { type: "monthly", amount: due as Paise });
+}
+
 export function recordDisbursement(
   db: DB, actor: Actor,
   input: {
@@ -415,6 +445,9 @@ export function recordDisbursement(
         cleared: true,
       });
     }
+
+    // R15.4 · Drawing more changes the instalment, so the envelope follows.
+    syncLoanPaymentTarget(db, actor, input.loanId);
 
     const record = queryOne<Disbursement>(db, `SELECT * FROM loan_disbursements WHERE id = ?`, id)!;
     appendEvent(db, actor, {
@@ -552,6 +585,9 @@ export function recordRateChange(
       id, input.loanId, input.effectiveFrom, input.annualRatePct, input.note ?? null, nowIST(),
     );
 
+    // R8 · A rate reset moves the instalment, so the envelope's target moves too.
+    syncLoanPaymentTarget(db, actor, input.loanId);
+
     appendEvent(db, actor, {
       entity: "loan", entityId: input.loanId, action: "rate-change",
       before: { rate: previous }, after: { rate: input.annualRatePct },
@@ -619,16 +655,54 @@ export function recordInstalment(
 
     let transactionId: string | null = null;
     if (input.fromAccountId) {
-      // The payment envelope is reduced by the full amount, and the loan
-      // account rises by it — symmetric with a card payment (R6).
-      const [out] = createTransfer(db, actor, {
-        fromAccountId: input.fromAccountId,
-        toAccountId: loan.account_id,
-        amount: input.amount,
-        date: input.date,
-        memo: `${loan.lender} instalment`,
-      });
-      transactionId = out.id;
+      const from = getAccount(db, input.fromAccountId);
+
+      if (from?.kind === "credit") {
+        /*
+         * `06` §7.4 · A card EMI's instalment is charged to the card, not paid
+         * from a bank account: *"the EMI instalment appears on the card
+         * statement, so its payment is recorded against the card, while the EMI
+         * loan's outstanding reduces. Both views must agree."*
+         *
+         * So it is an ordinary card charge filed to the loan's own payment
+         * envelope — which is the R6 idiom exactly. The loan's envelope falls by
+         * the instalment, the card's payment envelope rises by it, and the
+         * household funds the plan once, monthly, in the envelope that exists for
+         * it. A transfer would have left the loan's envelope untouched and the
+         * card asking for money nothing had set aside.
+         */
+        const payment = paymentCategoryForLoan(db, input.loanId);
+        const charge = createTransaction(db, actor, {
+          accountId: input.fromAccountId,
+          amount: -input.amount as Paise,
+          date: input.date,
+          categoryId: payment?.id ?? null,
+          payeeName: loan.lender,
+          memo: `${loan.nickname || loan.lender} instalment`,
+          cleared: true,
+        });
+        transactionId = charge.id;
+
+        // And the debt itself falls, so the loan's own balance keeps step.
+        createTransaction(db, actor, {
+          accountId: loan.account_id,
+          amount: input.amount,
+          date: input.date,
+          memo: `${loan.nickname || loan.lender} instalment`,
+          cleared: true,
+        });
+      } else {
+        // The payment envelope is reduced by the full amount, and the loan
+        // account rises by it — symmetric with a card payment (R6).
+        const [out] = createTransfer(db, actor, {
+          fromAccountId: input.fromAccountId,
+          toAccountId: loan.account_id,
+          amount: input.amount,
+          date: input.date,
+          memo: `${loan.lender} instalment`,
+        });
+        transactionId = out.id;
+      }
     }
 
     const id = newId();
@@ -888,11 +962,44 @@ export function reanchorToLenderBalance(
 
 /** R21 · Closure, with the summary R21.2 requires. */
 export function closeLoan(
-  db: DB, actor: Actor, input: { loanId: string; date: IsoDate; settlement?: Paise },
+  db: DB, actor: Actor,
+  input: {
+    loanId: string;
+    date: IsoDate;
+    settlement?: Paise;
+    /**
+     * `06` §7.4 / R19.5 · Foreclosing usually costs something — a percentage of
+     * the outstanding on a personal loan, a flat fee on a card EMI. It is a real
+     * cost of the borrowing and must be recordable, or the prepayment decision is
+     * made against a saving that is larger than the one actually available.
+     */
+    foreclosureCharge?: Paise;
+    /** Where the charge is budgeted, and which account it is paid from. */
+    chargeCategoryId?: string | null;
+    chargeAccountId?: string | null;
+  },
 ): LifetimeMetrics {
   return transact(db, () => {
     const projection = projectLoan(db, input.loanId);
     if (!projection) throw new Error("That loan does not exist.");
+
+    if (input.foreclosureCharge && input.foreclosureCharge > 0) {
+      if (!input.chargeAccountId) {
+        throw new Refusal(
+          "Say which account the foreclosure charge came out of — a cost with no " +
+          "account behind it is a figure nobody paid.",
+        );
+      }
+      createTransaction(db, actor, {
+        accountId: input.chargeAccountId,
+        amount: -input.foreclosureCharge as Paise,
+        date: input.date,
+        categoryId: input.chargeCategoryId ?? null,
+        payeeName: projection.loan.lender,
+        memo: `Foreclosure charge — ${projection.loan.nickname || projection.loan.lender}`,
+        cleared: true,
+      });
+    }
 
     if (input.settlement && input.settlement > 0) {
       recordInstalment(db, actor, {

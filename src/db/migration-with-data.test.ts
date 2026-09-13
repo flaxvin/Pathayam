@@ -93,3 +93,40 @@ describe("B105 · a rebuild survives a database with data in it", () => {
     db.close();
   });
 });
+
+describe("H2.2 · rescuing an account private to nobody", () => {
+  /**
+   * Found in a live database, not imagined: an account set private with no holder
+   * is filtered out for every member, so its balance, its transactions and any
+   * schedule paying from it all disappear — and it cannot be put right through
+   * the app, because fixing it would require seeing it.
+   */
+  test("the migration makes it visible again rather than leaving it lost", () => {
+    const db = open();
+    migrate(db, false, 33);
+
+    db.exec(`
+      INSERT INTO members (id,email,name,created_at)
+        VALUES ('m1','a@example.com','A','2026-01-01T00:00:00+05:30');
+      INSERT INTO budgets (id,kind,member_id,name,created_at)
+        VALUES ('b-mine','personal','m1','A','2026-01-01T00:00:00+05:30');
+      INSERT INTO accounts (id,name,kind,subtype,opening_balance,opening_date,created_at,visibility,budget_id)
+        VALUES ('lost','HDFC Savings','budget','savings',5000000,'2026-01-01',
+                '2026-01-01T00:00:00+05:30','private','b-mine');
+      INSERT INTO accounts (id,name,kind,subtype,opening_balance,opening_date,created_at,visibility,holder_member_id)
+        VALUES ('kept','Her gold','tracking','asset',100000,'2026-01-01',
+                '2026-01-01T00:00:00+05:30','private','m1');
+    `);
+
+    migrate(db, false);
+
+    const rows = db.prepare(
+      `SELECT id, visibility FROM accounts ORDER BY id`,
+    ).all() as { id: string; visibility: string }[];
+    const byId = new Map(rows.map((r) => [r.id, r.visibility]));
+
+    assert.equal(byId.get("lost"), "household", "private to nobody is made visible");
+    assert.equal(byId.get("kept"), "private", "and one with a holder is left alone");
+    db.close();
+  });
+});

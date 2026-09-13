@@ -1827,4 +1827,27 @@ ALTER TABLE loans ADD COLUMN card_id TEXT REFERENCES cards(id);
 ALTER TABLE loans ADD COLUMN converted_from_transaction_id TEXT REFERENCES transactions(id);
 `,
   },
+  {
+    name: "0034-rescue-accounts-private-to-nobody",
+    sql: `
+--------------------------------------------------------------------------------
+-- H2.2 · A thing private to nobody is a thing nobody can find
+--------------------------------------------------------------------------------
+-- "Private" filters on the holder: visible when holder_member_id matches the
+-- viewer. With no holder it matches no member, so a private account with no
+-- holder is invisible to every single person — including whoever set it, which
+-- makes it unfixable through the app, because undoing it would require seeing it.
+-- Everything hanging off such an account goes with it: its transactions, its
+-- balance, and any schedule that pays from it.
+--
+-- The combination is refused now, in both directions. This rescues rows that
+-- reached it before the guard existed, and the only recoverable choice is to make
+-- them shared: the app cannot guess whose they were meant to be, and leaving them
+-- hidden leaves money nobody can reach. A household that wanted one private can
+-- set it again, this time saying whose.
+UPDATE accounts
+   SET visibility = 'household'
+ WHERE visibility = 'private' AND holder_member_id IS NULL;
+`,
+  },
 ];
