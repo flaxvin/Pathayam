@@ -493,7 +493,7 @@ function renderCardPanel(opts: {
       <div class="row" style="flex-wrap:wrap">
         <a class="button" href="/transfer?to=${account.id}">Record a payment</a>
         ${when(funding.unfunded > 0, () => html`
-          <a class="button button-primary" href="/move?amount=${funding.unfunded}">Fund the shortfall</a>
+          <a class="button button-primary" href="/move?amount=${(funding.unfunded / 100).toFixed(2)}">Fund the shortfall</a>
         `)}
         <a class="button" href="/accounts/${account.id}/cards">Manage cards</a>
       </div>

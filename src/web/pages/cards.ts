@@ -147,7 +147,7 @@ function renderCard(card: CardDue, month: string): SafeHtml {
         <p class="notice notice-warning" style="margin-top:.75rem">
           ${formatPaise(card.unfunded)} of this balance has nothing behind it.
           ${when(card.paymentCategoryId, () => html`
-            <a href="/move?to=${card.paymentCategoryId}&amount=${card.unfunded}&month=${month}">Fund it</a>
+            <a href="/move?to=${card.paymentCategoryId}&amount=${(card.unfunded / 100).toFixed(2)}&month=${month}">Fund it</a>
           `)}
         </p>
       `)}

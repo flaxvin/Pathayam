@@ -405,7 +405,11 @@ income for the one receiving it.
 ### 4A.5 What the action needs
 
 - **A category on the side giving it up.** Not optional, for the reason above.
-  *Gifts and treats* is the obvious default and the household can pick another.
+  *Gifts and treats* was the suggestion here and is the wrong word more often than
+  the right one — agreeing to leave a lopsided month is usually not a present, and
+  naming it one attributes a generosity neither person claimed. The default built
+  is **Settled between us**, and the household picks the envelope at the moment it
+  acts.
 - **Partial amounts.** ₹2,000 of a ₹6,200 balance is ordinary.
 - **Who did it, in the event log.** A balance that changed overnight should have
   an answer. Undoable for thirty days like everything else (R37).

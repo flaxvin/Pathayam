@@ -6,7 +6,11 @@ import { nowIST } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import { historyFor, undoEvent } from "../core/events.ts";
 import { createGroup, createCategory } from "./budget.ts";
-import { createGoal, updateGoal, deleteGoal, getGoal, listGoals } from "./goals.ts";
+import {
+  createGoal, updateGoal, deleteGoal, getGoal, listGoals, goalCategoryIds,
+} from "./goals.ts";
+import { queryOne } from "../db/db.ts";
+import { householdBudgetId, ensurePersonalBudget } from "./budgets.ts";
 
 const actor: Actor = { memberId: "m", source: "ui" };
 
@@ -57,5 +61,75 @@ describe("F11 · goals are editable and deletable", () => {
     const goal = createGoal(db, actor, { name: "X", targetAmount: rupees(1000), categoryIds: [cat] });
     assert.throws(() => updateGoal(db, actor, goal.id, { name: "X", targetAmount: 0 }), /above zero/);
     db.close();
+  });
+});
+
+/** The new tests want the database on its own; the old ones want the category too. */
+function freshDb() {
+  return setup().db;
+}
+
+describe("B58 · a goal owns its own envelope, whoever makes it", () => {
+  /**
+   * The rule lived in the route that handles the form, so it was only true of
+   * goals created through that form. The demo seed pointed its goals at ordinary
+   * envelopes — a trip fund measured by the household's general "Travel home",
+   * with the app's rename and delete controls still on it — and nothing stopped
+   * it, because the invariant was in the wrong layer.
+   */
+  test("createGoal makes an app-managed envelope when none is given", () => {
+    const db = freshDb();
+    const goal = createGoal(db, actor, {
+      name: "Kerala trip", targetAmount: rupees(90_000),
+    });
+
+    const linked = goalCategoryIds(db, goal.id);
+    assert.equal(linked.length, 1, "exactly one envelope");
+
+    const category = queryOne<{ name: string; group_id: string; budget_id: string }>(
+      db, `SELECT name, group_id, budget_id FROM categories WHERE id = ?`, linked[0]!,
+    )!;
+    assert.equal(category.name, "Kerala trip", "named for the goal");
+    assert.equal(category.budget_id, householdBudgetId(db));
+
+    const group = queryOne<{ name: string; kind: string }>(
+      db, `SELECT name, kind FROM category_groups WHERE id = ?`, category.group_id,
+    )!;
+    assert.equal(group.kind, "internal", "managed by the app, so it carries no manual controls");
+    assert.equal(group.name, "Goals");
+  });
+
+  test("two goals get two envelopes, not one shared one", () => {
+    const db = freshDb();
+    const a = createGoal(db, actor, { name: "Kerala trip", targetAmount: rupees(90_000) });
+    const b = createGoal(db, actor, { name: "New laptop", targetAmount: rupees(1_20_000) });
+    assert.notEqual(goalCategoryIds(db, a.id)[0], goalCategoryIds(db, b.id)[0]);
+  });
+
+  test("a goal's envelope is in the goal's own budget (15 §6B)", () => {
+    const db = freshDb();
+    const mine = ensurePersonalBudget(db, "m", "Ravi");
+    const goal = createGoal(db, actor, {
+      name: "New camera", targetAmount: rupees(60_000), budgetId: mine.id,
+    });
+    const category = queryOne<{ budget_id: string }>(
+      db, `SELECT budget_id FROM categories WHERE id = ?`, goalCategoryIds(db, goal.id)[0]!,
+    )!;
+    assert.equal(category.budget_id, mine.id);
+  });
+
+  test("an envelope from another budget is refused", () => {
+    const db = freshDb();
+    const mine = ensurePersonalBudget(db, "m", "Ravi");
+    const household = createGoal(db, actor, { name: "Roof", targetAmount: rupees(50_000) });
+    const householdEnvelope = goalCategoryIds(db, household.id)[0]!;
+
+    assert.throws(
+      () => createGoal(db, actor, {
+        name: "Mine", targetAmount: rupees(10_000),
+        budgetId: mine.id, categoryIds: [householdEnvelope],
+      }),
+      /only be measured by envelopes in its own/,
+    );
   });
 });

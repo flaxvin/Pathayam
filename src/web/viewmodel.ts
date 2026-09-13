@@ -129,7 +129,7 @@ export function buildBudgetView(db: DB, month?: MonthKey, budgetId?: string): Bu
       state,
       target: t,
       progress,
-      ...describeState(state, progress),
+      ...describeState(state, progress, Boolean(meta.commitsToBudgetId)),
     };
     categories.set(meta.id, view);
   }
@@ -187,7 +187,26 @@ export function buildBudgetView(db: DB, month?: MonthKey, budgetId?: string): Bu
 function describeState(
   state: CategoryState,
   progress: TargetProgress | null,
+  /** 15 §4A.1 · A commitment reads differently from every other envelope. */
+  isCommitment = false,
 ): { stateLabel: string; stateClass: string; needsCover: boolean } {
+  /*
+   * A commitment envelope in the red has not been *overspent* — the word R6.n
+   * rules out between partners, and the wrong one anyway. More has gone to the
+   * household than was put aside for it, which is what the budget screen calls
+   * underfunded everywhere else. Covering it is still the right action, so the
+   * affordance stays; only the word changes.
+   */
+  if (isCommitment) {
+    if (state.balance < 0) {
+      return { stateLabel: "Underfunded", stateClass: "state-overspent", needsCover: true };
+    }
+    return {
+      stateLabel: state.balance > 0 ? "Committed" : "Square",
+      stateClass: "",
+      needsCover: false,
+    };
+  }
   if (state.balance < 0) {
     // R6: a credit overspend created no cash, so it is not covered from
     // another envelope the way a cash overspend is — the two need different

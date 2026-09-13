@@ -6,6 +6,7 @@
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
+import { Refusal } from "../core/refusal.ts";
 import { nowIST, formatMonth, type MonthKey, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { householdBudgetId } from "./budgets.ts";
@@ -78,6 +79,50 @@ export function renameGroup(db: DB, actor: Actor, id: string, name: string): Cat
       summary: `Renamed the group "${before.name}" to "${name}"`,
     });
     return after;
+  });
+}
+
+/**
+ * Delete a category group, which must be empty.
+ *
+ * Empty because the alternative is worse in both directions: deleting the
+ * envelopes with it would destroy balances and history at one click, and
+ * orphaning them would leave money in envelopes no screen renders. Emptying it
+ * first is one drag per envelope and is a decision about each of them.
+ *
+ * App-managed groups — a card's payment envelopes, a loan's, a goal's — are not
+ * the household's to delete: the app puts them back the moment the thing they
+ * belong to still exists.
+ */
+export function deleteGroup(db: DB, actor: Actor, id: string): void {
+  transact(db, () => {
+    const before = queryOne<CategoryGroup>(db, `SELECT * FROM category_groups WHERE id = ?`, id);
+    if (!before) throw new Refusal("That group does not exist.");
+    if (before.kind !== "normal") {
+      throw new Refusal(
+        `"${before.name}" is kept by the app — it holds the envelopes for cards, ` +
+        `loans or goals — so it cannot be deleted by hand. It goes when the last ` +
+        `of those does.`,
+      );
+    }
+
+    const held = queryAll<{ name: string }>(
+      db, `SELECT name FROM categories WHERE group_id = ? AND deleted_at IS NULL`, id,
+    );
+    if (held.length > 0) {
+      throw new Refusal(
+        `"${before.name}" still holds ${held.length === 1 ? "an envelope" : `${held.length} envelopes`} ` +
+        `(${held.slice(0, 3).map((c) => c.name).join(", ")}${held.length > 3 ? "…" : ""}). ` +
+        `Move or delete ${held.length === 1 ? "it" : "them"} first — deleting a group ` +
+        `should never be a way to lose money you had put aside.`,
+      );
+    }
+
+    execute(db, `DELETE FROM category_groups WHERE id = ?`, id);
+    appendEvent(db, actor, {
+      entity: "category-group", entityId: id, action: "delete", before,
+      summary: `Deleted the empty group "${before.name}"`,
+    });
   });
 }
 
@@ -598,6 +643,17 @@ registerUndoHandler("category-group", (db, event) => {
   if (!before) {
     execute(db, `DELETE FROM category_groups WHERE id = ?`, event.entityId!);
     return `Removed the group that was added`;
+  }
+  // A deleted group has to come back, not be updated in place.
+  if (event.action === "delete") {
+    execute(
+      db,
+      `INSERT INTO category_groups (id,name,kind,sort,created_at,budget_id)
+       VALUES (?,?,?,?,?,?)`,
+      event.entityId!, before.name, before.kind, before.sort,
+      nowIST(), before.budget_id ?? null,
+    );
+    return `Put the group "${before.name}" back`;
   }
   execute(
     db,

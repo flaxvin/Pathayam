@@ -238,7 +238,13 @@ main { padding: 1rem; max-width: 1200px; margin: 0 auto; }
     padding: 0 .75rem; border-radius: var(--radius-sm);
     color: var(--text); text-decoration: none; font-size: .95rem;
   }
-  .sidebar a[aria-current="page"] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  /* Any current item, not only a current page: the budget switcher marks itself
+     aria-current="true", which is correct for something that is not a page — and
+     was invisible while this rule only matched "page". */
+  .sidebar a[aria-current] { background: var(--accent-soft); color: var(--accent); font-weight: 600; }
+  /* The selected budget gets a bar as well as a colour, so the distinction does
+     not rest on hue alone (A2). */
+  .sidebar a[aria-current="true"] { box-shadow: inset 3px 0 0 var(--accent); }
   .sidebar a:hover { background: var(--surface-2); }
   .sidebar .group-label {
     font-size: .72rem; text-transform: uppercase; letter-spacing: .06em;
@@ -282,6 +288,21 @@ button:hover, .button:hover { background: var(--surface-2); }
 .button-quiet { border-color: transparent; background: transparent; }
 .button-quiet:hover { background: var(--surface-2); }
 .button-small { min-height: 34px; padding: .25rem .6rem; font-size: .85rem; }
+/*
+ * Controls on one line share a height.
+ *
+ * An input is 44px (A1's tap target) and a small button is 34px, so every inline
+ * form — rename, set a target, call it even — put a button ten pixels short of
+ * the box beside it. On its own each is deliberate; together they read as a
+ * misprint. A hidden input does not count: the reorder arrows are a row of small
+ * buttons and are meant to stay small.
+ */
+.row:has(.field) > button.button-small,
+.row:has(.field) > .button.button-small,
+form.row:has(input:not([type="hidden"]), select, textarea) > button.button-small,
+form.row:has(input:not([type="hidden"]), select, textarea) > .button.button-small {
+  min-height: var(--tap);
+}
 button[disabled] { opacity: .55; cursor: not-allowed; }
 
 input, select, textarea {
@@ -297,7 +318,15 @@ fieldset { border: 1px solid var(--border); border-radius: var(--radius); paddin
 legend { font-weight: 600; font-size: .9rem; padding: 0 .35rem; }
 
 /* Amounts get the numeric keypad with a decimal (A7) via inputmode in markup. */
-.amount-input { font-variant-numeric: tabular-nums; font-size: 1.25rem; }
+/*
+ * An amount is set larger because it is the figure you check before committing —
+ * but a bigger font made the box taller than everything beside it, so every row
+ * holding one sat 4px out of line. The type stays large; the box matches.
+ */
+.amount-input {
+  font-variant-numeric: tabular-nums; font-size: 1.25rem;
+  line-height: 1.2; padding-block: .35rem;
+}
 
 /* B87 · The budget filter. Sticks under the Ready-to-Assign bar so it stays
    reachable while scrolling a long grid on a phone. */

@@ -416,10 +416,12 @@ only (out of a token's reach).
 | GET | `/payees` | R | Payees. |
 | POST | `/payees/merge` | W | Merge two payees. |
 | GET | `/household` | R | What each member has committed to the shared budget this month. |
+| GET | `/members/:id/remove` | R | What removing a member does, and how the balance between you can end. |
+| POST | `/members/:id/remove` | W | Remove a member, settling what is outstanding first (`15` §6A). |
 | POST | `/household/pick-up` | W | Commit more, taking on what the household is behind by. |
 | POST | `/household/call-it-even` | W | Close part of a balance by agreement; it becomes spending on the giving side. |
 | GET | `/categories` | R | Categories, for the budget being viewed (`?budget=`). |
-| POST | `/groups/new` | W | Add a category group to the budget being viewed. |
+| POST | `/groups/new` · `/groups/:id/rename` · `/groups/:id/delete` | W | Add, rename or remove a category group. A group must be empty to be deleted. |
 | POST | `/categories/new` · `/categories/:id/rename` · `/categories/:id/hide` · `/categories/:id/delete` | W | Manage categories. |
 | POST | `/categories/:id/target` | W | Set or clear a category's target. |
 | POST | `/categories/:id/reorder` · `/groups/:id/reorder` | W | Move a category or group up or down. |

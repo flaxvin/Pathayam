@@ -69,6 +69,15 @@ export function createFamilyLoan(
     visibility?: "household" | "private";
     agreedTotal?: Paise | null;
     startedAt?: IsoDate;
+    /**
+     * 15 §6A · An arrangement that already has a balance when it starts.
+     *
+     * Advances and repayments move real money out of and into a budget account,
+     * which is right for lending a cousin ₹50,000. A member leaving is not that:
+     * the obligation already exists as an envelope balance and no cash moves at
+     * the moment it is recorded. Negative means the household owes them.
+     */
+    openingBalance?: Paise;
   },
 ): FamilyLoan {
   return transact(db, () => {
@@ -82,7 +91,7 @@ export function createFamilyLoan(
       holderMemberId: input.holderMemberId,
       visibility: input.visibility,
       subtype: "family-loan",
-      openingBalance: 0,
+      openingBalance: input.openingBalance ?? 0,
       openingDate: started,
     });
 

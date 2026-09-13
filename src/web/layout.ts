@@ -231,6 +231,26 @@ function renderBottomNav(path: string, reviewCount: number): SafeHtml {
   `;
 }
 
+/**
+ * 15 · The screens that mean "one budget's money", and so honour the switcher.
+ *
+ * Everything else — the household page, Activity, Settings, Review, the portfolio
+ * — is either about the arrangement as a whole or about things that belong to no
+ * budget. Offering a switch there did nothing at all: the link carried `?budget=`,
+ * the page ignored it, and the highlight stayed where it was. A control that does
+ * not move when clicked reads as a frozen app, which is exactly how it was
+ * reported.
+ *
+ * Reports and Query are deliberately absent too. They ask *whose money* as a
+ * filter of their own (`16`), and a second control saying something adjacent would
+ * be two answers to one question.
+ */
+const BUDGET_SCOPED = ["/", "/categories", "/overview", "/cards", "/schedules", "/accounts", "/goals", "/months"];
+
+function honoursBudget(path: string): boolean {
+  return BUDGET_SCOPED.some((p) => (p === "/" ? path === "/" : path.startsWith(p)));
+}
+
 function renderSidebar(
   path: string,
   reviewCount: number,
@@ -283,14 +303,16 @@ function renderSidebar(
    */
   return html`
     <nav class="sidebar" aria-label="Sections">
-      ${when(budgets.length > 1, () => html`
+      ${when(budgets.length > 1 && honoursBudget(path), () => html`
         <div class="group-label">Looking at</div>
         ${budgets.map(
           (b) => html`
             <a href="${switchTo(b.id)}"
                ${raw(b.id === currentBudgetId ? 'aria-current="true"' : "")}>
-              <span class="nav-icon" aria-hidden="true">${b.kind === "household" ? "⌂" : "◦"}</span>
+              <!-- A2 · A word and a mark, never colour alone. -->
+              <span class="nav-icon" aria-hidden="true">${b.id === currentBudgetId ? "●" : "○"}</span>
               <span>${b.kind === "household" ? "Household" : b.name}</span>
+              ${when(b.id === currentBudgetId, () => html`<span class="sr-only">(selected)</span>`)}
             </a>
           `,
         )}

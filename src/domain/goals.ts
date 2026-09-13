@@ -18,6 +18,7 @@ import { nowIST, todayIST, monthOf, monthsBetween, type IsoDate } from "../core/
 import { formatPaise, allocate, type Paise } from "../core/money.ts";
 import { Refusal } from "../core/refusal.ts";
 import { householdBudgetId } from "./budgets.ts";
+import { listGroups, createGroup, renameGroup, createCategory, type Category } from "./budget.ts";
 
 export interface Goal {
   id: string;
@@ -45,11 +46,60 @@ export interface GoalProgress {
   reading: string;
 }
 
+
+/**
+ * B61 · The app-managed group that holds one envelope per goal.
+ *
+ * It used to be called "Savings goals", which is also what the starting template
+ * calls its ordinary savings group — so a household that ran the template and then
+ * added a goal saw *two* sections with the same heading on the Categories page,
+ * one editable and one not. The managed group is called "Goals" instead, and an
+ * existing one is renamed rather than abandoned, because abandoning it would split
+ * goal envelopes across two groups.
+ *
+ * 15 §6B · One group per budget: a goal's envelope has to be in the goal's own
+ * budget, or its progress would be two households' money added together.
+ */
+export const GOAL_GROUP = "Goals";
+export const LEGACY_GOAL_GROUP = "Savings goals";
+
+/**
+ * B58 · A goal owns exactly one savings envelope, created and managed here.
+ *
+ * This used to live in the route that handles the form, which meant it was only
+ * true of goals created through that form. The demo seed created goals pointing at
+ * ordinary envelopes — a trip fund measured by the household's general "Travel
+ * home" envelope, with the app's manual controls still on it — and nothing
+ * stopped it, because the rule was in the wrong layer. It is an invariant of
+ * making a goal, so it lives with making a goal.
+ */
+export function ensureGoalEnvelope(
+  db: DB, actor: Actor, goalName: string, budgetId: string,
+): Category {
+  const groups = listGroups(db, budgetId);
+  const existing = groups.find(
+    (g) => g.kind === "internal" && (g.name === GOAL_GROUP || g.name === LEGACY_GOAL_GROUP),
+  );
+  const group = !existing
+    ? createGroup(db, actor, GOAL_GROUP, "internal", budgetId)
+    : existing.name !== GOAL_GROUP
+      ? renameGroup(db, actor, existing.id, GOAL_GROUP)
+      : existing;
+
+  return createCategory(db, actor, { groupId: group.id, name: goalName });
+}
+
 export function createGoal(
   db: DB, actor: Actor,
   input: {
     name: string; targetAmount: Paise; targetDate?: IsoDate | null;
-    note?: string | null; categoryIds: string[];
+    note?: string | null;
+    /**
+     * B58 · Omit this and the goal gets its own app-managed envelope, which is
+     * what every caller should do. Passing categories is for the one case that
+     * needs it: re-linking a goal to envelopes it already owns.
+     */
+    categoryIds?: string[];
     /**
      * 15 §6B · Whose goal it is, decided here and only here. There is no edit
      * path: a goal is measured by its categories' balances, so moving it between
@@ -60,14 +110,14 @@ export function createGoal(
   },
 ): Goal {
   if (input.targetAmount <= 0) throw new Error("A goal needs a target above zero.");
-  if (input.categoryIds.length === 0) {
-    // F11.1: progress is measured against categories, so a goal without one
-    // could never move.
-    throw new Error("Link the goal to at least one category, so its progress can be measured.");
-  }
 
   return transact(db, () => {
     const id = newId();
+    const budget = input.budgetId ?? householdBudgetId(db);
+    // B58 · Its own envelope, in its own budget, unless the caller supplied one.
+    const categoryIds = input.categoryIds?.length
+      ? input.categoryIds
+      : [ensureGoalEnvelope(db, actor, input.name, budget).id];
     execute(
       db,
       `INSERT INTO goals (id,name,target_amount,target_date,note,created_at,created_by,budget_id)
@@ -82,8 +132,7 @@ export function createGoal(
      * figure on the goal and the figure on the grid would be two different
      * households' money added together.
      */
-    const budget = input.budgetId ?? householdBudgetId(db);
-    for (const categoryId of input.categoryIds) {
+    for (const categoryId of categoryIds) {
       const category = queryOne<{ budget_id: string | null; name: string }>(
         db, `SELECT budget_id, name FROM categories WHERE id = ?`, categoryId,
       );
@@ -95,7 +144,7 @@ export function createGoal(
       }
     }
 
-    for (const categoryId of input.categoryIds) {
+    for (const categoryId of categoryIds) {
       execute(
         db, `INSERT OR IGNORE INTO goal_categories (goal_id, category_id) VALUES (?,?)`,
         id, categoryId,
