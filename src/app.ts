@@ -134,7 +134,7 @@ import {
 } from "./web/pages/loans.ts";
 import {
   createLoan, listLoans, getLoan, projectLoan, recordInstalment, listPayments, closeLoan,
-  recordDisbursement, recordLoanStatement, recordRateChange,
+  recordDisbursement, recordLoanStatement, recordRateChange, recordPrepayment,
   listDisbursements, listRatePeriods, debtOverview, type LoanType,
 } from "./domain/loans.ts";
 import { comparePrepayment, rateResetOptions, NegativeAmortisation } from "./loans/amortisation.ts";
@@ -3514,8 +3514,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const projection = projectLoan(db, ctx.params.id!);
     if (!projection) throw new NotFound("That loan does not exist.");
 
-    const newRatePct = Number(ctx.query.get("rate") ?? projection.ratePct);
-    const effectiveFrom = parseDate(ctx.query.get("from") ?? "") ?? todayIST();
+    /*
+     * B114 · The preview button is the same form as the record button, so the
+     * query names it submits are the form's own. The older short names still
+     * work, because links elsewhere use them.
+     */
+    const typedRate = ctx.query.get("annual_rate_pct") ?? ctx.query.get("rate");
+    const newRatePct = Number(typedRate ?? projection.ratePct);
+    const effectiveFrom =
+      parseDate(ctx.query.get("effective_from") ?? ctx.query.get("from") ?? "") ?? todayIST();
+    const keep = ctx.query.get("keep") === "emi" ? "emi" : "tenure";
+
+    if (!Number.isFinite(newRatePct) || newRatePct < 0) {
+      throw new HttpError(400, "That is not a rate.");
+    }
 
     if (projection.outstanding <= 0) {
       return render(
@@ -3536,6 +3548,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         renderRateReset({
           loan: projection.loan,
           effectiveFrom,
+          keep,
           options: rateResetOptions({
             outstanding: projection.outstanding,
             currentEmi: projection.emi,
@@ -3563,10 +3576,28 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const rate = Number(requiredField(ctx.body, "annual_rate_pct"));
       if (!Number.isFinite(rate) || rate < 0) throw new HttpError(400, "That is not a rate.");
 
-      recordRateChange(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
-        loanId, effectiveFrom: from, annualRatePct: rate, note: field(ctx.body, "note") || null,
-      });
-      return { redirect: `/loans/${loanId}`, message: `Rate changed to ${rate}%.` };
+      const keep = field(ctx.body, "keep") === "emi" ? "emi" : "tenure";
+
+      try {
+        recordRateChange(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+          loanId, effectiveFrom: from, annualRatePct: rate, keep,
+          note: field(ctx.body, "note") || null,
+        });
+      } catch (err) {
+        // R17.4 · Keeping an instalment that cannot cover the new month's
+        // interest is not a fault; it is the answer, and it means the other
+        // option is the only one open.
+        if (err instanceof NegativeAmortisation) throw new HttpError(422, err.message);
+        throw err;
+      }
+
+      return {
+        redirect: `/loans/${loanId}`,
+        message:
+          keep === "emi"
+            ? `Rate changed to ${rate}%, keeping the instalment — the tenure moved instead.`
+            : `Rate changed to ${rate}%, keeping the tenure — the instalment moved instead.`,
+      };
     }),
   );
 
@@ -3648,29 +3679,31 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const mode = field(ctx.body, "mode") === "emi" ? "emi" : "tenure";
     const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
 
-    recordInstalment(db, actor, {
+    /*
+     * B115 · The mode and the funding envelope were both collected here and
+     * neither was carried out: the mode went into the note, and the envelope
+     * went nowhere. `recordPrepayment` applies both — which is also where R19.1
+     * belongs, rather than in the route that renders the form.
+     */
+    recordPrepayment(db, actor, {
       loanId,
       date: todayIST(),
       amount,
-      principal: amount,
-      interest: 0,
-      kind: "prepayment",
+      mode,
+      charge,
       fromAccountId: projection.loan.repayment_account_id,
-      note: `Prepayment, applied by reducing the ${mode === "emi" ? "instalment" : "tenure"}`,
+      fundingCategoryId: field(ctx.body, "funding_category_id") || null,
     });
 
-    if (charge > 0) {
-      // R19.5: recorded as a separate cost, and included in the net saving.
-      recordInstalment(db, actor, {
-        loanId, date: todayIST(), amount: charge, principal: 0, interest: charge,
-        kind: "charge", note: "Prepayment charge",
-      });
-    }
-
+    const after = projectLoan(db, loanId);
     return {
       redirect: withNotice(
         `/loans/${loanId}`,
-        `Prepaid ${formatPaise(amount)}, applied by reducing the ${mode === "emi" ? "instalment" : "tenure"}.`,
+        mode === "emi"
+          ? `Prepaid ${formatPaise(amount)}. The instalment is now ` +
+            `${formatPaise(after?.emi ?? 0)} and the closure date is unchanged.`
+          : `Prepaid ${formatPaise(amount)}. The instalment is unchanged and there are ` +
+            `${after?.schedule.months ?? 0} left.`,
       ),
     };
   });

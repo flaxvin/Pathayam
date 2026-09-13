@@ -153,7 +153,7 @@ from.
 | **Cover overspend** | One-tap move from another envelope, with ranked source suggestions. |
 | **Credit-card payment envelopes** | Card spending reserves the cash to clear it; the envelope tracks the debt, symmetric with a loan's. |
 | **Add-on cards** | A member's card on another's account; the transaction owner defaults to the cardholder (R6.e). |
-| **Card purchase → EMI** | Convert a charge to an instalment plan from the transaction itself. The card's outstanding falls so the same purchase is never funded twice; the fee and its GST are charged to the card and need an envelope; the plan gets its own schedule and payment envelope. |
+| **Card purchase → EMI** | Convert a charge to an instalment plan from the transaction itself. The card's outstanding falls so the same purchase is never funded twice; the fee and its GST are charged to the card and need an envelope; the plan gets its own schedule and payment envelope. The plan can be named after what you bought, and whatever the card's payment envelope was holding against the charge moves across to it — the money set aside to clear the purchase is the money that now pays its instalments. |
 | **Statement cycles** | A card's statement day tags every charge with the cycle it bills in — a cycle runs from the day after one statement to the next, so a charge on the 19th with a statement day of 18 bills next month. It clamps in a short month, and the cycles tile the calendar with no gaps. |
 | **Cards at a glance** | With several cards on different cycles, the daily question is *which one is due next and for how much*. One screen answers it, due date first, and a shortfall is never reported larger than the card actually owes. |
 | **Targets & auto-assign** | Per-category targets, and one-tap fund-to-target with a preview before it commits. Ready to Assign is spent down the budget in order, so what you budgeted for is funded first. |
@@ -206,7 +206,7 @@ column, and no control for a distinction it has not made.
 | **Reports** | Income vs. spending, spending by category over time, loan interest by financial year. |
 | **Query** | One filterable, groupable transaction table everything else drills into; CSV export. Totals sum every matching row — the page you see is a page, and says so. |
 | **Search** | Across cleaned *and* raw imported strings. |
-| **Schedules & cashflow calendar** | Recurring transactions (with detection), and a forward balance projection — "will I make it to the 30th?". |
+| **Schedules & cashflow calendar** | Recurring transactions and money coming in (with detection), editable and deletable, and a forward balance projection — "will I make it to the 30th?". Marking one *paid* or *arrived* posts the transaction and rolls the schedule; *skip* rolls it without posting. Every outgoing schedule names an envelope, because a promise about money leaving with nothing behind it is what zero-based budgeting exists to prevent. |
 | **Goals** | Long-horizon savings kept off the monthly grid. |
 | **Month close** | A once-a-month ritual: what the month did, R29.4's four-way net-worth change, a dated snapshot, and whether next month is funded. Locks nothing. |
 | **In-app digest** | Per-member notifications (unfunded card, subscription renewing, overspend, month ready to close, things waiting in Review, cashflow dip, a spare month unassigned) — in-app only, nothing to draw you back. Each kind is individually mutable. |
@@ -218,8 +218,12 @@ column, and no control for a distinction it has not made.
 | **Amortisation engine** | Four interest models: reducing balance, flat (with the equivalent reducing rate shown), moratorium-serviced, moratorium-capitalised. |
 | **Tranche drawdown** | Record disbursements as you draw; a builder payment raises the liability without touching your budget, a bank credit arrives to assign (R15). |
 | **Pre-EMI / moratorium** | Interest-only obligation on the drawn amount, and both moratorium models with the capitalisation cost quantified before you choose it. |
-| **Instalments & drift** | Record each instalment with the lender's split; drift is measured against a lender statement, never against your own ledger. |
-| **Prepayment calculator** | Tenure-reduction vs. EMI-reduction, the saving shown side by side before you commit. |
+| **Instalments & drift** | Record each instalment with the lender's split; drift is measured against a lender statement, never against your own ledger. Paying from a credit account posts a categorised charge rather than a transfer, because a card EMI bills on the card. |
+| **The EMI is budgeted by default** | A loan's payment envelope gets a monthly target equal to its EMI from the moment the loan exists, and a rate change or a new disbursement moves the target with it. |
+| **Closing and foreclosure** | A loan that reaches zero says so and offers to close. Settling early records the foreclosure charge against a real account and an envelope, so the prepayment decision is taken against the saving actually on offer. |
+| **Whose loan it is** | A loan belongs to a budget, and a private one is visible only to its holder — on the list, in *Everything you owe*, and in net worth. The owner is shown on the list, not only in the detail page. |
+| **Prepayment calculator** | Tenure-reduction vs. EMI-reduction, the saving shown side by side before you commit — and the column you pick is the one that happens: reducing the tenure holds the instalment and shortens the loan, reducing the EMI keeps the closure date. The lump sum leaves the envelope you name. |
+| **Rate resets** | Both options the lender must offer, priced against your actual balance at the rate you type — keep the instalment and move the tenure, or keep the tenure and move the instalment. Whichever you take is applied, and the loan's envelope is re-targeted to match. |
 | **Family lending** | Money lent to / borrowed from people, with no interest engine (they don't have one). Balance derived from what moved; write-off available. |
 
 ### Assets & net worth (`07`)

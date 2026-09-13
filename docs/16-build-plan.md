@@ -277,6 +277,16 @@ screen.
 | **A rule in the wrong layer** | B58 — a goal owns its own envelope — lived in the route handling the form, so the demo seed pointed goals at ordinary envelopes and nothing stopped it. |
 | **A field that earned nothing** | `statement_day` was recorded, editable and read by no code. It now tags each charge with the cycle it bills in (R6.v). |
 | **Ten pixels** | Inputs are 44px, small buttons 34px, the amount box 48px. Every inline form sat out of line. Fixed, and a script now measures every screen. |
+| **Two screens that priced a choice and then ignored it** | The rate-reset screen offered *keep the instalment* against *keep the tenure* and always did the second; the prepayment screen recommended *reduce the tenure*, collected the answer, wrote it into the note and reduced the instalment. Both needed the tenure to move, and nothing moved it. The original tenure is now kept separately so the saving still has a baseline to be measured against (R6.x). |
+| **Options priced at the wrong rate** | The rate-change table was worked out from a query parameter no control on the page could set. Typing the new rate into the form left both figures the decision turns on answering a question about the old rate (R6.y). |
+| **A field that promised and did nothing** | *"A lump sum this size cannot come out of nowhere — say where, so no envelope is quietly drained."* The answer was read by nothing (R6.z). |
+
+The three at the end of that table are one failure with three faces, and it is
+worth naming separately: **a control that is rendered, priced and submitted still
+does nothing unless something downstream acts on it.** Every one of them passed
+review as a screen, because the screen was right. What was missing was a line in
+the domain, and no test asked for it, because no test had been told the choice
+was supposed to matter.
 
 **Two defects were found by the demo rather than by a test**: calling it even gives
 income to whichever side is *released*, which is not always the side the envelope

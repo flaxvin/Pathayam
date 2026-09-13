@@ -5,12 +5,15 @@ import type { Actor } from "../core/events.ts";
 import { nowIST } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import { createAccount } from "./accounts.ts";
-import { accountBalances } from "../engine/repository.ts";
+import { accountBalances, loadEngineInput } from "../engine/repository.ts";
 import {
   createLoan, projectLoan, recordDisbursement, recordInstalment,
   closeLoan, listLoans, getLoan, debtOverview, paymentCategoryForLoan, recordRateChange,
+  recordPrepayment,
 } from "./loans.ts";
-import { getTarget, createGroup, createCategory } from "./budget.ts";
+import { getTarget, createGroup, createCategory, setAssigned } from "./budget.ts";
+import { computeBudget } from "../engine/engine.ts";
+import { monthOf } from "../core/dates.ts";
 import { netWorthStatement } from "./networth.ts";
 import { todayIST } from "../core/dates.ts";
 
@@ -473,5 +476,162 @@ describe("R19.5 · settling early, and what it cost", () => {
     const before = accountBalances(db).get(bankId)!.working;
     closeLoan(db, actor, { loanId: loan.id, date: todayIST() });
     assert.equal(accountBalances(db).get(bankId)!.working, before);
+  });
+});
+
+
+/**
+ * B114 / B115 · Two screens offered a choice, priced both sides of it, and then
+ * carried out the same thing whichever you picked. The tenure was the only lever
+ * that could have made the other option real, and it never moved.
+ */
+describe("06 R20.2 · a rate reset is a choice, and the choice is carried out", () => {
+  function homeLoan(db: DB, bankId: string) {
+    return createLoan(db, actor, {
+      lender: "SBI", loanType: "home", sanctioned: rupees(50_00_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 8.5,
+      tenureMonths: 240, currentOutstanding: rupees(50_00_000), repaymentAccountId: bankId,
+    });
+  }
+
+  test("keeping the instalment moves the tenure instead", () => {
+    const { db, bankId } = setup();
+    const loan = homeLoan(db, bankId);
+    const before = projectLoan(db, loan.id)!;
+
+    recordRateChange(db, actor, {
+      loanId: loan.id, effectiveFrom: "2026-07-01", annualRatePct: 9.5, keep: "emi",
+    });
+
+    const after = projectLoan(db, loan.id)!;
+    // Whole months again: the instalment holds to what the last one absorbs.
+    assert.ok(
+      Math.abs(after.emi - before.emi) < rupees(500),
+      `the instalment held: ${before.emi} → ${after.emi}`,
+    );
+    assert.ok(
+      getLoan(db, loan.id)!.tenure_months > 240,
+      "and the tenure took the rise instead",
+    );
+  });
+
+  test("keeping the tenure moves the instalment instead", () => {
+    const { db, bankId } = setup();
+    const loan = homeLoan(db, bankId);
+    const before = projectLoan(db, loan.id)!;
+
+    recordRateChange(db, actor, {
+      loanId: loan.id, effectiveFrom: "2026-07-01", annualRatePct: 9.5, keep: "tenure",
+    });
+
+    const after = projectLoan(db, loan.id)!;
+    assert.equal(getLoan(db, loan.id)!.tenure_months, 240, "the tenure held");
+    assert.ok(after.emi > before.emi, "and the instalment took the rise");
+  });
+
+  test("the envelope's target follows whichever was chosen", () => {
+    const { db, bankId } = setup();
+    const loan = homeLoan(db, bankId);
+    recordRateChange(db, actor, {
+      loanId: loan.id, effectiveFrom: "2026-07-01", annualRatePct: 9.5, keep: "tenure",
+    });
+    const payment = paymentCategoryForLoan(db, loan.id)!;
+    assert.equal(
+      getTarget(db, payment.id)?.amount, projectLoan(db, loan.id)!.emi,
+      "what the household has to find each month is what the envelope asks for",
+    );
+  });
+
+  test("the original tenure survives, so lifetime figures still have a baseline", () => {
+    const { db, bankId } = setup();
+    const loan = homeLoan(db, bankId);
+    recordRateChange(db, actor, {
+      loanId: loan.id, effectiveFrom: "2026-07-01", annualRatePct: 9.5, keep: "emi",
+    });
+    assert.equal(getLoan(db, loan.id)!.original_tenure_months, 240);
+  });
+});
+
+describe("06 R19.1 · a prepayment does what was picked", () => {
+  function midLifeLoan(db: DB, bankId: string) {
+    return createLoan(db, actor, {
+      lender: "HDFC", loanType: "home", sanctioned: rupees(40_00_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 9,
+      tenureMonths: 180, currentOutstanding: rupees(40_00_000), repaymentAccountId: bankId,
+    });
+  }
+
+  test("reducing the tenure keeps the instalment and closes it earlier", () => {
+    const { db, bankId } = setup();
+    const loan = midLifeLoan(db, bankId);
+    const before = projectLoan(db, loan.id)!;
+
+    recordPrepayment(db, actor, {
+      loanId: loan.id, date: todayIST(), amount: rupees(5_00_000), mode: "tenure",
+      fromAccountId: bankId,
+    });
+
+    const after = projectLoan(db, loan.id)!;
+    /*
+     * A tenure is a whole number of months, so "keep the instalment" can only
+     * hold it to whatever the final month absorbs — a few rupees on a ₹40,570
+     * EMI. That residue is the honest answer, not a miss.
+     */
+    assert.ok(
+      Math.abs(after.emi - before.emi) < rupees(500),
+      `the instalment held: ${before.emi} → ${after.emi}`,
+    );
+    assert.ok(after.schedule.months < before.schedule.months, "and it closes sooner");
+    assert.ok(
+      after.metrics.emisSaved > 0,
+      "the months bought are reported, because the baseline did not move with it",
+    );
+  });
+
+  test("reducing the EMI keeps the closure date and lowers the instalment", () => {
+    const { db, bankId } = setup();
+    const loan = midLifeLoan(db, bankId);
+    const before = projectLoan(db, loan.id)!;
+
+    recordPrepayment(db, actor, {
+      loanId: loan.id, date: todayIST(), amount: rupees(5_00_000), mode: "emi",
+      fromAccountId: bankId,
+    });
+
+    const after = projectLoan(db, loan.id)!;
+    assert.equal(getLoan(db, loan.id)!.tenure_months, 180, "the tenure held");
+    assert.ok(after.emi < before.emi, "and the instalment fell");
+  });
+
+  test("R19.4 · it comes out of the envelope the household named", () => {
+    const { db, bankId } = setup();
+    const loan = midLifeLoan(db, bankId);
+    const group = createGroup(db, actor, "Savings");
+    const savings = createCategory(db, actor, { groupId: group.id, name: "Prepayment fund" });
+    const month = monthOf(todayIST());
+    setAssigned(db, actor, month, savings.id, rupees(5_00_000));
+
+    recordPrepayment(db, actor, {
+      loanId: loan.id, date: todayIST(), amount: rupees(5_00_000), mode: "tenure",
+      fromAccountId: bankId, fundingCategoryId: savings.id,
+    });
+
+    const state = computeBudget(loadEngineInput(db, { through: month })).get(month)!;
+    assert.equal(
+      state.categories.get(savings.id)?.balance, 0,
+      "the envelope they pointed at is the one that emptied",
+    );
+  });
+
+  test("prepaying more than is outstanding is refused", () => {
+    const { db, bankId } = setup();
+    const loan = midLifeLoan(db, bankId);
+    assert.throws(
+      () => recordPrepayment(db, actor, {
+        loanId: loan.id, date: todayIST(), amount: rupees(50_00_000), mode: "tenure",
+        fromAccountId: bankId,
+      }),
+      /more than the/,
+    );
   });
 });

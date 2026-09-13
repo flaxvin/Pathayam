@@ -16,14 +16,15 @@ import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { Refusal } from "../core/refusal.ts";
-import { setTarget } from "./budget.ts";
+import { setTarget, moveMoney } from "./budget.ts";
 import { nowIST, todayIST, formatDate, monthOf, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { createAccount, getAccount } from "./accounts.ts";
 import { createTransaction, createTransfer } from "./transactions.ts";
 import {
   buildSchedule, emiFor, flatRateLoan, moratorium, preEmi, drift,
-  lifetimeMetrics, type Schedule, type InterestModel, type LifetimeMetrics,
+  lifetimeMetrics,
+  type Schedule, type InterestModel, type LifetimeMetrics,
 } from "../loans/amortisation.ts";
 import { householdBudgetId } from "./budgets.ts";
 
@@ -54,7 +55,10 @@ export interface Loan {
   sanction_date: IsoDate;
   interest_model: InterestModel;
   benchmark: string | null;
+  /** The live tenure: shortens on a prepayment, extends on a rate reset taken by instalment. */
   tenure_months: number;
+  /** The tenure it was first scheduled over. R22's baseline; never moves. */
+  original_tenure_months: number | null;
   moratorium_months: number;
   first_instalment_date: IsoDate | null;
   instalment_day: number | null;
@@ -174,12 +178,13 @@ export function createLoan(db: DB, actor: Actor, input: CreateLoanInput): Loan {
       db,
       `INSERT INTO loans
          (id,account_id,lender,nickname,loan_type,sanctioned,sanction_date,interest_model,
-          benchmark,tenure_months,moratorium_months,first_instalment_date,instalment_day,repayment_account_id,
+          benchmark,tenure_months,original_tenure_months,moratorium_months,first_instalment_date,
+          instalment_day,repayment_account_id,
           history_from,disbursed_at_creation,created_at,created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       id, account.id, input.lender, input.nickname ?? null, input.loanType,
       input.sanctioned, input.sanctionDate, input.interestModel,
-      input.benchmark ?? null, input.tenureMonths, input.moratoriumMonths ?? 0,
+      input.benchmark ?? null, input.tenureMonths, input.tenureMonths, input.moratoriumMonths ?? 0,
       input.firstInstalmentDate ?? null, input.instalmentDay ?? null,
       input.repaymentAccountId ?? null,
       input.historyFrom ?? null,
@@ -570,13 +575,148 @@ export function currentRate(db: DB, loanId: string, asOf = todayIST()): number {
   );
 }
 
+/**
+ * Hold the instalment still and let the tenure take the strain.
+ *
+ * The projection derives the instalment from what is outstanding over what is
+ * left of the tenure, so the tenure is the only lever that keeps an instalment
+ * where it is. Shorten it and a prepayment buys months instead of a smaller
+ * bill; extend it and a rate rise is absorbed without the monthly figure moving.
+ * Both are choices the borrower is entitled to make, and neither was reachable
+ * while the tenure could not move.
+ */
+function keepInstalment(db: DB, actor: Actor, loanId: string, emi: Paise): void {
+  const loan = getLoan(db, loanId);
+  if (!loan) return;
+
+  const outstanding = outstandingPrincipal(db, loanId);
+  if (outstanding <= 0 || emi <= 0) return;
+
+  const paid = queryOne<{ n: number }>(
+    db,
+    `SELECT COUNT(*) AS n FROM loan_payments WHERE loan_id = ? AND kind = 'instalment'`,
+    loanId,
+  )?.n ?? 0;
+
+  // buildSchedule runs until the balance is actually cleared, so with the
+  // instalment pinned it answers how many months that takes — which is the
+  // number being asked for.
+  const months = buildSchedule({
+    principal: outstanding,
+    annualRatePct: currentRate(db, loanId),
+    months: Math.max(1, loan.tenure_months - paid),
+    emi,
+  }).months;
+
+  const tenure = paid + months;
+  if (tenure === loan.tenure_months) return;
+  execute(db, `UPDATE loans SET tenure_months = ? WHERE id = ?`, tenure, loanId);
+
+  // The instalment is meant to be unchanged, but the last one rarely is, and
+  // the envelope should ask for what the schedule now says.
+  syncLoanPaymentTarget(db, actor, loanId);
+}
+
+/**
+ * R19.1 · A prepayment, and the choice that comes with it.
+ *
+ * The choice is the whole point of the screen — RBI requires the lender to
+ * offer both, and they are worth very different amounts — and it was being
+ * collected, written into the note, and then ignored: the tenure never moved,
+ * so every prepayment silently reduced the instalment, including the one the
+ * app itself recommends. A recommendation the app then declines to carry out is
+ * worse than no recommendation.
+ */
+export function recordPrepayment(
+  db: DB, actor: Actor,
+  input: {
+    loanId: string;
+    date: IsoDate;
+    amount: Paise;
+    /** "tenure" keeps the instalment and closes early; "emi" keeps the closure date. */
+    mode: "tenure" | "emi";
+    fromAccountId?: string | null;
+    /** R19.4 · The envelope the lump sum comes out of. */
+    fundingCategoryId?: string | null;
+    charge?: Paise;
+  },
+): void {
+  transact(db, () => {
+    const projection = projectLoan(db, input.loanId);
+    if (!projection) throw new Refusal("That loan does not exist.");
+    if (input.amount <= 0) throw new Refusal("A prepayment needs an amount above zero.");
+    if (input.amount > projection.outstanding) {
+      throw new Refusal(
+        `That is more than the ${formatPaise(projection.outstanding)} still outstanding. ` +
+          `To clear the loan, settle and close it instead.`,
+      );
+    }
+
+    const emiBefore = projection.emi;
+    const payment = paymentCategoryForLoan(db, input.loanId);
+
+    /*
+     * R19.4 · The screen asks where the money is coming from so that no envelope
+     * is quietly drained — and then used the answer for nothing at all. A lakh
+     * leaving through the loan's own envelope, which holds one instalment,
+     * overdraws it and reports an overspend against a decision the household
+     * made deliberately. Move it first, from the envelope they named.
+     */
+    if (input.fundingCategoryId && payment && input.fundingCategoryId !== payment.id) {
+      moveMoney(db, actor, {
+        month: monthOf(input.date),
+        fromCategoryId: input.fundingCategoryId,
+        toCategoryId: payment.id,
+        amount: (input.amount + (input.charge ?? 0)) as Paise,
+      });
+    }
+
+    recordInstalment(db, actor, {
+      loanId: input.loanId,
+      date: input.date,
+      amount: input.amount,
+      principal: input.amount,
+      interest: 0,
+      kind: "prepayment",
+      fromAccountId: input.fromAccountId ?? projection.loan.repayment_account_id,
+      note: `Prepayment, applied by reducing the ${input.mode === "emi" ? "instalment" : "tenure"}`,
+    });
+
+    if (input.charge && input.charge > 0) {
+      // R19.5: recorded as a separate cost, and included in the net saving.
+      recordInstalment(db, actor, {
+        loanId: input.loanId, date: input.date, amount: input.charge,
+        principal: 0, interest: input.charge, kind: "charge",
+        fromAccountId: input.fromAccountId ?? projection.loan.repayment_account_id,
+        note: "Prepayment charge",
+      });
+    }
+
+    if (input.mode === "tenure") keepInstalment(db, actor, input.loanId, emiBefore);
+    else syncLoanPaymentTarget(db, actor, input.loanId);
+  });
+}
+
 /** R20.1 · A rate change is a new dated period, never an edit to the old one. */
 export function recordRateChange(
   db: DB, actor: Actor,
-  input: { loanId: string; effectiveFrom: IsoDate; annualRatePct: number; note?: string | null },
+  input: {
+    loanId: string; effectiveFrom: IsoDate; annualRatePct: number; note?: string | null;
+    /**
+     * R20.2 · Which of the two options the lender must offer was taken.
+     * "tenure" keeps the closure date and lets the instalment move — the
+     * default, and what every rate change did before the choice existed.
+     */
+    keep?: "tenure" | "emi";
+  },
 ): RatePeriod {
   return transact(db, () => {
     const previous = currentRate(db, input.loanId, input.effectiveFrom);
+
+    // Read the instalment before the new rate exists: keeping it is the whole
+    // point of the option, and a moment later it is not the same number.
+    const emiBefore = projectLoan(db, input.loanId)?.emi ?? 0;
+
     const id = newId();
     execute(
       db,
@@ -584,6 +724,15 @@ export function recordRateChange(
        VALUES (?,?,?,?,?,?)`,
       id, input.loanId, input.effectiveFrom, input.annualRatePct, input.note ?? null, nowIST(),
     );
+
+    /*
+     * R20.2 · A borrower facing a reset gets to choose: keep the instalment and
+     * let the tenure move, or keep the closure date and let the instalment move.
+     * The app showed both, priced both, and could only ever do the second — the
+     * tenure never moved, so the option a household picks when the instalment is
+     * all they can afford did nothing.
+     */
+    if (input.keep === "emi" && emiBefore > 0) keepInstalment(db, actor, input.loanId, emiBefore);
 
     // R8 · A rate reset moves the instalment, so the envelope's target moves too.
     syncLoanPaymentTarget(db, actor, input.loanId);
@@ -593,7 +742,10 @@ export function recordRateChange(
       before: { rate: previous }, after: { rate: input.annualRatePct },
       summary:
         `Rate moved from ${previous}% to ${input.annualRatePct}% ` +
-        `with effect from ${formatDate(input.effectiveFrom)}`,
+        `with effect from ${formatDate(input.effectiveFrom)}` +
+        (input.keep === "emi"
+          ? ", keeping the instalment and moving the tenure"
+          : ", keeping the tenure and moving the instalment"),
     });
 
     return queryOne<RatePeriod>(db, `SELECT * FROM loan_rates WHERE id = ?`, id)!;
@@ -817,7 +969,9 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
       ? buildSchedule({
           principal: principalBase,
           annualRatePct: firstRate(db, loanId),
-          months: loan.tenure_months,
+          // The loan as first scheduled — not as it stands after a prepayment
+          // shortened it, or a rate reset taken by instalment stretched it.
+          months: loan.original_tenure_months ?? loan.tenure_months,
           firstInstalmentDate: loan.first_instalment_date ?? undefined,
         })
       : emptySchedule();
@@ -912,7 +1066,8 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
     driftAsOf: statement?.as_of ?? null,
     equivalentReducingRatePct:
       loan.interest_model === "flat" && principalBase > 0
-        ? flatRateLoan(principalBase, rate, loan.tenure_months).equivalentReducingRatePct
+        ? flatRateLoan(principalBase, rate, loan.original_tenure_months ?? loan.tenure_months)
+            .equivalentReducingRatePct
         : null,
   };
 }
