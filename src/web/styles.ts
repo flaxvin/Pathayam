@@ -252,6 +252,43 @@ main { padding: 1rem; max-width: 1200px; margin: 0 auto; }
   }
 }
 
+/*
+ * The budget switcher in the header — the phone's version of the sidebar's.
+ * Hidden from 900px up, where the sidebar carries it and two of them would be
+ * two controls for one choice.
+ */
+.budget-switch {
+  display: flex; gap: .25rem; margin-left: .6rem;
+  /* It is the point of the header on a phone, so it does not give up its
+     width to anything else: the brand and the member name shrink first. */
+  flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none;
+}
+.budget-switch::-webkit-scrollbar { display: none; }
+.budget-switch a {
+  display: inline-flex; align-items: center; flex: 0 0 auto; min-height: 34px;
+  padding: 0 .55rem; border-radius: var(--radius);
+  border: 1px solid var(--border); background: var(--surface);
+  color: var(--text-muted); text-decoration: none;
+  font-size: .8rem; white-space: nowrap; max-width: 8rem;
+  overflow: hidden; text-overflow: ellipsis;
+}
+.budget-switch a[aria-current="true"] {
+  background: var(--accent-soft); color: var(--accent);
+  border-color: var(--accent); font-weight: 600;
+}
+@media (min-width: 900px) { .budget-switch { display: none; } }
+
+/*
+ * The bottom bar carries Add on a phone; the header's copy is for desktop.
+ * Scoped to the header so it outranks the .button display rule, which is defined
+ * further down the sheet — at equal specificity the later rule wins, which is how
+ * this hid nothing at all on the first attempt.
+ */
+@media (max-width: 899px) { .app-header .header-add { display: none; } }
+
+/* A sparkline is a decoration beside a figure. The figure comes first. */
+@media (max-width: 560px) { .sparkline { display: none; } }
+
 /* Mobile bottom bar — five items, Add prominent (03 §2) */
 .bottom-nav {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 30;
@@ -360,8 +397,27 @@ legend { font-weight: 600; font-size: .9rem; padding: 0 .35rem; }
 .card h2 { margin-top: 0; }
 
 .stack > * + * { margin-top: .75rem; }
-.row { display: flex; gap: .75rem; align-items: center; }
-.row-between { display: flex; gap: .75rem; align-items: center; justify-content: space-between; }
+/*
+ * B118 · Rows wrap, and their children may shrink.
+ *
+ * A flex item will not go narrower than its content unless it is told it may,
+ * so on a phone a row of "name, chips … figure, sparkline" pushed the figure
+ * clean out through the right-hand edge of the card it sits in — the amount
+ * clipped mid-digit, which on a page of balances is the worst possible thing to
+ * truncate. Both halves of the fix are needed: a min-width of zero lets a child
+ * shrink and ellipsise, and wrapping lets the row become two lines when even that
+ * is not enough.
+ */
+.row { display: flex; gap: .75rem; align-items: center; flex-wrap: wrap; }
+.row-between { display: flex; gap: .75rem; align-items: center; justify-content: space-between; flex-wrap: wrap; }
+.row > *, .row-between > * { min-width: 0; }
+/*
+ * And once it has wrapped, the right-hand half stays on the right. Without this
+ * a wrapped figure lands at the start of its new line, under the name it
+ * belongs to but reading as if it belonged to nothing. The selector needs two
+ * children before it fires, so a row with one child is left alone.
+ */
+.row-between > :first-child ~ :last-child { margin-left: auto; }
 .grid-2 { display: grid; gap: .75rem; }
 @media (min-width: 640px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
 

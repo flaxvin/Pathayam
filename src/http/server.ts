@@ -61,6 +61,23 @@ function securityHeaders(secure: boolean): Record<string, string> {
     // R37.7 is about the event log, but the same instinct applies outward:
     // nothing about this household is offered to anyone else.
     "Permissions-Policy": "geolocation=(), camera=(), microphone=(), interest-cohort=()",
+    /*
+     * B117 · Every rendered page is this household's balances, and pages carried
+     * no cache directive at all — so browsers applied heuristic caching to them.
+     * Two consequences, one visible and one not:
+     *
+     * The visible one: changing the theme posts and redirects back, and the
+     * browser answered the redirect out of its own cache. The new theme only
+     * appeared on the next link click, which is precisely what it looked like —
+     * a control that does nothing until you press something else.
+     *
+     * The quiet one: a rendered page holds account numbers and balances, and a
+     * cached copy outlives signing out. `no-store` is the honest setting for a
+     * page that is nobody's business but the household's; anything that really
+     * is cacheable (the stylesheet, the icon) sets its own header and overrides
+     * this one.
+     */
+    "Cache-Control": "no-store",
   };
   if (secure) {
     headers["Strict-Transport-Security"] = "max-age=31536000; includeSubDomains";

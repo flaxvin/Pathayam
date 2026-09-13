@@ -456,20 +456,22 @@ export function renderReports(opts: {
           items: opts.tagSpend.map((t) => ({ label: t.tag, value: t.spent })),
         })}
         ${when(opts.tagSpend.some((t) => t.budget !== null), () => html`
-          <table style="margin-top:.5rem">
-            <tbody>
-              ${opts.tagSpend.filter((t) => t.budget !== null).map((t) => html`
-                <tr>
-                  <td>${t.tag}</td>
-                  <td class="num">${formatPaise(t.spent)} of ${formatPaise(t.budget!)}</td>
-                  <td class="num ${t.spent > t.budget! ? "amount-negative" : "amount-positive"}">
-                    ${t.spent > t.budget! ? "over by " : ""}${formatPaise(Math.abs(t.budget! - t.spent) as Paise)}
-                    ${t.spent > t.budget! ? "" : " left"}
-                  </td>
-                </tr>
-              `)}
-            </tbody>
-          </table>
+          <div class="table-scroll">
+            <table style="margin-top:.5rem">
+              <tbody>
+                ${opts.tagSpend.filter((t) => t.budget !== null).map((t) => html`
+                  <tr>
+                    <td>${t.tag}</td>
+                    <td class="num">${formatPaise(t.spent)} of ${formatPaise(t.budget!)}</td>
+                    <td class="num ${t.spent > t.budget! ? "amount-negative" : "amount-positive"}">
+                      ${t.spent > t.budget! ? "over by " : ""}${formatPaise(Math.abs(t.budget! - t.spent) as Paise)}
+                      ${t.spent > t.budget! ? "" : " left"}
+                    </td>
+                  </tr>
+                `)}
+              </tbody>
+            </table>
+          </div>
         `)}
       </section>
     `)}

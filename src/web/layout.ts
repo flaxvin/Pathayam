@@ -107,7 +107,7 @@ export function page(options: LayoutOptions, content: SafeHtml): string {
 </head>
 <body data-features="${[features.loans ? "loans" : "", features.assets ? "assets" : ""].filter(Boolean).join(" ")}">
 ${String(renderBanners(impersonating, devMode, demoMode, path))}
-${bare ? "" : String(renderHeader(theme, memberName))}
+${bare ? "" : String(renderHeader(theme, memberName, budgets, currentBudgetId, path))}
 <a class="skip-link" href="#main">Skip to content</a>
 ${bare
     ? `<main id="main">${String(renderNotice(notice))}${content}</main>`
@@ -170,26 +170,63 @@ function renderBanners(
   `;
 }
 
-function renderHeader(theme: Theme, memberName: string | null | undefined): SafeHtml {
+function renderHeader(
+  theme: Theme,
+  memberName: string | null | undefined,
+  budgets: { id: string; name: string; kind: string }[],
+  currentBudgetId: string | null,
+  path: string,
+): SafeHtml {
   // R39.5: the toggle is in the header on every screen, never buried in
   // settings. It is a form post, so it works with no JavaScript at all.
   const next = theme === "dark" ? "light" : "dark";
   return html`
     <header class="app-header">
       <a class="brand" href="/">Pathayam</a>
+      <!--
+        15 · The switcher lived only in the sidebar, and the sidebar is a desktop
+        affordance — so on a phone there was no way to move between the household
+        and your own budget at all. Every screen that means "one budget's money"
+        showed one budget's money and offered no way to say which.
+
+        Here it is in the header, which is on every screen at every width, and
+        hidden on desktop where the sidebar already carries it.
+      -->
+      ${when(budgets.length > 1 && honoursBudget(path), () => html`
+        <nav class="budget-switch" aria-label="Which budget">
+          ${budgets.map(
+            (b) => html`
+              <a href="${path || "/"}?budget=${encodeURIComponent(b.id)}"
+                 ${raw(b.id === currentBudgetId ? 'aria-current="true"' : "")}>
+                ${b.kind === "household" ? "Household" : b.name}
+                ${when(b.id === currentBudgetId, () => html`<span class="sr-only">(selected)</span>`)}
+              </a>
+            `,
+          )}
+        </nav>
+      `)}
       <span class="spacer"></span>
       <!--
         Adding a transaction is the one thing a household does every day, and it
         was three taps away on a desktop: the bottom bar that carries it is a
-        phone affordance. Here it is, on every screen, next to the search.
+        phone affordance. Here it is — on desktop only, because on a phone the
+        bottom bar already has it, and two Add buttons on one screen is one
+        button's worth of header room the budget switcher needs.
       -->
-      <a class="button button-primary button-small" href="/add" title="Add a transaction (a)">
+      <a class="button button-primary button-small header-add" href="/add"
+         title="Add a transaction (a)">
         <span aria-hidden="true">＋</span> Add
       </a>
-      <a class="button button-quiet button-small" href="/search" aria-label="Search" title="Search (/)">⌕</a>
       <form method="post" action="/settings/theme">
         <input type="hidden" name="theme" value="${next}">
-        <input type="hidden" name="return_to" value="">
+        <!--
+          B117 · This was empty, so changing the theme sent you to the budget
+          screen from wherever you were — and the browser, given no cache
+          directive on the page, often answered that redirect from its own cache
+          and showed the old theme. Between the two, the control looked like it
+          did nothing until the next link click.
+        -->
+        <input type="hidden" name="return_to" value="${path || "/"}">
         <button class="button-quiet button-small" type="submit"
                 aria-label="Switch to ${next} theme" title="Switch to ${next} theme">
           ${theme === "dark" ? "☀" : "☾"}

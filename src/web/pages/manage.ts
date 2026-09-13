@@ -31,13 +31,29 @@ export function renderMore(features: { loans: boolean; assets: boolean }): SafeH
     </section>
   `;
 
+  /*
+   * B116 · This is the sidebar, for a phone.
+   *
+   * Below 900px the sidebar is not rendered at all, so *More* is the only way to
+   * anything the five-item bottom bar has no room for — and it had drifted out
+   * of step: Household, Overview, Portfolio, Allocation, Net worth and
+   * Valuations were on the sidebar and on no mobile surface, six screens a phone
+   * could not reach.
+   *
+   * It now carries the sidebar's own groups, in the sidebar's own order, under
+   * the sidebar's own words — Analyse, then Manage — so somebody who has used
+   * the app on a laptop finds the same things in the same place on a phone, and
+   * a new entry on one side is an obvious omission on the other.
+   */
   return html`
     <h1>More</h1>
 
-    ${group("Understand", [
+    ${group("Analyse", [
+      ["/household", "The household's money", "Who has put in what, and squaring up"],
+      ["/overview", "Overview", "Runway, what is due soon, the month at a glance"],
+      ["/cards", "Cards", "Which one is due next, and is it funded"],
       ["/reports", "Reports", "Income against spending, and where it goes"],
       ["/query", "Query", "One table, filtered and grouped however you like"],
-      ["/cards", "Cards", "Which one is due next, and is it funded"],
       ["/schedules", "Schedules & cashflow", "Will you make it to the 30th?"],
       ["/goals", "Goals", "Long-horizon savings, kept off the monthly grid"],
     ])}
@@ -50,22 +66,28 @@ export function renderMore(features: { loans: boolean; assets: boolean }): SafeH
       ]),
     )}
 
-    ${group("Keep it tidy", [
+    ${when(features.assets, () =>
+      group("Invested", [
+        ["/portfolio", "Portfolio", "Holdings as units, with XIRR and what they cost"],
+        ["/portfolio/allocation", "Allocation", "By class, geography and currency"],
+        ["/portfolio/valuations", "Valuations", "Every hand-valued pot, updated in one sitting"],
+        ["/net-worth", "Net worth", "Everything owned against everything owed"],
+      ]),
+    )}
+
+    ${group("Manage", [
       ["/payees", "Payees", "Merge duplicates; every raw string is kept"],
       ["/rules", "Rules", "Automate categorisation, testable before you save"],
       ["/categories", "Categories", "Rename, reorder, hide"],
       ["/import", "Import", "Statements in, review queue out"],
       ["/activity", "Activity", "Every change, and the undo for it"],
+      ["/health", "Health", "The page you open at 2am"],
+      ["/settings", "Settings", "Household, appearance, devices"],
+      ["/tokens", "API tokens", "For your own scripts, scoped and revocable"],
     ])}
 
     ${group("Once a month", [
       ["/months", "Close the month", "What it did, and whether the next one is funded"],
-    ])}
-
-    ${group("Operate", [
-      ["/health", "Health", "The page you open at 2am"],
-      ["/settings", "Settings", "Household, appearance, devices"],
-      ["/tokens", "API tokens", "For your own scripts, scoped and revocable"],
     ])}
   `;
 }
@@ -648,34 +670,36 @@ export function renderTokens(opts: {
       ? html`<div class="card empty-state"><p>No tokens yet.</p></div>`
       : html`
           <section class="card">
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">Name</th>
-                  <th scope="col">Scope</th>
-                  <th scope="col">Created</th>
-                  <th scope="col">Last used</th>
-                  <th scope="col"></th>
-                </tr>
-              </thead>
-              <tbody>
-                ${opts.tokens.map(
-                  (t) => html`
-                    <tr>
-                      <td>${t.name}</td>
-                      <td>${t.scope === "read" ? "Read only" : "Read and write"}</td>
-                      <td class="faint">${t.created_at.slice(0, 10)}</td>
-                      <td class="faint">${t.last_used_at?.slice(0, 10) ?? "Never"}</td>
-                      <td>
-                        <form method="post" action="/tokens/${t.id}/revoke">
-                          <button class="button-small button-danger" type="submit">Revoke</button>
-                        </form>
-                      </td>
-                    </tr>
-                  `,
-                )}
-              </tbody>
-            </table>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Name</th>
+                    <th scope="col">Scope</th>
+                    <th scope="col">Created</th>
+                    <th scope="col">Last used</th>
+                    <th scope="col"></th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${opts.tokens.map(
+                    (t) => html`
+                      <tr>
+                        <td>${t.name}</td>
+                        <td>${t.scope === "read" ? "Read only" : "Read and write"}</td>
+                        <td class="faint">${t.created_at.slice(0, 10)}</td>
+                        <td class="faint">${t.last_used_at?.slice(0, 10) ?? "Never"}</td>
+                        <td>
+                          <form method="post" action="/tokens/${t.id}/revoke">
+                            <button class="button-small button-danger" type="submit">Revoke</button>
+                          </form>
+                        </td>
+                      </tr>
+                    `,
+                  )}
+                </tbody>
+              </table>
+            </div>
           </section>
         `}
 

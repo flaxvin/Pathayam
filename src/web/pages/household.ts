@@ -93,58 +93,62 @@ export function renderHousehold(
 
     <section class="card">
       <h2>Who has put in what</h2>
-      <table class="table">
-        <thead>
-          <tr>
-            <th scope="col">Whose</th>
-            <!-- The row has to add up on its face, or it reads as a bug. -->
-            <th scope="col" class="numeric">Brought forward</th>
-            <th scope="col" class="numeric">Put in this month</th>
-            <th scope="col" class="numeric">Paid for the household</th>
-            <th scope="col" class="numeric">Where it stands</th>
-            <th scope="col">Monthly plan</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${view.members.map(
-            (m) => html`
-              <tr>
-                <th scope="row">${m.name}</th>
-                <td class="numeric ${m.broughtForward < 0 ? "negative" : ""}">
-                  ${m.broughtForward === 0
-                    ? html`<span class="faint">—</span>`
-                    : m.broughtForward < 0
-                      ? html`${formatPaise(Math.abs(m.broughtForward) as never)}
-                             <span class="faint">underfunded</span>`
-                      : formatPaise(m.broughtForward)}
-                </td>
-                <td class="numeric">${formatPaise(m.assignedThisMonth)}</td>
-                <td class="numeric">${formatPaise(m.spentThisMonth)}</td>
-                <td class="numeric ${m.standing === "underfunded" ? "negative" : ""}">
-                  ${m.standing === "even"
-                    ? html`<span class="faint">square</span>`
-                    : html`
-                        ${formatPaise(m.outstanding)}
-                        <span class="chip ${m.standing === "underfunded" ? "chip-warning" : ""}">
-                          ${standingLabel(m.available)}
-                        </span>
-                      `}
-                </td>
-                <td>
-                  ${m.target === null
-                    ? html`<span class="faint">none set</span>`
-                    : m.shortOfTarget > 0
-                      ? html`
-                          ${formatPaise(m.target)} —
-                          <span class="negative">${formatPaise(m.shortOfTarget)} short</span>
-                        `
-                      : html`${formatPaise(m.target)} <span class="chip chip-good">met</span>`}
-                </td>
-              </tr>
-            `,
-          )}
-        </tbody>
-      </table>
+      <!-- B118 · Six columns of rupees do not fit a phone; the table scrolls
+           inside its own box rather than pushing the card off the screen. -->
+      <div class="table-scroll">
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">Whose</th>
+              <!-- The row has to add up on its face, or it reads as a bug. -->
+              <th scope="col" class="numeric">Brought forward</th>
+              <th scope="col" class="numeric">Put in this month</th>
+              <th scope="col" class="numeric">Paid for the household</th>
+              <th scope="col" class="numeric">Where it stands</th>
+              <th scope="col">Monthly plan</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${view.members.map(
+              (m) => html`
+                <tr>
+                  <th scope="row">${m.name}</th>
+                  <td class="numeric ${m.broughtForward < 0 ? "negative" : ""}">
+                    ${m.broughtForward === 0
+                      ? html`<span class="faint">—</span>`
+                      : m.broughtForward < 0
+                        ? html`${formatPaise(Math.abs(m.broughtForward) as never)}
+                               <span class="faint">underfunded</span>`
+                        : formatPaise(m.broughtForward)}
+                  </td>
+                  <td class="numeric">${formatPaise(m.assignedThisMonth)}</td>
+                  <td class="numeric">${formatPaise(m.spentThisMonth)}</td>
+                  <td class="numeric ${m.standing === "underfunded" ? "negative" : ""}">
+                    ${m.standing === "even"
+                      ? html`<span class="faint">square</span>`
+                      : html`
+                          ${formatPaise(m.outstanding)}
+                          <span class="chip ${m.standing === "underfunded" ? "chip-warning" : ""}">
+                            ${standingLabel(m.available)}
+                          </span>
+                        `}
+                  </td>
+                  <td>
+                    ${m.target === null
+                      ? html`<span class="faint">none set</span>`
+                      : m.shortOfTarget > 0
+                        ? html`
+                            ${formatPaise(m.target)} —
+                            <span class="negative">${formatPaise(m.shortOfTarget)} short</span>
+                          `
+                        : html`${formatPaise(m.target)} <span class="chip chip-good">met</span>`}
+                  </td>
+                </tr>
+              `,
+            )}
+          </tbody>
+        </table>
+      </div>
       <p class="faint">
         Brought forward, plus what went in, less what they paid for, is where it
         stands. <strong>Underfunded</strong> means more of the household's spending

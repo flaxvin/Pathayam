@@ -28,34 +28,36 @@ export function renderMonthClose(view: MonthCloseView): SafeHtml {
       <!-- 15 §6.1 · The household's close reports what each of you put in. -->
       <section class="card">
         <h2>What each of you put in</h2>
-        <table class="table">
-          <thead>
-            <tr>
-              <th scope="col">Whose</th>
-              <th scope="col" class="numeric">Put in</th>
-              <th scope="col" class="numeric">Spent</th>
-              <th scope="col">Where it ended</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${view.commitments.map(
-              (c) => html`
-                <tr>
-                  <th scope="row">${c.name}</th>
-                  <td class="numeric">${formatPaise(c.committed)}</td>
-                  <td class="numeric">${formatPaise(c.spent)}</td>
-                  <td>
-                    ${c.standing === "underfunded"
-                      ? html`<span class="chip chip-warning">underfunded</span>`
-                      : c.standing === "overfunded"
-                        ? html`<span class="faint">overfunded — some still to go out</span>`
-                        : html`<span class="faint">square</span>`}
-                  </td>
-                </tr>
-              `,
-            )}
-          </tbody>
-        </table>
+        <div class="table-scroll">
+          <table class="table">
+            <thead>
+              <tr>
+                <th scope="col">Whose</th>
+                <th scope="col" class="numeric">Put in</th>
+                <th scope="col" class="numeric">Spent</th>
+                <th scope="col">Where it ended</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${view.commitments.map(
+                (c) => html`
+                  <tr>
+                    <th scope="row">${c.name}</th>
+                    <td class="numeric">${formatPaise(c.committed)}</td>
+                    <td class="numeric">${formatPaise(c.spent)}</td>
+                    <td>
+                      ${c.standing === "underfunded"
+                        ? html`<span class="chip chip-warning">underfunded</span>`
+                        : c.standing === "overfunded"
+                          ? html`<span class="faint">overfunded — some still to go out</span>`
+                          : html`<span class="faint">square</span>`}
+                    </td>
+                  </tr>
+                `,
+              )}
+            </tbody>
+          </table>
+        </div>
         <p class="faint">
           Nothing here is settled by closing the month. A commitment carries
           forward like any envelope — <a href="/household">the household page</a>
@@ -120,36 +122,40 @@ export function renderMonthClose(view: MonthCloseView): SafeHtml {
     ${when(outcome.biggestCategories.length > 0, () => html`
       <section class="card">
         <h2>Where it went</h2>
-        <table>
-          <tbody>
-            ${outcome.biggestCategories.map(
-              (c) => html`
-                <tr>
-                  <td>${c.name}</td>
-                  <td class="numeric">${formatPaise(c.amount)}</td>
-                </tr>
-              `,
-            )}
-          </tbody>
-        </table>
+        <div class="table-scroll">
+          <table>
+            <tbody>
+              ${outcome.biggestCategories.map(
+                (c) => html`
+                  <tr>
+                    <td>${c.name}</td>
+                    <td class="numeric">${formatPaise(c.amount)}</td>
+                  </tr>
+                `,
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
     `)}
 
     ${when(outcome.overspent.length > 0, () => html`
       <section class="card">
         <h2>What went over</h2>
-        <table>
-          <tbody>
-            ${outcome.overspent.map(
-              (c) => html`
-                <tr>
-                  <td>${c.name}</td>
-                  <td class="numeric negative">${formatPaise(c.amount)}</td>
-                </tr>
-              `,
-            )}
-          </tbody>
-        </table>
+        <div class="table-scroll">
+          <table>
+            <tbody>
+              ${outcome.overspent.map(
+                (c) => html`
+                  <tr>
+                    <td>${c.name}</td>
+                    <td class="numeric negative">${formatPaise(c.amount)}</td>
+                  </tr>
+                `,
+              )}
+            </tbody>
+          </table>
+        </div>
         <p class="field-hint">
           Already handled by the rollover — this is the record, not a to-do.
         </p>
@@ -171,26 +177,28 @@ export function renderMonthClose(view: MonthCloseView): SafeHtml {
           same achievement as one that rose because you repaid principal. The
           single figure above hides which; these four do not.
         -->
-        <table>
-          <tbody>
-            <tr>
-              <td>Money you actually saved</td>
-              <td class="numeric">${formatPaise(view.netWorth!.moneySaved)}</td>
-            </tr>
-            <tr>
-              <td>The market moved</td>
-              <td class="numeric">${formatPaise(view.netWorth!.marketMovement)}</td>
-            </tr>
-            <tr>
-              <td>Exchange rates moved</td>
-              <td class="numeric">${formatPaise(view.netWorth!.fxMovement)}</td>
-            </tr>
-            <tr>
-              <td>Debt you repaid</td>
-              <td class="numeric">${formatPaise(view.netWorth!.debtRepaid)}</td>
-            </tr>
-          </tbody>
-        </table>
+        <div class="table-scroll">
+          <table>
+            <tbody>
+              <tr>
+                <td>Money you actually saved</td>
+                <td class="numeric">${formatPaise(view.netWorth!.moneySaved)}</td>
+              </tr>
+              <tr>
+                <td>The market moved</td>
+                <td class="numeric">${formatPaise(view.netWorth!.marketMovement)}</td>
+              </tr>
+              <tr>
+                <td>Exchange rates moved</td>
+                <td class="numeric">${formatPaise(view.netWorth!.fxMovement)}</td>
+              </tr>
+              <tr>
+                <td>Debt you repaid</td>
+                <td class="numeric">${formatPaise(view.netWorth!.debtRepaid)}</td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
 
         <p class="notice notice-info">${view.netWorth!.reading}</p>
         <p class="field-hint">
@@ -280,28 +288,30 @@ export function renderClosedMonths(opts: {
         `
       : html`
           <section class="card">
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">Month</th>
-                  <th scope="col" class="numeric">In</th>
-                  <th scope="col" class="numeric">Out</th>
-                  <th scope="col">Note</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${opts.months.map(
-                  (m) => html`
-                    <tr>
-                      <td><a href="/months/${m.month}/close">${formatMonth(m.month)}</a></td>
-                      <td class="numeric">${formatPaise(m.income)}</td>
-                      <td class="numeric">${formatPaise(m.spending)}</td>
-                      <td class="faint">${m.note ?? ""}</td>
-                    </tr>
-                  `,
-                )}
-              </tbody>
-            </table>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Month</th>
+                    <th scope="col" class="numeric">In</th>
+                    <th scope="col" class="numeric">Out</th>
+                    <th scope="col">Note</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${opts.months.map(
+                    (m) => html`
+                      <tr>
+                        <td><a href="/months/${m.month}/close">${formatMonth(m.month)}</a></td>
+                        <td class="numeric">${formatPaise(m.income)}</td>
+                        <td class="numeric">${formatPaise(m.spending)}</td>
+                        <td class="faint">${m.note ?? ""}</td>
+                      </tr>
+                    `,
+                  )}
+                </tbody>
+              </table>
+            </div>
           </section>
         `}
   `;
@@ -399,14 +409,16 @@ export function renderStatementIdentity(
       </p>
 
       ${when(masked, () => html`
-        <table>
-          <tbody>
-            <tr><td>Name</td><td>${masked!.name}</td></tr>
-            <tr><td>PAN</td><td>${masked!.pan ?? "Not saved"}</td></tr>
-            <tr><td>Date of birth</td><td>${masked!.dob ?? "Not saved"}</td></tr>
-            <tr><td>Mobile</td><td>${masked!.mobile ?? "Not saved"}</td></tr>
-          </tbody>
-        </table>
+        <div class="table-scroll">
+          <table>
+            <tbody>
+              <tr><td>Name</td><td>${masked!.name}</td></tr>
+              <tr><td>PAN</td><td>${masked!.pan ?? "Not saved"}</td></tr>
+              <tr><td>Date of birth</td><td>${masked!.dob ?? "Not saved"}</td></tr>
+              <tr><td>Mobile</td><td>${masked!.mobile ?? "Not saved"}</td></tr>
+            </tbody>
+          </table>
+        </div>
         <form method="post" action="/settings/identity" style="margin:.6rem 0">
           <input type="hidden" name="clear" value="1">
           <button class="button-small button-danger" type="submit">Remove these</button>
@@ -482,13 +494,15 @@ export function renderGmailConnection(
 
       ${connection
         ? html`
-            <table>
-              <tbody>
-                <tr><td>Connected mailbox</td><td>${connection.email}</td></tr>
-                <tr><td>Since</td><td>${connection.connectedAt.slice(0, 10)}</td></tr>
-                <tr><td>Last fetched</td><td>${connection.lastFetchedAt?.slice(0, 10) ?? "Never"}</td></tr>
-              </tbody>
-            </table>
+            <div class="table-scroll">
+              <table>
+                <tbody>
+                  <tr><td>Connected mailbox</td><td>${connection.email}</td></tr>
+                  <tr><td>Since</td><td>${connection.connectedAt.slice(0, 10)}</td></tr>
+                  <tr><td>Last fetched</td><td>${connection.lastFetchedAt?.slice(0, 10) ?? "Never"}</td></tr>
+                </tbody>
+              </table>
+            </div>
             <div class="row" style="gap:.5rem;margin-top:.6rem">
               <form method="post" action="/gmail/fetch">
                 <button class="button-primary" type="submit">Fetch now</button>

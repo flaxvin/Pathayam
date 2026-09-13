@@ -229,26 +229,28 @@ export function renderFamilyLoan(opts: {
       ${opts.entries.length === 0
         ? html`<p class="muted">Nothing yet.</p>`
         : html`
-            <table>
-              <thead>
-                <tr>
-                  <th scope="col">Date</th>
-                  <th scope="col">What</th>
-                  <th scope="col" class="numeric">Amount</th>
-                </tr>
-              </thead>
-              <tbody>
-                ${opts.entries.map(
-                  (e) => html`
-                    <tr>
-                      <td>${formatDate(e.date as never)}</td>
-                      <td>${e.memo ?? ""}</td>
-                      <td class="numeric">${formatPaise(e.amount)}</td>
-                    </tr>
-                  `,
-                )}
-              </tbody>
-            </table>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Date</th>
+                    <th scope="col">What</th>
+                    <th scope="col" class="numeric">Amount</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${opts.entries.map(
+                    (e) => html`
+                      <tr>
+                        <td>${formatDate(e.date as never)}</td>
+                        <td>${e.memo ?? ""}</td>
+                        <td class="numeric">${formatPaise(e.amount)}</td>
+                      </tr>
+                    `,
+                  )}
+                </tbody>
+              </table>
+            </div>
           `}
       <p class="field-hint">
         Every line is a transfer, so none of it counts as spending or income.
