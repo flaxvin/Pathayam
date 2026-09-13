@@ -511,6 +511,27 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return lastBudget(db, memberId) ?? householdBudgetId(db);
   }
 
+  /**
+   * 15 · An envelope you were not offered is an envelope you may not use.
+   *
+   * Closing the read side — the pickers no longer list another member's
+   * categories — left the write side open, and a form field is only a
+   * suggestion: posting the id by hand filed a household transaction into one
+   * member's private envelope, moved the household's money into it, and
+   * confirmed it existed by succeeding. A control that filters what it offers
+   * and not what it accepts has not been fixed, only tidied.
+   *
+   * Not-found rather than a refusal, for the same reason the private loan
+   * routes answer not-found: "you may not use this" confirms there is something
+   * to use.
+   */
+  function requireVisibleCategory(ctx: RequestContext, id: string | null): string | null {
+    if (!id) return null;
+    const seen = listCategories(db, { includeHidden: true, viewerMemberId: viewer(ctx) });
+    if (!seen.some((c) => c.id === id)) throw new NotFound("That envelope does not exist.");
+    return id;
+  }
+
   function viewer(ctx: RequestContext): string | null {
     const a = ctx.locals.auth as AuthContext | null;
     return a?.member.id ?? null;
@@ -989,7 +1010,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/household/pick-up", (ctx) =>
     mutate(ctx, (a) => {
       const month = monthParam(ctx);
-      const envelopeId = requiredField(ctx.body, "envelope_id");
+      const envelopeId = requireVisibleCategory(ctx, requiredField(ctx.body, "envelope_id"))!;
       const extra = amountField(requiredField(ctx.body, "amount"), "Amount");
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
 
@@ -1019,9 +1040,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/household/call-it-even", (ctx) =>
     mutate(ctx, (a) => {
       const call = callItEven(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
-        envelopeId: requiredField(ctx.body, "envelope_id"),
+        envelopeId: requireVisibleCategory(ctx, requiredField(ctx.body, "envelope_id"))!,
         amount: amountField(requiredField(ctx.body, "amount"), "Amount") as Paise,
-        givingCategoryId: field(ctx.body, "giving_category_id") || undefined,
+        givingCategoryId: requireVisibleCategory(ctx, field(ctx.body, "giving_category_id") || null) || undefined,
         month: monthParam(ctx),
         note: field(ctx.body, "note") || null,
       });
@@ -1058,7 +1079,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/assign", (ctx) =>
     mutate(ctx, (a) => {
       const month = monthParam(ctx);
-      const categoryId = requiredField(ctx.body, "category_id");
+      const categoryId = requireVisibleCategory(ctx, requiredField(ctx.body, "category_id"))!;
       const rawAmount = field(ctx.body, "amount") ?? "";
       const amount = rawAmount.trim() === "" ? 0 : amountField(rawAmount);
 
@@ -1123,8 +1144,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       const month = monthParam(ctx);
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
-      const from = requiredField(ctx.body, "from_category_id");
-      const to = requiredField(ctx.body, "to_category_id");
+      const from = requireVisibleCategory(ctx, requiredField(ctx.body, "from_category_id"))!;
+      const to = requireVisibleCategory(ctx, requiredField(ctx.body, "to_category_id"))!;
       const amount = amountField(field(ctx.body, "amount"));
 
       // B55: "Ready to Assign" is a valid source. Funding a category from it is
@@ -1644,7 +1665,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
        * it. Income is different and stays optional — its job is to arrive in
        * Ready to Assign and wait to be given one, which is the whole model.
        */
-      if (direction !== "in" && !field(ctx.body, "category_id")) {
+      if (direction !== "in" && !requireVisibleCategory(ctx, field(ctx.body, "category_id") || null)) {
         throw new HttpError(
           400,
           "Which envelope did this come out of? Money in doesn't need one — money out does.",
@@ -1656,7 +1677,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         amount: direction === "in" ? magnitude : -magnitude,
         date: dateRaw ? parseDate(dateRaw) ?? todayIST() : todayIST(),
         payeeName: field(ctx.body, "payee") || null,
-        categoryId: field(ctx.body, "category_id") || null,
+        categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
         memo: field(ctx.body, "memo") || null,
         tags,
         cleared: field(ctx.body, "cleared") === "1",
@@ -2082,7 +2103,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         tenureMonths: Number(requiredField(ctx.body, "tenure_months")),
         annualRatePct: Number(requiredField(ctx.body, "annual_rate")),
         processingFee: feeRaw?.trim() ? (amountField(feeRaw, "Processing fee") as Paise) : undefined,
-        feeCategoryId: field(ctx.body, "fee_category_id") || null,
+        feeCategoryId: requireVisibleCategory(ctx, field(ctx.body, "fee_category_id") || null) || null,
         nameSuffix: field(ctx.body, "name_suffix") || null,
       });
       return {
@@ -2447,7 +2468,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         updateTransaction(db, actor, id, {
           amount: field(ctx.body, "direction") === "in" ? magnitude : -magnitude,
           date: newDate,
-          categoryId: field(ctx.body, "category_id") || null,
+          categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
           memo: field(ctx.body, "memo") || null,
           cleared: field(ctx.body, "cleared") === "1",
           ...(payeeId !== undefined ? { payeeId } : {}),
@@ -2491,7 +2512,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const transaction = getTransaction(db, id);
       if (!transaction) throw new NotFound("That transaction does not exist.");
 
-      const categoryId = field(ctx.body, "category_id") || null;
+      const categoryId = requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null;
       if (categoryId && !getCategory(db, categoryId)) {
         throw new HttpError(400, "That category does not exist.");
       }
@@ -2918,7 +2939,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
        */
       approveStaged(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
         requiredField(ctx.body, "staged_id"),
-        { categoryId: field(ctx.body, "category_id") || null },
+        { categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null },
       );
 
       // L2 · Categorising the same payee a second time proposes a rule. The
@@ -3460,7 +3481,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           ? (amountField(chargeRaw, "Foreclosure charge") as Paise)
           : undefined,
         chargeAccountId: field(ctx.body, "charge_account_id") || null,
-        chargeCategoryId: field(ctx.body, "charge_category_id") || null,
+        chargeCategoryId: requireVisibleCategory(ctx, field(ctx.body, "charge_category_id") || null) || null,
       });
       return {
         redirect: "/loans",
@@ -3824,7 +3845,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       mode,
       charge,
       fromAccountId: projection.loan.repayment_account_id,
-      fundingCategoryId: field(ctx.body, "funding_category_id") || null,
+      fundingCategoryId: requireVisibleCategory(ctx, field(ctx.body, "funding_category_id") || null) || null,
     });
 
     const after = projectLoan(db, loanId);
@@ -4197,7 +4218,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         name: requiredField(ctx.body, "name"),
         payeeId: field(ctx.body, "payee_id") || null,
         accountId: field(ctx.body, "account_id") || null,
-        categoryId: field(ctx.body, "category_id") || null,
+        categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
         amount: Number(field(ctx.body, "amount") ?? 0),
         recurrence: (field(ctx.body, "recurrence") ?? "monthly") as Recurrence,
         nextDue: field(ctx.body, "next_due") ?? todayIST(),
@@ -4235,7 +4256,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         amount: (direction === "in" ? magnitude : -magnitude) as Paise,
         recurrence: (field(ctx.body, "recurrence") ?? "monthly") as Recurrence,
         nextDue: parseDate(field(ctx.body, "next_due") ?? "") ?? todayIST(),
-        categoryId: field(ctx.body, "category_id") || null,
+        categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
         accountId: field(ctx.body, "account_id") || null,
         isSubscription: field(ctx.body, "is_subscription") === "1",
       });
@@ -4265,7 +4286,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             : ((direction === "in" ? magnitude : -magnitude) as Paise),
           recurrence: (field(ctx.body, "recurrence") || undefined) as Recurrence | undefined,
           next_due: dueRaw?.trim() ? (parseDate(dueRaw) ?? undefined) : undefined,
-          category_id: field(ctx.body, "category_id") || null,
+          category_id: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
           account_id: field(ctx.body, "account_id") || null,
           is_subscription: field(ctx.body, "is_subscription") === "1" ? 1 : 0,
         },
@@ -4495,7 +4516,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           value: requiredField(ctx.body, "value"),
         },
       ],
-      actions: [{ type: "setCategory", categoryId: requiredField(ctx.body, "category_id") }],
+      actions: [{ type: "setCategory", categoryId: requireVisibleCategory(ctx, requiredField(ctx.body, "category_id"))! }],
       enabled: true,
     };
   }
@@ -5019,7 +5040,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     const amount = writeOffFamilyLoan(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
       loanId: id,
-      categoryId: requiredField(ctx.body, "category_id"),
+      categoryId: requireVisibleCategory(ctx, requiredField(ctx.body, "category_id"))!,
     });
 
     return {
@@ -5493,7 +5514,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         units: amountRaw?.trim() ? undefined : toUnits(Number(field(ctx.body, "units") ?? 0)),
         fees: feesRaw?.trim() ? amountField(feesRaw) : 0,
         fromAccountId: field(ctx.body, "from_account_id") || null,
-        categoryId: field(ctx.body, "category_id") || null,
+        categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
       });
 
       // R26.7: the purchase price seeds the history, so a holding is never
