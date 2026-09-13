@@ -90,6 +90,7 @@ import {
   ensureCommitmentEnvelope, commitmentEnvelope, guardCommitmentEnvelope, anyCommitments,
 } from "./domain/commitments.ts";
 import { buildHouseholdView } from "./domain/household-view.ts";
+import { callItEven } from "./domain/squaring-up.ts";
 import { renderHousehold } from "./web/pages/household.ts";
 import {
   createAccount, updateAccount, closeAccount, reopenAccount, listAccounts, getAccount, listCards, createCard, closeCard, recordCardStatement, lastCardStatement, paymentCategoryFor, MANAGED_SUBTYPES, SUBTYPE_LABELS, type AccountKind, hiddenAccountIds, type HolderScope,
@@ -883,6 +884,59 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    * Reachable whether or not anybody keeps a separate budget: for a household
    * that pools everything it explains the choice rather than 404ing on it.
    */
+  /*
+   * 15 §4A.3 · Picking it up. An ordinary assignment into your own commitment
+   * envelope, and it is a route of its own only so the household screen can say
+   * what it means rather than sending somebody to the grid to work it out.
+   */
+  router.post("/household/pick-up", (ctx) =>
+    mutate(ctx, (a) => {
+      const month = monthParam(ctx);
+      const envelopeId = requiredField(ctx.body, "envelope_id");
+      const extra = amountField(requiredField(ctx.body, "amount"), "Amount");
+      const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+
+      const own = personalBudgetFor(db, a.member.id);
+      const envelope = getCategory(db, envelopeId);
+      if (!own || envelope?.budget_id !== own.id) {
+        throw new HttpError(403, "You can only commit from your own budget.");
+      }
+
+      // On top of what is already committed, not instead of it.
+      const view = buildBudgetView(db, month, own.id);
+      const already = view.categories.get(envelopeId)?.state.assigned ?? 0;
+      setAssigned(db, actor, month, envelopeId, (already + extra) as Paise);
+
+      return {
+        redirect: "/household",
+        message: `You have picked up ${formatPaise(extra as Paise)}.`,
+      };
+    }),
+  );
+
+  /*
+   * 15 §4A.4 · Calling it even. The only one of the three that lets something go,
+   * and the amount lands in a real envelope on the giving side — because the money
+   * still has to come from somewhere, and the card bill is owed either way.
+   */
+  router.post("/household/call-it-even", (ctx) =>
+    mutate(ctx, (a) => {
+      const call = callItEven(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+        envelopeId: requiredField(ctx.body, "envelope_id"),
+        amount: amountField(requiredField(ctx.body, "amount"), "Amount") as Paise,
+        givingCategoryId: field(ctx.body, "giving_category_id") || undefined,
+        month: monthParam(ctx),
+        note: field(ctx.body, "note") || null,
+      });
+      return {
+        redirect: "/household",
+        message:
+          `Called ${formatPaise(call.amount)} even. It is now spending on the ` +
+          `giving side, so give that envelope the money it needs.`,
+      };
+    }),
+  );
+
   router.get("/household", (ctx) => {
     const month = monthParam(ctx);
     const view = buildHouseholdView(db, month);
@@ -4315,8 +4369,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     auth(ctx);
     const month = ctx.params.month!;
     if (!isMonthKey(month)) throw new NotFound("That is not a month.");
+    // 15 §6.1 · Each budget closes on its own, so it is the one being looked at.
+    const budgetId = budgetParam(ctx);
     return render(
-      ctx, `Closing ${formatMonth(month)}`, renderMonthClose(monthCloseView(db, month)),
+      ctx, `Closing ${formatMonth(month)}`,
+      renderMonthClose(monthCloseView(db, month, todayIST(), budgetId)),
     );
   });
 
@@ -4325,13 +4382,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const month = ctx.params.month!;
       if (!isMonthKey(month)) throw new NotFound("That is not a month.");
 
+      const budgetId = budgetParam(ctx);
       const result = closeMonth(
         db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
-        month, field(ctx.body, "note") || null,
+        month, field(ctx.body, "note") || null, budgetId,
       );
 
       return {
-        redirect: `/?month=${addMonths(month, 1)}`,
+        redirect: `/?month=${addMonths(month, 1)}&budget=${budgetId}`,
         message:
           `${formatMonth(month)} is closed` +
           (result.snapshotTaken ? ", and net worth is snapshotted" : "") +
@@ -4344,7 +4402,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       const month = ctx.params.month!;
       if (!isMonthKey(month)) throw new NotFound("That is not a month.");
-      reopenMonth(db, actorFor(a), month);
+      reopenMonth(db, actorFor(a), month, budgetParam(ctx));
       return { redirect: "/months", message: `${formatMonth(month)} is open again.` };
     }),
   );

@@ -99,7 +99,8 @@ export function computeBudget(input: EngineInput): BudgetState {
      */
     const toBudget =
       f.budgetAccountFlow - f.budgetCategorisedFlow - f.budgetTransferFlow
-      + (input.committedToMe?.[month] ?? 0);
+      + (input.committedToMe?.[month] ?? 0)
+      + f.calledEvenIncome;
     cumulativeIncome += toBudget;
     budgetBalance += f.budgetAccountFlow;
 

@@ -561,6 +561,63 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
   }
 
   /*
+   * 15 §4A.4 · Amounts one budget let go.
+   *
+   * Two effects from one row, and both are needed or neither budget closes: on
+   * the **giving** side it is spending, out of the envelope the household chose;
+   * on the **receiving** side the commitment falls and the same amount arrives as
+   * income, because being released from something owed leaves you better off by
+   * it.
+   *
+   * Nothing at all when every budget is asked for at once. Pooled, there was
+   * never a balance between anybody — Priya charging her shopping to the
+   * household card is just household spending — so there is nothing to let go.
+   */
+  if (scope) {
+    for (const r of queryAll<{
+      month: string; envelope_id: string; envelope_budget: string | null;
+      giving_budget_id: string; giving_category_id: string; amount: number;
+    }>(
+      db,
+      `SELECT e.month AS month, e.envelope_id AS envelope_id, c.budget_id AS envelope_budget,
+              e.giving_budget_id AS giving_budget_id, e.giving_category_id AS giving_category_id,
+              e.amount AS amount
+         FROM even_calls e
+         JOIN categories c ON c.id = e.envelope_id
+        WHERE e.month <= ?`,
+      through,
+    )) {
+      const f = ensure(r.month);
+      if (!f) continue;
+
+      // The giving side spends it.
+      if (r.giving_budget_id === scope) {
+        f.activity[r.giving_category_id] = (f.activity[r.giving_category_id] ?? 0) - r.amount;
+      }
+
+      /*
+       * The receiving side is released from it. Which direction that is comes
+       * from the envelope's own sign, and the envelope always sits in whichever
+       * budget is not the household's — so "the receiving budget" is the
+       * envelope's budget when it was behind, and the other one when it was
+       * ahead. Either way the envelope moves toward zero, so the amount is
+       * signed against the balance rather than against the budget.
+       */
+      if (r.envelope_budget === scope) {
+        const behind = r.giving_budget_id !== scope;
+        f.activity[r.envelope_id] = (f.activity[r.envelope_id] ?? 0) + (behind ? -r.amount : r.amount);
+        if (behind) f.calledEvenIncome += r.amount;
+      } else if (r.giving_budget_id === scope) {
+        // This budget gave it up and does not hold the envelope; the claim falls
+        // out of the envelope's own budget, which the claim read picks up.
+      }
+      if (r.giving_budget_id === scope && r.envelope_budget !== scope) {
+        // Nothing further: the expense above is this budget's whole part in it.
+      }
+    }
+  }
+
+  /*
    * The claim raised by paying another budget's card. Derived over the whole
    * range rather than cached: it is one narrow join, and putting it in the
    * rollup would mean storing which envelope absorbed it, which is a fact about

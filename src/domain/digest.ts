@@ -36,12 +36,13 @@ import { formatPaise, type Paise } from "../core/money.ts";
 import { averageDailySpend } from "../engine/repository.ts";
 import { buildBudgetView } from "../web/viewmodel.ts";
 import { monthAwaitingClose } from "./month-close.ts";
+import { buildHouseholdView } from "./household-view.ts";
 import { projectCashflow } from "./schedules.ts";
 
 /** F14.2 · Each of these is individually mutable per member. */
 export const DIGEST_KINDS = [
   "card-due", "subscription-due", "overspent", "month-close",
-  "review-waiting", "cash-shortfall", "hold-surplus",
+  "review-waiting", "cash-shortfall", "hold-surplus", "behind-with-member",
 ] as const;
 export type DigestKind = (typeof DIGEST_KINDS)[number];
 
@@ -53,6 +54,9 @@ export const DIGEST_LABELS: Record<DigestKind, string> = {
   "review-waiting": "Things have been waiting in Review",
   "cash-shortfall": "The cashflow projection dips below your floor",
   "hold-surplus": "More is unassigned than a month usually costs",
+  // 15 §5 · "a conversation to have, not a number for an app to enforce" — so it
+  // is mutable like every other kind, and it never nags twice about one month.
+  "behind-with-member": "One of you has put in more than they planned",
 };
 
 export interface DigestItem {
@@ -222,6 +226,26 @@ export function digestFor(
         `of typical spending. Hold ${formatPaise(suggestion)} for next month and it opens ` +
         `already funded, which is how you get to spending last month's income.`,
       href: `/hold?month=${monthOf(today)}`,
+      urgent: false,
+    });
+  }
+
+  /*
+   * 15 §5 · Somebody has paid for more of the household than they put aside.
+   *
+   * Worth surfacing once, because it is the figure neither person will go looking
+   * for and the one most likely to quietly become a grievance. Deliberately not
+   * urgent, and deliberately mutable: `15` §5 is explicit that this is a
+   * conversation to have rather than something for an app to press.
+   */
+  const household = buildHouseholdView(db, monthOf(today));
+  for (const member of household.aheadOfUs) {
+    add({
+      kind: "behind-with-member",
+      text:
+        `${member.name} has put in ${formatPaise(member.outstanding)} more than planned ` +
+        `this month. There are three ways to square that up.`,
+      href: "/household",
       urgent: false,
     });
   }

@@ -24,6 +24,46 @@ export function renderMonthClose(view: MonthCloseView): SafeHtml {
   return html`
     <h1>Closing ${formatMonth(view.month)}</h1>
 
+    ${when(view.commitments.length > 0, () => html`
+      <!-- 15 §6.1 · The household's close reports what each of you put in. -->
+      <section class="card">
+        <h2>What each of you put in</h2>
+        <table class="table">
+          <thead>
+            <tr>
+              <th scope="col">Whose</th>
+              <th scope="col" class="numeric">Put in</th>
+              <th scope="col" class="numeric">Spent</th>
+              <th scope="col">Where it ended</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${view.commitments.map(
+              (c) => html`
+                <tr>
+                  <th scope="row">${c.name}</th>
+                  <td class="numeric">${formatPaise(c.committed)}</td>
+                  <td class="numeric">${formatPaise(c.spent)}</td>
+                  <td>
+                    ${c.standing === "ahead"
+                      ? html`<span class="chip">put in more than planned</span>`
+                      : c.standing === "behind"
+                        ? html`<span class="faint">some still to spend</span>`
+                        : html`<span class="faint">square</span>`}
+                  </td>
+                </tr>
+              `,
+            )}
+          </tbody>
+        </table>
+        <p class="faint">
+          Nothing here is settled by closing the month. A commitment carries
+          forward like any envelope — <a href="/household">the household page</a>
+          is where you square up.
+        </p>
+      </section>
+    `)}
+
     ${when(view.stillRunning, () => html`
       <p class="notice notice-warning">
         This month is not over yet. You can still close it — nothing is locked,

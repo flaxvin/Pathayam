@@ -87,6 +87,9 @@ export const COUNTED_TABLES = [
   "asset_valuations", "net_worth_snapshots",
   // Family lending, goals, month-close, saved state
   "family_loans", "goals", "goal_categories", "month_closes",
+  // 15 §4A · Amounts one budget let go. Household data, and the only record of
+  // why a balance between two people closed.
+  "even_calls",
   "settings_kv", "digest_mutes",
   // Q10 · receipts. The bytes live in this table, so backup covers them.
   "attachments",

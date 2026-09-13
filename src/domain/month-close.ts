@@ -32,6 +32,8 @@ import {
 } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { buildBudgetView } from "../web/viewmodel.ts";
+import { householdBudgetId } from "./budgets.ts";
+import { buildHouseholdView } from "./household-view.ts";
 import { queryTransactions } from "./reports.ts";
 import { snapshotNetWorth, netWorthChange, type NetWorthChange } from "./networth.ts";
 
@@ -64,6 +66,10 @@ export interface NextMonthReadiness {
 
 export interface MonthCloseView {
   month: MonthKey;
+  /** 15 §6.1 · Which budget's month this is. */
+  budgetId: string;
+  /** What each member had committed, for the household's close (15 §3). */
+  commitments: { name: string; committed: Paise; spent: Paise; standing: string }[];
   outcome: MonthOutcome;
   next: NextMonthReadiness;
   netWorth: NetWorthChange | null;
@@ -74,9 +80,11 @@ export interface MonthCloseView {
 }
 
 /** The most recent month that is over and not yet closed, if there is one. */
-export function monthAwaitingClose(db: DB, today: IsoDate = todayIST()): MonthKey | null {
+export function monthAwaitingClose(
+  db: DB, today: IsoDate = todayIST(), budgetId?: string,
+): MonthKey | null {
   const lastComplete = addMonths(monthOf(today), -1);
-  if (isClosed(db, lastComplete)) return null;
+  if (isClosed(db, lastComplete, budgetId ?? householdBudgetId(db))) return null;
 
   // Only nudge about a month the household actually used. A fresh install
   // should not open on "you have not closed March".
@@ -89,17 +97,22 @@ export function monthAwaitingClose(db: DB, today: IsoDate = todayIST()): MonthKe
   return (used?.n ?? 0) > 0 ? lastComplete : null;
 }
 
-export function isClosed(db: DB, month: MonthKey): boolean {
-  return queryOne(db, `SELECT month FROM month_closes WHERE month = ?`, month) !== null;
+export function isClosed(db: DB, month: MonthKey, budgetId?: string): boolean {
+  return queryOne(
+    db,
+    `SELECT month FROM month_closes WHERE month = ? AND budget_id = ?`,
+    month, budgetId ?? "budget-household",
+  ) !== null;
 }
 
 /** What the month did, and whether the next one is ready. Reads only. */
 export function monthCloseView(
-  db: DB, month: MonthKey, today: IsoDate = todayIST(),
+  db: DB, month: MonthKey, today: IsoDate = todayIST(), budgetId?: string,
 ): MonthCloseView {
   const from = firstDayOfMonth(month);
   const to = lastDayOfMonth(month);
-  const view = buildBudgetView(db, month);
+  const budget = budgetId ?? householdBudgetId(db);
+  const view = buildBudgetView(db, month, budget);
 
   const rows = queryTransactions(db, { from, to });
 
@@ -168,12 +181,29 @@ export function monthCloseView(
     db,
     `SELECT c.closed_at, m.name AS member_name
        FROM month_closes c LEFT JOIN members m ON m.id = c.closed_by
-      WHERE c.month = ?`,
-    month,
+      WHERE c.month = ? AND c.budget_id = ?`,
+    month, budget,
   );
+
+  /*
+   * 15 §6.1 · The household's close reports what each member committed and how
+   * much of it was spent. A personal close has nobody to report on, so the list
+   * is empty rather than a section saying so.
+   */
+  const commitments =
+    budget === householdBudgetId(db)
+      ? buildHouseholdView(db, month).members.map((m) => ({
+          name: m.name,
+          committed: m.assignedThisMonth,
+          spent: m.spentThisMonth,
+          standing: m.standing as string,
+        }))
+      : [];
 
   return {
     month,
+    budgetId: budget,
+    commitments,
     outcome,
     next,
     // The month's own movement: where net worth stood entering it, against
@@ -212,10 +242,11 @@ export interface MonthCloseResult {
  * afterwards. Closing is a statement about attention, not a lock.
  */
 export function closeMonth(
-  db: DB, actor: Actor, month: MonthKey, note?: string | null,
+  db: DB, actor: Actor, month: MonthKey, note?: string | null, budgetId?: string,
 ): MonthCloseResult {
   return transact(db, () => {
-    const view = monthCloseView(db, month);
+    const budget = budgetId ?? householdBudgetId(db);
+    const view = monthCloseView(db, month, todayIST(), budget);
 
     let snapshotTaken = false;
     try {
@@ -229,19 +260,24 @@ export function closeMonth(
 
     execute(
       db,
-      `INSERT INTO month_closes (month, closed_at, closed_by, note, income, spending, assigned)
-       VALUES (?,?,?,?,?,?,?)
-       ON CONFLICT(month) DO UPDATE SET
+      `INSERT INTO month_closes
+         (month, budget_id, closed_at, closed_by, note, income, spending, assigned, commitments)
+       VALUES (?,?,?,?,?,?,?,?,?)
+       ON CONFLICT(month, budget_id) DO UPDATE SET
          closed_at = excluded.closed_at, closed_by = excluded.closed_by,
          note = excluded.note, income = excluded.income,
-         spending = excluded.spending, assigned = excluded.assigned`,
-      month, nowIST(), actor.memberId, note ?? null,
+         spending = excluded.spending, assigned = excluded.assigned,
+         commitments = excluded.commitments`,
+      month, budget, nowIST(), actor.memberId, note ?? null,
       view.outcome.income, view.outcome.spending, view.outcome.assigned,
+      view.commitments.length > 0 ? JSON.stringify(view.commitments) : null,
     );
 
     appendEvent(db, actor, {
+      // The month stays the id, so the history of a month is still one lookup.
+      // Which budget was closed goes in the payload, where undo reads it.
       entity: "month-close", entityId: month, action: "close",
-      after: { income: view.outcome.income, spending: view.outcome.spending },
+      after: { income: view.outcome.income, spending: view.outcome.spending, budgetId: budget },
       summary:
         `Closed ${formatMonth(month)} — ${formatPaise(view.outcome.income)} in, ` +
         `${formatPaise(view.outcome.spending)} out` +
@@ -253,9 +289,12 @@ export function closeMonth(
 }
 
 /** Reopen a closed month. Nothing was locked; this only clears the record. */
-export function reopenMonth(db: DB, actor: Actor, month: MonthKey): void {
+export function reopenMonth(db: DB, actor: Actor, month: MonthKey, budgetId?: string): void {
   transact(db, () => {
-    execute(db, `DELETE FROM month_closes WHERE month = ?`, month);
+    execute(
+      db, `DELETE FROM month_closes WHERE month = ? AND budget_id = ?`,
+      month, budgetId ?? householdBudgetId(db),
+    );
     appendEvent(db, actor, {
       entity: "month-close", entityId: month, action: "reopen",
       summary: `Reopened ${formatMonth(month)}`,
@@ -272,16 +311,30 @@ export interface ClosedMonth {
   assigned: Paise;
 }
 
-export function closedMonths(db: DB, limit = 24): ClosedMonth[] {
+export function closedMonths(db: DB, limit = 24, budgetId?: string): ClosedMonth[] {
   return queryAll<ClosedMonth>(
-    db, `SELECT * FROM month_closes ORDER BY month DESC LIMIT ?`, limit,
+    db,
+    `SELECT * FROM month_closes
+      ${budgetId ? "WHERE budget_id = ?" : ""}
+      ORDER BY month DESC LIMIT ?`,
+    ...(budgetId ? [budgetId] : []), limit,
   );
 }
 
 // R37: every action undoes, including this one.
 registerUndoHandler("month-close", (db, event) => {
   if (event.action === "close") {
-    execute(db, `DELETE FROM month_closes WHERE month = ?`, event.entityId);
+    /*
+     * 15 §6.1 · Which budget was closed comes from the payload. An event written
+     * before budgets existed has none, and it was the household's — because the
+     * household's was the only budget there was.
+     */
+    const budget = (event.after as { budgetId?: string } | undefined)?.budgetId
+      ?? "budget-household";
+    execute(
+      db, `DELETE FROM month_closes WHERE month = ? AND budget_id = ?`,
+      event.entityId, budget,
+    );
     return `Reopened ${formatMonth(event.entityId as MonthKey)}`;
   }
   return "Nothing to undo.";
