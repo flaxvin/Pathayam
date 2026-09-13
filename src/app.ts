@@ -1271,7 +1271,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       };
     });
 
-    return render(ctx, "Accounts", renderAccountList(rows));
+    return render(
+      ctx, "Accounts",
+      renderAccountList(
+        rows,
+        budgetsFor(db, viewer(ctx)).map((b) => ({ id: b.id, name: b.name, kind: b.kind })),
+      ),
+    );
   });
 
   router.get("/accounts/new", (ctx) =>
