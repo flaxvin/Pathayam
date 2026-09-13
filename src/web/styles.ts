@@ -274,6 +274,8 @@ h3 { font-size: 1rem; }
   display: inline-flex; align-items: center; gap: .45rem;
 }
 .app-header .brand-mark { display: block; color: var(--logo); flex: none; }
+/* Below this the switcher needs the room more than the wordmark does. */
+@media (max-width: 480px) { .app-header .brand-word { display: none; } }
 .app-header .spacer { flex: 1; }
 
 main { padding: 1rem; max-width: 1200px; margin: 0 auto; }
@@ -328,11 +330,11 @@ main { padding: 1rem; max-width: 1200px; margin: 0 auto; }
 }
 .budget-switch::-webkit-scrollbar { display: none; }
 .budget-switch a {
-  display: inline-flex; align-items: center; flex: 0 0 auto; min-height: 34px;
+  display: inline-flex; align-items: center; gap: .3rem; flex: 0 0 auto; min-height: 34px;
   padding: 0 .55rem; border-radius: var(--radius);
   border: 1px solid var(--chrome-border); background: var(--surface);
   color: var(--text-muted); text-decoration: none;
-  font-size: .8rem; white-space: nowrap; max-width: 8rem;
+  font-size: .8rem; white-space: nowrap; max-width: 10rem;
   overflow: hidden; text-overflow: ellipsis;
 }
 .budget-switch a[aria-current="true"] {
@@ -488,7 +490,25 @@ table { width: 100%; border-collapse: collapse; font-size: .92rem; }
 th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--border); }
 th { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); }
 td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
-.table-scroll { overflow-x: auto; }
+/*
+ * A table that scrolls sideways, and says so.
+ *
+ * Six columns of rupees do not fit a phone, so they scroll inside their card —
+ * and a column clipped at the card's edge with no affordance looks like a
+ * layout fault rather than an invitation. These are the standard scrolling
+ * shadows: the content-anchored layers travel with the table and cover the shadow
+ * when there is nothing more that way, so the hint appears exactly when there
+ * is somewhere to go and never otherwise. No JavaScript, and nothing to keep
+ * in step.
+ */
+.table-scroll {
+  overflow-x: auto;
+  background:
+    linear-gradient(to right, var(--surface) 30%, transparent) left center / 2.5rem 100% no-repeat local,
+    linear-gradient(to left, var(--surface) 30%, transparent) right center / 2.5rem 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgba(0, 0, 0, .16), transparent) left center / .7rem 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgba(0, 0, 0, .16), transparent) right center / .7rem 100% no-repeat scroll;
+}
 
 .chip {
   display: inline-flex; align-items: center; gap: .3rem;
