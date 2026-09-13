@@ -102,7 +102,7 @@ import {
 } from "./domain/accounts.ts";
 import {
   setAssigned, addAssigned, copyAssignmentsFromMonth, moveMoney, setHeld, getHeld,
-  listCategories, getCategory, startPersonalBudget, deleteGroup,
+  listCategories, getCategory, startPersonalBudget, deleteGroup, visibleBudgetIds,
 } from "./domain/budget.ts";
 import {
   createTransaction, createTransfer, updateTransaction, deleteTransaction,
@@ -931,7 +931,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const a = auth(ctx);
     const month = monthParam(ctx);
     const scope = budgetParam(ctx);
-    const view = buildBudgetView(db, month, scope);
+    const view = buildBudgetView(db, month, scope, viewer(ctx));
 
     // The digest belongs to the person reading, not to the month being read,
     // so it only shows on the current month.
@@ -1000,7 +1000,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       }
 
       // On top of what is already committed, not instead of it.
-      const view = buildBudgetView(db, month, own.id);
+      const view = buildBudgetView(db, month, own.id, viewer(ctx));
       const already = view.categories.get(envelopeId)?.state.assigned ?? 0;
       setAssigned(db, actor, month, envelopeId, (already + extra) as Paise);
 
@@ -1085,7 +1085,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/move", (ctx) => {
     const month = monthParam(ctx);
-    const view = buildBudgetView(db, month);
+    const view = buildBudgetView(db, month, undefined, viewer(ctx));
     const to = ctx.query.get("to");
     /*
      * Rupees, as typed. It used to be paise, because every caller was a generated
@@ -1155,7 +1155,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/hold", (ctx) => {
     const month = monthParam(ctx);
-    const view = buildBudgetView(db, month);
+    const view = buildBudgetView(db, month, undefined, viewer(ctx));
     return render(
       ctx,
       "Hold for next month",
@@ -1183,7 +1183,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/auto-assign", (ctx) => {
     const month = monthParam(ctx);
     const plan = buildAutoAssignPlan(month);
-    const view = buildBudgetView(db, month);
+    const view = buildBudgetView(db, month, undefined, viewer(ctx));
     return render(
       ctx,
       "Auto-assign",
@@ -1230,6 +1230,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // from Ready to Assign until it runs out. It reads the targets set on the
   // Categories screen — there is no separate, hidden rules system to configure.
   function buildAutoAssignPlan(month: MonthKey): AutoAssignPlan {
+    // No viewer: this is the budget's own plan, not a list somebody is shown.
     const view = buildBudgetView(db, month);
     const rtaBefore = view.monthState.readyToAssign;
     let remaining = rtaBefore;
@@ -1261,7 +1262,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
   router.get("/explain/ready-to-assign", (ctx) => {
     const month = monthParam(ctx);
-    const view = buildBudgetView(db, month);
+    const view = buildBudgetView(db, month, undefined, viewer(ctx));
     const b = view.monthState.rtaBreakdown;
 
     const lines = [
@@ -1284,7 +1285,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/explain/category/:id", (ctx) => {
     const month = monthParam(ctx);
-    const view = buildBudgetView(db, month);
+    const view = buildBudgetView(db, month, undefined, viewer(ctx));
     const category = view.categories.get(ctx.params.id!);
     if (!category) throw new NotFound();
 
@@ -1322,7 +1323,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * is selected (FW1).
      */
     const scope = budgetParam(ctx);
-    const view = buildBudgetView(db, undefined, scope);
+    const view = buildBudgetView(db, undefined, scope, viewer(ctx));
 
     const memberNames = new Map(listMembers(db).map((m) => [m.id, m.name]));
     const rows: AccountRow[] = listAccounts(db, { viewerMemberId: viewer(ctx) })
@@ -1548,7 +1549,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     });
 
     const paymentCategory = account.kind === "credit" ? paymentCategoryFor(db, account.id) : null;
-    const view = paymentCategory ? buildBudgetView(db) : null;
+    const view = paymentCategory ? buildBudgetView(db, undefined, undefined, viewer(ctx)) : null;
     const funded = paymentCategory ? view?.categories.get(paymentCategory.id)?.state.balance ?? 0 : 0;
 
     const recon = queryOne<{ as_of: string; broken_at: string | null }>(
@@ -1592,7 +1593,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // S3 · Add transaction
   // -------------------------------------------------------------------------
   router.get("/add", (ctx) => {
-    const view = buildBudgetView(db);
+    const view = buildBudgetView(db, undefined, undefined, viewer(ctx));
     const accounts = listAccounts(db, { viewerMemberId: viewer(ctx) });
     const lastUsed = queryOne<{ account_id: string }>(
       db,
@@ -2137,7 +2138,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (!transaction) throw new NotFound("That transaction does not exist.");
 
     const account = getAccount(db, transaction.account_id)!;
-    const view = buildBudgetView(db, monthOf(transaction.date));
+    const view = buildBudgetView(db, monthOf(transaction.date), undefined, viewer(ctx));
     // The payee is the obvious name for a plan converted from this purchase.
     const payeeName = transaction.payee_id
       ? getPayee(db, transaction.payee_id)?.name ?? null
@@ -2731,7 +2732,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * is yours. Mixing them would put another budget's bill on your list.
      */
     const scope = budgetParam(ctx);
-    const view = buildBudgetView(db, month, scope);
+    const view = buildBudgetView(db, month, scope, viewer(ctx));
     const outstanding = creditOutstanding(db);
     const today = todayIST();
 
@@ -2816,8 +2817,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // S4 · Review — the one destination for everything needing a human
   // -------------------------------------------------------------------------
   router.get("/review", (ctx) => {
+    // 15 · The envelopes this member may see: the household's and their own.
+    const visible = visibleBudgetIds(db, viewer(ctx));
     const month = monthParam(ctx);
-    const view = buildBudgetView(db, month);
+    const view = buildBudgetView(db, month, undefined, viewer(ctx));
     const outstanding = creditOutstanding(db);
 
     const unfundedCards = [...view.categories.values()]
@@ -2890,7 +2893,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         proposedRules: queryAll<{ id: string; name: string; because: string | null }>(
           db, `SELECT id, name, because FROM rules WHERE proposed = 1 AND dismissed_at IS NULL`,
         ),
-        categories: [...view.categories.values()],
+        /*
+         * 15 · Only envelopes this member may see. The review queue offers a
+         * category for every unfiled row, and an unscoped budget view carries
+         * every budget's — so it was offering one member's private envelopes to
+         * the rest of the household, by name, on the busiest screen in the app.
+         */
+        categories: [...view.categories.values()].filter(
+          (c) => c.budgetId === null || visible.has(c.budgetId),
+        ),
         bufferReading: view.buffer.reading,
         month,
       }),
@@ -3754,7 +3765,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     const amount = rupeesFromQuery(ctx, "amount", 1_00_000);
     const atMonth = Number(ctx.query.get("at_month") ?? 1);
-    const view = buildBudgetView(db);
+    const view = buildBudgetView(db, undefined, undefined, viewer(ctx));
 
     return render(
       ctx, "Prepay",
@@ -3941,7 +3952,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * offering the switch at all.
      */
     const scope = budgetParam(ctx);
-    const view = buildBudgetView(db, undefined, scope);
+    const view = buildBudgetView(db, undefined, scope, viewer(ctx));
     const month = view.month;
     const cashflow = projectCashflow(db, { days: 60, viewerMemberId: viewer(ctx) });
     const outstanding = creditOutstanding(db);
@@ -4075,7 +4086,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     // S15 · The money-flow Sankey uses this month: income in, and where it went
     // by group → category. Built from the budget view's own group structure.
-    const bview = buildBudgetView(db, undefined, scope);
+    const bview = buildBudgetView(db, undefined, scope, viewer(ctx));
     const monthIncome =
       (incomeVsExpense(db, `${bview.month}-01`, todayIST(), scope, viewer(ctx)).at(-1)?.income ?? 0) as Paise;
     const sankeyGroups = bview.groups
@@ -4114,7 +4125,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const horizon = Number(ctx.query.get("days") ?? 60);
     const scope = budgetParam(ctx);
     const cashflow = projectCashflow(db, { days: horizon, budgetId: scope, viewerMemberId: viewer(ctx) });
-    const view = buildBudgetView(db, undefined, scope);
+    const view = buildBudgetView(db, undefined, scope, viewer(ctx));
 
     /*
      * 15 §3A.4 · A schedule belongs to a budget through **either** end: the
@@ -4165,7 +4176,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   // B51: the manual form the "Add one" button pointed at (it 405'd before).
   router.get("/schedules/new", (ctx) => {
-    const view = buildBudgetView(db);
+    const view = buildBudgetView(db, undefined, undefined, viewer(ctx));
     return render(
       ctx, "Add a schedule",
       renderNewScheduleForm({
@@ -4294,7 +4305,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // 15 §6B · A goal belongs to a budget, so the list follows the switcher.
     const scope = budgetParam(ctx);
     const mine = budgetsFor(db, viewer(ctx));
-    const view = buildBudgetView(db, undefined, scope);
+    const view = buildBudgetView(db, undefined, scope, viewer(ctx));
     const balances = new Map(
       [...view.categories].map(([id, c]) => [id, { name: c.name, balance: c.state.balance }]),
     );
@@ -4368,7 +4379,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
       const id = ctx.params.id!;
-      const view = buildBudgetView(db);
+      const view = buildBudgetView(db, undefined, undefined, viewer(ctx));
       // B58 · The goal owns its category. On delete, hand the envelope back as a
       // normal category (moved to a "Savings" group) so its money is never lost
       // and the household can manage or empty it afterwards.
@@ -4413,6 +4424,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   );
 
   router.get("/payees", (ctx) => {
+    const visibleCategories = new Set(
+      listCategories(db, { includeHidden: true, viewerMemberId: viewer(ctx) }).map((c) => c.id),
+    );
     const rows: PayeeRow[] = listPayees(db).map((p) => {
       const stats = payeeStats(db, p.id);
       return {
@@ -4424,7 +4438,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         aliases: queryAll<{ raw: string }>(
           db, `SELECT raw FROM payee_aliases WHERE payee_id = ? LIMIT 5`, p.id,
         ).map((r) => r.raw),
-        usualCategory: stats.usualCategoryId
+        /*
+         * 15 · And not if it is somebody else's envelope. "Blinkist — Books and
+         * courses" told the whole household which private envelope one member
+         * files a payee to, which is the same disclosure as showing the envelope
+         * itself, arrived at sideways.
+         */
+        usualCategory: stats.usualCategoryId && visibleCategories.has(stats.usualCategoryId)
           ? getCategory(db, stats.usualCategoryId)?.name ?? null
           : null,
       };
@@ -4485,7 +4505,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     test?: Parameters<typeof renderRules>[0]["test"],
     draft?: Parameters<typeof renderRules>[0]["draft"],
   ) {
-    const view = buildBudgetView(db);
+    const view = buildBudgetView(db, undefined, undefined, viewer(ctx));
     return render(
       ctx, "Rules",
       renderRules({
@@ -4506,7 +4526,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/rules/test", (ctx) => {
     auth(ctx);
     const rule = ruleFromBody(ctx);
-    const view = buildBudgetView(db);
+    const view = buildBudgetView(db, undefined, undefined, viewer(ctx));
 
     const subjects: RuleSubject[] = queryAll<{
       narration: string | null; payee: string | null; account_id: string;
@@ -4833,7 +4853,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       const id = ctx.params.id!;
       guardCommitmentEnvelope(db, id, "deleted");
-      const view = buildBudgetView(db);
+      const view = buildBudgetView(db, undefined, undefined, viewer(ctx));
       const balance = view.categories.get(id)?.state.balance ?? 0;
       deleteCategory(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, {
         currentBalance: balance,
@@ -4941,7 +4961,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       view.loan.account_id,
     );
 
-    const budgetView = buildBudgetView(db);
+    const budgetView = buildBudgetView(db, undefined, undefined, viewer(ctx));
     return render(ctx, view.loan.counterparty, renderFamilyLoan({
       view,
       accounts: cashAccounts(ctx),
@@ -5411,7 +5431,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/portfolio/add", (ctx) => {
     requireAssets();
     const query = ctx.query.get("q") ?? "";
-    const view = buildBudgetView(db);
+    const view = buildBudgetView(db, undefined, undefined, viewer(ctx));
 
     // The search is a server-side call (P7) and needs no key (§6.2).
     return Promise.resolve(

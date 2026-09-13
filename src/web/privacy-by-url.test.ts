@@ -279,3 +279,80 @@ describe("H2.2 · private spending does not appear in anybody else's reports", (
     }
   });
 });
+
+/**
+ * 15 · "Nobody sees anybody else's accounts, balances or other envelopes."
+ *
+ * That is what the household screen promises, in those words, and five screens
+ * broke it the same way: an unscoped budget view carries *every* budget's
+ * categories, and Add, Move, the transaction page, the prepayment funding list
+ * and the review queue each handed that straight to a dropdown. The envelope
+ * was never shown with a balance, so it never looked like a leak — it was just
+ * a name in a list, which is exactly how much of somebody's private budget a
+ * name in a list gives away.
+ */
+describe("15 · one member's envelopes are not offered to another", () => {
+  const SECRET_ENVELOPE = "Unmistakably Private Envelope";
+
+  async function twoBudgets(): Promise<TestApp> {
+    const db = freshDb();
+    seedMember(db, RAVI, "Ravi");
+    seedMember(db, PRIYA, "Priya");
+    createAccount(db, ravi, {
+      name: "Joint", kind: "budget", subtype: "savings",
+      openingDate: "2026-01-01", openingBalance: rupees(1_00_000),
+    });
+
+    const his = ensurePersonalBudget(db, RAVI, "Ravi");
+    const group = createGroup(db, ravi, "Mine", "normal", his.id);
+    createCategory(db, ravi, { groupId: group.id, name: SECRET_ENVELOPE });
+
+    return startTestApp(db, { memberId: PRIYA });
+  }
+
+  test("not on any screen that offers a category", async () => {
+    const app = await twoBudgets();
+    try {
+      for (const path of ["/add", "/move", "/review", "/", "/categories"]) {
+        const body = await (await app.get(path)).text();
+        assert.ok(
+          !body.includes(SECRET_ENVELOPE),
+          `${path} offers Priya an envelope from Ravi's own budget`,
+        );
+      }
+      assert.deepEqual(app.failures, []);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("and the payees screen does not name it as where a payee goes", async () => {
+    const app = await twoBudgets();
+    try {
+      const body = await (await app.get("/payees")).text();
+      assert.ok(!body.includes(SECRET_ENVELOPE));
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("but its owner is offered it", async () => {
+    const db = freshDb();
+    seedMember(db, RAVI, "Ravi");
+    const his = ensurePersonalBudget(db, RAVI, "Ravi");
+    const group = createGroup(db, ravi, "Mine", "normal", his.id);
+    createCategory(db, ravi, { groupId: group.id, name: SECRET_ENVELOPE });
+    createAccount(db, ravi, {
+      name: "His", kind: "budget", subtype: "savings", budgetId: his.id,
+      openingDate: "2026-01-01", openingBalance: rupees(50_000), holderMemberId: RAVI,
+    });
+
+    const app = await startTestApp(db, { memberId: RAVI });
+    try {
+      const body = await (await app.get("/add")).text();
+      assert.ok(body.includes(SECRET_ENVELOPE), "Ravi is not offered his own envelope");
+    } finally {
+      await app.close();
+    }
+  });
+});
