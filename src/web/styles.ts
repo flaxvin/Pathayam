@@ -40,7 +40,16 @@ export const STYLESHEET = `
 
   --text:          #1d1a15;      /* 16.8:1 on --surface */
   --text-muted:    #5b5446;      /*  7.3:1 on --surface */
-  --text-faint:    #726a5a;      /*  5.2:1 on --surface */
+  /*
+   * A2 · Measured against the tinted rows, not only against a plain card.
+   *
+   * At #726a5a this was 5.2:1 on a card and 4.34:1 on the surface behind a
+   * collapsed group and 4.36:1 on an overspent row's red tint — which is where
+   * the faint text most often is, because an overspent row is the one somebody
+   * is squinting at. The floor is the *worst* ground it lands on, and that is
+   * now 4.8:1.
+   */
+  --text-faint:    #6b6354;      /*  5.7:1 on --surface, 4.8:1 on the darkest tint */
 
   --accent:        #1d5b9e;
   --accent-text:   #ffffff;
