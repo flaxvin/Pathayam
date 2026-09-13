@@ -84,7 +84,13 @@ import {
 } from "./import/pipeline.ts";
 import {
   householdBudgetId, budgetsFor, lastBudget, rememberBudget, ensurePersonalBudget, listBudgets, getBudget,
+  personalBudgetFor,
 } from "./domain/budgets.ts";
+import {
+  ensureCommitmentEnvelope, commitmentEnvelope, guardCommitmentEnvelope, anyCommitments,
+} from "./domain/commitments.ts";
+import { buildHouseholdView } from "./domain/household-view.ts";
+import { renderHousehold } from "./web/pages/household.ts";
 import {
   createAccount, updateAccount, closeAccount, reopenAccount, listAccounts, getAccount, listCards, createCard, closeCard, recordCardStatement, lastCardStatement, paymentCategoryFor, MANAGED_SUBTYPES, SUBTYPE_LABELS, type AccountKind, hiddenAccountIds, type HolderScope,
 } from "./domain/accounts.ts";
@@ -395,7 +401,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           reviewCount: a ? reviewCount(db) : 0,
           notice: opts.notice ?? noticeFrom(ctx),
           bare: opts.bare,
-          features: { loans: config.features.loans, assets: config.features.assets },
+          features: {
+            loans: config.features.loans,
+            assets: config.features.assets,
+            separateBudgets: anyCommitments(db),
+          },
         },
         content,
       ),
@@ -850,11 +860,48 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return mutate(ctx, (a) => {
       const budget = ensurePersonalBudget(db, a.member.id, a.member.name);
       rememberBudget(db, a.member.id, budget.id);
+      /*
+       * 15 §3 · The envelope for the household comes with the budget.
+       *
+       * Making it on demand would mean a screen that says "set this up first"
+       * between the member and the thing they were trying to do, and there is
+       * only ever one right answer to that question.
+       */
+      ensureCommitmentEnvelope(
+        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), budget.id,
+      );
       return {
         redirect: `/?budget=${budget.id}`,
         message: `${budget.name}'s budget is ready. Move an account into it to give it money.`,
       };
     });
+  });
+
+  /*
+   * P3 · What each of us has put toward the shared money.
+   *
+   * Reachable whether or not anybody keeps a separate budget: for a household
+   * that pools everything it explains the choice rather than 404ing on it.
+   */
+  router.get("/household", (ctx) => {
+    const month = monthParam(ctx);
+    const view = buildHouseholdView(db, month);
+    const me = viewer(ctx);
+    const own = me ? personalBudgetFor(db, me) : null;
+    const canOpenOwn = Boolean(me) && !own;
+
+    // Only your own plan is editable here. Another member's figure is theirs to
+    // set, and the page shows it without offering to change it.
+    const envelope = own ? commitmentEnvelope(db, own.id) : null;
+    const mine = envelope
+      ? {
+          categoryId: envelope.id,
+          target: getTarget(db, envelope.id)?.amount ?? null,
+          available: view.members.find((m) => m.categoryId === envelope.id)?.available ?? 0,
+        }
+      : undefined;
+
+    return render(ctx, "The household's money", renderHousehold(view, canOpenOwn, mine));
   });
 
   router.post("/assign", (ctx) =>
@@ -3982,6 +4029,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/categories/:id/hide", (ctx) =>
     mutate(ctx, (a) => {
       const hidden = field(ctx.body, "hidden") === "1";
+      if (hidden) guardCommitmentEnvelope(db, ctx.params.id!, "hidden");
       setCategoryHidden(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
         ctx.params.id!, hidden);
       return {
@@ -4034,6 +4082,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/categories/:id/delete", (ctx) =>
     mutate(ctx, (a) => {
       const id = ctx.params.id!;
+      guardCommitmentEnvelope(db, id, "deleted");
       const view = buildBudgetView(db);
       const balance = view.categories.get(id)?.state.balance ?? 0;
       deleteCategory(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, {

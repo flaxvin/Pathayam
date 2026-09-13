@@ -90,7 +90,16 @@ export function computeBudget(input: EngineInput): BudgetState {
       absorbedByAccount[accountId] = (absorbedByAccount[accountId] ?? 0) + amount;
     }
 
-    const toBudget = f.budgetAccountFlow - f.budgetCategorisedFlow - f.budgetTransferFlow;
+    /*
+     * 15 §3.2 · A commitment from another budget is income to this one.
+     *
+     * No cash arrives — the rupees stay in the committing member's own account —
+     * but the means do, which is the whole point: the household can assign what
+     * a member has committed without either of them moving money.
+     */
+    const toBudget =
+      f.budgetAccountFlow - f.budgetCategorisedFlow - f.budgetTransferFlow
+      + (input.committedToMe?.[month] ?? 0);
     cumulativeIncome += toBudget;
     budgetBalance += f.budgetAccountFlow;
 
@@ -113,7 +122,20 @@ export function computeBudget(input: EngineInput): BudgetState {
       let creditOverspend = 0;
       let carry = balance;
 
-      if (balance < 0) {
+      /*
+       * 15 §6.1 · A commitment's negative is a debt, not an overspend.
+       *
+       * R4 answers an overspent envelope by reopening it at zero and taking the
+       * money out of Ready to Assign — the household has spent what it did not
+       * have, and the pool pays. A commitment envelope in the red says something
+       * else: *this budget owes that one*, and the month ending does not settle
+       * it. Absorbing it made the receiving budget's claim snap back to zero
+       * while the payer's own Ready to Assign took the hit, so the two figures
+       * stopped describing the same obligation and the identity failed by it.
+       *
+       * So it carries, red and all, and R6.n's "behind" is exactly this figure.
+       */
+      if (balance < 0 && !meta.commitsToBudgetId) {
         const shortfall = -balance;
         // R6: the part of the negative that was charged to a card created no
         // cash, so it must not reduce RTA. Attribute up to the card outflow
@@ -170,6 +192,15 @@ export function computeBudget(input: EngineInput): BudgetState {
     // R2. The full derivation, including why assignments in *every* month are
     // subtracted, is in docs/dev/01-engine-derivation.md §4.
     const assignedFuture = totalAssignedAllMonths - cumulativeAssigned;
+
+    /*
+     * 15 §3.2 · The claim as it stands at the end of this month. It is reported
+     * and it is a term in the identity, but it does not enter Ready to Assign —
+     * what was *committed* already did, as income above, and the part since
+     * spent is already accounted for on this budget's own envelopes.
+     */
+    const dueFromOtherBudgets = input.dueFromOtherBudgets?.[month] ?? 0;
+
     const readyToAssign =
       cumulativeIncome - totalAssignedAllMonths - f.held - cumulativeCashCarry;
 
@@ -184,11 +215,13 @@ export function computeBudget(input: EngineInput): BudgetState {
         assignedInFutureMonths: assignedFuture,
         heldForNextMonth: f.held,
         cashOverspendCarried: cumulativeCashCarry,
+        committedToMe: input.committedToMe?.[month] ?? 0,
         total: readyToAssign,
       },
       cashOverspendCarriedIn,
       heldForNextMonth: f.held,
       budgetAccountBalance: budgetBalance,
+      dueFromOtherBudgets,
       unfundedCreditAbsorbed: cumulativeCreditAbsorbed,
       /*
        * B98 · What this month is short, not every gap ever absorbed.
@@ -286,8 +319,11 @@ export function identityResidual(state: MonthState, assignedInFutureMonths?: Pai
   let categoryTotal = 0;
   for (const c of state.categories.values()) categoryTotal += c.balance;
 
+  // 15 §3.2 · The claim on other budgets sits beside the account balances: what
+  // they have committed is as much a part of this budget's means as its cash.
   return (
-    state.budgetAccountBalance -
+    state.budgetAccountBalance +
+    state.dueFromOtherBudgets -
     (categoryTotal +
       state.readyToAssign +
       state.heldForNextMonth +

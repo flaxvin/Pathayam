@@ -23,6 +23,7 @@ import {
   buildSchedule, emiFor, flatRateLoan, moratorium, preEmi, drift,
   lifetimeMetrics, type Schedule, type InterestModel, type LifetimeMetrics,
 } from "../loans/amortisation.ts";
+import { householdBudgetId } from "./budgets.ts";
 
 export type LoanType =
   | "home" | "home-under-construction" | "car" | "personal" | "gold"
@@ -189,15 +190,30 @@ export function createLoan(db: DB, actor: Actor, input: CreateLoanInput): Loan {
 export const LOAN_PAYMENTS_GROUP = "Loan Payments";
 
 function createLoanPaymentCategory(db: DB, actor: Actor, loanId: string, name: string): string {
+  /*
+   * 15 · The envelope follows the account that repays the loan — that is whose
+   * money is going out every month. A loan with no repayment account set is the
+   * household's until somebody says otherwise.
+   */
+  const budget = queryOne<{ budget_id: string | null }>(
+    db,
+    `SELECT a.budget_id AS budget_id FROM loans l
+       LEFT JOIN accounts a ON a.id = l.repayment_account_id
+      WHERE l.id = ?`,
+    loanId,
+  )?.budget_id ?? householdBudgetId(db);
+
   let group = queryOne<{ id: string }>(
-    db, `SELECT id FROM category_groups WHERE kind = 'loan-payments' LIMIT 1`,
+    db, `SELECT id FROM category_groups WHERE kind = 'loan-payments' AND budget_id = ? LIMIT 1`,
+    budget,
   );
   if (!group) {
     const groupId = newId();
     execute(
       db,
-      `INSERT INTO category_groups (id,name,kind,sort,created_at) VALUES (?,?,'loan-payments',?,?)`,
-      groupId, LOAN_PAYMENTS_GROUP, 0, nowIST(),
+      `INSERT INTO category_groups (id,name,kind,sort,created_at,budget_id)
+         VALUES (?,?,'loan-payments',?,?,?)`,
+      groupId, LOAN_PAYMENTS_GROUP, 0, nowIST(), budget,
     );
     group = { id: groupId };
   }
@@ -205,8 +221,8 @@ function createLoanPaymentCategory(db: DB, actor: Actor, loanId: string, name: s
   const id = newId();
   execute(
     db,
-    `INSERT INTO categories (id,group_id,name,sort,created_at) VALUES (?,?,?,0,?)`,
-    id, group.id, name, nowIST(),
+    `INSERT INTO categories (id,group_id,name,sort,created_at,budget_id) VALUES (?,?,?,0,?,?)`,
+    id, group.id, name, nowIST(), budget,
   );
   execute(db, `UPDATE loans SET payment_category_id = ? WHERE id = ?`, id, loanId);
 

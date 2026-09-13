@@ -1606,4 +1606,100 @@ BEGIN
 END;
 `,
   },
+  {
+    name: "0027-household-commitment-envelope",
+    sql: `
+--------------------------------------------------------------------------------
+-- 15 §3 · Committing money to the household without moving any
+--------------------------------------------------------------------------------
+-- An envelope in a personal budget whose purpose is the household's budget.
+-- Assigning to it commits that money; no cash leaves the account holding it,
+-- which is what lets a private account fund shared spending without publishing
+-- its balance (15 §3.3).
+--
+-- The claim the household sees is the sum of these envelopes' balances. It is
+-- derived, never stored, so there is no second ledger to keep in step — the
+-- same reasoning that makes a card's payment envelope trustworthy (R6).
+ALTER TABLE categories ADD COLUMN commits_to_budget_id TEXT REFERENCES budgets(id);
+
+-- One envelope per pair of budgets. Two envelopes both committing to the
+-- household would double-count the claim, and nothing downstream could tell.
+CREATE UNIQUE INDEX idx_categories_commitment
+  ON categories(budget_id, commits_to_budget_id)
+  WHERE commits_to_budget_id IS NOT NULL;
+
+-- A commitment is money the other budget is counting on, so a change to one
+-- invalidates the cached months of both. The rollup cache is all-or-nothing, so
+-- clearing it is the whole of the invalidation.
+CREATE TRIGGER trg_rollup_commitment_insert AFTER INSERT ON categories
+WHEN NEW.commits_to_budget_id IS NOT NULL
+BEGIN
+  DELETE FROM month_rollups;
+  DELETE FROM month_rollup_state;
+END;
+`,
+  },
+  {
+    name: "0028-every-envelope-has-a-budget",
+    sql: `
+--------------------------------------------------------------------------------
+-- 15 · An envelope with no budget belongs to nobody, and is read by nobody
+--------------------------------------------------------------------------------
+-- 0024 put every existing row in the household budget, and four creators were
+-- never told to do the same: a card's payment envelope, a loan's, the
+-- Reconciliation envelope, and the blank-start group. Anything they made
+-- afterwards had budget_id NULL, and every scoped read compares with "=", which
+-- NULL never satisfies — so those envelopes and their assignments vanished from
+-- the household's grid and from its identity, which failed by exactly their
+-- balance.
+--
+-- The creators now set it. This puts right what they left behind: a payment
+-- envelope joins its account's budget, a loan's joins the account that repays
+-- it, and anything else joins the household's.
+UPDATE categories
+   SET budget_id = COALESCE(
+     (SELECT a.budget_id FROM accounts a WHERE a.id = categories.payment_account_id),
+     (SELECT a.budget_id FROM loans l
+        LEFT JOIN accounts a ON a.id = l.repayment_account_id
+       WHERE l.payment_category_id = categories.id),
+     'budget-household'
+   )
+ WHERE budget_id IS NULL;
+
+UPDATE category_groups
+   SET budget_id = COALESCE(
+     (SELECT c.budget_id FROM categories c
+       WHERE c.group_id = category_groups.id AND c.budget_id IS NOT NULL
+       LIMIT 1),
+     'budget-household'
+   )
+ WHERE budget_id IS NULL;
+
+-- A tracking account funds no budget (FW1), so a NULL there is correct and is
+-- deliberately left alone. Every other account belongs somewhere.
+UPDATE accounts
+   SET budget_id = 'budget-household'
+ WHERE budget_id IS NULL AND kind <> 'tracking';
+`,
+  },
+  {
+    name: "0029-rebuild-rollup-for-cross-budget-transfers",
+    sql: `
+--------------------------------------------------------------------------------
+-- 15 §3.5 · "Internal to the budget" now means what it says
+--------------------------------------------------------------------------------
+-- A transfer leg was excluded from Ready to Assign whenever its other leg was a
+-- Budget or Credit account, on the reasoning that the money never left the
+-- budget. With one budget that was true. With two it was not: ₹5,000 moved from
+-- a personal account to the joint one, and ₹8,400 paid toward a household card,
+-- both left the payer's budget while being treated as though they had not.
+--
+-- The rule is now checked rather than assumed, so every cached month computed
+-- under the old one is wrong. The rollup is a summary of the ledger and can
+-- always be rebuilt from it, so it is simply emptied; the next read builds what
+-- it needs.
+DELETE FROM month_rollups;
+DELETE FROM month_rollup_state;
+`,
+  },
 ];

@@ -15,6 +15,8 @@ import {
   addMonths, monthOf, todayIST, nowIST, addDays, daysBetween,
   firstDayOfMonth, lastDayOfMonth,
 } from "../core/dates.ts";
+import { computeBudget } from "./engine.ts";
+import { commitmentSources, claimByMonth, claimLinks, claimFor } from "../domain/commitments.ts";
 import {
   emptyMonth,
   type EngineInput,
@@ -23,6 +25,7 @@ import {
   type CategoryGroupMeta,
   type OverspendModel,
   type Target,
+  type CategoryState,
 } from "./types.ts";
 
 /**
@@ -85,13 +88,32 @@ function budgetParams(budgetId: string | undefined): string[] {
 
 /** The per-month, per-category, per-account spend, for a bounded window. */
 function categorisedSql(budgetId?: string): string {
+  /*
+   * 15 §3A.4 · Both budgets, and the filter matches either of them.
+   *
+   * Activity belongs to the **category's** budget — that is the envelope being
+   * spent — while the cash that left belongs to the **account's**. They are the
+   * same budget in the ordinary case and different ones whenever a member pays
+   * for something shared, which is the whole of §3. Filtering on the account
+   * alone, as this did, put the household's spending in the payer's budget and
+   * left the household's envelope untouched: both identities then failed by the
+   * amount, in opposite directions, and cancelled in the combined view where
+   * nobody was looking.
+   */
   return `${CATEGORISED_CTE}
      SELECT substr(c.date,1,7) AS month, c.category_id AS category_id,
-            c.account_id AS account_id, a.kind AS kind, SUM(c.amount) AS amount
+            c.account_id AS account_id, a.kind AS kind,
+            a.budget_id AS account_budget, cat.budget_id AS category_budget,
+            SUM(c.amount) AS amount
        FROM categorised c
        JOIN accounts a ON a.id = c.account_id
-      WHERE 1 = 1${budgetClause(budgetId)}
+       JOIN categories cat ON cat.id = c.category_id
+      WHERE 1 = 1${budgetId ? " AND (a.budget_id = ? OR cat.budget_id = ?)" : ""}
       GROUP BY month, c.category_id, c.account_id`;
+}
+/** Both halves of `categorisedSql`'s filter take the same budget. */
+function categorisedParams(budgetId: string | undefined): string[] {
+  return budgetId ? [budgetId, budgetId] : [];
 }
 
 /**
@@ -132,9 +154,53 @@ function transferFlowSql(budgetId?: string): string {
        JOIN accounts otherAccount ON otherAccount.id = other.account_id
       WHERE t.deleted_at IS NULL AND a.kind = 'budget'
         AND t.transfer_pair_id IS NOT NULL
-        AND otherAccount.kind IN ('budget','credit')
+        AND (
+          -- Internal in the plain sense: both legs in the same budget, which is
+          -- every transfer a household with one budget has ever made.
+          (otherAccount.kind = 'budget' AND otherAccount.budget_id IS a.budget_id)
+          -- Or a card payment. The payment envelope absorbs it (R6) — and when
+          -- the card belongs to another budget, the claim between them does,
+          -- because paying somebody else's card buys a claim rather than
+          -- spending money. See crossCardPaymentSql.
+          OR otherAccount.kind = 'credit'
+        )
         AND t.date >= ? AND t.date <= ?${budgetClause(budgetId)}
       GROUP BY month, t.account_id`;
+}
+
+/**
+ * 15 §3.5 · A transfer whose two legs are in different budgets.
+ *
+ * `transferFlowSql` excludes a transfer leg from Ready to Assign on the grounds
+ * that the money never left the budget. Once budgets can differ that reasoning
+ * has to be checked rather than assumed, and the two cases part company:
+ *
+ * - **To another budget's account.** The money genuinely left, and arrived
+ *   somewhere its new budget counts. An ordinary outflow on one side, an
+ *   ordinary inflow on the other, and no claim — which is what `15` §3.5 says a
+ *   transfer has always meant.
+ * - **To another budget's card.** Nothing arrived anywhere the other budget
+ *   owns: its debt fell and its payment envelope was released. The payer is out
+ *   the money and is owed it, so their means are unchanged and the claim between
+ *   the two budgets carries it.
+ *
+ * Until this was separated, ₹8,400 paid toward a household card from a personal
+ * account left both sets of books short by that amount, in opposite directions
+ * that cancelled in the combined view.
+ */
+function crossCardPaymentSql(): string {
+  return `SELECT substr(t.date,1,7) AS month,
+            a.budget_id AS account_budget, card.budget_id AS card_budget,
+            SUM(t.amount) AS amount
+       FROM transactions t
+       JOIN accounts a ON a.id = t.account_id AND a.kind = 'budget'
+       JOIN transactions other
+         ON other.transfer_pair_id = t.transfer_pair_id AND other.id <> t.id
+       JOIN accounts card ON card.id = other.account_id AND card.kind = 'credit'
+      WHERE t.deleted_at IS NULL AND t.transfer_pair_id IS NOT NULL
+        AND a.budget_id IS NOT card.budget_id
+        AND t.date >= ? AND t.date <= ?
+      GROUP BY month, a.budget_id, card.budget_id`;
 }
 
 /**
@@ -333,18 +399,51 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
   const sealedThrough = opts.useRollup === false ? null : sealMonths(db, months, through);
   const liveFrom = sealedThrough ? firstDayOfMonth(addMonths(sealedThrough, 1)) : null;
 
+  /*
+   * 15 §3A.4 · One transaction, up to two budgets.
+   *
+   * Its envelope falls in the budget the *category* is in; the cash leaves the
+   * budget the *account* is in. When those differ, the claim between the two
+   * budgets absorbs exactly the difference, which is what keeps both sets of
+   * books closed without any money moving between accounts.
+   *
+   * Asked for every budget at once there is nothing to absorb — both sides are
+   * already in view — so the claim is left alone, the same reasoning as loadClaim.
+   */
+  const links = scope ? claimLinks(db) : null;
+
   const applyCategorised = (r: {
     month: string; category_id: string; account_id: string; kind: string; amount: number;
+    account_budget?: string | null; category_budget?: string | null;
   }) => {
     const f = ensure(r.month);
     if (!f) return;
-    f.activity[r.category_id] = (f.activity[r.category_id] ?? 0) + r.amount;
-    if (r.kind === "credit") {
-      f.creditActivity[r.category_id] = (f.creditActivity[r.category_id] ?? 0) + r.amount;
-      const byAccount = (f.creditActivityByAccount[r.category_id] ??= {});
-      byAccount[r.account_id] = (byAccount[r.account_id] ?? 0) + r.amount;
-    } else if (r.kind === "budget") {
+
+    const accountBudget = r.account_budget ?? null;
+    const categoryBudget = r.category_budget ?? null;
+    const cross = Boolean(scope && accountBudget && categoryBudget && accountBudget !== categoryBudget);
+
+    // The envelope, and the overspend attribution that belongs with it.
+    if (!scope || categoryBudget === null || categoryBudget === scope) {
+      f.activity[r.category_id] = (f.activity[r.category_id] ?? 0) + r.amount;
+      if (r.kind === "credit") {
+        f.creditActivity[r.category_id] = (f.creditActivity[r.category_id] ?? 0) + r.amount;
+        const byAccount = (f.creditActivityByAccount[r.category_id] ??= {});
+        byAccount[r.account_id] = (byAccount[r.account_id] ?? 0) + r.amount;
+      }
+    }
+
+    // The cash, which stays with the account whatever it was filed to.
+    if (r.kind === "budget" && (!scope || accountBudget === null || accountBudget === scope)) {
       f.budgetCategorisedFlow += r.amount;
+    }
+
+    // And the claim, in whichever of the two budgets holds the envelope.
+    if (cross && links) {
+      const link = claimFor(links, accountBudget!, categoryBudget!);
+      if (link && link.budgetId === scope) {
+        f.activity[link.categoryId] = (f.activity[link.categoryId] ?? 0) + r.amount * link.sign;
+      }
     }
   };
 
@@ -370,22 +469,25 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
     for (const r of queryAll<{
       month: string; fact: string; category_id: string; account_id: string;
       kind: string; amount: number;
+      account_budget: string | null; category_budget: string | null;
     }>(
       db,
       /*
        * Every fact row carries the account it moved on, or the category it
-       * landed in, so one join scopes the whole cache. `categorised` rows carry
-       * both and agree today, because 15 §3 forbids a personal account funding a
-       * household envelope without a receivable.
+       * landed in, so one join scopes the whole cache. A `categorised` row
+       * carries both, and the two disagree exactly when somebody paid for the
+       * household from their own account — so the filter matches either side and
+       * the dispatch below decides which half of the row this budget wants.
        */
       `SELECT r.month AS month, r.fact AS fact, r.category_id AS category_id,
-              r.account_id AS account_id, r.kind AS kind, r.amount AS amount
+              r.account_id AS account_id, r.kind AS kind, r.amount AS amount,
+              a.budget_id AS account_budget, c.budget_id AS category_budget
          FROM month_rollups r
          LEFT JOIN accounts a   ON a.id = r.account_id
          LEFT JOIN categories c ON c.id = r.category_id
         WHERE r.month <= ?
-          ${scope ? "AND COALESCE(a.budget_id, c.budget_id) = ?" : ""}`,
-      sealedThrough, ...budgetParams(scope),
+          ${scope ? "AND (a.budget_id = ? OR c.budget_id = ?)" : ""}`,
+      sealedThrough, ...categorisedParams(scope),
     )) {
       /*
        * B89 · Match the fact by name, never by "everything else".
@@ -413,7 +515,8 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
 
   for (const r of queryAll<{
     month: string; category_id: string; account_id: string; kind: string; amount: number;
-  }>(db, categorisedSql(scope), since, horizon, since, horizon, ...budgetParams(scope))) {
+    account_budget: string | null; category_budget: string | null;
+  }>(db, categorisedSql(scope), since, horizon, since, horizon, ...categorisedParams(scope))) {
     applyCategorised(r);
   }
 
@@ -457,12 +560,85 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
     if (f) f.held = r.amount;
   }
 
+  /*
+   * The claim raised by paying another budget's card. Derived over the whole
+   * range rather than cached: it is one narrow join, and putting it in the
+   * rollup would mean storing which envelope absorbed it, which is a fact about
+   * today's arrangement rather than about what happened in that month.
+   */
+  if (links) {
+    for (const r of queryAll<{
+      month: string; account_budget: string | null; card_budget: string | null; amount: number;
+    }>(db, crossCardPaymentSql(), "0000-01-01", horizon)) {
+      if (!r.account_budget || !r.card_budget) continue;
+      const link = claimFor(links, r.account_budget, r.card_budget);
+      if (!link || link.budgetId !== scope) continue;
+      const f = ensure(r.month);
+      if (f) {
+        f.activity[link.categoryId] = (f.activity[link.categoryId] ?? 0) + r.amount * link.sign;
+      }
+    }
+  }
+
   return {
     months,
     facts,
     categories: loadCategories(db),
     overspendModel: loadOverspendModel(db),
     creditOpeningBalances: loadCreditOpeningBalances(db),
+    ...loadClaim(db, scope, months, through, opts.useRollup),
+  };
+}
+
+/**
+ * 15 §3.2 · What other budgets have committed to this one, per month.
+ *
+ * Each committing budget is computed in full and its commitment envelope's
+ * balance read off. That is deliberate: the balance is whatever R3 and R4 say it
+ * is, rollover and overspend included, and re-deriving it from assignments here
+ * would be a second implementation of those rules that could disagree with the
+ * first — with the identity quietly failing by the difference.
+ *
+ * **Only when a single budget is being computed.** Asked for every budget at
+ * once, the committing budget's own accounts are already on the left and its
+ * commitment envelope already in the category total on the right; adding the
+ * claim as well would count the same rupees twice.
+ */
+function loadClaim(
+  db: DB, scope: string | undefined, months: MonthKey[], through: MonthKey,
+  useRollup?: boolean,
+): { dueFromOtherBudgets?: Record<MonthKey, Paise>; committedToMe?: Record<MonthKey, Paise> } {
+  if (!scope) return {};
+
+  const sources = commitmentSources(db, scope);
+  if (sources.length === 0) return {};
+
+  // Terminates: a personal budget has nothing committing to it, so the inner
+  // load finds no sources and does not recurse.
+  const states = sources.map((source) => ({
+    categoryId: source.categoryId,
+    state: computeBudget(loadEngineInput(db, { through, budgetId: source.budgetId, useRollup })),
+  }));
+
+  const read = (pick: (c: CategoryState) => Paise) =>
+    claimByMonth(
+      states.map(({ categoryId, state }) => ({
+        categoryId,
+        balances: new Map(
+          months.map((m) => {
+            const c = state.get(m)?.categories.get(categoryId);
+            return [m, (c ? pick(c) : 0) as Paise];
+          }),
+        ),
+      })),
+      months,
+    );
+
+  return {
+    // The level, for the identity, and the flow, for income. Both off the same
+    // envelope, so they cannot describe different arrangements.
+    dueFromOtherBudgets: read((c) => c.balance),
+    committedToMe: read((c) => c.assigned),
   };
 }
 
@@ -511,12 +687,13 @@ export function loadCategories(db: DB): CategoryMeta[] {
     group_id: string;
     hidden_at: string | null;
     payment_account_id: string | null;
+    commits_to_budget_id: string | null;
     sort: number;
     group_sort: number;
   }>(
     db,
-    `SELECT c.id, c.name, c.group_id, c.hidden_at, c.payment_account_id, c.sort,
-            g.sort AS group_sort
+    `SELECT c.id, c.name, c.group_id, c.hidden_at, c.payment_account_id,
+            c.commits_to_budget_id, c.sort, g.sort AS group_sort
        FROM categories c
        JOIN category_groups g ON g.id = c.group_id
       WHERE c.deleted_at IS NULL
@@ -527,6 +704,7 @@ export function loadCategories(db: DB): CategoryMeta[] {
     groupId: r.group_id,
     hidden: r.hidden_at !== null,
     paymentAccountId: r.payment_account_id,
+    commitsToBudgetId: r.commits_to_budget_id,
   }));
 }
 
