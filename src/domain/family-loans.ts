@@ -121,13 +121,45 @@ export function getFamilyLoan(db: DB, id: string): FamilyLoan | null {
   return queryOne<FamilyLoan>(db, `SELECT * FROM family_loans WHERE id = ?`, id);
 }
 
-export function listFamilyLoans(db: DB, opts: { includeClosed?: boolean } = {}): FamilyLoan[] {
+/**
+ * H2.2 · A private arrangement is its holder's alone.
+ *
+ * Money lent to a cousin can be yours rather than the household's, and the form
+ * has said so since the holder and visibility fields were added — and then every
+ * list showed every arrangement to everybody, because nothing read the flag.
+ * The rule is the loans rule and the assets rule: the holder and the flag live on
+ * the tracking account, so one predicate serves all three.
+ */
+export function listFamilyLoans(
+  db: DB, opts: { includeClosed?: boolean; viewerMemberId?: string | null } = {},
+): FamilyLoan[] {
+  const where: string[] = [];
+  const params: (string | null)[] = [];
+  if (!opts.includeClosed) where.push("f.closed_at IS NULL");
+  if (opts.viewerMemberId !== undefined) {
+    where.push("(a.visibility <> 'private' OR a.holder_member_id IS ?)");
+    params.push(opts.viewerMemberId);
+  }
   return queryAll<FamilyLoan>(
     db,
-    opts.includeClosed
-      ? `SELECT * FROM family_loans ORDER BY closed_at IS NOT NULL, started_at DESC`
-      : `SELECT * FROM family_loans WHERE closed_at IS NULL ORDER BY started_at DESC`,
+    `SELECT f.* FROM family_loans f
+       JOIN accounts a ON a.id = f.account_id
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
+      ORDER BY f.closed_at IS NOT NULL, f.started_at DESC`,
+    ...params,
   );
+}
+
+/** H2.2 · Whether this viewer may see this arrangement at all. */
+export function canSeeFamilyLoan(db: DB, id: string, viewerMemberId: string | null): boolean {
+  const row = queryOne<{ n: number }>(
+    db,
+    `SELECT COUNT(*) AS n FROM family_loans f
+       JOIN accounts a ON a.id = f.account_id
+      WHERE f.id = ? AND (a.visibility <> 'private' OR a.holder_member_id IS ?)`,
+    id, viewerMemberId,
+  );
+  return (row?.n ?? 0) > 0;
 }
 
 /**

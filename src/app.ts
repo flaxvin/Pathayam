@@ -134,7 +134,7 @@ import {
 } from "./web/pages/loans.ts";
 import {
   createLoan, listLoans, getLoan, projectLoan, recordInstalment, listPayments, closeLoan,
-  recordDisbursement, recordLoanStatement, recordRateChange, recordPrepayment,
+  recordDisbursement, recordLoanStatement, recordRateChange, recordPrepayment, canSeeLoan,
   listDisbursements, listRatePeriods, debtOverview, type LoanType,
 } from "./domain/loans.ts";
 import { comparePrepayment, rateResetOptions, NegativeAmortisation } from "./loans/amortisation.ts";
@@ -205,7 +205,7 @@ import {
 } from "./domain/attachments.ts";
 import {
   createFamilyLoan, recordAdvance, recordRepayment, viewFamilyLoan,
-  writeOffFamilyLoan, closeFamilyLoan, listFamilyLoans,
+  writeOffFamilyLoan, closeFamilyLoan, listFamilyLoans, canSeeFamilyLoan,
 } from "./domain/family-loans.ts";
 import { renderFamilyLoans, renderFamilyLoan } from "./web/pages/family-loans.ts";
 import {
@@ -3156,6 +3156,35 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (!config.features.loans) throw new NotFound();
   }
 
+  /*
+   * H2.2 · A private loan is its holder's alone — and a list filter is not a
+   * privacy control.
+   *
+   * `listLoans` hid it from the index and `hiddenAccountIds` kept it out of
+   * everyone else's net worth, and then every per-loan route read it straight
+   * out of the table by id: the detail page, the schedule CSV, the statement,
+   * and every POST that changes it. A member who had ever seen the loan, or who
+   * simply tried the next id, could read the balance, record an instalment
+   * against it, change whose it was, or close it.
+   *
+   * It answers NotFound rather than a refusal, because "you may not see this"
+   * confirms there is something to see — which is the one thing a private loan
+   * must not do.
+   */
+  function requireLoanVisible(ctx: RequestContext): string {
+    const id = ctx.params.id!;
+    if (!canSeeLoan(db, id, viewer(ctx))) throw new NotFound("That loan does not exist.");
+    return id;
+  }
+
+  function requireFamilyLoanVisible(ctx: RequestContext): string {
+    const id = ctx.params.id!;
+    if (!canSeeFamilyLoan(db, id, viewer(ctx))) {
+      throw new NotFound("That arrangement does not exist.");
+    }
+    return id;
+  }
+
   router.get("/loans", (ctx) => {
     requireLoans();
     // H2.2 · A private loan is its holder's alone, the same as a private account.
@@ -3276,6 +3305,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/loans/:id", (ctx) => {
     requireLoans();
+    requireLoanVisible(ctx);
     const projection = projectLoan(db, ctx.params.id!);
     if (!projection) throw new NotFound("That loan does not exist.");
     return render(
@@ -3325,6 +3355,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    */
   router.post("/loans/:id/settle", (ctx) =>
     mutate(ctx, (a) => {
+      requireLoanVisible(ctx);
       const loan = getLoan(db, ctx.params.id!);
       if (!loan) throw new NotFound("That loan does not exist.");
       const settlementRaw = field(ctx.body, "settlement");
@@ -3351,6 +3382,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/loans/:id/close", (ctx) =>
     mutate(ctx, (a) => {
+      requireLoanVisible(ctx);
       const loan = getLoan(db, ctx.params.id!);
       if (!loan) throw new NotFound("That loan does not exist.");
       closeLoan(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
@@ -3363,6 +3395,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/loans/:id/holder", (ctx) =>
     mutate(ctx, (a) => {
+      requireLoanVisible(ctx);
       const loan = getLoan(db, ctx.params.id!);
       if (!loan) throw new NotFound("That loan does not exist.");
       updateAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
@@ -3376,6 +3409,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/loans/:id/disburse", (ctx) =>
     mutate(ctx, (a) => {
+      requireLoanVisible(ctx);
       const loanId = ctx.params.id!;
       const dateRaw = field(ctx.body, "date");
       const destination = field(ctx.body, "destination") === "budget-account"
@@ -3400,6 +3434,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   /** R17.2 · The schedule exportable to CSV. */
   router.get("/loans/:id/schedule.csv", (ctx) => {
     requireLoans();
+    requireLoanVisible(ctx);
     auth(ctx);
     const projection = projectLoan(db, ctx.params.id!);
     if (!projection) throw new NotFound("That loan does not exist.");
@@ -3425,6 +3460,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/loans/:id/pay", (ctx) => {
     requireLoans();
+    requireLoanVisible(ctx);
     const projection = projectLoan(db, ctx.params.id!);
     if (!projection) throw new NotFound("That loan does not exist.");
     return render(
@@ -3453,6 +3489,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/loans/:id/pay", (ctx) =>
     mutate(ctx, (a) => {
       requireLoans();
+      requireLoanVisible(ctx);
       const loanId = ctx.params.id!;
       const principalRaw = field(ctx.body, "principal");
       const interestRaw = field(ctx.body, "interest");
@@ -3474,6 +3511,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // warning's "Resolve it" link pointed here, but no route existed.
   router.get("/loans/:id/statement", (ctx) => {
     requireLoans();
+    requireLoanVisible(ctx);
     auth(ctx);
     const projection = projectLoan(db, ctx.params.id!);
     if (!projection) throw new NotFound("That loan does not exist.");
@@ -3486,6 +3524,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/loans/:id/statement", (ctx) =>
     mutate(ctx, (a) => {
       requireLoans();
+      requireLoanVisible(ctx);
       const loanId = ctx.params.id!;
       const ytdRaw = field(ctx.body, "interest_paid_ytd");
       const remainingRaw = field(ctx.body, "instalments_remaining");
@@ -3511,6 +3550,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    */
   router.get("/loans/:id/rate", (ctx) => {
     requireLoans();
+    requireLoanVisible(ctx);
     const projection = projectLoan(db, ctx.params.id!);
     if (!projection) throw new NotFound("That loan does not exist.");
 
@@ -3569,6 +3609,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/loans/:id/rate", (ctx) =>
     mutate(ctx, (a) => {
       requireLoans();
+      requireLoanVisible(ctx);
       const loanId = ctx.params.id!;
       if (!projectLoan(db, loanId)) throw new NotFound("That loan does not exist.");
       const from = parseDate(requiredField(ctx.body, "effective_from"));
@@ -3603,6 +3644,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/loans/:id/prepay", (ctx) => {
     requireLoans();
+    requireLoanVisible(ctx);
     const projection = projectLoan(db, ctx.params.id!);
     if (!projection) throw new NotFound("That loan does not exist.");
 
@@ -3661,6 +3703,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/loans/:id/prepay", (ctx) => {
     requireLoans();
+    requireLoanVisible(ctx);
     const a = auth(ctx);
     const loanId = ctx.params.id!;
     const projection = projectLoan(db, loanId);
@@ -4770,7 +4813,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/family", (ctx) => {
     auth(ctx);
-    const loans = listFamilyLoans(db, { includeClosed: true })
+    // H2.2 · A private arrangement is its holder's alone, the same as a loan.
+    const loans = listFamilyLoans(db, { includeClosed: true, viewerMemberId: viewer(ctx) })
       .map((l) => viewFamilyLoan(db, l.id))
       .filter((v): v is NonNullable<typeof v> => v !== null);
 
@@ -4800,6 +4844,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   );
 
   router.get("/family/:id", (ctx) => {
+    requireFamilyLoanVisible(ctx);
     auth(ctx);
     const view = viewFamilyLoan(db, ctx.params.id!);
     if (!view) throw new NotFound("That arrangement does not exist.");
@@ -4825,6 +4870,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/family/:id/advance", (ctx) =>
     mutate(ctx, (a) => {
+      requireFamilyLoanVisible(ctx);
       const dateRaw = field(ctx.body, "date");
       recordAdvance(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         loanId: ctx.params.id!,
@@ -4838,6 +4884,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/family/:id/repayment", (ctx) =>
     mutate(ctx, (a) => {
+      requireFamilyLoanVisible(ctx);
       const dateRaw = field(ctx.body, "date");
       recordRepayment(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         loanId: ctx.params.id!,
@@ -4850,6 +4897,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   );
 
   router.post("/family/:id/write-off", (ctx) => {
+    requireFamilyLoanVisible(ctx);
     const a = auth(ctx);
     const id = ctx.params.id!;
 
@@ -4882,6 +4930,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/family/:id/close", (ctx) =>
     mutate(ctx, (a) => {
+      requireFamilyLoanVisible(ctx);
       closeFamilyLoan(db, actorFor(a), ctx.params.id!);
       return { redirect: "/family", message: "Closed, with the history kept." };
     }),
