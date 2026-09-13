@@ -356,3 +356,78 @@ describe("15 · one member's envelopes are not offered to another", () => {
     }
   });
 });
+
+/**
+ * And the write side, which closing the read side left wide open.
+ *
+ * A form field is a suggestion, not a constraint: posting a category id by hand
+ * filed a household transaction into one member's private envelope, moved the
+ * household's money into it, and confirmed the envelope existed by succeeding.
+ * A control that filters what it offers and not what it accepts has not been
+ * fixed, only tidied.
+ */
+describe("15 · an envelope you were not offered is one you may not use", () => {
+  test("posting another member's category id is refused", async () => {
+    const db = freshDb();
+    seedMember(db, RAVI, "Ravi");
+    seedMember(db, PRIYA, "Priya");
+    const joint = createAccount(db, ravi, {
+      name: "Joint", kind: "budget", subtype: "savings",
+      openingDate: "2026-01-01", openingBalance: rupees(1_00_000),
+    });
+    const his = ensurePersonalBudget(db, RAVI, "Ravi");
+    const hisGroup = createGroup(db, ravi, "Mine", "normal", his.id);
+    const hisEnvelope = createCategory(db, ravi, { groupId: hisGroup.id, name: "Books" });
+
+    const spend = createTransaction(db, ravi, {
+      accountId: joint.id, amount: -rupees(500) as Paise, date: todayIST(),
+      payeeName: "Somewhere", cleared: true,
+    });
+
+    const app = await startTestApp(db, { memberId: PRIYA });
+    try {
+      const res = await app.post(`/transaction/${spend.id}/categorise`, {
+        category_id: hisEnvelope.id,
+      });
+      assert.equal(res.status, 404, "Priya filed into an envelope she cannot see");
+
+      const after = app.db
+        .prepare("SELECT category_id FROM transactions WHERE id = ?")
+        .get(spend.id) as { category_id: string | null };
+      assert.equal(after.category_id, null, "and it landed anyway");
+      assert.deepEqual(app.failures, []);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("a category the viewer can see still works", async () => {
+    const db = freshDb();
+    seedMember(db, RAVI, "Ravi");
+    seedMember(db, PRIYA, "Priya");
+    const joint = createAccount(db, ravi, {
+      name: "Joint", kind: "budget", subtype: "savings",
+      openingDate: "2026-01-01", openingBalance: rupees(1_00_000),
+    });
+    const group = createGroup(db, ravi, "Everyday");
+    const shared = createCategory(db, ravi, { groupId: group.id, name: "Groceries" });
+    const spend = createTransaction(db, ravi, {
+      accountId: joint.id, amount: -rupees(500) as Paise, date: todayIST(),
+      payeeName: "DMart", cleared: true,
+    });
+
+    const app = await startTestApp(db, { memberId: PRIYA });
+    try {
+      const res = await app.post(`/transaction/${spend.id}/categorise`, {
+        category_id: shared.id,
+      });
+      assert.equal(res.status, 303);
+      const after = app.db
+        .prepare("SELECT category_id FROM transactions WHERE id = ?")
+        .get(spend.id) as { category_id: string | null };
+      assert.equal(after.category_id, shared.id);
+    } finally {
+      await app.close();
+    }
+  });
+});
