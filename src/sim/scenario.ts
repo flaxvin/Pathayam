@@ -387,6 +387,16 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
   const abandonedGoal = did("createGoal", () => createGoal(db, actor, {
     name: "Standing desk", targetAmount: rupees(30_000), budgetId: household,
   }));
+  /*
+   * One goal that is never finished and never abandoned, because the other two
+   * are: the trip is completed in the last month and the desk is deleted in the
+   * first, and a household with no goal in progress has nothing to show on the
+   * screen that exists to show progress.
+   */
+  const emergencyGoal = did("createGoal", () => createGoal(db, actor, {
+    name: "Emergency fund", targetAmount: rupees(6_00_000),
+    targetDate: `${addMonths(thisMonth, 20)}-01`, budgetId: household,
+  }));
   did("updateGoal", () => updateGoal(db, actor, tripGoal.id, {
     name: "Kerala trip", targetAmount: rupees(1_35_000), targetDate: `${months[20]!}-01`,
   }));
@@ -900,7 +910,7 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
     }
 
     // Fund the goals a little every month.
-    for (const goal of [tripGoal, laptopGoal]) {
+    for (const goal of [tripGoal, laptopGoal, emergencyGoal]) {
       const envelope = queryOne<{ category_id: string }>(
         db, `SELECT category_id FROM goal_categories WHERE goal_id = ? LIMIT 1`, goal.id,
       )?.category_id;
