@@ -18,7 +18,8 @@ Two phases are already done. They are listed so the sequence reads whole.
 | ✅ | **P2 · Personal budgets** | A member can open their own budget, move accounts into it, keep them private, and keep their own envelopes. A household that never opens one sees no change — asserted, not assumed. |
 | ✅ | **P3 · The household envelope** | Committing money without moving it, the claim in the identity, a standing monthly figure, rollover, and the household screen. Brought P4's cross-budget filing forward with it — see below. |
 | ✅ | **P4 · Spending across budgets** | Shared cards, add-on cards, splits per line, and the filing with no arrangement behind it refused. |
-| ⬜ | **P5 → P7** | Below. |
+| ✅ | **P5 · Ahead, behind, calling it even** | The three endings, in words a couple would use, with the money traced to where it comes from. Independent month closes. |
+| ⬜ | **P6, P7** | Below. |
 
 ---
 
@@ -143,7 +144,7 @@ a plausible half-implementation cannot pass.
 
 ---
 
-## P5 · Ahead, behind, and calling it even
+## P5 · Ahead, behind, and calling it even — done
 
 | | Est. |
 |---|---|
@@ -156,6 +157,22 @@ a plausible half-implementation cannot pass.
 
 **Done when:** a month where one of them put in more can be ended three different
 ways, and each is described in words a couple would actually use.
+
+**How it works out.** Two of the three endings needed no machinery at all, which
+is the best sign the model underneath is right: *put it down to me* is R4's move
+out of Ready to Assign wearing the only label that describes what it does, and
+*I'll pick it up* is an ordinary commitment. All the vocabulary lives in
+`domain/standing.ts`, so there is one place to change a word and a test that
+refuses the register `10` §3.5 uses for lending to a cousin — no *debt*, no
+*owes*, no *forgive*.
+
+Calling it even is the one with a record behind it, and `15` §4A.4's objection is
+the reason: the money has to come from somewhere. It is an expense for the one
+giving it and income for the one receiving it, and the expense lands in a real
+envelope — so the household's Ready to Assign pays for it, exactly once, and the
+card bill still gets paid because the payment envelope was never touched. The
+whole trace is asserted step by step, including that funding the envelope
+afterwards costs the household precisely the amount it let go.
 
 ---
 

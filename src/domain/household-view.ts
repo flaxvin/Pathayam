@@ -19,6 +19,7 @@ import { computeBudget } from "../engine/engine.ts";
 import { loadTargets } from "../engine/repository.ts";
 import { householdBudgetId } from "./budgets.ts";
 import { commitmentSources } from "./commitments.ts";
+import { standingOf, outstanding, standingSentence, type Standing } from "./standing.ts";
 
 export interface MemberCommitment {
   memberId: string | null;
@@ -36,6 +37,12 @@ export interface MemberCommitment {
   target: Paise | null;
   /** How far short of that target this month is. Zero when there is no target. */
   shortOfTarget: Paise;
+  /** 15 §4A.1 · Which way the balance points, in the household's own words. */
+  standing: Standing;
+  /** Always positive: how much is outstanding, whichever way it points. */
+  outstanding: Paise;
+  /** One sentence a person can read, third person. */
+  sentence: string;
 }
 
 export interface HouseholdView {
@@ -47,6 +54,8 @@ export interface HouseholdView {
   members: MemberCommitment[];
   /** Whether anybody keeps a separate budget at all. */
   separateBudgets: boolean;
+  /** Anybody the household is behind with, which is who a month-end owes. */
+  aheadOfUs: MemberCommitment[];
 }
 
 export function buildHouseholdView(db: DB, month: MonthKey): HouseholdView {
@@ -65,6 +74,7 @@ export function buildHouseholdView(db: DB, month: MonthKey): HouseholdView {
       loadEngineInput(db, { through: month, budgetId: source.budgetId }),
     ).get(month);
     const envelope = state?.categories.get(source.categoryId);
+    const balance = (envelope?.balance ?? 0) as Paise;
     const target = targets.get(source.categoryId)?.amount ?? null;
     const assigned = (envelope?.assigned ?? 0) as Paise;
 
@@ -73,12 +83,15 @@ export function buildHouseholdView(db: DB, month: MonthKey): HouseholdView {
       budgetId: source.budgetId,
       name: source.budgetName,
       categoryId: source.categoryId,
-      available: (envelope?.balance ?? 0) as Paise,
+      available: balance,
       assignedThisMonth: assigned,
       // Activity is negative when money leaves; report it as a positive figure.
       spentThisMonth: Math.max(0, -(envelope?.activity ?? 0)) as Paise,
       target,
       shortOfTarget: (target === null ? 0 : Math.max(0, target - assigned)) as Paise,
+      standing: standingOf(balance),
+      outstanding: outstanding(balance),
+      sentence: standingSentence(balance, source.budgetName),
     };
   });
 
@@ -89,5 +102,6 @@ export function buildHouseholdView(db: DB, month: MonthKey): HouseholdView {
     spentThisMonth: members.reduce((sum, m) => sum + m.spentThisMonth, 0) as Paise,
     members,
     separateBudgets: sources.length > 0,
+    aheadOfUs: members.filter((m) => m.standing === "ahead"),
   };
 }

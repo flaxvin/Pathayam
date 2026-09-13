@@ -27,6 +27,12 @@ export interface CategoryView {
   hidden: boolean;
   isPaymentCategory: boolean;
   paymentAccountId: string | null;
+  /**
+   * 15 §3 · Set when this envelope is a commitment to another budget. It reads
+   * differently from every other envelope: in the red it is not an overspend but
+   * a bigger share than planned (15 §4A.2), and the words follow from that.
+   */
+  commitsToBudgetId: string | null;
   state: CategoryState;
   target: Target | null;
   progress: TargetProgress | null;
@@ -101,6 +107,7 @@ export function buildBudgetView(db: DB, month?: MonthKey, budgetId?: string): Bu
       groupId: meta.groupId,
       hidden: meta.hidden,
       isPaymentCategory: meta.paymentAccountId !== null,
+      commitsToBudgetId: meta.commitsToBudgetId ?? null,
       paymentAccountId: meta.paymentAccountId,
       state,
       target: t,

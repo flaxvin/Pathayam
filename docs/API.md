@@ -416,6 +416,8 @@ only (out of a token's reach).
 | GET | `/payees` | R | Payees. |
 | POST | `/payees/merge` | W | Merge two payees. |
 | GET | `/household` | R | What each member has committed to the shared budget this month. |
+| POST | `/household/pick-up` | W | Commit more, taking on what the household is behind by. |
+| POST | `/household/call-it-even` | W | Close part of a balance by agreement; it becomes spending on the giving side. |
 | GET | `/categories` | R | Categories, for the budget being viewed (`?budget=`). |
 | POST | `/groups/new` | W | Add a category group to the budget being viewed. |
 | POST | `/categories/new` · `/categories/:id/rename` · `/categories/:id/hide` · `/categories/:id/delete` | W | Manage categories. |

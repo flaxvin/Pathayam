@@ -1702,4 +1702,90 @@ DELETE FROM month_rollups;
 DELETE FROM month_rollup_state;
 `,
   },
+  {
+    name: "0030-calling-it-even",
+    sql: `
+--------------------------------------------------------------------------------
+-- 15 §4A · When one of you has put in more
+--------------------------------------------------------------------------------
+-- A balance between two budgets can end three ways, and only one of them is
+-- letting something go. The first two need nothing stored — putting it down to
+-- yourself is an ordinary move out of Ready to Assign, and picking it up is an
+-- ordinary commitment. This table is the third.
+--
+-- 15 §4A.4 · What is given up is an expense for the one giving it and income for
+-- the one receiving it, which is the rule writeOffFamilyLoan already encodes.
+-- So each row means two things at once: the giving budget spends that amount from
+-- the category named here, and the receiving budget's commitment envelope falls
+-- by the same amount against income of the same amount. Both sets of books close
+-- and neither gains a figure with no history behind it.
+CREATE TABLE even_calls (
+  id                 TEXT PRIMARY KEY,
+  -- The month it is counted in, so it lands where the conversation happened.
+  month              TEXT NOT NULL,
+  -- The commitment envelope whose balance is being closed, and the direction is
+  -- read from its sign: positive means the envelope's budget was behind.
+  envelope_id        TEXT NOT NULL REFERENCES categories(id),
+  -- The budget letting it go, and the envelope the expense lands in.
+  giving_budget_id   TEXT NOT NULL REFERENCES budgets(id),
+  giving_category_id TEXT NOT NULL REFERENCES categories(id),
+  -- Always positive. Partial amounts are ordinary (15 §4A.5).
+  amount             INTEGER NOT NULL CHECK (amount > 0),
+  note               TEXT,
+  created_at         TEXT NOT NULL,
+  created_by         TEXT REFERENCES members(id)
+);
+CREATE INDEX idx_even_calls_month ON even_calls(month);
+CREATE INDEX idx_even_calls_envelope ON even_calls(envelope_id);
+
+-- It changes what two budgets' months say, so every cached month goes.
+CREATE TRIGGER trg_rollup_even_call_insert AFTER INSERT ON even_calls
+BEGIN
+  DELETE FROM month_rollups;
+  DELETE FROM month_rollup_state;
+END;
+CREATE TRIGGER trg_rollup_even_call_delete AFTER DELETE ON even_calls
+BEGIN
+  DELETE FROM month_rollups;
+  DELETE FROM month_rollup_state;
+END;
+`,
+  },
+  {
+    name: "0031-month-close-per-budget",
+    rebuildsTable: true,
+    sql: `
+--------------------------------------------------------------------------------
+-- 15 §6.1 · Each budget closes on its own
+--------------------------------------------------------------------------------
+-- The household month can close while a personal one is still open, and the
+-- other way round. Coupling them would let one person's procrastination block
+-- the other's ritual, which is the opposite of what the ritual is for.
+--
+-- So a close is identified by month *and* budget. Every close made until now was
+-- a household one, because it was the only budget there was.
+CREATE TABLE month_closes_new (
+  month      TEXT NOT NULL,
+  budget_id  TEXT NOT NULL REFERENCES budgets(id),
+  closed_at  TEXT NOT NULL,
+  closed_by  TEXT REFERENCES members(id),
+  note       TEXT,
+  income     INTEGER NOT NULL DEFAULT 0,
+  spending   INTEGER NOT NULL DEFAULT 0,
+  assigned   INTEGER NOT NULL DEFAULT 0,
+  -- 15 §3 · What each member had committed when the month was closed, as JSON.
+  -- A record of what was true then, not a figure anything derives from: the live
+  -- numbers always come from the envelopes.
+  commitments TEXT,
+  PRIMARY KEY (month, budget_id)
+);
+
+INSERT INTO month_closes_new (month, budget_id, closed_at, closed_by, note, income, spending, assigned)
+  SELECT month, 'budget-household', closed_at, closed_by, note, income, spending, assigned
+    FROM month_closes;
+
+DROP TABLE month_closes;
+ALTER TABLE month_closes_new RENAME TO month_closes;
+`,
+  },
 ];

@@ -96,6 +96,14 @@ export interface MonthlyFacts {
   budgetTransferFlow: Paise;
   /** R11: income explicitly set aside during this month, for the next one. */
   held: Paise;
+  /**
+   * 15 §4A.4 · Received this month because another budget called a balance even.
+   *
+   * Income, and for the plainest of reasons: the money was owed and now is not,
+   * so this budget is better off by it. The matching expense sits in the giving
+   * budget's own envelope, which is why nothing appears from nowhere.
+   */
+  calledEvenIncome: Paise;
 }
 
 export function emptyMonth(): MonthlyFacts {
@@ -110,6 +118,7 @@ export function emptyMonth(): MonthlyFacts {
     budgetCategorisedFlow: 0,
     budgetTransferFlow: 0,
     held: 0,
+    calledEvenIncome: 0,
   };
 }
 

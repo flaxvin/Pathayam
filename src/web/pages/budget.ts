@@ -9,6 +9,7 @@ import { html, raw, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, formatCompact, speakPaise, type Paise } from "../../core/money.ts";
 import { formatMonth, addMonths, type MonthKey } from "../../core/dates.ts";
 import type { BudgetView, CategoryView, GroupView } from "../viewmodel.ts";
+import { PUT_IT_DOWN_TO_ME, PUT_IT_DOWN_TO_ME_HINT } from "../../domain/standing.ts";
 
 export interface BudgetChoice {
   id: string;
@@ -254,11 +255,28 @@ function renderCategoryRow(category: CategoryView, month: MonthKey): SafeHtml {
         ${when(category.isPaymentCategory, () => html`
           <span class="faint">Settles this card's balance</span>
         `)}
+        ${when(Boolean(category.commitsToBudgetId), () => html`
+          <span class="faint">
+            ${state.balance < 0
+              ? `You have put in ${formatPaise(-state.balance as Paise)} more than planned`
+              : state.balance > 0
+                ? "Committed to the household, not yet spent"
+                : "Square with the household"}
+          </span>
+        `)}
         ${when(category.needsCover, () => html`
-          <!-- R5: no more than two taps from a red category. -->
-          <a class="button button-small button-danger"
-             href="/move?to=${category.id}&amount=${-state.balance}&month=${month}">
-            Cover ${formatPaise(-state.balance)}
+          <!--
+            R5: no more than two taps from a red category. 15 §4A.2: on a
+            commitment envelope the same action means something else entirely —
+            not covering an overspend but deciding your share was larger — so it
+            says that instead.
+          -->
+          <a class="button button-small ${category.commitsToBudgetId ? "" : "button-danger"}"
+             href="/move?to=${category.id}&amount=${-state.balance}&month=${month}"
+             ${raw(category.commitsToBudgetId ? `title="${PUT_IT_DOWN_TO_ME_HINT}"` : "")}>
+            ${category.commitsToBudgetId
+              ? `${PUT_IT_DOWN_TO_ME} · ${formatPaise(-state.balance as Paise)}`
+              : `Cover ${formatPaise(-state.balance as Paise)}`}
           </a>
         `)}
       </div>

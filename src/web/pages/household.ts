@@ -11,6 +11,10 @@ import { html, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, speakPaise } from "../../core/money.ts";
 import { formatMonth } from "../../core/dates.ts";
 import type { HouseholdView } from "../../domain/household-view.ts";
+import {
+  PUT_IT_DOWN_TO_ME, PUT_IT_DOWN_TO_ME_HINT, PICK_IT_UP, PICK_IT_UP_HINT,
+  CALL_IT_EVEN, CALL_IT_EVEN_HINT,
+} from "../../domain/standing.ts";
 
 export function renderHousehold(
   view: HouseholdView,
@@ -80,7 +84,7 @@ export function renderHousehold(
             <th scope="col">Whose</th>
             <th scope="col" class="numeric">Put in this month</th>
             <th scope="col" class="numeric">Spent</th>
-            <th scope="col" class="numeric">Still available</th>
+            <th scope="col" class="numeric">Where it stands</th>
             <th scope="col">Monthly plan</th>
           </tr>
         </thead>
@@ -91,8 +95,12 @@ export function renderHousehold(
                 <th scope="row">${m.name}</th>
                 <td class="numeric">${formatPaise(m.assignedThisMonth)}</td>
                 <td class="numeric">${formatPaise(m.spentThisMonth)}</td>
-                <td class="numeric ${m.available < 0 ? "negative" : ""}">
-                  ${formatPaise(m.available)}
+                <td class="numeric ${m.standing === "ahead" ? "negative" : ""}">
+                  ${m.standing === "ahead"
+                    ? html`${formatPaise(m.outstanding)} <span class="chip">ahead</span>`
+                    : m.standing === "behind"
+                      ? formatPaise(m.outstanding)
+                      : html`<span class="faint">square</span>`}
                 </td>
                 <td>
                   ${m.target === null
@@ -110,9 +118,9 @@ export function renderHousehold(
         </tbody>
       </table>
       <p class="faint">
-        A negative figure means that person has paid for more of the household's
-        spending than they put aside for it. It carries forward like any envelope
-        until it is covered or somebody picks it up.
+        <strong>Ahead</strong> means they have paid for more of the household than
+        they put aside for it. Nothing expires at month end — it carries forward
+        until one of you settles it, which is what the options below are for.
       </p>
     </section>
 
@@ -140,6 +148,66 @@ export function renderHousehold(
           about what you have already committed
           (${formatPaise(mine!.available as never)} is still there).
         </p>
+      </section>
+    `)}
+
+    ${when(view.aheadOfUs.length > 0, () => html`
+      <section class="card">
+        <h2>Squaring up</h2>
+        <p class="muted">
+          The household is behind with
+          ${view.aheadOfUs.map((m) => m.name).join(" and ")}. There are three ways
+          that can end, and they are not the same thing.
+        </p>
+        ${view.aheadOfUs.map(
+          (m) => html`
+            <div style="padding:.7rem 0;border-top:1px solid var(--border)">
+              <p><strong>${m.sentence}</strong></p>
+              <ul class="plain">
+                <li>
+                  <strong>${PUT_IT_DOWN_TO_ME}</strong> — ${PUT_IT_DOWN_TO_ME_HINT}
+                  ${when(Boolean(mine) && mine!.categoryId === m.categoryId, () => html`
+                    <a class="button button-small"
+                       href="/move?to=${m.categoryId}&amount=${m.outstanding}&month=${view.month}">
+                      ${PUT_IT_DOWN_TO_ME}
+                    </a>
+                  `)}
+                  ${when(!mine || mine.categoryId !== m.categoryId, () => html`
+                    <span class="faint">— ${m.name}'s to do, from their own budget.</span>
+                  `)}
+                </li>
+                <li>
+                  <strong>${PICK_IT_UP}</strong> — ${PICK_IT_UP_HINT}
+                  ${when(Boolean(mine) && mine!.categoryId !== m.categoryId, () => html`
+                    <form method="post" action="/household/pick-up" style="display:inline">
+                      <input type="hidden" name="envelope_id" value="${mine!.categoryId}">
+                      <input type="hidden" name="amount" value="${m.outstanding / 100}">
+                      <input type="hidden" name="month" value="${view.month}">
+                      <button class="button-small" type="submit">
+                        ${PICK_IT_UP} (${formatPaise(m.outstanding)})
+                      </button>
+                    </form>
+                  `)}
+                </li>
+                <li>
+                  <strong>${CALL_IT_EVEN}</strong> — ${CALL_IT_EVEN_HINT}
+                  <form method="post" action="/household/call-it-even"
+                        class="row" style="gap:.4rem;align-items:flex-end;margin-top:.3rem">
+                    <input type="hidden" name="envelope_id" value="${m.categoryId}">
+                    <input type="hidden" name="month" value="${view.month}">
+                    <div class="field" style="margin:0">
+                      <label style="font-size:.75rem" for="even-${m.categoryId}">How much</label>
+                      <input id="even-${m.categoryId}" name="amount" class="amount-input"
+                             style="max-width:8rem" type="text" inputmode="decimal"
+                             value="${(m.outstanding / 100).toFixed(2)}">
+                    </div>
+                    <button class="button-small" type="submit">${CALL_IT_EVEN}</button>
+                  </form>
+                </li>
+              </ul>
+            </div>
+          `,
+        )}
       </section>
     `)}
 
