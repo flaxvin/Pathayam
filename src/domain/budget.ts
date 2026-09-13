@@ -9,7 +9,7 @@ import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts"
 import { Refusal } from "../core/refusal.ts";
 import { nowIST, formatMonth, type MonthKey, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
-import { householdBudgetId } from "./budgets.ts";
+import { householdBudgetId, budgetsFor } from "./budgets.ts";
 
 export interface CategoryGroup {
   id: string;
@@ -156,16 +156,44 @@ export function createCategory(
 }
 
 export function listCategories(
-  db: DB, opts: { includeHidden?: boolean; budgetId?: string } = {},
+  db: DB,
+  opts: {
+    includeHidden?: boolean;
+    budgetId?: string;
+    /**
+     * 15 · Who is asking. "Nobody sees anybody else's accounts, balances or
+     * other envelopes" is what the household screen promises in those words,
+     * and an envelope list that offers another member's private categories
+     * breaks it — the review queue was offering Ravi's "Books and courses" to
+     * everybody, and the payees screen was naming it as where a payee's money
+     * usually goes.
+     *
+     * Visible means the household's budget and the viewer's own. Omitted means
+     * every budget, which is what the engine, the month close and an export
+     * want.
+     */
+    viewerMemberId?: string | null;
+  } = {},
 ): Category[] {
+  const visible = opts.viewerMemberId === undefined
+    ? null
+    : budgetsFor(db, opts.viewerMemberId ?? null).map((b) => b.id);
+
   return queryAll<Category>(
     db,
     `SELECT c.* FROM categories c JOIN category_groups g ON g.id = c.group_id
       WHERE c.deleted_at IS NULL ${opts.includeHidden ? "" : "AND c.hidden_at IS NULL"}
         ${opts.budgetId ? "AND c.budget_id = ?" : ""}
+        ${visible ? `AND (c.budget_id IS NULL OR c.budget_id IN (${visible.map(() => "?").join(",")}))` : ""}
       ORDER BY g.sort, c.sort, c.name`,
     ...(opts.budgetId ? [opts.budgetId] : []),
+    ...(visible ?? []),
   );
+}
+
+/** The budgets a member may see at all: the household's, and their own. */
+export function visibleBudgetIds(db: DB, viewerMemberId: string | null): Set<string> {
+  return new Set(budgetsFor(db, viewerMemberId).map((b) => b.id));
 }
 
 export function listGroups(db: DB, budgetId?: string): CategoryGroup[] {

@@ -10,6 +10,7 @@ import { queryAll } from "../db/db.ts";
 import type { Paise } from "../core/money.ts";
 import type { MonthKey, IsoDate } from "../core/dates.ts";
 import { todayIST, monthOf } from "../core/dates.ts";
+import { budgetsFor } from "../domain/budgets.ts";
 import {
   computeBudget, targetProgress, totalUnderfunded, computeBuffer, isFullyFunded,
   cardFunding, futureMonthCaveat, type CardFunding, type Buffer,
@@ -71,7 +72,23 @@ export interface BudgetView {
   overspentCategories: CategoryView[];
 }
 
-export function buildBudgetView(db: DB, month?: MonthKey, budgetId?: string): BudgetView {
+export function buildBudgetView(
+  db: DB, month?: MonthKey, budgetId?: string,
+  /**
+   * 15 · Who is looking, so a picker never offers somebody else's envelopes.
+   *
+   * "Nobody sees anybody else's accounts, balances or other envelopes" is what
+   * the household screen promises, in those words. An unscoped view carries
+   * every budget's categories, and five screens handed that straight to a
+   * dropdown — Add, Move, the transaction page, the prepayment funding list and
+   * the review queue all offered one member's private envelopes to the rest of
+   * the household, by name.
+   *
+   * Omitted means every budget, which is what the digest and the month close
+   * want; a screen passes the authenticated member.
+   */
+  viewerMemberId?: string | null,
+): BudgetView {
   const today = todayIST();
   const currentMonth = monthOf(today);
   const target = month ?? currentMonth;
@@ -90,6 +107,10 @@ export function buildBudgetView(db: DB, month?: MonthKey, budgetId?: string): Bu
     (g) => budgetId === undefined || g.budgetId === undefined || g.budgetId === budgetId,
   );
   const groupById = new Map(groupMetas.map((g) => [g.id, g]));
+
+  const visibleBudgets = viewerMemberId === undefined
+    ? null
+    : new Set(budgetsFor(db, viewerMemberId ?? null).map((b) => b.id));
 
   const categories = new Map<string, CategoryView>();
   const progressList: TargetProgress[] = [];
@@ -111,6 +132,10 @@ export function buildBudgetView(db: DB, month?: MonthKey, budgetId?: string): Bu
     // `groupById` is already this budget's groups, so a category whose group is
     // not in it belongs to another budget.
     if (budgetId !== undefined && !groupById.has(meta.groupId)) continue;
+
+    // And whoever is looking sees the household's envelopes and their own.
+    const owner = groupById.get(meta.groupId)?.budgetId ?? null;
+    if (visibleBudgets && owner !== null && !visibleBudgets.has(owner)) continue;
 
     const t = targets.get(meta.id) ?? null;
     // F3.2: a hidden category leaves the underfunded totals.
