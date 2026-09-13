@@ -13,6 +13,7 @@ import { nowIST, todayIST, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { Refusal } from "../core/refusal.ts";
 import { householdBudgetId } from "./budgets.ts";
+import { prepareClaim } from "./commitments.ts";
 
 export type AccountKind = "budget" | "credit" | "tracking";
 
@@ -333,6 +334,31 @@ export function updateAccount(
     }
 
     const after = getAccount(db, id)!;
+
+    /*
+     * 15 §3A.4 · A move re-files history without touching a transaction.
+     *
+     * Every one of this account's past filings to another budget's envelope
+     * becomes a cross-budget one the moment the move commits, and each needs an
+     * envelope to carry its claim. Without them the money is unattributable and
+     * the identity fails by it — which is exactly what happened the first time an
+     * account with five years of history was moved.
+     */
+    if (patch.budget_id !== undefined && after.budget_id !== before.budget_id) {
+      for (const row of queryAll<{ budget_id: string }>(
+        db,
+        `SELECT DISTINCT c.budget_id AS budget_id
+           FROM transactions t
+           LEFT JOIN transaction_splits s ON s.transaction_id = t.id
+           JOIN categories c ON c.id = COALESCE(s.category_id, t.category_id)
+          WHERE t.account_id = ? AND t.deleted_at IS NULL
+            AND c.budget_id IS NOT NULL AND c.budget_id <> ?`,
+        id, after.budget_id ?? "",
+      )) {
+        prepareClaim(db, actor, id, after.budget_id, row.budget_id);
+      }
+    }
+
     appendEvent(db, actor, {
       entity: "account",
       entityId: id,
