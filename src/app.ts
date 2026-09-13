@@ -219,7 +219,7 @@ import {
   renderPortfolio, renderHoldingDetail, renderSalePreview, renderNetWorth,
   renderAllocation,
   renderAddHolding, renderCasUpload, renderCasReview,
-  renderNewAssetForm, renderRevalueAsset, renderManualPrice, renderSplitForm, renderValuations,
+  renderNewAssetForm, renderRevalueAsset, renderManualPrice, renderSplitForm, renderMergerForm, renderValuations,
   type PortfolioRow, type CasReviewScheme,
 } from "./web/pages/portfolio.ts";
 import { parseCasPdf, WrongPassword } from "./import/cas.ts";
@@ -228,7 +228,7 @@ import {
 } from "./import/cas-plan.ts";
 import {
   createAssetAccount, listAssetAccounts, findOrCreateInstrument, recordPurchase,
-  recordSale, recordPrice, recordSplit, recordValuation, latestValuation, listHoldings, viewHolding,
+  recordSale, recordPrice, recordSplit, recordMerger, recordValuation, latestValuation, listHoldings, viewHolding,
   priceHistory, previewHoldingSale, getInstrument, listInstruments,
   classifyInstrument, ASSET_CLASSES, ASSET_CLASS_LABELS,
   exportHoldingsCsv, exportLotsCsv, exportPriceHistoryCsv, exportNetWorthCsv,
@@ -5519,6 +5519,53 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       return {
         redirect: `/portfolio/${view.holding.id}`,
         message: `Recorded the ${kind}. Your units and their cost moved together.`,
+      };
+    }),
+  );
+
+  /*
+   * R28 · A merger. `applyMerger` existed, the events table allowed the kind,
+   * and no route tied them together — the same shape of gap as B71 and B72, and
+   * the one corporate action an Indian fund investor is most likely to meet.
+   */
+  router.get("/portfolio/:id/merge", (ctx) => {
+    requireAssets();
+    const view = viewHolding(db, ctx.params.id!);
+    if (!view) throw new NotFound("That holding does not exist.");
+    return render(
+      ctx, "Merger",
+      renderMergerForm({
+        holdingId: view.holding.id,
+        instrumentName: view.instrument.name,
+        units: formatUnits(view.units),
+        today: todayIST(),
+        instruments: listInstruments(db)
+          .filter((i) => i.id !== view.instrument.id)
+          .map((i) => ({ id: i.id, name: i.name })),
+      }),
+    );
+  });
+
+  router.post("/portfolio/:id/merge", (ctx) =>
+    mutate(ctx, (a) => {
+      requireAssets();
+      const view = viewHolding(db, ctx.params.id!);
+      if (!view) throw new NotFound("That holding does not exist.");
+      const ratio = Number(requiredField(ctx.body, "ratio"));
+      if (!Number.isFinite(ratio) || ratio <= 0) {
+        throw new HttpError(400, "A merger ratio has to be a number above zero.");
+      }
+      recordMerger(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+        holdingId: view.holding.id,
+        date: parseDate(field(ctx.body, "date") ?? "") ?? todayIST(),
+        ratio,
+        intoInstrumentId: field(ctx.body, "into_instrument_id") || null,
+      });
+      return {
+        redirect: `/portfolio/${view.holding.id}`,
+        message:
+          "Recorded the merger. Your cost and purchase dates carried forward, " +
+          "so nothing was realised.",
       };
     }),
   );

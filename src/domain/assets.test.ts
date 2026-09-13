@@ -24,7 +24,7 @@ import { createGroup, createCategory, setAssigned } from "./budget.ts";
 import { createLoan } from "./loans.ts";
 import {
   createAssetAccount, findOrCreateInstrument, recordPurchase, recordSale,
-  recordDividend, recordSplit, recordPrice, recordFxRate, recordValuation,
+  recordDividend, recordSplit, recordMerger, recordPrice, recordFxRate, recordValuation,
   latestValuation, latestPrice, fxRate, viewHolding, listHoldings,
 } from "./assets.ts";
 import { netWorthStatement, snapshotNetWorth, netWorthChange } from "./networth.ts";
@@ -488,6 +488,110 @@ describe("R28 · corporate actions through the database", () => {
     assert.equal(after.costBasis, before.costBasis, "nothing was bought");
     // R28.2: the pre-split history is adjusted so a chart shows no false crash.
     assert.equal(latestPrice(db, fund.id, "2026-01-06")!.price, price(40));
+    db.close();
+  });
+
+  /*
+   * The corporate action Indian fund investors actually meet, and the one the
+   * app could not record: `applyMerger` was written, the events table allowed
+   * the kind, and nothing called either. The household's only options were a
+   * wrong unit count or a sale that never happened — and a fictitious sale
+   * manufactures a capital gain and restarts the clock on long-term treatment.
+   */
+  test("a merger reissues units and carries the cost forward", () => {
+    const { db, demat, fund } = setup();
+    recordPurchase(db, actor, {
+      accountId: demat.id, instrumentId: fund.id,
+      tradeDate: "2026-01-05", price: price(80), units: units(100),
+    });
+    const holding = listHoldings(db, demat.id)[0]!;
+    const before = viewHolding(db, holding.id, "2026-08-26")!;
+
+    // 8 new units for every 10 held.
+    recordMerger(db, actor, { holdingId: holding.id, date: "2026-08-01", ratio: 0.8 });
+
+    const after = viewHolding(db, holding.id, "2026-08-26")!;
+    assert.equal(after.units, Math.round(before.units * 0.8), "units were reissued");
+    assert.equal(after.costBasis, before.costBasis, "and the cost carried forward");
+    assert.equal(
+      queryOne<{ n: number }>(
+        db, `SELECT COUNT(*) AS n FROM holding_events WHERE holding_id = ? AND kind = 'merger'`,
+        holding.id,
+      )!.n,
+      1,
+      "recorded as a merger, not as a sale",
+    );
+    assert.equal(
+      queryOne<{ n: number }>(
+        db, `SELECT COUNT(*) AS n FROM holding_events WHERE holding_id = ? AND kind = 'sale'`,
+        holding.id,
+      )!.n,
+      0,
+      "nothing was realised",
+    );
+    db.close();
+  });
+
+  test("it can point the holding at the surviving scheme", () => {
+    const { db, demat, fund } = setup();
+    recordPurchase(db, actor, {
+      accountId: demat.id, instrumentId: fund.id,
+      tradeDate: "2026-01-05", price: price(80), units: units(100),
+    });
+    const survivor = findOrCreateInstrument(db, actor, {
+      name: "Parag Parikh Flexi Cap - Direct - Growth (merged)",
+      kind: "mutual-fund", provider: "manual",
+    });
+    const holding = listHoldings(db, demat.id)[0]!;
+
+    recordMerger(db, actor, {
+      holdingId: holding.id, date: "2026-08-01", ratio: 1, intoInstrumentId: survivor.id,
+    });
+
+    assert.equal(
+      viewHolding(db, holding.id, "2026-08-26")!.instrument.id, survivor.id,
+      "it now reads as the scheme that survived",
+    );
+    db.close();
+  });
+
+  test("merging into something already held in the same account is refused", () => {
+    const { db, demat, fund } = setup();
+    recordPurchase(db, actor, {
+      accountId: demat.id, instrumentId: fund.id,
+      tradeDate: "2026-01-05", price: price(80), units: units(100),
+    });
+    const other = findOrCreateInstrument(db, actor, {
+      name: "Some other fund", kind: "mutual-fund", provider: "manual",
+    });
+    recordPurchase(db, actor, {
+      accountId: demat.id, instrumentId: other.id,
+      tradeDate: "2026-02-05", price: price(50), units: units(10),
+    });
+    const holding = listHoldings(db, demat.id).find((h) => h.instrument_id === fund.id)!;
+
+    // Silently folding them together would lose the distinction between lots
+    // bought at different times, which is the one thing R25.1 forbids.
+    assert.throws(
+      () => recordMerger(db, actor, {
+        holdingId: holding.id, date: "2026-08-01", ratio: 1, intoInstrumentId: other.id,
+      }),
+      /already hold the scheme it merged into/,
+    );
+    db.close();
+  });
+
+  test("a ratio of zero or less is refused", () => {
+    const { db, demat, fund } = setup();
+    recordPurchase(db, actor, {
+      accountId: demat.id, instrumentId: fund.id,
+      tradeDate: "2026-01-05", price: price(80), units: units(100),
+    });
+    const holding = listHoldings(db, demat.id)[0]!;
+    assert.throws(
+      () => recordMerger(db, actor, { holdingId: holding.id, date: "2026-08-01", ratio: 0 }),
+      /above zero/,
+    );
     db.close();
   });
 });

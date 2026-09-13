@@ -10,6 +10,7 @@ import { html, raw, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, type Paise } from "../../core/money.ts";
 import { formatDate, type IsoDate } from "../../core/dates.ts";
 import type { StagedRow, ImportBatch } from "../../import/pipeline.ts";
+import { prominenceOf, type DuplicateTier } from "../../import/dedupe.ts";
 import type { CategoryView } from "../viewmodel.ts";
 import type { Account } from "../../domain/accounts.ts";
 
@@ -67,7 +68,21 @@ export function renderReview(data: ReviewData): SafeHtml {
 }
 
 function renderStaged(data: ReviewData): SafeHtml {
-  const duplicates = data.staged.filter((r) => r.duplicate_of_id !== null);
+  /*
+   * S4 §2 · Not every suspected pair deserves the same alarm. A strong match —
+   * same amount, same day, same reference — is almost certainly one purchase
+   * arriving twice. A weak one is two people at the same restaurant, which `04`
+   * §4 calls normal and D2 says must be easy to keep.
+   *
+   * `prominenceOf` has encoded that since the module was written and nothing
+   * asked it, so every pair shouted equally: a weak coincidence carried the same
+   * warning as a certain duplicate, which is how a queue teaches people to
+   * dismiss it without reading. Strong matches lead, weak ones follow and say so.
+   */
+  const duplicates = data.staged
+    .filter((r) => r.duplicate_of_id !== null)
+    .sort((a, b) => rank(a) - rank(b));
+  const weak = duplicates.filter((r) => prominence(r) === "low").length;
   const plain = data.staged.filter((r) => r.duplicate_of_id === null);
 
   return html`
@@ -83,9 +98,12 @@ function renderStaged(data: ReviewData): SafeHtml {
         <h2>Suspected duplicates <span class="chip chip-warning">${duplicates.length}</span></h2>
         <p class="faint" style="margin-top:-.25rem">
           Two people paying for two things at the same restaurant is normal —
-          keeping both is one tap.
+          keeping both is one tap.${weak > 0
+            ? ` ${weak} of these ${weak === 1 ? "is a weak match" : "are weak matches"}, ` +
+              `shown last.`
+            : ""}
         </p>
-        ${duplicates.map((row) => renderDuplicateRow(row, data.categories))}
+        ${duplicates.map((row) => renderDuplicateRow(row, data.categories, prominence(row)))}
       </section>
     `)}
   `;
@@ -139,14 +157,32 @@ function renderStagedRow(row: StagedRow, categories: CategoryView[]): SafeHtml {
   `;
 }
 
+/** How loudly this pair should be put to the reader (S4 §2). */
+function prominence(row: StagedRow): "high" | "low" {
+  return row.duplicate_tier ? prominenceOf(row.duplicate_tier as DuplicateTier) : "high";
+}
+
+/** High first, so the pairs most likely to be real duplicates lead the queue. */
+function rank(row: StagedRow): number {
+  return prominence(row) === "high" ? 0 : 1;
+}
+
 /** S4 §2: pairs side by side, with the match reason stated. */
-function renderDuplicateRow(row: StagedRow, categories: CategoryView[]): SafeHtml {
+function renderDuplicateRow(
+  row: StagedRow, categories: CategoryView[], loudness: "high" | "low" = "high",
+): SafeHtml {
   return html`
     <form method="post" action="/review/merge"
           style="padding:.75rem 0;border-top:1px solid var(--border)">
       <input type="hidden" name="staged_id" value="${row.id}">
 
-      <p class="notice notice-warning" style="margin-bottom:.5rem">${row.duplicate_reason}</p>
+      ${loudness === "high"
+        ? html`<p class="notice notice-warning" style="margin-bottom:.5rem">${row.duplicate_reason}</p>`
+        : html`
+            <p class="faint" style="margin-bottom:.5rem">
+              <span class="chip">Weak match</span> ${row.duplicate_reason}
+            </p>
+          `}
 
       <div class="row-between">
         <div>

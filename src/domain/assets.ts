@@ -25,6 +25,7 @@
 
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
+import { Refusal } from "../core/refusal.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST, todayIST, formatDate, daysBetween, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
@@ -33,7 +34,7 @@ import { createTransaction } from "./transactions.ts";
 import {
   makeLot, previewSale, totalUnits, costBasis, averageCost, averageUnitPrice, marketValue,
   unrealisedGain, absoluteReturn, xirr, holdingCashFlows, decomposeGain,
-  applySplit, applyReturnOfCapital, formatUnits,
+  applySplit, applyMerger, applyReturnOfCapital, formatUnits,
   type Lot, type Holding, type Milliunits, type MicroRupees,
   type SalePreview, type GainDecomposition,
 } from "../portfolio/holdings.ts";
@@ -865,6 +866,83 @@ export function recordSplit(
       summary:
         `Applied a ${input.ratio}-for-1 ${input.kind ?? "split"}. ` +
         `Units multiplied; the cost basis is unchanged, because nothing was bought.`,
+    });
+  });
+}
+
+/**
+ * R28 · A merger or a scheme amalgamation.
+ *
+ * The event Indian mutual-fund investors actually meet: two schemes merge, the
+ * units are reissued at a ratio, and — the part that matters at tax time — the
+ * **original cost and the original purchase dates carry forward**. It is not a
+ * sale, so nothing is realised, and the holding period is not reset. Treating it
+ * as a sale-and-repurchase would manufacture a capital gain that never happened
+ * and restart the clock on long-term treatment.
+ *
+ * `applyMerger` encoded exactly that and was called by nothing: the table had
+ * allowed `kind = 'merger'` since it was created, and there was no way to record
+ * one. A household whose fund merged had to choose between a wrong unit count
+ * and a fictitious sale.
+ */
+export function recordMerger(
+  db: DB, actor: Actor,
+  input: { holdingId: string; date: IsoDate; ratio: number; intoInstrumentId?: string | null },
+): void {
+  if (!(input.ratio > 0)) throw new Refusal("A merger ratio has to be a number above zero.");
+
+  transact(db, () => {
+    const before = holdingOf(db, input.holdingId);
+    const after = applyMerger(before, input.ratio);
+    for (const lot of after.lots) {
+      execute(db, `UPDATE lots SET units = ?, price = ? WHERE id = ?`, lot.units, lot.price, lot.id);
+    }
+
+    const holding = queryOne<{ instrument_id: string; account_id: string }>(
+      db, `SELECT instrument_id, account_id FROM holdings WHERE id = ?`, input.holdingId,
+    );
+    if (!holding) throw new Refusal("That holding does not exist.");
+
+    const into = input.intoInstrumentId ?? holding.instrument_id;
+    if (into !== holding.instrument_id) {
+      /*
+       * One open holding per instrument per account, by index. Merging into
+       * something the household already holds would collide, and silently
+       * merging the two would lose the distinction between lots bought at
+       * different times — which is the one thing R25.1 says never to do.
+       */
+      const clash = queryOne<{ id: string }>(
+        db,
+        `SELECT id FROM holdings
+          WHERE account_id = ? AND instrument_id = ? AND closed_at IS NULL AND id <> ?`,
+        holding.account_id, into, input.holdingId,
+      );
+      if (clash) {
+        throw new Refusal(
+          "You already hold the scheme it merged into, in the same account. Record " +
+          "the merger against that holding instead, or keep this one under its own name.",
+        );
+      }
+      execute(db, `UPDATE holdings SET instrument_id = ? WHERE id = ?`, into, input.holdingId);
+    }
+
+    execute(
+      db,
+      `INSERT INTO holding_events (id,holding_id,date,kind,ratio,created_at,created_by)
+       VALUES (?,?,?,?,?,?,?)`,
+      newId(), input.holdingId, input.date, "merger", input.ratio, nowIST(), actor.memberId,
+    );
+
+    const name = queryOne<{ name: string }>(
+      db, `SELECT name FROM instruments WHERE id = ?`, into,
+    )?.name;
+    appendEvent(db, actor, {
+      entity: "holding", entityId: input.holdingId, action: "merger",
+      after: { ratio: input.ratio, instrumentId: into },
+      summary:
+        `Merged at ${input.ratio} new units for each one held` +
+        (name && into !== holding.instrument_id ? `, into ${name}` : "") +
+        `. Cost and purchase dates carry forward, so nothing is realised.`,
     });
   });
 }

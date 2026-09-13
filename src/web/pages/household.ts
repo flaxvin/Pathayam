@@ -316,6 +316,47 @@ export function renderHousehold(
     `)}
 
 
+    ${when(view.settled.length > 0, () => html`
+      <!--
+        15 §4A.3 · Calling it even is the only one of the three endings that
+        actually lets something go, and it was recorded in full and shown
+        nowhere. An agreement between two people about money is precisely the
+        thing they will want to be able to point at in six months.
+      -->
+      <section class="card">
+        <h2>What we have called even</h2>
+        <p class="muted">
+          ${formatPaise(view.settledTotal)} settled by agreement, up to
+          ${formatMonth(view.month)}. Nobody owes any of it.
+        </p>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">Month</th>
+                <th scope="col">Whose</th>
+                <th scope="col" class="num">Amount</th>
+                <th scope="col">Given up by</th>
+              </tr>
+            </thead>
+            <tbody>
+              ${view.settled.map((s) => html`
+                <tr>
+                  <td>${formatMonth(s.month)}</td>
+                  <td>${s.name}</td>
+                  <td class="num amount">${formatPaise(s.amount)}</td>
+                  <td>
+                    ${s.givingBudgetName}, from ${s.givingCategoryName}
+                    ${when(s.note, () => html`<span class="faint"> — ${s.note}</span>`)}
+                  </td>
+                </tr>
+              `)}
+            </tbody>
+          </table>
+        </div>
+      </section>
+    `)}
+
     <section class="card">
       <h2>How this works</h2>
       <p>

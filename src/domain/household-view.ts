@@ -20,7 +20,7 @@ import { loadTargets } from "../engine/repository.ts";
 import { householdBudgetId, getBudget } from "./budgets.ts";
 import { commitmentSources } from "./commitments.ts";
 import { listCategories } from "./budget.ts";
-import { GIVEN_UP_CATEGORY } from "./squaring-up.ts";
+import { GIVEN_UP_CATEGORY, listEvenCalls, calledEvenTotal } from "./squaring-up.ts";
 import { standingOf, outstanding, standingSentence, type Standing } from "./standing.ts";
 
 export interface MemberCommitment {
@@ -88,6 +88,28 @@ export interface HouseholdView {
    * ones the squaring-up options apply to.
    */
   underfunded: MemberCommitment[];
+  /**
+   * What has already been called even, and by whom.
+   *
+   * `15` §4A.3 calls this the only one of the three endings that actually lets
+   * something go, and an agreement to let money go is exactly the thing a
+   * household will want to be able to point at later. It was recorded in full
+   * and shown nowhere: `listEvenCalls` and `calledEvenTotal` were written,
+   * tested, and read by no screen.
+   */
+  settled: SettledEntry[];
+  settledTotal: Paise;
+}
+
+export interface SettledEntry {
+  month: MonthKey;
+  /** Whose commitment was closed, in the words the rest of the page uses. */
+  name: string;
+  amount: Paise;
+  /** The budget that gave it up, and the envelope it was spent from. */
+  givingBudgetName: string;
+  givingCategoryName: string;
+  note: string | null;
 }
 
 export function buildHouseholdView(db: DB, month: MonthKey): HouseholdView {
@@ -137,7 +159,45 @@ export function buildHouseholdView(db: DB, month: MonthKey): HouseholdView {
     members,
     separateBudgets: sources.length > 0,
     underfunded: members.filter((m) => m.standing === "underfunded"),
+    settled: describeSettled(db, members, month),
+    settledTotal: members.reduce(
+      (sum, m) => sum + calledEvenTotal(db, m.categoryId, month), 0,
+    ) as Paise,
   };
+}
+
+/**
+ * Everything called even up to and including this month, newest first.
+ *
+ * Named by whose commitment it closed rather than by envelope id, because the
+ * sentence a reader wants is "we agreed to leave ₹2,000 of Ravi's March", not a
+ * row of identifiers.
+ */
+function describeSettled(
+  db: DB, members: MemberCommitment[], month: MonthKey,
+): SettledEntry[] {
+  const byEnvelope = new Map(members.map((m) => [m.categoryId, m.name]));
+  const categoryNames = new Map(
+    listCategories(db, { includeHidden: true }).map((c) => [c.id, c.name]),
+  );
+
+  const entries: SettledEntry[] = [];
+  for (const envelopeId of byEnvelope.keys()) {
+    for (const call of listEvenCalls(db, envelopeId)) {
+      if (call.month > month) continue;
+      const giving = getBudget(db, call.giving_budget_id);
+      entries.push({
+        month: call.month,
+        name: byEnvelope.get(envelopeId)!,
+        amount: call.amount,
+        givingBudgetName:
+          giving?.kind === "household" ? "the household" : giving?.name ?? "a budget since removed",
+        givingCategoryName: categoryNames.get(call.giving_category_id) ?? GIVEN_UP_CATEGORY,
+        note: call.note,
+      });
+    }
+  }
+  return entries.sort((a, b) => (a.month < b.month ? 1 : a.month > b.month ? -1 : 0));
 }
 
 /**
