@@ -13,7 +13,7 @@ import { formatMonth } from "../../core/dates.ts";
 import type { HouseholdView } from "../../domain/household-view.ts";
 import {
   PUT_IT_DOWN_TO_ME, PUT_IT_DOWN_TO_ME_HINT, PICK_IT_UP, PICK_IT_UP_HINT,
-  CALL_IT_EVEN, CALL_IT_EVEN_HINT,
+  CALL_IT_EVEN, CALL_IT_EVEN_HINT, standingLabel,
 } from "../../domain/standing.ts";
 
 export function renderHousehold(
@@ -57,20 +57,34 @@ export function renderHousehold(
     <section class="card">
       <div class="row-between">
         <div>
-          <div class="rta-label">Committed and still available</div>
+          <!--
+            15 §4A.1 · The sign changes what the figure *is*, so it changes what
+            it is called. A negative "still available" is not a small infelicity;
+            it is the wrong noun for a household that owes somebody money.
+          -->
+          <div class="rta-label">
+            ${view.due < 0 ? "Underfunded by members" : "Committed and still available"}
+          </div>
           <div class="rta-figure">
-            <span aria-hidden="true">${formatPaise(view.due)}</span>
-            <span class="sr-only">${speakPaise(view.due)}</span>
+            <span aria-hidden="true">${formatPaise(Math.abs(view.due) as never)}</span>
+            <span class="sr-only">${speakPaise(Math.abs(view.due) as never)}</span>
           </div>
           <p class="muted" style="margin:.25rem 0 0">
-            This is part of the household's Ready to Assign, alongside what is in
-            its own accounts.
+            ${view.due < 0
+              ? html`
+                  More has gone to the household than was put aside for it, so this
+                  much comes off the household's Ready to Assign until it is settled.
+                `
+              : html`
+                  This is part of the household's Ready to Assign, alongside what
+                  is in its own accounts.
+                `}
           </p>
         </div>
         <div style="text-align:right">
           <div class="chip">Put in this month ${formatPaise(view.committedThisMonth)}</div>
           <div class="chip" style="margin-top:.35rem">
-            Spent this month ${formatPaise(view.spentThisMonth)}
+            Gone to the household ${formatPaise(view.spentThisMonth)}
           </div>
         </div>
       </div>
@@ -82,8 +96,10 @@ export function renderHousehold(
         <thead>
           <tr>
             <th scope="col">Whose</th>
+            <!-- The row has to add up on its face, or it reads as a bug. -->
+            <th scope="col" class="numeric">Brought forward</th>
             <th scope="col" class="numeric">Put in this month</th>
-            <th scope="col" class="numeric">Spent</th>
+            <th scope="col" class="numeric">Gone to the household</th>
             <th scope="col" class="numeric">Where it stands</th>
             <th scope="col">Monthly plan</th>
           </tr>
@@ -93,14 +109,25 @@ export function renderHousehold(
             (m) => html`
               <tr>
                 <th scope="row">${m.name}</th>
+                <td class="numeric ${m.broughtForward < 0 ? "negative" : ""}">
+                  ${m.broughtForward === 0
+                    ? html`<span class="faint">—</span>`
+                    : m.broughtForward < 0
+                      ? html`${formatPaise(Math.abs(m.broughtForward) as never)}
+                             <span class="faint">underfunded</span>`
+                      : formatPaise(m.broughtForward)}
+                </td>
                 <td class="numeric">${formatPaise(m.assignedThisMonth)}</td>
                 <td class="numeric">${formatPaise(m.spentThisMonth)}</td>
-                <td class="numeric ${m.standing === "ahead" ? "negative" : ""}">
-                  ${m.standing === "ahead"
-                    ? html`${formatPaise(m.outstanding)} <span class="chip">ahead</span>`
-                    : m.standing === "behind"
-                      ? formatPaise(m.outstanding)
-                      : html`<span class="faint">square</span>`}
+                <td class="numeric ${m.standing === "underfunded" ? "negative" : ""}">
+                  ${m.standing === "even"
+                    ? html`<span class="faint">square</span>`
+                    : html`
+                        ${formatPaise(m.outstanding)}
+                        <span class="chip ${m.standing === "underfunded" ? "chip-warning" : ""}">
+                          ${standingLabel(m.available)}
+                        </span>
+                      `}
                 </td>
                 <td>
                   ${m.target === null
@@ -118,8 +145,9 @@ export function renderHousehold(
         </tbody>
       </table>
       <p class="faint">
-        <strong>Ahead</strong> means they have paid for more of the household than
-        they put aside for it. Nothing expires at month end — it carries forward
+        Brought forward, plus what went in, less what went to the household, is
+        where it stands. <strong>Underfunded</strong> means more has gone to the
+        household than was put aside for it. Nothing expires at month end — it carries forward
         until one of you settles it, which is what the options below are for.
       </p>
     </section>
@@ -145,21 +173,27 @@ export function renderHousehold(
         </form>
         <p class="faint">
           Leave it empty to have no standing figure. Clearing it changes nothing
-          about what you have already committed
-          (${formatPaise(mine!.available as never)} is still there).
+          about where you stand —
+          ${mine!.available < 0
+            ? html`your commitment is still
+                   ${formatPaise(Math.abs(mine!.available) as never)} underfunded`
+            : mine!.available > 0
+              ? html`${formatPaise(mine!.available as never)} is still committed`
+              : html`you are square with the household`}.
         </p>
       </section>
     `)}
 
-    ${when(view.aheadOfUs.length > 0, () => html`
+    ${when(view.underfunded.length > 0, () => html`
       <section class="card">
         <h2>Squaring up</h2>
         <p class="muted">
-          The household is behind with
-          ${view.aheadOfUs.map((m) => m.name).join(" and ")}. There are three ways
-          that can end, and they are not the same thing.
+          ${view.underfunded.map((m) => m.name).join(" and ")}
+          ${view.underfunded.length === 1 ? "has" : "have"} a commitment that is
+          short. There are three ways that can be settled, and they are not the
+          same thing.
         </p>
-        ${view.aheadOfUs.map(
+        ${view.underfunded.map(
           (m) => html`
             <div style="padding:.7rem 0;border-top:1px solid var(--border)">
               <p><strong>${m.sentence}</strong></p>

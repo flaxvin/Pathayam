@@ -768,8 +768,8 @@ export function renderRateReset(opts: {
         </div>
         <div class="field">
           <label for="rate-from">Effective from</label>
-          <input id="rate-from" name="effective_from" placeholder="DD-MM-YYYY" required
-                 value="${formatDate(opts.effectiveFrom)}">
+          <input type="date" id="rate-from" name="effective_from" required
+                 value="${opts.effectiveFrom}">
         </div>
       </div>
       <div class="field">
@@ -866,7 +866,7 @@ export function renderNewLoanForm(opts: {
         </div>
         <div class="field">
           <label for="sanction_date">Sanctioned on</label>
-          <input id="sanction_date" name="sanction_date" type="text" placeholder="DD-MM-YYYY">
+          <input id="sanction_date" name="sanction_date" type="date">
         </div>
       </div>
 
@@ -880,7 +880,7 @@ export function renderNewLoanForm(opts: {
           </div>
           <div class="field">
             <label for="history_from">History known from</label>
-            <input id="history_from" name="history_from" type="text" placeholder="DD-MM-YYYY">
+            <input id="history_from" name="history_from" type="date">
           </div>
         </div>
         <p class="field-hint">
@@ -892,7 +892,7 @@ export function renderNewLoanForm(opts: {
       <div class="grid-2">
         <div class="field">
           <label for="first_instalment_date">First instalment due</label>
-          <input id="first_instalment_date" name="first_instalment_date" type="text" placeholder="DD-MM-YYYY">
+          <input id="first_instalment_date" name="first_instalment_date" type="date">
         </div>
         <div class="field">
           <label for="repayment_account_id">Paid from</label>
@@ -1011,8 +1011,8 @@ export function renderLoanStatementForm(opts: {
         </div>
         <div class="field">
           <label for="as_of">Statement date</label>
-          <input id="as_of" name="as_of" type="text" autocomplete="off"
-                 value="${formatDate(opts.today)}" placeholder="DD-MM-YYYY">
+          <input id="as_of" name="as_of" type="date" autocomplete="off"
+                 value="${opts.today}">
         </div>
       </div>
       <fieldset>

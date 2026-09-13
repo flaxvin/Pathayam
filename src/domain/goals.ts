@@ -16,6 +16,8 @@ import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST, todayIST, monthOf, monthsBetween, type IsoDate } from "../core/dates.ts";
 import { formatPaise, allocate, type Paise } from "../core/money.ts";
+import { Refusal } from "../core/refusal.ts";
+import { householdBudgetId } from "./budgets.ts";
 
 export interface Goal {
   id: string;
@@ -45,7 +47,17 @@ export interface GoalProgress {
 
 export function createGoal(
   db: DB, actor: Actor,
-  input: { name: string; targetAmount: Paise; targetDate?: IsoDate | null; note?: string | null; categoryIds: string[] },
+  input: {
+    name: string; targetAmount: Paise; targetDate?: IsoDate | null;
+    note?: string | null; categoryIds: string[];
+    /**
+     * 15 §6B · Whose goal it is, decided here and only here. There is no edit
+     * path: a goal is measured by its categories' balances, so moving it between
+     * budgets would change what months of history meant. Closing one and opening
+     * another says honestly what happened.
+     */
+    budgetId?: string;
+  },
 ): Goal {
   if (input.targetAmount <= 0) throw new Error("A goal needs a target above zero.");
   if (input.categoryIds.length === 0) {
@@ -58,11 +70,30 @@ export function createGoal(
     const id = newId();
     execute(
       db,
-      `INSERT INTO goals (id,name,target_amount,target_date,note,created_at,created_by)
-       VALUES (?,?,?,?,?,?,?)`,
+      `INSERT INTO goals (id,name,target_amount,target_date,note,created_at,created_by,budget_id)
+       VALUES (?,?,?,?,?,?,?,?)`,
       id, input.name, input.targetAmount, input.targetDate ?? null,
       input.note ?? null, nowIST(), actor.memberId,
+      input.budgetId ?? householdBudgetId(db),
     );
+
+    /*
+     * The envelope a goal saves into has to be in the goal's own budget, or the
+     * figure on the goal and the figure on the grid would be two different
+     * households' money added together.
+     */
+    const budget = input.budgetId ?? householdBudgetId(db);
+    for (const categoryId of input.categoryIds) {
+      const category = queryOne<{ budget_id: string | null; name: string }>(
+        db, `SELECT budget_id, name FROM categories WHERE id = ?`, categoryId,
+      );
+      if (category && category.budget_id && category.budget_id !== budget) {
+        throw new Refusal(
+          `"${category.name}" is an envelope in another budget, and a goal can ` +
+          `only be measured by envelopes in its own.`,
+        );
+      }
+    }
 
     for (const categoryId of input.categoryIds) {
       execute(
@@ -91,11 +122,27 @@ export function goalCategoryIds(db: DB, goalId: string): string[] {
   ).map((r) => r.category_id);
 }
 
-export function listGoals(db: DB, opts: { includeCompleted?: boolean } = {}): Goal[] {
+export function listGoals(
+  db: DB, opts: { includeCompleted?: boolean; budgetIds?: string[] } = {},
+): Goal[] {
+  /*
+   * 15 §6B · A goal in somebody else's personal budget is theirs to see. Passing
+   * the viewer's budgets is how a caller says which those are; omitting it means
+   * every goal, which is what the export and a one-budget household want.
+   */
+  const where: string[] = [];
+  const params: string[] = [];
+  if (!opts.includeCompleted) where.push("completed_at IS NULL");
+  if (opts.budgetIds) {
+    where.push(`(budget_id IS NULL OR budget_id IN (${opts.budgetIds.map(() => "?").join(",")}))`);
+    params.push(...opts.budgetIds);
+  }
   return queryAll<Goal>(
     db,
-    `SELECT * FROM goals ${opts.includeCompleted ? "" : "WHERE completed_at IS NULL"}
+    `SELECT * FROM goals
+      ${where.length ? `WHERE ${where.join(" AND ")}` : ""}
       ORDER BY target_date IS NULL, target_date, created_at`,
+    ...params,
   );
 }
 
@@ -107,8 +154,9 @@ export function listGoals(db: DB, opts: { includeCompleted?: boolean } = {}): Go
  */
 export function goalProgress(
   db: DB, categoryBalances: Map<string, { name: string; balance: Paise }>, today = todayIST(),
+  budgetIds?: string[],
 ): GoalProgress[] {
-  return listGoals(db).map((goal) => {
+  return listGoals(db, { budgetIds }).map((goal) => {
     const linked = queryAll<{ category_id: string }>(
       db, `SELECT category_id FROM goal_categories WHERE goal_id = ?`, goal.id,
     );

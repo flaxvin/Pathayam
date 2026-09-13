@@ -97,7 +97,7 @@ import {
 } from "./domain/accounts.ts";
 import {
   setAssigned, addAssigned, copyAssignmentsFromMonth, moveMoney, setHeld, getHeld,
-  listCategories, getCategory,
+  listCategories, getCategory, startPersonalBudget,
 } from "./domain/budget.ts";
 import {
   createTransaction, createTransfer, updateTransaction, deleteTransaction,
@@ -868,9 +868,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
        * between the member and the thing they were trying to do, and there is
        * only ever one right answer to that question.
        */
-      ensureCommitmentEnvelope(
-        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), budget.id,
-      );
+      const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+      ensureCommitmentEnvelope(db, actor, budget.id);
+      // `03` J1 · Never an empty grid. A few envelopes to start from, which can
+      // all be renamed or deleted.
+      startPersonalBudget(db, actor, budget.id);
       return {
         redirect: `/?budget=${budget.id}`,
         message: `${budget.name}'s budget is ready. Move an account into it to give it money.`,
@@ -1294,6 +1296,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         institution: text("institution"),
         last4: text("last4"),
         holder_member_id: text("holder_member_id"),
+        statement_day: numberOrNull(field(ctx.body, "statement_day")),
+        due_day: numberOrNull(field(ctx.body, "due_day")),
         // 15 · Moving an account between budgets is one undoable step, recorded
         // like any other edit, because it moves money's home.
         budget_id: text("budget_id"),
@@ -1491,6 +1495,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         }),
         defaultAccountId: ctx.query.get("account") ?? lastUsed?.account_id ?? accounts[0]?.id ?? null,
         today: todayIST(),
+        budgets: budgetsFor(db, viewer(ctx)).map((b) => ({ id: b.id, name: b.name, kind: b.kind })),
+        members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
+        defaultSpenderId: viewer(ctx),
       }),
     );
   });
@@ -1531,6 +1538,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         tags,
         cleared: field(ctx.body, "cleared") === "1",
         reimbursable: field(ctx.body, "reimbursable") === "1",
+        // H2 · Who spent it. A card with its own holder still wins — an add-on
+        // charge belongs to whoever holds the add-on (R6.e).
+        ownerMemberId: field(ctx.body, "owner_member_id") || undefined,
       });
 
       return { redirect: "/", message: `Saved ${formatPaise(magnitude)}.` };
@@ -3609,6 +3619,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // S9 · Goals (F11)
   // -------------------------------------------------------------------------
   router.get("/goals", (ctx) => {
+    const mine = budgetsFor(db, viewer(ctx));
     const view = buildBudgetView(db);
     const balances = new Map(
       [...view.categories].map(([id, c]) => [id, { name: c.name, balance: c.state.balance }]),
@@ -3617,7 +3628,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return render(
       ctx, "Goals",
       renderGoals({
-        goals: goalProgress(db, balances),
+        goals: goalProgress(db, balances, todayIST(), mine.map((b) => b.id)),
+        budgets: mine.map((b) => ({ id: b.id, name: b.name, kind: b.kind })),
       }),
     );
   });
@@ -3628,16 +3640,32 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const targetDate = field(ctx.body, "target_date");
       const name = requiredField(ctx.body, "name");
 
+      /*
+       * 15 §6B · Whose goal it is, chosen here and fixed after that. A goal is
+       * measured by its envelope's balance, so moving it later would change what
+       * months of watched history meant.
+       */
+      const asked = field(ctx.body, "budget_id");
+      const mine = budgetsFor(db, a.member.id);
+      const budgetId = mine.find((b) => b.id === asked)?.id ?? householdBudgetId(db);
+
       // B58 · A goal owns exactly one savings envelope, created and managed by
       // the app in the "Savings goals" group — never hand-picked, never shared.
-      const category = ensureSavingsCategory(actor, name);
+      const category = ensureSavingsCategory(actor, name, budgetId);
       createGoal(db, actor, {
         name,
         targetAmount: amountField(field(ctx.body, "target_amount"), "Target"),
         targetDate: targetDate ? parseDate(targetDate) : null,
         categoryIds: [category.id],
+        budgetId,
       });
-      return { redirect: "/goals", message: "Goal added, with its own savings category." };
+      const budget = getBudget(db, budgetId);
+      return {
+        redirect: "/goals",
+        message:
+          `Goal added, with its own savings category in ` +
+          `${budget?.kind === "household" ? "the household budget" : `${budget?.name}'s budget`}.`,
+      };
     }),
   );
 
@@ -3657,18 +3685,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   const GOAL_GROUP = "Goals";
   const LEGACY_GOAL_GROUP = "Savings goals";
 
-  function goalGroup(actor: Actor) {
-    const groups = listGroups(db);
+  function goalGroup(actor: Actor, budgetId: string) {
+    // 15 §6B · One per budget: a goal's envelope has to be in the goal's own
+    // budget, or its progress figure would be two households' money added up.
+    const groups = listGroups(db, budgetId);
     const existing = groups.find(
       (g) => g.kind === "internal" && (g.name === GOAL_GROUP || g.name === LEGACY_GOAL_GROUP),
     );
-    if (!existing) return createGroup(db, actor, GOAL_GROUP, "internal");
+    if (!existing) return createGroup(db, actor, GOAL_GROUP, "internal", budgetId);
     if (existing.name !== GOAL_GROUP) return renameGroup(db, actor, existing.id, GOAL_GROUP);
     return existing;
   }
 
-  function ensureSavingsCategory(actor: Actor, goalName: string) {
-    return createCategory(db, actor, { groupId: goalGroup(actor).id, name: goalName });
+  function ensureSavingsCategory(actor: Actor, goalName: string, budgetId: string) {
+    return createCategory(db, actor, { groupId: goalGroup(actor, budgetId).id, name: goalName });
   }
 
   router.post("/goals/:id/edit", (ctx) =>

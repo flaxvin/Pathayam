@@ -178,6 +178,10 @@ export function renderQuery(opts: QueryOptions): SafeHtml {
                     <th scope="col">Payee</th>
                     <th scope="col">Category</th>
                     <th scope="col">Account</th>
+                    <!-- H2 · Who spent it, in the table rather than only in a
+                         grouping. On a shared account it is half the answer to
+                         "what was this?" and it was one click away. -->
+                    <th scope="col">Who</th>
                     <th scope="col" class="num">Amount</th>
                   </tr>
                 </thead>
@@ -191,6 +195,7 @@ export function renderQuery(opts: QueryOptions): SafeHtml {
                           ${r.category ?? html`<span class="chip chip-warning">Uncategorised</span>`}
                         </td>
                         <td class="faint">${r.account}</td>
+                        <td class="faint">${r.owner ?? "—"}</td>
                         <td class="num amount ${r.amount < 0 ? "amount-negative" : "amount-positive"}">
                           ${formatPaise(r.amount)}
                         </td>
@@ -778,8 +783,8 @@ export function renderNewScheduleForm(opts: {
         </div>
         <div class="field">
           <label for="next_due">Next due</label>
-          <input id="next_due" name="next_due" type="text" autocomplete="off"
-                 value="${formatDate(opts.today)}" placeholder="DD-MM-YYYY">
+          <input id="next_due" name="next_due" type="date" autocomplete="off"
+                 value="${opts.today}">
         </div>
       </div>
       <div class="grid-2">
@@ -877,7 +882,10 @@ function renderCalendarDay(day: CalendarDay): SafeHtml {
 
 export function renderGoals(opts: {
   goals: GoalProgress[];
+  /** 15 §6B · The budgets a goal could belong to. One means no choice to make. */
+  budgets?: { id: string; name: string; kind: string }[];
 }): SafeHtml {
+  const budgets = opts.budgets ?? [];
   return html`
     <div class="row-between" style="margin-bottom:1rem">
       <h1>Goals</h1>
@@ -912,12 +920,36 @@ export function renderGoals(opts: {
         </div>
         <div class="field">
           <label for="target_date">By when <span class="faint">(optional)</span></label>
-          <input id="target_date" name="target_date" placeholder="DD-MM-YYYY">
+          <input type="date" id="target_date" name="target_date">
           <p class="field-hint">
             With a date, the goal tells you what to put aside each month. Each goal
             gets its own savings envelope, created and kept in step automatically.
           </p>
         </div>
+        ${when(budgets.length > 1, () => html`
+          <!--
+            15 §6B · Chosen once. A goal is measured by its envelope's balance, so
+            moving it later would change what months of watched history meant —
+            there is deliberately no edit for this.
+          -->
+          <div class="field">
+            <label for="goal-budget">Shared or your own?</label>
+            <select id="goal-budget" name="budget_id">
+              ${budgets.map(
+                (b) => html`
+                  <option value="${b.id}">
+                    ${b.kind === "household" ? "Shared — the household's goal" : `Mine — ${b.name}'s own`}
+                  </option>
+                `,
+              )}
+            </select>
+            <p class="field-hint">
+              This cannot be changed later: the goal's progress is its envelope's
+              balance, and moving it between budgets would change what the months
+              you have been watching meant.
+            </p>
+          </div>
+        `)}
         <button class="button-primary" type="submit">Add it</button>
       </form>
     </section>
@@ -980,8 +1012,8 @@ function renderGoalCard(g: GoalProgress): SafeHtml {
           </div>
           <div class="field">
             <label for="date-${g.goal.id}">By when <span class="faint">(optional)</span></label>
-            <input id="date-${g.goal.id}" name="target_date"
-                   value="${g.goal.target_date ? formatDate(g.goal.target_date) : ""}" placeholder="DD-MM-YYYY">
+            <input type="date" id="date-${g.goal.id}" name="target_date"
+                   value="${g.goal.target_date ?? ""}">
           </div>
           <button class="button-small button-primary" type="submit">Save changes</button>
         </form>

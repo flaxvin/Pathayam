@@ -33,6 +33,8 @@ export interface CategoryView {
    * a bigger share than planned (15 §4A.2), and the words follow from that.
    */
   commitsToBudgetId: string | null;
+  /** 15 · Which budget's envelope this is, so a picker can say whose. */
+  budgetId: string | null;
   state: CategoryState;
   target: Target | null;
   progress: TargetProgress | null;
@@ -108,6 +110,7 @@ export function buildBudgetView(db: DB, month?: MonthKey, budgetId?: string): Bu
       hidden: meta.hidden,
       isPaymentCategory: meta.paymentAccountId !== null,
       commitsToBudgetId: meta.commitsToBudgetId ?? null,
+      budgetId: groupById.get(meta.groupId)?.budgetId ?? null,
       paymentAccountId: meta.paymentAccountId,
       state,
       target: t,

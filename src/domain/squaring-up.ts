@@ -120,12 +120,13 @@ export function callItEven(db: DB, actor: Actor, input: CallItEvenInput): EvenCa
     /*
      * Who gives it up is decided by the arithmetic, not by who clicked.
      *
-     * A positive envelope means its own budget is behind — it has had the use of
-     * the other's money — so the other budget is the one letting it go. A negative
-     * envelope is the reverse.
+     * An overfunded envelope means its own budget has put money aside that the
+     * other has had the use of, so the other budget is the one letting it go. An
+     * underfunded one is the reverse: the envelope's budget paid for more than it
+     * set aside, so it is the one giving something up.
      */
     const givingBudget =
-      standingOf(standing.balance) === "behind"
+      standingOf(standing.balance) === "overfunded"
         ? envelope.commits_to_budget_id
         : envelope.budget_id;
 

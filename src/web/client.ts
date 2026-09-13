@@ -670,6 +670,20 @@ export const CLIENT_SCRIPT = String.raw`
     palette.querySelector("#palette-input").focus();
   }
 
+  /*
+   * A link to "#edit" should open the disclosure it points at. Browsers do this
+   * for content *inside* a <details>, but not reliably for the element itself,
+   * and the Edit button on an account is exactly that case.
+   */
+  function openTargetedDetails() {
+    var id = window.location.hash.slice(1);
+    if (!id) return;
+    var target = document.getElementById(id);
+    if (target && target.tagName === "DETAILS") target.open = true;
+  }
+  window.addEventListener("hashchange", openTargetedDetails);
+  openTargetedDetails();
+
   document.addEventListener("keydown", function (event) {
     var typing =
       event.target &&

@@ -1788,4 +1788,25 @@ DROP TABLE month_closes;
 ALTER TABLE month_closes_new RENAME TO month_closes;
 `,
   },
+  {
+    name: "0032-goals-belong-to-a-budget",
+    sql: `
+--------------------------------------------------------------------------------
+-- 15 §6B · A goal is personal or shared, chosen once
+--------------------------------------------------------------------------------
+-- A goal is measured by its categories' balances (F11), so moving it between
+-- budgets would move the meaning of money underneath a figure people have been
+-- watching for months: the trip fund that was yours becomes the household's, and
+-- the history stops describing the same thing. Creating a new goal in the other
+-- budget and closing this one is honest about what happened; silently
+-- re-pointing it is not.
+--
+-- So there is no edit path for this column, only a choice at creation. Every
+-- goal that exists today was the household's, because the household's was the
+-- only budget there was.
+ALTER TABLE goals ADD COLUMN budget_id TEXT REFERENCES budgets(id);
+UPDATE goals SET budget_id = 'budget-household' WHERE budget_id IS NULL;
+CREATE INDEX idx_goals_budget ON goals(budget_id);
+`,
+  },
 ];

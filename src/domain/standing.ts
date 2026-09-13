@@ -1,41 +1,43 @@
 /**
- * 15 §4A.1 · How a balance between two people is said out loud.
+ * 15 §4A.1 · How a commitment's balance is said out loud.
  *
- * The app already has transactional language — *owes you*, *write off*,
- * *forgiven* — and it is right where it lives: `10` §3.5's family lending is
- * money lent to a cousin, which genuinely is a debt with a creditor.
+ * Two rules, and the second was learned the hard way.
  *
- * Between two people running a household it is the wrong register entirely.
- * Nobody says their partner is in default on the electricity; what they say is
- * that one of them has put in more this month. So:
+ * **Not the language of debt.** The app already has transactional words —
+ * *owes you*, *write off*, *forgiven* — and they are right where they live:
+ * `10` §3.5's family lending is money lent to a cousin, which genuinely is a
+ * debt with a creditor. Between two people running a household it is the wrong
+ * register entirely. Nobody says their partner is in default on the electricity.
  *
- * | Not this | This |
- * |---|---|
- * | debt, claim, liability | what's outstanding between you, the balance |
- * | Ravi owes the household ₹2,000 | the household is ₹2,000 behind with Ravi |
- * | creditor, debtor | ahead, behind |
- * | forgive, write off | call it even |
- * | settle the debt | square up |
+ * **And one subject, not two.** The first cut said *"₹36,640 ahead"* in one
+ * table and *"the household is ₹36,640 behind with Ravi"* two inches below it.
+ * Both were true and they read as a contradiction, because one described the
+ * member and the other the household. So everything here describes **the
+ * commitment**, and borrows the budget screen's own words for an envelope with
+ * too little or too much in it:
  *
- * The arithmetic inside the engine can keep whichever words are clearest there.
- * This module exists so that every word a person reads comes from one place.
+ * | Envelope | Word | What happened |
+ * |---|---|---|
+ * | below zero | **underfunded** | more has gone to the household than was put aside for it |
+ * | above zero | **overfunded** | more has been put aside for the household than has gone out |
+ * | zero | **square** | nothing outstanding either way |
  */
 
 import { formatPaise, type Paise } from "../core/money.ts";
 
-export type Standing = "ahead" | "behind" | "even";
+export type Standing = "overfunded" | "underfunded" | "even";
 
 /**
  * Which way a commitment envelope's balance points.
  *
- * A **positive** balance is money committed and not yet spent: its owner has
- * said it is the household's but has not handed it over, so they are *behind*
- * with the household. A **negative** balance means they have paid for more of
- * the household than they put aside, so they are *ahead*.
+ * A **positive** balance is money committed and not yet spent — more has been
+ * put aside than has gone out, so the commitment is overfunded. A **negative**
+ * balance means household spending has outrun what was put aside for it, which
+ * is the same thing the budget screen calls underfunded.
  */
 export function standingOf(envelopeBalance: Paise): Standing {
-  if (envelopeBalance > 0) return "behind";
-  if (envelopeBalance < 0) return "ahead";
+  if (envelopeBalance > 0) return "overfunded";
+  if (envelopeBalance < 0) return "underfunded";
   return "even";
 }
 
@@ -44,53 +46,63 @@ export function outstanding(envelopeBalance: Paise): Paise {
   return Math.abs(envelopeBalance) as Paise;
 }
 
+/** The one word for a row or a chip. */
+export function standingLabel(envelopeBalance: Paise): string {
+  switch (standingOf(envelopeBalance)) {
+    case "underfunded": return "underfunded";
+    case "overfunded": return "overfunded";
+    default: return "square";
+  }
+}
+
 /**
- * One sentence, addressed to whoever is reading it.
+ * One sentence, about the commitment rather than about a person's standing.
  *
- * `who` is the member the balance belongs to, in the third person; pass null for
- * the reader's own balance and it uses *you*.
+ * `who` is whose commitment it is; pass null for the reader's own.
  */
 export function standingSentence(
   envelopeBalance: Paise, who: string | null, other = "the household",
 ): string {
   const amount = formatPaise(outstanding(envelopeBalance));
-  const they = who ?? "You";
-  const lower = who ?? "you";
+  const whose = who === null ? "Your" : `${who}'s`;
+  const they = who === null ? "you" : "they";
 
   switch (standingOf(envelopeBalance)) {
-    case "ahead":
-      return who === null
-        ? `You are ${amount} ahead — you have paid for more of ${other} than you put aside for it.`
-        : `${other === "the household" ? "The household" : other} is ${amount} behind with ${they}.`;
-    case "behind":
-      return who === null
-        ? `You have ${amount} set aside for ${other} that has not been spent yet.`
-        : `${they} has ${amount} committed to ${other} and not yet spent.`;
+    case "underfunded":
+      return (
+        `${whose} commitment to ${other} is ${amount} underfunded — that much ` +
+        `more has gone to ${other} than ${they} put aside for it.`
+      );
+    case "overfunded":
+      return (
+        `${whose} commitment to ${other} is ${amount} overfunded — that much has ` +
+        `been put aside for ${other} and has not gone out yet.`
+      );
     default:
-      return who === null ? `You are square with ${other}.` : `${they} is square with ${other}.`;
+      return `${whose} commitment to ${other} is square: nothing outstanding either way.`;
   }
 }
 
-/** The label on the button that resolves an envelope in the red (15 §4A.2). */
+/** The label on the button that resolves a commitment in the red (15 §4A.2). */
 export const PUT_IT_DOWN_TO_ME = "Put it down to me";
 
 /**
  * What that button means, because the name alone does not say it.
  *
- * Covering your own household envelope is not forgiving anybody anything: it is
+ * Funding your own household commitment is not forgiving anybody anything: it is
  * deciding that your share this month was larger. That distinction is the whole
  * reason this wording exists rather than R4's *cover overspending*.
  */
 export const PUT_IT_DOWN_TO_ME_HINT =
-  "Your share of the household this month goes up by this much. Nothing is " +
-  "forgiven and nobody else is asked for anything.";
+  "Fund it from your own Ready to Assign. Your share of the household this month " +
+  "goes up by this much; nothing is forgiven and nobody else is asked for anything.";
 
 export const PICK_IT_UP = "I'll pick it up";
 export const PICK_IT_UP_HINT =
-  "You commit this much on top of what you have already, and the household " +
-  "stops being behind with them.";
+  "You commit this much on top of what you have already, so the shortfall is " +
+  "funded from your budget instead of theirs.";
 
 export const CALL_IT_EVEN = "Call it even";
 export const CALL_IT_EVEN_HINT =
-  "Nobody pays it. It becomes spending on your side — so it needs an envelope, " +
+  "Nobody funds it. It becomes spending on your side — so it needs an envelope, " +
   "the same as anything else the household spends on.";

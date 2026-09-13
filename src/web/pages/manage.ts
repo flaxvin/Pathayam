@@ -457,8 +457,7 @@ export function renderCategories(
                       </div>
                       <div class="field" style="margin:0">
                         <label style="font-size:.75rem" for="tgtd-${c.id}">By date (optional)</label>
-                        <input id="tgtd-${c.id}" name="target_date" style="max-width:8rem"
-                               placeholder="DD-MM-YYYY" value="${c.target?.date ? formatDate(c.target.date as never) : ""}">
+                        <input type="date" id="tgtd-${c.id}" name="target_date" style="max-width:8rem" value="${c.target?.date ?? ''}">
                       </div>
                       <button class="button-small" type="submit">Set target</button>
                     </form>

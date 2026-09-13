@@ -23,7 +23,7 @@ Google Sheet via [`website/waitlist.gs`](website/waitlist.gs); set the endpoint
 in `website/site.js` to switch it on.
 
 ```
-Status   P0 · P1 complete   P2 substantially complete   813 tests   0 deps
+Status   P0 → P6 complete   894 tests   0 deps
 Stack    TypeScript on Node 24+   node:sqlite   node:http   server-rendered HTML
 Deploy   Docker Compose · homelab behind Cloudflare Tunnel · SQLite on a volume
 ```
@@ -68,6 +68,13 @@ Deploy   Docker Compose · homelab behind Cloudflare Tunnel · SQLite on a volum
   interest models, tranches, pre-EMI, moratorium, prepayment). Unit-based
   holdings with FIFO lots, XIRR, and a net-worth statement — behind a firewall
   (R30) so a portfolio doubling can never touch your budget.
+- **Pooled or separate, your choice.** Most households pool everything, and that
+  is the default and needs no configuring. For the ones that would rather keep
+  their own accounts and split the shared bills, each member can open a budget of
+  their own and commit an agreed amount to the household — without a rupee moving
+  between accounts, and without publishing what it came out of. Both sets of books
+  close independently, and the app's word for a lopsided month is *ahead*, not
+  *debt*.
 - **Server-only and auditable.** No client storage, no service worker. Every
   mutation is an append-only event, giving universal undo, "explain this
   number", and as-of-date views from one mechanism. Verified backup restore is
@@ -154,6 +161,23 @@ from.
 | **Forward recompute (R7.g)** | Editing any past month re-derives every month since, under the active overspend model, as one undoable batch. |
 | **Explain this number** | Ready to Assign and every category balance drill into the events that produced them. |
 
+### Money kept separately (`15`)
+
+For a household that would rather not pool everything. A household that does
+pool everything never sees any of this — there is no second grid, no extra
+column, and no control for a distinction it has not made.
+
+| Feature | What it does |
+|---|---|
+| **A budget of your own** | Open one when you want it. Your accounts move into it, it keeps its own envelopes and its own Ready to Assign, and nobody else can see it — not through *view as*, not through an aggregate. |
+| **Private accounts and cards** | Genuinely private, and only where that is honest: in your own budget, where the household's Ready to Assign never sums it. The household budget still refuses, because a total built on a balance publishes it by subtraction. |
+| **Committing without moving money** | One envelope in your budget is the household's. Assigning to it commits that money and moves not a rupee — so a private account can fund shared spending without publishing its balance. Set a standing monthly figure once instead of remembering it. |
+| **Paying for shared things from your own account** | File it to a household envelope. The household's envelope falls, your commitment falls, no transfer happens. Shared cards, add-on cards and split receipts all follow the same one rule. |
+| **Ahead and behind** | Not *debt*, not *owes*. If you have paid for more of the household than you put aside, you are ahead, and it carries forward until one of you settles it. |
+| **Three ways to end a month** | *Put it down to me* (your share was larger), *I'll pick it up* (the other commits it), or *call it even* — the only one that lets something go, and it lands as spending on the giving side because the money still has to come from somewhere. |
+| **The household page** | What each of you put in this month, what was spent, and where it stands. Nothing else — no balances, no accounts, no other envelopes. |
+| **Independent month close** | The household's month can close while a personal one is still open. The household's close reports what each member put in. |
+
 ### Money in — ingestion (`04`)
 
 | Feature | What it does |
@@ -209,7 +233,7 @@ from.
 | Feature | What it does |
 |---|---|
 | **Google SSO** | Closed allow-list, enforced on every request. First sign-in on a fresh instance becomes a member; everyone else is invited. |
-| **Sessions & impersonation** | Per-device revocation; read-only "view as" another member, always logged. |
+| **Sessions & impersonation** | Per-device revocation; read-only *view as* another member, always logged — and off entirely unless `ADMIN_DEBUG` is set, because a personal budget somebody else can step into is not a separate budget (R38.6a). |
 | **Personal API tokens** | Scoped read / read-write, shown once and stored as a hash, rate-limited separately, structurally unable to sign in or mint more tokens. |
 | **Feature flags** | Loans, assets and multi-currency each disableable per deployment; a disabled module vanishes from nav, palette and reports (F28). |
 | **Backup & verified restore** | The scheduled job restores the latest backup into a scratch DB and matches control totals; failure fires a webhook, success pings a dead-man's-switch. |
@@ -720,8 +744,13 @@ departures — are logged in
 |---|---|
 | **SMS forwarding** (`04` §3.5) | Needs an Android companion to forward SMS bodies; the parser would reuse the alert mechanism. iOS cannot read SMS — a platform limit, not a gap. |
 
-Everything else in the design set is built. The three things `05` §3 says can
-never be retrofitted — the engine's semantics, idempotency keys, and the event
+Everything else in the design set is built, including the separate-budgets work
+`14` estimated at 12–20 weeks and `15` designed properly: personal budgets, the
+commitment envelope, cross-budget spending on shared and add-on cards, and the
+three ways a lopsided month can end. The plan and what it cost are in
+[`docs/16-build-plan.md`](docs/16-build-plan.md).
+
+The three things `05` §3 says can never be retrofitted — the engine's semantics, idempotency keys, and the event
 log — are all in place, and every source of transactions terminates in the same
 review queue, which is what makes remaining ingestion work additive.
 

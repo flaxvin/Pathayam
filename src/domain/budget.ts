@@ -623,3 +623,32 @@ registerUndoHandler("group-order", (db, event) => {
   execute(db, `UPDATE category_groups SET sort = ? WHERE id = ?`, b.bSort, b.b);
   return `Restored the order`;
 });
+
+/**
+ * A starting shape for a new personal budget.
+ *
+ * `03` J1 is emphatic that the empty state is where budgeting apps lose people,
+ * and a personal budget opened with no groups at all was exactly that: a bare
+ * grid, and an "add a category" picker with nothing to add it to. Two groups and
+ * four envelopes is enough to be usable on the first afternoon and few enough
+ * that nobody feels lectured about how to spend their own money.
+ *
+ * Idempotent, and skipped entirely if the budget already has anything in it.
+ */
+export function startPersonalBudget(db: DB, actor: Actor, budgetId: string): void {
+  const existing = queryOne<{ n: number }>(
+    db,
+    `SELECT COUNT(*) AS n FROM category_groups WHERE budget_id = ? AND kind = 'normal'`,
+    budgetId,
+  )?.n ?? 0;
+  if (existing > 0) return;
+
+  transact(db, () => {
+    const mine = createGroup(db, actor, "Mine", "normal", budgetId);
+    for (const name of ["Personal", "Eating out", "Subscriptions"]) {
+      createCategory(db, actor, { groupId: mine.id, name });
+    }
+    const saving = createGroup(db, actor, "Putting away", "normal", budgetId);
+    createCategory(db, actor, { groupId: saving.id, name: "Savings" });
+  });
+}

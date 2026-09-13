@@ -29,6 +29,14 @@ export interface MemberCommitment {
   categoryId: string;
   /** What is standing in the envelope now: committed and not yet spent. */
   available: Paise;
+  /**
+   * What the balance was at the start of this month.
+   *
+   * Without it the row is a level sitting between two flows and the arithmetic
+   * visibly does not work: ₹40,000 in and ₹43,320 out does not make ₹36,640.
+   * It makes ₹3,320 — on top of the ₹33,320 that was already there.
+   */
+  broughtForward: Paise;
   /** Assigned into it this month. */
   assignedThisMonth: Paise;
   /** Spent out of it this month — household spending paid from their own money. */
@@ -54,8 +62,11 @@ export interface HouseholdView {
   members: MemberCommitment[];
   /** Whether anybody keeps a separate budget at all. */
   separateBudgets: boolean;
-  /** Anybody the household is behind with, which is who a month-end owes. */
-  aheadOfUs: MemberCommitment[];
+  /**
+   * Whose commitment is short — the rows with something to settle, and the only
+   * ones the squaring-up options apply to.
+   */
+  underfunded: MemberCommitment[];
 }
 
 export function buildHouseholdView(db: DB, month: MonthKey): HouseholdView {
@@ -84,6 +95,7 @@ export function buildHouseholdView(db: DB, month: MonthKey): HouseholdView {
       name: source.budgetName,
       categoryId: source.categoryId,
       available: balance,
+      broughtForward: (envelope?.opening ?? 0) as Paise,
       assignedThisMonth: assigned,
       // Activity is negative when money leaves; report it as a positive figure.
       spentThisMonth: Math.max(0, -(envelope?.activity ?? 0)) as Paise,
@@ -102,6 +114,6 @@ export function buildHouseholdView(db: DB, month: MonthKey): HouseholdView {
     spentThisMonth: members.reduce((sum, m) => sum + m.spentThisMonth, 0) as Paise,
     members,
     separateBudgets: sources.length > 0,
-    aheadOfUs: members.filter((m) => m.standing === "ahead"),
+    underfunded: members.filter((m) => m.standing === "underfunded"),
   };
 }

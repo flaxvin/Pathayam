@@ -26,7 +26,9 @@ import { openDatabase, ensureHousehold, queryOne } from "./db/db.ts";
 import type { Actor } from "./core/events.ts";
 import { inviteMember } from "./auth/sessions.ts";
 import { createAccount, createCard, paymentCategoryFor } from "./domain/accounts.ts";
-import { listCategories, setAssigned } from "./domain/budget.ts";
+import {
+  listCategories, setAssigned, createGroup, createCategory, setTarget,
+} from "./domain/budget.ts";
 import { createTransaction, createTransfer } from "./domain/transactions.ts";
 import { applyStartingTemplate } from "./domain/starting-budget.ts";
 import {
@@ -41,6 +43,11 @@ import {
   recordPrice, recordFxRate, recordValuation,
 } from "./domain/assets.ts";
 import { snapshotNetWorth } from "./domain/networth.ts";
+import { householdBudgetId, ensurePersonalBudget } from "./domain/budgets.ts";
+import { ensureCommitmentEnvelope } from "./domain/commitments.ts";
+import { callItEven, ensureGivenUpCategory } from "./domain/squaring-up.ts";
+import { loadEngineInput } from "./engine/repository.ts";
+import { computeBudget } from "./engine/engine.ts";
 import { units as toUnits, price as toPrice } from "./portfolio/holdings.ts";
 import { rupees, type Paise } from "./core/money.ts";
 import { todayIST, monthOf, addMonths, addDays, firstDayOfMonth, lastDayOfMonth } from "./core/dates.ts";
@@ -218,30 +225,103 @@ function main(): void {
   const day = (month: string, d: number): string =>
     `${month}-${String(Math.min(d, Number(lastDayOfMonth(month).slice(-2)))).padStart(2, "0")}`;
 
+  // ------------------------------------------------- 15 · keeping some separate
+  /*
+   * Six months ago Ravi opened a budget of his own.
+   *
+   * The demo needs this because the separate-budgets feature is invisible on a
+   * household that pools everything, and every interesting state it can be in
+   * needs data behind it: a private account nobody else sees, a standing monthly
+   * commitment, a month where he paid for more of the household than he put
+   * aside, and one balance the two of them agreed to let go.
+   *
+   * The first thirty months stay exactly as they were — one household, one shared
+    * budget — so the demo shows both ways of running money rather than replacing
+    * one with the other. From the thirtieth month his consulting arrives in his
+    * own account, he commits ₹40,000 a month, and he pays the rent from it.
+   */
+  const hisBudget = ensurePersonalBudget(db, ravi.id, "Ravi");
+  const hisEnvelope = ensureCommitmentEnvelope(db, actor, hisBudget.id);
+  const separateFrom = MONTHS - 6;
+
+  // A private account: in his budget, so the household's Ready to Assign never
+  // sums it, which is the only reason it can honestly be called private (H2.2a).
+  const hisOwn = createAccount(db, actor, {
+    name: "IDFC Savings", kind: "budget", subtype: "savings", institution: "IDFC First Bank",
+    last4: "9014", openingBalance: rupees(1_40_000), openingDate: day(months[separateFrom]!, 1),
+    holderMemberId: ravi.id, budgetId: hisBudget.id, visibility: "private",
+  });
+
+  // An envelope of his own, so his grid is not just the household line.
+  const hisGroup = createGroup(db, actor, "Mine", "normal", hisBudget.id);
+  const hisBooks = createCategory(db, actor, { groupId: hisGroup.id, name: "Books and courses" });
+
+  // A standing figure, so ₹40,000 a month is settled once rather than remembered.
+  setTarget(db, actor, hisEnvelope.id, { type: "monthly", amount: rupees(40_000) });
+
   let txns = 0;
   months.forEach((month, ix) => {
     const isCurrent = month === thisMonth;
     const cap = isCurrent ? Number(today.slice(-2)) : 28;
     const live = (d: number): boolean => d <= cap;
 
-    // Income arrives in lumps rather than as a salary — two to four credits a
-    // month, which is the shape "hold for next month" exists for.
+    /*
+     * Two incomes with different shapes, because that is what makes the app's
+     * harder features visible at all.
+     *
+     * **Priya is on a salary**: the same day, near enough the same amount,
+     * occasionally a bonus. That is the easy case and it is what most of a
+     * budget's advice assumes.
+     *
+     * **Ravi consults**: two to four credits a month, sometimes none, sometimes
+     * one that is worth three of hers. That is the shape "hold for next month"
+     * exists for, and the shape that makes a month's Ready to Assign swing.
+     */
     let received = 0;
-    const credits = between(2, 4);
-    for (let c = 0; c < credits; c++) {
+
+    // Her salary. The 28th, or the last working-ish day if the month is short.
+    const payday = 28;
+    if (live(payday)) {
+      const raise = 1 + Math.floor(ix / 12) * 0.08; // an annual increment
+      const salary = tidy(78_000 * raise);
+      createTransaction(db, actor, {
+        accountId: priyaSavings.id,
+        amount: rupees(salary), date: day(month, payday),
+        payeeName: "Salary — Nirvana Labs", cleared: true, ownerMemberId: priya.id,
+      });
+      received += salary; txns++;
+
+      // A bonus in March, which is when an Indian employer usually pays one.
+      if (month.endsWith("-03")) {
+        const bonus = tidy(salary * between(8, 16) / 10);
+        createTransaction(db, actor, {
+          accountId: priyaSavings.id, amount: rupees(bonus), date: day(month, payday),
+          payeeName: "Annual bonus", cleared: true, ownerMemberId: priya.id,
+        });
+        received += bonus; txns++;
+      }
+    }
+
+    /*
+     * His consulting. A dry month happens, and is the point.
+     *
+     * Once they start keeping money separate it lands in his own account instead
+     * of the joint ones — otherwise the household would be funded twice, by his
+     * income *and* by the commitment he makes out of it.
+     */
+    const separate = ix >= separateFrom;
+    const invoices = rand() < 0.1 ? 0 : between(1, 3);
+    for (let c = 0; c < invoices; c++) {
       const d = between(2, 26);
       if (!live(d)) continue;
-      const amount = tidy(between(38_000, 92_000) * (rand() < 0.12 ? 2.4 : 1));
-      // Priya earns too, into her own account, and it is attributed to her.
-      const hers = rand() < 0.38;
+      const amount = tidy(between(34_000, 96_000) * (rand() < 0.14 ? 2.4 : 1));
       createTransaction(db, actor, {
-        accountId: hers ? priyaSavings.id : (rand() < 0.7 ? savings.id : current.id),
+        accountId: separate ? hisOwn.id : (rand() < 0.7 ? savings.id : current.id),
         amount: rupees(amount), date: day(month, d),
-        payeeName: hers
-          ? pick(["Salary — Nirvana Labs", "Salary — Nirvana Labs", "Annual bonus"])
-          : pick(["Consulting retainer", "Client invoice", "Project milestone", "Retainer top-up"]),
-        cleared: true,
-        ownerMemberId: hers ? priya.id : ravi.id,
+        payeeName: pick([
+          "Consulting retainer", "Client invoice", "Project milestone", "Retainer top-up",
+        ]),
+        cleared: true, ownerMemberId: ravi.id,
       });
       received += amount; txns++;
     }
@@ -260,7 +340,15 @@ function main(): void {
     for (const [name, amount] of plan) setAssigned(db, actor, month, id(name), rupees(amount) as Paise);
 
     // Bills and the routine, on the days they actually happen.
-    if (live(3)) { spendOn(savings.id, "Rent", tidy(38_000 * drift), "Landlord", day(month, 3)); txns++; }
+    /*
+     * The rent. After they separate he pays it from his own account and files it
+     * to the household's Rent envelope — which is 15 §3.1's worked example: the
+     * commitment is drawn down and not a rupee moves between accounts.
+     */
+    if (live(3)) {
+      spendOn(separate ? hisOwn.id : savings.id, "Rent", tidy(38_000 * drift), "Landlord", day(month, 3));
+      txns++;
+    }
     if (live(5)) { spendOn(savings.id, "Domestic help", tidy(4_500 * drift), "Domestic help", day(month, 5)); txns++; }
     if (live(9)) { spendOn(savings.id, "Broadband", 1_199, "ACT Fibernet", day(month, 9)); txns++; }
     if (live(11)) { spendOn(savings.id, "Electricity", tidy(between(2_200, 3_900) * drift), pick(UTILITY), day(month, 11)); txns++; }
@@ -375,6 +463,32 @@ function main(): void {
       }
     }
 
+    /*
+     * His own budget's month. A standing ₹40,000 toward the household, a little
+     * of his own spending, and one month where he went well past what he had put
+     * aside — the state "put it down to me" exists for.
+     */
+    if (separate) {
+      setAssigned(db, actor, month, hisEnvelope.id, rupees(40_000) as Paise);
+      setAssigned(db, actor, month, hisBooks.id, rupees(tidy(between(1_200, 4_000))) as Paise);
+      if (live(12)) {
+        createTransaction(db, actor, {
+          accountId: hisOwn.id, amount: rupees(-tidy(between(600, 2_400))),
+          date: day(month, 12), payeeName: pick(["Blossom Book House", "Coursera", "Kindle"]),
+          categoryId: hisBooks.id, cleared: true, ownerMemberId: ravi.id,
+        });
+        txns++;
+      }
+      if (ix === MONTHS - 2 && live(19)) {
+        createTransaction(db, actor, {
+          accountId: hisOwn.id, amount: rupees(-22_000), date: day(month, 19),
+          payeeName: "Annual maintenance — society", categoryId: id("Household"),
+          cleared: true, ownerMemberId: ravi.id,
+        });
+        txns++;
+      }
+    }
+
     // Hand-valued pots, revalued quarterly like a real household would.
     if (ix % 3 === 0) {
       goldValue = Math.round(goldValue * (1 + (rand() - 0.35) * 0.06));
@@ -434,6 +548,32 @@ function main(): void {
   recordRepayment(db, actor, {
     loanId: lent.id, amount: rupees(40_000), date: day(months[22]!, 9), accountId: savings.id,
   });
+
+  /*
+   * And one balance they agreed to let go, three months back — so the demo shows
+   * what calling it even leaves behind: an ordinary overspent envelope on the
+   * giving side, which the household then funds like anything else (15 §4A.4).
+   */
+  const evenMonth = months[MONTHS - 3]!;
+  const standingThen = computeBudget(
+    loadEngineInput(db, { through: evenMonth, budgetId: hisBudget.id }),
+  ).get(evenMonth)?.categories.get(hisEnvelope.id)?.balance ?? 0;
+  if (standingThen !== 0) {
+    /*
+     * Whoever is ahead is the one giving something up, so which budget the expense
+     * lands in follows from the sign rather than from who is running the demo. He
+     * has been paying for more of the household than he put aside, so it is his.
+     */
+    const giving = standingThen < 0 ? hisBudget.id : householdBudgetId(db);
+    const gifts = ensureGivenUpCategory(db, actor, giving);
+    const letGo = Math.min(Math.abs(standingThen), rupees(3_000)) as Paise;
+    callItEven(db, actor, {
+      envelopeId: hisEnvelope.id, amount: letGo, month: evenMonth,
+      givingCategoryId: gifts.id, note: "Agreed over dinner",
+    });
+    setAssigned(db, actor, evenMonth, gifts.id, letGo);
+  }
+
 
   // Standing instructions, so the cashflow calendar projects against something.
   const nextMonth = addMonths(thisMonth, 1);

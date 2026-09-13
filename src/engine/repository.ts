@@ -576,10 +576,12 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
   if (scope) {
     for (const r of queryAll<{
       month: string; envelope_id: string; envelope_budget: string | null;
-      giving_budget_id: string; giving_category_id: string; amount: number;
+      other_budget: string | null; giving_budget_id: string; giving_category_id: string;
+      amount: number;
     }>(
       db,
-      `SELECT e.month AS month, e.envelope_id AS envelope_id, c.budget_id AS envelope_budget,
+      `SELECT e.month AS month, e.envelope_id AS envelope_id,
+              c.budget_id AS envelope_budget, c.commits_to_budget_id AS other_budget,
               e.giving_budget_id AS giving_budget_id, e.giving_category_id AS giving_category_id,
               e.amount AS amount
          FROM even_calls e
@@ -587,33 +589,39 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
         WHERE e.month <= ?`,
       through,
     )) {
+      /*
+       * Exactly two budgets are party to this: the one the envelope lives in and
+       * the one it points at. Either may be the giver, and which it is comes from
+       * the sign of the balance at the time — so it is read from the row rather
+       * than assumed.
+       */
+      if (scope !== r.envelope_budget && scope !== r.other_budget) continue;
       const f = ensure(r.month);
       if (!f) continue;
 
-      // The giving side spends it.
-      if (r.giving_budget_id === scope) {
+      const giving = r.giving_budget_id === scope;
+
+      // The giver spends it, out of the envelope the household chose.
+      if (giving) {
         f.activity[r.giving_category_id] = (f.activity[r.giving_category_id] ?? 0) - r.amount;
       }
 
+      // The envelope moves toward zero, in whichever budget holds it. Toward zero
+      // from above when the giver is the other budget, from below when it is this
+      // one — which is the same statement about the balance shrinking, read from
+      // the two ends.
+      if (scope === r.envelope_budget) {
+        f.activity[r.envelope_id] =
+          (f.activity[r.envelope_id] ?? 0) + (giving ? r.amount : -r.amount);
+      }
+
       /*
-       * The receiving side is released from it. Which direction that is comes
-       * from the envelope's own sign, and the envelope always sits in whichever
-       * budget is not the household's — so "the receiving budget" is the
-       * envelope's budget when it was behind, and the other one when it was
-       * ahead. Either way the envelope moves toward zero, so the amount is
-       * signed against the balance rather than against the budget.
+       * And the receiver is better off by it, which is income. Being released
+       * from something owed leaves you with money you had already accounted for
+       * as going out, and the matching expense above is why nothing appears from
+       * nowhere (15 §4A.4).
        */
-      if (r.envelope_budget === scope) {
-        const behind = r.giving_budget_id !== scope;
-        f.activity[r.envelope_id] = (f.activity[r.envelope_id] ?? 0) + (behind ? -r.amount : r.amount);
-        if (behind) f.calledEvenIncome += r.amount;
-      } else if (r.giving_budget_id === scope) {
-        // This budget gave it up and does not hold the envelope; the claim falls
-        // out of the envelope's own budget, which the claim read picks up.
-      }
-      if (r.giving_budget_id === scope && r.envelope_budget !== scope) {
-        // Nothing further: the expense above is this budget's whole part in it.
-      }
+      if (!giving) f.calledEvenIncome += r.amount;
     }
   }
 

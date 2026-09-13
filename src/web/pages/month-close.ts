@@ -45,10 +45,10 @@ export function renderMonthClose(view: MonthCloseView): SafeHtml {
                   <td class="numeric">${formatPaise(c.committed)}</td>
                   <td class="numeric">${formatPaise(c.spent)}</td>
                   <td>
-                    ${c.standing === "ahead"
-                      ? html`<span class="chip">put in more than planned</span>`
-                      : c.standing === "behind"
-                        ? html`<span class="faint">some still to spend</span>`
+                    ${c.standing === "underfunded"
+                      ? html`<span class="chip chip-warning">underfunded</span>`
+                      : c.standing === "overfunded"
+                        ? html`<span class="faint">overfunded — some still to go out</span>`
                         : html`<span class="faint">square</span>`}
                   </td>
                 </tr>

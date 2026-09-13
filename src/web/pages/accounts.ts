@@ -185,6 +185,14 @@ export function renderAccountDetail(opts: {
         </p>
       </div>
       <div class="row">
+        <!--
+          The edit form was reachable only by noticing a collapsed line at the
+          bottom of the page labelled "Rename or close" — which stopped being what
+          it does once it held whose money this is, whether it is private, and the
+          card's statement and due days. So it gets a control where the other
+          account actions are.
+        -->
+        <a class="button" href="#edit">Edit</a>
         <a class="button" href="/accounts/${account.id}/reconcile">Reconcile</a>
         <a class="button button-primary" href="/add?account=${account.id}">Add transaction</a>
       </div>
@@ -219,8 +227,8 @@ export function renderAccountDetail(opts: {
       never renamed or closed — and over a decade every account the household
       has ever held stays in every dropdown for good.
     -->
-    <details class="card">
-      <summary class="linkish">Rename or close this account</summary>
+    <details class="card" id="edit">
+      <summary class="linkish">Edit this account</summary>
 
       <form method="post" action="/accounts/${account.id}/edit" style="margin-top:.75rem">
         <div class="grid-2">
@@ -245,9 +253,20 @@ export function renderAccountDetail(opts: {
             <p class="field-hint">Used to match bank SMS and statements to this account.</p>
           </div>
         </div>
+        ${when(account.kind === "credit", () => html`
+          <!--
+            The statement and due days were settable at creation and nowhere
+            afterwards, so a card whose cycle moved could never be corrected
+            without deleting the account.
+          -->
+          <div class="grid-2">
+            ${dayOfMonthField("acc-statement-day", "statement_day", "Statement day", account.statement_day)}
+            ${dayOfMonthField("acc-due-day", "due_day", "Payment due day", account.due_day)}
+          </div>
+        `)}
         ${when((opts.budgets ?? []).length > 1 && account.kind !== "tracking", () => html`
           <div class="field">
-            <label for="acc-budget">Whose money it is</label>
+            <label for="acc-budget">Which budget this account funds</label>
             <select id="acc-budget" name="budget_id">
               ${(opts.budgets ?? []).map(
                 (b) => html`
@@ -258,14 +277,38 @@ export function renderAccountDetail(opts: {
               )}
             </select>
             <p class="field-hint">
-              Moving it moves its balance to that budget's Ready to Assign, and its
-              spending to that budget's envelopes.
+              <strong>This is the one that changes the figures.</strong> The balance
+              counts toward that budget's Ready to Assign, and spending from the
+              account lands in that budget's envelopes.
+            </p>
+          </div>
+          <!--
+            An account could be moved into a personal budget here and then never
+            made private, because the only visibility control was on the create
+            form — so the one thing a member moved it for was unreachable.
+          -->
+          <div class="field">
+            <label for="acc-visibility">Who can see it</label>
+            <select id="acc-visibility" name="visibility">
+              <option value="household"
+                      ${raw(account.visibility === "private" ? "" : "selected")}>
+                Shared with the household
+              </option>
+              <option value="private"
+                      ${raw(account.visibility === "private" ? "selected" : "")}>
+                Private to me
+              </option>
+            </select>
+            <p class="field-hint">
+              Private means nobody else sees the account or its balance, and it
+              needs the account to be in your own budget rather than the
+              household's.
             </p>
           </div>
         `)}
         ${when((opts.members ?? []).length > 1, () => html`<div class="grid-2">
           <div class="field">
-            <label for="acc-holder">Whose account is it</label>
+            <label for="acc-holder">Whose name is on it</label>
             <select id="acc-holder" name="holder_member_id">
               <option value="">The household's, jointly</option>
               ${(opts.members ?? []).map(
@@ -277,7 +320,9 @@ export function renderAccountDetail(opts: {
               )}
             </select>
             <p class="field-hint">
-              A label only. Every account funds the one shared budget either way.
+              A label, used to say whose it is and to match bank alerts to the right
+              person. It changes no figure — which budget the money belongs to is
+              the setting above.
             </p>
           </div>
         </div>`)}
@@ -313,6 +358,10 @@ export function renderAccountDetail(opts: {
                     <th scope="col">Date</th>
                     <th scope="col">Payee</th>
                     <th scope="col">Category</th>
+                    <!-- H2 · Who spent it. The register is the screen a household
+                         actually reads, and on a joint account this is the column
+                         that answers the question being asked. -->
+                    <th scope="col">Who</th>
                     <th scope="col" class="num">Amount</th>
                     <th scope="col" class="num">Balance</th>
                     <th scope="col">Cleared</th>
@@ -332,6 +381,7 @@ export function renderAccountDetail(opts: {
                           ${r.category ?? html`<span class="chip chip-warning">Uncategorised</span>`}
                           ${r.tags.map((t) => html`<span class="chip">#${t}</span>`)}
                         </td>
+                        <td class="faint">${r.ownerName ?? "—"}</td>
                         <td class="num amount ${r.amount < 0 ? "amount-negative" : "amount-positive"}">
                           ${formatPaise(r.amount)}
                         </td>
@@ -460,7 +510,7 @@ export function renderNewAccountForm(opts: {
       ${when((opts.budgets ?? []).length > 1, () => html`
         <div class="grid-2">
           <div class="field">
-            <label for="new-budget">Whose money it is</label>
+            <label for="new-budget">Which budget it funds</label>
             <select id="new-budget" name="budget_id">
               ${(opts.budgets ?? []).map(
                 (b) => html`
@@ -478,8 +528,10 @@ export function renderNewAccountForm(opts: {
               <option value="private">Private to me</option>
             </select>
             <p class="field-hint">
-              Private needs it to be in your own budget — the household's Ready to
-              Assign would otherwise give the balance away.
+              Private means nobody else sees the account or its balance. It needs
+              the account to be in your own budget: the household's Ready to Assign
+              sums every account in it, so a private one there would be published
+              by subtraction anyway.
             </p>
           </div>
         </div>
@@ -534,8 +586,7 @@ export function renderNewAccountForm(opts: {
         </div>
         <div class="field">
           <label for="opening_date">As of</label>
-          <input id="opening_date" name="opening_date" type="text"
-                 placeholder="DD-MM-YYYY" autocomplete="off">
+          <input id="opening_date" name="opening_date" type="date" autocomplete="off">
           <p class="field-hint">Defaults to today. DD-MM also works.</p>
         </div>
       </div>
@@ -555,14 +606,8 @@ export function renderNewAccountForm(opts: {
       <fieldset>
         <legend>Credit cards only</legend>
         <div class="grid-2">
-          <div class="field">
-            <label for="statement_day">Statement day</label>
-            <input id="statement_day" name="statement_day" type="number" min="1" max="31">
-          </div>
-          <div class="field">
-            <label for="due_day">Payment due day</label>
-            <input id="due_day" name="due_day" type="number" min="1" max="31">
-          </div>
+          ${dayOfMonthField("statement_day", "statement_day", "Statement day", null)}
+          ${dayOfMonthField("due_day", "due_day", "Payment due day", null)}
         </div>
         <p class="field-hint">
           Statement cycles rarely line up with calendar months, so these are recorded
@@ -621,13 +666,13 @@ export function renderCardStatementForm(opts: {
       <div class="grid-2">
         <div class="field">
           <label for="statement_date">Statement date</label>
-          <input id="statement_date" name="statement_date" type="text" autocomplete="off"
-                 value="${formatDate(opts.today)}" placeholder="DD-MM-YYYY">
+          <input id="statement_date" name="statement_date" type="date" autocomplete="off"
+                 value="${opts.today}">
         </div>
         <div class="field">
           <label for="due_date">Due date</label>
-          <input id="due_date" name="due_date" type="text" autocomplete="off"
-                 required placeholder="DD-MM-YYYY">
+          <input id="due_date" name="due_date" type="date" autocomplete="off"
+                 required>
         </div>
       </div>
       <button class="button-primary" type="submit">Record statement</button>
@@ -709,4 +754,40 @@ export function renderManageCards(opts: {
       </form>
     </section>
   `;
+}
+
+/**
+ * A day-of-month picker.
+ *
+ * A statement day is not a date — it is the 18th of every month — so a date
+ * picker would be the wrong control and a free-text box is a way to type 45.
+ * Thirty-one options is the whole domain, and the last three say what they mean
+ * in a short month, because the 31st of February is the question everyone asks.
+ */
+function dayOfMonthField(
+  id: string, name: string, label: string, selected: number | null, hint?: string,
+): SafeHtml {
+  return html`
+    <div class="field">
+      <label for="${id}">${label}</label>
+      <select id="${id}" name="${name}">
+        <option value="">Not set</option>
+        ${Array.from({ length: 31 }, (_, i) => i + 1).map(
+          (d) => html`
+            <option value="${String(d)}" ${raw(d === selected ? "selected" : "")}>
+              ${ordinal(d)}${d > 28 ? " (or the last day, in a short month)" : ""}
+            </option>
+          `,
+        )}
+      </select>
+      ${when(hint, () => html`<p class="field-hint">${hint}</p>`)}
+    </div>
+  `;
+}
+
+function ordinal(d: number): string {
+  const tail = d % 100 >= 11 && d % 100 <= 13
+    ? "th"
+    : d % 10 === 1 ? "st" : d % 10 === 2 ? "nd" : d % 10 === 3 ? "rd" : "th";
+  return `${d}${tail}`;
 }

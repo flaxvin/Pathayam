@@ -253,8 +253,8 @@ export function renderNewAssetForm(opts: {
       </div>
       <div class="field">
         <label for="as_of">Valued as of</label>
-        <input id="as_of" name="as_of" type="text" autocomplete="off"
-               value="${formatDate(opts.today)}" placeholder="DD-MM-YYYY">
+        <input id="as_of" name="as_of" type="date" autocomplete="off"
+               value="${opts.today}">
       </div>
       <button class="button-primary" type="submit">Add asset</button>
       <a class="button button-quiet" href="/portfolio">Cancel</a>
@@ -330,8 +330,8 @@ export function renderValuations(opts: {
                 </div>
                 <div class="field" style="margin:0">
                   <label style="font-size:.75rem" for="asof-${a.id}">As of</label>
-                  <input id="asof-${a.id}" name="asof-${a.id}" style="max-width:8rem"
-                         value="${formatDate(opts.today)}" placeholder="DD-MM-YYYY">
+                  <input type="date" id="asof-${a.id}" name="asof-${a.id}" style="max-width:8rem"
+                         value="${opts.today}">
                 </div>
               </div>
             </div>
@@ -364,8 +364,8 @@ export function renderRevalueAsset(opts: {
         </div>
         <div class="field">
           <label for="as_of">As of</label>
-          <input id="as_of" name="as_of" type="text" autocomplete="off"
-                 value="${formatDate(opts.today)}" placeholder="DD-MM-YYYY">
+          <input id="as_of" name="as_of" type="date" autocomplete="off"
+                 value="${opts.today}">
         </div>
       </div>
       <button class="button-primary" type="submit">Save valuation</button>
@@ -403,8 +403,8 @@ export function renderManualPrice(opts: {
         </div>
         <div class="field">
           <label for="as_of">As of</label>
-          <input id="as_of" name="as_of" type="text" autocomplete="off"
-                 value="${formatDate(opts.today)}" placeholder="DD-MM-YYYY">
+          <input id="as_of" name="as_of" type="date" autocomplete="off"
+                 value="${opts.today}">
         </div>
       </div>
       <button class="button-primary" type="submit">Save price</button>
@@ -498,8 +498,8 @@ export function renderSplitForm(opts: {
         </div>
         <div class="field">
           <label for="split-date">Effective from</label>
-          <input id="split-date" name="date" type="text" autocomplete="off"
-                 value="${formatDate(opts.today)}" placeholder="DD-MM-YYYY">
+          <input id="split-date" name="date" type="date" autocomplete="off"
+                 value="${opts.today}">
         </div>
       </div>
       <div class="field">
