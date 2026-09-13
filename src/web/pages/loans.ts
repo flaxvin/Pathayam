@@ -71,7 +71,8 @@ export function renderLoanList(
         </div>
       </div>
       ${when(rows.filter((r) => r.outstanding > 0).length > 1, () => html`
-        <h3 style="margin:.75rem 0 .25rem;font-size:.95rem">Outstanding by loan</h3>
+        <!-- h2: the card it sits in has no heading of its own, so h3 skipped a level. -->
+        <h2 style="margin:.75rem 0 .25rem;font-size:.95rem">Outstanding by loan</h2>
         ${horizontalBars({
           title: "Outstanding balance by loan",
           items: rows

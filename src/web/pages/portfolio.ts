@@ -1469,7 +1469,10 @@ export function renderAllocation(opts: {
                   class="row-between" style="padding:.5rem 0;border-top:1px solid var(--border);gap:.6rem;flex-wrap:wrap">
               <span><strong>${h.name}</strong> <span class="faint">${formatPaise(h.value)}</span></span>
               <span class="row" style="gap:.4rem">
-                <select name="asset_class" required>
+                <label class="sr-only" for="class-${h.instrumentId}">
+                  What kind of thing is ${h.name}?
+                </label>
+                <select id="class-${h.instrumentId}" name="asset_class" required>
                   <option value="">Classify as…</option>
                   ${opts.classes.map((c) => html`<option value="${c.key}">${c.label}</option>`)}
                 </select>

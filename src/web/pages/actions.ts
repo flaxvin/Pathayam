@@ -650,7 +650,7 @@ export function renderNotFound(): SafeHtml {
   return html`
     <div class="card empty-state">
       <div class="empty-icon" aria-hidden="true">◌</div>
-      <h2>That page doesn't exist</h2>
+      <h1>That page doesn't exist</h1>
       <p><a class="button" href="/">Back to the budget</a></p>
     </div>
   `;
