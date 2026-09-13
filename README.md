@@ -23,7 +23,7 @@ Google Sheet via [`website/waitlist.gs`](website/waitlist.gs); set the endpoint
 in `website/site.js` to switch it on.
 
 ```
-Status   P0 → P6 complete   894 tests   0 deps
+Status   P0 → P6 complete   926 tests   0 deps
 Stack    TypeScript on Node 24+   node:sqlite   node:http   server-rendered HTML
 Deploy   Docker Compose · homelab behind Cloudflare Tunnel · SQLite on a volume
 ```
@@ -153,6 +153,7 @@ from.
 | **Cover overspend** | One-tap move from another envelope, with ranked source suggestions. |
 | **Credit-card payment envelopes** | Card spending reserves the cash to clear it; the envelope tracks the debt, symmetric with a loan's. |
 | **Add-on cards** | A member's card on another's account; the transaction owner defaults to the cardholder (R6.e). |
+| **Statement cycles** | A card's statement day tags every charge with the cycle it bills in — a cycle runs from the day after one statement to the next, so a charge on the 19th with a statement day of 18 bills next month. It clamps in a short month, and the cycles tile the calendar with no gaps. |
 | **Cards at a glance** | With several cards on different cycles, the daily question is *which one is due next and for how much*. One screen answers it, due date first, and a shortfall is never reported larger than the card actually owes. |
 | **Targets & auto-assign** | Per-category targets, and one-tap fund-to-target with a preview before it commits. Ready to Assign is spent down the budget in order, so what you budgeted for is funded first. |
 | **Reorder** | ↑/↓ on every category and group, so the grid reads in the order the household thinks in rather than the order things were created. Each move is one undoable step. |
@@ -160,6 +161,7 @@ from.
 | **Hold for next month / Buffer** | Park income for next month; a one-month buffer is a first-class state. When more than two months of typical spending is sitting unassigned — the shape of an income that arrives in lumps rather than monthly — the digest says so and offers a month. |
 | **Forward recompute (R7.g)** | Editing any past month re-derives every month since, under the active overspend model, as one undoable batch. |
 | **Explain this number** | Ready to Assign and every category balance drill into the events that produced them. |
+| **Groups you can tidy** | Rename a group in place, reorder it, delete it once it is empty — refusing while it holds envelopes, because deleting those with it would lose balances at a click. App-managed groups say so and are left alone. |
 
 ### Money kept separately (`15`)
 
@@ -177,6 +179,8 @@ column, and no control for a distinction it has not made.
 | **Three ways to end a month** | *Put it down to me* (your share was larger), *I'll pick it up* (the other commits it), or *call it even* — the only one that lets something go, and it lands as spending on the giving side because the money still has to come from somewhere. |
 | **The household page** | What each of you put in this month, what was spent, and where it stands. Nothing else — no balances, no accounts, no other envelopes. |
 | **Independent month close** | The household's month can close while a personal one is still open. The household's close reports what each member put in. |
+| **Leaving** | Removing a member deletes nothing — their name stays on everything they entered, and adding the address back restores them. If a balance is outstanding the app offers the endings and picks none: give it back, record it as family lending, or call it even. |
+| **Whose money, as a filter** | Reports and Query ask rather than assume. A transaction that crosses budgets counts under both ends, because which one you mean depends on the question. |
 
 ### Money in — ingestion (`04`)
 

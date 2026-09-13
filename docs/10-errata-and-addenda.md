@@ -38,7 +38,14 @@ Each row names the stale text, the correcting text that now governs, and the clo
 
 | E13 | `07` §4, §10 | Market value ₹80,874.13 · unrealised gain ₹5,874.13 · FIFO cost of units sold ₹32,218.75 · realised gain ₹2,341.25 | **The rule and the illustration disagree; the rule governs.** These figures are computed from *unrounded* units (936.043123…), as `verify_portfolio.py` does. But **R24.3 is normative** and stores derived units to three decimals — which is what a registrar actually allots, and what the household's own statement will say. At 936.043 units the figures are **₹80,874.12**, **₹5,874.12**, **₹32,218.76** and **₹2,341.24**. The paisa differences are all the same root cause. | R24.3 |
 
+| E14 | `09` R6.n | "Say who is **ahead** or **behind**" | **Superseded by R6.n.1.** Those words describe a *person*, so one balance read "₹36,640 ahead" in a table and "the household is ₹36,640 behind with Ravi" two inches below — one fact from two subjects, which reads as a bug. Every sentence now takes **the commitment** as its subject and uses the budget screen's own words: **underfunded** and **overfunded**. R6.n's ban on the language of debt, and its three endings, stand unchanged. | Built, then used |
+| E15 | `15` §4A.5 | "*Gifts and treats* is the obvious default and the household can pick another." | **Superseded by R6.s.** Agreeing to leave a lopsided month is usually not a present, and naming it one attributes a generosity neither person claimed. The default is **Settled between us**, and the giving budget's other envelopes are offered at the moment of the act rather than afterwards. | Built, then read aloud |
+| E16 | `14` §4.3 | "**Total** 12–20 weeks" for per-individual budgets | **Superseded twice.** `15`'s design found the engine's arithmetic does not change at all, moving it to 12–17 weeks; `16` planned it at 17 and it is now built (P0–P6). The note in `14` §4.3 already says the estimate predates the design; this records where it landed. | `15`, `16` |
+
 **E12 was found by `verify_docs.py`** (§3.4), on its first run, in a line ten manual passes had missed. That is the argument for building it.
+
+**E14 and E15 were found by using what had been built**, which is the only way that
+class of error surfaces: both were defensible on the page and wrong on the screen.
 
 **E13 was found by implementing R24.3 and failing to reproduce §10.** Worth stating why the rule wins: at NAV 82.50, ₹25,000 buys 303.030 units, not 303.0303…, so those units cost fractionally more than the NAV each. Pro-rating what was actually paid — rather than recomputing units × NAV — is also the only convention under which **selling a holding entirely realises exactly the gain that was showing as unrealised the moment before**. A user would notice that contradiction; they will not notice a paisa.
 

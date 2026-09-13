@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Guides</title>
-<meta name="description" content="34 guides covering every screen in Pathayam: budgeting, separate budgets, statements, credit cards, loans, investments, backups and troubleshooting.">
+<meta name="description" content="36 guides covering every screen in Pathayam: budgeting, separate budgets, statements, credit cards, loans, investments, backups and troubleshooting.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Noto+Serif+Malayalam:wght@500&display=swap">
@@ -74,6 +74,7 @@
             <li><a href="#committing">Commit to the household</a></li>
             <li><a href="#shared-spending">Paying for shared things</a></li>
             <li><a href="#squaring-up">Squaring up a month</a></li>
+            <li><a href="#leaving">When somebody leaves</a></li>
           <li class="rail-part">Money coming in</li>
             <li><a href="#import">Import statements and CSVs</a></li>
             <li><a href="#review">The review queue</a></li>
@@ -98,6 +99,7 @@
             <li><a href="#activity">Activity and undo</a></li>
             <li><a href="#health">Backups and health</a></li>
             <li><a href="#settings">Settings, members and tokens</a></li>
+            <li><a href="#groups">Groups and tidying the grid</a></li>
             <li><a href="#troubleshoot">When something looks wrong</a></li>
           </ol>
         </nav>
@@ -260,6 +262,11 @@ crept up ₹2,000. An app that quietly did it for you is an app you stop reading
           </article>
           <article class="guide" id="spending">
             <h2>Record what you spend</h2>
+<p><strong>Add</strong> is in the header on every screen, and <kbd>a</kbd> opens it
+from anywhere. On a household with more than one person the form also asks
+<em>who spent it</em>, which follows the account — a card in somebody's name is
+attributed to them — and that name appears as a column in the register and in
+Query.</p>
 <p><strong>Add</strong> sits in the middle of the navigation on purpose. Recording a
 transaction should take about five seconds.</p>
 <ul>
@@ -298,6 +305,13 @@ so it takes one tap.</p>
 <div class="note"><b>Switching models re-derives your entire history</b> under the new
 one, as a single undoable step. Figures will change, which is correct — they were
 always the answer to a different question.</div>
+<h3>On a household commitment it means something else</h3>
+<p>The envelope you use to commit money to the household can go red too, and it is
+not an overspend: it means more of the household's spending was paid out of your
+money than you put aside for it. The button says <strong>Put it down to me</strong>
+rather than <em>Cover</em>, because covering it forgives nobody anything — it
+decides your share this month was larger. <a href="#squaring-up">Squaring up a
+month</a> covers the other two ways it can end.</p>
 <h3>Overspending on a card is different</h3>
 <p>Cash overspending means you spent money you had not budgeted. Card overspending
 means you created a debt with nothing set aside to clear it, which is why the card
@@ -462,6 +476,29 @@ the other's ritual. The household's close reports what each of you put in and ho
 much went out.</p>
           </article>
 
+          <article class="guide" id="leaving">
+            <h2>When somebody leaves</h2>
+<p>Removing a member never deletes anything. Every transaction they entered keeps
+their name, the history stays exactly as it was, and adding the same email address
+back restores them — they pick up where they left off. Settings lists anybody
+removed with an <strong>Add back</strong> button, so it is one click either way.</p>
+<p>What is not automatic is the money. If they kept a budget of their own there is
+usually a balance outstanding, and the app will not remove them until you say how
+it ends. It offers the options and never picks one.</p>
+<ul>
+  <li><strong>They have money set aside and unspent.</strong> It is theirs — they
+    promised it, and the promise ends with the arrangement. Giving it back is the
+    only ending offered, because recording a debt here would invent one.</li>
+  <li><strong>The household has had the use of their money.</strong> Either record
+    it as <em>money owed</em> — which becomes ordinary family lending, with them as
+    the counterparty, because they are outside the household now and that is exactly
+    what family lending is for — or they <em>call it even</em> and let it go.</li>
+</ul>
+<div class="note"><b>Whichever you pick, both sets of books still close.</b> The
+balance does not evaporate because somebody left, and it does not sit somewhere
+with nobody attached to it.</div>
+          </article>
+
           <h2 class="guide-part" id="part-money-coming-in">Money coming in</h2>
           <article class="guide" id="import">
             <h2>Import statements and CSVs</h2>
@@ -572,6 +609,13 @@ can be attributed to the right person rather than the account holder.</div>
           <h2 class="guide-part" id="part-cards-and-debt">Cards and debt</h2>
           <article class="guide" id="cards">
             <h2>Credit cards</h2>
+<p><strong>Set the statement day and the due day</strong> when you add the card, or
+from <em>Edit</em> afterwards. They do different jobs: the due day projects the
+payment onto the cashflow calendar, and the statement day tags every charge on the
+register with the cycle it bills in — a cycle runs from the day after one statement
+up to and including the next, so a charge on the 19th with a statement day of 18
+bills the following month. Both clamp to the last day in a month too short to have
+theirs.</p>
 <p>This is where most budgeting apps get vague, so it is worth two minutes.
 <strong>Spending on a card is still spending.</strong></p>
 <p>Buy groceries on a card and two things happen at once: the Groceries envelope goes
@@ -704,6 +748,12 @@ nothing about your figures leaves the machine to be drawn.</p>
           </article>
           <article class="guide" id="query">
             <h2>Query and export</h2>
+<p>If anybody keeps a separate budget, Query and Reports both ask <strong>whose
+money</strong>, defaulting to everything. "What did we spend on groceries", "what
+did I spend" and "what did all of it come to" are three different questions, so the
+app offers all three rather than picking one. A transaction that crosses budgets —
+your money paying for something shared — counts under both, because which one
+somebody means depends on what they asked.</p>
 <p>One filterable, groupable table that every other screen drills into. Filter by
 date, category, account, payee or tag; group by category, payee, month or account.</p>
 <div class="note note--good"><b>The totals cover every row that matched</b>, not the
@@ -752,6 +802,12 @@ once and then expected.</p>
           </article>
           <article class="guide" id="goals">
             <h2>Savings goals</h2>
+<p>Each goal gets <strong>its own envelope</strong>, created and kept in step by the
+app, so its progress measures money put aside for that goal and nothing else. If
+anybody keeps a budget of their own, you also choose at creation whether the goal is
+<strong>shared or yours</strong> — and that cannot be changed afterwards, because a
+goal is measured by its envelope's balance and moving it between budgets would
+change what the months you have been watching meant.</p>
 <p>Long-horizon saving kept deliberately off the monthly grid, so a three-year goal
 does not clutter the screen you look at every week.</p>
 <p>Each goal has a target amount and optionally a date. The app works out what that
@@ -940,6 +996,24 @@ it is active. Writes require an explicit toggle within the session.</p>
               </figure>
             </div>
           </article>
+          <article class="guide" id="groups">
+            <h2>Groups and tidying the grid</h2>
+<p>A group is the heading envelopes sit under. On <strong>Categories</strong> you
+can rename one in place, reorder it, and delete it once it is empty.</p>
+<p><strong>Deleting needs it empty</strong>, and that is deliberate. Deleting the
+envelopes with it would destroy balances and history at one click; leaving them
+behind would put money in envelopes no screen renders. Move them out first — it is
+one change per envelope, and each is a decision worth making.</p>
+<h3>The ones the app keeps</h3>
+<p>Credit card payments, loan payments and Goals are marked <em>managed by the
+app</em>. They hold envelopes the app creates and retires alongside the card, loan
+or goal they belong to, so they carry no manual controls and cannot be deleted by
+hand — they go when the last of those does.</p>
+<h3>A budget of your own starts with a few</h3>
+<p>Opening a personal budget gives you two groups and four envelopes to start from,
+plus the household one. Rename or delete any of them; they are ordinary.</p>
+          </article>
+
           <article class="guide" id="troubleshoot">
             <h2>When something looks wrong</h2>
 <h3>A number is not what I expected</h3>

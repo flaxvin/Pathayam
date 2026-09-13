@@ -20,6 +20,7 @@ Two phases are already done. They are listed so the sequence reads whole.
 | ✅ | **P4 · Spending across budgets** | Shared cards, add-on cards, splits per line, and the filing with no arrangement behind it refused. |
 | ✅ | **P5 · Ahead, behind, calling it even** | The three endings, in words a couple would use, with the money traced to where it comes from. Independent month closes. |
 | ✅ | **P6 · Everything that was waiting** | Demo seed, docs, README, feature list and website. |
+| ✅ | **After P6** | A round of using it. See the last section. |
 | ⬜ | **P7** | Below. |
 
 ---
@@ -255,3 +256,34 @@ All three of the questions this section opened with now have answers, in `15`
 §6A and §6B: a leaving member's commitments are released and anything already
 spent becomes a family loan; reports offer every scope rather than picking one;
 and a goal is personal or shared from creation and cannot move.
+
+---
+
+## What using it found, after P6
+
+The phases were built against the design and the tests. Then the app was driven,
+by somebody who runs a household on it, and turned up a class of problem no test
+was going to catch — every one of them defensible on the page and wrong on the
+screen.
+
+| | |
+|---|---|
+| **The household page contradicted itself** | *"₹36,640 ahead"* in one table and *"the household is ₹36,640 behind with Ravi"* two inches below. Both true; together a bug. Every sentence now takes the commitment as its subject, in the budget screen's own words (R6.n.1, E14). |
+| **A row that did not add up** | ₹40,000 in and ₹43,320 out does not make ₹36,640 — until the ₹33,320 already there is a column. A level sitting between two flows reads as an error. |
+| **Controls that did nothing** | The budget switcher went into the chrome, and only the budget screen honoured it. Overview, Cards, Schedules and the cashflow projection showed the household's figures under somebody's name. |
+| **A control that froze** | On pages that ignore `?budget=`, the switcher never moved. It now appears only where it works. |
+| **Buried by a stale label** | The account edit form held whose money it is, whether it is private, and a card's cycle — behind a collapsed line saying "Rename or close". |
+| **An empty state** | A personal budget opened with no groups: a bare grid and a picker with nothing to pick. |
+| **A rule in the wrong layer** | B58 — a goal owns its own envelope — lived in the route handling the form, so the demo seed pointed goals at ordinary envelopes and nothing stopped it. |
+| **A field that earned nothing** | `statement_day` was recorded, editable and read by no code. It now tags each charge with the cycle it bills in (R6.v). |
+| **Ten pixels** | Inputs are 44px, small buttons 34px, the amount box 48px. Every inline form sat out of line. Fixed, and a script now measures every screen. |
+
+**Two defects were found by the demo rather than by a test**: calling it even gives
+income to whichever side is *released*, which is not always the side the envelope
+sits in — reading it off the envelope left the other budget short in every month
+from then on. And migration 0026 passed 851 tests and failed on the first real
+database it met, because a table rebuild behaves differently when rows exist.
+
+The pattern is worth naming: **the tests protect the arithmetic, and using it
+protects the meaning.** Both kinds of failure were real, and only one kind was
+catchable by the suite that existed.
