@@ -1,11 +1,15 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { openDatabase, ensureHousehold, execute, queryAll, type DB } from "../db/db.ts";
-import { undoEvent, type Actor } from "../core/events.ts";
+import { undoEvent, historyFor, type Actor } from "../core/events.ts";
 import { nowIST } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import { createAccount } from "./accounts.ts";
-import { createGroup, createCategory, setAssigned, getAssigned, copyAssignmentsFromMonth, setTarget, clearTarget, getTarget, reorderCategory, reorderGroup, getCategory, renameGroup } from "./budget.ts";
+import {
+  createGroup, createCategory, setAssigned, getAssigned, copyAssignmentsFromMonth,
+  setTarget, clearTarget, getTarget, reorderCategory, reorderGroup, getCategory,
+  renameGroup, deleteGroup, listGroups,
+} from "./budget.ts";
 import { createTransaction } from "./transactions.ts";
 import { spendByTag } from "./reports.ts";
 
@@ -197,5 +201,56 @@ describe("B61 · the app-managed goal group does not collide with the template's
     assert.equal(pick("internal").length, 0, "no managed group answers to the old name");
     assert.equal(pick("normal")[0]!.id, fromTemplate.id, "the template's group is untouched");
     db.close();
+  });
+});
+
+/** These want the database alone; the others want the fixtures too. */
+function freshDb() {
+  return setup().db;
+}
+
+describe("Groups can be renamed, and deleted when empty", () => {
+  /**
+   * A group could be created and reordered and never renamed or removed, so a
+   * typo was permanent and an empty leftover sat on the grid for good.
+   * `renameGroup` had been in the domain the whole time with nothing calling it.
+   */
+  test("an empty group deletes, and the deletion undoes", () => {
+    const db = freshDb();
+    const group = createGroup(db, actor, "Temporary");
+    deleteGroup(db, actor, group.id);
+    assert.equal(listGroups(db).some((g) => g.id === group.id), false);
+
+    const event = historyFor(db, "category-group", group.id).at(-1)!;
+    undoEvent(db, event.id, actor);
+    const back = listGroups(db).find((g) => g.id === group.id);
+    assert.equal(back?.name, "Temporary", "put back, not merely un-deleted");
+  });
+
+  test("a group holding envelopes refuses, and says which", () => {
+    const db = freshDb();
+    const group = createGroup(db, actor, "Spending");
+    createCategory(db, actor, { groupId: group.id, name: "Groceries" });
+
+    assert.throws(() => deleteGroup(db, actor, group.id), /Groceries/);
+    assert.throws(() => deleteGroup(db, actor, group.id), /Move or delete/);
+    assert.equal(listGroups(db).some((g) => g.id === group.id), true);
+  });
+
+  test("an app-managed group is not the household's to delete", () => {
+    const db = freshDb();
+    const managed = createGroup(db, actor, "Credit Card Payments", "credit-payments");
+    assert.throws(() => deleteGroup(db, actor, managed.id), /kept by the app/);
+  });
+
+  test("renaming works and undoes", () => {
+    const db = freshDb();
+    const group = createGroup(db, actor, "Everyay");
+    renameGroup(db, actor, group.id, "Everyday");
+    assert.equal(listGroups(db).find((g) => g.id === group.id)?.name, "Everyday");
+
+    const event = historyFor(db, "category-group", group.id).at(-1)!;
+    undoEvent(db, event.id, actor);
+    assert.equal(listGroups(db).find((g) => g.id === group.id)?.name, "Everyay");
   });
 });

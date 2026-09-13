@@ -424,10 +424,34 @@ export function renderCategories(
       (g, gi) => html`
         <section class="card">
           <div class="row-between">
-            <h2>${g.name}</h2>
+            ${g.kind === "normal"
+              ? html`
+                  <form method="post" action="/groups/${g.id}/rename" class="row"
+                        style="flex:1;gap:.4rem">
+                    <label class="sr-only" for="grp-${g.id}">Group name</label>
+                    <input id="grp-${g.id}" name="name" value="${g.name}"
+                           style="max-width:18rem;font-weight:600">
+                    <button class="button-small" type="submit">Rename</button>
+                  </form>
+                `
+              : html`<h2>${g.name}</h2>`}
             <span class="row" style="gap:.5rem">
               ${when(g.kind !== "normal", () => html`<span class="chip">managed by the app</span>`)}
               ${reorder(`/groups/${g.id}/reorder`, gi === 0, gi === groups.length - 1)}
+              <!--
+                Deletable once it is empty. Not while it holds envelopes: deleting
+                those with it would lose balances and history at one click, and
+                orphaning them would leave money nothing renders.
+              -->
+              ${when(g.kind === "normal", () => html`
+                <form method="post" action="/groups/${g.id}/delete"
+                      onsubmit="return confirm('Delete this empty group?')">
+                  <button class="button-small button-danger" type="submit"
+                          ${raw(g.categories.length > 0
+                            ? 'disabled title="Move or delete its envelopes first"'
+                            : "")}>Delete</button>
+                </form>
+              `)}
             </span>
           </div>
           ${g.categories.map(

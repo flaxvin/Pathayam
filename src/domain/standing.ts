@@ -18,8 +18,8 @@
  *
  * | Envelope | Word | What happened |
  * |---|---|---|
- * | below zero | **underfunded** | more has gone to the household than was put aside for it |
- * | above zero | **overfunded** | more has been put aside for the household than has gone out |
+ * | below zero | **underfunded** | more of the household's spending was paid from their money than they put aside |
+ * | above zero | **overfunded** | more was set aside for the household than has been spent |
  * | zero | **square** | nothing outstanding either way |
  */
 
@@ -68,15 +68,22 @@ export function standingSentence(
   const they = who === null ? "you" : "they";
 
   switch (standingOf(envelopeBalance)) {
+    /*
+     * Both halves, because either on its own is misread. "Gone to the household"
+     * sounds like cash was handed over; "gone from the household" sounds like the
+     * household paid. What actually happened is that the household's spending was
+     * paid out of one person's money, and the sentence says so.
+     */
     case "underfunded":
       return (
-        `${whose} commitment to ${other} is ${amount} underfunded — that much ` +
-        `more has gone to ${other} than ${they} put aside for it.`
+        `${whose} commitment to ${other} is ${amount} underfunded — that much more ` +
+        `of ${other}'s spending has been paid out of ${who === null ? "your" : "their"} ` +
+        `money than ${they} put aside for it.`
       );
     case "overfunded":
       return (
         `${whose} commitment to ${other} is ${amount} overfunded — that much has ` +
-        `been put aside for ${other} and has not gone out yet.`
+        `been set aside for ${other} and not yet spent.`
       );
     default:
       return `${whose} commitment to ${other} is square: nothing outstanding either way.`;

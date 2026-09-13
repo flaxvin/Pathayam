@@ -1070,10 +1070,10 @@ function renderGoalCard(g: GoalProgress): SafeHtml {
             <input type="date" id="date-${g.goal.id}" name="target_date"
                    value="${g.goal.target_date ?? ""}">
           </div>
-          <button class="button-small button-primary" type="submit">Save changes</button>
+          <button class="button-primary" type="submit">Save changes</button>
         </form>
         <form method="post" action="/goals/${g.goal.id}/delete" style="margin-top:.5rem">
-          <button class="button-small button-danger" type="submit">Delete goal</button>
+          <button class="button-danger" type="submit">Delete goal</button>
           <span class="faint" style="margin-left:.5rem">The money stays in its category.</span>
         </form>
       </details>

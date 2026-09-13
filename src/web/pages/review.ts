@@ -310,7 +310,7 @@ function renderOverspent(data: ReviewData): SafeHtml {
             </div>
             ${when(c.needsCover, () => html`
               <a class="button button-small"
-                 href="/move?to=${c.id}&amount=${-c.state.balance}&month=${data.month}">Cover</a>
+                 href="/move?to=${c.id}&amount=${(-c.state.balance / 100).toFixed(2)}&month=${data.month}">Cover</a>
             `)}
           </div>
         `,
@@ -333,7 +333,7 @@ function renderUnfundedCards(data: ReviewData): SafeHtml {
               </div>
             </div>
             <a class="button button-small"
-               href="/move?to=${card.categoryId}&amount=${card.unfunded}&month=${data.month}">Fund it</a>
+               href="/move?to=${card.categoryId}&amount=${(card.unfunded / 100).toFixed(2)}&month=${data.month}">Fund it</a>
           </div>
         `,
       )}

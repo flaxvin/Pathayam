@@ -72,8 +72,9 @@ export function renderHousehold(
           <p class="muted" style="margin:.25rem 0 0">
             ${view.due < 0
               ? html`
-                  More has gone to the household than was put aside for it, so this
-                  much comes off the household's Ready to Assign until it is settled.
+                  More of the household's spending has been paid out of members'
+                  own money than they put aside for it, so this much comes off the
+                  household's Ready to Assign until it is settled.
                 `
               : html`
                   This is part of the household's Ready to Assign, alongside what
@@ -84,7 +85,7 @@ export function renderHousehold(
         <div style="text-align:right">
           <div class="chip">Put in this month ${formatPaise(view.committedThisMonth)}</div>
           <div class="chip" style="margin-top:.35rem">
-            Gone to the household ${formatPaise(view.spentThisMonth)}
+            Paid for the household ${formatPaise(view.spentThisMonth)}
           </div>
         </div>
       </div>
@@ -99,7 +100,7 @@ export function renderHousehold(
             <!-- The row has to add up on its face, or it reads as a bug. -->
             <th scope="col" class="numeric">Brought forward</th>
             <th scope="col" class="numeric">Put in this month</th>
-            <th scope="col" class="numeric">Gone to the household</th>
+            <th scope="col" class="numeric">Paid for the household</th>
             <th scope="col" class="numeric">Where it stands</th>
             <th scope="col">Monthly plan</th>
           </tr>
@@ -145,9 +146,9 @@ export function renderHousehold(
         </tbody>
       </table>
       <p class="faint">
-        Brought forward, plus what went in, less what went to the household, is
-        where it stands. <strong>Underfunded</strong> means more has gone to the
-        household than was put aside for it. Nothing expires at month end — it carries forward
+        Brought forward, plus what went in, less what they paid for, is where it
+        stands. <strong>Underfunded</strong> means more of the household's spending
+        was paid out of their money than they had put aside for it. Nothing expires at month end — it carries forward
         until one of you settles it, which is what the options below are for.
       </p>
     </section>
@@ -194,39 +195,93 @@ export function renderHousehold(
           same thing.
         </p>
         ${view.underfunded.map(
-          (m) => html`
+          (m) => {
+            /*
+             * Only the option that is yours to take. Offering both and greying
+             * one out asked the reader to work out which applied to them —
+             * funding your own commitment and picking up somebody else's are the
+             * same amount of money and opposite acts.
+             */
+            const isMine = Boolean(mine) && mine!.categoryId === m.categoryId;
+            return html`
             <div style="padding:.7rem 0;border-top:1px solid var(--border)">
               <p><strong>${m.sentence}</strong></p>
               <ul class="plain">
-                <li>
-                  <strong>${PUT_IT_DOWN_TO_ME}</strong> — ${PUT_IT_DOWN_TO_ME_HINT}
-                  ${when(Boolean(mine) && mine!.categoryId === m.categoryId, () => html`
-                    <a class="button button-small"
-                       href="/move?to=${m.categoryId}&amount=${m.outstanding}&month=${view.month}">
-                      ${PUT_IT_DOWN_TO_ME}
-                    </a>
-                  `)}
-                  ${when(!mine || mine.categoryId !== m.categoryId, () => html`
-                    <span class="faint">— ${m.name}'s to do, from their own budget.</span>
-                  `)}
-                </li>
-                <li>
-                  <strong>${PICK_IT_UP}</strong> — ${PICK_IT_UP_HINT}
-                  ${when(Boolean(mine) && mine!.categoryId !== m.categoryId, () => html`
-                    <form method="post" action="/household/pick-up" style="display:inline">
-                      <input type="hidden" name="envelope_id" value="${mine!.categoryId}">
-                      <input type="hidden" name="amount" value="${m.outstanding / 100}">
-                      <input type="hidden" name="month" value="${view.month}">
-                      <button class="button-small" type="submit">
-                        ${PICK_IT_UP} (${formatPaise(m.outstanding)})
-                      </button>
-                    </form>
-                  `)}
-                </li>
+                <!--
+                  All three take an amount, because all three can be partial — a
+                  month is often settled in pieces. Two of them used to carry the
+                  whole figure baked into the label while the third had a box,
+                  which made them look like different kinds of thing.
+                -->
+                ${isMine
+                  ? html`
+                      <li>
+                        <strong>${PUT_IT_DOWN_TO_ME}</strong> — ${PUT_IT_DOWN_TO_ME_HINT}
+                        <form method="get" action="/move"
+                              class="row" style="gap:.4rem;align-items:flex-end;margin-top:.3rem">
+                          <input type="hidden" name="to" value="${m.categoryId}">
+                          <input type="hidden" name="month" value="${view.month}">
+                          <div class="field" style="margin:0">
+                            <label style="font-size:.75rem" for="down-${m.categoryId}">How much</label>
+                            <input id="down-${m.categoryId}" name="amount" class="amount-input"
+                                   style="max-width:8rem" type="text" inputmode="decimal"
+                                   value="${(m.outstanding / 100).toFixed(2)}">
+                          </div>
+                          <button class="button-small" type="submit">${PUT_IT_DOWN_TO_ME}</button>
+                        </form>
+                      </li>
+                    `
+                  : html`
+                      <li>
+                        <strong>${PICK_IT_UP}</strong> — ${PICK_IT_UP_HINT}
+                        ${when(Boolean(mine), () => html`
+                          <form method="post" action="/household/pick-up"
+                                class="row" style="gap:.4rem;align-items:flex-end;margin-top:.3rem">
+                            <input type="hidden" name="envelope_id" value="${mine!.categoryId}">
+                            <input type="hidden" name="month" value="${view.month}">
+                            <div class="field" style="margin:0">
+                              <label style="font-size:.75rem" for="pick-${m.categoryId}">How much</label>
+                              <input id="pick-${m.categoryId}" name="amount" class="amount-input"
+                                     style="max-width:8rem" type="text" inputmode="decimal"
+                                     value="${(m.outstanding / 100).toFixed(2)}">
+                            </div>
+                            <button class="button-small" type="submit">${PICK_IT_UP}</button>
+                          </form>
+                        `)}
+                        ${when(!mine, () => html`
+                          <span class="faint">
+                            — you would need a budget of your own to commit from.
+                          </span>
+                        `)}
+                      </li>
+                      <li class="faint">
+                        ${m.name} can instead put it down to themselves, from their
+                        own Ready to Assign.
+                      </li>
+                    `}
                 <li>
                   <strong>${CALL_IT_EVEN}</strong> — ${CALL_IT_EVEN_HINT}
+                  ${when(Boolean(m.givingUp), () => html`
+                    <!--
+                      15 §4A.5 · Both halves. An expense for the one giving it up
+                      and income for the one released from it — saying only the
+                      first makes it look like money disappearing.
+                    -->
+                    <p class="field-hint" style="margin:.35rem 0 0">
+                      <strong>On the giving side</strong>, it becomes spending in
+                      ${m.givingUp!.budgetName} — from
+                      <strong>${m.givingUp!.categoryName}</strong> unless you pick
+                      another below. That envelope sits in the red until it is
+                      funded, and that is where the money actually comes from.
+                    </p>
+                    <p class="field-hint" style="margin:.2rem 0 0">
+                      <strong>On the other side</strong>, ${m.givingUp!.receiverName}
+                      is better off by the same amount: it arrives as income, so Ready
+                      to Assign rises by it. Nothing is owed any more.
+                    </p>
+                  `)}
                   <form method="post" action="/household/call-it-even"
-                        class="row" style="gap:.4rem;align-items:flex-end;margin-top:.3rem">
+                        class="row" style="gap:.4rem;align-items:flex-end;margin-top:.3rem;flex-wrap:wrap">
                     <input type="hidden" name="envelope_id" value="${m.categoryId}">
                     <input type="hidden" name="month" value="${view.month}">
                     <div class="field" style="margin:0">
@@ -235,15 +290,31 @@ export function renderHousehold(
                              style="max-width:8rem" type="text" inputmode="decimal"
                              value="${(m.outstanding / 100).toFixed(2)}">
                     </div>
+                    ${when((m.givingUp?.choices.length ?? 0) > 0, () => html`
+                      <div class="field" style="margin:0">
+                        <label style="font-size:.75rem" for="even-cat-${m.categoryId}">
+                          Spent from
+                        </label>
+                        <select id="even-cat-${m.categoryId}" name="giving_category_id"
+                                style="max-width:14rem">
+                          <option value="">${m.givingUp!.categoryName}${m.givingUp!.exists ? "" : " (new)"}</option>
+                          ${m.givingUp!.choices
+                            .filter((c) => c.name !== m.givingUp!.categoryName)
+                            .map((c) => html`<option value="${c.id}">${c.name}</option>`)}
+                        </select>
+                      </div>
+                    `)}
                     <button class="button-small" type="submit">${CALL_IT_EVEN}</button>
                   </form>
                 </li>
               </ul>
             </div>
-          `,
+          `;
+          },
         )}
       </section>
     `)}
+
 
     <section class="card">
       <h2>How this works</h2>

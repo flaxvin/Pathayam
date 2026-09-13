@@ -590,13 +590,20 @@ function main(): void {
   schedule("Electricity", 2_900, 11, "Electricity");
   schedule("Domestic help", 4_600, 5, "Domestic help");
 
+  /*
+   * B58 · Each goal gets its own app-managed envelope. The demo used to point
+   * them at ordinary envelopes — the trip fund measured by the household's
+   * general "Travel home" — which made the progress figure count money budgeted
+   * for something else, and left the app's manual controls on an envelope the
+   * goal was supposed to own.
+   */
   createGoal(db, actor, {
     name: "Kerala trip", targetAmount: rupees(90_000),
-    targetDate: `${addMonths(thisMonth, 5)}-01`, categoryIds: [id("Travel home")],
+    targetDate: `${addMonths(thisMonth, 5)}-01`,
   });
   createGoal(db, actor, {
     name: "Emergency fund", targetAmount: rupees(6_00_000),
-    targetDate: `${addMonths(thisMonth, 20)}-01`, categoryIds: [id("Emergency fund")],
+    targetDate: `${addMonths(thisMonth, 20)}-01`,
   });
 
   const n = (t: string) => queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM ${t}`)?.n ?? 0;

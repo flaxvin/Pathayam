@@ -26,6 +26,7 @@ import {
   actorFor, setTheme, listMembers, memberCount, inviteMember, createSession,
   startImpersonation, stopImpersonation, setImpersonationWrites, listSessions,
   revokeSession, recordAuthAttempt, isRateLimited, findMemberByEmail, getMember,
+  removeMember,
   type AuthContext,
 } from "./auth/sessions.ts";
 import {
@@ -44,7 +45,7 @@ import { withIdempotency, IdempotencyConflict } from "./core/idempotency.ts";
 import { parseAmount, evaluateAmountExpression, formatPaise, type Paise } from "./core/money.ts";
 import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, lastDayOfMonth, daysBetween, fiscalYearOf, formatFiscalYear, type MonthKey, type IsoDate } from "./core/dates.ts";
 import { buildBudgetView, reviewCount } from "./web/viewmodel.ts";
-import { renderBudget, renderBudgetSwitch } from "./web/pages/budget.ts";
+import { renderBudget } from "./web/pages/budget.ts";
 import {
   renderAccountList, renderAccountDetail, renderNewAccountForm, renderManageCards,
   renderCardStatementForm,
@@ -91,13 +92,15 @@ import {
 } from "./domain/commitments.ts";
 import { buildHouseholdView } from "./domain/household-view.ts";
 import { callItEven } from "./domain/squaring-up.ts";
+import { describeDeparture, settleDeparture, type DepartureResolution } from "./domain/departure.ts";
+import { renderDeparture } from "./web/pages/departure.ts";
 import { renderHousehold } from "./web/pages/household.ts";
 import {
   createAccount, updateAccount, closeAccount, reopenAccount, listAccounts, getAccount, listCards, createCard, closeCard, recordCardStatement, lastCardStatement, paymentCategoryFor, MANAGED_SUBTYPES, SUBTYPE_LABELS, type AccountKind, hiddenAccountIds, type HolderScope,
 } from "./domain/accounts.ts";
 import {
   setAssigned, addAssigned, copyAssignmentsFromMonth, moveMoney, setHeld, getHeld,
-  listCategories, getCategory, startPersonalBudget,
+  listCategories, getCategory, startPersonalBudget, deleteGroup,
 } from "./domain/budget.ts";
 import {
   createTransaction, createTransfer, updateTransaction, deleteTransaction,
@@ -149,7 +152,10 @@ import {
   listSchedules, createSchedule, markPaid, skipOccurrence, detectSchedules,
   projectCashflow, describeCashflow, subscriptions, type Recurrence,
 } from "./domain/schedules.ts";
-import { listGoals, createGoal, updateGoal, deleteGoal, goalCategoryIds, goalProgress, completeGoal } from "./domain/goals.ts";
+import {
+  listGoals, createGoal, updateGoal, deleteGoal, goalCategoryIds, goalProgress, completeGoal,
+  LEGACY_GOAL_GROUP,
+} from "./domain/goals.ts";
 import {
   renderMore, renderPayees, renderRules, renderCategories, renderFirstRun,
   renderTokens,
@@ -405,14 +411,26 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           features: {
             loans: config.features.loans,
             assets: config.features.assets,
-            separateBudgets: anyCommitments(db),
+            /*
+             * Visible once there is more than one person, not once somebody has
+             * already committed — it is the page that explains the choice and
+             * offers to open a budget of your own, so gating it on having done so
+             * made the feature undiscoverable.
+             */
+            separateBudgets: a ? listMembers(db).length > 1 : false,
           },
           // 15 · In the chrome, so switching budget works from every screen that
           // shows one budget's money rather than only from the grid.
           budgets: a
             ? budgetsFor(db, a.member.id).map((b) => ({ id: b.id, name: b.name, kind: b.kind }))
             : [],
-          currentBudgetId: a ? (lastBudget(db, a.member.id) ?? householdBudgetId(db)) : null,
+          /*
+           * What this request is looking at, not what was last remembered. A
+           * screen reached with ?budget= must highlight that one even before the
+           * route has had a chance to remember it — otherwise the first click
+           * appears to do nothing.
+           */
+          currentBudgetId: a ? currentBudget(ctx, a.member.id) : null,
         },
         content,
       ),
@@ -463,6 +481,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       }
     }
     return lastBudget(db, viewer(ctx)) ?? householdBudgetId(db);
+  }
+
+  /** Which budget this request is about: the one asked for, else the last used. */
+  function currentBudget(ctx: RequestContext, memberId: string): string {
+    const asked = ctx.query.get("budget");
+    if (asked && budgetsFor(db, memberId).some((b) => b.id === asked)) return asked;
+    return lastBudget(db, memberId) ?? householdBudgetId(db);
   }
 
   function viewer(ctx: RequestContext): string | null {
@@ -846,14 +871,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ? renderDigest(digestFor(db, a.viewingAs.id))
       : undefined;
 
-    const mine = budgetsFor(db, viewer(ctx));
-    const switcher = renderBudgetSwitch(
-      mine.map((b) => ({ id: b.id, name: b.name, kind: b.kind, current: b.id === scope })),
-      // Offering to create one you already have is a dead button.
-      Boolean(viewer(ctx)) && !mine.some((b) => b.kind === "personal" && b.member_id === viewer(ctx)),
-      month,
-    );
-    return render(ctx, formatMonth(month), renderBudget(view, digest, switcher));
+    // 15 · The switcher lives in the sidebar now, on every screen that shows one
+    // budget's money. A second copy at the top of this one was the same control
+    // twice, and the sidebar's is the one that is always there.
+    return render(ctx, formatMonth(month), renderBudget(view, digest));
   });
 
   /*
@@ -998,7 +1019,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const month = monthParam(ctx);
     const view = buildBudgetView(db, month);
     const to = ctx.query.get("to");
-    const amountParam = ctx.query.get("amount");
+    /*
+     * Rupees, as typed. It used to be paise, because every caller was a generated
+     * link — and then a form that a person fills in started pointing here, and
+     * "36640.00" was read as ₹366.40. Parsing it the way every other amount field
+     * is parsed makes the two kinds of caller agree, and makes the URL readable.
+     */
+    const amountRaw = ctx.query.get("amount");
+    const amountParam = amountRaw?.trim() ? amountField(amountRaw, "Amount") : null;
 
     const suggestions = to
       ? suggestCoverSources(to, view.monthState.categories, {
@@ -1016,7 +1044,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         month,
         categories: [...view.categories.values()].filter((c) => !c.hidden),
         toCategoryId: to,
-        amount: amountParam ? Number(amountParam) : null,
+        amount: amountParam,
         suggestions,
         readyToAssign: view.monthState.readyToAssign,
       }),
@@ -1220,10 +1248,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/accounts", (ctx) => {
     const balances = accountBalances(db);
     const outstanding = creditOutstanding(db);
-    const view = buildBudgetView(db);
+    /*
+     * 15 · The accounts of the budget being looked at, plus the tracking accounts,
+     * which fund no budget and so belong to the household's picture whichever one
+     * is selected (FW1).
+     */
+    const scope = budgetParam(ctx);
+    const view = buildBudgetView(db, undefined, scope);
 
     const memberNames = new Map(listMembers(db).map((m) => [m.id, m.name]));
-    const rows: AccountRow[] = listAccounts(db, { viewerMemberId: viewer(ctx) }).map((account) => {
+    const rows: AccountRow[] = listAccounts(db, { viewerMemberId: viewer(ctx) })
+      .filter((account) => account.kind === "tracking" || account.budget_id === scope)
+      .map((account) => {
       const recon = queryOne<{ as_of: string; broken_at: string | null }>(
         db,
         `SELECT as_of, broken_at FROM reconciliations WHERE account_id = ? ORDER BY as_of DESC LIMIT 1`,
@@ -1660,6 +1696,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/settings", (ctx) => {
     const a = auth(ctx);
     const members = listMembers(db);
+    // F1.6 · Removed is a state, not a deletion.
+    const removedMembers = listMembers(db, { includeRemoved: true })
+      .filter((m) => m.removed_at !== null);
     const sessions = listSessions(db, a.member.id);
     const overspendModel = householdSettings(db)?.overspend_model ?? "reduce-rta";
     const learning = learningEnabled(db);
@@ -1783,20 +1822,57 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                   <strong>${m.name}</strong>
                   <div class="faint">${m.email}</div>
                 </div>
-                ${m.id === a.member.id
-                  ? html`<span class="chip">You</span>`
-                  : when(
-                      config.adminDebug,
-                      () => html`
-                        <form method="post" action="/impersonate/start">
-                          <input type="hidden" name="member_id" value="${m.id}">
-                          <button class="button-small" type="submit">View as</button>
-                        </form>
-                      `,
-                    )}
+                <span class="row" style="gap:.4rem">
+                  ${m.id === a.member.id
+                    ? html`<span class="chip">You</span>`
+                    : html`
+                        ${when(
+                          config.adminDebug,
+                          () => html`
+                            <form method="post" action="/impersonate/start">
+                              <input type="hidden" name="member_id" value="${m.id}">
+                              <button class="button-small" type="submit">View as</button>
+                            </form>
+                          `,
+                        )}
+                        <!--
+                          F1.6 · Removing is reversible and keeps every historical
+                          attribution, so it is a link to a page that says what will
+                          happen rather than a button that does it.
+                        -->
+                        ${when(!config.demoMode, () => html`
+                          <a class="button button-small" href="/members/${m.id}/remove">Remove</a>
+                        `)}
+                      `}
+                </span>
               </div>
             `,
           )}
+          <!--
+            F1.6 · Somebody removed is not gone: their transactions keep their name
+            and adding them back clears the removal. Showing them here is what makes
+            that discoverable, instead of a person having to guess that re-inviting
+            the same address restores everything.
+          -->
+          ${when(removedMembers.length > 0, () => html`
+            <p class="faint" style="margin-top:1rem">No longer in the household</p>
+            ${removedMembers.map(
+              (m) => html`
+                <div class="row-between" style="padding:.5rem 0;border-top:1px solid var(--border)">
+                  <div>
+                    <strong>${m.name}</strong>
+                    <div class="faint">${m.email} · everything they entered is still here</div>
+                  </div>
+                  ${when(!config.demoMode, () => html`
+                    <form method="post" action="/members/invite">
+                      <input type="hidden" name="email" value="${m.email}">
+                      <button class="button-small" type="submit">Add back</button>
+                    </form>
+                  `)}
+                </div>
+              `,
+            )}
+          `)}
           ${when(
             !config.demoMode,
             () => html`
@@ -1887,6 +1963,48 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       };
     }),
   );
+
+  /*
+   * 15 §6A · Leaving is a decision with money attached, so it is a page rather
+   * than a button. Every option is offered and the app never picks.
+   */
+  router.get("/members/:id/remove", (ctx) => {
+    auth(ctx);
+    refuseInDemo(config, "Removing members");
+    const departure = describeDeparture(db, ctx.params.id!);
+    return render(
+      ctx, `Removing ${departure.memberName}`,
+      renderDeparture(departure, monthOf(todayIST())),
+    );
+  });
+
+  router.post("/members/:id/remove", (ctx) => {
+    refuseInDemo(config, "Removing members");
+    return mutate(ctx, (a) => {
+      const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+      const id = ctx.params.id!;
+      const resolution = field(ctx.body, "resolution") as DepartureResolution | undefined;
+
+      const departure = describeDeparture(db, id);
+      if (departure.standing !== "even" && !resolution) {
+        throw new HttpError(
+          400,
+          `There is ${formatPaise(departure.outstanding)} outstanding with ` +
+          `${departure.memberName}. Say how it should end before removing them.`,
+        );
+      }
+
+      const settled = resolution ? settleDeparture(db, actor, id, resolution) : null;
+      removeMember(db, actor, id);
+      return {
+        redirect: "/settings",
+        message:
+          `${departure.memberName} is no longer in the household.` +
+          (settled ? ` ${settled}` : "") +
+          ` Everything they entered is kept, and adding them back restores them.`,
+      };
+    });
+  });
 
   router.post("/members/invite", (ctx) => {
     refuseInDemo(config, "Inviting members");
@@ -3693,8 +3811,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // S9 · Goals (F11)
   // -------------------------------------------------------------------------
   router.get("/goals", (ctx) => {
+    // 15 §6B · A goal belongs to a budget, so the list follows the switcher.
+    const scope = budgetParam(ctx);
     const mine = budgetsFor(db, viewer(ctx));
-    const view = buildBudgetView(db);
+    const view = buildBudgetView(db, undefined, scope);
     const balances = new Map(
       [...view.categories].map(([id, c]) => [id, { name: c.name, balance: c.state.balance }]),
     );
@@ -3702,7 +3822,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return render(
       ctx, "Goals",
       renderGoals({
-        goals: goalProgress(db, balances, todayIST(), mine.map((b) => b.id)),
+        goals: goalProgress(db, balances, todayIST(), [scope]),
         budgets: mine.map((b) => ({ id: b.id, name: b.name, kind: b.kind })),
       }),
     );
@@ -3723,14 +3843,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const mine = budgetsFor(db, a.member.id);
       const budgetId = mine.find((b) => b.id === asked)?.id ?? householdBudgetId(db);
 
-      // B58 · A goal owns exactly one savings envelope, created and managed by
-      // the app in the "Savings goals" group — never hand-picked, never shared.
-      const category = ensureSavingsCategory(actor, name, budgetId);
+      // B58 · The goal makes its own envelope; the rule lives in createGoal so
+      // that every caller gets it, not only this form.
       createGoal(db, actor, {
         name,
         targetAmount: amountField(field(ctx.body, "target_amount"), "Target"),
         targetDate: targetDate ? parseDate(targetDate) : null,
-        categoryIds: [category.id],
         budgetId,
       });
       const budget = getBudget(db, budgetId);
@@ -3746,34 +3864,6 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // B58 · Create (or reuse) the app-managed "Savings goals" group and a fresh
   // category in it for a goal. The group is `internal`, so its categories carry
   // no manual controls on the Categories screen — the goal owns them.
-  /**
-   * B61 · The app-managed group that holds one envelope per goal.
-   *
-   * It used to be called "Savings goals", which is also what the starting
-   * template calls its ordinary savings group — so a household that ran the
-   * template and then added a goal saw *two* sections with the same heading on
-   * the Categories page, one editable and one not. The managed group is called
-   * "Goals" instead, and an existing one is renamed rather than abandoned,
-   * because abandoning it would split goal envelopes across two groups.
-   */
-  const GOAL_GROUP = "Goals";
-  const LEGACY_GOAL_GROUP = "Savings goals";
-
-  function goalGroup(actor: Actor, budgetId: string) {
-    // 15 §6B · One per budget: a goal's envelope has to be in the goal's own
-    // budget, or its progress figure would be two households' money added up.
-    const groups = listGroups(db, budgetId);
-    const existing = groups.find(
-      (g) => g.kind === "internal" && (g.name === GOAL_GROUP || g.name === LEGACY_GOAL_GROUP),
-    );
-    if (!existing) return createGroup(db, actor, GOAL_GROUP, "internal", budgetId);
-    if (existing.name !== GOAL_GROUP) return renameGroup(db, actor, existing.id, GOAL_GROUP);
-    return existing;
-  }
-
-  function ensureSavingsCategory(actor: Actor, goalName: string, budgetId: string) {
-    return createCategory(db, actor, { groupId: goalGroup(actor, budgetId).id, name: goalName });
-  }
 
   router.post("/goals/:id/edit", (ctx) =>
     mutate(ctx, (a) => {
@@ -4224,6 +4314,28 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       reorderCategory(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
         ctx.params.id!, dir);
       return { redirect: "/categories", message: "Moved." };
+    }),
+  );
+
+  /*
+   * A group could be created and reordered but never renamed or removed, so a
+   * typo was permanent and an empty leftover stayed on the grid for good.
+   * renameGroup had existed in the domain the whole time with nothing calling it.
+   */
+  router.post("/groups/:id/rename", (ctx) =>
+    mutate(ctx, (a) => {
+      const group = renameGroup(
+        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+        ctx.params.id!, requiredField(ctx.body, "name"),
+      );
+      return { redirect: "/categories", message: `Renamed to ${group.name}.` };
+    }),
+  );
+
+  router.post("/groups/:id/delete", (ctx) =>
+    mutate(ctx, (a) => {
+      deleteGroup(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), ctx.params.id!);
+      return { redirect: "/categories", message: "Group deleted." };
     }),
   );
 

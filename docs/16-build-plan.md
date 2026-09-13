@@ -19,7 +19,8 @@ Two phases are already done. They are listed so the sequence reads whole.
 | ✅ | **P3 · The household envelope** | Committing money without moving it, the claim in the identity, a standing monthly figure, rollover, and the household screen. Brought P4's cross-budget filing forward with it — see below. |
 | ✅ | **P4 · Spending across budgets** | Shared cards, add-on cards, splits per line, and the filing with no arrangement behind it refused. |
 | ✅ | **P5 · Ahead, behind, calling it even** | The three endings, in words a couple would use, with the money traced to where it comes from. Independent month closes. |
-| ⬜ | **P6, P7** | Below. |
+| ✅ | **P6 · Everything that was waiting** | Demo seed, docs, README, feature list and website. |
+| ⬜ | **P7** | Below. |
 
 ---
 
@@ -176,7 +177,7 @@ afterwards costs the household precisely the amount it let go.
 
 ---
 
-## P6 · Everything that has been waiting
+## P6 · Everything that has been waiting — done
 
 Small, already-agreed items, deliberately parked behind the feature rather than
 done piecemeal in front of it.
@@ -188,6 +189,24 @@ done piecemeal in front of it.
 | Website: the demo page and the feature tour covering separate budgets | 0.5 w |
 | Correct `14`'s superseded 12–20 week estimate | — |
 | | **1.5 weeks** |
+
+**The demo seed is the part that earned its place.** Priya on a salary the 28th of
+every month with a March bonus, Ravi on consulting that sometimes does not arrive,
+and from the thirtieth month he keeps his own budget: a private account, ₹40,000 a
+month committed, the rent paid out of it, and one balance they agreed to let go.
+
+Driving that found a bug no test had: calling it even gives *income* to whichever
+side is released, and that is not always the side the envelope sits in. Reading it
+off the envelope's budget left the household short by the amount let go, in every
+month from then on. `15` §4A.6 is the same case from the other end, and it is
+tested now.
+
+A round of using the app found a further set, none of which a test was going to
+catch: the household screen contradicting itself across two sections, a row that
+did not add up because a level sat between two flows, the account edit form buried
+behind a label that had stopped describing it, a personal budget opening with no
+envelopes at all, and every screen except the budget grid ignoring the switcher
+that had just been put in the chrome.
 
 ---
 

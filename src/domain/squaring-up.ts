@@ -34,8 +34,17 @@ import { standingOf, outstanding } from "./standing.ts";
 import { loadEngineInput } from "../engine/repository.ts";
 import { computeBudget } from "../engine/engine.ts";
 
-/** Where a called-even amount lands by default on the giving side (15 §4A.5). */
-export const GIVEN_UP_CATEGORY = "Gifts and treats";
+/**
+ * Where a called-even amount lands by default on the giving side (15 §4A.5).
+ *
+ * `15` suggested "Gifts and treats" as the obvious default, and it is the wrong
+ * word more often than the right one: agreeing to leave a lopsided month is
+ * usually not a present, and naming it one puts a generosity on the act that
+ * neither person claimed. This says what happened — an amount that was
+ * outstanding between the two of you, settled — and the household can pick a
+ * different envelope at the moment it does it.
+ */
+export const GIVEN_UP_CATEGORY = "Settled between us";
 
 export interface EvenCall {
   id: string;
@@ -52,9 +61,10 @@ export interface EvenCall {
 /**
  * The envelope a called-even amount is spent from, made on demand.
  *
- * An ordinary envelope in an ordinary group, because it is ordinary spending: the
- * household bought somebody a present. It can be renamed, retargeted and reported
- * on like anything else, and the household may choose a different one.
+ * An ordinary envelope in an ordinary group, because it is ordinary spending:
+ * money left the budget and something has to record that. It can be renamed,
+ * retargeted and reported on like anything else, and the household may choose a
+ * different one when it calls a month even.
  */
 export function ensureGivenUpCategory(db: DB, actor: Actor, budgetId: string): Category {
   const existing = listCategories(db, { includeHidden: true, budgetId })
@@ -76,7 +86,7 @@ export interface CallItEvenInput {
   envelopeId: string;
   /** Partial amounts are ordinary: ₹2,000 of a ₹6,200 balance (15 §4A.5). */
   amount: Paise;
-  /** Where it lands on the giving side. Defaults to Gifts and treats. */
+  /** Where it lands on the giving side. Defaults to GIVEN_UP_CATEGORY. */
   givingCategoryId?: string;
   month?: MonthKey;
   note?: string | null;

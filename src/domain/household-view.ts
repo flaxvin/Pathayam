@@ -17,8 +17,10 @@ import type { Paise } from "../core/money.ts";
 import { loadEngineInput } from "../engine/repository.ts";
 import { computeBudget } from "../engine/engine.ts";
 import { loadTargets } from "../engine/repository.ts";
-import { householdBudgetId } from "./budgets.ts";
+import { householdBudgetId, getBudget } from "./budgets.ts";
 import { commitmentSources } from "./commitments.ts";
+import { listCategories } from "./budget.ts";
+import { GIVEN_UP_CATEGORY } from "./squaring-up.ts";
 import { standingOf, outstanding, standingSentence, type Standing } from "./standing.ts";
 
 export interface MemberCommitment {
@@ -51,6 +53,25 @@ export interface MemberCommitment {
   outstanding: Paise;
   /** One sentence a person can read, third person. */
   sentence: string;
+  /**
+   * 15 §4A.4 · Where a called-even amount would be spent from, and in whose
+   * budget. Named on the page, because "it becomes spending on your side" does
+   * not tell anybody which envelope is about to go into the red.
+   */
+  givingUp: {
+    budgetName: string;
+    categoryName: string;
+    exists: boolean;
+    /**
+     * 15 §4A.5 · What is given up is an expense for the one giving it and
+     * **income for the one receiving it**. The receiving side is the half nobody
+     * thinks to ask about, and leaving it unsaid makes the whole thing look like
+     * money vanishing.
+     */
+    receiverName: string;
+    /** The giving budget's ordinary envelopes, so it need not be the default. */
+    choices: { id: string; name: string }[];
+  } | null;
 }
 
 export interface HouseholdView {
@@ -102,6 +123,7 @@ export function buildHouseholdView(db: DB, month: MonthKey): HouseholdView {
       target,
       shortOfTarget: (target === null ? 0 : Math.max(0, target - assigned)) as Paise,
       standing: standingOf(balance),
+      givingUp: describeGivingUp(db, source.budgetId, balance),
       outstanding: outstanding(balance),
       sentence: standingSentence(balance, source.budgetName),
     };
@@ -115,5 +137,40 @@ export function buildHouseholdView(db: DB, month: MonthKey): HouseholdView {
     members,
     separateBudgets: sources.length > 0,
     underfunded: members.filter((m) => m.standing === "underfunded"),
+  };
+}
+
+/**
+ * Which envelope a called-even amount would land in, without creating it.
+ *
+ * Whoever is *overfunded* is the one giving something up, and the sign says which
+ * that is. Read-only on purpose: this runs on a GET, and a page render must not
+ * quietly make an envelope somebody may never use.
+ */
+function describeGivingUp(
+  db: DB, envelopeBudgetId: string, balance: Paise,
+): MemberCommitment["givingUp"] {
+  if (balance === 0) return null;
+  const household = householdBudgetId(db);
+  // Underfunded: the envelope's own budget paid for more than it set aside, so it
+  // is the one letting it go. Overfunded: the other budget is.
+  const givingId = balance < 0 ? envelopeBudgetId : household;
+  const receivingId = givingId === household ? envelopeBudgetId : household;
+  const giving = getBudget(db, givingId);
+  const receiving = getBudget(db, receivingId);
+  if (!giving || !receiving) return null;
+
+  const existing = listCategories(db, { includeHidden: true, budgetId: givingId })
+    .find((c) => c.name === GIVEN_UP_CATEGORY);
+  return {
+    budgetName: giving.kind === "household" ? "the household budget" : `${giving.name}'s budget`,
+    categoryName: GIVEN_UP_CATEGORY,
+    exists: Boolean(existing),
+    receiverName: receiving.kind === "household" ? "the household" : receiving.name,
+    // Ordinary envelopes only: a commitment or a card's payment envelope is not
+    // somewhere the household gets to book this.
+    choices: listCategories(db, { budgetId: givingId })
+      .filter((c) => !c.commits_to_budget_id && !c.payment_account_id)
+      .map((c) => ({ id: c.id, name: c.name })),
   };
 }

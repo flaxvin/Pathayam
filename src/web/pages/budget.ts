@@ -11,48 +11,8 @@ import { formatMonth, addMonths, type MonthKey } from "../../core/dates.ts";
 import type { BudgetView, CategoryView, GroupView } from "../viewmodel.ts";
 import { PUT_IT_DOWN_TO_ME, PUT_IT_DOWN_TO_ME_HINT } from "../../domain/standing.ts";
 
-export interface BudgetChoice {
-  id: string;
-  name: string;
-  kind: "household" | "personal";
-  current: boolean;
-}
-
-/**
- * 15 · The switcher. Absent entirely when there is one budget, so a household
- * that pools its money never sees a control for a distinction it has not made.
- */
-export function renderBudgetSwitch(
-  budgets: BudgetChoice[], canCreateOwn: boolean, month: string,
-): SafeHtml {
-  if (budgets.length < 2 && !canCreateOwn) return raw("");
+export function renderBudget(view: BudgetView, digest?: SafeHtml): SafeHtml {
   return html`
-    <div class="scope-tabs" style="margin-bottom:.75rem">
-      ${budgets.map(
-        (b) => html`
-          <a class="button-small ${b.current ? "button-primary" : ""}"
-             href="/?budget=${b.id}&month=${month}">
-            ${b.kind === "household" ? "Household" : b.name}
-          </a>
-        `,
-      )}
-      ${when(
-        canCreateOwn,
-        () => html`
-          <form method="post" action="/budgets/personal" style="display:inline">
-            <button class="button-small" type="submit">+ My own budget</button>
-          </form>
-        `,
-      )}
-    </div>
-  `;
-}
-
-export function renderBudget(
-  view: BudgetView, digest?: SafeHtml, switcher?: SafeHtml,
-): SafeHtml {
-  return html`
-    ${switcher ?? html``}
     ${renderMonthBar(view.month, view.currentMonth)}
     ${renderReadyToAssign(view)}
     <!-- F14.3 as errata E12 leaves it: the digest on next open, in the one
@@ -204,7 +164,7 @@ function renderCardWarnings(view: BudgetView): SafeHtml {
         <p class="notice notice-warning">
           <strong>${formatPaise(card.unfunded)}</strong> of your ${category?.name ?? "card"}
           balance isn't funded yet.
-          <a href="/move?to=${category?.id ?? ""}&amount=${card.unfunded}&month=${view.month}">
+          <a href="/move?to=${category?.id ?? ""}&amount=${(card.unfunded / 100).toFixed(2)}&month=${view.month}">
             Fund it
           </a>
         </p>
@@ -258,9 +218,9 @@ function renderCategoryRow(category: CategoryView, month: MonthKey): SafeHtml {
         ${when(Boolean(category.commitsToBudgetId), () => html`
           <span class="faint">
             ${state.balance < 0
-              ? `You have put in ${formatPaise(-state.balance as Paise)} more than planned`
+              ? `${formatPaise(-state.balance as Paise)} more of the household's spending was paid from your money than you put aside`
               : state.balance > 0
-                ? "Committed to the household, not yet spent"
+                ? "Committed to the household, not yet gone out"
                 : "Square with the household"}
           </span>
         `)}
@@ -272,7 +232,7 @@ function renderCategoryRow(category: CategoryView, month: MonthKey): SafeHtml {
             says that instead.
           -->
           <a class="button button-small ${category.commitsToBudgetId ? "" : "button-danger"}"
-             href="/move?to=${category.id}&amount=${-state.balance}&month=${month}"
+             href="/move?to=${category.id}&amount=${(-state.balance / 100).toFixed(2)}&month=${month}"
              ${raw(category.commitsToBudgetId ? `title="${PUT_IT_DOWN_TO_ME_HINT}"` : "")}>
             ${category.commitsToBudgetId
               ? `${PUT_IT_DOWN_TO_ME} · ${formatPaise(-state.balance as Paise)}`
