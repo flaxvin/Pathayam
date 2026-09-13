@@ -4430,6 +4430,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     return render(ctx, "Lending in the family", renderFamilyLoans({
       loans, accounts: cashAccounts(ctx),
+      members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
     }));
   });
 
@@ -4440,6 +4441,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         counterparty: requiredField(ctx.body, "counterparty"),
         agreedTotal: agreed ? amountField(agreed) : null,
         note: field(ctx.body, "note") || null,
+        // H2 / H2.2 · Money lent to your cousin can be yours rather than the
+        // household's, the same as an asset or a loan.
+        holderMemberId: field(ctx.body, "holder_member_id") || null,
+        visibility: field(ctx.body, "visibility") === "private" ? "private" : undefined,
       });
       return {
         redirect: `/family/${loan.id}`,

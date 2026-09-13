@@ -193,6 +193,10 @@ export function recordRepayment(
 
 export interface FamilyLoanView {
   loan: FamilyLoan;
+  /** H2 · Whose arrangement it is; null means the household's, jointly. */
+  holderMemberId: string | null;
+  /** H2.2 · Visible only to its holder. */
+  isPrivate: boolean;
   /**
    * FL2 · Derived from the transfers, never stored. Signed: positive means they
    * owe you, negative means you owe them (B54).
@@ -224,6 +228,10 @@ export function viewFamilyLoan(
 ): FamilyLoanView | null {
   const loan = getFamilyLoan(db, id);
   if (!loan) return null;
+
+  const holder = queryOne<{ holder_member_id: string | null; visibility: string }>(
+    db, `SELECT holder_member_id, visibility FROM accounts WHERE id = ?`, loan.account_id,
+  );
 
   // The write-off is excluded from the tally deliberately. It closes the
   // balance, but nobody paid it back, and counting it as a repayment would
@@ -263,6 +271,10 @@ export function viewFamilyLoan(
 
   return {
     loan,
+    // H2 / H2.2 · Read off the tracking account the arrangement hangs on, which
+    // is where createAccount put them.
+    holderMemberId: holder?.holder_member_id ?? null,
+    isPrivate: holder?.visibility === "private",
     balance,
     outstanding,
     owedToYou: balance > 0,
