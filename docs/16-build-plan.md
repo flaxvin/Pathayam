@@ -321,7 +321,7 @@ hammers hardest.
 | **Did anything go unexercised?** | Every mutating function the domain exports, read out of the source rather than kept in a list, must be called by the scenario. A domain mutation written tomorrow fails this test tomorrow. |
 | **Is removal a state?** | F1.6: a departed member's name stays on everything they entered, and re-inviting the same address finds them again. |
 
-**It found a real defect on its first run.** Writing off a family loan broke the
+**It found a real defect on its first run, and four more on the second.** Writing off a family loan broke the
 accounting identity by exactly the amount written off, in every month from then
 on. A categorised transaction on a *tracking* account gave its amount to the
 envelope and took it from nothing: the money had left the budget at the advance,
@@ -329,3 +329,18 @@ months earlier, and filing a category against it later is an attribution rather
 than a second departure (R6.aa). A thousand unit tests missed it because every
 one of them posts to a budget account. Thirty-six simulated months of four
 people did not.
+
+Then the demo was rebuilt from the same scenario and driven as each member in
+turn, which turned up four more — every one of them invisible from a single
+chair:
+
+| | |
+|---|---|
+| **A loan's envelope never paid anything** | The instalment was a bare transfer to a tracking account, which carries no envelope, so the money left through Ready to Assign and the envelope only ever grew. Four loans read "not funded" for three years with every instalment paid on time (R6.ab). |
+| **Private spending was on everybody's screens** | `queryTransactions` — what Query, its CSV, Search and the reports page are built on — read straight past the visibility flag (R6.ad). |
+| **Private envelopes were in everybody's dropdowns** | An unscoped budget view carries every budget's categories, and five screens handed that straight to a picker. No balance beside them, which is why it never looked like a leak. |
+| **And the write side stayed open after the read side closed** | Posting another member's envelope id by hand still worked, which also confirmed the envelope existed (R6.ac). |
+
+The pattern in all four: **a test written from one person's chair cannot see a
+privacy bug.** The suite had a thousand tests and not one of them signed in as
+somebody else and looked.
