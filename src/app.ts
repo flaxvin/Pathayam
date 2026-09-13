@@ -2402,12 +2402,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/cards", (ctx) => {
     auth(ctx);
     const month = monthParam(ctx);
-    const view = buildBudgetView(db, month);
+    /*
+     * 15 §3A.5 · A card's debt, and the envelope funding it, belong to the budget
+     * that owns the account. So this screen shows the cards of the budget being
+     * looked at — the household's when that is what is selected, yours when it
+     * is yours. Mixing them would put another budget's bill on your list.
+     */
+    const scope = budgetParam(ctx);
+    const view = buildBudgetView(db, month, scope);
     const outstanding = creditOutstanding(db);
     const today = todayIST();
 
     const cards: CardDue[] = listAccounts(db, { viewerMemberId: viewer(ctx) })
-      .filter((a) => a.kind === "credit")
+      .filter((a) => a.kind === "credit" && a.budget_id === scope)
       .map((account) => {
         const payment = [...view.categories.values()]
           .find((c) => c.paymentAccountId === account.id) ?? null;
@@ -3340,6 +3347,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const account = ctx.query.get("account");
     const category = ctx.query.get("category");
 
+    /*
+     * 15 · Scope is asked for here rather than taken from the switcher.
+     *
+     * `16`'s decision is that reports offer every scope rather than picking one:
+     * "what did we spend on groceries" and "what did I spend" and "what did all
+     * of it come to" are three different questions, and a report that silently
+     * answered only one of them would be wrong two times in three. So `scope`
+     * defaults to everything and is a control on the page.
+     */
+    const scope = ctx.query.get("scope");
+    const budgetId =
+      scope && scope !== "all" && budgetsFor(db, viewer(ctx)).some((b) => b.id === scope)
+        ? scope
+        : undefined;
+
     return {
       period,
       filter: {
@@ -3348,6 +3370,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         text: ctx.query.get("q") ?? undefined,
         accountIds: account ? [account] : undefined,
         categoryIds: category ? [category] : undefined,
+        budgetId,
         limit: 1000,
       },
     };
@@ -3384,6 +3407,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         categories: listCategories(db).map((c) => ({ id: c.id, name: c.name })),
         selectedAccounts: filter.accountIds ?? [],
         selectedCategories: filter.categoryIds ?? [],
+        budgets: budgetsFor(db, viewer(ctx)).map((b) => ({ id: b.id, name: b.name, kind: b.kind })),
+        scope: ctx.query.get("scope") ?? "all",
         title,
       }),
     );
@@ -3392,7 +3417,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // S16 · Overview — the read-only home that gathers the five most-checked
   // numbers from the budget, cashflow, net worth and insight engine.
   router.get("/overview", (ctx) => {
-    const view = buildBudgetView(db);
+    /*
+     * 15 · The overview is a dashboard of one budget's position, and with the
+     * switcher in the chrome it has to be the budget being looked at. Showing the
+     * household's Ready to Assign while the sidebar says "Ravi" is worse than not
+     * offering the switch at all.
+     */
+    const scope = budgetParam(ctx);
+    const view = buildBudgetView(db, undefined, scope);
     const month = view.month;
     const cashflow = projectCashflow(db, { days: 60 });
     const outstanding = creditOutstanding(db);
@@ -3416,16 +3448,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * two: it reported months of safety the household did not have.
      */
     const monthSpend =
-      (envelopeSpendByMonth(db, `${month}-01`, todayIST()).at(-1)?.spent ?? 0) as Paise;
+      (envelopeSpendByMonth(db, `${month}-01`, todayIST(), scope).at(-1)?.spent ?? 0) as Paise;
 
     // #12 · Months of runway = liquid cash ÷ typical monthly spend (mean of the
     // three complete months before this one, so a partial month doesn't skew it).
     const bals = accountBalances(db);
     const cash = listAccounts(db, { viewerMemberId: viewer(ctx) })
-      .filter((acc) => acc.kind === "budget")
+      .filter((acc) => acc.kind === "budget" && acc.budget_id === scope)
       .reduce((sum, acc) => sum + Math.max(0, bals.get(acc.id)?.working ?? 0), 0);
     const priorMonths = envelopeSpendByMonth(
-      db, `${addMonths(month, -3)}-01`, lastDayOfMonth(addMonths(month, -1)),
+      db, `${addMonths(month, -3)}-01`, lastDayOfMonth(addMonths(month, -1)), scope,
     );
     const avgMonthlySpend = priorMonths.length
       ? priorMonths.reduce((s, m) => s + m.spent, 0) / priorMonths.length
@@ -3434,8 +3466,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     // #13 · Bills due in the next fortnight, each with a one-tap "mark paid".
     const soon = addDays(todayIST(), 14);
+    const budgetAccounts = new Set(
+      listAccounts(db, { viewerMemberId: viewer(ctx) })
+        .filter((acc) => acc.budget_id === scope)
+        .map((acc) => acc.id),
+    );
     const dueSoon = listSchedules(db)
       .filter((s) => s.next_due && s.next_due <= soon && (s.amount ?? 0) < 0)
+      // A standing instruction belongs to the account it comes out of.
+      .filter((s) => !s.account_id || budgetAccounts.has(s.account_id))
       .sort((x, y) => (x.next_due ?? "").localeCompare(y.next_due ?? ""))
       .slice(0, 6)
       .map((s) => ({ id: s.id, name: s.name, amount: Math.abs(s.amount ?? 0) as Paise, nextDue: s.next_due! }));
@@ -3481,8 +3520,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/reports", (ctx) => {
     const period = periodFor(ctx.query.get("period") ?? "last-12");
+    /*
+     * 15 / 16 · Reports offer every scope rather than picking one, the same as
+     * Query — and for the same reason: a household asks about its own money,
+     * about one person's, and about all of it, on different days.
+     */
+    const asked = ctx.query.get("scope");
+    const scope =
+      asked && asked !== "all" && budgetsFor(db, viewer(ctx)).some((b) => b.id === asked)
+        ? asked
+        : undefined;
+
     const categorySpend = groupTotals(
-      queryTransactions(db, { from: period.from, to: period.to, direction: "out" }),
+      queryTransactions(db, { from: period.from, to: period.to, direction: "out", budgetId: scope }),
       "category",
     )
       .map((g) => ({ key: g.key, label: g.label, value: Math.abs(g.total) }))
@@ -3497,8 +3547,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     // S15 · The money-flow Sankey uses this month: income in, and where it went
     // by group → category. Built from the budget view's own group structure.
-    const bview = buildBudgetView(db);
-    const monthIncome = (incomeVsExpense(db, `${bview.month}-01`, todayIST()).at(-1)?.income ?? 0) as Paise;
+    const bview = buildBudgetView(db, undefined, scope);
+    const monthIncome =
+      (incomeVsExpense(db, `${bview.month}-01`, todayIST(), scope).at(-1)?.income ?? 0) as Paise;
     const sankeyGroups = bview.groups
       .map((g) => ({
         name: g.name,
@@ -3513,7 +3564,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       renderReports({
         insights: spendingInsights(db),
         gains: config.features.assets ? capitalGainsByYear(db) : [],
-        trend: incomeVsExpense(db, period.from, period.to),
+        trend: incomeVsExpense(db, period.from, period.to, scope),
         categorySpend: categorySpend.map((g) => ({ label: g.label, value: g.value })),
         categoryTrends,
         tagSpend: spendByTag(db, period.from, period.to),
@@ -3522,6 +3573,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         period,
         periods: periodPresets(),
         loanInterest: config.features.loans ? loanInterestByFinancialYear(db) : [],
+        budgets: budgetsFor(db, viewer(ctx)).map((b) => ({ id: b.id, name: b.name, kind: b.kind })),
+        scope: asked ?? "all",
       }),
     );
   });
@@ -3531,13 +3584,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
   router.get("/schedules", (ctx) => {
     const horizon = Number(ctx.query.get("days") ?? 60);
-    const cashflow = projectCashflow(db, { days: horizon });
-    const view = buildBudgetView(db);
+    const scope = budgetParam(ctx);
+    const cashflow = projectCashflow(db, { days: horizon, budgetId: scope });
+    const view = buildBudgetView(db, undefined, scope);
+
+    // 15 · A standing instruction comes out of one account, so it belongs to
+    // that account's budget. One without an account is the household's.
+    const inScope = new Set(
+      listAccounts(db, { viewerMemberId: viewer(ctx) })
+        .filter((a) => a.budget_id === scope)
+        .map((a) => a.id),
+    );
 
     return render(
       ctx, "Schedules",
       renderSchedules({
-        schedules: listSchedules(db),
+        schedules: listSchedules(db).filter((s) => !s.account_id || inScope.has(s.account_id)),
         detected: detectSchedules(db),
         cashflow,
         cashflowReading: describeCashflow(cashflow),

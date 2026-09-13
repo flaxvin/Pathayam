@@ -283,7 +283,16 @@ export interface Cashflow {
  * omits the largest outgoings answers the wrong question.
  */
 export function projectCashflow(
-  db: DB, opts: { days?: number; floor?: Paise; today?: IsoDate } = {},
+  db: DB,
+  opts: {
+    days?: number; floor?: Paise; today?: IsoDate;
+    /**
+     * 15 · Whose cash is being projected. "Will I make it to the 30th" is a
+     * question about one budget's accounts — answering it from the household's
+     * cash while somebody is looking at their own budget is worse than useless.
+     */
+    budgetId?: string;
+  } = {},
 ): Cashflow {
   const today = opts.today ?? todayIST();
   const horizon = opts.days ?? 60;
@@ -293,8 +302,13 @@ export function projectCashflow(
   // not spendable either. The calendar is about cash on hand (R1).
   const balances = accountBalances(db);
   const budgetAccounts = queryAll<{ id: string }>(
-    db, `SELECT id FROM accounts WHERE kind = 'budget' AND closed_at IS NULL`,
+    db,
+    `SELECT id FROM accounts
+      WHERE kind = 'budget' AND closed_at IS NULL
+        ${opts.budgetId ? "AND budget_id = ?" : ""}`,
+    ...(opts.budgetId ? [opts.budgetId] : []),
   );
+  const inScope = new Set(budgetAccounts.map((a) => a.id));
   let balance = budgetAccounts.reduce((sum, a) => sum + (balances.get(a.id)?.working ?? 0), 0);
 
   const opening = balance;
@@ -313,6 +327,9 @@ export function projectCashflow(
   // Confirmed and detected schedules, distinguished (F7.8).
   for (const schedule of listSchedules(db)) {
     if (!schedule.next_due || schedule.amount === null) continue;
+    // A standing instruction only moves this budget's cash if it comes out of
+    // one of its accounts.
+    if (opts.budgetId && schedule.account_id && !inScope.has(schedule.account_id)) continue;
     let due: IsoDate | null = schedule.next_due;
     for (let guard = 0; due && due <= end && guard < 400; guard++) {
       if (due >= today) {
