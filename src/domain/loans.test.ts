@@ -12,7 +12,7 @@ import {
   recordPrepayment,
 } from "./loans.ts";
 import { getTarget, createGroup, createCategory, setAssigned } from "./budget.ts";
-import { computeBudget } from "../engine/engine.ts";
+import { computeBudget, identityResidual } from "../engine/engine.ts";
 import { monthOf } from "../core/dates.ts";
 import { netWorthStatement } from "./networth.ts";
 import { todayIST } from "../core/dates.ts";
@@ -633,5 +633,68 @@ describe("06 R19.1 · a prepayment does what was picked", () => {
       }),
       /more than the/,
     );
+  });
+});
+
+/**
+ * B124 · R14 · A loan's envelope is what pays its instalment.
+ *
+ * `06` R14 calls the loan's payment envelope "symmetric with a card's", and it
+ * was not: the instalment went out as a plain transfer to the loan's tracking
+ * account, which carries no envelope, so the money left through Ready to Assign
+ * and the envelope kept everything ever assigned to it. A household that
+ * budgeted for its EMI paid for it twice in the budget's terms — once into an
+ * envelope that only grew, and again out of the pool when the instalment
+ * actually went.
+ */
+describe("06 R14 · the EMI comes out of the envelope that was funded for it", () => {
+  test("paying it empties the envelope and leaves Ready to Assign alone", () => {
+    const { db, bankId } = setup();
+    const loan = createLoan(db, actor, {
+      lender: "SBI", loanType: "personal", sanctioned: rupees(2_00_000),
+      sanctionDate: todayIST(), interestModel: "reducing", annualRatePct: 12,
+      tenureMonths: 24, currentOutstanding: rupees(2_00_000), repaymentAccountId: bankId,
+    });
+    const envelope = paymentCategoryForLoan(db, loan.id)!;
+    const emi = projectLoan(db, loan.id)!.emi;
+    const month = monthOf(todayIST());
+
+    setAssigned(db, actor, month, envelope.id, emi);
+    const funded = computeBudget(loadEngineInput(db, { through: month })).get(month)!;
+    assert.equal(funded.categories.get(envelope.id)!.balance, emi, "the envelope holds the EMI");
+
+    recordInstalment(db, actor, {
+      loanId: loan.id, date: todayIST(), amount: emi, fromAccountId: bankId,
+    });
+
+    const paid = computeBudget(loadEngineInput(db, { through: month })).get(month)!;
+    assert.equal(
+      paid.categories.get(envelope.id)!.balance, 0,
+      "the envelope is what paid it",
+    );
+    assert.equal(
+      paid.readyToAssign, funded.readyToAssign,
+      "and Ready to Assign did not pay for it a second time",
+    );
+    assert.equal(identityResidual(paid), 0);
+  });
+
+  test("the money still leaves the account and the debt still falls", () => {
+    const { db, bankId } = setup();
+    const loan = createLoan(db, actor, {
+      lender: "SBI", loanType: "personal", sanctioned: rupees(2_00_000),
+      sanctionDate: todayIST(), interestModel: "reducing", annualRatePct: 12,
+      tenureMonths: 24, currentOutstanding: rupees(2_00_000), repaymentAccountId: bankId,
+    });
+    const emi = projectLoan(db, loan.id)!.emi;
+    const before = accountBalances(db).get(bankId)!.working;
+    const owed = projectLoan(db, loan.id)!.outstanding;
+
+    recordInstalment(db, actor, {
+      loanId: loan.id, date: todayIST(), amount: emi, fromAccountId: bankId,
+    });
+
+    assert.equal(accountBalances(db).get(bankId)!.working, before - emi);
+    assert.ok(projectLoan(db, loan.id)!.outstanding < owed, "the debt fell by the principal");
   });
 });
