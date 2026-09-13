@@ -354,7 +354,14 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
 
   // --------------------------------------------------------------- schedules
   const rentSchedule = did("createSchedule", () => createSchedule(db, actor, {
-    name: "Rent", accountId: acc.savings, categoryId: cat("Rent"),
+    /*
+     * Paid from Ravi's own account against the household's envelope, which is
+     * what a commitment is *for*: the money stays in his account until a shared
+     * bill is actually paid out of it, and that is what draws the commitment
+     * down. Pointed at the joint account instead, his envelope would only ever
+     * grow, and the household page would show a number nobody could explain.
+     */
+    name: "Rent", accountId: acc.hisOwn, categoryId: cat("Rent"),
     amount: -rupees(38_000) as Paise, recurrence: "monthly", nextDue: day(months[0]!, 3),
   }));
   const salarySchedule = did("createSchedule", () => createSchedule(db, actor, {
@@ -751,10 +758,24 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
       did("setAssigned", () => setAssigned(db, actor, month, envelope, rupees(amount) as Paise));
       void budgetId;
     }
-    // Anil pays for a household thing out of his own account: a claim either way.
-    if (anilHere && live(15)) {
-      spend(acc.anilOwn, cat("Groceries"), tidy(between(2_000, 6_000)), pick(PAYEES.grocers),
-        day(month, 15), { owner: anil.id });
+    /*
+     * Anil's share, paid out of his own account against household envelopes —
+     * near enough what he commits, so his standing wanders either side of even
+     * rather than climbing for three years.
+     */
+    if (anilHere) {
+      if (live(15)) {
+        spend(acc.anilOwn, cat("Groceries"), tidy(between(6_000, 11_000)), pick(PAYEES.grocers),
+          day(month, 15), { owner: anil.id });
+      }
+      if (live(9)) {
+        spend(acc.anilOwn, cat("Electricity"), tidy(between(2_400, 4_200)), "BESCOM",
+          day(month, 9), { owner: anil.id });
+      }
+      if (live(11)) {
+        spend(acc.anilOwn, cat("Domestic help"), tidy(between(3_800, 5_200)), "Lakshmi",
+          day(month, 11), { owner: anil.id });
+      }
     }
     // And spends on his own envelope, so his budget is not only a commitment.
     if (anilHere && live(22)) {
