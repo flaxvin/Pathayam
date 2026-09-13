@@ -27,12 +27,15 @@ import type { DB } from "../db/db.ts";
 import { queryOne, execute, transact } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { appendEvent } from "../core/events.ts";
-import { todayIST, type IsoDate } from "../core/dates.ts";
+import { todayIST, monthOf, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { Refusal } from "../core/refusal.ts";
-import { getAccount } from "./accounts.ts";
+import { getAccount, paymentCategoryFor } from "./accounts.ts";
+import { moveMoney } from "./budget.ts";
+import { loadEngineInput } from "../engine/repository.ts";
+import { computeBudget } from "../engine/engine.ts";
 import { createTransaction, getTransaction } from "./transactions.ts";
-import { createLoan, projectLoan, type Loan } from "./loans.ts";
+import { createLoan, projectLoan, paymentCategoryForLoan, type Loan } from "./loans.ts";
 
 /** The GST an Indian issuer adds to a processing fee. */
 export const GST_PCT = 18;
@@ -52,6 +55,15 @@ export interface ConvertToEmiInput {
   date?: IsoDate;
   /** R6.c · Which card the purchase was made on — the primary, or an add-on. */
   cardId?: string | null;
+  /**
+   * What to call it, beyond "<card> EMI".
+   *
+   * A household converting three purchases on the same card otherwise ends up
+   * with three plans called "Swiggy HDFC EMI", indistinguishable in the loan list,
+   * the debt table and the envelope grid. The payee of the original charge is
+   * usually exactly the right word — "Croma", "Apple" — so it is the default.
+   */
+  nameSuffix?: string | null;
   note?: string | null;
 }
 
@@ -106,7 +118,10 @@ export function convertToEmi(db: DB, actor: Actor, input: ConvertToEmiInput): Co
     }
 
     const date = input.date ?? todayIST();
-    const label = `${card.nickname || card.name} EMI`;
+    const suffix = (input.nameSuffix ?? "").trim();
+    const label = suffix
+      ? `${card.nickname || card.name} EMI — ${suffix}`
+      : `${card.nickname || card.name} EMI`;
 
     // The plan itself. Sanctioned and drawn are the same figure: the bank has
     // already advanced it, which is why the card's balance falls.
@@ -154,6 +169,34 @@ export function convertToEmi(db: DB, actor: Actor, input: ConvertToEmiInput): Co
         memo: `EMI processing fee (${formatPaise(fee)} + ${GST_PCT}% GST)`,
         cleared: true,
       });
+    }
+
+    /*
+     * §7.4 · And the money that was set aside to clear the card follows the debt.
+     *
+     * Charging ₹60,000 to a card put ₹60,000 into the card's payment envelope
+     * (R6). The conversion pays the card off, so that money is no longer needed
+     * there — it is needed for the instalments, which is what the plan's envelope
+     * is. Leaving it behind would show the card wildly over-funded and the plan
+     * unfunded, and make the household move it by hand to say something the app
+     * already knows.
+     *
+     * A move between two envelopes, so nothing is created or destroyed.
+     */
+    const cardEnvelope = paymentCategoryFor(db, card.id);
+    const planEnvelope = paymentCategoryForLoan(db, loan.id);
+    if (cardEnvelope && planEnvelope) {
+      const held = computeBudget(loadEngineInput(db, { through: monthOf(date) }))
+        .get(monthOf(date))?.categories.get(cardEnvelope.id)?.balance ?? 0;
+      const toMove = Math.min(Math.max(0, held), amount) as Paise;
+      if (toMove > 0) {
+        moveMoney(db, actor, {
+          month: monthOf(date),
+          fromCategoryId: cardEnvelope.id,
+          toCategoryId: planEnvelope.id,
+          amount: toMove,
+        });
+      }
     }
 
     const projection = projectLoan(db, loan.id);

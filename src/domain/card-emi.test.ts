@@ -20,7 +20,7 @@ import { createTransaction } from "./transactions.ts";
 import { loadEngineInput, accountBalances } from "../engine/repository.ts";
 import { computeBudget, identityResidual, cardFunding } from "../engine/engine.ts";
 import { convertToEmi, GST_PCT } from "./card-emi.ts";
-import { projectLoan, listLoans } from "./loans.ts";
+import { projectLoan, listLoans, recordInstalment, createLoan } from "./loans.ts";
 
 const RAVI = "m-ravi";
 const actor: Actor = { memberId: RAVI, source: "ui" };
@@ -202,5 +202,111 @@ describe("06 §7.4 · converting a card purchase to EMI", () => {
     )!;
     assert.equal(row.converted_from_transaction_id, charge.id, "traceable to the purchase");
     assert.ok(card.id);
+  });
+});
+
+describe("06 §7.4 · recording the monthly instalment", () => {
+  /**
+   * *"The EMI instalment appears on the card statement, so its payment is
+   * recorded against the card, while the EMI loan's outstanding reduces. Both
+   * views must agree."*
+   *
+   * So it is an ordinary card charge filed to the plan's own envelope — the R6
+   * idiom exactly. The plan's envelope falls by the instalment, the card's
+   * payment envelope rises by it, and the household funds the plan once, monthly,
+   * in the envelope that exists for it.
+   */
+  function converted() {
+    const fixture = cardWithCharge();
+    const result = convertToEmi(fixture.db, actor, {
+      transactionId: fixture.charge.id, tenureMonths: 12, annualRatePct: 15,
+    });
+    const planEnvelope = queryOne<{ id: string }>(
+      fixture.db,
+      `SELECT c.id FROM loans l JOIN categories c ON c.id = l.payment_category_id WHERE l.id = ?`,
+      result.loan.id,
+    )!.id;
+    return { ...fixture, loan: result.loan, emi: result.emi, planEnvelope };
+  }
+
+  test("it is a charge on the card, not a debit from a bank account", () => {
+    const { db, card, loan, emi } = converted();
+    const bankBefore = accountBalances(db).get(
+      queryOne<{ id: string }>(db, `SELECT id FROM accounts WHERE kind='budget' LIMIT 1`)!.id,
+    )?.working;
+
+    recordInstalment(db, actor, {
+      loanId: loan.id, date: todayIST(), amount: emi, fromAccountId: card.id,
+    });
+
+    assert.equal(accountBalances(db).get(card.id)?.working, -emi, "the card carries it");
+    assert.equal(
+      accountBalances(db).get(
+        queryOne<{ id: string }>(db, `SELECT id FROM accounts WHERE kind='budget' LIMIT 1`)!.id,
+      )?.working,
+      bankBefore,
+      "and no bank account was touched",
+    );
+  });
+
+  test("the plan's envelope pays it, and the card's envelope receives it", () => {
+    const { db, card, loan, emi, planEnvelope } = converted();
+
+    // Fund the plan's envelope the way a household would, then let the bank charge it.
+    setAssigned(db, actor, MONTH, planEnvelope, emi);
+    recordInstalment(db, actor, {
+      loanId: loan.id, date: todayIST(), amount: emi, fromAccountId: card.id,
+    });
+
+    const after = state(db);
+    assert.equal(after.categories.get(planEnvelope)!.balance, 0, "the plan's envelope paid it");
+    assert.equal(
+      paymentEnvelope(db, card.id).balance, emi,
+      "and the card's now holds exactly what the bank will ask for",
+    );
+  });
+
+  test("both views agree: the plan's outstanding falls by the principal", () => {
+    const { db, card, loan, emi } = converted();
+    const before = projectLoan(db, loan.id)!.outstanding;
+
+    recordInstalment(db, actor, {
+      loanId: loan.id, date: todayIST(), amount: emi, fromAccountId: card.id,
+    });
+
+    const after = projectLoan(db, loan.id)!;
+    assert.ok(after.outstanding < before, "the debt fell");
+    // Interest is a cost, not repayment, so only the principal part comes off.
+    assert.ok(before - after.outstanding < emi, "by the principal, not the whole instalment");
+    assert.equal(after.schedule.months, 11, "eleven to go");
+  });
+
+  test("the books close after the instalment", () => {
+    const { db, card, loan, emi, planEnvelope } = converted();
+    setAssigned(db, actor, MONTH, planEnvelope, emi);
+    recordInstalment(db, actor, {
+      loanId: loan.id, date: todayIST(), amount: emi, fromAccountId: card.id,
+    });
+    assert.equal(identityResidual(state(db)), 0);
+  });
+
+  test("an ordinary loan is still paid from a bank account", () => {
+    const { db } = cardWithCharge();
+    const bank = queryOne<{ id: string }>(db, `SELECT id FROM accounts WHERE kind='budget' LIMIT 1`)!;
+    const loan = createLoan(db, actor, {
+      lender: "Axis", loanType: "personal", sanctioned: rupees(1_00_000),
+      sanctionDate: todayIST(), interestModel: "reducing", annualRatePct: 12,
+      tenureMonths: 12, currentOutstanding: rupees(1_00_000), repaymentAccountId: bank.id,
+    });
+    const before = accountBalances(db).get(bank.id)!.working;
+
+    recordInstalment(db, actor, {
+      loanId: loan.id, date: todayIST(), amount: rupees(8_885), fromAccountId: bank.id,
+    });
+
+    assert.ok(
+      accountBalances(db).get(bank.id)!.working < before,
+      "cash left the account, as a transfer",
+    );
   });
 });
