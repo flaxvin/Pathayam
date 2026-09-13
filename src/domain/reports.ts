@@ -46,7 +46,37 @@ export interface TransactionFilter {
    * you paid for something shared, and both answers are ones somebody might want.
    */
   budgetId?: string;
+  /**
+   * H2.2 · Who is asking.
+   *
+   * A private account is its holder's alone, and every index respected that —
+   * the accounts list, net worth, the loans page — while this, the query every
+   * other screen is built on, respected nothing. Query, its CSV export and the
+   * reports all showed one member's private spending to the rest of the
+   * household, line by line, payee and amount and envelope.
+   *
+   * Omitted means everything, which is what a whole-database export and the
+   * month close want. Screens pass the authenticated member.
+   */
+  viewerMemberId?: string | null;
   limit?: number;
+}
+
+/**
+ * H2.2 · The one predicate, so every report asks it the same way.
+ *
+ * A private account is its holder's alone. Passing `undefined` means "count
+ * everything", which is what a whole-database export, a snapshot and the month
+ * close want; a screen passes the authenticated member and gets their view.
+ */
+function visibilityClause(
+  viewerMemberId: string | null | undefined, alias = "a",
+): { sql: string; params: string[] } {
+  if (viewerMemberId === undefined) return { sql: "", params: [] };
+  return {
+    sql: ` AND (${alias}.visibility <> 'private' OR ${alias}.holder_member_id IS ?)`,
+    params: [viewerMemberId as string],
+  };
 }
 
 export interface QueryRow {
@@ -77,6 +107,12 @@ export function queryTransactions(db: DB, filter: TransactionFilter = {}): Query
   const params: (string | number)[] = [];
 
   if (!filter.includeTransfers) where.push("t.transfer_pair_id IS NULL");
+  if (filter.viewerMemberId !== undefined) {
+    // The same predicate the accounts list and net worth use, on the account the
+    // money actually moved on.
+    where.push("(a.visibility <> 'private' OR a.holder_member_id IS ?)");
+    params.push(filter.viewerMemberId as string);
+  }
   if (filter.from) { where.push("t.date >= ?"); params.push(filter.from); }
   if (filter.to) { where.push("t.date <= ?"); params.push(filter.to); }
   if (filter.direction === "out") where.push("line.amount < 0");
@@ -240,8 +276,10 @@ export interface TrendPoint {
 /** F10.1 · Income against expense over time, and the net cash position. */
 export function incomeVsExpense(
   db: DB, from: IsoDate, to: IsoDate, budgetId?: string,
+  viewerMemberId?: string | null,
 ): TrendPoint[] {
   // 15 · Cash in and out of one budget's accounts, when asked for one.
+  const seen = visibilityClause(viewerMemberId);
   const rows = queryAll<{ month: string; income: number; spending: number }>(
     db,
     `SELECT substr(t.date,1,7) AS month,
@@ -252,9 +290,9 @@ export function incomeVsExpense(
       WHERE t.deleted_at IS NULL AND a.kind = 'budget'
         AND t.transfer_pair_id IS NULL
         AND t.date >= ? AND t.date <= ?
-        ${budgetId ? "AND a.budget_id = ?" : ""}
+        ${budgetId ? "AND a.budget_id = ?" : ""}${seen.sql}
       GROUP BY month ORDER BY month`,
-    from, to, ...(budgetId ? [budgetId] : []),
+    from, to, ...(budgetId ? [budgetId] : []), ...seen.params,
   );
 
   return rows.map((r) => ({
@@ -285,23 +323,25 @@ export function incomeVsExpense(
  * cashflow number instead.
  */
 export function envelopeSpendByMonth(
-  db: DB, from: IsoDate, to: IsoDate, budgetId?: string,
+  db: DB, from: IsoDate, to: IsoDate, budgetId?: string, viewerMemberId?: string | null,
 ): { month: string; spent: Paise }[] {
+  const seen = visibilityClause(viewerMemberId);
   // 15 · Spending belongs to the envelope's budget, which is the budget that
   // planned for it — the same rule the engine uses (15 §3A.4).
   return queryAll<{ month: string; spent: number }>(
     db,
     `WITH categorised AS (
        SELECT t.date AS date, t.category_id AS category_id, t.amount AS amount
-         FROM transactions t
+         FROM transactions t JOIN accounts a ON a.id = t.account_id
         WHERE t.deleted_at IS NULL AND t.is_split = 0 AND t.category_id IS NOT NULL
-          AND t.date >= ? AND t.date <= ?
+          AND t.date >= ? AND t.date <= ?${seen.sql}
        UNION ALL
        SELECT t.date, s.category_id, s.amount
          FROM transaction_splits s
          JOIN transactions t ON t.id = s.transaction_id
+         JOIN accounts a ON a.id = t.account_id
         WHERE t.deleted_at IS NULL AND s.category_id IS NOT NULL
-          AND t.date >= ? AND t.date <= ?
+          AND t.date >= ? AND t.date <= ?${seen.sql}
      )
      SELECT substr(c.date,1,7) AS month, COALESCE(SUM(-c.amount),0) AS spent
        FROM categorised c
@@ -309,7 +349,7 @@ export function envelopeSpendByMonth(
       WHERE c.amount < 0 AND cat.payment_account_id IS NULL
         ${budgetId ? "AND cat.budget_id = ?" : ""}
       GROUP BY month ORDER BY month`,
-    from, to, from, to, ...(budgetId ? [budgetId] : []),
+    from, to, ...seen.params, from, to, ...seen.params, ...(budgetId ? [budgetId] : []),
   ).map((r) => ({ month: r.month, spent: r.spent as Paise }));
 }
 
@@ -319,8 +359,9 @@ export function envelopeSpendByMonth(
  * how much each one has actually taken, with its budget where one was set.
  */
 export function spendByTag(
-  db: DB, from: IsoDate, to: IsoDate,
+  db: DB, from: IsoDate, to: IsoDate, viewerMemberId?: string | null,
 ): { tag: string; spent: Paise; budget: Paise | null }[] {
+  const seen = visibilityClause(viewerMemberId);
   return queryAll<{ tag: string; spent: number; budget: number | null }>(
     db,
     `SELECT g.name AS tag,
@@ -329,30 +370,35 @@ export function spendByTag(
        FROM tags g
        JOIN transaction_tags tt ON tt.tag_id = g.id
        JOIN transactions t ON t.id = tt.transaction_id
-      WHERE t.deleted_at IS NULL AND t.date >= ? AND t.date <= ?
+       JOIN accounts a ON a.id = t.account_id
+      WHERE t.deleted_at IS NULL AND t.date >= ? AND t.date <= ?${seen.sql}
       GROUP BY g.id HAVING spent > 0
       ORDER BY spent DESC`,
-    from, to,
+    from, to, ...seen.params,
   ).map((r) => ({ tag: r.tag, spent: r.spent as Paise, budget: r.budget as Paise | null }));
 }
 
 /** S15 · Total spend per day over a window, for the heatmap calendar. */
 export function spendingCalendar(
-  db: DB, from: IsoDate, to: IsoDate,
+  db: DB, from: IsoDate, to: IsoDate, viewerMemberId?: string | null,
 ): { date: IsoDate; value: Paise }[] {
+  const seen = visibilityClause(viewerMemberId);
   return queryAll<{ date: string; value: number }>(
     db,
     `WITH lines AS (
        SELECT t.date AS date, t.amount AS amount
-         FROM transactions t WHERE t.is_split = 0 AND t.deleted_at IS NULL
+         FROM transactions t JOIN accounts a ON a.id = t.account_id
+        WHERE t.is_split = 0 AND t.deleted_at IS NULL${seen.sql}
        UNION ALL
        SELECT t.date, s.amount FROM transaction_splits s
-         JOIN transactions t ON t.id = s.transaction_id WHERE t.deleted_at IS NULL
+         JOIN transactions t ON t.id = s.transaction_id
+         JOIN accounts a ON a.id = t.account_id
+        WHERE t.deleted_at IS NULL${seen.sql}
      )
      SELECT substr(date,1,10) AS date, COALESCE(SUM(-amount),0) AS value
        FROM lines WHERE amount < 0 AND date >= ? AND date <= ?
       GROUP BY substr(date,1,10) ORDER BY date`,
-    from, to,
+    ...seen.params, ...seen.params, from, to,
   ).map((r) => ({ date: r.date as IsoDate, value: r.value as Paise }));
 }
 
