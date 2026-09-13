@@ -404,7 +404,9 @@ export function sparkline(opts: {
   const [ex, ey] = [xAt(pts.length - 1), yAt(pts[pts.length - 1]!)];
   const color = opts.color ?? "var(--accent)";
   return raw(
-    `<svg viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" ` +
+    // Classed so a narrow screen can drop it: it is a decoration beside a figure,
+    // and on a phone it is 96px the figure itself needs (B118).
+    `<svg class="sparkline" viewBox="0 0 ${w} ${h}" width="${w}" height="${h}" role="img" ` +
     `aria-label="${escape(opts.title ?? "trend")}" style="vertical-align:middle">` +
     (opts.title ? `<title>${escape(opts.title)}</title>` : "") +
     `<path d="${d}" fill="none" stroke="${escape(color)}" stroke-width="1.5" ` +

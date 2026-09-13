@@ -85,26 +85,28 @@ export function renderPrivacy(opts: { appName: string; updated: string }): SafeH
         If you choose to sign in with Google, or to connect Gmail so bank emails
         can be read automatically, the app requests these scopes and no others:
       </p>
-      <table>
-        <thead>
-          <tr>
-            <th scope="col">Scope</th>
-            <th scope="col">What it grants</th>
-            <th scope="col">Why this app asks</th>
-          </tr>
-        </thead>
-        <tbody>
-          ${SCOPES.map(
-            (s) => html`
-              <tr>
-                <td><code>${s.scope}</code></td>
-                <td>${s.what}</td>
-                <td>${s.why}</td>
-              </tr>
-            `,
-          )}
-        </tbody>
-      </table>
+      <div class="table-scroll">
+        <table>
+          <thead>
+            <tr>
+              <th scope="col">Scope</th>
+              <th scope="col">What it grants</th>
+              <th scope="col">Why this app asks</th>
+            </tr>
+          </thead>
+          <tbody>
+            ${SCOPES.map(
+              (s) => html`
+                <tr>
+                  <td><code>${s.scope}</code></td>
+                  <td>${s.what}</td>
+                  <td>${s.why}</td>
+                </tr>
+              `,
+            )}
+          </tbody>
+        </table>
+      </div>
 
       <h2>How Gmail data is used, stored and shared</h2>
       <ul>

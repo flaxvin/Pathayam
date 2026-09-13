@@ -1977,7 +1977,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    */
   router.get("/members/:id/remove", (ctx) => {
     auth(ctx);
-    refuseInDemo(config, "Removing members");
+    /*
+     * Readable on the demo, and not doable — the POST still refuses. What this
+     * page is *for* is showing what leaving costs and which endings are on
+     * offer, which is exactly the thing a demo exists to show; refusing the read
+     * as well left the one page in the app whose whole content is an explanation
+     * behind a 403.
+     */
     const departure = describeDeparture(db, ctx.params.id!);
     return render(
       ctx, `Removing ${departure.memberName}`,
