@@ -26,7 +26,7 @@ export function renderBudget(view: BudgetView, digest?: SafeHtml): SafeHtml {
     `)}
     ${renderCardWarnings(view)}
     ${when(view.groups.length > 0, () => renderFilter())}
-    ${view.groups.length === 0 ? renderEmptyState() : view.groups.map((g) => renderGroup(g, view.month))}
+    ${view.groups.length === 0 ? renderEmptyState() : renderGroups(view)}
     ${renderFooterActions(view)}
   `;
 }
@@ -64,9 +64,15 @@ function renderMonthBar(month: MonthKey, currentMonth: MonthKey): SafeHtml {
   const next = addMonths(month, 1);
   return html`
     <div class="row-between" style="margin-bottom:.75rem">
+      <!--
+        The month is this screen's title, so it is the screen's heading. Every
+        other page has an h1 and the budget — the page the app opens on — had
+        none at all: a screen reader announced a list of links and figures under
+        no heading, and the document outline began at h2.
+      -->
       <nav class="month-switch" aria-label="Month">
         <a href="?month=${previous}" rel="prev" aria-label="Go to ${formatMonth(previous)}">‹</a>
-        <span class="month-name">${formatMonth(month)}</span>
+        <h1 class="month-name">${formatMonth(month)}</h1>
         <a href="?month=${next}" rel="next" aria-label="Go to ${formatMonth(next)}">›</a>
       </nav>
       ${when(month !== currentMonth, () => html`
@@ -173,7 +179,17 @@ function renderCardWarnings(view: BudgetView): SafeHtml {
   `;
 }
 
-function renderGroup(group: GroupView, month: MonthKey): SafeHtml {
+/**
+ * The groups, with one anchor between them: the first underfunded row on the
+ * page claims it and every row after it does not, which is what "first" means.
+ */
+function renderGroups(view: BudgetView): SafeHtml {
+  let taken = false;
+  const claim = (): boolean => (taken ? false : (taken = true));
+  return html`${view.groups.map((g) => renderGroup(g, view.month, claim))}`;
+}
+
+function renderGroup(group: GroupView, month: MonthKey, claimAnchor?: () => boolean): SafeHtml {
   return html`
     <details class="category-group" open>
       <summary>
@@ -183,7 +199,7 @@ function renderGroup(group: GroupView, month: MonthKey): SafeHtml {
           <span>Balance ${formatCompact(group.balance)}</span>
         </span>
       </summary>
-      ${group.categories.map((c) => renderCategoryRow(c, month))}
+      ${group.categories.map((c) => renderCategoryRow(c, month, claimAnchor))}
       ${when(group.categories.length === 0, () => html`
         <p class="faint" style="padding:.75rem 1rem">Nothing in this group yet.</p>
       `)}
@@ -191,9 +207,21 @@ function renderGroup(group: GroupView, month: MonthKey): SafeHtml {
   `;
 }
 
-function renderCategoryRow(category: CategoryView, month: MonthKey): SafeHtml {
+/**
+ * B125 · "First underfunded" has to be the first one.
+ *
+ * Every underfunded row carried `id="first-underfunded"` — twenty-seven of them
+ * on the demo's budget screen. Duplicate ids are invalid, and the link that
+ * jumps to them ("₹2,09,253 underfunded across 33 categories") lands on
+ * whichever the browser decides is first, which is not necessarily the first on
+ * the page. One flag, set by the first row that claims it.
+ */
+function renderCategoryRow(
+  category: CategoryView, month: MonthKey, claimAnchor?: () => boolean,
+): SafeHtml {
   const { state, progress } = category;
-  const anchor = progress && progress.underfunded > 0 ? ' id="first-underfunded"' : "";
+  const anchor =
+    progress && progress.underfunded > 0 && claimAnchor?.() ? ' id="first-underfunded"' : "";
   // B87 · What "needs money" means, decided here rather than inferred from a
   // class name in the client: short of its target, or already overspent.
   const needsMoney = (progress?.underfunded ?? 0) > 0 || state.balance < 0;

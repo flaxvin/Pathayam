@@ -6239,7 +6239,8 @@ export function renderErrorPage(status: number, message: string, theme: Theme = 
       ? renderNotFound()
       : html`
           <div class="card empty-state">
-            <h2>Something went wrong</h2>
+            <!-- The page's own title, so it is the page's heading. -->
+            <h1>Something went wrong</h1>
             <p>${message}</p>
             <p><a class="button" href="/">Back to the budget</a></p>
           </div>

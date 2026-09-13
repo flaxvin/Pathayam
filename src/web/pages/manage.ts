@@ -485,7 +485,9 @@ export function renderCategories(
               <div style="padding:.6rem 0;border-top:1px solid var(--border)">
                 <div class="row-between">
                   <form method="post" action="/categories/${c.id}/rename" class="row" style="flex:1;gap:.4rem">
-                    <input name="name" value="${c.name}" style="max-width:18rem"
+                    <!-- One box per category, so the label says which one. -->
+                    <label class="sr-only" for="cat-${c.id}">Rename ${c.name}</label>
+                    <input id="cat-${c.id}" name="name" value="${c.name}" style="max-width:18rem"
                            ${raw(managed ? "readonly" : "")}>
                     ${when(!managed, () => html`<button class="button-small" type="submit">Rename</button>`)}
                   </form>

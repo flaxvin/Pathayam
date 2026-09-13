@@ -525,7 +525,11 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .rta-secondary { font-size: .85rem; margin-top: .35rem; }
 
 .month-switch { display: flex; align-items: center; gap: .35rem; }
-.month-switch .month-name { font-weight: 700; min-width: 9.5rem; text-align: center; }
+/* An h1 that reads as a month, not as a page title: the size it always was. */
+.month-switch .month-name {
+  font-weight: 700; min-width: 9.5rem; text-align: center;
+  font-size: 1rem; margin: 0; line-height: 1.3;
+}
 .month-switch a { min-width: var(--tap); min-height: var(--tap); display: inline-flex; align-items: center; justify-content: center; text-decoration: none; border-radius: var(--radius-sm); }
 .month-switch a:hover { background: var(--surface-2); }
 
