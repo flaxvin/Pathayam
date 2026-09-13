@@ -1809,4 +1809,22 @@ UPDATE goals SET budget_id = 'budget-household' WHERE budget_id IS NULL;
 CREATE INDEX idx_goals_budget ON goals(budget_id);
 `,
   },
+  {
+    name: "0033-card-emi-conversion",
+    sql: `
+--------------------------------------------------------------------------------
+-- 06 §7.4 · Converting a card purchase to EMI
+--------------------------------------------------------------------------------
+-- A card EMI is an ordinary loan with one thing worth recording that no other
+-- loan has: which card the purchase was made on. An EMI converted on an add-on
+-- belongs to the primary account and its instalments appear on that account's
+-- statement, so the card matters for attribution even though the liability does
+-- not move (09 §4, R6.c).
+ALTER TABLE loans ADD COLUMN card_id TEXT REFERENCES cards(id);
+
+-- And the charge that was converted, so the conversion can be traced back to the
+-- purchase it came from rather than being an unexplained credit on the card.
+ALTER TABLE loans ADD COLUMN converted_from_transaction_id TEXT REFERENCES transactions(id);
+`,
+  },
 ];

@@ -154,7 +154,16 @@ export function createLoan(db: DB, actor: Actor, input: CreateLoanInput): Loan {
       holderMemberId: input.holderMemberId,
       visibility: input.visibility,
       institution: input.lender,
-      openingBalance: -(input.currentOutstanding ?? 0),
+      /*
+       * Two different situations, and only one of them sets an opening balance.
+       *
+       * `currentOutstanding` is what was already owed before this app saw the
+       * loan — a mid-life entry, where the opening balance carries it (R14).
+       * `disbursementDestination` means the money is being drawn *now*, and the
+       * disbursement recorded below carries it instead. Setting both would book
+       * the same principal twice: outstanding is opening + disbursements.
+       */
+      openingBalance: input.disbursementDestination ? 0 : -(input.currentOutstanding ?? 0),
       openingDate: input.sanctionDate,
     });
 
@@ -204,7 +213,7 @@ export function createLoan(db: DB, actor: Actor, input: CreateLoanInput): Loan {
      * the sanction check, the cash leg and B51's refusal to book a liability
      * without naming the account all live.
      */
-    const drawn = input.currentOutstanding ? (input.disbursedAtCreation ?? input.sanctioned) : 0;
+    const drawn = input.disbursedAtCreation ?? input.currentOutstanding ?? input.sanctioned;
     if (drawn > 0 && input.disbursementDestination) {
       recordDisbursement(db, actor, {
         loanId: id,

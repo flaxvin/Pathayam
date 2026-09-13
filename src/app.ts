@@ -93,6 +93,7 @@ import {
 import { buildHouseholdView } from "./domain/household-view.ts";
 import { callItEven } from "./domain/squaring-up.ts";
 import { describeDeparture, settleDeparture, type DepartureResolution } from "./domain/departure.ts";
+import { convertToEmi } from "./domain/card-emi.ts";
 import { renderDeparture } from "./web/pages/departure.ts";
 import { renderHousehold } from "./web/pages/household.ts";
 import {
@@ -1984,6 +1985,35 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     );
   });
 
+  /*
+   * 06 §7.4 · Converting a card purchase to EMI.
+   *
+   * F8.5 had said the app must support this since the functional design, and the
+   * only thing that existed was a loan *type* — so a household could record the
+   * plan by hand and still be asked to clear the same purchase on the card, which
+   * is the exact double-funding §7.4 warns about.
+   */
+  router.post("/transaction/:id/convert-to-emi", (ctx) =>
+    mutate(ctx, (a) => {
+      const amountRaw = field(ctx.body, "amount");
+      const feeRaw = field(ctx.body, "processing_fee");
+      const result = convertToEmi(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+        transactionId: ctx.params.id!,
+        amount: amountRaw?.trim() ? (amountField(amountRaw, "Amount") as Paise) : undefined,
+        tenureMonths: Number(requiredField(ctx.body, "tenure_months")),
+        annualRatePct: Number(requiredField(ctx.body, "annual_rate")),
+        processingFee: feeRaw?.trim() ? (amountField(feeRaw, "Processing fee") as Paise) : undefined,
+        feeCategoryId: field(ctx.body, "fee_category_id") || null,
+      });
+      return {
+        redirect: `/loans/${result.loan.id}`,
+        message:
+          `Converted. ${formatPaise(result.emi)} a month, costing ` +
+          `${formatPaise(result.totalCostOfBorrowing)} in interest and fees.`,
+      };
+    }),
+  );
+
   router.post("/members/:id/remove", (ctx) => {
     refuseInDemo(config, "Removing members");
     return mutate(ctx, (a) => {
@@ -2044,6 +2074,60 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       html`
         <h1>${formatPaise(Math.abs(transaction.amount))}</h1>
         <p class="muted">${account.nickname || account.name} · ${transaction.date}</p>
+
+        <!--
+          06 §7.4 · Converting a card purchase to EMI, offered where the purchase
+          is. A big charge is where somebody remembers the bank's offer, and it is
+          the only screen that knows which charge is being converted.
+        -->
+        ${when(account.kind === "credit" && transaction.amount < 0, () => html`
+          <details class="card">
+            <summary class="linkish">The bank offered to convert this to EMI</summary>
+            <p class="muted" style="margin-top:.75rem">
+              The converted amount comes off this card's balance and becomes a loan
+              with its own instalments — so you are not asked to clear it here
+              <em>and</em> pay it monthly. The processing fee is charged to the card
+              like any purchase, so give it an envelope.
+            </p>
+            <form method="post" action="/transaction/${transaction.id}/convert-to-emi">
+              <div class="grid-2">
+                <div class="field">
+                  <label for="emi-amount">How much of it</label>
+                  <input id="emi-amount" name="amount" class="amount-input" type="text"
+                         inputmode="decimal"
+                         value="${(Math.abs(transaction.amount) / 100).toFixed(2)}">
+                </div>
+                <div class="field">
+                  <label for="emi-tenure">Over how many months</label>
+                  <input id="emi-tenure" name="tenure_months" type="number" min="1" max="60"
+                         required placeholder="12">
+                </div>
+              </div>
+              <div class="grid-2">
+                <div class="field">
+                  <label for="emi-rate">Rate (% per year)</label>
+                  <input id="emi-rate" name="annual_rate" type="text" inputmode="decimal"
+                         required placeholder="15">
+                </div>
+                <div class="field">
+                  <label for="emi-fee">Processing fee, before GST</label>
+                  <input id="emi-fee" name="processing_fee" class="amount-input" type="text"
+                         inputmode="decimal" placeholder="199">
+                </div>
+              </div>
+              <div class="field">
+                <label for="emi-fee-category">Budget the fee from</label>
+                <select id="emi-fee-category" name="fee_category_id">
+                  <option value="">—</option>
+                  ${[...view.categories.values()]
+                    .filter((c) => !c.isPaymentCategory && !c.hidden)
+                    .map((c) => html`<option value="${c.id}">${c.name}</option>`)}
+                </select>
+              </div>
+              <button class="button-primary" type="submit">Convert to EMI</button>
+            </form>
+          </details>
+        `)}
 
         <form method="post" action="/transaction/${transaction.id}" class="card">
           <div class="grid-2">

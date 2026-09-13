@@ -443,6 +443,7 @@ only (out of a token's reach).
 | GET/POST | `/loans/:id/rate` | R/W | Record a rate reset. |
 | POST | `/loans/:id/holder` | W | Change whose loan it is and whether it is private (H2, H2.2). |
 | POST | `/loans/:id/close` | W | File away a paid-off loan (R21). |
+| POST | `/transaction/:id/convert-to-emi` | W | Convert a card purchase to an instalment plan (`06` §7.4, F8.5). |
 | GET | `/loans/:id/statement` | R | One loan's statement view. |
 | GET | `/loans/:id/schedule.csv` | R | Amortisation schedule as CSV. |
 
