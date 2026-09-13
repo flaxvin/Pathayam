@@ -29,11 +29,22 @@ export interface CardDue {
   statement: { amount: Paise; date: IsoDate; due: IsoDate; minimum: Paise | null } | null;
   /** Days until the statement's due date; negative once it has passed. */
   daysToDue: number | null;
+  /** B127 · What has come off the card since the statement was issued. */
+  paidSinceStatement: Paise;
   paymentCategoryId: string | null;
 }
 
 function urgency(card: CardDue): { label: string; chip: string } | null {
   if (card.daysToDue === null) return null;
+  /*
+   * B127 · Settled first, before anything about dates. A statement that has been
+   * paid is not late however long ago it was due, and saying otherwise on the
+   * screen whose whole job is "which card is due next" trains people to ignore
+   * the one that matters.
+   */
+  if (card.statement && card.paidSinceStatement >= card.statement.amount) {
+    return { label: "Paid", chip: "chip-positive" };
+  }
   if (card.daysToDue < 0) {
     return { label: `${Math.abs(card.daysToDue)} days overdue`, chip: "chip-danger" };
   }

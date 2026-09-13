@@ -703,3 +703,28 @@ export function lastCardStatement(db: DB, accountId: string): CardStatement | nu
     accountId,
   );
 }
+
+/**
+ * B127 · What has come off the card since a statement was issued.
+ *
+ * The Cards screen called a statement overdue on its due date and every day
+ * after, for ever, whether or not it had been paid — so a household that paid in
+ * full on the due date still read "9 days overdue" a week later. A warning that
+ * is wrong when you have done the right thing is worse than no warning: it
+ * teaches you to stop reading it, which is exactly when the real one slips past.
+ *
+ * There is no `paid_at` on a statement and there should not be: the ledger
+ * already knows. Anything credited to the card since the statement date counts,
+ * because from the card's point of view a payment and a refund both reduce what
+ * that statement asked for.
+ */
+export function creditedSinceStatement(
+  db: DB, accountId: string, statementDate: IsoDate,
+): Paise {
+  return (queryOne<{ total: number }>(
+    db,
+    `SELECT COALESCE(SUM(amount), 0) AS total FROM transactions
+      WHERE account_id = ? AND deleted_at IS NULL AND amount > 0 AND date >= ?`,
+    accountId, statementDate,
+  )?.total ?? 0) as Paise;
+}
