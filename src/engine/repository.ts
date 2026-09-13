@@ -433,8 +433,30 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
       }
     }
 
-    // The cash, which stays with the account whatever it was filed to.
-    if (r.kind === "budget" && (!scope || accountBudget === null || accountBudget === scope)) {
+    /*
+     * The cash, which stays with the account whatever it was filed to.
+     *
+     * B122 · A **tracking** account counts here too, and for a reason worth
+     * writing down. Money crossed the budget's edge when it went to the tracking
+     * account — lending ₹10,000 to a cousin reduced Ready to Assign the day the
+     * transfer happened, with no envelope named. Filing a category against the
+     * tracking account later is not a second departure; it is saying, after the
+     * fact, *which envelope that money had been*. So the envelope takes the
+     * amount and Ready to Assign gives it back, which is exactly what
+     * subtracting it from income does, and the household's means are unchanged —
+     * which they should be, because nothing left today.
+     *
+     * Without this the envelope fell and nothing rose to meet it, and the
+     * identity broke by the amount attributed: writing off a family loan, or
+     * simply filing a category against a tracking account by hand, left the
+     * books wrong from that month forward. Thirty-six months of simulated
+     * household found it; a thousand unit tests did not, because every one of
+     * them posts to a budget account.
+     */
+    if (
+      (r.kind === "budget" || r.kind === "tracking")
+      && (!scope || accountBudget === null || accountBudget === scope)
+    ) {
       f.budgetCategorisedFlow += r.amount;
     }
 
