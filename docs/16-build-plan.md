@@ -297,3 +297,35 @@ database it met, because a table rebuild behaves differently when rows exist.
 The pattern is worth naming: **the tests protect the arithmetic, and using it
 protects the meaning.** Both kinds of failure were real, and only one kind was
 catchable by the suite that existed.
+
+---
+
+## The standing top-down test
+
+There is now a third kind, and it found something neither of the others could.
+
+`src/sim/scenario.ts` is one household, fixed: **four members, thirty-six
+months, two of them leaving at month 24 — settled two different ways, because
+`15` §6A offers both and they are different arithmetic — and one of them coming
+back at month 30.** Every top-down check runs against it, so a regression has
+one place to appear and one shape to appear in. The demo is built from the same
+scenario, which means the thing people look at first is the thing the suite
+hammers hardest.
+
+`scenario.test.ts` asks four questions of it:
+
+| | |
+|---|---|
+| **Does the identity close after every month, in every budget?** | Checked as the history is built, not at the end, so a break names the month it started in rather than the month somebody happened to look. |
+| **Does the cache agree with the ledger?** | Every month computed twice, warm and cold. A rollup that disagrees is a rollup that will one day be the only thing anybody reads. |
+| **Did anything go unexercised?** | Every mutating function the domain exports, read out of the source rather than kept in a list, must be called by the scenario. A domain mutation written tomorrow fails this test tomorrow. |
+| **Is removal a state?** | F1.6: a departed member's name stays on everything they entered, and re-inviting the same address finds them again. |
+
+**It found a real defect on its first run.** Writing off a family loan broke the
+accounting identity by exactly the amount written off, in every month from then
+on. A categorised transaction on a *tracking* account gave its amount to the
+envelope and took it from nothing: the money had left the budget at the advance,
+months earlier, and filing a category against it later is an attribution rather
+than a second departure (R6.aa). A thousand unit tests missed it because every
+one of them posts to a budget account. Thirty-six simulated months of four
+people did not.
