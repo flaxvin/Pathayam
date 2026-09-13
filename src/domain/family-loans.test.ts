@@ -300,3 +300,31 @@ describe("10 §3.5 · F2.10 · private lending within the family (B54 · one led
     db.close();
   });
 });
+
+describe("H2 / H2.2 · whose arrangement it is", () => {
+  /**
+   * `14` §6.2 put private assets and loans in the cheap 80%, and the domain has
+   * carried holderMemberId and visibility ever since — but the form never asked,
+   * so money lent to *your* cousin was always the household's and visible to
+   * everyone. Assets and loans both offered it; this was the one that did not.
+   */
+  test("an arrangement can be one member's, and private to them", () => {
+    const { db } = setup();
+    const mine = createFamilyLoan(db, actor, {
+      counterparty: "Cousin — Arun",
+      holderMemberId: RAVI, visibility: "private",
+    });
+
+    const view = viewFamilyLoan(db, mine.id)!;
+    assert.equal(view.holderMemberId, RAVI);
+    assert.equal(view.isPrivate, true);
+  });
+
+  test("and defaults to the household's, visible to everyone", () => {
+    const { db } = setup();
+    const shared = createFamilyLoan(db, actor, { counterparty: "Neighbour" });
+    const view = viewFamilyLoan(db, shared.id)!;
+    assert.equal(view.holderMemberId, null);
+    assert.equal(view.isPrivate, false);
+  });
+});

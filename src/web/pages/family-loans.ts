@@ -16,6 +16,7 @@ import { html, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, type Paise } from "../../core/money.ts";
 import { formatDate } from "../../core/dates.ts";
 import type { FamilyLoanView } from "../../domain/family-loans.ts";
+import { renderHolderFields } from "./portfolio.ts";
 
 /** How the balance reads, in words, for a view. */
 function standing(view: FamilyLoanView): string {
@@ -29,7 +30,26 @@ function standing(view: FamilyLoanView): string {
 export function renderFamilyLoans(opts: {
   loans: FamilyLoanView[];
   accounts: { id: string; name: string }[];
+  /**
+   * H2 / H2.2 · Whose arrangement it is, and whether the household sees it.
+   *
+   * `14` §6.2 put private assets and loans in the cheap 80%, and the domain has
+   * carried holderMemberId and visibility since — but this form never asked, so
+   * money lent to *your* cousin was always the household's, visible to everyone.
+   * Assets and loans both offer it; this was the one that did not.
+   */
+  members?: { id: string; name: string }[];
 }): SafeHtml {
+  /*
+   * H2 · Whose arrangement it is, shown when the household has more than one
+   * person — the ask was "if shared, the owner should be visible as a tag", and a
+   * list of names owed money says nothing about which of you is owed.
+   */
+  const holderName = (id: string | null | undefined): string | null =>
+    (opts.members ?? []).length > 1 && id
+      ? (opts.members ?? []).find((m) => m.id === id)?.name ?? null
+      : null;
+
   const active = opts.loans.filter((v) => !v.settled && !v.writtenOff && !v.loan.closed_at);
   const done = opts.loans.filter((v) => v.settled || v.writtenOff || v.loan.closed_at);
 
@@ -38,6 +58,10 @@ export function renderFamilyLoans(opts: {
       <div class="row-between">
         <div>
           <strong>${view.loan.counterparty}</strong>
+          ${when(holderName(view.holderMemberId), () => html`
+            <span class="chip">${holderName(view.holderMemberId)}</span>
+          `)}
+          ${when(view.isPrivate, () => html`<span class="chip">private</span>`)}
           ${when(view.settled, () => html`<span class="chip chip-positive">Settled</span>`)}
           ${when(view.writtenOff, () => html`<span class="chip">Written off</span>`)}
           <div class="faint">
@@ -89,6 +113,7 @@ export function renderFamilyLoans(opts: {
     <section class="card">
       <h2>Record an arrangement</h2>
       <form method="post" action="/family/new">
+        ${renderHolderFields(opts.members ?? [])}
         <div class="field">
           <label for="fl-name">Who?</label>
           <input id="fl-name" name="counterparty" required placeholder="Ammu">
