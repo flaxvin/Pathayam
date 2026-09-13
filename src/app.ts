@@ -2004,6 +2004,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         annualRatePct: Number(requiredField(ctx.body, "annual_rate")),
         processingFee: feeRaw?.trim() ? (amountField(feeRaw, "Processing fee") as Paise) : undefined,
         feeCategoryId: field(ctx.body, "fee_category_id") || null,
+        nameSuffix: field(ctx.body, "name_suffix") || null,
       });
       return {
         redirect: `/loans/${result.loan.id}`,
@@ -2059,6 +2060,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     const account = getAccount(db, transaction.account_id)!;
     const view = buildBudgetView(db, monthOf(transaction.date));
+    // The payee is the obvious name for a plan converted from this purchase.
+    const payeeName = transaction.payee_id
+      ? getPayee(db, transaction.payee_id)?.name ?? null
+      : null;
     // F4.9 / F25.12: the raw imported values and the full event history.
     const history = historyFor(db, "transaction", transaction.id);
     const rules = queryAll<{ name: string }>(
@@ -2124,6 +2129,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                   <input id="emi-fee" name="processing_fee" class="amount-input" type="text"
                          inputmode="decimal" placeholder="199">
                 </div>
+              </div>
+              <div class="field">
+                <!--
+                  Three purchases converted on one card would otherwise be three
+                  plans with the same name. The payee is usually the right word,
+                  so it is filled in.
+                -->
+                <label for="emi-name">Call it</label>
+                <input id="emi-name" name="name_suffix" autocomplete="off"
+                       value="${payeeName ?? ""}"
+                       placeholder="What it was for — Croma, the sofa, school fees">
+                <p class="field-hint">
+                  Added after the card's name, so the plan is findable in the loan
+                  list and its envelope on the grid.
+                </p>
               </div>
               <div class="field">
                 <label for="emi-fee-category">Budget the fee from</label>
@@ -3273,6 +3293,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
         holderMemberId: getAccount(db, projection.loan.account_id)?.holder_member_id ?? null,
         isPrivate: getAccount(db, projection.loan.account_id)?.visibility === "private",
+        categories: listCategories(db)
+          .map((c) => ({ id: c.id, name: c.name })),
       }),
     );
   });
@@ -3294,6 +3316,39 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    * the list at zero for ever, because nothing noticed. Repaying it is what makes
    * it closeable; this is what files it away.
    */
+  /*
+   * 06 §7.4 / R19.5 · Settling early, and what the lender charged for it.
+   *
+   * The charge is a real cost of the borrowing and has to be recordable, or the
+   * prepayment decision is taken against a saving bigger than the one actually
+   * on offer.
+   */
+  router.post("/loans/:id/settle", (ctx) =>
+    mutate(ctx, (a) => {
+      const loan = getLoan(db, ctx.params.id!);
+      if (!loan) throw new NotFound("That loan does not exist.");
+      const settlementRaw = field(ctx.body, "settlement");
+      const chargeRaw = field(ctx.body, "charge");
+
+      closeLoan(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+        loanId: loan.id,
+        date: todayIST(),
+        settlement: settlementRaw?.trim()
+          ? (amountField(settlementRaw, "Settlement") as Paise)
+          : undefined,
+        foreclosureCharge: chargeRaw?.trim()
+          ? (amountField(chargeRaw, "Foreclosure charge") as Paise)
+          : undefined,
+        chargeAccountId: field(ctx.body, "charge_account_id") || null,
+        chargeCategoryId: field(ctx.body, "charge_category_id") || null,
+      });
+      return {
+        redirect: "/loans",
+        message: `${loan.nickname || loan.lender} is settled and closed.`,
+      };
+    }),
+  );
+
   router.post("/loans/:id/close", (ctx) =>
     mutate(ctx, (a) => {
       const loan = getLoan(db, ctx.params.id!);

@@ -10,7 +10,7 @@ import {
   createLoan, projectLoan, recordDisbursement, recordInstalment,
   closeLoan, listLoans, getLoan, debtOverview, paymentCategoryForLoan, recordRateChange,
 } from "./loans.ts";
-import { getTarget } from "./budget.ts";
+import { getTarget, createGroup, createCategory } from "./budget.ts";
 import { netWorthStatement } from "./networth.ts";
 import { todayIST } from "../core/dates.ts";
 
@@ -414,5 +414,64 @@ describe("R8 + R14 · the loan's envelope asks for the instalment", () => {
     const after = getTarget(db, payment.id)!.amount;
     assert.notEqual(after, before, "the instalment changed, so the target did");
     assert.equal(after, projectLoan(db, loan.id)!.emi);
+  });
+});
+
+describe("R19.5 · settling early, and what it cost", () => {
+  /**
+   * Most lenders charge to foreclose — a percentage on a personal loan, a flat fee
+   * on a card EMI. Without somewhere to record it, the prepayment decision is
+   * taken against a saving bigger than the one actually on offer, which is the
+   * single decision `06` §1 says the module exists for.
+   */
+  test("the charge is recorded against an account and an envelope", () => {
+    const { db, bankId } = setup();
+    const group = createGroup(db, actor, "Fixed");
+    const charges = createCategory(db, actor, { groupId: group.id, name: "Bank charges" });
+    const loan = createLoan(db, actor, {
+      lender: "Axis", loanType: "personal", sanctioned: rupees(3_00_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 12,
+      tenureMonths: 36, currentOutstanding: rupees(3_00_000), repaymentAccountId: bankId,
+    });
+    const before = accountBalances(db).get(bankId)!.working;
+
+    closeLoan(db, actor, {
+      loanId: loan.id, date: todayIST(),
+      foreclosureCharge: rupees(6_000),
+      chargeAccountId: bankId, chargeCategoryId: charges.id,
+    });
+
+    assert.equal(
+      accountBalances(db).get(bankId)!.working, before - rupees(6_000),
+      "it came out of a real account",
+    );
+    assert.ok(getLoan(db, loan.id)?.closed_at, "and the loan is closed");
+  });
+
+  test("a charge with no account behind it is refused", () => {
+    const { db, bankId } = setup();
+    const loan = createLoan(db, actor, {
+      lender: "Axis", loanType: "personal", sanctioned: rupees(1_00_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 12,
+      tenureMonths: 12, currentOutstanding: rupees(1_00_000), repaymentAccountId: bankId,
+    });
+    assert.throws(
+      () => closeLoan(db, actor, {
+        loanId: loan.id, date: todayIST(), foreclosureCharge: rupees(2_000),
+      }),
+      /which account the foreclosure charge came out of/,
+    );
+  });
+
+  test("closing without a charge is unchanged", () => {
+    const { db, bankId } = setup();
+    const loan = createLoan(db, actor, {
+      lender: "Canara", loanType: "education", sanctioned: rupees(5_00_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 10,
+      tenureMonths: 60, currentOutstanding: rupees(5_00_000), repaymentAccountId: bankId,
+    });
+    const before = accountBalances(db).get(bankId)!.working;
+    closeLoan(db, actor, { loanId: loan.id, date: todayIST() });
+    assert.equal(accountBalances(db).get(bankId)!.working, before);
   });
 });

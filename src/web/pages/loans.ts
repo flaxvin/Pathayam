@@ -344,6 +344,8 @@ export function renderLoanDetail(opts: {
   members?: { id: string; name: string }[];
   holderMemberId?: string | null;
   isPrivate?: boolean;
+  /** Where a foreclosure charge can be budgeted from (R19.5). */
+  categories?: { id: string; name: string }[];
 }): SafeHtml {
   const p = opts.projection;
   const loan = p.loan;
@@ -388,6 +390,83 @@ export function renderLoanDetail(opts: {
             visibility: opts.isPrivate ? "private" : "household",
           })}
           <button type="submit">Save</button>
+        </form>
+      </details>
+    `)}
+
+    <!--
+      R21 · A loan that reaches zero used to sit in the list for ever, with
+      nothing said and nothing to do: closeLoan was written and reachable from
+      nowhere. Closing is a statement about attention, like a month close — it
+      files the loan away and keeps every figure.
+    -->
+    ${when(p.outstanding <= 0 && !loan.closed_at, () => html`
+      <div class="notice notice-good row-between" style="align-items:center">
+        <span>
+          <strong>This is paid off.</strong> Closing it files it away and keeps
+          everything — what it cost, and what you paid.
+        </span>
+        <form method="post" action="/loans/${loan.id}/close">
+          <button class="button-small" type="submit">Close it</button>
+        </form>
+      </div>
+    `)}
+
+    ${when(loan.closed_at !== null, () => html`
+      <p class="notice notice-info">
+        Closed on ${formatDate(loan.closed_at!.slice(0, 10) as never)}. Every figure
+        below is kept as it stood.
+      </p>
+    `)}
+
+    <!--
+      06 §7.4 / R19.5 · Foreclosing usually costs something — a percentage of the
+      outstanding on a personal loan, a flat fee on a card EMI. Without somewhere
+      to record it, the prepayment decision is made against a saving larger than
+      the one actually available.
+    -->
+    ${when(p.outstanding > 0 && !loan.closed_at, () => html`
+      <details class="card" id="settle">
+        <summary class="linkish">Settle it early and close it</summary>
+        <p class="muted" style="margin-top:.75rem">
+          Pay off the ${formatPaise(p.outstanding)} outstanding and finish the loan.
+          Most lenders charge for this; record what they charged, or the saving
+          will look bigger than it was.
+        </p>
+        <form method="post" action="/loans/${loan.id}/settle">
+          <div class="grid-2">
+            <div class="field">
+              <label for="settle-amount">Settlement amount</label>
+              <input id="settle-amount" name="settlement" class="amount-input" type="text"
+                     inputmode="decimal" value="${(p.outstanding / 100).toFixed(2)}">
+            </div>
+            <div class="field">
+              <label for="settle-charge">Foreclosure charge</label>
+              <input id="settle-charge" name="charge" class="amount-input" type="text"
+                     inputmode="decimal" placeholder="0.00">
+            </div>
+          </div>
+          <div class="grid-2">
+            <div class="field">
+              <label for="settle-account">Paid from</label>
+              <select id="settle-account" name="charge_account_id">
+                <option value="">—</option>
+                ${opts.budgetAccounts.map(
+                  (acc) => html`<option value="${acc.id}">${acc.name}</option>`,
+                )}
+              </select>
+            </div>
+            <div class="field">
+              <label for="settle-category">Budget the charge from</label>
+              <select id="settle-category" name="charge_category_id">
+                <option value="">—</option>
+                ${(opts.categories ?? []).map(
+                  (c) => html`<option value="${c.id}">${c.name}</option>`,
+                )}
+              </select>
+            </div>
+          </div>
+          <button class="button-danger" type="submit">Settle and close</button>
         </form>
       </details>
     `)}
