@@ -671,6 +671,79 @@ export const CLIENT_SCRIPT = String.raw`
   }
 
   /*
+   * H2 · Who spent it follows the account.
+   *
+   * A card in somebody's name was almost certainly used by them (R6.e), and
+   * having to notice that and change a dropdown every time is how a field ends
+   * up wrong. Selecting an account selects its holder; anything with no holder
+   * falls back to whoever is entering it. An explicit choice is left alone until
+   * the account changes again.
+   */
+  /*
+   * 15 §3.4 · Say what filing across budgets will do, while it is being chosen.
+   *
+   * Paying for something shared out of your own account is the ordinary case and
+   * the app should not make it feel like an error — but it does something worth
+   * knowing: it draws down what you have committed to the household. Saying so
+   * here beats saying it in a refusal afterwards.
+   */
+  (function explainCrossBudgetFiling() {
+    var account = document.getElementById("account_id");
+    var category = document.getElementById("category_id");
+    var note = document.querySelector("[data-cross-budget]");
+    if (!account || !category || !note) return;
+
+    function budgetOf(select) {
+      var option = select.options[select.selectedIndex];
+      return option ? option.getAttribute("data-budget") || "" : "";
+    }
+    function labelOf(select) {
+      var option = select.options[select.selectedIndex];
+      if (!option) return "";
+      var group = option.parentNode;
+      return group && group.label ? group.label : "";
+    }
+
+    function update() {
+      var from = budgetOf(account);
+      var to = budgetOf(category);
+      if (!from || !to || from === to) {
+        note.hidden = true;
+        note.textContent = "";
+        return;
+      }
+      note.hidden = false;
+      note.textContent =
+        "This account and this envelope are in different budgets, so filing it " +
+        "here draws on what has been committed between them — " +
+        (labelOf(category) || "the other budget") +
+        " pays for it, and no money moves between accounts.";
+    }
+
+    account.addEventListener("change", update);
+    category.addEventListener("change", update);
+    update();
+  })();
+
+  (function spenderFollowsAccount() {
+    var account = document.getElementById("account_id");
+    var spender = document.querySelector("[data-spender]");
+    if (!account || !spender) return;
+
+    account.addEventListener("change", function () {
+      var option = account.options[account.selectedIndex];
+      var holder = option ? option.getAttribute("data-holder") : "";
+      var wanted = holder || spender.getAttribute("data-default") || "";
+      for (var i = 0; i < spender.options.length; i++) {
+        if (spender.options[i].value === wanted) {
+          spender.selectedIndex = i;
+          return;
+        }
+      }
+    });
+  })();
+
+  /*
    * A link to "#edit" should open the disclosure it points at. Browsers do this
    * for content *inside* a <details>, but not reliably for the element itself,
    * and the Edit button on an account is exactly that case.

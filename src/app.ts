@@ -407,6 +407,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             assets: config.features.assets,
             separateBudgets: anyCommitments(db),
           },
+          // 15 · In the chrome, so switching budget works from every screen that
+          // shows one budget's money rather than only from the grid.
+          budgets: a
+            ? budgetsFor(db, a.member.id).map((b) => ({ id: b.id, name: b.name, kind: b.kind }))
+            : [],
+          currentBudgetId: a ? (lastBudget(db, a.member.id) ?? householdBudgetId(db)) : null,
         },
         content,
       ),
