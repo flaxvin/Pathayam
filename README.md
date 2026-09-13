@@ -23,7 +23,7 @@ Google Sheet via [`website/waitlist.gs`](website/waitlist.gs); set the endpoint
 in `website/site.js` to switch it on.
 
 ```
-Status   P0 → P6 complete   926 tests   0 deps
+Status   P0 → P6 complete   950 tests   0 deps
 Stack    TypeScript on Node 24+   node:sqlite   node:http   server-rendered HTML
 Deploy   Docker Compose · homelab behind Cloudflare Tunnel · SQLite on a volume
 ```
@@ -153,6 +153,7 @@ from.
 | **Cover overspend** | One-tap move from another envelope, with ranked source suggestions. |
 | **Credit-card payment envelopes** | Card spending reserves the cash to clear it; the envelope tracks the debt, symmetric with a loan's. |
 | **Add-on cards** | A member's card on another's account; the transaction owner defaults to the cardholder (R6.e). |
+| **Card purchase → EMI** | Convert a charge to an instalment plan from the transaction itself. The card's outstanding falls so the same purchase is never funded twice; the fee and its GST are charged to the card and need an envelope; the plan gets its own schedule and payment envelope. |
 | **Statement cycles** | A card's statement day tags every charge with the cycle it bills in — a cycle runs from the day after one statement to the next, so a charge on the 19th with a statement day of 18 bills next month. It clamps in a short month, and the cycles tile the calendar with no gaps. |
 | **Cards at a glance** | With several cards on different cycles, the daily question is *which one is due next and for how much*. One screen answers it, due date first, and a shortfall is never reported larger than the card actually owes. |
 | **Targets & auto-assign** | Per-category targets, and one-tap fund-to-target with a preview before it commits. Ready to Assign is spent down the budget in order, so what you budgeted for is funded first. |
