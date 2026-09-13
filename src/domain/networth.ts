@@ -190,15 +190,20 @@ export function netWorthStatement(
   // FL8 · Private lending counts, on both sides. Lent money is an asset and
   // borrowed money is a liability, both at the derived balance — there is no
   // typed figure to go stale, so neither carries a staleness flag.
+  //
+  // H2.2 · And a private arrangement is hidden from everyone but its holder, by
+  // the same set that hides a private loan. Money lent to a cousin out of your
+  // own pocket was being published on both sides of somebody else's net worth.
   const family = familyLoanNetWorth(db);
   for (const line of family.lent) {
+    if (hidden.has(line.accountId)) continue;
     otherAssetLines.push({ ...line, asOf, stale: false });
   }
-  const familyLines: NetWorthLine[] = family.borrowed.map(
-    (line: { label: string; accountId: string; value: Paise }) => ({
+  const familyLines: NetWorthLine[] = family.borrowed
+    .filter((line: { accountId: string }) => !hidden.has(line.accountId))
+    .map((line: { label: string; accountId: string; value: Paise }) => ({
       ...line, asOf, stale: false,
-    }),
-  );
+    }));
 
   // B56 · Plain tracking accounts (a fixed deposit, an "other asset" or "other
   // liability") count by their balance, so one created on the accounts form is
