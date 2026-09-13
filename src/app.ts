@@ -2072,16 +2072,26 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ctx,
       "Transaction",
       html`
-        <h1>${formatPaise(Math.abs(transaction.amount))}</h1>
-        <p class="muted">${account.nickname || account.name} · ${transaction.date}</p>
+        <div class="row-between" style="align-items:flex-start">
+          <div>
+            <h1 style="margin-bottom:.15rem">${formatPaise(Math.abs(transaction.amount))}</h1>
+            <p class="muted" style="margin:0">
+              ${account.nickname || account.name} · ${transaction.date}
+            </p>
+          </div>
+          <!--
+            06 §7.4 · A button, not a disclosure. Converting is a thing the bank
+            offers and the household decides in the moment; hiding it behind a
+            summary line is how the account edit form and the loan holder control
+            both ended up reported as missing.
+          -->
+          ${when(account.kind === "credit" && transaction.amount < 0, () => html`
+            <a class="button button-primary" href="#emi">Convert to EMI</a>
+          `)}
+        </div>
 
-        <!--
-          06 §7.4 · Converting a card purchase to EMI, offered where the purchase
-          is. A big charge is where somebody remembers the bank's offer, and it is
-          the only screen that knows which charge is being converted.
-        -->
         ${when(account.kind === "credit" && transaction.amount < 0, () => html`
-          <details class="card">
+          <details class="card" id="emi">
             <summary class="linkish">The bank offered to convert this to EMI</summary>
             <p class="muted" style="margin-top:.75rem">
               The converted amount comes off this card's balance and becomes a loan
