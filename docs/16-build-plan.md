@@ -17,7 +17,8 @@ Two phases are already done. They are listed so the sequence reads whole.
 | ✅ | **P1a · View-as gated** | Off unless `ADMIN_DEBUG`; household budget only when on (R38.6a–b). |
 | ✅ | **P2 · Personal budgets** | A member can open their own budget, move accounts into it, keep them private, and keep their own envelopes. A household that never opens one sees no change — asserted, not assumed. |
 | ✅ | **P3 · The household envelope** | Committing money without moving it, the claim in the identity, a standing monthly figure, rollover, and the household screen. Brought P4's cross-budget filing forward with it — see below. |
-| ⬜ | **P4 → P7** | Below. |
+| ✅ | **P4 · Spending across budgets** | Shared cards, add-on cards, splits per line, and the filing with no arrangement behind it refused. |
+| ⬜ | **P5 → P7** | Below. |
 
 ---
 
@@ -106,9 +107,11 @@ whatever it named (B107).
 
 ---
 
-## P4 · Spending across budgets
+## P4 · Spending across budgets — done
 
-The single rule from `15` §3A.4, which covers every case at once.
+The single rule from `15` §3A.4, which covers every case at once. Cross-budget
+filing itself came forward into P3, where the identity needed it; what remained
+was the instruments, the splits, and the refusal.
 
 | | Est. |
 |---|---|
@@ -120,6 +123,23 @@ The single rule from `15` §3A.4, which covers every case at once.
 
 **Done when:** Priya can buy groceries on the shared card and her own clothes on
 it, and each lands in the right budget with the right balance between them.
+
+**How it turned out.** The one rule did cover every case, and the instruments
+needed no mechanism of their own — an add-on charge filed to the holder's own
+envelope is the same arithmetic as a member paying for the household, read from
+the other end. Two things had to be added:
+
+- **The envelope has to exist before the transaction does.** The claim is derived
+  from the envelope, so a cross-budget filing with nothing to absorb it is money
+  the identity cannot account for — and a read cannot conjure one. So the write
+  paths prepare it: creating a transaction, recategorising one, and moving an
+  account between budgets, which re-files years of history in a single click.
+- **R6.l, as a refusal in words.** Between two personal budgets there must be
+  something the household actually shared. In practice that is an add-on card, and
+  anything else is declined with a sentence saying what would be needed.
+
+Each case asserts **both** identities across every month, which is the only check
+a plausible half-implementation cannot pass.
 
 ---
 

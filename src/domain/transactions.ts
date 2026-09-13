@@ -13,6 +13,7 @@ import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts"
 import { nowIST, todayIST, formatDate, addDays, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { getAccount } from "./accounts.ts";
+import { prepareClaim } from "./commitments.ts";
 
 export type TransactionSource = "manual" | "csv" | "pdf" | "email" | "sms" | "api" | "schedule";
 
@@ -90,6 +91,18 @@ export function createTransaction(
           `The splits add up to ${formatPaise(total)}, but the transaction is ${formatPaise(input.amount)}.`,
         );
       }
+    }
+
+    /*
+     * 15 §3A.4 / R6.l · A filing that crosses budgets raises a claim, so the
+     * envelope that carries it has to exist before the transaction does — and the
+     * two budgets have to be allowed to owe each other at all.
+     *
+     * Per line, not per transaction: one supermarket receipt can be half the
+     * household's groceries and half somebody's own things (15 §4).
+     */
+    for (const line of input.splits?.length ? input.splits : [{ categoryId: input.categoryId }]) {
+      claimFilingFor(db, actor, account, line.categoryId ?? null);
     }
 
     const payeeId = input.payeeId ?? (input.payeeName ? resolvePayee(db, actor, input.payeeName, input.raw?.payee).id : null);
@@ -217,6 +230,17 @@ export function updateTransaction(
         throw new Error(
           `The splits add up to ${formatPaise(total)}, but the transaction is ${formatPaise(amount)}.`,
         );
+      }
+    }
+
+    // R6.l · Recategorising can cross budgets just as creating can.
+    if (patch.categoryId !== undefined || patch.splits) {
+      const account = getAccount(db, before.account_id);
+      if (account) {
+        const lines = patch.splits?.length
+          ? patch.splits.map((sp) => sp.categoryId ?? null)
+          : [patch.categoryId ?? null];
+        for (const categoryId of lines) claimFilingFor(db, actor, account, categoryId);
       }
     }
 
@@ -654,3 +678,19 @@ registerUndoHandler("payee", (db, event) => {
   execute(db, `DELETE FROM payees WHERE id = ?`, event.entityId!);
   return `Removed the payee that was added`;
 });
+
+/**
+ * 15 §3A.4 · The claim raised by filing this account's money to that envelope.
+ *
+ * A no-op in the ordinary case, which is every filing a household with one
+ * budget has ever made.
+ */
+function claimFilingFor(
+  db: DB, actor: Actor, account: { id: string; budget_id: string | null }, categoryId: string | null,
+): void {
+  if (!categoryId || !account.budget_id) return;
+  const categoryBudget = queryOne<{ budget_id: string | null }>(
+    db, `SELECT budget_id FROM categories WHERE id = ?`, categoryId,
+  )?.budget_id ?? null;
+  prepareClaim(db, actor, account.id, account.budget_id, categoryBudget);
+}

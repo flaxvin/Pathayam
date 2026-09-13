@@ -63,6 +63,7 @@ export function ensureCommitmentEnvelope(
   if (toBudgetId === budgetId) {
     throw new Refusal("A budget cannot commit money to itself.");
   }
+  if (!getBudget(db, toBudgetId)) throw new Refusal("That budget does not exist.");
 
   return transact(db, () => {
     const group =
@@ -231,4 +232,79 @@ export function claimFor(
 ): ClaimLink | null {
   if (accountBudget === categoryBudget) return null;
   return links.get(`${accountBudget}→${categoryBudget}`) ?? null;
+}
+
+// ---------------------------------------------------------------------------
+// R6.l · Which pairs of budgets may owe each other anything
+// ---------------------------------------------------------------------------
+
+/**
+ * A claim may arise only between budgets linked by something the household
+ * deliberately shared.
+ *
+ * The household budget is shared by definition, so a claim to or from it is
+ * always allowed. Between two **personal** budgets there has to be an actual
+ * arrangement, and in practice there is exactly one: an add-on card, which is a
+ * second card on somebody else's account (R6.a). Filing a charge across two
+ * personal budgets with nothing between them would invent a debt through no
+ * arrangement either person made, so it is refused.
+ */
+export function sharedInstrumentBetween(
+  db: DB, accountId: string, accountBudget: string, categoryBudget: string,
+): boolean {
+  const household = householdBudgetId(db);
+  if (accountBudget === household || categoryBudget === household) return true;
+
+  /*
+   * The add-on case. The account is the primary holder's; a card on it held by
+   * the other budget's member is the arrangement that links them — and the
+   * liability stays the primary's, which is why the payment envelope does not
+   * move (15 §3A.5).
+   */
+  const other = getBudget(db, categoryBudget);
+  if (!other?.member_id) return false;
+
+  return (
+    queryOne<{ n: number }>(
+      db,
+      `SELECT COUNT(*) AS n FROM cards
+        WHERE account_id = ? AND holder_member_id = ? AND is_primary = 0`,
+      accountId, other.member_id,
+    )?.n ?? 0
+  ) > 0;
+}
+
+/**
+ * Called before a filing is written: make sure the two budgets may owe each
+ * other, and that the envelope which carries it exists.
+ *
+ * Creating it here rather than leaving it to the read is deliberate. The claim is
+ * derived from the envelope, so a cross-budget transaction with no envelope to
+ * absorb it would be money the identity cannot account for — and the read cannot
+ * conjure one, because a read must not write.
+ */
+export function prepareClaim(
+  db: DB, actor: Actor, accountId: string, accountBudget: string | null,
+  categoryBudget: string | null,
+): void {
+  if (!accountBudget || !categoryBudget || accountBudget === categoryBudget) return;
+
+  if (!sharedInstrumentBetween(db, accountId, accountBudget, categoryBudget)) {
+    const from = getBudget(db, accountBudget)?.name ?? "that budget";
+    const to = getBudget(db, categoryBudget)?.name ?? "the other";
+    throw new Refusal(
+      `This would put ${from}'s money against one of ${to}'s envelopes, and ` +
+      `nothing links the two — no shared account, and no add-on card. File it ` +
+      `to a household envelope, or to one of ${from}'s own.`,
+    );
+  }
+
+  if (claimFor(claimLinks(db), accountBudget, categoryBudget)) return;
+
+  // Whichever of the two is personal holds the envelope; where both are, it is
+  // the one whose envelope is being spent, so the debt reads as theirs.
+  const household = householdBudgetId(db);
+  const holder = categoryBudget === household ? accountBudget : categoryBudget;
+  const owed = holder === accountBudget ? categoryBudget : accountBudget;
+  ensureCommitmentEnvelope(db, actor, holder, owed);
 }
