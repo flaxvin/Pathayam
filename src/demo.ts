@@ -25,7 +25,9 @@
 
 import { loadConfig } from "./config.ts";
 import { openDatabase, ensureHousehold, queryOne } from "./db/db.ts";
-import { simulateHousehold, SCENARIO_MONTHS, DEPARTURE_AT, RETURN_AT } from "./sim/scenario.ts";
+import {
+  simulateHousehold, SCENARIO_MONTHS, DEPARTURE_AT, RETURN_AT, SIGNED_IN_AS,
+} from "./sim/scenario.ts";
 
 function main(): void {
   const config = loadConfig();
@@ -58,7 +60,10 @@ function main(): void {
     sim.log.map((line) => `  ${line}`).join("\n") +
     `\n  (month ${DEPARTURE_AT + 1} and month ${RETURN_AT + 1} of ${SCENARIO_MONTHS})`,
   );
-  console.log(`\nRun with DEMO_MODE=true and open /signin.`);
+  console.log(
+    `\nRun with DEMO_MODE=true and open /signin. ` +
+    `You will be signed in as ${sim.members[SIGNED_IN_AS].name}, who is still here.`,
+  );
   db.close();
 }
 

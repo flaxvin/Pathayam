@@ -39,7 +39,9 @@ import { computeBudget, identityResidual } from "../engine/engine.ts";
 import { listBudgets } from "../domain/budgets.ts";
 import { listMembers } from "../auth/sessions.ts";
 import { netWorthStatement } from "../domain/networth.ts";
-import { simulateHousehold, DEPARTURE_AT, RETURN_AT, type SimResult } from "./scenario.ts";
+import {
+  simulateHousehold, DEPARTURE_AT, RETURN_AT, SIGNED_IN_AS, type SimResult,
+} from "./scenario.ts";
 
 const here = dirname(fileURLToPath(import.meta.url));
 
@@ -144,6 +146,35 @@ describe("top-down · the household changes shape", () => {
       DEPARTURE_AT < RETURN_AT,
       "the scenario's own arc: they leave before they come back",
     );
+  });
+
+  /**
+   * The demo signs everybody into the oldest member who has not been removed.
+   * If the simulation removed that member, a demo instance would open on a
+   * person the household no longer has — their name in the corner, their budget
+   * on screen, and no row for them on the page that lists who is here.
+   */
+  test("the member a demo signs you in as is still in the household", () => {
+    const chosen = queryOne<{ id: string; name: string }>(
+      db,
+      `SELECT id, name FROM members WHERE removed_at IS NULL ORDER BY created_at LIMIT 1`,
+    );
+    assert.ok(chosen, "a demo instance would have nobody to sign in as");
+    assert.equal(
+      chosen.id, sim.members[SIGNED_IN_AS].id,
+      `the demo would sign in as ${chosen.name}, not the scenario's ${SIGNED_IN_AS}`,
+    );
+
+    // And they are a real participant, not a bystander: a budget of their own
+    // and a standing commitment, which is what the demo is there to show.
+    assert.equal(sim.budgets.ravi.length > 0, true);
+    const committed = queryOne<{ n: number }>(
+      db,
+      `SELECT COUNT(*) AS n FROM categories WHERE commits_to_budget_id IS NOT NULL
+        AND budget_id = ?`,
+      sim.budgets.ravi,
+    )!.n;
+    assert.ok(committed > 0, "the signed-in member has no commitment to show");
   });
 
   test("their budget survived them, with its history intact", () => {

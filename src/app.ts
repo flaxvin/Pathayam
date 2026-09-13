@@ -606,6 +606,40 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             () => html`
               <div class="card">
                 <form method="post" action="/demo/enter">
+                  <!--
+                    Whose eyes to look through. Most of what is interesting about
+                    this app is per-member — a private account, a commitment, a
+                    budget of your own — and all of it is invisible if the demo
+                    can only ever be one person. Only members who are still in
+                    the household are offered: one of them has left, and signing
+                    in as somebody who is gone would open the app on a person the
+                    household no longer has.
+                  -->
+                  ${when(listMembers(db).length > 1, () => {
+                    /*
+                     * Ordered by name, but opening on whoever pressing the button
+                     * alone would give you — the oldest member still here. The two
+                     * paths landing on two different people is the kind of small
+                     * inconsistency that makes a demo feel unfinished.
+                     */
+                    const fallback = queryOne<{ id: string }>(
+                      db,
+                      `SELECT id FROM members WHERE removed_at IS NULL
+                        ORDER BY created_at LIMIT 1`,
+                    )?.id;
+                    return html`
+                      <div class="field">
+                        <label for="demo-member">Look around as</label>
+                        <select id="demo-member" name="member_id">
+                          ${listMembers(db).map((m) => html`
+                            <option value="${m.id}" ${raw(m.id === fallback ? "selected" : "")}>
+                              ${m.name}
+                            </option>
+                          `)}
+                        </select>
+                      </div>
+                    `;
+                  })}
                   <button class="button button-primary" style="width:100%" type="submit">
                     Enter the demo
                   </button>
@@ -746,9 +780,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    */
   router.post("/demo/enter", (ctx) => {
     if (!config.demoMode) throw new NotFound();
-    const member = queryOne<{ id: string }>(
-      db, `SELECT id FROM members WHERE removed_at IS NULL ORDER BY created_at LIMIT 1`,
-    );
+    /*
+     * Whoever was picked, as long as they are still in the household — a removed
+     * member is not somebody you can sign in as, here or anywhere. With nothing
+     * picked (the one-button path, and every script that drives the demo) it is
+     * the oldest member still here, which is what it always was.
+     */
+    const chosen = field(ctx.body, "member_id");
+    const member =
+      (chosen
+        ? queryOne<{ id: string }>(
+            db, `SELECT id FROM members WHERE id = ? AND removed_at IS NULL`, chosen,
+          )
+        : null)
+      ?? queryOne<{ id: string }>(
+        db, `SELECT id FROM members WHERE removed_at IS NULL ORDER BY created_at LIMIT 1`,
+      );
     if (!member) throw new NotFound();
 
     const { token } = createSession(db, member.id, {

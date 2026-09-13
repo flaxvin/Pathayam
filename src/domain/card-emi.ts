@@ -117,7 +117,19 @@ export function convertToEmi(db: DB, actor: Actor, input: ConvertToEmiInput): Co
       );
     }
 
-    const date = input.date ?? todayIST();
+    /*
+     * B123 · The plan is dated from the charge it replaces, not from the moment
+     * somebody pressed the button.
+     *
+     * An issuer converts a purchase where it sits: the instalments replace that
+     * charge, on that statement. Defaulting to today instead put the whole plan
+     * in the current month however old the charge was — and took the envelope
+     * move with it, so converting a charge from last year moved the money the
+     * household had set aside for *this* month's card bill, and left this
+     * month's payment envelope ₹84,000 in the red. The date the app knows to be
+     * related to this conversion is the charge's own.
+     */
+    const date = input.date ?? source?.date ?? todayIST();
     const suffix = (input.nameSuffix ?? "").trim();
     const label = suffix
       ? `${card.nickname || card.name} EMI — ${suffix}`
