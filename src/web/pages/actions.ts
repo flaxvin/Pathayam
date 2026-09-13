@@ -43,6 +43,17 @@ export function renderAddTransaction(opts: {
   const members = opts.members ?? [];
 
   /*
+   * Whose name shows first. The account's holder when it has one — a card in
+   * Priya's name was almost certainly used by Priya (R6.e) — and otherwise
+   * whoever is entering it.
+   */
+  const defaultAccount = accounts.find((a) => a.id === defaultAccountId);
+  const defaultSpender =
+    (defaultAccount?.holder_member_id && members.some((m) => m.id === defaultAccount.holder_member_id)
+      ? defaultAccount.holder_member_id
+      : opts.defaultSpenderId) ?? members[0]?.id ?? null;
+
+  /*
    * 15 · Which budget an envelope belongs to matters at the moment of filing,
    * because filing across budgets is what raises a claim between them. An
    * unlabelled list of thirty envelopes from two budgets cannot say that, so the
@@ -138,7 +149,7 @@ export function renderAddTransaction(opts: {
                   <optgroup label="${g.label}">
                     ${g.items.map(
                       (c) => html`
-                        <option value="${c.id}">
+                        <option value="${c.id}" data-budget="${c.budgetId ?? ""}">
                           ${c.name} — ${formatPaise(c.state.balance)} left
                         </option>
                       `,
@@ -159,11 +170,16 @@ export function renderAddTransaction(opts: {
         <p class="field-hint" data-category-hint>
           Each category shows what it holds, so you can see the consequence while entering.
           Money coming in doesn't need one — it lands in Ready to Assign.
-          ${when(grouped.length > 1, () => html`
-            Filing to another budget's envelope is allowed and is how shared
-            spending works — it draws on what you have committed there.
-          `)}
         </p>
+        ${when(grouped.length > 1, () => html`
+          <!--
+            15 §3.4 · What a cross-budget filing does, said when it is chosen
+            rather than after it is refused. Whether an account is private has
+            nothing to do with this: privacy decides who can see the account,
+            and the budget decides where its spending lands.
+          -->
+          <p class="field-hint" data-cross-budget hidden></p>
+        `)}
       </div>
 
       <div class="grid-2">
@@ -172,7 +188,9 @@ export function renderAddTransaction(opts: {
           <select id="account_id" name="account_id" required>
             ${accounts.map(
               (a) => html`
-                <option value="${a.id}" ${raw(a.id === defaultAccountId ? "selected" : "")}>
+                <option value="${a.id}" ${raw(a.id === defaultAccountId ? "selected" : "")}
+                        data-holder="${a.holder_member_id ?? ""}"
+                        data-budget="${a.budget_id ?? ""}">
                   ${a.nickname || a.name}
                 </option>
               `,
@@ -195,25 +213,27 @@ export function renderAddTransaction(opts: {
         -->
         <div class="field">
           <label for="owner_member_id">Who spent it</label>
-          <select id="owner_member_id" name="owner_member_id">
-            <!--
-              Leaving it alone keeps R6.e: a charge on an add-on card belongs to
-              whoever holds that add-on, and only falls back to whoever is typing.
-              Naming somebody is a deliberate override of both.
-            -->
-            <option value="">Whoever the card says — otherwise me</option>
+          <!--
+            A name, not a rule. "Whoever the card says — otherwise me" was
+            accurate and useless: it asked the reader to work out who that would
+            be. The right person is shown selected, and it follows the account —
+            picking somebody's card selects them (R6.e), and anything else selects
+            you. Overriding it is one more click and is still a deliberate act.
+          -->
+          <select id="owner_member_id" name="owner_member_id"
+                  data-spender data-default="${opts.defaultSpenderId ?? ""}">
             ${members.map(
               (m) => html`
                 <option value="${m.id}"
-                        ${raw(m.id === opts.defaultSpenderId ? "" : "")}>
+                        ${raw(m.id === defaultSpender ? "selected" : "")}>
                   ${m.name}
                 </option>
               `,
             )}
           </select>
           <p class="field-hint">
-            Left alone, a charge on an add-on card is attributed to whoever holds
-            the add-on, and anything else to you.
+            Follows the account — a card in somebody's name is attributed to them.
+            Change it when one of you paid for the other.
           </p>
         </div>
       `)}

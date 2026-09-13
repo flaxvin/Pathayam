@@ -52,6 +52,17 @@ export interface LayoutOptions {
   notice?: { kind: "error" | "success" | "info" | "warning"; message: string } | null;
   /** Chrome is omitted on the sign-in and first-run screens. */
   bare?: boolean;
+  /**
+   * 15 · The budgets this member may look at, and which they are looking at.
+   *
+   * In the chrome rather than on the budget screen, because the screens that
+   * show one budget's money are not only the budget screen: Categories, the
+   * household page and the month close all do. Having to go back to the grid to
+   * change budget and then forward again is the same three-taps problem the Add
+   * button fixed.
+   */
+  budgets?: { id: string; name: string; kind: string }[];
+  currentBudgetId?: string | null;
   features?: {
     loans: boolean;
     assets: boolean;
@@ -76,6 +87,7 @@ export function page(options: LayoutOptions, content: SafeHtml): string {
   const {
     title, theme, path = "/", impersonating, devMode, demoMode, notice, bare,
     reviewCount = 0, memberName, features = { loans: true, assets: true },
+    budgets = [], currentBudgetId = null,
   } = options;
 
   // "system" leaves the attribute off entirely so the CSS `prefers-color-scheme`
@@ -100,7 +112,7 @@ ${bare ? "" : String(renderHeader(theme, memberName))}
 ${bare
     ? `<main id="main">${String(renderNotice(notice))}${content}</main>`
     : `<div class="with-sidebar">
-${String(renderSidebar(path, reviewCount, features))}
+${String(renderSidebar(path, reviewCount, features, budgets, currentBudgetId))}
 <main id="main">${String(renderNotice(notice))}${content}</main>
 </div>
 ${String(renderBottomNav(path, reviewCount))}`}
@@ -223,6 +235,8 @@ function renderSidebar(
   path: string,
   reviewCount: number,
   features: { loans: boolean; assets: boolean; separateBudgets?: boolean },
+  budgets: { id: string; name: string; kind: string }[] = [],
+  currentBudgetId: string | null = null,
 ): SafeHtml {
   // F28.2: a disabled module disappears from navigation rather than appearing
   // greyed out.
@@ -256,8 +270,32 @@ function renderSidebar(
     </a>
   `;
 
+  /*
+   * Staying on the page you are on: switching budget from Categories should show
+   * the other budget's categories, not send you to the grid.
+   */
+  const switchTo = (id: string) => `${path || "/"}?budget=${encodeURIComponent(id)}`;
+
+  /*
+   * One <nav>, not two: `.with-sidebar` is a two-column grid, and a second
+   * top-level child would become a third column and push the content out of the
+   * layout on every screen.
+   */
   return html`
     <nav class="sidebar" aria-label="Sections">
+      ${when(budgets.length > 1, () => html`
+        <div class="group-label">Looking at</div>
+        ${budgets.map(
+          (b) => html`
+            <a href="${switchTo(b.id)}"
+               ${raw(b.id === currentBudgetId ? 'aria-current="true"' : "")}>
+              <span class="nav-icon" aria-hidden="true">${b.kind === "household" ? "⌂" : "◦"}</span>
+              <span>${b.kind === "household" ? "Household" : b.name}</span>
+            </a>
+          `,
+        )}
+        <div class="group-label">Budget</div>
+      `)}
       ${PRIMARY_NAV.filter((i) => i.href !== "/add").map(link)}
       <div class="group-label">Analyse</div>
       ${secondary.map(link)}
