@@ -49,6 +49,12 @@ export interface QueryOptions {
   text: string;
   accounts: { id: string; name: string }[];
   categories: { id: string; name: string }[];
+  /**
+   * 15 · The scopes this question could be asked at. Empty for a household with
+   * one budget, which has only ever had one answer.
+   */
+  budgets?: { id: string; name: string; kind: string }[];
+  scope?: string;
   selectedAccounts: string[];
   selectedCategories: string[];
   title?: string;
@@ -78,6 +84,29 @@ export function renderQuery(opts: QueryOptions): SafeHtml {
             )}
           </select>
         </div>
+        ${when((opts.budgets ?? []).length > 1, () => html`
+          <!--
+            16 · Reports offer every scope rather than picking one. "What did we
+            spend on groceries", "what did I spend" and "what did all of it come
+            to" are three questions, and answering only one of them silently
+            would be wrong twice as often as it was right.
+          -->
+          <div class="field">
+            <label for="scope">Whose money</label>
+            <select id="scope" name="scope">
+              <option value="all" ${raw(!opts.scope || opts.scope === "all" ? "selected" : "")}>
+                Everything
+              </option>
+              ${(opts.budgets ?? []).map(
+                (b) => html`
+                  <option value="${b.id}" ${raw(b.id === opts.scope ? "selected" : "")}>
+                    ${b.kind === "household" ? "The household's" : `${b.name}'s`}
+                  </option>
+                `,
+              )}
+            </select>
+          </div>
+        `)}
         <div class="field">
           <label for="group_by">Group by</label>
           <select id="group_by" name="group_by">
@@ -239,6 +268,7 @@ function renderGroupRow(group: GroupedTotal, opts: QueryOptions): SafeHtml {
 function filterQueryString(opts: QueryOptions): string {
   const params = new URLSearchParams({ period: opts.period.key, group_by: opts.groupBy });
   if (opts.text) params.set("q", opts.text);
+  if (opts.scope && opts.scope !== "all") params.set("scope", opts.scope);
   return `?${params}`;
 }
 
@@ -263,6 +293,9 @@ export function renderReports(opts: {
   loanInterest: { fy: number; label: string; interest: Paise; principal: Paise; lender: string }[];
   /** B88 · Realised gains per FY, split by holding period. */
   gains: GainsYear[];
+  /** 15 / 16 · Reports offer every scope rather than picking one. */
+  budgets?: { id: string; name: string; kind: string }[];
+  scope?: string;
 }): SafeHtml {
   const peak = Math.max(...opts.trend.flatMap((t) => [t.income, t.spending]), 1);
   // Top categories individually; the long tail folded into one "Other" slice so
@@ -278,6 +311,28 @@ export function renderReports(opts: {
       Each of these is the query screen with a filter already applied — open any of
       them and you can change it.
     </p>
+
+    ${when((opts.budgets ?? []).length > 1, () => html`
+      <form method="get" action="/reports" class="card">
+        <div class="field" style="margin:0">
+          <label for="report-scope">Whose money these are about</label>
+          <select id="report-scope" name="scope" onchange="this.form.submit()">
+            <option value="all" ${raw(!opts.scope || opts.scope === "all" ? "selected" : "")}>
+              Everything
+            </option>
+            ${(opts.budgets ?? []).map(
+              (b) => html`
+                <option value="${b.id}" ${raw(b.id === opts.scope ? "selected" : "")}>
+                  ${b.kind === "household" ? "The household's" : `${b.name}'s`}
+                </option>
+              `,
+            )}
+          </select>
+          <input type="hidden" name="period" value="${opts.period.key}">
+          <noscript><button class="button-small" type="submit">Apply</button></noscript>
+        </div>
+      </form>
+    `)}
 
     ${when(opts.insights.length > 0, () => html`
       <section class="card">

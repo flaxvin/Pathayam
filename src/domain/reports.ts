@@ -33,6 +33,19 @@ export interface TransactionFilter {
   direction?: "in" | "out";
   uncategorisedOnly?: boolean;
   includeTransfers?: boolean;
+  /**
+   * 15 · Which budget's money this is about.
+   *
+   * Deliberately an option rather than a default. `16`'s decision is that reports
+   * offer every scope rather than picking one: a household wants to ask about its
+   * own money, about somebody's own money, and about all of it, and which of those
+   * is interesting changes with the question.
+   *
+   * A row belongs to a budget through **either** end — the account the money moved
+   * on, or the envelope it was filed to — because those differ exactly when one of
+   * you paid for something shared, and both answers are ones somebody might want.
+   */
+  budgetId?: string;
   limit?: number;
 }
 
@@ -69,6 +82,12 @@ export function queryTransactions(db: DB, filter: TransactionFilter = {}): Query
   if (filter.direction === "out") where.push("line.amount < 0");
   if (filter.direction === "in") where.push("line.amount > 0");
   if (filter.uncategorisedOnly) where.push("line.category_id IS NULL");
+  if (filter.budgetId) {
+    where.push(
+      `(a.budget_id = ? OR line.category_id IN (SELECT id FROM categories WHERE budget_id = ?))`,
+    );
+    params.push(filter.budgetId, filter.budgetId);
+  }
 
   if (filter.accountIds?.length) {
     where.push(`t.account_id IN (${filter.accountIds.map(() => "?").join(",")})`);
@@ -219,7 +238,10 @@ export interface TrendPoint {
 }
 
 /** F10.1 · Income against expense over time, and the net cash position. */
-export function incomeVsExpense(db: DB, from: IsoDate, to: IsoDate): TrendPoint[] {
+export function incomeVsExpense(
+  db: DB, from: IsoDate, to: IsoDate, budgetId?: string,
+): TrendPoint[] {
+  // 15 · Cash in and out of one budget's accounts, when asked for one.
   const rows = queryAll<{ month: string; income: number; spending: number }>(
     db,
     `SELECT substr(t.date,1,7) AS month,
@@ -230,8 +252,9 @@ export function incomeVsExpense(db: DB, from: IsoDate, to: IsoDate): TrendPoint[
       WHERE t.deleted_at IS NULL AND a.kind = 'budget'
         AND t.transfer_pair_id IS NULL
         AND t.date >= ? AND t.date <= ?
+        ${budgetId ? "AND a.budget_id = ?" : ""}
       GROUP BY month ORDER BY month`,
-    from, to,
+    from, to, ...(budgetId ? [budgetId] : []),
   );
 
   return rows.map((r) => ({
@@ -261,7 +284,11 @@ export function incomeVsExpense(db: DB, from: IsoDate, to: IsoDate): TrendPoint[
  * buffer; it simply had no monthly form, so the Overview reached for the
  * cashflow number instead.
  */
-export function envelopeSpendByMonth(db: DB, from: IsoDate, to: IsoDate): { month: string; spent: Paise }[] {
+export function envelopeSpendByMonth(
+  db: DB, from: IsoDate, to: IsoDate, budgetId?: string,
+): { month: string; spent: Paise }[] {
+  // 15 · Spending belongs to the envelope's budget, which is the budget that
+  // planned for it — the same rule the engine uses (15 §3A.4).
   return queryAll<{ month: string; spent: number }>(
     db,
     `WITH categorised AS (
@@ -280,8 +307,9 @@ export function envelopeSpendByMonth(db: DB, from: IsoDate, to: IsoDate): { mont
        FROM categorised c
        JOIN categories cat ON cat.id = c.category_id
       WHERE c.amount < 0 AND cat.payment_account_id IS NULL
+        ${budgetId ? "AND cat.budget_id = ?" : ""}
       GROUP BY month ORDER BY month`,
-    from, to, from, to,
+    from, to, from, to, ...(budgetId ? [budgetId] : []),
   ).map((r) => ({ month: r.month, spent: r.spent as Paise }));
 }
 

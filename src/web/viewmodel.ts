@@ -98,6 +98,20 @@ export function buildBudgetView(db: DB, month?: MonthKey, budgetId?: string): Bu
     const state = monthState.categories.get(meta.id);
     if (!state) continue;
 
+    /*
+     * 15 · Only this budget's envelopes.
+     *
+     * The engine is handed every category — it costs nothing, because a category
+     * from another budget has no facts in this budget's input and computes to
+     * zero — but the *view* is what screens read, and a screen that walks
+     * `categories` looking for, say, a card's payment envelope would find another
+     * budget's and show its bill. The grid was already filtered by group, which
+     * hid the problem without fixing it.
+     */
+    // `groupById` is already this budget's groups, so a category whose group is
+    // not in it belongs to another budget.
+    if (budgetId !== undefined && !groupById.has(meta.groupId)) continue;
+
     const t = targets.get(meta.id) ?? null;
     // F3.2: a hidden category leaves the underfunded totals.
     const progress = t && !meta.hidden ? targetProgress(t, state, target, today) : null;
