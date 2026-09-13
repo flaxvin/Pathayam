@@ -135,7 +135,26 @@ The engine tests encode the worked ₹ examples from the design docs and assert
 the accounting identity after every scenario — if a change breaks that identity,
 the change is wrong.
 
+**The top-down test runs against one standing household**, in `src/sim/`: four
+members, thirty-six months ending today, two of them leaving at month 24 —
+settled two different ways, because both are permitted and they are different
+arithmetic — and one of them coming back at month 30. Every top-down check uses
+that shape, and the demo is seeded from the same file, so the household people
+see first is the one the suite hammers hardest.
+
+It asks four questions: does the identity close after every month in every
+budget; does the rollup cache agree with a cold compute, month for month; is
+every mutating function the domain exports actually exercised — read out of the
+source, so a domain mutation written tomorrow fails the test tomorrow; and is
+removing a member a *state* rather than a deletion, which is what F1.6 promises.
+On its first run it found a hole in the identity that a thousand unit tests had
+missed (R6.aa).
+
 Prefer bare Node? `npm install && npm test`, then `DEV_LOGIN=true npm run dev`.
+
+Two build-time tools, neither a dependency of the running app:
+`npm run shots` regenerates every screenshot from a throwaway demo database, and
+`npm run icons` rasters the app icon from the one drawing that defines it.
 Compose is the supported path and the only one the production image is built
 from.
 
