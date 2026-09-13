@@ -192,9 +192,21 @@ export const CLIENT_SCRIPT = String.raw`
         current.innerHTML = fresh.innerHTML;
         restoreDisclosures(current, disclosures);
 
-        // The navigation chrome carries the current-page marker and the review
-        // badge, so it has to move with the content.
-        [".sidebar", ".bottom-nav"].forEach(function (selector) {
+        /*
+         * B119 · The theme lives on the html element, and a swap that never
+         * touched it left the old theme on screen until the next real
+         * navigation — so the toggle looked like it did nothing until you
+         * pressed something else. The attribute is absent for "follow the
+         * system", so absence has to be copied as carefully as presence.
+         */
+        var freshTheme = doc.documentElement.getAttribute("data-theme");
+        if (freshTheme) document.documentElement.setAttribute("data-theme", freshTheme);
+        else document.documentElement.removeAttribute("data-theme");
+
+        // The navigation chrome carries the current-page marker, the review
+        // badge, the theme icon and which budget you are looking at, so it has
+        // to move with the content.
+        [".sidebar", ".bottom-nav", ".app-header"].forEach(function (selector) {
           var freshNav = doc.querySelector(selector);
           var currentNav = document.querySelector(selector);
           if (freshNav && currentNav) currentNav.innerHTML = freshNav.innerHTML;
