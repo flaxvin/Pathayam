@@ -202,7 +202,13 @@ function renderHeader(
       -->
       <a class="brand" href="/">
         ${raw(APP_LOGO_SVG.replace("<svg", '<svg class="brand-mark" width="24" height="24"'))}
-        Pathayam
+        <!--
+          The wordmark steps aside on a narrow screen. The header carries the
+          budget switcher, and at 375px the two of them together clipped it
+          mid-name — "Household" and "Ra" — so the control that says *whose money
+          you are looking at* was unreadable. The mark still says whose app it is.
+        -->
+        <span class="brand-word">Pathayam</span>
       </a>
       <!--
         15 · The switcher lived only in the sidebar, and the sidebar is a desktop
@@ -219,6 +225,14 @@ function renderHeader(
             (b) => html`
               <a href="${path || "/"}?budget=${encodeURIComponent(b.id)}"
                  ${raw(b.id === currentBudgetId ? 'aria-current="true"' : "")}>
+                <!--
+                  A2 · A word and a mark, never colour alone — the same ● and ○
+                  the sidebar uses. It also tells these apart from the member
+                  link at the other end of the header, which on a phone is the
+                  same name twice: one meaning "whose money" and one meaning
+                  "who you are".
+                -->
+                <span aria-hidden="true">${b.id === currentBudgetId ? "●" : "○"}</span>
                 ${b.kind === "household" ? "Household" : b.name}
                 ${when(b.id === currentBudgetId, () => html`<span class="sr-only">(selected)</span>`)}
               </a>
