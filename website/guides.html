@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Guides</title>
-<meta name="description" content="29 guides covering every screen in Pathayam: budgeting, statements, credit cards, loans, investments, backups and troubleshooting.">
+<meta name="description" content="34 guides covering every screen in Pathayam: budgeting, separate budgets, statements, credit cards, loans, investments, backups and troubleshooting.">
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,700&family=Figtree:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&family=Noto+Serif+Malayalam:wght@500&display=swap">
@@ -40,7 +40,7 @@
       <p class="eyebrow">Guides</p>
       <h1 style="font-size:var(--step-5);max-width:18ch;margin-inline:auto">How to actually use it</h1>
       <p class="lede" style="font-size:var(--step-2);max-width:56ch">
-        29 guides covering every screen in the app, in the order you will need
+        34 guides covering every screen in the app, in the order you will need
         them. Start at the top if it is your first day, or jump to whatever you are
         stuck on.
       </p>
@@ -68,6 +68,12 @@
             <li><a href="#spending">Record what you spend</a></li>
             <li><a href="#overspend">When you go over</a></li>
             <li><a href="#close">Close the month</a></li>
+          <li class="rail-part">Keeping money separate</li>
+            <li><a href="#separate">Should you keep it separate?</a></li>
+            <li><a href="#own-budget">Open a budget of your own</a></li>
+            <li><a href="#committing">Commit to the household</a></li>
+            <li><a href="#shared-spending">Paying for shared things</a></li>
+            <li><a href="#squaring-up">Squaring up a month</a></li>
           <li class="rail-part">Money coming in</li>
             <li><a href="#import">Import statements and CSVs</a></li>
             <li><a href="#review">The review queue</a></li>
@@ -328,6 +334,134 @@ reminder.</div>
               </figure>
             </div>
           </article>
+          <h2 class="guide-part" id="part-keeping-money-separate">Keeping money separate</h2>
+          <article class="guide" id="separate">
+            <h2>Should you keep it separate?</h2>
+<p>Most households pool everything. If that is you, skip this part entirely — there
+is nothing to switch on, no second grid, and the app never mentions any of it.</p>
+<p>This is for the other arrangement: <em>we keep our own accounts and split the
+shared bills</em>. Couples who came to it late, one salary and one irregular income,
+somebody supporting a parent out of their own money, or simply a preference. It is a
+legitimate way to run a household and most budgeting apps cannot do it at all.</p>
+<p>What you get is a budget of your own — your accounts, your envelopes, your Ready
+to Assign — plus an agreed amount you put toward the shared bills each month. What
+you give up is nothing: the household budget works exactly as it did.</p>
+<div class="note"><b>The important part is that money never moves to commit it.</b>
+You do not transfer ₹40,000 to a joint account and then budget it twice. You assign
+it, and it stays in your account until something shared is actually paid for.</div>
+<h3>What the other person can see</h3>
+<p>How much you committed, and how much of it has gone out. That is all. Not your
+balances, not your accounts, not your other envelopes — not through any total, and
+not by subtracting one number from another.</p>
+            <div class="shots ">
+              <figure class="frame">
+                <img src="img/household.webp" loading="lazy" width="1400" height="900" alt="The household page: what each of you put in, and where it stands.">
+                <figcaption>What each of you put in, and where it stands.</figcaption>
+              </figure>
+            </div>
+          </article>
+
+          <article class="guide" id="own-budget">
+            <h2>Open a budget of your own</h2>
+<p>On the budget screen, <strong>+ My own budget</strong>. It appears immediately
+with a few envelopes to start from and one more you did not create: the household
+envelope, which is how you put money toward the shared bills.</p>
+<p>Then move your accounts into it. Open an account, <strong>Edit</strong>, and set
+<em>Which budget this account funds</em> to your own. That is the setting that
+changes the figures: the balance leaves the household's Ready to Assign and joins
+yours, and spending from the account lands in your envelopes.</p>
+<h3>Making an account private</h3>
+<p>Once an account is in your own budget you can set <em>Who can see it</em> to
+private, and nobody else sees the account or its balance at all.</p>
+<div class="note"><b>Private only works in your own budget</b>, and the app refuses
+it in the household's. The reason is arithmetic rather than policy: the household's
+Ready to Assign is the sum of every account in it, so a hidden one there could be
+worked out by subtracting the visible ones. Refusing is more honest than a promise
+the sums cannot keep.</div>
+<h3>Switching between them</h3>
+<p>The sidebar gains a <strong>Looking at</strong> section. Every screen that shows
+one budget's money — the grid, Overview, Cards, Schedules, Categories — follows it.
+Reports and Query are different: they ask <em>whose money</em> as a filter, because
+"what did we spend on groceries" and "what did I spend" are different questions.</p>
+          </article>
+
+          <article class="guide" id="committing">
+            <h2>Commit to the household</h2>
+<p>In your own budget there is an envelope called <strong>→ Household</strong>.
+Assign to it and that money is committed: it shows up in the household's Ready to
+Assign for the two of you to assign to rent, groceries, whatever you have agreed.</p>
+<p>No money moves. It is still in your account. That is the whole point, and it is
+what lets a private account fund shared spending without publishing its balance.</p>
+<h3>Set it once</h3>
+<p>On <strong>The household's money</strong>, set a monthly plan — ₹40,000 a month,
+say. It is an ordinary target, so the budget screen measures you against it and
+auto-assign fills it. Agreeing the figure once beats remembering it every month.</p>
+<div class="note note--good"><b>Unspent commitments roll over</b> like any other
+envelope. Nothing expires at month end, and taking money back out is a deliberate
+move rather than something the app does for you — the household was counting on
+it.</div>
+          </article>
+
+          <article class="guide" id="shared-spending">
+            <h2>Paying for shared things</h2>
+<p>Pay the rent from your own account and file it to the household's Rent envelope.
+Two things happen at once, and no transfer is involved:</p>
+<ul>
+  <li>The household's Rent envelope falls, because the rent is paid.</li>
+  <li>Your → Household envelope falls by the same amount, because that is the
+    commitment being spent.</li>
+</ul>
+<p>When you pick an envelope from another budget, the Add screen says so under the
+picker. It is the ordinary way to pay for shared things, not an error.</p>
+<h3>Shared cards and add-on cards</h3>
+<ul>
+  <li><strong>A shared card</strong> is one whose account sits in the household
+    budget. Anybody may spend on it. The bill is paid from the card's own payment
+    envelope, in the household's budget, however the spending was filed — so a
+    shared card's payment is never split between you.</li>
+  <li><strong>An add-on card</strong> — your card on somebody else's account — keeps
+    the debt with the primary holder, because that is who the bank chases. Filing an
+    add-on charge to your own envelope means you have used their credit, so the
+    balance between you moves by that much.</li>
+  <li><strong>Filing your money to the other person's envelope</strong>, with nothing
+    shared between you, is refused. It would invent a balance neither of you
+    arranged.</li>
+</ul>
+<h3>One receipt, two budgets</h3>
+<p>Split it. Half to the household's Groceries, half to your own Personal. Each line
+lands in its own budget and draws on the right money.</p>
+          </article>
+
+          <article class="guide" id="squaring-up">
+            <h2>Squaring up a month</h2>
+<p>Some months one of you puts in more. The app does not call that a debt — you are
+not a creditor and your partner is not in default on the electricity. It says the
+commitment is <strong>underfunded</strong>: more has gone to the household than was
+put aside for it.</p>
+<p>On <strong>The household's money</strong>, the row reads left to right and adds
+up: brought forward, plus what went in, less what went to the household, is where it
+stands. There are three ways to settle it, and they are genuinely different.</p>
+<ul>
+  <li><strong>Put it down to me.</strong> Fund it from your own Ready to Assign. Your
+    share this month was simply larger. Nothing is forgiven and nobody else is asked
+    for anything.</li>
+  <li><strong>I'll pick it up.</strong> The other of you commits the amount on top of
+    what they already had, so it is funded from their budget instead.</li>
+  <li><strong>Call it even.</strong> Nobody funds it. This is the only one that lets
+    something go.</li>
+</ul>
+<div class="note"><b>Calling it even still costs something, and the app shows where.</b>
+It becomes spending on the side that gave it up — it needs an envelope, like
+anything else — and that budget's Ready to Assign pays for it. It is the household
+buying somebody a present, which is what happened. It never reduces what you pay the
+bank: the card bill is owed either way.</div>
+<h3>Closing the month</h3>
+<p>Each budget closes on its own. The household's month can close while yours is
+still open, and the other way round — one person's procrastination should not block
+the other's ritual. The household's close reports what each of you put in and how
+much went out.</p>
+          </article>
+
           <h2 class="guide-part" id="part-money-coming-in">Money coming in</h2>
           <article class="guide" id="import">
             <h2>Import statements and CSVs</h2>
