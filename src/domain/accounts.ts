@@ -129,6 +129,28 @@ export interface CreateAccountInput {
   budgetId?: string;
 }
 
+/**
+ * H2.2 · Private means private *to somebody*.
+ *
+ * With no holder there is no somebody, and the filters agree: `holder_member_id IS
+ * ?` matches no member, so a private account with no holder is invisible to
+ * every single person — including whoever set it, which makes it unfixable
+ * through the app, because undoing it would require seeing it.
+ *
+ * It reached that state through a form where the two controls sit side by side
+ * and neither mentions the other. Refusing the combination is the only honest
+ * answer: the alternative is a thing the household owns and nobody can find.
+ */
+function refusePrivateWithNoHolder(visibility: string | null | undefined, holder: string | null | undefined): void {
+  if (visibility === "private" && !holder) {
+    throw new Refusal(
+      "Private to whom? Nothing is marked as belonging to one person, and a " +
+      "private thing with no owner would be hidden from everybody — including " +
+      "you. Say whose it is, or leave it shared with the household.",
+    );
+  }
+}
+
 export function createAccount(db: DB, actor: Actor, input: CreateAccountInput): Account {
   if (!ACCOUNT_SUBTYPES[input.kind]?.includes(input.subtype)) {
     throw new Error(`"${input.subtype}" is not a valid subtype for a ${input.kind} account.`);
@@ -140,6 +162,7 @@ export function createAccount(db: DB, actor: Actor, input: CreateAccountInput): 
    * Ready to Assign plus what is assigned and the hidden figure falls out.
    * Tracking accounts fund nothing (FW1), so they can be hidden honestly.
    */
+  refusePrivateWithNoHolder(input.visibility, input.holderMemberId);
   if (input.visibility === "private" && input.kind !== "tracking") {
     // H2.2a · Allowed once the account sits in somebody's own budget, because
     // the household's Ready to Assign no longer sums it.
@@ -302,6 +325,9 @@ export function updateAccount(
      * about a constraint rather than about money.
      */
     const nextVisibility = patch.visibility ?? before.visibility;
+    const nextHolder =
+      patch.holder_member_id !== undefined ? patch.holder_member_id : before.holder_member_id;
+    refusePrivateWithNoHolder(nextVisibility, nextHolder);
     const nextBudget = patch.budget_id ?? before.budget_id ?? householdBudgetId(db);
     if (nextVisibility === "private" && before.kind !== "tracking") {
       const budget = nextBudget;

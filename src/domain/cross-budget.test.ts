@@ -123,7 +123,8 @@ describe("P4 · R6.k · an add-on on somebody else's card", () => {
     // His card, in his own budget. Her add-on on it.
     const card = createAccount(db, actor, {
       name: "His card", kind: "credit", subtype: "credit-card",
-      budgetId: his.id, visibility: "private", openingDate: todayIST(),
+      budgetId: his.id, visibility: "private", holderMemberId: RAVI,
+      openingDate: todayIST(),
     });
     createCard(db, actor, {
       accountId: card.id, label: "Priya's add-on", holderMemberId: PRIYA, isPrimary: false,
@@ -162,7 +163,8 @@ describe("P4 · 15 §4 · one receipt, two budgets", () => {
 
     const account = createAccount(db, actor, {
       name: "Her card", kind: "credit", subtype: "credit-card",
-      budgetId: hers.id, visibility: "private", openingDate: todayIST(),
+      budgetId: hers.id, visibility: "private", holderMemberId: PRIYA,
+      openingDate: todayIST(),
     });
     createAccount(db, actor, {
       name: "Her savings", kind: "budget", subtype: "savings",
@@ -205,7 +207,7 @@ describe("P4 · R6.l · a debt nobody arranged is refused", () => {
 
     const hisAccount = createAccount(db, actor, {
       name: "His savings", kind: "budget", subtype: "savings",
-      budgetId: his.id, visibility: "private",
+      budgetId: his.id, visibility: "private", holderMemberId: RAVI,
       openingBalance: rupees(50_000), openingDate: todayIST(),
     });
     const herGroup = createGroup(db, actor, "Mine", "normal", hers.id);

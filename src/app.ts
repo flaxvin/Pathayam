@@ -3044,10 +3044,29 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/loans", (ctx) => {
     requireLoans();
-    const projections = listLoans(db)
+    // H2.2 · A private loan is its holder's alone, the same as a private account.
+    const projections = listLoans(db, { viewerMemberId: viewer(ctx) })
       .map((l) => projectLoan(db, l.id))
       .filter((p): p is NonNullable<typeof p> => p !== null);
-    return render(ctx, "Loans", renderLoanList(projections, debtOverview(db)));
+
+    const memberNames = new Map(listMembers(db).map((m) => [m.id, m.name]));
+    const showOwners = memberNames.size > 1;
+    const ownership = new Map(
+      projections.map((p) => {
+        const account = getAccount(db, p.loan.account_id);
+        return [p.loan.id, {
+          holderName: account?.holder_member_id
+            ? memberNames.get(account.holder_member_id) ?? null
+            : null,
+          isPrivate: account?.visibility === "private",
+        }];
+      }),
+    );
+
+    return render(
+      ctx, "Loans",
+      renderLoanList(projections, debtOverview(db, viewer(ctx)), showOwners ? ownership : new Map()),
+    );
   });
 
   router.get("/loans/new", (ctx) => {
@@ -3607,7 +3626,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const scope = budgetParam(ctx);
     const view = buildBudgetView(db, undefined, scope);
     const month = view.month;
-    const cashflow = projectCashflow(db, { days: 60 });
+    const cashflow = projectCashflow(db, { days: 60, viewerMemberId: viewer(ctx) });
     const outstanding = creditOutstanding(db);
     const unfundedCards = [...view.categories.values()]
       .filter((c) => c.paymentAccountId)
@@ -3766,7 +3785,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/schedules", (ctx) => {
     const horizon = Number(ctx.query.get("days") ?? 60);
     const scope = budgetParam(ctx);
-    const cashflow = projectCashflow(db, { days: horizon, budgetId: scope });
+    const cashflow = projectCashflow(db, { days: horizon, budgetId: scope, viewerMemberId: viewer(ctx) });
     const view = buildBudgetView(db, undefined, scope);
 
     // 15 · A standing instruction comes out of one account, so it belongs to
