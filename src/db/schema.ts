@@ -1850,4 +1850,26 @@ UPDATE accounts
  WHERE visibility = 'private' AND holder_member_id IS NULL;
 `,
   },
+  {
+    name: "0035-loans-remember-their-original-tenure",
+    sql: `
+--------------------------------------------------------------------------------
+-- R19.1 / R20.2 · The tenure moves, so the original has to be kept
+--------------------------------------------------------------------------------
+-- Two of the choices a borrower actually gets to make change the tenure: a
+-- prepayment applied by shortening the term, and a rate reset taken by keeping
+-- the instalment. Until now neither was applied at all, because tenure_months
+-- was the only tenure the loan had and it doubled as the baseline every lifetime
+-- figure is measured against. Shortening it would have silently erased the very
+-- saving the household had just bought: "instalments saved" is the projection
+-- against the baseline, and moving both together always reads zero.
+--
+-- So the original is recorded once, here, and never moves again. tenure_months
+-- becomes the live tenure, free to shorten or extend as the loan is actually
+-- repaid, and R22's lifetime metrics keep comparing against the loan as it was
+-- first scheduled -- which is the only comparison that means anything.
+ALTER TABLE loans ADD COLUMN original_tenure_months INTEGER;
+UPDATE loans SET original_tenure_months = tenure_months;
+`,
+  },
 ];

@@ -756,8 +756,20 @@ export function renderPrepaymentComparison(opts: {
           <thead>
             <tr>
               <th scope="col"></th>
-              <th scope="col" class="num">Reduce the tenure <span class="chip chip-positive">default</span></th>
-              <th scope="col" class="num">Reduce the EMI</th>
+              <th scope="col" class="num">
+                ${when(opts.loan, () => html`
+                  <input type="radio" id="mode-tenure" name="mode" value="tenure"
+                         form="prepay-record" checked>
+                `)}
+                <label for="mode-tenure">Reduce the tenure</label>
+                <span class="chip chip-positive">default</span>
+              </th>
+              <th scope="col" class="num">
+                ${when(opts.loan, () => html`
+                  <input type="radio" id="mode-emi" name="mode" value="emi" form="prepay-record">
+                `)}
+                <label for="mode-emi">Reduce the EMI</label>
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -795,21 +807,24 @@ export function renderPrepaymentComparison(opts: {
     </div>
 
     ${when(opts.loan, () => html`
-      <form method="post" action="${opts.action}" class="card">
+      <form method="post" action="${opts.action}" class="card" id="prepay-record">
         <input type="hidden" name="amount" value="${(opts.amount / 100).toFixed(2)}">
         <input type="hidden" name="at_month" value="${opts.atMonth}">
 
-        <div class="field">
-          <label for="mode">How should it be applied?</label>
-          <select id="mode" name="mode">
-            <option value="tenure" selected>
-              Reduce the tenure — close ${c.reduceTenure.emisSaved} instalments early
-            </option>
-            <option value="emi">
-              Reduce the EMI — pay ${formatPaise(c.reduceTenure.emiAfter - c.reduceEmi.emiAfter)} less each month
-            </option>
-          </select>
-        </div>
+        <!--
+          B115 · The choice is made in the table above, against the column that
+          prices it — the radios belong to this form through their form-id
+          attribute. It used to be a dropdown here, repeating both options in
+          words, and then the answer was written into the note and thrown away:
+          every prepayment reduced the instalment, including the one the app had
+          just recommended taking as months.
+        -->
+        <p class="field-hint">
+          Pick a column above. Reducing the tenure closes
+          ${c.reduceTenure.emisSaved} instalments early; reducing the EMI pays
+          ${formatPaise(c.reduceTenure.emiAfter - c.reduceEmi.emiAfter)} less each
+          month and keeps the closure date.
+        </p>
 
         ${when(opts.fundingSources && opts.fundingSources.length > 0, () => html`
           <div class="field">
@@ -847,52 +862,17 @@ export function renderRateReset(opts: {
   loan: Loan;
   options: RateResetOptions;
   effectiveFrom: IsoDate;
+  /** Which option is selected, so a preview round-trip does not lose it. */
+  keep: "tenure" | "emi";
 }): SafeHtml {
   const o = opts.options;
+  const changed = o.newRatePct !== o.oldRatePct;
   return html`
-    <h1>Rate change · ${opts.loan.nickname || opts.loan.lender}</h1>
+    <h1>Rate change &middot; ${opts.loan.nickname || opts.loan.lender}</h1>
     <p class="muted">
       ${o.oldRatePct}% → ${o.newRatePct}% on an outstanding balance of
       ${formatPaise(o.outstanding)}.
     </p>
-
-    <div class="card">
-      <h2>Your options</h2>
-      <div class="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">Option</th>
-              <th scope="col" class="num">Instalment</th>
-              <th scope="col" class="num">Instalments left</th>
-            </tr>
-          </thead>
-          <tbody>
-            <tr>
-              <th scope="row">Keep the instalment, let the tenure move</th>
-              <td class="num amount">${formatPaise(o.keepEmi.emi)}</td>
-              <td class="num">
-                ${o.keepEmi.months}
-                <span class="faint">${o.keepEmi.monthsDelta >= 0 ? "+" : ""}${o.keepEmi.monthsDelta}</span>
-              </td>
-            </tr>
-            <tr>
-              <th scope="row">Keep the tenure, let the instalment move</th>
-              <td class="num amount">
-                ${formatPaise(o.keepTenure.emi)}
-                <span class="faint">${o.keepTenure.emiDelta >= 0 ? "+" : ""}${formatPaise(o.keepTenure.emiDelta)}</span>
-              </td>
-              <td class="num">${o.keepTenure.months}</td>
-            </tr>
-          </tbody>
-        </table>
-      </div>
-      <p class="field-hint">
-        Lenders are required to offer both, plus switching to a fixed rate and
-        prepaying. Whichever you pick, the instalment must always cover the
-        month's interest.
-      </p>
-    </div>
 
     <!--
       B71 · This comparison was built and rendered by nobody: recordRateChange
@@ -900,30 +880,108 @@ export function renderRateReset(opts: {
       tied them together. A repo-linked home loan resets several times a year,
       so the app modelled the most common event in an Indian loan and offered no
       way to enter it.
+
+      B114 · Then the route existed and the screen still could not be used. The
+      options were priced off the rate in the query string, which nothing on the
+      page could change, so typing the new rate into the form left the table
+      answering a question about the old one. And the two options were a table,
+      not a choice — there was no way to say which you had taken, and recording
+      the change always did the same thing. A screen whose entire purpose is a
+      decision has to let you make it.
     -->
-    <form method="post" action="/loans/${opts.loan.id}/rate" class="card">
-      <h2>Record it</h2>
-      <div class="grid-2">
-        <div class="field">
-          <label for="rate-new">New rate (% a year)</label>
-          <input id="rate-new" name="annual_rate_pct" inputmode="decimal" required
-                 value="${o.newRatePct}">
+    <form method="post" action="/loans/${opts.loan.id}/rate">
+      <div class="card">
+        <h2>The new rate</h2>
+        <div class="grid-2">
+          <div class="field">
+            <label for="rate-new">New rate (% a year)</label>
+            <input id="rate-new" name="annual_rate_pct" inputmode="decimal" required
+                   value="${o.newRatePct}">
+          </div>
+          <div class="field">
+            <label for="rate-from">Effective from</label>
+            <input type="date" id="rate-from" name="effective_from" required
+                   value="${opts.effectiveFrom}">
+          </div>
         </div>
+        <div class="row">
+          <button class="button" type="submit" formmethod="get">Work out what it does</button>
+        </div>
+        <p class="field-hint">
+          ${changed
+            ? html`The options below are worked out at ${o.newRatePct}%.`
+            : html`The options below are worked out at the rate you are on now — put the
+                   new one in and work it out before choosing.`}
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>Your options</h2>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col"></th>
+                <th scope="col">Option</th>
+                <th scope="col" class="num">Instalment</th>
+                <th scope="col" class="num">Instalments left</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td>
+                  <input type="radio" id="keep-emi" name="keep" value="emi"
+                         ${opts.keep === "emi" ? "checked" : ""}>
+                </td>
+                <th scope="row">
+                  <label for="keep-emi">Keep the instalment, let the tenure move</label>
+                </th>
+                <td class="num amount">${formatPaise(o.keepEmi.emi)} <span class="faint">unchanged</span></td>
+                <td class="num">
+                  ${o.keepEmi.months}
+                  <span class="faint">${o.keepEmi.monthsDelta >= 0 ? "+" : ""}${o.keepEmi.monthsDelta}</span>
+                </td>
+              </tr>
+              <tr>
+                <td>
+                  <input type="radio" id="keep-tenure" name="keep" value="tenure"
+                         ${opts.keep === "tenure" ? "checked" : ""}>
+                </td>
+                <th scope="row">
+                  <label for="keep-tenure">Keep the tenure, let the instalment move</label>
+                </th>
+                <td class="num amount">
+                  ${formatPaise(o.keepTenure.emi)}
+                  <span class="faint">${o.keepTenure.emiDelta >= 0 ? "+" : ""}${formatPaise(o.keepTenure.emiDelta)}</span>
+                </td>
+                <td class="num">${o.keepTenure.months} <span class="faint">unchanged</span></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        <p class="field-hint">
+          Lenders are required to offer both, plus switching to a fixed rate and
+          prepaying. Whichever you pick, the instalment must always cover the
+          month's interest — and the loan's envelope is re-targeted to match.
+        </p>
+      </div>
+
+      <div class="card">
+        <h2>Record it</h2>
         <div class="field">
-          <label for="rate-from">Effective from</label>
-          <input type="date" id="rate-from" name="effective_from" required
-                 value="${opts.effectiveFrom}">
+          <label for="rate-note">Note (optional)</label>
+          <input id="rate-note" name="note" placeholder="Repo rate cut, letter dated 3 Sept">
+        </div>
+        <p class="field-hint">
+          Recording the change re-derives the schedule from that date. What you
+          actually owe does not change — only how the remaining instalments split,
+          and how many of them there are.
+        </p>
+        <div class="row">
+          <button class="button-primary" type="submit">Record the rate change</button>
+          <a class="button button-quiet" href="/loans/${opts.loan.id}">Cancel</a>
         </div>
       </div>
-      <div class="field">
-        <label for="rate-note">Note (optional)</label>
-        <input id="rate-note" name="note" placeholder="Repo rate cut, letter dated 3 Sept">
-      </div>
-      <p class="field-hint">
-        Recording the change re-derives the schedule from that date. What you
-        actually owe does not change — only how the remaining instalments split.
-      </p>
-      <button class="button-primary" type="submit">Record the rate change</button>
     </form>
   `;
 }
