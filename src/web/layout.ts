@@ -166,6 +166,14 @@ function renderHeader(theme: Theme, memberName: string | null | undefined): Safe
     <header class="app-header">
       <a class="brand" href="/">Pathayam</a>
       <span class="spacer"></span>
+      <!--
+        Adding a transaction is the one thing a household does every day, and it
+        was three taps away on a desktop: the bottom bar that carries it is a
+        phone affordance. Here it is, on every screen, next to the search.
+      -->
+      <a class="button button-primary button-small" href="/add" title="Add a transaction (a)">
+        <span aria-hidden="true">＋</span> Add
+      </a>
       <a class="button button-quiet button-small" href="/search" aria-label="Search" title="Search (/)">⌕</a>
       <form method="post" action="/settings/theme">
         <input type="hidden" name="theme" value="${next}">

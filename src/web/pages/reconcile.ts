@@ -49,8 +49,8 @@ export function renderReconcileStart(opts: {
         </div>
         <div class="field">
           <label for="as_of">As of</label>
-          <input id="as_of" name="as_of" type="text" autocomplete="off"
-                 value="${formatDate(opts.today)}" placeholder="DD-MM-YYYY">
+          <input id="as_of" name="as_of" type="date" autocomplete="off"
+                 value="${opts.today}">
         </div>
       </div>
 

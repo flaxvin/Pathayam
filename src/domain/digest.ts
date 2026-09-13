@@ -42,7 +42,11 @@ import { projectCashflow } from "./schedules.ts";
 /** F14.2 · Each of these is individually mutable per member. */
 export const DIGEST_KINDS = [
   "card-due", "subscription-due", "overspent", "month-close",
-  "review-waiting", "cash-shortfall", "hold-surplus", "behind-with-member",
+  "review-waiting", "cash-shortfall", "hold-surplus",
+  // The id is stored in digest_mutes, so it outlives the wording it was named
+  // after. Renaming it would silently un-mute it for everyone who had turned it
+  // off; the label below is what anybody reads.
+  "behind-with-member",
 ] as const;
 export type DigestKind = (typeof DIGEST_KINDS)[number];
 
@@ -56,7 +60,7 @@ export const DIGEST_LABELS: Record<DigestKind, string> = {
   "hold-surplus": "More is unassigned than a month usually costs",
   // 15 §5 · "a conversation to have, not a number for an app to enforce" — so it
   // is mutable like every other kind, and it never nags twice about one month.
-  "behind-with-member": "One of you has put in more than they planned",
+  "behind-with-member": "Somebody's commitment to the household is short",
 };
 
 export interface DigestItem {
@@ -239,12 +243,13 @@ export function digestFor(
    * conversation to have rather than something for an app to press.
    */
   const household = buildHouseholdView(db, monthOf(today));
-  for (const member of household.aheadOfUs) {
+  for (const member of household.underfunded) {
     add({
       kind: "behind-with-member",
       text:
-        `${member.name} has put in ${formatPaise(member.outstanding)} more than planned ` +
-        `this month. There are three ways to square that up.`,
+        `${member.name}'s commitment to the household is ` +
+        `${formatPaise(member.outstanding)} underfunded — that much more has gone ` +
+        `to the household than was put aside for it. There are three ways to settle it.`,
       href: "/household",
       urgent: false,
     });

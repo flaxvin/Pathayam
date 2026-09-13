@@ -24,6 +24,7 @@ import { callItEven, listEvenCalls, GIVEN_UP_CATEGORY, ensureGivenUpCategory } f
 import { standingOf, outstanding, standingSentence } from "./standing.ts";
 import { undoEvent, historyFor } from "../core/events.ts";
 import { closeMonth, isClosed, monthCloseView } from "./month-close.ts";
+import { buildHouseholdView } from "./household-view.ts";
 
 const RAVI = "m-ravi";
 const PRIYA = "m-priya";
@@ -55,22 +56,40 @@ function allClose(db: DB, budgetIds: string[]): string[] {
   return out;
 }
 
-describe("P5 · R6.n · the words for a balance", () => {
-  test("a positive envelope is behind, a negative one is ahead", () => {
-    assert.equal(standingOf(rupees(2_000)), "behind");
-    assert.equal(standingOf(-rupees(2_000)), "ahead");
+describe("P5 · R6.n · the words for a commitment", () => {
+  test("a commitment with too little in it is underfunded, too much overfunded", () => {
+    assert.equal(standingOf(rupees(2_000)), "overfunded");
+    assert.equal(standingOf(-rupees(2_000)), "underfunded");
     assert.equal(standingOf(0 as never), "even");
     assert.equal(outstanding(-rupees(2_000)), rupees(2_000));
   });
 
-  test("it is said as ahead and behind, never as debt", () => {
-    const ahead = standingSentence(-rupees(2_000), "Ravi");
-    assert.match(ahead, /behind with Ravi/);
+  test("it borrows the budget screen's words, never the language of debt", () => {
+    const short = standingSentence(-rupees(2_000), "Ravi");
+    assert.match(short, /underfunded/);
     for (const word of [/\bdebt\b/i, /\bowes\b/i, /\bliabilit/i, /\bcreditor\b/i, /forgive/i]) {
-      assert.doesNotMatch(ahead, word, `the wrong register: ${word}`);
+      assert.doesNotMatch(short, word, `the wrong register: ${word}`);
     }
-    assert.match(standingSentence(-rupees(2_000), null), /you are .* ahead/i);
+    assert.match(standingSentence(rupees(2_000), "Ravi"), /overfunded/);
     assert.match(standingSentence(0 as never, null), /square/i);
+  });
+
+  test("every sentence is about the commitment, so two screens cannot contradict", () => {
+    /*
+     * The first cut said "₹36,640 ahead" in a table and "the household is ₹36,640
+     * behind with Ravi" two inches below. Both were true; together they read as a
+     * bug, because one described the member and the other the household. So the
+     * subject is fixed: it is always the commitment.
+     */
+    for (const balance of [-rupees(2_000), rupees(2_000), 0 as never]) {
+      for (const who of ["Ravi", null]) {
+        const sentence = standingSentence(balance as never, who);
+        assert.match(sentence, /commitment to the household/);
+        for (const word of [/\bahead\b/i, /\bbehind\b/i]) {
+          assert.doesNotMatch(sentence, word, "the word that pointed two ways");
+        }
+      }
+    }
   });
 });
 
@@ -96,7 +115,7 @@ describe("P5 · 15 §4A.2 · putting it down to yourself", () => {
     });
 
     assert.equal(stateOf(db, his.id).categories.get(envelope.id)!.balance, -rupees(2_000));
-    assert.equal(standingOf(stateOf(db, his.id).categories.get(envelope.id)!.balance), "ahead");
+    assert.equal(standingOf(stateOf(db, his.id).categories.get(envelope.id)!.balance), "underfunded");
     assert.deepEqual(allClose(db, [household, his.id]), []);
 
     // He puts it down to himself: ₹2,000 more out of his own Ready to Assign.
@@ -313,7 +332,7 @@ describe("P5 · 15 §6.1 · each budget closes on its own", () => {
     assert.equal(view.budgetId, household);
     assert.deepEqual(
       view.commitments.map((c) => [c.name, c.committed, c.standing]),
-      [["Priya", rupees(10_000), "behind"]],
+      [["Priya", rupees(10_000), "overfunded"]],
     );
 
     // A personal close has nobody to report on.
@@ -332,6 +351,111 @@ describe("P5 · 15 §6.1 · each budget closes on its own", () => {
     assert.equal(isClosed(db, MONTH), true);
     assert.equal(isClosed(db, MONTH, household), true);
     assert.deepEqual(monthCloseView(db, MONTH).commitments, []);
+    db.close();
+  });
+});
+
+describe("P5 · 15 §4A.6 · the other direction, which is the one that got away", () => {
+  /**
+   * Both directions have to work, and only one of them was tested. The demo found
+   * the other: when the member who is **ahead** is the one letting it go, the
+   * household is the side being released — so the household is the side that
+   * gains income, and it is neither the giving budget nor the envelope's. Reading
+   * "the receiving side" off the envelope's budget left the household's books
+   * short by exactly the amount let go, in every month from then on.
+   */
+  test("the member who is ahead lets it go, and the household's books still close", () => {
+    const db = setup();
+    const household = householdBudgetId(db);
+    const his = ensurePersonalBudget(db, RAVI, "Ravi");
+    const envelope = ensureCommitmentEnvelope(db, actor, his.id);
+
+    const account = createAccount(db, actor, {
+      name: "His savings", kind: "budget", subtype: "savings",
+      budgetId: his.id, visibility: "private",
+      openingBalance: rupees(1_00_000), openingDate: todayIST(),
+    });
+    const shared = createGroup(db, actor, "Shared", "normal", household);
+    const rent = createCategory(db, actor, { groupId: shared.id, name: "Rent" });
+
+    // He committed ₹3,000 and paid ₹5,000 of the household's rent from his own
+    // account, so the household is ₹2,000 behind with him.
+    setAssigned(db, actor, MONTH, envelope.id, rupees(3_000));
+    setAssigned(db, actor, MONTH, rent.id, rupees(3_000));
+    createTransaction(db, actor, {
+      accountId: account.id, amount: -rupees(5_000), date: todayIST(), categoryId: rent.id,
+    });
+
+    assert.equal(stateOf(db, his.id).categories.get(envelope.id)!.balance, -rupees(2_000));
+    assert.equal(standingOf(stateOf(db, his.id).categories.get(envelope.id)!.balance), "underfunded");
+    assert.deepEqual(allClose(db, [household, his.id]), []);
+
+    // He says leave it. He is the one giving something up, so it is spending in
+    // *his* budget — and the household is the one released from it.
+    callItEven(db, actor, { envelopeId: envelope.id, amount: rupees(2_000), month: MONTH });
+
+    assert.equal(stateOf(db, his.id).categories.get(envelope.id)!.balance, 0);
+    assert.equal(stateOf(db, household).dueFromOtherBudgets, 0);
+
+    const gifts = [...stateOf(db, his.id).categories.values()].find(
+      (c) => c.activity === -rupees(2_000) && c.categoryId !== envelope.id,
+    );
+    assert.ok(gifts, "the amount he let go is spending in his own budget");
+    assert.deepEqual(allClose(db, [household, his.id]), [], "and this is what was broken");
+
+    // Next month too, because the break grew from the month it happened onward.
+    const next = addMonths(MONTH, 1);
+    for (const budgetId of [household, his.id]) {
+      for (const [month, s] of computeBudget(loadEngineInput(db, { through: next, budgetId }))) {
+        assert.equal(identityResidual(s), 0, `${budgetId} ${month}`);
+      }
+    }
+    db.close();
+  });
+});
+
+describe("P5 · the household table adds up on its face", () => {
+  /**
+   * A level sitting between two flows reads as a bug, and was reported as one:
+   * ₹40,000 put in and ₹43,320 spent does not make ₹36,640 — unless you can see
+   * the ₹33,320 that was already there.
+   */
+  test("brought forward, plus put in, less spent, is where it stands", () => {
+    const db = setup();
+    const household = householdBudgetId(db);
+    const his = ensurePersonalBudget(db, RAVI, "Ravi");
+    const envelope = ensureCommitmentEnvelope(db, actor, his.id);
+    const account = createAccount(db, actor, {
+      name: "His savings", kind: "budget", subtype: "savings",
+      budgetId: his.id, openingBalance: rupees(2_00_000), openingDate: todayIST(),
+    });
+    const shared = createGroup(db, actor, "Shared", "normal", household);
+    const rent = createCategory(db, actor, { groupId: shared.id, name: "Rent" });
+
+    // Last month he went ahead; this month he goes further ahead.
+    const last = addMonths(MONTH, -1);
+    setAssigned(db, actor, last, envelope.id, rupees(10_000));
+    createTransaction(db, actor, {
+      accountId: account.id, amount: -rupees(14_000),
+      date: `${last}-05` as never, categoryId: rent.id,
+    });
+    setAssigned(db, actor, MONTH, envelope.id, rupees(10_000));
+    createTransaction(db, actor, {
+      accountId: account.id, amount: -rupees(12_000), date: todayIST(), categoryId: rent.id,
+    });
+
+    const row = buildHouseholdView(db, MONTH).members[0]!;
+    assert.equal(row.broughtForward, -rupees(4_000), "already ₹4,000 underfunded");
+    assert.equal(row.assignedThisMonth, rupees(10_000));
+    assert.equal(row.spentThisMonth, rupees(12_000));
+    assert.equal(row.available, -rupees(6_000));
+
+    // The property the reader checks by eye.
+    assert.equal(
+      row.broughtForward + row.assignedThisMonth - row.spentThisMonth,
+      row.available,
+      "the row must add up",
+    );
     db.close();
   });
 });

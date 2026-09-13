@@ -31,8 +31,34 @@ export function renderAddTransaction(opts: {
   defaultAccountId: string | null;
   today: string;
   error?: string | null;
+  /** 15 · The budgets whose envelopes are on offer, so the picker says whose. */
+  budgets?: { id: string; name: string; kind: string }[];
+  /** H2 · Who could have spent it. Empty for a one-person household. */
+  members?: { id: string; name: string }[];
+  /** Defaults to whoever is entering it, which is right almost every time. */
+  defaultSpenderId?: string | null;
 }): SafeHtml {
   const { accounts, categories, payees, defaultAccountId, today } = opts;
+  const budgets = opts.budgets ?? [];
+  const members = opts.members ?? [];
+
+  /*
+   * 15 · Which budget an envelope belongs to matters at the moment of filing,
+   * because filing across budgets is what raises a claim between them. An
+   * unlabelled list of thirty envelopes from two budgets cannot say that, so the
+   * options are grouped and each group is named.
+   */
+  const spendable = categories.filter((c) => !c.isPaymentCategory && !c.hidden);
+  const budgetLabel = (id: string | null): string => {
+    const budget = budgets.find((b) => b.id === id);
+    if (!budget) return "Other envelopes";
+    return budget.kind === "household" ? "The household budget" : `${budget.name}'s budget`;
+  };
+  const grouped = budgets.length > 1
+    ? budgets
+        .map((b) => ({ label: budgetLabel(b.id), items: spendable.filter((c) => c.budgetId === b.id) }))
+        .filter((g) => g.items.length > 0)
+    : [];
 
   if (accounts.length === 0) {
     return html`
@@ -106,21 +132,37 @@ export function renderAddTransaction(opts: {
         -->
         <select id="category_id" name="category_id" required data-requires-category>
           <option value="">Choose where it came from…</option>
-          ${categories
-            // R6: the payment envelope is driven by the card's own transactions.
-            // Letting it be chosen directly would double-count the spend.
-            .filter((c) => !c.isPaymentCategory && !c.hidden)
-            .map(
-              (c) => html`
-                <option value="${c.id}">
-                  ${c.name} — ${formatPaise(c.state.balance)} left
-                </option>
-              `,
-            )}
+          ${grouped.length > 0
+            ? grouped.map(
+                (g) => html`
+                  <optgroup label="${g.label}">
+                    ${g.items.map(
+                      (c) => html`
+                        <option value="${c.id}">
+                          ${c.name} — ${formatPaise(c.state.balance)} left
+                        </option>
+                      `,
+                    )}
+                  </optgroup>
+                `,
+              )
+            : spendable.map(
+                // R6: the payment envelope is driven by the card's own
+                // transactions. Letting it be chosen directly would double-count.
+                (c) => html`
+                  <option value="${c.id}">
+                    ${c.name} — ${formatPaise(c.state.balance)} left
+                  </option>
+                `,
+              )}
         </select>
         <p class="field-hint" data-category-hint>
           Each category shows what it holds, so you can see the consequence while entering.
           Money coming in doesn't need one — it lands in Ready to Assign.
+          ${when(grouped.length > 1, () => html`
+            Filing to another budget's envelope is allowed and is how shared
+            spending works — it draws on what you have committed there.
+          `)}
         </p>
       </div>
 
@@ -139,10 +181,42 @@ export function renderAddTransaction(opts: {
         </div>
         <div class="field">
           <label for="date">Date</label>
-          <input id="date" name="date" type="text" autocomplete="off"
-                 value="${formatDate(today)}" placeholder="DD-MM-YYYY">
+          <input id="date" name="date" type="date" autocomplete="off"
+                 value="${today}">
         </div>
       </div>
+
+      ${when(members.length > 1, () => html`
+        <!--
+          H2 · Who spent it, in front of you rather than behind a disclosure.
+          On a shared account or a shared card it is the one thing the ledger
+          cannot work out for itself, and asking later never happens. It defaults
+          to whoever is entering it, which is right almost every time.
+        -->
+        <div class="field">
+          <label for="owner_member_id">Who spent it</label>
+          <select id="owner_member_id" name="owner_member_id">
+            <!--
+              Leaving it alone keeps R6.e: a charge on an add-on card belongs to
+              whoever holds that add-on, and only falls back to whoever is typing.
+              Naming somebody is a deliberate override of both.
+            -->
+            <option value="">Whoever the card says — otherwise me</option>
+            ${members.map(
+              (m) => html`
+                <option value="${m.id}"
+                        ${raw(m.id === opts.defaultSpenderId ? "" : "")}>
+                  ${m.name}
+                </option>
+              `,
+            )}
+          </select>
+          <p class="field-hint">
+            Left alone, a charge on an add-on card is attributed to whoever holds
+            the add-on, and anything else to you.
+          </p>
+        </div>
+      `)}
 
       <details>
         <summary style="min-height:44px;display:flex;align-items:center;cursor:pointer">
@@ -260,8 +334,8 @@ export function renderTransfer(opts: {
 
       <div class="field">
         <label for="date">Date</label>
-        <input id="date" name="date" type="text" autocomplete="off"
-               value="${formatDate(today)}" placeholder="DD-MM-YYYY">
+        <input id="date" name="date" type="date" autocomplete="off"
+               value="${today}">
       </div>
 
       <button class="button-primary" type="submit">Record transfer</button>
