@@ -416,6 +416,14 @@ Captured from a running instance with the demo household. The UI is theme-aware
 | [![Portfolio — holdings as units, XIRR, other assets](docs/screenshots/portfolio.png)](docs/screenshots/portfolio.png) | [![Net worth — the four-way decomposition and dated history](docs/screenshots/net-worth.png)](docs/screenshots/net-worth.png) |
 | **Allocation** | **Loans** |
 | [![Allocation — by class, region and currency](docs/screenshots/allocation.png)](docs/screenshots/allocation.png) | [![Loans — real cost, schedule, drift, prepayment](docs/screenshots/loans.png)](docs/screenshots/loans.png) |
+
+| One loan | A rate reset |
+|---|---|
+| [![One loan — where it stands, how it pays down, and every instalment recorded against the lender's own split](docs/screenshots/loan.png)](docs/screenshots/loan.png) | [![A rate change with both options the lender must offer, priced side by side and selectable](docs/screenshots/loan-rate.png)](docs/screenshots/loan-rate.png) |
+
+| What a prepayment buys | A charge becoming an EMI |
+|---|---|
+| [![The prepayment comparison: reduce the tenure against reduce the EMI, with the saving on each](docs/screenshots/loan-prepay.png)](docs/screenshots/loan-prepay.png) | [![A card charge with the form that converts it into an instalment plan](docs/screenshots/convert-to-emi.png)](docs/screenshots/convert-to-emi.png) |
 | **Accounts** | **Review queue** |
 | [![Accounts — cleared / uncleared / working balances](docs/screenshots/accounts.png)](docs/screenshots/accounts.png) | [![Review — imports, duplicates, uncategorised, proposed rules](docs/screenshots/review.png)](docs/screenshots/review.png) |
 | **Import** | **Schedules** |

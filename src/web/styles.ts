@@ -66,6 +66,24 @@ export const STYLESHEET = `
   --chart-8: #5a6b7a;
   --chart-grid: #e4ddd0;
 
+  /*
+   * The chrome is a different material from the page.
+   *
+   * Header, sidebar and bottom bar sat on --surface, the same off-white as a
+   * card, so the frame and the content it holds were the same colour and the
+   * layout had no edges — every card read as floating in an undifferentiated
+   * field. They now take a deeper, woodier tone: still the same warmth, a
+   * couple of shades down, the way a desk is darker than the paper on it.
+   *
+   * Measured on this ground rather than on --surface, because that is what the
+   * navigation actually sits on: 12.4:1 for a nav label, 5.4:1 for a section
+   * heading, 4.9:1 for the accent that marks where you are.
+   */
+  --chrome:        #e4d9c3;
+  --chrome-2:      #dccfb5;      /* hover */
+  --chrome-border: #c9bb9e;
+  --chrome-muted:  #5b5446;      /*  5.4:1 on --chrome */
+
   --focus:         #1f5fa9;
   --shadow:        0 1px 2px rgba(60, 48, 30, .09), 0 4px 12px rgba(60, 48, 30, .07);
 
@@ -111,6 +129,13 @@ export const STYLESHEET = `
     --chart-7: #d8c26a;
     --chart-8: #9aa8b8;
     --chart-grid: #2c333f;
+    /* The same relationship, read the other way round: in the dark the frame
+       sits a shade *above* the page rather than below it. */
+    --chrome:        #171b23;
+    --chrome-2:      #232833;
+    --chrome-border: #2b3341;
+    --chrome-muted:  #a8b1c0;
+
 
     --focus:         #6ba6f0;
     --shadow:        0 1px 2px rgba(0,0,0,.4), 0 4px 12px rgba(0,0,0,.3);
@@ -146,6 +171,14 @@ export const STYLESHEET = `
   --chart-7: #d8c26a;
   --chart-8: #9aa8b8;
   --chart-grid: #2c333f;
+
+  /* The same relationship, read the other way round: in the dark the frame
+     sits a shade above the page rather than below it. */
+  --chrome:        #171b23;
+  --chrome-2:      #232833;
+  --chrome-border: #2b3341;
+  --chrome-muted:  #a8b1c0;
+
   --focus:         #6ba6f0;
   --shadow:        0 1px 2px rgba(0,0,0,.4), 0 4px 12px rgba(0,0,0,.3);
 }
@@ -223,7 +256,7 @@ h3 { font-size: 1rem; }
    --------------------------------------------------------------------------- */
 .app-header {
   position: sticky; top: 0; z-index: 20;
-  background: var(--surface); border-bottom: 1px solid var(--border);
+  background: var(--chrome); border-bottom: 1px solid var(--chrome-border);
   display: flex; align-items: center; gap: .5rem; padding: .5rem 1rem;
 }
 .app-header .brand { font-weight: 700; letter-spacing: -.01em; text-decoration: none; color: var(--text); }
@@ -244,8 +277,8 @@ main { padding: 1rem; max-width: 1200px; margin: 0 auto; }
 .sidebar { display: none; }
 @media (min-width: 900px) {
   .sidebar {
-    display: block; padding: 1rem .75rem; border-right: 1px solid var(--border);
-    background: var(--surface); min-height: calc(100vh - 57px);
+    display: block; padding: 1rem .75rem; border-right: 1px solid var(--chrome-border);
+    background: var(--chrome); min-height: calc(100vh - 57px);
     position: sticky; top: 57px; align-self: start;
   }
   .sidebar a {
@@ -260,10 +293,11 @@ main { padding: 1rem; max-width: 1200px; margin: 0 auto; }
   /* The selected budget gets a bar as well as a colour, so the distinction does
      not rest on hue alone (A2). */
   .sidebar a[aria-current="true"] { box-shadow: inset 3px 0 0 var(--accent); }
-  .sidebar a:hover { background: var(--surface-2); }
+  .sidebar a:hover { background: var(--chrome-2); }
   .sidebar .group-label {
     font-size: .72rem; text-transform: uppercase; letter-spacing: .06em;
-    color: var(--text-faint); padding: 1rem .75rem .25rem;
+    /* Measured on the chrome, not on a card: --text-faint is 3.8:1 there. */
+    color: var(--chrome-muted); padding: 1rem .75rem .25rem;
   }
 }
 
@@ -282,7 +316,7 @@ main { padding: 1rem; max-width: 1200px; margin: 0 auto; }
 .budget-switch a {
   display: inline-flex; align-items: center; flex: 0 0 auto; min-height: 34px;
   padding: 0 .55rem; border-radius: var(--radius);
-  border: 1px solid var(--border); background: var(--surface);
+  border: 1px solid var(--chrome-border); background: var(--surface);
   color: var(--text-muted); text-decoration: none;
   font-size: .8rem; white-space: nowrap; max-width: 8rem;
   overflow: hidden; text-overflow: ellipsis;
@@ -308,7 +342,7 @@ main { padding: 1rem; max-width: 1200px; margin: 0 auto; }
 .bottom-nav {
   position: fixed; bottom: 0; left: 0; right: 0; z-index: 30;
   display: grid; grid-template-columns: repeat(5, 1fr);
-  background: var(--surface); border-top: 1px solid var(--border);
+  background: var(--chrome); border-top: 1px solid var(--chrome-border);
   padding-bottom: env(safe-area-inset-bottom);
 }
 @media (min-width: 900px) { .bottom-nav { display: none; } }
@@ -316,7 +350,7 @@ body:has(.bottom-nav) main { padding-bottom: 5.5rem; }
 .bottom-nav a {
   min-height: var(--tap); display: flex; flex-direction: column;
   align-items: center; justify-content: center; gap: .1rem;
-  text-decoration: none; color: var(--text-muted); font-size: .68rem; padding: .35rem 0;
+  text-decoration: none; color: var(--chrome-muted); font-size: .68rem; padding: .35rem 0;
 }
 .bottom-nav a[aria-current="page"] { color: var(--accent); font-weight: 600; }
 .bottom-nav .nav-icon { font-size: 1.15rem; line-height: 1; }

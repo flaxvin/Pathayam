@@ -337,8 +337,8 @@ export function progressRing(opts: {
   const color = opts.color ?? "var(--accent)";
   const center = opts.center ?? `${Math.round(opts.percent)}%`;
   const svg =
-    `<svg viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" role="img" ` +
-    `aria-label="${escape(opts.title)}" style="flex:0 0 auto">` +
+    `<svg class="progress-ring" viewBox="0 0 ${size} ${size}" width="${size}" height="${size}" ` +
+    `role="img" aria-label="${escape(opts.title)}" style="flex:0 0 auto">` +
     `<title>${escape(opts.title)}</title>` +
     `<circle cx="${cx}" cy="${cy}" r="${r2(r)}" fill="none" stroke="var(--chart-grid)" stroke-width="${r2(stroke)}"/>` +
     `<circle cx="${cx}" cy="${cy}" r="${r2(r)}" fill="none" stroke="${escape(color)}" ` +
