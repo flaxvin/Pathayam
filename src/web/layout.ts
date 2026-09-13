@@ -52,7 +52,16 @@ export interface LayoutOptions {
   notice?: { kind: "error" | "success" | "info" | "warning"; message: string } | null;
   /** Chrome is omitted on the sign-in and first-run screens. */
   bare?: boolean;
-  features?: { loans: boolean; assets: boolean };
+  features?: {
+    loans: boolean;
+    assets: boolean;
+    /**
+     * 15 · Whether anybody in the household keeps a separate budget. The
+     * household screen only means something once one does, and F28.2 says a
+     * module nobody uses leaves the navigation rather than sitting there greyed.
+     */
+    separateBudgets?: boolean;
+  };
 }
 
 const PRIMARY_NAV: NavItem[] = [
@@ -205,11 +214,14 @@ function renderBottomNav(path: string, reviewCount: number): SafeHtml {
 function renderSidebar(
   path: string,
   reviewCount: number,
-  features: { loans: boolean; assets: boolean },
+  features: { loans: boolean; assets: boolean; separateBudgets?: boolean },
 ): SafeHtml {
   // F28.2: a disabled module disappears from navigation rather than appearing
   // greyed out.
   const secondary: NavItem[] = [
+    ...(features.separateBudgets
+      ? [{ href: "/household", label: "Household", icon: "⌂" }]
+      : []),
     { href: "/overview", label: "Overview", icon: "◱" },
     { href: "/cards", label: "Cards", icon: "▭" },
     { href: "/reports", label: "Reports", icon: "▦" },

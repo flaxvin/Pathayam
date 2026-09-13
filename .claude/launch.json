@@ -1,0 +1,18 @@
+{
+  "version": "0.0.1",
+  "configurations": [
+    {
+      "name": "pathayam",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DEV_LOGIN=1",
+        "DATABASE_PATH=data/preview.sqlite",
+        "npm",
+        "run",
+        "dev"
+      ],
+      "port": 8080,
+      "autoPort": true
+    }
+  ]
+}

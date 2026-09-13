@@ -313,7 +313,16 @@ export function updateAccount(
       }
     }
 
-    const fields = Object.keys(patch) as (keyof typeof patch)[];
+    /*
+     * A key present but undefined means "not mentioned", not "set to null".
+     *
+     * Object.keys kept those keys, and `patch[f] ?? null` then wrote NULL into
+     * whatever they named — which a form that offers a field conditionally hits
+     * every time the field is absent. Clearing a nullable column still works:
+     * that is passing null, which is mentioning it.
+     */
+    const fields = (Object.keys(patch) as (keyof typeof patch)[])
+      .filter((f) => patch[f] !== undefined);
     if (fields.length > 0) {
       execute(
         db,
@@ -490,19 +499,35 @@ export function closeCard(db: DB, actor: Actor, id: string): void {
 export const CREDIT_PAYMENTS_GROUP = "Credit Card Payments";
 
 function createPaymentCategory(db: DB, actor: Actor, accountId: string, accountName: string): string {
+  /*
+   * 15 §3A.5 · The payment envelope goes wherever the card is.
+   *
+   * One limit, one statement, one payment, and the primary holder is who the
+   * bank chases — so the debt and the envelope funding it belong to the same
+   * budget as the account, whoever did the spending. A group per budget for the
+   * same reason: two budgets with cards need two headings, not one shared one
+   * whose envelopes belong to different people.
+   */
+  const budget = queryOne<{ budget_id: string | null }>(
+    db, `SELECT budget_id FROM accounts WHERE id = ?`, accountId,
+  )?.budget_id ?? householdBudgetId(db);
+
   let group = queryOne<{ id: string }>(
     db,
-    `SELECT id FROM category_groups WHERE kind = 'credit-payments' LIMIT 1`,
+    `SELECT id FROM category_groups WHERE kind = 'credit-payments' AND budget_id = ? LIMIT 1`,
+    budget,
   );
   if (!group) {
     const groupId = newId();
     execute(
       db,
-      `INSERT INTO category_groups (id,name,kind,sort,created_at) VALUES (?,?,'credit-payments',?,?)`,
+      `INSERT INTO category_groups (id,name,kind,sort,created_at,budget_id)
+         VALUES (?,?,'credit-payments',?,?,?)`,
       groupId,
       CREDIT_PAYMENTS_GROUP,
       -1, // Sits above ordinary groups on the budget screen.
       nowIST(),
+      budget,
     );
     group = { id: groupId };
   }
@@ -510,13 +535,15 @@ function createPaymentCategory(db: DB, actor: Actor, accountId: string, accountN
   const id = newId();
   execute(
     db,
-    `INSERT INTO categories (id,group_id,name,sort,payment_account_id,created_at) VALUES (?,?,?,?,?,?)`,
+    `INSERT INTO categories (id,group_id,name,sort,payment_account_id,created_at,budget_id)
+       VALUES (?,?,?,?,?,?,?)`,
     id,
     group.id,
     accountName,
     0,
     accountId,
     nowIST(),
+    budget,
   );
 
   appendEvent(db, actor, {

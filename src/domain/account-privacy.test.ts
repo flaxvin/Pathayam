@@ -254,3 +254,33 @@ describe("H2.2a · private in a personal budget", () => {
     );
   });
 });
+
+describe("B107 · an unmentioned field is not a field set to null", () => {
+  test("passing undefined leaves the column alone", () => {
+    const db = setup();
+    const account = createAccount(db, actor, {
+      name: "Joint current", kind: "budget", subtype: "savings",
+      holderMemberId: RAVI, openingBalance: rupees(10_000),
+    });
+
+    // A form that offers `visibility` only when there are two budgets sends
+    // nothing for it, and the route turns that into an explicit undefined.
+    const after = updateAccount(db, actor, account.id, {
+      name: "Joint current",
+      visibility: undefined,
+      holder_member_id: undefined,
+    });
+
+    assert.equal(after.visibility, "household", "NOT NULL would have thrown, or NULL would have stuck");
+    assert.equal(after.holder_member_id, RAVI, "and an omitted field keeps its value");
+  });
+
+  test("passing null still clears a nullable column", () => {
+    const db = setup();
+    const account = createAccount(db, actor, {
+      name: "Joint current", kind: "budget", subtype: "savings", holderMemberId: RAVI,
+    });
+    assert.equal(updateAccount(db, actor, account.id, { holder_member_id: null }).holder_member_id, null);
+    db.close();
+  });
+});

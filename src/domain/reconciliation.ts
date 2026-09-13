@@ -32,6 +32,7 @@
 
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
+import { householdBudgetId } from "./budgets.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST, todayIST, formatDate, daysBetween, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
@@ -161,7 +162,8 @@ export function reconcile(db: DB, actor: Actor, input: ReconcileInput): Reconcil
 
     if (adjustment !== 0) {
       // F9.2: a balancing entry, categorised so it is never invisible.
-      const category = input.adjustmentCategoryId ?? ensureReconciliationCategory(db, actor);
+      const category =
+        input.adjustmentCategoryId ?? ensureReconciliationCategory(db, actor, input.accountId);
       const entry = createTransaction(db, actor, {
         accountId: input.accountId,
         amount: adjustment,
@@ -199,21 +201,35 @@ export function reconcile(db: DB, actor: Actor, input: ReconcileInput): Reconcil
 
 const RECONCILIATION_CATEGORY = "Reconciliation";
 
-function ensureReconciliationCategory(db: DB, actor: Actor): string {
+/**
+ * 15 · One per budget, because an adjustment is real money appearing or
+ * disappearing in one particular account, and it has to land in the budget that
+ * account funds. A single shared Reconciliation envelope would put a personal
+ * account's adjustment in the household's books.
+ */
+function ensureReconciliationCategory(db: DB, actor: Actor, accountId: string): string {
+  const budget = queryOne<{ budget_id: string | null }>(
+    db, `SELECT budget_id FROM accounts WHERE id = ?`, accountId,
+  )?.budget_id ?? householdBudgetId(db);
+
   const existing = queryOne<{ id: string }>(
-    db, `SELECT id FROM categories WHERE name = ? AND deleted_at IS NULL`, RECONCILIATION_CATEGORY,
+    db,
+    `SELECT id FROM categories
+      WHERE name = ? AND deleted_at IS NULL AND budget_id = ?`,
+    RECONCILIATION_CATEGORY, budget,
   );
   if (existing) return existing.id;
 
   let group = queryOne<{ id: string }>(
-    db, `SELECT id FROM category_groups WHERE kind = 'internal' LIMIT 1`,
+    db, `SELECT id FROM category_groups WHERE kind = 'internal' AND budget_id = ? LIMIT 1`, budget,
   );
   if (!group) {
     const groupId = newId();
     execute(
       db,
-      `INSERT INTO category_groups (id,name,kind,sort,created_at) VALUES (?,?,'internal',99,?)`,
-      groupId, "Internal", nowIST(),
+      `INSERT INTO category_groups (id,name,kind,sort,created_at,budget_id)
+         VALUES (?,?,'internal',99,?,?)`,
+      groupId, "Internal", nowIST(), budget,
     );
     group = { id: groupId };
   }
@@ -221,8 +237,8 @@ function ensureReconciliationCategory(db: DB, actor: Actor): string {
   const id = newId();
   execute(
     db,
-    `INSERT INTO categories (id,group_id,name,sort,created_at) VALUES (?,?,?,0,?)`,
-    id, group.id, RECONCILIATION_CATEGORY, nowIST(),
+    `INSERT INTO categories (id,group_id,name,sort,created_at,budget_id) VALUES (?,?,?,0,?,?)`,
+    id, group.id, RECONCILIATION_CATEGORY, nowIST(), budget,
   );
   appendEvent(db, actor, {
     entity: "category", entityId: id, action: "create",

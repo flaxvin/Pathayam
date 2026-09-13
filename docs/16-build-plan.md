@@ -16,7 +16,8 @@ Two phases are already done. They are listed so the sequence reads whole.
 | ✅ | **P1 · The engine is scoped** | `loadEngineInput` computes one budget. Identity holds per budget on cached and uncached paths, verified over 36 months. |
 | ✅ | **P1a · View-as gated** | Off unless `ADMIN_DEBUG`; household budget only when on (R38.6a–b). |
 | ✅ | **P2 · Personal budgets** | A member can open their own budget, move accounts into it, keep them private, and keep their own envelopes. A household that never opens one sees no change — asserted, not assumed. |
-| ⬜ | **P3 → P7** | Below. |
+| ✅ | **P3 · The household envelope** | Committing money without moving it, the claim in the identity, a standing monthly figure, rollover, and the household screen. Brought P4's cross-budget filing forward with it — see below. |
+| ⬜ | **P4 → P7** | Below. |
 
 ---
 
@@ -56,7 +57,7 @@ budget still working exactly as it does today.
 
 ---
 
-## P3 · The household envelope, and where shared money comes from
+## P3 · The household envelope, and where shared money comes from — done
 
 | | Est. |
 |---|---|
@@ -70,6 +71,39 @@ budget still working exactly as it does today.
 **Done when:** Ravi can commit ₹40,000 a month to the household without moving a
 rupee between accounts, and both identities still close.
 
+**What P2 made urgent.** P2 shipped a control that moves an account between
+budgets, and every account worth moving has years of spending filed to household
+envelopes — so one click turns a pile of ordinary transactions into cross-budget
+ones. That is P4's first line item, and leaving it undone would have left the
+books open in a state a household could reach in two clicks. So it came forward,
+and finding it took three separate defects:
+
+- **Activity followed the account, not the envelope.** A household bill paid from
+  a personal account landed in the payer's budget and left the household's
+  envelope untouched. Both identities failed by the amount, in opposite
+  directions that cancelled in the combined view where nothing was looking.
+- **"Internal to the budget" was assumed rather than checked.** A transfer leg
+  was excluded from Ready to Assign whenever the other leg was a Budget or Credit
+  account. Once budgets can differ the two cases part company: cash into another
+  budget's account is money genuinely gone, while paying another budget's card
+  buys a claim (`15` §3.5).
+- **A commitment's negative was absorbed at the rollover.** R4 reopens an
+  overspent envelope at zero and charges Ready to Assign. Done to a commitment,
+  the receiving budget's claim snapped back to zero while the payer's own pool
+  took the hit — so the two stopped describing the same obligation. A commitment
+  now carries its debt, which is also what `15` §6.1 said it should.
+
+Each is pinned by a test that fails without it, and the identity is asserted for
+**every month of a 63-month household**, in both budgets, cached and live.
+
+Two smaller ones surfaced on the way: four creators made envelopes with no
+`budget_id` at all — a card's payment envelope, a loan's, Reconciliation and the
+blank-start group — and every scoped read compares with `=`, which NULL never
+satisfies, so those envelopes and their balances vanished from the grid and from
+the identity (B108). And `updateAccount` treated a key present-but-undefined as
+"set this to null", so a form offering a field conditionally wrote NULL into
+whatever it named (B107).
+
 ---
 
 ## P4 · Spending across budgets
@@ -78,7 +112,7 @@ The single rule from `15` §3A.4, which covers every case at once.
 
 | | Est. |
 |---|---|
-| Cross-budget filing: an account in one budget, a category in another | 1.5 w |
+| ~~Cross-budget filing: an account in one budget, a category in another~~ — **done in P3**, which needed it to keep the books closed | — |
 | Shared cards (R6.h–j) and add-on cards (R6.k–l): the claim, and the payment envelope staying with the account's budget | 1 w |
 | Splits across budgets, one line at a time (`15` §4) | 1 w |
 | Refuse personal-to-personal filing with no shared instrument (R6.l) | 0.5 w |

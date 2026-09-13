@@ -25,6 +25,19 @@ export interface CategoryMeta {
    * derived from that account's transactions and never stored.
    */
   paymentAccountId: string | null;
+  /**
+   * 15 §3 / §6.1 · Set when this envelope is a commitment to another budget.
+   *
+   * Such an envelope **never has its negative absorbed at a rollover.** An
+   * ordinary envelope that goes red has overspent, and R4 answers that by
+   * resetting it and taking the money out of Ready to Assign. A commitment that
+   * goes red is a debt between two budgets, and it does not stop existing
+   * because the month ended — the other budget is still owed it. Absorbing it
+   * made the receiving budget's claim snap back to zero while its own overspend
+   * came out of its own Ready to Assign, so the two stopped corresponding and
+   * the identity failed by the amount.
+   */
+  commitsToBudgetId?: string | null;
 }
 
 export interface CategoryGroupMeta {
@@ -112,6 +125,28 @@ export interface EngineInput {
   overspendModel: OverspendModel;
   /** Opening balances of Credit accounts — starting debt (R6). */
   creditOpeningBalances?: Record<string, Paise>;
+  /**
+   * 15 §3.2 · The claim on other budgets at the end of each month: the balance of
+   * every envelope committing to this one. A **level**, and the term that joins
+   * the left of the identity beside the account balances.
+   *
+   * Omitted for a personal budget: nothing commits to one, and the personal
+   * identity needs no new term.
+   */
+  dueFromOtherBudgets?: Record<MonthKey, Paise>;
+  /**
+   * 15 §3.2 · What was *assigned into* those envelopes in each month: a **flow**,
+   * and income to this budget.
+   *
+   * The two have to be separate, and getting that wrong cost an afternoon. A
+   * commitment arrives as means — the household could not assign it otherwise —
+   * so it belongs in income. But the claim then *falls* as the money is spent,
+   * and that spending is already recorded as activity on this budget's own
+   * envelopes. Adding the balance to income as well counted the spending twice,
+   * and the identity failed by it in exactly the case that matters: a member who
+   * has paid for more of the household than they put aside for.
+   */
+  committedToMe?: Record<MonthKey, Paise>;
 }
 
 export interface CategoryState {
@@ -140,6 +175,13 @@ export interface RtaBreakdown {
   assignedInFutureMonths: Paise;
   heldForNextMonth: Paise;
   cashOverspendCarried: Paise;
+  /**
+   * 15 §3.2 · Committed to this budget in this month, and counted in
+   * `incomeToDate` from here on. Reported separately so the RTA explanation can
+   * say *"₹38,000 of this is Ravi's commitment"* rather than folding it into
+   * income as though it had arrived in an account.
+   */
+  committedToMe: Paise;
   total: Paise;
 }
 
@@ -155,6 +197,12 @@ export interface MonthState {
   heldForNextMonth: Paise;
   /** Budget-account balance at the end of this month. */
   budgetAccountBalance: Paise;
+  /**
+   * 15 §3.2 · The claim on other budgets at the end of this month: the sum of
+   * their commitment envelopes. Zero for a personal budget, and for a household
+   * nobody has committed to.
+   */
+  dueFromOtherBudgets: Paise;
   /**
    * Cumulative credit overspend absorbed at rollovers up to here. This is the
    * part of card debt no envelope is funding (R6) — the figure S2b states as

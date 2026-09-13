@@ -11,6 +11,7 @@
  */
 
 import type { DB } from "../db/db.ts";
+import { householdBudgetId } from "./budgets.ts";
 import { transact, execute, newId } from "../db/db.ts";
 import { appendEvent, type Actor } from "../core/events.ts";
 import { nowIST, todayIST, monthOf, addMonths } from "../core/dates.ts";
@@ -187,8 +188,9 @@ export function startBlank(db: DB, actor: Actor): void {
     const groupId = newId();
     execute(
       db,
-      `INSERT INTO category_groups (id,name,kind,sort,created_at) VALUES (?,?,'normal',0,?)`,
-      groupId, "Everyday", nowIST(),
+      `INSERT INTO category_groups (id,name,kind,sort,created_at,budget_id)
+         VALUES (?,?,'normal',0,?,?)`,
+      groupId, "Everyday", nowIST(), householdBudgetId(db),
     );
     execute(db, `UPDATE household SET setup_completed_at = ? WHERE id = 1`, nowIST());
     appendEvent(db, actor, {

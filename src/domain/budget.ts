@@ -16,6 +16,8 @@ export interface CategoryGroup {
   kind: "normal" | "credit-payments" | "loan-payments" | "internal";
   sort: number;
   hidden_at: string | null;
+  /** 15 · Which budget this group and its envelopes belong to. */
+  budget_id: string | null;
 }
 
 export interface Category {
@@ -27,6 +29,13 @@ export interface Category {
   deleted_at: string | null;
   note: string | null;
   payment_account_id: string | null;
+  /** 15 · Which budget this envelope belongs to. */
+  budget_id: string | null;
+  /**
+   * 15 §3 · Set when this envelope's purpose is another budget: what it holds is
+   * money committed there. The receiving budget reads the balance as a claim.
+   */
+  commits_to_budget_id: string | null;
 }
 
 export function createGroup(

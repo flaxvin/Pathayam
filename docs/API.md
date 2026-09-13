@@ -415,6 +415,7 @@ only (out of a token's reach).
 | POST | `/rules/test` · `/rules/new` · `/rules/:id/apply` · `/rules/:id/delete` · `/rules/confirm` · `/rules/dismiss` | W | Manage rules. |
 | GET | `/payees` | R | Payees. |
 | POST | `/payees/merge` | W | Merge two payees. |
+| GET | `/household` | R | What each member has committed to the shared budget this month. |
 | GET | `/categories` | R | Categories, for the budget being viewed (`?budget=`). |
 | POST | `/groups/new` | W | Add a category group to the budget being viewed. |
 | POST | `/categories/new` · `/categories/:id/rename` · `/categories/:id/hide` · `/categories/:id/delete` | W | Manage categories. |

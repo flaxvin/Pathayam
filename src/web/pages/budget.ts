@@ -150,6 +150,16 @@ function renderReadyToAssign(view: BudgetView): SafeHtml {
               ${formatPaise(view.monthState.heldForNextMonth)} held for next month
             </div>
           `)}
+          <!-- 15 §3.2 · Part of this budget's means is a commitment rather than
+               cash in an account, and the figure says so rather than folding the
+               two together silently. -->
+          ${when(view.monthState.dueFromOtherBudgets > 0, () => html`
+            <div class="chip chip-info" style="margin-bottom:.35rem">
+              <a href="/household">
+                ${formatPaise(view.monthState.dueFromOtherBudgets)} committed by members
+              </a>
+            </div>
+          `)}
           <div class="faint">${view.buffer.reading}</div>
         </div>
       </div>
