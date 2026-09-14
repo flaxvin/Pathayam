@@ -13,6 +13,7 @@ import {
 } from "../../core/dates.ts";
 import type { BudgetView, CategoryView, GroupView } from "../viewmodel.ts";
 import { PUT_IT_DOWN_TO_ME, PUT_IT_DOWN_TO_ME_HINT } from "../../domain/standing.ts";
+import { cameWithTheCard } from "../../domain/card-shortfall.ts";
 
 export function renderBudget(view: BudgetView, digest?: SafeHtml): SafeHtml {
   return html`
@@ -178,6 +179,9 @@ function renderCardWarnings(view: BudgetView): SafeHtml {
         <p class="notice notice-warning">
           <strong>${formatPaise(card.unfunded)}</strong> of your ${category?.name ?? "card"}
           balance isn't funded yet.
+          <!-- N7: a shortfall with no spending behind it says so, or it reads as
+               a broken warning and then as wallpaper. -->
+          ${when(cameWithTheCard(card), () => html`${cameWithTheCard(card)!}`)}
           <a href="/move?to=${category?.id ?? ""}&amount=${(card.unfunded / 100).toFixed(2)}&month=${view.month}">
             Fund it
           </a>

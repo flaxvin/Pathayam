@@ -192,6 +192,9 @@ export function buildBudgetView(
         outstanding.get(c.paymentAccountId) ?? 0,
         c.state.balance,
         monthState.unfundedByAccount[c.paymentAccountId] ?? 0,
+        // N7 · So the warning can say which part of the shortfall came with the
+        // card and therefore has no spending behind it to look at.
+        input.creditOpeningBalances?.[c.paymentAccountId] ?? 0,
       ),
     );
   }

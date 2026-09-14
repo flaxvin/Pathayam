@@ -247,7 +247,15 @@ describe("02 F14 · the digest", () => {
     assert.ok(cardItem, "an unfunded card is the thing most worth saying");
     assert.match(cardItem!.text, /HDFC Regalia/);
     assert.equal(cardItem!.urgent, true);
-    assert.equal(cardItem!.href, `/accounts/${card.id}`);
+    /*
+     * N7 · It used to point at the card's own page, which is where a household
+     * goes to find the spending behind a shortfall — and this balance came with
+     * the card, so the register there is empty and the warning reads as broken.
+     * It points at what clears it, and says where the money came from.
+     */
+    assert.match(cardItem!.href, /^\/move\?to=/);
+    assert.match(cardItem!.text, /came with the card when you added it/);
+    void card;
     db.close();
   });
 

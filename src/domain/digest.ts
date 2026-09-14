@@ -38,6 +38,7 @@ import { buildBudgetView } from "../web/viewmodel.ts";
 import { monthAwaitingClose } from "./month-close.ts";
 import { buildHouseholdView } from "./household-view.ts";
 import { projectCashflow } from "./schedules.ts";
+import { cameWithTheCard } from "./card-shortfall.ts";
 
 /** F14.2 · Each of these is individually mutable per member. */
 export const DIGEST_KINDS = [
@@ -112,12 +113,24 @@ export function digestFor(
   for (const card of view.cards) {
     if (card.unfunded <= 0) continue;
     const account = cardNames.get(card.accountId);
+    /*
+     * N7 · Where the money goes, not where the money is. This pointed at the
+     * card's own page, which is the right place to look for the spending behind
+     * a shortfall and the wrong one when there is no spending to find: a balance
+     * the card was added with has no transaction, so the page answered the
+     * question with an empty register and the warning read as broken.
+     */
+    const envelope = [...view.categories.values()]
+      .find((c) => c.paymentAccountId === card.accountId);
+    const note = cameWithTheCard(card);
     add({
       kind: "card-due",
       text:
         `${formatPaise(card.unfunded)} of your ${account?.name ?? "card"} balance ` +
-        `has no envelope behind it.`,
-      href: `/accounts/${card.accountId}`,
+        `has no envelope behind it.` + (note ? ` ${note}` : ""),
+      href: envelope
+        ? `/move?to=${envelope.id}&amount=${(card.unfunded / 100).toFixed(2)}&month=${monthOf(today)}`
+        : `/accounts/${card.accountId}`,
       urgent: true,
     });
   }

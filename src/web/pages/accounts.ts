@@ -5,6 +5,7 @@
 import { html, raw, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, speakPaise, type Paise } from "../../core/money.ts";
 import { formatDate, daysBetween, todayIST, ordinal, type IsoDate } from "../../core/dates.ts";
+import { cameWithTheCard } from "../../domain/card-shortfall.ts";
 import type { Account, Card, CardStatement } from "../../domain/accounts.ts";
 import { ACCOUNT_SUBTYPES, SUBTYPE_LABELS, MANAGED_SUBTYPES } from "../../domain/accounts.ts";
 import { sparkline } from "../charts.ts";
@@ -213,6 +214,8 @@ export function renderAccountDetail(opts: {
   cards: Card[];
   funding: CardFunding | null;
   paymentCategoryName: string | null;
+  /** N7 · Where "fund the shortfall" should put the money. */
+  paymentCategoryId?: string | null;
   lastStatement: { amount: Paise; date: IsoDate; due: IsoDate } | null;
   lastReconciled: IsoDate | null;
   checkpointBroken: boolean;
@@ -470,6 +473,8 @@ function renderCardPanel(opts: {
   account: Account;
   funding: CardFunding | null;
   paymentCategoryName: string | null;
+  /** N7 · Where "fund the shortfall" should put the money. */
+  paymentCategoryId?: string | null;
   lastStatement: { amount: Paise; date: IsoDate; due: IsoDate } | null;
 }): SafeHtml {
   const { funding, account } = opts;
@@ -487,6 +492,10 @@ function renderCardPanel(opts: {
       ${funding.unfunded > 0
         ? html`<p class="notice notice-warning">
             <strong>${formatPaise(funding.unfunded)}</strong> of this balance isn't funded yet.
+            <!-- N7 · This is the page a household lands on looking for the
+                 spending behind the figure, and for an opening balance there is
+                 none to find. -->
+            ${when(cameWithTheCard(funding), () => html`${cameWithTheCard(funding)!}`)}
           </p>`
         : html`<p class="notice notice-success">
             This whole balance is funded — the cash to clear it is already set aside.
@@ -514,7 +523,13 @@ function renderCardPanel(opts: {
       <div class="row" style="flex-wrap:wrap">
         <a class="button" href="/transfer?to=${account.id}">Record a payment</a>
         ${when(funding.unfunded > 0, () => html`
-          <a class="button button-primary" href="/move?amount=${(funding.unfunded / 100).toFixed(2)}">Fund the shortfall</a>
+          <!-- N7 · With the envelope named. Without it the button opened a Move
+               form that knew the amount and not the destination, on the one
+               screen where the destination is not in question. -->
+          <a class="button button-primary"
+             href="/move?${opts.paymentCategoryId ? `to=${opts.paymentCategoryId}&` : ""}amount=${(funding.unfunded / 100).toFixed(2)}">
+            Fund the shortfall
+          </a>
         `)}
         <a class="button" href="/accounts/${account.id}/cards">Manage cards</a>
       </div>
