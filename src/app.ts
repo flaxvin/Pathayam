@@ -5957,7 +5957,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           .map((a) => {
             const valuation = latestValuation(db, a.id);
             return {
-              id: a.id, name: a.name, subtype: a.subtype,
+              id: a.id, name: a.name, subtype: a.subtype, currency: a.currency,
               value: valuation?.value ?? (0 as Paise),
               asOf: valuation?.asOf ?? null,
               stale: valuation?.stale ?? false,
@@ -6010,7 +6010,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ctx, `Revalue ${account.name}`,
       renderRevalueAsset({
         asset: {
-          id: account.id, name: account.name,
+          id: account.id, name: account.name, currency: account.currency,
           value: valuation?.value ?? 0, asOf: valuation?.asOf ?? todayIST(),
         },
         today: todayIST(),

@@ -208,6 +208,38 @@ export function recordValuation(
   });
 }
 
+/**
+ * R32 · A hand-valued account's worth in the base currency.
+ *
+ * A valuation is a number somebody typed for an account, and an account has a
+ * currency. The unit-holding path has always converted — a USD instrument is
+ * priced in dollars and carried at the dated rate — but this one summed the
+ * number in as it stood, so an overseas account worth $40,000 was counted as
+ * ₹40,000 in net worth and labelled "USD" in the allocation beside it. The two
+ * paths disagreed and only one of them was ever exercised.
+ *
+ * Missing rate: the same convention the holdings path uses — carry it at 1 and
+ * mark it stale, rather than dropping an asset out of net worth silently.
+ */
+export function valuationInBase(
+  db: DB,
+  account: { id: string; currency: string },
+  asOf = todayIST(),
+  baseCurrency = "INR",
+): (Valuation & { fx: FxQuote | null }) | null {
+  const valuation = latestValuation(db, account.id, asOf);
+  if (!valuation) return null;
+  if (account.currency === baseCurrency) return { ...valuation, fx: null };
+
+  const fx = fxRate(db, account.currency, baseCurrency, valuation.asOf);
+  return {
+    ...valuation,
+    value: Math.round(valuation.value * (fx?.rate ?? 1)) as Paise,
+    stale: valuation.stale || fx === null || fx.stale,
+    fx,
+  };
+}
+
 export interface Valuation {
   value: Paise;
   asOf: IsoDate;

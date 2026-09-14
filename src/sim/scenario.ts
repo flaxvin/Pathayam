@@ -374,6 +374,16 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
     createAssetAccount(db, actor, { name: "Gold (SafeGold)", subtype: "commodity" }));
   const nps = did("createAssetAccount", () =>
     createAssetAccount(db, actor, { name: "NPS Tier I", subtype: "retirement" }));
+  /*
+   * N7 · An account held in another currency, which the feature flag allowed and
+   * no scenario ever created. Priya worked in Singapore for two years before the
+   * household moved back and the balance stayed where it was: an ordinary reason
+   * for an Indian household to hold a foreign account, and the one case where a
+   * hand-entered valuation is not in rupees.
+   */
+  const overseas = did("createAssetAccount", () => createAssetAccount(db, actor, {
+    name: "DBS Singapore (savings)", subtype: "deposit", currency: "SGD",
+  }));
 
   const flexi = did("findOrCreateInstrument", () => findOrCreateInstrument(db, actor, {
     name: "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
@@ -391,8 +401,10 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
   did("classifyInstrument", () =>
     classifyInstrument(db, actor, apple.id, { assetClass: "equity", region: "international" }));
 
-  let flexiNav = 58, indexNav = 112, applePrice = 168, usdInr = 82.5;
+  let flexiNav = 58, indexNav = 112, applePrice = 168, usdInr = 82.5, sgdInr = 61.2;
   let goldValue = 1_90_000, npsValue = 2_40_000;
+  // In Singapore dollars, because that is what the account is in.
+  let overseasValue = 42_000;
 
   // --------------------------------------------------------------- schedules
   const rentSchedule = did("createSchedule", () => createSchedule(db, actor, {
@@ -846,11 +858,13 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
     indexNav *= 1 + (rand() - 0.44) * 0.04;
     applePrice *= 1 + (rand() - 0.45) * 0.06;
     usdInr *= 1 + (rand() - 0.5) * 0.01;
+    sgdInr *= 1 + (rand() - 0.5) * 0.008;
     if (live(7)) {
       did("recordPrice", () => recordPrice(db, { instrumentId: flexi.id, price: toPrice(flexiNav), asOf: day(month, 7), source: "sim" }));
       did("recordPrice", () => recordPrice(db, { instrumentId: index.id, price: toPrice(indexNav), asOf: day(month, 7), source: "sim" }));
       did("recordPrice", () => recordPrice(db, { instrumentId: apple.id, price: toPrice(applePrice), asOf: day(month, 7), source: "sim" }));
       did("recordFxRate", () => recordFxRate(db, { base: "USD", quote: "INR", rate: usdInr, asOf: day(month, 7), source: "sim" }));
+      did("recordFxRate", () => recordFxRate(db, { base: "SGD", quote: "INR", rate: sgdInr, asOf: day(month, 7), source: "sim" }));
     }
     // A monthly SIP into each fund.
     if (live(6)) {
@@ -907,6 +921,13 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
     if (live(26)) {
       did("recordValuation", () => recordValuation(db, actor, { accountId: gold.id, value: rupees(Math.round(goldValue)) as Paise, asOf: day(month, 26) }));
       did("recordValuation", () => recordValuation(db, actor, { accountId: nps.id, value: rupees(Math.round(npsValue)) as Paise, asOf: day(month, 26) }));
+      // N7 · In SGD. Net worth converts it at the dated rate; it used to be
+      // summed into a rupee total as though S$42,000 were ₹42,000.
+      overseasValue *= 1 + (rand() - 0.45) * 0.01;
+      did("recordValuation", () => recordValuation(db, actor, {
+        accountId: overseas.id, value: rupees(Math.round(overseasValue)) as Paise,
+        asOf: day(month, 26),
+      }));
     }
 
     // ------------------------------------------------------ lending in the family
