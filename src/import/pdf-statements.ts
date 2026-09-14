@@ -378,14 +378,59 @@ const HEADINGS: { key: keyof HeaderColumns; patterns: RegExp[] }[] = [
  * bank right-aligns both — and they do not agree with each other about that.
  * A span survives either convention.
  */
+/**
+ * The same word, for a page that draws it in pieces.
+ *
+ * A generator that splits "27,333.00" into four runs splits "WITHDRAWALS" too,
+ * and the layout leaves "WITH D RAWA LS" — with "DAT E", "DE POSITS" and
+ * "BAL ANCE" beside it. The header is then unrecognisable, so no column is
+ * known, so a row's figures cannot be told apart: the balance gets read as the
+ * amount and every row comes out as the running total rather than the movement.
+ *
+ * That is worse than reading nothing, which is why the dates and figures below
+ * are no use on their own. A statement is only readable when its header is.
+ */
+function piecedWord(word: string): string {
+  // Up to three spaces between letters, because the pieces of a split word are
+  // placed at their own columns and so are padded apart: the real header reads
+  // "WITH  D RAWA  LS". Only ever used on a line that already looks like a
+  // header and only when the strict pass found none.
+  return word.split("").join("[ ]{0,3}");
+}
+
+const PIECED_HEADINGS: { key: keyof HeaderColumns; patterns: RegExp[] }[] = [
+  { key: "debit", patterns: [new RegExp(piecedWord("withdrawal") + "s?", "i"), new RegExp(piecedWord("debit"), "i")] },
+  { key: "credit", patterns: [new RegExp(piecedWord("deposit") + "s?", "i"), new RegExp(piecedWord("credit"), "i")] },
+  { key: "balance", patterns: [new RegExp(piecedWord("balance"), "i")] },
+  { key: "reference", patterns: [new RegExp(piecedWord("refno"), "i")] },
+];
+
+const PIECED_DATE_HEADING = new RegExp(`\\b${piecedWord("date")}\\b`, "i");
+const PIECED_MONEY_HEADING = new RegExp(
+  [["withdrawal"], ["deposit"], ["debit"], ["credit"]].map(([w]) => piecedWord(w!)).join("|"),
+  "i",
+);
+
 export function readHeader(lines: string[]): HeaderColumns | null {
+  // Strict first; the pieced patterns are a second pass over the same lines, so
+  // a statement that reads today cannot start reading differently tomorrow.
+  return readHeaderWith(lines, /\bdate\b/i, /withdrawal|deposit|debit|credit/i, HEADINGS)
+    ?? readHeaderWith(lines, PIECED_DATE_HEADING, PIECED_MONEY_HEADING, PIECED_HEADINGS);
+}
+
+function readHeaderWith(
+  lines: string[],
+  dateHeading: RegExp,
+  moneyHeading: RegExp,
+  headings: { key: keyof HeaderColumns; patterns: RegExp[] }[],
+): HeaderColumns | null {
   for (const line of lines) {
     // A header names a date column and at least one money column.
-    if (!/\bdate\b/i.test(line)) continue;
-    if (!/withdrawal|deposit|debit|credit/i.test(line)) continue;
+    if (!dateHeading.test(line)) continue;
+    if (!moneyHeading.test(line)) continue;
 
     const found: HeaderColumns = { debit: null, credit: null, balance: null, reference: null };
-    for (const { key, patterns } of HEADINGS) {
+    for (const { key, patterns } of headings) {
       for (const pattern of patterns) {
         const match = pattern.exec(line);
         if (match && found[key] === null) {
@@ -424,25 +469,60 @@ function maskDates(line: string): string {
 }
 
 /** Every figure on a line, with the span of characters it occupies. */
+/** What one amount looks like once the page's stray spaces are out of it. */
+const ONE_AMOUNT = /^(?:Rs\.?|INR|₹|C)?\(?[-+]?\d[\d,]*(?:\.\d{1,2})?\)?(?:Cr|Dr)?\.?$/i;
+
 function figuresWithOffsets(line: string): { text: string; start: number; end: number }[] {
   const out: { text: string; start: number; end: number }[] = [];
   const masked = maskDates(line);
-  const pattern =
+  /*
+   * The span a figure *might* occupy, single internal spaces included: a page
+   * that draws "3,807.04" as "3,", "8", "07", ".04" leaves "3,807 .04" behind,
+   * and read strictly that is ₹3,807 with four paise lost. Two spaces is never
+   * part of a figure — a column is reached by padding — so "3,000.00      807.04"
+   * cannot be swallowed whole.
+   *
+   * Generous on purpose, then checked: what the span contains has to still look
+   * like one amount once the spaces are out, or the strict pattern reads the
+   * span instead and the tolerance costs nothing.
+   */
+  const span =
+    /(?:Rs\.?|INR|₹|C)?\s*\(?\s*[-+]?\s*\d(?:[\d,.]| (?=[\d,.]))*\s*\)?(?:\s*(?:Cr|Dr)\.?)?/gi;
+  const strict =
     /(?:Rs\.?|INR|₹|C)?\s*\(?\s*[-+]?\s*\d[\d,]*\.?\d*\s*\)?(?:\s*(?:Cr|Dr)\.?)?/gi;
 
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(masked)) !== null) {
-    const text = match[0].trim();
+  const emit = (text: string, start: number, end: number) => {
     // A reference or account number is not a figure: it is a long digit run
     // with no decimal separator.
-    if (!/[.,]/.test(text) && text.replace(/\D/g, "").length > 4) continue;
-    if (parseStatementAmount(text) === null) continue;
-    const leading = match[0].length - match[0].trimStart().length;
-    out.push({
-      text,
-      start: match.index + leading,
-      end: match.index + match[0].trimEnd().length,
-    });
+    if (!/[.,]/.test(text) && text.replace(/\D/g, "").length > 4) return;
+    if (parseStatementAmount(text) === null) return;
+    out.push({ text, start, end });
+  };
+
+  let match: RegExpExecArray | null;
+  while ((match = span.exec(masked)) !== null) {
+    const raw = match[0];
+    const leading = raw.length - raw.trimStart().length;
+    const start = match.index + leading;
+    const end = match.index + raw.trimEnd().length;
+    const closed = raw.trim().replace(/(?<=[\d,.]) (?=[\d,.])/g, "");
+
+    /*
+     * One amount, or two that happened to land a single space apart. The shape
+     * decides: grouped digits, at most one decimal point, at most two places
+     * after it. "1,234.56 789.00" fails it and is read strictly instead, so two
+     * figures never silently become one enormous one.
+     */
+    if (ONE_AMOUNT.test(closed)) {
+      emit(closed, start, end);
+      continue;
+    }
+    strict.lastIndex = match.index;
+    let inner: RegExpExecArray | null;
+    while ((inner = strict.exec(masked)) !== null && inner.index < match.index + raw.length) {
+      const innerLead = inner[0].length - inner[0].trimStart().length;
+      emit(inner[0].trim(), inner.index + innerLead, inner.index + inner[0].trimEnd().length);
+    }
   }
   return out;
 }
@@ -464,6 +544,36 @@ function figuresWithOffsets(line: string): { text: string; start: number; end: n
 const DATE_ANYWHERE =
   /(\b\d{1,2}[-\s/](?:\d{1,2}|[A-Za-z]{3,9})[-\s/]\d{2,4}\b)/;
 
+/**
+ * The same date, for a page that draws it in pieces.
+ *
+ * Some generators emit one figure as several text runs — ICICI's savings
+ * statement draws "27-03-2026" as "2", "7-03", "-202", "6" — and the layout
+ * pass, which places each run at the column its position implies, leaves a
+ * single space between them: "2 7-03 -202 6". Every date on the page stops
+ * matching, so no line is recognised as a transaction, so the statement parses
+ * to nothing while looking perfectly healthy. The file opened, the text is all
+ * there, and it is unreadable one character at a time.
+ *
+ * A single space *between two digits* is the signature. Columns are reached by
+ * padding, so a column boundary is a run of spaces, never one; and this pattern
+ * is only ever tried on a line the strict one has already failed on, so a
+ * statement that reads today cannot start reading differently tomorrow.
+ *
+ * The match keeps its place in the line. That matters more than it sounds:
+ * repairing the *text* instead — closing the spaces up and re-reading — shifts
+ * every column offset after it, and a parse that then reads the balance column
+ * as the amount invents transactions that look entirely plausible.
+ */
+const PIECED_DAY = String.raw`\d(?: ?\d)?`;
+const PIECED_YEAR = String.raw`\d(?: ?\d){1,3}`;
+// A separator the page may have put a space on either side of, or a bare single
+// space where the separator itself was drawn as its own run.
+const PIECED_SEP = String.raw`(?: ?[-/] ?| )`;
+const DATE_IN_PIECES = new RegExp(
+  `(\\b${PIECED_DAY}${PIECED_SEP}(?:${PIECED_DAY}|[A-Za-z]{3,9})${PIECED_SEP}${PIECED_YEAR}\\b)`,
+);
+
 export function findDate(line: string, within = 46): {
   date: IsoDate; start: number; end: number;
 } | null {
@@ -472,11 +582,25 @@ export function findDate(line: string, within = 46): {
   // to the left edge of the page never reaches the date.
   const indent = line.length - line.trimStart().length;
   const head = line.slice(indent, indent + within);
-  const match = DATE_ANYWHERE.exec(head);
-  if (!match) return null;
 
-  const date = parseStatementDate(match[1]!);
-  if (!date) return null;
+  /*
+   * Strict first, and the pieced pattern only where the strict one produced
+   * nothing readable. Both are tried because the strict pattern can *match* and
+   * still not parse: on "0 1-03 -202 6" it takes "0 1-03" and stops, which is
+   * not a date, and the line would be abandoned on the strength of a match that
+   * was never any good.
+   */
+  let match: RegExpExecArray | null = null;
+  let date: IsoDate | null = null;
+  for (const pattern of [DATE_ANYWHERE, DATE_IN_PIECES]) {
+    match = pattern.exec(head);
+    if (!match) continue;
+    // Spaces the page put inside the date, removed for reading only — the match
+    // keeps its original start and end, so every other column stays put.
+    date = parseStatementDate(match[1]!.replace(/(?<=\d)\s(?=[\d\-/])|(?<=[-/])\s(?=\d)/g, ""));
+    if (date) break;
+  }
+  if (!match || !date) return null;
 
   // Anything before the date must be a serial number or blank — otherwise this
   // is prose that happens to contain a date.
@@ -693,6 +817,18 @@ const UNIVERSAL_SKIP = [
   /this is a system generated/i,
   /^total\b/i,
   /^\s*$/,
+  /*
+   * The balance carried into the statement is not a movement in it. It has a
+   * date and a figure, so it reads as a transaction, and it is the one line
+   * guaranteed to be the size of the whole account — ICICI's opens with
+   * "01-03-2026 B/F 3,807.04" and that became a ₹3,807.04 payment out.
+   *
+   * Two banks already listed it in their own skip rules, one at a time, which
+   * is the tell: it is not a quirk of theirs. Carried forward is the same line
+   * at the other end of the page. The slash is required in the abbreviations so
+   * a payee called "BF Traders" keeps its transactions.
+   */
+  /opening\s+balance|brought\s+forward|carried\s+forward|\bb\/f\b|\bc\/f\b/i,
 ];
 
 export interface StatementParse extends ParseResult {
