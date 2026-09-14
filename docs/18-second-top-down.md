@@ -152,15 +152,67 @@ a value a learned rule would be written against.
   brought-forward line. Two right-looking rows with wrong numbers in them, which
   is worse than none.
 
-Neither shipped. The real fix is **page-level column detection**: cluster piece
-x-positions down the whole page, and treat a gap as a column boundary only when
-it crosses a cluster the rest of the page agrees on. That is a real piece of
-work in the extractor, and it is the highest-value one on this list — it is not
-one bank's edge case, it is 29% of every payee name that arrives by PDF.
+Neither shipped. Page-level column detection was the next candidate — cluster
+piece x-positions down the page and treat a gap as a boundary only where the
+page agrees. Measuring killed that too: the gap histogram on the failing page is
+**continuous from 0 to 19 characters**, so no threshold exists, and the x-anchors
+that repeat down the page belong to the three *other* blocks on it rather than
+to the transaction table.
 
-The manual-mapping fallback does not rescue these, for the same reason: it
-reports `"0 1-03 -202 6" is not a date I can read.` Legible, at least, and the
-CSV path works — but the fallback is not a fallback here.
+**Fixed, in the statement parser rather than the extractor** — see below.
+
+### The fix: tolerant readers, original offsets
+
+The lesson from the two failures is that **repairing the text is what breaks it**.
+The column reader keys off character offsets, so closing up spaces moves every
+column after the repair, and the parse then reads the balance as the amount.
+
+So nothing is repaired. Three readers gained a second, pieced pattern, each
+tried only where the strict one has already failed, and each reporting the span
+it matched **in the original line** — spaces included, offsets intact:
+
+| | |
+|---|---|
+| `findDate` | `2 7-03 -202 6` reads as 27-03-2026. Both patterns are tried, because the strict one can *match* and still not parse: on `0 1-03 -202 6` it takes `0 1-03`, which is not a date, and the line would have been abandoned on the strength of it. |
+| `figuresWithOffsets` | `3,807 .04` is ₹3,807.04, not ₹3,807. A generous span, then a shape check: what it covers has to still look like one amount with the spaces out, or the strict pattern reads the span instead. `1,234.56 789.00` fails that check and stays two figures. |
+| `readHeader` | `DAT E … DE POSITS … WITH  D RAWA  LS … BAL ANCE`. Up to three spaces between letters, because the pieces of a split word are padded to their own columns. |
+
+The header is the part that matters most, and the reason the first two are no
+use alone: without it no column is known, so the parser cannot tell a balance
+from an amount and reads the running total as the movement — every row
+plausible, every number wrong.
+
+One more thing fell out of it. **A brought-forward balance is not a transaction**,
+and it has a date and a figure, so it read as one: ICICI's `01-03-2026 B/F
+3,807.04` imported as a ₹3,807.04 payment out. Two banks already listed the line
+in their own skip rules, one at a time, which is the tell — it is universal now,
+carried-forward included.
+
+Measured across the same seventy-seven files, with the bank's own printed
+closing balance as the judge:
+
+| | before | after |
+|---|---|---|
+| transactions read | 1,856 | **1,860** |
+| statements reading zero rows | 6 | **4** |
+| reported errors | 44 | **40** |
+| **balance reconciliations exact** | **12 / 12** | **12 / 12** |
+
+The row count moves little and the composition changes a lot: **+8 real ICICI
+transactions, −4 fabricated balance lines**. One of the four remaining zero-row
+statements is *correctly* zero — its only two "transactions" were the brought
+and carried forward lines. Every ICICI figure was checked against the statement
+by hand, and the twelve files that carry a closing balance still reconcile to
+the paise.
+
+**Still open:** the 29% payee-name pollution. That is the same defect seen from
+the other side — `Fino P A Ym`, `Transfer T O Riy As Pilakk O Th` — and it lives
+in the extractor's layout, which the measurements above say cannot be fixed by
+any gap threshold. It no longer stops a statement being read; it still makes a
+worse payee name than the page deserves.
+
+The manual-mapping fallback is now rarely needed, but it remains the honest
+failure path: it reports `"0 1-03 -202 6" is not a date I can read.`
 
 ### RBL: the example table wins
 
