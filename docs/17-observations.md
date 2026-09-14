@@ -89,6 +89,14 @@ rest behind a count. The data is already there — the proposal knows how many
 times it saw the pattern. A proposal seen thirty-six times and one seen three
 times should not be the same size on the screen.
 
+**Done.** The data was *nearly* there: the count was in the sentence — "You've
+put Blinkist in Books and courses 36 times" — and nowhere a query could reach,
+which is why the list came out in the order the rows happened to be written.
+Migration `0036` puts it on the row, `proposeCategoryRules` records it, both
+screens that show proposals order by it, and the six strongest lead with the
+remaining thirty-seven behind their own count. Nothing is discarded; it is one
+click and the click says how many.
+
 ## 4. A fully-assigned month reads as an empty one
 
 The demo now opens on **Ready to Assign ₹0 — "Every rupee has a job"**, which is

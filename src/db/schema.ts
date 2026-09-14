@@ -1872,4 +1872,21 @@ ALTER TABLE loans ADD COLUMN original_tenure_months INTEGER;
 UPDATE loans SET original_tenure_months = tenure_months;
 `,
   },
+  {
+    name: "0036-a-proposal-remembers-its-evidence",
+    sql: `
+--------------------------------------------------------------------------------
+-- N9 · How many times the app saw the pattern it is proposing
+--------------------------------------------------------------------------------
+-- A proposal already states its evidence in words — "You've put Zomato in Going
+-- out 4 times" — and three years of filing produces forty-three of them, shown
+-- as one flat list in the order they happened to be written. Every one is
+-- individually reasonable and collectively they are a wall: the eye stops at
+-- four, and the proposal seen thirty-six times sits below the one seen three.
+--
+-- The count was in the sentence and nowhere a query could reach. Here it is, so
+-- the strongest can lead and the rest can wait behind a number.
+ALTER TABLE rules ADD COLUMN strength INTEGER;
+`,
+  },
 ];

@@ -13,6 +13,7 @@ import type { StagedRow, ImportBatch } from "../../import/pipeline.ts";
 import { prominenceOf, type DuplicateTier } from "../../import/dedupe.ts";
 import type { CategoryView } from "../viewmodel.ts";
 import type { Account } from "../../domain/accounts.ts";
+import { renderProposals, type ProposedRule } from "./manage.ts";
 
 export interface ReviewData {
   staged: StagedRow[];
@@ -26,7 +27,7 @@ export interface ReviewData {
   overspent: CategoryView[];
   unfundedCards: { accountId: string; name: string; unfunded: Paise; categoryId: string }[];
   brokenCheckpoints: { accountId: string; name: string; asOf: IsoDate; reason: string | null }[];
-  proposedRules: { id: string; name: string; because: string | null }[];
+  proposedRules: ProposedRule[];
   categories: CategoryView[];
   /** B84 · Money fronted and not yet back. */
   claims: { id: string; date: IsoDate; amount: Paise; payee: string | null; category: string | null }[];
@@ -408,23 +409,7 @@ function renderProposedRules(data: ReviewData): SafeHtml {
       <p class="faint" style="margin-top:-.25rem">
         Learned from how you've been categorising. Nothing is applied until you confirm.
       </p>
-      ${data.proposedRules.map(
-        (r) => html`
-          <form method="post" action="/rules/confirm"
-                class="row-between" style="padding:.5rem 0;border-top:1px solid var(--border)">
-            <input type="hidden" name="rule_id" value="${r.id}">
-            <span>
-              ${r.name}
-              <!-- N9: state what it was inferred from, never just the conclusion. -->
-              ${when(r.because, () => html`<div class="faint">${r.because}</div>`)}
-            </span>
-            <span class="row">
-              <button class="button-small button-primary" type="submit">Use it</button>
-              <button class="button-small" type="submit" formaction="/rules/dismiss">No thanks</button>
-            </span>
-          </form>
-        `,
-      )}
+      ${renderProposals(data.proposedRules)}
     </section>
   `;
 }

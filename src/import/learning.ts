@@ -25,6 +25,8 @@ export interface Proposal {
   actions: Rule["actions"];
   /** Stated to the user, so a proposal is never an unexplained suggestion. */
   because: string;
+  /** N9 · How many times the app saw this, for ordering the list it lands in. */
+  strength?: number;
 }
 
 /**
@@ -67,6 +69,9 @@ export function proposeCategoryRules(db: DB, actor: Actor): Proposal[] {
       conditions: [{ field: "payee", op: "is", value: candidate.payee }],
       actions: [{ type: "setCategory", categoryId: candidate.category_id }],
       because: `You've put ${candidate.payee} in ${candidate.category} ${candidate.n} times.`,
+      // N9 · The evidence as a number as well as a sentence, so the list can be
+      // ordered by it rather than by when it happened to be written.
+      strength: candidate.n,
     };
 
     persist(db, actor, proposal);
@@ -106,6 +111,8 @@ export function proposePayeeRule(
     conditions: [{ field: field as "merchant", op: "is", value }],
     actions: [{ type: "setPayee", payee: input.cleanName }],
     because: `You renamed "${value}" to "${input.cleanName}".`,
+    // One deliberate rename is weaker evidence than a habit, and reads as such.
+    strength: 1,
   };
 
   persist(db, actor, proposal);
@@ -118,11 +125,13 @@ function persist(db: DB, actor: Actor, proposal: Proposal): void {
     // inference next to the button that acts on it.
     execute(
       db,
-      `INSERT INTO rules (id,name,stage,conditions_json,actions_json,enabled,proposed,because,created_at,created_by)
-       VALUES (?,?,?,?,?,1,1,?,?,?)`,
+      `INSERT INTO rules
+         (id,name,stage,conditions_json,actions_json,enabled,proposed,because,strength,
+          created_at,created_by)
+       VALUES (?,?,?,?,?,1,1,?,?,?,?)`,
       proposal.id, proposal.name, proposal.stage,
       JSON.stringify(proposal.conditions), JSON.stringify(proposal.actions),
-      proposal.because, nowIST(), actor.memberId,
+      proposal.because, proposal.strength ?? null, nowIST(), actor.memberId,
     );
     appendEvent(db, actor, {
       entity: "rule", entityId: proposal.id, action: "propose",
