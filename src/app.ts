@@ -92,6 +92,7 @@ import {
   ensureCommitmentEnvelope, commitmentEnvelope, guardCommitmentEnvelope, anyCommitments,
 } from "./domain/commitments.ts";
 import { buildHouseholdView } from "./domain/household-view.ts";
+import { eventVisibility } from "./domain/event-visibility.ts";
 import { callItEven } from "./domain/squaring-up.ts";
 import { describeDeparture, settleDeparture, type DepartureResolution } from "./domain/departure.ts";
 import { convertToEmi } from "./domain/card-emi.ts";
@@ -858,7 +859,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/activity", (ctx) => {
     auth(ctx);
     const entity = ctx.query.get("entity");
-    const events = queryEvents(db, { entity: entity ?? undefined, limit: 100 });
+    /*
+     * 15 · The log narrates everything in words, so it has to be told whose
+     * money it is narrating. Fetch more than the page needs and filter, so the
+     * page still fills when some of it is somebody else's.
+     */
+    const canSee = eventVisibility(db, viewer(ctx));
+    const events = queryEvents(db, { entity: entity ?? undefined, limit: 400 })
+      .filter(canSee)
+      .slice(0, 100);
 
     const entities = queryAll<{ entity: string }>(
       db, `SELECT DISTINCT entity FROM events ORDER BY entity`,
@@ -1627,7 +1636,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       renderAddTransaction({
         accounts,
         categories: [...view.categories.values()],
-        payees: listPayees(db).map((p) => {
+        payees: listPayees(db, viewer(ctx)).map((p) => {
           const stats = payeeStats(db, p.id);
           return {
             id: p.id,
@@ -4072,7 +4081,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         cashflow,
         cashflowReading: describeCashflow(cashflow),
         unfundedCards,
-        insights: spendingInsights(db, todayIST(), 4),
+        insights: spendingInsights(db, todayIST(), 4, viewer(ctx)),
         monthSpend,
         cash: cash as Paise,
         runwayMonths,
@@ -4147,7 +4156,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return render(
       ctx, "Reports",
       renderReports({
-        insights: spendingInsights(db),
+        insights: spendingInsights(db, todayIST(), 6, viewer(ctx)),
         gains: config.features.assets ? capitalGainsByYear(db) : [],
         trend: incomeVsExpense(db, period.from, period.to, scope, viewer(ctx)),
         categorySpend: categorySpend.map((g) => ({ label: g.label, value: g.value })),
@@ -4473,7 +4482,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const visibleCategories = new Set(
       listCategories(db, { includeHidden: true, viewerMemberId: viewer(ctx) }).map((c) => c.id),
     );
-    const rows: PayeeRow[] = listPayees(db).map((p) => {
+    const rows: PayeeRow[] = listPayees(db, viewer(ctx)).map((p) => {
       const stats = payeeStats(db, p.id);
       return {
         id: p.id,

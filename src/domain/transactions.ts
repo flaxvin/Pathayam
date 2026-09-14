@@ -484,8 +484,42 @@ function addAlias(db: DB, payeeId: string, raw: string): void {
   );
 }
 
-export function listPayees(db: DB): Payee[] {
-  return queryAll<Payee>(db, `SELECT * FROM payees WHERE merged_into_id IS NULL ORDER BY name`);
+export function listPayees(db: DB, viewerMemberId?: string | null): Payee[] {
+  /*
+   * 15 · A payee is a household-wide name, and mostly that is right: the same
+   * DMart is everybody's DMart. But one that has only ever been seen on a
+   * private account is not a shared fact at all — it is where one member spent,
+   * and offering it in everybody's payee list and every Add form gave that away
+   * one merchant at a time.
+   *
+   * Visible means: used at least once somewhere the viewer can see, or used
+   * nowhere yet (a payee somebody typed and has not spent against is nobody's
+   * secret). Omitted viewer means every payee, which is what an export wants.
+   */
+  if (viewerMemberId === undefined) {
+    return queryAll<Payee>(db, `SELECT * FROM payees WHERE merged_into_id IS NULL ORDER BY name`);
+  }
+  return queryAll<Payee>(
+    db,
+    `SELECT p.* FROM payees p
+      WHERE p.merged_into_id IS NULL
+        AND (
+          NOT EXISTS (SELECT 1 FROM transactions t WHERE t.payee_id = p.id)
+          OR EXISTS (
+            SELECT 1 FROM transactions t
+              JOIN accounts a ON a.id = t.account_id
+             WHERE t.payee_id = p.id
+               AND (a.visibility <> 'private' OR a.holder_member_id IS ?)
+          )
+        )
+      ORDER BY p.name`,
+    viewerMemberId,
+  );
+}
+
+/** The ids of the payees above, for a caller that needs to test one. */
+export function visiblePayeeIds(db: DB, viewerMemberId: string | null): Set<string> {
+  return new Set(listPayees(db, viewerMemberId).map((p) => p.id));
 }
 
 export function getPayee(db: DB, id: string): Payee | null {

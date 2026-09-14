@@ -31,7 +31,26 @@ Each fix was correct and each was found by hand.
   appears in another member's HTML. The sweep that found these was exactly this,
   done by hand in a shell loop.
 
-The second is a morning's work and would have caught every one. It should exist.
+The second is a morning's work and would have caught every one.
+
+**It exists now** — `src/web/privacy-sweep.test.ts`. It plants a string in each
+kind of private thing, renders every GET route the router serves as the member
+who cannot see them, and fails on any match. The screen list comes out of the
+route table, so a screen added tomorrow is swept tomorrow.
+
+On its first run it found **five more**, none of which anybody had looked at:
+
+| | |
+|---|---|
+| **The activity log** | It narrates everything in words — "Added the account Zzyzx Private Account", "Moved ₹5,000 from Zzyzx to Lending — Pennyfarthing Cousin", "Set Xylophone Finance's target to ₹4,754 a month" — with an undo button beside each. Every other surface had been taught whose money it was showing; the one whose entire job is to say what happened had not. |
+| **Assignment and target events** | Named the envelope: "Assigned ₹9,000 to Qwertyuiop Envelope". A loan's target event names the *lender*, and it fires automatically whenever the loan changes. |
+| **Payees** | A merchant seen only on a private account was in everybody's payee list and every Add form. A payee is a household-wide name, and mostly that is right — the same DMart is everybody's DMart — but one that has only ever been seen in one place is not a shared fact. |
+| **Insights, on Overview and Reports** | "Qwertyuiop Envelope is new this month." A sentence about somebody else's envelope, on the first screen of the app. |
+| **Transfers** | Name both ends, so both ends have to be visible. |
+
+So: seven leaks in total, six found by hand and five by the sweep that was
+written because of them. The suggestion stands generalised — **when a fix is
+found by looking, write the thing that looks.**
 
 ## 2. The demo's import log is all one date
 
