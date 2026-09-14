@@ -198,13 +198,22 @@ describe("top-down · nothing in the domain went unexercised", () => {
    */
   function mutatingDomainFunctions(): string[] {
     const found: string[] = [];
-    for (const file of readdirSync(join(here, "..", "domain"))) {
-      if (!file.endsWith(".ts") || file.endsWith(".test.ts")) continue;
-      const source = readFileSync(join(here, "..", "domain", file), "utf8");
-      for (const m of source.matchAll(
-        /export function ([A-Za-z0-9_]+)\s*\(\s*\n?\s*db: DB,\s*actor/g,
-      )) {
-        found.push(m[1]!);
+    /*
+     * `domain/` and `import/` both: money arrives by being typed *and* by being
+     * imported, and the ingestion half — the parser, the mapping guess, the
+     * duplicate tiers, the review queue, the rules it learns — had only ever
+     * been exercised by unit tests against fixtures, never against three years
+     * of a household's own ledger.
+     */
+    for (const dir of ["domain", "import"]) {
+      for (const file of readdirSync(join(here, "..", dir))) {
+        if (!file.endsWith(".ts") || file.endsWith(".test.ts") || file.includes("test-data")) continue;
+        const source = readFileSync(join(here, "..", dir, file), "utf8");
+        for (const m of source.matchAll(
+          /export function ([A-Za-z0-9_]+)\s*\(\s*\n?\s*db: DB,\s*actor/g,
+        )) {
+          found.push(m[1]!);
+        }
       }
     }
     return [...new Set(found)].sort();
@@ -315,5 +324,50 @@ describe("top-down · the ledger is internally consistent", () => {
   test("every month of every budget was closed except the current one", () => {
     const closes = queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM month_closes`)!.n;
     assert.ok(closes >= (sim.months.length - 1), `only ${closes} months were ever closed`);
+  });
+});
+
+/**
+ * A household the app has never seen.
+ *
+ * Everything above runs on one seed, and a suite that only ever checks one set
+ * of numbers checks the numbers rather than the arithmetic. This is the same
+ * thirty-six months with different amounts, different dry months, different
+ * duplicates in the review queue and a different order of events — the app has
+ * no memory of it, and the identity has to close anyway.
+ *
+ * One extra seed rather than ten: each run is a full three years of four
+ * people's money, and a suite nobody waits for is a suite nobody runs.
+ */
+describe("top-down · and again, with money it has not seen", () => {
+  test("the identity closes for a different household too", () => {
+    const other = openDatabase({ path: ":memory:", verbose: false });
+    ensureHousehold(other);
+    const broken: string[] = [];
+
+    const run = simulateHousehold(other, {
+      seed: 987654321,
+      afterMonth: (month) => {
+        for (const budget of listBudgets(other)) {
+          const state = computeBudget(
+            loadEngineInput(other, { through: month, budgetId: budget.id }),
+          ).get(month);
+          if (state && identityResidual(state) !== 0) {
+            broken.push(`${month} · ${budget.name} · ${formatPaise(identityResidual(state))}`);
+          }
+        }
+      },
+    });
+
+    assert.deepEqual(broken.slice(0, 6), []);
+    assert.equal(run.months.length, sim.months.length);
+
+    // Different money, or the seed is not doing anything.
+    const theirs = queryOne<{ n: number }>(
+      other, `SELECT COUNT(*) AS n FROM transactions`,
+    )!.n;
+    const ours = queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM transactions`)!.n;
+    assert.notEqual(theirs, ours, "both households came out identical; the seed is ignored");
+    other.close();
   });
 });
