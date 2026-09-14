@@ -357,7 +357,9 @@ CREATE INDEX idx_tx_category     ON transactions(category_id, date) WHERE delete
 CREATE INDEX idx_tx_date         ON transactions(date) WHERE deleted_at IS NULL;
 CREATE INDEX idx_tx_payee        ON transactions(payee_id) WHERE deleted_at IS NULL;
 CREATE INDEX idx_tx_transfer     ON transactions(transfer_pair_id);
-CREATE UNIQUE INDEX idx_tx_source_id ON transactions(source, source_id)
+-- I5, per account: the same statement line can genuinely occur on two accounts,
+-- and the pipeline's own duplicate check is scoped to one. See migration 0037.
+CREATE UNIQUE INDEX idx_tx_source_id ON transactions(account_id, source, source_id)
   WHERE source_id IS NOT NULL;
 
 -- F4.3: splits across unlimited categories, summing to the transaction total.
@@ -1887,6 +1889,30 @@ UPDATE loans SET original_tenure_months = tenure_months;
 -- The count was in the sentence and nowhere a query could reach. Here it is, so
 -- the strongest can lead and the rest can wait behind a number.
 ALTER TABLE rules ADD COLUMN strength INTEGER;
+`,
+  },
+  {
+    name: "0037-one-line-can-happen-on-two-accounts",
+    sql: `
+--------------------------------------------------------------------------------
+-- I5 · A row's identity belongs to its account
+--------------------------------------------------------------------------------
+-- A statement line's source id is a hash of date, amount, narration and
+-- reference. Two accounts can produce the same four: "UPI/SWIGGY/4471" for
+-- 450.00 on the 5th of August is one payment from the joint account and another
+-- from a personal one, and a household with two accounts at the same bank hits
+-- this the first time it imports both.
+--
+-- The pipeline already knew that. Its duplicate check is scoped to the account
+-- being imported into, so it staged both rows — correctly — and then the
+-- database refused the second with UNIQUE constraint failed, as a 500 with a SQL
+-- message in it, leaving the row stuck in the queue with no way to approve it.
+--
+-- Two layers disagreeing about what makes a row unique. The pipeline was right:
+-- the index is now scoped the same way it is.
+DROP INDEX IF EXISTS idx_tx_source_id;
+CREATE UNIQUE INDEX idx_tx_source_id ON transactions(account_id, source, source_id)
+  WHERE source_id IS NOT NULL;
 `,
   },
 ];
