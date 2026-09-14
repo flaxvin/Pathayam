@@ -1,0 +1,205 @@
+# The second top-down pass
+
+A fresh run of the standing criterion — thirty-six months, four people, two of
+them gone at month 24 and one back at month 30 — with new money, a new order of
+events, and a question the first pass never asked: *what did the run actually
+produce?*
+
+Then the same app again from a UI/UX angle, and then a third thing that was not
+planned: seventy-seven real bank statements, put through the PDF importer.
+
+Defects fixed are in `09`'s decision log. This is what the passes turned up and
+what is worth doing next.
+
+---
+
+## What held
+
+Worth stating plainly, because most of this document is about what did not.
+
+- **The identity closed after every month, in every budget**, on two seeds the
+  app had never seen. Not at the end — after each month as history grew.
+- **The rollup cache agreed with a cold compute** for every month in every
+  budget. 108 comparisons, no disagreement.
+- **Every GET route renders.** 79 routes driven over HTTP against three years of
+  real-shaped data: 68 answered 200, and all eleven that did not were right to —
+  OAuth routes with no credentials configured, redirects, and routes needing an
+  id of a kind the sweep had not fetched. Re-run with the right ids, they answer
+  200 too. **Zero server errors in the log.**
+- **The UI/UX sweep came back clean.** 45 screens × 2 widths × 2 themes, checked
+  for contrast against what text actually sits on, tap-target size, labels,
+  duplicate ids, heading order, and overflow. Nothing. The last pass's crop of
+  contrast failures and 34px targets is gone and has stayed gone.
+
+---
+
+## 1. One statement line can happen on two accounts — **fixed**
+
+The first defect the fresh run hit, and it hit it immediately: approving an
+imported row died with `UNIQUE constraint failed: transactions.source,
+transactions.source_id`. A 500 with SQL in it, and a row left in the queue that
+could never be approved.
+
+A row's identity is a hash of date, amount, narration and reference, which is
+what makes re-importing a file idempotent. Two accounts can produce the same
+four — "UPI/SWIGGY/4471" for ₹450 on the 5th of August is one payment from the
+joint account and a different one from a personal one — and a household with two
+accounts at the same bank meets this the first time it imports both.
+
+The pipeline always knew. Its duplicate check is scoped to the account being
+imported into, so it staged both rows, correctly. The index was global. Two
+layers disagreeing about what makes a row unique, and the one that was right had
+no say. Migration `0037` scopes the index the way the pipeline already scopes
+itself.
+
+## 2. The middle of a feature is the part nothing exercises — **fixed**
+
+The first pass checked that every mutating function was *called*. This one
+checked what the calls left behind, and found three tables empty:
+
+| | |
+|---|---|
+| `rule_applications` | Three years produced forty-three proposals and **zero confirmations**, so the step between "the app noticed a pattern" and "the app files things for you" had never run once. |
+| `transaction_splits` | Never exercised. F4.3's arithmetic — a split summing to its transaction — was covered by unit tests alone. |
+| `transaction_tags` | One tag, used once. |
+
+Confirming and dismissing a proposal lived **in the router**: a bare `UPDATE`
+and a paragraph of suppression logic inside a route handler. That is why nothing
+could reach them — the only way to run that code was to post a form. They are in
+the domain now, the route calls them, and so does the scenario.
+
+Which then exposed why they *still* would not have fired. See below.
+
+## 3. A simulated statement that no bank would print — **fixed**
+
+With rules confirmed, they matched nothing. The simulated statement line was
+`UPI/DMART/4471920/GROCERY`, and because the merchant is taken as the longest
+segment, "GROCERY" won. Every rule the app learned was about a payee called
+**Grocery**.
+
+The instinct was to fix the extractor. The 1,856 transactions parsed out of
+seventy-seven real statements say otherwise: longest-segment gives "Uber India
+Systems Pr", "State Bank Of India", "Mohd Kamil Khan", where first-segment gives
+"L Td Upi", "No. UPI", "Bank Upi". **Longest is right; the fixture was wrong.**
+No statement in the corpus carries a trailing purpose field.
+
+Worth keeping as a rule of its own: *a synthetic fixture is evidence about the
+fixture.* The corpus overruled a plausible one-line "fix" that would have made
+real imports worse.
+
+---
+
+## 4. The PDF importer, against seventy-seven real statements
+
+Run locally, against this household's own inbox — twelve institutions, three
+years. Nothing from it is in this repository.
+
+**58 of 77 opened and parsed, 1,856 transactions, no crashes.**
+
+### What could not be opened (19)
+
+Every one needs a digit that name + date of birth + PAN does not carry, and in
+every case the app asks for exactly the right thing:
+
+| | | |
+|---|---|---|
+| SBI account | 6 | last five of the **registered mobile** + DOB |
+| SBI Card | 6 | DOB + last four of the **card** |
+| Canara | 4 | last four of the card, alone |
+| HSBC | 3 | DOB + last **six** of the card |
+
+So the identity form's mobile field and the account's stored last-four are not
+optional extras — for four of twelve institutions they are the difference
+between an import and a locked file. **Suggestion:** when a statement will not
+open and the bank is one of these four, say *which* detail is missing rather
+than offering the generic hint. The app knows the bank and knows whether it has
+a mobile on file.
+
+**Suggestion, minor:** `passwordCandidates(identity, undefined, …)` is called
+with no bank id, so the bank's own rule is never tried first. The account knows
+its institution. This costs only speed, but it is free to fix.
+
+### The text extractor puts spaces inside words — **the significant one**
+
+Three ICICI savings statements parse to **zero rows**, and the reason is not in
+the statement parser at all. The layout pass in `src/pdf/text.ts` places each
+text run at the column its x-position implies. Some generators draw one figure
+as several runs — `27,333.00` arrives as `2`, `7,3`, `33.0`, `0` — and each gets
+its own column, so the line reads `2 7,3 33.0 0` and the date reads
+`2 7-03 -202 6`. Every date and amount stops matching. The file opened, the text
+is all there, and it is unreadable one character at a time.
+
+It is not confined to those three files. **534 of 1,856 real payee names — 29% —
+carry a space the page put inside a word**: `Transfer T O Riy As Pilakk O Th`,
+`Fino P A Ym`, `Airtel P A Yments`, `A Ch-dr -indian Clearing Corp`. Every one
+of those is a payee name in the ledger, a key the duplicate check compares, and
+a value a learned rule would be written against.
+
+**Two fixes were tried and both were worse, which is the useful part:**
+
+- *A fixed tolerance* — join runs closer together than some fraction of a
+  character. Measured on the ICICI statement, the pieces of one number sit 0.2
+  to 2.6 characters apart and its columns 6 to 53 apart, so three characters is
+  the right answer there. On Axis and YES the **columns themselves** are two to
+  four characters apart. Swept across all 77 files: a tolerance wide enough to
+  fix ICICI took the corpus from 1,856 rows to **921**.
+- *A text repair after the fact* — close up a single space between two digits,
+  since columns are reached by padding and so are separated by runs of spaces.
+  This looked excellent: 1,856 → 1,864 rows, and all three ICICI statements
+  started parsing. It was still wrong. The column reader keys off character
+  offsets, and closing up spaces shifts them, so the rows it then read took the
+  **balance** column as the amount and invented a transaction out of the
+  brought-forward line. Two right-looking rows with wrong numbers in them, which
+  is worse than none.
+
+Neither shipped. The real fix is **page-level column detection**: cluster piece
+x-positions down the whole page, and treat a gap as a column boundary only when
+it crosses a cluster the rest of the page agrees on. That is a real piece of
+work in the extractor, and it is the highest-value one on this list — it is not
+one bank's edge case, it is 29% of every payee name that arrives by PDF.
+
+The manual-mapping fallback does not rescue these, for the same reason: it
+reports `"0 1-03 -202 6" is not a date I can read.` Legible, at least, and the
+CSV path works — but the fallback is not a fallback here.
+
+### RBL: the example table wins
+
+RBL's statement prints an *illustration* of how to read a statement — "12-Dec-18
+Purchase of Groceries" — and the parser finds that instead of the real table,
+which sits in the right-hand column of a marketing page in `DD Mon YYYY` format.
+Two real transactions are in the file and none are read. A bank-profile gap
+rather than an engine one.
+
+---
+
+## 5. Smaller things, and suggestions
+
+- **A managed category renders a form that can never be submitted.** A payment
+  envelope's name is read-only and has no Rename button, but the `<form>` and
+  `<input readonly>` are still emitted. Harmless, and it is the only thing the
+  UI sweep flagged that is not by design. It could be a `<span>`.
+- **Literal NUL bytes in `src/import/pipeline.ts`.** The source-id digest joins
+  its fields with real `\x00` bytes typed into the source, which is a sound
+  separator and makes the file "binary" to `grep`, invisible in most editors,
+  and a hazard for anything that reads the repository as text. `\0` in the
+  template would do the same job visibly.
+- **Confirming a rule had no domain function** (now fixed). Worth a general
+  look: anything that only a route can do is something no simulation can reach,
+  and the census is a cheap way to find the rest.
+- **The census itself is worth keeping.** Counting what a run *produced* found
+  three dead features that the call-coverage check called covered. It now runs
+  as part of the scenario test: rules must actually file something, splits must
+  exist and sum, more than one tag must be in use.
+
+## 6. Still not covered
+
+Unchanged from `17` except where noted:
+
+- **No Gmail ingestion.** It needs a live OAuth grant, so it cannot run in a test
+  at all.
+- **PDF import is now exercised by hand** against a real corpus — but not in the
+  suite, because the corpus cannot be committed. The generated fixtures remain
+  the automated coverage. A synthetic statement built to reproduce the
+  piece-splitting layout would be worth having, and would have caught §4.
+- **No import profiles in the route sweep.** `import_profiles` is exercised by
+  the scenario but the saved-mapping screens are only rendered, never driven.
