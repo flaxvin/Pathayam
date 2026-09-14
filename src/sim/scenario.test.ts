@@ -435,3 +435,62 @@ describe("top-down · an account held in another currency", () => {
     assert.ok(Math.abs(shares - 1) < 0.001, `the currency slices sum to ${shares}`);
   });
 });
+
+/**
+ * The middle of a feature is the part nothing exercises.
+ *
+ * A census of what three years of simulation actually produced found three
+ * tables empty. Not wrong — empty. `rule_applications` had no rows, because the
+ * household proposed forty-three rules and confirmed none of them, so the step
+ * between "the app noticed a pattern" and "the app files things for you" had
+ * never run once. `transaction_splits` had no rows, so F4.3's arithmetic was
+ * tested by unit tests alone. And one tag had been used, once.
+ *
+ * Each was invisible from the inside: every test passed, the identity closed,
+ * and the coverage check was satisfied because the *functions* were all called.
+ * What nothing asked was whether calling them had produced anything.
+ */
+describe("top-down · the features that leave a trace", () => {
+  const rows = (sql: string): number =>
+    queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM ${sql}`)!.n;
+
+  test("rules are proposed, confirmed, and then actually file things", () => {
+    assert.ok(
+      rows("rules WHERE proposed = 0 AND dismissed_at IS NULL") > 0,
+      "no proposal was ever confirmed, so no rule could ever fire",
+    );
+    assert.ok(
+      rows("rules WHERE dismissed_at IS NOT NULL") > 0,
+      "no proposal was ever refused — L5's suppression never ran",
+    );
+    assert.ok(
+      rows("rule_applications") > 0,
+      "rules were confirmed and then matched nothing: the household taught the " +
+      "app a pattern and the app never used it on a later import",
+    );
+  });
+
+  test("a receipt is split across envelopes", () => {
+    assert.ok(rows("transaction_splits") > 0, "F4.3 was never exercised");
+    // And the split sums to its transaction, which is the invariant that makes
+    // a split safe to have at all.
+    const broken = queryAll<{ id: string; total: number; amount: number }>(
+      db,
+      `SELECT t.id, SUM(s.amount) AS total, t.amount
+         FROM transactions t JOIN transaction_splits s ON s.transaction_id = t.id
+        WHERE t.deleted_at IS NULL
+        GROUP BY t.id
+       HAVING SUM(s.amount) <> t.amount`,
+    );
+    assert.deepEqual(broken, [], "a split stopped adding up to its transaction");
+  });
+
+  test("more than one tag is in use", () => {
+    assert.ok(
+      queryOne<{ n: number }>(
+        db, `SELECT COUNT(DISTINCT tag_id) AS n FROM transaction_tags`,
+      )!.n > 1,
+      "one tag used once is not a tagging feature being exercised",
+    );
+  });
+});

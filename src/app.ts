@@ -70,7 +70,7 @@ import {
 } from "./import/profiles.ts";
 import {
   proposeCategoryRules, proposePayeeRule, previewRetroactive, applyRetroactive,
-  suppress, learningEnabled, setLearningEnabled,
+  suppress, learningEnabled, setLearningEnabled, confirmRule, dismissRule,
 } from "./import/learning.ts";
 import {
   renderReconcileStart, renderReconcileDifference, renderReconcileDone,
@@ -4763,12 +4763,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/rules/confirm", (ctx) =>
     mutate(ctx, (a) => {
-      const id = requiredField(ctx.body, "rule_id");
-      execute(db, `UPDATE rules SET proposed = 0 WHERE id = ?`, id);
-      appendEvent(db, actorFor(a), {
-        entity: "rule", entityId: id, action: "confirm",
-        summary: `Confirmed a proposed rule`,
-      });
+      confirmRule(db, actorFor(a), requiredField(ctx.body, "rule_id"));
       return { redirect: "/rules", message: "Rule confirmed." };
     }),
   );
@@ -4777,26 +4772,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       // L5: dismissing a proposal suppresses that specific proposal for good.
       const id = requiredField(ctx.body, "rule_id");
-      const rule = ruleRows(db, true).find((r) => r.id === id);
-      execute(db, `UPDATE rules SET dismissed_at = ? WHERE id = ?`, nowIST(), id);
-
-      // L5 · Dismissing suppresses *that specific proposal* permanently, so
-      // the same suggestion never comes back.
-      if (rule) {
-        const condition = rule.conditions[0];
-        const action = rule.actions[0] as { categoryId?: string; payee?: string } | undefined;
-        suppress(
-          db,
-          action?.categoryId ? "learned-rule" : "learned-payee",
-          `${String(condition?.value ?? "")}:${action?.categoryId ?? action?.payee ?? ""}`,
-          a.member.id,
-        );
-      }
-
-      appendEvent(db, actorFor(a), {
-        entity: "rule", entityId: id, action: "dismiss",
-        summary: `Dismissed a proposed rule; it won't be suggested again`,
-      });
+      dismissRule(db, actorFor(a), id, ruleRows(db, true).find((r) => r.id === id));
       return { redirect: "/rules", message: "Won't suggest that again." };
     }),
   );
