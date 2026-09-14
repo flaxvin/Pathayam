@@ -2841,6 +2841,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // S4 · Review — the one destination for everything needing a human
   // -------------------------------------------------------------------------
   router.get("/review", (ctx) => {
+    const visibleCategoryIds = new Set(
+      listCategories(db, { includeHidden: true, viewerMemberId: viewer(ctx) }).map((c) => c.id),
+    );
     // 15 · The envelopes this member may see: the household's and their own.
     const visible = visibleBudgetIds(db, viewer(ctx));
     const month = monthParam(ctx);
@@ -2914,9 +2917,28 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
              FROM reconciliations r JOIN accounts a ON a.id = r.account_id
             WHERE r.broken_at IS NOT NULL ORDER BY r.as_of DESC`,
         ),
-        proposedRules: queryAll<{ id: string; name: string; because: string | null }>(
-          db, `SELECT id, name, because FROM rules WHERE proposed = 1 AND dismissed_at IS NULL`,
-        ),
+        /*
+         * 15 · And not a proposal about somebody else's envelope.
+         *
+         * Rules are learned from what the household actually filed, and the
+         * proposal states its evidence — "You've put Blinkist in Books and
+         * courses 36 times". Shown to everybody, that discloses the private
+         * envelope's name, what goes in it, and how often, which is more than
+         * the envelope itself would have given away. A proposal is only offered
+         * to somebody who could have made the rule by hand.
+         */
+        proposedRules: queryAll<{
+          id: string; name: string; because: string | null; actions_json: string;
+        }>(
+          db,
+          `SELECT id, name, because, actions_json FROM rules
+            WHERE proposed = 1 AND dismissed_at IS NULL`,
+        ).filter((rule) => {
+          const targets = (JSON.parse(rule.actions_json) as { categoryId?: string }[])
+            .map((a) => a.categoryId)
+            .filter((id): id is string => Boolean(id));
+          return targets.every((id) => visibleCategoryIds.has(id));
+        }),
         /*
          * 15 · Only envelopes this member may see. The review queue offers a
          * category for every unfiled row, and an unscoped budget view carries

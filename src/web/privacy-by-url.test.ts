@@ -18,7 +18,8 @@ import assert from "node:assert/strict";
 import { freshDb, seedMember, startTestApp, type TestApp } from "./harness.test-data.ts";
 import type { Actor } from "../core/events.ts";
 import { rupees } from "../core/money.ts";
-import { todayIST } from "../core/dates.ts";
+import { todayIST, nowIST } from "../core/dates.ts";
+import { execute } from "../db/db.ts";
 import { createAccount } from "../domain/accounts.ts";
 import { createLoan } from "../domain/loans.ts";
 import { createGroup, createCategory } from "../domain/budget.ts";
@@ -428,6 +429,58 @@ describe("15 · an envelope you were not offered is one you may not use", () => 
       assert.equal(after.category_id, shared.id);
     } finally {
       await app.close();
+    }
+  });
+});
+
+/**
+ * And through the thing that learns.
+ *
+ * Rules are proposed from what the household actually filed, and a proposal
+ * states its evidence in as many words: "You've put Blinkist in Books and
+ * courses 36 times." Shown to everybody on the review queue, that gives away
+ * the private envelope's name, what goes in it, and how often — more than the
+ * envelope itself would have. Every other surface had been closed and this one
+ * was still talking.
+ */
+describe("15 · a rule proposal is not offered to somebody who cannot see its envelope", () => {
+  test("the review queue keeps it to the holder", async () => {
+    const db = freshDb();
+    seedMember(db, RAVI, "Ravi");
+    seedMember(db, PRIYA, "Priya");
+    createAccount(db, ravi, {
+      name: "Joint", kind: "budget", subtype: "savings",
+      openingDate: "2026-01-01", openingBalance: rupees(1_00_000),
+    });
+    const his = ensurePersonalBudget(db, RAVI, "Ravi");
+    const group = createGroup(db, ravi, "Mine", "normal", his.id);
+    const secret = createCategory(db, ravi, { groupId: group.id, name: "Unmistakably Private" });
+
+    execute(
+      db,
+      `INSERT INTO rules (id,name,stage,conditions_json,actions_json,enabled,proposed,created_at)
+       VALUES (?,?,?,?,?,1,1,?)`,
+      "rule-1", "Blinkist → Unmistakably Private", "default",
+      JSON.stringify([{ field: "narration", op: "contains", value: "Blinkist" }]),
+      JSON.stringify([{ type: "setCategory", categoryId: secret.id }]),
+      nowIST(),
+    );
+
+    const hers = await startTestApp(db, { memberId: PRIYA });
+    try {
+      const body = await (await hers.get("/review")).text();
+      assert.ok(!body.includes("Unmistakably Private"), "Priya is shown the envelope's name");
+      assert.deepEqual(hers.failures, []);
+    } finally {
+      await hers.close();
+    }
+
+    const mine = await startTestApp(db, { memberId: RAVI });
+    try {
+      const body = await (await mine.get("/review")).text();
+      assert.ok(body.includes("Unmistakably Private"), "and Ravi is not offered his own");
+    } finally {
+      await mine.close();
     }
   });
 });
