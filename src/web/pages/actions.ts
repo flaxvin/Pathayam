@@ -3,7 +3,7 @@
  * the "explain this number" panel (F25.10).
  */
 
-import { html, raw, when, type SafeHtml } from "../../http/html.ts";
+import { html, raw, when, type SafeHtml, escape } from "../../http/html.ts";
 import { formatPaise, type Paise } from "../../core/money.ts";
 import { formatDate, formatMonth, type MonthKey } from "../../core/dates.ts";
 import type { Account } from "../../domain/accounts.ts";
@@ -122,7 +122,7 @@ export function renderAddTransaction(opts: {
           ${payees.map(
             (p) => html`
               <option value="${p.name}"
-                      ${raw(p.usualCategoryId ? `data-category="${p.usualCategoryId}"` : "")}>
+                      ${raw(p.usualCategoryId ? `data-category="${escape(p.usualCategoryId)}"` : "")}>
                 ${p.lastAmount !== null
                   ? `last: ${formatPaise(Math.abs(p.lastAmount))}${p.lastDate ? ` on ${formatDate(p.lastDate)}` : ""}`
                   : ""}

@@ -53,9 +53,17 @@ export function html(strings: TemplateStringsArray, ...values: unknown[]): SafeH
   return new SafeHtml(out);
 }
 
-/** Conditionally render, without an empty string leaking into the output. */
-export function when(condition: unknown, content: () => SafeHtml | string): SafeHtml {
-  return condition ? raw(String(content())) : raw("");
+/**
+ * Conditionally render, without an empty string leaking into the output.
+ *
+ * `SafeHtml` only, deliberately. This used to take `SafeHtml | string` and wrap
+ * whatever came back in `raw`, so a callback that returned a plain string —
+ * a payee name, a memo, anything a person typed — went to the page unescaped.
+ * Every call site already returned a template, so nothing needed the latitude
+ * and the only thing it bought was a way to make the mistake.
+ */
+export function when(condition: unknown, content: () => SafeHtml): SafeHtml {
+  return condition ? content() : raw("");
 }
 
 /** Build a class attribute from conditional parts. */

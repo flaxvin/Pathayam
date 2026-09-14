@@ -588,6 +588,31 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return id;
   }
 
+  /**
+   * Somewhere inside this app, and nowhere else.
+   *
+   * Four places took a redirect target from the request and used it as given:
+   * the theme toggle and the review queue return to where you were, the
+   * impersonation banner does the same, and sign-in returns to the page that
+   * asked for a password. The last is the one that matters — an open redirect on
+   * a sign-in flow lands the victim on somebody else's site at the exact moment
+   * they have just proved who they are and are expecting to be somewhere
+   * familiar.
+   *
+   * One of the four did check, with `startsWith("/")`, which reads as safe and
+   * is not: "//evil.example" starts with a slash and is a protocol-relative URL
+   * the browser resolves to another host. A backslash does the same thing in
+   * some browsers. Both are rejected here.
+   */
+  function safePath(value: string | null | undefined, fallback: string): string {
+    if (!value) return fallback;
+    // A path, not a URL: no scheme, no host, no control characters.
+    if (!value.startsWith("/")) return fallback;
+    if (value.startsWith("//") || value.startsWith("/\\")) return fallback;
+    if (/[\u0000-\u001f\u007f]/.test(value)) return fallback;
+    return value;
+  }
+
   function viewer(ctx: RequestContext): string | null {
     const a = ctx.locals.auth as AuthContext | null;
     return a?.member.id ?? null;
@@ -844,7 +869,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     recordAuthAttempt(db, source, "success", profile.email);
 
     return {
-      redirect: pending.next,
+      // Sign-in is the worst place in the app for an open redirect: it lands
+      // somebody on another site at the moment they have just authenticated.
+      redirect: safePath(pending.next, "/"),
       headers: { "Set-Cookie": sessionCookie(token, { secure: config.baseUrl.startsWith("https"), days: config.sessionDays }) },
     };
   });
@@ -1799,7 +1826,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // Stored against the real member, not the impersonated one — a display
       // preference is the viewer's, not the person being viewed.
       setTheme(db, actorFor(a), a.member.id, theme);
-      return { redirect: field(ctx.body, "return_to") || "/" };
+      return { redirect: safePath(field(ctx.body, "return_to"), "/") };
     }),
   );
 
@@ -1830,9 +1857,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       setImpersonationWrites(db, actorFor(a), a.session.id, allow);
       // B51: return to where the toggle was clicked (the banner is on every
       // page), not always /settings.
-      const returnTo = field(ctx.body, "return_to");
       return {
-        redirect: returnTo && returnTo.startsWith("/") ? returnTo : "/settings",
+        redirect: safePath(field(ctx.body, "return_to"), "/settings"),
         message: allow ? "Writes enabled while viewing as them." : "Back to read-only.",
       };
     });
@@ -2602,7 +2628,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
       const name = categoryId ? getCategory(db, categoryId)?.name ?? "a category" : null;
       return {
-        redirect: field(ctx.body, "return_to") || "/review",
+        redirect: safePath(field(ctx.body, "return_to"), "/review"),
         message:
           (name ? `Filed under ${name}.` : "Category cleared.") +
           (proposals.length > 0
