@@ -231,7 +231,13 @@ export function valuationInBase(
   if (!valuation) return null;
   if (account.currency === baseCurrency) return { ...valuation, fx: null };
 
-  const fx = fxRate(db, account.currency, baseCurrency, valuation.asOf);
+  /*
+   * The rate as of the date being asked about, not the date of the valuation —
+   * the same way a holding is converted. "Net worth as of today" means today's
+   * rate applied to the latest known balance; the alternative freezes a figure
+   * at the rate of the day somebody happened to type it in.
+   */
+  const fx = fxRate(db, account.currency, baseCurrency, asOf);
   return {
     ...valuation,
     value: Math.round(valuation.value * (fx?.rate ?? 1)) as Paise,

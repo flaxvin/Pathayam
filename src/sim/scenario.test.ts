@@ -33,6 +33,7 @@ import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { openDatabase, ensureHousehold, queryOne, queryAll, type DB } from "../db/db.ts";
 import { formatPaise } from "../core/money.ts";
+import { todayIST } from "../core/dates.ts";
 import type { MonthKey } from "../core/dates.ts";
 import { loadEngineInput } from "../engine/repository.ts";
 import { computeBudget, identityResidual } from "../engine/engine.ts";
@@ -399,14 +400,17 @@ describe("top-down · an account held in another currency", () => {
         ORDER BY as_of DESC LIMIT 1`,
       account!.id,
     )!;
+    // The rate as of the day being asked about, which is how a holding is
+    // converted too — not the rate of the day the figure was typed in.
+    const today = todayIST();
     const rate = queryOne<{ rate: number }>(
       db,
       `SELECT rate FROM fx_rates WHERE base = 'SGD' AND quote = 'INR' AND as_of <= ?
         ORDER BY as_of DESC LIMIT 1`,
-      valuation.as_of,
+      today,
     )!;
 
-    const statement = netWorthStatement(db);
+    const statement = netWorthStatement(db, today);
     const line = statement.assetGroups
       .flatMap((g) => g.lines)
       .find((l) => l.accountId === account!.id);
