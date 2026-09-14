@@ -25,6 +25,8 @@ export interface CardDue {
   funded: Paise;
   /** R6 · Of what it owes, how much has nothing behind it. */
   unfunded: Paise;
+  /** N7 · Why part of the shortfall has no spending behind it, or null. */
+  startingDebtNote?: string | null;
   /** The most recent statement, when one has been recorded. */
   statement: { amount: Paise; date: IsoDate; due: IsoDate; minimum: Paise | null } | null;
   /** Days until the statement's due date; negative once it has passed. */
@@ -157,6 +159,10 @@ function renderCard(card: CardDue, month: string): SafeHtml {
       ${when(card.unfunded > 0, () => html`
         <p class="notice notice-warning" style="margin-top:.75rem">
           ${formatPaise(card.unfunded)} of this balance has nothing behind it.
+          <!-- N7: ...and if the reason is that it came with the card, say so:
+               there is no spending to find, and looking for it is how a warning
+               becomes wallpaper. -->
+          ${when(card.startingDebtNote, () => html`${card.startingDebtNote!}`)}
           ${when(card.paymentCategoryId, () => html`
             <a href="/move?to=${card.paymentCategoryId}&amount=${(card.unfunded / 100).toFixed(2)}&month=${month}">Fund it</a>
           `)}

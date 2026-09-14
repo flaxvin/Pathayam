@@ -136,6 +136,18 @@ warning simply never goes away because the balance is not a transaction), or
 say so in the warning: "this came with the card and will not clear until you
 fund it".
 
+**Done, and the premise was half wrong.** It was never un-clearable: assigning
+₹6,200 to the card's payment envelope takes the shortfall to zero, and always
+did. What made it *look* permanent is that the warning pointed at the card's own
+page — the right place to find the spending behind a shortfall, and the wrong
+one when there is no spending to find, because the register there is empty.
+
+So `CardFunding` now reports `startingDebt`, all three wordings say *"it came
+with the card when you added it, so there is no spending to file — it clears
+when you put money in the envelope"*, and the digest links to the assignment
+that clears it rather than to the empty register. The card page's "Fund the
+shortfall" button also now names the envelope, which it never did.
+
 ## 6. Two controls for one idea: scope
 
 Most screens take their budget from the header switcher. Reports and Query have

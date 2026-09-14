@@ -213,6 +213,7 @@ import { renderFamilyLoans, renderFamilyLoan } from "./web/pages/family-loans.ts
 import {
   digestFor, mutedKinds, setMutedKinds, DIGEST_KINDS, type DigestKind,
 } from "./domain/digest.ts";
+import { cameWithTheCard } from "./domain/card-shortfall.ts";
 import {
   renderMonthClose, renderClosedMonths, renderDigest, renderDigestSettings,
   renderStatementIdentity, renderGmailConnection,
@@ -1605,9 +1606,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 balances.working,
                 funded,
                 view?.monthState.unfundedByAccount[account.id] ?? 0,
+                account.opening_balance,
               )
             : null,
         paymentCategoryName: paymentCategory?.name ?? null,
+        paymentCategoryId: paymentCategory?.id ?? null,
         lastStatement: (() => {
           if (account.kind !== "credit") return null;
           const st = lastCardStatement(db, account.id);
@@ -2777,6 +2780,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           outstanding.get(account.id) ?? 0,
           funded,
           view.monthState.unfundedByAccount[account.id] ?? 0,
+          account.opening_balance,
         );
         const statement = lastCardStatement(db, account.id);
 
@@ -2784,6 +2788,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           accountId: account.id,
           name: account.nickname || account.name,
           last4: account.last4,
+          startingDebtNote: cameWithTheCard(funding),
           owed: Math.max(0, -(outstanding.get(account.id) ?? 0)) as Paise,
           funded,
           unfunded: funding.unfunded,

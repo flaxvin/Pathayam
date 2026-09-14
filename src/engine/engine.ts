@@ -345,6 +345,16 @@ export interface CardFunding {
   funded: Paise;
   /** How much of the outstanding no envelope is covering. Never negative. */
   unfunded: Paise;
+  /**
+   * N7 · How much of what is owed arrived with the card.
+   *
+   * An opening balance is not a transaction — there is nothing in the register
+   * to file, so a household reading "₹6,200 has no envelope behind it" can look
+   * at the card, find no spending that accounts for it, and conclude the
+   * warning is broken. It is not: the money is owed and nothing is set aside.
+   * Saying where it came from is the difference between a warning and wallpaper.
+   */
+  startingDebt: Paise;
 }
 
 /**
@@ -365,6 +375,12 @@ export function cardFunding(
    * envelope and the debt move together, so comparing them always gives zero.
    */
   attributedOverspend: Paise = 0,
+  /**
+   * N7 · The balance the card was added with, so the shortfall can say which
+   * part of itself has no transaction behind it. Zero when the caller does not
+   * have it, which is every caller that does not word a warning.
+   */
+  openingBalance: Paise = 0,
 ): CardFunding {
   const owed = Math.max(0, -outstanding);
   const reallyFunded = paymentCategoryBalance - attributedOverspend;
@@ -372,6 +388,9 @@ export function cardFunding(
     accountId,
     outstanding,
     funded: paymentCategoryBalance,
+    // Bounded by the debt for B92's reason: a household can disprove a figure
+    // larger than the balance it describes, and that costs more than it buys.
+    startingDebt: Math.min(owed, Math.max(0, -openingBalance)),
     /*
      * B92 · Bounded by the debt itself. However the shortfall is arrived at, a
      * card cannot be short by more than it owes — and a figure larger than the
