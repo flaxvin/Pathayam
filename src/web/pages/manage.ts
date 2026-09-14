@@ -529,13 +529,20 @@ export function renderCategories(
               return html`
               <div style="padding:.6rem 0;border-top:1px solid var(--border)">
                 <div class="row-between">
-                  <form method="post" action="/categories/${c.id}/rename" class="row" style="flex:1;gap:.4rem">
-                    <!-- One box per category, so the label says which one. -->
-                    <label class="sr-only" for="cat-${c.id}">Rename ${c.name}</label>
-                    <input id="cat-${c.id}" name="name" value="${c.name}" style="max-width:18rem"
-                           ${raw(managed ? "readonly" : "")}>
-                    ${when(!managed, () => html`<button class="button-small" type="submit">Rename</button>`)}
-                  </form>
+                  ${managed
+                    // B58 · An app-managed envelope cannot be renamed, so it is
+                    // a name rather than a form: a read-only box inside a form
+                    // with no button is a control that looks like one and is
+                    // not, which is the only thing worse than no control.
+                    ? html`<span style="flex:1">${c.name}</span>`
+                    : html`
+                      <form method="post" action="/categories/${c.id}/rename" class="row" style="flex:1;gap:.4rem">
+                        <!-- One box per category, so the label says which one. -->
+                        <label class="sr-only" for="cat-${c.id}">Rename ${c.name}</label>
+                        <input id="cat-${c.id}" name="name" value="${c.name}" style="max-width:18rem">
+                        <button class="button-small" type="submit">Rename</button>
+                      </form>
+                    `}
                   ${reorder(`/categories/${c.id}/reorder`, ci === 0, ci === g.categories.length - 1)}
                   <span class="amount">${formatPaise(c.balance)}</span>
                 </div>
