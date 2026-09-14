@@ -162,6 +162,15 @@ looking nothing alike. Somebody who learns one does not find the other.
 reports dropdown could be the same component with an extra "Everything" option
 on the screens that allow it.
 
+**Done, exactly that.** `src/web/scope-switch.ts` is the one component; the
+header, Reports and Query all render it, and the extra scope is an extra pill
+rather than an extra kind of control. `16`'s behaviour is untouched. Two things
+fell out of it: the dropdown submitted itself with a script and so did nothing
+without one, where links need nothing; and the CSV export was dropping the
+account and category filters, so "export" answered a different question from the
+screen it sat under — the scope pills needed the whole filter in a link, and
+fixing that fixed the export too.
+
 ## 7. What the top-down scenario still does not do
 
 Worth writing down so it is a decision rather than an oversight:

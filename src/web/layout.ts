@@ -14,6 +14,7 @@ import { html, raw, escape, when, type SafeHtml } from "../http/html.ts";
 import { CLIENT_SCRIPT } from "./client.ts";
 import { STYLESHEET } from "./styles.ts";
 import { ICON_BACKGROUND, APP_LOGO_SVG } from "./icon.ts";
+import { renderScopeSwitch, scopeName } from "./scope-switch.ts";
 
 /**
  * Content-hash the client assets so their URLs change when they change. Without
@@ -219,27 +220,13 @@ function renderHeader(
         Here it is in the header, which is on every screen at every width, and
         hidden on desktop where the sidebar already carries it.
       -->
-      ${when(budgets.length > 1 && honoursBudget(path), () => html`
-        <nav class="budget-switch" aria-label="Which budget">
-          ${budgets.map(
-            (b) => html`
-              <a href="${path || "/"}?budget=${encodeURIComponent(b.id)}"
-                 ${raw(b.id === currentBudgetId ? 'aria-current="true"' : "")}>
-                <!--
-                  A2 · A word and a mark, never colour alone — the same ● and ○
-                  the sidebar uses. It also tells these apart from the member
-                  link at the other end of the header, which on a phone is the
-                  same name twice: one meaning "whose money" and one meaning
-                  "who you are".
-                -->
-                <span aria-hidden="true">${b.id === currentBudgetId ? "●" : "○"}</span>
-                ${b.kind === "household" ? "Household" : b.name}
-                ${when(b.id === currentBudgetId, () => html`<span class="sr-only">(selected)</span>`)}
-              </a>
-            `,
-          )}
-        </nav>
-      `)}
+      ${when(budgets.length > 1 && honoursBudget(path), () => renderScopeSwitch({
+        budgets,
+        current: currentBudgetId,
+        href: (id) => `${path || "/"}?budget=${encodeURIComponent(id)}`,
+        label: "Which budget",
+        className: "budget-switch scope-switch",
+      }))}
       <span class="spacer"></span>
       <!--
         Adding a transaction is the one thing a household does every day, and it
@@ -383,7 +370,7 @@ function renderSidebar(
                ${raw(b.id === currentBudgetId ? 'aria-current="true"' : "")}>
               <!-- A2 · A word and a mark, never colour alone. -->
               <span class="nav-icon" aria-hidden="true">${b.id === currentBudgetId ? "●" : "○"}</span>
-              <span>${b.kind === "household" ? "Household" : b.name}</span>
+              <span>${scopeName(b)}</span>
               ${when(b.id === currentBudgetId, () => html`<span class="sr-only">(selected)</span>`)}
             </a>
           `,

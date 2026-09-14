@@ -77,7 +77,9 @@ describe("B116 · a phone can reach everything the sidebar offers", () => {
     // every width. Both are driven by the same honoursBudget(path) test, so they
     // appear and disappear together.
     assert.ok(
-      layout.includes('class="budget-switch"'),
+      // N6 · One component, two places: the header's copy carries the extra
+      // class that keeps it inside a phone header and off a desktop one.
+      layout.includes('"budget-switch scope-switch"'),
       "the header has no budget switcher, so a phone cannot change budget",
     );
     const header = layout.slice(
