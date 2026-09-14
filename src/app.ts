@@ -2938,10 +2938,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
          */
         proposedRules: queryAll<{
           id: string; name: string; because: string | null; actions_json: string;
+          strength: number | null;
         }>(
           db,
-          `SELECT id, name, because, actions_json FROM rules
-            WHERE proposed = 1 AND dismissed_at IS NULL`,
+          `SELECT id, name, because, strength, actions_json FROM rules
+            WHERE proposed = 1 AND dismissed_at IS NULL
+            ORDER BY strength IS NULL, strength DESC, created_at DESC`,
         ).filter((rule) => {
           const targets = (JSON.parse(rule.actions_json) as { categoryId?: string }[])
             .map((a) => a.categoryId)
@@ -4534,9 +4536,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return queryAll<{
       id: string; name: string; stage: string; conditions_json: string;
       actions_json: string; enabled: number; times_applied: number; because: string | null;
+      strength: number | null;
     }>(
       db2,
-      `SELECT * FROM rules WHERE proposed = ? AND dismissed_at IS NULL ORDER BY created_at DESC`,
+      // N9 · Strongest evidence first, so the handful that is shown is the
+      // handful worth reading. Hand-written rules have no count and keep their
+      // own order, newest first.
+      `SELECT * FROM rules WHERE proposed = ? AND dismissed_at IS NULL
+        ORDER BY strength IS NULL, strength DESC, created_at DESC`,
       proposed ? 1 : 0,
     ).map((r) => ({
       id: r.id, name: r.name, stage: r.stage as Rule["stage"], match: "all",
@@ -4544,6 +4551,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       actions: JSON.parse(r.actions_json) as Rule["actions"],
       enabled: r.enabled === 1,
       because: r.because,
+      strength: r.strength,
       timesApplied: r.times_applied,
     }));
   }

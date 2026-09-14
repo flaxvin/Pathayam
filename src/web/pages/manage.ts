@@ -177,6 +177,66 @@ export interface RuleRow extends Rule {
   timesApplied: number;
   /** N9 · What the app inferred it from, for a proposal. Null for hand-written rules. */
   because?: string | null;
+  /** N9 · How many times the app saw the pattern. Null for hand-written rules. */
+  strength?: number | null;
+}
+
+// ---------------------------------------------------------------------------
+// N9 · A proposal list, strongest first
+// ---------------------------------------------------------------------------
+
+/**
+ * Three years of filing produces forty-three proposals, and shown flat they are
+ * not a list but a wall: every one individually reasonable, collectively
+ * unusable, and the eye stops at four. One seen thirty-six times and one seen
+ * three were the same size on the screen and in no particular order.
+ *
+ * So: the strongest handful, in the order the evidence puts them, and the rest
+ * behind a number. The count is on the rule row, where a query can reach it.
+ */
+const PROPOSALS_SHOWN = 6;
+
+export interface ProposedRule {
+  id: string;
+  name: string;
+  because?: string | null;
+  strength?: number | null;
+}
+
+export function renderProposals(proposals: ProposedRule[]): SafeHtml {
+  const ranked = [...proposals].sort(
+    (a, b) => (b.strength ?? 0) - (a.strength ?? 0) || a.name.localeCompare(b.name),
+  );
+  const rest = ranked.slice(PROPOSALS_SHOWN);
+  return html`
+    ${ranked.slice(0, PROPOSALS_SHOWN).map(proposalRow)}
+    ${when(rest.length > 0, () => html`
+      <details style="border-top:1px solid var(--border)">
+        <summary style="padding:.75rem 0;cursor:pointer">
+          ${rest.length} more, seen fewer times
+        </summary>
+        ${rest.map(proposalRow)}
+      </details>
+    `)}
+  `;
+}
+
+function proposalRow(r: ProposedRule): SafeHtml {
+  return html`
+    <form method="post" action="/rules/confirm"
+          class="row-between" style="padding:.5rem 0;border-top:1px solid var(--border)">
+      <input type="hidden" name="rule_id" value="${r.id}">
+      <span>
+        ${r.name}
+        <!-- N9: state what it was inferred from, never just the conclusion. -->
+        ${when(r.because, () => html`<div class="faint">${r.because}</div>`)}
+      </span>
+      <span class="row">
+        <button class="button-small button-primary" type="submit">Use it</button>
+        <button class="button-small" type="submit" formaction="/rules/dismiss">No thanks</button>
+      </span>
+    </form>
+  `;
 }
 
 export function renderRules(opts: {
@@ -201,22 +261,7 @@ export function renderRules(opts: {
     ${when(opts.proposed.length > 0, () => html`
       <section class="card">
         <h2>Proposed from what you've been doing <span class="chip">${opts.proposed.length}</span></h2>
-        ${opts.proposed.map(
-          (r) => html`
-            <form method="post" action="/rules/confirm"
-                  class="row-between" style="padding:.5rem 0;border-top:1px solid var(--border)">
-              <input type="hidden" name="rule_id" value="${r.id}">
-              <span>
-                ${r.name}
-                ${when(r.because, () => html`<div class="faint">${r.because}</div>`)}
-              </span>
-              <span class="row">
-                <button class="button-small button-primary" type="submit">Use it</button>
-                <button class="button-small" type="submit" formaction="/rules/dismiss">No thanks</button>
-              </span>
-            </form>
-          `,
-        )}
+        ${renderProposals(opts.proposed)}
       </section>
     `)}
 
