@@ -4552,11 +4552,28 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     draft?: Parameters<typeof renderRules>[0]["draft"],
   ) {
     const view = buildBudgetView(db, undefined, undefined, viewer(ctx));
+    /*
+     * 15 · The same rule as the review queue: a rule about an envelope you
+     * cannot see is not yours to read, and a proposal states its evidence —
+     * "You've put Zomato in Going out 4 times" — which gives away the envelope's
+     * name, what goes in it and how often. Both lists, because a saved rule
+     * discloses exactly as much as a proposed one.
+     */
+    const mine = new Set(view.categories.keys());
+    const visibleRule = (rule: RuleRow): boolean =>
+      rule.actions.every((action) => {
+        if (action.type === "setCategory") return mine.has(action.categoryId);
+        if (action.type === "splitFixed") {
+          return action.parts.every((part) => mine.has(part.categoryId));
+        }
+        return true;
+      });
+
     return render(
       ctx, "Rules",
       renderRules({
-        rules: ruleRows(db, false),
-        proposed: ruleRows(db, true),
+        rules: ruleRows(db, false).filter(visibleRule),
+        proposed: ruleRows(db, true).filter(visibleRule),
         categories: [...view.categories.values()]
           .filter((c) => !c.isPaymentCategory && !c.hidden)
           .map((c) => ({ id: c.id, name: c.name })),

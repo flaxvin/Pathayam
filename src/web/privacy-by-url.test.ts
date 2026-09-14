@@ -444,7 +444,7 @@ describe("15 · an envelope you were not offered is one you may not use", () => 
  * was still talking.
  */
 describe("15 · a rule proposal is not offered to somebody who cannot see its envelope", () => {
-  test("the review queue keeps it to the holder", async () => {
+  test("neither the review queue nor the rules screen shows it", async () => {
     const db = freshDb();
     seedMember(db, RAVI, "Ravi");
     seedMember(db, PRIYA, "Priya");
@@ -468,8 +468,13 @@ describe("15 · a rule proposal is not offered to somebody who cannot see its en
 
     const hers = await startTestApp(db, { memberId: PRIYA });
     try {
-      const body = await (await hers.get("/review")).text();
-      assert.ok(!body.includes("Unmistakably Private"), "Priya is shown the envelope's name");
+      for (const path of ["/review", "/rules"]) {
+        const body = await (await hers.get(path)).text();
+        assert.ok(
+          !body.includes("Unmistakably Private"),
+          `${path} shows Priya the name of an envelope in Ravi's own budget`,
+        );
+      }
       assert.deepEqual(hers.failures, []);
     } finally {
       await hers.close();
@@ -477,8 +482,10 @@ describe("15 · a rule proposal is not offered to somebody who cannot see its en
 
     const mine = await startTestApp(db, { memberId: RAVI });
     try {
-      const body = await (await mine.get("/review")).text();
-      assert.ok(body.includes("Unmistakably Private"), "and Ravi is not offered his own");
+      for (const path of ["/review", "/rules"]) {
+        const body = await (await mine.get(path)).text();
+        assert.ok(body.includes("Unmistakably Private"), `${path} hides Ravi's own from Ravi`);
+      }
     } finally {
       await mine.close();
     }
