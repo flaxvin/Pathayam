@@ -13,6 +13,7 @@
  */
 
 import type { DB } from "../db/db.ts";
+import { budgetsFor } from "./budgets.ts";
 import { queryAll } from "../db/db.ts";
 import type { Paise } from "../core/money.ts";
 import { formatPaise } from "../core/money.ts";
@@ -39,7 +40,19 @@ const MIN_ABSOLUTE: Paise = 100_000 as Paise; // ₹1,000
 
 interface Row { month: string; category_id: string; name: string; spent: number }
 
-function monthlySpendByCategory(db: DB, fromMonth: MonthKey): Row[] {
+function monthlySpendByCategory(
+  db: DB, fromMonth: MonthKey, viewerMemberId?: string | null,
+): Row[] {
+  /*
+   * 15 · Insights are sentences about envelopes — "Qwertyuiop Envelope is new
+   * this month", "Groceries is 34% below its three-month average" — and they
+   * appeared on Overview and Reports for every budget at once. The name of an
+   * envelope in somebody else's budget, and what they spent from it, read out
+   * in a sentence on the first screen of the app.
+   */
+  const visible = viewerMemberId === undefined
+    ? null
+    : budgetsFor(db, viewerMemberId ?? null).map((b) => b.id);
   // The same split-aware line set the trend uses, grouped by category and month.
   return queryAll<Row>(
     db,
@@ -56,9 +69,10 @@ function monthlySpendByCategory(db: DB, fromMonth: MonthKey): Row[] {
        FROM lines l JOIN categories c ON c.id = l.category_id
       WHERE l.date >= ? AND l.amount < 0 AND c.deleted_at IS NULL
         AND c.payment_account_id IS NULL
+        ${visible ? `AND (c.budget_id IS NULL OR c.budget_id IN (${visible.map(() => "?").join(",")}))` : ""}
       GROUP BY month, l.category_id
       HAVING spent > 0`,
-    `${fromMonth}-01`,
+    `${fromMonth}-01`, ...(visible ?? []),
   );
 }
 
@@ -70,13 +84,13 @@ function monthlySpendByCategory(db: DB, fromMonth: MonthKey): Row[] {
  * 35% jump on rent. `limit` caps the list; 0 means all.
  */
 export function spendingInsights(
-  db: DB, today: IsoDate = todayIST(), limit = 6,
+  db: DB, today: IsoDate = todayIST(), limit = 6, viewerMemberId?: string | null,
 ): Insight[] {
   const thisMonth = monthOf(today);
   const priorMonths = [1, 2, 3].map((n) => addMonths(thisMonth, -n));
   const fromMonth = priorMonths[2]!;
 
-  const rows = monthlySpendByCategory(db, fromMonth);
+  const rows = monthlySpendByCategory(db, fromMonth, viewerMemberId);
 
   // category -> month -> spent
   const byCat = new Map<string, { name: string; months: Map<string, number> }>();
