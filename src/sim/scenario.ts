@@ -77,6 +77,20 @@ import { ensureCommitmentEnvelope, prepareClaim } from "../domain/commitments.ts
 import { callItEven, ensureGivenUpCategory } from "../domain/squaring-up.ts";
 import { describeDeparture, settleDeparture } from "../domain/departure.ts";
 import { setMutedKinds } from "../domain/digest.ts";
+import {
+  parseDelimited, guessMapping, applyMapping, headerSignature, type RawRecord,
+} from "../import/csv.ts";
+import {
+  ingest, listStaged, approveStaged, rejectStaged, mergeStaged, undoBatch,
+} from "../import/pipeline.ts";
+import { saveProfile, markProfileUsed, deleteProfile } from "../import/profiles.ts";
+import {
+  proposeCategoryRules, proposePayeeRule, suppress, setLearningEnabled,
+  previewRetroactive, applyRetroactive,
+} from "../import/learning.ts";
+import type { RuleStage } from "../import/rules.ts";
+import { planCasImport, applyCasPlan } from "../import/cas-plan.ts";
+import { setIdentity, clearIdentity } from "../import/identity.ts";
 import { loadEngineInput } from "../engine/repository.ts";
 import { computeBudget } from "../engine/engine.ts";
 import { units as toUnits, price as toPrice } from "../portfolio/holdings.ts";
@@ -642,6 +656,86 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
       }));
     }
 
+    /*
+     * ------------------------------------------------------- the statement
+     *
+     * Money does not only arrive by being typed. Once a quarter the bank's CSV
+     * is imported the way a household actually does it: parse, guess the
+     * columns, ingest, and then work the review queue — approve most, file one
+     * by hand, merge a duplicate that was already entered, and dismiss a row
+     * that was somebody else's.
+     *
+     * `04` §1's whole pipeline lives here and nothing else in this scenario
+     * touched it: the parser, the mapping guess, the duplicate tiers, the rules
+     * and the queue were exercised by unit tests alone, against fixtures, never
+     * against three years of a household's own ledger.
+     */
+    if (ix % 3 === 2 && ix > 3) {
+      const rows: string[][] = [["Date", "Narration", "Debit", "Credit", "Ref"]];
+      const line = (d: number, narration: string, debit: number, ref: string) =>
+        rows.push([day(month, d).split("-").reverse().join("-"), narration,
+                   debit > 0 ? debit.toFixed(2) : "", debit < 0 ? (-debit).toFixed(2) : "", ref]);
+
+      line(4, "UPI/DMART/4471920/GROCERY", tidy(between(1_800, 4_200)), `R${ix}01`);
+      line(7, "UPI/BESCOM/BILLPAY/8830", tidy(between(900, 2_600)), `R${ix}02`);
+      line(12, "NEFT/LANDLORD/RENT", 0.01, `R${ix}03`);
+      /*
+       * `04` §4's own example: the same order arrives twice, once because
+       * somebody typed it and once because the bank put it on the statement.
+       * Without one of these the review queue never has a duplicate in it, and
+       * the tiers, the merge and the "two people at the same restaurant" case
+       * are exercised by fixtures alone.
+       */
+      const alsoTyped = tidy(between(300, 900));
+      spend(acc.savings, cat("Eating out"), alsoTyped, "Swiggy", day(month, 17));
+      line(17, "UPI/SWIGGY/ORDER/99213", alsoTyped, `R${ix}04`);
+      line(21, "IMPS/CREDIT/REFUND", -tidy(between(200, 1_400)), `R${ix}05`);
+
+      const mapping = did("guessMapping", () => guessMapping(rows));
+      if (mapping) {
+        const parsed = did("applyMapping", () => applyMapping(rows, mapping));
+        // The household teaches the app this layout once, and it is recognised
+        // every quarter after (F6.4).
+        if (ix === 5) {
+          const profile = did("saveProfile", () => saveProfile(db, actor, {
+            name: "HDFC statement", accountId: acc.savings,
+            headers: rows[0]!, mapping,
+          }));
+          did("markProfileUsed", () => markProfileUsed(db, profile.id));
+        }
+
+        const result = did("ingest", () => ingest(db, actor, {
+          accountId: acc.savings, source: "csv", adapter: "hdfc",
+          fileName: `hdfc-${month}.csv`, records: parsed.records,
+          errors: parsed.errors, rowsRead: rows.length - 1,
+        }));
+        void result;
+
+        // Work the queue the way a person does.
+        // "pending" is what the column actually says; "staged" is the table's name.
+        const queue = listStaged(db).filter((r) => r.status === "pending");
+        queue.forEach((row, n) => {
+          if (row.duplicate_of_id) {
+            did("mergeStaged", () => mergeStaged(db, actor, row.id));
+          } else if (n === queue.length - 1) {
+            did("rejectStaged", () => rejectStaged(db, actor, row.id, "not ours"));
+          } else {
+            did("approveStaged", () => approveStaged(db, actor, row.id, {
+              categoryId: row.amount < 0 ? cat("Groceries") : null,
+            }));
+          }
+        });
+      }
+    }
+
+    // Once, the whole batch was a mistake and went back out again.
+    if (ix === 14) {
+      const batch = queryOne<{ id: string }>(
+        db, `SELECT id FROM import_batches ORDER BY created_at DESC LIMIT 1`,
+      );
+      if (batch) did("undoBatch", () => undoBatch(db, actor, batch.id));
+    }
+
     // ------------------------------------------------------------ transfers
     if (live(2)) {
       did("createTransfer", () => createTransfer(db, actor, {
@@ -1114,6 +1208,85 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
 
     monthsBuilt.push(month);
     opts.afterMonth?.(month, ix);
+  });
+
+  /*
+   * The registrar's consolidated statement, once.
+   *
+   * `07` R24: a CAS is how an Indian household's fund history actually arrives —
+   * every scheme, every purchase, from the registrar rather than typed. The
+   * planner matches by ISIN, skips what is already recorded, and reports what it
+   * would add before anything is written.
+   */
+  {
+    const casMonth = months[Math.min(31, MONTHS - 2)]!;
+    const plan = did("planCasImport", () => planCasImport(db, {
+      period: { from: `${months[28]!}-01`, to: `${casMonth}-28` },
+      unparsed: [],
+      schemes: [{
+        amc: "PPFAS Mutual Fund", folio: "9911223/44",
+        name: "Parag Parikh Flexi Cap Fund - Direct Plan - Growth",
+        isin: "INF879O01019", registrar: "CAMS",
+        closingUnits: null, closingValue: null, closingNav: null,
+        rows: [
+          {
+            date: `${casMonth}-06`, kind: "purchase", description: "Systematic Investment",
+            amount: rupees(5_000) as Paise, units: 62_000, nav: toPrice(80.6),
+            raw: "SIP 5,000.00 62.000 80.60",
+          },
+        ],
+      }],
+    }, demat.id));
+    if (plan.schemes.length > 0) {
+      did("applyCasPlan", () => applyCasPlan(db, actor, plan, [0]));
+    }
+  }
+
+  /*
+   * The statement identity, which is what a bank's PDF password is built from
+   * (`04` §3.5). Invented, like everything else in this file: no real PAN, date
+   * of birth or number appears anywhere in this repository.
+   */
+  did("setIdentity", () => setIdentity(db, actor, {
+    // DDMMYYYY, which is what a bank asks for and what the password is built from.
+    name: "Ravi Menon", pan: "ABCDE1234F", dob: "01011990", mobile: "9000000000",
+  }));
+  did("clearIdentity", () => clearIdentity(db, actor));
+
+  /*
+   * What the app learned from three years of filing.
+   *
+   * `04` §6: rules are proposed from what the household actually did, never
+   * invented. By month thirty-six the same payees have been filed the same way
+   * often enough for the proposals to mean something — which is the only state
+   * this code is ever really in, and the one no fixture had it in.
+   */
+  did("setLearningEnabled", () => setLearningEnabled(db, actor, true));
+  const proposals = did("proposeCategoryRules", () => proposeCategoryRules(db, actor));
+  did("proposePayeeRule", () => proposePayeeRule(db, actor, {
+    rawNarration: "UPI/DMART/4471920/GROCERY", cleanName: "DMart",
+  }));
+  if (proposals.length > 0) {
+    // One is taken and applied backwards; one is told to stop asking.
+    const rule = queryOne<{
+      id: string; name: string; stage: string; conditions_json: string; actions_json: string;
+    }>(db, `SELECT * FROM rules WHERE proposed = 1 ORDER BY created_at LIMIT 1`);
+    if (rule) {
+      const shaped = {
+        id: rule.id, name: rule.name, stage: rule.stage as RuleStage,
+        match: "all" as const,
+        conditions: JSON.parse(rule.conditions_json),
+        actions: JSON.parse(rule.actions_json),
+        enabled: true, timesApplied: 0,
+      };
+      did("previewRetroactive", () => previewRetroactive(db, shaped));
+      did("applyRetroactive", () => applyRetroactive(db, actor, shaped));
+    }
+    did("suppress", () => suppress(db, "rule", proposals.at(-1)!.name, ravi.id));
+  }
+  did("deleteProfile", () => {
+    const profile = queryOne<{ id: string }>(db, `SELECT id FROM import_profiles LIMIT 1`);
+    if (profile) deleteProfile(db, actor, profile.id);
   });
 
   // A loan settled early, with the lender's charge (R19.5).
