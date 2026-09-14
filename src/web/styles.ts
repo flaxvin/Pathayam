@@ -331,14 +331,15 @@ main { padding: 1rem; max-width: 1200px; margin: 0 auto; }
  * Hidden from 900px up, where the sidebar carries it and two of them would be
  * two controls for one choice.
  */
-.budget-switch {
-  display: flex; gap: .25rem; margin-left: .6rem;
-  /* It is the point of the header on a phone, so it does not give up its
-     width to anything else: the brand and the member name shrink first. */
-  flex: 0 1 auto; min-width: 0; overflow-x: auto; scrollbar-width: none;
-}
-.budget-switch::-webkit-scrollbar { display: none; }
-.budget-switch a {
+/*
+ * N6 · One control for "whose money am I looking at", wherever it appears.
+ *
+ * The header and sidebar had a row of pills; Reports and Query asked the same
+ * question with a dropdown, in a card, in different words. Same component now,
+ * with one extra pill on the screens that offer every scope at once.
+ */
+.scope-switch { display: flex; gap: .25rem; flex-wrap: wrap; }
+.scope-switch a {
   display: inline-flex; align-items: center; gap: .3rem; flex: 0 0 auto; min-height: 34px;
   padding: 0 .55rem; border-radius: var(--radius);
   border: 1px solid var(--chrome-border); background: var(--surface);
@@ -346,10 +347,20 @@ main { padding: 1rem; max-width: 1200px; margin: 0 auto; }
   font-size: .8rem; white-space: nowrap; max-width: 10rem;
   overflow: hidden; text-overflow: ellipsis;
 }
-.budget-switch a[aria-current="true"] {
+.scope-switch a[aria-current="true"] {
   background: var(--accent-soft); color: var(--accent);
   border-color: var(--accent); font-weight: 600;
 }
+
+/* The header's copy of it, which has a phone's constraints to live under. */
+.budget-switch {
+  margin-left: .6rem;
+  /* It is the point of the header on a phone, so it does not give up its
+     width to anything else: the brand and the member name shrink first. */
+  flex: 0 1 auto; min-width: 0; flex-wrap: nowrap;
+  overflow-x: auto; scrollbar-width: none;
+}
+.budget-switch::-webkit-scrollbar { display: none; }
 @media (min-width: 900px) { .budget-switch { display: none; } }
 
 /*

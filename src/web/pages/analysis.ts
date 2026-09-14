@@ -12,6 +12,7 @@ import { html, raw, when, type SafeHtml } from "../../http/html.ts";
 import type { GainsYear } from "../../domain/reports.ts";
 import { formatPaise, formatCompact, type Paise } from "../../core/money.ts";
 import { formatDate, formatMonth, type IsoDate, type MonthKey } from "../../core/dates.ts";
+import { renderScopeSwitch } from "../scope-switch.ts";
 import type { QueryRow, GroupedTotal, GroupBy, Period, TrendPoint } from "../../domain/reports.ts";
 import type { Schedule, DetectedSchedule, Cashflow, CalendarDay } from "../../domain/schedules.ts";
 import type { GoalProgress } from "../../domain/goals.ts";
@@ -70,6 +71,25 @@ export function renderQuery(opts: QueryOptions): SafeHtml {
       <a class="button button-small" href="/query.csv${filterQueryString(opts)}">Export CSV</a>
     </div>
 
+    ${when((opts.budgets ?? []).length > 1, () => html`
+      <!--
+        16 · This screen offers every scope rather than picking one. "What did we
+        spend on groceries", "what did I spend" and "what did all of it come to"
+        are three questions, and answering only one of them silently would be
+        wrong twice as often as it was right.
+      -->
+      <div class="row" style="align-items:center;gap:.5rem;margin-bottom:.75rem;flex-wrap:wrap">
+        <span class="faint">Whose money</span>
+        ${renderScopeSwitch({
+          budgets: opts.budgets ?? [],
+          current: opts.scope ?? "all",
+          href: (scope) => `/query${filterQueryString(opts, scope)}`,
+          everything: true,
+          label: "Whose money",
+        })}
+      </div>
+    `)}
+
     <form method="get" action="/query" class="card">
       <div class="grid-2">
         <div class="field">
@@ -84,29 +104,13 @@ export function renderQuery(opts: QueryOptions): SafeHtml {
             )}
           </select>
         </div>
-        ${when((opts.budgets ?? []).length > 1, () => html`
-          <!--
-            16 · Reports offer every scope rather than picking one. "What did we
-            spend on groceries", "what did I spend" and "what did all of it come
-            to" are three questions, and answering only one of them silently
-            would be wrong twice as often as it was right.
-          -->
-          <div class="field">
-            <label for="scope">Whose money</label>
-            <select id="scope" name="scope">
-              <option value="all" ${raw(!opts.scope || opts.scope === "all" ? "selected" : "")}>
-                Everything
-              </option>
-              ${(opts.budgets ?? []).map(
-                (b) => html`
-                  <option value="${b.id}" ${raw(b.id === opts.scope ? "selected" : "")}>
-                    ${b.kind === "household" ? "The household's" : `${b.name}'s`}
-                  </option>
-                `,
-              )}
-            </select>
-          </div>
-        `)}
+        <!--
+          N6 · Scope is above the form, in the same pills the header uses, rather
+          than a dropdown among the filters. It stays part of the filter all the
+          same: each pill carries the current query, so changing whose money you
+          are looking at does not throw away what you were asking.
+        -->
+        <input type="hidden" name="scope" value="${opts.scope ?? "all"}">
         <div class="field">
           <label for="group_by">Group by</label>
           <select id="group_by" name="group_by">
@@ -265,10 +269,24 @@ function renderGroupRow(group: GroupedTotal, opts: QueryOptions): SafeHtml {
   `;
 }
 
-function filterQueryString(opts: QueryOptions): string {
+/**
+ * The current question as a query string, so a link can carry it: the CSV
+ * export, and each pill of the scope switch.
+ *
+ * `scope` can be overridden, which is what makes the switch a switch — every
+ * other part of the filter travels with it rather than being thrown away.
+ */
+function filterQueryString(opts: QueryOptions, scope = opts.scope): string {
   const params = new URLSearchParams({ period: opts.period.key, group_by: opts.groupBy });
   if (opts.text) params.set("q", opts.text);
-  if (opts.scope && opts.scope !== "all") params.set("scope", opts.scope);
+  if (scope && scope !== "all") params.set("scope", scope);
+  /*
+   * These were missing, so "Export CSV" answered a different question from the
+   * screen it sat on: filter to one account, export, and the file had every
+   * account in it.
+   */
+  if (opts.selectedAccounts[0]) params.set("account", opts.selectedAccounts[0]);
+  if (opts.selectedCategories[0]) params.set("category", opts.selectedCategories[0]);
   return `?${params}`;
 }
 
@@ -313,25 +331,25 @@ export function renderReports(opts: {
     </p>
 
     ${when((opts.budgets ?? []).length > 1, () => html`
-      <form method="get" action="/reports" class="card">
-        <div class="field" style="margin:0">
-          <label for="report-scope">Whose money these are about</label>
-          <select id="report-scope" name="scope" onchange="this.form.submit()">
-            <option value="all" ${raw(!opts.scope || opts.scope === "all" ? "selected" : "")}>
-              Everything
-            </option>
-            ${(opts.budgets ?? []).map(
-              (b) => html`
-                <option value="${b.id}" ${raw(b.id === opts.scope ? "selected" : "")}>
-                  ${b.kind === "household" ? "The household's" : `${b.name}'s`}
-                </option>
-              `,
-            )}
-          </select>
-          <input type="hidden" name="period" value="${opts.period.key}">
-          <noscript><button class="button-small" type="submit">Apply</button></noscript>
-        </div>
-      </form>
+      <!--
+        N6 · The same control the header carries, with one extra pill. It was a
+        dropdown in a card in different words — "The household's" where the
+        header says "Household" — which is two controls for one question, and
+        somebody who learned one did not find the other. It also submitted
+        itself with a script, so it did nothing at all without one.
+      -->
+      <section class="card">
+        <div class="faint" style="margin-bottom:.4rem">Whose money these are about</div>
+        ${renderScopeSwitch({
+          budgets: opts.budgets ?? [],
+          current: opts.scope ?? "all",
+          href: (scope) =>
+            `/reports?period=${encodeURIComponent(opts.period.key)}`
+            + (scope === "all" ? "" : `&scope=${encodeURIComponent(scope)}`),
+          everything: true,
+          label: "Whose money these are about",
+        })}
+      </section>
     `)}
 
     ${when(opts.insights.length > 0, () => html`
