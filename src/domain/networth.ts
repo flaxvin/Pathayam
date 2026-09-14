@@ -27,7 +27,7 @@ import { listLoans, projectLoan } from "./loans.ts";
 import { familyLoanNetWorth } from "./family-loans.ts";
 import { SIMPLE_TRACKING_SUBTYPES, hiddenAccountIds, type HolderScope } from "./accounts.ts";
 import {
-  listAssetAccounts, listHoldings, viewHolding, latestValuation, ASSET_LABELS,
+  listAssetAccounts, listHoldings, viewHolding, valuationInBase, ASSET_LABELS,
   ASSET_CLASS_LABELS,
   type AssetSubtype, type AssetClass,
 } from "./assets.ts";
@@ -125,8 +125,9 @@ export function netWorthStatement(
       continue;
     }
 
-    // A manually valued asset — R23.2's dated history, not a mutable number.
-    const valuation = latestValuation(db, account.id, asOf);
+    // A manually valued asset — R23.2's dated history, not a mutable number,
+    // and R32's currency: an account worth $40,000 is not worth ₹40,000.
+    const valuation = valuationInBase(db, account, asOf, baseCurrency);
     if (!valuation) continue;
     otherAssetLines.push({
       label: `${account.name} (${ASSET_LABELS[account.subtype as AssetSubtype] ?? account.subtype})`,
@@ -510,12 +511,16 @@ export function assetAllocation(
   // Manually-valued asset accounts. Their subtype fixes the class.
   for (const account of listAssetAccounts(db)) {
     if (listHoldings(db, account.id).length > 0) continue; // a unit account, counted above
-    const valuation = latestValuation(db, account.id, asOf);
+    // R32 · In the base currency, like every other line in this total. The
+    // slice is still labelled with the account's own currency — that is the
+    // question "by currency" asks — but the share it takes of the whole is
+    // arithmetic, and arithmetic needs one unit.
+    const valuation = valuationInBase(db, account, asOf, baseCurrency);
     if (!valuation || valuation.value <= 0) continue;
 
     addClassified(
       SUBTYPE_CLASS[account.subtype as AssetSubtype] ?? "other",
-      account.currency === "INR" ? "domestic" : "international",
+      account.currency === baseCurrency ? "domestic" : "international",
       account.currency,
       valuation.value,
     );

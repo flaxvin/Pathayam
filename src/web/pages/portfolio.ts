@@ -289,6 +289,8 @@ export function renderValuations(opts: {
   assets: {
     id: string; name: string; subtype: string;
     value: Paise; asOf: IsoDate | null; stale: boolean; valued: boolean;
+    /** R32 · The currency the number is in, when it is not the base one. */
+    currency?: string;
   }[];
   today: IsoDate;
 }): SafeHtml {
@@ -333,7 +335,12 @@ export function renderValuations(opts: {
               </div>
               <div class="row" style="gap:.5rem;align-items:flex-end">
                 <div class="field" style="margin:0">
-                  <label style="font-size:.75rem" for="val-${a.id}">Worth now</label>
+                  <!-- R32 · Whose unit. Net worth converts a foreign account at
+                       the dated rate, so the number typed here has to be in the
+                       account's own currency and the label has to say so. -->
+                  <label style="font-size:.75rem" for="val-${a.id}">
+                    Worth now${when(a.currency && a.currency !== "INR", () => html` (${a.currency})`)}
+                  </label>
                   <input id="val-${a.id}" name="value-${a.id}" class="amount-input"
                          type="text" inputmode="decimal" autocomplete="off"
                          style="max-width:9rem" placeholder="leave blank to skip">
@@ -355,7 +362,7 @@ export function renderValuations(opts: {
 }
 
 export function renderRevalueAsset(opts: {
-  asset: { id: string; name: string; value: Paise; asOf: IsoDate };
+  asset: { id: string; name: string; value: Paise; asOf: IsoDate; currency?: string };
   today: IsoDate;
 }): SafeHtml {
   return html`
@@ -368,7 +375,11 @@ export function renderRevalueAsset(opts: {
     <form method="post" action="/portfolio/asset/${opts.asset.id}/revalue" class="card">
       <div class="grid-2">
         <div class="field">
-          <label for="value">New value</label>
+          <!-- R32 · In the account's own currency; net worth converts it. -->
+          <label for="value">
+            New value${when(opts.asset.currency && opts.asset.currency !== "INR",
+                            () => html` (${opts.asset.currency})`)}
+          </label>
           <input id="value" name="value" class="amount-input" type="text"
                  inputmode="decimal" autocomplete="off" required autofocus placeholder="0.00">
         </div>

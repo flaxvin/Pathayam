@@ -189,3 +189,23 @@ Worth writing down so it is a decision rather than an oversight:
 
 The first two are genuinely hard to reach. The last two are not, and a scenario
 flag would cover them.
+
+**The last two are done, and the first of them found a bug.** The household now
+keeps a Singapore savings account from Priya's two years there, valued monthly
+in SGD, with a dated SGD→INR rate beside the USD one.
+
+There were two code paths for one idea and only one had ever been exercised: a
+*holding* priced in another currency is carried at the dated rate, and a
+*hand-valued account* was summed in as typed. So S$42,000 counted as ₹42,000 in
+net worth, while the allocation chart beside it correctly labelled the slice
+"SGD" — a figure wrong by a factor of sixty, next to the label that explains
+why. `valuationInBase` is now the one path, both valuation forms say which
+currency they want, and the scenario keeps it exercised.
+
+Concurrent writers are `src/web/concurrent-writers.test.ts`: two members signed
+in against one database, assigning to the same envelope at the same moment,
+filing twenty-four transactions from two phones at once, and moving money out of
+one envelope twice over. Nothing was wrong — SQLite serialises and the app takes
+its writes through one handle — but "nothing was wrong" was an assumption until
+today, and the rollup cache under a burst of interleaved writes was the part
+worth knowing about.

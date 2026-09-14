@@ -38,7 +38,7 @@ import { loadEngineInput } from "../engine/repository.ts";
 import { computeBudget, identityResidual } from "../engine/engine.ts";
 import { listBudgets } from "../domain/budgets.ts";
 import { listMembers } from "../auth/sessions.ts";
-import { netWorthStatement } from "../domain/networth.ts";
+import { netWorthStatement, assetAllocation } from "../domain/networth.ts";
 import {
   simulateHousehold, DEPARTURE_AT, RETURN_AT, SIGNED_IN_AS, type SimResult,
 } from "./scenario.ts";
@@ -369,5 +369,65 @@ describe("top-down · and again, with money it has not seen", () => {
     const ours = queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM transactions`)!.n;
     assert.notEqual(theirs, ours, "both households came out identical; the seed is ignored");
     other.close();
+  });
+});
+
+/**
+ * N7 · Money that is not in rupees.
+ *
+ * The feature flag has existed since the beginning and no scenario ever turned
+ * it on, so nothing had ever held an account in another currency. The holdings
+ * path converts — a USD instrument is priced in dollars and carried at the dated
+ * rate — and the hand-valued path did not: it summed the number as typed, so an
+ * account worth S$42,000 counted as ₹42,000 in net worth while the allocation
+ * beside it correctly labelled the slice "SGD".
+ *
+ * Two code paths for one idea, one of them exercised and one of them not. This
+ * exercises it.
+ */
+describe("top-down · an account held in another currency", () => {
+  test("net worth carries it at the rate, not at face value", () => {
+    const account = queryOne<{ id: string; currency: string }>(
+      db, `SELECT id, currency FROM accounts WHERE name LIKE 'DBS Singapore%'`,
+    );
+    assert.ok(account, "the scenario stopped holding a foreign account");
+    assert.equal(account!.currency, "SGD");
+
+    const valuation = queryOne<{ value: number; as_of: string }>(
+      db,
+      `SELECT value, as_of FROM asset_valuations WHERE account_id = ?
+        ORDER BY as_of DESC LIMIT 1`,
+      account!.id,
+    )!;
+    const rate = queryOne<{ rate: number }>(
+      db,
+      `SELECT rate FROM fx_rates WHERE base = 'SGD' AND quote = 'INR' AND as_of <= ?
+        ORDER BY as_of DESC LIMIT 1`,
+      valuation.as_of,
+    )!;
+
+    const statement = netWorthStatement(db);
+    const line = statement.assetGroups
+      .flatMap((g) => g.lines)
+      .find((l) => l.accountId === account!.id);
+    assert.ok(line, "the foreign account fell out of net worth entirely");
+
+    assert.equal(
+      line!.value, Math.round(valuation.value * rate.rate),
+      "S$42,000 is not ₹42,000 — the hand-valued path was summing the number as typed",
+    );
+    assert.ok(
+      line!.value > valuation.value * 50,
+      "the conversion did not happen: the line is still the raw figure",
+    );
+  });
+
+  test("the allocation labels the slice in its own currency and sizes it in ours", () => {
+    const allocation = assetAllocation(db);
+    const sgd = allocation.byCurrency.find((s) => s.key === "SGD");
+    assert.ok(sgd, "an SGD account produced no SGD slice");
+    // Shares are a fraction of one total, so the total has to be in one unit.
+    const shares = allocation.byCurrency.reduce((sum, s) => sum + s.share, 0);
+    assert.ok(Math.abs(shares - 1) < 0.001, `the currency slices sum to ${shares}`);
   });
 });
