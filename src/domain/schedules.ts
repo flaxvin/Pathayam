@@ -184,6 +184,69 @@ export function listSchedules(db: DB, opts: { includeDisabled?: boolean } = {}):
   );
 }
 
+/**
+ * N5 · When the next money arrives.
+ *
+ * A month can be fully assigned and still read as an emergency. On the 14th,
+ * Ready to Assign says zero — "every rupee has a job", the app's own definition
+ * of success — and directly under it eleven envelopes say "Not funded", because
+ * the money for them arrives on the 26th. Both statements are true and together
+ * they read as a contradiction: everything is assigned, and nothing is funded.
+ *
+ * The difference between an alarm and a schedule is a date. This is the date.
+ *
+ * Only money coming in, only into accounts this member may see, and only in
+ * this budget: "your next income is on the 26th" is a promise about the cash
+ * that will land in *this* Ready to Assign, and a salary paid into somebody
+ * else's private account is neither visible nor available.
+ */
+export interface NextIncome {
+  date: IsoDate;
+  label: string;
+  /** Null when the schedule is a reminder rather than a known amount. */
+  amount: Paise | null;
+}
+
+export function nextIncome(
+  db: DB,
+  opts: { today?: IsoDate; budgetId?: string; viewerMemberId?: string | null } = {},
+): NextIncome | null {
+  const today = opts.today ?? todayIST();
+  const candidates = queryAll<Schedule>(
+    db,
+    `SELECT s.*
+       FROM schedules s
+       JOIN accounts a ON a.id = s.account_id
+      WHERE s.enabled = 1
+        AND s.amount > 0
+        AND s.next_due IS NOT NULL
+        AND a.closed_at IS NULL
+        AND a.kind = 'budget'
+        AND (a.visibility <> 'private' OR a.holder_member_id IS ?)
+        ${opts.budgetId ? "AND a.budget_id = ?" : ""}`,
+    opts.viewerMemberId ?? null,
+    ...(opts.budgetId ? [opts.budgetId] : []),
+  );
+
+  let soonest: NextIncome | null = null;
+  for (const schedule of candidates) {
+    /*
+     * A schedule whose date has passed without being marked is still a salary
+     * that arrives every month — `next_due` moves when somebody ticks it off,
+     * and a household that does not tick things off would be told nothing at
+     * all. So a stale date rolls forward to the occurrence it implies.
+     */
+    const date = schedule.next_due! >= today
+      ? schedule.next_due!
+      : nextOccurrence(schedule, today);
+    if (!date) continue;
+    if (!soonest || date < soonest.date) {
+      soonest = { date, label: schedule.name, amount: schedule.amount };
+    }
+  }
+  return soonest;
+}
+
 /** F7.2 · Advance a schedule to its next occurrence. */
 export function nextOccurrence(schedule: Schedule, after: IsoDate): IsoDate | null {
   const from = schedule.next_due && schedule.next_due > after ? schedule.next_due : after;

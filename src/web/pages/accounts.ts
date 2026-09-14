@@ -4,7 +4,7 @@
 
 import { html, raw, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, speakPaise, type Paise } from "../../core/money.ts";
-import { formatDate, daysBetween, todayIST, type IsoDate } from "../../core/dates.ts";
+import { formatDate, daysBetween, todayIST, ordinal, type IsoDate } from "../../core/dates.ts";
 import type { Account, Card, CardStatement } from "../../domain/accounts.ts";
 import { ACCOUNT_SUBTYPES, SUBTYPE_LABELS, MANAGED_SUBTYPES } from "../../domain/accounts.ts";
 import { sparkline } from "../charts.ts";
@@ -847,9 +847,3 @@ function dayOfMonthField(
   `;
 }
 
-function ordinal(d: number): string {
-  const tail = d % 100 >= 11 && d % 100 <= 13
-    ? "th"
-    : d % 10 === 1 ? "st" : d % 10 === 2 ? "nd" : d % 10 === 3 ? "rd" : "th";
-  return `${d}${tail}`;
-}

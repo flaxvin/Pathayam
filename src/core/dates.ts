@@ -180,6 +180,14 @@ export function formatDateTime(at: string): string {
   return time ? `${formatDate(date)} ${time}` : formatDate(date);
 }
 
+/** "26th" — a day of the month, said the way a person says it. */
+export function ordinal(day: number): string {
+  const tail = day % 100 >= 11 && day % 100 <= 13
+    ? "th"
+    : day % 10 === 1 ? "st" : day % 10 === 2 ? "nd" : day % 10 === 3 ? "rd" : "th";
+  return `${day}${tail}`;
+}
+
 /** "August 2026" — the budget screen's month heading. */
 export function formatMonth(month: MonthKey): string {
   const name = MONTH_NAMES[Number(month.slice(5)) - 1] ?? month;

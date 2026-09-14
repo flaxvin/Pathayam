@@ -11,6 +11,7 @@ import type { Paise } from "../core/money.ts";
 import type { MonthKey, IsoDate } from "../core/dates.ts";
 import { todayIST, monthOf } from "../core/dates.ts";
 import { budgetsFor } from "../domain/budgets.ts";
+import { nextIncome, type NextIncome } from "../domain/schedules.ts";
 import {
   computeBudget, targetProgress, totalUnderfunded, computeBuffer, isFullyFunded,
   cardFunding, futureMonthCaveat, type CardFunding, type Buffer,
@@ -64,6 +65,12 @@ export interface BudgetView {
   groups: GroupView[];
   categories: Map<string, CategoryView>;
   underfunded: { amount: Paise; categoryCount: number };
+  /**
+   * N5 · When the money for the underfunded envelopes is expected, so a month
+   * that is fully assigned and not yet funded reads as a schedule rather than
+   * an alarm. Null when nothing is scheduled to arrive.
+   */
+  nextIncome: NextIncome | null;
   buffer: Buffer;
   fullyFunded: boolean;
   cards: CardFunding[];
@@ -197,6 +204,7 @@ export function buildBudgetView(
     groups,
     categories,
     underfunded: totalUnderfunded(progressList),
+    nextIncome: nextIncome(db, { today, budgetId, viewerMemberId }),
     buffer: computeBuffer(monthState.categories, input.categories, averageDailySpend(db, today)),
     fullyFunded: isFullyFunded(progressList, monthState.readyToAssign),
     cards,

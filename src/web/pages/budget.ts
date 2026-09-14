@@ -7,7 +7,10 @@
 
 import { html, raw, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, formatCompact, speakPaise, type Paise } from "../../core/money.ts";
-import { formatMonth, addMonths, type MonthKey } from "../../core/dates.ts";
+import {
+  formatMonth, addMonths, formatDate, daysBetween, ordinal,
+  type MonthKey, type IsoDate,
+} from "../../core/dates.ts";
 import type { BudgetView, CategoryView, GroupView } from "../viewmodel.ts";
 import { PUT_IT_DOWN_TO_ME, PUT_IT_DOWN_TO_ME_HINT } from "../../domain/standing.ts";
 
@@ -138,6 +141,11 @@ function renderReadyToAssign(view: BudgetView): SafeHtml {
             ${view.underfunded.categoryCount}
             ${view.underfunded.categoryCount === 1 ? "category" : "categories"}
           </a>
+          <!-- N5: an alarm and a schedule differ by a date. This is the date. -->
+          ${when(view.nextIncome, () => html`<span class="faint">
+            · your next income, ${view.nextIncome!.label},
+            is ${whenItArrives(view.nextIncome!.date, view.today)}
+          </span>`)}
           ·
           <a href="/auto-assign?month=${view.month}">Auto-assign</a>
           ·
@@ -177,6 +185,21 @@ function renderCardWarnings(view: BudgetView): SafeHtml {
       `;
     })}
   `;
+}
+
+/**
+ * N5 · "on the 26th", "tomorrow", "on 03-10-2026".
+ *
+ * Within the month being looked at, the day alone is how a household says it,
+ * and the month is already the heading of the screen. Beyond it, the whole date,
+ * because "the 3rd" three weeks out is a different kind of answer.
+ */
+function whenItArrives(date: IsoDate, today: IsoDate): string {
+  const days = daysBetween(today, date);
+  if (days === 0) return "today";
+  if (days === 1) return "tomorrow";
+  if (date.slice(0, 7) === today.slice(0, 7)) return `on the ${ordinal(Number(date.slice(8, 10)))}`;
+  return `on ${formatDate(date)}`;
 }
 
 /**

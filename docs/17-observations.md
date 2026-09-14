@@ -112,6 +112,14 @@ see neither.
 "₹1,49,056 underfunded; your next income is on the 26th" — which turns an alarm
 into a schedule. The cashflow projection already knows.
 
+**Done.** `nextIncome` in `src/domain/schedules.ts`, on the line itself: *"₹20,000
+underfunded across 1 category · your next income, Salary — Ravi, is on the
+26th"*. It is scoped to the budget being looked at and to what the viewer may
+see — a salary paid into somebody's private account is neither theirs to know
+about nor money this Ready to Assign will receive — and a payday nobody ticked
+off rolls forward to the one it implies, so the line does not go quiet exactly
+when the month is tightest.
+
 ## 5. The card opening balance nobody can fund
 
 A card added with an opening balance of −₹6,200 shows "₹6,200 of your Swiggy
