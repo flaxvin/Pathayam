@@ -100,14 +100,14 @@ import { renderDeparture } from "./web/pages/departure.ts";
 import { renderHousehold } from "./web/pages/household.ts";
 import {
   createAccount, updateAccount, closeAccount, reopenAccount, listAccounts, getAccount, listCards, createCard, closeCard, recordCardStatement, lastCardStatement, paymentCategoryFor, MANAGED_SUBTYPES, SUBTYPE_LABELS, type AccountKind, hiddenAccountIds, type HolderScope,
- creditedSinceStatement,} from "./domain/accounts.ts";
+ creditedSinceStatement, type Account,} from "./domain/accounts.ts";
 import {
   setAssigned, addAssigned, copyAssignmentsFromMonth, moveMoney, setHeld, getHeld,
   listCategories, getCategory, startPersonalBudget, deleteGroup, visibleBudgetIds,
 } from "./domain/budget.ts";
 import {
   createTransaction, createTransfer, updateTransaction, deleteTransaction,
-  getTransaction, getSplits, listPayees, payeeStats, tagsFor,
+  getTransaction, getSplits, listPayees, payeeStats, tagsFor, type Transaction,
 } from "./domain/transactions.ts";
 import {
   accountBalances, creditOutstanding, householdSettings,
@@ -203,7 +203,7 @@ import {
 } from "./domain/month-close.ts";
 import {
   addAttachment, listAttachments, deleteAttachment,
-  getBytes as getAttachmentBytes,
+  getBytes as getAttachmentBytes, getMeta as attachmentMeta,
 } from "./domain/attachments.ts";
 import {
   createFamilyLoan, recordAdvance, recordRepayment, viewFamilyLoan,
@@ -531,6 +531,60 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (!id) return null;
     const seen = listCategories(db, { includeHidden: true, viewerMemberId: viewer(ctx) });
     if (!seen.some((c) => c.id === id)) throw new NotFound("That envelope does not exist.");
+    return id;
+  }
+
+  /**
+   * 15 / H2.2 · The same rule, for the other three things a URL can name.
+   *
+   * `requireVisibleCategory` closed the write side for envelopes. A sweep of
+   * every parameterised route as the wrong member found eighteen more that were
+   * never closed at all — an account's whole register, a transaction, and the
+   * bytes of the receipt attached to it, readable by anybody signed in who had
+   * the id, and closable, categorisable and deletable by them too.
+   *
+   * They were invisible to both existing guards. The string sweep skips a route
+   * that addresses one thing, because it has no id to give it; and the rule that
+   * every function *able* to take a viewer is given one cannot see a function
+   * that never took one. `getBytes(db, id)` had nothing missing.
+   *
+   * Not-found in every case, never a refusal: "you may not read this" confirms
+   * there is something to read.
+   */
+  function requireVisibleAccount(ctx: RequestContext, id: string): Account {
+    const account = listAccounts(db, { viewerMemberId: viewer(ctx), includeClosed: true })
+      .find((a) => a.id === id);
+    if (!account) throw new NotFound("That account does not exist.");
+    return account;
+  }
+
+  function requireVisibleTransaction(ctx: RequestContext, id: string): Transaction {
+    const transaction = getTransaction(db, id);
+    if (!transaction) throw new NotFound("That transaction does not exist.");
+    // Its account, and its envelope: a household transaction filed into a
+    // private envelope is as much a disclosure as a private account's is.
+    requireVisibleAccount(ctx, transaction.account_id);
+    if (transaction.category_id) requireVisibleCategory(ctx, transaction.category_id);
+    return transaction;
+  }
+
+  function requireVisibleAttachment(ctx: RequestContext, id: string): string {
+    const meta = attachmentMeta(db, id);
+    if (!meta) throw new NotFound("That attachment does not exist.");
+    requireVisibleTransaction(ctx, meta.transaction_id);
+    return id;
+  }
+
+  /** A group belongs to a budget, the same as the categories inside it. */
+  function requireVisibleGroup(ctx: RequestContext, id: string): string {
+    const visible = new Set(budgetsFor(db, viewer(ctx)).map((b) => b.id));
+    const row = queryOne<{ budget_id: string | null }>(
+      db, `SELECT budget_id FROM category_groups WHERE id = ?`, id,
+    );
+    if (!row) throw new NotFound("That group does not exist.");
+    if (row.budget_id !== null && !visible.has(row.budget_id)) {
+      throw new NotFound("That group does not exist.");
+    }
     return id;
   }
 
@@ -1432,8 +1486,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    */
   router.post("/accounts/:id/edit", (ctx) =>
     mutate(ctx, (a) => {
-      const id = ctx.params.id!;
-      if (!getAccount(db, id)) throw new NotFound("That account does not exist.");
+      const id = requireVisibleAccount(ctx, ctx.params.id!).id;
       const text = (name: string) => {
         const value = field(ctx.body, name)?.trim();
         return value === undefined ? undefined : value === "" ? null : value;
@@ -1459,8 +1512,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/accounts/:id/close", (ctx) =>
     mutate(ctx, (a) => {
       const id = ctx.params.id!;
-      const account = getAccount(db, id);
-      if (!account) throw new NotFound("That account does not exist.");
+      const account = requireVisibleAccount(ctx, id);
       closeAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id);
       return {
         redirect: `/accounts/${id}`,
@@ -1471,8 +1523,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/accounts/:id/reopen", (ctx) =>
     mutate(ctx, (a) => {
-      const id = ctx.params.id!;
-      if (!getAccount(db, id)) throw new NotFound("That account does not exist.");
+      const id = requireVisibleAccount(ctx, ctx.params.id!).id;
       reopenAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id);
       return { redirect: `/accounts/${id}`, message: "Reopened." };
     }),
@@ -1525,8 +1576,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   );
 
   router.get("/accounts/:id", (ctx) => {
-    const account = getAccount(db, ctx.params.id!);
-    if (!account) throw new NotFound("That account does not exist.");
+    auth(ctx);
+    const account = requireVisibleAccount(ctx, ctx.params.id!);
 
     const balances = accountBalances(db).get(account.id)!;
     const cardFilter = ctx.query.get("card");
@@ -2167,8 +2218,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // Transaction detail and edit — where R7.b's confirmation actually fires
   // -------------------------------------------------------------------------
   router.get("/transaction/:id", (ctx) => {
-    const transaction = getTransaction(db, ctx.params.id!);
-    if (!transaction) throw new NotFound("That transaction does not exist.");
+    auth(ctx);
+    const transaction = requireVisibleTransaction(ctx, ctx.params.id!);
 
     const account = getAccount(db, transaction.account_id)!;
     const view = buildBudgetView(db, monthOf(transaction.date), undefined, viewer(ctx));
@@ -2400,7 +2451,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/transaction/:id/attach", (ctx) => {
     const a = auth(ctx);
-    const id = ctx.params.id!;
+    const id = requireVisibleTransaction(ctx, ctx.params.id!).id;
     const upload = fileField(ctx.req, "receipt");
     if (!upload) {
       return { redirect: withNotice(`/transaction/${id}`, "Choose a photo or PDF first.") };
@@ -2417,7 +2468,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    */
   router.get("/attachment/:id", (ctx) => {
     auth(ctx);
-    const found = getAttachmentBytes(db, ctx.params.id!);
+    // 15 · The bytes of a receipt on somebody else's private account are the
+    // plainest disclosure in the app: not a name or a figure, the document.
+    const found = getAttachmentBytes(db, requireVisibleAttachment(ctx, ctx.params.id!));
     if (!found) throw new NotFound("That attachment does not exist.");
     return {
       body: Buffer.from(found.bytes),
@@ -2432,7 +2485,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/attachment/:id/delete", (ctx) =>
     mutate(ctx, (a) => {
-      const transactionId = deleteAttachment(db, actorFor(a), ctx.params.id!);
+      const transactionId = deleteAttachment(
+        db, actorFor(a), requireVisibleAttachment(ctx, ctx.params.id!),
+      );
       return {
         redirect: transactionId ? `/transaction/${transactionId}` : "/",
         message: "Receipt removed.",
@@ -2443,8 +2498,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/transaction/:id", (ctx) => {
     const a = auth(ctx);
     const id = ctx.params.id!;
-    const transaction = getTransaction(db, id);
-    if (!transaction) throw new NotFound("That transaction does not exist.");
+    const transaction = requireVisibleTransaction(ctx, id);
 
     const dateRaw = field(ctx.body, "date");
     const newDate = dateRaw ? parseDate(dateRaw) ?? transaction.date : transaction.date;
@@ -2521,8 +2575,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/transaction/:id/categorise", (ctx) =>
     mutate(ctx, (a) => {
       const id = ctx.params.id!;
-      const transaction = getTransaction(db, id);
-      if (!transaction) throw new NotFound("That transaction does not exist.");
+      const transaction = requireVisibleTransaction(ctx, id);
 
       const categoryId = requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null;
       if (categoryId && !getCategory(db, categoryId)) {
@@ -2566,8 +2619,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    */
   router.post("/transaction/:id/settled", (ctx) =>
     mutate(ctx, (a) => {
-      const id = ctx.params.id!;
-      if (!getTransaction(db, id)) throw new NotFound("That transaction does not exist.");
+      const id = requireVisibleTransaction(ctx, ctx.params.id!).id;
       updateTransaction(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, {
         reimbursable: false,
       });
@@ -2578,8 +2630,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/transaction/:id/delete", (ctx) => {
     const a = auth(ctx);
     const id = ctx.params.id!;
-    const transaction = getTransaction(db, id);
-    if (!transaction) throw new NotFound("That transaction does not exist.");
+    const transaction = requireVisibleTransaction(ctx, id);
 
     const confirmed = field(ctx.body, "confirm_checkpoint") === "1";
     const guard = guardCheckpoints(
@@ -2651,8 +2702,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // S2c · Reconcile (F9), with the Q5 checkpoint-breakage rule
   // -------------------------------------------------------------------------
   router.get("/accounts/:id/reconcile", (ctx) => {
-    const account = getAccount(db, ctx.params.id!);
-    if (!account) throw new NotFound("That account does not exist.");
+    auth(ctx);
+    const account = requireVisibleAccount(ctx, ctx.params.id!);
     const today = todayIST();
 
     return render(
@@ -2708,8 +2759,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // "Manage cards" button linked here, but no route existed.
   router.get("/accounts/:id/cards", (ctx) => {
     auth(ctx);
-    const account = getAccount(db, ctx.params.id!);
-    if (!account) throw new NotFound("That account does not exist.");
+    const account = requireVisibleAccount(ctx, ctx.params.id!);
     return render(
       ctx, `Cards on ${account.name}`,
       renderManageCards({
@@ -4849,6 +4899,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/categories/:id/hide", (ctx) =>
     mutate(ctx, (a) => {
       const hidden = field(ctx.body, "hidden") === "1";
+      requireVisibleCategory(ctx, ctx.params.id!);
       if (hidden) guardCommitmentEnvelope(db, ctx.params.id!, "hidden");
       setCategoryHidden(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
         ctx.params.id!, hidden);
@@ -4863,6 +4914,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/categories/:id/target", (ctx) =>
     mutate(ctx, (a) => {
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+      requireVisibleCategory(ctx, ctx.params.id!);
       const amountRaw = field(ctx.body, "amount");
       if (!amountRaw?.trim()) {
         clearTarget(db, actor, ctx.params.id!);
@@ -4883,6 +4935,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/categories/:id/reorder", (ctx) =>
     mutate(ctx, (a) => {
       const dir = field(ctx.body, "direction") === "up" ? "up" : "down";
+      requireVisibleCategory(ctx, ctx.params.id!);
       reorderCategory(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
         ctx.params.id!, dir);
       return { redirect: "/categories", message: "Moved." };
@@ -4906,7 +4959,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/groups/:id/delete", (ctx) =>
     mutate(ctx, (a) => {
-      deleteGroup(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), ctx.params.id!);
+      deleteGroup(
+        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+        requireVisibleGroup(ctx, ctx.params.id!),
+      );
       return { redirect: "/categories", message: "Group deleted." };
     }),
   );
@@ -4915,7 +4971,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       const dir = field(ctx.body, "direction") === "up" ? "up" : "down";
       reorderGroup(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
-        ctx.params.id!, dir);
+        requireVisibleGroup(ctx, ctx.params.id!), dir);
       return { redirect: "/categories", message: "Moved." };
     }),
   );
@@ -4923,7 +4979,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // F3.5 · Delete a category (must be empty; its history can be remapped).
   router.post("/categories/:id/delete", (ctx) =>
     mutate(ctx, (a) => {
-      const id = ctx.params.id!;
+      const id = requireVisibleCategory(ctx, ctx.params.id!)!;
       guardCommitmentEnvelope(db, id, "deleted");
       const view = buildBudgetView(db, undefined, undefined, viewer(ctx));
       const balance = view.categories.get(id)?.state.balance ?? 0;
