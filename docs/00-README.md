@@ -71,6 +71,7 @@ Three supports:
 | `14-per-member-privacy.md` | Feasibility of per-member accounts and budgets, and why a private *budget* account cannot be honest | You are wondering whether money can be kept separate |
 | `15-separate-budgets-design.md` | The design for personal and household budgets, with worked ₹ examples for contributions, paying on somebody's behalf, and splitting | You are building separate budgets |
 | `16-build-plan.md` | Everything agreed across `14` and `15`, in the order it got built, P0–P6 complete, with what each phase cost and what it found | **You are deciding what to work on next** |
+| `17-observations.md` | What two top-down passes suggested and did not fix: the things that work as designed and could be better, with the reason, so each is decided once | You have time for an improvement rather than a bug |
 | `API.md` | The HTTP surface: tokens and scopes, every route with its method and permission, the exports. Checked against the router by a test, in both directions | You are scripting against it, or adding a route |
 | `dev/01-engine-derivation.md` | The accounting identity the engine must satisfy, derived, plus the known wart in viewing past months | You are changing the engine and need to know what must stay true |
 | `verify_amortisation.py` | Runnable amortisation engine that re-verifies every rupee figure in `06`, plus an EMI and prepayment-comparison CLI | You want to check the loan maths, or model your own loan |
