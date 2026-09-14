@@ -3467,7 +3467,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
         holderMemberId: getAccount(db, projection.loan.account_id)?.holder_member_id ?? null,
         isPrivate: getAccount(db, projection.loan.account_id)?.visibility === "private",
-        categories: listCategories(db)
+        categories: listCategories(db, { viewerMemberId: viewer(ctx) })
           .map((c) => ({ id: c.id, name: c.name })),
       }),
     );
@@ -3987,7 +3987,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         periods: periodPresets(),
         text: ctx.query.get("q") ?? "",
         accounts: listAccounts(db, { viewerMemberId: viewer(ctx) }).map((a) => ({ id: a.id, name: a.nickname || a.name })),
-        categories: listCategories(db).map((c) => ({ id: c.id, name: c.name })),
+        categories: listCategories(db, { viewerMemberId: viewer(ctx) })
+          .map((c) => ({ id: c.id, name: c.name })),
         selectedAccounts: filter.accountIds ?? [],
         selectedCategories: filter.categoryIds ?? [],
         budgets: budgetsFor(db, viewer(ctx)).map((b) => ({ id: b.id, name: b.name, kind: b.kind })),
@@ -4058,7 +4059,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         .map((acc) => acc.id),
     );
     const budgetCategories = new Set(
-      listCategories(db, { includeHidden: true, budgetId: scope }).map((c) => c.id),
+      listCategories(db, { includeHidden: true, budgetId: scope, viewerMemberId: viewer(ctx) })
+        .map((c) => c.id),
     );
     const dueSoon = listSchedules(db)
       .filter((s) => s.next_due && s.next_due <= soon && (s.amount ?? 0) < 0)
@@ -4076,7 +4078,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         month,
         rta: view.monthState.readyToAssign,
         rtaState: view.monthState.rtaState,
-        netWorth: config.features.assets ? netWorthStatement(db).netWorth : (0 as Paise),
+        /*
+         * H2.2 · With the viewer, the same as the net-worth page itself. Without
+         * it this headline was the whole household's — so somebody saw ₹55.6L
+         * here and ₹28.6L on the page behind it, and the difference was the
+         * private money they could not see, published by subtraction.
+         */
+        netWorth: config.features.assets
+          ? netWorthStatement(db, undefined, "INR", { viewerMemberId: viewer(ctx) }).netWorth
+          : (0 as Paise),
         netWorthHistory: config.features.assets ? netWorthHistory(db) : [],
         cashflow,
         cashflowReading: describeCashflow(cashflow),
@@ -4200,7 +4210,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         .map((a) => a.id),
     );
     const categoriesInScope = new Set(
-      listCategories(db, { includeHidden: true, budgetId: scope }).map((c) => c.id),
+      listCategories(db, { includeHidden: true, budgetId: scope, viewerMemberId: viewer(ctx) })
+        .map((c) => c.id),
     );
     const inScopeSchedule = (s: { account_id: string | null; category_id: string | null }) =>
       (!s.account_id && !s.category_id)
@@ -4791,7 +4802,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/categories", (ctx) => {
     const budgetId = budgetParam(ctx);
-    const view = buildBudgetView(db, undefined, budgetId);
+    const view = buildBudgetView(db, undefined, budgetId, viewer(ctx));
     const budget = getBudget(db, budgetId);
     return render(
       ctx, "Categories",

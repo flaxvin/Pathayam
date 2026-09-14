@@ -48,9 +48,25 @@ On its first run it found **five more**, none of which anybody had looked at:
 | **Insights, on Overview and Reports** | "Qwertyuiop Envelope is new this month." A sentence about somebody else's envelope, on the first screen of the app. |
 | **Transfers** | Name both ends, so both ends have to be visible. |
 
-So: seven leaks in total, six found by hand and five by the sweep that was
-written because of them. The suggestion stands generalised — **when a fix is
-found by looking, write the thing that looks.**
+So: eleven leaks, six found by hand and five by the sweep written because of
+them.
+
+**And then the first candidate too** — `src/web/viewer-required.test.ts`. Not the
+`as(db, viewer)` handle, which is a large retrofit for a rule that can be stated
+more cheaply: *if a function accepts a viewer, every call in `app.ts` passes one,
+or its line is listed with a reason*. Both halves are read out of the source, so
+a function that gains a viewer tomorrow is enforced tomorrow.
+
+It found **two more**, and both were kinds the string sweep is blind to:
+
+| | |
+|---|---|
+| **A leaked number** | The Overview's net-worth headline was the whole household's while the page behind it was the viewer's — ₹55.6L and ₹28.6L, two clicks apart, the difference being exactly the private money. Published by subtraction, with no string to search for. |
+| **A parameterised route** | The sweep skips `/loans/:id` because it addresses one thing, and that page's charge-category picker was offering every budget's envelopes. |
+
+Thirteen in total. The generalisation holds and gets sharper: **the sweep catches
+a leak after it is written; the rule catches it as it is written, and catches
+what has no name to search for.**
 
 ## 2. The demo's import log is all one date
 
