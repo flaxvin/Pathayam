@@ -86,7 +86,7 @@ import {
 import { saveProfile, markProfileUsed, deleteProfile } from "../import/profiles.ts";
 import {
   proposeCategoryRules, proposePayeeRule, suppress, setLearningEnabled,
-  previewRetroactive, applyRetroactive,
+  previewRetroactive, applyRetroactive, confirmRule, dismissRule,
 } from "../import/learning.ts";
 import type { RuleStage } from "../import/rules.ts";
 import { planCasImport, applyCasPlan } from "../import/cas-plan.ts";
@@ -688,8 +688,16 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
         rows.push([day(month, d).split("-").reverse().join("-"), narration,
                    debit > 0 ? debit.toFixed(2) : "", debit < 0 ? (-debit).toFixed(2) : "", ref]);
 
-      line(4, "UPI/DMART/4471920/GROCERY", tidy(between(1_800, 4_200)), `R${ix}01`);
-      line(7, "UPI/BESCOM/BILLPAY/8830", tidy(between(900, 2_600)), `R${ix}02`);
+      /*
+       * The shape a bank actually prints: rail, reference, merchant. The first
+       * cut here was "UPI/DMART/4471920/GROCERY", with a trailing purpose field
+       * that no statement in a corpus of seventy-seven real ones carries — and
+       * because the merchant is taken as the longest segment, "GROCERY" won.
+       * Every learned rule was therefore about a payee called "Grocery", matched
+       * nothing, and three years of imports applied no rules at all.
+       */
+      line(4, "UPI/447192012345/DMART", tidy(between(1_800, 4_200)), `R${ix}01`);
+      line(7, "UPI/883012345678/BESCOM", tidy(between(900, 2_600)), `R${ix}02`);
       line(12, "NEFT/LANDLORD/RENT", 0.01, `R${ix}03`);
       /*
        * `04` §4's own example: the same order arrives twice, once because
@@ -700,7 +708,7 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
        */
       const alsoTyped = tidy(between(300, 900));
       spend(acc.savings, cat("Eating out"), alsoTyped, "Swiggy", day(month, 17));
-      line(17, "UPI/SWIGGY/ORDER/99213", alsoTyped, `R${ix}04`);
+      line(17, "UPI/992130045511/SWIGGY", alsoTyped, `R${ix}04`);
       line(21, "IMPS/CREDIT/REFUND", -tidy(between(200, 1_400)), `R${ix}05`);
 
       const mapping = did("guessMapping", () => guessMapping(rows));
@@ -737,6 +745,64 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
             }));
           }
         });
+      }
+    }
+
+    /*
+     * L2 · A year in, the household starts believing the app's suggestions.
+     *
+     * This used to happen only in the last few lines of the run, which meant the
+     * middle of the feature was never exercised: forty-three rules proposed,
+     * none confirmed, and therefore none ever applied to anything. The
+     * `rule_applications` table came out of a three-year simulation with zero
+     * rows in it. Confirming here leaves two dozen months of imports for the
+     * rules to actually file.
+     */
+    if (ix === 12) {
+      const proposed = did("proposeCategoryRules", () => proposeCategoryRules(db, actor));
+      const waiting = queryAll<{ id: string; conditions_json: string; actions_json: string }>(
+        db,
+        `SELECT id, conditions_json, actions_json FROM rules
+          WHERE proposed = 1 AND dismissed_at IS NULL
+          ORDER BY strength IS NULL, strength DESC LIMIT 8`,
+      );
+      // The strongest are taken; the last is told to stop asking.
+      for (const [n, rule] of waiting.entries()) {
+        if (n < waiting.length - 1) {
+          did("confirmRule", () => confirmRule(db, actor, rule.id));
+        } else {
+          did("dismissRule", () => dismissRule(db, actor, rule.id, {
+            conditions: JSON.parse(rule.conditions_json),
+            actions: JSON.parse(rule.actions_json),
+          }));
+        }
+      }
+      void proposed;
+    }
+
+    /*
+     * F4.3 · One receipt, three envelopes.
+     *
+     * A ₹4,000 trip to a big shop is groceries and household and a birthday
+     * present, and splitting it is the feature that stops all three from being
+     * filed as "Groceries". Three years of simulation had never created one —
+     * `transaction_splits` came out of the whole run empty — so the arithmetic
+     * that has to hold across a split envelope was tested by unit tests alone.
+     */
+    if (live(9) && ix % 6 === 3) {
+      const parts = [
+        { categoryId: cat("Groceries"), amount: -rupees(2_400) as Paise },
+        { categoryId: cat("Household"), amount: -rupees(1_100) as Paise },
+        { categoryId: cat("Personal"), amount: -rupees(500) as Paise },
+      ].filter((p): p is { categoryId: string; amount: Paise } => Boolean(p.categoryId));
+      if (parts.length > 1) {
+        const total = parts.reduce((sum, p) => sum + p.amount, 0) as Paise;
+        did("createTransaction", () => createTransaction(db, actor, {
+          accountId: acc.savings, amount: total, date: day(month, 9),
+          payeeName: "Big Basket", cleared: true, ownerMemberId: ravi.id,
+          memo: "Monthly stock-up", splits: parts,
+          tags: ["household"],
+        }));
       }
     }
 
@@ -1082,7 +1148,7 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
         ownerMemberId: priya.id,
       }));
       did("updateTransaction", () => updateTransaction(db, actor, t.id, { memo: "Deep clean" }));
-      did("setTags", () => setTags(db, t.id, ["reimbursable"]));
+      did("setTags", () => setTags(db, t.id, ["reimbursable", "work"]));
       did("addAttachment", () => addAttachment(db, actor, {
         // A receipt has to be an image or a PDF, so this is the smallest real PNG.
         transactionId: t.id, filename: "receipt.png", mime: "image/png",

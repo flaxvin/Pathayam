@@ -143,6 +143,59 @@ function persist(db: DB, actor: Actor, proposal: Proposal): void {
 }
 
 /** L5 · Dismissing a proposal suppresses that specific proposal permanently. */
+/**
+ * L5 · Accepting a proposal, and refusing one for good.
+ *
+ * These two lived in the router, as a bare UPDATE and a paragraph of suppression
+ * logic inside a route handler. That is why nothing could exercise them: the
+ * step between "the app suggested a rule" and "the rule files things" was
+ * reachable only by posting a form, so a three-year simulation could propose
+ * forty-three rules and apply exactly none of them, and no test noticed that the
+ * middle of the feature was never run.
+ *
+ * A proposal is a rule with `proposed = 1`. Confirming clears the flag, which is
+ * the whole change — the rule already exists, enabled, with its conditions and
+ * actions; it was simply waiting to be believed.
+ */
+export function confirmRule(db: DB, actor: Actor, ruleId: string): void {
+  transact(db, () => {
+    execute(db, `UPDATE rules SET proposed = 0 WHERE id = ?`, ruleId);
+    appendEvent(db, actor, {
+      entity: "rule", entityId: ruleId, action: "confirm",
+      summary: `Confirmed a proposed rule`,
+    });
+  });
+}
+
+/**
+ * Dismissing suppresses *that specific proposal* permanently, so the same
+ * suggestion never comes back — L5's promise that saying no is heard once and
+ * remembered, rather than re-asked every time the same pattern is seen again.
+ */
+export function dismissRule(
+  db: DB, actor: Actor, ruleId: string, rule?: Pick<Rule, "conditions" | "actions">,
+): void {
+  transact(db, () => {
+    execute(db, `UPDATE rules SET dismissed_at = ? WHERE id = ?`, nowIST(), ruleId);
+
+    if (rule) {
+      const condition = rule.conditions[0];
+      const action = rule.actions[0] as { categoryId?: string; payee?: string } | undefined;
+      suppress(
+        db,
+        action?.categoryId ? "learned-rule" : "learned-payee",
+        `${String(condition?.value ?? "")}:${action?.categoryId ?? action?.payee ?? ""}`,
+        actor.memberId,
+      );
+    }
+
+    appendEvent(db, actor, {
+      entity: "rule", entityId: ruleId, action: "dismiss",
+      summary: `Dismissed a proposed rule; it won't be suggested again`,
+    });
+  });
+}
+
 export function suppress(db: DB, kind: string, ref: string, memberId: string | null): void {
   execute(
     db,
