@@ -58,10 +58,12 @@ import {
 } from "./web/pages/actions.ts";
 import { renderReview, renderImport, renderMapping } from "./web/pages/review.ts";
 import {
-  parseStatementPdf, openStatement, BANKS,
+  parseStatementPdf, openStatement, BANKS, bankForInstitution,
   WrongPassword as StatementWrongPassword,
 } from "./import/pdf-statements.ts";
-import { passwordCandidates, describeCandidate } from "./import/statement-passwords.ts";
+import {
+  passwordCandidates, describeCandidate, missingDetailFor,
+} from "./import/statement-passwords.ts";
 import { getIdentity, setIdentity, clearIdentity, maskedIdentity } from "./import/identity.ts";
 import {
   recognise, saveProfile, listProfiles, markProfileUsed, deleteProfile,
@@ -319,6 +321,58 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         return asset(MANIFEST, "application/manifest+json");
       }
       if (path.startsWith(STATIC_PREFIX)) throw new NotFound();
+    },
+
+    /*
+     * A write has to come from this app's own pages.
+     *
+     * The cookie is already `SameSite=Lax`, which a browser honours by not
+     * sending it on a cross-site POST, and no GET in this router changes
+     * anything — a test walks every handler to keep that true. So CSRF was
+     * covered. It was covered by **one property of one cookie attribute**, and
+     * the day somebody adds a state-changing GET, or a browser is configured
+     * oddly, it stops being covered silently.
+     *
+     * This is the second lock. Every unsafe method must carry an Origin (or a
+     * Referer to fall back on) belonging to this app. A cross-site form post
+     * always sends an Origin naming the attacker, so it is rejected on the
+     * value; a request with neither header is rejected for having neither.
+     *
+     * Chosen over a hidden token in every form deliberately: there are 105
+     * forms and the 106th is the one somebody forgets. A rule enforced in one
+     * place cannot be forgotten, and it protects routes added tomorrow.
+     *
+     * Bearer-authenticated calls are exempt. They carry no cookie, so a browser
+     * cannot be tricked into making one on somebody's behalf — which is the
+     * whole mechanism CSRF depends on.
+     */
+    function sameOriginWrites(ctx: RequestContext): Response | void {
+      const method = ctx.method.toUpperCase();
+      if (method === "GET" || method === "HEAD" || method === "OPTIONS") return;
+      if (/^Bearer\s/i.test(String(ctx.req.headers.authorization ?? ""))) return;
+
+      /*
+       * Where this request believes it arrived. The configured base URL is one
+       * answer, and the Host it was actually addressed by is the other — a
+       * self-hosted app is reached on its LAN address as readily as its name,
+       * and both are itself.
+       */
+      const here = new Set(
+        [originOf(config.baseUrl), hostOrigin(ctx)].filter(Boolean),
+      );
+      const origin = String(ctx.req.headers.origin ?? "");
+      if (origin !== "") {
+        if (here.has(originOf(origin))) return;
+        throw new HttpError(403, "That request came from somewhere else.");
+      }
+
+      // No Origin: some browsers omit it on same-origin form posts. Referer is
+      // the fallback — `Referrer-Policy: same-origin` means a same-origin post
+      // carries one and a cross-origin post does not — and one of the two has
+      // to be there.
+      const referer = String(ctx.req.headers.referer ?? "");
+      if (referer !== "" && here.has(originOf(referer))) return;
+      throw new HttpError(403, "That request came from somewhere else.");
     },
 
     function authenticateRequest(ctx: RequestContext): Response | void {
@@ -604,6 +658,29 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    * the browser resolves to another host. A backslash does the same thing in
    * some browsers. Both are rejected here.
    */
+  /** The origin this request was addressed by, from its own Host header. */
+  function hostOrigin(ctx: RequestContext): string {
+    const host = String(
+      (config.trustProxy ? ctx.req.headers["x-forwarded-host"] : null)
+      ?? ctx.req.headers.host ?? "",
+    );
+    if (host === "") return "";
+    const scheme = config.trustProxy && ctx.req.headers["x-forwarded-proto"]
+      ? String(ctx.req.headers["x-forwarded-proto"]).split(",")[0]!.trim()
+      : (ctx.req.socket as { encrypted?: boolean }).encrypted ? "https" : "http";
+    return `${scheme}://${host}`;
+  }
+
+  /** Scheme and host, or "" when the value is not a URL this can compare. */
+  function originOf(value: string): string {
+    try {
+      const url = new URL(value);
+      return `${url.protocol}//${url.host}`;
+    } catch {
+      return "";
+    }
+  }
+
   function safePath(value: string | null | undefined, fallback: string): string {
     if (!value) return fallback;
     // A path, not a URL: no scheme, no host, no control characters.
@@ -2502,7 +2579,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       body: Buffer.from(found.bytes),
       headers: {
         "Content-Type": found.meta.mime,
-        "Content-Disposition": `inline; filename="${found.meta.filename.replace(/"/g, "")}"`,
+        /*
+         * A photo is shown; a PDF is handed over.
+         *
+         * A PDF can carry script. It runs in the viewer's sandbox rather than
+         * the page's, and the CSP and nosniff bound what it could reach anyway
+         * — but a receipt is a document somebody keeps, not a page they read
+         * here, so the safer header costs a click and nothing else. Images
+         * stay inline, because looking at them *is* the feature.
+         *
+         * The filename is stripped of anything that could end the header value
+         * or start a new one: it came from a file somebody chose.
+         */
+        "Content-Disposition":
+          `${found.meta.mime === "application/pdf" ? "attachment" : "inline"}; `
+          + `filename="${found.meta.filename.replace(/[^\w. ()\-]/g, "_")}"`,
         "Cache-Control": "no-store, private",
         "Content-Length": String(found.bytes.length),
       },
@@ -3200,6 +3291,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     let parsed;
     let opened = "";
+    /*
+     * Which detail the bank's rule needs and this household has not saved.
+     * Four institutions account for every statement a real corpus could not
+     * open, and in every case the fix is one field — worth naming rather than
+     * leaving somebody to conclude the file is simply unreadable.
+     */
+    let missing: string | null = null;
     try {
       if (typed !== "") {
         parsed = parseStatementPdf(upload.bytes, typed);
@@ -3208,11 +3306,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         // last four digits (for SMS matching), which is exactly what Canara's
         // and SBI Card's passwords need. Hand them to the derivation.
         const account = getAccount(db, accountId);
+        // The account knows its bank, so the bank's own rule is tried first.
+        // detectBank cannot help here: the file is still locked.
+        const bank = bankForInstitution(account?.institution);
         const result = openStatement(
           upload.bytes,
-          passwordCandidates(identity, undefined, { cardDigits: [account?.last4] }),
+          passwordCandidates(identity, bank, { cardDigits: [account?.last4] }),
         );
-        if (!result) throw new StatementWrongPassword();
+        if (!result) {
+          missing = missingDetailFor(bank, identity, [account?.last4]);
+          throw new StatementWrongPassword();
+        }
         parsed = result.parse;
         opened = ` It opened with ${describeCandidate(result.candidate, identity)}.`;
       } else {
@@ -3222,8 +3326,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       return importPage(
         error instanceof StatementWrongPassword
           ? (identity
-              ? "None of the passwords worked out from your saved details opened this. " +
-                "Type it below, or check the details in Settings."
+              ? (missing
+                  ? `${missing} Or type the password below.`
+                  : "None of the passwords worked out from your saved details opened this. " +
+                    "Type it below, or check the details in Settings.")
               : "That statement needs a password. The hints below say what each bank uses — " +
                 "or save your details in Settings and the app will work it out.")
           : `That file could not be read. ${(error as Error).message}`,
