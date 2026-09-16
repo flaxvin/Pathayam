@@ -205,22 +205,67 @@ and carried forward lines. Every ICICI figure was checked against the statement
 by hand, and the twelve files that carry a closing balance still reconcile to
 the paise.
 
-**Still open:** the 29% payee-name pollution. That is the same defect seen from
-the other side — `Fino P A Ym`, `Transfer T O Riy As Pilakk O Th` — and it lives
-in the extractor's layout, which the measurements above say cannot be fixed by
-any gap threshold. It no longer stops a statement being read; it still makes a
-worse payee name than the page deserves.
+### The payee-name pollution: five attempts, and a decision
+
+The same defect seen from the other side — `Fino P A Ym`, `Transfer T O Riy As
+Pilakk O Th`, `A Ch-dr -indian Clearing Corp` — 29% of every payee name that
+arrives by PDF. It no longer stops a statement being read. It is **not fixed**,
+and this is the record of what that cost to establish, so nobody spends the
+afternoon again:
+
+1. **A fixed gap tolerance** — corpus fell from 1,856 rows to 921.
+2. **A per-line adaptive tolerance** (a fraction of the line's widest gap) —
+   921 rows, 20 statements reading nothing.
+3. **A text repair after the fact** — looked like the winner at 1,864 rows, and
+   every number in the newly-read statements was wrong: closing up spaces moves
+   the character offsets the column reader keys off, so it read the running
+   balance as the movement.
+4. **Page-level column detection** — abandoned on measurement. The gap
+   histogram on the failing page is *continuous from 0 to 19 characters*, so no
+   threshold exists, and the x-positions that repeat down the page belong to the
+   three other blocks on it, not to the transaction table.
+5. **Joining pieces that overlap** (gap < 0, the most conservative rule there
+   is) — this one is worth recording in detail, because it looked excellent:
+   pollution **29% → 5.3%**, references no longer truncated, `RIY AS PILAKK O
+   TH` reading `RIYAS PILAKKOTH`. Then the amount-level diff: one real interest
+   credit of ₹2,246 lost, and two transactions on one date — −₹15,000 and
+   +₹66,700 — merged into a single +₹51,700. Three real rows gone to make the
+   names prettier.
+
+And a sixth, in the names alone where money cannot be harmed: joining
+single-letter fragments. It fixes `T O` → `TO` and `Y esBank_Y` → `YesBank_Y`,
+and it turns `Anil K Umar P Al` into `Anil KUmar PAl`. Initials are
+single letters too, and nothing in the text says which is which.
+
+**The decision: leave it.** The information about where the word boundaries were
+is destroyed by the layout pass, and neither geometry — tried four ways — nor
+text heuristics can reconstruct it without damaging something real. Money
+accuracy beats name quality, and this app's premise is the identity closing.
+
+What *was* fixable in the names was fixed: a bracketed reference at the end of a
+merchant — `TO SUNEESH M (603229525067)` — is never part of a name, and it was
+turning every payment to one person into a different payee. 855 distinct payees
+became 803.
 
 The manual-mapping fallback is now rarely needed, but it remains the honest
 failure path: it reports `"0 1-03 -202 6" is not a date I can read.`
 
-### RBL: the example table wins
+### RBL: the example table wins — **fixed**
 
-RBL's statement prints an *illustration* of how to read a statement — "12-Dec-18
-Purchase of Groceries" — and the parser finds that instead of the real table,
-which sits in the right-hand column of a marketing page in `DD Mon YYYY` format.
-Two real transactions are in the file and none are read. A bank-profile gap
-rather than an engine one.
+RBL prints its statement as two columns — the account summary down the left,
+the transactions down the right — sharing lines, so a row reads `Card Number
+XXXXXXXXXXXXXX27   21 Apr 2026  PYU*Swiggy Food  338.00`. The date is
+forty-six characters in, behind text that is not a serial number: past the
+window a date is looked for in, and past the guard that stops a date inside a
+narration being read as the transaction's own. Both rules are right and together
+they read nothing — what the parser found instead was the worked example RBL
+prints to explain how to read a statement.
+
+A table announces its left edge with its own Date heading, so slicing every line
+there drops the column beside it — but **only as a second attempt, after the
+ordinary read comes back empty**. Tried first it is a catastrophe: 1,860 rows to
+422, and all twelve balance reconciliations broken. Both real transactions now
+read, with the right sign, and nothing else in the corpus moved.
 
 ---
 
