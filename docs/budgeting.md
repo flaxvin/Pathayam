@@ -1,122 +1,131 @@
-# The budgeting model
+# The envelope engine
 
-Strict envelope budgeting, on money you already have. Every rupee that arrives
-is given a job before it is spent, and the app will not let that arithmetic
-drift.
+## Definitions
+
+| Term | Meaning |
+|---|---|
+| **Envelope** (category) | A named balance that money is assigned to. Balances roll forward month to month. |
+| **Assignment** | An absolute amount of money placed in one envelope for one month. Stored per `(month, category_id)`. |
+| **Ready to Assign** | Money available and not yet assigned. Computed, never stored. |
+| **Activity** | The sum of transactions filed against an envelope in a month. |
+| **Available** | An envelope's balance: opening + assigned + activity. |
+| **Budget account** | An account whose balance is spendable and feeds Ready to Assign. |
+| **Tracking account** | An account counted in net worth but not in the budget. |
+| **Payment envelope** | An envelope owned by a credit-card account, holding cash to clear it. |
 
 ## Ready to Assign
 
-Income lands unassigned. **Ready to Assign** is what is left over after every
-envelope has been given what it is getting this month, and the target is zero —
-not because zero is tidy, but because an unassigned rupee is a rupee with no
-decision attached to it.
+```
+Ready to Assign = income to date
+                − assigned across all months
+                − held for next month
+                − cash overspend carried in
+                − unfunded credit absorbed
+```
 
-It is computed, never stored. Assign money into an envelope and it comes out of
-Ready to Assign; take it back out and it returns. Nothing rounds.
+Only budget accounts contribute income. An account's opening balance is income
+in the month of its opening date.
 
-Only **budget accounts** feed it. A tracking account — an investment, a loan, a
-pot you watch but do not spend from — is part of net worth and no part of the
-money you can assign.
+## Envelope balance
 
-## Envelopes
+```
+available(month) = available(month − 1)          [rollover]
+                 + assigned(month)
+                 + activity(month)
+```
 
-An envelope (category) has a balance that **rolls over**. Ten thousand assigned
-to Repairs in January and untouched is ten thousand available in February. This
-is the whole point of the model: the envelope is a decision that persists, not a
-monthly allowance that resets.
+A positive balance rolls forward in full. A negative balance is resolved at the
+month boundary by the overspend model.
 
-Envelopes live in groups, and a group belongs to a budget (see
-[privacy.md](privacy.md) for what that means in a household).
+## Overspend models
 
-## Overspending
+Set per household (`household.overspend_model`).
 
-Spend more from an envelope than it holds and the app makes you deal with it.
-Two models ship, both complete:
+| Model | Cash overspend at rollover | Credit overspend at rollover |
+|---|---|---|
+| `reduce-rta` | The negative balance is cleared and subtracted from the next month's Ready to Assign. | Absorbed into `unfunded credit absorbed`; the payment envelope is not automatically topped up. |
+| `carry-negative` | The negative balance rolls forward on the envelope. | As above. |
 
-| | |
-|---|---|
-| **`reduce-rta`** | The overspend is taken out of next month's Ready to Assign. You start the month already down, which is what actually happened. |
-| **`carry-negative`** | The envelope carries its negative balance forward and has to be dug out of. |
+**Covering** an overspend moves money from another envelope into the overspent
+one, within the same month.
 
-Neither is a stub and either can be chosen. What the app will not do is quietly
-absorb the difference.
-
-**Covering** an overspend moves money from another envelope, which is the honest
-fix: the money came from somewhere, and now the screen says where.
+Cash and credit overspend are treated differently because they are different
+facts: a cash overspend has already left a bank account; a credit overspend has
+increased a debt that no envelope is funding.
 
 ## Credit cards
 
-The part most budgeting apps get wrong.
+An account of kind `credit` owns exactly one payment envelope, created with the
+account and managed by the application.
 
-Spending ₹2,000 on a card does two things: it creates the expense in its
-envelope, and it moves ₹2,000 into that card's **payment envelope** — cash set
-aside to clear the statement. The money stops being available for anything else
-at the moment it is committed, not when the bill arrives.
+When a transaction is filed against a credit account:
 
-So a card balance is either *funded* — its payment envelope holds the cash — or
-it is not, and the difference is stated as a figure rather than left implicit:
+1. The amount is recorded as activity on its spending envelope.
+2. The same amount moves into the card's payment envelope.
 
-> ₹6,200 of your Swiggy HDFC balance has no envelope behind it.
+The money is therefore committed at the moment of spending, not at the moment
+the statement arrives.
 
-Three ways a card can be unfunded:
+### Funded and unfunded
 
-1. **A credit overspend** — spending on the card from an envelope that was
-   already empty.
-2. **An opening balance** — debt the card came with when it was added. There is
-   no transaction to file, so the warning says so, and names what clears it:
-   money assigned to the payment envelope.
-3. **Deliberately** — you chose not to fund it this month.
+```
+owed       = max(0, −outstanding)
+reallyFunded = payment envelope balance − attributed credit overspend
+unfunded   = min(owed, max(0, owed − reallyFunded))
+startingDebt = min(owed, max(0, −opening_balance))
+```
 
-The unfunded figure is bounded by the debt itself. A warning larger than the
-balance it describes is one a household can disprove with arithmetic, which
-costs more trust than the warning was worth.
+`unfunded` is bounded by `owed`: the figure can never exceed the balance it
+describes. `startingDebt` is the portion of what is owed that arrived with the
+account, for which no transaction exists; the interface states this where it
+applies.
 
 ## Targets
 
-An envelope can carry a target, and the budget screen shows how far short it is:
-
-| | |
+| Type | Needed this month |
 |---|---|
-| **monthly** | ₹9,000 every month. |
-| **refill** | Top up to ₹20,000 — what is already there counts. |
-| **by-date** | ₹1,20,000 by March, spread across the months between. |
-| **debt-payoff** | The instalment a loan needs, kept in step with the loan. |
-| **spending** | Pro-rated across the month, so "am I on track on the 12th" has an answer. |
+| `monthly` | The target amount, every month. |
+| `refill` | `max(0, amount − opening balance)`. |
+| `by-date` | The remainder spread across the months to `target_date`. |
+| `debt-payoff` | The instalment the linked loan requires; kept in step with the loan's schedule. |
+| `spending` | The target pro-rated by day of month. |
 
-Underfunded envelopes are summarised at the top of the budget screen, with the
-one useful piece of context: **when the money arrives**.
+`underfunded = max(0, needed − assigned)`. The budget screen totals these and
+reports the next scheduled income date alongside.
 
-> ₹1,49,056 underfunded across 22 categories · your next income, Salary — Ravi,
-> is on the 26th
+## Held for next month
 
-A fully-assigned month mid-cycle otherwise reads as a contradiction — every
-rupee has a job, and nothing is funded — when what is actually true is that
-payday is the 26th.
+`held_for_next_month(month, budget_id)` removes an amount from that month's
+Ready to Assign and returns it in the next. It appears as its own term in the
+identity.
 
 ## Goals
 
-A goal is a named thing you are saving for, with its own envelope and a
-progress bar. Completing it releases the money; deleting it does not silently
-lose it.
+A goal has a target amount, an optional target date, and one or more envelopes.
+Progress is the sum of those envelope balances against the target. Completing a
+goal releases its envelopes; the money stays where it is.
 
-## Holding money back
+## Month close
 
-**Held for next month** sets money aside during this month explicitly. It is not
-a hidden reserve — it appears in the identity as its own term, so the arithmetic
-still closes and the screen still says where every rupee is.
+Closing records income, spending, assigned and commitments for a month in one
+budget, takes a net-worth snapshot, and writes an event. Closed months can be
+reopened. Each budget closes independently.
 
-## Closing a month
+## Commitments between budgets
 
-Closing is a ritual, not a lock. It takes a net-worth snapshot, records what was
-overspent and what was left, and writes the close as an event. A closed month
-can be reopened.
+A personal budget can commit money to the household budget: an envelope in the
+personal budget carries `commits_to_budget_id`. Assigning to it increases the
+household's means without a transfer between accounts. Spending from the
+household on that member's behalf reduces it.
 
-A household with separate budgets closes each one; the month-close screen lists
-months per budget rather than repeating the same month once per member.
+The claim appears in the identity as `due from other budgets`. The standing of
+a commitment envelope is described as **overfunded**, **underfunded** or
+**square** — never as debt.
+
+An `even_call` settles a lopsided month by moving an agreed amount between
+budgets.
 
 ## The identity
-
-Underneath all of it, one equation that must hold exactly:
 
 ```
 Σ budget-account balances  +  due from other budgets
@@ -124,11 +133,13 @@ Underneath all of it, one equation that must hold exactly:
        +  Σ future assignments  −  unfunded credit absorbed
 ```
 
-Derived in [`dev/01-engine-derivation.md`](dev/01-engine-derivation.md) §1, and
-asserted after every month of a thirty-six-month simulation in every budget. In
-integer paise, with a residual of exactly zero.
+`identityResidual(state)` must be exactly `0` for every month in every budget.
+Derivation: [dev/01-engine-derivation.md](dev/01-engine-derivation.md) §1.
 
-Most defects found in the engine were found by this equation rather than by a
-screen looking wrong: a family-loan write-off that put a categorised transaction
-on a tracking account, a loan instalment that never consumed its payment
-envelope, an EMI conversion dated from the button rather than the charge.
+## Viewing past months
+
+A past month's figures are computed with the data as it is now. Assignments made
+in later months are subtracted from the earlier month's Ready to Assign, so a
+past month can read lower than it did at the time. See
+[dev/01-engine-derivation.md](dev/01-engine-derivation.md) §4 and
+[limitations.md](limitations.md).
