@@ -100,6 +100,22 @@ never tells you *which* it was. Each accepted request updates the token's
 
 Scope is fixed at mint time. To change it, revoke and re-mint.
 
+### Writes and the same-origin check
+
+Every unsafe method (`POST`, and anything else that is not a read) must either
+carry a **bearer token** or come from this app's own pages, proved by an
+`Origin` header — otherwise it is refused with `403`. It is what stops another
+site making a browser submit a form on somebody's behalf with their cookie
+attached.
+
+**A token-authenticated call is exempt**, which is the case that matters here:
+your scripts send `Authorization: Bearer …` and no cookie, so there is no
+session for anybody to ride. Nothing extra to set.
+
+A browser-side script using the session cookie instead does need to send an
+`Origin` belonging to the deployment — which `fetch` from a page of the app does
+on its own.
+
 ### What a token can never reach
 
 Regardless of scope, a token is refused (`403`) on these path prefixes (F30.6,

@@ -13,6 +13,18 @@
       ],
       "port": 8080,
       "autoPort": true
+    },
+    {
+      "name": "website",
+      "runtimeExecutable": "python3",
+      "runtimeArgs": [
+        "-m",
+        "http.server",
+        "8099",
+        "--directory",
+        "website"
+      ],
+      "port": 8099
     }
   ]
 }
