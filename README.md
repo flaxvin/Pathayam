@@ -13,8 +13,6 @@ harvest, drawn from deliberately through the year.
 
 ![The budget screen: the month grid, Ready to Assign, credit-card payment envelopes, and the in-app digest](docs/screenshots/budget.png)
 
-<sub>The purple banner appears only when the development auth bypass is enabled. It is absent from the production image.</sub>
-
 ## What it does
 
 - **Envelope budgeting.** Income is assigned to envelopes until nothing is
@@ -136,7 +134,7 @@ function and asserts (1) and (2) after each month. Details:
 
 ### Screenshots
 
-Captured from a running instance with generated demo data, dark theme.
+Captured from a running instance with the 36-month demo household, dark theme.
 
 | Portfolio | Net worth |
 |---|---|
@@ -169,16 +167,17 @@ Captured from a running instance with generated demo data, dark theme.
 Every figure, name and account number is generated. No real financial data
 appears in this repository.
 
-To regenerate after a UI change, seed a demo household, start the dev server
-with the bypass enabled, and run:
+To regenerate after a UI change:
 
 ```bash
+DATA_DIR=./demo-data npm run demo
+DATA_DIR=./demo-data DEMO_MODE=1 PORT=8080 npm run dev
 node docs/dev/capture-screenshots.mjs --port 8080
 ```
 
 It drives headless Chromium over the DevTools protocol with no driver library,
-signs in through `POST /auth/dev` (present only when `DEV_LOGIN` is set), and
-removes the development banner.
+signs in through the demo or development door, and removes the deployment
+banner so the images document the application rather than the instance.
 
 ### Charts
 

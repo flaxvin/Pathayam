@@ -3,6 +3,8 @@
  *
  *   npm run seed                       # a demo household with real behaviour
  *   DEV_LOGIN=1 PORT=8914 npm run dev  # the auth bypass, locally only
+ *   DATA_DIR=./demo-data npm run demo
+ *   DATA_DIR=./demo-data DEMO_MODE=1 PORT=8914 npm run dev
  *   node docs/dev/capture-screenshots.mjs --port 8914
  *
  * Chromium is driven over the DevTools protocol directly rather than through a
@@ -122,23 +124,34 @@ async function main() {
   if (!probe?.ok) throw new Error(`Nothing is serving ${BASE}. Start the dev server first.`);
 
   const signin = await probe.text();
+
+  /*
+   * Either door: DEMO_MODE's member picker, or DEV_LOGIN's. Demo mode is the
+   * one worth using — it holds thirty-six months of a household of four, so
+   * every screen has something real on it, where the development seed is a few
+   * accounts built to exercise the engine.
+   */
+  const demo = signin.includes('action="/demo/enter"');
+  const path = demo ? "/demo/enter" : "/auth/dev";
   const memberId = signin.match(/<option value="([^"]+)"/)?.[1];
-  if (!memberId) {
-    throw new Error("No development sign-in form. Start the server with DEV_LOGIN=1.");
+  if (!demo && !memberId) {
+    throw new Error(
+      "No sign-in door. Start the server with DEMO_MODE=1 (preferred) or DEV_LOGIN=1.",
+    );
   }
 
-  const auth = await fetch(`${BASE}/auth/dev`, {
+  const auth = await fetch(`${BASE}${path}`, {
     method: "POST",
     headers: {
       "Content-Type": "application/x-www-form-urlencoded",
       // Writes must come from the app's own origin, the same as from a browser.
       Origin: BASE,
     },
-    body: new URLSearchParams({ member_id: memberId }),
+    body: new URLSearchParams(memberId ? { member_id: memberId } : {}),
     redirect: "manual",
   });
   const cookie = auth.headers.getSetCookie?.()[0]?.split(";")[0];
-  if (!cookie) throw new Error("Development sign-in did not return a session cookie.");
+  if (!cookie) throw new Error(`Sign-in through ${path} did not return a session cookie.`);
 
   mkdirSync(OUT, { recursive: true });
 
@@ -212,11 +225,12 @@ async function main() {
       awaitPromise: true,
     }).catch(() => {});
 
-    // The bypass banner is a property of *this* machine, not of the app, and a
+    // The bypass and demo banners are properties of *this* deployment, not of
+    // the app, and a
     // screenshot of it in the README would document something no reader has.
     await cdp.send("Runtime.evaluate", {
       expression: `(() => {
-        document.querySelectorAll(".banner-dev").forEach(el => el.remove());
+        document.querySelectorAll(".banner-dev, .banner-demo").forEach(el => el.remove());
         return 1;
       })()`,
     }).catch(() => {});
