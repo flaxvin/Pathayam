@@ -132,6 +132,14 @@ export async function startTestApp(
           method: "POST",
           headers: {
             "Content-Type": "application/x-www-form-urlencoded",
+            /*
+             * A browser sends this on every form post, and the app requires it
+             * on every write: a cross-site post is rejected on the value, and
+             * one with neither Origin nor Referer for having neither. A test
+             * client that omitted it would be exercising a path no browser
+             * takes — and passing where a browser is refused.
+             */
+            Origin: baseUrl,
             ...(init?.headers ?? {}),
           },
           body: new URLSearchParams(form).toString(),

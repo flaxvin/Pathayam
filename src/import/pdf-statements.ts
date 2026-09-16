@@ -186,6 +186,26 @@ BANKS.push(
   },
 );
 
+/**
+ * Which bank an account is with, from what the household typed when they added
+ * it — before a single byte of the statement has been read.
+ *
+ * `detectBank` reads the text, which is no use when the file is still locked:
+ * the bank's own password rule is exactly what is needed to open it. The
+ * account knows, so ask the account.
+ */
+export function bankForInstitution(institution: string | null | undefined): BankId | null {
+  if (!institution) return null;
+  const text = institution.trim();
+  if (text === "") return null;
+  for (const bank of BANKS) {
+    if (bank.id === "broker") continue;
+    if (bank.name.toLowerCase() === text.toLowerCase()) return bank.id;
+    if (bank.signatures.some((pattern) => pattern.test(text))) return bank.id;
+  }
+  return null;
+}
+
 export function detectBank(text: string): BankProfile | null {
   /*
    * Everything above the first transaction row decides.

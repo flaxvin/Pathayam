@@ -217,6 +217,62 @@ const PREFERENCES: Partial<Record<BankId, Rule[]>> = {
  * opened with your PAN" rather than leaving the household guessing. The
  * password itself is not returned — only a description of it.
  */
+/**
+ * Why nothing worked, when the reason is a detail the app does not have.
+ *
+ * Four of the twelve institutions in one household's inbox need a digit the
+ * name + date of birth + PAN triple does not carry, and against a real corpus
+ * they account for every single statement that could not be opened: SBI wants
+ * the registered mobile, SBI Card and Canara the card's last four, HSBC its
+ * last six. Told only "none of the passwords worked", a household has no way to
+ * know that the fix is one field in Settings rather than a lost cause.
+ *
+ * Null when the bank is unknown, or when everything its rule needs is already
+ * on file — then the password genuinely is something else, and saying otherwise
+ * would send somebody to fill in a form that is already full.
+ */
+export function missingDetailFor(
+  bankId: BankId | null | undefined,
+  identity: StatementIdentity,
+  cardDigits: (string | null | undefined)[] = [],
+): string | null {
+  const digits = cardDigits.map((d) => (d ?? "").replace(/\D/g, "")).filter(Boolean);
+  const longest = digits.reduce((a, b) => (b.length > a.length ? b : a), "");
+  const mobile = identity.mobile?.replace(/\D/g, "") ?? "";
+
+  switch (bankId) {
+    case "sbi":
+      // Both SBI rules live under one id: the account statement wants the
+      // mobile, the card statement the card. Name whichever is missing.
+      if (mobile.length < 5 && longest.length < 4) {
+        return "SBI needs either your registered mobile number (its account statements use "
+          + "the last five digits) or the card's last four — add whichever applies in Settings.";
+      }
+      if (mobile.length < 5) {
+        return "SBI's account statements use the last five digits of your registered mobile "
+          + "number, which is not saved yet. Add it in Settings.";
+      }
+      if (longest.length < 4) {
+        return "SBI Card statements use the card's last four digits, which this account does "
+          + "not have recorded. Add them on the account.";
+      }
+      return null;
+    case "canara":
+      return longest.length < 4
+        ? "Canara's card statements open with the card's last four digits alone, which this "
+          + "account does not have recorded. Add them on the account."
+        : null;
+    case "hsbc":
+      return longest.length < 6
+        ? "HSBC uses the last six digits of the card, and this account has "
+          + (longest.length > 0 ? "only the last four." : "no card number recorded.")
+          + " Add the fuller number on the account."
+        : null;
+    default:
+      return null;
+  }
+}
+
 export function describeCandidate(
   candidate: string, identity: StatementIdentity,
 ): string {
