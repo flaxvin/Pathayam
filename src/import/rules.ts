@@ -163,6 +163,15 @@ function extractMerchant(narration: string, vpa: string | null, reference: strin
   // both sides ("Big-Bazaar") is untouched, because only a *trailing* run is
   // stripped.
   const cleaned = collapsed
+    /*
+     * A reference in brackets is not part of anybody's name. Axis writes
+     * "UPI TRANSFER TO SUNEESH M (603229525067)" and the number is different
+     * every time, so each payment to the same person became a different payee:
+     * over a real three-year corpus that was 119 rows and 52 payees that should
+     * have been one. The bare trailing form below was already stripped; this is
+     * the same number with brackets round it.
+     */
+    .replace(/\s*\(\d{4,}\)\s*$/, "")
     .replace(/\s*\d{4,}\s*$/, "")
     .replace(/[\s\-–—_:.,*#]+$/, "")
     .trim();

@@ -467,3 +467,32 @@ describe("B63 · the separator that introduced a reference goes with it", () => 
     assert.equal(extractNarrationFields("POS/AMAZON 1234567890").merchant, "Amazon");
   });
 });
+
+describe("a reference is not part of a name", () => {
+  test("a bracketed reference at the end is dropped", () => {
+    // Axis writes "UPI TRANSFER TO SUNEESH M (603229525067)", and the number
+    // is different every time — so each payment to the same person became a
+    // different payee. Over a real three-year corpus that was 119 rows and 52
+    // payees that should have been one.
+    assert.equal(
+      extractNarrationFields("UPI/TRANSFER TO SUNEESH M (603229525067)").merchant,
+      "Transfer To Suneesh M",
+    );
+    assert.equal(
+      extractNarrationFields("UPI/TO MERCHANT : GULLAK MO (640024998585)").merchant,
+      "To Merchant : Gullak Mo",
+    );
+  });
+
+  test("and the same payee twice is the same payee", () => {
+    const one = extractNarrationFields("UPI/TO MERCHANT : GULLAK MO (603271512942)").merchant;
+    const two = extractNarrationFields("UPI/TO MERCHANT : GULLAK MO (603397506453)").merchant;
+    assert.equal(one, two, "two payments to one merchant produced two payees");
+  });
+
+  test("but a number that is part of the name stays", () => {
+    // Brackets at the end with a long number in them are a reference. A name
+    // that happens to contain digits is not.
+    assert.equal(extractNarrationFields("UPI/CAFE 24 COFFEE").merchant, "Cafe 24 Coffee");
+  });
+});
