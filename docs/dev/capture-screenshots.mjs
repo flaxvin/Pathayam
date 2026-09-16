@@ -129,7 +129,11 @@ async function main() {
 
   const auth = await fetch(`${BASE}/auth/dev`, {
     method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
+    headers: {
+      "Content-Type": "application/x-www-form-urlencoded",
+      // Writes must come from the app's own origin, the same as from a browser.
+      Origin: BASE,
+    },
     body: new URLSearchParams({ member_id: memberId }),
     redirect: "manual",
   });

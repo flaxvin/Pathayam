@@ -96,7 +96,9 @@ try {
 
   // The demo's own front door, so the shots carry the demo banner and the
   // invented data rather than anything real.
-  const entered = await fetch(`${base}/demo/enter`, { method: "POST", redirect: "manual" });
+  const entered = await fetch(`${base}/demo/enter`, {
+    method: "POST", redirect: "manual", headers: { Origin: base },
+  });
   const cookie = (entered.headers.get("set-cookie") ?? "").split(";")[0];
   if (!cookie) throw new Error("no session cookie from /demo/enter");
 
