@@ -362,7 +362,7 @@ curl -fsS "$BASE/add" -X POST \
 ```
 
 Amounts are **integer paise** (`-45000` = −₹450.00). See
-[`docs/02-*`](00-README.md) for the money model.
+[`docs/02-*`](README.md) for the money model.
 
 ---
 

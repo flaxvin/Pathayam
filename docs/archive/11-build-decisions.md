@@ -850,8 +850,8 @@ one is taken.
 
 ### B50 · The API-token deny-list guarded a route that did not exist
 
-*28-08-2026 · F30.6.* While writing [`docs/API.md`](API.md) the deny-list in
-[`tokens.ts`](../src/auth/tokens.ts) was checked route by route against the
+*28-08-2026 · F30.6.* While writing [`docs/API.md`](../API.md) the deny-list in
+[`tokens.ts`](../../src/auth/tokens.ts) was checked route by route against the
 router, and its first entry — `/settings/members`, "the allow-list" — matched
 **no route at all**. The actual allow-list mutation is `POST /members/invite`,
 which no prefix covered, so `tokenMayReach("/members/invite")` returned `true`:
@@ -1214,9 +1214,9 @@ retries and a network error. Refusals are 422.
 ### B66 · A 500 in production left no trace anywhere
 
 *11-09-2026 · S7.* Two reasonable decisions combined into a blind spot.
-[`http/server.ts`](../src/http/server.ts) logs the error and its stack, but only
+[`http/server.ts`](../../src/http/server.ts) logs the error and its stack, but only
 in the branch it takes when no `onError` hook handled the failure — and
-[`main.ts`](../src/main.ts) installs one that handles everything, so the
+[`main.ts`](../../src/main.ts) installs one that handles everything, so the
 household sees a styled page. The only remaining trace was the request line,
 logged at `debug`, and `logLevel` defaults to `info` in production. Meanwhile
 the health page's "errors in the last 24 hours" counted `job_runs`: scheduled
@@ -1405,7 +1405,7 @@ guessed into a column.
 
 ### B89–B90 · A broken identity, and the test that was comparing a cache to itself
 
-*11-09-2026 · [`01-engine-derivation.md`](dev/01-engine-derivation.md) §1.* The
+*11-09-2026 · [`01-engine-derivation.md`](../dev/01-engine-derivation.md) §1.* The
 sealed-row dispatch added in B74 was an if/else chain ending in a bare `else`. A
 fourth fact — the per-account balances `accountBalances` reads — was added to the
 rollup two commits later without touching it, so **every balance row was added to
@@ -1445,7 +1445,7 @@ journal, and the first query answers *"database disk image is malformed"*. The
 household, having done the sensible thing at the worst possible moment, turns a
 recoverable afternoon into a lost ledger.
 
-[`src/restore.ts`](../src/restore.ts) lists what is available, refuses to run
+[`src/restore.ts`](../../src/restore.ts) lists what is available, refuses to run
 while the database looks open, keeps the file it replaced, removes the sidecars,
 and reads the restored copy back before claiming success. `ops/restore.test.ts`
 reproduces the corruption with a genuine hot WAL — a synthetic one proves
@@ -1463,7 +1463,7 @@ card the app claimed ₹6,86,157 against ₹56,603 of real debt.
 
 Whatever the reasoning behind a shortfall, a card cannot be short by more than it
 owes, and a figure the household can disprove with arithmetic costs more trust
-than the warning was ever worth. [`engine.ts`](../src/engine/engine.ts) clamps it
+than the warning was ever worth. [`engine.ts`](../../src/engine/engine.ts) clamps it
 to the debt. The clamp holds regardless of which model is right underneath, which
 is why it went in before B97 and B98 worked out what was actually wrong.
 
@@ -1493,7 +1493,7 @@ income. Not one piece of uncategorised spending — the thing the queue exists f
 In an envelope budget income's job is to arrive in Ready to Assign and wait to be
 given one. The engine already treated it exactly so; the queue was asking the
 household to resolve something the app had resolved correctly, and burying the
-real work while it asked. [`viewmodel.ts`](../src/web/viewmodel.ts) stops
+real work while it asked. [`viewmodel.ts`](../../src/web/viewmodel.ts) stops
 counting money *in* as uncategorised.
 
 ---
@@ -1507,7 +1507,7 @@ spells out digit by digit. Ready to Assign is the one figure the whole app is
 organised around.
 
 `speakPaise` now says *"52 lakh 75 thousand 874 rupees"*
-([`money.ts`](../src/core/money.ts)). The app was already meticulous about lakh
+([`money.ts`](../../src/core/money.ts)). The app was already meticulous about lakh
 and crore everywhere a sighted household looks; this is the same care extended to
 the household that listens.
 
@@ -1524,7 +1524,7 @@ been added to bound the HTML and had quietly become the basis of the arithmetic.
 The CSV export carried the same cap, so a wrong number could be taken away and
 totalled somewhere else. Totals are now summed over everything that matched, the
 table renders one page and says so, and the export is uncapped
-([`analysis.ts`](../src/web/pages/analysis.ts)). A limit that shapes a number
+([`analysis.ts`](../../src/web/pages/analysis.ts)). A limit that shapes a number
 needs a name you can say out loud on the page.
 
 ---
@@ -1576,7 +1576,7 @@ mostly never came: three years of realistic use left a standing queue of expense
 with nothing behind them.
 
 Money out now requires a category. The rule lives in `approveStaged`
-([`pipeline.ts`](../src/import/pipeline.ts)) — the chokepoint both manual and
+([`pipeline.ts`](../../src/import/pipeline.ts)) — the chokepoint both manual and
 automatic approval pass through — so it cannot be routed around by importing
 instead of typing. Money *in* stays exempt for B94's reason. The client mirrors
 the requirement off the direction dropdown so the household is told before
@@ -1592,7 +1592,7 @@ grocery merchant, 127 from another, and **zero** proposed rules.
 `proposeCategoryRules` reads the ledger and would work from anywhere, but it was
 only ever called from the import-approval route. Categorising from the
 transaction screen — which is where a household actually files things — taught the
-app nothing. It now runs on filing too ([`app.ts`](../src/app.ts)). Filing one
+app nothing. It now runs on filing too ([`app.ts`](../../src/app.ts)). Filing one
 charge proposes six rules covering the top merchants, including one chain under
 three narration forms and another under two.
 
@@ -1606,7 +1606,7 @@ valuation was recorded. Created, then invisible, at exactly the moment it most
 needed a prompt.
 
 The list no longer filters them out. An unvalued asset shows *"no value yet"* next
-to **"Say what it's worth"** ([`portfolio.ts`](../src/web/pages/portfolio.ts)),
+to **"Say what it's worth"** ([`portfolio.ts`](../../src/web/pages/portfolio.ts)),
 and `/portfolio/valuations` updates every hand-valued pot in one sitting, each
 showing what it was last worth and when.
 
