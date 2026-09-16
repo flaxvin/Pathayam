@@ -1,147 +1,174 @@
-# Getting money in
+# Import
 
-Typing every transaction is how a budget dies. This is the machinery that stops
-you having to — built for Indian banking, which means UPI narrations, split
-credit-card cycles, and statement PDFs locked with a password derived from your
-own name.
-
-Everything arrives in the same place: a **review queue**. Nothing reaches the
-ledger without passing through it.
+Every source terminates in the same review queue. Nothing reaches the ledger
+without passing through it.
 
 ```
-  CSV  ─┐
-  PDF  ─┼─▶  parse  ─▶  duplicate check  ─▶  rules  ─▶  review queue  ─▶  ledger
- Gmail ─┘                                                     ▲
-                                                        you approve,
-                                                     merge, or reject
+CSV ┐
+PDF ┼→ parse → duplicate check → rules → staged_transactions → approve → ledger
+Gmail ┘                                                       → merge
+                                                              → reject
 ```
 
 ## CSV
 
-Upload a file, and the app guesses which column is which — date, narration,
-debit, credit, balance, reference. Confirm the guess once and it is saved as a
-**profile** for that account, recognised by its header signature every month
-after.
+`POST /import` with a pasted or uploaded delimited file.
 
-Indian banks split debit and credit into two columns far more often than they
-sign one, and both shapes are handled.
+1. The delimiter is detected.
+2. `guessMapping` proposes which column is date, narration, debit, credit,
+   balance and reference, and which row is the header.
+3. The mapping is confirmed on `/import/map` and may be saved as a profile.
+4. A saved profile is matched on subsequent imports by header signature.
 
-## Statement PDFs
+Both layouts are supported: a single signed amount column, or separate debit and
+credit columns.
 
-The PDF reader is written here — object parsing, RC4 and AES decryption, and
-text extraction that preserves layout, because a statement is a table and a
-table that loses its columns is unparseable.
+Date formats are inferred; two-digit years are resolved by the mapping's
+`dateFormat` where a bank is ambiguous.
 
-### Passwords
+## PDF statements
 
-Most Indian bank statements are encrypted with something derived from your own
-details. Save your name, date of birth, PAN and registered mobile once
-(Settings), and the app derives the candidates and tries them:
+`POST /import/pdf` with a statement file. The reader is implemented in
+`src/pdf/` — object parsing, RC4 and AES decryption, and text extraction that
+preserves column layout.
 
-| | |
+### Password derivation
+
+With a statement identity saved (Settings → statement identity: name, date of
+birth, PAN, registered mobile), candidates are derived and tried in order. The
+bank is taken from the destination account's institution, so its own rule is
+tried first.
+
+| Rule | Bank |
 |---|---|
-| Name + DDMM | the most common family, in several capitalisations |
-| DOB as DDMMYYYY, DDMMYY, YYYYMMDD | on its own |
-| PAN, alone and with the DOB | several brokers use the first five PAN letters |
-| Last five of the mobile + DOB | SBI account statements |
-| DOB + last four of the card | SBI Card |
-| Last four alone | Canara |
-| DOB + last six of the card | HSBC |
+| Name + DDMM, several capitalisations | most |
+| Name + DDMM + YY | RBL |
+| DDMMYYYY, DDMM, YYYYMMDD | general |
+| PAN, upper and lower | general |
+| PAN + DDMMYYYY; first five PAN letters + DDMMYYYY | brokers |
+| Last five of the mobile + DDMMYY | SBI account |
+| DDMMYYYY + last four of the card | SBI Card |
+| Last four of the card alone | Canara |
+| DDMMYY + last six of the card | HSBC |
 
-The app says which one worked — *"it opened with your PAN"* — and never stores
-or logs the password itself.
+The interface reports which candidate opened the file, described rather than
+quoted. The password itself is never stored or logged.
 
-When none work it names **which detail is missing** rather than shrugging.
-Measured against a real corpus of seventy-seven statements from twelve
-institutions, every single file that could not be opened was missing one of two
-things: the registered mobile, or the card's last four. Both are one field.
+When no candidate works and the bank's rule needs a detail the household has not
+saved, the message names that detail.
 
-### Reading the table
+### Bank layouts
 
-Eleven bank layouts are recognised by signature. Two problems in real statements
-are worth knowing about, because both look like the parser is broken when it is
-not:
+Eleven banks are recognised by signature: HDFC, ICICI, Axis, SBI, Union Bank,
+Canara, YES, IndusInd, Kotak, RBL, HSBC. A twelfth profile covers broker
+contract notes.
 
-**Figures drawn in pieces.** Some generators emit one number as several text
-runs — `27,333.00` as `2`, `7,3`, `33.0`, `0` — and the layout pass puts each at
-its own column, so the line reads `2 7,3 33.0 0` and the date reads
-`2 7-03 -202 6`. Every date and amount stops matching and the statement parses
-to nothing while looking perfectly healthy. The date, figure and header readers
-each have a second, tolerant pattern, tried **only where the strict one already
-failed**, and each reports the span it matched in the original line — spaces
-included — so no column offset shifts.
+Each profile carries its signatures, a password hint, and a skip list of lines
+that are never transactions.
 
-**A summary beside the table.** One bank prints the account summary down the
-left of the page and the transactions down the right, sharing lines. A table
-announces its left edge with its own Date heading, so the parser slices there —
-again, only as a second attempt, after the ordinary read comes back empty.
+### Reading rows
 
-### The balance column checks the work
+Amounts are derived from **balance movement**: the difference between
+consecutive running balances is the amount, sign included. The printed amount
+verifies that movement. Where the two disagree, the row is reported as an error
+rather than guessed.
 
-Every Indian statement prints a running balance, and the movement between two
-rows *is* the amount, sign included. The parser derives amounts from that
-movement and uses the printed figure to verify it, rather than the other way
-round. Where the two disagree the row is reported instead of guessed.
+Where a statement prints no balance column, amounts are read by column position
+against the table header.
 
-The statement's own closing balance then checks the whole parse. On the real
-corpus, twelve statements print one and all twelve reconcile to the paise. That
-is an oracle nothing else in this app gets for free, and it has vetoed three
-plausible-looking parser changes that were quietly wrong.
+Two layout cases are handled explicitly, each as a second attempt made only
+after the ordinary read yields nothing:
+
+- **Figures drawn in pieces.** Some generators emit one number as several text
+  runs, leaving single spaces inside dates and amounts. The date, figure and
+  header readers each have a tolerant pattern that matches across those spaces
+  and reports the span in the original line, preserving every column offset.
+- **A summary column beside the table.** Where the page places another block to
+  the left of the transactions, the table's own Date heading marks its left edge
+  and lines are sliced there.
+
+Lines matching opening balance, brought forward or carried forward are never
+transactions.
+
+### Reconciliation
+
+Where a statement prints both an opening and a closing balance, the parse is
+checked against them: `opening + Σ amounts − closing` must be zero. The result is
+exposed on `StatementParse.reconciliation` and reported after import.
+
+### Unreadable files
+
+A PDF with no extractable text is refused with an explanation — it is a scan.
+A PDF whose table cannot be parsed falls through to the manual column mapping
+screen, the same one an unrecognised CSV uses.
 
 ## Gmail
 
-Opt-in, separate from signing in, and `gmail.readonly`. The app looks only at
-senders it recognises as statement or alert addresses, and the grant can be
-revoked from Settings. Tokens are excluded from every export.
+Opt-in, separate from sign-in, scope `gmail.readonly`. Granted from Settings and
+revocable there.
 
-## Duplicates
+`STATEMENT_SENDERS` maps sender addresses to banks; only recognised senders are
+read. Attachments are passed to the PDF path; alert bodies to the email-alert
+parser. The refresh token is stored in `gmail_connections` and excluded from
+every export.
 
-The same transaction arrives twice — you typed it, then the statement listed it;
-or a file was imported again. Five tiers, and only the top one decides alone:
+## Duplicate detection
 
-| | |
-|---|---|
-| **exact** | Same source id. Skipped silently: re-importing a file adds nothing. |
-| **strong** | Same date, amount and narration. Merged with a note. |
-| **probable** | Close on date and amount. Asked about. |
-| **weak** | Might be. Asked about. |
-| **manual-vs-imported** | You typed it, the bank confirmed it. Asked about. |
+Every staged row is compared against existing transactions **in the same
+account** and against rows already pending in that account.
 
-A row's identity is a hash of its date, amount, narration and reference —
-**scoped to the account**. Two accounts can genuinely produce the same four
-values (the same shop, the same amount, the same day, on the joint card and the
-personal one), and treating those as one row is wrong.
+| Tier | Test | Handling |
+|---|---|---|
+| `exact` | Same `source_id`. | Skipped. Re-importing a file adds nothing. |
+| `strong` | Same date, amount and narration. | Merged automatically, with a note. |
+| `probable` | Close on date and amount. | Queued for a decision. |
+| `weak` | Weaker match. | Queued for a decision. |
+| `manual-vs-imported` | A typed transaction matching an imported one. | Queued for a decision. |
+
+`source_id` is `adapter:sha256(date, amount, narration, reference):occurrence`.
+The occurrence counter distinguishes genuinely identical rows within one file.
+Uniqueness is enforced per account.
 
 ## Rules
 
-A rule matches on narration, merchant, VPA, channel, reference, payee, account,
-amount, direction, date, day of month, memo, tags or category, and sets a payee,
-a category, a memo, tags, or flags the row for review. Rules run in three
-stages — `pre`, `default`, `post` — so a broad rule can be overridden by a
-specific one.
+A rule has a stage, conditions, and actions.
 
-Rules can be tried against your own history before being saved, and applied
-retroactively to transactions already filed.
+- **Stages:** `pre`, `default`, `post`. Rules run in that order, so a broad rule
+  can be overridden by a later specific one.
+- **Condition fields:** `narration`, `channel`, `vpa`, `merchant`, `reference`,
+  `importedPayee`, `payee`, `account`, `amount`, `absoluteAmount`, `direction`,
+  `date`, `dayOfMonth`, `memo`, `tags`, `category`.
+- **Operators:** `is`, `isNot`, `contains`, `doesNotContain`, `startsWith`,
+  `endsWith`, `matches`, `oneOf`, `notOneOf`, `greaterThan`, `lessThan`,
+  `between`. Text comparison is case-insensitive.
+- **Actions:** `setCategory`, `setPayee`, `setMemo` (set, prepend or append),
+  `addTag`, `removeTag`, `setOwner`, `setCleared`, `setAccount`, `setDate`,
+  `splitFixed`, plus flags to mark for review or ignore.
+- **Match mode:** all conditions, or any.
+
+A rule can be tested against existing transactions before saving, and applied
+retroactively after.
+
+### Narration extraction
+
+`extractNarrationFields` derives `channel` (UPI, NEFT, IMPS, …), `vpa`,
+`reference` (the longest digit run of six or more) and `merchant` from raw
+narration. The merchant is the longest remaining segment after removing the
+rail, the reference, and known noise tokens; a trailing reference, bracketed or
+bare, is stripped.
 
 ## Learning
 
-File the same payee into the same envelope a few times and the app proposes a
-rule, stating its evidence:
+Filing the same payee into the same envelope repeatedly proposes a rule. The
+proposal records the evidence count in `rules.strength` and states it in
+`rules.because`.
 
-> You've put Blinkist in Books and courses 36 times.
+Proposals are never applied. They are listed strongest first, the leading few
+shown and the remainder behind a count, on both `/review` and `/rules`.
+Confirming clears `proposed`. Dismissing sets `dismissed_at` and records a
+suppression so the same suggestion is not made again.
 
-Proposals are **proposed**, never applied. Three years of use produces dozens,
-so they are ranked by that evidence and the strongest handful shown, with the
-rest behind a count — a proposal seen thirty-six times and one seen three should
-not be the same size on the screen.
+## Undoing an import
 
-Dismissing one suppresses that specific suggestion permanently. Saying no is
-heard once and remembered.
-
-## What is not automated
-
-- **No bank API connections.** India has no usable open-banking surface for a
-  self-hosted app, and screen-scraping a bank login is not something this will
-  do with somebody's real credentials.
-- **No SMS parsing.** It needs a phone-side agent; the alert emails carry the
-  same information.
+An entire batch can be undone from `/import`, which removes the transactions it
+created and marks the batch `undone_at`.
