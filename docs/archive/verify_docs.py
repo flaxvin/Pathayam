@@ -12,8 +12,8 @@ offline"; an agent following it would rebuild the entire subsystem R35 deleted.
 That is an executable defect, not a typo, and it is exactly what a short script
 can find.
 
-    python3 docs/verify_docs.py           # check
-    python3 docs/verify_docs.py --list    # show every allow-listed line
+    python3 docs/archive/verify_docs.py           # check
+    python3 docs/archive/verify_docs.py --list    # show every allow-listed line
 
 False positives are resolved with an inline marker, the same way the rupee
 figures are pinned today:
