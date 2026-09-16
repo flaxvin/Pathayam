@@ -1,118 +1,114 @@
-# Privacy inside a household
+# Privacy within a household
 
-A household budget is shared. Not everything in a household is.
+## Model
 
-The promise, in the words the app itself uses: **nobody sees anybody else's
-accounts, balances or other envelopes.** This document is what that means
-mechanically, and how it is kept true.
+The household has one budget. Each member may have one personal budget.
 
-## Budgets
+```
+budgetsFor(member) = [ household budget, that member's personal budget ]
+```
 
-The household has one budget. Each member may also have a **personal budget**,
-with its own accounts, its own envelopes and its own Ready to Assign.
+Everything a member may see follows from that set, plus the visibility flag on
+individual accounts.
 
-A member sees the household's budget and their own. That is the whole rule:
-`budgetsFor(db, memberId)` returns those two, and everything else follows.
+## Visibility
 
-## Accounts
-
-An account is `shared` or `private`, and a private account has a holder. The
-predicate is one line, and it is the same line everywhere:
+`accounts`, `loans` and `family_loans` each carry `visibility` (`shared` or
+`private`) and `holder_member_id`. The predicate is identical everywhere:
 
 ```sql
 (visibility <> 'private' OR holder_member_id IS ?)
 ```
 
-Private accounts stay out of lists, pickers, reports, exports, the activity log,
-insights, payee lists, and — the one most easily forgotten — **totals**. A net
-worth figure that includes what you cannot see publishes it by subtraction: the
-Overview once showed one member ₹55.6L while the page behind it showed her
-₹28.6L, and the difference was exactly the private money.
+A private entity is excluded from:
 
-Loans and family arrangements carry the same flag, with the same consequence.
+- lists and registers;
+- every picker and dropdown, and the write side of every form;
+- reports, queries, insights and the CSV and JSON exports;
+- the activity log, including event summaries that merely name it;
+- payee lists, where a payee has only ever been seen on invisible accounts;
+- **totals**, including net worth, so nothing is recoverable by subtraction.
 
-## Not-found, never "not allowed"
+Categories and groups are scoped by `budget_id`: a member sees envelopes in the
+household budget and in their own.
 
-Asking for something you may not see gets **404**, not 403. A refusal confirms
-the thing exists, and for a private account the existence *is* the disclosure.
+## Enforcement
 
-## The three guards
+### Response
 
-Fourteen separate leaks have been found in this app. Each was fixed, and each
-time the more useful question was *what kind of blindness let it through* —
-because the answer was never the same twice, and a guard for one kind is
-structurally incapable of seeing the others.
+A request for an entity the viewer may not see returns **404**, never 403. The
+existence of a private entity is itself disclosive.
 
-There are now three, and they are deliberately different shapes.
+### Guards
 
-### 1. `privacy-sweep.test.ts` — every screen, as the wrong person
+Route handlers resolve identifiers through functions that return only what the
+viewer may see, then pass the result to the domain:
 
-Plants a distinctive string in each kind of private thing — an account, an
-envelope, a payee, a loan, a family arrangement — renders **every GET route the
-router serves** as the member who cannot see them, and fails on any match. The
-screen list comes from the route table, so a screen added tomorrow is swept
-tomorrow.
+| Guard | Resolves | Checks |
+|---|---|---|
+| `requireVisibleAccount` | account id | account visibility |
+| `requireVisibleTransaction` | transaction id | its account **and** its category |
+| `requireVisibleCategory` | category id | the category's budget |
+| `requireVisibleGroup` | group id | the group's budget |
+| `requireVisibleAttachment` | attachment id | the attachment's transaction |
 
-Found five leaks on its first run, including the activity log (which narrates
-everything in words, with an undo button beside each) and insights on the front
-page ("Qwertyuiop Envelope is new this month").
+Domain and query functions that can return data for a viewer take
+`viewerMemberId` and apply the predicate in SQL: `listAccounts`,
+`listCategories`, `queryTransactions`, `netWorthStatement`, `projectCashflow`,
+`spendingInsights`, `listPayees`, `buildBudgetView`, `eventVisibility` and
+others.
 
-**Blind to:** a leaked *number*, which has no string to search for. And any route
-that addresses one thing, because it has no id to give it.
+### Event visibility
 
-### 2. `viewer-required.test.ts` — every call names who is looking
+`eventVisibility(db, viewerMemberId)` returns a predicate over logged events. An
+event is readable when the entity it concerns is:
 
-Reads every function in `src/` that accepts a `viewerMemberId` out of the
-source, then requires that **every call in `app.ts` passes one**, or that the
-call is listed with a written reason. Both halves are read from the code, so a
-function that gains a viewer tomorrow is enforced tomorrow.
-
-Found the Overview's net-worth headline, and a charge-category picker on a
-parameterised route.
-
-**Blind to:** a function that never took a viewer at all. `getBytes(db, id)` had
-nothing missing.
-
-### 3. `privacy-by-id.test.ts` — every route, aimed at somebody else's thing
-
-Builds one member's private everything, then aims **every parameterised route**
-at it as a different member and requires not-found.
-
-Found eighteen. Five read — an account's whole register, a transaction, and the
-**bytes of the receipt attached to it**, byte for byte, with its filename in the
-header. Thirteen wrote: close the account, recategorise the transaction, delete
-it, delete the receipt, hide and delete the envelope, delete the group.
-
-## How a route stays honest
-
-Routes do not fetch by id and render. They resolve through a guard that returns
-only what the viewer may see:
-
-| | |
+| Entity | Test |
 |---|---|
-| `requireVisibleAccount` | the account, or not-found |
-| `requireVisibleTransaction` | the transaction — checking both its account **and** its envelope |
-| `requireVisibleCategory` | the envelope |
-| `requireVisibleGroup` | the group, via its budget |
-| `requireVisibleAttachment` | the receipt, via its transaction |
+| `account` | account predicate |
+| `category`, `goal` | category's budget is visible |
+| `loan`, `family-loan` | holder predicate |
+| `transaction` | its account and its category |
+| `assignment` | the category in `month:categoryId` |
+| `target` | the category |
+| `transfer` | both legs' accounts |
+| `payee` | the payee has been seen on a visible account |
+| `holding`, `asset` | the holding's account |
+| anything else | visible — a household setting, a member, a rule |
 
-The write side matters as much as the read side. A form field is a suggestion:
-posting an id by hand once filed a household transaction into another member's
-private envelope, and confirmed the envelope existed by succeeding.
+## Automated checks
+
+Three test files enforce the model, each covering a different failure mode:
+
+| File | Method |
+|---|---|
+| `src/web/privacy-sweep.test.ts` | Plants unique strings in each kind of private entity, renders every non-parameterised GET route as a member who cannot see them, fails on any match. The route list is read from the router. |
+| `src/web/viewer-required.test.ts` | Reads every function accepting `viewerMemberId` from the source, and requires every call in `app.ts` to pass one or to be listed with a written reason. |
+| `src/web/privacy-by-id.test.ts` | Aims every parameterised route at another member's private account, transaction, category, group and attachment, and requires 404. |
+| `src/web/privacy-by-url.test.ts` | Per-loan and per-arrangement routes, including that a private loan stays out of the net-worth total. |
+
+## Commitments
+
+A personal budget commits money to the household by assigning to an envelope
+carrying `commits_to_budget_id`. No money moves between accounts and neither
+side sees the other's accounts; the household's means increase by the sum of
+commitment envelopes, exposed as `due from other budgets`.
+
+The standing of a commitment is **overfunded**, **underfunded** or **square**.
 
 ## Impersonation
 
-An admin-debug mode can view the app as another member, read-only by default,
-with a banner on every page. Writes have to be enabled explicitly, and the
-theme preference is still stored against the real member — a display preference
-belongs to the viewer, not to the person being viewed.
+Available only when `ADMIN_DEBUG` is set. A session may view the application as
+another member:
 
-## Commitments between budgets
+- read-only by default; writes require an explicit toggle
+  (`impersonation_writes`) and expire;
+- a banner appears on every page;
+- events record both `actor_member_id` and `real_member_id`;
+- display preferences are stored against the real member.
 
-A member can commit money from their own budget to the household's. That claim
-appears in the identity as `due from other budgets`, so the arithmetic still
-closes across budgets without either side seeing the other's accounts.
+## Departure
 
-The words matter here and were chosen carefully: an envelope with too little in
-it is **underfunded**, not *in debt*. Between two people running a household,
-the language of default is the wrong register.
+Removing a member sets `removed_at`. Nothing they created is deleted and their
+name remains on it. Before removal the household settles any balance between
+budgets. A removed member can be restored, and is found by the same identity.

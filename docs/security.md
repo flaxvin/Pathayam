@@ -1,95 +1,133 @@
 # Security
 
-A self-hosted app holding one household's complete financial history. The threat
-model is modest — a handful of trusted people, behind a tunnel, on a machine
-they own — and the consequences of getting it wrong are not.
+## Threat model
 
-A full review was run against the whole app in September 2026. It found
-twenty-two defects in two families. All are fixed; the record of what else was
-checked and found sound is below, so the next review starts from there rather
-than repeating it.
+A self-hosted application holding one household's financial history, reachable
+on a private origin, used by a small number of trusted people.
 
-## What the review found
+**In scope:** anything reachable over HTTP by an unauthenticated party or by a
+member acting outside their own data; anything that leaves the machine.
 
-### Eighteen routes acted on somebody else's things
+**Out of scope:** an attacker with the database file, the host, or root. The
+database is not encrypted at rest; disk encryption is the operating system's
+responsibility. Privacy between members separates people who trust each other —
+it is not an adversarial boundary.
 
-The largest single failure found in this app, and covered in
-[privacy.md](privacy.md): every parameterised route aimed at one member's
-private account, transaction, envelope, group and receipt, signed in as somebody
-else. Five read — including the receipt's bytes — and thirteen wrote.
+## Authentication
 
-### Four open redirects
+**Google OAuth 2.0** with PKCE. No password is stored.
 
-The theme toggle, the review queue, the impersonation banner, and **sign-in**
-took a redirect target from the request and used it as given.
+- The `state` value is 16 random bytes, held in memory, single-use, expiring
+  after ten minutes.
+- The email must already be a member with `allowed = 1`. Others are refused and
+  the attempt recorded in `auth_attempts`.
+- Sign-in attempts are rate limited per source address; exceeding the limit
+  returns 429.
 
-Sign-in is the one that matters: an open redirect there lands somebody on
-another site at the exact moment they have proved who they are and are expecting
-to be somewhere familiar.
+**Sessions.** 32 random bytes, base64url. Stored as a SHA-256 hash; the
+plaintext exists only in the cookie. Cookie flags: `HttpOnly`, `SameSite=Lax`,
+`Path=/`, and `Secure` when `BASE_URL` is HTTPS. Idle expiry is `SESSION_DAYS`.
+Sessions can be revoked individually from Settings.
 
-The instructive part is that one of the four *did* check, with
-`startsWith("/")`. That reads as a check and is not one — `//evil.example`
-starts with a slash and is a protocol-relative URL the browser resolves to
-another host. All four now share one `safePath` helper, and a static test fails
-if a redirect target ever reaches a response without passing through it.
+**API tokens.** `Authorization: Bearer`. Stored as a hash, compared in constant
+time, checked for revocation and expiry after lookup. Scoped `read` or
+`read-write`, with a deny-list of path prefixes a token may never reach —
+including token management itself. Rate limited per token.
 
-### Two template hardenings
+**Development login** (`DEV_LOGIN`) is absent from the production image: the
+module is compiled then deleted, and the build asserts its absence. The
+application also refuses to start with it enabled in a production-shaped
+environment.
 
-Neither exploitable; both shaped like the bug rather than being it. An attribute
-built by string concatenation without escaping, and a `when()` helper that
-accepted a plain string and wrapped it in `raw` — so a callback returning a
-payee name would have reached the page unescaped. It takes `SafeHtml` only now.
+**Demo mode** (`DEMO_MODE`) bypasses authentication. It refuses to start
+alongside `DEV_LOGIN` and applies its own deployment safety check.
 
-## Cross-site writes
+## Authorisation
 
-Every unsafe method must carry an `Origin` belonging to this app, with `Referer`
-as the fallback for browsers that omit `Origin` on same-origin form posts. That
-fallback is sound rather than a hole: `Referrer-Policy: same-origin` means a
-same-origin post carries a Referer and a cross-origin post does not.
+Per-member visibility is described in [privacy.md](privacy.md): visible-entity
+guards on every parameterised route, `viewerMemberId` through every query that
+can return data for a person, and 404 rather than 403.
 
-Bearer-authenticated calls are exempt — they carry no cookie, so a browser
-cannot be tricked into making one on somebody's behalf, which is the entire
-mechanism CSRF depends on.
+## Cross-site request forgery
 
-This is enforced in **one middleware**, not by a hidden token in each of a
-hundred and five forms, because the hundred and sixth is the one somebody
-forgets — and it covers every route added after today. It is the second lock:
-the session cookie is `SameSite=Lax` and no GET in the router changes state, a
-property a test verifies by walking every handler.
+Two independent controls:
 
-## What was checked and found sound
+1. The session cookie is `SameSite=Lax`, and no `GET` handler in the router
+   mutates state — verified by a test that walks every handler for write calls.
+2. Every unsafe method must carry an `Origin` matching the deployment, or a
+   `Referer` from it when `Origin` is absent. `Referrer-Policy: same-origin`
+   guarantees a same-origin request carries a `Referer` and a cross-origin one
+   does not. Failure returns 403.
 
-| | |
-|---|---|
-| **SQL injection** | Every query parameterised. The one dynamically-built `UPDATE` assembles its `SET` clause from literal column names; values go through placeholders. |
-| **XSS** | The template tag escapes by default — `& < > " '`, so attribute contexts are covered — and an unescaped value has to be typed on purpose. Every `raw()` call site audited; the SVG chart builders escape every label they interpolate. |
-| **Sessions** | 32 bytes of `randomBytes`, stored as a SHA-256 hash and looked up by hash, `HttpOnly`, `SameSite=Lax`, `Secure` when the base URL is HTTPS. |
-| **API tokens** | Hashed lookup, constant-time comparison, revocation and expiry checked after, with their own fixed-window rate limit. |
-| **Rate limiting** | On the OAuth callback and on API tokens — the two paths where a credential is presented. |
-| **Path traversal** | Not reachable: attachments are bytes in the database, and no filesystem path is built from user input. |
-| **Uploads** | A MIME allowlist of images and PDF — no SVG, no HTML — enforced against both the declared type and the extension, 10 MB cap, served with `nosniff`. PDFs download rather than render inline. |
-| **Secrets** | Statement identity (PAN, date of birth) and Gmail tokens are named in `NEVER_EXPORTED`. The request log records method, **pathname**, status and duration — no query string, no body, no headers. |
-| **SSRF** | Every outbound host is a hardcoded Google or price-feed endpoint; user-supplied values reach only path segments, through `encodeURIComponent`. |
-| **Response headers** | CSP with no `unsafe-inline` for scripts, `frame-ancestors 'none'`, `form-action 'self'`, `base-uri 'self'`, `object-src 'none'`, plus `nosniff`, `X-Frame-Options: DENY`, `Referrer-Policy: same-origin`, `Permissions-Policy`, `Cache-Control: no-store`. |
-| **Untrusted files** | The PDF and CSV parsers fuzzed with empty, truncated, garbage, all-null, absurd-length and **self-referential page-tree** inputs. No hang, no crash, every case under 11ms — including the recursive case, which is the classic infinite-loop trap in a PDF reader. |
-| **Configuration** | The app refuses to start with `DEMO_MODE` and `DEV_LOGIN` both set, and demo mode is gated behind its own deployment check. |
-| **Dependencies** | None at runtime. There is no supply chain to audit. |
+Bearer-authenticated requests are exempt from (2): they carry no cookie.
 
-## Deliberately not defended against
+The check is one middleware, applied before routing, and therefore covers every
+route.
 
-Worth stating so nobody assumes otherwise:
+## Redirects
 
-- **Somebody with the database file.** It is not encrypted at rest. Disk
-  encryption is the operating system's job.
-- **A malicious household member.** Privacy separates members who trust each
-  other and want some things kept personal. It is not an adversarial boundary:
-  a member with an account can see the household's money, by design.
-- **Somebody with root on the host.** Sessions, tokens and the database are all
-  readable there.
+Any redirect target taken from a request passes through `safePath`, which
+requires a path beginning with a single `/`, rejects `//` and `/\` (which
+browsers resolve as another origin), and rejects control characters. Applied to
+the sign-in return, the theme toggle, the review queue and the impersonation
+banner.
 
-## Reporting
+## Output encoding
 
-It is one household's app. If you are reading this because you found something,
-open an issue — or if it is serious enough to be worth not writing down in
-public, say so in the issue without the detail and we will find a better
-channel.
+`src/http/html.ts` escapes `& < > " '` on every interpolation, covering both
+element and attribute contexts. `raw()` is the only way to emit unescaped
+output, and `when()` accepts only `SafeHtml`. Server-generated SVG escapes every
+interpolated label.
+
+`jsonScript()` escapes `<` as `<` for values embedded in script blocks.
+
+## Input handling
+
+- **SQL**: every query is parameterised. The single dynamically-assembled
+  `UPDATE` builds its `SET` clause from literal column names.
+- **Uploads**: MIME allow-list of `image/jpeg`, `image/png`, `image/webp`,
+  `image/heic`, `image/heif`, `application/pdf`, checked against both the
+  declared type and the extension. 10 MB limit. Stored as blobs, so no path is
+  constructed from user input. Served with `nosniff`; PDFs are served
+  `Content-Disposition: attachment`, images inline. The filename in the header
+  is reduced to word characters, dots, spaces, parentheses and hyphens.
+- **Untrusted parsers**: the PDF and CSV readers are fuzzed with empty,
+  truncated, malformed, all-null, absurd-length and self-referential inputs.
+
+## Transport and headers
+
+Applied to every response:
+
+```
+Content-Security-Policy: default-src 'self'; script-src 'self';
+  style-src 'self' 'unsafe-inline'; img-src 'self' data:; font-src 'self';
+  connect-src 'self'; frame-src 'none'; frame-ancestors 'none';
+  form-action 'self'; base-uri 'self'; object-src 'none'
+X-Content-Type-Options: nosniff
+X-Frame-Options: DENY
+Referrer-Policy: same-origin
+Permissions-Policy: geolocation=(), camera=(), microphone=(), interest-cohort=()
+Cache-Control: no-store
+```
+
+No third-party script, style, font or image is loaded.
+
+## Secrets
+
+- `statement_identity` and `gmail_connections` are listed in `NEVER_EXPORTED`
+  and excluded from the JSON and CSV exports.
+- Statement passwords are used and discarded; only a description of which
+  candidate worked is retained.
+- The request log records method, **path without query string**, status and
+  duration. No body, no headers, no query parameters, no financial values.
+
+## Outbound requests
+
+Every outbound host is fixed in source: Google's OAuth and Gmail endpoints, and
+two price providers. User-supplied values reach only path segments and query
+values, through `encodeURIComponent`. `BACKUP_WEBHOOK_URL` and `HEARTBEAT_URL`
+are operator-configured.
+
+## Dependencies
+
+None at runtime.
