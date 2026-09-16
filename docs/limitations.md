@@ -1,0 +1,108 @@
+# Limitations
+
+Known constraints of the current build.
+
+## Budgeting
+
+**Past months are recomputed, not frozen.** Viewing an earlier month applies
+current data, including assignments made in later months. A past month's Ready
+to Assign can therefore read lower than it did at the time. Closed months record
+their figures in `month_closes`, which is the durable record. See
+[dev/01-engine-derivation.md](dev/01-engine-derivation.md) §4.
+
+**One household per deployment.** There is no multi-tenancy. Two households need
+two deployments.
+
+**Overspend model is household-wide.** It cannot differ per budget or per
+envelope.
+
+## Currency
+
+**Rupee by default.** `FEATURE_MULTI_CURRENCY` is off unless set. With it off,
+accounts are assumed to be in the base currency.
+
+**Conversion applies to valuation, not to budgeting.** A foreign-currency asset
+account or holding is converted for net worth and allocation at the `fx_rates`
+entry for the date requested. Budget accounts, envelopes and Ready to Assign are
+single-currency.
+
+**Missing rate.** Where no rate exists for a pair, the value is carried at 1 and
+marked stale rather than dropped.
+
+## Import
+
+**Payee names from PDF statements can contain spaces inside words.** Some
+statement generators draw a single word as several positioned text runs; the
+layout pass places each at the column its position implies, which can insert a
+space. Roughly 29% of payee names extracted from one real corpus are affected —
+`Fino P A Ym` for `Fino Pay`. Dates, amounts and table headers are read
+correctly despite this; the residue is cosmetic and affects payee grouping.
+
+The information needed to reconstruct the original word boundaries is not
+present after layout. Approaches evaluated and rejected are recorded in
+[archive/18-second-top-down.md](archive/18-second-top-down.md).
+
+**Scanned statements cannot be read.** A PDF with no extractable text is
+refused with an explanation. Use the bank's CSV.
+
+**Four banks require a detail beyond name, date of birth and PAN** to derive a
+statement password: SBI account statements need the registered mobile; SBI Card
+and Canara need the card's last four digits; HSBC needs its last six. Without
+them the file cannot be opened, and the interface says which is missing.
+
+**No bank API connections.** There is no consumer open-banking surface in India
+usable by a self-hosted application, and the application does not automate bank
+logins.
+
+**No SMS parsing.** It would require a device-side agent to forward message
+bodies. iOS does not permit reading SMS at all.
+
+**Gmail ingestion is opt-in and read-only**, restricted to recognised sender
+addresses. It cannot be tested automatically because it requires a live grant.
+
+## Offline and sync
+
+**No offline mode.** The application is server-rendered and requires the server.
+There is no local replica and no sync protocol. Installing it as a PWA gives it
+an icon and a standalone window, not offline operation.
+
+## Scale
+
+**Single process, single SQLite file.** Suitable for a household's ledger over
+many years. There is no horizontal scaling story and none is intended.
+
+**The rollup cache bounds month-opening cost**, but a query across the full
+history reads the full history.
+
+## Security boundaries
+
+**The database is not encrypted at rest.** Anyone with the file has everything.
+
+**Privacy between members is not an adversarial boundary.** It separates people
+who trust each other and want some things kept personal. Any member can see the
+household budget in full.
+
+**No protection against a compromised host.** Sessions, tokens and data are all
+readable with root.
+
+## Operational
+
+**Backups are local unless configured otherwise.** The scheduled job writes to
+`BACKUP_DIR` on the same volume and verifies a restore. Copying backups off the
+machine is the operator's responsibility.
+
+**`HEARTBEAT_URL` is the only mechanism that can report the deployment being
+down**, because every other alert originates from the deployment itself.
+
+**Migrations are one-way.** There is no down-migration. Recovery from a bad
+upgrade is restoring a backup.
+
+## Interface
+
+**No native mobile application.** The web interface is responsive and
+installable.
+
+**No printing stylesheet.** Exports are CSV and JSON.
+
+**English only.** Indian number formatting (lakh, crore) is used throughout for
+figures.
