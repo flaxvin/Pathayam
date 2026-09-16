@@ -431,6 +431,31 @@ const PIECED_MONEY_HEADING = new RegExp(
   "i",
 );
 
+/**
+ * Where a transaction table's left edge is, when the page puts something else
+ * beside it.
+ *
+ * A header line that names a date, a description and an amount is the table
+ * announcing itself, and the column its Date heading starts at is the column
+ * the table starts at. Anything to the left belongs to another block.
+ *
+ * Zero unless the indent is real. A table that already starts at the left edge
+ * is every other statement in the corpus, and slicing those at 0 changes
+ * nothing — but returning a small offset for a table merely indented by a
+ * space or two would shift every column for no reason.
+ */
+export function tableLeftEdge(lines: string[]): number {
+  for (const line of lines) {
+    if (!/\bdate\b/i.test(line)) continue;
+    if (!/\b(description|particulars|narration|details|transaction)\b/i.test(line)) continue;
+    if (!/\b(amount|withdrawal|deposit|debit|credit)\b/i.test(line)) continue;
+    const at = line.search(/\bdate\b/i);
+    if (at >= 8) return at;
+    return 0;
+  }
+  return 0;
+}
+
 export function readHeader(lines: string[]): HeaderColumns | null {
   // Strict first; the pieced patterns are a second pass over the same lines, so
   // a statement that reads today cannot start reading differently tomorrow.
@@ -883,20 +908,23 @@ export interface StatementParse extends ParseResult {
  * Split from the PDF handling so the layouts are testable without a PDF, the
  * same way `parseCasText` is.
  */
-export function parseStatementText(text: string, bankId?: BankId): StatementParse {
+export function parseStatementText(
+  text: string, bankId?: BankId, opts: { alreadySliced?: boolean } = {},
+): StatementParse {
   const bank = bankId ? BANKS.find((b) => b.id === bankId) ?? null : detectBank(text);
   const layout = bank ? LAYOUTS[bank.id] : null;
   const records: RawRecord[] = [];
   const errors: ParseError[] = [];
 
-  const lines = text.split("\n");
+  const all = text.split("\n");
+  const lines = all;
   const header = readHeader(lines);
 
   // The opening balance may be printed *after* the rows — Union Bank puts it
   // in a summary block below the table — so it is found in a pass of its own
   // rather than picked up on the way past.
   let previousBalance: number | null = null;
-  for (const line of lines) {
+  for (const line of all) {
     const open = openingBalanceOf(line);
     if (open !== null) { previousBalance = open; break; }
   }
@@ -1056,10 +1084,52 @@ export function parseStatementText(text: string, bankId?: BankId): StatementPars
     });
   }
 
-  return {
+  const result: StatementParse = {
     records, errors, rowsRead: rowNumber, bank, text,
-    reconciliation: reconcile(lines, records),
+    reconciliation: reconcile(all, records),
   };
+
+  // Nothing read, and the page may be two columns with the table on the right.
+  return records.length === 0 && !opts.alreadySliced
+    ? retryAsTwoColumn(text, bankId, result)
+    : result;
+}
+
+/**
+ * A page that puts something else beside the table.
+ *
+ * RBL prints its statement as two columns: the account summary down the left,
+ * the transactions down the right, sharing lines. So a transaction row reads
+ *
+ *   Card Number  XXXXXXXXXXXXXX27     21 Apr 2026  PYU*Swiggy Food  338.00
+ *
+ * and the date is forty-six characters in, behind text that is not a serial
+ * number — past the window a date is looked for in, and past the guard that
+ * stops a date inside a narration being taken for the transaction's own. Both
+ * of those are right, and together they read nothing. Two real transactions sat
+ * in that file; what the parser found instead was the worked example RBL prints
+ * to explain how to read a statement.
+ *
+ * The table says where it starts: its own Date heading. Slicing every line
+ * there drops the left-hand column — but only ever as a second attempt, after
+ * the ordinary read has come back with nothing. Tried first, it is a disaster:
+ * measured across seventy-seven real statements, slicing whenever an indented
+ * header exists took the corpus from 1,860 rows to 422 and broke every one of
+ * the twelve balance reconciliations. A statement that reads today is never
+ * re-read.
+ */
+function retryAsTwoColumn(
+  text: string, bankId: BankId | undefined, first: StatementParse,
+): StatementParse {
+  const edge = tableLeftEdge(text.split("\n"));
+  if (edge === 0) return first;
+
+  const sliced = text
+    .split("\n")
+    .map((line) => (line.length > edge ? line.slice(edge) : ""))
+    .join("\n");
+  const second = parseStatementText(sliced, bankId, { alreadySliced: true });
+  return second.records.length > 0 ? { ...second, text } : first;
 }
 
 /**

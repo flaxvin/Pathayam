@@ -92,3 +92,59 @@ describe("a statement drawn in pieces still reads", () => {
     }
   });
 });
+
+/**
+ * A page that puts something else beside the table.
+ *
+ * RBL prints its statement as two columns — the account summary down the left,
+ * the transactions down the right — sharing lines. So a transaction row reads
+ * `Card Number  XXXXXXXXXXXXXX27   21 Apr 2026  PYU*Swiggy Food  338.00`, and
+ * the date is forty-six characters in, behind text that is not a serial number:
+ * past the window a date is looked for in, and past the guard that stops a date
+ * inside a narration being taken for the transaction's own.
+ *
+ * Both of those rules are right. Together they read nothing — and what the
+ * parser found instead was the worked example the statement prints to explain
+ * how to read a statement.
+ *
+ * The layout below is the real shape. The figures are invented.
+ */
+describe("a table with a summary beside it", () => {
+  const TWO_COLUMN = [
+    "  ACCOUNT SUMMARY (IN INR)                    THE MONTH GONE BY!",
+    "                                              Date            Description                 Amount",
+    "  Card Number         XXXXXXXXXXXX27          21 Apr 2026     PYU*Coffee House             338.00",
+    "  Total Amount Due    338.00                  22 Apr 2026     Goods & Service Tax            0.00",
+    "  Payment Due Date    05 Jun 2026",
+    "  How to read this statement:",
+    "  12-Dec-18   Purchase of Groceries",
+    "  26-Dec-18   Purchase of clothes",
+  ].join("\n");
+
+  test("the transactions are read, not the worked example", () => {
+    const parsed = parseStatementText(TWO_COLUMN);
+    assert.ok(parsed.records.length > 0, "the two-column page read nothing at all");
+    assert.deepEqual(
+      parsed.records.map((r) => r.date),
+      ["2026-04-21"],
+      "it read the illustration's 2018 dates instead of this month's transactions",
+    );
+    assert.match(parsed.records[0]!.narration, /Coffee House/);
+    assert.equal(parsed.records[0]!.amount, -33800);
+  });
+
+  test("an ordinary statement is never re-read this way", () => {
+    /*
+     * The second attempt only happens when the first read nothing. Slicing
+     * whenever an indented header exists is a disaster — measured over
+     * seventy-seven real statements it took the corpus from 1,860 rows to 422
+     * and broke every one of the twelve balance reconciliations — so a
+     * statement that reads today must keep reading the same way.
+     */
+    const ordinary = parseStatementText(CLEAN);
+    assert.equal(ordinary.records.length, 2);
+    assert.deepEqual(
+      ordinary.records.map((r) => r.amount), [-300000, 2300],
+    );
+  });
+})
