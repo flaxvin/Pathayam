@@ -217,6 +217,12 @@ code, kbd, samp { font-family: var(--font-mono); font-size: 0.9em; }
   border-bottom: 1px solid var(--line);
 }
 .masthead__inner { display: flex; align-items: center; gap: 1rem; min-height: 4.25rem; }
+/* Below this width the nav wraps to three rows or more; a sticky header that
+   tall takes a third of a small phone's viewport and keeps it. Let it scroll
+   away instead. */
+@media (max-width: 30rem) {
+  .masthead { position: static; }
+}
 
 .brand {
   display: inline-flex; align-items: center; gap: 0.55rem;
@@ -513,13 +519,14 @@ pre code { background: none; padding: 0; color: inherit; }
 /* ------------------------------------------------------------ checklist -- */
 .checks { display: grid; gap: 0.7rem; padding: 0; margin: 0; list-style: none; }
 .checks li {
-  display: grid; grid-template-columns: 1.35rem 1fr; gap: 0.7rem;
-  align-items: start; color: var(--ink-2);
+  position: relative; padding-left: 2.05rem;
+  color: var(--ink-2);
 }
 .checks li::before {
   content: "✓";
+  position: absolute; left: 0; top: 0; width: 1.35rem;
   font-weight: 700; color: var(--brand);
-  line-height: 1.5;
+  line-height: inherit;
 }
 .checks li.no::before { content: "—"; color: var(--muted); }
 
