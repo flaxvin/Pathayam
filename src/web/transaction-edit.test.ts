@@ -20,6 +20,7 @@ import {
   createTransaction, getTransaction, getSplits, tagsFor, updateTransaction,
 } from "../domain/transactions.ts";
 import { startTestApp, seedMember, freshDb, type TestApp } from "./harness.test-data.ts";
+import { createCard, paymentCategoryFor } from "../domain/accounts.ts";
 
 const actor: Actor = { memberId: "m", source: "ui" };
 
@@ -146,6 +147,34 @@ describe("F4.3 · a split transaction survives its own edit screen", () => {
     });
     assert.equal(res.status, 400);
     assert.match(await res.text(), /isn&#39;t a split/);
+  });
+});
+
+describe("R6 · a payment envelope cannot be filed to directly", () => {
+  test("the edit form refuses it with the reason, and changes nothing", async () => {
+    const cardAccount = createAccount(db, actor, {
+      name: "Atlas", kind: "credit", subtype: "credit-card",
+      openingDate: "2026-01-01", openingBalance: rupees(0),
+    });
+    createCard(db, actor, {
+      accountId: cardAccount.id, label: "Atlas", last4: "0001", holderMemberId: "m",
+    });
+    const payment = paymentCategoryFor(db, cardAccount.id)!.id;
+    const id = spend(400);
+    const res = await app.post(`/transaction/${id}`, {
+      ...base, amount: "400", category_id: payment,
+    });
+    assert.equal(res.status, 400);
+    assert.match(await res.text(), /payment envelope/);
+    assert.equal(getTransaction(db, id)!.category_id, groceries);
+
+    const asSplit = await app.post(`/transaction/${id}`, {
+      ...base, amount: "400",
+      split_category_0: groceries, split_amount_0: "100",
+      split_category_1: payment, split_amount_1: "300",
+    });
+    assert.equal(asSplit.status, 400);
+    assert.equal(getTransaction(db, id)!.is_split, 0);
   });
 });
 
