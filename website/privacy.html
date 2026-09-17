@@ -72,7 +72,7 @@
           <li>The waitlist stores an email address and nothing that identifies a device.</li>
           <li>The demo holds invented data. Do not put anything real into it.</li>
           <li>If you self-host, none of this applies: no data reaches us at all.</li>
-          <li>On a hosted plan your data sits in its own database in an Indian region, and one endpoint returns all of it at any time.</li>
+          <li>On a hosted plan your data sits in its own database, not a shared table, and one endpoint returns all of it at any time.</li>
           <li>Five days after a plan ends, everything is deleted — backups included, and not recoverable.</li>
         </ul>
       </div>
@@ -200,9 +200,12 @@
 
       <h3>Where it lives</h3>
       <p>
-        Each customer gets their own SQLite database and their own container, in
-        the Mumbai region (<code>bom</code>) of <strong>Fly.io</strong>, on infrastructure operated by Equinix in India. Your data is not
-        a row in a shared table alongside other customers'.
+        Each customer gets their own SQLite database and their own container. Your
+        data is not a row in a shared table alongside other customers'.</p>
+        <p>
+        Hosting is not open yet, and the provider and region are not settled. We
+        will name both here, and tell everyone on the waitlist, before anyone's
+        data is stored anywhere.
       </p>
 
       <h3>Statement identity is never exported or logged</h3>
@@ -248,7 +251,7 @@
         <table>
           <thead><tr><th>Processor</th><th>What for</th><th>What they see</th></tr></thead>
           <tbody>
-            <tr><td>Fly.io (Mumbai)</td><td>Running the service</td><td>Everything stored, as our infrastructure provider</td></tr>
+            <tr><td>Hosting provider — not yet chosen</td><td>Running the service</td><td>Everything stored, as our infrastructure provider. Named here before hosting opens.</td></tr>
             <tr><td>Razorpay</td><td>Taking payment</td><td>Your name, email, and the payment instrument. They hold the card details; we do not.</td></tr>
             <tr><td>Google</td><td>Sign-in</td><td>That you signed in to Pathayam</td></tr>
             <tr><td>Google</td><td>The waitlist sheet</td><td>Waitlist email addresses only</td></tr>
