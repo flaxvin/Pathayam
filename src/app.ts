@@ -166,7 +166,7 @@ import {
   renderTokens,
   type PayeeRow, type RuleRow,
 } from "./web/pages/manage.ts";
-import { renderPrivacy, renderTerms } from "./web/pages/legal.ts";
+import { renderPrivacy, renderTerms, type LegalMode } from "./web/pages/legal.ts";
 import { renderActivity } from "./web/pages/activity.ts";
 import { renderCards, type CardDue } from "./web/pages/cards.ts";
 import { countRequestFailures, recentRequestFailures } from "./ops/errors.ts";
@@ -186,7 +186,9 @@ import { countRequestFailures, recentRequestFailures } from "./ops/errors.ts";
  */
 const UNCATEGORISED_PAGE = 15;
 
-const LEGAL_UPDATED = "11 September 2026";
+// Kept in step with the dates on website/privacy.html and website/terms.html,
+// which are the canonical pages and cover the same ground for the public site.
+const LEGAL_UPDATED = "17 September 2026";
 import { loadRules } from "./import/pipeline.ts";
 import { testRule, type Rule, type RuleSubject, extractNarrationFields } from "./import/rules.ts";
 import {
@@ -1118,12 +1120,29 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   // Required by Google's OAuth consent screen, and linked from sign-in and
   // Settings so a member can read them without hunting for a URL.
+  /*
+   * The demo is a public instance somebody operates, and a self-hosted install
+   * is not, so they cannot truthfully say the same things about who is
+   * responsible for the data. Each renders what is true of itself.
+   */
+  const legalMode: LegalMode = config.demoMode ? "demo" : "self-hosted";
+
   router.get("/privacy", (ctx) =>
-    render(ctx, "Privacy policy", renderPrivacy({ appName: "Pathayam", updated: LEGAL_UPDATED }), { bare: true }),
+    render(
+      ctx,
+      "Privacy policy",
+      renderPrivacy({ appName: "Pathayam", updated: LEGAL_UPDATED, mode: legalMode }),
+      { bare: true },
+    ),
   );
 
   router.get("/terms", (ctx) =>
-    render(ctx, "Terms of service", renderTerms({ appName: "Pathayam", updated: LEGAL_UPDATED }), { bare: true }),
+    render(
+      ctx,
+      "Terms of service",
+      renderTerms({ appName: "Pathayam", updated: LEGAL_UPDATED, mode: legalMode }),
+      { bare: true },
+    ),
   );
 
   router.post("/signout", (ctx) => {
@@ -1307,8 +1326,28 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const amountRaw = ctx.query.get("amount");
     const amountParam = amountRaw?.trim() ? amountField(amountRaw, "Amount") : null;
 
+    /*
+     * 15 · Only envelopes this viewer can see.
+     *
+     * `monthState.categories` is the engine's map and holds every category in
+     * the household, including another member's private ones; `view.categories`
+     * is the filtered one. Handing the first to the suggester offered somebody
+     * else's envelope as a place to take money from, with its balance printed
+     * on the chip — the leak the budget picker on this same page was already
+     * fixed for. It showed up as a raw id rather than a name only because the
+     * name map was built from the filtered view, so the disclosure the names
+     * would have completed was half-hidden by accident rather than on purpose.
+     *
+     * POST /move refuses an invisible category on both ends, so nobody could
+     * act on the suggestion. Seeing the balance was the whole of the harm, and
+     * it was enough.
+     */
+    const visibleStates = new Map(
+      [...view.monthState.categories].filter(([id]) => view.categories.has(id)),
+    );
+
     const suggestions = to
-      ? suggestCoverSources(to, view.monthState.categories, {
+      ? suggestCoverSources(to, visibleStates, {
           categoryNames: new Map([...view.categories].map(([id, c]) => [id, c.name])),
           metTargets: new Set(
             [...view.categories.values()].filter((c) => c.progress?.underfunded === 0).map((c) => c.id),

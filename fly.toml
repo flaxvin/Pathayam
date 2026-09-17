@@ -38,10 +38,22 @@ primary_region = 'iad'
   # starts it on the next request, so it bills for seconds of use rather than
   # a month of uptime. The first request after a sleep pays about a second of
   # cold start.
+  # On demand, never always-on. Fly stops the machine when it goes idle and
+  # starts it again on the next request, so an idle demo bills for nothing but
+  # its root filesystem. The first visitor after a quiet spell pays roughly a
+  # second of cold start.
   auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
   processes = ['app']
+
+  # Exactly one machine, and the count is not expressed here — it is `fly scale
+  # count 1`, already set. What keeps it at one is `--ha=false` on every deploy
+  # (see .github/workflows/fly.yml); without it Fly creates a spare for high
+  # availability. A spare would be actively wrong here: the database is baked
+  # into the image rather than shared over a volume, so two machines are two
+  # different databases, and a visitor would see their own transaction or not
+  # depending on which one answered.
 
   # One machine, one SQLite file, server-rendered pages. These caps make it
   # queue under a burst instead of thrashing a 256 MB VM.
@@ -60,6 +72,19 @@ primary_region = 'iad'
     timeout = '5s'
     grace_period = '10s'
 
+# Measured on the deployed machine under a burst of concurrent report renders:
+# Node peaked at 125 MB resident against the 207 MB a 256 MB VM actually leaves
+# after kernel overhead. That fits, but a Firecracker VM has no swap by
+# default, so overshooting is a kill rather than a slowdown — and Node sizes
+# its heap from total system memory, so it will happily grow into the gap
+# before collecting. 512 MB with swap behind it turns the worst case from "the
+# machine dies mid-request" into "the machine gets slow". Idle cost is
+# unchanged: the machine is stopped when nobody is looking, so this is billed
+# per second of actual use.
 [[vm]]
-  memory = '256mb'
+  memory = '512mb'
   cpus = 1
+
+# Insurance, not a place to live. If the swap is ever in steady use the memory
+# above is what needs raising.
+swap_size_mb = 512
