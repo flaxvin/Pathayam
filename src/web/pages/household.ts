@@ -26,7 +26,7 @@ export function renderHousehold(
     return html`
       <h1>The household's money</h1>
       <p class="muted">
-        Everything is in the one shared budget, so there is nothing to separate;
+        Everything is in the one shared budget, so there is nothing to split out:
         the budget screen already shows all of it.
       </p>
       <section class="card">
@@ -49,7 +49,8 @@ export function renderHousehold(
   return html`
     <h1>The household's money</h1>
     <p class="muted">
-      ${formatMonth(view.month)} · what each member has put toward the shared budget. No money moves to commit it — it stays in the account it is in
+      ${formatMonth(view.month)} · what each of you has put toward the shared
+      budget. No money moves to commit it — it stays in the account it is in
       until something shared is actually paid for.
     </p>
 
@@ -149,10 +150,10 @@ export function renderHousehold(
         </table>
       </div>
       <p class="faint">
-        Brought forward, plus contributions, less what they paid for.
-        Underfunded means more of the household's spending was paid from their
-        money than they had set aside for it. Nothing expires at month end; the
-        balance carries forward until settled by one of the options below.
+        Brought forward, plus what went in, less what they paid for, is where it
+        stands. <strong>Underfunded</strong> means more of the household's spending
+        was paid out of their money than they had put aside for it. Nothing expires at month end — it carries forward
+        until one of you settles it, which is what the options below are for.
       </p>
     </section>
 
@@ -160,9 +161,10 @@ export function renderHousehold(
       <section class="card">
         <h2>What I put in each month</h2>
         <p class="muted">
-          A standing figure, so a monthly amount is agreed once rather than re-
-          entered. It moves no money; it is what the budget screen measures
-          against and what auto-assign fills.
+          A standing figure, so agreeing <em>₹40,000 a month</em> is settled once
+          rather than remembered every month. It does not move money on its own —
+          it is what the budget screen measures you against, and what auto-assign
+          fills.
         </p>
         <form method="post" action="/categories/${mine!.categoryId}/target"
               class="row" style="gap:.5rem;align-items:flex-end">
@@ -175,8 +177,8 @@ export function renderHousehold(
           <button type="submit">Save</button>
         </form>
         <p class="faint">
-          Leave empty for no standing figure. Clearing it does not change the
-          current standing —
+          Leave it empty to have no standing figure. Clearing it changes nothing
+          about where you stand —
           ${mine!.available < 0
             ? html`your commitment is still
                    ${formatPaise(Math.abs(mine!.available) as never)} underfunded`
@@ -252,7 +254,7 @@ export function renderHousehold(
                         `)}
                         ${when(!mine, () => html`
                           <span class="faint">
-                            — committing requires a budget of your own.
+                            — you would need a budget of your own to commit from.
                           </span>
                         `)}
                       </li>
@@ -270,15 +272,16 @@ export function renderHousehold(
                       first makes it look like money disappearing.
                     -->
                     <p class="field-hint" style="margin:.35rem 0 0">
-                      On the giving side it becomes spending in that budget,
-                      from the named envelope unless another is chosen below.
-                      That envelope sits negative until funded, and is where
-                      the money comes from.
+                      <strong>On the giving side</strong>, it becomes spending in
+                      ${m.givingUp!.budgetName} — from
+                      <strong>${m.givingUp!.categoryName}</strong> unless you pick
+                      another below. That envelope sits in the red until it is
+                      funded, and that is where the money actually comes from.
                     </p>
                     <p class="field-hint" style="margin:.2rem 0 0">
-                      On the receiving side the same amount arrives as income,
-                      raising that budget's Ready to Assign. Nothing remains
-                      owed.
+                      <strong>On the other side</strong>, ${m.givingUp!.receiverName}
+                      is better off by the same amount: it arrives as income, so Ready
+                      to Assign rises by it. Nothing is owed any more.
                     </p>
                   `)}
                   <form method="post" action="/household/call-it-even"
@@ -367,8 +370,8 @@ export function renderHousehold(
         your account, your commitment falls by what was spent.
       </p>
       <p class="muted">
-        Members cannot see each other's accounts, balances or other envelopes.
-        This page is the extent of what is shared.
+        Nobody sees anybody else's accounts, balances or other envelopes. What is
+        on this page is all that is shared.
       </p>
     </section>
   `;

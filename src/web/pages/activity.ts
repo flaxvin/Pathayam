@@ -54,9 +54,9 @@ export function renderActivity(opts: {
   return html`
     <h1>Activity</h1>
     <p class="muted">
-      Every change made in this household, newest first. Entries are never
-      edited or removed; an undo is recorded as its own entry. Changes within
-      the last ${opts.windowDays} days can be undone.
+      Every change this household has made, newest first, and nothing is ever
+      edited or deleted from this list — an undo is recorded as its own entry.
+      Changes from the last ${opts.windowDays} days can be undone.
     </p>
 
     <form method="get" action="/activity" class="row" style="gap:.5rem;align-items:flex-end;margin-bottom:1rem">
@@ -124,8 +124,8 @@ function renderSupersededUndo(row: ActivityRow): SafeHtml {
     <details style="max-width:22rem">
       <summary class="linkish">Undo — ${row.supersededBy.length} later change${row.supersededBy.length === 1 ? "" : "s"}</summary>
       <p class="faint" style="margin:.5rem 0">
-        This record has changed since. Undo restores the state before the entry
-        above, discarding the following:
+        This record has changed since. Undoing goes back to the state before the
+        entry above, discarding these:
       </p>
       <ul class="faint" style="margin:0 0 .5rem 1rem;padding:0">
         ${row.supersededBy.map(

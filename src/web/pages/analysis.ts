@@ -131,8 +131,8 @@ export function renderQuery(opts: QueryOptions): SafeHtml {
           <input id="q" name="q" value="${opts.text}"
                  placeholder="Payee, memo, category, tag, or the bank's own string">
           <p class="field-hint">
-            Searches the raw imported narration as well as the payee, so a
-            transaction can be found by the text the bank sent.
+            Searches the raw imported narration too, so you can find something by
+            what the bank called it.
           </p>
         </div>
         <div class="field">
@@ -326,8 +326,8 @@ export function renderReports(opts: {
   return html`
     <h1>Reports</h1>
     <p class="muted">
-      Each of these opens the query screen with a filter applied, which can then
-      be changed.
+      Each of these is the query screen with a filter already applied — open any of
+      them and you can change it.
     </p>
 
     ${when((opts.budgets ?? []).length > 1, () => html`
@@ -356,8 +356,8 @@ export function renderReports(opts: {
       <section class="card">
         <h2>Worth noticing</h2>
         <p class="faint" style="margin-top:-.25rem">
-          This month compared with the three before it. Observations only; no
-          conclusions are drawn.
+          This month against the three before it. Plain observations — the app draws
+          no conclusions.
         </p>
         <ul class="insight-list">
           ${opts.insights.map((i) => html`
@@ -467,7 +467,7 @@ export function renderReports(opts: {
       <section class="card">
         <h2>By tag</h2>
         <p class="faint" style="margin-top:-.25rem">
-          Spend per tag over ${opts.period.label.toLowerCase()}.
+          Tags work as ad-hoc budgets — here's what each took, ${opts.period.label.toLowerCase()}.
         </p>
         ${horizontalBars({
           title: "Spending by tag",
@@ -548,8 +548,8 @@ export function renderReports(opts: {
       <section class="card">
         <h2>Loan interest by financial year</h2>
         <p class="faint" style="margin-top:-.25rem">
-          April to March. No tax liability is computed and no advice is given;
-          this reports what was paid.
+          April to March, for your own records. This app computes no tax liability
+          and gives no advice — it states what was paid.
         </p>
         <div class="table-scroll">
           <table>
@@ -582,10 +582,10 @@ export function renderReports(opts: {
       <section class="card">
         <h2>Realised gains by financial year</h2>
         <p class="faint" style="margin-top:-.25rem">
-          Realised gain or loss per sale, April to March, split at twelve months
-          held. Which threshold makes a gain long-term depends on the asset and
-          the year's rules, so the holding period is reported and the rule is
-          left to whoever files the return.
+          What each sale actually made, April to March. Split at twelve months
+          held — which threshold makes a gain long-term depends on the asset and
+          on the year's rules, so this reports the holding period and leaves the
+          rule to whoever files the return.
         </p>
         <div class="table-scroll">
           <table>
@@ -837,8 +837,7 @@ export function renderSchedules(opts: {
       <section class="card">
         <h2>Look like schedules <span class="chip">${opts.detected.length}</span></h2>
         <p class="faint" style="margin-top:-.25rem">
-          Detected in this household's history. Nothing is added until
-          confirmed.
+          Spotted in your own history. Nothing is added until you confirm it.
         </p>
         ${opts.detected.map(
           (d) => html`
@@ -879,7 +878,7 @@ export function renderSchedules(opts: {
           </span>
         </h2>
         <p class="faint" style="margin-top:-.25rem">
-          The annual cost of each.
+          What each one costs over a year.
         </p>
         ${horizontalBars({
           title: "Annual cost of each subscription",
@@ -932,8 +931,8 @@ export function renderNewScheduleForm(opts: {
   return html`
     <h1>Add a schedule</h1>
     <p class="faint">
-      A recurring item to expect: rent, a SIP, a subscription. It shapes the
-      cashflow forecast and does not move money on its own.
+      A recurring item the app should expect — rent, a SIP, a subscription. It shapes
+      the cashflow forecast; it does not move money on its own.
     </p>
     <form method="post" action="/schedules/new" class="card">
       <div class="field">
@@ -1000,9 +999,9 @@ export function renderNewScheduleForm(opts: {
           is no longer on offer for it.
         -->
         <p class="field-hint">
-          Required for money going out: a scheduled payment posts itself, so
-          without an envelope the spending would have nothing recording where
-          it went. Money coming in lands in Ready to Assign.
+          Money going out needs one: a scheduled payment posts itself, so without
+          an envelope it would quietly build a queue of spending with nothing
+          recording where it went. Money coming in lands in Ready to Assign.
         </p>
       </div>
       <div class="field">
@@ -1023,7 +1022,7 @@ function renderCalendar(cashflow: Cashflow): SafeHtml {
   if (busy.length === 0) {
     return html`
       <p class="faint">
-        Nothing scheduled in this window. The projected balance stays at
+        Nothing scheduled in this window. Your projected balance stays at
         ${formatPaise(cashflow.openingBalance)}.
       </p>
     `;
@@ -1087,9 +1086,8 @@ export function renderGoals(opts: {
             <div class="empty-icon" aria-hidden="true">◎</div>
             <h2>No goals yet</h2>
             <p>
-              A goal tracks a long-horizon intention across one or more
-              categories. It holds no money of its own, so it cannot disagree
-              with the budget.
+              A goal tracks a long-horizon intention across one or more categories.
+              It holds no money of its own, so it can never disagree with your budget.
             </p>
           </div>
         `
@@ -1113,9 +1111,8 @@ export function renderGoals(opts: {
           <label for="target_date">By when <span class="faint">(optional)</span></label>
           <input type="date" id="target_date" name="target_date">
           <p class="field-hint">
-            With a target date, the required monthly contribution is derived.
-            Each goal has its own savings envelope, created and kept in step
-            automatically.
+            With a date, the goal tells you what to put aside each month. Each goal
+            gets its own savings envelope, created and kept in step automatically.
           </p>
         </div>
         ${when(budgets.length > 1, () => html`
@@ -1136,9 +1133,9 @@ export function renderGoals(opts: {
               )}
             </select>
             <p class="field-hint">
-              Fixed once set. The goal's progress is its envelope's balance,
-              so moving it between budgets would change what the recorded
-              months meant.
+              This cannot be changed later: the goal's progress is its envelope's
+              balance, and moving it between budgets would change what the months
+              you have been watching meant.
             </p>
           </div>
         `)}

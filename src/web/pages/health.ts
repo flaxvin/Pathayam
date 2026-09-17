@@ -93,8 +93,8 @@ export function renderHealth(groups: HealthGroup[]): SafeHtml {
     <section class="card">
       <h2>Data</h2>
       <p class="muted">
-        All of it is exportable in one action, in an open format readable
-        without this application.
+        Everything here is exportable in one action, in an open format that does not
+        need this app to read it.
       </p>
       <div class="row" style="flex-wrap:wrap">
         <a class="button" href="/export.json">Export everything (JSON)</a>

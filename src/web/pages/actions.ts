@@ -94,7 +94,7 @@ export function renderAddTransaction(opts: {
                inputmode="decimal" autocomplete="off" required autofocus
                placeholder="0.00">
         <p class="field-hint">
-          Accepts arithmetic: 450+120*2 is evaluated before saving.
+          Sums work too — type <code>450+120*2</code> and it will be worked out before saving.
         </p>
       </div>
 
@@ -168,8 +168,8 @@ export function renderAddTransaction(opts: {
               )}
         </select>
         <p class="field-hint" data-category-hint>
-          Each category shows its current balance. Money coming in does not
-          need one; it lands in Ready to Assign.
+          Each category shows what it holds, so you can see the consequence while entering.
+          Money coming in doesn't need one — it lands in Ready to Assign.
         </p>
         ${when(grouped.length > 1, () => html`
           <!--
@@ -232,9 +232,8 @@ export function renderAddTransaction(opts: {
             )}
           </select>
           <p class="field-hint">
-            Defaults to the account's holder, or the card's holder for a card
-            in someone's name. Change it when one member paid on another's
-            behalf.
+            Follows the account — a card in somebody's name is attributed to them.
+            Change it when one of you paid for the other.
           </p>
         </div>
       `)}
@@ -250,10 +249,7 @@ export function renderAddTransaction(opts: {
         <div class="field">
           <label for="tags">Tags</label>
           <input id="tags" name="tags" autocomplete="off" placeholder="kerala-oct, diwali">
-          <p class="field-hint">
-            Comma separated. Tags group transactions across categories and can
-            carry their own budget over a date range.
-          </p>
+          <p class="field-hint">Comma separated. A tag works as an ad-hoc budget without touching your categories.</p>
         </div>
         <div class="field">
           <label><input type="checkbox" name="cleared" value="1"> Already cleared the bank</label>
@@ -271,8 +267,8 @@ export function renderAddTransaction(opts: {
             Someone owes me this back
           </label>
           <p class="field-hint">
-            The money still leaves the envelope now. Review lists what is
-            outstanding until it is repaid.
+            It still leaves your envelope now. Review lists what is outstanding
+            until the money comes back.
           </p>
         </div>
       </details>
@@ -282,8 +278,8 @@ export function renderAddTransaction(opts: {
     </form>
 
     <p class="faint">
-      To move money between two accounts, record a transfer instead. Paying a
-      credit card is a transfer and touches no spending category.
+      Looking to move money between two accounts? <a href="/transfer">Record a transfer</a> instead —
+      paying a credit card is a transfer, and it won't touch any spending category.
     </p>
   `;
 }
@@ -311,7 +307,7 @@ export function renderTransfer(opts: {
       <div class="card empty-state">
         <div class="empty-icon" aria-hidden="true">⇄</div>
         <h2>A transfer needs two accounts</h2>
-        <p>A second account is required before money can be moved between them.</p>
+        <p>Add another account and you can move money between them.</p>
         <p><a class="button button-primary" href="/accounts/new">Add an account</a></p>
       </div>
     `;
@@ -330,8 +326,8 @@ export function renderTransfer(opts: {
     <h1>Record a transfer</h1>
     ${when(opts.error, () => html`<p class="notice notice-error">${opts.error}</p>`)}
     <p class="faint">
-      Money leaves one account and arrives in another. No spending category is
-      affected; paying a credit card from a bank account is recorded this way.
+      Money leaves one account and lands in another. No spending category is touched —
+      paying a credit card off a bank account is exactly this.
     </p>
 
     <form method="post" action="/transfer" class="card">
@@ -420,10 +416,7 @@ export function renderMoveMoney(opts: {
               `,
             )}
           </div>
-          <p class="field-hint">
-            Suggestions only. Funding may come from Ready to Assign or from
-            any other category.
-          </p>
+          <p class="field-hint">Suggestions only — you can fund from Ready to Assign or move from any category.</p>
         </div>
       `)}
 
@@ -462,9 +455,9 @@ export function renderMoveMoney(opts: {
       </div>
 
       <p class="field-hint">
-        Moving between categories does not change Ready to Assign; the same
-        money is assigned to a different job. Funding from Ready to Assign
-        reduces it, because that money had no job yet.
+        Moving between categories doesn't change Ready to Assign — the same rupees
+        do a different job. Funding <em>from</em> Ready to Assign does reduce it: that
+        is assigning income that had no job yet.
       </p>
 
       <button class="button-primary" type="submit">Move it</button>
@@ -501,9 +494,7 @@ export function renderAutoAssignPreview(opts: {
 
   return html`
     <h1>Auto-assign · ${formatMonth(month)}</h1>
-    <p class="muted">
-      Nothing is assigned until this is applied.
-    </p>
+    <p class="muted">Nothing is assigned until you apply this.</p>
 
     <div class="card">
       <div class="table-scroll">
@@ -551,9 +542,7 @@ export function renderAutoAssignPreview(opts: {
         </button>
         <a class="button button-quiet" href="/?month=${month}">Cancel</a>
       </form>
-      <p class="field-hint">
-        Reversible in one action.
-      </p>
+      <p class="field-hint">You can undo this in one action afterwards.</p>
     </div>
   `;
 }
@@ -570,9 +559,8 @@ export function renderHold(opts: {
   return html`
     <h1>Hold money for next month</h1>
     <p class="muted">
-      Holding money is how a household moves to spending last month's income.
-      Held money leaves this month's Ready to Assign and appears at the top of
-      next month's.
+      This is how you get to spending last month's income. Held money leaves this month's
+      Ready to Assign and appears at the top of next month's.
     </p>
 
     <form method="post" action="/hold" class="card">

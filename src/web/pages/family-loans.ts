@@ -88,9 +88,9 @@ export function renderFamilyLoans(opts: {
   return html`
     <h1>Lending in the family</h1>
     <p class="muted">
-      Money moving between household members and people rather than
-      institutions. The balance is derived from what actually moved, and its
-      sign shows who owes whom.
+      Money moving between you and people rather than institutions. The balance
+      comes from what actually moved, and which way it points tells you who owes
+      whom.
     </p>
 
     ${opts.loans.length === 0
@@ -118,17 +118,16 @@ export function renderFamilyLoans(opts: {
           <label for="fl-name">Who?</label>
           <input id="fl-name" name="counterparty" required placeholder="Ammu">
           <p class="field-hint">
-            One record per person. Money moving in either direction is
-            recorded against it; the sign of the balance determines whether it
-            is a loan or a debt.
+            One record per person. You will record money moving each way; whether
+            it ends up a loan or a debt is just which way the balance points.
           </p>
         </div>
         <div class="field">
           <label for="fl-agreed">Agreed total, if any</label>
           <input id="fl-agreed" name="agreed_total" inputmode="decimal" placeholder="Optional">
           <p class="field-hint">
-            If a figure was agreed, enter the full amount — 55,000, not a
-            percentage. No interest is calculated.
+            If you agreed a figure to come back, put the whole amount here —
+            ₹55,000, not "10%". There is no interest calculation.
           </p>
         </div>
         <div class="field">
@@ -139,7 +138,7 @@ export function renderFamilyLoans(opts: {
       </form>
       ${when(opts.accounts.length === 0, () => html`
         <p class="notice notice-warning">
-          A bank account is required before money movement can be recorded.
+          You will need a bank account before you can record money moving.
         </p>
       `)}
     </section>
@@ -255,7 +254,7 @@ export function renderFamilyLoan(opts: {
           `}
       <p class="field-hint">
         Every line is a transfer, so none of it counts as spending or income.
-        Money lent is not an expense, and repayment is not income.
+        Paying someone is not an expense, and being paid back is not a windfall.
       </p>
     </section>
 
@@ -289,10 +288,8 @@ export function renderFamilyLoan(opts: {
             : html`
                 <p class="faint" style="margin-top:-.25rem">
                   ${owedToYou
-                    ? html`For money that is not coming back. It becomes an expense in
-                    a chosen category; the history is retained.`
-                    : html`If ${view.loan.counterparty} waived repayment. It becomes
-                    income in a chosen category; the history is retained.`}
+                    ? html`For money that is not coming back. It becomes an expense in a category you choose, and the history stays.`
+                    : html`If ${view.loan.counterparty} told you to keep it. It becomes income in a category you choose, and the history stays.`}
                 </p>
                 <form method="post" action="/family/${view.loan.id}/write-off">
                   <button class="button-small" type="submit">
@@ -306,7 +303,7 @@ export function renderFamilyLoan(opts: {
 
     ${when(view.settled && !view.loan.closed_at, () => html`
       <section class="card">
-        <p>This is settled. Closing it retains every line above.</p>
+        <p>This is settled. You can close it and keep every line above.</p>
         <form method="post" action="/family/${view.loan.id}/close">
           <button type="submit">Close it</button>
         </form>
