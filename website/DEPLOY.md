@@ -181,13 +181,14 @@ throughout mean the sub-path works as-is.
    CNAME www flaxvin.github.io.
    ```
 
-2. Add a file `website/CNAME` containing exactly `pathayam.app`, and push.
-3. In **Settings → Pages**, set the custom domain and tick **Enforce HTTPS**
-   once the certificate is issued.
+2. In **Settings → Pages**, set the custom domain and tick **Enforce HTTPS**
+   once the certificate is issued. Setting it there makes GitHub commit a
+   `CNAME` file to the repository root.
 
-Add the `CNAME` file only after the DNS records resolve. With it present and DNS
-not yet pointing at GitHub, the site serves neither at the custom domain nor at
-the github.io address.
+**`website/CNAME` has to exist as well.** This workflow uploads `website/` as
+the artifact, and Pages reads `CNAME` from the artifact it serves — a file at
+the repository root is not in it. Both files are committed and must stay in
+step; changing the domain means changing both.
 
 `demo.pathayam.app` is a separate host — the application itself, not this
 directory. Point it at wherever the app runs and leave it out of DNS for Pages.
