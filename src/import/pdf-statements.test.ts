@@ -449,6 +449,26 @@ describe("04 §3.3 · things that look like transactions and are not", () => {
     assert.equal(result.records[0]!.amount, -413_700);
   });
 
+  test("a specimen table in the closing legend is not nine failed rows", () => {
+    /*
+     * RBL ends its card statement with "Know about charges" and a Sample
+     * Transaction table — dated rows, real-looking amounts, from 2018. Every
+     * one of them surfaced as "columns could not be read".
+     */
+    const result = parseStatementText(`RBL Bank Credit Card Statement
+Date   Transaction Details   Amount
+21-Apr-2026   PYU*Swiggy Food Bangalore IND   338.00 Dr
+Know about charges on Credit Card
+Sample Transaction
+Date           Transaction
+12-Dec-18      Purchase of Groceries
+26-Dec-18      Purchase of clothes
+02-Jan-19      Membership Fee + GST`);
+
+    assert.equal(result.records.length, 1);
+    assert.equal(result.errors.length, 0);
+  });
+
   test("two dates in a row are fine when they are not a range", () => {
     // SBI prints a transaction date and a value date, and "TO TRANSFER" in the
     // narration — none of which makes the row a period header.
