@@ -133,6 +133,41 @@ describe("04 §3.4 · parsing bank transaction alerts", () => {
     assert.equal(r.record.date, "2026-08-27", "falls back to the received date");
   });
 
+  test("SBI Card — rupees, a two-digit year, and a squashed merchant", () => {
+    const r = parseAlert(
+      "onlinesbicard@sbicard.com",
+      "Transaction Alert from SBI Card",
+      "Dear Cardholder, This is to inform you that, Rs.591.00 spent on your " +
+        "SBI Credit Card ending 0000 at MSPRETAILPRIVATELIMITE on 05/09/26. " +
+        "Trxn. not done by you? Report at https://sbicard.com/Dispute .",
+    )!;
+    assert.ok(r);
+    assert.equal(r.bank, "sbicard");
+    assert.equal(r.record.amount, -591_00);
+    assert.equal(r.record.date, "2026-09-05");
+    assert.equal(r.record.cardLast4, "0000");
+    assert.equal(r.record.narration, "MSPRETAILPRIVATELIMITE");
+    // "Dear Cardholder" is a salutation, not the name of a person.
+    assert.equal(r.record.cardholderName, null);
+  });
+
+  test("IndusInd states the balance, and it is kept", () => {
+    const r = parseAlert(
+      "IndusInd_Bank@indusind.com",
+      "IndusInd Bank Transaction Alert",
+      "Dear Customer, Your IndusInd Bank Account No. 15XXXXXX0000 has been " +
+        "Debited for INR 1.00 towards UPI/000000000001/DR/ZBUL/UTIB/x@pineaxis . " +
+        "The balance available in your Account is INR 171.95.",
+      "2026-09-04",
+    )!;
+    assert.ok(r);
+    assert.equal(r.record.amount, -1_00);
+    assert.equal(r.record.accountLast4, "0000");
+    assert.equal(r.record.balance, 171_95);
+    // No date anywhere in the message: the message's own date stands in.
+    assert.equal(r.record.date, "2026-09-04");
+  });
+
   test("a credit alert is positive", () => {
     const credited = AXIS_ACCOUNT
       .replace("Amount Debited:", "Amount Credited:")

@@ -14,7 +14,14 @@
  *   · **YES Bank card** — one sentence:
  *       "INR 70.00 has been spent on your YES BANK Credit Card ending with
  *        8803 at UPI_DESI BITES FAST FO on 27-08-2026 at 06:46:36 pm."
- *   · **IndusInd account** — one sentence:
+ *   · **Axis account, sentence form** — NEFT and IMPS carry none of the
+ *       labels above: "your A/c no. XX8457 has been debited with INR 23000.00
+ *        on 16-09-2026 06:17:07 IST by NEFT/MB/…"
+ *   · **SBI Card** — rupees rather than INR, a two-digit year, and a merchant
+ *       with the spaces taken out: "Rs.591.00 spent on your SBI Credit Card
+ *        ending 6779 at MSPRETAILPRIVATELIMITE on 05/09/26."
+ *   · **IndusInd account** — one sentence, and the only one that states no
+ *       date at all, so the message's own date stands in:
  *       "Account No. 15XXXXXX6620 has been Debited for INR 1.00 towards
  *        UPI/400111222333/DR/Moj/…"
  *
@@ -240,6 +247,9 @@ const indusind: AlertProfile = {
 
     const sign = m[2]!.toLowerCase() === "credited" ? 1 : -1;
     const date = parseAlertDate(subject) ?? dateFromReceived(body);
+    // "The balance available in your Account is INR 171.95" — the same
+    // reconciliation hint the other banks give, and it was being dropped.
+    const bal = /balance available in your Account is\s*(INR\s*[\d,]+(?:\.\d{1,2})?)/i.exec(flat);
     return {
       amount: (sign * amount) as Paise,
       date: date ?? ("" as IsoDate),
@@ -249,7 +259,7 @@ const indusind: AlertProfile = {
       narration: m[4]!.trim(),
       reference: extractReference(m[4]!),
       cardholderName: null,
-      balance: null,
+      balance: bal ? (parseAlertAmount(bal[1]!) as Paise) : null,
     };
   },
 };
@@ -288,7 +298,42 @@ const axisSentence: AlertProfile = {
   },
 };
 
-export const ALERT_PROFILES: AlertProfile[] = [axisCard, axisAccount, axisSentence, yesCard, indusind];
+const sbiCard: AlertProfile = {
+  bank: "sbicard",
+  senders: [/@sbicard\.com$/i],
+  parse(_subject, body) {
+    // "Rs.591.00 spent on your SBI Credit Card ending 6779 at
+    //  MSPRETAILPRIVATELIMITE on 05/09/26."
+    // Rupees rather than INR, a two-digit year, and the merchant runs to the
+    // " on " before the date — which merchant names themselves never contain
+    // because SBI strips the spaces out of them.
+    const flat = body.replace(/\s+/g, " ");
+    const m =
+      /(Rs\.?\s*[\d,]+(?:\.\d{1,2})?)\s+(spent|debited|credited|refunded)\s+on your[^.]*?ending\s+(\d{4})\s+at\s+(.+?)\s+on\s+(\d{1,2}\/\d{1,2}\/\d{2,4})/i
+        .exec(flat);
+    if (!m) return null;
+
+    const amount = parseAlertAmount(m[1]!);
+    const date = parseAlertDate(m[5]!.replace(/\//g, "-"));
+    if (amount === null || !date) return null;
+
+    const sign = /credited|refunded/i.test(m[2]!) ? 1 : -1;
+    return {
+      amount: (sign * amount) as Paise,
+      date, when: m[5]!,
+      accountLast4: null,
+      cardLast4: m[3]!,
+      narration: m[4]!.trim(),
+      reference: null,
+      cardholderName: greetedName(body),
+      balance: null,
+    };
+  },
+};
+
+export const ALERT_PROFILES: AlertProfile[] = [
+  axisCard, axisAccount, axisSentence, yesCard, sbiCard, indusind,
+];
 
 /**
  * Parse an alert, trying each profile whose sender matches.
@@ -319,7 +364,7 @@ function greetedName(body: string): string | null {
   // A word of the name may be a bare initial — "Kavya R Pillai".
   const m = /Dear\s+([A-Z][A-Za-z]*\.?(?:\s+[A-Z][A-Za-z]*\.?){0,3})\s*,/.exec(body);
   const name = m?.[1]?.trim();
-  return name && !/customer/i.test(name) ? name : null;
+  return name && !/^(customer|cardholder|sir|madam|user)$/i.test(name) ? name : null;
 }
 
 function extractReference(narration: string): string | null {
