@@ -21,6 +21,7 @@ import type { AddressInfo } from "node:net";
 import { openDatabase, ensureHousehold, execute, type DB } from "../db/db.ts";
 import { createHttpServer } from "../http/server.ts";
 import { HttpError } from "../http/router.ts";
+import { Refusal } from "../core/refusal.ts";
 import { buildApp, renderErrorPage } from "../app.ts";
 import type { Config } from "../config.ts";
 import { nowIST } from "../core/dates.ts";
@@ -81,7 +82,14 @@ export async function startTestApp(
     trustProxy: config.trustProxy,
     middleware,
     onError(err, ctx) {
-      if (!(err instanceof HttpError)) {
+      /*
+       * Exactly main.ts's rule: a Refusal is the domain declining on purpose,
+       * and is not a fault. Without this line the harness answered 500 where
+       * production answers 422, so a test could only ever prove the wrong
+       * thing about every deliberate refusal in the app.
+       */
+      const deliberate = err instanceof HttpError || err instanceof Refusal;
+      if (!deliberate) {
         failures.push({
           method: ctx.method,
           path: ctx.url.pathname,
@@ -94,8 +102,10 @@ export async function startTestApp(
           });
         } catch { /* the record is a convenience here, not the assertion */ }
       }
-      const status = err instanceof HttpError ? err.status : 500;
-      const message = err instanceof HttpError ? err.message : "Something went wrong on the server.";
+      const status = err instanceof HttpError ? err.status
+        : err instanceof Refusal ? err.status
+        : 500;
+      const message = deliberate ? (err as Error).message : "Something went wrong on the server.";
       if ((ctx.req.headers.accept ?? "").includes("application/json")) {
         return { status, json: { error: message } };
       }

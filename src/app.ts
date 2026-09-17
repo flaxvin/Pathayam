@@ -84,7 +84,7 @@ import {
 } from "./domain/reconciliation.ts";
 import { parseStatement } from "./import/csv.ts";
 import {
-  ingest, listStaged, approveStaged, rejectStaged, mergeStaged, undoBatch, listBatches, StagedNeedsCategory,
+  ingest, listStaged, approveStaged, rejectStaged, mergeStaged, undoBatch, listBatches,
 } from "./import/pipeline.ts";
 import {
   householdBudgetId, budgetsFor, lastBudget, rememberBudget, ensurePersonalBudget, listBudgets, getBudget,
@@ -108,7 +108,7 @@ import {
   listCategories, getCategory, startPersonalBudget, deleteGroup, visibleBudgetIds,
 } from "./domain/budget.ts";
 import {
-  createTransaction, createTransfer, updateTransaction, deleteTransaction, FiledIntoPaymentCategory,
+  createTransaction, createTransfer, updateTransaction, deleteTransaction,
   getTransaction, getSplits, listPayees, payeeStats, tagsFor, type Transaction,
 } from "./domain/transactions.ts";
 import {
@@ -204,7 +204,7 @@ import {
   monthCloseView, closeMonth, reopenMonth, closedMonths, monthAwaitingClose, isClosed,
 } from "./domain/month-close.ts";
 import {
-  addAttachment, listAttachments, deleteAttachment, AttachmentRefused,
+  addAttachment, listAttachments, deleteAttachment,
   getBytes as getAttachmentBytes, getMeta as attachmentMeta,
 } from "./domain/attachments.ts";
 import {
@@ -723,10 +723,6 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     } catch (err) {
       if (err instanceof IdempotencyConflict) {
         throw new HttpError(err.statusCode, err.message);
-      }
-      // A domain refusal written for the person to read, from any route.
-      if (err instanceof FiledIntoPaymentCategory) {
-        throw new HttpError(400, err.message);
       }
       throw err;
     }
@@ -2674,15 +2670,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (!upload) {
       return { redirect: withNotice(`/transaction/${id}`, "Choose a photo or PDF first.") };
     }
-    try {
-      addAttachment(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
-        transactionId: id, filename: upload.filename, bytes: upload.bytes,
-      });
-    } catch (err) {
-      // The refusal names what to do differently; it belongs on the screen.
-      if (err instanceof AttachmentRefused) throw new HttpError(400, err.message);
-      throw err;
-    }
+    addAttachment(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+      transactionId: id, filename: upload.filename, bytes: upload.bytes,
+    });
     return { redirect: withNotice(`/transaction/${id}`, "Receipt attached.") };
   });
 
@@ -2817,9 +2807,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // Guard the earlier of the two dates: moving a transaction backwards means
     // the ripple starts where it lands, not where it was.
     const rippleFrom = monthOf(newDate < transaction.date ? newDate : transaction.date);
-    let recompute;
-    try {
-      ({ recompute } = withForwardRecompute(
+    const { recompute } = withForwardRecompute(
         db, actor, { month: rippleFrom, cause: "Edited a transaction" },
         () =>
           updateTransaction(db, actor, id, {
@@ -2843,11 +2831,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             : {}),
           ...(payeeId !== undefined ? { payeeId } : {}),
         }),
-      ));
-    } catch (err) {
-      if (err instanceof FiledIntoPaymentCategory) throw new HttpError(400, err.message);
-      throw err;
-    }
+    );
 
     // L1 · Cleaning up an imported payee proposes a pre-stage rule mapping the
     // raw string to the clean name, so next month's identical narration
@@ -3336,16 +3320,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
        * have to. Refusing here rather than at import is deliberate — the queue
        * is exactly where an unfiled row is supposed to wait.
        */
-      try {
-        approveStaged(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
-          requiredField(ctx.body, "staged_id"),
-          { categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null },
-        );
-      } catch (err) {
-        // The refusal is the user's to read, not the error log's.
-        if (err instanceof StagedNeedsCategory) throw new HttpError(400, err.message);
-        throw err;
-      }
+      approveStaged(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+        requiredField(ctx.body, "staged_id"),
+        { categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null },
+      );
 
       // L2 · Categorising the same payee a second time proposes a rule. The
       // proposal goes to Review and is never applied (L3) — so this can run on
