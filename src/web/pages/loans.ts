@@ -430,9 +430,9 @@ export function renderLoanDetail(opts: {
       <details class="card" id="settle">
         <summary class="linkish">Settle it early and close it</summary>
         <p class="muted" style="margin-top:.75rem">
-          Pay off the ${formatPaise(p.outstanding)} outstanding and finish the loan.
-          Most lenders charge for this; record what they charged, or the saving
-          will look bigger than it was.
+          Settles the ${formatPaise(p.outstanding)} outstanding and closes the
+          loan. Most lenders charge a foreclosure fee; record it, or the saving
+          will be overstated.
         </p>
         <form method="post" action="/loans/${loan.id}/settle">
           <div class="grid-2">
@@ -490,8 +490,8 @@ export function renderLoanDetail(opts: {
         ${figure("Monthly", p.preEmi ?? p.emi)}
       </div>
       <p class="field-hint">
-        Only what has been disbursed is a liability. The undrawn balance is neither
-        money you owe nor money you hold.
+        Only the disbursed amount is a liability. The undrawn balance is
+        neither owed nor held.
       </p>
       ${when(p.preEmi !== null, () => html`
         <!-- B51: the actual current obligation, absent from this page before. -->
@@ -556,9 +556,9 @@ export function renderLoanDetail(opts: {
       <section class="card">
         <h2>Record a disbursement</h2>
         <p class="faint" style="margin-top:-.25rem">
-          ${formatPaise(p.undrawn)} of the sanction is still undrawn. A tranche
-          paid to a builder or dealer raises what you owe but never touches your
-          budget; one credited to your account arrives as money to assign (R15).
+          ${formatPaise(p.undrawn)} of the sanction is undrawn. A tranche paid
+          to a builder or dealer raises the amount owed and does not affect the
+          budget; one credited to an account arrives as money to assign (R15).
         </p>
         <form method="post" action="/loans/${loan.id}/disburse">
           <div class="grid-2">
@@ -659,8 +659,9 @@ function renderSchedule(schedule: Schedule, loanId: string): SafeHtml {
         <a class="button button-small" href="/loans/${loanId}/schedule.csv">Export CSV</a>
       </div>
       <p class="faint" style="margin-top:-.25rem">
-        ${schedule.months} instalments to closure, ${formatCompact(schedule.totalInterest)} of
-        interest still to pay. Every row is projected until the lender confirms it.
+        ${schedule.months} instalments to closure, with
+        ${formatCompact(schedule.totalInterest)} of interest remaining. Every
+        row is projected until the lender confirms it.
       </p>
       <div class="table-scroll" style="max-height:24rem;overflow-y:auto">
         <table>
@@ -837,8 +838,8 @@ export function renderPrepaymentComparison(opts: {
               )}
             </select>
             <p class="field-hint">
-              A lump sum this size cannot come out of nowhere — say where, so no
-              envelope is quietly drained.
+              Name the envelope the lump sum comes from, so no envelope is
+              drained without a record.
             </p>
           </div>
         `)}
@@ -961,9 +962,9 @@ export function renderRateReset(opts: {
           </table>
         </div>
         <p class="field-hint">
-          Lenders are required to offer both, plus switching to a fixed rate and
-          prepaying. Whichever you pick, the instalment must always cover the
-          month's interest — and the loan's envelope is re-targeted to match.
+          Lenders must offer both options, plus switching to a fixed rate and
+          prepaying. The instalment must always cover the month's interest.
+          The loan's envelope is re-targeted to match whichever is chosen.
         </p>
       </div>
 
@@ -974,9 +975,10 @@ export function renderRateReset(opts: {
           <input id="rate-note" name="note" placeholder="Repo rate cut, letter dated 3 Sept">
         </div>
         <p class="field-hint">
-          Recording the change re-derives the schedule from that date. What you
-          actually owe does not change — only how the remaining instalments split,
-          and how many of them there are.
+          Recording the change re-derives the schedule from that date. The
+          outstanding amount does not change — only how the remaining
+          instalments split between principal and interest, and how many
+          remain.
         </p>
         <div class="row">
           <button class="button-primary" type="submit">Record the rate change</button>
@@ -1034,13 +1036,13 @@ export function renderNewLoanForm(opts: {
             <option value="moratorium-capitalised">Moratorium, interest capitalised — pay nothing during, it rolls into principal</option>
           </select>
           <p class="field-hint">
-            <strong>Check your sanction letter.</strong> Personal, car and gold loans
-            are often quoted flat, and a flat rate is close to double what it sounds
-            like — 9% flat is about 15.7% in reducing-balance terms. A moratorium is
-            common on education loans and under-construction homes: servicing the
-            interest keeps the principal flat, while capitalising it rolls the unpaid
-            interest into what you owe — far more expensive, and worth seeing before
-            you choose it.
+            Check the sanction letter. Personal, car and gold loans are often
+            quoted flat, and a flat rate is close to double the equivalent
+            reducing-balance rate: 9% flat is about 15.7% reducing. A
+            moratorium is common on education loans and under-construction
+            homes. Servicing the interest keeps the principal flat;
+            capitalising it adds the unpaid interest to the amount owed, which
+            costs considerably more.
           </p>
         </div>
         <div class="field" id="moratorium-field" style="display:none">
@@ -1086,8 +1088,8 @@ export function renderNewLoanForm(opts: {
           </div>
         </div>
         <p class="field-hint">
-          If you don't have the full history, lifetime figures will be labelled
-          "from" that date rather than presented as complete.
+          Without the full history, lifetime figures are labelled as running
+          from this date rather than presented as complete.
         </p>
       </fieldset>
 
@@ -1117,9 +1119,9 @@ export function renderNewLoanForm(opts: {
           </div>
         </div>
         <p class="field-hint">
-          Paid to a seller, the debt goes up and your budget is untouched. Paid
-          into an account, the money arrives in Ready to Assign like any income.
-          Only recorded if you said what you owe today, above.
+          Paid to a seller: the debt rises and the budget is unaffected. Paid
+          into an account: the money arrives in Ready to Assign, like any
+          income. Recorded only if the current outstanding was given above.
         </p>
       </fieldset>
 
@@ -1189,8 +1191,8 @@ export function renderRecordInstalment(opts: {
           </div>
         </div>
         <p class="field-hint">
-          Leave these blank to use the projection. The lender's figures are always
-          authoritative where you have them.
+          Leave blank to use the projection. Where the lender's figures are
+          available, they are authoritative.
         </p>
       </fieldset>
 
@@ -1215,9 +1217,9 @@ export function renderRecordInstalment(opts: {
             the money into the card's payment envelope, so it is budgeted once.
           -->
           <p class="field-hint">
-            The bank charges this to the card, so record it there. It comes out of
-            this plan's envelope and lands in the card's, ready to clear the bill —
-            you fund it once.
+            The bank charges this to the card, so it is recorded there. It
+            leaves this plan's envelope and lands in the card's, ready to
+            clear the bill — funded once.
           </p>
         `)}
       </div>

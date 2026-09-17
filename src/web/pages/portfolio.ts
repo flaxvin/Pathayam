@@ -141,8 +141,9 @@ export function renderPortfolio(opts: {
           `)}
         </div>
         <p class="faint" style="margin-top:-.25rem">
-          Valued by hand. Each keeps a dated history, so net worth over time is
-          real rather than today's figure applied backwards.
+          Valued by hand. Each keeps a dated history, so net worth over time
+          reflects the figures as they stood rather than today's applied
+          backwards.
         </p>
         ${opts.manualAssets.map(
           (a) => html`
@@ -217,10 +218,10 @@ export function renderHolderFields(
           </option>
         </select>
         <p class="field-hint">
-          <strong>Shared</strong> means everyone in the household sees it, with
-          whoever holds it shown as a tag. <strong>Private</strong> means only the
-          holder sees it at all — it is left out of everyone else's screens and out
-          of their totals, because a total that included it would give it away.
+          Shared: visible to everyone in the household, tagged with the
+          holder. Private: visible only to the holder, and excluded from
+          everyone else's screens and totals, because a total including it
+          would disclose it.
         </p>
       </div>
     </div>
@@ -235,8 +236,9 @@ export function renderNewAssetForm(opts: {
   return html`
     <h1>Add an asset</h1>
     <p class="faint">
-      Something valued by hand — property, gold, a fixed deposit, money owed to you.
-      It counts towards net worth and keeps a dated history; it never touches the budget.
+      An asset valued by hand: property, gold, a fixed deposit, money owed. It
+      counts toward net worth and keeps a dated history. It never affects the
+      budget.
     </p>
     ${when(opts.error, () => html`<p class="notice notice-error">${opts.error}</p>`)}
     <form method="post" action="/portfolio/asset/new" class="card">
@@ -309,11 +311,9 @@ export function renderValuations(opts: {
   return html`
     <h1>Update valuations</h1>
     <p class="muted">
-      What each of these is worth today. Leave a box empty to leave that one
-      alone — nothing is changed unless you put a number in it.
-      ${when(needing > 0, () => html`
-        <strong>${needing}</strong> ${needing === 1 ? "needs" : "need"} attention.
-      `)}
+      Current value of each. An empty box leaves that asset
+      unchanged.${when(needing > 0, () => html` <strong>${needing}</strong>
+      ${needing === 1 ? "needs" : "need"} attention. `)}
     </p>
 
     <form method="post" action="/portfolio/valuations" class="card">
@@ -368,9 +368,9 @@ export function renderRevalueAsset(opts: {
   return html`
     <h1>Revalue ${opts.asset.name}</h1>
     <p class="faint">
-      Last valued at ${formatPaise(opts.asset.value)} as of ${formatDate(opts.asset.asOf)}.
-      A new valuation is added to the history — the old one is kept, so net worth over
-      time stays honest.
+      Last valued at ${formatPaise(opts.asset.value)} as of
+      ${formatDate(opts.asset.asOf)}. A new valuation is added to the history;
+      the previous one is retained, so net worth over time stays accurate.
     </p>
     <form method="post" action="/portfolio/asset/${opts.asset.id}/revalue" class="card">
       <div class="grid-2">
@@ -411,8 +411,8 @@ export function renderManualPrice(opts: {
   return html`
     <h1>Price ${opts.instrumentName}</h1>
     <p class="faint">
-      Enter the price per unit in the instrument's own currency. It is stored against
-      the date, exactly like a fetched price, and never silently overwritten.
+      The price per unit, in the instrument's own currency. It is stored against
+      its date, exactly as a fetched price is, and never overwritten.
     </p>
     <form method="post" action="/portfolio/${opts.holdingId}/price" class="card">
       <div class="grid-2">
@@ -502,9 +502,9 @@ export function renderSplitForm(opts: {
   return html`
     <h1>Split or bonus · ${opts.instrumentName}</h1>
     <p class="faint">
-      You hold ${opts.units} units. A split or a bonus changes how many units
-      you hold and what each one cost — never what the holding is worth. Every
-      lot and the whole price history move together, so the chart stays honest.
+      ${opts.units} units held. A split or bonus changes the number of units and
+      the cost of each, never the value of the holding. Every lot and the full
+      price history are adjusted together.
     </p>
     <form method="post" action="/portfolio/${opts.holdingId}/split" class="card">
       <div class="grid-2">
@@ -513,8 +513,8 @@ export function renderSplitForm(opts: {
           <input id="ratio" name="ratio" class="amount-input" type="text"
                  inputmode="decimal" autocomplete="off" required autofocus placeholder="5">
           <p class="field-hint">
-            A 1:5 split is 5. A 1:1 bonus is 2 — one new unit alongside the one
-            you held.
+            A 1:5 split is 5. A 1:1 bonus is 2 — one new unit alongside each
+            unit held.
           </p>
         </div>
         <div class="field">
@@ -556,10 +556,10 @@ export function renderMergerForm(opts: {
   return html`
     <h1>Merger &middot; ${opts.instrumentName}</h1>
     <p class="faint">
-      You hold ${opts.units} units. When a scheme merges into another, your units
-      are reissued at a ratio — and your <strong>original cost and purchase dates
-      carry forward</strong>. Nothing is sold, so nothing is realised and the
-      holding period is not reset.
+      ${opts.units} units held. When a scheme merges into another, units are
+      reissued at a ratio and the original cost and purchase dates carry
+      forward. Nothing is sold, so nothing is realised and the holding period is
+      not reset.
     </p>
     <form method="post" action="/portfolio/${opts.holdingId}/merge" class="card">
       <div class="grid-2">
@@ -568,8 +568,8 @@ export function renderMergerForm(opts: {
           <input id="merge-ratio" name="ratio" class="amount-input" type="text"
                  inputmode="decimal" autocomplete="off" required autofocus placeholder="0.8">
           <p class="field-hint">
-            The letter states it as an exchange ratio: 8 units of the new scheme
-            for every 10 held is 0.8.
+            The letter states an exchange ratio: 8 units of the new scheme for
+            every 10 held is 0.8.
           </p>
         </div>
         <div class="field">
@@ -585,9 +585,9 @@ export function renderMergerForm(opts: {
           ${opts.instruments.map((i) => html`<option value="${i.id}">${i.name}</option>`)}
         </select>
         <p class="field-hint">
-          Pick the surviving scheme if you already track it. Otherwise add it
-          first, or leave this alone and rename the instrument later — the units
-          and the cost are what matter here.
+          Select the surviving scheme if it is already tracked. Otherwise add
+          it first, or leave this and rename the instrument later; the units
+          and cost are what this records.
         </p>
       </div>
       <button class="button-primary" type="submit">Record the merger</button>
@@ -649,9 +649,9 @@ export function renderHoldingDetail(opts: {
 
       ${when(v.xirr !== null && Math.abs(v.absoluteReturn - v.xirr!) >= 2, () => html`
         <p class="field-hint">
-          Absolute return says ${v.absoluteReturn.toFixed(2)}%, XIRR says
-          ${v.xirr!.toFixed(2)}%. The difference is time: absolute return treats
-          money you invested last month as though it had been in since the start.
+          Absolute return and XIRR differ by the timing of contributions:
+          absolute return treats money invested last month as though it had
+          been held since the start.
         </p>
       `)}
 
@@ -677,9 +677,8 @@ export function renderHoldingDetail(opts: {
     <section class="card">
       <h2>Lots</h2>
       <p class="faint" style="margin-top:-.25rem">
-        Oldest first — the order a sale consumes them in. Holding periods are shown
-        so you can see what is long-term; this app classifies nothing and computes
-        no tax.
+        Oldest first, the order in which a sale consumes them. Holding periods
+        are shown; no classification is applied and no tax is computed.
       </p>
       <div class="table-scroll">
         <table>
@@ -831,17 +830,17 @@ export function renderSalePreview(opts: {
               <label for="sale_date">Date of sale</label>
               <input id="sale_date" name="date" type="text" value="${formatDate(opts.today)}">
               <p class="field-hint">
-                <!-- Realised gains are reported by financial year, so a sale
-                     recorded a week late under today's date lands in the
-                     wrong year's figure. -->
-                Which financial year the realised gain belongs to follows this.
+                Determines which financial year the realised gain is reported
+                in.
               </p>
             </div>
             <div class="field">
               <label for="charges">Brokerage and charges</label>
               <input id="charges" name="charges" class="amount-input" type="text"
                      inputmode="decimal" placeholder="0">
-              <p class="field-hint">Taken off the proceeds and added to the cost.</p>
+              <p class="field-hint">
+                Deducted from the proceeds and added to the cost.
+              </p>
             </div>
           </div>
           <div class="field">
@@ -851,8 +850,8 @@ export function renderSalePreview(opts: {
               ${opts.accounts.map((a) => html`<option value="${a.id}">${a.name}</option>`)}
             </select>
             <p class="field-hint">
-              The <strong>full proceeds</strong> arrive as money to assign, not just the
-              gain. Cash is cash — the gain is a separate fact about the past.
+              The full proceeds arrive as money to assign, not only the gain.
+              The realised gain is reported separately.
             </p>
           </div>
           <button class="button-primary" type="submit">Record the sale</button>
@@ -905,8 +904,8 @@ export function renderNetWorth(opts: {
       </div>
       ${when(opts.scope === "household", () => html`
         <p class="faint" style="margin-top:-.5rem">
-          Anything another member has marked private is left out — of the lines and
-          of the total, because a total that included it would give it away.
+          Anything another member has marked private is excluded from both the
+          lines and the total, because a total including it would disclose it.
         </p>
       `)}
     `)}
@@ -919,9 +918,9 @@ export function renderNetWorth(opts: {
       ${when(s.hasStaleInputs, () => html`
         <!-- R29.1: the figure carries the staleness of its worst input. -->
         <p class="faint">
-          Some inputs haven't been updated recently — the oldest is from
-          ${formatDate(s.worstInputDate!)}. The figure is still the best available;
-          it is just as of those dates.
+          Some inputs have not been updated recently; the oldest is from
+          ${formatDate(s.worstInputDate!)}. The figure remains the best
+          available, as of those dates.
         </p>
       `)}
     </div>
@@ -987,8 +986,8 @@ function renderWaterfall(change: NetWorthChange): SafeHtml {
         `,
       )}
       <p class="field-hint">
-        A net worth that rose because the rupee weakened is not the same
-        achievement as one that rose because you repaid principal.
+        A rise caused by currency movement is distinguished from one caused by
+        repaying principal.
       </p>
     </section>
   `;
@@ -1100,9 +1099,9 @@ export function renderAddHolding(opts: {
         <label for="q">Find a mutual fund</label>
         <input id="q" name="q" value="${opts.query}" placeholder="parag parikh flexi cap">
         <p class="field-hint">
-          Searches AMFI's scheme list. <strong>Direct and Regular are different
-          schemes with different NAVs</strong>, so pick the exact plan — the full
-          name is shown for that reason.
+          Searches AMFI's scheme list. Direct and Regular plans are separate
+          schemes with different NAVs, so the exact plan must be selected; the
+          full name is shown for that reason.
         </p>
       </div>
       <button type="submit">Search</button>
@@ -1169,7 +1168,10 @@ export function renderAddHolding(opts: {
             <div class="field">
               <label for="amount">Amount invested</label>
               <input id="amount" name="amount" class="amount-input" type="text" inputmode="decimal">
-              <p class="field-hint">Units are worked out from the price — how a SIP works.</p>
+              <p class="field-hint">
+                Units are derived from the amount and the price, as a SIP
+                records them.
+              </p>
             </div>
             <div class="field">
               <label for="unit_price">Price per unit</label>
@@ -1184,7 +1186,9 @@ export function renderAddHolding(opts: {
             <div class="field">
               <label for="fees">Fees and charges</label>
               <input id="fees" name="fees" class="amount-input" type="text" inputmode="decimal" placeholder="0.00">
-              <p class="field-hint">Added to what the units cost you, by default.</p>
+              <p class="field-hint">
+                Added to the cost of the units by default.
+              </p>
             </div>
           </div>
         </fieldset>
@@ -1208,8 +1212,8 @@ export function renderAddHolding(opts: {
             </div>
           </div>
           <p class="field-hint">
-            Buying is money <strong>leaving</strong> the budget. Recording the category
-            it came from keeps your envelope arithmetic whole, and stops reports
+            A purchase is money leaving the budget. Recording the envelope it
+            came from keeps the envelope arithmetic complete and stops reports
             counting an investment as spending.
           </p>
         </fieldset>
@@ -1238,10 +1242,9 @@ export function renderCasUpload(opts: {
   return html`
     <h1>Import a CAS</h1>
     <p class="muted">
-      A CDSL Consolidated Account Statement covers every folio you hold, across
-      every registrar. Import the PDF exactly as it arrived — it stays
-      password-protected, and the password is used to open it and then
-      forgotten.
+      A CDSL Consolidated Account Statement covers every folio held, across
+      every registrar. Import the PDF as it arrived; it remains password-
+      protected, and the password is used to open it and then discarded.
     </p>
 
     ${when(opts.error, () => html`<p class="notice notice-error">${opts.error}</p>`)}
@@ -1259,7 +1262,10 @@ export function renderCasUpload(opts: {
               <div class="field">
                 <label for="statement">The statement</label>
                 <input id="statement" name="statement" type="file" accept="application/pdf,.pdf" required>
-                <p class="field-hint">The PDF as the registrar sent it. Nothing is uploaded anywhere else.</p>
+                <p class="field-hint">
+                  The PDF as the registrar sent it. It is not uploaded
+                  anywhere else.
+                </p>
               </div>
 
               <div class="field">
@@ -1267,8 +1273,8 @@ export function renderCasUpload(opts: {
                 <input id="password" name="password" type="password"
                        autocomplete="off" spellcheck="false">
                 <p class="field-hint">
-                  Usually your PAN in capitals. Leave it empty if the file opens
-                  without one. It is never saved.
+                  Usually the PAN in capitals. Leave empty if the file opens
+                  without one. The password is never stored.
                 </p>
               </div>
 
@@ -1278,7 +1284,7 @@ export function renderCasUpload(opts: {
                   ${opts.accounts.map((a) => html`<option value="${a.id}">${a.name}</option>`)}
                 </select>
                 <p class="field-hint">
-                  Anything you already hold stays in the account it is already in.
+                  Existing holdings remain in their current accounts.
                 </p>
               </div>
 
@@ -1364,8 +1370,8 @@ export function renderCasReview(opts: {
         <!-- IL3: never swallow a row that could not be read. -->
         <h2>Lines that did not parse <span class="chip chip-warning">${opts.unparsed.length}</span></h2>
         <p class="faint" style="margin-top:-.25rem">
-          These looked like transactions but could not be read. Nothing was
-          guessed from them — add anything that matters by hand.
+          These resembled transactions but could not be read. Nothing was
+          inferred from them; add anything required by hand.
         </p>
         <pre class="raw-block">${opts.unparsed.join("\n")}</pre>
       </section>
@@ -1450,8 +1456,8 @@ export function renderCasReview(opts: {
         </button>
         <a class="button button-quiet" href="/portfolio">Discard this statement</a>
         <p class="field-hint">
-          The whole import undoes in one action. The statement itself is not
-          kept, and neither is its password.
+          The import is reversible in one action. Neither the statement nor
+          its password is kept.
         </p>
       </div>
     </form>
@@ -1496,9 +1502,8 @@ export function renderAllocation(opts: {
       <section class="card">
         <h2>Not yet classified <span class="chip chip-warning">${formatPaise(opts.unclassified.value)}</span></h2>
         <p class="faint" style="margin-top:-.25rem">
-          A mutual fund's type is not something the app can read from its name,
-          so the percentages below leave these out until you set them. Nothing
-          is guessed into a bucket.
+          A fund's asset class cannot be read from its name, so the percentages
+          below exclude these until it is set. Nothing is inferred.
         </p>
         ${opts.unclassified.holdings.map(
           (h) => html`

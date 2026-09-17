@@ -147,9 +147,9 @@ export function renderReconcileDifference(opts: {
       <hr style="border:none;border-top:1px solid var(--border);margin:1rem 0">
 
       <p class="muted">
-        If the gap is real, record it as an adjustment. It goes into a
-        Reconciliation category so it stays visible rather than quietly
-        changing your balance.
+        If the difference is real, record it as an adjustment. It is filed to a
+        Reconciliation category so it stays visible rather than altering the
+        balance silently.
       </p>
       <button class="button-danger" type="submit" name="allow_adjustment" value="1">
         Add a ${formatPaise(shortBy)} adjustment and reconcile
@@ -183,9 +183,9 @@ export function renderCheckpointConfirmation(opts: {
         no longer holds.
       </p>
       <p class="muted">
-        The change is allowed — history is never frozen. But that reconciliation
-        will be marked as changed since, and will stay that way until you
-        reconcile the account again. It won't be quietly repaired.
+        The change is allowed; history is never frozen. That reconciliation will
+        be marked as changed since, and stays marked until the account is
+        reconciled again. It is not repaired automatically.
       </p>
 
       <form method="post" action="${opts.action}">
