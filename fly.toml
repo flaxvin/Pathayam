@@ -1,0 +1,54 @@
+# The public demo — demo.pathayam.app
+#
+# Everything in it is invented and disposable, so this needs no volume, no
+# backups and no secrets. The database is baked into the image at build time
+# (see the `demo` stage in the Dockerfile), which means a cold start serves
+# immediately rather than spending twenty seconds seeding, and every new
+# machine is a fresh reset.
+#
+# Singapore, not Mumbai: Fly retired its Indian region, and `fly platform
+# regions` lists sin as the nearest. That is fine here precisely because none
+# of this data is real — it is not fine for customer data, which is a separate
+# decision.
+
+app = "pathayam-demo"
+primary_region = "sin"
+
+[build]
+  dockerfile = "Dockerfile"
+  build-target = "demo"
+
+[env]
+  DEMO_MODE = "1"
+  DATABASE_PATH = "/app/demo.sqlite"
+  BASE_URL = "https://demo.pathayam.app"
+  PORT = "8080"
+  LOG_LEVEL = "info"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+
+  # Stop when nobody is looking and start on the next request. A demo is idle
+  # almost all month, and this is what makes it cost pennies. The cold start is
+  # a container boot, not a reseed.
+  auto_stop_machines = "stop"
+  auto_start_machines = true
+  min_machines_running = 0
+
+  [http_service.concurrency]
+    type = "requests"
+    hard_limit = 50
+    soft_limit = 25
+
+# The app's own machine-readable health endpoint (F27.3).
+[[http_service.checks]]
+  interval = "30s"
+  timeout = "5s"
+  grace_period = "10s"
+  method = "GET"
+  path = "/healthz"
+
+[[vm]]
+  size = "shared-cpu-1x"
+  memory = "512mb"
