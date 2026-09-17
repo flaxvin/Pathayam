@@ -66,6 +66,10 @@ RUN mkdir -p /data && chown -R node:node /data
 COPY --from=deps --chown=node:node /app/node_modules ./node_modules
 COPY --from=build --chown=node:node /app/dist ./dist
 COPY --chown=node:node package.json ./
+# F21.1 · The icons the manifest names. dist/web/icon-files.js reads them from
+# ../../assets at startup, so without this the image exits on boot with ENOENT
+# for /app/assets/icon-192.png — the built image never started at all.
+COPY --chown=node:node assets ./assets
 
 USER node
 VOLUME ["/data"]
@@ -74,5 +78,35 @@ EXPOSE 8080
 # F27.3's machine-readable endpoint doubles as the container health check.
 HEALTHCHECK --interval=30s --timeout=5s --start-period=10s --retries=3 \
   CMD node -e "fetch('http://127.0.0.1:'+(process.env.PORT||8080)+'/healthz').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
+
+CMD ["node", "dist/main.js"]
+
+
+# ---------------------------------------------------------------------------
+# The public demo.
+#
+# Its data is invented and disposable, so this stage needs no volume, no
+# backups and no secrets — which is what lets it run on a scale-to-zero host
+# for nothing. The database is seeded at *build* time and baked into the image:
+# seeding takes about twenty seconds, and doing it on boot would hand that wait
+# to whichever visitor happened to arrive on a cold start.
+#
+# Baking it in is also how the demo resets. Every new container starts from the
+# image's copy, so a restart is a reset and nothing a visitor types outlives
+# the instance. There is no cron to forget.
+#
+#   docker build --target demo -t pathayam-demo .
+#   docker run --rm -p 8080:8080 pathayam-demo
+# ---------------------------------------------------------------------------
+FROM runtime AS demo
+
+ENV DEMO_MODE=1 \
+    DATABASE_PATH=/app/demo.sqlite
+
+USER root
+# SQLite writes -wal and -shm beside the database, so the directory has to be
+# writable by the runtime user, not just the file.
+RUN node dist/demo.js && chown -R node:node /app/demo.sqlite /app
+USER node
 
 CMD ["node", "dist/main.js"]
