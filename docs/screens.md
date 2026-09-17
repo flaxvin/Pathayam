@@ -1,6 +1,6 @@
 # Screens and routes
 
-162 distinct paths: 79 answer `GET`, 83 answer `POST` (some paths answer both). Every screen is a plain URL.
+162 distinct paths: 79 answer `GET`, 114 answer `POST` (31 answer both). Every screen is a plain URL.
 
 Parameterised routes resolve their identifier through a visibility guard and
 answer 404 when the viewer may not see the entity
