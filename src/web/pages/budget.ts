@@ -93,7 +93,7 @@ function renderReadyToAssign(view: BudgetView): SafeHtml {
   // R2's three display states. Each carries a word as well as a colour (A2).
   const wording =
     state === "negative"
-      ? "You've assigned more than you have — move some back."
+      ? "More is assigned than is available. Move some back."
       : state === "zero"
         ? "Every rupee has a job."
         : "Still to assign.";

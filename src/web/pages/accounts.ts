@@ -77,9 +77,9 @@ export function renderAccountList(
       <a class="button button-primary" href="/accounts/new">Add an account</a>
     </div>
 
-    ${renderSection("Budget accounts", budget, "These fund your envelopes.")}
+    ${renderSection("Budget accounts", budget, "These fund the envelopes.")}
     ${renderSection("Credit accounts", credit, "Spending here creates a liability and reserves envelope money.")}
-    ${renderSection("Tracking accounts", tracking, "Balances you want to see. These never fund the budget.")}
+    ${renderSection("Tracking accounts", tracking, "Balances tracked for reference. These never fund the budget.")}
 
     <div class="card">
       <div class="row-between">

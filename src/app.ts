@@ -2778,7 +2778,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       });
     }
     if (splitLines.length === 1) {
-      throw new HttpError(400, "One line isn't a split — pick that envelope in the category field instead.");
+      throw new HttpError(400, "A split needs two or more lines. To file the whole amount to one envelope, use the category field.");
     }
     if (splitLines.length > 0) {
       const total = splitLines.reduce((sum, s) => sum + s.amount, 0);
@@ -2940,7 +2940,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return {
       redirect: withNotice(
         `/accounts/${transaction.account_id}`,
-        "Deleted. You can restore it for the next 30 days." + rippleNote(recompute),
+        "Deleted. Restorable for 30 days." + rippleNote(recompute),
       ),
     };
   });
@@ -3354,7 +3354,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       mergeStaged(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
         requiredField(ctx.body, "staged_id"));
-      return { redirect: "/review", message: "Merged into the transaction you already had." };
+      return { redirect: "/review", message: "Merged into the existing transaction." };
     }),
   );
 
@@ -3504,7 +3504,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           ? (identity
               ? (missing
                   ? `${missing} Or type the password below.`
-                  : "None of the passwords worked out from your saved details opened this. " +
+                  : "None of the passwords derived from the saved details opened this. " +
                     "Type it below, or check the details in Settings.")
               : "That statement needs a password. The hints below say what each bank uses — " +
                 "or save your details in Settings and the app will work it out.")
@@ -3934,8 +3934,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       return {
         redirect: `/loans/${loanId}`,
         message: destination === "third-party"
-          ? "Recorded — your liability rose and your budget is untouched."
-          : "Recorded — the money is in your account and waiting to be assigned.",
+          ? "Recorded. The liability rose; the budget is unaffected."
+          : "Recorded. The money is in the account and waiting to be assigned.",
       };
     }),
   );
@@ -5616,7 +5616,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     saveConnection(db, actorFor(a), {
       email: a.member.email, refreshToken: tokens.refreshToken, scope: tokens.scope,
     });
-    return { redirect: withNotice("/settings#gmail", "Gmail connected. Fetch when you're ready.") };
+    return { redirect: withNotice("/settings#gmail", "Gmail connected. Fetch to read messages.") };
   });
 
   router.post("/gmail/disconnect", (ctx) =>
@@ -6476,7 +6476,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             name: "Failure alerts",
             state: config.backupWebhookUrl ? "healthy" : "degraded",
             reason: config.backupWebhookUrl
-              ? "A webhook is configured, so a failed backup or verification will reach you."
+              ? "A webhook is configured, so a failed backup or verification is reported."
               : "No webhook configured. A failed backup would only appear on this page.",
           },
           {
