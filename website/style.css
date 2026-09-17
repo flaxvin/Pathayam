@@ -505,6 +505,22 @@ figure { margin: 0; }
   margin-top: 1.8rem;
 }
 .callout .btn--primary:hover { background: var(--gold-bright); border-color: var(--gold-bright); color: #12211B; }
+/*
+ * The callout sits on --brand, so a ghost button inherits page colours and
+ * lands at about 2.3:1 on it. On this ground the outline has to be drawn from
+ * the text colour, not the page's border token.
+ */
+.callout .btn--ghost {
+  margin-top: 1.8rem;
+  color: var(--brand-ink);
+  border-color: color-mix(in srgb, var(--brand-ink) 55%, transparent);
+  background: transparent;
+}
+.callout .btn--ghost:hover {
+  color: var(--brand-ink);
+  border-color: var(--brand-ink);
+  background: color-mix(in srgb, var(--brand-ink) 12%, transparent);
+}
 
 /* ----------------------------------------------------------------- legal -- */
 /*
@@ -668,6 +684,12 @@ pre {
   border-radius: var(--r); padding: 1.25rem 1.35rem;
   font-size: var(--step--1); line-height: 1.7;
 }
+/*
+ * An inline code span can be a URL with no break opportunity in it — the clone
+ * command took the guides page 34px past a 390px viewport. Let it break.
+ */
+.guide code, .prose code, .steps code { overflow-wrap: anywhere; }
+
 pre code { background: none; padding: 0; color: inherit; }
 .tok-c { color: #7E9488; font-style: italic; }
 .tok-s { color: #9FD8B4; }
