@@ -225,9 +225,9 @@ export function netWorthStatement(
   // never orphaned from net worth. Their subtypes belong to no companion table,
   // so nothing above has already counted them.
   const otherLiabilityLines: NetWorthLine[] = [];
-  const simpleTracking = queryAll<{ id: string; name: string; subtype: string }>(
+  const simpleTracking = queryAll<{ id: string; name: string; subtype: string; currency: string }>(
     db,
-    `SELECT id, name, subtype FROM accounts
+    `SELECT id, name, subtype, currency FROM accounts
       WHERE kind = 'tracking' AND closed_at IS NULL
         AND subtype IN (${SIMPLE_TRACKING_SUBTYPES.map(() => "?").join(",")})
       ORDER BY name`,
@@ -237,16 +237,31 @@ export function netWorthStatement(
     if (hidden.has(account.id)) continue;
     const working = balances.get(account.id)?.working ?? 0;
     /*
-     * B56 · These are valued by their balance, not by a typed valuation, so
-     * the way to change one is to open its register — the screen offered no
-     * route to it at all, and a fixed deposit sat at its opening figure for
-     * as long as the household owned it.
+     * B56 · A tracking account is worth its balance — unless somebody has
+     * stated otherwise with a dated valuation, which is the only way to say
+     * what a PPF or a fixed deposit has actually grown to. The stated figure
+     * wins, and carries its own date and staleness like every other valued
+     * asset; the register still holds the history either way.
      */
-    const href = `/accounts/${account.id}`;
-    if (working > 0) {
-      otherAssetLines.push({ label: account.name, accountId: account.id, value: working, asOf, stale: false, href });
-    } else if (working < 0) {
-      otherLiabilityLines.push({ label: account.name, accountId: account.id, value: -working, asOf, stale: false, href });
+    const stated = valuationInBase(db, account, asOf, baseCurrency);
+    const value = stated ? stated.value : working;
+    const lineAsOf = stated ? stated.asOf : asOf;
+    const lineStale = stated ? stated.stale : false;
+    const href = stated
+      ? `/portfolio/asset/${account.id}/revalue`
+      : `/accounts/${account.id}`;
+    if (stated) noteDate(stated.asOf, stated.stale);
+
+    if (value > 0) {
+      otherAssetLines.push({
+        label: account.name, accountId: account.id, value,
+        asOf: lineAsOf, stale: lineStale, href,
+      });
+    } else if (value < 0) {
+      otherLiabilityLines.push({
+        label: account.name, accountId: account.id, value: -value,
+        asOf: lineAsOf, stale: lineStale, href,
+      });
     }
   }
 
