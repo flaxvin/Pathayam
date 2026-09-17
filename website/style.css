@@ -442,7 +442,14 @@ code, kbd, samp { font-family: var(--font-mono); font-size: 0.9em; }
   box-shadow: var(--shadow);
   background: var(--panel);
 }
+.frame picture { display: block; }
 .frame img { width: 100%; aspect-ratio: 14 / 9; object-fit: cover; object-position: top center; }
+/* Below this width the source swaps to the shot taken at a phone's width, so
+   the frame takes a phone's shape rather than a laptop's. A wide shot scaled
+   to fit 358px is a grey smudge; this is the same screen, readable. */
+@media (max-width: 44rem) {
+  .frame img { aspect-ratio: 5 / 6; }
+}
 .frame figcaption {
   padding: 0.75rem 1rem;
   font-size: var(--step--1);
@@ -520,6 +527,25 @@ tbody td { padding: 0.8rem 1.1rem; border-bottom: 1px solid var(--line); vertica
 tbody tr:last-child td { border-bottom: 0; }
 tbody td:first-child { color: var(--ink); font-weight: 600; }
 td code, th code { color: var(--ink); background: var(--band); padding: 0.12rem 0.4rem; border-radius: 4px; }
+
+/*
+ * On a phone a two-column table of term and explanation puts each column in
+ * about 90px and breaks the terms across three lines. Every table here is a
+ * list of things and what they are, so below 44rem it becomes that list: the
+ * term on its own line, the explanation under it, nothing to scroll sideways.
+ */
+@media (max-width: 44rem) {
+  .table-scroll { background-image: none; overflow-x: visible; }
+  .table-scroll table, .table-scroll tbody, .table-scroll tr { display: block; }
+  .table-scroll thead { display: none; }
+  .table-scroll tr { padding: 0.85rem 1.1rem; border-bottom: 1px solid var(--line); }
+  .table-scroll tbody tr:last-child { border-bottom: 0; }
+  .table-scroll tbody td { display: block; padding: 0; border: 0; }
+  .table-scroll tbody td:first-child { margin-bottom: 0.3rem; }
+  /* A parameter's name, its type and whether it is required are one line. */
+  .ep__body tbody td:not(:last-child) { display: inline-block; margin: 0 0.5rem 0 0; }
+  .ep__body tbody td:last-child { margin-top: 0.35rem; }
+}
 .m { font-family: var(--font-mono); font-variant-numeric: tabular-nums; white-space: nowrap; }
 
 .pill {
