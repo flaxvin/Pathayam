@@ -66,6 +66,54 @@
     });
   }
 
+  /* ---------------------------------------------------------- pricing -- */
+  /*
+   * Two toggles, six prices per tier. The page renders monthly / on-demand in
+   * the markup, so the prices are right before this runs and right if it never
+   * does — the toggles are an enhancement over a page that already states a
+   * price, not the only way to find one.
+   */
+  var priceBlocks = document.querySelectorAll("[data-od-m]");
+  if (priceBlocks.length) {
+    var inr = function (n) { return "₹" + Number(n).toLocaleString("en-IN"); };
+
+    var paint = function () {
+      var cycle = document.querySelector("input[name=cycle]:checked").value; // m | y
+      var mode = document.querySelector("input[name=mode]:checked").value;   // od | ao
+
+      priceBlocks.forEach(function (block) {
+        var amount = Number(block.getAttribute("data-" + mode + "-" + cycle));
+        var monthly = Number(block.getAttribute("data-" + mode + "-m"));
+        block.querySelector("[data-amt]").textContent = inr(amount);
+        block.querySelector("[data-per]").textContent = cycle === "y" ? "/year" : "/month";
+
+        var gst = block.parentElement.querySelector("[data-gst]");
+        if (gst) {
+          gst.textContent = cycle === "y"
+            ? "+ 18% GST · " + inr(Math.round(amount * 1.18)) + "/year inclusive · "
+              + inr(monthly) + "/month billed monthly"
+            : "+ 18% GST · " + inr(Math.round(amount * 1.18)) + "/month inclusive";
+        }
+      });
+
+      var note = document.querySelector("[data-mode-note]");
+      if (note) {
+        note.innerHTML = mode === "ao"
+          ? "Your container never stops. Every page is instant, and a script "
+            + "hitting the API never waits for a wake-up. "
+            + '<a href="#faq-ondemand">Compare the two</a>.'
+          : "Your container starts when you open the app and stops when you are "
+            + "done — a second or two to wake. "
+            + '<a href="#faq-ondemand">What that means</a>.';
+      }
+    };
+
+    document.querySelectorAll("input[name=cycle], input[name=mode]").forEach(function (input) {
+      input.addEventListener("change", paint);
+    });
+    paint();
+  }
+
   /* ---------------------------------------------------------- waitlist -- */
   /*
    * Paste the Apps Script /exec URL here and the form starts working. See

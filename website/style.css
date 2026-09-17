@@ -519,6 +519,58 @@ figure { margin: 0; }
 .wrap--prose li { margin-top: 0.35rem; }
 .wrap--prose .table-scroll { margin-top: 1.1rem; }
 .legal-meta { font-size: var(--step--1); color: var(--muted); }
+/* Prices are quoted before tax, so the inclusive figure sits with them rather
+   than waiting in the terms for somebody to find after they have decided. */
+.tier__gst { font-size: var(--step--1); color: var(--muted); margin-top: 0.15rem; }
+
+/* ------------------------------------------------------------ switcher -- */
+/*
+ * Radios, not buttons: the control has to work for a keyboard and a screen
+ * reader before it works for a pointer, and a radio group already means
+ * "one of these" without any script to say so.
+ */
+.switcher {
+  display: flex; flex-wrap: wrap; gap: 1rem 2rem;
+  align-items: flex-end; margin-bottom: 1.75rem;
+}
+.seg { border: 0; padding: 0; margin: 0; }
+.seg__legend {
+  padding: 0; margin-bottom: 0.4rem;
+  font-size: var(--step--1); font-weight: 600; color: var(--muted);
+}
+.seg__opts {
+  display: inline-flex; padding: 3px; gap: 3px;
+  background: var(--band); border: 1px solid var(--line); border-radius: 999px;
+}
+/*
+ * The input covers its own label exactly rather than hiding in a corner. Two
+ * things follow: the hit area is the pill a person actually aims at, and the
+ * control is a real radio the whole way down — no click handler standing in
+ * for one.
+ */
+.seg__opt { position: relative; display: inline-flex; }
+.seg__opt input {
+  position: absolute; inset: 0; width: 100%; height: 100%;
+  margin: 0; opacity: 0; cursor: pointer;
+}
+.seg__opts label {
+  display: inline-flex; align-items: center; gap: 0.4rem;
+  min-height: 40px; padding: 0 1rem; border-radius: 999px;
+  font-size: var(--step--1); font-weight: 600; color: var(--ink-2);
+  cursor: pointer; white-space: nowrap;
+}
+.seg__opts label:hover { color: var(--ink); }
+.seg__opts input:checked + label { background: var(--panel); color: var(--ink); box-shadow: var(--shadow); }
+/* The focus ring has to come from the input, which is not where the pixels are. */
+.seg__opts input:focus-visible + label { outline: 2px solid var(--brand); outline-offset: 2px; }
+.seg__save {
+  font-size: 0.75em; font-weight: 700; color: var(--brand);
+  background: var(--brand-soft); border-radius: 999px; padding: 0.1em 0.5em;
+}
+.switcher__note {
+  flex: 1 1 18rem; min-width: 0; margin: 0;
+  font-size: var(--step--1); color: var(--muted);
+}
 .foot__legal {
   margin-top: 0.6rem; font-size: var(--step--1); color: var(--muted);
 }
@@ -1017,14 +1069,19 @@ pre code { background: none; padding: 0; color: inherit; }
   display: grid;
   grid-template-columns: repeat(auto-fit, minmax(min(15.5rem, 100%), 1fr));
   gap: 1.1rem;
-  align-items: start;
+  /*
+   * stretch, not start: the cards hold different numbers of features, and
+   * ragged bottoms read as a mistake rather than as a difference. The call to
+   * action is pushed to the foot of each card so they line up across the row.
+   */
+  align-items: stretch;
 }
 .tier {
   background: var(--panel);
   border: 1px solid var(--line);
   border-radius: var(--r);
   padding: 1.6rem 1.4rem;
-  display: grid; gap: 0.75rem; align-content: start;
+  display: flex; flex-direction: column; gap: 0.75rem;
   box-shadow: var(--shadow-sm);
   position: relative;
 }
@@ -1036,6 +1093,9 @@ pre code { background: none; padding: 0; color: inherit; }
   padding: 0.2rem 0.6rem; border-radius: 999px;
 }
 .tier h3 { font-size: var(--step-2); }
+/* The feature list takes the slack, so every card's button sits on one line. */
+.tier > ul { flex: 1 1 auto; }
+.tier > .btn { margin-top: auto; }
 .tier__price { display: flex; align-items: baseline; gap: 0.3rem; flex-wrap: wrap; }
 .tier__amt {
   font-family: var(--font-display); font-weight: 700;
