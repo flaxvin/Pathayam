@@ -39,6 +39,10 @@ jobs:
       - uses: actions/setup-node@v4
         with:
           node-version: '24'
+          cache: npm
+      # The app ships no runtime dependency, but typecheck needs TypeScript and
+      # it is a devDependency — so this is not the no-op it looks like.
+      - run: npm ci
       - run: npm run typecheck
       - run: npm test
 
