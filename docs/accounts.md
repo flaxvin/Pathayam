@@ -14,14 +14,18 @@ determines what the interface calls it and which extra fields apply.
 Fields by subtype:
 
 - `credit-card`, `charge-card`: `credit_limit`, `statement_day`, `due_day`.
-- `fixed-deposit`, `recurring-deposit`, `asset`, `liability`: a plain balance,
-  updated by dated valuations.
+- `fixed-deposit`, `recurring-deposit`, `asset`, `liability`: worth the
+  balance their register adds up to, unless a dated valuation states
+  otherwise — in which case the stated figure is what net worth uses, and
+  carries its own date and staleness. Recorded on `/portfolio/valuations` or
+  `/portfolio/asset/:id/revalue`, the same screens the Portfolio-created
+  asset subtypes use.
 - `loan`, `emi`, `family-loan`: balances are derived from the companion tables
   and cannot be edited directly. These accounts are created and managed from
   `/loans` and `/family`.
 
 An account carries `budget_id` (which budget it belongs to), `holder_member_id`
-and `visibility` (`shared` or `private`). See [privacy.md](privacy.md).
+and `visibility` (`household` or `private`). See [privacy.md](privacy.md).
 
 ## Balances
 
