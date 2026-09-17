@@ -84,7 +84,7 @@ import {
 } from "./domain/reconciliation.ts";
 import { parseStatement } from "./import/csv.ts";
 import {
-  ingest, listStaged, approveStaged, rejectStaged, mergeStaged, undoBatch, listBatches,
+  ingest, listStaged, approveStaged, rejectStaged, mergeStaged, undoBatch, listBatches, StagedNeedsCategory,
 } from "./import/pipeline.ts";
 import {
   householdBudgetId, budgetsFor, lastBudget, rememberBudget, ensurePersonalBudget, listBudgets, getBudget,
@@ -3308,10 +3308,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
        * have to. Refusing here rather than at import is deliberate — the queue
        * is exactly where an unfiled row is supposed to wait.
        */
-      approveStaged(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
-        requiredField(ctx.body, "staged_id"),
-        { categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null },
-      );
+      try {
+        approveStaged(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+          requiredField(ctx.body, "staged_id"),
+          { categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null },
+        );
+      } catch (err) {
+        // The refusal is the user's to read, not the error log's.
+        if (err instanceof StagedNeedsCategory) throw new HttpError(400, err.message);
+        throw err;
+      }
 
       // L2 · Categorising the same payee a second time proposes a rule. The
       // proposal goes to Review and is never applied (L3) — so this can run on
