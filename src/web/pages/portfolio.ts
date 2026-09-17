@@ -826,6 +826,24 @@ export function renderSalePreview(opts: {
         <form method="post" action="/portfolio/${v.holding.id}/sell" style="margin-top:1rem">
           <input type="hidden" name="units" value="${opts.unitsToSell}">
           <input type="hidden" name="price" value="${opts.priceInput}">
+          <div class="grid-2">
+            <div class="field">
+              <label for="sale_date">Date of sale</label>
+              <input id="sale_date" name="date" type="text" value="${formatDate(opts.today)}">
+              <p class="field-hint">
+                <!-- Realised gains are reported by financial year, so a sale
+                     recorded a week late under today's date lands in the
+                     wrong year's figure. -->
+                Which financial year the realised gain belongs to follows this.
+              </p>
+            </div>
+            <div class="field">
+              <label for="charges">Brokerage and charges</label>
+              <input id="charges" name="charges" class="amount-input" type="text"
+                     inputmode="decimal" placeholder="0">
+              <p class="field-hint">Taken off the proceeds and added to the cost.</p>
+            </div>
+          </div>
           <div class="field">
             <label for="to_account">Where do the proceeds land?</label>
             <select id="to_account" name="to_account_id">
