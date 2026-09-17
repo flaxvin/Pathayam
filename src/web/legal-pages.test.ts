@@ -77,6 +77,32 @@ describe("the demo names who is responsible for it", () => {
   });
 });
 
+describe("the contact addresses survive the CDN in front of them", () => {
+  /*
+   * Cloudflare's email obfuscation rewrites anything that looks like an address
+   * into a /cdn-cgi/l/email-protection link reading "[email protected]". On the
+   * page that has to say where a grievance goes, that means it no longer says.
+   * `<!--email_off-->` is Cloudflare's documented opt-out, and it has to wrap
+   * every address or the one it misses is the one that disappears.
+   */
+  for (const [label, page] of [
+    ["privacy", privacy("demo")],
+    ["terms", terms("demo")],
+  ] as const) {
+    test(`${label}: every mailto is inside an email_off marker`, () => {
+      const unwrapped = page
+        .split("<!--email_off-->")
+        .map((chunk, i) => (i === 0 ? chunk : chunk.split("<!--/email_off-->")[1] ?? ""))
+        .join("");
+      assert.doesNotMatch(
+        unwrapped,
+        /mailto:/,
+        "an address is exposed to the CDN rewrite and will render as [email protected]",
+      );
+    });
+  }
+});
+
 describe("a self-hosted install does not claim somebody is running it", () => {
   test("the privacy policy puts the data and the responsibility on your own server", () => {
     const html = privacy("self-hosted");
