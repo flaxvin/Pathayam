@@ -150,7 +150,47 @@ An empty array is the expected answer.
 
 ## 3 · Publishing
 
-Upload the contents of this directory. There is no build.
+The site publishes itself from GitHub. `.github/workflows/pages.yml` copies this
+directory to GitHub Pages on every push to `main` that touches it.
+
+**One-time setup:** in the repository, **Settings → Pages → Source → GitHub
+Actions**. Until that is set the workflow runs and fails at the last step.
+
+The workflow refuses to publish if either check fails:
+
+- any legal page still contains a `TODO` placeholder;
+- any file references a third-party host, which `privacy.html` promises it does
+  not.
+
+It first publishes at `https://flaxvin.github.io/Pathayam/`. Relative links
+throughout mean the sub-path works as-is.
+
+### Moving it to pathayam.app
+
+1. At your DNS provider, for the apex `pathayam.app`:
+
+   ```
+   A     @   185.199.108.153
+   A     @   185.199.109.153
+   A     @   185.199.110.153
+   A     @   185.199.111.153
+   AAAA  @   2606:50c0:8000::153
+   AAAA  @   2606:50c0:8001::153
+   AAAA  @   2606:50c0:8002::153
+   AAAA  @   2606:50c0:8003::153
+   CNAME www flaxvin.github.io.
+   ```
+
+2. Add a file `website/CNAME` containing exactly `pathayam.app`, and push.
+3. In **Settings → Pages**, set the custom domain and tick **Enforce HTTPS**
+   once the certificate is issued.
+
+Add the `CNAME` file only after the DNS records resolve. With it present and DNS
+not yet pointing at GitHub, the site serves neither at the custom domain nor at
+the github.io address.
+
+`demo.pathayam.app` is a separate host — the application itself, not this
+directory. Point it at wherever the app runs and leave it out of DNS for Pages.
 
 Worth re-running after any change to the markup or the stylesheet: the
 accessibility and contrast audit, and the horizontal-overflow sweep across
