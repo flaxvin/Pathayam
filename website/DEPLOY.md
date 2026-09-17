@@ -153,8 +153,15 @@ An empty array is the expected answer.
 The site publishes itself from GitHub. `.github/workflows/pages.yml` copies this
 directory to GitHub Pages on every push to `main` that touches it.
 
-**One-time setup:** in the repository, **Settings → Pages → Source → GitHub
-Actions**. Until that is set the workflow runs and fails at the last step.
+**One-time setup, and it is not optional:** in the repository,
+**Settings → Pages → Source → GitHub Actions**.
+
+While the source is set to a branch, GitHub runs its own Jekyll build of the
+repository root on every push, *in addition to* this workflow — and the Jekyll
+build is what gets served. The symptom is that the site renders `README.md` as
+its home page while this workflow reports success, which is a confusing pair of
+facts to meet at the same time. Changing the source to GitHub Actions stops the
+Jekyll build and serves the artifact this workflow uploads.
 
 The workflow refuses to publish if either check fails:
 
