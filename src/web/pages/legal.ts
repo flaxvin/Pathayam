@@ -29,7 +29,7 @@ const SCOPES: { scope: string; what: string; why: string }[] = [
   {
     scope: "openid, email, profile",
     what: "Your Google account's email address, name and profile picture.",
-    why: "To sign you in and show who made each change. Nothing else reads it.",
+    why: "Used to sign in and to attribute each change. Nothing else reads it.",
   },
   {
     scope: "https://www.googleapis.com/auth/gmail.readonly",

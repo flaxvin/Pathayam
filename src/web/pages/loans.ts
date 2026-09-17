@@ -542,7 +542,7 @@ export function renderLoanDetail(opts: {
                 <span class="faint"> · ${formatDate(d.date)}</span>
                 <div class="faint">
                   ${d.destination === "third-party"
-                    ? "Paid directly to a third party — never entered your budget"
+                    ? "Paid directly to a third party; never entered the budget"
                     : "Credited to an account — arrived as money to assign"}
                 </div>
               </div>

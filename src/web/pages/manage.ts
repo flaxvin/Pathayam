@@ -53,7 +53,7 @@ export function renderMore(features: { loans: boolean; assets: boolean }): SafeH
       ["/overview", "Overview", "Runway, what is due soon, the month at a glance"],
       ["/cards", "Cards", "Which one is due next, and is it funded"],
       ["/reports", "Reports", "Income against spending, and where it goes"],
-      ["/query", "Query", "One table, filtered and grouped however you like"],
+      ["/query", "Query", "One table, filtered and grouped as needed"],
       ["/schedules", "Schedules & cashflow", "Will you make it to the 30th?"],
       ["/goals", "Goals", "Long-horizon savings, kept off the monthly grid"],
     ])}
@@ -77,13 +77,13 @@ export function renderMore(features: { loans: boolean; assets: boolean }): SafeH
 
     ${group("Manage", [
       ["/payees", "Payees", "Merge duplicates; every raw string is kept"],
-      ["/rules", "Rules", "Automate categorisation, testable before you save"],
+      ["/rules", "Rules", "Automate categorisation, testable before saving"],
       ["/categories", "Categories", "Rename, reorder, hide"],
       ["/import", "Import", "Statements in, review queue out"],
       ["/activity", "Activity", "Every change, and the undo for it"],
       ["/health", "Health", "The page you open at 2am"],
       ["/settings", "Settings", "Household, appearance, devices"],
-      ["/tokens", "API tokens", "For your own scripts, scoped and revocable"],
+      ["/tokens", "API tokens", "For scripts. Scoped and revocable"],
     ])}
 
     ${group("Once a month", [

@@ -934,7 +934,7 @@ export function renderNetWorth(opts: {
     <section class="card">
       <h2>Assets <span class="amount">${formatPaise(s.totalAssets)}</span></h2>
       ${when(s.assetGroups.filter((g) => g.total > 0).length > 1, () => donutChart({
-        title: "What your assets are made of",
+        title: "Composition of assets",
         slices: s.assetGroups.map((g) => ({ label: g.name, value: g.total })),
         centerLabel: formatCompact(s.totalAssets),
         centerSub: "assets",
@@ -954,9 +954,9 @@ export function renderNetWorth(opts: {
 /** R29.4 · Four numbers that mean four different things. */
 function renderWaterfall(change: NetWorthChange): SafeHtml {
   const parts: [string, Paise, string][] = [
-    ["Money saved", change.moneySaved, "What you actually put aside"],
-    ["Market movement", change.marketMovement, "Prices moving, not your doing"],
-    ["Exchange rate", change.fxMovement, "The rupee moving, not your doing"],
+    ["Money saved", change.moneySaved, "Contributions made"],
+    ["Market movement", change.marketMovement, "Price movement"],
+    ["Exchange rate", change.fxMovement, "Currency movement"],
     ["Debt repaid", change.debtRepaid, "Principal cleared"],
   ].filter(([, value]) => value !== 0) as [string, Paise, string][];
 
