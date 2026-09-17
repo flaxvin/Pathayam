@@ -2,11 +2,12 @@
 
 ## Licence of the project
 
-Pathayam is released under the [Functional Source License 1.1](LICENSE.md) with
-an Apache 2.0 future licence. In short: use it, modify it, run it for yourself
-or inside your company. The one thing it forbids is offering it to others as a
-competing commercial product or service. Each release converts to Apache 2.0
-two years after it is published.
+Pathayam is released under the
+[PolyForm Noncommercial License 1.0.0](LICENSE.md). In short: use it, modify it
+and share it for any noncommercial purpose — your own household, study,
+research, a hobby project, a charity, a school. Commercial use of any kind is
+not permitted, including inside a business. Commercial licences are available
+separately: <hello@flaxvin.tech>.
 
 ## Licence of your contribution
 
@@ -17,8 +18,8 @@ sign; the agreement is the act of contributing.
    perpetual, worldwide, non-exclusive, royalty-free, irrevocable licence to
    reproduce, modify, publicly display, sublicense and distribute your
    contribution, and to do so **under any licence terms**, including the
-   Functional Source License, the Apache License 2.0 that each release converts
-   to, and any commercial licence offered separately.
+   PolyForm Noncommercial License and any commercial licence offered
+   separately.
 
 2. **You keep your copyright.** This is a licence, not an assignment. Your name
    stays in the history and you may use your own contribution however you like.
@@ -33,9 +34,8 @@ sign; the agreement is the act of contributing.
 5. **No warranty.** The contribution is provided as-is.
 
 Why this is here: without it, a single outside pull request would make it
-impossible to change the licence later — including the automatic conversion to
-Apache 2.0, and any commercial licence sold to somebody who cannot accept the
-FSL.
+impossible to change the licence later, or to sell a commercial licence to
+somebody who cannot accept a noncommercial one.
 
 ## Before you open a pull request
 

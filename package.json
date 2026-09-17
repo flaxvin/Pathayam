@@ -1,7 +1,7 @@
 {
   "name": "pathayam",
   "version": "0.1.0",
-  "license": "LicenseRef-FSL-1.1-ALv2",
+  "license": "LicenseRef-PolyForm-Noncommercial-1.0.0",
   "private": true,
   "description": "Pathayam \u2014 strict envelope budgeting for one Indian household. Server-only, self-hosted.",
   "type": "module",
