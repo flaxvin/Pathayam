@@ -180,6 +180,11 @@
         Hosting is not open yet. Prices are what they will launch at, and everyone
         on the waitlist gets told before anyone is charged.
       </p>
+      <p class="warn" style="max-width:56ch;margin:1rem auto 0">
+        When a plan ends, for any reason, your data is deleted five days later —
+        backups included, and not recoverable. Export before then; one endpoint
+        returns all of it, on every plan.
+      </p>
     </div>
   </section>
 
@@ -269,6 +274,20 @@
           <p>On a hosted plan, in its own database in an Indian region — one
           container and one file per customer, not a shared table with your row in
           it. Self-hosted, wherever you put it.</p>
+        </details>
+        <details>
+          <summary>What happens to my data if I stop paying?</summary>
+          <p>It is deleted <strong>five days</strong> after the plan ends —
+          whether you cancelled, let it expire, or a payment failed. The live
+          database, every backup and every attachment go together. There is no
+          archive, no grace copy, and no way for us to bring it back afterwards,
+          however soon you ask.</p>
+          <p>Five days is short on purpose. Holding other people's financial
+          records after they have stopped paying for the service is a liability
+          — for them more than for us.</p>
+          <p>So export first. One endpoint returns everything in an open format,
+          at any time, on every plan, and the result is a SQLite file you can
+          open with anything. The free version will load it straight back in.</p>
         </details>
         <details>
           <summary>Can I get my data out?</summary>
