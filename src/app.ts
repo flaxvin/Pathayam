@@ -6155,11 +6155,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       requireAssets();
       const holdingId = ctx.params.id!;
+      const chargesRaw = field(ctx.body, "charges");
       const preview = recordSale(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         holdingId,
         units: toUnits(Number(requiredField(ctx.body, "units"))),
         price: toUnitPrice(Number(requiredField(ctx.body, "price"))),
-        date: todayIST(),
+        // R27 · Realised gains are reported by financial year, so a sale
+        // recorded late under today's date lands in the wrong year's figure.
+        date: dateField(field(ctx.body, "date"), "Date of sale"),
+        charges: chargesRaw?.trim()
+          ? (Math.abs(amountField(chargesRaw, "Charges")) as Paise)
+          : undefined,
         toAccountId: field(ctx.body, "to_account_id") || null,
       });
 
