@@ -228,8 +228,8 @@ npm test
 Both must pass. New behaviour requires a test that fails without it. Changes
 affecting money must leave the accounting identity closing.
 
-Contributions are licensed to Flaxvin Technologies so that releases can convert
-to Apache 2.0 on schedule. See [CONTRIBUTING.md](CONTRIBUTING.md).
+Contributions are licensed to Flaxvin Technologies so the licence can be
+granted on other terms where needed. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Supporting the project
 
@@ -249,11 +249,16 @@ return, and they are not tax-deductible.
 
 ## Licence
 
-[Functional Source License 1.1](LICENSE.md), with an Apache 2.0 future licence.
+[PolyForm Noncommercial License 1.0.0](LICENSE.md).
 
-Use it, change it, run it for yourself or inside your company. The one thing it
-forbids is offering it to others as a competing commercial product or service.
-Two years after a release is published, that release becomes Apache 2.0.
+Use it, change it and share it **for any noncommercial purpose** — your own
+household, study, research, a hobby project, a charity, a school, a government
+body. All of that is permitted, with no limits and nothing withheld.
 
-Source available, not OSI open source: the competing-use limit is the
-difference.
+**Commercial use is not permitted** under this licence. That includes running it
+inside a business, using it to keep the books of a company or a freelance
+practice, and offering it to anyone else as a product or service. If you want
+to use it commercially, ask: <hello@flaxvin.tech>.
+
+Source available, not open source. The noncommercial limit is the difference,
+and it does not expire.
