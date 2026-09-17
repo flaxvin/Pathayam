@@ -102,6 +102,7 @@ impossible to miss on the rendered page. Search both files for `class="todo"`:
 | `[INCLUSIVE / EXCLUSIVE]` of GST | Terms: pricing. |
 | `[REFUND POLICY]` | Terms. Consider a 14-day refund on a first subscription. |
 | `[CITY]` | Terms: jurisdiction. |
+| `[LINK TO THE PUBLIC REPOSITORY]` | Terms: where the licence text lives, once the repository is public. |
 
 Have a lawyer read both pages before taking a single payment. They are written
 to be accurate about what the software does — which is the part that is hard to
