@@ -204,7 +204,7 @@ import {
   monthCloseView, closeMonth, reopenMonth, closedMonths, monthAwaitingClose, isClosed,
 } from "./domain/month-close.ts";
 import {
-  addAttachment, listAttachments, deleteAttachment,
+  addAttachment, listAttachments, deleteAttachment, AttachmentRefused,
   getBytes as getAttachmentBytes, getMeta as attachmentMeta,
 } from "./domain/attachments.ts";
 import {
@@ -2674,9 +2674,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (!upload) {
       return { redirect: withNotice(`/transaction/${id}`, "Choose a photo or PDF first.") };
     }
-    addAttachment(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
-      transactionId: id, filename: upload.filename, bytes: upload.bytes,
-    });
+    try {
+      addAttachment(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+        transactionId: id, filename: upload.filename, bytes: upload.bytes,
+      });
+    } catch (err) {
+      // The refusal names what to do differently; it belongs on the screen.
+      if (err instanceof AttachmentRefused) throw new HttpError(400, err.message);
+      throw err;
+    }
     return { redirect: withNotice(`/transaction/${id}`, "Receipt attached.") };
   });
 
