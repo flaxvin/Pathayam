@@ -2338,6 +2338,25 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         WHERE ra.transaction_id = ?`,
       transaction.id,
     );
+    // F4.3 · A split transaction's lines, and the tags, are part of the record
+    // this screen edits — a form that hid them destroyed them on save.
+    const splits = transaction.is_split ? getSplits(db, transaction.id) : [];
+    const tags = tagsFor(db, transaction.id).join(", ");
+    const members = listMembers(db);
+    const categoryName = new Map(
+      [...view.categories.values()].map((c) => [c.id, c.name]),
+    );
+    const splitRows = [
+      ...splits.map((s) => ({ categoryId: s.category_id, amount: Math.abs(s.amount) })),
+      { categoryId: null, amount: null },
+      { categoryId: null, amount: null },
+    ];
+    const envelopeOptions = (selected: string | null) =>
+      [...view.categories.values()]
+        .filter((c) => !c.isPaymentCategory && !c.hidden)
+        .map((c) => html`
+          <option value="${c.id}" ${raw(c.id === selected ? "selected" : "")}>${c.name}</option>
+        `);
 
     return render(
       ctx,
@@ -2441,21 +2460,67 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             </div>
           </div>
 
-          <div class="field">
-            <label for="t-category">Category</label>
-            <select id="t-category" name="category_id">
-              <option value="">Uncategorised</option>
-              ${[...view.categories.values()]
-                .filter((c) => !c.isPaymentCategory && !c.hidden)
-                .map(
-                  (c) => html`
-                    <option value="${c.id}" ${raw(c.id === transaction.category_id ? "selected" : "")}>
-                      ${c.name}
-                    </option>
-                  `,
-                )}
-            </select>
-          </div>
+          ${when(!transaction.is_split, () => html`
+            <div class="field">
+              <label for="t-category">Category</label>
+              <select id="t-category" name="category_id">
+                <option value="">Uncategorised</option>
+                ${envelopeOptions(transaction.category_id)}
+              </select>
+            </div>
+            <details style="margin-bottom:.9rem">
+              <summary class="linkish">Split across envelopes</summary>
+              <p class="field-hint">
+                Fill in two or more lines and they must add up to the amount.
+                Lines left blank are ignored; the category above is too.
+              </p>
+              ${[0, 1, 2].map((i) => html`
+                <div class="grid-2">
+                  <div class="field">
+                    <select name="split_category_${i}" aria-label="Split ${i + 1} envelope">
+                      <option value="">—</option>
+                      ${envelopeOptions(null)}
+                    </select>
+                  </div>
+                  <div class="field">
+                    <input name="split_amount_${i}" class="amount-input" type="text"
+                           inputmode="decimal" aria-label="Split ${i + 1} amount" placeholder="0">
+                  </div>
+                </div>
+              `)}
+            </details>
+          `)}
+          ${when(transaction.is_split, () => html`
+            <div class="field">
+              <label>Split across ${splits.length} envelopes</label>
+              ${splitRows.map((row, i) => html`
+                <div class="grid-2">
+                  <div class="field">
+                    <select name="split_category_${i}" aria-label="Split ${i + 1} envelope">
+                      <option value="">—</option>
+                      ${envelopeOptions(row.categoryId)}
+                    </select>
+                  </div>
+                  <div class="field">
+                    <input name="split_amount_${i}" class="amount-input" type="text"
+                           inputmode="decimal" aria-label="Split ${i + 1} amount"
+                           value="${row.amount === null ? "" : (row.amount / 100).toFixed(2)}"
+                           placeholder="0">
+                  </div>
+                </div>
+              `)}
+              <p class="field-hint">
+                The lines must add up to the amount. Blank a line to drop it.
+              </p>
+            </div>
+            <div class="field">
+              <label for="t-category">Or file the whole thing to one envelope instead</label>
+              <select id="t-category" name="category_id">
+                <option value="" selected>— keep the split —</option>
+                ${envelopeOptions(null)}
+              </select>
+            </div>
+          `)}
 
           <div class="grid-2">
             <div class="field">
@@ -2463,15 +2528,49 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               <input id="t-date" name="date" type="text" value="${formatDateOut(transaction.date)}">
             </div>
             <div class="field">
+              <label for="t-payee">Payee</label>
+              <input id="t-payee" name="payee" value="${payeeName ?? ""}"
+                     placeholder="Who the money went to">
+            </div>
+          </div>
+
+          <div class="grid-2">
+            <div class="field">
               <label for="t-memo">Memo</label>
               <input id="t-memo" name="memo" value="${transaction.memo ?? ""}">
             </div>
+            <div class="field">
+              <label for="t-tags">Tags</label>
+              <input id="t-tags" name="tags" value="${tags}"
+                     placeholder="trip-2026, reimbursable">
+            </div>
           </div>
+
+          ${when(members.length > 1, () => html`
+            <div class="field">
+              <label for="t-owner">Whose spending</label>
+              <select id="t-owner" name="owner_member_id">
+                <option value="">The household's</option>
+                ${members.map((m) => html`
+                  <option value="${m.id}" ${raw(m.id === transaction.owner_member_id ? "selected" : "")}>
+                    ${m.name}
+                  </option>
+                `)}
+              </select>
+            </div>
+          `)}
 
           <div class="field">
             <label>
               <input type="checkbox" name="cleared" value="1"
                      ${raw(transaction.cleared ? "checked" : "")}> Cleared the bank
+            </label>
+            <label>
+              <!-- The marker tells the handler the checkbox was on the form,
+                   since an unchecked box sends nothing at all. -->
+              <input type="hidden" name="reimbursable_present" value="1">
+              <input type="checkbox" name="reimbursable" value="1"
+                     ${raw(transaction.reimbursable ? "checked" : "")}> Someone owes this back
             </label>
           </div>
 
@@ -2631,6 +2730,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     const magnitude = Math.abs(amountField(field(ctx.body, "amount")));
     const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+    const signed = field(ctx.body, "direction") === "in" ? magnitude : -magnitude;
 
     // L1 · A renamed payee is the signal. Resolved here so the rename and the
     // rest of the edit land in one update, and so the *old* name is still
@@ -2642,6 +2742,56 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ? resolvePayee(db, actor, newPayee, transaction.raw_narration).id
       : undefined;
 
+    /*
+     * F4.3 · Split lines from the form. Each filled line is an envelope and an
+     * unsigned amount; the sign follows the transaction's direction. The form
+     * that edits a record must carry all of it — this form once knew nothing
+     * of splits, so saving any split transaction silently flattened it.
+     */
+    const splitLines: { categoryId: string | null; amount: Paise }[] = [];
+    for (let i = 0; i < 25; i++) {
+      const cat = field(ctx.body, `split_category_${i}`);
+      const amt = field(ctx.body, `split_amount_${i}`);
+      if (cat === undefined && amt === undefined) continue;
+      if (!cat && !amt?.trim()) continue;
+      if (!cat || !amt?.trim()) {
+        throw new HttpError(400, "A split line needs both an envelope and an amount.");
+      }
+      const line = Math.abs(amountField(amt));
+      if (line === 0) continue;
+      splitLines.push({
+        categoryId: requireVisibleCategory(ctx, cat),
+        amount: (signed < 0 ? -line : line) as Paise,
+      });
+    }
+    if (splitLines.length === 1) {
+      throw new HttpError(400, "One line isn't a split — pick that envelope in the category field instead.");
+    }
+    if (splitLines.length > 0) {
+      const total = splitLines.reduce((sum, s) => sum + s.amount, 0);
+      if (total !== signed) {
+        throw new HttpError(
+          400,
+          `The split lines add up to ${formatPaise(Math.abs(total))}, ` +
+            `but the transaction is ${formatPaise(magnitude)}.`,
+        );
+      }
+    }
+
+    const postedCategory = field(ctx.body, "category_id");
+    const collapse = transaction.is_split === 1 && splitLines.length === 0 && !!postedCategory;
+    const keepSplit = transaction.is_split === 1 && splitLines.length === 0 && !postedCategory;
+    if (keepSplit && signed !== transaction.amount) {
+      throw new HttpError(
+        400,
+        "This transaction is split, and the lines no longer add up to the new amount. " +
+          "Change the split lines to match, or file it to one envelope.",
+      );
+    }
+
+    const tagsRaw = field(ctx.body, "tags");
+    const ownerRaw = field(ctx.body, "owner_member_id");
+
     // Guard the earlier of the two dates: moving a transaction backwards means
     // the ripple starts where it lands, not where it was.
     const rippleFrom = monthOf(newDate < transaction.date ? newDate : transaction.date);
@@ -2649,11 +2799,24 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       db, actor, { month: rippleFrom, cause: "Edited a transaction" },
       () =>
         updateTransaction(db, actor, id, {
-          amount: field(ctx.body, "direction") === "in" ? magnitude : -magnitude,
+          amount: signed,
           date: newDate,
-          categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
+          ...(splitLines.length > 0
+            ? { splits: splitLines }
+            : keepSplit
+              ? {}
+              : collapse
+                ? { splits: null, categoryId: requireVisibleCategory(ctx, postedCategory || null) || null }
+                : { categoryId: requireVisibleCategory(ctx, postedCategory || null) || null }),
           memo: field(ctx.body, "memo") || null,
           cleared: field(ctx.body, "cleared") === "1",
+          ...(tagsRaw !== undefined
+            ? { tags: tagsRaw.split(",").map((t) => t.trim()).filter(Boolean) }
+            : {}),
+          ...(ownerRaw !== undefined ? { ownerMemberId: ownerRaw || null } : {}),
+          ...(field(ctx.body, "reimbursable_present") === "1"
+            ? { reimbursable: field(ctx.body, "reimbursable") === "1" }
+            : {}),
           ...(payeeId !== undefined ? { payeeId } : {}),
         }),
     );
