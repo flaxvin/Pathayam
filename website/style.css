@@ -897,7 +897,14 @@ pre code { background: none; padding: 0; color: inherit; }
 .guide-part:first-child { margin-top: 0; padding-top: 0; border-top: 0; }
 .guide-part + .guide { margin-top: 1.75rem; }
 
-.docs__rail ol { max-height: calc(100vh - 9rem); overflow-y: auto; }
+/*
+ * Only while the rail is stuck to the viewport. Below 62rem it is a plain
+ * block in the flow, and capping it there makes a 36-guide contents list into
+ * a nested scroller that swallows the page scroll under the reader's thumb.
+ */
+@media (min-width: 62.01rem) {
+  .docs__rail ol { max-height: calc(100vh - 9rem); overflow-y: auto; }
+}
 .rail-part {
   font-size: 0.7rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase;
   color: var(--brand); padding: 1rem 0.7rem 0.35rem;
