@@ -643,6 +643,18 @@ export function renderNewAccountForm(opts: {
           through <a href="/portfolio">Portfolio</a>. Each sets up more than a bare
           balance, which is why they live on their own screen.
         </p>
+        <p class="field-hint">
+          <!--
+            The two asset doors used to be a trap: an account made here could
+            never be marked to its real worth, and a PPF entered on this form
+            stayed at the figure it opened with forever.
+          -->
+          A tracking account is worth whatever its register adds up to — until
+          you say otherwise. For anything that grows on its own, like a PPF or a
+          deposit, record what it is worth from time to time on
+          <a href="/portfolio/valuations">Update valuations</a>, and that figure
+          is the one net worth uses.
+        </p>
       </fieldset>
 
       <div class="grid-2">

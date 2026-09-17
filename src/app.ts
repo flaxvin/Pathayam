@@ -232,7 +232,7 @@ import {
   planCasImport, applyCasPlan, casDestinations, stashPlan, takePlan,
 } from "./import/cas-plan.ts";
 import {
-  createAssetAccount, listAssetAccounts, findOrCreateInstrument, recordPurchase,
+  createAssetAccount, listAssetAccounts, listValuableAccounts, findOrCreateInstrument, recordPurchase,
   recordSale, recordPrice, recordSplit, recordMerger, recordValuation, latestValuation, listHoldings, viewHolding,
   priceHistory, previewHoldingSale, getInstrument, listInstruments,
   classifyInstrument, ASSET_CLASSES, ASSET_CLASS_LABELS,
@@ -6297,7 +6297,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return render(
       ctx, "Update valuations",
       renderValuations({
-        assets: listAssetAccounts(db, { viewerMemberId: viewer(ctx) })
+        assets: listValuableAccounts(db, { viewerMemberId: viewer(ctx) })
           .filter((a) => listHoldings(db, a.id).length === 0)
           .map((a) => {
             const valuation = latestValuation(db, a.id);
@@ -6318,7 +6318,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       requireAssets();
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
-      const assets = listAssetAccounts(db, { viewerMemberId: viewer(ctx) }).filter((x) => listHoldings(db, x.id).length === 0);
+      const assets = listValuableAccounts(db, { viewerMemberId: viewer(ctx) }).filter((x) => listHoldings(db, x.id).length === 0);
 
       let saved = 0;
       for (const asset of assets) {
@@ -6348,7 +6348,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/portfolio/asset/:id/revalue", (ctx) => {
     requireAssets();
     auth(ctx);
-    const account = listAssetAccounts(db, { viewerMemberId: viewer(ctx) }).find((acc) => acc.id === ctx.params.id);
+    const account = listValuableAccounts(db, { viewerMemberId: viewer(ctx) }).find((acc) => acc.id === ctx.params.id);
     if (!account) throw new NotFound("That asset does not exist.");
     const valuation = latestValuation(db, account.id);
     return render(
@@ -6366,7 +6366,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/portfolio/asset/:id/revalue", (ctx) =>
     mutate(ctx, (a) => {
       requireAssets();
-      const account = listAssetAccounts(db, { viewerMemberId: viewer(ctx) }).find((acc) => acc.id === ctx.params.id);
+      const account = listValuableAccounts(db, { viewerMemberId: viewer(ctx) }).find((acc) => acc.id === ctx.params.id);
       if (!account) throw new NotFound("That asset does not exist.");
       recordValuation(db, actorFor(a), {
         accountId: account.id,

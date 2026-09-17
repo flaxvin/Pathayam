@@ -29,7 +29,7 @@ import { Refusal } from "../core/refusal.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST, todayIST, formatDate, daysBetween, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
-import { createAccount, getAccount } from "./accounts.ts";
+import { SIMPLE_TRACKING_SUBTYPES, createAccount, getAccount } from "./accounts.ts";
 import { createTransaction } from "./transactions.ts";
 import {
   makeLot, previewSale, totalUnits, costBasis, averageCost, averageUnitPrice, marketValue,
@@ -183,6 +183,42 @@ export function listAssetAccounts(
         ? "AND (visibility = 'household' OR holder_member_id IS ?)" : ""}
       ORDER BY name`,
     ...ASSET_SUBTYPES,
+    ...(opts.viewerMemberId !== undefined ? [opts.viewerMemberId ?? null] : []),
+  );
+}
+
+/**
+ * Every tracking account whose worth a person can state directly.
+ *
+ * Two kinds of asset used to live side by side and never meet: one created on
+ * the accounts form, valued by whatever its register added up to, and one
+ * created in Portfolio, valued by dated valuations. Only the second appeared
+ * on the valuations screen or answered the revalue route, so a PPF or a fixed
+ * deposit entered through the obvious door could never be marked to its real
+ * worth — the demo household's own PPF sat at its opening figure for
+ * thirty-six months.
+ *
+ * They are one thing now, under one rule: a tracking account is worth its
+ * balance unless somebody has said otherwise, and a dated valuation is how you
+ * say otherwise.
+ */
+export function listValuableAccounts(
+  db: DB,
+  opts: { includeClosed?: boolean; viewerMemberId?: string | null } = {},
+) {
+  const subtypes = [...ASSET_SUBTYPES, ...SIMPLE_TRACKING_SUBTYPES];
+  return queryAll<{
+    id: string; name: string; subtype: string; currency: string;
+    institution: string | null; closed_at: string | null;
+  }>(
+    db,
+    `SELECT id, name, subtype, currency, institution, closed_at FROM accounts
+      WHERE kind = 'tracking' AND subtype IN (${subtypes.map(() => "?").join(",")})
+      ${opts.includeClosed ? "" : "AND closed_at IS NULL"}
+      ${opts.viewerMemberId !== undefined
+        ? "AND (visibility = 'household' OR holder_member_id IS ?)" : ""}
+      ORDER BY name`,
+    ...subtypes,
     ...(opts.viewerMemberId !== undefined ? [opts.viewerMemberId ?? null] : []),
   );
 }
