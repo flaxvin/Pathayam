@@ -18,14 +18,14 @@
  * tokens, so no component rule ever lives inside a theme block.
  */
 :root {
-  --ground:      #FFFCF6;
-  --band:        #F4EEE1;
-  --panel:       #FFFFFF;
-  --ink:         #12211B;
-  --ink-2:       #44544C;
-  --muted:       #616E66;   /* AA at 14px on the page, panel and band backgrounds */
-  --line:        #E6DFCF;
-  --line-2:      #D3C9B3;
+  --ground:      #F4F1EA;   /* --bg in the app */
+  --band:        #ECE7DC;   /* --surface-2 */
+  --panel:       #FDFBF6;   /* --surface. Pure white read as glare. */
+  --ink:         #1D1A15;   /* --text */
+  --ink-2:       #5B5446;   /* --text-muted */
+  --muted:       #6B6354;   /* --text-faint · AA on page, panel and band */
+  --line:        #DED7C9;   /* --border */
+  --line-2:      #BCB3A1;   /* --border-strong */
 
   --brand:       #14603C;
   --brand-2:     #0D4A2D;
@@ -67,14 +67,14 @@
 
 @media (prefers-color-scheme: dark) {
   :root:not([data-theme="light"]) {
-    --ground:      #101713;
-    --band:        #16201A;
-    --panel:       #1A241E;
-    --ink:         #EDF2ED;
-    --ink-2:       #B5C2B9;
-    --muted:       #8A988F;
-    --line:        #27332C;
-    --line-2:      #38473E;
+    --ground:      #11141A;   /* --bg in the app */
+    --band:        #232833;   /* --surface-2 */
+    --panel:       #1A1E26;   /* --surface */
+    --ink:         #EEF1F6;   /* --text */
+    --ink-2:       #A8B1C0;   /* --text-muted */
+    --muted:       #8B94A3;   /* --text-faint */
+    --line:        #333B49;   /* --border */
+    --line-2:      #4A5464;   /* --border-strong */
 
     --brand:       #58C08B;
     --brand-2:     #7CD3A5;
@@ -95,14 +95,14 @@
 }
 
 :root[data-theme="dark"] {
-  --ground:      #101713;
-  --band:        #16201A;
-  --panel:       #1A241E;
-  --ink:         #EDF2ED;
-  --ink-2:       #B5C2B9;
-  --muted:       #8A988F;
-  --line:        #27332C;
-  --line-2:      #38473E;
+  --ground:      #11141A;   /* --bg in the app */
+  --band:        #232833;   /* --surface-2 */
+  --panel:       #1A1E26;   /* --surface */
+  --ink:         #EEF1F6;   /* --text */
+  --ink-2:       #A8B1C0;   /* --text-muted */
+  --muted:       #8B94A3;   /* --text-faint */
+  --line:        #333B49;   /* --border */
+  --line-2:      #4A5464;   /* --border-strong */
 
   --brand:       #58C08B;
   --brand-2:     #7CD3A5;
