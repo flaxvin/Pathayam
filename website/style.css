@@ -454,9 +454,20 @@ figure { margin: 0; }
 /* --------------------------------------------------------------- tables -- */
 .table-scroll {
   overflow-x: auto;
+  /*
+   * A shadow on each edge that fades out when that edge is reached, so a table
+   * wider than the screen shows that there is more of it. Two background
+   * layers: one fixed to the scroll container (the shadow), one that scrolls
+   * with the content and covers it (the cover).
+   */
+  background:
+    linear-gradient(to right, var(--panel) 30%, transparent) left / 3rem 100% no-repeat local,
+    linear-gradient(to left, var(--panel) 30%, transparent) right / 3rem 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgb(0 0 0 / 18%), transparent) left / 1.1rem 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgb(0 0 0 / 18%), transparent) right / 1.1rem 100% no-repeat scroll;
   border: 1px solid var(--line);
   border-radius: var(--r);
-  background: var(--panel);
+  background-color: var(--panel);
 }
 table { width: 100%; border-collapse: collapse; font-size: var(--step--1); }
 thead th {
@@ -484,7 +495,14 @@ td code, th code { color: var(--ink); background: var(--band); padding: 0.12rem 
 /* ----------------------------------------------------------------- code -- */
 pre {
   margin: 0; overflow-x: auto;
-  background: #12211B; color: #D7E2DA;
+  /* The same scroll affordance as a wide table, in the code palette. */
+  background:
+    linear-gradient(to right, #12211B 30%, transparent) left / 2.5rem 100% no-repeat local,
+    linear-gradient(to left, #12211B 30%, transparent) right / 2.5rem 100% no-repeat local,
+    radial-gradient(farthest-side at 0 50%, rgb(0 0 0 / 34%), transparent) left / 1rem 100% no-repeat scroll,
+    radial-gradient(farthest-side at 100% 50%, rgb(0 0 0 / 34%), transparent) right / 1rem 100% no-repeat scroll;
+  background-color: #12211B;
+  color: #D7E2DA;
   border-radius: var(--r); padding: 1.25rem 1.35rem;
   font-size: var(--step--1); line-height: 1.7;
 }
