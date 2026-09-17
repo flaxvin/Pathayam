@@ -29,6 +29,15 @@ const WEBP_DIR = join(ROOT, "website/img");
 const WIDTH = 1400;
 const SCALE = 2;
 
+/*
+ * The website shows these on phones too, where a 1400px-wide screen shrunk to
+ * fit 358px is a grey smudge. So every website shot is taken twice: once wide,
+ * once at a phone's width. The mobile capture stops after a screenful and a
+ * half, because the frame that displays it only ever shows the top.
+ */
+const MOBILE_WIDTH = 420;
+const MOBILE_HEIGHT = 900;
+
 /**
  * What to capture. `clip` narrows the shot to one element — the chart shots are
  * a chart, not the page it sits on.
@@ -183,15 +192,35 @@ async function resolvePaths(base, cookie) {
 }
 
 async function capture(cdp, url, shot) {
+  await shootOne(cdp, url, shot, { width: WIDTH, mobile: false });
+  await shootOne(cdp, url, shot, { width: MOBILE_WIDTH, mobile: true });
+}
+
+async function shootOne(cdp, url, shot, { width, mobile }) {
   await cdp.send("Emulation.setDeviceMetricsOverride", {
-    width: WIDTH, height: 1000, deviceScaleFactor: SCALE, mobile: false,
+    width, height: mobile ? MOBILE_HEIGHT : 1000, deviceScaleFactor: SCALE, mobile,
   });
   await cdp.send("Page.navigate", { url });
   await cdp.waitForLoad();
+  /*
+   * The demo banner is one thin line across a 1400px shot and three lines
+   * across a phone's, where it would take a seventh of the frame the website
+   * shows. The website says in its own words that the demo data is invented.
+   */
+  if (mobile) {
+    await cdp.send("Runtime.evaluate", {
+      expression: `document.querySelectorAll(".banner-demo, .banner-dev").forEach((b) => b.remove())`,
+    });
+  }
   // Charts and fonts settle a frame or two after load.
   await new Promise((r) => setTimeout(r, 400));
 
-  let params = { format: "png", captureBeyondViewport: true };
+  /*
+   * The wide shot is the whole page. The phone shot is one viewport, because
+   * the app's bottom bar is fixed: captured beyond the viewport it lands in
+   * the middle of the image with content running on underneath it.
+   */
+  let params = { format: "png", captureBeyondViewport: !mobile };
   if (shot.clip) {
     const box = await cdp.send("Runtime.evaluate", {
       expression: `(() => {
@@ -211,13 +240,20 @@ async function capture(cdp, url, shot) {
   } else {
     const metrics = await cdp.send("Page.getLayoutMetrics");
     const size = metrics.cssContentSize ?? metrics.contentSize;
-    params.clip = { x: 0, y: 0, width: WIDTH, height: Math.ceil(size.height), scale: 1 };
+    const height = mobile
+      ? Math.min(MOBILE_HEIGHT, Math.ceil(size.height))
+      : Math.ceil(size.height);
+    params.clip = { x: 0, y: 0, width, height, scale: 1 };
   }
+  if (mobile && shot.clip) params.captureBeyondViewport = true;
 
   const { data } = await cdp.send("Page.captureScreenshot", params);
-  const png = join(PNG_DIR, `${shot.name}.png`);
+  const name = mobile ? `${shot.name}-mobile` : shot.name;
+  // The README shows the wide shot; the phone variant is the website's alone.
+  const png = join(mobile ? WEBP_DIR : PNG_DIR, `${name}.png`);
   writeFileSync(png, Buffer.from(data, "base64"));
-  execFileSync("cwebp", ["-quiet", "-q", "82", png, "-o", join(WEBP_DIR, `${shot.name}.webp`)]);
+  execFileSync("cwebp", ["-quiet", "-q", "82", png, "-o", join(WEBP_DIR, `${name}.webp`)]);
+  if (mobile) rmSync(png, { force: true });
 }
 
 async function waitFor(url) {
