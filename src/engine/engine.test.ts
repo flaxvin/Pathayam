@@ -771,7 +771,7 @@ describe("R12 · Buffer and the fully-funded month", () => {
     );
 
     assert.equal(buffer.days, 47);
-    assert.equal(buffer.reading, "You have 47 days of typical spending already assigned.");
+    assert.equal(buffer.reading, "47 days of typical spending already assigned.");
   });
 
   test("excludes credit-card payment categories, which are committed to past debt", () => {

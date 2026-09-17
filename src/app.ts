@@ -447,7 +447,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       if (ctx.method !== "GET" && !auth.canWrite && !IMPERSONATION_CONTROLS.has(path)) {
         throw new HttpError(
           403,
-          `You're viewing as ${auth.viewingAs.name} in read-only mode. Enable writes first, or exit.`,
+          `Viewing as ${auth.viewingAs.name} in read-only mode. Enable writes, or exit.`,
         );
       }
     },
@@ -1207,7 +1207,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
       return {
         redirect: "/household",
-        message: `You have picked up ${formatPaise(extra as Paise)}.`,
+        message: `Picked up ${formatPaise(extra as Paise)}.`,
       };
     }),
   );
@@ -4277,7 +4277,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const fund = [...view.categories.values()].find((c) => /emergency/i.test(c.name));
     if (!fund || fund.state.balance >= amount) return null;
     return (
-      `This is more than your ${fund.name} holds (${formatPaise(fund.state.balance)}). ` +
+      `This exceeds the balance of ${fund.name} (${formatPaise(fund.state.balance)}). ` +
       `Paying down debt is usually right, but an emergency fund is what stops the next ` +
       `surprise going back onto a card. Your call.`
     );
@@ -4832,7 +4832,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       return {
         redirect: "/goals",
         message: kept > 0
-          ? `Goal removed. Its ${formatPaise(kept)} is now a category you manage, under "${where}".`
+          ? `Goal removed. Its ${formatPaise(kept)} remains as a category under "${where}".`
           : `Goal removed. Its empty savings category moved to "${where}".`,
       };
     }),
@@ -5867,7 +5867,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         redirect: "/portfolio",
         message:
           `Recorded ${parts.join(", ")}. ` +
-          `New schemes start on manual pricing — set a NAV source when you want live values.`,
+          `New schemes start on manual pricing. Set a NAV source for live values.`,
       };
     }),
   );
@@ -6067,7 +6067,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       });
       return {
         redirect: `/portfolio/${view.holding.id}`,
-        message: `Recorded the ${kind}. Your units and their cost moved together.`,
+        message: `Recorded the ${kind}. Units and cost were adjusted together.`,
       };
     }),
   );

@@ -110,8 +110,8 @@ export function renderReconcileDifference(opts: {
 
       <p class="notice notice-warning">
         ${preview.uncleared.length > 0
-          ? html`There are ${preview.uncleared.length} transactions the app doesn't think have
-                 cleared yet. Ticking the ones that have will usually close the gap.`
+          ? html`There are ${preview.uncleared.length} transactions not yet marked
+          cleared. Ticking the ones that have cleared will usually close the gap.`
           : html`Nothing is waiting to clear, so this is a genuine gap — something is missing
                  from the app, or was recorded differently.`}
       </p>

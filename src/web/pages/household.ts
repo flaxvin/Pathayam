@@ -49,8 +49,7 @@ export function renderHousehold(
   return html`
     <h1>The household's money</h1>
     <p class="muted">
-      ${formatMonth(view.month)} · what each of you has put toward the shared
-      budget. No money moves to commit it — it stays in the account it is in
+      ${formatMonth(view.month)} · what each member has put toward the shared budget. No money moves to commit it — it stays in the account it is in
       until something shared is actually paid for.
     </p>
 
@@ -176,8 +175,8 @@ export function renderHousehold(
           <button type="submit">Save</button>
         </form>
         <p class="faint">
-          Leave it empty to have no standing figure. Clearing it changes nothing
-          about where you stand —
+          Leave empty for no standing figure. Clearing it does not change the
+          current standing —
           ${mine!.available < 0
             ? html`your commitment is still
                    ${formatPaise(Math.abs(mine!.available) as never)} underfunded`
@@ -253,7 +252,7 @@ export function renderHousehold(
                         `)}
                         ${when(!mine, () => html`
                           <span class="faint">
-                            — you would need a budget of your own to commit from.
+                            — committing requires a budget of your own.
                           </span>
                         `)}
                       </li>

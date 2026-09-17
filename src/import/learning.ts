@@ -68,7 +68,7 @@ export function proposeCategoryRules(db: DB, actor: Actor): Proposal[] {
       stage: "default",
       conditions: [{ field: "payee", op: "is", value: candidate.payee }],
       actions: [{ type: "setCategory", categoryId: candidate.category_id }],
-      because: `You've put ${candidate.payee} in ${candidate.category} ${candidate.n} times.`,
+      because: `Filed ${candidate.payee} to ${candidate.category} ${candidate.n} times.`,
       // N9 · The evidence as a number as well as a sentence, so the list can be
       // ordered by it rather than by when it happened to be written.
       strength: candidate.n,
@@ -110,7 +110,7 @@ export function proposePayeeRule(
     stage: "pre",
     conditions: [{ field: field as "merchant", op: "is", value }],
     actions: [{ type: "setPayee", payee: input.cleanName }],
-    because: `You renamed "${value}" to "${input.cleanName}".`,
+    because: `Renamed "${value}" to "${input.cleanName}".`,
     // One deliberate rename is weaker evidence than a habit, and reads as such.
     strength: 1,
   };

@@ -289,8 +289,10 @@ export function renderFamilyLoan(opts: {
             : html`
                 <p class="faint" style="margin-top:-.25rem">
                   ${owedToYou
-                    ? html`For money that is not coming back. It becomes an expense in a category you choose, and the history stays.`
-                    : html`If ${view.loan.counterparty} told you to keep it. It becomes income in a category you choose, and the history stays.`}
+                    ? html`For money that is not coming back. It becomes an expense in
+                    a chosen category; the history is retained.`
+                    : html`If ${view.loan.counterparty} waived repayment. It becomes
+                    income in a chosen category; the history is retained.`}
                 </p>
                 <form method="post" action="/family/${view.loan.id}/write-off">
                   <button class="button-small" type="submit">

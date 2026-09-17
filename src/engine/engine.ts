@@ -660,7 +660,7 @@ export function computeBuffer(
     days,
     assignedTotal,
     averageDailySpend,
-    reading: `You have ${days} days of typical spending already assigned.`,
+    reading: `${days} days of typical spending already assigned.`,
   };
 }
 
