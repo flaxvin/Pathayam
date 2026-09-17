@@ -13,7 +13,7 @@ individual accounts.
 
 ## Visibility
 
-`accounts`, `loans` and `family_loans` each carry `visibility` (`shared` or
+`accounts`, `loans` and `family_loans` each carry `visibility` (`household` or
 `private`) and `holder_member_id`. The predicate is identical everywhere:
 
 ```sql
