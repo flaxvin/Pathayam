@@ -2487,7 +2487,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 Lines left blank are ignored; the category above is too.
               </p>
               ${[0, 1, 2].map((i) => html`
-                <div class="grid-2">
+                <div class="split-line">
                   <div class="field">
                     <select name="split_category_${i}" aria-label="Split ${i + 1} envelope">
                       <option value="">—</option>
@@ -2506,7 +2506,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             <div class="field">
               <label>Split across ${splits.length} envelopes</label>
               ${splitRows.map((row, i) => html`
-                <div class="grid-2">
+                <div class="split-line">
                   <div class="field">
                     <select name="split_category_${i}" aria-label="Split ${i + 1} envelope">
                       <option value="">—</option>
