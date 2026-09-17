@@ -676,6 +676,9 @@ export function findDate(line: string, within = 46): {
 const TABLE_END = [
   /^linked\s+(casa|deposits|loan|lockers)/i,
   /^end\s+of\s+statement/i,
+  // RBL closes with a "know your charges" legend whose specimen rows carry
+  // dates and amounts — nine parse errors per statement until this line.
+  /^sample\s+transactions?\b/i,
 ];
 
 /**
@@ -850,7 +853,8 @@ const LAYOUTS: Partial<Record<BankId, { separateColumns: boolean; skip: RegExp[]
   yes: { separateColumns: true, skip: [/^date\b/i, /^description/i, /transaction details/i] },
   indusind: { separateColumns: true, skip: [/^date\b/i, /^particulars/i, /^description/i] },
   kotak: { separateColumns: true, skip: [/^date\b/i, /^narration/i, /^description/i] },
-  rbl: { separateColumns: false, skip: [/^date\b/i, /account summary/i] },
+  // The GST line is the statement's tax summary — dated, zero, and not a row.
+  rbl: { separateColumns: false, skip: [/^date\b/i, /account summary/i, /goods\s*&\s*service\s*tax/i] },
   hsbc: { separateColumns: false, skip: [/^date\b/i, /^description/i] },
   broker: { separateColumns: true, skip: [/^date\b/i, /contract note/i] },
 };
