@@ -116,14 +116,16 @@
 
   /* ---------------------------------------------------------- waitlist -- */
   /*
-   * Paste the Apps Script /exec URL here and the form starts working. See
-   * waitlist.gs for the script and the five-step setup.
+   * The Apps Script /exec URL. See waitlist.gs for the script and
+   * DEPLOY.md for the setup.
    *
-   * Left empty on purpose until then: a signup box that silently swallows
-   * addresses is worse than one that admits it is not connected, because the
-   * only way anyone finds out is by never hearing back.
+   * Emptying this does not break the form — it says it is not connected and
+   * sends nothing, which is the honest failure. A signup box that silently
+   * swallows addresses is worse, because the only way anyone finds out is by
+   * never hearing back.
    */
-  var WAITLIST_ENDPOINT = "";
+  var WAITLIST_ENDPOINT =
+    "https://script.google.com/macros/s/AKfycbzQUUJIYrmo57rhzDGgCojzUls7-h59g7W_NYZO0MyvVNbshMB9Vv3Ztb1DDlOmC40RbA/exec";
 
   document.querySelectorAll("[data-waitlist]").forEach(function (form) {
     var msg = form.querySelector("[data-waitlist-msg]");
