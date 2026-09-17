@@ -140,16 +140,37 @@ function renderStagedRow(row: StagedRow, categories: CategoryView[]): SafeHtml {
         -->
         <select id="cat-${row.id}" name="category_id" style="flex:1;min-width:12rem"
                 ${raw(row.amount < 0 ? "required" : "")}>
-          <option value="">${row.amount < 0 ? "Choose where it came from…" : "No category needed"}</option>
-          ${categories
-            .filter((c) => !c.isPaymentCategory && !c.hidden)
-            .map(
-              (c) => html`
+          <!--
+            Money in with an envelope is a refund: it goes back where it was
+            spent. Money in without one is new money for Ready to Assign. Both
+            are right, and the difference is the whole model — so the list says
+            which is which rather than offering every envelope unlabelled
+            under "No category needed", where picking one looks like tidiness
+            and quietly reads as un-spending.
+          -->
+          <option value="">
+            ${row.amount < 0 ? "Choose where it came from…" : "Ready to Assign — new money"}
+          </option>
+          ${when(row.amount >= 0, () => html`
+            <optgroup label="Or put it back — a refund into…">
+              ${categories
+                .filter((c) => !c.isPaymentCategory && !c.hidden)
+                .map((c) => html`
+                  <option value="${c.id}" ${raw(c.id === row.category_id ? "selected" : "")}>
+                    ${c.name}
+                  </option>
+                `)}
+            </optgroup>
+          `)}
+          ${when(row.amount < 0, () => html`
+            ${categories
+              .filter((c) => !c.isPaymentCategory && !c.hidden)
+              .map((c) => html`
                 <option value="${c.id}" ${raw(c.id === row.category_id ? "selected" : "")}>
                   ${c.name}
                 </option>
-              `,
-            )}
+              `)}
+          `)}
         </select>
         <button class="button-primary button-small" type="submit">Approve</button>
         <button class="button-small" type="submit" formaction="/review/reject">Dismiss</button>
