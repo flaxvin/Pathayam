@@ -228,7 +228,7 @@ npm test
 Both must pass. New behaviour requires a test that fails without it. Changes
 affecting money must leave the accounting identity closing.
 
-Contributions are licensed to the project's owner so that releases can convert
+Contributions are licensed to Flaxvin Technologies so that releases can convert
 to Apache 2.0 on schedule. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
 ## Licence
