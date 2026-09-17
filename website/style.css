@@ -503,6 +503,42 @@ figure { margin: 0; }
 }
 .callout .btn--primary:hover { background: var(--gold-bright); border-color: var(--gold-bright); color: #12211B; }
 
+/* ----------------------------------------------------------------- legal -- */
+/*
+ * A legal page is read, not scanned: one column at a comfortable measure,
+ * generous spacing between clauses, and headings that can be linked to.
+ */
+.wrap--prose { max-width: 48rem; }
+.wrap--prose h2 {
+  margin-top: 2.5rem; padding-top: 1.25rem;
+  border-top: 1px solid var(--line);
+  font-size: var(--step-2);
+}
+.wrap--prose h3 { margin-top: 1.75rem; font-size: var(--step-1); }
+.wrap--prose p, .wrap--prose ul { margin-top: 0.9rem; color: var(--ink-2); }
+.wrap--prose li { margin-top: 0.35rem; }
+.wrap--prose .table-scroll { margin-top: 1.1rem; }
+.legal-meta { font-size: var(--step--1); color: var(--muted); }
+.foot__legal {
+  margin-top: 0.6rem; font-size: var(--step--1); color: var(--muted);
+}
+.foot__legal a { color: var(--muted); }
+.foot__legal a:hover { color: var(--ink); }
+
+/* A fact only the operator can supply. Loud on purpose: shipping the page with
+   one of these still in it should be impossible to do by accident. */
+.todo {
+  background: var(--gold-soft); color: var(--gold);
+  border: 1px dashed var(--gold);
+  border-radius: 4px; padding: 0.05em 0.4em;
+  font-family: var(--font-mono); font-size: 0.85em; font-weight: 600;
+}
+.warn {
+  border-left: 3px solid var(--gold); background: var(--gold-soft);
+  border-radius: var(--r-sm); padding: 0.8rem 1.1rem;
+  color: var(--ink); font-weight: 600;
+}
+
 /* --------------------------------------------------------------- tables -- */
 .table-scroll {
   overflow-x: auto;
