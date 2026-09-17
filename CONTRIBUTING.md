@@ -13,7 +13,7 @@ two years after it is published.
 By opening a pull request you agree to the terms below. There is nothing to
 sign; the agreement is the act of contributing.
 
-1. **You grant Febin Nizar a licence to your contribution.** You grant a
+1. **You grant Flaxvin Technologies a licence to your contribution.** You grant a
    perpetual, worldwide, non-exclusive, royalty-free, irrevocable licence to
    reproduce, modify, publicly display, sublicense and distribute your
    contribution, and to do so **under any licence terms**, including the

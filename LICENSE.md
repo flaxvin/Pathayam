@@ -6,7 +6,7 @@ FSL-1.1-ALv2
 
 ## Notice
 
-Copyright 2026 Febin Nizar
+Copyright 2026 Flaxvin Technologies
 
 ## Terms and Conditions
 

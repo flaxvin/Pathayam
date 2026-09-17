@@ -55,19 +55,15 @@ Three supports:
 
 | File | What it covers | Read it when |
 |---|---|---|
-| `01-competitive-analysis.md` | Teardown of 10 apps, feature matrix, explicit take/drop calls with rationale | You want to know *why* a feature is in the spec |
 | `02-functional-design.md` | Principles, concept glossary, the budgeting engine rules with worked ₹ examples, functional modules F1–F20, India localisation | This is the core document |
 | `03-screens-and-flows.md` | Screen inventory, layout intent, user journeys J1–J9, empty and error states, mobile adaptations | You are building or reviewing UI |
 | `04-ingestion-and-automation.md` | The three ingestion paths, dedupe rules, review queue, rules engine, SMS/email parsing, AA reality check | You are building import or automation |
-| `05-roadmap-and-open-questions.md` | P0–P3 phasing, the MVP cut line, success criteria, open questions needing your decision | You are planning what to build first |
 | `06-loans.md` | Loans and liabilities: drawdown, interest models, amortisation, prepayment, lifetime interest and interest saved. Engine rules R14–R22, module F18 | You are building loan tracking |
 | `07-assets-networth-currency.md` | Assets, unit-based holdings, net worth, and multi-currency. The hardcoded price and FX APIs with verified responses. Engine rules R23–R34, modules F19–F20 | You are building the portfolio, net worth or currency layer |
 | `09-decisions-log.md` | **Every open question closed.** The composite institution profile the parser matrix is built against, all Q1–Q26 answers, the add-on card mechanic, the editable-history resolution, and the revised build order | **Start here for what was actually decided** |
 | `08-platform-and-operations.md` | The server-only client data policy, idempotent writes, the event log with undo and "explain this number", debug login and impersonation, theme, verified backup restore, health page, feature flags, command palette, API token. Engine rules R35–R40, modules F21–F30. **Supersedes `02` §9** | You are building the client, auth, or anything operational |
 | `10-errata-and-addenda.md` | Corrections and additions to `01`–`09` found after they were frozen, kept separate rather than edited in, so the original reasoning stays readable | You are reading `01`–`09` and want to know what has since changed |
 | `11-build-decisions.md` | **What the build decided, and why.** The choices `02`–`08` could not predict, the places where implementing a rule taught us something it did not say, and the one deliberate departure. Written retroactively to B24 on 28-08-2026 | You are changing the code and want to know why it is shaped this way |
-| `12-saas-conversion.md` | What converting this from self-hosted to a hosted product would actually cost, measured against the code rather than guessed, and two cheaper options | You are wondering whether this could be a business |
-| `13-hosted-service-plan.md` | The two plans that follow from `12` — managed single-tenant hosting and a hosted tier without Gmail — with running costs, price tiers and the number of customers that makes it viable | You are deciding whether to actually do it |
 | `14-per-member-privacy.md` | Feasibility of per-member accounts and budgets, and why a private *budget* account cannot be honest | You are wondering whether money can be kept separate |
 | `15-separate-budgets-design.md` | The design for personal and household budgets, with worked ₹ examples for contributions, paying on somebody's behalf, and splitting | You are building separate budgets |
 | `16-build-plan.md` | Everything agreed across `14` and `15`, in the order it got built, P0–P6 complete, with what each phase cost and what it found | **You are deciding what to work on next** |
@@ -87,7 +83,7 @@ Three supports:
 
 Claims about competitor products are tagged:
 
-- **[verified]** — read from the vendor's own page or a source fetched on 26-08-2026; source linked in `01-competitive-analysis.md` §14.
+- **[verified]** — read from the vendor's own page or a source fetched on 26-08-2026.
 - **[inferred]** — a reasonable conclusion from verified facts, not stated directly by the source.
 - **[unverified]** — recalled or widely reported but not confirmed against a primary source this session. Do not quote these externally without checking.
 
