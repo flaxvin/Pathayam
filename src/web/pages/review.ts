@@ -98,11 +98,9 @@ function renderStaged(data: ReviewData): SafeHtml {
       <section class="card">
         <h2>Suspected duplicates <span class="chip chip-warning">${duplicates.length}</span></h2>
         <p class="faint" style="margin-top:-.25rem">
-          Two people paying for two things at the same restaurant is normal —
-          keeping both is one tap.${weak > 0
-            ? ` ${weak} of these ${weak === 1 ? "is a weak match" : "are weak matches"}, ` +
-              `shown last.`
-            : ""}
+          Two separate payments at the same merchant on the same day are normal;
+          keeping both is one action.${weak > 0 ? ` ${weak} of these ${weak ===
+          1 ? "is a weak match" : "are weak matches"}, shown last.` : ""}
         </p>
         ${duplicates.map((row) => renderDuplicateRow(row, data.categories, prominence(row)))}
       </section>
@@ -249,11 +247,10 @@ function renderUncategorised(data: ReviewData): SafeHtml {
     <section class="card">
       <h2>Uncategorised <span class="chip">${data.uncategorisedTotal ?? data.uncategorised.length}</span></h2>
       <p class="faint" style="margin-top:-.25rem">
-        These are in the ledger and already affect your balances, but no envelope
-        has recorded them.
-        ${when((data.uncategorisedTotal ?? 0) > data.uncategorised.length, () => html`
-          Showing the ${data.uncategorised.length} most recent — file these and the next lot appears.
-        `)}
+        These are in the ledger and already affect balances, but no envelope has
+        recorded them.${when((data.uncategorisedTotal ?? 0) >
+        data.uncategorised.length, () => html` Showing the
+        ${data.uncategorised.length} most recent. `)}
       </p>
       ${data.uncategorised.map(
         (t) => html`
@@ -326,7 +323,7 @@ function renderClaims(data: ReviewData): SafeHtml {
     <section class="card">
       <h2>You're owed <span class="chip">${formatPaise(total)}</span></h2>
       <p class="faint" style="margin-top:-.25rem">
-        Already spent from its envelope. Mark it settled when the money is back —
+        Already spent from its envelope. Mark it settled once the money is back;
         record the repayment itself as ordinary income.
       </p>
       ${data.claims.map(
@@ -428,7 +425,8 @@ function renderProposedRules(data: ReviewData): SafeHtml {
     <section class="card">
       <h2>Proposed rules <span class="chip">${data.proposedRules.length}</span></h2>
       <p class="faint" style="margin-top:-.25rem">
-        Learned from how you've been categorising. Nothing is applied until you confirm.
+        Derived from existing categorisations. Nothing is applied until
+        confirmed.
       </p>
       ${renderProposals(data.proposedRules)}
     </section>
@@ -479,8 +477,8 @@ export function renderMapping(opts: MappingPrompt): SafeHtml {
   return html`
     <h1>Which column is which?</h1>
     <p class="muted">
-      This file doesn't match anything seen before, so it needs setting up once.
-      After that, every statement from this bank imports without asking.
+      This file matches no known layout, so it needs setting up once. Subsequent
+      statements from this bank import without asking.
     </p>
     ${when(opts.error, () => html`<p class="notice notice-error">${opts.error}</p>`)}
 
@@ -519,8 +517,8 @@ export function renderMapping(opts: MappingPrompt): SafeHtml {
           )}
         </select>
         <p class="field-hint">
-          Statements often carry account details above the table, so this is
-          rarely the first row.
+          Statements often carry account details above the table, so the
+          header is rarely the first row.
         </p>
       </div>
 
@@ -530,8 +528,8 @@ export function renderMapping(opts: MappingPrompt): SafeHtml {
       <fieldset>
         <legend>The amount</legend>
         <p class="field-hint" style="margin-top:0">
-          Most Indian statements use separate withdrawal and deposit columns.
-          Some use one signed column instead — fill in whichever your file has.
+          Most Indian statements use separate withdrawal and deposit columns;
+          some use a single signed column. Fill in whichever the file has.
         </p>
         ${column("debit", "Money out", "The withdrawal or debit column.")}
         ${column("credit", "Money in", "The deposit or credit column.")}
@@ -547,7 +545,9 @@ export function renderMapping(opts: MappingPrompt): SafeHtml {
       <div class="field">
         <label for="profile_name">Remember this as</label>
         <input id="profile_name" name="profile_name" required placeholder="HDFC Savings statement">
-        <p class="field-hint">Next month's file with these columns will import without asking.</p>
+        <p class="field-hint">
+          A later file with the same columns imports without asking again.
+        </p>
       </div>
 
       <button class="button-primary" type="submit">Read the file</button>
@@ -577,8 +577,8 @@ export function renderImport(opts: {
     <section class="card">
       <h2>A statement PDF</h2>
       <p class="faint" style="margin-top:-.25rem">
-        HDFC, ICICI, Axis and SBI are recognised automatically. Anything else
-        still works — you name its columns once and it is remembered.
+        HDFC, ICICI, Axis and SBI are recognised automatically. Other formats
+        are supported; their columns are named once and remembered.
       </p>
       <form method="post" action="/import/pdf" enctype="multipart/form-data">
         <div class="field">
@@ -595,15 +595,18 @@ export function renderImport(opts: {
           <label for="pdf-password">Its password</label>
           <input id="pdf-password" name="password" type="password"
                  autocomplete="off" spellcheck="false">
-          <p class="field-hint">Leave empty if it opens without one. It is never saved.</p>
+          <p class="field-hint">
+            Leave empty if the file opens without one. The password is never
+            stored.
+          </p>
           <details style="margin-top:.4rem">
             <summary class="faint">What is my statement password?</summary>
             <ul class="faint">
               ${opts.banks.map((b) => html`<li><strong>${b.name}</strong> — ${b.passwordHint}</li>`)}
             </ul>
             <p class="faint">
-              These are what each bank's own email says. If none of them work,
-              check the email the statement arrived in.
+              These are the rules each bank states in its own email. If none
+              work, check the email the statement arrived in.
             </p>
           </details>
         </div>
@@ -613,9 +616,9 @@ export function renderImport(opts: {
 
     ${when(opts.casEnabled, () => html`
       <p class="muted">
-        This page reads bank and card statements as CSV. A
-        <a href="/portfolio/cas">CDSL CAS</a> — the monthly one covering your
-        mutual funds — is a PDF and goes in over there.
+        This page reads bank and card statements as CSV. A CDSL CAS — the
+        monthly statement covering mutual funds — is a PDF and is imported from
+        the Portfolio page.
       </p>
     `)}
     ${when(opts.error, () => html`<p class="notice notice-error">${opts.error}</p>`)}
@@ -633,9 +636,9 @@ export function renderImport(opts: {
         <textarea id="csv" name="csv" rows="8"
                   placeholder="Date,Narration,Withdrawal Amt.,Deposit Amt.&#10;01-08-2026,SALARY,,145000.00"></textarea>
         <p class="field-hint">
-          The columns are worked out from the header row, wherever it happens to be.
-          Separate debit and credit columns, a single signed column, Indian grouping and
-          Cr/Dr suffixes are all understood.
+          Columns are read from the header row, wherever it appears. Separate
+          debit and credit columns, a single signed column, Indian digit
+          grouping and Cr/Dr suffixes are all recognised.
         </p>
       </div>
 
@@ -646,7 +649,7 @@ export function renderImport(opts: {
 
       <button class="button-primary" type="submit">Read it</button>
       <p class="field-hint">
-        Nothing goes into your ledger yet — every row lands in Review first.
+        Nothing is posted to the ledger. Every row lands in Review first.
       </p>
     </form>
 
@@ -655,7 +658,7 @@ export function renderImport(opts: {
         <h2>Saved column mappings</h2>
         <p class="faint" style="margin-top:-.25rem">
           Recognised automatically by their column names, so a file from one of
-          these banks imports without setting anything up.
+          these banks imports without setup.
         </p>
         ${opts.profiles.map(
           (p) => html`
@@ -717,8 +720,8 @@ export function renderImport(opts: {
           </table>
         </div>
         <p class="field-hint">
-          Undoing removes only what that import created, and leaves anything you've
-          edited since — those are listed rather than discarded.
+          Undo removes only what the import created. Rows edited since are
+          listed rather than discarded.
         </p>
       </section>
     `)}

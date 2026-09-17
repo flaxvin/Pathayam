@@ -17,9 +17,8 @@ export function renderDeparture(departure: Departure, month: MonthKey): SafeHtml
   return html`
     <h1>Removing ${memberName}</h1>
     <p class="muted">
-      Nothing is deleted. Every transaction they entered keeps their name, the
-      history stays exactly as it is, and adding them back later restores them —
-      they pick up where they left off.
+      Nothing is deleted. Transactions they entered keep their name, the history
+      is unchanged, and adding them back later restores the same member.
     </p>
 
     <section class="card">
@@ -64,8 +63,7 @@ export function renderDeparture(departure: Departure, month: MonthKey): SafeHtml
                   `}
             </p>
             <p class="muted">
-              ${formatMonth(month)} · choose how it ends. The app will not pick one
-              for you.
+              ${formatMonth(month)} · choose how it ends. No option is selected automatically.
             </p>
 
             <form method="post" action="/members/${departure.memberId}/remove">

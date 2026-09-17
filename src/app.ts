@@ -836,8 +836,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                   </button>
                 </form>
                 <p class="field-hint" style="margin-top:.75rem">
-                  Three years of invented transactions across every part of the app.
-                  Change whatever you like — it resets, and none of it is real.
+                  Three years of invented transactions covering every screen. The data
+                  is fictional and resets periodically; edits affect nothing real.
                 </p>
               </div>
             `,
@@ -861,7 +861,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 !config.demoMode,
                 () => html`
                   <p class="notice notice-warning">
-                    Google sign-in isn't configured. Set GOOGLE_CLIENT_ID and
+                    Google sign-in is not configured. Set GOOGLE_CLIENT_ID and
                     GOOGLE_CLIENT_SECRET to enable it.
                   </p>
                 `,
@@ -2014,9 +2014,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             <section class="card">
               <h2>Mailbox and statement passwords</h2>
               <p class="faint" style="margin-top:-.25rem">
-                Connecting a mailbox and saving the identity that unlocks statement
-                PDFs are both turned off here — a public demo should hold neither.
-                Both work on your own copy.
+                Connecting a mailbox and storing the identity used to unlock
+                statement PDFs are both disabled here; a public demo should hold
+                neither. Both are available in a self-hosted copy.
               </p>
             </section>
           `,
@@ -2027,9 +2027,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         <section class="card">
           <h2>Suggestions from what you do</h2>
           <p class="faint" style="margin-top:-.25rem">
-            When you categorise the same payee twice, or clean up an imported name,
-            the app can offer a rule for it. Suggestions always wait in Review —
-            nothing is ever applied to your ledger on its own.
+            Categorising the same payee twice, or renaming an imported payee,
+            can propose a rule. Proposals wait in Review; nothing is applied to
+            the ledger automatically.
           </p>
           <form method="post" action="/settings/learning">
             <div class="field">
@@ -2038,8 +2038,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 Suggest rules from what I've been doing
               </label>
               <p class="field-hint">
-                Turning this off stops new suggestions. Rules you've already
-                confirmed keep working.
+                Off: no new rules are proposed. Rules already confirmed continue to
+                apply.
               </p>
             </div>
             <button type="submit">Save</button>
@@ -2049,8 +2049,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         <section class="card">
           <h2>When a category is overspent</h2>
           <p class="faint" style="margin-top:-.25rem">
-            Both work. They differ only in where the shortfall lands, and you can
-            switch back at any time without losing anything.
+            Both are supported. They differ only in where the shortfall is
+            recorded, and can be switched at any time without loss.
           </p>
           <form method="post" action="/settings/overspend-model">
             <div class="field">
@@ -2060,9 +2060,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 Take it out of next month's Ready to Assign
               </label>
               <p class="field-hint">
-                The category starts the next month at zero. Keeps the pain in the one
-                place you actually look, and stops a category building up invisible
-                debt over several months.
+                The category starts the next month at zero, and next month's Ready to
+                Assign is reduced by the overspend. The shortfall is recorded once, at
+                the household level, rather than accumulating on the category.
               </p>
             </div>
             <div class="field">
@@ -2072,14 +2072,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 Carry the negative balance on the category
               </label>
               <p class="field-hint">
-                The category starts the next month in the red and Ready to Assign is
-                untouched. More locally honest — the overspend stays attached to
-                whatever caused it.
+                The category starts the next month with a negative balance. Ready to
+                Assign is unchanged. The shortfall stays attached to the category that
+                caused it.
               </p>
             </div>
             <button type="submit">Save</button>
             <p class="field-hint">
-              Changing this recomputes every month you have data for.
+              Changing this re-derives every month on record.
             </p>
           </form>
         </section>
@@ -2087,7 +2087,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         <section class="card">
           <h2>Household</h2>
           <p class="faint" style="margin-top:-.25rem">
-            Everyone here can do everything. There is no owner and no approval step.
+            All members have equal permissions. There is no owner role and no
+            approval step.
           </p>
           ${members.map(
             (m) => html`
@@ -2160,7 +2161,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                   <label for="invite-email">Add a household member</label>
                   <input id="invite-email" name="email" type="email" required
                          placeholder="partner@example.com">
-                  <p class="field-hint">They'll be able to sign in with that Google account.</p>
+                  <p class="field-hint">Sign-in is permitted for this Google account only.</p>
                 </div>
                 <button type="submit">Add to the allow-list</button>
               </form>
@@ -2197,8 +2198,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             <a href="/privacy">Privacy policy</a>
           </p>
           <p class="faint">
-            The privacy policy is what Google's consent screen points at, and it
-            describes exactly what the Gmail connection reads and keeps.
+            Google's consent screen links to the privacy policy, which states
+            what the Gmail connection reads and retains.
           </p>
         </section>
 
@@ -2396,10 +2397,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           <details class="card" id="emi">
             <summary class="linkish">The bank offered to convert this to EMI</summary>
             <p class="muted" style="margin-top:.75rem">
-              The converted amount comes off this card's balance and becomes a loan
-              with its own instalments — so you are not asked to clear it here
-              <em>and</em> pay it monthly. The processing fee is charged to the card
-              like any purchase, so give it an envelope.
+              The converted amount is removed from the card's balance and
+              becomes a loan with its own instalments, so it is not both cleared
+              here and paid monthly. The processing fee is charged to the card
+              like any purchase and needs an envelope.
             </p>
             <form method="post" action="/transaction/${transaction.id}/convert-to-emi">
               <div class="grid-2">
@@ -2438,8 +2439,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                        value="${payeeName ?? ""}"
                        placeholder="What it was for — Croma, the sofa, school fees">
                 <p class="field-hint">
-                  Added after the card's name, so the plan is findable in the loan
-                  list and its envelope on the grid.
+                  Appended to the card's name. Identifies the plan in the loan list and
+                  its envelope on the budget grid.
                 </p>
               </div>
               <div class="field">
@@ -2483,8 +2484,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             <details style="margin-bottom:.9rem">
               <summary class="linkish">Split across envelopes</summary>
               <p class="field-hint">
-                Fill in two or more lines and they must add up to the amount.
-                Lines left blank are ignored; the category above is too.
+                Two or more lines, totalling the transaction amount. Blank lines are
+                ignored, as is the category above.
               </p>
               ${[0, 1, 2].map((i) => html`
                 <div class="split-line">
@@ -2522,7 +2523,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 </div>
               `)}
               <p class="field-hint">
-                The lines must add up to the amount. Blank a line to drop it.
+                Lines must total the transaction amount. Clear a line to remove it.
               </p>
             </div>
             <div class="field">
@@ -2632,8 +2633,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               <input id="receipt" name="receipt" type="file"
                      accept="image/*,application/pdf" capture="environment" required>
               <p class="field-hint">
-                Stored on your server only — never on this device, and fetched
-                fresh each time you look.
+                Stored on the server, not on this device. Fetched on each view and
+                never cached.
               </p>
             </div>
             <button type="submit">Attach</button>
@@ -5057,8 +5058,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           ${preview.count === 0
             ? html`
                 <div class="card empty-state">
-                  <p>Nothing in your history matches this rule. It still applies to
-                     anything imported from now on.</p>
+                  <p>No existing transaction matches this rule. It still applies to
+                  anything imported from now on.</p>
                   <p><a class="button" href="/rules">Back to rules</a></p>
                 </div>
               `
@@ -5102,7 +5103,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                     </button>
                     <a class="button button-quiet" href="/rules">Cancel</a>
                   </form>
-                  <p class="field-hint">Undoable in one action for the next 30 days.</p>
+                  <p class="field-hint">Reversible in one action for 30 days.</p>
                 </div>
               `}
         `,

@@ -363,7 +363,7 @@ function renderEmptyState(): SafeHtml {
     <div class="card empty-state">
       <div class="empty-icon" aria-hidden="true">◧</div>
       <h2>Nothing to budget yet</h2>
-      <p>Add your first account and its current balance, and Ready to Assign becomes a real number.</p>
+      <p>Ready to Assign is derived once an account and its current balance are recorded.</p>
       <p>
         <a class="button button-primary" href="/accounts/new">Add your first account</a>
         <a class="button" href="/setup">Start from a template</a>

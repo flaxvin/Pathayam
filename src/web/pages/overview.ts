@@ -136,7 +136,9 @@ export function renderOverview(opts: {
           </ul>
         `)}
         ${when(opts.unfundedCards.length === 0 && opts.insights.length === 0, () => html`
-          <p class="faint">Nothing standing out. Every card is funded and spending is steady.</p>
+          <p class="faint">
+            Nothing outstanding. Every card is funded and spending is steady.
+          </p>
         `)}
       </section>
     </div>
