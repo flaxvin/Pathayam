@@ -39,6 +39,13 @@ export interface NetWorthLine {
   /** R29.1 · The date this input is as of, so the total can carry its caveat. */
   asOf: IsoDate | null;
   stale: boolean;
+  /**
+   * Where to go to change this figure. A hand-valued asset is revalued, an
+   * account is reconciled, a loan is paid — every line on this page comes from
+   * somewhere the reader can act on, and naming that here keeps the screen
+   * from having to guess a line's kind back out of its shape.
+   */
+  href?: string;
 }
 
 export interface NetWorthGroup {
@@ -87,6 +94,7 @@ export function netWorthStatement(
     value: balances.get(a.id)?.working ?? 0,
     asOf,
     stale: false,
+    href: `/accounts/${a.id}`,
   }));
 
   const investmentLines: NetWorthLine[] = [];
@@ -120,7 +128,10 @@ export function netWorthStatement(
         if (view.fx?.stale) stale = true;
       }
 
-      investmentLines.push({ label: account.name, accountId: account.id, value: total, asOf: oldest, stale });
+      investmentLines.push({
+        label: account.name, accountId: account.id, value: total, asOf: oldest, stale,
+        href: "/portfolio",
+      });
       noteDate(oldest, stale);
       continue;
     }
@@ -135,6 +146,7 @@ export function netWorthStatement(
       value: valuation.value,
       asOf: valuation.asOf,
       stale: valuation.stale,
+      href: `/portfolio/asset/${account.id}/revalue`,
     });
     noteDate(valuation.asOf, valuation.stale);
   }
@@ -150,6 +162,7 @@ export function netWorthStatement(
       value: Math.max(0, -(balances.get(a.id)?.working ?? 0)),
       asOf,
       stale: false,
+      href: `/accounts/${a.id}`,
     }))
     .filter((line) => line.value > 0);
 
@@ -170,6 +183,7 @@ export function netWorthStatement(
       value: projection.outstanding,
       asOf,
       stale: false,
+      href: `/loans/${loan.id}`,
     });
 
     // R23.4: a tracked liability without its underlying asset makes net worth
@@ -222,10 +236,17 @@ export function netWorthStatement(
   for (const account of simpleTracking) {
     if (hidden.has(account.id)) continue;
     const working = balances.get(account.id)?.working ?? 0;
+    /*
+     * B56 · These are valued by their balance, not by a typed valuation, so
+     * the way to change one is to open its register — the screen offered no
+     * route to it at all, and a fixed deposit sat at its opening figure for
+     * as long as the household owned it.
+     */
+    const href = `/accounts/${account.id}`;
     if (working > 0) {
-      otherAssetLines.push({ label: account.name, accountId: account.id, value: working, asOf, stale: false });
+      otherAssetLines.push({ label: account.name, accountId: account.id, value: working, asOf, stale: false, href });
     } else if (working < 0) {
-      otherLiabilityLines.push({ label: account.name, accountId: account.id, value: -working, asOf, stale: false });
+      otherLiabilityLines.push({ label: account.name, accountId: account.id, value: -working, asOf, stale: false, href });
     }
   }
 

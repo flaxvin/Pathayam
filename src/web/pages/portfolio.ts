@@ -16,7 +16,7 @@ import type { HoldingView } from "../../domain/assets.ts";
 import { ASSET_LABELS, ASSET_SUBTYPES, type AssetSubtype } from "../../domain/assets.ts";
 import { donutChart, lineChart, seriesColor, waterfall } from "../charts.ts";
 import type {
-  NetWorthStatement, NetWorthChange, Snapshot,
+  NetWorthStatement, NetWorthChange, NetWorthGroup, Snapshot,
 } from "../../domain/networth.ts";
 
 export interface PortfolioRow {
@@ -994,7 +994,7 @@ function renderWaterfall(change: NetWorthChange): SafeHtml {
   `;
 }
 
-function renderGroup(group: { name: string; total: Paise; lines: { label: string; value: Paise; asOf: IsoDate | null; stale: boolean }[] }): SafeHtml {
+function renderGroup(group: NetWorthGroup): SafeHtml {
   return html`
     <details ${raw(group.lines.length <= 6 ? "open" : "")}>
       <summary style="min-height:44px;display:flex;align-items:center;cursor:pointer;gap:.75rem">
@@ -1005,7 +1005,15 @@ function renderGroup(group: { name: string; total: Paise; lines: { label: string
         (line) => html`
           <div class="row-between" style="padding:.4rem 0 .4rem 1rem;border-top:1px solid var(--border)">
             <span>
-              ${line.label}
+              <!--
+                Every figure here comes from somewhere it can be changed — a
+                register, a revaluation, a loan. A hand-valued asset said so
+                and the rest did not, which left a fixed deposit or an "other
+                asset" as a number with no way back to its own screen.
+              -->
+              ${line.href
+                ? html`<a href="${line.href}">${line.label}</a>`
+                : html`${line.label}`}
               ${when(line.stale, () => html`<span class="chip chip-warning">stale</span>`)}
               ${when(line.asOf, () => html`<span class="faint"> ${formatDate(line.asOf!)}</span>`)}
             </span>
