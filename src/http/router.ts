@@ -103,8 +103,14 @@ function matchSegments(pattern: string[], actual: string[]): Record<string, stri
   return params;
 }
 
-/** Cap on a request body. Nothing this app accepts is legitimately larger. */
-const MAX_BODY_BYTES = 5 * 1024 * 1024;
+/**
+ * Cap on a request body. The largest legitimate request is a receipt photo —
+ * 10 MB by the attachment rule — inside multipart framing. A 5 MB cap here
+ * meant the documented limit was unreachable: a 6 MB phone photo died in the
+ * reader with a bare 413 before the attachment code could say what the actual
+ * limit is.
+ */
+const MAX_BODY_BYTES = 12 * 1024 * 1024;
 
 /**
  * Files from a multipart upload, keyed by field name.

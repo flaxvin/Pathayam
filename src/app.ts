@@ -749,6 +749,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return value;
   }
 
+  /**
+   * A date the user typed. Empty means today; anything else must actually
+   * read as a date. `parseDate(raw) ?? todayIST()` was the pattern here, and
+   * it filed "31-02-2026" — a typo — on today's date without a word.
+   */
+  function dateField(raw: string | undefined, name = "Date"): IsoDate {
+    if (raw === undefined || raw.trim() === "") return todayIST();
+    const parsed = parseDate(raw);
+    if (parsed === null) throw new HttpError(400, `"${raw}" isn't a date I can read — DD-MM-YYYY works.`);
+    return parsed;
+  }
+
   function memberName(id: string | null): string {
     if (!id) return "the app";
     return listMembers(db, { includeRemoved: true }).find((m) => m.id === id)?.name ?? "a former member";
@@ -1666,7 +1678,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         institution: field(ctx.body, "institution") || null,
         last4: field(ctx.body, "last4") || null,
         openingBalance: opening,
-        openingDate: openingDateRaw ? parseDate(openingDateRaw) ?? todayIST() : todayIST(),
+        openingDate: dateField(openingDateRaw, "Opening date"),
         statementDay: numberOrNull(field(ctx.body, "statement_day")),
         dueDay: numberOrNull(field(ctx.body, "due_day")),
         // 15 · Whose money it is, and who can see it, are settled at creation
@@ -1842,7 +1854,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       createTransaction(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         accountId: requiredField(ctx.body, "account_id"),
         amount: direction === "in" ? magnitude : -magnitude,
-        date: dateRaw ? parseDate(dateRaw) ?? todayIST() : todayIST(),
+        date: dateField(dateRaw),
         payeeName: field(ctx.body, "payee") || null,
         categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
         memo: field(ctx.body, "memo") || null,
@@ -1887,7 +1899,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         fromAccountId,
         toAccountId,
         amount: Math.abs(amountField(field(ctx.body, "amount"))),
-        date: parseDate(field(ctx.body, "date") ?? "") ?? todayIST(),
+        date: dateField(field(ctx.body, "date")),
       });
       return { redirect: "/accounts", message: "Transfer recorded." };
     }),
@@ -3005,7 +3017,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const a = auth(ctx);
 
     const asOfRaw = field(ctx.body, "as_of");
-    const asOf = asOfRaw ? parseDate(asOfRaw) ?? todayIST() : todayIST();
+    const asOf = dateField(asOfRaw, "As of");
     const bankBalance = amountField(field(ctx.body, "bank_balance"), "The bank's balance");
     const clearIds = fieldList(ctx.body, "clear");
     const allowAdjustment = field(ctx.body, "allow_adjustment") === "1";
@@ -3172,8 +3184,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const minRaw = field(ctx.body, "minimum_due");
       recordCardStatement(db, actorFor(a), {
         accountId: account.id,
-        statementDate: parseDate(field(ctx.body, "statement_date") ?? "") ?? todayIST(),
-        dueDate: parseDate(requiredField(ctx.body, "due_date")) ?? todayIST(),
+        statementDate: dateField(field(ctx.body, "statement_date"), "Statement date"),
+        dueDate: dateField(requiredField(ctx.body, "due_date"), "Due date"),
         amount: Math.abs(amountField(requiredField(ctx.body, "amount"))),
         minimumDue: minRaw?.trim() ? Math.abs(amountField(minRaw)) : null,
       });
@@ -3747,7 +3759,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         disbursementAccountId: field(ctx.body, "disbursement_account_id") || null,
         loanType: requiredField(ctx.body, "loan_type") as LoanType,
         sanctioned: amountField(field(ctx.body, "sanctioned"), "Sanctioned amount"),
-        sanctionDate: parseDate(field(ctx.body, "sanction_date") ?? "") ?? todayIST(),
+        sanctionDate: dateField(field(ctx.body, "sanction_date"), "Sanction date"),
         interestModel: (field(ctx.body, "interest_model") ?? "reducing") as
           "reducing" | "flat" | "moratorium-serviced" | "moratorium-capitalised",
         annualRatePct: Number(requiredField(ctx.body, "annual_rate")),
@@ -3919,7 +3931,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       recordDisbursement(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         loanId,
         amount: Math.abs(amountField(requiredField(ctx.body, "amount"))),
-        date: dateRaw ? parseDate(dateRaw) ?? todayIST() : todayIST(),
+        date: dateField(dateRaw),
         destination,
         destinationAccountId: destination === "budget-account"
           ? field(ctx.body, "destination_account_id") || null : null,
@@ -3998,7 +4010,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
       recordInstalment(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         loanId,
-        date: parseDate(field(ctx.body, "date") ?? "") ?? todayIST(),
+        date: dateField(field(ctx.body, "date")),
         amount: amountField(field(ctx.body, "amount")),
         principal: principalRaw?.trim() ? amountField(principalRaw) : null,
         interest: interestRaw?.trim() ? amountField(interestRaw) : null,
@@ -4032,7 +4044,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const remainingRaw = field(ctx.body, "instalments_remaining");
       recordLoanStatement(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         loanId,
-        asOf: parseDate(field(ctx.body, "as_of") ?? "") ?? todayIST(),
+        asOf: dateField(field(ctx.body, "as_of"), "As of"),
         lenderOutstanding: amountField(requiredField(ctx.body, "lender_outstanding")),
         interestPaidYtd: ytdRaw?.trim() ? amountField(ytdRaw) : null,
         instalmentsRemaining: remainingRaw?.trim() ? Number(remainingRaw) : null,
@@ -4658,7 +4670,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         name: requiredField(ctx.body, "name"),
         amount: (direction === "in" ? magnitude : -magnitude) as Paise,
         recurrence: (field(ctx.body, "recurrence") ?? "monthly") as Recurrence,
-        nextDue: parseDate(field(ctx.body, "next_due") ?? "") ?? todayIST(),
+        nextDue: dateField(field(ctx.body, "next_due"), "Next due"),
         categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
         accountId: field(ctx.body, "account_id") || null,
         isSubscription: field(ctx.body, "is_subscription") === "1",
@@ -5409,7 +5421,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       recordAdvance(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         loanId: ctx.params.id!,
         amount: Math.abs(amountField(requiredField(ctx.body, "amount"))),
-        date: dateRaw ? parseDate(dateRaw) ?? todayIST() : todayIST(),
+        date: dateField(dateRaw),
         fromAccountId: requiredField(ctx.body, "account_id"),
       });
       return { redirect: `/family/${ctx.params.id}`, message: "Recorded." };
@@ -5423,7 +5435,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       recordRepayment(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         loanId: ctx.params.id!,
         amount: Math.abs(amountField(requiredField(ctx.body, "amount"))),
-        date: dateRaw ? parseDate(dateRaw) ?? todayIST() : todayIST(),
+        date: dateField(dateRaw),
         accountId: requiredField(ctx.body, "account_id"),
       });
       return { redirect: `/family/${ctx.params.id}`, message: "Recorded." };
@@ -5924,7 +5936,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const lot = recordPurchase(db, actor, {
         accountId: requiredField(ctx.body, "account_id"),
         instrumentId: instrument.id,
-        tradeDate: parseDate(field(ctx.body, "trade_date") ?? "") ?? todayIST(),
+        tradeDate: dateField(field(ctx.body, "trade_date"), "Trade date"),
         price: toUnitPrice(unitPrice),
         amount: amountRaw?.trim() ? amountField(amountRaw) : undefined,
         units: amountRaw?.trim() ? undefined : toUnits(Number(field(ctx.body, "units") ?? 0)),
@@ -6018,7 +6030,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       recordPrice(db, {
         instrumentId: view.instrument.id,
         price: toUnitPrice(Number(requiredField(ctx.body, "price"))),
-        asOf: parseDate(field(ctx.body, "as_of") ?? "") ?? todayIST(),
+        asOf: dateField(field(ctx.body, "as_of"), "As of"),
         source: "manual",
       });
       return { redirect: `/portfolio/${view.holding.id}`, message: "Price saved." };
@@ -6054,7 +6066,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const kind = field(ctx.body, "kind") === "bonus" ? "bonus" : "split";
       recordSplit(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         holdingId: view.holding.id,
-        date: parseDate(field(ctx.body, "date") ?? "") ?? todayIST(),
+        date: dateField(field(ctx.body, "date")),
         ratio,
         kind,
       });
@@ -6099,7 +6111,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       }
       recordMerger(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         holdingId: view.holding.id,
-        date: parseDate(field(ctx.body, "date") ?? "") ?? todayIST(),
+        date: dateField(field(ctx.body, "date")),
         ratio,
         intoInstrumentId: field(ctx.body, "into_instrument_id") || null,
       });
@@ -6266,7 +6278,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         name: requiredField(ctx.body, "name"),
         subtype: requiredField(ctx.body, "subtype") as "physical",
         openingValue: valueRaw?.trim() ? amountField(valueRaw) : undefined,
-        asOf: parseDate(field(ctx.body, "as_of") ?? "") ?? todayIST(),
+        asOf: dateField(field(ctx.body, "as_of"), "As of"),
       });
       return { redirect: "/portfolio", message: `Added ${account.name}.` };
     }),
@@ -6319,7 +6331,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         recordValuation(db, actor, {
           accountId: asset.id,
           value: Math.abs(amountField(raw, asset.name)) as Paise,
-          asOf: asOfRaw?.trim() ? parseDate(asOfRaw) ?? todayIST() : todayIST(),
+          asOf: dateField(asOfRaw, `${asset.name} — as of`),
         });
         saved++;
       }
@@ -6359,7 +6371,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       recordValuation(db, actorFor(a), {
         accountId: account.id,
         value: amountField(requiredField(ctx.body, "value")),
-        asOf: parseDate(field(ctx.body, "as_of") ?? "") ?? todayIST(),
+        asOf: dateField(field(ctx.body, "as_of"), "As of"),
       });
       return { redirect: "/portfolio", message: `Revalued ${account.name}.` };
     }),
