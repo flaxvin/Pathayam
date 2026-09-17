@@ -180,101 +180,149 @@ export function renderPrivacy(
             </ul>
           `}
 
-      <h2>What this app holds</h2>
-      <ul>
-        <li>
-          <strong>Account identity.</strong> The email address, name and profile
-          picture on the Google account used to sign in — to sign you in, and to
-          attribute each change to a person.
-        </li>
-        <li>
-          <strong>Household financial data.</strong> Everything entered or
-          imported: accounts, balances, transactions, payees, envelopes, loans,
-          holdings, and attachments such as receipts.
-        </li>
-        <li>
-          <strong>Statement identity.</strong> Optional. A name, date of birth,
-          PAN, mobile or card last-four, used to derive the password a bank sets
-          on a statement PDF, so a statement opens without it being typed every
-          month.
-        </li>
-        <li>
-          <strong>Operational logs.</strong> Method, path, status, duration and
-          errors. Never query strings, form bodies, amounts or any financial
-          value.
-        </li>
-      </ul>
+      ${demo
+        ? html`
+            <h2>What this demo holds</h2>
+            <ul>
+              <li>
+                <strong>Nothing about you.</strong> There is no account and no
+                sign-in: entering the demo picks one of the invented members to
+                look as. No email address, no name and no profile picture is
+                collected, because none is ever asked for.
+              </li>
+              <li>
+                <strong>The invented household.</strong> Accounts, balances,
+                transactions, envelopes, loans and holdings that ship with the
+                demo. Every figure, name and account in it is made up.
+              </li>
+              <li>
+                <strong>Whatever you type,</strong> until the next reset, visible
+                to everyone else using the demo in the meantime.
+              </li>
+              <li>
+                <strong>Operational logs.</strong> Method, path, status, duration
+                and errors. Never query strings, form bodies, amounts or any
+                financial value.
+              </li>
+            </ul>
 
-      <h2>Statement identity is never exported or logged</h2>
-      <p>
-        The details used to derive statement passwords are held apart from
-        everything exportable. They are excluded from every export, from the
-        audit log and from backups of the exportable data, and are never rendered
-        to any screen. This is deliberate, so that handing someone an export can
-        never hand them a PAN.
-      </p>
+            <h2>No Google sign-in, and no access to any mailbox</h2>
+            <p>
+              The full application can sign in with Google and can read bank
+              alerts from Gmail, with permission, when somebody runs it
+              themselves. <strong>This demo does neither.</strong> It is not
+              configured with a Google project at all, and connecting a mailbox
+              is refused here rather than merely hidden. Nothing you do in this
+              demo can reach an email account, yours or anyone's.
+            </p>
+            <p>
+              Saving a statement identity — the name, date of birth or PAN used
+              to open a password-protected bank statement — is refused here for
+              the same reason. There is nowhere in this demo to put a real PAN,
+              which is deliberate.
+            </p>
+          `
+        : html`
+            <h2>What this app holds</h2>
+            <ul>
+              <li>
+                <strong>Account identity.</strong> The email address, name and
+                profile picture on the Google account used to sign in — to sign
+                you in, and to attribute each change to a person.
+              </li>
+              <li>
+                <strong>Household financial data.</strong> Everything entered or
+                imported: accounts, balances, transactions, payees, envelopes,
+                loans, holdings, and attachments such as receipts.
+              </li>
+              <li>
+                <strong>Statement identity.</strong> Optional. A name, date of
+                birth, PAN, mobile or card last-four, used to derive the password
+                a bank sets on a statement PDF, so a statement opens without it
+                being typed every month.
+              </li>
+              <li>
+                <strong>Operational logs.</strong> Method, path, status, duration
+                and errors. Never query strings, form bodies, amounts or any
+                financial value.
+              </li>
+            </ul>
+          `}
 
-      <h2>What Google data this app accesses</h2>
-      <p>
-        If you choose to sign in with Google, or to connect Gmail so bank emails
-        can be read automatically, the app requests these scopes and no others:
-      </p>
-      <div class="table-scroll">
-        <table>
-          <thead>
-            <tr>
-              <th scope="col">Scope</th>
-              <th scope="col">What it grants</th>
-              <th scope="col">Why this app asks</th>
-            </tr>
-          </thead>
-          <tbody>
-            ${SCOPES.map(
-              (s) => html`
-                <tr>
-                  <td><code>${s.scope}</code></td>
-                  <td>${s.what}</td>
-                  <td>${s.why}</td>
-                </tr>
-              `,
-            )}
-          </tbody>
-        </table>
-      </div>
+      ${demo
+        ? html``
+        : html`
+            <h2>Statement identity is never exported or logged</h2>
+            <p>
+              The details used to derive statement passwords are held apart from
+              everything exportable. They are excluded from every export, from the
+              audit log and from backups of the exportable data, and are never rendered
+              to any screen. This is deliberate, so that handing someone an export can
+              never hand them a PAN.
+            </p>
 
-      <h2>How Gmail data is used, stored and shared</h2>
-      <ul>
-        <li>
-          <strong>Used.</strong> The app searches the mailbox only for messages
-          from the bank senders that have been configured. It reads those
-          messages to extract transaction details and to open statement PDFs.
-        </li>
-        <li>
-          <strong>Stored.</strong> Message bodies are <em>not</em> retained. Each
-          message is parsed into the fields that matter — date, amount, merchant,
-          account — and then discarded. Only those extracted records are saved,
-          in the same review queue as a statement uploaded by hand.
-        </li>
-        <li>
-          <strong>Shared.</strong> Never, with anyone, for any purpose. Gmail data
-          is not used to train any model and is not used for advertising.
-        </li>
-        <li>
-          <strong>Retained.</strong> The extracted records stay until deleted. The
-          Google refresh token is kept only so the connection survives a restart;
-          it is excluded from every export and from the audit log, and is never
-          displayed on any screen.
-        </li>
-      </ul>
+            <h2>What Google data this app accesses</h2>
+            <p>
+              If you choose to sign in with Google, or to connect Gmail so bank emails
+              can be read automatically, the app requests these scopes and no others:
+            </p>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Scope</th>
+                    <th scope="col">What it grants</th>
+                    <th scope="col">Why this app asks</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${SCOPES.map(
+                    (s) => html`
+                      <tr>
+                        <td><code>${s.scope}</code></td>
+                        <td>${s.what}</td>
+                        <td>${s.why}</td>
+                      </tr>
+                    `,
+                  )}
+                </tbody>
+              </table>
+            </div>
 
-      <h2>Limited Use</h2>
-      <p>
-        ${opts.appName}'s use and transfer of information received from Google
-        APIs to any other app will adhere to the
-        <a href="https://developers.google.com/terms/api-services-user-data-policy"
-           rel="noopener noreferrer" target="_blank">Google API Services User Data Policy</a>,
-        including the Limited Use requirements.
-      </p>
+            <h2>How Gmail data is used, stored and shared</h2>
+            <ul>
+              <li>
+                <strong>Used.</strong> The app searches the mailbox only for messages
+                from the bank senders that have been configured. It reads those
+                messages to extract transaction details and to open statement PDFs.
+              </li>
+              <li>
+                <strong>Stored.</strong> Message bodies are <em>not</em> retained. Each
+                message is parsed into the fields that matter — date, amount, merchant,
+                account — and then discarded. Only those extracted records are saved,
+                in the same review queue as a statement uploaded by hand.
+              </li>
+              <li>
+                <strong>Shared.</strong> Never, with anyone, for any purpose. Gmail data
+                is not used to train any model and is not used for advertising.
+              </li>
+              <li>
+                <strong>Retained.</strong> The extracted records stay until deleted. The
+                Google refresh token is kept only so the connection survives a restart;
+                it is excluded from every export and from the audit log, and is never
+                displayed on any screen.
+              </li>
+            </ul>
+
+            <h2>Limited Use</h2>
+            <p>
+              ${opts.appName}'s use and transfer of information received from Google
+              APIs to any other app will adhere to the
+              <a href="https://developers.google.com/terms/api-services-user-data-policy"
+                 rel="noopener noreferrer" target="_blank">Google API Services User Data Policy</a>,
+              including the Limited Use requirements.
+            </p>
+        `}
 
       <h2>Your rights</h2>
       <ul>
@@ -302,18 +350,22 @@ export function renderPrivacy(
           : html``}
       </ul>
 
-      <h2>Revoking Google access</h2>
-      <ul>
-        <li>
-          Disconnect Gmail from <a href="/settings">Settings</a>. The stored
-          refresh token is deleted immediately.
-        </li>
-        <li>
-          Revoke the app entirely at
-          <a href="https://myaccount.google.com/permissions"
-             rel="noopener noreferrer" target="_blank">your Google account permissions page</a>.
-        </li>
-      </ul>
+      ${demo
+        ? html``
+        : html`
+            <h2>Revoking Google access</h2>
+            <ul>
+              <li>
+                Disconnect Gmail from <a href="/settings">Settings</a>. The stored
+                refresh token is deleted immediately.
+              </li>
+              <li>
+                Revoke the app entirely at
+                <a href="https://myaccount.google.com/permissions"
+                   rel="noopener noreferrer" target="_blank">your Google account permissions page</a>.
+              </li>
+            </ul>
+        `}
 
       <h2>Security</h2>
       <p>
@@ -416,10 +468,20 @@ export function renderTerms(
       <h2>Acceptable use</h2>
       <ul>
         <li>Do not use it to break the law, or to hold data you have no right to hold.</li>
-        <li>
-          Do not process anyone's financial data without their knowledge, and
-          connect only accounts and mailboxes you are entitled to access.
-        </li>
+        ${demo
+          ? html`
+              <li>
+                Do not type anyone's real financial data into it — yours or
+                anybody else's.
+              </li>
+            `
+          : html`
+              <li>
+                Do not process anyone's financial data without their knowledge,
+                and connect only accounts and mailboxes you are entitled to
+                access.
+              </li>
+            `}
         ${demo
           ? html`
               <li>
