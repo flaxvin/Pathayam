@@ -1,0 +1,72 @@
+name: Deploy demo
+
+# demo.pathayam.app is the `demo` stage of the Dockerfile running on Fly.io.
+# This deploys it whenever the application changes on main.
+#
+# One-time setup, in the repository: Settings → Secrets and variables →
+# Actions → New repository secret, named FLY_API_TOKEN. Create the token with
+# `fly tokens create deploy -a pathayam-demo` — a deploy token is scoped to
+# this one app and cannot touch the rest of the account.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'src/**'
+      - 'assets/**'
+      - 'Dockerfile'
+      - 'fly.toml'
+      - 'package.json'
+      - 'package-lock.json'
+      - 'tsconfig.json'
+      - '.github/workflows/fly.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# One deploy at a time, and never cancel one half-done — a cancelled deploy can
+# leave the app on a half-replaced machine.
+concurrency:
+  group: fly-demo
+  cancel-in-progress: false
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+      - run: npm run typecheck
+      - run: npm test
+
+  deploy:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      # The demo database is seeded into the image at build time and is public,
+      # so it must contain nothing but the fictional seed. This refuses to ship
+      # an image whose demo seed reaches for a real mailbox or a stored
+      # statement identity — the app refuses to start on such a database, and
+      # finding that out at deploy time is cheaper than at boot.
+      - name: Refuse to deploy a demo that is not in demo mode
+        run: |
+          if ! grep -q 'build-target = "demo"' fly.toml; then
+            echo "::error::fly.toml lost build-target=\"demo\" — this would deploy the sign-in image, not the demo."
+            exit 1
+          fi
+          if ! grep -q 'TRUST_PROXY' fly.toml; then
+            echo "::error::TRUST_PROXY is unset — every POST behind Fly's proxy would be refused as cross-origin."
+            exit 1
+          fi
+          echo "fly.toml carries the demo target and the proxy setting."
+
+      - uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - run: flyctl deploy --remote-only
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

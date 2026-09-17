@@ -998,7 +998,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     });
     return {
       redirect: "/",
-      headers: { "Set-Cookie": sessionCookie(token, { secure: false, days: 1 }) },
+      headers: {
+        "Set-Cookie": sessionCookie(token, {
+          secure: config.baseUrl.startsWith("https"),
+          days: 1,
+        }),
+      },
     };
   });
 
@@ -1015,7 +1020,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     return {
       redirect: "/",
-      headers: { "Set-Cookie": sessionCookie(token, { secure: false, days: config.sessionDays }) },
+      headers: {
+        "Set-Cookie": sessionCookie(token, {
+          secure: config.baseUrl.startsWith("https"),
+          days: config.sessionDays,
+        }),
+      },
     };
   });
 
