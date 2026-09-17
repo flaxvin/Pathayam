@@ -77,6 +77,50 @@ describe("the demo names who is responsible for it", () => {
   });
 });
 
+describe("Google access is described only where it exists", () => {
+  /*
+   * The demo is never configured with a Google project, and connecting a
+   * mailbox is refused there rather than hidden, so a policy describing scopes
+   * and Gmail ingestion would be telling a visitor the demo can reach their
+   * email. It cannot.
+   */
+  test("the demo claims no Google sign-in and no mailbox access", () => {
+    const html = privacy("demo");
+    assert.doesNotMatch(html, /gmail\.readonly/, "a scope the demo never requests is listed");
+    assert.doesNotMatch(
+      html,
+      /searches the mailbox/i,
+      "the demo is described as reading a mailbox it cannot reach",
+    );
+    assert.match(html, /no access to any mailbox/i, "the demo does not say it cannot reach email");
+    assert.match(
+      html,
+      /There is no account and no sign-in/i,
+      "the demo claims an account identity it never collects",
+    );
+  });
+
+  test("the demo does not claim to hold a statement identity it refuses to store", () => {
+    assert.match(
+      privacy("demo"),
+      /refused here/i,
+      "saving a statement identity is refused in demo mode, and the policy should say so",
+    );
+  });
+
+  test("a self-hosted install carries the Limited Use disclosure, verbatim", () => {
+    // Each self-hoster points their own Google project at their own instance's
+    // /privacy, so this is the page Google reviews for the restricted
+    // gmail.readonly scope. Without this exact sentence, verification fails.
+    assert.match(
+      privacy("self-hosted"),
+      /adhere to the[\s\S]*Google API Services User Data Policy[\s\S]*including the Limited Use requirements/,
+      "the disclosure has been reworded, and verification will fail",
+    );
+    assert.match(privacy("self-hosted"), /gmail\.readonly/, "the scopes table is gone");
+  });
+});
+
 describe("the contact addresses survive the CDN in front of them", () => {
   /*
    * Cloudflare's email obfuscation rewrites anything that looks like an address
@@ -104,6 +148,11 @@ describe("the contact addresses survive the CDN in front of them", () => {
 });
 
 describe("a self-hosted install does not claim somebody is running it", () => {
+  test("the promise that an export cannot leak a PAN is stated", () => {
+    assert.match(privacy("self-hosted"), /excluded from every export/i);
+  });
+
+
   test("the privacy policy puts the data and the responsibility on your own server", () => {
     const html = privacy("self-hosted");
     assert.match(html, /stays on the server you run/i, "it does not say where the data is");
@@ -132,24 +181,6 @@ describe("a self-hosted install does not claim somebody is running it", () => {
 
 describe("what both deployments have to say", () => {
   for (const mode of ["self-hosted", "demo"] as const) {
-    test(`${mode}: the Limited Use disclosure Google requires is present, verbatim`, () => {
-      // Without this exact sentence the restricted gmail.readonly scope is
-      // refused at verification, whoever is running the app.
-      assert.match(
-        privacy(mode),
-        /adhere to the[\s\S]*Google API Services User Data Policy[\s\S]*including the Limited Use requirements/,
-        "the disclosure has been reworded, and verification will fail",
-      );
-    });
-
-    test(`${mode}: the statement identity promise is stated`, () => {
-      assert.match(
-        privacy(mode),
-        /excluded from every export/i,
-        "the promise that an export cannot leak a PAN is missing",
-      );
-    });
-
     test(`${mode}: the licence that governs the code is named`, () => {
       assert.match(
         terms(mode),
