@@ -1,24 +1,27 @@
-# Publish the site in `website/` to GitHub Pages, with that folder as the site
-# root — so `website/index.html` is served at `/` and every link inside it stays
-# relative. GitHub's built-in Pages source only offers the repository root or
-# `/docs`; uploading the folder as the artifact is how a third location works.
-name: Website
+name: Deploy website
+
+# The site is static — HTML, one stylesheet, one script, images and fonts — so
+# there is nothing to build. This copies `website/` to GitHub Pages whenever it
+# changes on main.
+#
+# One-time setup, in the repository: Settings → Pages → Source → GitHub Actions.
+# Until that is set, this workflow runs and fails at the deploy step.
 
 on:
   push:
     branches: [main]
     paths:
-      - "website/**"
-      - ".github/workflows/pages.yml"
+      - 'website/**'
+      - '.github/workflows/pages.yml'
   workflow_dispatch:
 
+# Least privilege: read the repo, write a Pages deployment, and nothing else.
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Let a running deploy finish rather than cancelling it: a half-published site
-# is worse than a slightly stale one.
+# Never two deployments at once, and never cancel one half-done.
 concurrency:
   group: pages
   cancel-in-progress: false
@@ -31,9 +34,28 @@ jobs:
       url: ${{ steps.deployment.outputs.page_url }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Refuse to publish a page with a placeholder still in it
+        run: |
+          if grep -rn 'class="todo"' website/*.html; then
+            echo "::error::A legal page still carries a TODO placeholder. See website/DEPLOY.md."
+            exit 1
+          fi
+          echo "No placeholders found."
+
+      - name: Refuse to publish a third-party request
+        run: |
+          if grep -rnE 'https?://(fonts\.googleapis|fonts\.gstatic|www\.google-analytics|cdn\.)' website/ ; then
+            echo "::error::The site must make no third-party request — privacy.html says so."
+            exit 1
+          fi
+          echo "No third-party resources found."
+
       - uses: actions/configure-pages@v5
+
       - uses: actions/upload-pages-artifact@v3
         with:
           path: website
+
       - id: deployment
         uses: actions/deploy-pages@v4
