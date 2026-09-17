@@ -1,21 +1,22 @@
-# The public demo — demo.pathayam.app
+# Fly.io configuration for the public demo at demo.pathayam.app.
 #
-# Everything in it is invented and disposable, so this needs no volume, no
-# backups and no secrets. The database is baked into the image at build time
-# (see the `demo` stage in the Dockerfile), which means a cold start serves
-# immediately rather than spending twenty seconds seeding, and every new
-# machine is a fresh reset.
+# The demo is the `demo` stage of the Dockerfile: a seeded SQLite database baked
+# into the image, in DEMO_MODE, with no sign-in. Every visitor shares one
+# machine and one database, and a restart resets it to the image's copy — so
+# nothing a visitor types outlives the instance and there is no reseed job to
+# forget.
 #
-# Singapore, not Mumbai: Fly retired its Indian region, and `fly platform
-# regions` lists sin as the nearest. That is fine here precisely because none
-# of this data is real — it is not fine for customer data, which is a separate
-# decision.
+#   fly deploy            # from here
+#   .github/workflows/fly.yml deploys the same thing on every push to main.
 
-app = "pathayam-demo"
-primary_region = "sin"
+app = 'pathayam-demo'
+primary_region = 'iad'
 
 [build]
-  dockerfile = "Dockerfile"
+  # Without this Fly would build the default (last) stage, which happens to be
+  # `demo` today but would silently become whatever is appended tomorrow. The
+  # `runtime` stage has no seeded database and no DEMO_MODE, so picking the
+  # wrong one produces a sign-in page rather than a demo.
   build-target = "demo"
 
 [env]
@@ -23,32 +24,42 @@ primary_region = "sin"
   DATABASE_PATH = "/app/demo.sqlite"
   BASE_URL = "https://demo.pathayam.app"
   PORT = "8080"
-  LOG_LEVEL = "info"
+
+  # Fly terminates TLS at its proxy and forwards plain HTTP to the machine.
+  # Without this the app reads its own origin off the socket, decides it is
+  # http://, and rejects every POST as cross-origin against the browser's
+  # https:// Origin header. The demo would load and then refuse every button.
+  TRUST_PROXY = "1"
 
 [http_service]
   internal_port = 8080
   force_https = true
-
-  # Stop when nobody is looking and start on the next request. A demo is idle
-  # almost all month, and this is what makes it cost pennies. The cold start is
-  # a container boot, not a reseed.
-  auto_stop_machines = "stop"
+  # The demo is idle most of the time. Fly stops the machine when it is and
+  # starts it on the next request, so it bills for seconds of use rather than
+  # a month of uptime. The first request after a sleep pays about a second of
+  # cold start.
+  auto_stop_machines = 'stop'
   auto_start_machines = true
   min_machines_running = 0
+  processes = ['app']
 
+  # One machine, one SQLite file, server-rendered pages. These caps make it
+  # queue under a burst instead of thrashing a 256 MB VM.
   [http_service.concurrency]
-    type = "requests"
-    hard_limit = 50
+    type = 'requests'
     soft_limit = 25
+    hard_limit = 50
 
-# The app's own machine-readable health endpoint (F27.3).
-[[http_service.checks]]
-  interval = "30s"
-  timeout = "5s"
-  grace_period = "10s"
-  method = "GET"
-  path = "/healthz"
+  # /healthz opens the database and reports the schema version, so a machine
+  # that boots but cannot read its database fails the check instead of serving
+  # errors.
+  [[http_service.checks]]
+    method = 'GET'
+    path = '/healthz'
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
 
 [[vm]]
-  size = "shared-cpu-1x"
-  memory = "512mb"
+  memory = '256mb'
+  cpus = 1
