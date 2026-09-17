@@ -254,7 +254,41 @@ const indusind: AlertProfile = {
   },
 };
 
-export const ALERT_PROFILES: AlertProfile[] = [axisCard, axisAccount, yesCard, indusind];
+const axisSentence: AlertProfile = {
+  bank: "axis",
+  senders: [/^alerts@axis\.bank\.in$/i],
+  parse(_subject, body) {
+    // NEFT and IMPS come as one sentence, not the label/value summary:
+    //   "We wish to inform you that your A/c no. XX8457 has been debited with
+    //    INR 23000.00 on 16-09-2026 06:17:07 IST by NEFT/MB/AXOMB25…/V. To
+    //    check your available balance, please click here."
+    // The narration runs to the sentence's full stop — which is also the
+    // decimal separator's character, so it ends at ". " or the line's end.
+    const flat = body.replace(/\s+/g, " ");
+    const m =
+      /your A\/c no\.?\s*[xX*]*(\d{4})\s+has been (debited|credited) with\s+(INR\s*[\d,]+(?:\.\d{1,2})?)\s+on\s+(\d{1,2}-\d{1,2}-\d{4}(?:\s+[\d:]+)?(?:\s*IST)?)\s+by\s+(.+?)(?:\.\s|\.$|$)/i
+        .exec(flat);
+    if (!m) return null;
+
+    const amount = parseAlertAmount(m[3]!);
+    const date = parseAlertDate(m[4]!);
+    if (amount === null || !date) return null;
+
+    const sign = m[2]!.toLowerCase() === "credited" ? 1 : -1;
+    return {
+      amount: (sign * amount) as Paise,
+      date, when: m[4]!,
+      accountLast4: m[1]!,
+      cardLast4: null,
+      narration: m[5]!.trim(),
+      reference: extractReference(m[5]!),
+      cardholderName: greetedName(body),
+      balance: null,
+    };
+  },
+};
+
+export const ALERT_PROFILES: AlertProfile[] = [axisCard, axisAccount, axisSentence, yesCard, indusind];
 
 /**
  * Parse an alert, trying each profile whose sender matches.
@@ -282,7 +316,8 @@ export function parseAlert(
 
 /** The name in "Dear <name>," — the cardholder, which may be an add-on holder. */
 function greetedName(body: string): string | null {
-  const m = /Dear\s+([A-Z][A-Za-z]+(?:\s+[A-Z][A-Za-z]+){0,2})\s*,/.exec(body);
+  // A word of the name may be a bare initial — "Kavya R Pillai".
+  const m = /Dear\s+([A-Z][A-Za-z]*\.?(?:\s+[A-Z][A-Za-z]*\.?){0,3})\s*,/.exec(body);
   const name = m?.[1]?.trim();
   return name && !/customer/i.test(name) ? name : null;
 }
