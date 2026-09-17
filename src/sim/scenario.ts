@@ -1392,9 +1392,20 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
     const empty = createGroup(db, actor, "Nothing in here");
     deleteGroup(db, actor, empty.id);
   });
+  /*
+   * Exercising deleteAttachment used to take the only receipt in the
+   * household with it, so the demo — and every screenshot taken from it —
+   * ended with the feature invisible. Delete one that exists to be deleted,
+   * and leave the deep-clean receipt where a reader will find it.
+   */
   did("deleteAttachment", () => {
-    const meta = queryAll<{ id: string }>(db, `SELECT id FROM attachments LIMIT 1`)[0];
-    if (meta) deleteAttachment(db, actor, meta.id);
+    const doomed = addAttachment(db, actor, {
+      transactionId: queryAll<{ id: string }>(
+        db, `SELECT id FROM transactions WHERE deleted_at IS NULL ORDER BY date DESC LIMIT 1`,
+      )[0]!.id,
+      filename: "wrong-photo.png", mime: "image/png", bytes: ONE_PIXEL_PNG,
+    });
+    deleteAttachment(db, actor, doomed.id);
   });
   did("prepareClaim", () => prepareClaim(db, actor, acc.anilOwn, anilBudget.id, household));
 
