@@ -67,7 +67,8 @@
         <div class="cards">
         <div class="card">
           <h3>Authentication</h3>
-          <p>One header on every request: <code>Authorization: Bearer bgt_…</code>. Tokens are minted in Settings, scoped read or read-write, and shown exactly once.</p>
+          <p>The host in every example below is <strong>your own instance</strong> — the machine you self-host on, or your hosted subdomain. The public demo at <code>demo.pathayam.app</code> signs everyone in automatically and issues no tokens, so these examples will not run against it.</p>
+        <p>One header on every request: <code>Authorization: Bearer bgt_…</code>. Tokens are minted in Settings, scoped read or read-write, and shown exactly once.</p>
         </div>
         <div class="card">
           <h3>Idempotency</h3>
@@ -132,7 +133,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS https://pathayam.example.com/?month=2026-09 \
+<pre><code>curl -sS https://pathayam.yourdomain.com/?month=2026-09 \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span></code></pre>
             </div>
           </div>
@@ -170,7 +171,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS -X POST https://pathayam.example.com/assign \
+<pre><code>curl -sS -X POST https://pathayam.yourdomain.com/assign \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span> \
   -d <span class="tok-s">"month=2026-09&amp;category_id=cat_7f3&amp;amount=4500"</span></code></pre>
@@ -211,7 +212,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS -X POST https://pathayam.example.com/move \
+<pre><code>curl -sS -X POST https://pathayam.yourdomain.com/move \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span> \
   -d <span class="tok-s">"month=2026-09&amp;from_category_id=cat_hol&amp;to_category_id=cat_eat&amp;amount=1320"</span></code></pre>
@@ -250,7 +251,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS -X POST https://pathayam.example.com/hold \
+<pre><code>curl -sS -X POST https://pathayam.yourdomain.com/hold \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span> \
   -d <span class="tok-s">"month=2026-09&amp;amount=139900"</span></code></pre>
@@ -288,7 +289,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS https://pathayam.example.com/auto-assign?month=2026-09 \
+<pre><code>curl -sS https://pathayam.yourdomain.com/auto-assign?month=2026-09 \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span></code></pre>
             </div>
           </div>
@@ -323,7 +324,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS https://pathayam.example.com/explain/ready-to-assign?month=2026-09 \
+<pre><code>curl -sS https://pathayam.yourdomain.com/explain/ready-to-assign?month=2026-09 \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span></code></pre>
             </div>
           </div>
@@ -352,7 +353,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS https://pathayam.example.com/accounts \
+<pre><code>curl -sS https://pathayam.yourdomain.com/accounts \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span></code></pre>
             </div>
           </div>
@@ -396,7 +397,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS -X POST https://pathayam.example.com/add \
+<pre><code>curl -sS -X POST https://pathayam.yourdomain.com/add \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span> \
   -d <span class="tok-s">"account_id=acc_hdfc&amp;direction=out&amp;amount=1240"</span> \
@@ -438,7 +439,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS -X POST https://pathayam.example.com/transfer \
+<pre><code>curl -sS -X POST https://pathayam.yourdomain.com/transfer \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span> \
   -d <span class="tok-s">"from_account_id=acc_hdfc&amp;to_account_id=acc_card&amp;amount=11600"</span></code></pre>
@@ -465,7 +466,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS https://pathayam.example.com/cards \
+<pre><code>curl -sS https://pathayam.yourdomain.com/cards \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span></code></pre>
             </div>
           </div>
@@ -502,7 +503,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS -X POST https://pathayam.example.com/transaction/txn_9a2/categorise \
+<pre><code>curl -sS -X POST https://pathayam.yourdomain.com/transaction/txn_9a2/categorise \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span> \
   -d <span class="tok-s">"category_id=cat_gro"</span></code></pre>
@@ -540,7 +541,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS -X POST https://pathayam.example.com/transaction/txn_9a2/delete \
+<pre><code>curl -sS -X POST https://pathayam.yourdomain.com/transaction/txn_9a2/delete \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span></code></pre>
             </div>
@@ -570,7 +571,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS https://pathayam.example.com/review \
+<pre><code>curl -sS https://pathayam.yourdomain.com/review \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span></code></pre>
             </div>
           </div>
@@ -608,7 +609,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS -X POST https://pathayam.example.com/import \
+<pre><code>curl -sS -X POST https://pathayam.yourdomain.com/import \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span> \
   --data-urlencode <span class="tok-s">"csv@statement.csv"</span> -d <span class="tok-s">"account_id=acc_hdfc"</span></code></pre>
@@ -648,7 +649,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS -X POST https://pathayam.example.com/import/pdf \
+<pre><code>curl -sS -X POST https://pathayam.yourdomain.com/import/pdf \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span> \
   -F <span class="tok-s">"file=@statement.pdf"</span> -F <span class="tok-s">"account_id=acc_hdfc"</span></code></pre>
@@ -686,7 +687,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS -X POST https://pathayam.example.com/import/undo \
+<pre><code>curl -sS -X POST https://pathayam.yourdomain.com/import/undo \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span> -d <span class="tok-s">"batch_id=imp_41c"</span></code></pre>
             </div>
@@ -731,7 +732,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS <span class="tok-s">"https://pathayam.example.com/query?from=2025-10-01&amp;to=2026-09-30&amp;group_by=category"</span> \
+<pre><code>curl -sS <span class="tok-s">"https://pathayam.yourdomain.com/query?from=2025-10-01&amp;to=2026-09-30&amp;group_by=category"</span> \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span></code></pre>
             </div>
           </div>
@@ -765,7 +766,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS <span class="tok-s">"https://pathayam.example.com/query.csv?from=2026-04-01"</span> \
+<pre><code>curl -sS <span class="tok-s">"https://pathayam.yourdomain.com/query.csv?from=2026-04-01"</span> \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> -o spend.csv</code></pre>
             </div>
           </div>
@@ -800,7 +801,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS https://pathayam.example.com/activity \
+<pre><code>curl -sS https://pathayam.yourdomain.com/activity \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span></code></pre>
             </div>
           </div>
@@ -835,7 +836,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS -X POST https://pathayam.example.com/activity/evt_88c/undo \
+<pre><code>curl -sS -X POST https://pathayam.yourdomain.com/activity/evt_88c/undo \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span></code></pre>
             </div>
@@ -859,7 +860,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS https://pathayam.example.com/export.json \
+<pre><code>curl -sS https://pathayam.yourdomain.com/export.json \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> -o pathayam-backup.json</code></pre>
             </div>
           </div>
@@ -883,7 +884,7 @@
           </div>
             <div>
               <h3>Example</h3>
-<pre><code>curl -sS https://pathayam.example.com/healthz</code></pre>
+<pre><code>curl -sS https://pathayam.yourdomain.com/healthz</code></pre>
             </div>
           </div>
         </details>
@@ -946,6 +947,8 @@
         <ul>
           <li><a href="guides.html">Documentation</a></li>
           <li><a href="api.html">API guide</a></li>
+          <li><a href="terms.html">Terms</a></li>
+          <li><a href="privacy.html">Privacy</a></li>
         </ul>
       </div>
       <div>
@@ -966,9 +969,14 @@
       </div>
     </div>
     <p class="foot__note">
-      Self-hosted software you run yourself. There is no service to sign up for,
-      nothing is sent anywhere, and your data stays on your machine. Every figure
-      and name in the screenshots is fictional.
+      Run it yourself and nothing is sent anywhere: your data stays on your
+      machine. Hosting is not open yet. Every figure and name in the screenshots
+      is fictional.
+    </p>
+    <p class="foot__legal">
+      <a href="terms.html">Terms of service</a> ·
+      <a href="privacy.html">Privacy policy</a> ·
+      <a href="https://github.com/febinnizar/pathayam/blob/main/LICENSE.md">Licence</a>
     </p>
   </div>
 </footer>
