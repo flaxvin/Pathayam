@@ -1023,7 +1023,7 @@ function renderCalendar(cashflow: Cashflow): SafeHtml {
   if (busy.length === 0) {
     return html`
       <p class="faint">
-        Nothing scheduled in this window. Your projected balance stays at
+        Nothing scheduled in this window. The projected balance stays at
         ${formatPaise(cashflow.openingBalance)}.
       </p>
     `;

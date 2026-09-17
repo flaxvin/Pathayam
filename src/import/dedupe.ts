@@ -138,7 +138,7 @@ export function findDuplicate(incoming: Incoming, candidates: Candidate[]): Dupl
       tier: "manual-vs-imported",
       existing: manual,
       reason:
-        `You entered ${describeAmount(incoming.amount)} by hand on ${manual.date}, ` +
+        `${describeAmount(incoming.amount)} was entered by hand on ${manual.date}, ` +
         `and the bank has now sent the same amount.`,
       action: "ask",
       // The manual entry has the category you chose; the import has the

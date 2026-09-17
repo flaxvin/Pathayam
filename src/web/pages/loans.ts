@@ -912,8 +912,8 @@ export function renderRateReset(opts: {
         <p class="field-hint">
           ${changed
             ? html`The options below are worked out at ${o.newRatePct}%.`
-            : html`The options below are worked out at the rate you are on now — put the
-                   new one in and work it out before choosing.`}
+            : html`The options below use the current rate. Enter the new rate and
+            recalculate before choosing.`}
         </p>
       </div>
 

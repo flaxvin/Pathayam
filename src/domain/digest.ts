@@ -203,7 +203,7 @@ export function digestFor(
     add({
       kind: "cash-shortfall",
       text:
-        `Your balance is projected to dip below your floor on ` +
+        `Projected balance falls below the floor on ` +
         `${formatDate(cashflow.firstShortfall)}` +
         `${days <= 7 ? " — that is within the week" : ""}.`,
       href: "/schedules?tab=calendar",

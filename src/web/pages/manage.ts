@@ -394,8 +394,8 @@ function renderRuleTest(test: {
   return html`
     <div class="notice ${test.matched > 0 ? "notice-success" : "notice-warning"}" style="margin-top:1rem">
       ${test.matched === 0
-        ? html`That rule matches nothing in your history. It will still apply to
-               anything new that fits — but check the wording first.`
+        ? html`This rule matches nothing on record. It will still apply to anything new
+        that fits; check the wording first.`
         : html`Matches <strong>${test.matched}</strong> ${test.matched === 1 ? "transaction" : "transactions"}
                in your history.`}
     </div>
