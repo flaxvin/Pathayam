@@ -27,10 +27,11 @@
   --line:        #DED7C9;   /* --border */
   --line-2:      #BCB3A1;   /* --border-strong */
 
-  --brand:       #14603C;
-  --brand-2:     #0D4A2D;
+  --brand:       #1D5B9E;   /* --accent in the app */
+  --brand-2:     #164A80;
   --brand-ink:   #FFFFFF;
-  --brand-soft:  #DDEBE1;
+  --brand-soft:  #E2EBF6;   /* --accent-soft */
+  --positive:    #1A6B3C;   /* --positive · money in, and a tick */
 
   --gold:        #906517;   /* AA at 12px as text and behind white text */
   --gold-bright: #E0AC49;
@@ -76,10 +77,11 @@
     --line:        #333B49;   /* --border */
     --line-2:      #4A5464;   /* --border-strong */
 
-    --brand:       #58C08B;
-    --brand-2:     #7CD3A5;
-    --brand-ink:   #08200F;
-    --brand-soft:  #16301F;
+    --brand:       #6BA6F0;   /* --accent in the app */
+    --brand-2:     #8FBDF5;
+    --brand-ink:   #10141A;   /* --accent-text */
+    --brand-soft:  #1D2A3D;   /* --accent-soft */
+    --positive:    #5FD08C;
 
     --gold:        #E3B65E;
     --gold-bright: #EFCB83;
@@ -104,10 +106,11 @@
   --line:        #333B49;   /* --border */
   --line-2:      #4A5464;   /* --border-strong */
 
-  --brand:       #58C08B;
-  --brand-2:     #7CD3A5;
-  --brand-ink:   #08200F;
-  --brand-soft:  #16301F;
+  --brand:       #6BA6F0;   /* --accent in the app */
+  --brand-2:     #8FBDF5;
+  --brand-ink:   #10141A;   /* --accent-text */
+  --brand-soft:  #1D2A3D;   /* --accent-soft */
+  --positive:    #5FD08C;
 
   --gold:        #E3B65E;
   --gold-bright: #EFCB83;
@@ -564,7 +567,7 @@ figure { margin: 0; }
 /* The focus ring has to come from the input, which is not where the pixels are. */
 .seg__opts input:focus-visible + label { outline: 2px solid var(--brand); outline-offset: 2px; }
 .seg__save {
-  font-size: 0.75em; font-weight: 700; color: var(--brand);
+  font-size: 0.75em; font-weight: 700; color: var(--positive);
   background: var(--brand-soft); border-radius: 999px; padding: 0.1em 0.5em;
 }
 .switcher__note {
@@ -678,7 +681,7 @@ pre code { background: none; padding: 0; color: inherit; }
 .checks li::before {
   content: "✓";
   position: absolute; left: 0; top: 0; width: 1.35rem;
-  font-weight: 700; color: var(--brand);
+  font-weight: 700; color: var(--positive);
   line-height: inherit;
 }
 .checks li.no::before { content: "—"; color: var(--muted); }
@@ -724,7 +727,7 @@ pre code { background: none; padding: 0; color: inherit; }
 }
 .num { font-family: var(--font-mono); font-variant-numeric: tabular-nums; text-align: right; }
 .avail { font-weight: 500; }
-.avail.ok { color: var(--brand); }
+.avail.ok { color: var(--positive); }
 .avail.over { color: var(--coral); }
 .avail.zero { color: var(--muted); }
 
@@ -971,7 +974,7 @@ pre code { background: none; padding: 0; color: inherit; }
   font-family: var(--font-mono); font-size: 0.78rem;
 }
 .status b { font-weight: 500; }
-.status--ok b { color: var(--brand); }
+.status--ok b { color: var(--positive); }
 .status--redir b { color: var(--gold); }
 .status--err b { color: var(--coral); }
 
@@ -1140,7 +1143,7 @@ pre code { background: none; padding: 0; color: inherit; }
 .waitlist input[type="email"]:focus-visible { border-color: var(--brand); }
 .waitlist__note { font-size: var(--step--1); color: var(--muted); }
 .waitlist__msg { font-size: var(--step--1); font-weight: 600; min-height: 1.3em; }
-.waitlist__msg.ok { color: var(--brand); }
+.waitlist__msg.ok { color: var(--positive); }
 .waitlist__msg.err { color: var(--coral); }
 .center .waitlist { margin-inline: auto; }
 .center .waitlist__row { justify-content: center; }
