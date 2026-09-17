@@ -46,6 +46,26 @@
     });
   }
 
+  /* ------------------------------------------------------------- menu -- */
+  /*
+   * The navigation menu is a <details>, so it opens and closes on its own.
+   * These two handlers only add what a disclosure cannot do for itself: close
+   * when the reader taps the page behind it, and close on Escape.
+   */
+  var menu = document.querySelector(".menu");
+  if (menu) {
+    document.addEventListener("click", function (e) {
+      if (menu.open && !menu.contains(e.target)) menu.open = false;
+    });
+    document.addEventListener("keydown", function (e) {
+      if (e.key === "Escape" && menu.open) {
+        menu.open = false;
+        var btn = menu.querySelector(".menu__btn");
+        if (btn) btn.focus();
+      }
+    });
+  }
+
   /* ---------------------------------------------------------- waitlist -- */
   /*
    * Paste the Apps Script /exec URL here and the form starts working. See
