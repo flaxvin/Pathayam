@@ -23,7 +23,7 @@
   --panel:       #FFFFFF;
   --ink:         #12211B;
   --ink-2:       #44544C;
-  --muted:       #6D7C73;
+  --muted:       #616E66;   /* AA at 14px on the page, panel and band backgrounds */
   --line:        #E6DFCF;
   --line-2:      #D3C9B3;
 
@@ -32,7 +32,7 @@
   --brand-ink:   #FFFFFF;
   --brand-soft:  #DDEBE1;
 
-  --gold:        #A9761B;
+  --gold:        #906517;   /* AA at 12px as text and behind white text */
   --gold-bright: #E0AC49;
   --gold-soft:   #FBEFD5;
 
@@ -553,12 +553,43 @@ pre code { background: none; padding: 0; color: inherit; }
 .assign-input {
   font-family: var(--font-mono); font-variant-numeric: tabular-nums;
   text-align: right; width: 100%;
+  min-height: 36px;
   padding: 0.35rem 0.5rem;
   background: var(--ground); color: var(--ink);
   border: 1px solid var(--line-2); border-radius: 6px;
   font-size: var(--step--1);
 }
 .assign-input:hover { border-color: var(--brand); }
+
+/*
+ * The envelope grid needs about 515px for its four columns. Below that it
+ * stacks: the name on its own line, then the three figures labelled, so the
+ * demo stays usable on a phone instead of running off the side.
+ */
+@media (max-width: 560px) {
+  .grid-head { display: none; }
+  .row { grid-template-columns: 1fr; gap: 0.3rem; padding: 0.75rem 1rem; }
+  .row > * { min-width: 0; }
+  .row__name { margin-bottom: 0.15rem; }
+  .row > [data-col] {
+    display: flex; align-items: center; justify-content: space-between; gap: 0.75rem;
+  }
+  .row > [data-col]::before {
+    content: attr(data-col);
+    flex: 0 0 auto;
+    font-size: 0.68rem; font-weight: 700; letter-spacing: 0.06em;
+    text-transform: uppercase; color: var(--muted);
+  }
+  /* The input keeps the right-hand half rather than stretching the row. */
+  .row > [data-col="Assigned"] .assign-input { max-width: 9rem; }
+  .row__group { padding: 0.5rem 1rem; }
+  .demo__bar { padding-inline: 1rem; }
+  .rta { flex-wrap: wrap; }
+  .rta__note { margin-left: 0; flex-basis: 100%; }
+}
+
+/* A tappable size for the inline cover control on every viewport. */
+.cover { min-height: 32px; padding-inline: 0.6rem; }
 
 .demo__foot {
   display: flex; flex-wrap: wrap; gap: 0.6rem; align-items: center;
@@ -585,7 +616,7 @@ pre code { background: none; padding: 0; color: inherit; }
   color: var(--muted);
 }
 .foot__grid { display: grid; gap: 2rem; grid-template-columns: repeat(auto-fit, minmax(min(13rem, 100%), 1fr)); }
-.foot h4 { font-family: var(--font-body); font-size: var(--step--1); font-weight: 700; color: var(--ink); margin-bottom: 0.7rem; letter-spacing: 0; }
+.foot h4, .foot .foot__h { font-family: var(--font-body); font-size: var(--step--1); font-weight: 700; color: var(--ink); margin-bottom: 0.7rem; letter-spacing: 0; }
 .foot ul { list-style: none; padding: 0; display: grid; gap: 0.4rem; }
 .foot a { color: var(--muted); text-decoration: none; }
 .foot a:hover { color: var(--brand); text-decoration: underline; }
@@ -609,7 +640,15 @@ pre code { background: none; padding: 0; color: inherit; }
   gap: clamp(2rem, 1rem + 3vw, 4rem);
   align-items: start;
 }
-@media (max-width: 62rem) { .docs { grid-template-columns: 1fr; } }
+/*
+ * minmax(0, 1fr), not 1fr: a grid item's automatic minimum size is its
+ * content's min-content width, so a long code sample or link inside the column
+ * widens the column past the viewport instead of scrolling within it.
+ */
+@media (max-width: 62rem) {
+  .docs { grid-template-columns: minmax(0, 1fr); }
+}
+.docs > * { min-width: 0; }
 
 .docs__rail { position: sticky; top: 5.5rem; }
 @media (max-width: 62rem) {
@@ -713,7 +752,7 @@ pre code { background: none; padding: 0; color: inherit; }
   color: #FFFFFF;
 }
 .verb--get { background: #14603C; }
-.verb--post { background: #A9761B; }
+.verb--post { background: #906517; }
 :root[data-theme="dark"] .verb, :root:not([data-theme="light"]) .verb { color: #0B1410; }
 @media (prefers-color-scheme: light) {
   :root:not([data-theme="dark"]) .verb { color: #FFFFFF; }
@@ -734,7 +773,7 @@ pre code { background: none; padding: 0; color: inherit; }
 
 .ep__body { padding: 0.2rem 0.95rem 1.1rem; border-top: 1px solid var(--line); }
 .ep__body > * + * { margin-top: 1rem; }
-.ep__body h4 {
+.ep__body h3 {
   font-family: var(--font-body); font-size: 0.72rem; font-weight: 700;
   letter-spacing: 0.09em; text-transform: uppercase; color: var(--muted);
   margin-bottom: 0.45rem; letter-spacing: 0.09em;

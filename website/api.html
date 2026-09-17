@@ -58,7 +58,8 @@
 
   <section class="sec sec--tight sec--band">
     <div class="wrap">
-      <div class="cards">
+      <h2 class="sr-only">How it works</h2>
+        <div class="cards">
         <div class="card">
           <h3>Authentication</h3>
           <p>One header on every request: <code>Authorization: Bearer bgt_…</code>. Tokens are minted in Settings, scoped read or read-write, and shown exactly once.</p>
@@ -104,9 +105,9 @@
           </summary>
           <div class="ep__body">
             <p>The budget screen for a month: groups, categories, assigned, activity and available, with Ready to Assign and the digest.</p>
-            <div><h4>Scope</h4><p><span class="pill pill--r">read</span> or higher</p></div>
+            <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher</p></div>
           <div>
-            <h4>Parameters</h4>
+            <h3>Parameters</h3>
             <div class="table-scroll">
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
@@ -117,7 +118,7 @@
             </div>
           </div>
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--ok"><b>200</b></span> — The rendered screen, as HTML.</li>
               <li><span class="status status--err"><b>401</b></span> — No token, or a token that has been revoked.</li>
@@ -125,7 +126,7 @@
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS https://pathayam.example.com/?month=2026-09 \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span></code></pre>
             </div>
@@ -139,9 +140,9 @@
           </summary>
           <div class="ep__body">
             <p>Set the amount assigned to one category in one month. This is an absolute value, not a delta — sending 4500 makes the assignment 4500, whatever it was before.</p>
-            <div><h4>Scope</h4><p><span class="pill pill--w">read-write</span></p></div>
+            <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
-            <h4>Parameters</h4>
+            <h3>Parameters</h3>
             <div class="table-scroll">
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
@@ -154,7 +155,7 @@
             </div>
           </div>
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
@@ -163,7 +164,7 @@
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS -X POST https://pathayam.example.com/assign \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span> \
@@ -179,9 +180,9 @@
           </summary>
           <div class="ep__body">
             <p>Move money from one category to another within the same month. Ready to Assign is unaffected — the total assigned does not change, only where it sits. This is how you cover an overspend.</p>
-            <div><h4>Scope</h4><p><span class="pill pill--w">read-write</span></p></div>
+            <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
-            <h4>Parameters</h4>
+            <h3>Parameters</h3>
             <div class="table-scroll">
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
@@ -195,7 +196,7 @@
             </div>
           </div>
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
@@ -204,7 +205,7 @@
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS -X POST https://pathayam.example.com/move \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span> \
@@ -220,9 +221,9 @@
           </summary>
           <div class="ep__body">
             <p>Take an amount out of this month's Ready to Assign and place it at the top of next month's. Send <code>0</code> to release everything currently held.</p>
-            <div><h4>Scope</h4><p><span class="pill pill--w">read-write</span></p></div>
+            <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
-            <h4>Parameters</h4>
+            <h3>Parameters</h3>
             <div class="table-scroll">
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
@@ -234,7 +235,7 @@
             </div>
           </div>
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
@@ -243,7 +244,7 @@
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS -X POST https://pathayam.example.com/hold \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span> \
@@ -259,9 +260,9 @@
           </summary>
           <div class="ep__body">
             <p>GET previews what funding all targets would do. POST commits it. Money is spent down the budget in your own order, so a short month funds the top of the list first.</p>
-            <div><h4>Scope</h4><p><span class="pill pill--w">read-write</span></p></div>
+            <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
-            <h4>Parameters</h4>
+            <h3>Parameters</h3>
             <div class="table-scroll">
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
@@ -272,7 +273,7 @@
             </div>
           </div>
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
@@ -281,7 +282,7 @@
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS https://pathayam.example.com/auto-assign?month=2026-09 \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span></code></pre>
             </div>
@@ -295,9 +296,9 @@
           </summary>
           <div class="ep__body">
             <p>The events that produced Ready to Assign for a month, in order — income, assignments, holds, and anything carried in.</p>
-            <div><h4>Scope</h4><p><span class="pill pill--r">read</span> or higher</p></div>
+            <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher</p></div>
           <div>
-            <h4>Parameters</h4>
+            <h3>Parameters</h3>
             <div class="table-scroll">
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
@@ -308,7 +309,7 @@
             </div>
           </div>
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--ok"><b>200</b></span> — The rendered screen, as HTML.</li>
               <li><span class="status status--err"><b>401</b></span> — No token, or a token that has been revoked.</li>
@@ -316,7 +317,7 @@
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS https://pathayam.example.com/explain/ready-to-assign?month=2026-09 \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span></code></pre>
             </div>
@@ -334,10 +335,10 @@
           </summary>
           <div class="ep__body">
             <p>Every account with its cleared, uncleared and working balances, grouped into budget, credit and tracking.</p>
-            <div><h4>Scope</h4><p><span class="pill pill--r">read</span> or higher</p></div>
+            <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher</p></div>
 
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--ok"><b>200</b></span> — The rendered screen, as HTML.</li>
               <li><span class="status status--err"><b>401</b></span> — No token, or a token that has been revoked.</li>
@@ -345,7 +346,7 @@
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS https://pathayam.example.com/accounts \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span></code></pre>
             </div>
@@ -359,9 +360,9 @@
           </summary>
           <div class="ep__body">
             <p>Create one transaction. Money out must name a category — the requirement is enforced on the server, not only in the form. Money in is exempt, because its job is to land in Ready to Assign.</p>
-            <div><h4>Scope</h4><p><span class="pill pill--w">read-write</span></p></div>
+            <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
-            <h4>Parameters</h4>
+            <h3>Parameters</h3>
             <div class="table-scroll">
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
@@ -380,7 +381,7 @@
             </div>
           </div>
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
@@ -389,7 +390,7 @@
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS -X POST https://pathayam.example.com/add \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span> \
@@ -406,9 +407,9 @@
           </summary>
           <div class="ep__body">
             <p>A transfer is not spending and is never counted as such. Paying a credit card is a transfer from a budget account to that card.</p>
-            <div><h4>Scope</h4><p><span class="pill pill--w">read-write</span></p></div>
+            <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
-            <h4>Parameters</h4>
+            <h3>Parameters</h3>
             <div class="table-scroll">
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
@@ -422,7 +423,7 @@
             </div>
           </div>
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
@@ -431,7 +432,7 @@
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS -X POST https://pathayam.example.com/transfer \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span> \
@@ -447,10 +448,10 @@
           </summary>
           <div class="ep__body">
             <p>Every credit account ordered by what falls due next, with what is owed, what the payment envelope holds, and anything unfunded.</p>
-            <div><h4>Scope</h4><p><span class="pill pill--r">read</span> or higher</p></div>
+            <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher</p></div>
 
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--ok"><b>200</b></span> — The rendered screen, as HTML.</li>
               <li><span class="status status--err"><b>401</b></span> — No token, or a token that has been revoked.</li>
@@ -458,7 +459,7 @@
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS https://pathayam.example.com/cards \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span></code></pre>
             </div>
@@ -472,9 +473,9 @@
           </summary>
           <div class="ep__body">
             <p>Assign a category to an existing transaction. This is also the learning signal: filing the same payee twice proposes a rule.</p>
-            <div><h4>Scope</h4><p><span class="pill pill--w">read-write</span></p></div>
+            <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
-            <h4>Parameters</h4>
+            <h3>Parameters</h3>
             <div class="table-scroll">
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
@@ -486,7 +487,7 @@
             </div>
           </div>
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
@@ -495,7 +496,7 @@
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS -X POST https://pathayam.example.com/transaction/txn_9a2/categorise \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span> \
@@ -511,9 +512,9 @@
           </summary>
           <div class="ep__body">
             <p>Soft delete, recorded in the event log and reversible for thirty days from Activity.</p>
-            <div><h4>Scope</h4><p><span class="pill pill--w">read-write</span></p></div>
+            <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
-            <h4>Parameters</h4>
+            <h3>Parameters</h3>
             <div class="table-scroll">
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
@@ -524,7 +525,7 @@
             </div>
           </div>
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
@@ -533,7 +534,7 @@
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS -X POST https://pathayam.example.com/transaction/txn_9a2/delete \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span></code></pre>
@@ -552,10 +553,10 @@
           </summary>
           <div class="ep__body">
             <p>Everything awaiting a decision: uncategorised spending, suspected duplicates, overspent categories, unfunded cards, proposed rules and money you are owed.</p>
-            <div><h4>Scope</h4><p><span class="pill pill--r">read</span> or higher</p></div>
+            <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher</p></div>
 
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--ok"><b>200</b></span> — The rendered screen, as HTML.</li>
               <li><span class="status status--err"><b>401</b></span> — No token, or a token that has been revoked.</li>
@@ -563,7 +564,7 @@
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS https://pathayam.example.com/review \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span></code></pre>
             </div>
@@ -577,9 +578,9 @@
           </summary>
           <div class="ep__body">
             <p>Paste statement rows as CSV. Headers are detected and a per-bank column mapping can be saved for next time. Rows land staged, never posted.</p>
-            <div><h4>Scope</h4><p><span class="pill pill--w">read-write</span></p></div>
+            <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
-            <h4>Parameters</h4>
+            <h3>Parameters</h3>
             <div class="table-scroll">
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
@@ -592,7 +593,7 @@
             </div>
           </div>
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
@@ -601,7 +602,7 @@
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS -X POST https://pathayam.example.com/import \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span> \
@@ -617,9 +618,9 @@
           </summary>
           <div class="ep__body">
             <p>Multipart upload of a bank statement. The bank is recognised from its own layout, the file is decrypted in-process if it is password-protected, and the parse is checked against the statement's closing balance.</p>
-            <div><h4>Scope</h4><p><span class="pill pill--w">read-write</span></p></div>
+            <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
-            <h4>Parameters</h4>
+            <h3>Parameters</h3>
             <div class="table-scroll">
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
@@ -632,7 +633,7 @@
             </div>
           </div>
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
@@ -641,7 +642,7 @@
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS -X POST https://pathayam.example.com/import/pdf \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span> \
@@ -657,9 +658,9 @@
           </summary>
           <div class="ep__body">
             <p>Reverses an entire import and every row it created, in one step.</p>
-            <div><h4>Scope</h4><p><span class="pill pill--w">read-write</span></p></div>
+            <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
-            <h4>Parameters</h4>
+            <h3>Parameters</h3>
             <div class="table-scroll">
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
@@ -670,7 +671,7 @@
             </div>
           </div>
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
@@ -679,7 +680,7 @@
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS -X POST https://pathayam.example.com/import/undo \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span> -d <span class="tok-s">"batch_id=imp_41c"</span></code></pre>
@@ -698,9 +699,9 @@
           </summary>
           <div class="ep__body">
             <p>The filterable, groupable table. Totals are summed over every row that matched, not the page rendered — the response says how many matched.</p>
-            <div><h4>Scope</h4><p><span class="pill pill--r">read</span> or higher</p></div>
+            <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher</p></div>
           <div>
-            <h4>Parameters</h4>
+            <h3>Parameters</h3>
             <div class="table-scroll">
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
@@ -716,7 +717,7 @@
             </div>
           </div>
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--ok"><b>200</b></span> — The rendered screen, as HTML.</li>
               <li><span class="status status--err"><b>401</b></span> — No token, or a token that has been revoked.</li>
@@ -724,7 +725,7 @@
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS <span class="tok-s">"https://pathayam.example.com/query?from=2025-10-01&amp;to=2026-09-30&amp;group_by=category"</span> \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span></code></pre>
             </div>
@@ -738,9 +739,9 @@
           </summary>
           <div class="ep__body">
             <p>The same filter, as CSV, uncapped. The figures match what the screen showed.</p>
-            <div><h4>Scope</h4><p><span class="pill pill--r">read</span> or higher</p></div>
+            <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher</p></div>
           <div>
-            <h4>Parameters</h4>
+            <h3>Parameters</h3>
             <div class="table-scroll">
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
@@ -751,14 +752,14 @@
             </div>
           </div>
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--ok"><b>200</b></span> — <code>text/csv</code>.</li>
               <li><span class="status status--err"><b>401</b></span> — No token.</li>
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS <span class="tok-s">"https://pathayam.example.com/query.csv?from=2026-04-01"</span> \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> -o spend.csv</code></pre>
             </div>
@@ -772,9 +773,9 @@
           </summary>
           <div class="ep__body">
             <p>The append-only event log, newest first, with the undo for each entry. An undo is itself an entry — nothing is edited away.</p>
-            <div><h4>Scope</h4><p><span class="pill pill--r">read</span> or higher</p></div>
+            <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher</p></div>
           <div>
-            <h4>Parameters</h4>
+            <h3>Parameters</h3>
             <div class="table-scroll">
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
@@ -785,7 +786,7 @@
             </div>
           </div>
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--ok"><b>200</b></span> — The rendered screen, as HTML.</li>
               <li><span class="status status--err"><b>401</b></span> — No token, or a token that has been revoked.</li>
@@ -793,7 +794,7 @@
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS https://pathayam.example.com/activity \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span></code></pre>
             </div>
@@ -807,9 +808,9 @@
           </summary>
           <div class="ep__body">
             <p>Reverses a single recorded change within thirty days. Refuses when the record is load-bearing for a loan instalment, a portfolio lot or a reconciliation, and says which.</p>
-            <div><h4>Scope</h4><p><span class="pill pill--w">read-write</span></p></div>
+            <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
-            <h4>Parameters</h4>
+            <h3>Parameters</h3>
             <div class="table-scroll">
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
@@ -820,7 +821,7 @@
             </div>
           </div>
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--redir"><b>303</b></span> — Undone.</li>
               <li><span class="status status--err"><b>409</b></span> — Refused — the response explains what depends on it.</li>
@@ -828,7 +829,7 @@
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS -X POST https://pathayam.example.com/activity/evt_88c/undo \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span></code></pre>
@@ -843,16 +844,16 @@
           </summary>
           <div class="ep__body">
             <p>The complete dataset in an open format: accounts, transactions, assignments, lots, loans and events. Not a summary and not a subset. The statement identity and any Gmail refresh token are excluded, and a test asserts their absence.</p>
-            <div><h4>Scope</h4><p><span class="pill pill--r">read</span> or higher</p></div>
+            <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher</p></div>
 
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--ok"><b>200</b></span> — <code>application/json</code>, sent as a download.</li>
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS https://pathayam.example.com/export.json \
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> -o pathayam-backup.json</code></pre>
             </div>
@@ -866,17 +867,17 @@
           </summary>
           <div class="ep__body">
             <p>For your uptime monitor. Returns the application state without revealing anything about the data.</p>
-            <div><h4>Scope</h4><p><span class="pill">public</span> — no token needed</p></div>
+            <div><h3>Scope</h3><p><span class="pill">public</span> — no token needed</p></div>
 
           <div>
-            <h4>Responses</h4>
+            <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--ok"><b>200</b></span> — <code>application/json</code> — <code>{&quot;ok&quot;:true}</code>.</li>
               <li><span class="status status--err"><b>503</b></span> — Started but not healthy.</li>
             </ul>
           </div>
             <div>
-              <h4>Example</h4>
+              <h3>Example</h3>
 <pre><code>curl -sS https://pathayam.example.com/healthz</code></pre>
             </div>
           </div>
@@ -928,7 +929,7 @@
   <div class="wrap">
     <div class="foot__grid">
       <div>
-        <h4>Pathayam</h4>
+        <h2 class="foot__h">Pathayam</h2>
         <ul>
           <li><a href="features.html">Features</a></li>
           <li><a href="pricing.html">Pricing</a></li>
@@ -936,14 +937,14 @@
         </ul>
       </div>
       <div>
-        <h4>Reference</h4>
+        <h2 class="foot__h">Reference</h2>
         <ul>
           <li><a href="guides.html">Documentation</a></li>
           <li><a href="api.html">API guide</a></li>
         </ul>
       </div>
       <div>
-        <h4>Built with</h4>
+        <h2 class="foot__h">Built with</h2>
         <ul>
           <li>TypeScript on Node 24+</li>
           <li>node:sqlite · node:http</li>
@@ -951,7 +952,7 @@
         </ul>
       </div>
       <div>
-        <h4>The name</h4>
+        <h3>The name</h3>
         <ul>
           <li><span class="mal">പത്തായം</span> — the wooden chest
               that held a Kerala household's harvest, filled once and

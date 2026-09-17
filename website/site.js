@@ -215,12 +215,12 @@
             (r.card ? ' <span class="tagly">managed</span>' : "") +
             (r.carried ? ' <span class="tagly">+' + rupees(r.carried) + " carried</span>" : "") +
           "</div>" +
-          '<div><label class="sr-only" for="a' + i + '">Assign to ' + r.name + "</label>" +
+          '<div data-col="Assigned"><label class="sr-only" for="a' + i + '">Assign to ' + r.name + "</label>" +
             '<input class="assign-input" id="a' + i + '" data-i="' + i + '" type="text" ' +
                    'inputmode="numeric" value="' + (r.assigned ? groupIndian(r.assigned) : "") +
                    '" placeholder="0"></div>' +
-          '<div class="num" style="color:var(--muted)">' + (r.activity ? rupees(-r.activity) : "—") + "</div>" +
-          '<div class="num avail ' + cls + '">' + rupees(a) +
+          '<div class="num" data-col="Activity" style="color:var(--muted)">' + (r.activity ? rupees(-r.activity) : "—") + "</div>" +
+          '<div class="num avail ' + cls + '" data-col="Available">' + rupees(a) +
             (a < 0 ? ' <button class="cover" type="button" data-cover="' + i + '">cover</button>' : "") +
           "</div>" +
         "</div>";
