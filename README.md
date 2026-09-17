@@ -231,6 +231,22 @@ affecting money must leave the accounting identity closing.
 Contributions are licensed to Flaxvin Technologies so that releases can convert
 to Apache 2.0 on schedule. See [CONTRIBUTING.md](CONTRIBUTING.md).
 
+## Supporting the project
+
+Pathayam is free to run yourself and always will be. If it saves you money or
+time and you would like to put something back:
+
+<img src="docs/img/upi-qr.png" alt="UPI QR code for febinnizar-1@okaxis" width="180" height="180">
+
+**UPI:** `febinnizar-1@okaxis` — or
+[tap to pay](upi://pay?pa=febinnizar-1@okaxis&pn=Febin%20Nizar&cu=INR) on a
+phone with a UPI app installed.
+
+Entirely optional. Nothing in the software is gated behind it, no feature
+depends on it, and nothing asks you for it again. Contributions are a thank-you
+to the author rather than a purchase — you get no goods, service or support in
+return, and they are not tax-deductible.
+
 ## Licence
 
 [Functional Source License 1.1](LICENSE.md), with an Apache 2.0 future licence.

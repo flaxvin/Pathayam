@@ -70,11 +70,11 @@ const SHOTS = [
   { name: "net-worth", path: "/net-worth" },
   { name: "health", path: "/health" },
   { name: "settings", path: "/settings" },
-  { name: "charts_allocation", path: "/portfolio/allocation", clip: "svg" },
-  { name: "charts_reports", path: "/reports", clip: "svg" },
-  { name: "charts_cashflow", path: "/schedules", clip: "svg" },
+  { name: "charts_allocation", path: "/portfolio/allocation", clip: ".chart-donut" },
+  { name: "charts_reports", path: "/reports", clip: ".chart-wide" },
+  { name: "charts_cashflow", path: "/schedules", clip: ".chart-wide" },
   { name: "charts_goals", path: "/goals", clip: ".progress-ring" },
-  { name: "charts_loan", path: "/loans", pick: "loan", clip: "svg" },
+  { name: "charts_loan", path: "/loans", pick: "loan", clip: ".chart-wide" },
 ];
 
 const only = process.argv.slice(2).filter((a) => !a.startsWith("-"));
@@ -235,6 +235,18 @@ async function shootOne(cdp, url, shot, { width, mobile }) {
     });
     const rect = box.result.value ? JSON.parse(box.result.value) : null;
     if (!rect) throw new Error(`${shot.name}: nothing matched ${shot.clip}`);
+    /*
+     * A clip that lands on something tiny is the masthead logo, not the chart:
+     * `svg` used to match it on every page, and four chart shots in the README
+     * were a 48x48 icon for months because nothing checked. The logo is 26 CSS
+     * px; the smallest real chart is the 88 px goal ring.
+     */
+    if (rect.width < 60 || rect.height < 60) {
+      throw new Error(
+        `${shot.name}: ${shot.clip} matched ${Math.round(rect.width)}x${Math.round(rect.height)}, ` +
+        `too small to be the chart — check the selector`,
+      );
+    }
     // The device scale factor already doubles it; a clip scale would double it twice.
     params.clip = { ...rect, scale: 1 };
   } else {
