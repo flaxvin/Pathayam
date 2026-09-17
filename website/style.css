@@ -348,7 +348,11 @@ code, kbd, samp { font-family: var(--font-mono); font-size: 0.9em; }
   box-shadow: var(--shadow-lg);
   background: var(--panel);
 }
+.hero__shot picture { display: block; }
 .hero__shot img { width: 100%; aspect-ratio: 14 / 9; object-fit: cover; object-position: top center; }
+@media (max-width: 44rem) {
+  .hero__shot img { aspect-ratio: 5 / 6; }
+}
 
 /* ---------------------------------------------------------- proof strip -- */
 .proof {
