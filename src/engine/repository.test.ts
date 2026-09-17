@@ -456,9 +456,13 @@ describe("balances and derived figures", () => {
       accountId: savings.id, amount: rupees(-9_000), date: "2026-08-01", categoryId: groceries.id,
     });
     // Funding a card is not spending — it must not inflate the denominator.
-    createTransaction(db, actor, {
-      accountId: savings.id, amount: rupees(-50_000), date: "2026-08-02", categoryId: payCategory.id,
+    // New writes cannot carry a payment category, but a database from before
+    // that rule can; the exclusion has to hold for those rows regardless.
+    const funding = createTransaction(db, actor, {
+      accountId: savings.id, amount: rupees(-50_000), date: "2026-08-02",
     });
+    execute(db, `UPDATE transactions SET category_id = ? WHERE id = ?`,
+      payCategory.id, funding.id);
 
     // ₹9,000 over 90 days.
     assert.equal(averageDailySpend(db, "2026-08-26", 90), rupees(100));

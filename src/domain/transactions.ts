@@ -74,6 +74,31 @@ export interface CreateTransactionInput {
   raw?: { payee?: string; amount?: string; date?: string; narration?: string };
 }
 
+export class FiledIntoPaymentCategory extends Error {}
+
+/**
+ * R6 · A payment category's activity is *derived* from spending on its card —
+ * never stored. A transaction stored against one is therefore invisible to
+ * the envelope while still moving the account, and the accounting identity
+ * breaks by exactly that amount. The pickers hide payment categories; this is
+ * the rule itself, so no other door — review, rules, the API — can slip one
+ * through.
+ */
+function refusePaymentCategories(db: DB, categoryIds: (string | null | undefined)[]): void {
+  for (const id of categoryIds) {
+    if (!id) continue;
+    const paying = queryOne<{ name: string }>(
+      db, `SELECT name FROM categories WHERE id = ? AND payment_account_id IS NOT NULL`, id,
+    );
+    if (paying) {
+      throw new FiledIntoPaymentCategory(
+        `"${paying.name}" is a card's payment envelope — it fills itself from spending ` +
+          `on that card, so nothing can be filed to it directly. Pick another envelope.`,
+      );
+    }
+  }
+}
+
 export function createTransaction(
   db: DB,
   actor: Actor,
@@ -92,6 +117,10 @@ export function createTransaction(
         );
       }
     }
+
+    refusePaymentCategories(db, [
+      input.categoryId, ...(input.splits ?? []).map((s) => s.categoryId),
+    ]);
 
     /*
      * 15 §3A.4 / R6.l · A filing that crosses budgets raises a claim, so the
@@ -232,6 +261,10 @@ export function updateTransaction(
         );
       }
     }
+
+    refusePaymentCategories(db, [
+      patch.categoryId, ...(patch.splits ?? []).map((s) => s.categoryId),
+    ]);
 
     // R6.l · Recategorising can cross budgets just as creating can.
     if (patch.categoryId !== undefined || patch.splits) {

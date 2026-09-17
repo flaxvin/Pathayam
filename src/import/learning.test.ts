@@ -138,8 +138,13 @@ describe("04 §6.4 · rule learning", () => {
       db, `SELECT id FROM categories WHERE payment_account_id = ?`, card.id,
     )!;
 
-    spend(db, account.id, "Card payment", payment.id, "2026-08-01");
-    spend(db, account.id, "Card payment", payment.id, "2026-08-08");
+    // Filing into a payment envelope is refused at the door now, but a
+    // database from before the rule can still hold such rows — the learner
+    // must stay indifferent to them. Seeded below the guard on purpose.
+    const t1 = spend(db, account.id, "Card payment", null, "2026-08-01");
+    const t2 = spend(db, account.id, "Card payment", null, "2026-08-08");
+    execute(db, `UPDATE transactions SET category_id = ? WHERE id IN (?, ?)`,
+      payment.id, t1.id, t2.id);
 
     // R6: that envelope is driven by the card's own transactions, so a rule
     // pointing at it would double-count.

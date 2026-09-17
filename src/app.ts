@@ -108,7 +108,7 @@ import {
   listCategories, getCategory, startPersonalBudget, deleteGroup, visibleBudgetIds,
 } from "./domain/budget.ts";
 import {
-  createTransaction, createTransfer, updateTransaction, deleteTransaction,
+  createTransaction, createTransfer, updateTransaction, deleteTransaction, FiledIntoPaymentCategory,
   getTransaction, getSplits, listPayees, payeeStats, tagsFor, type Transaction,
 } from "./domain/transactions.ts";
 import {
@@ -723,6 +723,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     } catch (err) {
       if (err instanceof IdempotencyConflict) {
         throw new HttpError(err.statusCode, err.message);
+      }
+      // A domain refusal written for the person to read, from any route.
+      if (err instanceof FiledIntoPaymentCategory) {
+        throw new HttpError(400, err.message);
       }
       throw err;
     }
@@ -2807,10 +2811,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // Guard the earlier of the two dates: moving a transaction backwards means
     // the ripple starts where it lands, not where it was.
     const rippleFrom = monthOf(newDate < transaction.date ? newDate : transaction.date);
-    const { recompute } = withForwardRecompute(
-      db, actor, { month: rippleFrom, cause: "Edited a transaction" },
-      () =>
-        updateTransaction(db, actor, id, {
+    let recompute;
+    try {
+      ({ recompute } = withForwardRecompute(
+        db, actor, { month: rippleFrom, cause: "Edited a transaction" },
+        () =>
+          updateTransaction(db, actor, id, {
           amount: signed,
           date: newDate,
           ...(splitLines.length > 0
@@ -2831,7 +2837,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             : {}),
           ...(payeeId !== undefined ? { payeeId } : {}),
         }),
-    );
+      ));
+    } catch (err) {
+      if (err instanceof FiledIntoPaymentCategory) throw new HttpError(400, err.message);
+      throw err;
+    }
 
     // L1 · Cleaning up an imported payee proposes a pre-stage rule mapping the
     // raw string to the clean name, so next month's identical narration
