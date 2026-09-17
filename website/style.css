@@ -217,12 +217,6 @@ code, kbd, samp { font-family: var(--font-mono); font-size: 0.9em; }
   border-bottom: 1px solid var(--line);
 }
 .masthead__inner { display: flex; align-items: center; gap: 1rem; min-height: 4.25rem; }
-/* Below this width the nav wraps to three rows or more; a sticky header that
-   tall takes a third of a small phone's viewport and keeps it. Let it scroll
-   away instead. */
-@media (max-width: 30rem) {
-  .masthead { position: static; }
-}
 
 .brand {
   display: inline-flex; align-items: center; gap: 0.55rem;
@@ -247,6 +241,47 @@ code, kbd, samp { font-family: var(--font-mono); font-size: 0.9em; }
    !important. */
 .nav a.btn--primary { color: var(--brand-ink); background: var(--brand); }
 .nav a.btn--primary:hover { color: var(--brand-ink); background: var(--brand-2); }
+
+/* Five links, a call to action and the theme control do not share a line on a
+   phone, and a nav that wraps to five rows is a sticky header holding a third
+   of the viewport. Below 44rem they collapse behind a disclosure. It is a
+   <details>, so it opens without script. */
+.menu { position: relative; display: flex; }
+.menu__btn {
+  display: none;
+  list-style: none;
+  cursor: pointer;
+  align-items: center; justify-content: center;
+  min-width: 44px; min-height: 44px;
+  border-radius: 999px;
+  color: var(--ink-2);
+}
+.menu__btn::-webkit-details-marker { display: none; }
+.menu__btn:hover { color: var(--ink); background: var(--band); }
+.menu__bars { font-size: 1.15rem; line-height: 1; }
+.menu[open] > .menu__btn { color: var(--ink); background: var(--band); }
+.menu__panel { display: flex; align-items: center; gap: 0.2rem; }
+/* Chrome hides a closed <details>'s content through this pseudo-element rather
+   than through the child's own display, so the child rule alone is not enough
+   to show the links when the menu is the whole navigation. */
+.menu::details-content { content-visibility: visible; }
+
+@media (max-width: 44rem) {
+  .menu__btn { display: inline-flex; }
+  .menu:not([open])::details-content { content-visibility: hidden; }
+  .menu:not([open]) > .menu__panel { display: none; }
+  .menu__panel {
+    position: absolute; right: 0; top: calc(100% + 0.55rem);
+    z-index: 40;
+    flex-direction: column; align-items: stretch;
+    gap: 0.15rem;
+    min-width: 12rem; padding: 0.4rem;
+    border: 1px solid var(--line); border-radius: var(--r-sm);
+    background: var(--ground); box-shadow: var(--shadow);
+  }
+  .menu__panel > a { padding: 0.65rem 0.8rem; }
+  .menu__panel > .btn--nav { margin-top: 0.25rem; text-align: center; }
+}
 
 .theme-toggle {
   margin-left: 0.3rem;

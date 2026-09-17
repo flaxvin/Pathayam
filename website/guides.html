@@ -32,12 +32,19 @@
       Pathayam
     </a>
     <nav class="nav" aria-label="Main">
-      <a href="index.html">Home</a>
-      <a href="features.html">Features</a>
-      <a href="pricing.html">Pricing</a>
-      <a href="guides.html" aria-current="page">Guides</a>
-      <a href="api.html">API</a>
-      <a class="btn btn--primary btn--nav" href="demo.html">Try the demo</a>
+      <details class="menu">
+        <summary class="menu__btn">
+          <span class="sr-only">Menu</span><span class="menu__bars" aria-hidden="true">☰</span>
+        </summary>
+        <div class="menu__panel">
+          <a href="index.html">Home</a>
+          <a href="features.html">Features</a>
+          <a href="pricing.html">Pricing</a>
+          <a href="guides.html" aria-current="page">Guides</a>
+          <a href="api.html">API</a>
+          <a class="btn btn--primary btn--nav" href="demo.html">Try the demo</a>
+        </div>
+      </details>
       <button class="theme-toggle" type="button" aria-label="Switch theme">☾</button>
     </nav>
   </div>
