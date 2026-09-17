@@ -327,6 +327,58 @@ describe("R5 · Covering overspending", () => {
     // The overspent category never suggests itself, and empty ones are omitted.
     assert.ok(!sources.some((s) => s.categoryId === "eating-out"));
   });
+
+  test("a category the caller did not name is not offered, or priced", () => {
+    const state = computeBudget(
+      new Scenario()
+        .category("eating-out")
+        .category("groceries")
+        .category("her-private")
+        .income(AUG, 50_000)
+        .assign(AUG, "groceries", 2_400)
+        .assign(AUG, "her-private", 40_000)
+        .assign(AUG, "eating-out", 1_000)
+        .spendCash(AUG, "eating-out", 2_850)
+        .build(),
+    ).get(AUG)!;
+
+    /*
+     * The shape of the /move leak: the states map is the engine's, holding
+     * every category in the household, while the names map is the viewer's
+     * filtered one. The gap between them is somebody else's private envelope.
+     */
+    const sources = suggestCoverSources("eating-out", state.categories, {
+      categoryNames: new Map([["groceries", "Groceries"]]),
+    });
+
+    assert.deepEqual(sources.map((s) => s.categoryId), ["groceries"]);
+    assert.ok(
+      !sources.some((s) => s.reason.includes("her-private")),
+      "an unnamed category was printed by id, which is how the leak reached the screen",
+    );
+    assert.ok(
+      !sources.some((s) => s.available === rupees(40_000)),
+      "the balance of a category the viewer cannot see was disclosed",
+    );
+  });
+
+  test("with no names supplied at all, every candidate still stands", () => {
+    // Non-UI callers pass no map and mean the whole household; only a partial
+    // map is a filter.
+    const state = computeBudget(
+      new Scenario()
+        .category("eating-out")
+        .category("groceries")
+        .income(AUG, 50_000)
+        .assign(AUG, "groceries", 2_400)
+        .assign(AUG, "eating-out", 1_000)
+        .spendCash(AUG, "eating-out", 2_850)
+        .build(),
+    ).get(AUG)!;
+
+    const sources = suggestCoverSources("eating-out", state.categories);
+    assert.deepEqual(sources.map((s) => s.categoryId), ["groceries"]);
+  });
 });
 
 describe("R6 · Credit cards", () => {

@@ -91,9 +91,18 @@ CMD ["node", "dist/main.js"]
 # seeding takes about twenty seconds, and doing it on boot would hand that wait
 # to whichever visitor happened to arrive on a cold start.
 #
-# Baking it in is also how the demo resets. Every new container starts from the
-# image's copy, so a restart is a reset and nothing a visitor types outlives
-# the instance. There is no cron to forget.
+# Baking it in is also how the demo resets, but not by itself. `docker run
+# --rm` throws the writable layer away, so there a restart really is a reset —
+# on a hosted machine it is not. A Fly machine that stops when idle and starts
+# on the next request keeps its filesystem across the pause, so without the
+# copy below a visitor's typing would sit in the demo until the next deploy.
+#
+# So the seed is kept twice: `demo.seed.sqlite` is the pristine one and is never
+# opened by the app, and the entrypoint copies it over `demo.sqlite` on every
+# boot. Copying a few megabytes costs milliseconds, where re-seeding costs the
+# twenty seconds above — which means the demo can reset on every wake from idle
+# rather than only when something is deployed. That is what makes the privacy
+# policy's "it resets periodically" true.
 #
 #   docker build --target demo -t pathayam-demo .
 #   docker run --rm -p 8080:8080 pathayam-demo
@@ -106,7 +115,19 @@ ENV DEMO_MODE=1 \
 USER root
 # SQLite writes -wal and -shm beside the database, so the directory has to be
 # writable by the runtime user, not just the file.
-RUN node dist/demo.js && chown -R node:node /app/demo.sqlite /app
+#
+# The checkpoint matters: the seed runs in WAL mode, so without folding the log
+# back into the main file the snapshot would be an empty-looking database with
+# all its contents in a -wal file left behind.
+RUN node dist/demo.js \
+ && node --input-type=module -e "import { DatabaseSync } from 'node:sqlite'; \
+      const db = new DatabaseSync('/app/demo.sqlite'); \
+      db.exec('PRAGMA wal_checkpoint(TRUNCATE)'); \
+      db.close();" \
+ && cp /app/demo.sqlite /app/demo.seed.sqlite \
+ && chown -R node:node /app
 USER node
 
-CMD ["node", "dist/main.js"]
+# Restore the pristine copy, then hand PID 1 to node with exec so it still
+# receives the signals Fly sends it.
+CMD ["sh", "-c", "rm -f /app/demo.sqlite /app/demo.sqlite-wal /app/demo.sqlite-shm && cp /app/demo.seed.sqlite /app/demo.sqlite && exec node dist/main.js"]

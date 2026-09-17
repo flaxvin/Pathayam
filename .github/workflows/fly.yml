@@ -67,6 +67,11 @@ jobs:
 
       - uses: superfly/flyctl-actions/setup-flyctl@master
 
-      - run: flyctl deploy --remote-only
+      # --ha=false keeps this at one machine. Fly's default is to create a
+      # spare for high availability, which would be wrong here: the demo
+      # database is baked into the image, not shared over a volume, so a second
+      # machine is a second database and a visitor would see their own
+      # transaction or not depending on which answered.
+      - run: flyctl deploy --remote-only --ha=false
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}

@@ -551,6 +551,17 @@ export function suggestCoverSources(
   for (const [id, s] of states) {
     if (id === needy || s.balance <= 0) continue;
 
+    /*
+     * A caller that supplies names has told us which categories it is willing
+     * to talk about, so an id missing from that map is one it did not mean to
+     * offer — usually another member's private envelope, which the caller
+     * filtered out of its own view and then forgot to filter out of the states
+     * it passed here. Skipping it fails closed: the worst outcome is a missing
+     * suggestion, where naming it would print somebody's balance on a screen
+     * they are not allowed to see it on.
+     */
+    if (categoryNames && !categoryNames.has(id)) continue;
+
     const reasons: string[] = [];
     let score = s.balance;
     if (metTargets.has(id)) {
