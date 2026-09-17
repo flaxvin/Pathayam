@@ -50,6 +50,16 @@ import { html, type SafeHtml } from "../../http/html.ts";
  */
 export type LegalMode = "self-hosted" | "demo";
 
+/*
+ * The addresses below are wrapped in `<!--email_off-->` where they are used.
+ * Cloudflare sits in front of the public demo and rewrites anything that looks
+ * like an email address into a `/cdn-cgi/l/email-protection` link whose visible
+ * text is "[email protected]" — which, on the one page that has to tell somebody
+ * where to send a grievance, means it does not tell them. Those markers are
+ * Cloudflare's documented opt-out and are an inert comment to every other
+ * reader.
+ */
+
 /** The operator of the public instances, named because somebody is responsible. */
 const OPERATOR = "Flaxvin Technologies";
 const OPERATOR_SITE = "https://flaxvin.tech";
@@ -134,7 +144,7 @@ export function renderPrivacy(
               For the purposes of the Digital Personal Data Protection Act, 2023,
               ${OPERATOR} is the Data Fiduciary for anything described below.
               Questions, requests and complaints:
-              <a href="mailto:${PRIVACY_EMAIL}">${PRIVACY_EMAIL}</a>.
+              <!--email_off--><a href="mailto:${PRIVACY_EMAIL}">${PRIVACY_EMAIL}</a><!--/email_off-->.
             </p>
 
             <h2>Do not put anything real into this demo</h2>
@@ -284,7 +294,7 @@ export function renderPrivacy(
           ? html`
               <li>
                 <strong>Complain.</strong> To
-                <a href="mailto:${PRIVACY_EMAIL}">${PRIVACY_EMAIL}</a> first, and
+                <!--email_off--><a href="mailto:${PRIVACY_EMAIL}">${PRIVACY_EMAIL}</a><!--/email_off--> first, and
                 then to the Data Protection Board of India if it is not resolved.
                 Grievances reach the same address and are answered within 30 days.
               </li>
@@ -400,7 +410,7 @@ export function renderTerms(
         personal study, research, a hobby, a charity, a school. Commercial use is
         not permitted, including running it inside a business or using it for the
         books of a company or a freelance practice. Commercial licences are
-        available separately: <a href="mailto:${LICENCE_EMAIL}">${LICENCE_EMAIL}</a>.
+        available separately: <!--email_off--><a href="mailto:${LICENCE_EMAIL}">${LICENCE_EMAIL}</a><!--/email_off-->.
       </p>
 
       <h2>Acceptable use</h2>
@@ -483,8 +493,8 @@ export function renderTerms(
 
             <h2>Contact</h2>
             <p>
-              <a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a> for the
-              service, <a href="mailto:${PRIVACY_EMAIL}">${PRIVACY_EMAIL}</a> for
+              <!--email_off--><a href="mailto:${SUPPORT_EMAIL}">${SUPPORT_EMAIL}</a><!--/email_off--> for the
+              service, <!--email_off--><a href="mailto:${PRIVACY_EMAIL}">${PRIVACY_EMAIL}</a><!--/email_off--> for
               anything about data.
             </p>
           `
