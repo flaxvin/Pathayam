@@ -11,6 +11,7 @@ import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST, todayIST, formatDate, addDays, type IsoDate } from "../core/dates.ts";
+import { Refusal } from "../core/refusal.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { getAccount } from "./accounts.ts";
 import { prepareClaim } from "./commitments.ts";
@@ -74,7 +75,7 @@ export interface CreateTransactionInput {
   raw?: { payee?: string; amount?: string; date?: string; narration?: string };
 }
 
-export class FiledIntoPaymentCategory extends Error {}
+export class FiledIntoPaymentCategory extends Refusal {}
 
 /**
  * R6 · A payment category's activity is *derived* from spending on its card —
@@ -116,6 +117,16 @@ export function createTransaction(
           `The splits add up to ${formatPaise(total)}, but the transaction is ${formatPaise(input.amount)}.`,
         );
       }
+    }
+
+    /*
+     * F4 · A transaction is money moving. Zero is not a movement: it changes
+     * no balance, no envelope and no total, so it can only ever be a slip of
+     * the keyboard or a statement line that is really a notice. Accepting it
+     * left rows in the register that no figure on any screen accounts for.
+     */
+    if (input.amount === 0) {
+      throw new Refusal("A transaction has to move some money. Enter an amount above zero.");
     }
 
     refusePaymentCategories(db, [
@@ -260,6 +271,11 @@ export function updateTransaction(
           `The splits add up to ${formatPaise(total)}, but the transaction is ${formatPaise(amount)}.`,
         );
       }
+    }
+
+    // The same rule as creating: an edit cannot empty a transaction either.
+    if (patch.amount === 0) {
+      throw new Refusal("A transaction has to move some money. Enter an amount above zero.");
     }
 
     refusePaymentCategories(db, [
@@ -413,8 +429,8 @@ export interface TransferInput {
  * `docs/dev/01-engine-derivation.md` §5.
  */
 export function createTransfer(db: DB, actor: Actor, input: TransferInput): [Transaction, Transaction] {
-  if (input.amount <= 0) throw new Error("Enter an amount greater than zero to transfer.");
-  if (input.fromAccountId === input.toAccountId) throw new Error("Pick two different accounts.");
+  if (input.amount <= 0) throw new Refusal("Enter an amount greater than zero to transfer.");
+  if (input.fromAccountId === input.toAccountId) throw new Refusal("Pick two different accounts.");
 
   return transact(db, () => {
     const from = getAccount(db, input.fromAccountId);

@@ -26,6 +26,7 @@ import {
 } from "./rules.ts";
 import type { RawRecord, ParseError } from "./csv.ts";
 import { createHash } from "node:crypto";
+import { Refusal } from "../core/refusal.ts";
 
 /**
  * The identity of an imported row, for the exact-match tier in `04` §4.
@@ -388,7 +389,7 @@ export function listStaged(db: DB, opts: { batchId?: string } = {}): StagedRow[]
 }
 
 /** B99 · Thrown when an expense would enter the ledger with no envelope. */
-export class StagedNeedsCategory extends Error {}
+export class StagedNeedsCategory extends Refusal {}
 
 export function approveStaged(
   db: DB, actor: Actor, stagedId: string,

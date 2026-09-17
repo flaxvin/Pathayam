@@ -164,7 +164,7 @@ describe("R6 · a payment envelope cannot be filed to directly", () => {
     const res = await app.post(`/transaction/${id}`, {
       ...base, amount: "400", category_id: payment,
     });
-    assert.equal(res.status, 400);
+    assert.equal(res.status, 422);
     assert.match(await res.text(), /payment envelope/);
     assert.equal(getTransaction(db, id)!.category_id, groceries);
 
@@ -173,8 +173,39 @@ describe("R6 · a payment envelope cannot be filed to directly", () => {
       split_category_0: groceries, split_amount_0: "100",
       split_category_1: payment, split_amount_1: "300",
     });
-    assert.equal(asSplit.status, 400);
+    assert.equal(asSplit.status, 422);
     assert.equal(getTransaction(db, id)!.is_split, 0);
+  });
+});
+
+describe("F4 · a transaction has to move some money", () => {
+  test("zero is refused on the way in", async () => {
+    const res = await app.post("/add", {
+      direction: "out", account_id: bank, amount: "0", date: "05-09-2026",
+      payee: "Nobody", category_id: groceries, memo: "",
+    });
+    assert.equal(res.status, 422);
+    assert.match(await res.text(), /move some money/);
+  });
+
+  test("and on the way through an edit", async () => {
+    const id = spend(300);
+    const res = await app.post(`/transaction/${id}`, {
+      ...base, amount: "0", category_id: groceries,
+    });
+    assert.equal(res.status, 422);
+    assert.equal(getTransaction(db, id)!.amount, -rupees(300));
+  });
+
+  test("a zero transfer is refused too", async () => {
+    const other = createAccount(db, actor, {
+      name: "Kotak", kind: "budget", subtype: "savings",
+      openingDate: "2026-01-01", openingBalance: rupees(1000),
+    }).id;
+    const res = await app.post("/transfer", {
+      from_account_id: bank, to_account_id: other, amount: "0", date: "05-09-2026", memo: "",
+    });
+    assert.equal(res.status, 422);
   });
 });
 

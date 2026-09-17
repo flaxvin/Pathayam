@@ -44,9 +44,9 @@ after(async () => {
   await app.close();
 });
 
-test("approving money out with no envelope is a 400 that says so", async () => {
+test("approving money out with no envelope is a 422 that says so", async () => {
   const res = await app.post("/review/approve", { staged_id: stagedId, category_id: "" });
-  assert.equal(res.status, 400);
+  assert.equal(res.status, 422);
   assert.match(await res.text(), /Choose an envelope/);
   // The row is still waiting, exactly as the queue promises.
   assert.equal(listStaged(db).length, 1);

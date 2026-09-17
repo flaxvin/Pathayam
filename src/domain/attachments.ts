@@ -15,6 +15,7 @@ import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST } from "../core/dates.ts";
+import { Refusal } from "../core/refusal.ts";
 
 /** What a listing shows: metadata only, never the bytes. */
 export interface AttachmentMeta {
@@ -51,7 +52,7 @@ export function mimeFor(filename: string, declared?: string | null): string {
 }
 
 /** A refusal written for the person holding the file, not the error log. */
-export class AttachmentRefused extends Error {}
+export class AttachmentRefused extends Refusal {}
 
 export function addAttachment(
   db: DB, actor: Actor,
