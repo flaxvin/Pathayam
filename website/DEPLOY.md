@@ -100,7 +100,6 @@ impossible to miss on the rendered page. Search both files for `class="todo"`:
 | `[HOSTING PROVIDER]`, `[HOSTING PROVIDER AND REGION]`, `[N]` days | Privacy: sub-processors and log retention. |
 | `[PAYMENT PROCESSOR]` | Both pages. |
 | `[INCLUSIVE / EXCLUSIVE]` of GST | Terms: pricing. |
-| `[REFUND POLICY]` | Terms. Consider a 14-day refund on a first subscription. |
 | `[CITY]` | Terms: jurisdiction. |
 | `[LINK TO THE PUBLIC REPOSITORY]` | Terms: where the licence text lives, once the repository is public. |
 
