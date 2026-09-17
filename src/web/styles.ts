@@ -506,6 +506,16 @@ legend { font-weight: 600; font-size: .9rem; padding: 0 .35rem; }
 .grid-2 { display: grid; gap: .75rem; }
 @media (min-width: 640px) { .grid-2 { grid-template-columns: 1fr 1fr; } }
 
+/*
+ * One split line: an envelope and the amount that goes to it. These are a
+ * pair, not two fields, so they stay side by side at every width — stacked,
+ * a three-line split reads as six unrelated controls and you cannot see the
+ * figures line up to check them against the total.
+ */
+.split-line { display: grid; grid-template-columns: 1fr 7.5rem; gap: .5rem; align-items: end; }
+.split-line > .field { margin-bottom: 0; }
+.split-line .amount-input { text-align: right; }
+
 table { width: 100%; border-collapse: collapse; font-size: .92rem; }
 th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--border); }
 th { font-size: .78rem; text-transform: uppercase; letter-spacing: .04em; color: var(--text-faint); }
