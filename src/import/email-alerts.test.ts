@@ -79,6 +79,40 @@ describe("04 §3.4 · parsing bank transaction alerts", () => {
     assert.equal(r.record.cardholderName, "Ravi Kumar");
   });
 
+  test("Axis NEFT — the sentence-style alert, not the summary", () => {
+    /*
+     * NEFT and IMPS debits arrive as one sentence with no Amount Debited
+     * label. A transfer this shape is usually the month's largest and was
+     * the one alert Axis sends that parsed to nothing.
+     */
+    const r = parseAlert(
+      "alerts@axis.bank.in",
+      "Debit transaction alert for Axis Bank A/c",
+      "16-09-2026 Dear Kavya R Pillai, Thank you for banking with us. " +
+        "We wish to inform you that your A/c no. XX0000 has been debited with " +
+        "INR 23000.00 on 16-09-2026 06:17:07 IST by NEFT/MB/AXOMB00000000000/V. " +
+        "To check your available balance, please click here .",
+    )!;
+    assert.ok(r);
+    assert.equal(r.bank, "axis");
+    assert.equal(r.record.amount, -23_000_00);
+    assert.equal(r.record.date, "2026-09-16");
+    assert.equal(r.record.accountLast4, "0000");
+    assert.match(r.record.narration, /^NEFT\/MB\/AXOMB00000000000\/V$/);
+    assert.equal(r.record.cardholderName, "Kavya R Pillai");
+  });
+
+  test("Axis sentence credit is positive", () => {
+    const r = parseAlert(
+      "alerts@axis.bank.in",
+      "Credit transaction alert for Axis Bank A/c",
+      "Dear Kavya R Pillai, your A/c no. XX0000 has been credited with " +
+        "INR 5000.00 on 01-09-2026 10:00:00 IST by IMPS/P2A/000000000001/RENT.",
+    )!;
+    assert.ok(r);
+    assert.equal(r.record.amount, 5_000_00);
+  });
+
   test("YES Bank card — a single sentence, with the balance as a hint", () => {
     const r = parseAlert("alerts@yes.bank.in", "YES BANK - Transaction Alert", YES_CARD)!;
     assert.equal(r.record.amount, -7_000);
