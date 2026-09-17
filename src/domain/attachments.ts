@@ -50,16 +50,19 @@ export function mimeFor(filename: string, declared?: string | null): string {
   }
 }
 
+/** A refusal written for the person holding the file, not the error log. */
+export class AttachmentRefused extends Error {}
+
 export function addAttachment(
   db: DB, actor: Actor,
   input: { transactionId: string; filename: string; mime?: string | null; bytes: Uint8Array },
 ): AttachmentMeta {
   const mime = mimeFor(input.filename, input.mime);
   if (!ALLOWED_MIME.has(mime)) {
-    throw new Error("A receipt must be an image or a PDF.");
+    throw new AttachmentRefused("A receipt must be an image or a PDF.");
   }
-  if (input.bytes.length === 0) throw new Error("That file is empty.");
-  if (input.bytes.length > MAX_BYTES) throw new Error("That file is too large — 10 MB is the limit.");
+  if (input.bytes.length === 0) throw new AttachmentRefused("That file is empty.");
+  if (input.bytes.length > MAX_BYTES) throw new AttachmentRefused("That file is too large — 10 MB is the limit.");
 
   return transact(db, () => {
     const transaction = queryOne<{ id: string }>(
