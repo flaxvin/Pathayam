@@ -240,7 +240,7 @@ function fileKey(doc: PdfDocument, encrypt: PdfDict, password: string): Encrypti
   if (isName(filter) && filter.name !== "Standard") {
     throw new Error(
       `This statement uses the ${filter.name} security handler, which this app cannot open. ` +
-      `Save it as an unprotected PDF and import that instead.`,
+      `Save it as an unprotected PDF from your viewer and import that.`,
     );
   }
 

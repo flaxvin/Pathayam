@@ -53,7 +53,7 @@ export function renderMore(features: { loans: boolean; assets: boolean }): SafeH
       ["/overview", "Overview", "Runway, what is due soon, the month at a glance"],
       ["/cards", "Cards", "Which one is due next, and is it funded"],
       ["/reports", "Reports", "Income against spending, and where it goes"],
-      ["/query", "Query", "One table, filtered and grouped as needed"],
+      ["/query", "Query", "One table, filtered and grouped however you like"],
       ["/schedules", "Schedules & cashflow", "Will you make it to the 30th?"],
       ["/goals", "Goals", "Long-horizon savings, kept off the monthly grid"],
     ])}
@@ -77,13 +77,13 @@ export function renderMore(features: { loans: boolean; assets: boolean }): SafeH
 
     ${group("Manage", [
       ["/payees", "Payees", "Merge duplicates; every raw string is kept"],
-      ["/rules", "Rules", "Automate categorisation, testable before saving"],
+      ["/rules", "Rules", "Automate categorisation, testable before you save"],
       ["/categories", "Categories", "Rename, reorder, hide"],
       ["/import", "Import", "Statements in, review queue out"],
       ["/activity", "Activity", "Every change, and the undo for it"],
       ["/health", "Health", "The page you open at 2am"],
       ["/settings", "Settings", "Household, appearance, devices"],
-      ["/tokens", "API tokens", "For scripts. Scoped and revocable"],
+      ["/tokens", "API tokens", "For your own scripts, scoped and revocable"],
     ])}
 
     ${group("Once a month", [
@@ -110,8 +110,8 @@ export function renderPayees(rows: PayeeRow[]): SafeHtml {
   return html`
     <h1>Payees</h1>
     <p class="muted">
-      Every raw string the bank has used for a payee is retained, so a cleaned
-      name can always be traced to its source.
+      Every raw string the bank has ever used for a payee is kept, so a cleaned
+      name never loses what it came from.
     </p>
 
     ${rows.length === 0
@@ -144,8 +144,8 @@ export function renderPayees(rows: PayeeRow[]): SafeHtml {
           <section class="card">
             <h2>Merge two payees</h2>
             <p class="faint" style="margin-top:-.25rem">
-              All history and every raw string move across. Nothing is lost, and
-              the merge is reversible.
+              All history and every raw string move across. Nothing is lost, and it
+              can be undone.
             </p>
             <form method="post" action="/payees/merge">
               <div class="grid-2">
@@ -253,9 +253,9 @@ export function renderRules(opts: {
   return html`
     <h1>Rules</h1>
     <p class="muted">
-      Rules propose; a person confirms. Nothing is applied to the ledger without
-      passing through Review, and a rule can be tested against existing history
-      before it is saved.
+      Rules propose; you confirm. Nothing here is applied to your ledger without
+      passing through Review first, and a rule can be tried against your own
+      history before you save it.
     </p>
 
     ${when(opts.proposed.length > 0, () => html`
@@ -316,9 +316,8 @@ export function renderRules(opts: {
             <label for="cond-value">…this</label>
             <input id="cond-value" name="value" required value="${opts.draft?.value ?? ""}" placeholder="Swiggy">
             <p class="field-hint">
-              Matching the merchant rather than the full description keeps the
-              rule working when the reference number changes, which it does on
-              every transaction.
+              Matching on the merchant rather than the whole description keeps the rule
+              working when the order number changes — which it does every time.
             </p>
           </div>
         </fieldset>
@@ -353,9 +352,9 @@ export function renderRules(opts: {
         ? html`<p class="faint">None yet.</p>`
         : html`
             <p class="faint" style="margin-top:-.25rem">
-              Rules run in three stages: clean up, then categorise, then tag.
-              Within a stage, broader rules run before narrower ones. Ordering
-              is automatic.
+              Rules run in three stages — clean up, then categorise, then tag — and
+              within a stage the broad ones run before the narrow ones. You never
+              have to order them yourself.
             </p>
             ${opts.rules.map(
               (r) => html`
@@ -394,8 +393,8 @@ function renderRuleTest(test: {
   return html`
     <div class="notice ${test.matched > 0 ? "notice-success" : "notice-warning"}" style="margin-top:1rem">
       ${test.matched === 0
-        ? html`This rule matches nothing on record. It will still apply to anything new
-        that fits; check the wording first.`
+        ? html`That rule matches nothing in your history. It will still apply to
+               anything new that fits — but check the wording first.`
         : html`Matches <strong>${test.matched}</strong> ${test.matched === 1 ? "transaction" : "transactions"}
                in your history.`}
     </div>
@@ -584,8 +583,8 @@ export function renderCategories(
     <section class="card">
       <h2>Add a group</h2>
       <p class="muted">
-        A group is a heading that envelopes sit under. It belongs to this budget
-        and does not appear in the other.
+        A group is a heading the envelopes sit under. It belongs to this budget
+        and does not appear in the other one.
       </p>
       <form method="post" action="/groups/new" class="row" style="gap:.5rem;align-items:flex-end">
         <div class="field" style="margin:0">
@@ -634,8 +633,8 @@ export function renderFirstRun(opts: { memberName: string }): SafeHtml {
     <div style="max-width:34rem;margin:2rem auto">
       <h1>Let's get you a working budget</h1>
       <p class="muted">
-        Takes under ten minutes. Every value here is a starting point and can be
-        edited afterwards.
+        Under ten minutes. Everything here is a starting point you'll edit —
+        nothing is locked in.
       </p>
 
       <form method="post" action="/setup" class="card">
@@ -644,8 +643,8 @@ export function renderFirstRun(opts: { memberName: string }): SafeHtml {
           <input id="income" name="monthly_income" class="amount-input" type="text"
                  inputmode="decimal" required placeholder="1,65,000">
           <p class="field-hint">
-            Used only to suggest starting amounts. It is never counted as
-            income; the budget is funded by money actually held.
+            Used only to suggest starting amounts. It is never treated as income
+            you have — this app only budgets money you actually hold.
           </p>
         </div>
 
@@ -668,7 +667,7 @@ export function renderFirstRun(opts: { memberName: string }): SafeHtml {
       <div class="card">
         <h2>Rather start empty?</h2>
         <p class="muted">
-          Creates one group and nothing else.
+          You'll get one group and nothing else, and can build it up yourself.
         </p>
         <form method="post" action="/setup/blank">
           <button type="submit">Start blank instead</button>
@@ -676,7 +675,8 @@ export function renderFirstRun(opts: { memberName: string }): SafeHtml {
       </div>
 
       <p class="faint">
-        Signed in as ${opts.memberName}. Further members are added from Settings after setup.
+        Signed in as ${opts.memberName}. You can add the rest of the household
+        from Settings once you're set up.
       </p>
     </div>
   `;
@@ -703,9 +703,8 @@ export function renderTokens(opts: {
   return html`
     <h1>API tokens</h1>
     <p class="muted">
-      For scripts. A token acts as the member who created it, but cannot sign
-      in, impersonate anyone, create further tokens, or change who may access
-      the household.
+      For your own scripts. A token acts as you, but it cannot sign in, impersonate anyone, create
+      more tokens, or change who is allowed into the household.
     </p>
 
     ${when(opts.minted, () => html`

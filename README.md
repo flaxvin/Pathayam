@@ -227,3 +227,17 @@ npm test
 
 Both must pass. New behaviour requires a test that fails without it. Changes
 affecting money must leave the accounting identity closing.
+
+Contributions are licensed to the project's owner so that releases can convert
+to Apache 2.0 on schedule. See [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Licence
+
+[Functional Source License 1.1](LICENSE.md), with an Apache 2.0 future licence.
+
+Use it, change it, run it for yourself or inside your company. The one thing it
+forbids is offering it to others as a competing commercial product or service.
+Two years after a release is published, that release becomes Apache 2.0.
+
+Source available, not OSI open source: the competing-use limit is the
+difference.

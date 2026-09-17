@@ -70,7 +70,7 @@ describe("04 §6.4 · rule learning", () => {
     const row = queryOne<{ because: string | null }>(
       db, `SELECT because FROM rules LIMIT 1`,
     )!;
-    assert.equal(row.because, "Filed Swiggy to Eating Out 2 times.");
+    assert.equal(row.because, "You've put Swiggy in Eating Out 2 times.");
     db.close();
   });
 
@@ -102,7 +102,7 @@ describe("04 §6.4 · rule learning", () => {
       spend(db, account.id, "DMart", groceries.id, d);
     }
     const proposal = proposeCategoryRules(db, actor)[0]!;
-    assert.equal(proposal.because, "Filed DMart to Groceries 3 times.");
+    assert.equal(proposal.because, "You've put DMart in Groceries 3 times.");
     db.close();
   });
 
@@ -162,7 +162,7 @@ describe("04 §6.4 · rule learning", () => {
     assert.equal(proposal.stage, "pre");
     // F6.9: matching the merchant keeps working when the order id changes.
     assert.deepEqual(proposal.conditions, [{ field: "merchant", op: "is", value: "Swiggy" }]);
-    assert.match(proposal.because, /Renamed/);
+    assert.match(proposal.because, /You renamed/);
     db.close();
   });
 

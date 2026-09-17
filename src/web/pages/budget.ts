@@ -93,7 +93,7 @@ function renderReadyToAssign(view: BudgetView): SafeHtml {
   // R2's three display states. Each carries a word as well as a colour (A2).
   const wording =
     state === "negative"
-      ? "More is assigned than is available. Move some back."
+      ? "You've assigned more than you have — move some back."
       : state === "zero"
         ? "Every rupee has a job."
         : "Still to assign.";
@@ -363,7 +363,7 @@ function renderEmptyState(): SafeHtml {
     <div class="card empty-state">
       <div class="empty-icon" aria-hidden="true">◧</div>
       <h2>Nothing to budget yet</h2>
-      <p>Ready to Assign is derived once an account and its current balance are recorded.</p>
+      <p>Add your first account and its current balance, and Ready to Assign becomes a real number.</p>
       <p>
         <a class="button button-primary" href="/accounts/new">Add your first account</a>
         <a class="button" href="/setup">Start from a template</a>

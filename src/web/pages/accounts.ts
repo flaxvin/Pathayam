@@ -65,7 +65,7 @@ export function renderAccountList(
       <div class="card empty-state">
         <div class="empty-icon" aria-hidden="true">▤</div>
         <h2>No accounts yet</h2>
-        <p>Start with the account income arrives in; the rest can follow.</p>
+        <p>Add the account your salary lands in first — everything else can follow.</p>
         <p><a class="button button-primary" href="/accounts/new">Add an account</a></p>
       </div>
     `;
@@ -77,9 +77,9 @@ export function renderAccountList(
       <a class="button button-primary" href="/accounts/new">Add an account</a>
     </div>
 
-    ${renderSection("Budget accounts", budget, "These fund the envelopes.")}
+    ${renderSection("Budget accounts", budget, "These fund your envelopes.")}
     ${renderSection("Credit accounts", credit, "Spending here creates a liability and reserves envelope money.")}
-    ${renderSection("Tracking accounts", tracking, "Balances tracked for reference. These never fund the budget.")}
+    ${renderSection("Tracking accounts", tracking, "Balances you want to see. These never fund the budget.")}
 
     <div class="card">
       <div class="row-between">
@@ -254,8 +254,8 @@ export function renderAccountDetail(opts: {
 
     ${when(account.closed_at, () => html`
       <p class="notice notice-info">
-        This account is closed. Its history and balances are retained, and it no
-        longer appears in selection lists.
+        This account is closed. Its history and balances are kept, and it no
+        longer appears when you add a transaction.
       </p>
     `)}
 
@@ -297,7 +297,7 @@ export function renderAccountDetail(opts: {
             <label for="acc-last4">Last four digits</label>
             <input id="acc-last4" name="last4" inputmode="numeric" maxlength="4"
                    value="${account.last4 ?? ""}">
-            <p class="field-hint">Matches bank alerts and statement rows to this account.</p>
+            <p class="field-hint">Used to match bank SMS and statements to this account.</p>
           </div>
         </div>
         ${when(account.kind === "credit", () => html`
@@ -330,9 +330,9 @@ export function renderAccountDetail(opts: {
               )}
             </select>
             <p class="field-hint">
-              Determines whose figures the account affects. Its balance counts toward
-              that budget's Ready to Assign, and spending from it lands in that
-              budget's envelopes.
+              <strong>This is the one that changes the figures.</strong> The balance
+              counts toward that budget's Ready to Assign, and spending from the
+              account lands in that budget's envelopes.
             </p>
           </div>
           <!--
@@ -353,8 +353,9 @@ export function renderAccountDetail(opts: {
               </option>
             </select>
             <p class="field-hint">
-              Private hides the account and its balance from other members. Requires
-              the account to sit in your own budget rather than the household's.
+              Private means nobody else sees the account or its balance, and it
+              needs the account to be in your own budget rather than the
+              household's.
             </p>
           </div>
         `)}
@@ -372,8 +373,9 @@ export function renderAccountDetail(opts: {
               )}
             </select>
             <p class="field-hint">
-              A label. Identifies the holder and routes bank alerts to them. It affects
-              no figure; the budget setting above determines whose money it is.
+              A label, used to say whose it is and to match bank alerts to the right
+              person. It changes no figure — which budget the money belongs to is
+              the setting above.
             </p>
           </div>
         </div>`)}
@@ -386,8 +388,8 @@ export function renderAccountDetail(opts: {
           ? html`<button class="button-small" type="submit">Reopen this account</button>`
           : html`
               <p class="faint" style="margin-top:0">
-                Closing retains every transaction and balance. It removes the
-                account from selection lists only.
+                Closing keeps every transaction and every balance. It only takes
+                the account out of the lists you pick from.
               </p>
               <button class="button-small button-danger" type="submit">Close this account</button>
             `}
@@ -541,7 +543,7 @@ function renderCardBreakdown(cards: Card[], accountId: string): SafeHtml {
     <section class="card">
       <h2>Cards on this account</h2>
       <p class="faint" style="margin-top:-.25rem">
-        Add-on cards share this account's limit, statement and payment. Each
+        Add-on cards share this account's limit, statement and payment — but each
         transaction records which card it was made on.
       </p>
       ${cards.map(
@@ -597,10 +599,10 @@ export function renderNewAccountForm(opts: {
               <option value="private">Private to me</option>
             </select>
             <p class="field-hint">
-              Private hides the account and its balance from other members. Requires
-              the account to sit in your own budget: the household's Ready to Assign
-              sums every account in it, so a private account there would be
-              recoverable by subtraction.
+              Private means nobody else sees the account or its balance. It needs
+              the account to be in your own budget: the household's Ready to Assign
+              sums every account in it, so a private one there would be published
+              by subtraction anyway.
             </p>
           </div>
         </div>
@@ -636,10 +638,10 @@ export function renderNewAccountForm(opts: {
           </select>
         </div>
         <p class="field-hint">
-          Lending to family is set up on <a href="/family">Lending</a>, a loan or EMI on
-          <a href="/loans">Loans</a>, and investments in
-          <a href="/portfolio">Portfolio</a>. Each records more than a balance and so
-          has its own screen.
+          Lending to family? Use <a href="/family">the Lending page</a>.
+          A loan or EMI? Use <a href="/loans">the Loans page</a>. Investments go
+          through <a href="/portfolio">Portfolio</a>. Each sets up more than a bare
+          balance, which is why they live on their own screen.
         </p>
         <p class="field-hint">
           <!--
@@ -647,10 +649,11 @@ export function renderNewAccountForm(opts: {
             never be marked to its real worth, and a PPF entered on this form
             stayed at the figure it opened with forever.
           -->
-          A tracking account is worth the balance its register adds up to. For an
-          asset that grows on its own — a PPF, a deposit — record a dated valuation on
-          <a href="/portfolio/valuations">Update valuations</a>; the stated figure then
-          replaces the balance in net worth.
+          A tracking account is worth whatever its register adds up to — until
+          you say otherwise. For anything that grows on its own, like a PPF or a
+          deposit, record what it is worth from time to time on
+          <a href="/portfolio/valuations">Update valuations</a>, and that figure
+          is the one net worth uses.
         </p>
       </fieldset>
 
@@ -660,14 +663,14 @@ export function renderNewAccountForm(opts: {
           <input id="opening_balance" name="opening_balance" class="amount-input"
                  type="text" inputmode="decimal" placeholder="0.00">
           <p class="field-hint">
-            For a credit card, enter the amount currently owed. It is stored as a
-            negative balance and reported as debt.
+            For a credit card, enter what you currently owe — it will be recorded as a
+            negative balance, and shown as debt rather than as a budgeting error.
           </p>
         </div>
         <div class="field">
           <label for="opening_date">As of</label>
           <input id="opening_date" name="opening_date" type="date" autocomplete="off">
-          <p class="field-hint">Defaults to today. DD-MM is accepted.</p>
+          <p class="field-hint">Defaults to today. DD-MM also works.</p>
         </div>
       </div>
 
@@ -675,7 +678,7 @@ export function renderNewAccountForm(opts: {
         <div class="field">
           <label for="last4">Last four digits <span class="faint">(optional)</span></label>
           <input id="last4" name="last4" inputmode="numeric" maxlength="4" autocomplete="off">
-          <p class="field-hint">Matches bank alerts to this account.</p>
+          <p class="field-hint">Used to match bank alerts to the right account.</p>
         </div>
         <div class="field">
           <label for="institution">Bank <span class="faint">(optional)</span></label>
@@ -690,7 +693,7 @@ export function renderNewAccountForm(opts: {
           ${dayOfMonthField("due_day", "due_day", "Payment due day", null, { shortMonth: true })}
         </div>
         <p class="field-hint">
-          Statement cycles rarely align with calendar months, so they are recorded
+          Statement cycles rarely line up with calendar months, so these are recorded
           separately from the budget month.
         </p>
       </fieldset>
@@ -735,7 +738,7 @@ export function renderCardStatementForm(opts: {
           <label for="amount">Statement balance</label>
           <input id="amount" name="amount" class="amount-input" type="text"
                  inputmode="decimal" autocomplete="off" required autofocus placeholder="0.00">
-          <p class="field-hint">The closing balance on the statement, not the minimum due.</p>
+          <p class="field-hint">The total shown on the statement — what is owed, not the minimum.</p>
         </div>
         <div class="field">
           <label for="minimum_due">Minimum due <span class="faint">(optional)</span></label>
@@ -807,9 +810,8 @@ export function renderManageCards(opts: {
     <section class="card">
       <h2>Add an add-on card</h2>
       <p class="faint" style="margin-top:-.25rem">
-        A card on this account held by another member. It shares the account's
-        limit, statement and single payment. Spending on it is attributed to its
-        holder by default (R6.e).
+        A card on this account held by another member — it shares this account's limit,
+        statement and single payment. Spending on it defaults to its holder (R6.e).
       </p>
       <form method="post" action="/accounts/${opts.account.id}/cards">
         <div class="grid-2">

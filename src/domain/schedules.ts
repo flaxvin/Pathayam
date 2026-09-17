@@ -610,14 +610,14 @@ function annualise(amount: Paise, recurrence: Recurrence): Paise {
 export function describeCashflow(cashflow: Cashflow): string {
   if (!cashflow.firstShortfall) {
     return (
-      `Nothing due in the next ${cashflow.days.length - 1} days brings the balance below ` +
-      `${formatPaise(cashflow.floor)}. The lowest point is ` +
+      `Nothing due in the next ${cashflow.days.length - 1} days takes you below ` +
+      `${formatPaise(cashflow.floor)}. The lowest you get is ` +
       `${formatPaise(cashflow.lowestBalance)}` +
       (cashflow.lowestOn ? ` on ${formatDate(cashflow.lowestOn)}` : "") + "."
     );
   }
   return (
-    `On ${formatDate(cashflow.firstShortfall)} the projected balance falls below ` +
+    `On ${formatDate(cashflow.firstShortfall)} your projected balance drops below ` +
     `${formatPaise(cashflow.floor)}. The lowest point is ` +
     `${formatPaise(cashflow.lowestBalance)}` +
     (cashflow.lowestOn ? ` on ${formatDate(cashflow.lowestOn)}` : "") + "."

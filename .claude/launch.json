@@ -2,6 +2,19 @@
   "version": "0.0.1",
   "configurations": [
     {
+      "name": "demo",
+      "runtimeExecutable": "env",
+      "runtimeArgs": [
+        "DEMO_MODE=1",
+        "DATABASE_PATH=data/demo.sqlite",
+        "npm",
+        "run",
+        "dev"
+      ],
+      "port": 8090,
+      "autoPort": true
+    },
+    {
       "name": "pathayam",
       "runtimeExecutable": "env",
       "runtimeArgs": [

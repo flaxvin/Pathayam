@@ -146,7 +146,7 @@ describe("F4.3 · a split transaction survives its own edit screen", () => {
       split_category_0: groceries, split_amount_0: "900",
     });
     assert.equal(res.status, 400);
-    assert.match(await res.text(), /A split needs two or more lines/);
+    assert.match(await res.text(), /isn&#39;t a split/);
   });
 });
 

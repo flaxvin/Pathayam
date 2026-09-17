@@ -59,16 +59,18 @@ export function renderMonthClose(view: MonthCloseView): SafeHtml {
           </table>
         </div>
         <p class="faint">
-          Closing the month settles none of this. A commitment carries forward
-          like any envelope; squaring up is done on the household page.
+          Nothing here is settled by closing the month. A commitment carries
+          forward like any envelope — <a href="/household">the household page</a>
+          is where you square up.
         </p>
       </section>
     `)}
 
     ${when(view.stillRunning, () => html`
       <p class="notice notice-warning">
-        This month is not over. It can still be closed — nothing is locked and
-        later transactions can be added — but the figures below will change.
+        This month is not over yet. You can still close it — nothing is locked,
+        and anything that arrives later can be added — but the figures below
+        will change.
       </p>
     `)}
 
@@ -112,8 +114,8 @@ export function renderMonthClose(view: MonthCloseView): SafeHtml {
       </p>
 
       <p class="field-hint">
-        Transfers between your own accounts are excluded from both figures:
-        the same money in a different place is neither income nor spending.
+        Transfers between your own accounts are left out of both figures — the
+        same money in a different place is neither income nor spending.
       </p>
     </section>
 
@@ -155,8 +157,7 @@ export function renderMonthClose(view: MonthCloseView): SafeHtml {
           </table>
         </div>
         <p class="field-hint">
-          Already applied by the rollover. This is the record of it, not an
-          outstanding task.
+          Already handled by the rollover — this is the record, not a to-do.
         </p>
       </section>
     `)}
@@ -201,8 +202,8 @@ export function renderMonthClose(view: MonthCloseView): SafeHtml {
 
         <p class="notice notice-info">${view.netWorth!.reading}</p>
         <p class="field-hint">
-          Closing takes a dated net-worth snapshot, so the history is recorded
-          as it stood rather than reconstructed later from current prices.
+          Closing takes a dated snapshot, so the trend stays real rather than
+          being reconstructed later from today's prices.
         </p>
       </section>
     `)}
@@ -250,8 +251,9 @@ export function renderMonthClose(view: MonthCloseView): SafeHtml {
       </button>
       <a class="button button-quiet" href="/">Not now</a>
       <p class="field-hint">
-        Closing records the review and takes a net-worth snapshot. It locks
-        nothing: past months stay editable, and this is reversible.
+        Closing records that you looked and takes a net worth snapshot. It locks
+        nothing — every past month stays editable, and this undoes like anything
+        else.
       </p>
     </form>
   `;
@@ -351,8 +353,8 @@ export function renderDigestSettings(muted: Set<DigestKind>): SafeHtml {
     <section class="card" id="notifications">
       <h2>What you want to be told</h2>
       <p class="faint" style="margin-top:-.25rem">
-        These appear in the app when it is opened. There are no push
-        notifications and no email; nothing arrives while the app is closed.
+        These appear in the app when you open it. There are no push notifications, no email, and nothing that arrives
+        while the app is closed.
       </p>
       <form method="post" action="/settings/digest">
         ${DIGEST_KINDS.map(
@@ -391,10 +393,9 @@ export function renderStatementIdentity(
     <section class="card" id="statements">
       <h2>Opening statements without typing a password</h2>
       <p class="faint" style="margin-top:-.25rem">
-        Indian banks do not allow a chosen statement password: each derives one
-        from the name, date of birth or PAN, and every bank derives it
-        differently. Storing those details here allows the password to be
-        derived locally.
+        Indian banks do not let you pick a statement password — each works it
+        out from your name, your date of birth or your PAN, and every bank picks
+        differently. If you save those here, the app can work them out too.
       </p>
 
       <p class="notice notice-warning">
@@ -470,9 +471,9 @@ export function renderGmailConnection(
     <section class="card" id="gmail">
       <h2>Fetching statements and alerts from Gmail</h2>
       <p class="faint" style="margin-top:-.25rem">
-        Banks email a transaction alert within seconds of a spend, and a
-        statement each month. With Gmail connected, those messages — and only
-        those — are read into the review queue.
+        Your bank emails a transaction alert within seconds of a spend, and a
+        statement each month. Connect Gmail and the app reads those — and only
+        those — into your review queue.
       </p>
 
       ${when(!configured, () => html`

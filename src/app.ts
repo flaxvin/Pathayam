@@ -447,7 +447,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       if (ctx.method !== "GET" && !auth.canWrite && !IMPERSONATION_CONTROLS.has(path)) {
         throw new HttpError(
           403,
-          `Viewing as ${auth.viewingAs.name} in read-only mode. Enable writes, or exit.`,
+          `You're viewing as ${auth.viewingAs.name} in read-only mode. Enable writes first, or exit.`,
         );
       }
     },
@@ -836,8 +836,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                   </button>
                 </form>
                 <p class="field-hint" style="margin-top:.75rem">
-                  Three years of invented transactions covering every screen. The data
-                  is fictional and resets periodically; edits affect nothing real.
+                  Three years of invented transactions across every part of the app.
+                  Change whatever you like — it resets, and none of it is real.
                 </p>
               </div>
             `,
@@ -861,7 +861,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 !config.demoMode,
                 () => html`
                   <p class="notice notice-warning">
-                    Google sign-in is not configured. Set GOOGLE_CLIENT_ID and
+                    Google sign-in isn't configured. Set GOOGLE_CLIENT_ID and
                     GOOGLE_CLIENT_SECRET to enable it.
                   </p>
                 `,
@@ -1207,7 +1207,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
       return {
         redirect: "/household",
-        message: `Picked up ${formatPaise(extra as Paise)}.`,
+        message: `You have picked up ${formatPaise(extra as Paise)}.`,
       };
     }),
   );
@@ -2014,9 +2014,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             <section class="card">
               <h2>Mailbox and statement passwords</h2>
               <p class="faint" style="margin-top:-.25rem">
-                Connecting a mailbox and storing the identity used to unlock
-                statement PDFs are both disabled here; a public demo should hold
-                neither. Both are available in a self-hosted copy.
+                Connecting a mailbox and saving the identity that unlocks statement
+                PDFs are both turned off here — a public demo should hold neither.
+                Both work on your own copy.
               </p>
             </section>
           `,
@@ -2027,9 +2027,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         <section class="card">
           <h2>Suggestions from what you do</h2>
           <p class="faint" style="margin-top:-.25rem">
-            Categorising the same payee twice, or renaming an imported payee,
-            can propose a rule. Proposals wait in Review; nothing is applied to
-            the ledger automatically.
+            When you categorise the same payee twice, or clean up an imported name,
+            the app can offer a rule for it. Suggestions always wait in Review —
+            nothing is ever applied to your ledger on its own.
           </p>
           <form method="post" action="/settings/learning">
             <div class="field">
@@ -2038,8 +2038,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 Suggest rules from what I've been doing
               </label>
               <p class="field-hint">
-                Off: no new rules are proposed. Rules already confirmed continue to
-                apply.
+                Turning this off stops new suggestions. Rules you've already
+                confirmed keep working.
               </p>
             </div>
             <button type="submit">Save</button>
@@ -2049,8 +2049,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         <section class="card">
           <h2>When a category is overspent</h2>
           <p class="faint" style="margin-top:-.25rem">
-            Both are supported. They differ only in where the shortfall is
-            recorded, and can be switched at any time without loss.
+            Both work. They differ only in where the shortfall lands, and you can
+            switch back at any time without losing anything.
           </p>
           <form method="post" action="/settings/overspend-model">
             <div class="field">
@@ -2061,8 +2061,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               </label>
               <p class="field-hint">
                 The category starts the next month at zero, and next month's Ready to
-                Assign is reduced by the overspend. The shortfall is recorded once, at
-                the household level, rather than accumulating on the category.
+                Assign is reduced by the overspend. Keeps the pain in the one place you
+                actually look, and stops a category building up invisible debt over
+                several months.
               </p>
             </div>
             <div class="field">
@@ -2072,14 +2073,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 Carry the negative balance on the category
               </label>
               <p class="field-hint">
-                The category starts the next month with a negative balance. Ready to
-                Assign is unchanged. The shortfall stays attached to the category that
+                The category starts the next month in the red and Ready to
+                Assign is untouched — the overspend stays attached to whatever
                 caused it.
               </p>
             </div>
             <button type="submit">Save</button>
             <p class="field-hint">
-              Changing this re-derives every month on record.
+              Changing this recomputes every month you have data for.
             </p>
           </form>
         </section>
@@ -2087,8 +2088,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         <section class="card">
           <h2>Household</h2>
           <p class="faint" style="margin-top:-.25rem">
-            All members have equal permissions. There is no owner role and no
-            approval step.
+            Everyone here can do everything. There is no owner and no approval step.
           </p>
           ${members.map(
             (m) => html`
@@ -2161,7 +2161,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                   <label for="invite-email">Add a household member</label>
                   <input id="invite-email" name="email" type="email" required
                          placeholder="partner@example.com">
-                  <p class="field-hint">Sign-in is permitted for this Google account only.</p>
+                  <p class="field-hint">They'll be able to sign in with that Google account.</p>
                 </div>
                 <button type="submit">Add to the allow-list</button>
               </form>
@@ -2198,8 +2198,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             <a href="/privacy">Privacy policy</a>
           </p>
           <p class="faint">
-            Google's consent screen links to the privacy policy, which states
-            what the Gmail connection reads and retains.
+            The privacy policy is what Google's consent screen points at, and it
+            describes exactly what the Gmail connection reads and keeps.
           </p>
         </section>
 
@@ -2397,10 +2397,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           <details class="card" id="emi">
             <summary class="linkish">The bank offered to convert this to EMI</summary>
             <p class="muted" style="margin-top:.75rem">
-              The converted amount is removed from the card's balance and
-              becomes a loan with its own instalments, so it is not both cleared
-              here and paid monthly. The processing fee is charged to the card
-              like any purchase and needs an envelope.
+              The converted amount comes off this card's balance and becomes a loan
+              with its own instalments — so you are not asked to clear it here
+              <em>and</em> pay it monthly. The processing fee is charged to the card
+              like any purchase, so give it an envelope.
             </p>
             <form method="post" action="/transaction/${transaction.id}/convert-to-emi">
               <div class="grid-2">
@@ -2439,8 +2439,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                        value="${payeeName ?? ""}"
                        placeholder="What it was for — Croma, the sofa, school fees">
                 <p class="field-hint">
-                  Appended to the card's name. Identifies the plan in the loan list and
-                  its envelope on the budget grid.
+                  Added after the card's name, so the plan is findable in the loan
+                  list and its envelope on the grid.
                 </p>
               </div>
               <div class="field">
@@ -2484,8 +2484,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             <details style="margin-bottom:.9rem">
               <summary class="linkish">Split across envelopes</summary>
               <p class="field-hint">
-                Two or more lines, totalling the transaction amount. Blank lines are
-                ignored, as is the category above.
+                Fill in two or more lines and they must add up to the amount.
+                Lines left blank are ignored; the category above is too.
               </p>
               ${[0, 1, 2].map((i) => html`
                 <div class="split-line">
@@ -2523,7 +2523,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 </div>
               `)}
               <p class="field-hint">
-                Lines must total the transaction amount. Clear a line to remove it.
+                The lines must add up to the amount. Blank a line to drop it.
               </p>
             </div>
             <div class="field">
@@ -2633,8 +2633,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               <input id="receipt" name="receipt" type="file"
                      accept="image/*,application/pdf" capture="environment" required>
               <p class="field-hint">
-                Stored on the server, not on this device. Fetched on each view and
-                never cached.
+                Stored on your server only — never on this device, and fetched
+                fresh each time you look.
               </p>
             </div>
             <button type="submit">Attach</button>
@@ -2778,7 +2778,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       });
     }
     if (splitLines.length === 1) {
-      throw new HttpError(400, "A split needs two or more lines. To file the whole amount to one envelope, use the category field.");
+      throw new HttpError(400, "One line isn't a split — pick that envelope in the category field instead.");
     }
     if (splitLines.length > 0) {
       const total = splitLines.reduce((sum, s) => sum + s.amount, 0);
@@ -2940,7 +2940,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return {
       redirect: withNotice(
         `/accounts/${transaction.account_id}`,
-        "Deleted. Restorable for 30 days." + rippleNote(recompute),
+        "Deleted. You can restore it for the next 30 days." + rippleNote(recompute),
       ),
     };
   });
@@ -3354,7 +3354,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       mergeStaged(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
         requiredField(ctx.body, "staged_id"));
-      return { redirect: "/review", message: "Merged into the existing transaction." };
+      return { redirect: "/review", message: "Merged into the transaction you already had." };
     }),
   );
 
@@ -3504,7 +3504,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           ? (identity
               ? (missing
                   ? `${missing} Or type the password below.`
-                  : "None of the passwords derived from the saved details opened this. " +
+                  : "None of the passwords worked out from your saved details opened this. " +
                     "Type it below, or check the details in Settings.")
               : "That statement needs a password. The hints below say what each bank uses — " +
                 "or save your details in Settings and the app will work it out.")
@@ -3934,8 +3934,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       return {
         redirect: `/loans/${loanId}`,
         message: destination === "third-party"
-          ? "Recorded. The liability rose; the budget is unaffected."
-          : "Recorded. The money is in the account and waiting to be assigned.",
+          ? "Recorded — your liability rose and your budget is untouched."
+          : "Recorded — the money is in your account and waiting to be assigned.",
       };
     }),
   );
@@ -4277,7 +4277,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const fund = [...view.categories.values()].find((c) => /emergency/i.test(c.name));
     if (!fund || fund.state.balance >= amount) return null;
     return (
-      `This exceeds the balance of ${fund.name} (${formatPaise(fund.state.balance)}). ` +
+      `This is more than your ${fund.name} holds (${formatPaise(fund.state.balance)}). ` +
       `Paying down debt is usually right, but an emergency fund is what stops the next ` +
       `surprise going back onto a card. Your call.`
     );
@@ -4832,7 +4832,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       return {
         redirect: "/goals",
         message: kept > 0
-          ? `Goal removed. Its ${formatPaise(kept)} remains as a category under "${where}".`
+          ? `Goal removed. Its ${formatPaise(kept)} is now a category you manage, under "${where}".`
           : `Goal removed. Its empty savings category moved to "${where}".`,
       };
     }),
@@ -5058,8 +5058,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           ${preview.count === 0
             ? html`
                 <div class="card empty-state">
-                  <p>No existing transaction matches this rule. It still applies to
-                  anything imported from now on.</p>
+                  <p>Nothing in your history matches this rule. It still applies to
+                     anything imported from now on.</p>
                   <p><a class="button" href="/rules">Back to rules</a></p>
                 </div>
               `
@@ -5103,7 +5103,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                     </button>
                     <a class="button button-quiet" href="/rules">Cancel</a>
                   </form>
-                  <p class="field-hint">Reversible in one action for 30 days.</p>
+                  <p class="field-hint">Undoable in one action for the next 30 days.</p>
                 </div>
               `}
         `,
@@ -5616,7 +5616,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     saveConnection(db, actorFor(a), {
       email: a.member.email, refreshToken: tokens.refreshToken, scope: tokens.scope,
     });
-    return { redirect: withNotice("/settings#gmail", "Gmail connected. Fetch to read messages.") };
+    return { redirect: withNotice("/settings#gmail", "Gmail connected. Fetch when you're ready.") };
   });
 
   router.post("/gmail/disconnect", (ctx) =>
@@ -5867,7 +5867,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         redirect: "/portfolio",
         message:
           `Recorded ${parts.join(", ")}. ` +
-          `New schemes start on manual pricing. Set a NAV source for live values.`,
+          `New schemes start on manual pricing — set a NAV source when you want live values.`,
       };
     }),
   );
@@ -6067,7 +6067,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       });
       return {
         redirect: `/portfolio/${view.holding.id}`,
-        message: `Recorded the ${kind}. Units and cost were adjusted together.`,
+        message: `Recorded the ${kind}. Your units and their cost moved together.`,
       };
     }),
   );
@@ -6476,7 +6476,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             name: "Failure alerts",
             state: config.backupWebhookUrl ? "healthy" : "degraded",
             reason: config.backupWebhookUrl
-              ? "A webhook is configured, so a failed backup or verification is reported."
+              ? "A webhook is configured, so a failed backup or verification will reach you."
               : "No webhook configured. A failed backup would only appear on this page.",
           },
           {

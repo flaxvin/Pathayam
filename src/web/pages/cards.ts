@@ -77,8 +77,9 @@ export function renderCards(opts: { cards: CardDue[]; month: string }): SafeHtml
   return html`
     <h1>Cards</h1>
     <p class="muted">
-      In due order. Spending on a card reserves the cash to clear it, so an
-      unexpected balance means spending that had no envelope behind it.
+      In the order they fall due. Spending on a card reserves the cash to clear
+      it, so a card is only a surprise if something was spent without an
+      envelope behind it.
     </p>
 
     <section class="card">
@@ -100,8 +101,8 @@ export function renderCards(opts: { cards: CardDue[]; month: string }): SafeHtml
       </div>
       ${when(unfunded === 0, () => html`
         <p class="faint" style="margin-bottom:0">
-          Every amount on these cards has an envelope behind it. Paying all of
-          them today would take nothing that was not already set aside.
+          Every rupee on these cards has an envelope behind it. Paying them all
+          today would take nothing you had not already set aside.
         </p>
       `)}
     </section>

@@ -29,7 +29,7 @@ const SCOPES: { scope: string; what: string; why: string }[] = [
   {
     scope: "openid, email, profile",
     what: "Your Google account's email address, name and profile picture.",
-    why: "Used to sign in and to attribute each change. Nothing else reads it.",
+    why: "To sign you in and show who made each change. Nothing else reads it.",
   },
   {
     scope: "https://www.googleapis.com/auth/gmail.readonly",
@@ -50,8 +50,8 @@ function legalPage(title: string, updated: string, body: SafeHtml): SafeHtml {
       ${body}
       <hr>
       <p class="faint">
-        Questions about either page go to whoever runs this installation. There
-        is no company behind it and no support desk.
+        Questions about either of these pages go to the person who runs this
+        installation — there is no company behind it and no support desk.
       </p>
       <p class="faint">
         <a href="/terms">Terms of service</a> · <a href="/privacy">Privacy policy</a>
@@ -183,8 +183,8 @@ export function renderPrivacy(opts: { appName: string; updated: string }): SafeH
 
       <h2>Changes</h2>
       <p>
-        If this policy changes, the date at the top changes with it. Because the application is self-hosted, a change takes effect only on
-        update.
+        If this policy changes, the date at the top changes with it. Because the
+        app is self-hosted, a change reaches you only when you update the app.
       </p>
     `,
   );
