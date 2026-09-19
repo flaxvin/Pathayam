@@ -79,6 +79,21 @@ describe("cess and surcharge", () => {
     assert.equal(e.total, rupees(117_000));
   });
 
+  test("the payable figure is rounded to the nearest ten rupees (288B)", () => {
+    // Taxable 18,59,290 under the new regime comes to ₹1,78,732.32 before
+    // rounding — a figure nobody will ever pay.
+    const e = estimateUnder(FY, "new", rupees(1_934_290), none);
+    assert.equal(e.total % rupees(10), 0, `not rounded: ${formatPaise(e.total)}`);
+    assert.equal(e.total, rupees(178_730));
+  });
+
+  test("rounding happens once, at the end", () => {
+    // Rounding the slab tax and again after cess would compound; the
+    // intermediate figures stay exact.
+    const e = estimateUnder(FY, "old", rupees(1_050_000), none);
+    assert.equal(e.cess, rupees(4_500), "cess was rounded before being added");
+  });
+
   test("surcharge starts above fifty lakh of taxable income", () => {
     const below = estimateUnder(FY, "old", rupees(5_040_000), none);
     const above = estimateUnder(FY, "old", rupees(6_000_000), none);
@@ -208,6 +223,55 @@ describe("comparing the two", () => {
   test("saves is the difference between them", () => {
     const e = estimateTax(FY, rupees(1_500_000), none);
     assert.equal(e.saves, Math.abs(e.old.total - e.new.total));
+  });
+});
+
+describe("capital gains joining the estimate", () => {
+  const gains = (special: number, slab = 0) => ({
+    addToSlabIncome: rupees(slab), specialRateTax: rupees(special),
+  });
+
+  test("the 87A rebate does not wipe out tax on gains", () => {
+    /*
+     * The mistake this guards: a modest salary that the rebate covers entirely,
+     * plus a large equity gain. Fold the two together before the rebate and the
+     * app tells somebody they owe nothing when they owe the whole of the gains
+     * tax. Section 87A does not relieve 112A.
+     */
+    const withGains = estimateUnder(FY, "new", rupees(1_200_000), none, gains(50_000));
+    const without = estimateUnder(FY, "new", rupees(1_200_000), none);
+
+    assert.equal(without.total, 0, "the fixture no longer has the rebate covering the salary");
+    assert.ok(withGains.total > 0, "the rebate swallowed the capital gains tax");
+    assert.ok(
+      withGains.total >= rupees(50_000),
+      `expected at least the gains tax to survive, got ${formatPaise(withGains.total)}`,
+    );
+  });
+
+  test("cess applies to the gains tax too", () => {
+    const e = estimateUnder(FY, "new", rupees(1_200_000), none, gains(50_000));
+    // Salary tax nil after rebate; ₹50,000 of gains tax plus 4% cess = ₹52,000.
+    assert.equal(e.total, rupees(52_000));
+  });
+
+  test("slab-rated gains are taxed as income, not at a special rate", () => {
+    const e = estimateUnder(FY, "new", rupees(1_200_000), none, gains(0, 500_000));
+    assert.equal(e.gross, rupees(1_700_000), "the slab-rated gain did not join income");
+    assert.ok(e.total > 0, "it should now be over the rebate ceiling");
+  });
+
+  test("deductions still reduce slab-rated gains under the old regime", () => {
+    const without = estimateUnder(FY, "old", rupees(1_200_000), none, gains(0, 300_000));
+    const with80c = estimateUnder(FY, "old", rupees(1_200_000),
+      { ...none, s80c: rupees(150_000) }, gains(0, 300_000));
+    assert.ok(with80c.total < without.total);
+  });
+
+  test("with no gains at all, nothing changes", () => {
+    const a = estimateUnder(FY, "new", rupees(1_500_000), none);
+    const b = estimateUnder(FY, "new", rupees(1_500_000), none, gains(0, 0));
+    assert.equal(a.total, b.total);
   });
 });
 

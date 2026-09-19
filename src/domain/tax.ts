@@ -78,6 +78,19 @@ const R = (rupees: number): Paise => Math.round(rupees * RUPEE) as Paise;
  */
 const CESS_BP = 400;
 
+/**
+ * Section 288B: tax payable is rounded to the nearest ten rupees. Applied once,
+ * to the final figure, rather than at each step — rounding the slab tax and
+ * again after cess would compound.
+ *
+ * Without this the screen reports things like ₹3,92,898.48, which is arithmetic
+ * nobody will ever pay: the amount actually payable is ₹3,92,900.
+ */
+const ROUND_TO = 10 * RUPEE;
+function roundPayable(amount: Paise): Paise {
+  return (Math.round(amount / ROUND_TO) * ROUND_TO) as Paise;
+}
+
 const OLD_SLABS: Slab[] = [
   { from: R(0),      to: L(2.5), rateBp: 0 },
   { from: L(2.5),    to: L(5),   rateBp: 500 },
@@ -241,6 +254,8 @@ export interface RegimeEstimate {
   taxable: Paise;
   taxBeforeRebate: Paise;
   rebate: Paise;
+  /** Tax on capital gains at their own rates, outside the slabs and the rebate. */
+  specialRateTax: Paise;
   surcharge: Paise;
   cess: Paise;
   total: Paise;
@@ -248,8 +263,16 @@ export interface RegimeEstimate {
   effectiveRatePct: number;
 }
 
+export interface GainsContribution {
+  /** Gains taxed at slab rates, which join ordinary income. */
+  addToSlabIncome: Paise;
+  /** Gains taxed at their own rates, added after the slabs are applied. */
+  specialRateTax: Paise;
+}
+
 export function estimateUnder(
   fy: number, regime: Regime, gross: Paise, deductions: Deductions,
+  gains: GainsContribution | null = null,
 ): RegimeEstimate {
   assertKnownYear(fy);
   const rules = RULES[fy]![regime];
@@ -269,8 +292,15 @@ export function estimateUnder(
       + deductions.other) as Paise
     : 0 as Paise;
 
+  /*
+   * Slab-rated gains — debt, short-term property — are ordinary income and go
+   * in before the deductions, because Chapter VI-A reduces gross total income
+   * and that includes them.
+   */
+  const grossWithGains = (gross + (gains?.addToSlabIncome ?? 0)) as Paise;
+
   const taxable = Math.max(
-    0, gross - rules.standardDeduction - hraExempt - chapterViA,
+    0, grossWithGains - rules.standardDeduction - hraExempt - chapterViA,
   ) as Paise;
 
   const taxBeforeRebate = taxOnSlabs(taxable, rules.slabs);
@@ -279,17 +309,29 @@ export function estimateUnder(
     : 0 as Paise;
   const afterRebate = Math.max(0, taxBeforeRebate - rebate);
 
+  /*
+   * Special-rate tax is added after the rebate, never before.
+   *
+   * Section 87A relieves tax on ordinary income; it is not available against
+   * long-term gains under 112A. Folding the two together before applying the
+   * rebate would wipe out tax that is actually payable — the mistake that makes
+   * a calculator tell somebody with a modest salary and a large equity gain
+   * that they owe nothing.
+   */
+  const specialRateTax = gains?.specialRateTax ?? 0;
+  const taxBeforeSurcharge = (afterRebate + specialRateTax) as Paise;
+
   const band = rules.surcharge.find((b) => taxable > b.above);
-  const surcharge = band ? Math.round((afterRebate * band.rateBp) / 10_000) as Paise : 0 as Paise;
-  const cess = Math.round(((afterRebate + surcharge) * CESS_BP) / 10_000) as Paise;
-  const total = (afterRebate + surcharge + cess) as Paise;
+  const surcharge = band ? Math.round((taxBeforeSurcharge * band.rateBp) / 10_000) as Paise : 0 as Paise;
+  const cess = Math.round(((taxBeforeSurcharge + surcharge) * CESS_BP) / 10_000) as Paise;
+  const total = roundPayable((taxBeforeSurcharge + surcharge + cess) as Paise);
 
   return {
-    regime, gross,
+    regime, gross: grossWithGains,
     standardDeduction: rules.standardDeduction,
     hraExempt, chapterViA, taxable,
-    taxBeforeRebate, rebate, surcharge, cess, total,
-    effectiveRatePct: gross > 0 ? Math.round((total / gross) * 1000) / 10 : 0,
+    taxBeforeRebate, rebate, specialRateTax: specialRateTax as Paise, surcharge, cess, total,
+    effectiveRatePct: grossWithGains > 0 ? Math.round((total / grossWithGains) * 1000) / 10 : 0,
   };
 }
 
@@ -303,9 +345,12 @@ export interface TaxEstimate {
   saves: Paise;
 }
 
-export function estimateTax(fy: number, gross: Paise, deductions: Deductions): TaxEstimate {
-  const oldR = estimateUnder(fy, "old", gross, deductions);
-  const newR = estimateUnder(fy, "new", gross, deductions);
+export function estimateTax(
+  fy: number, gross: Paise, deductions: Deductions,
+  gains: GainsContribution | null = null,
+): TaxEstimate {
+  const oldR = estimateUnder(fy, "old", gross, deductions, gains);
+  const newR = estimateUnder(fy, "new", gross, deductions, gains);
   const diff = Math.abs(oldR.total - newR.total) as Paise;
   return {
     fy, old: oldR, new: newR,

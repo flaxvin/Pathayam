@@ -413,11 +413,23 @@ export function purgeDeleted(db: DB, olderThanDays = 30, today = todayIST()): nu
 export interface TransferInput {
   fromAccountId: string;
   toAccountId: string;
-  /** A positive amount: what leaves the source account. */
+  /** A positive amount: what arrives in the destination account. */
   amount: Paise;
   date?: IsoDate;
   memo?: string | null;
   cleared?: boolean;
+  /**
+   * What the bank took for moving it: an IMPS or NEFT charge, a demat transfer
+   * fee, the markup on a currency conversion.
+   *
+   * Charged to the source account on top of `amount`, so ₹10,000 sent with a
+   * ₹5 fee leaves ₹10,005 and delivers ₹10,000 — which is what the statement
+   * will say. It needs a category because it is spending: money leaving the
+   * budget accounts with no envelope against it would move Ready to Assign
+   * instead, and the household would find its unassigned money quietly
+   * shrinking with no line item to explain it.
+   */
+  fee?: { amount: Paise; categoryId: string } | null;
 }
 
 /**
@@ -442,6 +454,12 @@ export function createTransfer(db: DB, actor: Actor, input: TransferInput): [Tra
     const isCardPayment = to.kind === "credit";
     const memo = input.memo ?? (isCardPayment ? `Card payment — ${to.name}` : `Transfer to ${to.name}`);
 
+    const fee = input.fee && input.fee.amount > 0 ? input.fee : null;
+    if (fee) {
+      if (fee.amount < 0) throw new Refusal("A fee cannot be negative.");
+      refusePaymentCategories(db, [fee.categoryId]);
+    }
+
     const out = createTransaction(db, actor, {
       accountId: input.fromAccountId,
       amount: -input.amount,
@@ -457,12 +475,36 @@ export function createTransfer(db: DB, actor: Actor, input: TransferInput): [Tra
 
     execute(db, `UPDATE transactions SET transfer_pair_id = ? WHERE id IN (?, ?)`, pairId, out.id, back.id);
 
+    /*
+     * The fee is a third transaction, not a bigger outgoing leg, and it is
+     * deliberately left outside the transfer pair. Inside it, the two legs
+     * would no longer cancel and every report that excludes transfers would
+     * quietly swallow a real expense. Outside it, the fee behaves like any
+     * other categorised spend — it shows up in the envelope, in the reports and
+     * in the month's spending, which is where somebody would go looking for it.
+     */
+    if (fee) {
+      createTransaction(db, actor, {
+        accountId: input.fromAccountId,
+        amount: -fee.amount as Paise,
+        date,
+        categoryId: fee.categoryId,
+        memo: isCardPayment ? `Charge on payment to ${to.name}` : `Charge on transfer to ${to.name}`,
+        cleared: input.cleared,
+      });
+    }
+
     appendEvent(db, actor, {
       entity: "transfer", entityId: pairId, action: "create",
-      after: { from: from.name, to: to.name, amount: input.amount, date },
-      summary: isCardPayment
-        ? `Paid ${formatPaise(input.amount)} to ${to.name} from ${from.name}`
-        : `Moved ${formatPaise(input.amount)} from ${from.name} to ${to.name}`,
+      after: {
+        from: from.name, to: to.name, amount: input.amount, date,
+        ...(fee ? { fee: fee.amount } : {}),
+      },
+      summary:
+        (isCardPayment
+          ? `Paid ${formatPaise(input.amount)} to ${to.name} from ${from.name}`
+          : `Moved ${formatPaise(input.amount)} from ${from.name} to ${to.name}`) +
+        (fee ? `, plus ${formatPaise(fee.amount)} in charges` : ""),
     });
 
     return [getTransaction(db, out.id)!, getTransaction(db, back.id)!];
