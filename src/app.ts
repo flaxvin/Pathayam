@@ -102,7 +102,8 @@ import { renderDeparture } from "./web/pages/departure.ts";
 import { renderHousehold } from "./web/pages/household.ts";
 import {
   createAccount, updateAccount, closeAccount, reopenAccount, listAccounts, getAccount, listCards, createCard, closeCard, recordCardStatement, lastCardStatement, paymentCategoryFor, MANAGED_SUBTYPES, SUBTYPE_LABELS, type AccountKind, hiddenAccountIds, type HolderScope,
- creditedSinceStatement, type Account,} from "./domain/accounts.ts";
+ creditedSinceStatement, type Account,  DERIVED_VALUE_SUBTYPES,
+} from "./domain/accounts.ts";
 import {
   setAssigned, addAssigned, copyAssignmentsFromMonth, moveMoney, setHeld, getHeld,
   listCategories, getCategory, startPersonalBudget, deleteGroup, visibleBudgetIds,
@@ -1783,20 +1784,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const view = buildBudgetView(db, undefined, scope, viewer(ctx));
 
     const memberNames = new Map(listMembers(db).map((m) => [m.id, m.name]));
-    /*
-     * Budget and credit accounts only.
-     *
-     * A tracking account — a deposit, a demat account, a loan, a hand-valued
-     * asset — shows a figure this app derives rather than counts, and it is
-     * derived on the screen that owns it: Portfolio for what is held, Loans for
-     * what is owed. Listing them here put them beside accounts you can transact
-     * on, so they looked like accounts you can transact on, and a transaction
-     * entered against one went nowhere visible. Every one of them still has a
-     * home, and its own page still opens.
-     */
     const rows: AccountRow[] = listAccounts(db, { viewerMemberId: viewer(ctx) })
-      .filter((account) => account.kind !== "tracking")
-      .filter((account) => account.budget_id === scope)
+      .filter((account) => account.kind === "tracking" || account.budget_id === scope)
       .map((account) => {
       const recon = queryOne<{ as_of: string; broken_at: string | null }>(
         db,
@@ -2065,19 +2054,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     /*
      * Only accounts where a plain transaction means something.
      *
-     * A tracking account shows a figure the app derives rather than counts: a
-     * stated valuation, the market value of its holdings, or an amortisation
-     * schedule. A transaction recorded against one is accepted, stored, and
-     * then not reflected in any of those — the app says nothing and shows a
-     * number that does not include it. Each of them has a flow that does work
-     * (revalue, a portfolio purchase or sale, a loan payment), so offering the
-     * account here only ever leads somewhere wrong.
+     * Not "not tracking" — most tracking accounts are worth exactly their
+     * balance, and posting to them is how you record what happened. A fixed
+     * deposit crediting interest, a savings account somebody watches without
+     * budgeting from it: both are transactions, and both belong here.
      *
-     * Transfers still reach them, because funding a recurring deposit is a real
-     * thing to do; `accountDrifts` is what catches the divergence that creates.
+     * What does not is an account whose figure is derived somewhere else: a
+     * demat account (the market value of its holdings), a loan or an EMI (an
+     * amortisation schedule), a family loan (the transfers behind it), and the
+     * hand-valued kinds (a dated valuation). A transaction against one of those
+     * is stored and then reflected in none of them — and each has a flow that
+     * does work, so offering the account here only ever leads somewhere wrong.
      */
     const accounts = listAccounts(db, { viewerMemberId: viewer(ctx) })
-      .filter((a) => a.kind === "budget" || a.kind === "credit");
+      .filter((a) => !DERIVED_VALUE_SUBTYPES.has(a.subtype));
     const lastUsed = queryOne<{ account_id: string }>(
       db,
       `SELECT account_id FROM transactions WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 1`,
