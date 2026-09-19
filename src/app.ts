@@ -3361,6 +3361,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const amt = field(ctx.body, `split_amount_${i}`);
       if (cat === undefined && amt === undefined) continue;
       if (!cat && !amt?.trim()) continue;
+      /*
+       * An envelope with no amount is an abandoned line, not a mistake.
+       *
+       * Opening the split section, choosing an envelope, then thinking better
+       * of it and clearing the amount leaves exactly this — the select still
+       * carries what was picked, because nothing cleared it. Refusing the save
+       * over it meant the only way forward was to notice a leftover dropdown
+       * inside a collapsed section. The entry form has always ignored these;
+       * this now agrees with it.
+       */
+      if (cat && !amt?.trim()) continue;
       if (!cat || !amt?.trim()) {
         throw new HttpError(400, "A split line needs both an envelope and an amount.");
       }
