@@ -108,7 +108,14 @@ export function renderFire(opts: { projection: FireProjection }): SafeHtml {
         </div>
 
         <p style="margin-top:1rem">
-          ${p.yearsToFire === null
+          ${p.yearsToFire === 0
+            ? html`
+                <strong>You are there already.</strong> What you hold covers
+                ${formatPaise(p.annualExpenses)} a year at ${rate}% without
+                being added to. Whether you would want to stop is a different
+                question from whether the arithmetic allows it.
+              `
+            : p.yearsToFire === null
             ? html`
                 <strong>Not from what is invested today.</strong> Growth alone
                 does not carry this corpus to the target — either there is too

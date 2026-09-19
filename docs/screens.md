@@ -107,6 +107,12 @@ answer 404 when the viewer may not see the entity
 | `GET /portfolio/holdings.csv`, `/lots.csv`, `/prices.csv` | |
 | `POST /portfolio/refresh` | Refresh prices from the providers. |
 
+## Financial independence
+
+| Route | Purpose |
+|---|---|
+| `GET /fire` | Target from trailing spending, drawable corpus, years at the assumed real return, and the bridge to a locked retirement balance. Assumptions are query parameters: `swr`, `ret`, `age`, `locked`. |
+
 ## Household and settings
 
 | Route | Purpose |
@@ -140,7 +146,7 @@ answer 404 when the viewer may not see the entity
 
 Primary: Budget, Accounts, Add, Review, More. Secondary, grouped under
 *Analyse*: Household, Overview, Cards, Reports, Query, Schedules, Goals, Loans,
-Portfolio, Net worth. Under *Manage*: Payees, Rules, Import, Activity, Health,
+Portfolio, Net worth, Independence. Under *Manage*: Payees, Rules, Import, Activity, Health,
 Settings.
 
 On viewports below 900px the sidebar is replaced by a bottom bar and `/more`;

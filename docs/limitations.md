@@ -16,6 +16,28 @@ two deployments.
 **Overspend model is household-wide.** It cannot differ per budget or per
 envelope.
 
+## Projections
+
+**The independence projection is arithmetic, not a forecast.** It extrapolates
+a trailing window of spending forward unchanged and applies a fixed real return
+every year. Real markets arrive in a sequence, and retiring into a bad first
+decade fails on the same average return that succeeds arriving later — that
+sequence-of-returns risk is not modelled, and no safe-withdrawal figure can
+make it go away.
+
+**Spending is assumed to stay as it is.** A loan that finishes, a child, a
+parent needing care, or a move all change the target, and none of them are
+projected. The trailing window is the only input.
+
+**No tax.** Withdrawals are treated as spendable in full. Capital gains on
+redemption are not deducted from the corpus, so a portfolio of equity held
+outside a retirement account will not stretch quite as far as the figure
+suggests.
+
+**A short history scales up whatever it has.** With less than a year of data
+the window is annualised from what exists and the screen says so, but one
+unusual month still moves the target a long way.
+
 ## Currency
 
 **Rupee by default.** `FEATURE_MULTI_CURRENCY` is off unless set. With it off,
