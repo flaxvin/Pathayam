@@ -66,6 +66,8 @@ export interface Config {
   alphaVantageKey: string | null;
   /** Set behind a reverse proxy that terminates TLS. */
   trustProxy: boolean;
+  /** F1.6 · Offer password sign-in, so Google is not the only door. */
+  localLogin: boolean;
 }
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -125,6 +127,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     backupWebhookUrl: env.BACKUP_WEBHOOK_URL || null,
     heartbeatUrl: env.HEARTBEAT_URL || null,
     trustProxy: bool(env.TRUST_PROXY, false),
+    localLogin: bool(env.LOCAL_LOGIN, false),
   };
 
   assertDevLoginIsSafe(config);

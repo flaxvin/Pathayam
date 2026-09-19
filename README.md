@@ -33,7 +33,9 @@ harvest, drawn from deliberately through the year.
   worth statement, not here. Assumes no further earnings, and reports the years
   a locked provident fund leaves uncovered.
 - **Ownership.** One SQLite file in an open format, complete export, no
-  telemetry, no third-party service holding the data.
+  telemetry, no third-party service holding the data — and no third-party
+  service needed to sign in, either. Password sign-in is built in; Google is
+  optional.
 
 ## Quick start
 

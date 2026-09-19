@@ -511,7 +511,7 @@ only (out of a token's reach).
 | Method | Path | Token | Purpose |
 |---|---|---|---|
 | GET | `/settings` | R | Household settings. |
-| POST | `/settings/theme` · `/settings/learning` · `/settings/overspend-model` · `/settings/identity` · `/settings/digest` | W | Change settings. |
+| POST | `/settings/theme` · `/settings/learning` · `/settings/overspend-model` · `/settings/identity` · `/settings/digest` · `/settings/password` | W | Change settings. |
 | GET | `/activity` | R | Every change ever made, with its undo. |
 | POST | `/activity/:id/undo` | W | Undo one recorded event (30 days, R37.8). |
 | GET | `/health` | R | Health dashboard (HTML). |
@@ -532,6 +532,9 @@ These return `403` to any token — use a browser session.
 | POST | `/sessions/revoke` | Session management. |
 | GET | `/auth/google` · `/auth/google/callback` · `/gmail/connect` · `/gmail/callback` | OAuth flows (interactive). |
 | POST | `/auth/dev` · `/signout` | Sign-in / sign-out. |
+| GET/POST | `/auth/first-run` | The first password on a household with no members. 404 once any member exists. |
+| POST | `/auth/password` | Password sign-in (F1.6). 404 unless `LOCAL_LOGIN` is set or a password already exists. |
+| GET/POST | `/settings/password` | Set or change your own password. Changing one requires the current password. |
 
 > This table is a snapshot; the authoritative list is the router in
 > [`src/app.ts`](../src/app.ts) and the deny-list in

@@ -59,6 +59,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     heartbeatUrl: null,
     alphaVantageKey: null,
     trustProxy: false,
+    localLogin: false,
     ...overrides,
   };
 }
