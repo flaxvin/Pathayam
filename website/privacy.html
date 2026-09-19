@@ -69,7 +69,7 @@
         <p><strong>The short version.</strong></p>
         <ul class="checks">
           <li>This website has no analytics, no tracking and no third-party requests. It sets no cookies.</li>
-          <li>The waitlist stores an email address and nothing that identifies a device.</li>
+          <li>A request for an instance stores an email address and nothing that identifies a device.</li>
           <li>The demo holds invented data. Do not put anything real into it.</li>
           <li>If you self-host, none of this applies: no data reaches us at all.</li>
           <li>On a hosted plan your data sits in its own database, not a shared table, and one endpoint returns all of it at any time.</li>
@@ -111,14 +111,14 @@
         those logs with anything else or use them to build a profile.
       </p>
 
-      <h2 id="waitlist">The waitlist</h2>
-      <p>When you join the waitlist we store:</p>
+      <h2 id="request">Requesting an instance</h2>
+      <p>When you ask us for an instance we store:</p>
       <div class="table-scroll">
         <table>
           <thead><tr><th>What</th><th>Why</th></tr></thead>
           <tbody>
-            <tr><td>Your email address</td><td>To tell you once, when hosting opens.</td></tr>
-            <tr><td>Which plan you were looking at</td><td>To know what to build first.</td></tr>
+            <tr><td>Your email address</td><td>So a person can reply to you about setting it up.</td></tr>
+            <tr><td>Which plan you were looking at</td><td>So the reply is about the right one.</td></tr>
             <tr><td>The page you submitted from</td><td>Same.</td></tr>
             <tr><td>A timestamp</td><td>To keep the list in order.</td></tr>
           </tbody>
@@ -160,8 +160,10 @@
 
       <h2 id="hosted">The hosted service</h2>
       <p>
-        Hosting is not open yet. When it opens, this section governs it, and we
-        will write to anyone on the waitlist before anything is charged.
+        This section governs a hosted instance. Instances are set up by hand
+        after you ask for one and we have agreed the plan and the region with
+        you, so nothing here applies until that has happened and nothing is
+        charged before it.
       </p>
 
       <h3>What we hold</h3>
@@ -203,8 +205,12 @@
         Each customer gets their own SQLite database and their own container. Your
         data is not a row in a shared table alongside other customers'.</p>
         <p>
-        Hosting is not open yet, and the provider and region are not settled. We
-        will name both here, and tell everyone on the waitlist, before anyone's
+        Hosted instances run on <strong>Fly.io</strong>, by default in its
+        <strong>Singapore</strong> region — the closest one to India that Fly
+        operates, since it retired its Mumbai region. Your data is therefore
+        stored outside India unless you ask for another region, which we will
+        agree with you before anything is deployed. We will name any change
+        here, and write to affected customers, before anyone's
         data is stored anywhere.
       </p>
 
@@ -300,10 +306,10 @@
         <table>
           <thead><tr><th>Processor</th><th>What for</th><th>What they see</th></tr></thead>
           <tbody>
-            <tr><td>Hosting provider — not yet chosen</td><td>Running the service</td><td>Everything stored, as our infrastructure provider. Named here before hosting opens.</td></tr>
+            <tr><td>Fly.io (Singapore by default)</td><td>Running the service</td><td>Everything stored, as our infrastructure provider. Another region on request.</td></tr>
             <tr><td>Razorpay</td><td>Taking payment</td><td>Your name, email, and the payment instrument. They hold the card details; we do not.</td></tr>
             <tr><td>Google</td><td>Sign-in</td><td>That you signed in to Pathayam</td></tr>
-            <tr><td>Google</td><td>The waitlist sheet</td><td>Waitlist email addresses only</td></tr>
+            <tr><td>Google</td><td>The sheet that holds instance requests</td><td>The email address you sent, and the plan and page it came from</td></tr>
           </tbody>
         </table>
       </div>

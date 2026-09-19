@@ -10,12 +10,17 @@ demo.pathayam.app    →  the application itself, in DEMO_MODE
 
 ---
 
-## 1 · Make the waitlist button live
+## 1 · Make the request button live
 
 Until this is done the button refuses politely and sends nothing: `site.js`
-checks `WAITLIST_ENDPOINT` and says *"The waitlist is not connected yet —
+checks `WAITLIST_ENDPOINT` and says *"Requests are not connected yet —
 nothing was sent."* That is deliberate, so a signup box can never silently
 swallow an address.
+
+The button says *Request an instance*: a person reads the sheet and replies,
+then deploys by hand. The identifiers in the code still say `waitlist` — the
+sheet, its columns and `WAITLIST_ENDPOINT` — deliberately, so the existing
+sheet keeps working and no row already collected is orphaned by a rename.
 
 The whole backend is a Google Sheet plus a bound Apps Script
 ([`waitlist.gs`](waitlist.gs)). No server, no database, no form service holding
@@ -128,7 +133,7 @@ Referrer-Policy: same-origin
 Strict-Transport-Security: max-age=31536000; includeSubDomains
 ```
 
-`connect-src` has to allow `script.google.com` once the waitlist is live: the
+`connect-src` has to allow `script.google.com` once requests are live: the
 form is submitted with `fetch`, so that directive is the one that governs it.
 Without it the browser blocks the request and the page reports a failure it
 cannot explain.
