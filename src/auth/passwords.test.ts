@@ -15,7 +15,8 @@ import {
   setPassword, checkPassword, hasPassword, anyPasswordSet, clearPassword, getPasswordRow,
 } from "./passwords.ts";
 
-const GOOD = "correct horse battery staple";
+// Not "correct horse battery staple": famous enough to be on the refused list.
+const GOOD = "seven pathayam granary evenings";
 
 function household() {
   const db = openDatabase({ path: ":memory:", verbose: false });
@@ -87,6 +88,22 @@ describe("what counts as usable", () => {
     for (const p of ["password123", "PASSWORD123", "budget123", "pathayam"]) {
       assert.throws(() => assertUsablePassword(p), WeakPassword, `accepted ${p}`);
     }
+  });
+
+  test("a common password long enough to pass the length rule is still refused", () => {
+    /*
+     * The list was originally consulted after the length check, and every entry
+     * in it was shorter than the minimum — so it was unreachable, and length
+     * was the only real barrier. "passwordpassword" is sixteen characters.
+     */
+    for (const p of ["passwordpassword", "123456789012", "iloveyouiloveyou", "correcthorsebatterystaple"]) {
+      assert.ok(p.length >= 12, `${p} does not actually test the ordering`);
+      assert.throws(() => assertUsablePassword(p), WeakPassword, `accepted ${p}`);
+    }
+  });
+
+  test("a short common password says what is wrong, not merely that it is short", () => {
+    assert.throws(() => assertUsablePassword("password"), /first passwords anybody tries/);
   });
 
   test("one character repeated is refused however long", () => {

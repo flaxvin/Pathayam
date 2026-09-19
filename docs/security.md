@@ -131,3 +131,26 @@ are operator-configured.
 ## Dependencies
 
 None at runtime.
+
+## Passwords
+
+scrypt from `node:crypto` — N=32768, r=8, p=1 — with the parameters stored
+inside the encoded hash, so the cost can be raised later without invalidating
+existing passwords. An old hash keeps verifying and is rewritten on the next
+successful sign-in.
+
+- Stored in `member_passwords`, never on the member row. That row is read on
+  nearly every request; a secret that is never loaded cannot be logged,
+  serialised into a view model, or exported by accident.
+- In `NEVER_EXPORTED`. A hash is not a password but it is an offline guessing
+  target, and an export is the most portable thing this app produces.
+- Verification is constant-time, and a malformed or hostile stored row fails
+  rather than throwing — this is the sign-in path, and an exception there is a
+  500 on a login page. Parameters read from the database are bounded before
+  use, so a tampered row cannot ask scrypt for unbounded memory.
+- Eight failures lock the credential for fifteen minutes. Per credential, not
+  per address: IP rate limiting already exists and is the right tool against a
+  flood from one place, and the wrong one against somebody patient with many.
+- A wrong password and an unknown address are refused in identical words. The
+  difference would disclose who is in this household.
+- Changing a password requires the current one.

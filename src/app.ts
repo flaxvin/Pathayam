@@ -167,6 +167,8 @@ import {
   type PayeeRow, type RuleRow,
 } from "./web/pages/manage.ts";
 import { renderPrivacy, renderTerms, type LegalMode } from "./web/pages/legal.ts";
+import { Refusal } from "./core/refusal.ts";
+import { checkPassword, setPassword, anyPasswordSet, hasPassword } from "./auth/passwords.ts";
 import { renderFire } from "./web/pages/fire.ts";
 import { fireProjection, DEFAULT_ASSUMPTIONS } from "./domain/fire.ts";
 import { renderActivity } from "./web/pages/activity.ts";
@@ -190,6 +192,18 @@ const UNCATEGORISED_PAGE = 15;
 
 // Kept in step with the dates on website/privacy.html and website/terms.html,
 // which are the canonical pages and cover the same ground for the public site.
+/*
+ * Whether to show the password form at all.
+ *
+ * LOCAL_LOGIN turns it on, but an existing password keeps it on regardless:
+ * unsetting the flag on a household that signs in this way would otherwise
+ * lock everybody out of their own ledger, and a single environment variable
+ * should not be able to do that.
+ */
+function passwordSignInOffered(db: DB, config: Config): boolean {
+  return config.localLogin || anyPasswordSet(db);
+}
+
 const LEGAL_UPDATED = "17 September 2026";
 import { loadRules } from "./import/pipeline.ts";
 import { testRule, type Rule, type RuleSubject, extractNarrationFields } from "./import/rules.ts";
@@ -266,6 +280,11 @@ export interface AppDeps {
 const PUBLIC_PATHS = new Set([
   "/signin", "/auth/google", "/auth/google/callback", "/auth/dev", "/healthz",
   "/privacy", "/terms",
+  // F1.6 · Password sign-in, and the first password on an empty household.
+  // Both are doors: a person using them has no session yet, by definition.
+  // Each route refuses on its own terms — /auth/password when no password
+  // sign-in is offered, /auth/first-run once the household has any member.
+  "/auth/password", "/auth/first-run",
   // The demo front door has to be reachable by somebody with no session — that
   // is its whole purpose. The route itself refuses unless DEMO_MODE is on.
   "/demo/enter",
@@ -846,6 +865,39 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               </div>
             `,
           )}
+          ${when(
+            passwordSignInOffered(db, config),
+            () => html`
+              <div class="card">
+                <form method="post" action="/auth/password">
+                  <input type="hidden" name="next" value="${next}">
+                  <div class="field">
+                    <label for="pw-email">Email</label>
+                    <input id="pw-email" type="email" name="email" required
+                           autocomplete="username" autocapitalize="none" spellcheck="false">
+                  </div>
+                  <div class="field">
+                    <label for="pw-password">Password</label>
+                    <input id="pw-password" type="password" name="password" required
+                           autocomplete="current-password">
+                  </div>
+                  <button class="button button-primary" style="width:100%" type="submit">
+                    Sign in
+                  </button>
+                </form>
+                ${when(
+                  memberCount(db) === 0,
+                  () => html`
+                    <p class="field-hint" style="margin-top:.75rem">
+                      This household has no members yet. The first person to set
+                      a password becomes one and can invite the rest —
+                      <a href="/auth/first-run">set it here</a>.
+                    </p>
+                  `,
+                )}
+              </div>
+            `,
+          )}
           ${googleConfigured
             ? html`
                 <div class="card">
@@ -865,8 +917,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 !config.demoMode,
                 () => html`
                   <p class="notice notice-warning">
-                    Google sign-in isn't configured. Set GOOGLE_CLIENT_ID and
-                    GOOGLE_CLIENT_SECRET to enable it.
+                    No way to sign in is configured. Either set LOCAL_LOGIN=1 and
+                    create the first password, or set GOOGLE_CLIENT_ID and
+                    GOOGLE_CLIENT_SECRET.
                   </p>
                 `,
               )}
@@ -1006,6 +1059,147 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         "Set-Cookie": sessionCookie(token, {
           secure: config.baseUrl.startsWith("https"),
           days: 1,
+        }),
+      },
+    };
+  });
+
+  /*
+   * F1.6 · Password sign-in.
+   *
+   * Offered when LOCAL_LOGIN is set, and also whenever a password already
+   * exists — so that turning the flag off cannot lock out a household that is
+   * relying on it, which would otherwise be a one-character way to lose access
+   * to your own ledger.
+   */
+  router.post("/auth/password", (ctx) => {
+    const source = clientIp(ctx, config.trustProxy);
+    if (isRateLimited(db, source)) {
+      throw new HttpError(429, "Too many sign-in attempts. Try again in a few minutes.");
+    }
+    if (!passwordSignInOffered(db, config)) throw new NotFound();
+
+    const email = String(field(ctx.body, "email") ?? "").trim().toLowerCase();
+    const password = String(field(ctx.body, "password") ?? "");
+    const member = email ? (findMemberByEmail(db, email) ?? null) : null;
+
+    /*
+     * One message for "no such member", "no password set" and "wrong
+     * password". Telling them apart tells an attacker which addresses are
+     * members of this household, which is worth more than it looks on an app
+     * whose whole point is that the membership is a family.
+     */
+    const refuse = () => {
+      recordAuthAttempt(db, source, "bad-password", email || undefined);
+      throw new HttpError(401, "That email and password do not match.");
+    };
+
+    if (!member || member.removed_at || !member.allowed) refuse();
+
+    const result = checkPassword(db, member!.id, password);
+    if (!result.ok) {
+      if (result.reason === "locked") {
+        recordAuthAttempt(db, source, "locked", email);
+        throw new HttpError(
+          429,
+          "Too many wrong passwords for that account. It is locked for a few minutes.",
+        );
+      }
+      refuse();
+    }
+
+    const { token } = createSession(db, member!.id, {
+      userAgent: ctx.req.headers["user-agent"] ?? null,
+      ipHint: source,
+      days: config.sessionDays,
+    });
+    recordAuthAttempt(db, source, "success", email);
+
+    return {
+      redirect: result.ok && result.mustChange
+        ? "/settings/password"
+        : safePath(field(ctx.body, "next") ?? "/", "/"),
+      headers: {
+        "Set-Cookie": sessionCookie(token, {
+          secure: config.baseUrl.startsWith("https"),
+          days: config.sessionDays,
+        }),
+      },
+    };
+  });
+
+  /*
+   * The first password on an empty household, which is the only way in when
+   * Google is not configured. Guarded by there being no members at all — the
+   * same door F1.3 opens for the first Google sign-in, and it closes the moment
+   * anybody walks through it.
+   */
+  router.get("/auth/first-run", (ctx) => {
+    if (!config.localLogin || memberCount(db) !== 0) throw new NotFound();
+    return render(
+      ctx,
+      "Set the first password",
+      html`
+        <div style="max-width:26rem;margin:3rem auto">
+          <h1>Set the first password</h1>
+          <p class="muted">
+            This household has no members. Whoever sets this becomes the first
+            one, and can invite the rest.
+          </p>
+          <form class="card" method="post" action="/auth/first-run">
+            <div class="field">
+              <label for="fr-name">Your name</label>
+              <input id="fr-name" type="text" name="name" required autocomplete="name">
+            </div>
+            <div class="field">
+              <label for="fr-email">Email</label>
+              <input id="fr-email" type="email" name="email" required
+                     autocomplete="username" autocapitalize="none" spellcheck="false">
+            </div>
+            <div class="field">
+              <label for="fr-password">Password</label>
+              <input id="fr-password" type="password" name="password" required
+                     autocomplete="new-password" minlength="12">
+              <p class="field-hint">
+                At least 12 characters. Length is what makes a password hard to
+                guess — three or four words beats a short one with symbols in it.
+              </p>
+            </div>
+            <button class="button button-primary" style="width:100%" type="submit">
+              Create the household
+            </button>
+          </form>
+        </div>
+      `,
+      { bare: true },
+    );
+  });
+
+  router.post("/auth/first-run", (ctx) => {
+    if (!config.localLogin || memberCount(db) !== 0) throw new NotFound();
+    const source = clientIp(ctx, config.trustProxy);
+
+    const email = String(requiredField(ctx.body, "email")).trim().toLowerCase();
+    const name = String(requiredField(ctx.body, "name")).trim();
+    const password = String(requiredField(ctx.body, "password"));
+
+    const member = inviteMember(db, { memberId: null, source: "system" }, { email, name });
+    setPassword(db, member.id, password);
+
+    const { token } = createSession(db, member.id, {
+      userAgent: ctx.req.headers["user-agent"] ?? null,
+      ipHint: source,
+      days: config.sessionDays,
+    });
+    recordAuthAttempt(db, source, "success", email);
+
+    return {
+      redirect: "/",
+      message: "Household created. Invite the others from Settings.",
+      headers: {
+        "Set-Cookie": sessionCookie(token, {
+          secure: config.baseUrl.startsWith("https"),
+          days: config.sessionDays,
         }),
       },
     };
@@ -2264,6 +2458,93 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   });
 
   /** L4 · Learning is disableable, globally. */
+  /*
+   * F1.6 · Setting and changing a password.
+   *
+   * Reachable whenever password sign-in is offered, including for a member who
+   * signs in with Google today: having a second way in is the point, and the
+   * moment somebody wants to stop depending on Google they need to be able to
+   * set one without an administrator.
+   */
+  router.get("/settings/password", (ctx) => {
+    const a = auth(ctx);
+    if (!passwordSignInOffered(db, config)) throw new NotFound();
+    const existing = hasPassword(db, a.member.id);
+
+    return render(
+      ctx,
+      existing ? "Change your password" : "Set a password",
+      html`
+        <div class="prose-page">
+          <p class="faint"><a href="/settings">← Settings</a></p>
+          <h1>${existing ? "Change your password" : "Set a password"}</h1>
+          <p>
+            ${existing
+              ? html`Changing it does not sign out your other sessions. End those
+                     from <a href="/settings">Settings</a> if you need to.`
+              : html`A password is a second way into this household that does not
+                     depend on anybody else's service. You can keep using Google
+                     as well.`}
+          </p>
+          <form class="card" method="post" action="/settings/password">
+            ${when(existing, () => html`
+              <div class="field">
+                <label for="pw-current">Current password</label>
+                <input id="pw-current" type="password" name="current" required
+                       autocomplete="current-password">
+              </div>
+            `)}
+            <div class="field">
+              <label for="pw-new">New password</label>
+              <input id="pw-new" type="password" name="password" required
+                     autocomplete="new-password" minlength="12">
+              <p class="field-hint">
+                At least 12 characters. Length is what makes a password hard to
+                guess — three or four words beats a short one with symbols in it.
+              </p>
+            </div>
+            <div class="field">
+              <label for="pw-confirm">New password again</label>
+              <input id="pw-confirm" type="password" name="confirm" required
+                     autocomplete="new-password">
+            </div>
+            <button class="button button-primary" type="submit">
+              ${existing ? "Change it" : "Set it"}
+            </button>
+          </form>
+        </div>
+      `,
+      { bare: true },
+    );
+  });
+
+  router.post("/settings/password", (ctx) =>
+    mutate(ctx, (a) => {
+      if (!passwordSignInOffered(db, config)) throw new NotFound();
+
+      const password = String(requiredField(ctx.body, "password"));
+      const confirm = String(requiredField(ctx.body, "confirm"));
+      if (password !== confirm) {
+        throw new Refusal("Those two passwords are not the same.");
+      }
+
+      /*
+       * Changing an existing password requires the old one. Without this, a
+       * borrowed session — a shared laptop, a phone left unlocked — becomes a
+       * permanent takeover rather than a temporary one.
+       */
+      if (hasPassword(db, a.member.id)) {
+        const current = String(field(ctx.body, "current") ?? "");
+        if (!checkPassword(db, a.member.id, current).ok) {
+          throw new Refusal("That is not your current password.");
+        }
+      }
+
+      setPassword(db, a.member.id, password);
+      return { redirect: "/settings", message: "Password set." };
+    }),
+  );
+
   router.post("/settings/learning", (ctx) =>
     mutate(ctx, (a) => {
       const enabled = field(ctx.body, "enabled") === "1";

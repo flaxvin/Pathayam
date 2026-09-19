@@ -131,6 +131,13 @@ function getRoutes(ids: Record<string, string>): string[] {
     "/auth/google", "/auth/google/callback", // need a live Google round-trip
     "/gmail/connect", "/gmail/callback",
     "/auth/dev",
+    // Only exists while the household has no members; this fixture has some.
+    // Covered directly in auth-password.test.ts, both open and closed.
+    "/auth/first-run",
+    // Only exists where password sign-in does: LOCAL_LOGIN set, or a password
+    // already present. Neither is true of this fixture. Covered in the same
+    // place, with the flag on.
+    "/settings/password",
     "/attachment/:id",                        // needs a stored file on disk
   ]);
 

@@ -30,6 +30,7 @@
  */
 
 import { randomBytes, scryptSync, timingSafeEqual } from "node:crypto";
+import { Refusal } from "../core/refusal.ts";
 
 /**
  * Cost. N=2^15 with r=8 is roughly 32 MB and tens of milliseconds per attempt
@@ -101,13 +102,27 @@ export function needsRehash(encoded: string): boolean {
  * lets through.
  */
 const REFUSED = new Set([
+  // Short ones. These cannot pass the length rule either, but naming them
+  // gives a more useful answer than "too short" to somebody who tried one.
   "password", "password1", "password123", "12345678", "123456789", "1234567890",
   "qwertyui", "qwerty123", "iloveyou", "abc12345", "welcome1", "admin123",
   "letmein1", "trustno1", "passw0rd", "p@ssw0rd", "money123", "budget123",
   "pathayam", "changeme",
+  // Long enough to satisfy the minimum, and still among the first things
+  // tried. Without these the length rule is the only real barrier, and
+  // "passwordpassword" walks through it.
+  "passwordpassword", "password1234", "passw0rd1234", "123456789012",
+  "qwertyuiopas", "qwertyuiop123", "iloveyouiloveyou", "letmeinletmein",
+  "administrator", "pathayam1234", "budgetbudget", "changemechangeme",
+  "welcometothejungle", "correcthorsebatterystaple",
 ]);
 
-export class WeakPassword extends Error {}
+/*
+ * A Refusal, not an Error: this is the app declining something a person did,
+ * which is a 422 with the reason shown to them — not a fault, which is a 500
+ * with a stack trace and no explanation.
+ */
+export class WeakPassword extends Refusal {}
 
 /**
  * Length first, because it is the rule that actually carries the entropy, and
@@ -116,17 +131,25 @@ export class WeakPassword extends Error {}
  */
 export function assertUsablePassword(password: string): void {
   const p = password.normalize("NFKC");
-  if (p.length < 12) {
-    throw new WeakPassword("A password needs at least 12 characters. Length is what makes one hard to guess — a phrase of three or four words beats a short one with symbols in it.");
-  }
-  if (p.length > 1024) {
-    throw new WeakPassword("That password is longer than 1024 characters.");
-  }
+  /*
+   * Named passwords first, then length.
+   *
+   * The other way round, every entry shorter than the minimum was unreachable
+   * — the length rule answered first and the list was decoration. It also
+   * means somebody who typed "password123" is told what is actually wrong with
+   * it rather than being sent off to add a character.
+   */
   if (REFUSED.has(p.toLowerCase())) {
     throw new WeakPassword("That is one of the first passwords anybody tries. Pick another.");
   }
   if (/^(.)\1+$/.test(p)) {
     throw new WeakPassword("That password is one character repeated.");
+  }
+  if (p.length < 12) {
+    throw new WeakPassword("A password needs at least 12 characters. Length is what makes one hard to guess — a phrase of three or four words beats a short one with symbols in it.");
+  }
+  if (p.length > 1024) {
+    throw new WeakPassword("That password is longer than 1024 characters.");
   }
 }
 

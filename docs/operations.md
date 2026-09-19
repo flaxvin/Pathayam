@@ -1,6 +1,6 @@
 # Running it
 
-One container, one SQLite file, no external services except Google sign-in.
+One container, one SQLite file, and no external service required at all.
 
 ## Requirements
 
@@ -86,6 +86,29 @@ docker run -d --name pathayam \
   -e TRUST_PROXY=true -e HEARTBEAT_URL=https://hc-ping.com/... \
   pathayam
 ```
+
+## Signing in
+
+Two ways, and you need at least one:
+
+| | Set | Notes |
+|---|---|---|
+| Password | `LOCAL_LOGIN=1` | No external service. On a household with no members, `/auth/first-run` creates the first one and sets their password; it 404s from then on. |
+| Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Below. Needed for Gmail import whether or not it is used for sign-in. |
+
+Both can be on at once, and a member may have both. Passwords are scrypt
+(`node:crypto`, no dependency added), stored in `member_passwords` — which is
+in `NEVER_EXPORTED`, so a hash never travels in an export. Eight wrong guesses
+locks that credential for fifteen minutes; the lock is per credential rather
+than per IP, because the attacker worth stopping has more than one address.
+
+`LOCAL_LOGIN` turning off does **not** disable a password that already exists.
+Otherwise one environment variable would lock a household out of its own
+ledger.
+
+Change or set your own password at `/settings/password`. Changing an existing
+one requires the current one, so a borrowed session is not a permanent
+takeover.
 
 ## Google sign-in
 
