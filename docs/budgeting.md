@@ -172,6 +172,48 @@ Compare `deleteCategory`, which insists the balance is already zero and only
 remaps transactions. Merge is for when the balance is the thing that has to
 survive.
 
+## Splitting a transaction
+
+One payment, more than one envelope. A supermarket bill is half groceries and
+half household; a bank charge rides along with a transfer.
+
+Lines are given as `split_category_N` / `split_amount_N`, the same names on the
+entry form, the edit screen and a schedule's split, so all three agree about
+what a split is. They must **add up to the transaction's amount** — a split
+that does not reconcile is money the ledger cannot account for.
+
+When lines are present the transaction's own `category_id` is **null** and the
+lines carry the categories. Setting both would file the amount twice. That is
+also why B99's rule still holds when splitting: money out needs an envelope, and
+the lines are that envelope.
+
+Splitting used to be available only when editing, so the way to record a mixed
+bill was to save it wrong and then correct it. It is on the entry form now, and
+on the new-schedule form.
+
+## A transfer that costs something
+
+IMPS above a threshold, NEFT at some banks, a demat transfer, the markup on a
+currency conversion. The two legs of a transfer used to have to be equal, so a
+charge had to be entered separately by hand — and if it was not, the account
+stopped matching the statement.
+
+A transfer may now carry a fee. It comes out of the **sending** account on top
+of the amount, so ₹10,000 sent with a ₹5 charge leaves ₹10,005 and delivers
+₹10,000, which is what the statement will say.
+
+The fee needs a category, because it is spending. Money leaving the budget
+accounts with no envelope against it would come out of Ready to Assign instead,
+and the household would find its unassigned money shrinking with no line item to
+explain it.
+
+It is recorded as a **third transaction, deliberately outside the transfer
+pair**. Inside the pair the two legs would no longer cancel, and every report
+that excludes transfers would quietly swallow a real expense. Outside it, the
+charge behaves like any other categorised spend — it appears in the envelope, in
+the reports, and in the month's spending, which is where somebody goes looking
+for it.
+
 ## A schedule that splits
 
 The two most regular payments a household has are both splits. A salary arrives
