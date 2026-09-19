@@ -106,6 +106,7 @@ import {
 import {
   setAssigned, addAssigned, copyAssignmentsFromMonth, moveMoney, setHeld, getHeld,
   listCategories, getCategory, startPersonalBudget, deleteGroup, visibleBudgetIds,
+  mergeCategories,
 } from "./domain/budget.ts";
 import {
   createTransaction, createTransfer, updateTransaction, deleteTransaction,
@@ -5617,6 +5618,24 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   );
 
   // F3.5 · Delete a category (must be empty; its history can be remapped).
+  /*
+   * Merging two categories. `requireVisibleCategory` on both ends is what stops
+   * this being a way to learn that somebody else's envelope exists: an id you
+   * cannot see is a 404, the same as one that was never there.
+   */
+  router.post("/categories/:id/merge", (ctx) =>
+    mutate(ctx, (a) => {
+      const loser = requireVisibleCategory(ctx, ctx.params.id!)!;
+      const winner = requireVisibleCategory(ctx, requiredField(ctx.body, "winner_id"))!;
+      guardCommitmentEnvelope(db, loser, "merged");
+      mergeCategories(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), loser, winner);
+      return {
+        redirect: "/categories",
+        message: `Merged into ${getCategory(db, winner)?.name ?? "that category"}. Its balance, history and targets came across.`,
+      };
+    }),
+  );
+
   router.post("/categories/:id/delete", (ctx) =>
     mutate(ctx, (a) => {
       const id = requireVisibleCategory(ctx, ctx.params.id!)!;

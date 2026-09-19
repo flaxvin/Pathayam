@@ -393,6 +393,126 @@ export function setTarget(
   });
 }
 
+/**
+ * Merge one category into another: everything the loser holds, did and was
+ * promised becomes the winner's, and the loser goes away.
+ *
+ * This is not `deleteCategory` with a remap. Delete insists the balance is
+ * already zero and only moves transactions; a merge is what you reach for when
+ * two envelopes turned out to be the same envelope, and the balance is exactly
+ * the thing that has to survive.
+ *
+ * ## Why the assignments are summed rather than updated
+ *
+ * `assignments` is keyed `(month, category_id)`. If both categories were
+ * assigned to in the same month — which is the normal case for two categories
+ * anyone would want to merge — a plain `UPDATE ... SET category_id` either
+ * violates that key or, with the wrong conflict clause, silently keeps one row
+ * and drops the other. Dropping it would take money out of the ledger without
+ * taking it out of any account, and the identity
+ *
+ *   accounts = categories + ready-to-assign + held
+ *
+ * would break by exactly the amount discarded. So the two rows are added.
+ *
+ * ## What it refuses
+ *
+ * A card's payment category, on either side. Its activity is derived from the
+ * card account rather than stored (R6), so a merged one would either lose that
+ * link or give the winner a second one.
+ *
+ * A merge across budgets. Categories belong to groups, groups belong to a
+ * budget, and two budgets are two people's money — moving a balance between
+ * them is not a rename, it is a transfer, and it would move a private
+ * envelope's contents into the shared budget where everybody can see it.
+ */
+export function mergeCategories(db: DB, actor: Actor, loserId: string, winnerId: string): void {
+  if (loserId === winnerId) throw new Refusal("Pick two different categories.");
+
+  transact(db, () => {
+    const loser = getCategory(db, loserId);
+    const winner = getCategory(db, winnerId);
+    if (!loser || loser.deleted_at) throw new Refusal("That category does not exist.");
+    if (!winner || winner.deleted_at) throw new Refusal("That category does not exist.");
+
+    if (loser.payment_account_id || winner.payment_account_id) {
+      throw new Refusal(
+        "A card's payment category cannot be merged. Its balance is what funds that card, and the app derives it from the account (R6).",
+      );
+    }
+
+    const budgetOf = (groupId: string) =>
+      queryOne<{ budget_id: string | null }>(
+        db, `SELECT budget_id FROM category_groups WHERE id = ?`, groupId,
+      )?.budget_id ?? null;
+    if (budgetOf(loser.group_id) !== budgetOf(winner.group_id)) {
+      throw new Refusal(
+        "Those two categories belong to different budgets. Merging them would move one person's money into another's.",
+      );
+    }
+
+    /*
+     * Assignments: added, month by month. ON CONFLICT is what keeps the
+     * identity — see above.
+     */
+    execute(
+      db,
+      `INSERT INTO assignments (month, category_id, amount, updated_at)
+       SELECT month, ?, amount, ? FROM assignments WHERE category_id = ?
+         ON CONFLICT(month, category_id)
+         DO UPDATE SET amount = assignments.amount + excluded.amount,
+                       updated_at = excluded.updated_at`,
+      winnerId, nowIST(), loserId,
+    );
+    execute(db, `DELETE FROM assignments WHERE category_id = ?`, loserId);
+
+    // History, and anything that merely points at a category.
+    execute(db, `UPDATE transactions SET category_id = ? WHERE category_id = ?`, winnerId, loserId);
+    execute(db, `UPDATE transaction_splits SET category_id = ? WHERE category_id = ?`, winnerId, loserId);
+    execute(db, `UPDATE staged_transactions SET category_id = ? WHERE category_id = ?`, winnerId, loserId);
+    execute(db, `UPDATE schedules SET category_id = ? WHERE category_id = ?`, winnerId, loserId);
+    execute(db, `UPDATE loans SET payment_category_id = ? WHERE payment_category_id = ?`, winnerId, loserId);
+    execute(db, `UPDATE even_calls SET envelope_id = ? WHERE envelope_id = ?`, winnerId, loserId);
+    execute(db, `UPDATE even_calls SET giving_category_id = ? WHERE giving_category_id = ?`, winnerId, loserId);
+
+    // A goal can name both; (goal_id, category_id) is a key, so insert what is
+    // missing and drop the rest rather than colliding.
+    execute(
+      db,
+      `INSERT OR IGNORE INTO goal_categories (goal_id, category_id)
+       SELECT goal_id, ? FROM goal_categories WHERE category_id = ?`,
+      winnerId, loserId,
+    );
+    execute(db, `DELETE FROM goal_categories WHERE category_id = ?`, loserId);
+
+    /*
+     * Targets: the winner's stands. Two targets cannot both apply, and the
+     * category being kept is the one whose intent was meant to survive — so
+     * the loser's is taken only when the winner has none.
+     */
+    const winnerTarget = queryOne(db, `SELECT category_id FROM targets WHERE category_id = ?`, winnerId);
+    if (!winnerTarget) {
+      execute(db, `UPDATE targets SET category_id = ? WHERE category_id = ?`, winnerId, loserId);
+    }
+    execute(db, `DELETE FROM targets WHERE category_id = ?`, loserId);
+
+    /*
+     * The rollup cache is keyed by category and is now wrong for both of them.
+     * It is derived from the ledger, so throwing the whole thing away costs one
+     * rebuild — which is what the migration that introduced it does too.
+     */
+    execute(db, `DELETE FROM month_rollups`);
+    execute(db, `DELETE FROM month_rollup_state`);
+
+    execute(db, `UPDATE categories SET deleted_at = ? WHERE id = ?`, nowIST(), loserId);
+
+    appendEvent(db, actor, {
+      entity: "category", entityId: loserId, action: "merge", before: loser, after: winner,
+      summary: `Merged "${loser.name}" into "${winner.name}"`,
+    });
+  });
+}
+
 export function clearTarget(db: DB, actor: Actor, categoryId: string): void {
   transact(db, () => {
     const before = queryOne(db, `SELECT * FROM targets WHERE category_id = ?`, categoryId);
