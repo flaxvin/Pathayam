@@ -451,6 +451,7 @@ only (out of a token's reach).
 | GET | `/schedules` | R | Recurring items & cashflow calendar. |
 | POST | `/schedules/new` · `/schedules/confirm` · `/schedules/dismiss` · `/schedules/:id/paid` · `/schedules/:id/skip` | W | Manage schedules. A schedule may be money in or money out. |
 | POST | `/schedules/:id/edit` · `/schedules/:id/delete` | W | Change or remove a schedule. Removing leaves everything it already recorded. |
+| POST | `/schedules/:id/splits` | W | Set or clear the envelopes a schedule divides into. Lines arrive as `split_category_N` / `split_amount_N` and must add up to the schedule's amount. Posting the schedule then posts a split transaction. |
 | GET | `/goals` | R | Savings goals. |
 | POST | `/goals/new` · `/goals/:id/complete` · `/goals/:id/edit` · `/goals/:id/delete` | W | Manage goals. |
 | GET | `/loans` · `/loans/:id` | R | Loans and one loan's detail. |

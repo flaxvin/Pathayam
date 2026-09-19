@@ -171,3 +171,24 @@ contents into the shared budget where everyone can see it.
 Compare `deleteCategory`, which insists the balance is already zero and only
 remaps transactions. Merge is for when the balance is the thing that has to
 survive.
+
+## A schedule that splits
+
+The two most regular payments a household has are both splits. A salary arrives
+and is immediately three things — provident fund, tax deducted, and what landed.
+Rent is rent plus maintenance plus parking, one payment on one date. Both had to
+be entered and split by hand every month, which is the work a schedule exists to
+remove.
+
+`schedule_splits` mirrors `transaction_splits` rather than inventing a second
+shape, because when the schedule posts, one becomes the other. The lines must
+add up to the schedule's amount: a split that does not reconcile is money the
+ledger cannot account for, and a recurring one repeats that every month until
+somebody notices.
+
+When a split schedule posts, the transaction's own `category_id` goes null and
+the lines carry the categories — the same rule as a hand-entered split. Setting
+both would file the amount twice.
+
+A schedule with no amount cannot be split, since there is nothing to divide, and
+a card's payment envelope cannot be a line for the usual reason (R6).

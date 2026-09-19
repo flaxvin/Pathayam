@@ -157,6 +157,7 @@ import { spendingInsights, type Insight } from "./domain/insights.ts";
 import {
   listSchedules, createSchedule, updateSchedule, deleteSchedule, markPaid, skipOccurrence,
   detectSchedules, projectCashflow, describeCashflow, subscriptions, type Recurrence,
+  setScheduleSplits, getScheduleSplits,
 } from "./domain/schedules.ts";
 import {
   listGoals, createGoal, updateGoal, deleteGoal, goalCategoryIds, goalProgress, completeGoal,
@@ -5058,6 +5059,34 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         },
       );
       return { redirect: "/schedules", message: `${schedule.name} updated.` };
+    }),
+  );
+
+  /*
+   * F7 · A schedule that lands in more than one envelope.
+   *
+   * Lines arrive as split_category_N / split_amount_N, the same shape the
+   * transaction editor posts, so the two screens agree about what a split is.
+   */
+  router.post("/schedules/:id/splits", (ctx) =>
+    mutate(ctx, (a) => {
+      const id = ctx.params.id!;
+      const lines: { categoryId: string | null; amount: Paise; memo?: string | null }[] = [];
+      for (let i = 0; i < 20; i++) {
+        const raw = String(field(ctx.body, `split_amount_${i}`) ?? "").trim();
+        if (!raw) continue;
+        const categoryId = field(ctx.body, `split_category_${i}`);
+        lines.push({
+          amount: amountField(raw, `Line ${i + 1}`),
+          categoryId: categoryId ? requireVisibleCategory(ctx, categoryId)! : null,
+          memo: field(ctx.body, `split_memo_${i}`) || null,
+        });
+      }
+      setScheduleSplits(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, lines);
+      return {
+        redirect: "/schedules",
+        message: lines.length ? "Split saved. It applies from the next time this posts." : "Split removed.",
+      };
     }),
   );
 

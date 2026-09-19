@@ -19,7 +19,7 @@ import { formatPaise, type Paise } from "../core/money.ts";
 import { accountBalances } from "../engine/repository.ts";
 import { listLoans, projectLoan } from "./loans.ts";
 import { Refusal } from "../core/refusal.ts";
-import { createTransaction } from "./transactions.ts";
+import { createTransaction, refusePaymentCategories } from "./transactions.ts";
 
 export type Recurrence =
   | "daily" | "weekly" | "fortnightly" | "monthly" | "monthly-nth-weekday"
@@ -176,6 +176,78 @@ export function getSchedule(db: DB, id: string): Schedule | null {
   return queryOne<Schedule>(db, `SELECT * FROM schedules WHERE id = ?`, id);
 }
 
+export interface ScheduleSplit {
+  id: string;
+  category_id: string | null;
+  amount: Paise;
+  memo: string | null;
+}
+
+export function getScheduleSplits(db: DB, scheduleId: string): ScheduleSplit[] {
+  return queryAll<ScheduleSplit>(
+    db,
+    `SELECT id, category_id, amount, memo FROM schedule_splits
+      WHERE schedule_id = ? ORDER BY sort, rowid`,
+    scheduleId,
+  );
+}
+
+/**
+ * Replace a schedule's split lines, or clear them by passing none.
+ *
+ * The lines must add up to the schedule's amount, for the same reason a
+ * transaction's must: a split that does not reconcile is money the ledger
+ * cannot account for, and a *recurring* one is that mistake made every month
+ * until somebody notices.
+ *
+ * A schedule with no amount cannot be split at all — there is nothing to split.
+ */
+export function setScheduleSplits(
+  db: DB, actor: Actor, scheduleId: string, lines: { categoryId: string | null; amount: Paise; memo?: string | null }[],
+): void {
+  transact(db, () => {
+    const schedule = getSchedule(db, scheduleId);
+    if (!schedule) throw new Refusal("That schedule does not exist.");
+
+    const kept = lines.filter((l) => l.amount !== 0);
+    if (kept.length > 0) {
+      if (schedule.amount === null) {
+        throw new Refusal(
+          "This schedule has no amount, so there is nothing to split. Give it one first.",
+        );
+      }
+      if (kept.length < 2) {
+        throw new Refusal("A split needs at least two lines. One line is just a category.");
+      }
+      const total = kept.reduce((sum, l) => sum + l.amount, 0);
+      if (total !== schedule.amount) {
+        throw new Refusal(
+          `The lines add up to ${formatPaise(total as Paise)}, but the schedule is ${formatPaise(schedule.amount as Paise)}.`,
+        );
+      }
+      refusePaymentCategories(db, kept.map((l) => l.categoryId));
+    }
+
+    execute(db, `DELETE FROM schedule_splits WHERE schedule_id = ?`, scheduleId);
+    kept.forEach((line, i) => {
+      execute(
+        db,
+        `INSERT INTO schedule_splits (id, schedule_id, category_id, amount, memo, sort)
+         VALUES (?,?,?,?,?,?)`,
+        newId(), scheduleId, line.categoryId, line.amount, line.memo ?? null, i,
+      );
+    });
+
+    appendEvent(db, actor, {
+      entity: "schedule", entityId: scheduleId, action: "update",
+      after: { splits: kept.length },
+      summary: kept.length
+        ? `Set ${schedule.name} to split across ${kept.length} envelopes`
+        : `Removed the split from ${schedule.name}`,
+    });
+  });
+}
+
 export function listSchedules(db: DB, opts: { includeDisabled?: boolean } = {}): Schedule[] {
   return queryAll<Schedule>(
     db,
@@ -291,11 +363,21 @@ export function markPaid(db: DB, actor: Actor, scheduleId: string, on: IsoDate =
 
     let posted: string | null = null;
     if (schedule.amount !== null && schedule.account_id) {
+      /*
+       * A split schedule posts a split transaction. `categoryId` goes null in
+       * that case, exactly as it does for a hand-entered split — the lines are
+       * where the categories live, and leaving both set would file the amount
+       * twice.
+       */
+      const splits = getScheduleSplits(db, scheduleId);
       posted = createTransaction(db, actor, {
         accountId: schedule.account_id,
         amount: schedule.amount,
         date: on,
-        categoryId: schedule.category_id,
+        categoryId: splits.length > 0 ? null : schedule.category_id,
+        splits: splits.length > 0
+          ? splits.map((sp) => ({ categoryId: sp.category_id, amount: sp.amount, memo: sp.memo }))
+          : undefined,
         payeeId: schedule.payee_id,
         payeeName: schedule.payee_id ? null : schedule.name,
         memo: `${schedule.name} — scheduled`,

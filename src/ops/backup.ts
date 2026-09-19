@@ -94,6 +94,7 @@ export const COUNTED_TABLES = [
   // Q10 · receipts. The bytes live in this table, so backup covers them.
   "attachments",
   "tax_declarations",
+  "schedule_splits",
 ];
 
 /**

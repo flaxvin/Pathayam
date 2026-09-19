@@ -1986,4 +1986,32 @@ CREATE TABLE tax_declarations (
 );
 `,
   },
+  {
+    name: "0040-a-schedule-can-split-the-way-a-transaction-does",
+    sql: `
+--------------------------------------------------------------------------------
+-- F7 · A recurring payment that lands in more than one envelope
+--------------------------------------------------------------------------------
+-- A schedule posted to exactly one category, which is wrong for the two most
+-- regular things a household has. A salary arrives and is immediately three
+-- things: what went to provident fund, what was deducted as tax, and what
+-- actually landed. Rent is often rent plus maintenance plus parking, one
+-- payment on one date every month.
+--
+-- Both had to be entered by hand every month and then split by hand, which is
+-- precisely the work a schedule exists to remove.
+--
+-- The lines mirror transaction_splits rather than inventing a second shape,
+-- because when the schedule posts, these become that.
+CREATE TABLE schedule_splits (
+  id          TEXT PRIMARY KEY,
+  schedule_id TEXT NOT NULL REFERENCES schedules(id) ON DELETE CASCADE,
+  category_id TEXT REFERENCES categories(id),
+  amount      INTEGER NOT NULL,
+  memo        TEXT,
+  sort        INTEGER NOT NULL DEFAULT 0
+);
+CREATE INDEX idx_schedule_splits ON schedule_splits(schedule_id);
+`,
+  },
 ];
