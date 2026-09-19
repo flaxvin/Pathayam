@@ -33,7 +33,7 @@ src/
   portfolio/       holdings, lots, price providers
   loans/           amortisation
   gmail/           OAuth grant and message fetching
-  auth/            sessions, Google sign-in, API tokens, dev login
+  auth/            sessions, passwords, OpenID Connect, Google sign-in, API tokens, dev login
   ops/             backup, restore, error recording
   sim/             36-month household simulation
 ```
