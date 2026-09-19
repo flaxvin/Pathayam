@@ -691,6 +691,14 @@ export function renderSchedules(opts: {
    */
   categories?: { id: string; name: string }[];
   accounts?: { id: string; name: string }[];
+  /**
+   * The envelopes each schedule divides into, by schedule id.
+   *
+   * A salary is provident fund, tax deducted and what landed; rent is rent plus
+   * maintenance. Both are one payment on one date and both used to be split by
+   * hand every month, which is the work a schedule exists to remove.
+   */
+  splits?: Map<string, { category_id: string | null; amount: Paise }[]>;
 }): SafeHtml {
   return html`
     <h1>Schedules &amp; cashflow</h1>
@@ -825,6 +833,46 @@ export function renderSchedules(opts: {
                     </div>
                     <button class="button-small" type="submit">Save</button>
                   </form>
+                  ${when(
+                    s.amount !== null && (opts.categories?.length ?? 0) > 0,
+                    () => {
+                      const lines = opts.splits?.get(s.id) ?? [];
+                      /*
+                       * Four rows is enough for a salary (PF, tax, net) with one
+                       * spare, and a fixed number keeps this a plain form rather
+                       * than something that needs scripting to add a row.
+                       */
+                      const slots = Math.max(4, lines.length + 1);
+                      return html`
+                        <form method="post" action="/schedules/${s.id}/splits" style="margin-top:.6rem">
+                          <p class="field-hint" style="margin:0 0 .4rem">
+                            Split it across envelopes. The lines have to add up to
+                            ${formatPaise(s.amount!)} — leave them all empty to stop
+                            splitting.
+                          </p>
+                          ${Array.from({ length: slots }, (_unused, i) => {
+                            const line = lines[i];
+                            return html`
+                              <div class="row" style="gap:.4rem;margin-bottom:.3rem">
+                                <select name="split_category_${i}" style="max-width:11rem">
+                                  <option value="">No envelope</option>
+                                  ${(opts.categories ?? []).map((c) => html`
+                                    <option value="${c.id}" ${raw(line?.category_id === c.id ? "selected" : "")}>
+                                      ${c.name}
+                                    </option>
+                                  `)}
+                                </select>
+                                <input name="split_amount_${i}" inputmode="decimal"
+                                       style="max-width:7rem" placeholder="0.00"
+                                       value="${line ? (line.amount / 100).toFixed(2) : ""}">
+                              </div>
+                            `;
+                          })}
+                          <button class="button-small" type="submit">Save the split</button>
+                        </form>
+                      `;
+                    },
+                  )}
                   <form method="post" action="/schedules/${s.id}/delete" style="margin-top:.4rem"
                         onsubmit="return confirm('Remove this schedule? Anything it already recorded stays.')">
                     <button class="button-small button-danger" type="submit">Remove</button>
