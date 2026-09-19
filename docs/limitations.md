@@ -38,6 +38,31 @@ suggests.
 the window is annualised from what exists and the screen says so, but one
 unusual month still moves the target a long way.
 
+## Tax
+
+**It is an estimate, not a return.** Arithmetic on figures the person enters,
+under the slabs the app carries. It files nothing, it is not advice, and it is
+not a substitute for an accountant.
+
+**What it does not model**, each of which changes the answer: marginal relief
+on surcharge and on the 87A cliff, so a figure just over a threshold is
+overstated; capital gains, which are taxed at their own rates; tax already
+deducted at source; losses set off or carried forward, and house property loss;
+clubbing; foreign income and treaty relief; presumptive schemes under 44AD and
+44ADA.
+
+**Nothing is derived from the ledger except a starting figure.** Income is
+prefilled from money that arrived in visible budget accounts, which is not
+taxable income — it misses a salary paid elsewhere and includes receipts that
+are not income at all. Deductions are entered, never inferred. The loan
+interest report is deliberately not carried in: section 24(b) wants accrued
+interest on a specific property, which is a different number from cash paid
+across every loan.
+
+**Rates go stale.** Slabs change with each Finance Act. A year the app does not
+have is refused rather than computed with the previous year's, and the health
+page reports when the current financial year is newer than the rates carried.
+
 ## Currency
 
 **Rupee by default.** `FEATURE_MULTI_CURRENCY` is off unless set. With it off,

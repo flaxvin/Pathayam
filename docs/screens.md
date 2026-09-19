@@ -107,6 +107,12 @@ answer 404 when the viewer may not see the entity
 | `GET /portfolio/holdings.csv`, `/lots.csv`, `/prices.csv` | |
 | `POST /portfolio/refresh` | Refresh prices from the providers. |
 
+## Tax
+
+| Route | Purpose |
+|---|---|
+| `GET`/`POST /tax` | Income tax estimate for the signed-in member, per financial year (`fy`). Both regimes side by side, 80C/80D/HRA, and the advance-tax instalment dates. Refuses a year whose rates the app does not carry. |
+
 ## Financial independence
 
 | Route | Purpose |
@@ -146,7 +152,7 @@ answer 404 when the viewer may not see the entity
 
 Primary: Budget, Accounts, Add, Review, More. Secondary, grouped under
 *Analyse*: Household, Overview, Cards, Reports, Query, Schedules, Goals, Loans,
-Portfolio, Net worth, Independence. Under *Manage*: Payees, Rules, Import, Activity, Health,
+Portfolio, Net worth, Independence, Tax. Under *Manage*: Payees, Rules, Import, Activity, Health,
 Settings.
 
 On viewports below 900px the sidebar is replaced by a bottom bar and `/more`;

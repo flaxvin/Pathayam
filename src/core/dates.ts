@@ -249,8 +249,9 @@ export function parseDate(input: string, reference: IsoDate = todayIST()): IsoDa
 
 /**
  * The Indian financial year runs 1 April to 31 March. FY 2026-27 starts
- * 01-04-2026. Reports offer this alongside the calendar year (L4); nothing in
- * this module computes a tax liability (L14, N15).
+ * 01-04-2026. Reports offer this alongside the calendar year (L4). Nothing in
+ * this module computes a tax liability — that lives in `domain/tax.ts`, which
+ * Q31 added after reversing L14 and N15.
  */
 export function fiscalYearOf(date: IsoDate): number {
   const year = Number(date.slice(0, 4));

@@ -548,8 +548,10 @@ export function renderReports(opts: {
       <section class="card">
         <h2>Loan interest by financial year</h2>
         <p class="faint" style="margin-top:-.25rem">
-          April to March, for your own records. This app computes no tax liability
-          and gives no advice — it states what was paid.
+          April to March, for your own records. This states what was paid and
+          nothing more. The <a href="/tax">tax estimate</a> is a separate screen,
+          it is an estimate rather than a computation of what you owe, and it
+          does not read this figure — enter it there yourself if you claim it.
         </p>
         <div class="table-scroll">
           <table>

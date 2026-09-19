@@ -28,6 +28,10 @@ harvest, drawn from deliberately through the year.
 - **Per-member privacy.** A shared household budget plus an optional personal
   budget per member, excluded from the other members' lists, reports, exports,
   activity log and totals.
+- **Tax estimate.** Income tax under both regimes, side by side, with 80C, 80D
+  and the HRA exemption — an estimate on figures you enter, not a return and
+  not advice. Slabs are data keyed by financial year, so a year the app does
+  not have rates for is refused rather than computed with last year's.
 - **Financial independence.** A target drawn from what the household actually
   spent, against the assets that could actually fund it — a home is on the net
   worth statement, not here. Assumes no further earnings, and reports the years

@@ -110,6 +110,7 @@
             <li><a href="#allocation">Allocation</a></li>
             <li><a href="#networth">Net worth</a></li>
             <li><a href="#fire">Financial independence</a></li>
+            <li><a href="#tax">Tax estimate</a></li>
           <li class="rail-part">Running it</li>
             <li><a href="#activity">Activity and undo</a></li>
             <li><a href="#health">Backups and health</a></li>
@@ -1153,6 +1154,29 @@ is the default and the 4% answer is shown beside it rather than hidden. It is a
 projection on assumptions you set, not advice, and it cannot know what markets
 will do.</div>
           </article>
+          <article class="guide" id="tax">
+            <h2>Tax estimate</h2>
+<p>What the year looks like under each regime, side by side, so the choice is a
+number rather than a guess.</p>
+<p>It models the old regime's deductions &mdash; 80C, 80D, and the HRA exemption,
+which is the least of three figures and the one people most often get wrong
+(paying no rent exempts nothing, however much HRA was received). The new regime
+ignores all of them, which is exactly the trade the comparison is showing you.</p>
+<div class="note"><b>An estimate, not a return, and not advice.</b> It is arithmetic
+on figures you enter. It files nothing and it is not a substitute for an
+accountant. The screen lists what it leaves out &mdash; marginal relief, capital
+gains, tax already deducted at source, losses, foreign income, presumptive
+schemes &mdash; because an estimate that hides what it ignores is one that gets
+trusted too far.</div>
+<p>Slabs are carried as data for each financial year, not baked into the code. A
+year the app does not have rates for is <b>refused</b> rather than computed with
+the previous year's, since applying last February's rules to this year produces
+a confident wrong answer. The health page tells you when the rates have fallen
+behind the current year.</p>
+<p>It also shows the four <b>advance tax</b> instalments under section 211 and
+what falls due at each, because missing one costs interest under 234B and
+234C.</p>
+          </article>
           <h2 class="guide-part" id="part-running-it">Running it</h2>
           <article class="guide" id="activity">
             <h2>Activity and undo</h2>
@@ -1346,7 +1370,7 @@ after moving domains is the usual cause.</p>
     </div>
     <p class="foot__note">
       Run it yourself and nothing is sent anywhere: your data stays on your
-      machine. Hosting is not open yet. Every figure and name in the screenshots
+      machine. Hosted instances are set up by request. Every figure and name in the screenshots
       is fictional.
     </p>
     <p class="foot__legal">

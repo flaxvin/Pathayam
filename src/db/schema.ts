@@ -1948,4 +1948,42 @@ CREATE TABLE member_passwords (
 );
 `,
   },
+  {
+    name: "0039-what-the-tax-estimate-was-told",
+    sql: `
+--------------------------------------------------------------------------------
+-- Q31 · The figures behind a tax estimate
+--------------------------------------------------------------------------------
+-- Document 02, N15 said this app must never compute a tax liability or a
+-- deduction. That is deliberately reversed; the reasoning is in the decisions
+-- log. What
+-- the reversal does not change is that the estimate is arithmetic on numbers a
+-- person supplies, so those numbers have to be stored somewhere they can be
+-- corrected and kept year to year.
+--
+-- Per member and per financial year, because income tax in India is assessed
+-- on an individual. A household figure would be meaningless, and worse, it
+-- would mix one member's salary into another's estimate — exactly the kind of
+-- leak the budget screens are careful about.
+--
+-- Amounts are paise, like everything else. Gross is stored rather than derived
+-- because the ledger can only see money that arrived in accounts this app
+-- holds, which is not the same as taxable income and never will be.
+CREATE TABLE tax_declarations (
+  member_id     TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  fy            INTEGER NOT NULL,
+  gross         INTEGER NOT NULL DEFAULT 0,
+  s80c          INTEGER NOT NULL DEFAULT 0,
+  s80d          INTEGER NOT NULL DEFAULT 0,
+  s80d_senior   INTEGER NOT NULL DEFAULT 0,
+  other         INTEGER NOT NULL DEFAULT 0,
+  hra_received  INTEGER NOT NULL DEFAULT 0,
+  hra_rent_paid INTEGER NOT NULL DEFAULT 0,
+  hra_basic     INTEGER NOT NULL DEFAULT 0,
+  hra_metro     INTEGER NOT NULL DEFAULT 0,
+  updated_at    TEXT NOT NULL,
+  PRIMARY KEY (member_id, fy)
+);
+`,
+  },
 ];
