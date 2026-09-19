@@ -496,8 +496,14 @@ export async function runBackupJob(
  * and that is exactly why this table must not be in it: a PAN and a date of
  * birth are not budget data, and an export travels — to another machine, a
  * cloud drive, an email. The values stay on the server that needs them.
+ *
+ * `member_passwords` is here for the same reason and a sharper one. A scrypt
+ * hash is not a password, but it is an offline guessing target, and an export
+ * is the most portable thing this app produces. It is also simply not budget
+ * data: restoring somebody's ledger on a new machine should not carry their
+ * credentials along with it.
  */
-export const NEVER_EXPORTED = ["statement_identity", "gmail_connections"];
+export const NEVER_EXPORTED = ["statement_identity", "gmail_connections", "member_passwords"];
 
 export function exportEverything(db: DB): Record<string, unknown> {
   const tables = [...COUNTED_TABLES, "household", "import_profiles", "rule_applications", "review_dismissals"]
