@@ -151,34 +151,34 @@ performance.getEntriesByType("resource").filter(r => !r.name.startsWith(location
 
 An empty array is the expected answer.
 
-### If it is not empty: Cloudflare's analytics
+### It will not be empty: Cloudflare's analytics
 
-The likeliest cause is **Cloudflare Web Analytics**, which injects
+**Cloudflare Web Analytics is on, deliberately.** It injects
 
 ```
 https://static.cloudflareinsights.com/beacon.min.js/…
 ```
 
-into HTML responses at the edge. Three things make it easy to miss:
+into HTML at the edge, so it appears in no file here and the workflow's
+third-party guard cannot see it. It is also served **only to real browsers** —
+every `curl` check passes, including one sent with a browser's User-Agent.
 
-- It is added **after** anything in this repository, so the workflow's
-  third-party guard cannot see it and neither can a review of the source.
-- It is served **only to real browsers**. Every `curl` check passes, including
-  one sent with a browser's User-Agent.
-- On the app it is then blocked by the Content-Security-Policy, so it does not
-  even function — it just logs two console errors on every page.
+That is the whole reason it is written down: nothing in this repository, and no
+check that fetches a page with a script, will tell you it is there. A headless
+browser collecting console errors is what found it.
 
-It also makes this site's privacy policy false, in four places, while it is on:
-*"no analytics, no tracking and no third-party requests"*.
+What it means in practice:
 
-Turn it off in the Cloudflare dashboard for the zone — **Web Analytics**, the
-automatic or "Browser Insights" setup. Do not add the host to the CSP instead:
-that resolves the contradiction the wrong way round, by permitting the
-analytics rather than removing it.
+| | |
+|---|---|
+| **pathayam.app** | No CSP, so the beacon runs. Visits are counted. Disclosed in [`privacy.html`](privacy.html#website). |
+| **demo.pathayam.app**, and any hosted instance | The app sends `script-src 'self'`, so the same injected script is **blocked before it executes**. Nothing is sent. It does log two console errors per page, which is the visible cost of leaving it on. |
 
-A real browser is the only thing that catches this. Loading every page in
-headless Chromium and collecting console errors is what found it; the whole
-suite of `curl` checks above had reported the site clean.
+If you ever want it gone, turn it off in the Cloudflare dashboard for the zone
+— **Web Analytics**, the automatic or "Browser Insights" setup — and put back
+the "no analytics" wording in `privacy.html`. Do not instead add the host to
+the app's CSP: that would let it run on the pages holding somebody's money,
+which is the one place it is currently guaranteed not to.
 
 ---
 

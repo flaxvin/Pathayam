@@ -43,13 +43,18 @@ jobs:
           fi
           echo "No placeholders found."
 
+      # Cloudflare Web Analytics is injected at the edge, so it is invisible
+      # here by construction. This guard is about what the repository itself
+      # asks a browser to fetch: fonts and images stay on this origin, which
+      # is what privacy.html promises. The analytics is disclosed there
+      # separately, because no check over these files can see it.
       - name: Refuse to publish a third-party request
         run: |
           if grep -rnE 'https?://(fonts\.googleapis|fonts\.gstatic|www\.google-analytics|cdn\.)' website/ ; then
-            echo "::error::The site must make no third-party request — privacy.html says so."
+            echo "::error::This site serves its own fonts and images — privacy.html says so."
             exit 1
           fi
-          echo "No third-party resources found."
+          echo "No third-party resources in the source."
 
       - uses: actions/configure-pages@v5
 

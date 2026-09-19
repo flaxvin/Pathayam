@@ -1057,6 +1057,36 @@ export function renderNewScheduleForm(opts: {
       <div class="field">
         <label><input type="checkbox" name="is_subscription" value="1"> This is a subscription</label>
       </div>
+
+      <!--
+        Splitting at creation, not only afterwards.
+
+        The two most regular payments a household has are both splits — a salary
+        into provident fund, tax and what landed; rent into rent and
+        maintenance. The lines could only be set on an existing schedule, so
+        recording either meant creating it wrong and then editing.
+      -->
+      <details class="field">
+        <summary class="linkish">Split across envelopes</summary>
+        <p class="field-hint">
+          Fill in two or more lines and they must add up to the amount above.
+          Leave them blank for a schedule that posts to one envelope.
+        </p>
+        ${[0, 1, 2].map((i) => html`
+          <div class="row" style="gap:.4rem;margin-bottom:.3rem">
+            <select name="split_category_${i}" style="max-width:11rem"
+                    aria-label="Split ${i + 1} envelope">
+              <option value="">—</option>
+              ${(opts.categories ?? []).map((c) => html`
+                <option value="${c.id}">${c.name}</option>
+              `)}
+            </select>
+            <input name="split_amount_${i}" inputmode="decimal" style="max-width:7rem"
+                   placeholder="0.00" aria-label="Split ${i + 1} amount">
+          </div>
+        `)}
+      </details>
+
       <button class="button-primary" type="submit">Add schedule</button>
       <a class="button button-quiet" href="/schedules">Cancel</a>
     </form>
