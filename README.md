@@ -65,7 +65,7 @@ docker compose up -d                  # production; requires BASE_URL in .env
 docker compose --profile dev up       # development, with the login bypass
 ```
 
-Configuration, Google sign-in, backups and restore: [docs/operations.md](docs/operations.md).
+Configuration, sign-in (password, OpenID Connect or Google), backups and restore: [docs/operations.md](docs/operations.md).
 
 ## Documentation
 

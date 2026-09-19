@@ -312,7 +312,7 @@ figure multiplied by roughly thirty, so an error arrives multiplied too.
 
 | Counted | Held apart | Not counted |
 |---|---|---|
-| Budget accounts, investments, deposits, commodities | Retirement balances (EPF, NPS) | Physical assets, receivables, untyped assets |
+| Budget accounts, investments, deposits, commodities | Retirement balances (EPF, NPS) | Physical assets, and anything with no asset class set |
 
 A home is on the net-worth statement and not here — you cannot sell a tenth of
 it each year. Everything excluded is listed on the screen with its reason, so

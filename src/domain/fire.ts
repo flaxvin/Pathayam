@@ -70,8 +70,11 @@ const LOCKED_UNTIL_RETIREMENT: ReadonlySet<string> = new Set(["retirement"]);
 
 /**
  * Counted by the net worth page, not by this one, and each for its own reason:
- * `physical` is the roof over their head, `receivable` is somebody else's
- * intention to pay, and `asset` is the untyped catch-all that could be either.
+ * `physical` is the roof over their head, which you cannot sell a tenth of each
+ * year, and `asset` is the untyped catch-all that could be anything. (There was
+ * a `receivable` here too — somebody else's intention to pay — until it was
+ * retired for duplicating family lending, which tracks the same thing from the
+ * transfers rather than from a figure somebody remembers to update.)
  */
 const NOT_A_RETIREMENT: ReadonlySet<string> = new Set([
   "physical", "asset",

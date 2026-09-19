@@ -9,17 +9,50 @@ determines what the interface calls it and which extra fields apply.
 |---|---|---|---|
 | `budget` | `savings`, `current`, `cash`, `wallet` | Yes — feeds Ready to Assign | Yes, as cash |
 | `credit` | `credit-card`, `charge-card` | Owns a payment envelope | Yes, as a liability |
-| `tracking` | `asset`, `liability`, `loan`, `emi`, `fixed-deposit`, `recurring-deposit`, `family-loan` | No | Yes |
+| `tracking` | `savings`, `current`, `asset`, `liability`, `loan`, `emi`, `fixed-deposit`, `recurring-deposit`, `family-loan` | No | Yes |
+
+`savings` and `current` appear under both `budget` and `tracking`, and that is
+deliberate: whether you budget from an account is a decision about the account,
+not a fact about what sort it is. A salary account you assign every rupee of and
+a parent's account you only keep an eye on are both savings accounts.
+
+Because of that, the account form offers the **pair** as one choice — the option
+value is `kind:subtype`, grouped under what each kind means. It used to ask for
+the two separately and offer every subtype of every kind in one flat list, so
+`budget` + `credit-card` was a click away and produced a 500 with no body, which
+reads as a save that hangs. `kindsForSubtype()` is the list, derived from
+`ACCOUNT_SUBTYPES` so the two cannot drift.
+
+## Counted, or derived
+
+Most accounts are worth what their transactions add up to. Some are worth a
+figure computed elsewhere, and for those a plain transaction is accepted and
+then reflected nowhere:
+
+| Subtype | Worth |
+|---|---|
+| `investment` | the market value of its holdings |
+| `loan`, `emi` | its amortisation schedule |
+| `family-loan` | the transfers behind it |
+| `physical`, `commodity`, `retirement` | its latest dated valuation |
+
+`DERIVED_VALUE_SUBTYPES` is that list. Those accounts are not offered when
+adding a transaction, they show their derived figure on the Accounts screen
+rather than a misleading ₹0, and `accountDrifts` reports any gap already
+recorded. Everything else — including deposits and tracked savings — behaves
+ordinarily, because posting to them is how you say what happened.
 
 Fields by subtype:
 
 - `credit-card`, `charge-card`: `credit_limit`, `statement_day`, `due_day`.
-- `fixed-deposit`, `recurring-deposit`, `asset`, `liability`: worth the
-  balance their register adds up to, unless a dated valuation states
-  otherwise — in which case the stated figure is what net worth uses, and
-  carries its own date and staleness. Recorded on `/portfolio/valuations` or
-  `/portfolio/asset/:id/revalue`, the same screens the Portfolio-created
-  asset subtypes use.
+- `fixed-deposit`, `recurring-deposit`, `asset`, `liability`: worth the balance
+  their register adds up to. **Revalue is not offered on these**, and that is
+  the point of them being tracking accounts: interest credited to a deposit is a
+  transaction, and the balance moves with it. A stated figure would override the
+  balance (B56) and silently stop the interest counting from that moment on.
+  Hand-valued subtypes — `physical`, `commodity`, `retirement` — are the ones
+  with no balance to count, and they are revalued on `/portfolio/valuations` or
+  `/portfolio/asset/:id/revalue`.
 - `loan`, `emi`, `family-loan`: balances are derived from the companion tables
   and cannot be edited directly. These accounts are created and managed from
   `/loans` and `/family`.
