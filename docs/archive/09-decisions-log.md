@@ -93,6 +93,7 @@ Paytm (monthly statement) · Amazon Pay (balance, autopay, bill reminders) · CR
 | Q11b | Education loan lifecycle | **Full EMI, repayment started** | Moratorium models M3/M4 are not needed for real data. Still built — an education loan that has already exited moratorium is the simplest case (M1). |
 | Q12 | Principal/interest split | **Accept projection, reconcile quarterly.** Drift threshold ₹500 | `06` R18 confirmed. Estimated splits stay visually marked until confirmed (R18.3). |
 | Q13 | FY interest report | **Yes** — interest and principal per Apr–Mar year, across all three loans | Report only. No tax computed (`02` L14, N15). |
+| Q31 | Tax estimate | **Reversed L14 and N15.** The app now estimates income tax under both regimes, and models 80C, 80D and HRA | A household that has already told this app every rupee it earned and spent is one screen away from the question it actually wants answered in January; sending it to a spreadsheet for that is an omission rather than restraint. Conditions of the reversal: it is an **estimate on figures the person enters**, never a return and never advice; slabs are data keyed by financial year, so an unknown year is refused rather than computed with last year's rules; and the screen lists what it does not model — marginal relief, capital gains, TDS, losses, foreign income, presumptive schemes. Q13's FY interest report is still **not** read into it (§ below). |
 | Q14 | Standalone prepayment calculator | **Yes** — usable before any loan exists | `06` R19.7 extended: seedable from an existing loan or from scratch. |
 
 ### Assets, net worth and currency
@@ -257,3 +258,18 @@ Supersedes `05` §8.
 10. Manifest, install instructions, theme, health page. **No service worker** (Q21).
 
 Then P1: loans (three single-disbursement), CAS import, MFAPI prices, month-close ritual, cashflow calendar, Gmail alert parsing.
+
+---
+
+## Q31 · Why the loan interest report is not wired into the tax estimate
+
+Q13 produces interest paid per financial year across every loan. Section 24(b)
+wants interest on a *specific let or self-occupied property*, on an accrual
+basis, capped. Those are different numbers, and feeding the first into the
+second would produce a confident wrong deduction on a screen a person plans
+around.
+
+So the tax screen asks for deductions rather than deriving them, and the loan
+report says in as many words that it is not carried across. The estimate is
+only ever as good as what it is told, which is a limitation worth being visible
+rather than one worth hiding behind an automatic figure.

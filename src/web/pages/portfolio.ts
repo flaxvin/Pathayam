@@ -678,8 +678,9 @@ export function renderHoldingDetail(opts: {
       <h2>Lots</h2>
       <p class="faint" style="margin-top:-.25rem">
         Oldest first — the order a sale consumes them in. Holding periods are shown
-        so you can see what is long-term; this app classifies nothing and computes
-        no tax.
+        so you can see what is long-term; this app classifies nothing. Capital
+        gains are taxed at their own rates and the <a href="/tax">tax estimate</a>
+        deliberately leaves them out, so nothing here is carried into it.
       </p>
       <div class="table-scroll">
         <table>

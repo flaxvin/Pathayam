@@ -442,8 +442,10 @@ export function categoryTrend(
 /**
  * L14 / Q13 · Interest and principal per financial year, across all loans.
  *
- * A report only. The app computes no tax liability and gives no advice
- * (`02` L14, N15) — it states what was paid and leaves it there.
+ * A report only: it states what was paid and leaves it there. It is not read
+ * by the tax estimate, and deliberately so — interest under section 24(b) is
+ * claimed on an accrual basis against a specific property, and this figure is
+ * cash paid across every loan. Q31 reversed L14 and N15, but not into here.
  */
 export function loanInterestByFinancialYear(
   db: DB,

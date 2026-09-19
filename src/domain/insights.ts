@@ -2,7 +2,8 @@
  * F10.5 · Spending insights — factual observations, not advice.
  *
  * The app's stance is that it states what happened and leaves the judgement to
- * the household (it "computes no tax liability and gives no advice"). So these
+ * the household. (Q31 later added a tax estimate on its own screen, from
+ * figures a person enters there; these insights still compute nothing.) So these
  * are observations with the numbers attached — "dining is 45% above its
  * three-month average, ₹8,200 against ₹5,650" — never "you should cut back".
  *

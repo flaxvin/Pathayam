@@ -170,6 +170,12 @@ import {
 import { renderPrivacy, renderTerms, type LegalMode } from "./web/pages/legal.ts";
 import { Refusal } from "./core/refusal.ts";
 import { checkPassword, setPassword, anyPasswordSet, hasPassword } from "./auth/passwords.ts";
+import {
+  staleRatesWarning, RATES_VERIFIED_ON, RATES_SOURCE, RULES,
+  estimateTax, advanceTaxSchedule, getDeclaration, saveDeclaration,
+  incomeInFinancialYear, type AdvanceInstalment,
+} from "./domain/tax.ts";
+import { renderTax } from "./web/pages/tax.ts";
 import { renderFire } from "./web/pages/fire.ts";
 import { fireProjection, DEFAULT_ASSUMPTIONS } from "./domain/fire.ts";
 import { renderActivity } from "./web/pages/activity.ts";
@@ -6807,6 +6813,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               `assets ${config.features.assets ? "on" : "off"}, ` +
               `multi-currency ${config.features.multiCurrency ? "on" : "off"}.`,
           },
+          {
+            /*
+             * Slabs change with a Finance Act, roughly every February. The app
+             * ships them as data and refuses a year it does not have rather
+             * than applying the previous year's — so the failure mode is a
+             * refusal, not a wrong number. This is what turns that refusal into
+             * something an operator sees coming, instead of discovering it the
+             * first time somebody opens the screen in April.
+             */
+            name: "Tax rates",
+            state: staleRatesWarning(fiscalYearOf(todayIST())) ? "degraded" : "healthy",
+            reason: staleRatesWarning(fiscalYearOf(todayIST()))
+              ?? `Cover the current financial year. Last checked ${RATES_VERIFIED_ON} against ${RATES_SOURCE}.`,
+          },
         ],
       },
       {
@@ -6994,6 +7014,75 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    * F27.3 · A machine-readable endpoint for external monitoring: one overall
    * status plus per-check detail.
    */
+  // -------------------------------------------------------------------------
+  // Q31 · Tax estimate
+  //
+  // Reverses 02 N15, deliberately. Per member and per financial year, because
+  // income tax in India is assessed on an individual — a household figure
+  // would mix one member's salary into another's estimate.
+  // -------------------------------------------------------------------------
+  function taxPageProps(ctx: RequestContext, a: ReturnType<typeof auth>) {
+    const fyParam = Number(ctx.query.get("fy"));
+    const fy = Number.isInteger(fyParam) && fyParam > 2000 ? fyParam : fiscalYearOf(todayIST());
+
+    const stored = getDeclaration(db, a.member.id, fy);
+    const visible = listAccounts(db, { viewerMemberId: a.member.id })
+      .filter((acc) => acc.kind === "budget")
+      .map((acc) => acc.id);
+    const ledgerIncome = incomeInFinancialYear(db, fy, visible);
+    const gross = stored.gross > 0 ? stored.gross : ledgerIncome;
+
+    let estimate = null;
+    let advance: AdvanceInstalment[] = [];
+    if (gross > 0 && !staleRatesWarning(fy)) {
+      estimate = estimateTax(fy, gross, stored);
+      const liability = estimate.better === "old" ? estimate.old.total : estimate.new.total;
+      advance = advanceTaxSchedule(fy, liability);
+    }
+
+    return {
+      fy, gross, ledgerIncome, deductions: stored, estimate, advance,
+      staleWarning: staleRatesWarning(fy),
+      ratesVerifiedOn: RATES_VERIFIED_ON,
+      ratesSource: RATES_SOURCE,
+      availableYears: Object.keys(RULES).map(Number).sort((x, y) => y - x),
+    };
+  }
+
+  router.get("/tax", (ctx) => {
+    const a = auth(ctx);
+    return render(ctx, "Tax estimate", renderTax(taxPageProps(ctx, a)));
+  });
+
+  router.post("/tax", (ctx) =>
+    mutate(ctx, (a) => {
+      const fy = Number(field(ctx.body, "fy"));
+      if (!Number.isInteger(fy)) throw new Refusal("Pick a financial year.");
+
+      const money = (name: string): Paise => {
+        const raw = String(field(ctx.body, name) ?? "").trim();
+        return raw ? amountField(raw, name) : (0 as Paise);
+      };
+
+      const received = money("hra_received");
+      const rentPaid = money("hra_rent");
+      const basic = money("hra_basic");
+
+      saveDeclaration(db, a.member.id, fy, {
+        gross: money("gross"),
+        s80c: money("s80c"),
+        s80d: money("s80d"),
+        s80dSenior: field(ctx.body, "s80d_senior") === "1",
+        other: money("other"),
+        hra: (received || rentPaid || basic)
+          ? { received, rentPaid, basic, metro: field(ctx.body, "hra_metro") === "1" }
+          : null,
+      });
+
+      return { redirect: `/tax?fy=${fy}`, message: "Saved. The estimate is recalculated." };
+    }),
+  );
+
   router.get("/healthz", () => {
     const groups = healthGroups();
     const overall = overallState(groups);

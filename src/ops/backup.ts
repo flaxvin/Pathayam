@@ -93,6 +93,7 @@ export const COUNTED_TABLES = [
   "settings_kv", "digest_mutes",
   // Q10 · receipts. The bytes live in this table, so backup covers them.
   "attachments",
+  "tax_declarations",
 ];
 
 /**
