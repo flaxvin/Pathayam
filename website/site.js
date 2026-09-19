@@ -144,8 +144,8 @@
         return;
       }
       if (!WAITLIST_ENDPOINT) {
-        say("The waitlist is not connected yet — nothing was sent. " +
-            "Until it is, the repository is the way in.", "err");
+        say("Requests are not connected yet — nothing was sent. " +
+            "Until they are, the repository is the way in.", "err");
         return;
       }
 
@@ -171,7 +171,7 @@
         }),
       }).then(function () {
         form.reset();
-        say("You are on the list. We will write once, when it opens.", "ok");
+        say("Asked. A person will read this and write back to you.", "ok");
       }).catch(function () {
         say("That did not go through. Try again in a moment.", "err");
       }).then(function () {

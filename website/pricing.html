@@ -134,7 +134,7 @@
           <li class="no">Loans, investments, net worth</li>
           <li class="no">API tokens</li>
         </ul>
-        <a class="btn btn--primary" href="#waitlist">Join the waitlist</a>
+        <a class="btn btn--primary" href="#request">Request an instance</a>
       </div>
       <div class="tier tier--pick">
         <span class="tier__flag">Most households</span>
@@ -154,7 +154,7 @@
           <li>Monthly verified-restore report</li>
           <li>API tokens</li>
         </ul>
-        <a class="btn btn--primary" href="#waitlist">Join the waitlist</a>
+        <a class="btn btn--primary" href="#request">Request an instance</a>
       </div>
       <div class="tier">
         
@@ -174,12 +174,13 @@
           <li>Priority on new bank parsers</li>
           <li>Early access to what is being built</li>
         </ul>
-        <a class="btn btn--primary" href="#waitlist">Join the waitlist</a>
+        <a class="btn btn--primary" href="#request">Request an instance</a>
       </div>
       </div>
       <p class="waitlist__note center" style="margin-top:1.5rem;max-width:60ch;margin-inline:auto">
-        Hosting is not open yet. Prices are what they will launch at, and everyone
-        on the waitlist gets told before anyone is charged.
+        Instances are set up by hand, one at a time. Ask for one and we will
+        reply to agree the region and the plan before anything is deployed or
+        charged.
       </p>
       <p class="warn" style="max-width:56ch;margin:1rem auto 0">
         When a plan ends, for any reason, your data is deleted five days later —
@@ -219,12 +220,14 @@
     </div>
   </section>
 
-  <section class="sec sec--band" id="waitlist">
+  <section class="sec sec--band" id="request">
     <div class="wrap center">
-      <h2 class="h-sec">Hosting opens when there are people waiting for it</h2>
-      <p class="lede" style="margin-bottom:1.75rem">
-        That is not a growth tactic. Building the hosting before knowing anyone
-        wants it is how you spend four months on something nobody asked for.
+      <h2 class="h-sec">Ask, and we will set one up</h2>
+      <p class="lede" style="margin-bottom:1.75rem;max-width:56ch;margin-inline:auto">
+        There is no signup form that charges your card and leaves you to it.
+        Instances are deployed by hand, one household at a time, so we can get
+        the region and the plan right before anything exists. Tell us where to
+        write and a person will reply.
       </p>
       <form class="waitlist" data-waitlist="pricing">
           <input type="text" name="company" tabindex="-1" autocomplete="off"
@@ -232,10 +235,10 @@
         <div class="waitlist__row">
           <label class="sr-only" for="wl-pricing">Email address</label>
           <input id="wl-pricing" type="email" name="email" placeholder="you@example.com" required autocomplete="email">
-          <button class="btn btn--primary" type="submit">Join the waitlist</button>
+          <button class="btn btn--primary" type="submit">Request an instance</button>
         </div>
         <p class="waitlist__msg" data-waitlist-msg role="status"></p>
-        <p class="waitlist__note">No spam, no newsletter. One email when hosting opens.</p>
+        <p class="waitlist__note">No spam, no newsletter. A person reads this and replies.</p>
       </form>
     </div>
   </section>
@@ -275,10 +278,13 @@
           <p>Self-hosted, wherever you put it — that is the whole point of the
           free version.</p>
           <p>On a hosted plan, in its own database: one container and one file
-          per customer, not a shared table with your row in it. Hosting is not
-          open yet and the provider and region are not settled; both will be
-          named on this site, and sent to everyone on the waitlist, before
-          anyone's data is stored anywhere.</p>
+          per customer, not a shared table with your row in it. The provider is
+          <strong>Fly.io</strong> and the default region is
+          <strong>Singapore</strong>, which is the closest one to India that Fly
+          operates &mdash; it retired its Mumbai region, so nothing here is
+          hosted inside India. Another region is available on request; it may
+          carry a different rate, and we will tell you what before anything is
+          deployed.</p>
         </details>
         <details>
           <summary>What happens to my data if I stop paying?</summary>
