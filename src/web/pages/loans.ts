@@ -27,7 +27,7 @@ export function renderLoanList(
    */
   ownership: Map<string, { holderName: string | null; isPrivate: boolean }> = new Map(),
 ): SafeHtml {
-  if (rows.length === 0) {
+  if (rows.length === 0 && debt.length === 0) {
     return html`
       <div class="row-between" style="margin-bottom:1rem">
         <h1>Loans</h1>

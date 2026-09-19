@@ -48,7 +48,30 @@ export const ACCOUNT_SUBTYPES: Record<AccountKind, string[]> = {
  */
 export const DERIVED_VALUE_SUBTYPES = new Set([
   "investment", "loan", "emi", "family-loan",
-  "retirement", "deposit", "physical", "commodity", "receivable",
+  "retirement", "physical", "commodity",
+]);
+
+/**
+ * Subtypes where stating a value by hand is the way you say what it is worth.
+ *
+ * Deliberately excludes fixed and recurring deposits. Those are worth their
+ * balance, and interest credited to them is a transaction — which is the whole
+ * reason they are tracking accounts. Offering "revalue" on one invites the
+ * single mistake that breaks them: a stated figure overrides the balance (B56),
+ * so from that moment the interest stops counting and the deposit quietly
+ * freezes at whatever was typed.
+ *
+ * "Other asset" and "other liability" are excluded for the same reason: they
+ * are tracking accounts, and a tracking account's balance is what it is worth.
+ * An amount owed to a cousin is an opening balance or a transaction, not a
+ * figure retyped each month — which also means paying some of it back moves it,
+ * instead of leaving a stated number that silently goes stale.
+ *
+ * What is left is what genuinely has no balance to count: property, gold, a
+ * pension pot. Those are valued by hand because there is nothing else to do.
+ */
+export const REVALUABLE_SUBTYPES = new Set([
+  "retirement", "physical", "commodity",
 ]);
 
 /**

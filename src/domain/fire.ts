@@ -74,7 +74,7 @@ const LOCKED_UNTIL_RETIREMENT: ReadonlySet<string> = new Set(["retirement"]);
  * intention to pay, and `asset` is the untyped catch-all that could be either.
  */
 const NOT_A_RETIREMENT: ReadonlySet<string> = new Set([
-  "physical", "receivable", "asset",
+  "physical", "asset",
 ]);
 
 export interface CorpusLine {

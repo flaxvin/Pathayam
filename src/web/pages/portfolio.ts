@@ -14,7 +14,7 @@ import { formatDate, type IsoDate } from "../../core/dates.ts";
 import { formatUnits, formatPrice } from "../../portfolio/holdings.ts";
 import type { HoldingView } from "../../domain/assets.ts";
 import { ASSET_LABELS, ASSET_SUBTYPES, type AssetSubtype } from "../../domain/assets.ts";
-import { SUBTYPE_LABELS } from "../../domain/accounts.ts";
+import { SUBTYPE_LABELS, REVALUABLE_SUBTYPES } from "../../domain/accounts.ts";
 import { donutChart, lineChart, seriesColor, waterfall } from "../charts.ts";
 import type {
   NetWorthStatement, NetWorthChange, NetWorthGroup, Snapshot,
@@ -152,7 +152,16 @@ export function renderPortfolio(opts: {
                 <strong>${a.name}</strong>
                 <span class="chip">${ASSET_LABELS[a.subtype as AssetSubtype] ?? a.subtype}</span>
                 <div class="faint">
-                  ${a.valued
+                  ${!REVALUABLE_SUBTYPES.has(a.subtype)
+                    ? html`
+                        <!--
+                          Worth its balance, so there is nothing to state. What
+                          happens to it — interest credited, money paid in — is
+                          a transaction on the account.
+                        -->
+                        <a href="/accounts/${a.id}">See its transactions</a>
+                      `
+                    : a.valued
                     ? html`
                         as of ${formatDate(a.asOf!)}
                         ${when(a.stale, () => html`
@@ -160,14 +169,14 @@ export function renderPortfolio(opts: {
                         `)}
                         · <a href="/portfolio/asset/${a.id}/add">Add to it</a>
                         · <a href="/portfolio/asset/${a.id}/revalue">Revalue</a>
-                        · <a href="/portfolio/asset/${a.id}/dispose">Sell or dispose</a>
+                        · <a href="/portfolio/asset/${a.id}/dispose">Sell</a>
                       `
                     : html`
                         <!-- B101 · Created and never valued. It used to vanish. -->
                         <span class="chip chip-warning">no value yet</span>
                         · <a href="/portfolio/asset/${a.id}/revalue">Say what it's worth</a>
                         · <a href="/portfolio/asset/${a.id}/add">Add to it</a>
-                        · <a href="/portfolio/asset/${a.id}/dispose">Sell or dispose</a>
+                        · <a href="/portfolio/asset/${a.id}/dispose">Sell</a>
                       `}
                 </div>
               </div>
@@ -1633,16 +1642,17 @@ export function renderDisposeAsset(opts: {
   intoAccounts: { id: string; name: string }[];
 }): SafeHtml {
   return html`
-    <h1>Dispose of ${opts.account.name}</h1>
+    <h1>Sell ${opts.account.name}</h1>
     <p class="faint">
       ${opts.lastAsOf
         ? html`Last valued at ${formatPaise(opts.lastValue)} on ${opts.lastAsOf}.`
         : html`This asset has never been valued.`}
     </p>
     <p>
-      This records that the asset is gone and, if you say where, that the money
-      arrived. Its dated history stays — the account is closed rather than
-      deleted, so what it was worth and when remains on the record.
+      Selling part of it is the ordinary case — a few grams of gold, not the
+      whole holding — so say what is left afterwards. Only when nothing is left
+      is the account closed, and even then its dated history stays: closed, not
+      deleted.
     </p>
 
     <form class="card" method="post" action="/portfolio/asset/${opts.account.id}/dispose">
@@ -1670,11 +1680,21 @@ export function renderDisposeAsset(opts: {
       </div>
 
       <div class="field">
+        <label for="remaining">What is left afterwards</label>
+        <input id="remaining" name="remaining" inputmode="decimal" value="0.00">
+        <p class="field-hint">
+          Zero sells all of it and closes the account. Anything else keeps the
+          account open at that value — so selling ₹40,000 of a ₹2,00,000 holding
+          means ₹1,60,000 here, or whatever it is really worth now.
+        </p>
+      </div>
+
+      <div class="field">
         <label for="on">Date</label>
         <input id="on" name="on" type="date" value="${opts.today}">
       </div>
 
-      <button class="button-primary" type="submit">Dispose of it</button>
+      <button class="button-primary" type="submit">Record the sale</button>
       <a class="button button-quiet" href="/portfolio">Cancel</a>
     </form>
   `;

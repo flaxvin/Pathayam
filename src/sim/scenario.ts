@@ -384,7 +384,7 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
    * hand-entered valuation is not in rupees.
    */
   const overseas = did("createAssetAccount", () => createAssetAccount(db, actor, {
-    name: "DBS Singapore (savings)", subtype: "deposit", currency: "SGD",
+    name: "DBS Singapore (savings)", subtype: "retirement", currency: "SGD",
   }));
 
   const flexi = did("findOrCreateInstrument", () => findOrCreateInstrument(db, actor, {
