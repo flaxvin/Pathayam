@@ -405,10 +405,10 @@ only (out of a token's reach).
 | POST | `/accounts/:id/cards/:cardId/close` | W | Close an add-on card. |
 | GET | `/cards` | R | Every credit card in due-date order, with what is unfunded. |
 | GET/POST | `/accounts/:id/reconcile` | R/W | Reconcile to a statement balance. |
-| GET/POST | `/add` | R/W | Create a transaction. |
+| GET/POST | `/add` | R/W | Create a transaction, with its envelope lines (`split_category_N` / `split_amount_N`; the first carries no amount and takes the remainder). |
 | POST | `/transfer` | W | Transfer between accounts. |
 | GET | `/transaction/:id` | R | Transaction detail, splits, history. |
-| POST | `/transaction/:id` | W | Edit a transaction. |
+| POST | `/transaction/:id` | W | Edit a transaction, including its envelope lines (same fields as `/add`). A legacy `category_id` is still read when no lines are sent; an *empty* one on an already-split transaction means "not mentioned", not "file it nowhere". |
 | POST | `/transaction/:id/delete` | W | Delete (undoable). |
 | POST | `/transaction/:id/categorise` | W | File one transaction into an envelope. Also the learning signal (B100). |
 | POST | `/transaction/:id/settled` | W | Mark a reimbursable transaction as repaid. |
@@ -449,9 +449,8 @@ only (out of a token's reach).
 | Method | Path | Token | Purpose |
 |---|---|---|---|
 | GET | `/schedules` | R | Recurring items & cashflow calendar. |
-| POST | `/schedules/new` · `/schedules/confirm` · `/schedules/dismiss` · `/schedules/:id/paid` · `/schedules/:id/skip` | W | Manage schedules. A schedule may be money in or money out. |
-| POST | `/schedules/:id/edit` · `/schedules/:id/delete` | W | Change or remove a schedule. Removing leaves everything it already recorded. |
-| POST | `/schedules/:id/splits` | W | Set or clear the envelopes a schedule divides into. Lines arrive as `split_category_N` / `split_amount_N` and must add up to the schedule's amount. Posting the schedule then posts a split transaction. |
+| POST | `/schedules/new` · `/schedules/confirm` · `/schedules/dismiss` · `/schedules/:id/paid` · `/schedules/:id/skip` | W | Manage schedules. A schedule may be money in or money out; `/schedules/new` takes envelope lines like `/add`. |
+| POST | `/schedules/:id/edit` · `/schedules/:id/delete` | W | Change or remove a schedule, including its envelope lines (`split_category_N` / `split_amount_N`; the first carries no amount and takes the remainder). Removing leaves everything it already recorded. |
 | GET | `/goals` | R | Savings goals. |
 | POST | `/goals/new` · `/goals/:id/complete` · `/goals/:id/edit` · `/goals/:id/delete` | W | Manage goals. |
 | GET | `/loans` · `/loans/:id` | R | Loans and one loan's detail. |

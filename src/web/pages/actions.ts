@@ -4,6 +4,7 @@
  */
 
 import { html, raw, when, type SafeHtml, escape } from "../../http/html.ts";
+import { renderCategoryLines } from "./category-lines.ts";
 import { formatPaise, type Paise } from "../../core/money.ts";
 import { formatDate, formatMonth, type MonthKey } from "../../core/dates.ts";
 import type { Account } from "../../domain/accounts.ts";
@@ -132,78 +133,30 @@ export function renderAddTransaction(opts: {
         </datalist>
       </div>
 
-      <div class="field">
-        <label for="category_id">Category</label>
-        <!--
-          B99 · Required for money out. "I'll sort it later" was an option here
-          and later mostly never came; three years of real use left a standing
-          queue of expenses with no envelope behind them. Money in is exempt —
-          its job is to land in Ready to Assign and wait to be given one — and
-          the client drops the requirement when the direction is switched.
-        -->
-        <select id="category_id" name="category_id" required data-requires-category>
-          <option value="">Choose where it came from…</option>
-          ${grouped.length > 0
-            ? grouped.map(
-                (g) => html`
-                  <optgroup label="${g.label}">
-                    ${g.items.map(
-                      (c) => html`
-                        <option value="${c.id}" data-budget="${c.budgetId ?? ""}">
-                          ${c.name} — ${formatPaise(c.state.balance)} left
-                        </option>
-                      `,
-                    )}
-                  </optgroup>
-                `,
-              )
-            : spendable.map(
-                // R6: the payment envelope is driven by the card's own
-                // transactions. Letting it be chosen directly would double-count.
-                (c) => html`
-                  <option value="${c.id}">
-                    ${c.name} — ${formatPaise(c.state.balance)} left
-                  </option>
-                `,
-              )}
-        </select>
-        <p class="field-hint" data-category-hint>
-          Each category shows what it holds, so you can see the consequence while entering.
-          Money coming in doesn't need one — it lands in Ready to Assign.
-        </p>
-        <!--
-          Splitting at entry, rather than only when editing afterwards.
-          
-          A grocery run that is half groceries and half household is the
-          ordinary shape of a supermarket bill, and this screen could not
-          express it: you had to save it wrong and then edit. The lines use the
-          same names the edit screen posts, so the two agree about what a split
-          is.
-        -->
-        <details style="margin:.6rem 0">
-          <summary class="linkish">Split across envelopes</summary>
-          <p class="field-hint">
-            Fill in two or more lines and they must add up to the amount above.
-            Lines left blank are ignored, and so is the category, since the
-            lines carry the categories instead.
-          </p>
-          ${[0, 1, 2].map((i) => html`
-            <div class="split-line">
-              <div class="field">
-                <select name="split_category_${i}" aria-label="Split ${i + 1} envelope">
-                  <option value="">—</option>
-                  ${spendable.map((c) => html`
-                    <option value="${c.id}">${c.name}</option>
-                  `)}
-                </select>
-              </div>
-              <div class="field">
-                <input name="split_amount_${i}" class="amount-input" type="text"
-                       inputmode="decimal" aria-label="Split ${i + 1} amount" placeholder="0">
-              </div>
-            </div>
-          `)}
-        </details>
+      <!--
+        B99 · Money out names its envelope; money in does not have to.
+        "I'll sort it later" was an option here and later mostly never came:
+        three years of real use left a standing queue of expenses with no
+        envelope behind them. The client drops the requirement when the
+        direction is switched.
+
+        There is no separate "category" field any more. The first line *is* the
+        envelope, and it carries no amount — whatever the extra lines do not
+        claim stays on it. A box that silently meant nothing while a split was
+        open was the source of a long run of faults.
+      -->
+      ${renderCategoryLines({
+        label: "Envelope",
+        required: true,
+        requiresCategory: true,
+        categories: spendable.map((c) => ({
+          id: c.id, name: c.name, balance: c.state.balance,
+        })),
+        hint: html`
+          Each envelope shows what it holds, so you can see the consequence while
+          entering. Money coming in doesn't need one — it lands in Ready to Assign.
+        `,
+      })}
         ${when(grouped.length > 1, () => html`
           <!--
             15 §3.4 · What a cross-budget filing does, said when it is chosen

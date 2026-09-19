@@ -38,7 +38,12 @@ async function setup() {
 }
 
 describe("a schedule going back to one envelope", () => {
-  test("one line collapses into the schedule's own category", async () => {
+  const editBase = {
+    name: "Flat", amount: "32000", direction: "out",
+    recurrence: "monthly", next_due: "2026-10-05",
+  };
+
+  test("one line collapses into the schedule's own envelope", async () => {
     const { db, bank, rent, upkeep, app } = await setup();
     try {
       const sch = createSchedule(db, actor, {
@@ -50,8 +55,8 @@ describe("a schedule going back to one envelope", () => {
         { categoryId: upkeep, amount: -rupees(2_000) as Paise },
       ]);
 
-      const res = await app.post(`/schedules/${sch.id}/splits`, {
-        split_category_0: upkeep, split_amount_0: "32000",
+      const res = await app.post(`/schedules/${sch.id}/edit`, {
+        ...editBase, split_category_0: upkeep,
       });
       assert.equal(res.status, 303);
       assert.equal(getScheduleSplits(db, sch.id).length, 0, "the split survived");
@@ -63,26 +68,47 @@ describe("a schedule going back to one envelope", () => {
     } finally { await app.close(); }
   });
 
-  test("a single line that is not the whole amount is refused", async () => {
+  test("the first line takes the remainder, so the lines always reconcile", async () => {
     const { db, bank, rent, upkeep, app } = await setup();
     try {
       const sch = createSchedule(db, actor, {
         name: "Flat", accountId: bank, categoryId: rent,
         amount: -rupees(32_000) as Paise, recurrence: "monthly", nextDue: "2026-10-05",
       });
-      setScheduleSplits(db, actor, sch.id, [
-        { categoryId: rent, amount: -rupees(30_000) as Paise },
-        { categoryId: upkeep, amount: -rupees(2_000) as Paise },
-      ]);
-      const res = await app.post(`/schedules/${sch.id}/splits`, {
-        split_category_0: upkeep, split_amount_0: "2000",
+      const res = await app.post(`/schedules/${sch.id}/edit`, {
+        ...editBase,
+        split_category_0: rent,
+        split_category_1: upkeep, split_amount_1: "2000",
       });
-      assert.equal(res.status, 422, "₹2,000 of a ₹32,000 schedule was accepted as the whole");
-      assert.equal(getScheduleSplits(db, sch.id).length, 2, "the split was destroyed anyway");
+      assert.equal(res.status, 303);
+      const lines = getScheduleSplits(db, sch.id);
+      assert.equal(lines.length, 2);
+      assert.equal(lines.reduce((t, l) => t + l.amount, 0), -rupees(32_000));
+      assert.equal(
+        lines.find((l) => l.category_id === rent)!.amount, -rupees(30_000),
+        "the first line did not absorb the remainder",
+      );
     } finally { await app.close(); }
   });
 
-  test("clearing every line is refused when it would leave no envelope", async () => {
+  test("claiming more than the schedule is worth is refused", async () => {
+    const { db, bank, rent, upkeep, app } = await setup();
+    try {
+      const sch = createSchedule(db, actor, {
+        name: "Flat", accountId: bank, categoryId: rent,
+        amount: -rupees(32_000) as Paise, recurrence: "monthly", nextDue: "2026-10-05",
+      });
+      const res = await app.post(`/schedules/${sch.id}/edit`, {
+        ...editBase,
+        split_category_0: rent,
+        split_category_1: upkeep, split_amount_1: "40000",
+      });
+      assert.equal(res.status, 422, "the first line would have gone negative");
+      assert.equal(getScheduleSplits(db, sch.id).length, 0, "lines were written anyway");
+    } finally { await app.close(); }
+  });
+
+  test("an outgoing schedule cannot be left with no envelope at all", async () => {
     const { db, bank, rent, upkeep, app } = await setup();
     try {
       const sch = createSchedule(db, actor, {
@@ -94,49 +120,42 @@ describe("a schedule going back to one envelope", () => {
         { categoryId: upkeep, amount: -rupees(2_000) as Paise },
       ]);
 
-      const res = await app.post(`/schedules/${sch.id}/splits`, {});
+      const res = await app.post(`/schedules/${sch.id}/edit`, {
+        ...editBase, split_category_0: "",
+      });
       assert.equal(res.status, 422, "it would post every month into nothing");
-      assert.equal(getScheduleSplits(db, sch.id).length, 2, "the lines went anyway");
     } finally { await app.close(); }
   });
+});
 
-  test("but is allowed when the schedule already has one", async () => {
-    const { db, bank, rent, upkeep, app } = await setup();
+describe("clearing the envelope, where that is a legal thing to want", () => {
+  /*
+   * The refusal above only bites on money going out. Income filed into an
+   * envelope by mistake has to be able to go back to ready-to-assign, and the
+   * only way to say so on this form is to blank the first select. Once, that
+   * was read as "no lines were sent" and skipped: the save reported success and
+   * changed nothing, which is the worst of the three possible outcomes.
+   */
+  test("an income schedule can be put back to ready-to-assign", async () => {
+    const { db, bank, rent, app } = await setup();
     try {
       const sch = createSchedule(db, actor, {
-        name: "Flat", accountId: bank, categoryId: rent,
-        amount: -rupees(32_000) as Paise, recurrence: "monthly", nextDue: "2026-10-05",
+        name: "Salary", accountId: bank, categoryId: rent,
+        amount: rupees(180_000) as Paise, recurrence: "monthly", nextDue: "2026-10-01",
       });
-      setScheduleSplits(db, actor, sch.id, [
-        { categoryId: rent, amount: -rupees(30_000) as Paise },
-        { categoryId: upkeep, amount: -rupees(2_000) as Paise },
-      ]);
-      const res = await app.post(`/schedules/${sch.id}/splits`, {});
+
+      const res = await app.post(`/schedules/${sch.id}/edit`, {
+        name: "Salary", amount: "180000", direction: "in",
+        recurrence: "monthly", next_due: "2026-10-01",
+        split_category_0: "",
+      });
       assert.equal(res.status, 303);
-      assert.equal(getScheduleSplits(db, sch.id).length, 0);
-    } finally { await app.close(); }
-  });
-
-  test("the form's plain amounts are read with the schedule's own sign", async () => {
-    /*
-     * Nobody types a minus into "how much of the rent is maintenance". Read
-     * literally, every line on an outgoing schedule was the wrong way round and
-     * the totals could never match.
-     */
-    const { db, bank, rent, upkeep, app } = await setup();
-    try {
-      const sch = createSchedule(db, actor, {
-        name: "Flat", accountId: bank, categoryId: rent,
-        amount: -rupees(32_000) as Paise, recurrence: "monthly", nextDue: "2026-10-05",
-      });
-      const res = await app.post(`/schedules/${sch.id}/splits`, {
-        split_category_0: rent, split_amount_0: "30000",
-        split_category_1: upkeep, split_amount_1: "2000",
-      });
-      assert.equal(res.status, 303, "a split typed as plain numbers would not save");
       assert.equal(
-        getScheduleSplits(db, sch.id).reduce((t, l) => t + l.amount, 0), -rupees(32_000),
-        "the lines were stored the wrong way round",
+        queryOne<{ category_id: string | null }>(
+          db, `SELECT category_id FROM schedules WHERE id = ?`, sch.id,
+        )!.category_id,
+        null,
+        "the envelope survived a save that asked for it to go",
       );
     } finally { await app.close(); }
   });
@@ -169,7 +188,13 @@ describe("a transaction going back to one envelope", () => {
     } finally { await app.close(); }
   });
 
-  test("a single line short of the amount is refused", async () => {
+  test("the surviving line takes the whole amount, however it was typed", async () => {
+    /*
+     * "A single line has to be the whole of it" was the old rule. The first
+     * line carries no amount now, so there is nothing to be short of — what a
+     * person types in the remaining box is ignored and the line is simply the
+     * transaction. Reducing to one envelope always works.
+     */
     const { db, bank, rent, upkeep, app } = await setup();
     try {
       const t = createTransaction(db, actor, {
@@ -182,10 +207,15 @@ describe("a transaction going back to one envelope", () => {
       });
       const res = await app.post(`/transaction/${t.id}`, {
         amount: "2400", direction: "out", date: "2026-09-10", account_id: bank,
-        split_category_0: upkeep, split_amount_0: "900",
+        split_category_0: upkeep,
       });
-      assert.ok(res.status >= 400, "₹900 was accepted as the whole of ₹2,400");
-      assert.equal(getSplits(db, t.id).length, 2, "the split was destroyed anyway");
+      assert.equal(res.status, 303);
+      assert.equal(getSplits(db, t.id).length, 0);
+      const after = queryOne<{ category_id: string; amount: number }>(
+        db, `SELECT category_id, amount FROM transactions WHERE id = ?`, t.id,
+      )!;
+      assert.equal(after.category_id, upkeep);
+      assert.equal(after.amount, -rupees(2_400), "the amount moved when only the envelope changed");
     } finally { await app.close(); }
   });
 });

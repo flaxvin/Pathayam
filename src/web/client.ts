@@ -421,28 +421,16 @@ export const CLIENT_SCRIPT = String.raw`
   // markup. The server enforces it regardless — this only means the household
   // is told before submitting rather than after.
   //
-  // A split is the third case, and the one that was wrong. When lines are
-  // filled in they carry the categories and the box above is discarded, so
-  // demanding a value there made somebody choose an envelope that is then
-  // thrown away — and the browser blocked the form until they did.
+  // This used to disable the envelope while a split was being typed, because
+  // under the old form the box above the lines genuinely meant nothing once
+  // they were in use. It means something now: it is the *first line*, and it
+  // takes whatever the others leave. Disabling it was therefore not a display
+  // choice but a silent data loss — a disabled select is not submitted, so a
+  // ₹5,000 expense with ₹1,200 on the second line arrived with the first
+  // envelope missing and filed the whole ₹5,000 into the second.
   // ---------------------------------------------------------------------------
-  /*
-   * Scoped to one form, because the schedules page carries several at once —
-   * a new-schedule form and an edit form per schedule. A page-wide query would
-   * let one schedule's lines disable another's envelope.
-   */
-  function splitInUse(form) {
-    if (!form) return false;
-    var amounts = form.querySelectorAll('[name^="split_amount_"]');
-    for (var i = 0; i < amounts.length; i++) {
-      if (String(amounts[i].value || "").trim() !== "") return true;
-    }
-    return false;
-  }
-
   function syncOneCategory(category) {
     var form = category.form;
-    var split = splitInUse(form);
 
     /*
      * Direction lives on the add-transaction form; a schedule form may have
@@ -452,35 +440,15 @@ export const CLIENT_SCRIPT = String.raw`
     var direction = form ? form.querySelector('[name="direction"]') : null;
     var isExpense = !direction || direction.value !== "in";
 
-    category.required = isExpense && !split && category.hasAttribute("data-requires-category");
-
-    /*
-     * Disabled, but not emptied.
-     *
-     * A disabled select is not submitted, so clearing it achieved nothing
-     * except destroying what the person had already chosen — and when they
-     * abandoned the split, the envelope they picked before opening it was
-     * simply gone. They were left with an empty box the form then refused to
-     * submit, which is the shape of "I cannot enter the main category any
-     * more".
-     */
-    category.disabled = split;
+    // Required whether or not it is split: the first line holds the remainder,
+    // and an expense cannot leave that part uncategorised.
+    category.required = isExpense && category.hasAttribute("data-requires-category");
 
     var blank = category.querySelector('option[value=""]');
     if (blank) {
-      blank.textContent = split
-        ? "The lines below carry the categories"
-        : isExpense
-          ? "Choose where it came from…"
-          : "No category needed — it lands in Ready to Assign";
-    }
-
-    var hint = form ? form.querySelector("[data-category-hint]") : null;
-    if (hint) {
-      hint.textContent = split
-        ? "Not used while this is split — each line names its own envelope."
-        : "Each category shows what it holds, so you can see the consequence while entering. " +
-          "Money coming in doesn't need one — it lands in Ready to Assign.";
+      blank.textContent = isExpense
+        ? "Choose where it came from…"
+        : "No category needed — it lands in Ready to Assign";
     }
   }
 
@@ -489,19 +457,8 @@ export const CLIENT_SCRIPT = String.raw`
     for (var i = 0; i < boxes.length; i++) syncOneCategory(boxes[i]);
   }
 
-  /*
-   * Bound to input as well as change: a split amount is a text field, and a
-   * change event does not fire until it loses focus. Waiting for a blur would
-   * leave the box above still demanding a value while somebody is part-way
-   * through typing the lines that replace it.
-   */
-  document.addEventListener("input", function (event) {
-    if (event.target && /^split_amount_/.test(event.target.name || "")) syncCategoryRequirement();
-  });
-
   document.addEventListener("change", function (event) {
     if (event.target && event.target.id === "direction") syncCategoryRequirement();
-    if (event.target && /^split_amount_/.test(event.target.name || "")) syncCategoryRequirement();
   });
   syncCategoryRequirement();
 

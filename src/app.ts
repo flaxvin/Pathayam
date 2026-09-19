@@ -113,6 +113,7 @@ import {
 import {
   createTransaction, createTransfer, updateTransaction, deleteTransaction,
   getTransaction, getSplits, listPayees, payeeStats, tagsFor, type Transaction,
+  resolveCategoryLines,
 } from "./domain/transactions.ts";
 import {
   accountBalances, creditOutstanding, householdSettings,
@@ -180,6 +181,7 @@ import {
   incomeInFinancialYear, type AdvanceInstalment,
 } from "./domain/tax.ts";
 import { renderTax } from "./web/pages/tax.ts";
+import { renderCategoryLines } from "./web/pages/category-lines.ts";
 import { renderDisposeAsset, renderAddToAsset } from "./web/pages/portfolio.ts";
 import { capitalGainsTaxFor } from "./domain/capital-gains-tax.ts";
 import { renderFire } from "./web/pages/fire.ts";
@@ -2311,28 +2313,51 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
        * Ready to Assign and wait to be given one, which is the whole model.
        */
       /*
-       * Split lines, the same shape the edit screen posts. A supermarket bill
-       * that is half groceries and half household is the ordinary case, and
-       * this form could not express it — you had to save it wrong and then
-       * edit.
+       * Envelope lines. The first carries no amount and takes what the others
+       * leave, so they cannot disagree with the total — see
+       * resolveCategoryLines.
        */
-      const splits: { categoryId: string | null; amount: Paise }[] = [];
+      const lineValues: { categoryId: string | null; amount: Paise | null }[] = [];
       for (let i = 0; i < 10; i++) {
+        const cat = field(ctx.body, `split_category_${i}`);
         const raw = String(field(ctx.body, `split_amount_${i}`) ?? "").trim();
-        if (!raw) continue;
-        const lineCategory = field(ctx.body, `split_category_${i}`);
-        const line = Math.abs(amountField(raw, `Split line ${i + 1}`));
-        splits.push({
-          amount: (direction === "in" ? line : -line) as Paise,
-          categoryId: lineCategory ? requireVisibleCategory(ctx, lineCategory)! : null,
+        if (!cat && !raw) continue;
+        const magnitude = raw ? Math.abs(amountField(raw, `Envelope ${i + 1}`)) : null;
+        lineValues.push({
+          categoryId: cat ? requireVisibleCategory(ctx, cat)! : null,
+          // The first line never carries one, whatever was posted.
+          amount: i === 0 || magnitude === null
+            ? null
+            : ((direction === "in" ? magnitude : -magnitude) as Paise),
         });
       }
 
-      // With lines, the lines carry the categories — the same rule the edit
-      // screen and a split schedule follow. Setting both files it twice.
-      if (splits.length === 0
-          && direction !== "in"
-          && !requireVisibleCategory(ctx, field(ctx.body, "category_id") || null)) {
+      /*
+       * `category_id` is still accepted when no lines were sent. The form does
+       * not use it any more, but the API and anything scripted against it do,
+       * and silently filing their transactions as uncategorised would be a
+       * poor way to find that out.
+       */
+      if (lineValues.length === 0) {
+        const legacy = field(ctx.body, "category_id");
+        if (legacy) lineValues.push({ categoryId: requireVisibleCategory(ctx, legacy)!, amount: null });
+      }
+
+      const filed = resolveCategoryLines(
+        (direction === "in" ? magnitude : -magnitude) as Paise,
+        lineValues,
+      );
+
+      /*
+       * B99 · An expense has to name the envelope it came out of.
+       *
+       * "Uncategorised — I'll sort it later" was an option on this form, and
+       * later mostly never came: three years of real use left a queue of them,
+       * each one money that had left the household with no envelope recording
+       * it. Income is different and stays optional — its job is to arrive in
+       * Ready to Assign and wait to be given one, which is the whole model.
+       */
+      if (direction !== "in" && !filed.categoryId && !filed.splits) {
         throw new HttpError(
           400,
           "Which envelope did this come out of? Money in doesn't need one — money out does.",
@@ -2344,10 +2369,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         amount: direction === "in" ? magnitude : -magnitude,
         date: dateField(dateRaw),
         payeeName: field(ctx.body, "payee") || null,
-        splits: splits.length > 0 ? splits : undefined,
-        categoryId: splits.length > 0
-          ? null
-          : requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
+        splits: filed.splits ?? undefined,
+        categoryId: filed.categoryId,
         memo: field(ctx.body, "memo") || null,
         tags,
         cleared: field(ctx.body, "cleared") === "1",
@@ -2953,17 +2976,6 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const categoryName = new Map(
       [...view.categories.values()].map((c) => [c.id, c.name]),
     );
-    const splitRows = [
-      ...splits.map((s) => ({ categoryId: s.category_id, amount: Math.abs(s.amount) })),
-      { categoryId: null, amount: null },
-      { categoryId: null, amount: null },
-    ];
-    const envelopeOptions = (selected: string | null) =>
-      [...view.categories.values()]
-        .filter((c) => !c.isPaymentCategory && !c.hidden)
-        .map((c) => html`
-          <option value="${c.id}" ${raw(c.id === selected ? "selected" : "")}>${c.name}</option>
-        `);
 
     return render(
       ctx,
@@ -3067,67 +3079,26 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             </div>
           </div>
 
-          ${when(!transaction.is_split, () => html`
-            <div class="field">
-              <label for="t-category">Category</label>
-              <select id="t-category" name="category_id" data-split-aware>
-                <option value="">Uncategorised</option>
-                ${envelopeOptions(transaction.category_id)}
-              </select>
-            </div>
-            <details style="margin-bottom:.9rem">
-              <summary class="linkish">Split across envelopes</summary>
-              <p class="field-hint">
-                Fill in two or more lines and they must add up to the amount.
-                Lines left blank are ignored; the category above is too.
-              </p>
-              ${[0, 1, 2].map((i) => html`
-                <div class="split-line">
-                  <div class="field">
-                    <select name="split_category_${i}" aria-label="Split ${i + 1} envelope">
-                      <option value="">—</option>
-                      ${envelopeOptions(null)}
-                    </select>
-                  </div>
-                  <div class="field">
-                    <input name="split_amount_${i}" class="amount-input" type="text"
-                           inputmode="decimal" aria-label="Split ${i + 1} amount" placeholder="0">
-                  </div>
-                </div>
-              `)}
-            </details>
-          `)}
-          ${when(transaction.is_split, () => html`
-            <div class="field">
-              <label>Split across ${splits.length} envelopes</label>
-              ${splitRows.map((row, i) => html`
-                <div class="split-line">
-                  <div class="field">
-                    <select name="split_category_${i}" aria-label="Split ${i + 1} envelope">
-                      <option value="">—</option>
-                      ${envelopeOptions(row.categoryId)}
-                    </select>
-                  </div>
-                  <div class="field">
-                    <input name="split_amount_${i}" class="amount-input" type="text"
-                           inputmode="decimal" aria-label="Split ${i + 1} amount"
-                           value="${row.amount === null ? "" : (row.amount / 100).toFixed(2)}"
-                           placeholder="0">
-                  </div>
-                </div>
-              `)}
-              <p class="field-hint">
-                The lines must add up to the amount. Blank a line to drop it.
-              </p>
-            </div>
-            <div class="field">
-              <label for="t-category">Or file the whole thing to one envelope instead</label>
-              <select id="t-category" name="category_id" data-split-aware>
-                <option value="" selected>— keep the split —</option>
-                ${envelopeOptions(null)}
-              </select>
-            </div>
-          `)}
+          ${renderCategoryLines({
+            label: "Envelope",
+            categories: [...view.categories.values()]
+              .filter((c) => !c.isPaymentCategory && !c.hidden)
+              .map((c) => ({ id: c.id, name: c.name })),
+            values: splits.length > 0
+              ? splits.map((sp) => ({ categoryId: sp.category_id, amount: sp.amount as Paise }))
+              : [{ categoryId: transaction.category_id, amount: null }],
+            /*
+             * Never fewer lines than the transaction already has. The default
+             * three is right for splitting something new, but rendering a
+             * five-way split into four boxes would drop the last one — and
+             * saving the form would then delete it.
+             */
+            extraLines: Math.max(3, splits.length - 1),
+            hint: html`
+              The first envelope takes whatever the extra lines do not claim,
+              so it never has to be worked out.
+            `,
+          })}
 
           <div class="grid-2">
             <div class="field">
@@ -3355,67 +3326,57 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * that edits a record must carry all of it — this form once knew nothing
      * of splits, so saving any split transaction silently flattened it.
      */
-    const splitLines: { categoryId: string | null; amount: Paise }[] = [];
+    /*
+     * Envelope lines. The first carries no amount and takes whatever the others
+     * leave, so nothing here can fail to reconcile — see resolveCategoryLines.
+     */
+    const lineValues: { categoryId: string | null; amount: Paise | null }[] = [];
     for (let i = 0; i < 25; i++) {
       const cat = field(ctx.body, `split_category_${i}`);
       const amt = field(ctx.body, `split_amount_${i}`);
       if (cat === undefined && amt === undefined) continue;
-      if (!cat && !amt?.trim()) continue;
       /*
-       * An envelope with no amount is an abandoned line, not a mistake.
-       *
-       * Opening the split section, choosing an envelope, then thinking better
-       * of it and clearing the amount leaves exactly this — the select still
-       * carries what was picked, because nothing cleared it. Refusing the save
-       * over it meant the only way forward was to notice a leftover dropdown
-       * inside a collapsed section. The entry form has always ignored these;
-       * this now agrees with it.
+       * An empty *first* select is an instruction — "this has no envelope" —
+       * and the form always sends it. Skipping it the way a blank later line is
+       * skipped would make clearing the envelope a silent no-op that still
+       * reports "saved", and would leave income that was once filed somewhere
+       * with no way back to ready-to-assign.
        */
-      if (cat && !amt?.trim()) continue;
-      if (!cat || !amt?.trim()) {
-        throw new HttpError(400, "A split line needs both an envelope and an amount.");
-      }
-      const line = Math.abs(amountField(amt));
-      if (line === 0) continue;
-      splitLines.push({
-        categoryId: requireVisibleCategory(ctx, cat),
-        amount: (signed < 0 ? -line : line) as Paise,
+      if (i > 0 && !cat && !amt?.trim()) continue;
+      const magnitudeOfLine = amt?.trim() ? Math.abs(amountField(amt)) : null;
+      lineValues.push({
+        categoryId: cat ? requireVisibleCategory(ctx, cat) : null,
+        amount: i === 0 || magnitudeOfLine === null
+          ? null
+          : ((signed < 0 ? -magnitudeOfLine : magnitudeOfLine) as Paise),
       });
     }
+
     /*
-     * One line is not a split — it is that envelope, which is exactly what
-     * somebody means when they delete all but one. Refusing it sent them to a
-     * category field that the split had disabled, so the only way back to a
-     * single envelope was to clear every line and remember to set the category
-     * in the same save. Collapsing it here is what they asked for.
+     * A caller still posting the old field is honoured — but an *empty* one on
+     * a transaction that is already split means "I am not saying anything about
+     * envelopes", not "file it nowhere". The old form always sent the field,
+     * empty or not, so reading a blank as an instruction would wipe the split
+     * off every save that only changed a memo.
      */
-    let collapseTo: string | null = null;
-    if (splitLines.length === 1) {
-      const only = splitLines[0]!;
-      if (only.amount !== signed) {
-        throw new HttpError(
-          400,
-          `That line is ${formatPaise(Math.abs(only.amount))}, but the transaction is ` +
-          `${formatPaise(Math.abs(signed))}. A single line has to be the whole of it.`,
-        );
-      }
-      collapseTo = only.categoryId;
-      splitLines.length = 0;
-    }
-    if (splitLines.length > 0) {
-      const total = splitLines.reduce((sum, s) => sum + s.amount, 0);
-      if (total !== signed) {
-        throw new HttpError(
-          400,
-          `The split lines add up to ${formatPaise(Math.abs(total))}, ` +
-            `but the transaction is ${formatPaise(magnitude)}.`,
-        );
+    if (lineValues.length === 0) {
+      const legacy = field(ctx.body, "category_id");
+      const meaningful = legacy !== undefined && (legacy !== "" || transaction.is_split !== 1);
+      if (meaningful) {
+        lineValues.push({ categoryId: legacy ? requireVisibleCategory(ctx, legacy) : null, amount: null });
       }
     }
 
-    const postedCategory = field(ctx.body, "category_id");
-    const collapse = transaction.is_split === 1 && splitLines.length === 0 && !!postedCategory;
-    const keepSplit = transaction.is_split === 1 && splitLines.length === 0 && !postedCategory;
+    const filed = lineValues.length > 0
+      ? resolveCategoryLines(signed, lineValues)
+      : null;
+
+    /*
+     * Nothing about envelopes was posted at all — a form that carries only the
+     * amount, or an API caller changing a date. Leave what is filed alone
+     * rather than reading silence as "make it uncategorised".
+     */
+    const keepSplit = filed === null;
     if (keepSplit && signed !== transaction.amount) {
       throw new HttpError(
         400,
@@ -3436,16 +3397,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           updateTransaction(db, actor, id, {
           amount: signed,
           date: newDate,
-          ...(splitLines.length > 0
-            ? { splits: splitLines }
-            // One line, collapsed above: drop the split and become that envelope.
-            : collapseTo !== null
-              ? { splits: null, categoryId: collapseTo }
-              : keepSplit
-                ? {}
-                : collapse
-                  ? { splits: null, categoryId: requireVisibleCategory(ctx, postedCategory || null) || null }
-                  : { categoryId: requireVisibleCategory(ctx, postedCategory || null) || null }),
+          ...(keepSplit
+            ? {}
+            : filed!.splits
+              ? { splits: filed!.splits }
+              // One line: it stops being a split and becomes that envelope.
+              : { splits: null, categoryId: filed!.categoryId }),
           memo: field(ctx.body, "memo") || null,
           cleared: field(ctx.body, "cleared") === "1",
           ...(tagsRaw !== undefined
@@ -5299,19 +5256,35 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
        * schedule with no split and an error message suggesting nothing had
        * happened. transact makes the pair atomic.
        */
-      // Read the lines first, so the create knows whether an envelope is
-      // coming from them rather than from the box above.
-      const lines: { categoryId: string | null; amount: Paise; memo?: string | null }[] = [];
+      /*
+       * Envelope lines, resolved the same way a transaction's are: the first
+       * carries no amount and takes what the others leave.
+       */
+      const lineValues: { categoryId: string | null; amount: Paise | null }[] = [];
       for (let i = 0; i < 10; i++) {
+        const cat = field(ctx.body, `split_category_${i}`);
         const raw = String(field(ctx.body, `split_amount_${i}`) ?? "").trim();
-        if (!raw) continue;
-        const lineCategory = field(ctx.body, `split_category_${i}`);
-        const line = Math.abs(amountField(raw, `Split line ${i + 1}`));
-        lines.push({
-          amount: (direction === "in" ? line : -line) as Paise,
-          categoryId: lineCategory ? requireVisibleCategory(ctx, lineCategory)! : null,
+        if (!cat && !raw) continue;
+        const lineMagnitude = raw ? Math.abs(amountField(raw, `Envelope ${i + 1}`)) : null;
+        lineValues.push({
+          categoryId: cat ? requireVisibleCategory(ctx, cat)! : null,
+          amount: i === 0 || lineMagnitude === null
+            ? null
+            : ((direction === "in" ? lineMagnitude : -lineMagnitude) as Paise),
         });
       }
+      if (lineValues.length === 0) {
+        const legacy = field(ctx.body, "category_id");
+        if (legacy) lineValues.push({ categoryId: requireVisibleCategory(ctx, legacy)!, amount: null });
+      }
+
+      const filed = resolveCategoryLines(
+        (direction === "in" ? magnitude : -magnitude) as Paise,
+        lineValues,
+      );
+      const lines = (filed.splits ?? []).map((sp) => ({
+        categoryId: sp.categoryId, amount: sp.amount,
+      }));
 
       return transact(db, () => {
       const created = createSchedule(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
@@ -5320,7 +5293,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         amount: (direction === "in" ? magnitude : -magnitude) as Paise,
         recurrence: (field(ctx.body, "recurrence") ?? "monthly") as Recurrence,
         nextDue: dateField(field(ctx.body, "next_due"), "Next due"),
-        categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
+        categoryId: filed.categoryId,
         accountId: field(ctx.body, "account_id") || null,
         isSubscription: field(ctx.body, "is_subscription") === "1",
       });
@@ -5358,6 +5331,54 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const direction = field(ctx.body, "direction") ?? "out";
       const dueRaw = field(ctx.body, "next_due");
 
+      /*
+       * Envelope lines live on this form now, not a separate one beside it.
+       * The first carries no amount and takes what the others leave, so a
+       * schedule's envelopes are set the same way a transaction's are — and
+       * the two can no longer disagree about what a split is.
+       */
+      const existing = getSchedule(db, ctx.params.id!);
+      const signedAmount = magnitude === null
+        ? (existing?.amount ?? 0) as Paise
+        : ((direction === "in" ? magnitude : -magnitude) as Paise);
+
+      const lineValues: { categoryId: string | null; amount: Paise | null }[] = [];
+      for (let i = 0; i < 10; i++) {
+        const cat = field(ctx.body, `split_category_${i}`);
+        const raw = String(field(ctx.body, `split_amount_${i}`) ?? "").trim();
+        if (cat === undefined && !raw) continue;
+        // As on the transaction form: a present-but-empty first select clears
+        // the envelope, rather than being skipped as an unused line.
+        if (i > 0 && !cat && !raw) continue;
+        const lineMagnitude = raw ? Math.abs(amountField(raw, `Envelope ${i + 1}`)) : null;
+        lineValues.push({
+          categoryId: cat ? requireVisibleCategory(ctx, cat)! : null,
+          amount: i === 0 || lineMagnitude === null
+            ? null
+            : ((signedAmount < 0 ? -lineMagnitude : lineMagnitude) as Paise),
+        });
+      }
+      /*
+       * A caller still posting the old field is honoured, as on the transaction
+       * forms — but an empty one on a schedule that is already split means "not
+       * mentioned", not "file it nowhere".
+       */
+      if (lineValues.length === 0) {
+        const legacy = field(ctx.body, "category_id");
+        const alreadySplit = getScheduleSplits(db, ctx.params.id!).length > 0;
+        if (legacy !== undefined && (legacy !== "" || !alreadySplit)) {
+          lineValues.push({
+            categoryId: legacy ? requireVisibleCategory(ctx, legacy)! : null,
+            amount: null,
+          });
+        }
+      }
+
+      const filed = lineValues.length > 0
+        ? resolveCategoryLines(signedAmount, lineValues)
+        : null;
+
+      return transact(db, () => {
       const schedule = updateSchedule(
         db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), ctx.params.id!,
         {
@@ -5377,55 +5398,25 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
            * removed the split. An empty *present* value still clears it, which
            * is what "Not set" means.
            */
-          category_id: field(ctx.body, "category_id") === undefined
-            ? undefined
-            : requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
+          category_id: filed === null ? undefined : filed.categoryId,
           account_id: field(ctx.body, "account_id") === undefined
             ? undefined
             : field(ctx.body, "account_id") || null,
           is_subscription: field(ctx.body, "is_subscription") === "1" ? 1 : 0,
         },
+        { splitsFollow: (filed?.splits?.length ?? 0) > 0 },
       );
-      return { redirect: "/schedules", message: `${schedule.name} updated.` };
-    }),
-  );
-
-  /*
-   * F7 · A schedule that lands in more than one envelope.
-   *
-   * Lines arrive as split_category_N / split_amount_N, the same shape the
-   * transaction editor posts, so the two screens agree about what a split is.
-   */
-  router.post("/schedules/:id/splits", (ctx) =>
-    mutate(ctx, (a) => {
-      const id = ctx.params.id!;
-      /*
-       * Lines take the schedule's own sign. The form asks for a plain amount —
-       * nobody types a minus into "how much of the rent is maintenance" — while
-       * the schedule holds an outgoing figure as negative. Reading the boxes
-       * literally made every line the wrong way round, so the totals could
-       * never match and the split could never be saved.
-       */
-      const existing = getSchedule(db, id);
-      const outgoing = (existing?.amount ?? 0) < 0;
-
-      const lines: { categoryId: string | null; amount: Paise; memo?: string | null }[] = [];
-      for (let i = 0; i < 20; i++) {
-        const raw = String(field(ctx.body, `split_amount_${i}`) ?? "").trim();
-        if (!raw) continue;
-        const categoryId = field(ctx.body, `split_category_${i}`);
-        const magnitude = Math.abs(amountField(raw, `Line ${i + 1}`));
-        lines.push({
-          amount: (outgoing ? -magnitude : magnitude) as Paise,
-          categoryId: categoryId ? requireVisibleCategory(ctx, categoryId)! : null,
-          memo: field(ctx.body, `split_memo_${i}`) || null,
-        });
+      // The lines, after the schedule itself — setScheduleSplits checks them
+      // against the amount, which the update above may have just changed.
+      if (filed !== null) {
+        setScheduleSplits(
+          db, actorFor(a, "ui"), schedule.id,
+          (filed.splits ?? []).map((sp) => ({ categoryId: sp.categoryId, amount: sp.amount })),
+        );
       }
-      setScheduleSplits(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, lines);
-      return {
-        redirect: "/schedules",
-        message: lines.length ? "Split saved. It applies from the next time this posts." : "Split removed.",
-      };
+
+      return { redirect: "/schedules", message: `${schedule.name} updated.` };
+      });
     }),
   );
 
