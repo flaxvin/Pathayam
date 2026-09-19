@@ -31,6 +31,12 @@
  * separately and the years between are reported as what they are: a bridge the
  * liquid corpus has to cover alone.
  *
+ * **Nothing further is earned.** The corpus grows at its own real return and by
+ * no other means — no salary, no continued saving. It answers "when is what I
+ * already hold enough", not "when could I stop if I keep saving at this rate",
+ * because the second question needs a contribution assumed decades forward and
+ * that is the easiest promise on this screen to make and not keep.
+ *
  * Everything here is a projection, so it is arithmetic on assumptions rather
  * than a fact about the household. `terms.html` already says no figure in this
  * app is advice; this is the screen where that matters most.
@@ -286,8 +292,23 @@ export function fireProjection(
   const progressPct = fireNumber > 0 ? (corpus / fireNumber) * 100 : 0;
   const shortfall = Math.max(0, fireNumber - corpus);
 
+  /*
+   * Nothing further is added.
+   *
+   * The corpus grows on its own return and on nothing else: no salary, no
+   * continued saving, no raise. That is a deliberately harsher question than
+   * the usual one — not "when could I retire if I keep working and saving at
+   * this rate", but "when does what I already hold become enough on its own".
+   *
+   * It is the honest question for a plan whose whole premise is that the
+   * earning stops, and it cannot flatter the reader the way a projected
+   * contribution does: a savings rate assumed twenty years forward is the
+   * single easiest place for this screen to promise something it has no way to
+   * know. Income is still measured and shown, as context for the gap; it is
+   * just not spent twice.
+   */
   const yearsToFire = fireNumber > 0
-    ? yearsToTarget(corpus, annualSavings, assumptions.realReturnBp / 10_000, fireNumber)
+    ? yearsToTarget(corpus, 0, assumptions.realReturnBp / 10_000, fireNumber)
     : null;
 
   const fireMonth = yearsToFire === null
