@@ -9,7 +9,7 @@
  */
 
 import type { DB } from "./db/db.ts";
-import { queryAll, queryOne, execute, newId } from "./db/db.ts";
+import { queryAll, queryOne, execute, newId , transact } from "./db/db.ts";
 import { devLoginModulePresent, type Config } from "./config.ts";
 import {
   Router, field, fieldList, fileField, requiredField, HttpError, NotFound,
@@ -159,7 +159,7 @@ import { spendingInsights, type Insight } from "./domain/insights.ts";
 import {
   listSchedules, createSchedule, updateSchedule, deleteSchedule, markPaid, skipOccurrence,
   detectSchedules, projectCashflow, describeCashflow, subscriptions, type Recurrence,
-  setScheduleSplits, getScheduleSplits,
+  setScheduleSplits, getScheduleSplits, getSchedule,
 } from "./domain/schedules.ts";
 import {
   listGoals, createGoal, updateGoal, deleteGoal, goalCategoryIds, goalProgress, completeGoal,
@@ -3070,7 +3070,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           ${when(!transaction.is_split, () => html`
             <div class="field">
               <label for="t-category">Category</label>
-              <select id="t-category" name="category_id">
+              <select id="t-category" name="category_id" data-split-aware>
                 <option value="">Uncategorised</option>
                 ${envelopeOptions(transaction.category_id)}
               </select>
@@ -3122,7 +3122,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             </div>
             <div class="field">
               <label for="t-category">Or file the whole thing to one envelope instead</label>
-              <select id="t-category" name="category_id">
+              <select id="t-category" name="category_id" data-split-aware>
                 <option value="" selected>— keep the split —</option>
                 ${envelopeOptions(null)}
               </select>
@@ -3371,8 +3371,25 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         amount: (signed < 0 ? -line : line) as Paise,
       });
     }
+    /*
+     * One line is not a split — it is that envelope, which is exactly what
+     * somebody means when they delete all but one. Refusing it sent them to a
+     * category field that the split had disabled, so the only way back to a
+     * single envelope was to clear every line and remember to set the category
+     * in the same save. Collapsing it here is what they asked for.
+     */
+    let collapseTo: string | null = null;
     if (splitLines.length === 1) {
-      throw new HttpError(400, "One line isn't a split — pick that envelope in the category field instead.");
+      const only = splitLines[0]!;
+      if (only.amount !== signed) {
+        throw new HttpError(
+          400,
+          `That line is ${formatPaise(Math.abs(only.amount))}, but the transaction is ` +
+          `${formatPaise(Math.abs(signed))}. A single line has to be the whole of it.`,
+        );
+      }
+      collapseTo = only.categoryId;
+      splitLines.length = 0;
     }
     if (splitLines.length > 0) {
       const total = splitLines.reduce((sum, s) => sum + s.amount, 0);
@@ -3410,11 +3427,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           date: newDate,
           ...(splitLines.length > 0
             ? { splits: splitLines }
-            : keepSplit
-              ? {}
-              : collapse
-                ? { splits: null, categoryId: requireVisibleCategory(ctx, postedCategory || null) || null }
-                : { categoryId: requireVisibleCategory(ctx, postedCategory || null) || null }),
+            // One line, collapsed above: drop the split and become that envelope.
+            : collapseTo !== null
+              ? { splits: null, categoryId: collapseTo }
+              : keepSplit
+                ? {}
+                : collapse
+                  ? { splits: null, categoryId: requireVisibleCategory(ctx, postedCategory || null) || null }
+                  : { categoryId: requireVisibleCategory(ctx, postedCategory || null) || null }),
           memo: field(ctx.body, "memo") || null,
           cleared: field(ctx.body, "cleared") === "1",
           ...(tagsRaw !== undefined
@@ -5259,8 +5279,33 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const magnitude = Math.abs(amountField(field(ctx.body, "amount")));
       const direction = field(ctx.body, "direction") ?? "out";
 
+      /*
+       * The schedule and its lines together, or neither.
+       *
+       * setScheduleSplits refuses lines that do not add up, and it can only
+       * check that once the schedule exists to be checked against — so a
+       * refusal used to arrive *after* the schedule had been created, leaving a
+       * schedule with no split and an error message suggesting nothing had
+       * happened. transact makes the pair atomic.
+       */
+      // Read the lines first, so the create knows whether an envelope is
+      // coming from them rather than from the box above.
+      const lines: { categoryId: string | null; amount: Paise; memo?: string | null }[] = [];
+      for (let i = 0; i < 10; i++) {
+        const raw = String(field(ctx.body, `split_amount_${i}`) ?? "").trim();
+        if (!raw) continue;
+        const lineCategory = field(ctx.body, `split_category_${i}`);
+        const line = Math.abs(amountField(raw, `Split line ${i + 1}`));
+        lines.push({
+          amount: (direction === "in" ? line : -line) as Paise,
+          categoryId: lineCategory ? requireVisibleCategory(ctx, lineCategory)! : null,
+        });
+      }
+
+      return transact(db, () => {
       const created = createSchedule(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         name: requiredField(ctx.body, "name"),
+        splitsFollow: lines.length > 0,
         amount: (direction === "in" ? magnitude : -magnitude) as Paise,
         recurrence: (field(ctx.body, "recurrence") ?? "monthly") as Recurrence,
         nextDue: dateField(field(ctx.body, "next_due"), "Next due"),
@@ -5275,17 +5320,6 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
        * against until the schedule exists — the same reason the edit form sets
        * them separately.
        */
-      const lines: { categoryId: string | null; amount: Paise; memo?: string | null }[] = [];
-      for (let i = 0; i < 10; i++) {
-        const raw = String(field(ctx.body, `split_amount_${i}`) ?? "").trim();
-        if (!raw) continue;
-        const lineCategory = field(ctx.body, `split_category_${i}`);
-        const line = Math.abs(amountField(raw, `Split line ${i + 1}`));
-        lines.push({
-          amount: (direction === "in" ? line : -line) as Paise,
-          categoryId: lineCategory ? requireVisibleCategory(ctx, lineCategory)! : null,
-        });
-      }
       if (lines.length > 0) {
         setScheduleSplits(db, actorFor(a, "ui"), created.id, lines);
       }
@@ -5296,6 +5330,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           ? `Schedule added, split across ${lines.length} envelopes.`
           : "Schedule added.",
       };
+      });
     }),
   );
 
@@ -5321,8 +5356,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             : ((direction === "in" ? magnitude : -magnitude) as Paise),
           recurrence: (field(ctx.body, "recurrence") || undefined) as Recurrence | undefined,
           next_due: dueRaw?.trim() ? (parseDate(dueRaw) ?? undefined) : undefined,
-          category_id: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
-          account_id: field(ctx.body, "account_id") || null,
+          /*
+           * Absent is not the same as cleared.
+           *
+           * A disabled select submits nothing, and this form disables the
+           * envelope while the schedule is split. Treating a missing field as
+           * "clear it" would wipe the stored category every time somebody
+           * edited a split schedule — and it would be gone the moment they
+           * removed the split. An empty *present* value still clears it, which
+           * is what "Not set" means.
+           */
+          category_id: field(ctx.body, "category_id") === undefined
+            ? undefined
+            : requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
+          account_id: field(ctx.body, "account_id") === undefined
+            ? undefined
+            : field(ctx.body, "account_id") || null,
           is_subscription: field(ctx.body, "is_subscription") === "1" ? 1 : 0,
         },
       );
@@ -5339,13 +5388,24 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/schedules/:id/splits", (ctx) =>
     mutate(ctx, (a) => {
       const id = ctx.params.id!;
+      /*
+       * Lines take the schedule's own sign. The form asks for a plain amount —
+       * nobody types a minus into "how much of the rent is maintenance" — while
+       * the schedule holds an outgoing figure as negative. Reading the boxes
+       * literally made every line the wrong way round, so the totals could
+       * never match and the split could never be saved.
+       */
+      const existing = getSchedule(db, id);
+      const outgoing = (existing?.amount ?? 0) < 0;
+
       const lines: { categoryId: string | null; amount: Paise; memo?: string | null }[] = [];
       for (let i = 0; i < 20; i++) {
         const raw = String(field(ctx.body, `split_amount_${i}`) ?? "").trim();
         if (!raw) continue;
         const categoryId = field(ctx.body, `split_category_${i}`);
+        const magnitude = Math.abs(amountField(raw, `Line ${i + 1}`));
         lines.push({
-          amount: amountField(raw, `Line ${i + 1}`),
+          amount: (outgoing ? -magnitude : magnitude) as Paise,
           categoryId: categoryId ? requireVisibleCategory(ctx, categoryId)! : null,
           memo: field(ctx.body, `split_memo_${i}`) || null,
         });

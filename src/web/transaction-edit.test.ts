@@ -11,6 +11,7 @@
 
 import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
+import { queryOne } from "../db/db.ts";
 import { rupees } from "../core/money.ts";
 import type { Actor } from "../core/events.ts";
 import type { DB } from "../db/db.ts";
@@ -139,14 +140,33 @@ describe("F4.3 · a split transaction survives its own edit screen", () => {
     assert.equal(getTransaction(db, id)!.is_split, 1);
   });
 
-  test("one filled line is not a split", async () => {
+  test("one filled line collapses into that envelope", async () => {
+    /*
+     * Reversed deliberately. This used to be a 400 pointing at the category
+     * field — which the split had disabled, so there was no way back to a
+     * single envelope short of clearing every line and remembering to set the
+     * category in the same save. One line is that envelope.
+     */
     const id = spend(900);
     const res = await app.post(`/transaction/${id}`, {
       ...base, amount: "900",
       split_category_0: groceries, split_amount_0: "900",
     });
-    assert.equal(res.status, 400);
-    assert.match(await res.text(), /isn&#39;t a split/);
+    assert.equal(res.status, 303);
+    const after = queryOne<{ category_id: string; is_split: number }>(
+      db, `SELECT category_id, is_split FROM transactions WHERE id = ?`, id,
+    )!;
+    assert.equal(after.category_id, groceries);
+    assert.equal(after.is_split, 0, "it still claims to be split");
+  });
+
+  test("but one line short of the amount is still refused", async () => {
+    const id = spend(900);
+    const res = await app.post(`/transaction/${id}`, {
+      ...base, amount: "900",
+      split_category_0: groceries, split_amount_0: "400",
+    });
+    assert.equal(res.status, 400, "₹400 was accepted as the whole of ₹900");
   });
 });
 

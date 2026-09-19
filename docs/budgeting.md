@@ -191,6 +191,40 @@ Splitting used to be available only when editing, so the way to record a mixed
 bill was to save it wrong and then correct it. It is on the entry form now, and
 on the new-schedule form.
 
+**The envelope above a split is not used.** The lines carry the categories, so
+the box is emptied and disabled while lines are filled in, and the hint says so.
+Before that it was still *required*, which meant choosing an envelope purely to
+satisfy the form and then having it discarded.
+
+On a schedule the lines live in their own form, so the browser cannot see them
+from the edit form beside it. There the server disables the box instead — and
+the edit route now treats a **missing** field as "leave it alone" rather than
+"clear it", because a disabled select submits nothing and the stored envelope
+would have been wiped on every edit.
+
+### Going back to one envelope
+
+**One line means one envelope.** Delete all but one and the split is removed and
+that line's category becomes the transaction's or the schedule's own. It used to
+be refused as "not a split", which was a dead end: the lines form would not take
+one line, and the envelope field it pointed at was disabled *because* the split
+existed.
+
+A single line has to be the whole amount. A fraction is refused, since that
+would silently lose the rest.
+
+Clearing every line is allowed only if something is left to post to. On an
+outgoing schedule with no envelope of its own it is **refused** — it would post
+itself every month into nothing, which is the queue of unrecorded spending the
+envelope rule exists to prevent.
+
+### When the lines do not add up
+
+Both refuse, with the figures: *"The lines add up to ₹2,000, but the transaction
+is ₹2,400."* Neither writes anything. The schedule case is wrapped in one
+transaction, so a refused split takes the half-made schedule with it rather than
+leaving one behind with no lines.
+
 ## A transfer that costs something
 
 IMPS above a threshold, NEFT at some banks, a demat transfer, the markup on a

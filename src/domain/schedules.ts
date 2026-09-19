@@ -57,12 +57,26 @@ export interface Schedule {
  * Money coming in is exempt for B99's own reason: its job is to land in Ready to
  * Assign and wait to be given a job.
  */
-function requireEnvelopeForOutgoing(amount: Paise | null | undefined, categoryId: string | null | undefined): void {
-  if ((amount ?? 0) < 0 && !categoryId) {
+/**
+ * An outgoing schedule has to name where the money comes from — as one
+ * envelope, or as the split lines that replace it.
+ *
+ * `hasSplits` is the second half of that and was missing: a schedule split
+ * across envelopes carries no category of its own, by design, because the lines
+ * carry them. Demanding one anyway meant a split schedule had to name an
+ * envelope it would never post to.
+ */
+function requireEnvelopeForOutgoing(
+  amount: Paise | null | undefined,
+  categoryId: string | null | undefined,
+  hasSplits = false,
+): void {
+  if ((amount ?? 0) < 0 && !categoryId && !hasSplits) {
     throw new Refusal(
       "Which envelope does this come out of? A scheduled payment posts itself " +
       "every month, so without one it would quietly build a queue of spending " +
-      "with nothing recording where it went. Money coming in does not need one.",
+      "with nothing recording where it went. Split it across envelopes instead " +
+      "if it is more than one thing. Money coming in does not need any of this.",
     );
   }
 }
@@ -71,6 +85,8 @@ export function createSchedule(
   db: DB, actor: Actor,
   input: {
     name: string;
+    /** Set when split lines are about to be written in the same transaction. */
+    splitsFollow?: boolean;
     accountId?: string | null;
     payeeId?: string | null;
     categoryId?: string | null;
@@ -84,7 +100,13 @@ export function createSchedule(
     confidence?: string | null;
   },
 ): Schedule {
-  requireEnvelopeForOutgoing(input.amount, input.categoryId);
+  /*
+   * `splitsFollow` is the caller promising to set split lines in the same
+   * transaction. A schedule cannot have lines before it exists, so the check
+   * has to take the promise — and the route that makes it wraps both in one
+   * transaction, so a refused split takes the schedule with it.
+   */
+  requireEnvelopeForOutgoing(input.amount, input.categoryId, input.splitsFollow === true);
   return transact(db, () => {
     const id = newId();
     execute(
@@ -129,6 +151,7 @@ export function updateSchedule(
     requireEnvelopeForOutgoing(
       patch.amount !== undefined ? patch.amount : before.amount,
       patch.category_id !== undefined ? patch.category_id : before.category_id,
+      getScheduleSplits(db, id).length > 0,
     );
 
     // A key present but undefined means "not mentioned", not "set to null" — the
@@ -210,14 +233,53 @@ export function setScheduleSplits(
     if (!schedule) throw new Refusal("That schedule does not exist.");
 
     const kept = lines.filter((l) => l.amount !== 0);
+
+    /*
+     * One line is not a split — it is a plain single-envelope schedule, and
+     * saying so is what somebody means when they delete all but one line. It
+     * used to be refused, which left them stuck: the lines form would not
+     * accept one, and the envelope above was disabled because a split existed.
+     * The only way back was to clear every line, which left an outgoing
+     * schedule with no envelope at all.
+     */
+    if (kept.length === 1) {
+      const only = kept[0]!;
+      if (schedule.amount !== null && only.amount !== schedule.amount) {
+        throw new Refusal(
+          `That line is ${formatPaise(only.amount)}, but the schedule is ` +
+          `${formatPaise(schedule.amount as Paise)}. A single line has to be the whole of it.`,
+        );
+      }
+      refusePaymentCategories(db, [only.categoryId]);
+      execute(db, `DELETE FROM schedule_splits WHERE schedule_id = ?`, scheduleId);
+      execute(db, `UPDATE schedules SET category_id = ? WHERE id = ?`, only.categoryId, scheduleId);
+      appendEvent(db, actor, {
+        entity: "schedule", entityId: scheduleId, action: "update",
+        after: { splits: 0, categoryId: only.categoryId },
+        summary: `${schedule.name} is one envelope again`,
+      });
+      return;
+    }
+
+    /*
+     * No lines at all, on an outgoing schedule with no envelope either. It
+     * would post every month into nothing — which is precisely the queue of
+     * unrecorded spending the envelope rule exists to prevent — so it is
+     * refused rather than saved.
+     */
+    if (kept.length === 0 && (schedule.amount ?? 0) < 0 && !schedule.category_id) {
+      throw new Refusal(
+        "Removing the split would leave this schedule with no envelope at all, and it " +
+        "posts itself every month. Either keep the lines, or leave one line for the " +
+        "whole amount to make it a single envelope again.",
+      );
+    }
+
     if (kept.length > 0) {
       if (schedule.amount === null) {
         throw new Refusal(
           "This schedule has no amount, so there is nothing to split. Give it one first.",
         );
-      }
-      if (kept.length < 2) {
-        throw new Refusal("A split needs at least two lines. One line is just a category.");
       }
       const total = kept.reduce((sum, l) => sum + l.amount, 0);
       if (total !== schedule.amount) {
