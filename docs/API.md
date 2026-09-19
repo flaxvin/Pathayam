@@ -486,6 +486,7 @@ only (out of a token's reach).
 | POST | `/portfolio/instrument/:id/classify` | W | Set an instrument's class. |
 | POST | `/portfolio/refresh` | W | Refresh prices. |
 | GET | `/net-worth` | R | Net-worth decomposition & history. |
+| GET | `/fire` | R | Financial-independence projection from trailing spending. |
 | POST | `/net-worth/snapshot` | W | Take a dated snapshot. |
 | GET/POST | `/portfolio/asset/new` | R/W | Add a hand-valued asset. |
 | GET/POST | `/portfolio/asset/:id/revalue` | R/W | Say what one asset is worth today. |

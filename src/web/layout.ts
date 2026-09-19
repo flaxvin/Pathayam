@@ -334,6 +334,7 @@ function renderSidebar(
       ? [
           { href: "/portfolio", label: "Portfolio", icon: "△" },
           { href: "/net-worth", label: "Net worth", icon: "◈" },
+          { href: "/fire", label: "Independence", icon: "◉" },
         ]
       : []),
   ];

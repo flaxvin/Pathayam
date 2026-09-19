@@ -931,24 +931,61 @@ export function accountBalances(db: DB): Map<string, AccountBalances> {
  * all excluded — it measures how fast the household actually consumes
  * envelopes, which is what makes the buffer figure mean what it says.
  */
-export function averageDailySpend(db: DB, asOf: IsoDate = todayIST(), windowDays = 90): Paise {
+export function averageDailySpend(
+  db: DB, asOf: IsoDate = todayIST(), windowDays = 90,
+  viewerMemberId?: string | null,
+): Paise {
   const from = addDays(asOf, -windowDays);
-  const total =
-    queryValue<number>(
-      db,
-      `${CATEGORISED_CTE}
-       SELECT COALESCE(SUM(-c.amount), 0)
-         FROM categorised c
-         LEFT JOIN categories cat ON cat.id = c.category_id
-        WHERE c.amount < 0 AND cat.payment_account_id IS NULL`,
-      // Each leg of the union is bounded to the window, so a long history
-      // costs no more than a short one.
-      from, asOf,
-      from, asOf,
-    ) ?? 0;
-
+  const total = envelopeSpendBetween(db, from, asOf, viewerMemberId);
   const days = Math.max(1, daysBetween(from, asOf));
   return Math.round(total / days);
+}
+
+/**
+ * What the household actually consumed between two dates.
+ *
+ * B77 is the reason this is one function rather than a query written out
+ * wherever it is wanted. "Spent" was once computed as cash leaving budget
+ * accounts, which read ₹1,060 in a month the household spent ₹22,010 because
+ * almost all of it went on a card — and that same wrong measure was the
+ * denominator of months-of-runway, so the app reported safety that was not
+ * there. Counting money leaving *categories* is what makes the figure mean what
+ * it says: a card swipe empties an envelope on the day it happens, a card
+ * payment moves cash without consuming anything, and transfers and income never
+ * touch a category at all.
+ *
+ * Payment categories are excluded for that second reason — paying the card is
+ * settling a debt already counted as spending, and counting it again would
+ * double every rupee that went through a card.
+ *
+ * `viewerMemberId` omitted means count everything, which is what the buffer and
+ * the digest want. A screen passes the authenticated member, so a private
+ * account's spending never lands in somebody else's total.
+ */
+export function envelopeSpendBetween(
+  db: DB, from: IsoDate, to: IsoDate, viewerMemberId?: string | null,
+): Paise {
+  const seen = viewerMemberId === undefined
+    ? { sql: "", params: [] as (string | null)[] }
+    : {
+      sql: " AND (a.visibility <> 'private' OR a.holder_member_id IS ?)",
+      params: [viewerMemberId ?? null],
+    };
+
+  return queryValue<number>(
+    db,
+    `${CATEGORISED_CTE}
+     SELECT COALESCE(SUM(-c.amount), 0)
+       FROM categorised c
+       LEFT JOIN categories cat ON cat.id = c.category_id
+       JOIN accounts a ON a.id = c.account_id
+      WHERE c.amount < 0 AND cat.payment_account_id IS NULL${seen.sql}`,
+    // Each leg of the union is bounded to the window, so a long history
+    // costs no more than a short one.
+    from, to,
+    from, to,
+    ...seen.params,
+  ) ?? 0;
 }
 
 /** The current outstanding on each Credit account, for R6's funding figures. */
