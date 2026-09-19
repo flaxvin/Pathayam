@@ -41,6 +41,7 @@ import {
 } from "../domain/accounts.ts";
 import {
   listCategories, createGroup, renameGroup, deleteGroup, createCategory, renameCategory,
+  mergeCategories,
   moveCategoryToGroup, reorderCategory, reorderGroup, setCategoryHidden, deleteCategory,
   setTarget, clearTarget, setAssigned, addAssigned, copyAssignmentsFromMonth, moveMoney,
   setHeld, startPersonalBudget,
@@ -1168,6 +1169,26 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
       const a = did("resolvePayee", () => resolvePayee(db, actor, "Big Bazaar"));
       const b = did("resolvePayee", () => resolvePayee(db, actor, "BigBazaar"));
       did("mergePayees", () => mergePayees(db, actor, b.id, a.id));
+
+      /*
+       * The household decides "Eating out" and "Restaurants" were always the
+       * same envelope. Both have been assigned to and spent from by now, which
+       * is the case that matters: the merge has to add the two assignments
+       * rather than keep one, and the identity assertion that runs after every
+       * simulated month is what proves it did.
+       */
+      const duplicate = did("createCategory", () => createCategory(db, actor, {
+        groupId: queryOne<{ group_id: string }>(
+          db, `SELECT group_id FROM categories WHERE id = ?`, cat("Eating out"),
+        )!.group_id,
+        name: "Restaurants",
+      }));
+      did("setAssigned", () => setAssigned(db, actor, month, duplicate.id, rupees(800) as Paise));
+      did("createTransaction", () => createTransaction(db, actor, {
+        accountId: acc.cash, amount: rupees(-300) as Paise, date: day(month, 14),
+        categoryId: duplicate.id, payeeName: "Paragon",
+      }));
+      did("mergeCategories", () => mergeCategories(db, actor, duplicate.id, cat("Eating out")));
     }
     if (ix === 12 && !reconciled) {
       reconciled = true;

@@ -143,3 +143,31 @@ in later months are subtracted from the earlier month's Ready to Assign, so a
 past month can read lower than it did at the time. See
 [dev/01-engine-derivation.md](dev/01-engine-derivation.md) §4 and
 [limitations.md](limitations.md).
+
+## Merging two categories
+
+Two envelopes turn out to be the same envelope. Merging moves everything from
+one into the other and deletes the loser:
+
+- **Assignments are added, month by month.** Not moved — added. `assignments`
+  is keyed `(month, category_id)`, so two categories assigned to in the same
+  month collide, and resolving that collision by keeping one row would take
+  money out of the ledger without taking it out of any account. The identity
+  would break by exactly the amount discarded.
+- **History follows**: transactions, splits, staged imports, schedules, a
+  loan's payment envelope, goal membership.
+- **The winner's target stands.** The loser's is inherited only where the
+  winner has none — two targets cannot both apply, and the category being kept
+  is the one whose intent was meant to survive.
+- The rollup cache is dropped and rebuilt, because it is keyed by category.
+
+It refuses two things. **A card's payment category**, on either side: its
+activity is derived from the card account rather than stored (R6), so a merged
+one would lose that link or give the winner a second. And **a merge across
+budgets** — two budgets are two people's money, so moving a balance between
+them is a transfer, not a rename, and it would tip a private envelope's
+contents into the shared budget where everyone can see it.
+
+Compare `deleteCategory`, which insists the balance is already zero and only
+remaps transactions. Merge is for when the balance is the thing that has to
+survive.

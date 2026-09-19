@@ -447,6 +447,18 @@ export function renderCategories(
   /** 15 · Whose grid this is, so the heading says which money is being shaped. */
   budget?: { id: string; name: string; kind: string },
 ): SafeHtml {
+  /*
+   * Where a category may be merged. Every other ordinary category in this same
+   * grid — which is already scoped to one budget and one viewer, so the list
+   * cannot name an envelope the reader is not allowed to know about. Payment
+   * categories are left out because the domain refuses them anyway, and an
+   * option that always fails is worse than no option.
+   */
+  const mergeTargets = (self: { id: string }) =>
+    groups
+      .flatMap((g) => g.categories)
+      .filter((o) => o.id !== self.id && !o.isPayment);
+
   // F3.6 · Up/down nudges. Reordering is positional, so it is offered on every
   // row and group — including app-managed ones, which carry no other controls.
   const reorder = (action: string, isFirst: boolean, isLast: boolean) => html`
@@ -564,6 +576,15 @@ export function renderCategories(
                     <form method="post" action="/categories/${c.id}/hide">
                       <input type="hidden" name="hidden" value="${c.hidden ? "0" : "1"}">
                       <button class="button-small button-quiet" type="submit">${c.hidden ? "Unhide" : "Hide"}</button>
+                    </form>
+                    <form method="post" action="/categories/${c.id}/merge" class="row" style="gap:.4rem"
+                          onsubmit="return confirm('Merge this category into the one chosen? Its balance, history and target move across, and this one goes away.')">
+                      <label class="sr-only" for="merge-${c.id}">Merge into</label>
+                      <select id="merge-${c.id}" name="winner_id" required style="max-width:11rem">
+                        <option value="">Merge into…</option>
+                        ${mergeTargets(c).map((o) => html`<option value="${o.id}">${o.name}</option>`)}
+                      </select>
+                      <button class="button-small button-quiet" type="submit">Merge</button>
                     </form>
                     <form method="post" action="/categories/${c.id}/delete"
                           onsubmit="return confirm('Delete this category? It must be empty; its money is unaffected.')">
