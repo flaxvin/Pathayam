@@ -185,6 +185,22 @@ which it meant, so the divergence is surfaced and they decide — the same thing
 this app does when a statement and the ledger disagree. The threshold is ₹500,
 the one Q12 set for loan reconciliation.
 
+## A hand-valued asset over its life
+
+Four things happen to gold, and until recently only two of them could be
+recorded:
+
+| | Route | What it records |
+|---|---|---|
+| Buy it | `/portfolio/asset/new` | The asset, and optionally the money that left to pay for it |
+| Buy more | `/portfolio/asset/:id/add` | The payment, and the new total value |
+| Revalue it | `/portfolio/asset/:id/revalue` | What it is worth now. No money moves |
+| Sell it | `/portfolio/asset/:id/dispose` | It is gone, and where the proceeds landed |
+
+What you paid and what it is worth are never assumed to be the same number.
+Adding to a pot prefills the new value with the old one and lets you correct it:
+gold bought at a premium is worth the market rate the moment you own it.
+
 ## Disposing of a hand-valued asset
 
 An asset could be created and revalued but never sold, so gold that paid for a
@@ -198,9 +214,24 @@ for something given away or lost, and "nowhere" is valid if the money has not
 landed yet. The dated history stays, because the account is closed rather than
 deleted.
 
-Creating an asset now asks the mirror question. If you just bought it, the money
+Creating an asset asks the mirror question. If you just bought it, the money
 leaves an account you name; if you already owned it, nothing moves. Without that,
 net worth rose by the value of the asset with nothing on the other side.
+
+## Which screen an account lives on
+
+A tracking account shows a figure this app derives rather than counts, and it is
+derived on the screen that owns it — Portfolio for what is held, Loans for what
+is owed. So tracking accounts are **not listed on the Accounts screen** and are
+not offered as the target of a plain transaction: beside accounts you can
+transact on they looked like accounts you can transact on, and an entry against
+one went nowhere visible. Each still has its own page, and every link to it
+still works.
+
+A deposit belongs on Portfolio, because a household thinks of it as something
+held. "Other liability" does not — it is a debt, so it appears on Loans under
+*Everything you owe*, alongside money borrowed from family. That table used to
+show only loans and credit cards, which made its heading false.
 
 ## Financial independence
 

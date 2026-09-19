@@ -177,7 +177,7 @@ import {
   incomeInFinancialYear, type AdvanceInstalment,
 } from "./domain/tax.ts";
 import { renderTax } from "./web/pages/tax.ts";
-import { renderDisposeAsset } from "./web/pages/portfolio.ts";
+import { renderDisposeAsset, renderAddToAsset } from "./web/pages/portfolio.ts";
 import { capitalGainsTaxFor } from "./domain/capital-gains-tax.ts";
 import { renderFire } from "./web/pages/fire.ts";
 import { fireProjection, DEFAULT_ASSUMPTIONS } from "./domain/fire.ts";
@@ -266,6 +266,7 @@ import {
   classifyInstrument, ASSET_CLASSES, ASSET_CLASS_LABELS,
   exportHoldingsCsv, exportLotsCsv, exportPriceHistoryCsv, exportNetWorthCsv,
   type InstrumentKind,
+  signedValuation,
 } from "./domain/assets.ts";
 import {
   netWorthStatement, snapshotNetWorth, netWorthChange, netWorthHistory,
@@ -1782,8 +1783,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const view = buildBudgetView(db, undefined, scope, viewer(ctx));
 
     const memberNames = new Map(listMembers(db).map((m) => [m.id, m.name]));
+    /*
+     * Budget and credit accounts only.
+     *
+     * A tracking account — a deposit, a demat account, a loan, a hand-valued
+     * asset — shows a figure this app derives rather than counts, and it is
+     * derived on the screen that owns it: Portfolio for what is held, Loans for
+     * what is owed. Listing them here put them beside accounts you can transact
+     * on, so they looked like accounts you can transact on, and a transaction
+     * entered against one went nowhere visible. Every one of them still has a
+     * home, and its own page still opens.
+     */
     const rows: AccountRow[] = listAccounts(db, { viewerMemberId: viewer(ctx) })
-      .filter((account) => account.kind === "tracking" || account.budget_id === scope)
+      .filter((account) => account.kind !== "tracking")
+      .filter((account) => account.budget_id === scope)
       .map((account) => {
       const recon = queryOne<{ as_of: string; broken_at: string | null }>(
         db,
@@ -6170,7 +6183,23 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * prompting for the number that would bring it back. A thing that vanishes
      * after you create it is the worst way to lose someone's trust in a ledger.
      */
-    const manualAssets = listAssetAccounts(db, { viewerMemberId: viewer(ctx) })
+    /*
+     * listValuableAccounts, not listAssetAccounts.
+     *
+     * The first covers the six asset subtypes; the second adds the plain ones —
+     * "other asset", "other liability", fixed and recurring deposits. The
+     * revalue-everything screen already used the wider list, so those accounts
+     * appeared there, could be revalued, and were then nowhere on this page.
+     * The same account being on one screen and not the other is how a household
+     * concludes the revaluation did nothing.
+     */
+    const manualAssets = listValuableAccounts(db, { viewerMemberId: viewer(ctx) })
+      // A portfolio is what you hold. A deposit belongs here — it is an
+      // investment, and a household thinks of it as one — but "other
+      // liability" does not: it is a debt, it belongs on net worth's other
+      // side, and it is revaluable from the valuations screen without
+      // appearing on a page headed Portfolio.
+      .filter((a) => a.subtype !== "liability")
       .filter((a) => listHoldings(db, a.id).length === 0)
       .map((a) => {
         const valuation = latestValuation(db, a.id);
@@ -6815,7 +6844,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         const asOfRaw = field(ctx.body, `asof-${asset.id}`);
         recordValuation(db, actor, {
           accountId: asset.id,
-          value: Math.abs(amountField(raw, asset.name)) as Paise,
+          value: signedValuation(asset.subtype, amountField(raw, asset.name) as Paise),
           asOf: dateField(asOfRaw, `${asset.name} — as of`),
         });
         saved++;
@@ -6842,6 +6871,67 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    * only the first is the mirror of creating one without saying where the money
    * came from.
    */
+  /*
+   * Buying more of a hand-valued asset. The mirror of disposing of one: money
+   * leaves, and the stated value changes. Revaluing alone loses the payment.
+   */
+  router.get("/portfolio/asset/:id/add", (ctx) => {
+    requireAssets();
+    auth(ctx);
+    const account = requireVisibleAccount(ctx, ctx.params.id!)!;
+    const valuation = latestValuation(db, account.id);
+    return render(ctx, `Add to ${account.name}`, renderAddToAsset({
+      account: { id: account.id, name: account.name },
+      lastValue: valuation?.value ?? (0 as Paise),
+      lastAsOf: valuation?.asOf ?? null,
+      today: todayIST(),
+      payFrom: listAccounts(db, { viewerMemberId: viewer(ctx) })
+        .filter((acc) => acc.kind === "budget")
+        .map((acc) => ({ id: acc.id, name: acc.name })),
+      categories: [...buildBudgetView(db, undefined, undefined, viewer(ctx)).categories.values()]
+        .filter((c) => !c.hidden && !c.isPaymentCategory)
+        .map((c) => ({ id: c.id, name: c.name })),
+    }));
+  });
+
+  router.post("/portfolio/asset/:id/add", (ctx) =>
+    mutate(ctx, (a) => {
+      requireAssets();
+      const account = requireVisibleAccount(ctx, ctx.params.id!)!;
+      const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+      const spent = amountField(requiredField(ctx.body, "spent"), "What you paid");
+      if (spent <= 0) throw new Refusal("Enter what you paid, above zero.");
+      const on = dateField(field(ctx.body, "on"), "Date");
+
+      const paidFrom = field(ctx.body, "paid_from");
+      let note = "";
+      if (paidFrom) {
+        const from = requireVisibleAccount(ctx, paidFrom)!.id;
+        const categoryId = field(ctx.body, "paid_category");
+        createTransaction(db, actor, {
+          accountId: from,
+          amount: -spent as Paise,
+          date: on,
+          categoryId: categoryId ? requireVisibleCategory(ctx, categoryId)! : null,
+          memo: `Added to ${account.name}`,
+        });
+        note = ` ${formatPaise(spent as Paise)} recorded as leaving ${getAccount(db, from)?.name ?? "that account"}.`;
+      }
+
+      const raw = field(ctx.body, "new_value");
+      const stated = raw?.trim()
+        ? amountField(raw, "What it is worth")
+        : ((latestValuation(db, account.id)?.value ?? 0) + spent);
+      recordValuation(db, actor, {
+        accountId: account.id,
+        value: signedValuation(account.subtype, stated as Paise),
+        asOf: on,
+      });
+
+      return { redirect: "/portfolio", message: `${account.name} updated.${note}` };
+    }),
+  );
+
   router.get("/portfolio/asset/:id/dispose", (ctx) => {
     requireAssets();
     auth(ctx);
@@ -6927,7 +7017,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       if (!account) throw new NotFound("That asset does not exist.");
       recordValuation(db, actorFor(a), {
         accountId: account.id,
-        value: amountField(requiredField(ctx.body, "value")),
+        value: signedValuation(account.subtype, amountField(requiredField(ctx.body, "value")) as Paise),
         asOf: dateField(field(ctx.body, "as_of"), "As of"),
       });
       return { redirect: "/portfolio", message: `Revalued ${account.name}.` };

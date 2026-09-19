@@ -21,6 +21,8 @@ import { nowIST, todayIST, formatDate, monthOf, type IsoDate } from "../core/dat
 import { formatPaise, type Paise } from "../core/money.ts";
 import { createAccount, getAccount } from "./accounts.ts";
 import { createTransaction, createTransfer } from "./transactions.ts";
+import { familyLoanNetWorth } from "./family-loans.ts";
+import { latestValuation } from "./assets.ts";
 import {
   buildSchedule, emiFor, flatRateLoan, moratorium, preEmi, drift,
   lifetimeMetrics,
@@ -1230,7 +1232,13 @@ registerUndoHandler("loan", (db, event) => {
 /** Where the household's monthly obligations sit, for the debt overview (F18.16). */
 export interface DebtRow {
   name: string;
-  kind: "loan" | "card";
+  /**
+   * `other` is a debt with no schedule behind it — money owed to somebody you
+   * know, or an amount stated by hand and revalued. It has no rate and no
+   * monthly obligation, which is exactly why it is not a loan; leaving it out
+   * of a table headed "Everything you owe" made that heading false.
+   */
+  kind: "loan" | "card" | "other";
   balance: Paise;
   ratePct: number | null;
   monthlyObligation: Paise;
@@ -1290,6 +1298,43 @@ export function debtOverview(db: DB, viewerMemberId?: string | null): DebtRow[] 
       name: card.name, kind: "card", balance: -balance,
       ratePct: null, monthlyObligation: 0, monthsRemaining: null,
       holderName: holders.get(card.id) ?? null,
+    });
+  }
+
+  /*
+   * Debts with no schedule. Two kinds reach here:
+   *
+   *   · money borrowed from somebody you know, whose balance family lending
+   *     derives from the actual transfers;
+   *   · a tracking account whose stated value is negative — "other liability",
+   *     an amount owed that has no rate, no EMI and no lender.
+   *
+   * Neither has a rate or a monthly obligation, so those columns stay empty
+   * rather than being filled with a zero that would read as "nothing to pay".
+   */
+  for (const owed of familyLoanNetWorth(db).borrowed) {
+    rows.push({
+      name: owed.label, kind: "other", balance: owed.value,
+      ratePct: null, monthlyObligation: 0, monthsRemaining: null,
+      holderName: holders.get(owed.accountId) ?? null,
+    });
+  }
+
+  for (const account of queryAll<{ id: string; name: string; subtype: string }>(
+    db,
+    `SELECT id, name, subtype FROM accounts
+      WHERE kind = 'tracking' AND closed_at IS NULL
+        AND subtype IN ('liability', 'asset')
+        ${viewerMemberId !== undefined ? "AND (visibility <> 'private' OR holder_member_id IS ?)" : ""}`,
+    ...(viewerMemberId !== undefined ? [viewerMemberId] : []),
+  )) {
+    const stated = latestValuation(db, account.id);
+    const owed = stated ? -stated.value : 0;
+    if (owed <= 0) continue;
+    rows.push({
+      name: account.name, kind: "other", balance: owed as Paise,
+      ratePct: null, monthlyObligation: 0, monthsRemaining: null,
+      holderName: holders.get(account.id) ?? null,
     });
   }
 
