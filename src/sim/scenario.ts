@@ -60,6 +60,7 @@ import {
 import { convertToEmi } from "../domain/card-emi.ts";
 import {
   createSchedule, updateSchedule, deleteSchedule, markPaid, skipOccurrence,
+  setScheduleSplits,
 } from "../domain/schedules.ts";
 import { createGoal, updateGoal, completeGoal, deleteGoal } from "../domain/goals.ts";
 import {
@@ -401,6 +402,14 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
     classifyInstrument(db, actor, flexi.id, { assetClass: "equity", region: "domestic" }));
   did("classifyInstrument", () =>
     classifyInstrument(db, actor, apple.id, { assetClass: "equity", region: "international" }));
+  /*
+   * The index fund is the one the household sells, and its gain is what the
+   * tax screen has to place. Left unclassified it is correctly refused rather
+   * than guessed — which is the right behaviour and a poor demonstration of
+   * it, since the demo would show nothing but a warning.
+   */
+  did("classifyInstrument", () =>
+    classifyInstrument(db, actor, index.id, { assetClass: "equity", region: "domestic" }));
 
   let flexiNav = 58, indexNav = 112, applePrice = 168, usdInr = 82.5, sgdInr = 61.2;
   let goldValue = 1_90_000, npsValue = 2_40_000;
@@ -419,6 +428,16 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
     name: "Rent", accountId: acc.hisOwn, categoryId: cat("Rent"),
     amount: -rupees(38_000) as Paise, recurrence: "monthly", nextDue: day(months[0]!, 3),
   }));
+  /*
+   * Rent is not one thing. ₹38,000 leaves the account on one date and is rent,
+   * maintenance and parking — which is why a schedule can split: otherwise this
+   * is entered and split by hand twelve times a year.
+   */
+  did("setScheduleSplits", () => setScheduleSplits(db, actor, rentSchedule.id, [
+    { categoryId: cat("Rent"), amount: -rupees(34_000) as Paise },
+    { categoryId: cat("Household"), amount: -rupees(4_000) as Paise, memo: "Maintenance" },
+  ]));
+
   const salarySchedule = did("createSchedule", () => createSchedule(db, actor, {
     // Money coming in: a positive amount and no envelope, which is the only
     // shape the guard lets through without one.

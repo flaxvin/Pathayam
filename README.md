@@ -28,6 +28,9 @@ harvest, drawn from deliberately through the year.
 - **Per-member privacy.** A shared household budget plus an optional personal
   budget per member, excluded from the other members' lists, reports, exports,
   activity log and totals.
+- **Schedules that split.** A salary into provident fund, tax and what landed;
+  rent into rent and maintenance. The lines must add up, and posting the
+  schedule posts a split transaction.
 - **Tax estimate.** Income tax under both regimes, side by side, with 80C, 80D
   and the HRA exemption, and capital gains at their own rates rather than at
   slab rates — an estimate on figures you enter, not a return and not advice. Slabs are data keyed by financial year, so a year the app does

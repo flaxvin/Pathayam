@@ -82,10 +82,10 @@ export class FiledIntoPaymentCategory extends Refusal {}
  * never stored. A transaction stored against one is therefore invisible to
  * the envelope while still moving the account, and the accounting identity
  * breaks by exactly that amount. The pickers hide payment categories; this is
- * the rule itself, so no other door — review, rules, the API — can slip one
- * through.
+ * the rule itself, so no other door — review, rules, the API, a schedule's
+ * split lines — can slip one through.
  */
-function refusePaymentCategories(db: DB, categoryIds: (string | null | undefined)[]): void {
+export function refusePaymentCategories(db: DB, categoryIds: (string | null | undefined)[]): void {
   for (const id of categoryIds) {
     if (!id) continue;
     const paying = queryOne<{ name: string }>(
