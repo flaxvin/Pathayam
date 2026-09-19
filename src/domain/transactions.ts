@@ -113,8 +113,16 @@ export function createTransaction(
     if (input.splits && input.splits.length > 0) {
       const total = input.splits.reduce((sum, s) => sum + s.amount, 0);
       if (total !== input.amount) {
-        throw new Error(
-          `The splits add up to ${formatPaise(total)}, but the transaction is ${formatPaise(input.amount)}.`,
+        /*
+         * A Refusal, not an Error. Somebody typed figures that do not
+         * reconcile, which is a thing to tell them — as an Error it was a 500
+         * reading "Something went wrong on the server", and the one piece of
+         * information they needed (by how much, and which way) was in a message
+         * nobody ever saw.
+         */
+        throw new Refusal(
+          `The lines add up to ${formatPaise(total)}, but the transaction is ` +
+          `${formatPaise(input.amount)}. They have to match.`,
         );
       }
     }
@@ -267,8 +275,9 @@ export function updateTransaction(
       const amount = patch.amount ?? before.amount;
       const total = patch.splits.reduce((sum, s) => sum + s.amount, 0);
       if (total !== amount) {
-        throw new Error(
-          `The splits add up to ${formatPaise(total)}, but the transaction is ${formatPaise(amount)}.`,
+        throw new Refusal(
+          `The lines add up to ${formatPaise(total)}, but the transaction is ` +
+          `${formatPaise(amount)}. They have to match.`,
         );
       }
     }

@@ -807,8 +807,19 @@ export function renderSchedules(opts: {
                     </div>
                     <div class="field" style="margin:0">
                       <label style="font-size:.75rem" for="sc-${s.id}">Envelope</label>
-                      <select id="sc-${s.id}" name="category_id" style="max-width:12rem">
-                        <option value="">Not set</option>
+                      <!--
+                        A schedule's split lines are posted by a different form
+                        below, so the browser cannot see them from here. The
+                        server knows, and says so: with lines set, this envelope
+                        is not what the schedule posts to and the lines are.
+                      -->
+                      <select id="sc-${s.id}" name="category_id" style="max-width:12rem"
+                              ${raw((opts.splits?.get(s.id)?.length ?? 0) > 0 ? "disabled" : "")}>
+                        <option value="">
+                          ${(opts.splits?.get(s.id)?.length ?? 0) > 0
+                            ? "Split — the lines below carry the envelopes"
+                            : "Not set"}
+                        </option>
                         ${(opts.categories ?? []).map(
                           (c) => html`
                             <option value="${c.id}" ${raw(c.id === s.category_id ? "selected" : "")}>
@@ -1038,7 +1049,7 @@ export function renderNewScheduleForm(opts: {
       </div>
       <div class="field">
         <label for="category_id">Which envelope</label>
-        <select id="category_id" name="category_id">
+        <select id="category_id" name="category_id" data-split-aware>
           <option value="">Not set — only for money coming in</option>
           ${opts.categories.map((c) => html`<option value="${c.id}">${c.name}</option>`)}
         </select>

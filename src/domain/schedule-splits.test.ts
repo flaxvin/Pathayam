@@ -72,13 +72,35 @@ describe("setting the lines", () => {
     assert.equal(getScheduleSplits(h.db, h.schedule.id).length, 0, "it was stored anyway");
   });
 
-  test("one line is not a split", () => {
+  test("one line means one envelope, not an error", () => {
+    /*
+     * Reversed deliberately. Refusing this left no way back from a split: the
+     * lines form would not take one line, and the envelope field was disabled
+     * because a split existed. Deleting all but one line is somebody saying
+     * "it is all this now", so that is what it does.
+     */
+    const h = household();
+    setScheduleSplits(h.db, actor, h.schedule.id, [
+      { categoryId: h.maint, amount: -rupees(32_000) as Paise },
+    ]);
+    assert.equal(getScheduleSplits(h.db, h.schedule.id).length, 0, "it stayed a split");
+    assert.equal(
+      queryOne<{ category_id: string }>(
+        h.db, `SELECT category_id FROM schedules WHERE id = ?`, h.schedule.id,
+      )!.category_id,
+      h.maint,
+      "the surviving line did not become the envelope",
+    );
+  });
+
+  test("but a single line has to be the whole amount", () => {
     const h = household();
     assert.throws(
       () => setScheduleSplits(h.db, actor, h.schedule.id, [
-        { categoryId: h.rent, amount: -rupees(32_000) as Paise },
+        { categoryId: h.maint, amount: -rupees(2_000) as Paise },
       ]),
       Refusal,
+      "a fraction was accepted as the whole",
     );
   });
 
@@ -184,5 +206,63 @@ describe("posting it", () => {
       getScheduleSplits(h.db, h.schedule.id).length, 0,
       "orphaned split lines were left behind",
     );
+  });
+});
+
+describe("the envelope on a split schedule", () => {
+  test("editing a split schedule does not wipe its stored category", async () => {
+    /*
+     * The edit form disables the envelope while a schedule is split, and a
+     * disabled select submits nothing. If the route read that absence as
+     * "clear it", the category would be gone — and gone for good the moment
+     * somebody removed the split.
+     */
+    const h = household();
+    const { startTestApp, testConfig } = await import("../web/harness.test-data.ts");
+    setScheduleSplits(h.db, actor, h.schedule.id, [
+      { categoryId: h.rent, amount: -rupees(30_000) as Paise },
+      { categoryId: h.maint, amount: -rupees(2_000) as Paise },
+    ]);
+
+    const app = await startTestApp(h.db, { memberId: "m", config: testConfig({}) });
+    try {
+      // The form as a browser would send it: no category_id, because disabled.
+      const res = await app.post(`/schedules/${h.schedule.id}/edit`, {
+        name: "Flat", amount: "32000", direction: "out",
+        recurrence: "monthly", next_due: "2026-10-05",
+      });
+      assert.equal(res.status, 303);
+
+      const after = queryOne<{ category_id: string | null }>(
+        h.db, `SELECT category_id FROM schedules WHERE id = ?`, h.schedule.id,
+      )!;
+      assert.equal(
+        after.category_id, h.rent,
+        "the stored envelope was wiped by a form that never carried it",
+      );
+    } finally { await app.close(); }
+  });
+
+  test("an empty value that is sent is a real attempt to clear, and is refused here", async () => {
+    /*
+     * Absence means "leave alone"; an empty value means "clear it". On an
+     * outgoing schedule clearing is refused outright — it would post every
+     * month with nothing recording where the money went — so what this checks
+     * is that the empty value reached the rule rather than being ignored.
+     */
+    const h = household();
+    const { startTestApp, testConfig } = await import("../web/harness.test-data.ts");
+    const app = await startTestApp(h.db, { memberId: "m", config: testConfig({}) });
+    try {
+      const res = await app.post(`/schedules/${h.schedule.id}/edit`, {
+        name: "Flat", amount: "32000", direction: "out",
+        recurrence: "monthly", next_due: "2026-10-05", category_id: "",
+      });
+      assert.equal(res.status, 422, "an outgoing schedule was left with no envelope");
+      const after = queryOne<{ category_id: string | null }>(
+        h.db, `SELECT category_id FROM schedules WHERE id = ?`, h.schedule.id,
+      )!;
+      assert.ok(after.category_id, "the envelope was cleared despite the refusal");
+    } finally { await app.close(); }
   });
 });

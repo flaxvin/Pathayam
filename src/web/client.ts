@@ -420,24 +420,78 @@ export const CLIENT_SCRIPT = String.raw`
   // requirement has to follow the dropdown rather than being fixed in the
   // markup. The server enforces it regardless — this only means the household
   // is told before submitting rather than after.
+  //
+  // A split is the third case, and the one that was wrong. When lines are
+  // filled in they carry the categories and the box above is discarded, so
+  // demanding a value there made somebody choose an envelope that is then
+  // thrown away — and the browser blocked the form until they did.
   // ---------------------------------------------------------------------------
-  function syncCategoryRequirement() {
-    var direction = document.getElementById("direction");
-    var category = document.querySelector("[data-requires-category]");
-    if (!direction || !category) return;
+  /*
+   * Scoped to one form, because the schedules page carries several at once —
+   * a new-schedule form and an edit form per schedule. A page-wide query would
+   * let one schedule's lines disable another's envelope.
+   */
+  function splitInUse(form) {
+    if (!form) return false;
+    var amounts = form.querySelectorAll('[name^="split_amount_"]');
+    for (var i = 0; i < amounts.length; i++) {
+      if (String(amounts[i].value || "").trim() !== "") return true;
+    }
+    return false;
+  }
 
-    var isExpense = direction.value !== "in";
-    category.required = isExpense;
+  function syncOneCategory(category) {
+    var form = category.form;
+    var split = splitInUse(form);
+
+    /*
+     * Direction lives on the add-transaction form; a schedule form may have
+     * one too. Without either, treat it as money out, which is the case that
+     * requires an envelope.
+     */
+    var direction = form ? form.querySelector('[name="direction"]') : null;
+    var isExpense = !direction || direction.value !== "in";
+
+    category.required = isExpense && !split && category.hasAttribute("data-requires-category");
+    category.disabled = split;
+    if (split) category.value = "";
+
     var blank = category.querySelector('option[value=""]');
     if (blank) {
-      blank.textContent = isExpense
-        ? "Choose where it came from…"
-        : "No category needed — it lands in Ready to Assign";
+      blank.textContent = split
+        ? "The lines below carry the categories"
+        : isExpense
+          ? "Choose where it came from…"
+          : "No category needed — it lands in Ready to Assign";
+    }
+
+    var hint = form ? form.querySelector("[data-category-hint]") : null;
+    if (hint) {
+      hint.textContent = split
+        ? "Not used while this is split — each line names its own envelope."
+        : "Each category shows what it holds, so you can see the consequence while entering. " +
+          "Money coming in doesn't need one — it lands in Ready to Assign.";
     }
   }
 
+  function syncCategoryRequirement() {
+    var boxes = document.querySelectorAll("[data-requires-category], [data-split-aware]");
+    for (var i = 0; i < boxes.length; i++) syncOneCategory(boxes[i]);
+  }
+
+  /*
+   * Bound to input as well as change: a split amount is a text field, and a
+   * change event does not fire until it loses focus. Waiting for a blur would
+   * leave the box above still demanding a value while somebody is part-way
+   * through typing the lines that replace it.
+   */
+  document.addEventListener("input", function (event) {
+    if (event.target && /^split_amount_/.test(event.target.name || "")) syncCategoryRequirement();
+  });
+
   document.addEventListener("change", function (event) {
     if (event.target && event.target.id === "direction") syncCategoryRequirement();
+    if (event.target && /^split_amount_/.test(event.target.name || "")) syncCategoryRequirement();
   });
   syncCategoryRequirement();
 
