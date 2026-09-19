@@ -535,7 +535,7 @@ These return `403` to any token — use a browser session.
 | POST | `/members/invite` | The household allow-list. |
 | POST | `/impersonate/start` · `/impersonate/writes` · `/impersonate/exit` | Impersonation (R38.12). |
 | POST | `/sessions/revoke` | Session management. |
-| GET | `/auth/google` · `/auth/google/callback` · `/gmail/connect` · `/gmail/callback` | OAuth flows (interactive). |
+| GET | `/auth/google` · `/auth/google/callback` · `/auth/oidc` · `/auth/oidc/callback` · `/gmail/connect` · `/gmail/callback` | OAuth and OIDC flows (interactive). |
 | POST | `/auth/dev` · `/signout` | Sign-in / sign-out. |
 | GET/POST | `/auth/first-run` | The first password on a household with no members. 404 once any member exists. |
 | POST | `/auth/password` | Password sign-in (F1.6). 404 unless `LOCAL_LOGIN` is set or a password already exists. |

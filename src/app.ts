@@ -173,6 +173,7 @@ import {
 import { renderPrivacy, renderTerms, type LegalMode } from "./web/pages/legal.ts";
 import { Refusal } from "./core/refusal.ts";
 import { checkPassword, setPassword, anyPasswordSet, hasPassword } from "./auth/passwords.ts";
+import { beginOidc, exchangeOidcCode } from "./auth/oidc.ts";
 import {
   staleRatesWarning, RATES_VERIFIED_ON, RATES_SOURCE, RULES,
   estimateTax, advanceTaxSchedule, getDeclaration, saveDeclaration,
@@ -212,6 +213,61 @@ const UNCATEGORISED_PAGE = 15;
  * lock everybody out of their own ledger, and a single environment variable
  * should not be able to do that.
  */
+/** Whether an OpenID Connect provider is fully configured. */
+function oidcConfigured(config: Config): boolean {
+  return Boolean(config.oidc.issuer && config.oidc.clientId && config.oidc.clientSecret);
+}
+
+/**
+ * What an account is actually worth, when that is not its transaction balance.
+ *
+ * A loan's balance is whatever has been posted to the account, which is usually
+ * nothing — the debt lives in its amortisation schedule. A demat account is the
+ * same: the holdings carry the value. So a list of accounts showed "₹0" against
+ * eighteen lakh of debt, next to a button offering to add a transaction that
+ * would then appear on no screen.
+ *
+ * Returns null for accounts worth exactly what their transactions say, which is
+ * most of them.
+ */
+function derivedWorth(
+  db: DB, account: { id: string; subtype: string },
+  viewerMemberId: string | null,
+): { value: Paise; label: string; href: string } | null {
+  if (!DERIVED_VALUE_SUBTYPES.has(account.subtype)) return null;
+
+  if (account.subtype === "loan" || account.subtype === "emi") {
+    // Scoped, though the account itself is already one this viewer can see —
+    // an unscoped read here would still be a read of the whole household.
+    const loan = listLoans(db, { viewerMemberId }).find((l) => l.account_id === account.id);
+    const projection = loan ? projectLoan(db, loan.id) : null;
+    return {
+      value: (projection ? -projection.outstanding : 0) as Paise,
+      label: "Open the loan",
+      href: loan ? `/loans/${loan.id}` : "/loans",
+    };
+  }
+
+  if (account.subtype === "family-loan") {
+    return { value: 0 as Paise, label: "Open lending", href: "/family" };
+  }
+
+  if (account.subtype === "investment") {
+    const total = listHoldings(db, account.id).reduce((sum, h) => {
+      const view = viewHolding(db, h.id);
+      return sum + (view?.marketValue ?? 0);
+    }, 0);
+    return { value: total as Paise, label: "Open the portfolio", href: "/portfolio" };
+  }
+
+  const valuation = latestValuation(db, account.id);
+  return {
+    value: (valuation?.value ?? 0) as Paise,
+    label: "Open the portfolio",
+    href: "/portfolio",
+  };
+}
+
 function passwordSignInOffered(db: DB, config: Config): boolean {
   return config.localLogin || anyPasswordSet(db);
 }
@@ -292,6 +348,7 @@ export interface AppDeps {
 // restricted `gmail.readonly` scope.
 const PUBLIC_PATHS = new Set([
   "/signin", "/auth/google", "/auth/google/callback", "/auth/dev", "/healthz",
+  "/auth/oidc", "/auth/oidc/callback",
   "/privacy", "/terms",
   // F1.6 · Password sign-in, and the first password on an empty household.
   // Both are doors: a person using them has no session yet, by definition.
@@ -911,6 +968,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               </div>
             `,
           )}
+          ${when(
+            oidcConfigured(config),
+            () => html`
+              <div class="card">
+                <a class="button button-primary" style="width:100%"
+                   href="/auth/oidc?next=${encodeURIComponent(next)}">
+                  Continue with ${config.oidc.label}
+                </a>
+                <p class="field-hint" style="margin-top:.75rem">
+                  ${memberCount(db) === 0
+                    ? "This household has no members yet, so whoever signs in first becomes one."
+                    : "Only household members on the allow-list can sign in."}
+                </p>
+              </div>
+            `,
+          )}
           ${googleConfigured
             ? html`
                 <div class="card">
@@ -929,11 +1002,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             : when(
                 !config.demoMode,
                 () => html`
-                  <p class="notice notice-warning">
-                    No way to sign in is configured. Either set LOCAL_LOGIN=1 and
-                    create the first password, or set GOOGLE_CLIENT_ID and
-                    GOOGLE_CLIENT_SECRET.
-                  </p>
+                  ${when(!oidcConfigured(config), () => html`
+                    <p class="notice notice-warning">
+                      No way to sign in is configured. Set LOCAL_LOGIN=1 and create
+                      the first password, or point OIDC_ISSUER at an identity
+                      provider, or set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.
+                    </p>
+                  `)}
                 `,
               )}
           ${devForm}
@@ -970,6 +1045,106 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }
 
     return { redirect: start.url };
+  });
+
+  /*
+   * F1.7 · Any OpenID Connect provider.
+   *
+   * Same shape as the Google pair above, with the endpoints discovered from
+   * the issuer rather than hard-coded. The pending map is shared, so a state
+   * value minted for one flow cannot be replayed into the other.
+   */
+  router.get("/auth/oidc", async (ctx) => {
+    if (!oidcConfigured(config)) throw new NotFound();
+    const start = await beginOidc(
+      {
+        issuer: config.oidc.issuer!,
+        clientId: config.oidc.clientId!,
+        clientSecret: config.oidc.clientSecret!,
+      },
+      `${config.baseUrl}/auth/oidc/callback`,
+      deps.fetchImpl,
+    );
+    pendingOAuth.set(start.state, {
+      verifier: start.codeVerifier,
+      next: safePath(ctx.query.get("next"), "/"),
+      at: Date.now(),
+    });
+    return { redirect: start.url };
+  });
+
+  router.get("/auth/oidc/callback", async (ctx) => {
+    const source = clientIp(ctx, config.trustProxy);
+    if (isRateLimited(db, source)) {
+      throw new HttpError(429, "Too many sign-in attempts. Try again in a few minutes.");
+    }
+    if (!oidcConfigured(config)) throw new NotFound();
+
+    const state = ctx.query.get("state") ?? "";
+    const pending = pendingOAuth.get(state);
+    pendingOAuth.delete(state);
+    if (!pending) {
+      recordAuthAttempt(db, source, "bad-state");
+      throw new HttpError(400, "That sign-in link has expired. Please try again.");
+    }
+
+    const code = ctx.query.get("code");
+    if (!code) {
+      recordAuthAttempt(db, source, "no-code");
+      throw new HttpError(400, "The identity provider did not return a sign-in code.");
+    }
+
+    const profile = await exchangeOidcCode({
+      config: {
+        issuer: config.oidc.issuer!,
+        clientId: config.oidc.clientId!,
+        clientSecret: config.oidc.clientSecret!,
+      },
+      redirectUri: `${config.baseUrl}/auth/oidc/callback`,
+      code,
+      codeVerifier: pending.verifier,
+      fetchImpl: deps.fetchImpl,
+    });
+
+    let member = findMemberByEmail(db, profile.email);
+
+    // F1.3, as for Google: the first person in is the household's first member.
+    if (!member && memberCount(db) === 0) {
+      member = inviteMember(db, { memberId: null, source: "system" }, {
+        email: profile.email,
+        name: profile.name,
+      });
+    }
+
+    if (!member || member.removed_at || !member.allowed) {
+      recordAuthAttempt(db, source, "not-allowed", profile.email);
+      throw new HttpError(403, "That account isn't on this household's allow-list.");
+    }
+
+    /*
+     * The avatar and name are refreshed, but `google_sub` is deliberately not
+     * touched: this member did not sign in with Google, and writing another
+     * provider's subject into that column would make the two indistinguishable.
+     */
+    db.prepare(`UPDATE members SET avatar_url = COALESCE(?, avatar_url), name = COALESCE(NULLIF(name,''), ?) WHERE id = ?`)
+      .run(profile.picture, profile.name, member.id);
+
+    const { token } = createSession(db, member.id, {
+      userAgent: ctx.req.headers["user-agent"] ?? null,
+      ipHint: source,
+      days: config.sessionDays,
+    });
+    recordAuthAttempt(db, source, "success", profile.email);
+
+    return {
+      redirect: safePath(pending.next, "/"),
+      headers: {
+        "Set-Cookie": sessionCookie(token, {
+          secure: config.baseUrl.startsWith("https"),
+          days: config.sessionDays,
+        }),
+      },
+    };
   });
 
   router.get("/auth/google/callback", async (ctx) => {
@@ -1800,6 +1975,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         account,
         holderName: account.holder_member_id ? memberNames.get(account.holder_member_id) ?? null : null,
         balances: balances.get(account.id)!,
+        derived: derivedWorth(db, account, viewer(ctx)),
         unclearedCount:
           queryOne<{ n: number }>(
             db,
@@ -2019,6 +2195,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       account.nickname || account.name,
       renderAccountDetail({
         account,
+        derived: derivedWorth(db, account, viewer(ctx)),
         members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
         budgets: budgetsFor(db, viewer(ctx)).map((b) => ({ id: b.id, name: b.name, kind: b.kind })),
         balances,

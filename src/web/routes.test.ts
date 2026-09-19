@@ -129,6 +129,7 @@ function getRoutes(ids: Record<string, string>): string[] {
 
   const skip = new Set([
     "/auth/google", "/auth/google/callback", // need a live Google round-trip
+    "/auth/oidc", "/auth/oidc/callback",      // and a live OIDC provider
     "/gmail/connect", "/gmail/callback",
     "/auth/dev",
     // Only exists while the household has no members; this fixture has some.

@@ -94,6 +94,7 @@ Two ways, and you need at least one:
 | | Set | Notes |
 |---|---|---|
 | Password | `LOCAL_LOGIN=1` | No external service. On a household with no members, `/auth/first-run` creates the first one and sets their password; it 404s from then on. |
+| Any OIDC provider | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | Authelia, Authentik, Keycloak, Zitadel. One issuer URL; the endpoints are discovered from it. `OIDC_LABEL` names the button. |
 | Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Below. Needed for Gmail import whether or not it is used for sign-in. |
 
 Both can be on at once, and a member may have both. Passwords are scrypt
@@ -109,6 +110,23 @@ ledger.
 Change or set your own password at `/settings/password`. Changing an existing
 one requires the current one, so a borrowed session is not a permanent
 takeover.
+
+## Single sign-on
+
+Set `OIDC_ISSUER` to the provider's issuer URL — everything else is read from
+`{issuer}/.well-known/openid-configuration`, because four endpoints pasted into
+environment variables is four chances to paste one wrong, and the resulting
+error arrives mid-redirect where nobody can read it. Register
+`{BASE_URL}/auth/oidc/callback` as the redirect URI, and grant the `openid`,
+`email` and `profile` scopes; members are matched by email address, so an
+account with no email cannot sign in.
+
+The ID token's issuer, audience and expiry are checked. Its **signature is
+not** — the code is exchanged over TLS directly with the provider, so the
+response came from it by construction, and verifying the signature would defend
+only against somebody who can already MITM that connection. That is a decision
+worth disagreeing with, which is why it is written here and in `auth/oidc.ts`
+rather than left implicit.
 
 ## Google sign-in
 

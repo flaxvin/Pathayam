@@ -22,6 +22,8 @@ export interface Config {
   environment: "development" | "production";
   logLevel: "debug" | "info" | "warn" | "error";
   google: { clientId: string | null; clientSecret: string | null };
+  /** F1.7 · Any OpenID Connect provider, so Google is not the only one. */
+  oidc: { issuer: string | null; clientId: string | null; clientSecret: string | null; label: string };
   /** R38.1: dev-only sign-in as any seeded member, off by default. */
   devLogin: boolean;
   /**
@@ -113,6 +115,14 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     google: {
       clientId: env.GOOGLE_CLIENT_ID || null,
       clientSecret: env.GOOGLE_CLIENT_SECRET || null,
+    },
+    oidc: {
+      issuer: env.OIDC_ISSUER || null,
+      clientId: env.OIDC_CLIENT_ID || null,
+      clientSecret: env.OIDC_CLIENT_SECRET || null,
+      // What the button says. "Continue with Authelia" beats "Continue with
+      // OpenID Connect" for the one person who will ever read it.
+      label: env.OIDC_LABEL || "single sign-on",
     },
     devLogin: bool(env.DEV_LOGIN, false),
     demoMode: bool(env.DEMO_MODE, false),
