@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Privacy policy</title>
-<meta name="description" content="What Pathayam collects, why, how long it is kept, and how to get it back or have it deleted. No analytics, no tracking, no third-party requests.">
+<meta name="description" content="What Pathayam collects, why, how long it is kept, and how to get it back or have it deleted. Privacy-preserving visit counts on the website; none inside the app.">
 <link rel="stylesheet" href="fonts.css">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon.png" sizes="32x32" type="image/png">
@@ -60,7 +60,7 @@
         or have it deleted.
       </p>
       <p class="legal-meta">
-        Last updated <time datetime="2026-09-17">17 September 2026</time> ·
+        Last updated <time datetime="2026-09-19">19 September 2026</time> ·
         Applies to <strong>pathayam.app</strong>, <strong>demo.pathayam.app</strong>,
         and the hosted service.
       </p>
@@ -68,7 +68,7 @@
       <div class="note">
         <p><strong>The short version.</strong></p>
         <ul class="checks">
-          <li>This website has no analytics, no tracking and no third-party requests. It sets no cookies.</li>
+          <li>This website counts visits with Cloudflare Web Analytics, which sets no cookies and does not follow you anywhere. The app itself has none.</li>
           <li>A request for an instance stores an email address and nothing that identifies a device.</li>
           <li>The demo holds invented data. Do not put anything real into it.</li>
           <li>If you self-host, none of this applies: no data reaches us at all.</li>
@@ -101,11 +101,31 @@
 
       <h2 id="website">The website</h2>
       <p>
-        <strong>pathayam.app</strong> is static. It runs no analytics, sets no
-        cookies, embeds no social widgets and loads no third-party resource:
-        fonts and images are served from this origin, so no request about you
-        reaches anyone else while you read it.
+        <strong>pathayam.app</strong> is static. It sets no cookies, embeds no
+        social widgets, and serves its fonts and images from this origin rather
+        than a CDN.
       </p>
+      <p>
+        It does count visits, with <strong>Cloudflare Web Analytics</strong>.
+        That records the page you looked at, where you arrived from, your
+        browser and operating system, your country, and how quickly the page
+        loaded. It uses <strong>no cookies and no local storage</strong>, does
+        not fingerprint your device, and cannot follow you to any other site —
+        there is no identifier that persists between visits, so we can see that
+        a page was read and never that you read it.
+      </p>
+      <p>
+        We look at it to know which pages are worth writing and which are not
+        read at all. It is the only measurement on this site.
+      </p>
+      <div class="note note--good">
+        <strong>The app itself has none.</strong> Cloudflare injects the same
+        script into <strong>demo.pathayam.app</strong>, and the app's
+        Content-Security-Policy refuses to run anything it did not serve itself,
+        so the script is blocked before it executes and nothing is ever sent. A
+        hosted instance behaves the same way. The measurement is on the pages
+        that sell the thing, not on the pages holding your money.
+      </div>
       <p>
         Our hosting provider, <strong>Fly.io</strong>, records ordinary server logs — IP address, timestamp, page requested,
         user agent — which are used for security and to keep the site up, and are retained for 30 days. We do not combine
@@ -314,6 +334,7 @@
           <tbody>
             <tr><td>Fly.io (Singapore by default)</td><td>Running the service</td><td>Everything stored, as our infrastructure provider. Another region on request.</td></tr>
             <tr><td>Razorpay</td><td>Taking payment</td><td>Your name, email, and the payment instrument. They hold the card details; we do not.</td></tr>
+            <tr><td>Cloudflare</td><td>Serving the website, and counting visits to it</td><td>The request itself as the network in front of us, and — on pathayam.app only — the page, referrer, browser, country and load time. No cookie, no identifier that outlives the visit.</td></tr>
             <tr><td>Google <em>(only if you choose it)</em></td><td>Sign-in</td><td>That you signed in to Pathayam. Not used at all if you sign in with a password or your own identity provider.</td></tr>
             <tr><td>Google</td><td>The sheet that holds instance requests</td><td>The email address you sent, and the plan and page it came from</td></tr>
           </tbody>

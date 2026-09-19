@@ -206,6 +206,20 @@ export function renderPrivacy(
               </li>
             </ul>
 
+            <h2>No analytics runs here</h2>
+            <p>
+              The network in front of this demo injects an analytics script into
+              every page it serves. This app's Content-Security-Policy refuses to
+              run anything it did not serve itself, so that script is blocked
+              before it executes and nothing is ever sent. You can see it being
+              refused in your browser's console, which is what being blocked
+              looks like.
+            </p>
+            <p>
+              The marketing site at pathayam.app does count visits, without
+              cookies, and says so in its own policy. This is not that site.
+            </p>
+
             <h2>No Google sign-in, and no access to any mailbox</h2>
             <p>
               The full application can sign in with Google and can read bank
@@ -242,6 +256,20 @@ export function renderPrivacy(
                 being typed every month.
               </li>
               <li>
+                <strong>Tax figures.</strong> Optional. Gross income for a
+                financial year and the deductions claimed against it — 80C, 80D,
+                rent paid, HRA received — entered on the tax screen. Held per
+                member and per financial year, because income tax is assessed on
+                an individual: one member's figures never enter another's
+                estimate.
+              </li>
+              <li>
+                <strong>A password, if you set one.</strong> Stored as a scrypt
+                hash and never in a form that can be read back. It lives in its
+                own table, excluded from every export, so that handing somebody
+                a backup cannot hand them a way in.
+              </li>
+              <li>
                 <strong>Operational logs.</strong> Method, path, status, duration
                 and errors. Never query strings, form bodies, amounts or any
                 financial value.
@@ -259,6 +287,15 @@ export function renderPrivacy(
               audit log and from backups of the exportable data, and are never rendered
               to any screen. This is deliberate, so that handing someone an export can
               never hand them a PAN.
+            </p>
+
+            <h2>How you sign in</h2>
+            <p>
+              Three ways, and you choose: a password, which is held only as a
+              scrypt hash; your own identity provider over OpenID Connect, which
+              means this app never sees a credential at all; or Google. Nothing
+              about running this requires an account with anybody. Gmail import
+              is separate again, and off until you turn it on.
             </p>
 
             <h2>What Google data this app accesses</h2>
@@ -497,13 +534,24 @@ export function renderTerms(
             `}
       </ul>
 
-      <h2>Not financial advice</h2>
+      <h2>Not financial or tax advice</h2>
       <p>
         Every figure this app shows — a projection, a runway, an interest saving,
         a portfolio return — is arithmetic on the numbers it was given. None of it
         is financial, tax or investment advice, and none of it should be relied on
         as the sole basis for a decision. Check anything that matters against your
         bank, your statement and, where it counts, a qualified adviser.
+      </p>
+      <p>
+        <strong>The tax screen is an estimate, and only an estimate.</strong> It
+        applies the slab and capital-gains rates this app carries to figures you
+        enter and to sales already recorded in your portfolio. It is not a
+        computation of what you owe, it is not a return, and it files nothing. It
+        does not model marginal relief, tax deducted at source, losses set off or
+        carried forward, clubbing, foreign income, or the presumptive schemes —
+        the screen lists that, and the list is worth reading before you rely on
+        any figure. Rates change with each Finance Act; a year this app has no
+        rates for is refused rather than computed with another year's.
       </p>
 
       <h2>Accuracy</h2>

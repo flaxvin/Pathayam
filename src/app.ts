@@ -272,7 +272,7 @@ function passwordSignInOffered(db: DB, config: Config): boolean {
   return config.localLogin || anyPasswordSet(db);
 }
 
-const LEGAL_UPDATED = "17 September 2026";
+const LEGAL_UPDATED = "19 September 2026";
 import { loadRules } from "./import/pipeline.ts";
 import { testRule, type Rule, type RuleSubject, extractNarrationFields } from "./import/rules.ts";
 import {
@@ -2310,7 +2310,29 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
        * it. Income is different and stays optional — its job is to arrive in
        * Ready to Assign and wait to be given one, which is the whole model.
        */
-      if (direction !== "in" && !requireVisibleCategory(ctx, field(ctx.body, "category_id") || null)) {
+      /*
+       * Split lines, the same shape the edit screen posts. A supermarket bill
+       * that is half groceries and half household is the ordinary case, and
+       * this form could not express it — you had to save it wrong and then
+       * edit.
+       */
+      const splits: { categoryId: string | null; amount: Paise }[] = [];
+      for (let i = 0; i < 10; i++) {
+        const raw = String(field(ctx.body, `split_amount_${i}`) ?? "").trim();
+        if (!raw) continue;
+        const lineCategory = field(ctx.body, `split_category_${i}`);
+        const line = Math.abs(amountField(raw, `Split line ${i + 1}`));
+        splits.push({
+          amount: (direction === "in" ? line : -line) as Paise,
+          categoryId: lineCategory ? requireVisibleCategory(ctx, lineCategory)! : null,
+        });
+      }
+
+      // With lines, the lines carry the categories — the same rule the edit
+      // screen and a split schedule follow. Setting both files it twice.
+      if (splits.length === 0
+          && direction !== "in"
+          && !requireVisibleCategory(ctx, field(ctx.body, "category_id") || null)) {
         throw new HttpError(
           400,
           "Which envelope did this come out of? Money in doesn't need one — money out does.",
@@ -2322,7 +2344,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         amount: direction === "in" ? magnitude : -magnitude,
         date: dateField(dateRaw),
         payeeName: field(ctx.body, "payee") || null,
-        categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
+        splits: splits.length > 0 ? splits : undefined,
+        categoryId: splits.length > 0
+          ? null
+          : requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
         memo: field(ctx.body, "memo") || null,
         tags,
         cleared: field(ctx.body, "cleared") === "1",
@@ -5234,7 +5259,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const magnitude = Math.abs(amountField(field(ctx.body, "amount")));
       const direction = field(ctx.body, "direction") ?? "out";
 
-      createSchedule(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+      const created = createSchedule(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         name: requiredField(ctx.body, "name"),
         amount: (direction === "in" ? magnitude : -magnitude) as Paise,
         recurrence: (field(ctx.body, "recurrence") ?? "monthly") as Recurrence,
@@ -5243,7 +5268,34 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         accountId: field(ctx.body, "account_id") || null,
         isSubscription: field(ctx.body, "is_subscription") === "1",
       });
-      return { redirect: "/schedules", message: "Schedule added." };
+
+      /*
+       * Split lines, if any were given. Set after creation because they have to
+       * add up to the schedule's amount, and there is no amount to check
+       * against until the schedule exists — the same reason the edit form sets
+       * them separately.
+       */
+      const lines: { categoryId: string | null; amount: Paise; memo?: string | null }[] = [];
+      for (let i = 0; i < 10; i++) {
+        const raw = String(field(ctx.body, `split_amount_${i}`) ?? "").trim();
+        if (!raw) continue;
+        const lineCategory = field(ctx.body, `split_category_${i}`);
+        const line = Math.abs(amountField(raw, `Split line ${i + 1}`));
+        lines.push({
+          amount: (direction === "in" ? line : -line) as Paise,
+          categoryId: lineCategory ? requireVisibleCategory(ctx, lineCategory)! : null,
+        });
+      }
+      if (lines.length > 0) {
+        setScheduleSplits(db, actorFor(a, "ui"), created.id, lines);
+      }
+
+      return {
+        redirect: "/schedules",
+        message: lines.length > 0
+          ? `Schedule added, split across ${lines.length} envelopes.`
+          : "Schedule added.",
+      };
     }),
   );
 

@@ -171,6 +171,39 @@ export function renderAddTransaction(opts: {
           Each category shows what it holds, so you can see the consequence while entering.
           Money coming in doesn't need one — it lands in Ready to Assign.
         </p>
+        <!--
+          Splitting at entry, rather than only when editing afterwards.
+          
+          A grocery run that is half groceries and half household is the
+          ordinary shape of a supermarket bill, and this screen could not
+          express it: you had to save it wrong and then edit. The lines use the
+          same names the edit screen posts, so the two agree about what a split
+          is.
+        -->
+        <details style="margin:.6rem 0">
+          <summary class="linkish">Split across envelopes</summary>
+          <p class="field-hint">
+            Fill in two or more lines and they must add up to the amount above.
+            Lines left blank are ignored, and so is the category, since the
+            lines carry the categories instead.
+          </p>
+          ${[0, 1, 2].map((i) => html`
+            <div class="split-line">
+              <div class="field">
+                <select name="split_category_${i}" aria-label="Split ${i + 1} envelope">
+                  <option value="">—</option>
+                  ${spendable.map((c) => html`
+                    <option value="${c.id}">${c.name}</option>
+                  `)}
+                </select>
+              </div>
+              <div class="field">
+                <input name="split_amount_${i}" class="amount-input" type="text"
+                       inputmode="decimal" aria-label="Split ${i + 1} amount" placeholder="0">
+              </div>
+            </div>
+          `)}
+        </details>
         ${when(grouped.length > 1, () => html`
           <!--
             15 §3.4 · What a cross-budget filing does, said when it is chosen

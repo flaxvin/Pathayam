@@ -19,7 +19,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { renderPrivacy, renderTerms } from "./pages/legal.ts";
 
-const updated = "17 September 2026";
+const updated = "19 September 2026";
 
 /*
  * Collapsed to single spaces before matching. These are assertions about what
@@ -118,6 +118,51 @@ describe("Google access is described only where it exists", () => {
       "the disclosure has been reworded, and verification will fail",
     );
     assert.match(privacy("self-hosted"), /gmail\.readonly/, "the scopes table is gone");
+  });
+});
+
+describe("the pages keep up with what the app does", () => {
+  /*
+   * These exist because the terms once said "It computes no tax liability"
+   * after the app had started doing exactly that. A legal page that disclaims
+   * something the software does is the worst kind of stale.
+   */
+  for (const mode of ["self-hosted", "demo"] as const) {
+    test(`${mode}: the tax estimate is disclaimed where the advice clause is`, () => {
+      const html = terms(mode);
+      assert.match(html, /tax screen is an estimate/i, "the tax screen is not disclaimed");
+      assert.doesNotMatch(
+        html, /computes no tax/i,
+        "a clause still says the app computes no tax, which it does",
+      );
+    });
+  }
+
+  test("self-hosted: the privacy policy accounts for the tax figures it stores", () => {
+    const html = privacy("self-hosted");
+    assert.match(html, /Tax figures/i, "income and deductions are held and not disclosed");
+    assert.match(html, /per member and per financial year/i, "the per-person scoping is not stated");
+  });
+
+  test("self-hosted: a password is disclosed as something held", () => {
+    assert.match(privacy("self-hosted"), /scrypt hash/i);
+  });
+
+  test("self-hosted: sign-in is not described as Google's alone", () => {
+    const html = privacy("self-hosted");
+    assert.match(html, /OpenID Connect/i, "OIDC sign-in is not mentioned");
+    assert.match(html, /Three ways/i);
+  });
+
+  test("the demo says the injected analytics never runs", () => {
+    /*
+     * The network in front of the demo injects an analytics script and the CSP
+     * blocks it. Saying nothing would leave a visitor who opens the console to
+     * conclude the app is quietly measuring them.
+     */
+    const html = privacy("demo");
+    assert.match(html, /No analytics runs here/i);
+    assert.match(html, /blocked before it executes/i);
   });
 });
 
