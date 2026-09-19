@@ -151,6 +151,35 @@ performance.getEntriesByType("resource").filter(r => !r.name.startsWith(location
 
 An empty array is the expected answer.
 
+### If it is not empty: Cloudflare's analytics
+
+The likeliest cause is **Cloudflare Web Analytics**, which injects
+
+```
+https://static.cloudflareinsights.com/beacon.min.js/…
+```
+
+into HTML responses at the edge. Three things make it easy to miss:
+
+- It is added **after** anything in this repository, so the workflow's
+  third-party guard cannot see it and neither can a review of the source.
+- It is served **only to real browsers**. Every `curl` check passes, including
+  one sent with a browser's User-Agent.
+- On the app it is then blocked by the Content-Security-Policy, so it does not
+  even function — it just logs two console errors on every page.
+
+It also makes this site's privacy policy false, in four places, while it is on:
+*"no analytics, no tracking and no third-party requests"*.
+
+Turn it off in the Cloudflare dashboard for the zone — **Web Analytics**, the
+automatic or "Browser Insights" setup. Do not add the host to the CSP instead:
+that resolves the contradiction the wrong way round, by permitting the
+analytics rather than removing it.
+
+A real browser is the only thing that catches this. Loading every page in
+headless Chromium and collecting console errors is what found it; the whole
+suite of `curl` checks above had reported the site clean.
+
 ---
 
 ## 3 · Publishing
