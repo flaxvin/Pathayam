@@ -477,10 +477,8 @@ export function backfillMonthlySnapshots(
 const SUBTYPE_CLASS: Record<AssetSubtype, AssetClass> = {
   investment: "equity",
   retirement: "debt",
-  deposit: "cash",
   physical: "real-estate",
   commodity: "gold",
-  receivable: "other",
 };
 
 export interface AllocationSlice {

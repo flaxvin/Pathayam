@@ -93,17 +93,15 @@ export interface HoldingRecord {
 }
 
 export const ASSET_SUBTYPES = [
-  "investment", "retirement", "deposit", "physical", "commodity", "receivable",
+  "investment", "retirement", "physical", "commodity",
 ] as const;
 export type AssetSubtype = (typeof ASSET_SUBTYPES)[number];
 
 export const ASSET_LABELS: Record<AssetSubtype, string> = {
   investment: "Investment account",
   retirement: "Retirement balance",
-  deposit: "Deposit",
   physical: "Physical asset",
   commodity: "Commodity holding",
-  receivable: "Receivable",
 };
 
 /** R23.3 · A manual valuation goes stale, and says so. */

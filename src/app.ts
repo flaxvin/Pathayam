@@ -103,6 +103,7 @@ import { renderHousehold } from "./web/pages/household.ts";
 import {
   createAccount, updateAccount, closeAccount, reopenAccount, listAccounts, getAccount, listCards, createCard, closeCard, recordCardStatement, lastCardStatement, paymentCategoryFor, MANAGED_SUBTYPES, SUBTYPE_LABELS, type AccountKind, hiddenAccountIds, type HolderScope,
  creditedSinceStatement, type Account,  DERIVED_VALUE_SUBTYPES,
+  REVALUABLE_SUBTYPES,
 } from "./domain/accounts.ts";
 import {
   setAssigned, addAssigned, copyAssignmentsFromMonth, moveMoney, setHeld, getHeld,
@@ -6142,6 +6143,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/portfolio", (ctx) => {
     requireAssets();
+    const balances = accountBalances(db);
     const scope = holderScopeParam(ctx);
     const hidden = hiddenAccountIds(db, viewer(ctx), scope);
     const accounts = new Map(
@@ -6193,12 +6195,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       .filter((a) => listHoldings(db, a.id).length === 0)
       .map((a) => {
         const valuation = latestValuation(db, a.id);
+        /*
+         * A deposit is worth its balance unless somebody has said otherwise
+         * (B56), and that is the whole reason it is a tracking account: the
+         * interest credited to it is a transaction, and the balance moves with
+         * it. Reading only the stated valuation showed a fixed deposit holding
+         * ₹5,32,000 as "no value yet", which is the app disbelieving its own
+         * ledger.
+         */
+        const counted = !DERIVED_VALUE_SUBTYPES.has(a.subtype);
+        const balance = counted ? (balances.get(a.id)?.working ?? 0) as Paise : (0 as Paise);
         return {
           id: a.id, name: a.name, subtype: a.subtype,
-          value: valuation?.value ?? (0 as Paise),
-          asOf: valuation?.asOf ?? null,
+          value: valuation?.value ?? balance,
+          asOf: valuation?.asOf ?? (counted ? todayIST() : null),
           stale: valuation?.stale ?? false,
-          valued: valuation !== null,
+          valued: valuation !== null || (counted && balance !== 0),
         };
       });
 
@@ -6802,6 +6814,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ctx, "Update valuations",
       renderValuations({
         assets: listValuableAccounts(db, { viewerMemberId: viewer(ctx) })
+          // Only the kinds you state by hand. A deposit is worth its balance.
+          .filter((a) => REVALUABLE_SUBTYPES.has(a.subtype))
           .filter((a) => listHoldings(db, a.id).length === 0)
           .map((a) => {
             const valuation = latestValuation(db, a.id);
@@ -6822,7 +6836,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       requireAssets();
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
-      const assets = listValuableAccounts(db, { viewerMemberId: viewer(ctx) }).filter((x) => listHoldings(db, x.id).length === 0);
+      const assets = listValuableAccounts(db, { viewerMemberId: viewer(ctx) })
+        .filter((x) => REVALUABLE_SUBTYPES.has(x.subtype))
+        .filter((x) => listHoldings(db, x.id).length === 0);
 
       let saved = 0;
       for (const asset of assets) {
@@ -6927,7 +6943,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     auth(ctx);
     const account = requireVisibleAccount(ctx, ctx.params.id!)!;
     const valuation = latestValuation(db, account.id);
-    return render(ctx, `Dispose of ${account.name}`, renderDisposeAsset({
+    return render(ctx, `Sell ${account.name}`, renderDisposeAsset({
       account: { id: account.id, name: account.name },
       lastValue: valuation?.value ?? (0 as Paise),
       lastAsOf: valuation?.asOf ?? null,
@@ -6967,17 +6983,32 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         note = ` ${formatPaise(proceeds as Paise)} recorded into ${getAccount(db, target)?.name ?? "that account"}.`;
       }
 
-      // A disposal is a valuation of nothing, plus a closed account — the
-      // dated history stays, which is what R23.2 is for.
+      /*
+       * Part of it is the ordinary case — a few grams of gold, not the whole
+       * holding — so what is left decides whether the account closes. Selling
+       * all of it was the only option before, which meant somebody selling a
+       * portion had to close the account and create a new one for the
+       * remainder, losing its history to record something that did not happen.
+       */
+      const remainingRaw = field(ctx.body, "remaining");
+      const remaining = remainingRaw?.trim() ? amountField(remainingRaw, "What is left") : 0;
+      if (remaining < 0) throw new Refusal("What is left cannot be negative.");
+
       recordValuation(db, actor, {
-        accountId: account.id, value: 0 as Paise, asOf: on,
-        note: `Disposed of${proceeds > 0 ? ` for ${formatPaise(proceeds as Paise)}` : ""}`,
+        accountId: account.id,
+        value: signedValuation(account.subtype, remaining as Paise),
+        asOf: on,
+        note: remaining > 0
+          ? `Sold part${proceeds > 0 ? ` for ${formatPaise(proceeds as Paise)}` : ""}`
+          : `Disposed of${proceeds > 0 ? ` for ${formatPaise(proceeds as Paise)}` : ""}`,
       });
-      closeAccount(db, actor, account.id);
+      if (remaining === 0) closeAccount(db, actor, account.id);
 
       return {
         redirect: "/portfolio",
-        message: `${account.name} disposed of.${note}`,
+        message: remaining > 0
+          ? `Sold part of ${account.name}; ${formatPaise(remaining as Paise)} left.${note}`
+          : `${account.name} sold.${note}`,
       };
     }),
   );
@@ -7005,6 +7036,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       requireAssets();
       const account = listValuableAccounts(db, { viewerMemberId: viewer(ctx) }).find((acc) => acc.id === ctx.params.id);
       if (!account) throw new NotFound("That asset does not exist.");
+      if (!REVALUABLE_SUBTYPES.has(account.subtype)) {
+        throw new Refusal(
+          `${account.name} is worth its balance, so there is nothing to state. ` +
+          "Record what happened to it — interest credited, money paid in — as a transaction.",
+        );
+      }
       recordValuation(db, actorFor(a), {
         accountId: account.id,
         value: signedValuation(account.subtype, amountField(requiredField(ctx.body, "value")) as Paise),

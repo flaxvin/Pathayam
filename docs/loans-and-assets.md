@@ -195,7 +195,19 @@ recorded:
 | Buy it | `/portfolio/asset/new` | The asset, and optionally the money that left to pay for it |
 | Buy more | `/portfolio/asset/:id/add` | The payment, and the new total value |
 | Revalue it | `/portfolio/asset/:id/revalue` | What it is worth now. No money moves |
-| Sell it | `/portfolio/asset/:id/dispose` | It is gone, and where the proceeds landed |
+| Sell some | `/portfolio/asset/:id/dispose` | The proceeds, and what is left |
+| Sell all | the same route, with nothing left | The proceeds; the account closes |
+
+**Selling part of it is the ordinary case.** A few grams of gold, not the whole
+holding. Disposal used to be all-or-nothing, so somebody selling a portion had
+to close the account and open a new one for the remainder — losing the history
+to record something that did not happen. Now the sale asks what is left: zero
+closes the account, anything else keeps it open at that value.
+
+Only the hand-valued kinds have any of this. A fixed deposit is a tracking
+account worth its balance, so there is nothing to state and revalue is not
+offered on one — selling it is money arriving in another account, recorded
+there.
 
 What you paid and what it is worth are never assumed to be the same number.
 Adding to a pot prefills the new value with the old one and lets you correct it:
@@ -239,6 +251,15 @@ that list.
 
 They all still appear on the Accounts screen, because that is the list of what
 the household has.
+
+### Two subtypes that were saying the same thing twice
+
+`deposit` and `receivable` are gone. The first duplicated fixed and recurring
+deposits, which are tracking accounts worth their balance — a household with a
+fixed deposit had two places to put it and two different behaviours, one where
+interest moves the balance and one where it is a number retyped each month. The
+second duplicated family lending, which tracks money owed to you better, because
+it derives the balance from the actual transfers.
 
 ### Where interest on a deposit goes
 

@@ -100,14 +100,17 @@ describe("07 F19.11 · asset allocation", () => {
 
   test("manually-valued assets are classified by their subtype", () => {
     const { db } = setup();
-    const fd = createAssetAccount(db, actor, { name: "SBI FD", subtype: "deposit" });
-    recordValuation(db, actor, { accountId: fd.id, value: rupees(1_00_000), asOf: "2026-08-01" });
+    // "deposit" was retired — a fixed deposit is a tracking account worth its
+    // balance now. A pension pot is the hand-valued thing that allocates to
+    // debt, which is what this test is really about.
+    const pension = createAssetAccount(db, actor, { name: "Pension pot", subtype: "retirement" });
+    recordValuation(db, actor, { accountId: pension.id, value: rupees(1_00_000), asOf: "2026-08-01" });
     const flat = createAssetAccount(db, actor, { name: "Thane flat", subtype: "physical" });
     recordValuation(db, actor, { accountId: flat.id, value: rupees(50_00_000), asOf: "2026-08-01" });
 
     const a = assetAllocation(db, "2026-08-28");
     const classes = Object.fromEntries(a.byClass.map((s) => [s.key, s.value]));
-    assert.equal(classes["cash"], rupees(1_00_000), "a deposit is cash");
+    assert.equal(classes["debt"], rupees(1_00_000), "a pension pot allocates to debt");
     assert.equal(classes["real-estate"], rupees(50_00_000), "a flat is real estate");
     db.close();
   });

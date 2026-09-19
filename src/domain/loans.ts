@@ -1328,8 +1328,18 @@ export function debtOverview(db: DB, viewerMemberId?: string | null): DebtRow[] 
         ${viewerMemberId !== undefined ? "AND (visibility <> 'private' OR holder_member_id IS ?)" : ""}`,
     ...(viewerMemberId !== undefined ? [viewerMemberId] : []),
   )) {
-    const stated = latestValuation(db, account.id);
-    const owed = stated ? -stated.value : 0;
+    /*
+     * The balance, not a stated figure. These are tracking accounts: what is
+     * owed is the opening balance plus whatever has been paid against it, so
+     * repaying some of it moves the number by itself.
+     */
+    const balance = queryOne<{ total: number }>(
+      db,
+      `SELECT COALESCE(SUM(amount),0) + (SELECT opening_balance FROM accounts WHERE id = ?) AS total
+         FROM transactions WHERE account_id = ? AND deleted_at IS NULL`,
+      account.id, account.id,
+    )?.total ?? 0;
+    const owed = -balance;
     if (owed <= 0) continue;
     rows.push({
       name: account.name, kind: "other", balance: owed as Paise,
