@@ -176,6 +176,7 @@ import {
   incomeInFinancialYear, type AdvanceInstalment,
 } from "./domain/tax.ts";
 import { renderTax } from "./web/pages/tax.ts";
+import { capitalGainsTaxFor } from "./domain/capital-gains-tax.ts";
 import { renderFire } from "./web/pages/fire.ts";
 import { fireProjection, DEFAULT_ASSUMPTIONS } from "./domain/fire.ts";
 import { renderActivity } from "./web/pages/activity.ts";
@@ -2136,6 +2137,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         defaultFrom: ctx.query.get("from"),
         defaultTo: ctx.query.get("to"),
         today: todayIST(),
+        // Only envelopes this viewer can see, and never a card's payment
+        // envelope — the domain refuses one, so offering it would be a choice
+        // that always fails.
+        categories: [...buildBudgetView(db, undefined, undefined, viewer(ctx)).categories.values()]
+          .filter((c) => !c.hidden && !c.isPaymentCategory)
+          .map((c) => ({ id: c.id, name: c.name })),
       }),
     );
   });
@@ -2147,11 +2154,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       if (fromAccountId === toAccountId) {
         throw new HttpError(400, "A transfer needs two different accounts.");
       }
+      const feeRaw = String(field(ctx.body, "fee_amount") ?? "").trim();
+      const feeAmount = feeRaw ? Math.abs(amountField(feeRaw, "Charge")) : 0;
+      const feeCategory = field(ctx.body, "fee_category_id");
+      if (feeAmount > 0 && !feeCategory) {
+        throw new Refusal("A bank charge needs an envelope to come out of.");
+      }
+
       createTransfer(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         fromAccountId,
         toAccountId,
         amount: Math.abs(amountField(field(ctx.body, "amount"))),
         date: dateField(field(ctx.body, "date")),
+        fee: feeAmount > 0
+          ? { amount: feeAmount as Paise, categoryId: requireVisibleCategory(ctx, feeCategory!)! }
+          : null,
       });
       return { redirect: "/accounts", message: "Transfer recorded." };
     }),
@@ -7032,16 +7049,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const ledgerIncome = incomeInFinancialYear(db, fy, visible);
     const gross = stored.gross > 0 ? stored.gross : ledgerIncome;
 
+    // Capital gains are taxed at their own rates and are scoped to this
+    // member's own holdings — another member's sale is not part of their
+    // assessment.
+    const gains = capitalGainsTaxFor(db, fy, a.member.id);
+
     let estimate = null;
     let advance: AdvanceInstalment[] = [];
-    if (gross > 0 && !staleRatesWarning(fy)) {
-      estimate = estimateTax(fy, gross, stored);
+    if ((gross > 0 || gains.specialRateTax > 0) && !staleRatesWarning(fy)) {
+      estimate = estimateTax(fy, gross, stored, gains);
       const liability = estimate.better === "old" ? estimate.old.total : estimate.new.total;
       advance = advanceTaxSchedule(fy, liability);
     }
 
     return {
-      fy, gross, ledgerIncome, deductions: stored, estimate, advance,
+      fy, gross, ledgerIncome, deductions: stored, estimate, advance, gains,
       staleWarning: staleRatesWarning(fy),
       ratesVerifiedOn: RATES_VERIFIED_ON,
       ratesSource: RATES_SOURCE,

@@ -12,6 +12,7 @@ import { html, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, type Paise } from "../../core/money.ts";
 import { formatFiscalYear } from "../../core/dates.ts";
 import type { TaxEstimate, RegimeEstimate, Deductions, AdvanceInstalment } from "../../domain/tax.ts";
+import type { GainsTax } from "../../domain/capital-gains-tax.ts";
 
 export interface TaxPageProps {
   fy: number;
@@ -21,6 +22,7 @@ export interface TaxPageProps {
   deductions: Deductions;
   estimate: TaxEstimate | null;
   advance: AdvanceInstalment[];
+  gains: GainsTax;
   staleWarning: string | null;
   ratesVerifiedOn: string;
   ratesSource: string;
@@ -59,6 +61,7 @@ function regimeCard(e: RegimeEstimate, isBetter: boolean): SafeHtml {
             ${row("Taxable income", e.taxable, { strong: true })}
             ${row("Tax on slabs", e.taxBeforeRebate)}
             ${e.rebate > 0 ? row("Section 87A rebate", -e.rebate as Paise, { muted: true }) : html``}
+            ${e.specialRateTax > 0 ? row("Capital gains, at their own rates", e.specialRateTax) : html``}
             ${e.surcharge > 0 ? row("Surcharge", e.surcharge) : html``}
             ${row("Health and education cess", e.cess)}
             ${row("Total", e.total, { strong: true })}
@@ -202,6 +205,79 @@ export function renderTax(p: TaxPageProps): SafeHtml {
       <button class="button-primary" type="submit" style="margin-top:1rem">Save and recalculate</button>
     </form>
 
+    ${(p.gains.buckets.equityLong || p.gains.buckets.equityShort || p.gains.buckets.otherLong
+       || p.gains.buckets.slabRated || p.gains.buckets.unclassified)
+      ? html`
+          <section class="card">
+            <h2>Capital gains</h2>
+            <p>
+              Taken from sales recorded in your portfolio this financial year.
+              The rate depends on what was sold and how long it was held, so
+              these are separated rather than totalled.
+            </p>
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr><th>Head</th><th class="amount">Gain</th><th class="amount">Tax</th></tr>
+                </thead>
+                <tbody>
+                  ${p.gains.buckets.equityLong !== 0 ? html`
+                    <tr>
+                      <td>
+                        Listed equity, over 12 months <span class="faint">· s112A, 12.5%</span>
+                        ${p.gains.exemptionUsed > 0
+                          ? html`<br><span class="faint">less ${formatPaise(p.gains.exemptionUsed)} exempt</span>`
+                          : html``}
+                      </td>
+                      <td class="amount">${formatPaise(p.gains.buckets.equityLong)}</td>
+                      <td class="amount">${formatPaise(p.gains.equityLongTax)}</td>
+                    </tr>` : html``}
+                  ${p.gains.buckets.equityShort !== 0 ? html`
+                    <tr>
+                      <td>Listed equity, 12 months or less <span class="faint">· s111A, 20%</span></td>
+                      <td class="amount">${formatPaise(p.gains.buckets.equityShort)}</td>
+                      <td class="amount">${formatPaise(p.gains.equityShortTax)}</td>
+                    </tr>` : html``}
+                  ${p.gains.buckets.otherLong !== 0 ? html`
+                    <tr>
+                      <td>Gold or property, over 24 months <span class="faint">· s112, 12.5%</span></td>
+                      <td class="amount">${formatPaise(p.gains.buckets.otherLong)}</td>
+                      <td class="amount">${formatPaise(p.gains.otherLongTax)}</td>
+                    </tr>` : html``}
+                  ${p.gains.buckets.slabRated !== 0 ? html`
+                    <tr>
+                      <td>Debt, and short-held gold or property <span class="faint">· at your slab rate</span></td>
+                      <td class="amount">${formatPaise(p.gains.buckets.slabRated)}</td>
+                      <td class="amount faint">added to income above</td>
+                    </tr>` : html``}
+                </tbody>
+              </table>
+            </div>
+            ${p.gains.buckets.unclassified !== 0
+              ? html`
+                  <div class="notice notice-warning">
+                    <strong>${formatPaise(p.gains.buckets.unclassified)} could not be placed, and is not in the figures above.</strong>
+                    Its rate depends on something this app does not know, and
+                    guessing would put it in the wrong column at the wrong rate.
+                    <ul>
+                      ${p.gains.buckets.unclassifiedReasons.map((r) => html`
+                        <li>${r.instrument} — ${formatPaise(r.gain)}: ${r.reason}</li>
+                      `)}
+                    </ul>
+                    Setting the asset class on the
+                    <a href="/portfolio">portfolio</a> resolves most of these.
+                  </div>
+                `
+              : html``}
+            <p class="field-hint">
+              The ₹1,25,000 exemption is annual and applies only to long-held
+              listed equity. It does not extend to short-term gains, to gold, or
+              to property.
+            </p>
+          </section>
+        `
+      : html``}
+
     ${p.advance.length > 0
       ? html`
           <section class="card">
@@ -246,7 +322,8 @@ export function renderTax(p: TaxPageProps): SafeHtml {
       </p>
       <ul class="checks">
         <li><strong>Marginal relief</strong> on surcharge, and on the 87A cliff — so a figure just over a threshold is overstated.</li>
-        <li><strong>Capital gains</strong>, which are taxed at their own rates rather than at slab rates.</li>
+        <li><strong>Losses set off between heads.</strong> A long-term loss can only go against a long-term gain, and this nets nothing — each bucket is floored at zero, so a year with losses is overstated.</li>
+        <li><strong>Surcharge on gains</strong> is capped at 15% under 111A and 112A; this applies the ordinary band.</li>
         <li><strong>Tax already deducted at source.</strong> Nothing here is netted against your Form 16 or 26AS.</li>
         <li><strong>Losses</strong> set off or carried forward, house property loss, and clubbing.</li>
         <li><strong>Anything foreign</strong> — income, assets, or relief under a treaty.</li>

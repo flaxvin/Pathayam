@@ -298,9 +298,11 @@ export function renderTransfer(opts: {
   defaultFrom: string | null;
   defaultTo: string | null;
   today: string;
+  /** Envelopes a bank charge can be filed into, if the bank took one. */
+  categories?: { id: string; name: string }[];
   error?: string | null;
 }): SafeHtml {
-  const { accounts, defaultFrom, defaultTo, today } = opts;
+  const { accounts, defaultFrom, defaultTo, today, categories = [] } = opts;
 
   if (accounts.length < 2) {
     return html`
@@ -357,6 +359,33 @@ export function renderTransfer(opts: {
         <input id="date" name="date" type="date" autocomplete="off"
                value="${today}">
       </div>
+
+      ${categories.length > 0
+        ? html`
+            <details class="field">
+              <summary>The bank charged for this</summary>
+              <p class="field-hint">
+                An IMPS fee, a demat charge, the markup on a conversion. It comes
+                out of the sending account on top of the amount above, so the
+                balance still matches the statement, and it needs an envelope
+                because it is spending like any other.
+              </p>
+              <div class="row" style="gap:1rem;flex-wrap:wrap">
+                <div class="field" style="margin:0">
+                  <label for="fee_amount">Charge</label>
+                  <input id="fee_amount" name="fee_amount" inputmode="decimal"
+                         placeholder="0.00" style="max-width:8rem">
+                </div>
+                <div class="field" style="margin:0">
+                  <label for="fee_category_id">From envelope</label>
+                  <select id="fee_category_id" name="fee_category_id">
+                    ${categories.map((c) => html`<option value="${c.id}">${c.name}</option>`)}
+                  </select>
+                </div>
+              </div>
+            </details>
+          `
+        : html``}
 
       <button class="button-primary" type="submit">Record transfer</button>
       <a class="button button-quiet" href="/accounts">Cancel</a>
