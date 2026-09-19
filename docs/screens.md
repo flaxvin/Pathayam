@@ -103,6 +103,7 @@ answer 404 when the viewer may not see the entity
 | `GET /portfolio/allocation` | By class, region and currency. |
 | `GET /portfolio/valuations`, `POST` | Update every hand-valued account in one pass. |
 | `GET /portfolio/asset/new`, `GET /portfolio/asset/:id/revalue` and their `POST`s | |
+| `GET`/`POST /portfolio/asset/:id/dispose` | Record a hand-valued asset as sold or gone, with where the proceeds landed. |
 | `GET` and `POST /portfolio/cas`, `POST /portfolio/cas/confirm` | CAS import: plan, then confirm. |
 | `GET /portfolio/holdings.csv`, `/lots.csv`, `/prices.csv` | |
 | `POST /portfolio/refresh` | Refresh prices from the providers. |

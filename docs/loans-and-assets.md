@@ -158,6 +158,50 @@ and on demand, giving a dated history.
 Totals are computed per viewer: an account a member cannot see is excluded from
 the total shown to them, not merely from the list.
 
+## When the ledger and the figure disagree
+
+Three kinds of account show a value the app *derives* rather than counts from
+their transactions:
+
+| Account | Shows | So a transaction on it |
+|---|---|---|
+| Tracking, with a stated valuation | the stated figure (B56) | does not move it |
+| Investment | market value of its holdings | is counted nowhere |
+| Loan | the amortisation schedule | does not reduce what is owed |
+
+Each is defensible alone and indefensible together: the app accepted an entry,
+stored it, and showed a number that did not include it.
+
+Two things now address that. Plain transactions are no longer offered against
+these accounts on the Add screen — each has a flow that works (revalue, a
+portfolio purchase or sale, a loan payment), so offering the account only ever
+led somewhere wrong. And `accountDrifts` reports what is already there, or what
+a transfer creates, beside the net worth total.
+
+It **reports rather than resolves**, deliberately. Adding the movements is
+right for a recurring deposit being paid into and wrong for a revalued flat,
+where the stated figure already includes everything. Only the household knows
+which it meant, so the divergence is surfaced and they decide — the same thing
+this app does when a statement and the ledger disagree. The threshold is ₹500,
+the one Q12 set for loan reconciliation.
+
+## Disposing of a hand-valued asset
+
+An asset could be created and revalued but never sold, so gold that paid for a
+wedding stayed on the statement forever and the only way out was revaluing it to
+zero — losing both the proceeds and the fact that anything happened.
+
+`/portfolio/asset/:id/dispose` records both halves: the asset is valued at zero
+on the date and its account closed, and the proceeds are recorded arriving in an
+account you choose. Either half is optional — proceeds of zero is a valid answer
+for something given away or lost, and "nowhere" is valid if the money has not
+landed yet. The dated history stays, because the account is closed rather than
+deleted.
+
+Creating an asset now asks the mirror question. If you just bought it, the money
+leaves an account you name; if you already owned it, nothing moves. Without that,
+net worth rose by the value of the asset with nothing on the other side.
+
 ## Financial independence
 
 ```

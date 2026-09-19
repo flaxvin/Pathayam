@@ -257,6 +257,44 @@ export function recordValuation(
  * Missing rate: the same convention the holdings path uses — carry it at 1 and
  * mark it stale, rather than dropping an asset out of net worth silently.
  */
+/**
+ * Money that has moved through a tracking account since its stated valuation.
+ *
+ * B56 settled that a stated figure beats the running balance, because that is
+ * the only way to say what a PPF or a fixed deposit has actually grown to. What
+ * it did not settle is what happens when somebody then *contributes* — pays
+ * ₹10,000 into that PPF from the Accounts screen. The stated value keeps
+ * winning, the contribution vanishes from net worth and the portfolio, and
+ * nothing says why.
+ *
+ * Resolving it by adding the movements would be wrong for a revalued flat,
+ * where the stated figure already includes everything. Resolving it by ignoring
+ * them is what produces the missing ₹10,000. So neither: the divergence is
+ * reported, and the person decides — which is what this app already does when a
+ * statement and the ledger disagree, rather than silently adopting either.
+ */
+export function movementSinceValuation(
+  db: DB, accountId: string, asOf = todayIST(),
+): { since: IsoDate; amount: Paise } | null {
+  const valuation = queryOne<{ as_of: string }>(
+    db,
+    `SELECT as_of FROM asset_valuations WHERE account_id = ?
+      ORDER BY as_of DESC, created_at DESC LIMIT 1`,
+    accountId,
+  );
+  if (!valuation) return null;
+
+  const row = queryOne<{ total: number }>(
+    db,
+    `SELECT COALESCE(SUM(amount), 0) AS total FROM transactions
+      WHERE account_id = ? AND deleted_at IS NULL
+        AND date > ? AND date <= ?`,
+    accountId, valuation.as_of, asOf,
+  );
+  const amount = (row?.total ?? 0) as Paise;
+  return amount === 0 ? null : { since: valuation.as_of as IsoDate, amount };
+}
+
 export function valuationInBase(
   db: DB,
   account: { id: string; currency: string },

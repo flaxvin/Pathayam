@@ -492,6 +492,7 @@ only (out of a token's reach).
 | GET | `/fire` | R | Financial-independence projection from trailing spending. |
 | POST | `/net-worth/snapshot` | W | Take a dated snapshot. |
 | GET/POST | `/portfolio/asset/new` | R/W | Add a hand-valued asset. |
+| GET/POST | `/portfolio/asset/:id/dispose` | W | Record that a hand-valued asset is gone, and optionally the money arriving. Values it at zero on the date and closes the account; the dated history stays. |
 | GET/POST | `/portfolio/asset/:id/revalue` | R/W | Say what one asset is worth today. |
 | GET/POST | `/portfolio/valuations` | R/W | Update every hand-valued asset in one sitting. |
 | GET/POST | `/portfolio/:id/price` | R/W | Record a price for one instrument. |

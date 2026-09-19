@@ -230,6 +230,9 @@ export function renderHolderFields(
 export function renderNewAssetForm(opts: {
   today: IsoDate;
   members?: { id: string; name: string }[];
+  /** Budget accounts the money could have come from, if it was bought now. */
+  payFrom?: { id: string; name: string }[];
+  categories?: { id: string; name: string }[];
   error?: string | null;
 }): SafeHtml {
   return html`
@@ -266,6 +269,42 @@ export function renderNewAssetForm(opts: {
         <input id="as_of" name="as_of" type="date" autocomplete="off"
                value="${opts.today}">
       </div>
+
+      ${(opts.payFrom?.length ?? 0) > 0
+        ? html`
+            <details class="field">
+              <summary>Did you just pay for this?</summary>
+              <p class="field-hint">
+                Leave this alone if you already owned it — recording a flat you
+                have lived in for years moves no money, and net worth simply
+                gains an asset it did not know about.
+              </p>
+              <p class="field-hint">
+                If you bought it just now, say where the money came from and the
+                app records that payment too. Otherwise net worth rises by the
+                value of the asset with nothing on the other side, which is the
+                one thing a ledger must never do quietly.
+              </p>
+              <div class="row" style="gap:1rem;flex-wrap:wrap">
+                <div class="field" style="margin:0">
+                  <label for="paid_from">Paid from</label>
+                  <select id="paid_from" name="paid_from">
+                    <option value="">Nothing moved — I already owned it</option>
+                    ${(opts.payFrom ?? []).map((a) => html`<option value="${a.id}">${a.name}</option>`)}
+                  </select>
+                </div>
+                <div class="field" style="margin:0">
+                  <label for="paid_category">From envelope</label>
+                  <select id="paid_category" name="paid_category">
+                    <option value="">No envelope</option>
+                    ${(opts.categories ?? []).map((c) => html`<option value="${c.id}">${c.name}</option>`)}
+                  </select>
+                </div>
+              </div>
+            </details>
+          `
+        : html``}
+
       <button class="button-primary" type="submit">Add asset</button>
       <a class="button button-quiet" href="/portfolio">Cancel</a>
     </form>
@@ -931,6 +970,14 @@ export function renderNetWorth(opts: {
       (warning) => html`<p class="notice notice-warning">${warning}</p>`,
     )}
 
+    ${s.drifts.map((drift) => html`
+      <div class="notice notice-warning">
+        <strong>${drift.accountName}: the ledger and this figure disagree.</strong>
+        ${drift.explanation}
+        <a href="${drift.fixHref}">Put it right</a>.
+      </div>
+    `)}
+
     ${when(opts.change, () => renderWaterfall(opts.change!))}
 
     <section class="card">
@@ -1552,5 +1599,68 @@ export function renderAllocation(opts: {
         </section>
       `)}
     `)}
+  `;
+}
+
+/**
+ * Disposing of a hand-valued asset.
+ *
+ * It could be created and revalued but never sold, so gold that paid for a
+ * wedding stayed on the net worth statement forever and the only way out was
+ * revaluing it to zero — which loses both the proceeds and the fact that
+ * anything happened at all.
+ */
+export function renderDisposeAsset(opts: {
+  account: { id: string; name: string };
+  lastValue: Paise;
+  lastAsOf: IsoDate | null;
+  today: IsoDate;
+  intoAccounts: { id: string; name: string }[];
+}): SafeHtml {
+  return html`
+    <h1>Dispose of ${opts.account.name}</h1>
+    <p class="faint">
+      ${opts.lastAsOf
+        ? html`Last valued at ${formatPaise(opts.lastValue)} on ${opts.lastAsOf}.`
+        : html`This asset has never been valued.`}
+    </p>
+    <p>
+      This records that the asset is gone and, if you say where, that the money
+      arrived. Its dated history stays — the account is closed rather than
+      deleted, so what it was worth and when remains on the record.
+    </p>
+
+    <form class="card" method="post" action="/portfolio/asset/${opts.account.id}/dispose">
+      <div class="field">
+        <label for="proceeds">What you got for it</label>
+        <input id="proceeds" name="proceeds" inputmode="decimal"
+               value="${(opts.lastValue / 100).toFixed(2)}">
+        <p class="field-hint">
+          Prefilled with the last valuation, which is a guess at the price and
+          rarely the price. Zero is a valid answer for something given away,
+          written off, or lost.
+        </p>
+      </div>
+
+      <div class="field">
+        <label for="into_account">Paid into</label>
+        <select id="into_account" name="into_account">
+          <option value="">Nowhere — record no money arriving</option>
+          ${opts.intoAccounts.map((a) => html`<option value="${a.id}">${a.name}</option>`)}
+        </select>
+        <p class="field-hint">
+          Leave this if the proceeds have not landed yet, or landed somewhere
+          this app does not track. The asset still goes.
+        </p>
+      </div>
+
+      <div class="field">
+        <label for="on">Date</label>
+        <input id="on" name="on" type="date" value="${opts.today}">
+      </div>
+
+      <button class="button-primary" type="submit">Dispose of it</button>
+      <a class="button button-quiet" href="/portfolio">Cancel</a>
+    </form>
   `;
 }

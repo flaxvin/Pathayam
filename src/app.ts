@@ -177,6 +177,7 @@ import {
   incomeInFinancialYear, type AdvanceInstalment,
 } from "./domain/tax.ts";
 import { renderTax } from "./web/pages/tax.ts";
+import { renderDisposeAsset } from "./web/pages/portfolio.ts";
 import { capitalGainsTaxFor } from "./domain/capital-gains-tax.ts";
 import { renderFire } from "./web/pages/fire.ts";
 import { fireProjection, DEFAULT_ASSUMPTIONS } from "./domain/fire.ts";
@@ -2048,7 +2049,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
   router.get("/add", (ctx) => {
     const view = buildBudgetView(db, undefined, undefined, viewer(ctx));
-    const accounts = listAccounts(db, { viewerMemberId: viewer(ctx) });
+    /*
+     * Only accounts where a plain transaction means something.
+     *
+     * A tracking account shows a figure the app derives rather than counts: a
+     * stated valuation, the market value of its holdings, or an amortisation
+     * schedule. A transaction recorded against one is accepted, stored, and
+     * then not reflected in any of those — the app says nothing and shows a
+     * number that does not include it. Each of them has a flow that does work
+     * (revalue, a portfolio purchase or sale, a loan payment), so offering the
+     * account here only ever leads somewhere wrong.
+     *
+     * Transfers still reach them, because funding a recurring deposit is a real
+     * thing to do; `accountDrifts` is what catches the divergence that creates.
+     */
+    const accounts = listAccounts(db, { viewerMemberId: viewer(ctx) })
+      .filter((a) => a.kind === "budget" || a.kind === "credit");
     const lastUsed = queryOne<{ account_id: string }>(
       db,
       `SELECT account_id FROM transactions WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 1`,
@@ -6702,6 +6718,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return render(ctx, "Add an asset", renderNewAssetForm({
       today: todayIST(),
       members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
+      payFrom: listAccounts(db, { viewerMemberId: viewer(ctx) })
+        .filter((acc) => acc.kind === "budget")
+        .map((acc) => ({ id: acc.id, name: acc.name })),
+      categories: [...buildBudgetView(db, undefined, undefined, viewer(ctx)).categories.values()]
+        .filter((c) => !c.hidden && !c.isPaymentCategory)
+        .map((c) => ({ id: c.id, name: c.name })),
     }));
   });
 
@@ -6717,7 +6739,33 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         openingValue: valueRaw?.trim() ? amountField(valueRaw) : undefined,
         asOf: dateField(field(ctx.body, "as_of"), "As of"),
       });
-      return { redirect: "/portfolio", message: `Added ${account.name}.` };
+
+      /*
+       * If it was bought just now, the money has to leave somewhere. Without
+       * this the asset appears and net worth rises by its value with nothing on
+       * the other side — value created out of nothing, which is the one thing a
+       * ledger must never do quietly.
+       *
+       * Optional, because recording a flat somebody has lived in for years is
+       * the commoner case and no money moves in it.
+       */
+      const paidFrom = field(ctx.body, "paid_from");
+      const value = valueRaw?.trim() ? amountField(valueRaw) : 0;
+      let note = "";
+      if (paidFrom && value > 0) {
+        const from = requireVisibleAccount(ctx, paidFrom)!.id;
+        const categoryId = field(ctx.body, "paid_category");
+        createTransaction(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+          accountId: from,
+          amount: -value as Paise,
+          date: dateField(field(ctx.body, "as_of"), "As of"),
+          categoryId: categoryId ? requireVisibleCategory(ctx, categoryId)! : null,
+          memo: `Bought ${account.name}`,
+        });
+        note = ` ${formatPaise(value as Paise)} recorded as leaving ${getAccount(db, from)?.name ?? "that account"}.`;
+      }
+
+      return { redirect: "/portfolio", message: `Added ${account.name}.${note}` };
     }),
   );
 
@@ -6778,6 +6826,78 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         message: saved === 0
           ? "Nothing was filled in, so nothing changed."
           : `Updated ${saved} valuation${saved === 1 ? "" : "s"}.`,
+      };
+    }),
+  );
+
+  /*
+   * Disposing of a hand-valued asset.
+   *
+   * It could be created and revalued but never sold, so the gold that paid for
+   * a wedding stayed on the net worth statement forever and the only way out
+   * was to revalue it to zero — which loses both the proceeds and the fact that
+   * anything happened.
+   *
+   * A disposal is two facts: the asset is gone, and money arrived. Recording
+   * only the first is the mirror of creating one without saying where the money
+   * came from.
+   */
+  router.get("/portfolio/asset/:id/dispose", (ctx) => {
+    requireAssets();
+    auth(ctx);
+    const account = requireVisibleAccount(ctx, ctx.params.id!)!;
+    const valuation = latestValuation(db, account.id);
+    return render(ctx, `Dispose of ${account.name}`, renderDisposeAsset({
+      account: { id: account.id, name: account.name },
+      lastValue: valuation?.value ?? (0 as Paise),
+      lastAsOf: valuation?.asOf ?? null,
+      today: todayIST(),
+      intoAccounts: listAccounts(db, { viewerMemberId: viewer(ctx) })
+        .filter((acc) => acc.kind === "budget")
+        .map((acc) => ({ id: acc.id, name: acc.name })),
+    }));
+  });
+
+  router.post("/portfolio/asset/:id/dispose", (ctx) =>
+    mutate(ctx, (a) => {
+      requireAssets();
+      const account = requireVisibleAccount(ctx, ctx.params.id!)!;
+      const proceeds = amountField(field(ctx.body, "proceeds"), "Proceeds");
+      const on = dateField(field(ctx.body, "on"), "Date");
+      const into = field(ctx.body, "into_account");
+      const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+
+      if (proceeds < 0) throw new Refusal("Proceeds cannot be negative.");
+
+      /*
+       * The money first, then the asset — so that if the transaction is
+       * refused, the asset is still here and the household has not lost an
+       * entry with nothing to show for it.
+       */
+      let note = "";
+      if (into && proceeds > 0) {
+        const target = requireVisibleAccount(ctx, into)!.id;
+        createTransaction(db, actor, {
+          accountId: target,
+          amount: proceeds as Paise,
+          date: on,
+          categoryId: null,
+          memo: `Sold ${account.name}`,
+        });
+        note = ` ${formatPaise(proceeds as Paise)} recorded into ${getAccount(db, target)?.name ?? "that account"}.`;
+      }
+
+      // A disposal is a valuation of nothing, plus a closed account — the
+      // dated history stays, which is what R23.2 is for.
+      recordValuation(db, actor, {
+        accountId: account.id, value: 0 as Paise, asOf: on,
+        note: `Disposed of${proceeds > 0 ? ` for ${formatPaise(proceeds as Paise)}` : ""}`,
+      });
+      closeAccount(db, actor, account.id);
+
+      return {
+        redirect: "/portfolio",
+        message: `${account.name} disposed of.${note}`,
       };
     }),
   );

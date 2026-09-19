@@ -24,6 +24,7 @@ import { nowIST, todayIST, monthOf, addMonths, formatDate, type IsoDate } from "
 import { formatPaise, type Paise } from "../core/money.ts";
 import { accountBalances } from "../engine/repository.ts";
 import { listLoans, projectLoan } from "./loans.ts";
+import { accountDrifts, type AccountDrift } from "./account-drift.ts";
 import { familyLoanNetWorth } from "./family-loans.ts";
 import { SIMPLE_TRACKING_SUBTYPES, hiddenAccountIds, type HolderScope } from "./accounts.ts";
 import {
@@ -66,6 +67,12 @@ export interface NetWorthStatement {
   hasStaleInputs: boolean;
   /** R23.4 · Loans with no asset tracked against them. */
   untrackedAssetWarnings: string[];
+  /**
+   * Accounts whose ledger and shown figure have parted company. Reported
+   * beside the total rather than resolved, because no single rule is right for
+   * both a recurring deposit being paid into and a flat being revalued.
+   */
+  drifts: AccountDrift[];
 }
 
 export function netWorthStatement(
@@ -297,6 +304,7 @@ export function netWorthStatement(
     worstInputDate: worstDate,
     hasStaleInputs: anyStale,
     untrackedAssetWarnings,
+    drifts: accountDrifts(db, { viewerMemberId: opts.viewerMemberId, asOf }),
   };
 }
 
