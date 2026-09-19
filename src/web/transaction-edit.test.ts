@@ -160,6 +160,27 @@ describe("F4.3 · a split transaction survives its own edit screen", () => {
     assert.equal(after.is_split, 0, "it still claims to be split");
   });
 
+  test("an envelope left in a line with no amount is ignored, not refused", async () => {
+    /*
+     * Open the split section, pick an envelope, think better of it, clear the
+     * amount. The select still carries what was picked, because nothing clears
+     * it. Refusing the save over that leftover meant the only way forward was
+     * to spot a stale dropdown inside a collapsed section — so it reads as
+     * "I cannot use the main category any more".
+     */
+    const id = spend(900);
+    const res = await app.post(`/transaction/${id}`, {
+      ...base, amount: "900", category_id: groceries,
+      split_category_0: groceries, split_amount_0: "",
+    });
+    assert.equal(res.status, 303, "an abandoned split line blocked the save");
+    const after = queryOne<{ category_id: string; is_split: number }>(
+      db, `SELECT category_id, is_split FROM transactions WHERE id = ?`, id,
+    )!;
+    assert.equal(after.is_split, 0, "it became a split from a line with no amount");
+    assert.equal(after.category_id, groceries, "the chosen envelope was not used");
+  });
+
   test("but one line short of the amount is still refused", async () => {
     const id = spend(900);
     const res = await app.post(`/transaction/${id}`, {

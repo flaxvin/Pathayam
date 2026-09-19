@@ -453,8 +453,18 @@ export const CLIENT_SCRIPT = String.raw`
     var isExpense = !direction || direction.value !== "in";
 
     category.required = isExpense && !split && category.hasAttribute("data-requires-category");
+
+    /*
+     * Disabled, but not emptied.
+     *
+     * A disabled select is not submitted, so clearing it achieved nothing
+     * except destroying what the person had already chosen — and when they
+     * abandoned the split, the envelope they picked before opening it was
+     * simply gone. They were left with an empty box the form then refused to
+     * submit, which is the shape of "I cannot enter the main category any
+     * more".
+     */
     category.disabled = split;
-    if (split) category.value = "";
 
     var blank = category.querySelector('option[value=""]');
     if (blank) {
