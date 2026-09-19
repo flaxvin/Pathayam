@@ -45,7 +45,25 @@ jobs:
       # it is a devDependency — so this is not the no-op it looks like.
       - run: npm ci
       - run: npm run typecheck
-      - run: npm test
+
+      # `npm test` alone reports "Process completed with exit code 1" and
+      # nothing else to anyone without repository access — the step log needs a
+      # token, while job annotations do not. A failure here is usually being
+      # read by whoever just pushed, so the names of the failing tests are
+      # raised as annotations where they can actually be seen.
+      - name: Test
+        run: |
+          set -o pipefail
+          npm test 2>&1 | tee test-output.txt && exit 0
+          status=$?
+          echo "::group::Failing tests"
+          grep -E '^ *not ok |^ *✖ ' test-output.txt | head -40 || true
+          echo "::endgroup::"
+          while IFS= read -r line; do
+            echo "::error::$line"
+          done < <(grep -E '^ *✖ ' test-output.txt | sed 's/^ *✖ //' \
+                   | grep -v '^failing tests:' | sort -u | head -20)
+          exit $status
 
   deploy:
     needs: test
