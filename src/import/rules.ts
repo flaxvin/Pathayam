@@ -225,6 +225,47 @@ function fieldValue(subject: RuleSubject, field: ConditionField): string | numbe
   }
 }
 
+/**
+ * Fields a rule's text actions may interpolate, written `{field}`.
+ *
+ * The case this exists for: a bank narration carries a UPI reference and a VPA
+ * that the household actually wants on the transaction, and until now a rule
+ * could only set a *constant* memo. Every imported row got the same words, so
+ * the one piece of information worth keeping — which payment this was — had to
+ * be typed in by hand or lost.
+ *
+ * Deliberately not an expression language. No arithmetic, no conditionals, no
+ * function calls: substitution only, from a fixed list of fields that already
+ * exist on the subject. A rules engine that evaluates expressions is a rules
+ * engine that can loop, fail at run time, or be handed something hostile from a
+ * bank statement, and none of that is worth being able to write a rule slightly
+ * more cleverly.
+ */
+export const TEMPLATE_FIELDS = [
+  "narration", "channel", "vpa", "merchant", "reference",
+  "importedPayee", "payee", "memo", "date", "cardLast4",
+] as const;
+
+export type TemplateField = (typeof TEMPLATE_FIELDS)[number];
+
+/**
+ * Substitute `{field}` from the subject.
+ *
+ * An unknown placeholder is left exactly as written rather than replaced with
+ * nothing: `{refrence}` that silently became "" would look like the rule
+ * working, and the household would find empty memos and no reason for them. A
+ * *known* field that happens to be empty does become "", because that is the
+ * value — the transaction genuinely had no VPA.
+ */
+export function renderTemplate(subject: RuleSubject, template: string): string {
+  const known = new Set<string>(TEMPLATE_FIELDS);
+  return template.replace(/\{([a-zA-Z0-9_]+)\}/g, (whole, name: string) => {
+    if (!known.has(name)) return whole;
+    const value = (subject as unknown as Record<string, unknown>)[name];
+    return value === null || value === undefined ? "" : String(value);
+  }).replace(/[ \t]{2,}/g, " ").trim();
+}
+
 export function evaluateCondition(subject: RuleSubject, condition: Condition): boolean {
   const actual = fieldValue(subject, condition.field);
   const { op, value } = condition;
@@ -351,13 +392,19 @@ function applyAction(outcome: RuleOutcome, action: Action): void {
   const s = outcome.subject;
   switch (action.type) {
     case "setCategory": s.categoryId = action.categoryId; break;
-    case "setPayee": s.payee = action.payee; break;
-    case "setMemo":
+    case "setPayee": s.payee = renderTemplate(s, action.payee); break;
+    case "setMemo": {
+      /*
+       * Rendered against the subject as it is *now*, so a prepend or append
+       * that mentions {memo} sees what is already there rather than itself.
+       */
+      const rendered = renderTemplate(s, action.memo);
       s.memo =
-        action.mode === "prepend" ? `${action.memo} ${s.memo ?? ""}`.trim()
-        : action.mode === "append" ? `${s.memo ?? ""} ${action.memo}`.trim()
-        : action.memo;
+        action.mode === "prepend" ? `${rendered} ${s.memo ?? ""}`.trim()
+        : action.mode === "append" ? `${s.memo ?? ""} ${rendered}`.trim()
+        : rendered;
       break;
+    }
     case "addTag":
       if (!s.tags.some((t) => t.toLowerCase() === action.tag.toLowerCase())) s.tags.push(action.tag);
       break;

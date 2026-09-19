@@ -192,3 +192,22 @@ both would file the amount twice.
 
 A schedule with no amount cannot be split, since there is nothing to divide, and
 a card's payment envelope cannot be a line for the usual reason (R6).
+
+## Rules that build a value
+
+A rule's text actions — `setMemo`, `setPayee` — may interpolate `{field}` from
+the transaction: `UPI ref {reference}`, `{merchant} via {channel}`. The fields
+are the ones already extracted from narration (`channel`, `vpa`, `merchant`,
+`reference`) plus `narration`, `importedPayee`, `payee`, `memo`, `date` and
+`cardLast4`.
+
+An unknown placeholder is **left exactly as written**. `{refrence}` that
+silently became empty would look like the rule working, and leave empty memos
+with no reason for them. A known field that happens to be empty does become
+empty, because that is its value.
+
+It is substitution and nothing else — no arithmetic, no conditionals, no calls,
+and no recursion, so a narration containing braces cannot inject a placeholder
+of its own. A rules engine that evaluates expressions is one that can loop, fail
+at run time, or be handed something hostile out of a bank statement, and none of
+that buys enough to be worth it.
