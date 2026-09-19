@@ -92,6 +92,28 @@ describe("a stated valuation that money has moved past", () => {
   });
 });
 
+describe("a deposit tracked by its balance", () => {
+  test("interest credited to it is not a drift — it is how you record interest", () => {
+    /*
+     * A fixed deposit with no stated valuation is worth its balance, so a
+     * credit is simply what happened. This is the reason FD and RD are
+     * tracking accounts rather than hand-valued assets.
+     */
+    const db = household();
+    const fd = createAccount(db, actor, {
+      name: "SBI FD", kind: "tracking", subtype: "fixed-deposit",
+      openingDate: "2026-04-01", openingBalance: rupees(500_000),
+    }).id;
+    createTransaction(db, actor, {
+      accountId: fd, amount: rupees(32_000), date: "2026-09-01", categoryId: null,
+    });
+    assert.equal(
+      accountDrifts(db, { asOf: ASOF }).find((d) => d.accountId === fd), undefined,
+      "recording interest on a deposit was reported as a problem",
+    );
+  });
+});
+
 describe("cash sitting in an investment account", () => {
   test("is reported, because net worth counts holdings and not this", () => {
     const db = household();

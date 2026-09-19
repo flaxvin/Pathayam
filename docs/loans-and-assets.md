@@ -218,20 +218,53 @@ Creating an asset asks the mirror question. If you just bought it, the money
 leaves an account you name; if you already owned it, nothing moves. Without that,
 net worth rose by the value of the asset with nothing on the other side.
 
-## Which screen an account lives on
+## Counted, or derived
 
-A tracking account shows a figure this app derives rather than counts, and it is
-derived on the screen that owns it — Portfolio for what is held, Loans for what
-is owed. So tracking accounts are **not listed on the Accounts screen** and are
-not offered as the target of a plain transaction: beside accounts you can
-transact on they looked like accounts you can transact on, and an entry against
-one went nowhere visible. Each still has its own page, and every link to it
-still works.
+The line that matters is not "tracking or not" — it is whether the figure on
+screen is **counted from transactions** or **derived somewhere else**.
 
-A deposit belongs on Portfolio, because a household thinks of it as something
-held. "Other liability" does not — it is a debt, so it appears on Loans under
-*Everything you owe*, alongside money borrowed from family. That table used to
-show only loans and credit cards, which made its heading false.
+**Counted.** Budget accounts, credit cards, and most tracking accounts: a fixed
+or recurring deposit, a savings account somebody watches without budgeting from
+it, "other asset", "other liability". These are worth their balance, so posting
+to them is how you say what happened, and they are ordinary everywhere —
+listed on Accounts, offered when adding a transaction.
+
+**Derived.** A demat account is worth the market value of its holdings; a loan
+or an EMI, what its schedule says; a family loan, the transfers behind it; a
+hand-valued asset, its latest dated valuation. A plain transaction against one
+of these is stored and reflected in none of them, so they are **not offered
+when adding a transaction** — each has a flow that does work (a portfolio
+purchase or sale, a loan payment, a revaluation). `DERIVED_VALUE_SUBTYPES` is
+that list.
+
+They all still appear on the Accounts screen, because that is the list of what
+the household has.
+
+### Where interest on a deposit goes
+
+Into the deposit, as a transaction. A fixed or recurring deposit is a tracking
+account precisely so that it can hold one: credit the interest to the account
+and the balance — which is what the deposit is worth — moves with it. Nothing
+reaches the budget, which is right for a cumulative deposit, since the money is
+not spendable until maturity.
+
+Interest that is *paid out* to a savings account instead is ordinary income in
+the account it lands in, recorded like any other.
+
+Either way it is taxable, and the tax screen does not read it: enter it in the
+gross figure there. That screen asks for gross rather than deriving it for
+exactly this reason — what arrived in the accounts this app can see is not the
+same thing as taxable income.
+
+**Do not also state a valuation on a deposit you track this way.** A stated
+figure overrides the balance (B56), so the interest transactions stop counting.
+`accountDrifts` reports it if it happens.
+
+### "Other liability" is a debt, so it is on Loans
+
+It appears under *Everything you owe*, alongside money borrowed from family.
+That table used to show only loans and credit cards, which made its heading
+false.
 
 ## Financial independence
 

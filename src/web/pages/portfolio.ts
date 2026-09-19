@@ -14,6 +14,7 @@ import { formatDate, type IsoDate } from "../../core/dates.ts";
 import { formatUnits, formatPrice } from "../../portfolio/holdings.ts";
 import type { HoldingView } from "../../domain/assets.ts";
 import { ASSET_LABELS, ASSET_SUBTYPES, type AssetSubtype } from "../../domain/assets.ts";
+import { SUBTYPE_LABELS } from "../../domain/accounts.ts";
 import { donutChart, lineChart, seriesColor, waterfall } from "../charts.ts";
 import type {
   NetWorthStatement, NetWorthChange, NetWorthGroup, Snapshot,
@@ -262,12 +263,14 @@ export function renderNewAssetForm(opts: {
             )}
           </select>
           <p class="field-hint">
-            A debt with a rate and an EMI is a <a href="/loans">loan</a>, not an
-            asset recorded here. Money between you and somebody you know belongs
-            in <a href="/family">lending</a>, where the balance is derived from
-            the actual transfers rather than retyped. This screen is for what is
-            left: something you own and value by hand, or an amount you owe that
-            has no schedule behind it.
+            For something valued by hand, where there is no balance to count —
+            property, gold, a pension pot. A <strong>fixed or recurring
+            deposit</strong> is not one of these: add it from
+            <a href="/accounts">Accounts</a> as a tracking account, so interest
+            credited to it is a transaction like any other and its balance stays
+            the truth. A debt with a rate and an EMI is a
+            <a href="/loans">loan</a>, and money between you and somebody you
+            know belongs in <a href="/family">lending</a>.
           </p>
         </div>
         <div class="field">

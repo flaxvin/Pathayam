@@ -31,6 +31,27 @@ export const ACCOUNT_SUBTYPES: Record<AccountKind, string[]> = {
 };
 
 /**
+ * Subtypes whose value this app derives rather than counts from transactions.
+ *
+ * A demat account is worth the market value of its holdings; a loan or an EMI
+ * is worth what its amortisation schedule says; a family loan is worth the
+ * transfers behind it; and the hand-valued kinds are worth their latest dated
+ * valuation. In every one of those, a plain transaction recorded against the
+ * account is stored and then reflected in none of them — the app accepts the
+ * entry, says nothing, and shows a figure without it.
+ *
+ * Deliberately *not* every tracking account. Most are worth exactly their
+ * balance, and posting to them is how you say what happened: a fixed deposit
+ * crediting interest, a savings account somebody watches without budgeting
+ * from it. Those are ordinary, and treating them as derived would take away the
+ * only way to record what they do.
+ */
+export const DERIVED_VALUE_SUBTYPES = new Set([
+  "investment", "loan", "emi", "family-loan",
+  "retirement", "deposit", "physical", "commodity", "receivable",
+]);
+
+/**
  * B56 · Subtypes that carry a companion record and so must be created through
  * their own screen, never the generic "Add an account" form.
  *
