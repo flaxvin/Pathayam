@@ -311,6 +311,57 @@ export function movementSinceValuation(
   return amount === 0 ? null : { since: valuation.as_of as IsoDate, amount };
 }
 
+export interface AssetEvent {
+  asOf: IsoDate;
+  value: Paise;
+  /** Movement from the previous entry, so the page does not do arithmetic. */
+  change: Paise;
+  note: string | null;
+  recordedAt: string;
+  recordedBy: string | null;
+}
+
+/**
+ * Everything that has happened to a hand-valued asset, oldest first.
+ *
+ * The history was always recorded — `asset_valuations` is a dated series with
+ * a note on each row, which is what R23.2 insisted on instead of one mutable
+ * number. Nothing displayed it. So buying gold, adding to it and selling half
+ * produced three rows nobody could see, and the screen showed only the latest
+ * figure: a ledger keeping a history and then behaving as though it had not.
+ *
+ * The change between entries is computed here rather than in the template,
+ * because it is arithmetic on money and belongs where money arithmetic lives.
+ */
+export function assetHistory(db: DB, accountId: string): AssetEvent[] {
+  const rows = queryAll<{
+    as_of: string; value: number; note: string | null;
+    created_at: string; member_name: string | null;
+  }>(
+    db,
+    `SELECT v.as_of, v.value, v.note, v.created_at, m.name AS member_name
+       FROM asset_valuations v
+       LEFT JOIN members m ON m.id = v.created_by
+      WHERE v.account_id = ?
+      ORDER BY v.as_of, v.created_at`,
+    accountId,
+  );
+
+  let previous = 0;
+  return rows.map((row) => {
+    const change = (row.value - previous) as Paise;
+    previous = row.value;
+    return {
+      asOf: row.as_of as IsoDate,
+      value: row.value as Paise,
+      change,
+      note: row.note,
+      recordedAt: row.created_at,
+      recordedBy: row.member_name,
+    };
+  });
+}
+
 export function valuationInBase(
   db: DB,
   account: { id: string; currency: string },
