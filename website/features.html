@@ -355,7 +355,7 @@
         <table>
           <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
           <tbody>
-          <tr><td>Sign in without anybody else</td><td>A password, hashed with scrypt, stored in its own table and never included in an export. Google sign-in stays optional and can sit alongside it. Nothing about running this requires an account with a company.</td></tr>
+          <tr><td>Sign in without anybody else</td><td>A password hashed with scrypt, stored in its own table and never included in an export &mdash; or your own identity provider: Authelia, Authentik, Keycloak, anything speaking OpenID Connect, configured with one issuer URL. Google stays optional. Nothing about running this requires an account with a company.</td></tr>
           <tr><td>Sign-in</td><td>Google SSO against a closed allow-list, enforced on every request. No password store.</td></tr>
           <tr><td>Impersonation</td><td>Read-only &ldquo;view as&rdquo; another member, always logged, writes behind an explicit toggle.</td></tr>
           <tr><td>API tokens</td><td>Scoped read or read-write, shown once, stored as a hash, and structurally unable to sign in or mint more tokens.</td></tr>

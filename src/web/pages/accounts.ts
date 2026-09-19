@@ -24,6 +24,17 @@ export interface AccountRow {
   dueDate?: IsoDate | null;
   /** S15 · Recent running balance, oldest→newest, for an inline sparkline. */
   balanceSeries?: number[];
+  /**
+   * For an account whose worth is derived somewhere else — a demat account, a
+   * loan, a hand-valued asset — the figure that screen shows, and where to go
+   * and see it.
+   *
+   * Without this the row printed the transaction balance, which for these is
+   * usually zero: a loan of ₹18 lakh and a demat account holding ₹60 lakh both
+   * read "₹0", beside a button offering to add a transaction that would then
+   * appear nowhere.
+   */
+  derived?: { value: Paise; label: string; href: string } | null;
 }
 
 /**
@@ -128,7 +139,9 @@ function renderAccountRow(row: AccountRow): SafeHtml {
           ${when(row.account.visibility === "private", () => html`
             <span class="chip">private</span>
           `)}
-          ${renderStateChip(row)}
+          <!-- Reconciling means comparing against a statement. There is no
+               statement for gold, a flat, or a loan's schedule. -->
+          ${when(!row.derived, () => renderStateChip(row))}
           ${when(row.funding && row.funding.unfunded > 0, () => html`
             <span class="chip chip-warning">
               ${formatPaise(row.funding!.unfunded)} unfunded
@@ -143,9 +156,14 @@ function renderAccountRow(row: AccountRow): SafeHtml {
           color: balances.working < 0 ? "var(--danger)" : "var(--accent)",
         }))}
         <div>
-          <strong class="amount ${balances.working < 0 ? "amount-negative" : ""}">
-            <span aria-hidden="true">${formatPaise(balances.working)}</span>
-            <span class="sr-only">${speakPaise(balances.working)}</span>
+          <!--
+            An account whose worth is derived elsewhere shows that figure, not
+            its transaction balance. The balance on a loan or a demat account
+            is usually zero, so the row read "₹0" for eighteen lakh of debt.
+          -->
+          <strong class="amount ${(row.derived?.value ?? balances.working) < 0 ? "amount-negative" : ""}">
+            <span aria-hidden="true">${formatPaise(row.derived?.value ?? balances.working)}</span>
+            <span class="sr-only">${speakPaise(row.derived?.value ?? balances.working)}</span>
           </strong>
           ${when(balances.uncleared !== 0, () => html`
             <div class="faint">${formatPaise(balances.uncleared)} uncleared</div>
@@ -219,6 +237,8 @@ export function renderAccountDetail(opts: {
   lastStatement: { amount: Paise; date: IsoDate; due: IsoDate } | null;
   lastReconciled: IsoDate | null;
   checkpointBroken: boolean;
+  /** See AccountRow.derived — the figure this account is actually worth. */
+  derived?: { value: Paise; label: string; href: string } | null;
 }): SafeHtml {
   const { account, balances, rows, cards, funding } = opts;
 
@@ -240,8 +260,16 @@ export function renderAccountDetail(opts: {
           account actions are.
         -->
         <a class="button" href="#edit">Edit</a>
-        <a class="button" href="/accounts/${account.id}/reconcile">Reconcile</a>
-        <a class="button button-primary" href="/add?account=${account.id}">Add transaction</a>
+        ${opts.derived
+          ? html`
+              <a class="button button-primary" href="${opts.derived.href}">
+                ${opts.derived.label}
+              </a>
+            `
+          : html`
+              <a class="button" href="/accounts/${account.id}/reconcile">Reconcile</a>
+              <a class="button button-primary" href="/add?account=${account.id}">Add transaction</a>
+            `}
       </div>
     </div>
 

@@ -60,6 +60,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     alphaVantageKey: null,
     trustProxy: false,
     localLogin: false,
+    oidc: { issuer: null, clientId: null, clientSecret: null, label: "single sign-on" },
     ...overrides,
   };
 }

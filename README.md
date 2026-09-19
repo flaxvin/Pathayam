@@ -41,8 +41,8 @@ harvest, drawn from deliberately through the year.
   a locked provident fund leaves uncovered.
 - **Ownership.** One SQLite file in an open format, complete export, no
   telemetry, no third-party service holding the data — and no third-party
-  service needed to sign in, either. Password sign-in is built in; Google is
-  optional.
+  service needed to sign in, either. Password sign-in is built in, any OpenID
+  Connect provider works, and Google is optional.
 
 ## Quick start
 
