@@ -325,6 +325,7 @@ import {
   exportHoldingsCsv, exportLotsCsv, exportPriceHistoryCsv, exportNetWorthCsv,
   type InstrumentKind,
   signedValuation,
+  assetHistory,
 } from "./domain/assets.ts";
 import {
   netWorthStatement, snapshotNetWorth, netWorthChange, netWorthHistory,
@@ -2196,6 +2197,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       renderAccountDetail({
         account,
         derived: derivedWorth(db, account, viewer(ctx)),
+        // A hand-valued asset has no transactions and never will, so its
+        // register shows the valuations instead of staying empty forever.
+        assetEvents: REVALUABLE_SUBTYPES.has(account.subtype)
+          ? assetHistory(db, account.id)
+          : null,
         members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
         budgets: budgetsFor(db, viewer(ctx)).map((b) => ({ id: b.id, name: b.name, kind: b.kind })),
         balances,
@@ -7109,9 +7115,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         accountId: account.id,
         value: signedValuation(account.subtype, stated as Paise),
         asOf: on,
+        note: `Added ${formatPaise(spent as Paise)}`,
       });
 
-      return { redirect: "/portfolio", message: `${account.name} updated.${note}` };
+      return { redirect: `/accounts/${account.id}`, message: `${account.name} updated.${note}` };
     }),
   );
 
@@ -7182,7 +7189,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       if (remaining === 0) closeAccount(db, actor, account.id);
 
       return {
-        redirect: "/portfolio",
+        redirect: remaining > 0 ? `/portfolio/asset/${account.id}` : "/portfolio",
         message: remaining > 0
           ? `Sold part of ${account.name}; ${formatPaise(remaining as Paise)} left.${note}`
           : `${account.name} sold.${note}`,
@@ -7223,8 +7230,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         accountId: account.id,
         value: signedValuation(account.subtype, amountField(requiredField(ctx.body, "value")) as Paise),
         asOf: dateField(field(ctx.body, "as_of"), "As of"),
+        note: "Revalued",
       });
-      return { redirect: "/portfolio", message: `Revalued ${account.name}.` };
+      return { redirect: `/accounts/${account.id}`, message: `Revalued ${account.name}.` };
     }),
   );
 

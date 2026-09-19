@@ -198,6 +198,14 @@ recorded:
 | Sell some | `/portfolio/asset/:id/dispose` | The proceeds, and what is left |
 | Sell all | the same route, with nothing left | The proceeds; the account closes |
 
+Its history is on **its own account page**, reached from Accounts like any
+other. A hand-valued asset has no transactions and never will — its worth is
+stated, not counted — so where a register would be, it shows every valuation it
+has had, with the change between each and the note saying what happened:
+*Added ₹50,000*, *Revalued*, *Sold part for ₹80,000*. Nothing is overwritten,
+so what you thought it was worth in March is still there in December. R23.2 has
+written that series all along; until now nothing displayed it.
+
 **Selling part of it is the ordinary case.** A few grams of gold, not the whole
 holding. Disposal used to be all-or-nothing, so somebody selling a portion had
 to close the account and open a new one for the remainder — losing the history

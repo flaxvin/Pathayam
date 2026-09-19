@@ -8,6 +8,7 @@ import { formatDate, daysBetween, todayIST, ordinal, type IsoDate } from "../../
 import { cameWithTheCard } from "../../domain/card-shortfall.ts";
 import type { Account, Card, CardStatement } from "../../domain/accounts.ts";
 import { ACCOUNT_SUBTYPES, SUBTYPE_LABELS, MANAGED_SUBTYPES } from "../../domain/accounts.ts";
+import type { AssetEvent } from "../../domain/assets.ts";
 import { sparkline } from "../charts.ts";
 import type { AccountBalances } from "../../engine/repository.ts";
 import type { CardFunding } from "../../engine/engine.ts";
@@ -239,6 +240,15 @@ export function renderAccountDetail(opts: {
   checkpointBroken: boolean;
   /** See AccountRow.derived — the figure this account is actually worth. */
   derived?: { value: Paise; label: string; href: string } | null;
+  /**
+   * For a hand-valued asset, every valuation it has had.
+   *
+   * This account has no transactions and never will — its worth is stated, not
+   * counted — so the register below would be permanently empty. R23.2 has been
+   * writing a dated series with a note on each entry all along; this is where
+   * somebody can finally read it, on the screen they reached from Accounts.
+   */
+  assetEvents?: AssetEvent[] | null;
 }): SafeHtml {
   const { account, balances, rows, cards, funding } = opts;
 
@@ -427,6 +437,59 @@ export function renderAccountDetail(opts: {
     ${when(account.kind === "credit", () => renderCardPanel(opts))}
     ${when(cards.length > 1, () => renderCardBreakdown(cards, account.id))}
 
+    ${opts.assetEvents
+      ? html`
+          <section class="card">
+            <h2>History</h2>
+            <p class="faint" style="margin-top:-.25rem">
+              This is valued by hand rather than counted from transactions, so
+              what it holds is a series of valuations. Nothing is overwritten — a
+              correction is another entry, so what you thought it was worth in
+              March is still there in December.
+            </p>
+            ${opts.assetEvents.length === 0
+              ? html`<p class="faint">Nothing recorded yet.</p>`
+              : html`
+                  <div class="table-scroll">
+                    <table>
+                      <thead>
+                        <tr>
+                          <th scope="col">As of</th>
+                          <th scope="col">What happened</th>
+                          <th scope="col" class="num">Change</th>
+                          <th scope="col" class="num">Worth</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        ${[...opts.assetEvents].reverse().map((e) => html`
+                          <tr>
+                            <td>${formatDate(e.asOf)}</td>
+                            <td>
+                              ${e.note ?? html`<span class="faint">Valued</span>`}
+                              ${e.recordedBy
+                                ? html`<br><span class="faint">recorded by ${e.recordedBy}</span>`
+                                : html``}
+                            </td>
+                            <td class="num ${e.change < 0 ? "amount-negative" : ""}">
+                              ${e.change === 0
+                                ? html`<span class="faint">—</span>`
+                                : html`${e.change > 0 ? "+" : ""}${formatPaise(e.change)}`}
+                            </td>
+                            <td class="num">${formatPaise(e.value)}</td>
+                          </tr>
+                        `)}
+                      </tbody>
+                    </table>
+                  </div>
+                  <p class="field-hint">
+                    The money that moved alongside these — what you paid, what you
+                    were paid — is on the account it moved through. This one has
+                    no balance of its own; it has a worth.
+                  </p>
+                `}
+          </section>
+        `
+      : html`
     <section class="card">
       <h2>Transactions</h2>
       ${rows.length === 0
@@ -482,6 +545,7 @@ export function renderAccountDetail(opts: {
             </div>
           `}
     </section>
+  `}
   `;
 }
 

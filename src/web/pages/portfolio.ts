@@ -12,7 +12,7 @@ import { html, raw, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, formatCompact, type Paise } from "../../core/money.ts";
 import { formatDate, type IsoDate } from "../../core/dates.ts";
 import { formatUnits, formatPrice } from "../../portfolio/holdings.ts";
-import type { HoldingView } from "../../domain/assets.ts";
+import type { HoldingView, AssetEvent } from "../../domain/assets.ts";
 import { ASSET_LABELS, ASSET_SUBTYPES, type AssetSubtype } from "../../domain/assets.ts";
 import { SUBTYPE_LABELS, REVALUABLE_SUBTYPES } from "../../domain/accounts.ts";
 import { donutChart, lineChart, seriesColor, waterfall } from "../charts.ts";
@@ -159,7 +159,7 @@ export function renderPortfolio(opts: {
                           happens to it — interest credited, money paid in — is
                           a transaction on the account.
                         -->
-                        <a href="/accounts/${a.id}">See its transactions</a>
+                        <a href="/accounts/${a.id}">History</a>
                       `
                     : a.valued
                     ? html`
@@ -167,6 +167,7 @@ export function renderPortfolio(opts: {
                         ${when(a.stale, () => html`
                           <span class="chip chip-warning">not valued recently</span>
                         `)}
+                        · <a href="/accounts/${a.id}">History</a>
                         · <a href="/portfolio/asset/${a.id}/add">Add to it</a>
                         · <a href="/portfolio/asset/${a.id}/revalue">Revalue</a>
                         · <a href="/portfolio/asset/${a.id}/dispose">Sell</a>
@@ -175,6 +176,8 @@ export function renderPortfolio(opts: {
                         <!-- B101 · Created and never valued. It used to vanish. -->
                         <span class="chip chip-warning">no value yet</span>
                         · <a href="/portfolio/asset/${a.id}/revalue">Say what it's worth</a>
+                        · <a href="/accounts/${a.id}">History</a>
+                        · <a href="/accounts/${a.id}">History</a>
                         · <a href="/portfolio/asset/${a.id}/add">Add to it</a>
                         · <a href="/portfolio/asset/${a.id}/dispose">Sell</a>
                       `}
@@ -1768,3 +1771,4 @@ export function renderAddToAsset(opts: {
     </form>
   `;
 }
+
