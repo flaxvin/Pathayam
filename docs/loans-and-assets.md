@@ -157,3 +157,49 @@ and on demand, giving a dated history.
 
 Totals are computed per viewer: an account a member cannot see is excluded from
 the total shown to them, not merely from the list.
+
+## Financial independence
+
+```
+target        = annual spending ÷ withdrawal rate
+years to hit  = ln(target ÷ corpus) ÷ ln(1 + real return)
+```
+
+**Spending** is money leaving categories over a trailing window, annualised —
+the same measure the buffer uses (`envelopeSpendBetween`), so a card swipe
+counts on the day it happens and settling the card afterwards does not count
+again. This matters more here than anywhere else in the app: the target is that
+figure multiplied by roughly thirty, so an error arrives multiplied too.
+
+**Corpus** is only what can actually be drawn down:
+
+| Counted | Held apart | Not counted |
+|---|---|---|
+| Budget accounts, investments, deposits, commodities | Retirement balances (EPF, NPS) | Physical assets, receivables, untyped assets |
+
+A home is on the net-worth statement and not here — you cannot sell a tenth of
+it each year. Everything excluded is listed on the screen with its reason, so
+the gap against net worth is visible rather than mysterious.
+
+**No further earnings are assumed.** The corpus grows on its own real return
+and by nothing else: no salary, no continued saving. The screen answers "when
+is what I already hold enough", not "when could I stop if I keep saving at this
+rate" — the second needs a contribution assumed decades forward, which is the
+easiest promise such a screen can make and fail to keep. Income and the savings
+rate are still shown, because they explain the gap; they are not projected.
+
+**The bridge.** A provident fund cannot be drawn before 58–60. Given an age,
+the screen reports the years between stopping and that unlock, and whether the
+drawable corpus alone covers them at current spending. Growth during the bridge
+is deliberately ignored: a drawdown that depends on a good decade is not a
+bridge.
+
+The default withdrawal rate is 3.5%, not 4%. The familiar figure comes from US
+data over a 30-year retirement; Indian inflation has run higher and retiring
+early asks the money to last longer. The page shows what 4% would claim beside
+it rather than hiding the disagreement. Rate, real return, age and whether
+locked balances count are all controls.
+
+Totals are per viewer, as everywhere else: a private investment account never
+reaches another member's corpus, since a total including what they cannot see
+would publish it by subtraction.

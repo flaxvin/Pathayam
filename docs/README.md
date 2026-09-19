@@ -10,7 +10,7 @@ does, not how it came to do it.
 | [budgeting.md](budgeting.md) | The envelope engine: definitions, rules, formulas, the accounting identity. |
 | [accounts.md](accounts.md) | Account kinds and subtypes, transactions, transfers, splits, reconciliation. |
 | [money-in.md](money-in.md) | CSV import, PDF statements, Gmail, duplicate detection, rules, learning. |
-| [loans-and-assets.md](loans-and-assets.md) | Loans, amortisation, EMI conversion, portfolio, net worth. |
+| [loans-and-assets.md](loans-and-assets.md) | Loans, amortisation, EMI conversion, portfolio, net worth, financial independence. |
 | [privacy.md](privacy.md) | Budgets, visibility, and how access is enforced. |
 | [security.md](security.md) | Authentication, authorisation, transport, input handling. |
 | [screens.md](screens.md) | Every route the application serves. |

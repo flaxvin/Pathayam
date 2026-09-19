@@ -28,6 +28,10 @@ harvest, drawn from deliberately through the year.
 - **Per-member privacy.** A shared household budget plus an optional personal
   budget per member, excluded from the other members' lists, reports, exports,
   activity log and totals.
+- **Financial independence.** A target drawn from what the household actually
+  spent, against the assets that could actually fund it — a home is on the net
+  worth statement, not here. Assumes no further earnings, and reports the years
+  a locked provident fund leaves uncovered.
 - **Ownership.** One SQLite file in an open format, complete export, no
   telemetry, no third-party service holding the data.
 
