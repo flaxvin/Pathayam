@@ -34,6 +34,7 @@ concurrency:
 jobs:
   test:
     runs-on: ubuntu-latest
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -49,6 +50,13 @@ jobs:
   deploy:
     needs: test
     runs-on: ubuntu-latest
+    # A deploy that hangs holds the concurrency group, and every later run
+    # queues behind it and is cancelled by the one after that — so the demo
+    # silently stops deploying while every run still reports "pending". That
+    # happened: a deploy sat in progress for over an hour, most likely waiting
+    # on a Fly lease held by a deploy run by hand at the same time. A bounded
+    # job fails instead, and releases the group.
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@v4
 
@@ -76,6 +84,8 @@ jobs:
       # database is baked into the image, not shared over a volume, so a second
       # machine is a second database and a visitor would see their own
       # transaction or not depending on which answered.
-      - run: flyctl deploy --remote-only --ha=false
+      # --wait-timeout bounds the part that actually waits (machines becoming
+      # healthy), so the step fails with a reason rather than sitting there.
+      - run: flyctl deploy --remote-only --ha=false --wait-timeout=600
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
