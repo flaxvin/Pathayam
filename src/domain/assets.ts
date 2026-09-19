@@ -223,6 +223,24 @@ export function listValuableAccounts(
   );
 }
 
+/**
+ * The sign a stated valuation must carry, given what kind of account it is.
+ *
+ * Net worth decides which side of the statement a tracking account lands on by
+ * the sign of its value: positive is an asset, negative a liability. The
+ * revalue-everything screen stored `Math.abs`, so revaluing an "other
+ * liability" filed a debt as an asset and net worth moved by twice it — up by
+ * the amount instead of down.
+ *
+ * A person typing a figure for a loan they still owe will write it positive,
+ * and they are not wrong to. So the sign comes from the subtype rather than
+ * from what they typed, and neither screen has to ask.
+ */
+export function signedValuation(subtype: string, value: Paise): Paise {
+  const magnitude = Math.abs(value);
+  return (subtype === "liability" ? -magnitude : magnitude) as Paise;
+}
+
 /** R23.2 · A dated valuation, never a mutable single number. */
 export function recordValuation(
   db: DB, actor: Actor,

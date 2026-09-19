@@ -157,12 +157,16 @@ export function renderPortfolio(opts: {
                         ${when(a.stale, () => html`
                           <span class="chip chip-warning">not valued recently</span>
                         `)}
+                        · <a href="/portfolio/asset/${a.id}/add">Add to it</a>
                         · <a href="/portfolio/asset/${a.id}/revalue">Revalue</a>
+                        · <a href="/portfolio/asset/${a.id}/dispose">Sell or dispose</a>
                       `
                     : html`
                         <!-- B101 · Created and never valued. It used to vanish. -->
                         <span class="chip chip-warning">no value yet</span>
                         · <a href="/portfolio/asset/${a.id}/revalue">Say what it's worth</a>
+                        · <a href="/portfolio/asset/${a.id}/add">Add to it</a>
+                        · <a href="/portfolio/asset/${a.id}/dispose">Sell or dispose</a>
                       `}
                 </div>
               </div>
@@ -257,6 +261,14 @@ export function renderNewAssetForm(opts: {
               (s) => html`<option value="${s}">${ASSET_LABELS[s]}</option>`,
             )}
           </select>
+          <p class="field-hint">
+            A debt with a rate and an EMI is a <a href="/loans">loan</a>, not an
+            asset recorded here. Money between you and somebody you know belongs
+            in <a href="/family">lending</a>, where the balance is derived from
+            the actual transfers rather than retyped. This screen is for what is
+            left: something you own and value by hand, or an amount you owe that
+            has no schedule behind it.
+          </p>
         </div>
         <div class="field">
           <label for="value">Current value</label>
@@ -1660,6 +1672,75 @@ export function renderDisposeAsset(opts: {
       </div>
 
       <button class="button-primary" type="submit">Dispose of it</button>
+      <a class="button button-quiet" href="/portfolio">Cancel</a>
+    </form>
+  `;
+}
+
+/**
+ * Buying more of something valued by hand.
+ *
+ * Gold, mostly. Revaluing says what the pot is worth now; it does not say that
+ * ₹50,000 left the savings account to make it bigger. Doing it with a
+ * revaluation alone loses the payment, and net worth rises with nothing on the
+ * other side — the same hole that creating an asset had.
+ */
+export function renderAddToAsset(opts: {
+  account: { id: string; name: string };
+  lastValue: Paise;
+  lastAsOf: IsoDate | null;
+  today: IsoDate;
+  payFrom: { id: string; name: string }[];
+  categories: { id: string; name: string }[];
+}): SafeHtml {
+  return html`
+    <h1>Add to ${opts.account.name}</h1>
+    <p class="faint">
+      ${opts.lastAsOf
+        ? html`Currently ${formatPaise(opts.lastValue)}, as of ${opts.lastAsOf}.`
+        : html`This asset has no value recorded yet.`}
+    </p>
+
+    <form class="card" method="post" action="/portfolio/asset/${opts.account.id}/add">
+      <div class="field">
+        <label for="spent">What you paid</label>
+        <input id="spent" name="spent" inputmode="decimal" placeholder="0.00" required>
+      </div>
+
+      <div class="field">
+        <label for="paid_from">Paid from</label>
+        <select id="paid_from" name="paid_from">
+          <option value="">Nothing moved — record the value only</option>
+          ${opts.payFrom.map((a) => html`<option value="${a.id}">${a.name}</option>`)}
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="paid_category">From envelope</label>
+        <select id="paid_category" name="paid_category">
+          <option value="">No envelope</option>
+          ${opts.categories.map((c) => html`<option value="${c.id}">${c.name}</option>`)}
+        </select>
+      </div>
+
+      <div class="field">
+        <label for="new_value">What the whole thing is worth now</label>
+        <input id="new_value" name="new_value" inputmode="decimal"
+               value="${((opts.lastValue) / 100).toFixed(2)}">
+        <p class="field-hint">
+          Prefilled with what it was worth before — add what you paid, or put the
+          real figure if you have one. What you paid and what it is worth are not
+          the same number, and this app will not pretend they are: gold bought at
+          a premium is worth the market rate the moment you own it.
+        </p>
+      </div>
+
+      <div class="field">
+        <label for="on">Date</label>
+        <input id="on" name="on" type="date" value="${opts.today}">
+      </div>
+
+      <button class="button-primary" type="submit">Record it</button>
       <a class="button button-quiet" href="/portfolio">Cancel</a>
     </form>
   `;
