@@ -110,16 +110,17 @@ export function renderFire(opts: { projection: FireProjection }): SafeHtml {
         <p style="margin-top:1rem">
           ${p.yearsToFire === null
             ? html`
-                <strong>Not on the current pattern.</strong> The household is
-                spending what it earns, or close enough that the corpus does not
-                climb towards the target. The lever is the gap between income and
-                spending, not the return.
+                <strong>Not from what is invested today.</strong> Growth alone
+                does not carry this corpus to the target — either there is too
+                little invested for ${realReturn}% to compound into enough, or
+                there is nothing invested at all. Adding to it is what moves
+                this, and that addition is not assumed here.
               `
             : html`
                 About <strong>${years(p.yearsToFire)}</strong> away
                 ${p.fireMonth ? html`— around ${formatMonth(p.fireMonth)}` : html``},
-                saving ${formatPaise(p.annualSavings)} a year at ${realReturn}%
-                after inflation.
+                on ${realReturn}% after inflation and
+                <strong>nothing further added</strong>.
               `}
         </p>
       </section>
@@ -138,7 +139,7 @@ export function renderFire(opts: { projection: FireProjection }): SafeHtml {
                 <td class="amount">${formatPaise(p.annualIncome)}</td>
               </tr>
               <tr>
-                <td>Saved</td>
+                <td>Saved <span class="faint">· not projected forward</span></td>
                 <td class="amount">
                   ${formatPaise(p.annualSavings)}
                   ${p.savingsRatePct === null
@@ -153,6 +154,13 @@ export function renderFire(opts: { projection: FireProjection }): SafeHtml {
           Spending is money leaving your envelopes, so a card swipe counts on the
           day you make it and paying the card off afterwards does not count again.
           Transfers and income never touch an envelope.
+        </p>
+        <p class="faint">
+          Income and saving are shown because they explain the gap, but the
+          projection does not spend them: it assumes you add nothing further and
+          the corpus grows only on its own return. Keep saving and you will
+          arrive earlier than the date above — which is the direction an estimate
+          about the rest of your life ought to be wrong in.
         </p>
         ${when(p.windowIsShort, () => html`
           <p class="warn">
@@ -246,7 +254,9 @@ export function renderFire(opts: { projection: FireProjection }): SafeHtml {
         </form>
 
         <p class="faint" style="margin-top:1rem">
-          The 4% rule comes from US data over a 30-year retirement. Indian
+          The projection assumes no further earnings: only what is already
+          invested, compounding. The 4% rule comes from US data over a 30-year
+          retirement. Indian
           inflation has run higher, and stopping early asks the money to last
           longer than thirty years — both push the sustainable rate down, which
           is why this starts at 3.5%. At 4% the target would be

@@ -180,6 +180,54 @@ describe("the arithmetic of getting there", () => {
   });
 });
 
+describe("the projection counts no further earnings", () => {
+  /** Same corpus, same spending, wildly different salaries. */
+  function withIncome(extraIncome: number) {
+    const { db, bank, groceries } = household();
+    createTransaction(db, actor, {
+      accountId: bank, amount: -rupees(120_000), date: "2025-10-05", categoryId: groceries,
+    });
+    if (extraIncome > 0) {
+      createTransaction(db, actor, {
+        accountId: bank, amount: rupees(extraIncome), date: "2025-10-01", categoryId: null,
+      });
+      // Spent again immediately, so the corpus ends where the other one does
+      // and only the *income* differs.
+      createTransaction(db, actor, {
+        accountId: bank, amount: -rupees(extraIncome), date: "2025-10-02", categoryId: null,
+      });
+    }
+    return fireProjection(db, { asOf: ASOF });
+  }
+
+  test("a large salary does not bring the date forward", () => {
+    const poor = withIncome(0);
+    const rich = withIncome(5_000_000);
+
+    assert.equal(rich.corpus, poor.corpus, "the fixture changed the corpus, not just income");
+    assert.ok(rich.annualIncome > poor.annualIncome, "the fixture did not change income");
+    assert.equal(
+      rich.yearsToFire, poor.yearsToFire,
+      "future earnings were projected forward; this screen must not assume them",
+    );
+  });
+
+  test("income is still reported, because it explains the gap", () => {
+    const p = withIncome(5_000_000);
+    assert.ok(p.annualIncome > 0, "income was dropped rather than merely excluded from the maths");
+    assert.ok(p.savingsRatePct !== null);
+  });
+
+  test("with nothing invested, growth alone never arrives", () => {
+    const db = household().db;
+    const p = fireProjection(db, { asOf: ASOF });
+    // No spending recorded, so no target; and with a target but no corpus,
+    // compounding zero is still zero.
+    assert.equal(yearsToTarget(0, 0, 0.05, 1_000_000), null);
+    assert.equal(p.yearsToFire, null);
+  });
+});
+
 describe("the projected date", () => {
   test("is a well-formed month, not a mangled date", () => {
     const { db, bank, groceries } = household();
