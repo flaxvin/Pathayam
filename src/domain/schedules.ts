@@ -144,6 +144,13 @@ export function updateSchedule(
   patch: Partial<Pick<Schedule,
     "name" | "amount" | "recurrence" | "next_due" | "category_id" | "account_id"
     | "short_month_policy" | "is_subscription" | "amount_is_estimate">>,
+  /**
+   * `splitsFollow` is the caller promising to write split lines in the same
+   * transaction. Without it, an edit that turns a single-envelope schedule into
+   * a split is refused halfway: the category is cleared before the lines that
+   * replace it exist, so the envelope rule sees a schedule with neither.
+   */
+  opts: { splitsFollow?: boolean } = {},
 ): Schedule {
   return transact(db, () => {
     const before = getSchedule(db, id);
@@ -151,7 +158,7 @@ export function updateSchedule(
     requireEnvelopeForOutgoing(
       patch.amount !== undefined ? patch.amount : before.amount,
       patch.category_id !== undefined ? patch.category_id : before.category_id,
-      getScheduleSplits(db, id).length > 0,
+      opts.splitsFollow === true || getScheduleSplits(db, id).length > 0,
     );
 
     // A key present but undefined means "not mentioned", not "set to null" — the

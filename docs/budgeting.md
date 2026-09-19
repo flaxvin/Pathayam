@@ -177,53 +177,66 @@ survive.
 One payment, more than one envelope. A supermarket bill is half groceries and
 half household; a bank charge rides along with a transfer.
 
-Lines are given as `split_category_N` / `split_amount_N`, the same names on the
-entry form, the edit screen and a schedule's split, so all three agree about
-what a split is. They must **add up to the transaction's amount** — a split
-that does not reconcile is money the ledger cannot account for.
+### There is no main category — there are lines
+
+A transaction has envelopes, and usually one. So every screen that files money —
+add a transaction, edit one, add a schedule, edit one — shows the same control:
+a **list of lines**, where
+
+- the **first carries no amount** and takes whatever the others leave;
+- the rest are behind *Split it across more than one*, and name an amount.
+
+One line is an ordinary single-envelope entry, which is what almost every
+transaction is. Two lines make it a split without the first ever being retyped:
+add a ₹900 line to a ₹2,400 bill and the first quietly becomes ₹1,500.
+
+Lines are posted as `split_category_N` / `split_amount_N` — the same names on
+all four screens, so they agree about what a split is. `split_amount_0` is not
+read: the first line's amount is computed, never typed.
+
+This replaced a separate "main category" box sitting above a split section, and
+with it a whole class of bugs. The box meant nothing while the section was in
+use, so the form emptied and disabled it — which destroyed whatever had already
+been chosen, left an empty box the form then refused to submit, and gave no way
+back to a single envelope. Every question about what that box should say, and
+whether it was required, stopped having an answer worth giving.
+
+**The lines can no longer disagree with the total.** The remainder is computed
+rather than typed, so the arithmetic the household used to have to get right —
+and the refusal when they got it wrong — stopped existing. What is refused is
+only the case that has no reading at all: later lines claiming the total or more,
+which would leave the first line nothing or a negative amount.
 
 When lines are present the transaction's own `category_id` is **null** and the
-lines carry the categories. Setting both would file the amount twice. That is
-also why B99's rule still holds when splitting: money out needs an envelope, and
-the lines are that envelope.
-
-Splitting used to be available only when editing, so the way to record a mixed
-bill was to save it wrong and then correct it. It is on the entry form now, and
-on the new-schedule form.
-
-**The envelope above a split is not used.** The lines carry the categories, so
-the box is emptied and disabled while lines are filled in, and the hint says so.
-Before that it was still *required*, which meant choosing an envelope purely to
-satisfy the form and then having it discarded.
-
-On a schedule the lines live in their own form, so the browser cannot see them
-from the edit form beside it. There the server disables the box instead — and
-the edit route now treats a **missing** field as "leave it alone" rather than
-"clear it", because a disabled select submits nothing and the stored envelope
-would have been wiped on every edit.
+lines carry the categories. Setting both would file the amount twice. B99's rule
+still holds: money out needs an envelope, and the first line is that envelope —
+so it is required for an expense whether or not the entry is split.
 
 ### Going back to one envelope
 
-**One line means one envelope.** Delete all but one and the split is removed and
-that line's category becomes the transaction's or the schedule's own. It used to
-be refused as "not a split", which was a dead end: the lines form would not take
-one line, and the envelope field it pointed at was disabled *because* the split
-existed.
+**One line means one envelope.** Clear the extra lines and the split is removed;
+the first line's category becomes the transaction's or the schedule's own. It
+used to be refused as "not a split", which was a dead end.
 
-A single line has to be the whole amount. A fraction is refused, since that
-would silently lose the rest.
+Clearing the *first* line is how you say "no envelope". On money coming in that
+is ordinary — it lands in Ready to Assign. On an outgoing schedule with nothing
+else to post to it is **refused**: it would post itself every month into
+nothing, which is the queue of unrecorded spending the envelope rule exists to
+prevent.
 
-Clearing every line is allowed only if something is left to post to. On an
-outgoing schedule with no envelope of its own it is **refused** — it would post
-itself every month into nothing, which is the queue of unrecorded spending the
-envelope rule exists to prevent.
+A present-but-empty first select means "clear it", not "no lines were sent". The
+two used to be indistinguishable, and reading it the other way made clearing an
+envelope a save that reported success and changed nothing.
 
-### When the lines do not add up
+### The half a test cannot see
 
-Both refuse, with the figures: *"The lines add up to ₹2,000, but the transaction
-is ₹2,400."* Neither writes anything. The schedule case is wrapped in one
-transaction, so a refused split takes the half-made schedule with it rather than
-leaving one behind with no lines.
+The envelope select is *also* the thing the browser can decline to send. A
+disabled select submits nothing, so when the client script kept disabling it —
+correct under the old form, wrong the moment the box became the first line — a
+₹5,000 expense with ₹1,200 on the second line arrived with no first envelope and
+was filed whole into the second. The forms were right and the server was right;
+the bug lived entirely in between. `client-envelope.test.ts` runs that rule
+against a stub DOM for exactly this reason.
 
 ## A transfer that costs something
 
@@ -257,10 +270,10 @@ be entered and split by hand every month, which is the work a schedule exists to
 remove.
 
 `schedule_splits` mirrors `transaction_splits` rather than inventing a second
-shape, because when the schedule posts, one becomes the other. The lines must
-add up to the schedule's amount: a split that does not reconcile is money the
-ledger cannot account for, and a recurring one repeats that every month until
-somebody notices.
+shape, because when the schedule posts, one becomes the other. The lines work
+the same way too — first line takes the remainder — which matters more here than
+anywhere: a recurring split that was quietly wrong would repeat itself every
+month until somebody noticed.
 
 When a split schedule posts, the transaction's own `category_id` goes null and
 the lines carry the categories — the same rule as a hand-entered split. Setting

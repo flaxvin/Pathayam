@@ -71,14 +71,28 @@ const base = {
 };
 
 describe("F4.3 · a split transaction survives its own edit screen", () => {
-  test("the screen shows the split lines", async () => {
+  test("the screen shows the split lines, the first without an amount", async () => {
+    /*
+     * The first line's ₹2,000 is deliberately absent: it is the remainder, and
+     * a box showing it would be a box that ignores what is typed into it. Both
+     * envelopes are still named, and the later line still carries its amount —
+     * which is the whole of what the form needs back to save unchanged.
+     */
     const id = splitSpend();
     const page = await app.get(`/transaction/${id}`);
     assert.equal(page.status, 200);
     const body = await page.text();
-    assert.match(body, /Split across 2 envelopes/);
-    assert.match(body, /2000\.00/);
-    assert.match(body, /1000\.00/);
+
+    assert.match(
+      body, /name="split_category_0"[\s\S]{0,4000}?value="[^"]+" selected>\s*Groceries/,
+      "the first line does not come back preselected",
+    );
+    assert.match(body, /name="split_amount_1"[^>]*value="1000\.00"/, "the second line lost its amount");
+    assert.doesNotMatch(
+      body, /name="split_amount_0"/,
+      "the remainder is offered as an editable box, which would ignore whatever is typed in it",
+    );
+    assert.match(body, /Split it across more than one/, "the lines are not on the page");
   });
 
   test("saving without touching the split keeps it", async () => {
@@ -98,24 +112,38 @@ describe("F4.3 · a split transaction survives its own edit screen", () => {
     assert.equal(getTransaction(db, id)!.amount, -rupees(3000));
   });
 
-  test("editing the lines re-splits, and they must sum", async () => {
+  test("editing the lines re-splits, and the first takes the remainder", async () => {
+    /*
+     * "They must sum" was the old rule and is gone: the first line carries no
+     * amount, so the arithmetic is the app's rather than the household's.
+     * Claim ₹1,000 of ₹3,500 and the first is ₹2,500 whether or not anyone
+     * worked that out.
+     */
     const id = splitSpend();
     const ok = await app.post(`/transaction/${id}`, {
       ...base, amount: "3500",
-      split_category_0: groceries, split_amount_0: "2500",
+      split_category_0: groceries,
       split_category_1: eatingOut, split_amount_1: "1000",
     });
     assert.equal(ok.status, 303);
     const lines = getSplits(db, id);
     assert.equal(lines.length, 2);
     assert.equal(lines.reduce((s, l) => s + l.amount, 0), -rupees(3500));
+    assert.equal(
+      lines.find((l) => l.category_id === groceries)!.amount, -rupees(2500),
+      "the first line did not absorb the remainder",
+    );
+  });
 
-    const short = await app.post(`/transaction/${id}`, {
+  test("claiming more than the transaction holds is still refused", async () => {
+    const id = splitSpend();
+    const res = await app.post(`/transaction/${id}`, {
       ...base, amount: "3500",
-      split_category_0: groceries, split_amount_0: "100",
-      split_category_1: eatingOut, split_amount_1: "100",
+      split_category_0: groceries,
+      split_category_1: eatingOut, split_amount_1: "4000",
     });
-    assert.equal(short.status, 400);
+    assert.ok(res.status >= 400, "the first line would have gone negative");
+    assert.equal(getSplits(db, id).length, 2, "the split was destroyed anyway");
   });
 
   test("filing to one envelope is an explicit choice, and works", async () => {
@@ -179,15 +207,6 @@ describe("F4.3 · a split transaction survives its own edit screen", () => {
     )!;
     assert.equal(after.is_split, 0, "it became a split from a line with no amount");
     assert.equal(after.category_id, groceries, "the chosen envelope was not used");
-  });
-
-  test("but one line short of the amount is still refused", async () => {
-    const id = spend(900);
-    const res = await app.post(`/transaction/${id}`, {
-      ...base, amount: "900",
-      split_category_0: groceries, split_amount_0: "400",
-    });
-    assert.equal(res.status, 400, "₹400 was accepted as the whole of ₹900");
   });
 });
 

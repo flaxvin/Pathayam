@@ -10,6 +10,7 @@
 
 import { html, raw, when, type SafeHtml } from "../../http/html.ts";
 import type { GainsYear } from "../../domain/reports.ts";
+import { renderCategoryLines } from "./category-lines.ts";
 import { formatPaise, formatCompact, type Paise } from "../../core/money.ts";
 import { formatDate, formatMonth, type IsoDate, type MonthKey } from "../../core/dates.ts";
 import { renderScopeSwitch } from "../scope-switch.ts";
@@ -805,29 +806,19 @@ export function renderSchedules(opts: {
                       <label style="font-size:.75rem" for="su-${s.id}">Next due</label>
                       <input id="su-${s.id}" name="next_due" type="date" value="${s.next_due ?? ""}">
                     </div>
-                    <div class="field" style="margin:0">
-                      <label style="font-size:.75rem" for="sc-${s.id}">Envelope</label>
-                      <!--
-                        A schedule's split lines are posted by a different form
-                        below, so the browser cannot see them from here. The
-                        server knows, and says so: with lines set, this envelope
-                        is not what the schedule posts to and the lines are.
-                      -->
-                      <select id="sc-${s.id}" name="category_id" style="max-width:12rem"
-                              ${raw((opts.splits?.get(s.id)?.length ?? 0) > 0 ? "disabled" : "")}>
-                        <option value="">
-                          ${(opts.splits?.get(s.id)?.length ?? 0) > 0
-                            ? "Split — the lines below carry the envelopes"
-                            : "Not set"}
-                        </option>
-                        ${(opts.categories ?? []).map(
-                          (c) => html`
-                            <option value="${c.id}" ${raw(c.id === s.category_id ? "selected" : "")}>
-                              ${c.name}
-                            </option>
-                          `,
-                        )}
-                      </select>
+                    <div class="field" style="margin:0;flex:1 1 100%">
+                      ${renderCategoryLines({
+                        label: "Envelope",
+                        categories: (opts.categories ?? []).map((c) => ({ id: c.id, name: c.name })),
+                        values: (opts.splits?.get(s.id)?.length ?? 0) > 0
+                          ? opts.splits!.get(s.id)!.map((sp) => ({
+                              categoryId: sp.category_id, amount: sp.amount,
+                            }))
+                          : [{ categoryId: s.category_id, amount: null }],
+                        hint: html`
+                          The first takes whatever the extra lines do not claim.
+                        `,
+                      })}
                     </div>
                     <div class="field" style="margin:0">
                       <label style="font-size:.75rem" for="sacc-${s.id}">Account</label>
@@ -844,46 +835,6 @@ export function renderSchedules(opts: {
                     </div>
                     <button class="button-small" type="submit">Save</button>
                   </form>
-                  ${when(
-                    s.amount !== null && (opts.categories?.length ?? 0) > 0,
-                    () => {
-                      const lines = opts.splits?.get(s.id) ?? [];
-                      /*
-                       * Four rows is enough for a salary (PF, tax, net) with one
-                       * spare, and a fixed number keeps this a plain form rather
-                       * than something that needs scripting to add a row.
-                       */
-                      const slots = Math.max(4, lines.length + 1);
-                      return html`
-                        <form method="post" action="/schedules/${s.id}/splits" style="margin-top:.6rem">
-                          <p class="field-hint" style="margin:0 0 .4rem">
-                            Split it across envelopes. The lines have to add up to
-                            ${formatPaise(s.amount!)} — leave them all empty to stop
-                            splitting.
-                          </p>
-                          ${Array.from({ length: slots }, (_unused, i) => {
-                            const line = lines[i];
-                            return html`
-                              <div class="row" style="gap:.4rem;margin-bottom:.3rem">
-                                <select name="split_category_${i}" style="max-width:11rem">
-                                  <option value="">No envelope</option>
-                                  ${(opts.categories ?? []).map((c) => html`
-                                    <option value="${c.id}" ${raw(line?.category_id === c.id ? "selected" : "")}>
-                                      ${c.name}
-                                    </option>
-                                  `)}
-                                </select>
-                                <input name="split_amount_${i}" inputmode="decimal"
-                                       style="max-width:7rem" placeholder="0.00"
-                                       value="${line ? (line.amount / 100).toFixed(2) : ""}">
-                              </div>
-                            `;
-                          })}
-                          <button class="button-small" type="submit">Save the split</button>
-                        </form>
-                      `;
-                    },
-                  )}
                   <form method="post" action="/schedules/${s.id}/delete" style="margin-top:.4rem"
                         onsubmit="return confirm('Remove this schedule? Anything it already recorded stays.')">
                     <button class="button-small button-danger" type="submit">Remove</button>
@@ -1047,56 +998,16 @@ export function renderNewScheduleForm(opts: {
           </select>
         </div>
       </div>
-      <div class="field">
-        <label for="category_id">Which envelope</label>
-        <select id="category_id" name="category_id" data-split-aware>
-          <option value="">Not set — only for money coming in</option>
-          ${opts.categories.map((c) => html`<option value="${c.id}">${c.name}</option>`)}
-        </select>
-        <!--
-          F7.4 · A schedule shows on the budget screen against its category, and
-          B99's rule applies to a payment the app posts every month as much as to
-          one typed by hand — so money out needs an envelope, and "Uncategorised"
-          is no longer on offer for it.
-        -->
-        <p class="field-hint">
+      ${renderCategoryLines({
+        label: "Which envelope",
+        categories: (opts.categories ?? []).map((c) => ({ id: c.id, name: c.name })),
+        hint: html`
           Money going out needs one: a scheduled payment posts itself, so without
           an envelope it would quietly build a queue of spending with nothing
           recording where it went. Money coming in lands in Ready to Assign.
-        </p>
-      </div>
-      <div class="field">
-        <label><input type="checkbox" name="is_subscription" value="1"> This is a subscription</label>
-      </div>
-
-      <!--
-        Splitting at creation, not only afterwards.
-
-        The two most regular payments a household has are both splits — a salary
-        into provident fund, tax and what landed; rent into rent and
-        maintenance. The lines could only be set on an existing schedule, so
-        recording either meant creating it wrong and then editing.
-      -->
-      <details class="field">
-        <summary class="linkish">Split across envelopes</summary>
-        <p class="field-hint">
-          Fill in two or more lines and they must add up to the amount above.
-          Leave them blank for a schedule that posts to one envelope.
-        </p>
-        ${[0, 1, 2].map((i) => html`
-          <div class="row" style="gap:.4rem;margin-bottom:.3rem">
-            <select name="split_category_${i}" style="max-width:11rem"
-                    aria-label="Split ${i + 1} envelope">
-              <option value="">—</option>
-              ${(opts.categories ?? []).map((c) => html`
-                <option value="${c.id}">${c.name}</option>
-              `)}
-            </select>
-            <input name="split_amount_${i}" inputmode="decimal" style="max-width:7rem"
-                   placeholder="0.00" aria-label="Split ${i + 1} amount">
-          </div>
-        `)}
-      </details>
+          The first envelope takes whatever the extra lines do not claim.
+        `,
+      })}
 
       <button class="button-primary" type="submit">Add schedule</button>
       <a class="button button-quiet" href="/schedules">Cancel</a>

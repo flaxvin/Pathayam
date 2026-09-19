@@ -455,6 +455,69 @@ export interface TransferInput {
  * the engine's derivation rather than needing a special case here — see
  * `docs/dev/01-engine-derivation.md` §5.
  */
+export interface CategoryLine {
+  categoryId: string | null;
+  /** Null on the first line, which takes whatever the others leave. */
+  amount: Paise | null;
+}
+
+export interface ResolvedLines {
+  categoryId: string | null;
+  splits: SplitInput[] | null;
+}
+
+/**
+ * Category lines into either one category or a set of splits.
+ *
+ * There is no "main" category and never really was — a transaction has
+ * envelopes, and usually one. Asking for a category *and* a split section
+ * meant a box that silently meant nothing while the section was open, and a
+ * long tail of bugs about what it should say, whether it was required, and
+ * what happened to what you had typed in it.
+ *
+ * So: lines. The **first carries no amount** and takes whatever the others
+ * leave. One line is an ordinary single-envelope transaction. Add a ₹900 line
+ * to a ₹2,400 total and the first quietly becomes ₹1,500.
+ *
+ * That is also why the lines can no longer fail to add up. The remainder is
+ * computed rather than typed, so the arithmetic that used to be the person's
+ * problem — and the refusal when they got it wrong — stops existing. What can
+ * still go wrong is claiming *more* than the transaction holds, and that is
+ * refused with the figures.
+ */
+export function resolveCategoryLines(total: Paise, lines: CategoryLine[]): ResolvedLines {
+  const first = lines[0] ?? { categoryId: null, amount: null };
+  const rest = lines.slice(1).filter((l) => l.amount !== null && l.amount !== 0);
+
+  if (rest.length === 0) return { categoryId: first.categoryId, splits: null };
+
+  const claimed = rest.reduce((sum, l) => sum + (l.amount ?? 0), 0);
+  const remainder = (total - claimed) as Paise;
+
+  /*
+   * The remainder has to be real money on the same side of zero as the
+   * transaction. Claiming more than there is would otherwise make the first
+   * line negative — money appearing in an envelope because two others took too
+   * much — which is exactly the kind of quiet impossibility the identity exists
+   * to prevent.
+   */
+  if (remainder === 0 || (total < 0) !== (remainder < 0)) {
+    throw new Refusal(
+      `Those lines come to ${formatPaise(Math.abs(claimed) as Paise)}, which leaves ` +
+      `nothing for the first one out of ${formatPaise(Math.abs(total) as Paise)}. ` +
+      "Give the later lines less than the total.",
+    );
+  }
+
+  return {
+    categoryId: null,
+    splits: [
+      { categoryId: first.categoryId, amount: remainder },
+      ...rest.map((l) => ({ categoryId: l.categoryId, amount: l.amount as Paise })),
+    ],
+  };
+}
+
 export function createTransfer(db: DB, actor: Actor, input: TransferInput): [Transaction, Transaction] {
   if (input.amount <= 0) throw new Refusal("Enter an amount greater than zero to transfer.");
   if (input.fromAccountId === input.toAccountId) throw new Refusal("Pick two different accounts.");

@@ -48,7 +48,7 @@ describe("splitting at entry", () => {
     const res = await app.post("/add", {
       account_id: bank, amount: "2400", direction: "out", date: "2026-09-10",
       payee: "Big Bazaar",
-      split_category_0: groceries, split_amount_0: "1500",
+      split_category_0: groceries,
       split_category_1: household, split_amount_1: "900",
     });
     assert.equal(res.status, 303);
@@ -65,13 +65,28 @@ describe("splitting at entry", () => {
     );
   });
 
-  test("lines that do not add up are refused", async () => {
+  test("lines cannot fail to add up, because the first takes the remainder", async () => {
+    /*
+     * Reversed deliberately. The first line carries no amount, so there is no
+     * arithmetic for somebody to get wrong: claim ₹900 of ₹2,400 on a second
+     * line and the first is ₹1,500 whether or not anyone worked that out.
+     */
     const res = await app.post("/add", {
       account_id: bank, amount: "2400", direction: "out", date: "2026-09-10",
-      split_category_0: groceries, split_amount_0: "1500",
-      split_category_1: household, split_amount_1: "500",
+      split_category_0: groceries, split_category_1: household, split_amount_1: "900",
     });
-    assert.ok(res.status >= 400, "a split that is ₹400 short was accepted");
+    assert.equal(res.status, 303);
+    const lines = getSplits(db, latest().id);
+    assert.equal(lines.length, 2);
+    assert.equal(lines.reduce((t, l) => t + l.amount, 0), -rupees(2_400));
+  });
+
+  test("but claiming more than the transaction holds is refused", async () => {
+    const res = await app.post("/add", {
+      account_id: bank, amount: "2400", direction: "out", date: "2026-09-10",
+      split_category_0: groceries, split_category_1: household, split_amount_1: "3000",
+    });
+    assert.equal(res.status, 422, "the first line would have gone negative");
   });
 
   test("the category is not required when the lines carry it", async () => {
@@ -91,12 +106,22 @@ describe("splitting at entry", () => {
     assert.equal(res.status, 400, "the B99 rule was lost when splits were added");
   });
 
-  test("an ordinary single-category entry is unaffected", async () => {
+  test("one line is an ordinary single-envelope entry", async () => {
+    const res = await app.post("/add", {
+      account_id: bank, amount: "300", direction: "out", date: "2026-09-13",
+      split_category_0: groceries,
+    });
+    assert.equal(res.status, 303);
+    assert.equal(latest().category_id, groceries);
+    assert.equal(getSplits(db, latest().id).length, 0, "one line became a split");
+  });
+
+  test("the old category_id still works, for the API and anything scripted", async () => {
     const res = await app.post("/add", {
       account_id: bank, amount: "300", direction: "out", date: "2026-09-13",
       category_id: groceries,
     });
-    assert.equal(res.status, 303);
+    assert.equal(res.status, 303, "a caller posting the old field was broken");
     assert.equal(latest().category_id, groceries);
   });
 
