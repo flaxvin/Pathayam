@@ -167,6 +167,8 @@ import {
   type PayeeRow, type RuleRow,
 } from "./web/pages/manage.ts";
 import { renderPrivacy, renderTerms, type LegalMode } from "./web/pages/legal.ts";
+import { renderFire } from "./web/pages/fire.ts";
+import { fireProjection, DEFAULT_ASSUMPTIONS } from "./domain/fire.ts";
 import { renderActivity } from "./web/pages/activity.ts";
 import { renderCards, type CardDue } from "./web/pages/cards.ts";
 import { countRequestFailures, recentRequestFailures } from "./ops/errors.ts";
@@ -5733,6 +5735,39 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       return { redirect: "/settings#notifications", message: "Saved." };
     }),
   );
+
+  /*
+   * A projection, not a ledger figure, and scoped to whoever is looking: a
+   * private investment account must not reach somebody else's corpus, since a
+   * total that includes what they cannot see publishes it by subtraction.
+   */
+  router.get("/fire", (ctx) => {
+    requireAssets();
+    const percent = (name: string, fallback: number): number => {
+      const raw = ctx.query.get(name);
+      if (!raw?.trim()) return fallback;
+      const value = Number(raw.trim());
+      // A nonsense rate is ignored rather than refused — this screen is a
+      // sandbox for trying numbers, and a 422 in the middle of that is rude.
+      if (!Number.isFinite(value) || value <= 0 || value > 100) return fallback;
+      return Math.round(value * 100);
+    };
+    const ageRaw = ctx.query.get("age")?.trim();
+    const age = ageRaw ? Number(ageRaw) : NaN;
+
+    const projection = fireProjection(db, {
+      viewerMemberId: viewer(ctx),
+      scope: holderScopeParam(ctx),
+      assumptions: {
+        withdrawalRateBp: percent("swr", DEFAULT_ASSUMPTIONS.withdrawalRateBp),
+        realReturnBp: percent("ret", DEFAULT_ASSUMPTIONS.realReturnBp),
+        includeLocked: (ctx.query.get("locked") ?? "1") !== "0",
+        currentAge: Number.isFinite(age) && age > 0 && age < 120 ? age : null,
+      },
+    });
+
+    return render(ctx, "Financial independence", renderFire({ projection }));
+  });
 
   router.get("/portfolio", (ctx) => {
     requireAssets();
