@@ -107,7 +107,13 @@ export function createTransaction(
 ): Transaction {
   return transact(db, () => {
     const account = getAccount(db, input.accountId);
-    if (!account) throw new Error("That account does not exist.");
+    /*
+       * A Refusal, not an Error. Somebody named an account that is not there —
+       * a stale link, a typo, an API caller with an old id. As a plain Error it
+       * was recorded as a server fault, and a fault in the last 24 hours used
+       * to take the whole instance out of rotation.
+       */
+    if (!account) throw new Refusal("That account does not exist.");
 
     // F4.3: splits must sum to the total, or the ledger stops adding up.
     if (input.splits && input.splits.length > 0) {
@@ -456,7 +462,7 @@ export function createTransfer(db: DB, actor: Actor, input: TransferInput): [Tra
   return transact(db, () => {
     const from = getAccount(db, input.fromAccountId);
     const to = getAccount(db, input.toAccountId);
-    if (!from || !to) throw new Error("That account does not exist.");
+    if (!from || !to) throw new Refusal("That account does not exist.");
 
     const pairId = newId();
     const date = input.date ?? todayIST();
