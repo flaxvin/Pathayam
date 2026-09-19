@@ -87,8 +87,8 @@ describe("R40.2 / F15 · the portfolio is covered by backup and export", () => {
     const exported = exportEverything(db) as { data: Record<string, unknown> };
 
     for (const table of [
-      "statement_identity", "gmail_connections", "sessions", "api_tokens",
-      "auth_attempts", "idempotency_keys", "job_runs", "price_fetches",
+      "statement_identity", "gmail_connections", "member_passwords", "sessions",
+      "api_tokens", "auth_attempts", "idempotency_keys", "job_runs", "price_fetches",
     ]) {
       assert.ok(!(table in exported.data), `${table} must not be exported`);
     }
