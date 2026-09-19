@@ -7681,13 +7681,35 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }),
   );
 
+  /*
+   * Liveness, not perfection.
+   *
+   * This is what the platform polls to decide whether to send traffic here, and
+   * it used to return 503 whenever *any* check read "failed" — including
+   * "a request failed in the last 24 hours". So one bad request took the whole
+   * app out of rotation for a day: the proxy stopped routing, every visitor got
+   * 503, and the recorded failure that caused it could not be cleared because
+   * nobody could reach the app to clear it. A diagnostic observation was wired
+   * to an outage switch.
+   *
+   * The body still reports everything, and /health still shows it to an
+   * operator. What decides the status code is only whether this instance can
+   * serve a request at all — which is answered by the database opening, since
+   * nothing works without it.
+   */
   router.get("/healthz", () => {
     const groups = healthGroups();
     const overall = overallState(groups);
+
+    const canServe = groups
+      .find((g) => g.name === "Data")?.checks
+      .find((c) => c.name === "Database")?.state !== "failed";
+
     return {
-      status: overall === "failed" ? 503 : 200,
+      status: canServe ? 200 : 503,
       json: {
         status: overall,
+        serving: canServe,
         version: "0.1.0",
         checks: groups.flatMap((g) =>
           g.checks.map((c) => ({ group: g.name, name: c.name, state: c.state, reason: c.reason })),

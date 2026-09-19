@@ -31,6 +31,7 @@
  */
 
 import type { DB } from "../db/db.ts";
+import { Refusal } from "../core/refusal.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { householdBudgetId } from "./budgets.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
@@ -74,7 +75,7 @@ export interface ReconciliationPreview {
  */
 export function clearedBalanceAsOf(db: DB, accountId: string, asOf: IsoDate): Paise {
   const account = getAccount(db, accountId);
-  if (!account) throw new Error("That account does not exist.");
+  if (!account) throw new Refusal("That account does not exist.");
 
   const opening = account.opening_date <= asOf ? account.opening_balance : 0;
   const sum =
@@ -138,7 +139,7 @@ export type ReconcileResult =
 export function reconcile(db: DB, actor: Actor, input: ReconcileInput): ReconcileResult {
   return transact(db, () => {
     const account = getAccount(db, input.accountId);
-    if (!account) throw new Error("That account does not exist.");
+    if (!account) throw new Refusal("That account does not exist.");
 
     for (const id of input.clearTransactionIds ?? []) {
       const t = getTransaction(db, id);

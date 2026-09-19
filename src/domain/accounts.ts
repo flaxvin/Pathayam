@@ -391,7 +391,7 @@ export function updateAccount(
 ): Account {
   return transact(db, () => {
     const before = getAccount(db, id);
-    if (!before) throw new Error("That account does not exist.");
+    if (!before) throw new Refusal("That account does not exist.");
 
     /*
      * Both halves of the move have to be checked, not just the one being set.
@@ -477,7 +477,7 @@ export function updateAccount(
 export function closeAccount(db: DB, actor: Actor, id: string): void {
   transact(db, () => {
     const before = getAccount(db, id);
-    if (!before) throw new Error("That account does not exist.");
+    if (!before) throw new Refusal("That account does not exist.");
     execute(db, `UPDATE accounts SET closed_at = ? WHERE id = ?`, nowIST(), id);
     appendEvent(db, actor, {
       entity: "account",
@@ -493,7 +493,7 @@ export function closeAccount(db: DB, actor: Actor, id: string): void {
 export function reopenAccount(db: DB, actor: Actor, id: string): void {
   transact(db, () => {
     const before = getAccount(db, id);
-    if (!before) throw new Error("That account does not exist.");
+    if (!before) throw new Refusal("That account does not exist.");
     execute(db, `UPDATE accounts SET closed_at = NULL WHERE id = ?`, id);
     appendEvent(db, actor, {
       entity: "account",
@@ -539,7 +539,7 @@ export interface CreateCardInput {
 export function createCard(db: DB, actor: Actor, input: CreateCardInput): Card {
   return transact(db, () => {
     const account = getAccount(db, input.accountId);
-    if (!account) throw new Error("That account does not exist.");
+    if (!account) throw new Refusal("That account does not exist.");
     if (account.kind !== "credit") {
       throw new Error("Cards belong to credit accounts only.");
     }
@@ -744,7 +744,7 @@ export function recordCardStatement(
 ): CardStatement {
   return transact(db, () => {
     const account = getAccount(db, input.accountId);
-    if (!account) throw new Error("That account does not exist.");
+    if (!account) throw new Refusal("That account does not exist.");
     if (account.kind !== "credit") {
       throw new Error("Only a credit card has a statement.");
     }
