@@ -1915,4 +1915,37 @@ CREATE UNIQUE INDEX idx_tx_source_id ON transactions(account_id, source, source_
   WHERE source_id IS NOT NULL;
 `,
   },
+  {
+    name: "0038-a-way-in-that-is-not-google",
+    sql: `
+--------------------------------------------------------------------------------
+-- F1.6 · A household may sign in without an account somewhere else
+--------------------------------------------------------------------------------
+-- GOOGLE_CLIENT_ID was documented as configuration and was in practice
+-- mandatory: /auth/google was the only door that opens in production, so
+-- running this app on your own machine still meant registering a project with
+-- a company and routing every sign-in through it. For an application whose
+-- whole claim is that the data stays on your server, that was the one
+-- dependency that contradicted it.
+--
+-- A password lives in its own table rather than a column on members, for two
+-- reasons. It keeps the secret out of every query that reads a member — the
+-- member row is selected on nearly every request, and a hash that is never
+-- loaded cannot be logged, serialised into a view model or exported by
+-- accident. And it makes "has no password" the absence of a row, so a
+-- household using OIDC or Google never carries an empty credential.
+CREATE TABLE member_passwords (
+  member_id     TEXT PRIMARY KEY REFERENCES members(id) ON DELETE CASCADE,
+  hash          TEXT NOT NULL,
+  -- Set when an administrator assigns a password rather than the member
+  -- choosing it, so the app can insist it is changed at first use.
+  must_change   INTEGER NOT NULL DEFAULT 0,
+  updated_at    TEXT NOT NULL,
+  -- Lockout is per credential, not per address: an attacker on a fresh IP each
+  -- time must still not get unlimited guesses at one person's password.
+  failed_count  INTEGER NOT NULL DEFAULT 0,
+  locked_until  TEXT
+);
+`,
+  },
 ];
