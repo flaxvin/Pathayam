@@ -9,6 +9,14 @@ import { cameWithTheCard } from "../../domain/card-shortfall.ts";
 import type { Account, Card, CardStatement } from "../../domain/accounts.ts";
 import { ACCOUNT_SUBTYPES, SUBTYPE_LABELS, MANAGED_SUBTYPES } from "../../domain/accounts.ts";
 import type { AssetEvent } from "../../domain/assets.ts";
+import type { AccountKind } from "../../domain/accounts.ts";
+
+/** What each kind means, said once, where the choice is made. */
+const KIND_LABELS: Record<AccountKind, string> = {
+  budget: "Funds your envelopes — money you budget from",
+  credit: "Spending creates a liability",
+  tracking: "Tracked only, never funds the budget",
+};
 import { sparkline } from "../charts.ts";
 import type { AccountBalances } from "../../engine/repository.ts";
 import type { CardFunding } from "../../engine/engine.ts";
@@ -706,27 +714,36 @@ export function renderNewAccountForm(opts: {
 
       <fieldset>
         <legend>What kind of account is this?</legend>
+        <!--
+          One choice carrying both halves, not two that can contradict.
+
+          This asked for a kind and a type as unconnected questions, offering
+          every type of every kind in one flat list — so "budget" plus "credit
+          card" was one click away, and produced a 500 with no message, which
+          reads as the save hanging.
+
+          It is still a real choice, because a savings account can be either:
+          one you assign every rupee of, or a parent's you only keep an eye on.
+          So the option carries the pair, and the group heading says what the
+          difference means. An impossible combination cannot be chosen.
+        -->
         <div class="field">
-          <label for="kind">Kind</label>
-          <select id="kind" name="kind" required>
-            <option value="budget">Budget — its balance funds your envelopes</option>
-            <option value="credit">Credit — spending creates a liability</option>
-            <option value="tracking">Tracking — a balance only, never funds the budget</option>
-          </select>
-        </div>
-        <div class="field">
-          <label for="subtype">Type</label>
+          <label for="subtype">What kind of account is this?</label>
           <select id="subtype" name="subtype" required>
-            ${Object.entries(ACCOUNT_SUBTYPES).flatMap(([kind, subtypes]) =>
-              subtypes
+            ${Object.entries(ACCOUNT_SUBTYPES).map(([kind, subtypes]) => html`
+              <optgroup label="${KIND_LABELS[kind as AccountKind]}">
+                ${subtypes
                 // B56: a family loan or a loan carries a companion record, so it
                 // is created on its own screen, not here — offering it here made
                 // an orphan that never showed on Lending or Loans.
                 .filter((s) => !(s in MANAGED_SUBTYPES))
-                .map(
-                  (s) => html`<option value="${s}" data-kind="${kind}">${SUBTYPE_LABELS[s] ?? s}</option>`,
-                ),
-            )}
+                  .map(
+                    (sub) => html`
+                      <option value="${kind}:${sub}">${SUBTYPE_LABELS[sub] ?? sub}</option>
+                    `,
+                  )}
+              </optgroup>
+            `)}
           </select>
         </div>
         <p class="field-hint">

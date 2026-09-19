@@ -2084,8 +2084,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       const openingRaw = field(ctx.body, "opening_balance");
       const openingDateRaw = field(ctx.body, "opening_date");
-      const kind = requiredField(ctx.body, "kind") as AccountKind;
-      const subtype = requiredField(ctx.body, "subtype");
+      /*
+       * The picker sends "kind:subtype" as one value, so the two cannot
+       * disagree. The older shape — two separate fields — is still accepted,
+       * because the API and anything already scripted against it send that.
+       */
+      const chosen = requiredField(ctx.body, "subtype");
+      const [pairKind, pairSubtype] = chosen.includes(":")
+        ? chosen.split(":") as [string, string]
+        : [field(ctx.body, "kind") ?? "", chosen];
+      const kind = pairKind as AccountKind;
+      const subtype = pairSubtype;
 
       // B56: a family loan or a loan is created through its own screen, which
       // also writes the companion record the Lending / Loans pages read. Making
@@ -5153,6 +5162,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         subscriptions: subscriptions(db),
         horizon,
         categoryNames: new Map([...view.categories].map(([id, c]) => [id, c.name])),
+        splits: new Map(
+          listSchedules(db).filter(inScopeSchedule)
+            .map((sch) => [sch.id, getScheduleSplits(db, sch.id)]),
+        ),
         // The inline edit form needs the full lists, or saving would blank the
         // fields it does not show.
         categories: [...view.categories.values()]

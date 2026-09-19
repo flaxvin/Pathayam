@@ -18,13 +18,40 @@ import { prepareClaim } from "./commitments.ts";
 export type AccountKind = "budget" | "credit" | "tracking";
 
 /** F2.2–F2.4. The subtype is what the UI shows; the kind is what the engine uses. */
+/**
+ * Which kinds a subtype may be, derived from ACCOUNT_SUBTYPES rather than
+ * written out again so the two cannot disagree.
+ *
+ * Usually one — a credit card is a credit account and nothing else. Savings and
+ * current are the exception, and the exception is the point: whether you budget
+ * from an account is a decision, not a fact about what sort it is.
+ *
+ * The form used to ask for the kind and the type as two unconnected questions,
+ * offering every type of every kind in one flat list. "Budget" plus "credit
+ * card" was one click away, and produced a 500 with no message — which reads as
+ * the save hanging. Now the option carries the pair, so an impossible
+ * combination cannot be chosen.
+ */
+export function kindsForSubtype(subtype: string): AccountKind[] {
+  return (Object.entries(ACCOUNT_SUBTYPES) as [AccountKind, string[]][])
+    .filter(([, subtypes]) => subtypes.includes(subtype))
+    .map(([kind]) => kind);
+}
+
 export const ACCOUNT_SUBTYPES: Record<AccountKind, string[]> = {
   budget: ["savings", "current", "cash", "wallet"],
   credit: ["credit-card", "charge-card"],
   // `10` §3.5 · F2.10 adds family-loan: money lent to or borrowed from a
   // person. Tracking, so FW1 keeps it out of the budget, but distinct from
   // "asset"/"liability" because its balance is derived rather than typed.
+  /*
+   * Savings and current appear here as well as under `budget`, because whether
+   * you budget from an account is a decision about the account, not a fact
+   * about what sort it is. A salary account you assign every rupee of and a
+   * parent's account you only keep an eye on are both savings accounts.
+   */
   tracking: [
+    "savings", "current",
     "loan", "emi", "fixed-deposit", "recurring-deposit", "asset", "liability",
     "family-loan",
   ],
@@ -197,7 +224,12 @@ function refusePrivateWithNoHolder(visibility: string | null | undefined, holder
 
 export function createAccount(db: DB, actor: Actor, input: CreateAccountInput): Account {
   if (!ACCOUNT_SUBTYPES[input.kind]?.includes(input.subtype)) {
-    throw new Error(`"${input.subtype}" is not a valid subtype for a ${input.kind} account.`);
+    throw new Refusal(
+      `A ${SUBTYPE_LABELS[input.subtype] ?? input.subtype} cannot be a ${input.kind} account. ` +
+      (kindsForSubtype(input.subtype).length > 0
+        ? `It can be: ${kindsForSubtype(input.subtype).join(" or ")}.`
+        : "This app has no such account type."),
+    );
   }
   /*
    * H2.2 · Only a Tracking account may be private, and the reason is arithmetic.
