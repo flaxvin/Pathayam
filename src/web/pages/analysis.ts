@@ -11,6 +11,7 @@
 import { html, raw, when, type SafeHtml } from "../../http/html.ts";
 import type { GainsYear } from "../../domain/reports.ts";
 import { renderCategoryLines } from "./category-lines.ts";
+import { renderRecurrence } from "./recurrence.ts";
 import { formatPaise, formatCompact, type Paise } from "../../core/money.ts";
 import { formatDate, formatMonth, type IsoDate, type MonthKey } from "../../core/dates.ts";
 import { renderScopeSwitch } from "../scope-switch.ts";
@@ -792,16 +793,13 @@ export function renderSchedules(opts: {
                         <option value="in" ${raw((s.amount ?? 0) > 0 ? "selected" : "")}>In</option>
                       </select>
                     </div>
-                    <div class="field" style="margin:0">
-                      <label style="font-size:.75rem" for="sr-${s.id}">How often</label>
-                      <select id="sr-${s.id}" name="recurrence">
-                        ${(["monthly", "weekly", "fortnightly", "quarterly", "yearly"] as const).map(
-                          (r) => html`
-                            <option value="${r}" ${raw(r === s.recurrence ? "selected" : "")}>${r}</option>
-                          `,
-                        )}
-                      </select>
-                    </div>
+                    ${renderRecurrence({
+                      idPrefix: `sr-${s.id}-`,
+                      value: s.recurrence,
+                      ordinal: s.recurrence_ordinal,
+                      weekday: s.recurrence_weekday,
+                      compact: true,
+                    })}
                     <div class="field" style="margin:0">
                       <label style="font-size:.75rem" for="su-${s.id}">Next due</label>
                       <input id="su-${s.id}" name="next_due" type="date" value="${s.next_due ?? ""}">
@@ -978,16 +976,7 @@ export function renderNewScheduleForm(opts: {
           <input id="next_due" name="next_due" type="date" autocomplete="off"
                  value="${opts.today}">
         </div>
-        <div class="field">
-          <label for="recurrence">How often</label>
-          <select id="recurrence" name="recurrence">
-            <option value="monthly">Monthly</option>
-            <option value="weekly">Weekly</option>
-            <option value="fortnightly">Fortnightly</option>
-            <option value="quarterly">Quarterly</option>
-            <option value="yearly">Yearly</option>
-          </select>
-        </div>
+        ${renderRecurrence({ idPrefix: "" })}
         <div class="field">
           <label for="account_id">Account</label>
           <select id="account_id" name="account_id">

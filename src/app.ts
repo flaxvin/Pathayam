@@ -44,7 +44,7 @@ import {
 import { fetchGmail } from "./gmail/fetch.ts";
 import { withIdempotency, IdempotencyConflict } from "./core/idempotency.ts";
 import { parseAmount, evaluateAmountExpression, formatPaise, type Paise } from "./core/money.ts";
-import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, lastDayOfMonth, daysBetween, fiscalYearOf, formatFiscalYear, statementPeriodOf, type MonthKey, type IsoDate } from "./core/dates.ts";
+import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, lastDayOfMonth, daysBetween, fiscalYearOf, formatFiscalYear, statementPeriodOf, type MonthKey, type IsoDate, type WeekdayOrdinal } from "./core/dates.ts";
 import { buildBudgetView, reviewCount } from "./web/viewmodel.ts";
 import { renderBudget } from "./web/pages/budget.ts";
 import {
@@ -160,7 +160,8 @@ import {
 import { spendingInsights, type Insight } from "./domain/insights.ts";
 import {
   listSchedules, createSchedule, updateSchedule, deleteSchedule, markPaid, skipOccurrence,
-  detectSchedules, projectCashflow, describeCashflow, subscriptions, type Recurrence,
+  detectSchedules, projectCashflow, describeCashflow, subscriptions,
+  parseRecurrence, describeRecurrence, type Recurrence,
   setScheduleSplits, getScheduleSplits, getSchedule,
 } from "./domain/schedules.ts";
 import {
@@ -856,6 +857,32 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const parsed = parseDate(raw);
     if (parsed === null) throw new HttpError(400, `"${raw}" isn't a date I can read — DD-MM-YYYY works.`);
     return parsed;
+  }
+
+  /*
+   * The weekday pair is posted by every schedule form, because the fields are
+   * hidden rather than removed when the recurrence is something else. Reading
+   * them unconditionally is therefore right, and harmless: the domain clears
+   * both whenever the recurrence is not 'monthly-nth-weekday'.
+   */
+  function weekdayOrdinalField(body: Record<string, string | string[]>): WeekdayOrdinal | null {
+    const raw = field(body, "recurrence_ordinal");
+    if (raw === undefined || raw === "") return null;
+    const n = Number(raw);
+    if (![1, 2, 3, 4, -1].includes(n)) {
+      throw new HttpError(400, "Choose the first, second, third, fourth or last one in the month.");
+    }
+    return n as WeekdayOrdinal;
+  }
+
+  function weekdayField(body: Record<string, string | string[]>): number | null {
+    const raw = field(body, "recurrence_weekday");
+    if (raw === undefined || raw === "") return null;
+    const n = Number(raw);
+    if (!Number.isInteger(n) || n < 0 || n > 6) {
+      throw new HttpError(400, "That is not a day of the week.");
+    }
+    return n;
   }
 
   function memberName(id: string | null): string {
@@ -5239,7 +5266,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         accountId: field(ctx.body, "account_id") || null,
         categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
         amount: Number(field(ctx.body, "amount") ?? 0),
-        recurrence: (field(ctx.body, "recurrence") ?? "monthly") as Recurrence,
+        recurrence: parseRecurrence(field(ctx.body, "recurrence") ?? "monthly"),
+        recurrenceOrdinal: weekdayOrdinalField(ctx.body),
+        recurrenceWeekday: weekdayField(ctx.body),
         nextDue: field(ctx.body, "next_due") ?? todayIST(),
       });
       return { redirect: "/schedules", message: "Added to your schedules." };
@@ -5328,7 +5357,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         name: requiredField(ctx.body, "name"),
         splitsFollow: lines.length > 0,
         amount: (direction === "in" ? magnitude : -magnitude) as Paise,
-        recurrence: (field(ctx.body, "recurrence") ?? "monthly") as Recurrence,
+        recurrence: parseRecurrence(field(ctx.body, "recurrence") ?? "monthly"),
+        recurrenceOrdinal: weekdayOrdinalField(ctx.body),
+        recurrenceWeekday: weekdayField(ctx.body),
         nextDue: dateField(field(ctx.body, "next_due"), "Next due"),
         categoryId: filed.categoryId,
         accountId: field(ctx.body, "account_id") || null,
@@ -5435,7 +5466,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           amount: magnitude === null
             ? undefined
             : ((direction === "in" ? magnitude : -magnitude) as Paise),
-          recurrence: (field(ctx.body, "recurrence") || undefined) as Recurrence | undefined,
+          recurrence: field(ctx.body, "recurrence")
+            ? parseRecurrence(field(ctx.body, "recurrence"))
+            : undefined,
+          recurrence_ordinal: weekdayOrdinalField(ctx.body),
+          recurrence_weekday: weekdayField(ctx.body),
           next_due: dueRaw?.trim() ? (parseDate(dueRaw) ?? undefined) : undefined,
           /*
            * Absent is not the same as cleared.

@@ -90,6 +90,45 @@ export function daysBetween(a: IsoDate, b: IsoDate): number {
   return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
 }
 
+/** Sunday is 0, matching `Date.prototype.getUTCDay`. */
+export const WEEKDAY_NAMES = [
+  "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",
+] as const;
+
+/** 1st through 4th, or the last one in the month. */
+export type WeekdayOrdinal = 1 | 2 | 3 | 4 | -1;
+
+export const WEEKDAY_ORDINAL_NAMES: Record<WeekdayOrdinal, string> = {
+  1: "first", 2: "second", 3: "third", 4: "fourth", [-1]: "last",
+};
+
+export function weekdayOf(date: IsoDate): number {
+  return new Date(`${date}T00:00:00Z`).getUTCDay();
+}
+
+/**
+ * "The first Sunday of October", as a date.
+ *
+ * Ordinals stop at the fourth, and "last" is a separate value rather than a
+ * fifth. A fifth Sunday exists in some months and not others, so offering it
+ * would mean a schedule that silently skips four months a year — or a policy
+ * for what to do instead, which is a question nobody wants to answer about
+ * their rent. "Last" always exists and is what people mean anyway.
+ */
+export function nthWeekdayOfMonth(
+  month: MonthKey,
+  weekday: number,
+  ordinal: WeekdayOrdinal,
+): IsoDate {
+  if (ordinal === -1) {
+    const last = lastDayOfMonth(month);
+    return addDays(last, -((weekdayOf(last) - weekday + 7) % 7));
+  }
+  const first = firstDayOfMonth(month);
+  const offset = (weekday - weekdayOf(first) + 7) % 7;
+  return addDays(first, offset + (ordinal - 1) * 7);
+}
+
 /**
  * Clamp a day-of-month to a month that may not have it. A schedule due on the
  * 31st in February resolves by policy (F7.3).
