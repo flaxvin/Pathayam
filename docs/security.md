@@ -154,3 +154,20 @@ successful sign-in.
 - A wrong password and an unknown address are refused in identical words. The
   difference would disclose who is in this household.
 - Changing a password requires the current one.
+
+### The other hashes, and why they are not this
+
+`src/pdf/decrypt.ts` calls MD5 and SHA-256, and code scanning reports all three
+as "password hash with insufficient computational effort". They are not password
+hashes. Nothing in that file stores or verifies a credential: they are the
+key-derivation steps ISO 32000 specifies for opening a PDF somebody else
+encrypted, so the algorithm is a property of the file rather than a choice. MD5
+replaced with scrypt there is not a hardened decryptor, it is one that cannot
+open the statement. The SHA-256 in Algorithm 2.B is additionally only the seed
+of a loop that runs at least sixty-four further rounds over sixty-four
+repetitions of the password; the scanner sees the first line of it.
+
+Each site carries a `codeql[js/insufficient-password-hash]` comment and the
+reason. The alerts are dismissed as false positives rather than left open,
+because a security tab with three permanent known-good entries is a security tab
+nobody reads.

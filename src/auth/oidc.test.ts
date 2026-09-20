@@ -86,11 +86,29 @@ describe("discovery", () => {
     );
   });
 
-  test("an unreachable provider says where it tried", async () => {
+  test("an unreachable provider says where it tried, in full", async () => {
+    /*
+     * The URL is compared whole rather than looked for inside the message.
+     * "the message mentions the issuer" passes for a message naming any URL
+     * that merely begins with it — including the bare issuer, which is the one
+     * thing this must not say. What a self-hoster needs is the *discovery*
+     * URL: the well-known path is appended to the issuer without stripping a
+     * path element, and getting that wrong is the usual misconfiguration.
+     * Pinning the exact string is what makes this test able to fail.
+     */
     const impl = (async () => { throw new Error("ECONNREFUSED"); }) as unknown as typeof fetch;
     await assert.rejects(
       () => discover(ISSUER, impl),
-      (e: Error) => e.message.includes(ISSUER) && e.message.includes("ECONNREFUSED"),
+      (e: Error) => {
+        // The trailing "." is the sentence's, not the URL's.
+        const named = e.message.match(/https?:\/\/\S+/)?.[0].replace(/\.$/, "");
+        assert.equal(
+          named, `${ISSUER}/.well-known/openid-configuration`,
+          "the error does not name the document it actually asked for",
+        );
+        assert.match(e.message, /ECONNREFUSED/, "the underlying cause is swallowed");
+        return true;
+      },
     );
   });
 
