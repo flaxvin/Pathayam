@@ -11,7 +11,7 @@ import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST, todayIST, formatDate, addDays, type IsoDate } from "../core/dates.ts";
-import { Refusal } from "../core/refusal.ts";
+import { Missing, Refusal } from "../core/refusal.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { getAccount } from "./accounts.ts";
 import { prepareClaim } from "./commitments.ts";
@@ -275,7 +275,7 @@ export function updateTransaction(
 ): Transaction {
   return transact(db, () => {
     const before = getTransaction(db, id);
-    if (!before) throw new Error("That transaction does not exist.");
+    if (!before) throw new Missing("That transaction does not exist.");
 
     if (patch.splits) {
       const amount = patch.amount ?? before.amount;
@@ -377,7 +377,7 @@ function describeChange(before: Transaction, after: Transaction): string {
 export function deleteTransaction(db: DB, actor: Actor, id: string): void {
   transact(db, () => {
     const before = getTransaction(db, id);
-    if (!before) throw new Error("That transaction does not exist.");
+    if (!before) throw new Missing("That transaction does not exist.");
 
     const ids = before.transfer_pair_id
       ? queryAll<{ id: string }>(
@@ -399,7 +399,7 @@ export function deleteTransaction(db: DB, actor: Actor, id: string): void {
 export function restoreTransaction(db: DB, actor: Actor, id: string): void {
   transact(db, () => {
     const before = getTransaction(db, id);
-    if (!before) throw new Error("That transaction does not exist.");
+    if (!before) throw new Missing("That transaction does not exist.");
     execute(db, `UPDATE transactions SET deleted_at = NULL WHERE id = ?`, id);
     if (before.transfer_pair_id) {
       execute(
@@ -646,7 +646,7 @@ export interface Payee {
  */
 export function resolvePayee(db: DB, actor: Actor, name: string, raw?: string | null): Payee {
   const clean = name.trim();
-  if (!clean) throw new Error("A payee needs a name.");
+  if (!clean) throw new Refusal("A payee needs a name.");
 
   return transact(db, () => {
     if (raw) {
@@ -737,11 +737,11 @@ export function getPayee(db: DB, id: string): Payee | null {
 
 /** F5.2: merging preserves all history and mappings. */
 export function mergePayees(db: DB, actor: Actor, loserId: string, winnerId: string): void {
-  if (loserId === winnerId) throw new Error("Pick two different payees.");
+  if (loserId === winnerId) throw new Refusal("Pick two different payees.");
   transact(db, () => {
     const loser = getPayee(db, loserId);
     const winner = getPayee(db, winnerId);
-    if (!loser || !winner) throw new Error("That payee does not exist.");
+    if (!loser || !winner) throw new Missing("That payee does not exist.");
 
     execute(db, `UPDATE transactions SET payee_id = ? WHERE payee_id = ?`, winnerId, loserId);
     execute(db, `UPDATE payee_aliases SET payee_id = ? WHERE payee_id = ?`, winnerId, loserId);

@@ -36,6 +36,7 @@ import { formatPaise, type Paise } from "../core/money.ts";
 import { createAccount, getAccount } from "./accounts.ts";
 import { createTransfer, createTransaction, deleteTransaction } from "./transactions.ts";
 import { accountBalances } from "../engine/repository.ts";
+import { Missing, Refusal } from "../core/refusal.ts";
 
 export interface FamilyLoan {
   id: string;
@@ -177,7 +178,7 @@ export function recordAdvance(
 ): void {
   transact(db, () => {
     const loan = requireOpen(db, input.loanId);
-    if (input.amount <= 0) throw new Error("Enter an amount greater than zero.");
+    if (input.amount <= 0) throw new Refusal("Enter an amount greater than zero.");
     const date = input.date ?? todayIST();
 
     createTransfer(db, actor, {
@@ -205,7 +206,7 @@ export function recordRepayment(
 ): void {
   transact(db, () => {
     const loan = requireOpen(db, input.loanId);
-    if (input.amount <= 0) throw new Error("Enter an amount greater than zero.");
+    if (input.amount <= 0) throw new Refusal("Enter an amount greater than zero.");
     const date = input.date ?? todayIST();
 
     createTransfer(db, actor, {
@@ -336,12 +337,12 @@ export function writeOffFamilyLoan(
 ): Paise {
   return transact(db, () => {
     const view = viewFamilyLoan(db, input.loanId);
-    if (!view) throw new Error("That does not exist.");
-    if (view.loan.written_off_at) throw new Error("That has already been written off.");
+    if (!view) throw new Missing("That does not exist.");
+    if (view.loan.written_off_at) throw new Refusal("That has already been written off.");
     // B54 · A write-off closes any non-zero balance, whichever way it points —
     // which is what stopped the old code cold when a repayment overshot what was
     // lent and the balance tipped negative.
-    if (view.balance === 0) throw new Error("Nothing is outstanding to settle.");
+    if (view.balance === 0) throw new Refusal("Nothing is outstanding to settle.");
 
     const date = input.date ?? todayIST();
 
@@ -388,7 +389,7 @@ export function writeOffFamilyLoan(
 export function closeFamilyLoan(db: DB, actor: Actor, id: string): void {
   transact(db, () => {
     const loan = getFamilyLoan(db, id);
-    if (!loan) throw new Error("That does not exist.");
+    if (!loan) throw new Missing("That does not exist.");
     execute(db, `UPDATE family_loans SET closed_at = ? WHERE id = ?`, nowIST(), id);
     execute(db, `UPDATE accounts SET closed_at = ? WHERE id = ?`, nowIST(), loan.account_id);
     appendEvent(db, actor, {
@@ -401,7 +402,7 @@ export function closeFamilyLoan(db: DB, actor: Actor, id: string): void {
 export function reopenFamilyLoan(db: DB, actor: Actor, id: string): void {
   transact(db, () => {
     const loan = getFamilyLoan(db, id);
-    if (!loan) throw new Error("That does not exist.");
+    if (!loan) throw new Missing("That does not exist.");
     execute(db, `UPDATE family_loans SET closed_at = NULL WHERE id = ?`, id);
     execute(db, `UPDATE accounts SET closed_at = NULL WHERE id = ?`, loan.account_id);
     appendEvent(db, actor, {
@@ -439,9 +440,9 @@ export function familyLoanNetWorth(db: DB): {
 
 function requireOpen(db: DB, id: string): FamilyLoan {
   const loan = getFamilyLoan(db, id);
-  if (!loan) throw new Error("That does not exist.");
-  if (loan.written_off_at) throw new Error("That has been written off.");
-  if (!getAccount(db, loan.account_id)) throw new Error("Its account is missing.");
+  if (!loan) throw new Missing("That does not exist.");
+  if (loan.written_off_at) throw new Refusal("That has been written off.");
+  if (!getAccount(db, loan.account_id)) throw new Refusal("Its account is missing.");
   return loan;
 }
 

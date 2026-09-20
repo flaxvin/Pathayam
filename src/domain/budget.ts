@@ -6,7 +6,7 @@
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
-import { Refusal } from "../core/refusal.ts";
+import { Missing, Refusal } from "../core/refusal.ts";
 import { nowIST, formatMonth, type MonthKey, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { householdBudgetId, budgetsFor } from "./budgets.ts";
@@ -71,7 +71,7 @@ export function createGroup(
 export function renameGroup(db: DB, actor: Actor, id: string, name: string): CategoryGroup {
   return transact(db, () => {
     const before = queryOne<CategoryGroup>(db, `SELECT * FROM category_groups WHERE id = ?`, id);
-    if (!before) throw new Error("That group does not exist.");
+    if (!before) throw new Missing("That group does not exist.");
     execute(db, `UPDATE category_groups SET name = ? WHERE id = ?`, name, id);
     const after = queryOne<CategoryGroup>(db, `SELECT * FROM category_groups WHERE id = ?`, id)!;
     appendEvent(db, actor, {
@@ -116,6 +116,46 @@ export function deleteGroup(db: DB, actor: Actor, id: string): void {
         `Move or delete ${held.length === 1 ? "it" : "them"} first — deleting a group ` +
         `should never be a way to lose money you had put aside.`,
       );
+    }
+
+    /*
+     * The envelopes that were deleted are still here.
+     *
+     * `deleteCategory` soft-deletes — the row stays so that transactions filed
+     * against it keep meaning something — and the row still points at this
+     * group. The check above only counts live envelopes, so a group whose last
+     * envelope had been deleted looked empty, and the DELETE below hit a
+     * foreign key and reached the household as "Something went wrong". That is
+     * the most ordinary sequence there is: delete the envelope, then delete the
+     * group it was the only thing in. It meant such a group could never be
+     * deleted at all.
+     *
+     * A tombstone nothing refers to any more is just a tombstone, so it goes
+     * with the group. One that still has transactions behind it is history, and
+     * history is the thing this app does not throw away — so that is refused,
+     * by name, with something the household can actually do about it.
+     */
+    const tombstones = queryAll<{ id: string; name: string }>(
+      db, `SELECT id, name FROM categories WHERE group_id = ? AND deleted_at IS NOT NULL`, id,
+    );
+    const stillUsed = tombstones.filter((c) =>
+      (queryOne<{ n: number }>(
+        db,
+        `SELECT (SELECT COUNT(*) FROM transactions WHERE category_id = ?)
+              + (SELECT COUNT(*) FROM transaction_splits WHERE category_id = ?) AS n`,
+        c.id, c.id,
+      )?.n ?? 0) > 0,
+    );
+    if (stillUsed.length > 0) {
+      throw new Refusal(
+        `"${before.name}" holds ${stillUsed.length === 1 ? "a deleted envelope" : "deleted envelopes"} ` +
+        `(${stillUsed.slice(0, 3).map((c) => c.name).join(", ")}${stillUsed.length > 3 ? "…" : ""}) ` +
+        `that spending is still filed against. Re-file that spending somewhere else ` +
+        `first — the group is the last thing saying where it used to go.`,
+      );
+    }
+    for (const c of tombstones) {
+      execute(db, `DELETE FROM categories WHERE id = ?`, c.id);
     }
 
     execute(db, `DELETE FROM category_groups WHERE id = ?`, id);
@@ -214,7 +254,7 @@ export function getCategory(db: DB, id: string): Category | null {
 export function moveCategoryToGroup(db: DB, actor: Actor, id: string, groupId: string): void {
   transact(db, () => {
     const before = getCategory(db, id);
-    if (!before) throw new Error("That category does not exist.");
+    if (!before) throw new Missing("That category does not exist.");
     execute(db, `UPDATE categories SET group_id = ? WHERE id = ?`, groupId, id);
     appendEvent(db, actor, {
       entity: "category", entityId: id, action: "move",
@@ -234,7 +274,7 @@ export function reorderCategory(
 ): void {
   transact(db, () => {
     const cat = getCategory(db, id);
-    if (!cat) throw new Error("That category does not exist.");
+    if (!cat) throw new Missing("That category does not exist.");
     const sibs = queryAll<{ id: string }>(
       db, `SELECT id FROM categories WHERE group_id = ? AND deleted_at IS NULL ORDER BY sort, name`,
       cat.group_id,
@@ -289,7 +329,7 @@ export function reorderGroup(
 export function renameCategory(db: DB, actor: Actor, id: string, name: string): Category {
   return transact(db, () => {
     const before = getCategory(db, id);
-    if (!before) throw new Error("That category does not exist.");
+    if (!before) throw new Missing("That category does not exist.");
     execute(db, `UPDATE categories SET name = ? WHERE id = ?`, name, id);
     const after = getCategory(db, id)!;
     appendEvent(db, actor, {
@@ -304,9 +344,9 @@ export function renameCategory(db: DB, actor: Actor, id: string, name: string): 
 export function setCategoryHidden(db: DB, actor: Actor, id: string, hidden: boolean): void {
   transact(db, () => {
     const before = getCategory(db, id);
-    if (!before) throw new Error("That category does not exist.");
+    if (!before) throw new Missing("That category does not exist.");
     if (before.payment_account_id && hidden) {
-      throw new Error("A card's payment category cannot be hidden while the account is open.");
+      throw new Refusal("A card's payment category cannot be hidden while the account is open.");
     }
     execute(db, `UPDATE categories SET hidden_at = ? WHERE id = ?`, hidden ? nowIST() : null, id);
     appendEvent(db, actor, {
@@ -328,12 +368,12 @@ export function deleteCategory(
 ): void {
   transact(db, () => {
     const before = getCategory(db, id);
-    if (!before) throw new Error("That category does not exist.");
+    if (!before) throw new Missing("That category does not exist.");
     if (before.payment_account_id) {
-      throw new Error("A card's payment category cannot be deleted while the account exists (R6).");
+      throw new Refusal("A card's payment category cannot be deleted while the account exists (R6).");
     }
     if (opts.currentBalance !== 0) {
-      throw new Error(
+      throw new Refusal(
         `"${before.name}" still holds ${formatPaise(opts.currentBalance)}. Move it somewhere else first.`,
       );
     }
@@ -368,10 +408,10 @@ export function setTarget(
 ): void {
   transact(db, () => {
     const category = getCategory(db, categoryId);
-    if (!category) throw new Error("That category does not exist.");
-    if (input.amount <= 0) throw new Error("A target needs an amount above zero.");
+    if (!category) throw new Missing("That category does not exist.");
+    if (input.amount <= 0) throw new Refusal("A target needs an amount above zero.");
     if (input.type === "by-date" && !input.targetDate) {
-      throw new Error("A by-date target needs a date.");
+      throw new Refusal("A by-date target needs a date.");
     }
     const before = queryOne(db, `SELECT * FROM targets WHERE category_id = ?`, categoryId);
     execute(
@@ -573,7 +613,7 @@ export function setAssigned(
     if (before === amount) return amount;
 
     const category = getCategory(db, categoryId);
-    if (!category) throw new Error("That category does not exist.");
+    if (!category) throw new Missing("That category does not exist.");
 
     writeAssignment(db, month, categoryId, amount);
     appendEvent(db, actor, {
@@ -636,13 +676,13 @@ export function moveMoney(
   input: { month: MonthKey; fromCategoryId: string; toCategoryId: string; amount: Paise },
 ): void {
   const { month, fromCategoryId, toCategoryId, amount } = input;
-  if (amount <= 0) throw new Error("Enter an amount greater than zero to move.");
-  if (fromCategoryId === toCategoryId) throw new Error("Pick two different categories.");
+  if (amount <= 0) throw new Refusal("Enter an amount greater than zero to move.");
+  if (fromCategoryId === toCategoryId) throw new Refusal("Pick two different categories.");
 
   transact(db, () => {
     const from = getCategory(db, fromCategoryId);
     const to = getCategory(db, toCategoryId);
-    if (!from || !to) throw new Error("That category does not exist.");
+    if (!from || !to) throw new Missing("That category does not exist.");
 
     const fromBefore = getAssigned(db, month, fromCategoryId);
     const toBefore = getAssigned(db, month, toCategoryId);
@@ -682,7 +722,7 @@ export function getHeld(db: DB, month: MonthKey): Paise {
 }
 
 export function setHeld(db: DB, actor: Actor, month: MonthKey, amount: Paise): void {
-  if (amount < 0) throw new Error("You cannot hold a negative amount.");
+  if (amount < 0) throw new Refusal("You cannot hold a negative amount.");
   transact(db, () => {
     const before = getHeld(db, month);
     if (before === amount) return;

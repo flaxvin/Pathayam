@@ -16,7 +16,7 @@ import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST, todayIST, monthOf, monthsBetween, type IsoDate } from "../core/dates.ts";
 import { formatPaise, allocate, type Paise } from "../core/money.ts";
-import { Refusal } from "../core/refusal.ts";
+import { Missing, Refusal } from "../core/refusal.ts";
 import { householdBudgetId } from "./budgets.ts";
 import { listGroups, createGroup, renameGroup, createCategory, type Category } from "./budget.ts";
 
@@ -109,7 +109,7 @@ export function createGoal(
     budgetId?: string;
   },
 ): Goal {
-  if (input.targetAmount <= 0) throw new Error("A goal needs a target above zero.");
+  if (input.targetAmount <= 0) throw new Refusal("A goal needs a target above zero.");
 
   return transact(db, () => {
     const id = newId();
@@ -269,7 +269,7 @@ export function completeGoal(
 ): void {
   transact(db, () => {
     const goal = getGoal(db, goalId);
-    if (!goal) throw new Error("That goal does not exist.");
+    if (!goal) throw new Missing("That goal does not exist.");
 
     execute(db, `UPDATE goals SET completed_at = ? WHERE id = ?`, nowIST(), goalId);
     appendEvent(db, actor, {
@@ -289,10 +289,10 @@ export function updateGoal(
   db: DB, actor: Actor, goalId: string,
   input: { name: string; targetAmount: Paise; targetDate?: IsoDate | null; note?: string | null },
 ): Goal {
-  if (input.targetAmount <= 0) throw new Error("A goal needs a target above zero.");
+  if (input.targetAmount <= 0) throw new Refusal("A goal needs a target above zero.");
   return transact(db, () => {
     const before = getGoal(db, goalId);
-    if (!before) throw new Error("That goal does not exist.");
+    if (!before) throw new Missing("That goal does not exist.");
     execute(
       db,
       `UPDATE goals SET name = ?, target_amount = ?, target_date = ?, note = ? WHERE id = ?`,
@@ -310,7 +310,7 @@ export function updateGoal(
 export function deleteGoal(db: DB, actor: Actor, goalId: string): void {
   transact(db, () => {
     const goal = getGoal(db, goalId);
-    if (!goal) throw new Error("That goal does not exist.");
+    if (!goal) throw new Missing("That goal does not exist.");
     execute(db, `DELETE FROM goal_categories WHERE goal_id = ?`, goalId);
     execute(db, `DELETE FROM goals WHERE id = ?`, goalId);
     appendEvent(db, actor, {

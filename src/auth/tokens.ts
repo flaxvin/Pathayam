@@ -24,6 +24,7 @@ import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, type Actor } from "../core/events.ts";
 import { nowIST, todayIST, addDays, type IsoDate } from "../core/dates.ts";
+import { Missing } from "../core/refusal.ts";
 
 export type TokenScope = "read" | "read-write";
 
@@ -124,7 +125,7 @@ export function revokeToken(db: DB, actor: Actor, id: string): void {
     if (!token || token.member_id !== actor.memberId) {
       // A member may only revoke their own. Saying which of the two it was
       // would leak whether the id exists.
-      throw new Error("That token does not exist.");
+      throw new Missing("That token does not exist.");
     }
     execute(db, `UPDATE api_tokens SET revoked_at = ? WHERE id = ?`, nowIST(), id);
     appendEvent(db, actor, {

@@ -26,7 +26,7 @@ import {
 } from "./rules.ts";
 import type { RawRecord, ParseError } from "./csv.ts";
 import { createHash } from "node:crypto";
-import { Refusal } from "../core/refusal.ts";
+import { Missing, Refusal } from "../core/refusal.ts";
 
 /**
  * The identity of an imported row, for the exact-match tier in `04` §4.
@@ -397,8 +397,8 @@ export function approveStaged(
 ): string {
   return transact(db, () => {
     const row = queryOne<StagedRow>(db, `SELECT * FROM staged_transactions WHERE id = ?`, stagedId);
-    if (!row) throw new Error("That review item no longer exists.");
-    if (row.status !== "pending") throw new Error("That review item has already been dealt with.");
+    if (!row) throw new Missing("That review item no longer exists.");
+    if (row.status !== "pending") throw new Refusal("That review item has already been dealt with.");
 
     /*
      * B99 · An expense names the envelope it came out of.
@@ -493,7 +493,7 @@ export function rejectStaged(db: DB, actor: Actor, stagedId: string, reason = "d
 export function mergeStaged(db: DB, actor: Actor, stagedId: string): void {
   transact(db, () => {
     const row = queryOne<StagedRow>(db, `SELECT * FROM staged_transactions WHERE id = ?`, stagedId);
-    if (!row?.duplicate_of_id) throw new Error("That row has nothing to merge with.");
+    if (!row?.duplicate_of_id) throw new Refusal("That row has nothing to merge with.");
 
     const before = queryOne<Record<string, unknown>>(
       db, `SELECT * FROM transactions WHERE id = ?`, row.duplicate_of_id,

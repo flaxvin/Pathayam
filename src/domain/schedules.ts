@@ -20,7 +20,7 @@ import {
 import { formatPaise, type Paise } from "../core/money.ts";
 import { accountBalances } from "../engine/repository.ts";
 import { listLoans, projectLoan } from "./loans.ts";
-import { Refusal } from "../core/refusal.ts";
+import { Refusal, Missing } from "../core/refusal.ts";
 import { createTransaction, refusePaymentCategories } from "./transactions.ts";
 
 export type Recurrence =
@@ -554,7 +554,7 @@ function shiftMonthsKeepingDay(schedule: Schedule, from: IsoDate, months: number
 export function markPaid(db: DB, actor: Actor, scheduleId: string, on: IsoDate = todayIST()): void {
   transact(db, () => {
     const schedule = getSchedule(db, scheduleId);
-    if (!schedule) throw new Error("That schedule does not exist.");
+    if (!schedule) throw new Missing("That schedule does not exist.");
 
     let posted: string | null = null;
     if (schedule.amount !== null && schedule.account_id) {
@@ -598,7 +598,13 @@ export function markPaid(db: DB, actor: Actor, scheduleId: string, on: IsoDate =
 export function skipOccurrence(db: DB, actor: Actor, scheduleId: string): void {
   transact(db, () => {
     const schedule = getSchedule(db, scheduleId);
-    if (!schedule?.next_due) throw new Error("That schedule has nothing due.");
+    /*
+     * Two different answers, which one sentence used to give as a 500. A
+     * schedule that is not there is a 404; one that is there with nothing due
+     * is a refusal with a reason.
+     */
+    if (!schedule) throw new Missing("That schedule does not exist.");
+    if (!schedule.next_due) throw new Refusal("That schedule has nothing due to skip.");
     const next = nextOccurrence(schedule, schedule.next_due);
     execute(db, `UPDATE schedules SET next_due = ? WHERE id = ?`, next, scheduleId);
     appendEvent(db, actor, {

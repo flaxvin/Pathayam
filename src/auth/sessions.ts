@@ -11,6 +11,7 @@ import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, type Actor } from "../core/events.ts";
 import { nowIST, todayIST, addDays } from "../core/dates.ts";
+import { Missing, Refusal } from "../core/refusal.ts";
 
 export interface Member {
   id: string;
@@ -115,9 +116,9 @@ export function inviteMember(
 export function removeMember(db: DB, actor: Actor, id: string): void {
   transact(db, () => {
     const before = getMember(db, id);
-    if (!before) throw new Error("That member does not exist.");
+    if (!before) throw new Missing("That member does not exist.");
     if (memberCount(db) <= 1) {
-      throw new Error("You cannot remove the last member — nobody would be able to sign in.");
+      throw new Refusal("You cannot remove the last member — nobody would be able to sign in.");
     }
     execute(db, `UPDATE members SET removed_at = ?, allowed = 0 WHERE id = ?`, nowIST(), id);
     execute(db, `UPDATE sessions SET revoked_at = ? WHERE member_id = ? AND revoked_at IS NULL`, nowIST(), id);
@@ -131,7 +132,7 @@ export function removeMember(db: DB, actor: Actor, id: string): void {
 export function setTheme(db: DB, actor: Actor, memberId: string, theme: Member["theme"]): void {
   transact(db, () => {
     const before = getMember(db, memberId);
-    if (!before) throw new Error("That member does not exist.");
+    if (!before) throw new Missing("That member does not exist.");
     execute(db, `UPDATE members SET theme = ? WHERE id = ?`, theme, memberId);
     appendEvent(db, actor, {
       entity: "member", entityId: memberId, action: "set-theme",
@@ -275,7 +276,7 @@ export function startImpersonation(
 ): void {
   transact(db, () => {
     const target = getMember(db, targetMemberId);
-    if (!target || target.removed_at) throw new Error("That member does not exist.");
+    if (!target || target.removed_at) throw new Missing("That member does not exist.");
 
     // Built through nowIST so it is comparable with the timestamps this app
     // stores. A bare toISOString relabelled "+05:30" would be 5½ hours adrift

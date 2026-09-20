@@ -155,6 +155,32 @@ successful sign-in.
   difference would disclose who is in this household.
 - Changing a password requires the current one.
 
+### Errors the household is allowed to see
+
+Three kinds, and the difference is not cosmetic.
+
+| Thrown | Answers | Recorded as a fault? |
+|---|---|---|
+| `Refusal` (`src/core/refusal.ts`) | 422, with its message | No |
+| `Missing` (extends `Refusal`) | 404, with its message | No |
+| `HttpError` (`src/http/router.ts`) | its own status | No |
+| anything else | 500, *"Something went wrong"* | **Yes** |
+
+The last row is why this matters beyond politeness. An unexpected throw is
+recorded as a genuine defect, and a mistyped id in a URL once did exactly that:
+the failed check reached the health page, the health check reported the instance
+unhealthy, the platform stopped routing to it, and the public demo was down for
+twenty-four hours. Somebody guessing a URL must not be able to do that.
+
+`Missing` exists so the domain can say "that is not here" without reaching for
+the HTTP layer, which it must not depend on. It extends `Refusal` so both places
+that already treat a refusal as deliberate — `main.ts` and the test harness —
+needed no change at all.
+
+`src/web/no-crash.test.ts` holds the line: every POST route, given four shapes of
+bad body, and every id-addressed route given an id that names nothing. A 500
+from any of them fails the suite.
+
 ### The other hashes, and why they are not this
 
 `src/pdf/decrypt.ts` calls MD5 and SHA-256, and code scanning reports all three
