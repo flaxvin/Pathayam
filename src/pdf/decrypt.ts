@@ -14,6 +14,19 @@
  * try the owner password path, and then the empty password — some generators
  * encrypt with an owner password only, which means the file opens with no
  * password at all despite appearing protected.
+ *
+ * ## On the hashes in this file
+ *
+ * Code scanning flags the MD5 and SHA-256 calls below as "password hash with
+ * insufficient computational effort". They are not password hashes. Nothing
+ * here stores or verifies a credential — these are the key-derivation steps
+ * that ISO 32000 specifies for decrypting a file somebody else encrypted, and
+ * the algorithm is a property of the file, not a choice. An MD5 swapped for
+ * scrypt would not be a stronger version of this code; it would be a program
+ * that cannot open the statement.
+ *
+ * Where this project *does* store a password — a member signing in — it uses
+ * scrypt with the parameters written into the hash. See `src/auth/passwords.ts`.
  */
 
 import { createHash, createDecipheriv, createCipheriv } from "node:crypto";
@@ -62,6 +75,8 @@ function legacyFileKey(
   password: Uint8Array, o: Uint8Array, p: number, id: Uint8Array,
   revision: number, lengthBytes: number, encryptMetadata: boolean,
 ): Uint8Array {
+  // MD5 is what Algorithm 2 specifies. See the note in the module header.
+  // codeql[js/insufficient-password-hash]
   const hash = createHash("md5");
   hash.update(pad(password));
   hash.update(o.subarray(0, 32));
@@ -105,6 +120,8 @@ function legacyFileKey(
 function userPasswordFromOwner(
   owner: Uint8Array, o: Uint8Array, revision: number, lengthBytes: number,
 ): Uint8Array {
+  // Algorithm 3 step (a), MD5 as specified — not a stored credential.
+  // codeql[js/insufficient-password-hash]
   let key = new Uint8Array(createHash("md5").update(pad(owner)).digest());
 
   if (revision >= 3) {
@@ -161,6 +178,13 @@ function legacyKeyIsRight(
 function hash2B(
   password: Uint8Array, salt: Uint8Array, udata: Uint8Array, revision: number,
 ): Uint8Array {
+  /*
+   * The seed for Algorithm 2.B. On R6 this is only the first round — the
+   * hardening loop below runs at least 64 more, each over 64 repetitions of
+   * the password, so the work here is far from a bare SHA-256. The scanner
+   * sees this line alone.
+   */
+  // codeql[js/insufficient-password-hash]
   let k = new Uint8Array(
     createHash("sha256").update(password).update(salt).update(udata).digest(),
   );
