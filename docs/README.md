@@ -19,6 +19,7 @@ does, not how it came to do it.
 | [limitations.md](limitations.md) | Known constraints and unsupported cases. |
 | [API.md](API.md) | HTTP API and personal access tokens. |
 | [dev/01-engine-derivation.md](dev/01-engine-derivation.md) | Derivation of the accounting identity. Cited from the engine source. |
+| [dev/02-proposed-features.md](dev/02-proposed-features.md) | Seven requested features, sized against the code. Assessment only — nothing here is built. |
 
 ## Conventions
 
