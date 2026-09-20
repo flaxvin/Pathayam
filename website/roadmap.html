@@ -1,0 +1,224 @@
+<!doctype html>
+<html lang="en-IN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Roadmap</title>
+<meta name="description" content="What is being built next in Pathayam, in what order, and roughly when — plus what has been considered and set aside, and why.">
+<link rel="stylesheet" href="fonts.css">
+<link rel="icon" href="img/icon.svg" type="image/svg+xml">
+<link rel="icon" href="favicon.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="img/apple-touch-icon.png">
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<a class="skip" href="#main">Skip to content</a>
+
+<header class="masthead">
+  <div class="wrap masthead__inner">
+    <a class="brand" href="index.html">
+      <svg class="brand__mark" width="26" height="26" viewBox="7 7 50 51" fill="none"
+           stroke="currentColor" stroke-width="3.6" stroke-linejoin="round"
+           stroke-linecap="round" aria-hidden="true">
+        <path d="M10 26 L32 9 L54 26"/>
+        <rect x="10.5" y="26" width="43" height="29" rx="3"/>
+        <path d="M25 33 H39"/>
+        <path d="M25 38 H39"/>
+        <path d="M25 43.4 H32.6 C 37.4 43.4, 37.4 38, 32.6 38"/>
+        <path d="M29.8 43.4 L37.6 51.4"/>
+      </svg>
+      Pathayam
+    </a>
+    <nav class="nav" aria-label="Main">
+      <details class="menu">
+        <summary class="menu__btn">
+          <span class="sr-only">Menu</span><span class="menu__bars" aria-hidden="true">☰</span>
+        </summary>
+        <div class="menu__panel">
+          <a href="index.html">Home</a>
+          <a href="features.html">Features</a>
+          <a href="pricing.html">Pricing</a>
+          <a href="guides.html">Guides</a>
+          <a href="api.html">API</a>
+          <a href="roadmap.html" aria-current="page">Roadmap</a>
+          <a class="btn btn--primary btn--nav" href="demo.html">Try the demo</a>
+        </div>
+      </details>
+      <button class="theme-toggle" type="button" aria-label="Switch theme">☾</button>
+    </nav>
+  </div>
+</header>
+
+<main id="main">
+  <section class="sec sec--tight">
+    <div class="wrap center">
+      <p class="eyebrow">Roadmap</p>
+      <h1 style="font-size:var(--step-5);max-width:18ch;margin-inline:auto">What comes next, and when.</h1>
+      <p class="lede" style="font-size:var(--step-2);max-width:54ch">Pathayam is built by one person in the evenings — four or five hours in a good week. These dates are paced for that, honestly, rather than for a team that does not exist.</p>
+    </div>
+  </section>
+
+  <section class="sec sec--band">
+    <div class="wrap prose">
+      <h2>How to read this</h2>
+      <p>Everything below is an intention, not a commitment. Nothing here is sold, nothing is pre-paid, and an item can move or be dropped if it turns out to be the wrong thing to build — which happens, and is usually a good outcome rather than a failure.</p>
+      <p>The order is deliberate. Cheap and safe work comes first, and anything that touches the accounting engine — the part that guarantees your accounts, envelopes and Ready to Assign always reconcile to the rupee — is treated with more suspicion than anything else, because that guarantee is the product.</p>
+      <p class="note">Two items near the bottom depend on decisions that are not about engineering at all. They are listed as longshots and may never happen. Saying so on the roadmap seems better than leaving them implied.</p>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="wrap">
+      <h2>Recently shipped</h2>
+      <p class="lede" style="max-width:56ch">So the pace above has something to be measured against.</p>
+      <ul class="checks" style="margin-top:1.25rem">
+        <li><strong>Schedules on a weekday</strong> — “the first Sunday of each month”, “the last Friday”, alongside the existing date rules. <span class="pill pill--ship">Sep 2026</span></li>
+        <li><strong>Envelope lines everywhere</strong> — one control for splitting across envelopes, on adding and editing both transactions and schedules. The first line takes whatever the others leave, so the lines can never disagree with the total. <span class="pill pill--ship">Sep 2026</span></li>
+        <li><strong>Capital gains in the tax estimate</strong> — sorted by asset class and holding period, taxed at their own rates rather than slab rates. <span class="pill pill--ship">Sep 2026</span></li>
+        <li><strong>Sign in without Google</strong> — a password, or any OpenID Connect provider you already run. <span class="pill pill--ship">Sep 2026</span></li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="sec sec--band">
+    <div class="wrap">
+      <h2>Planned</h2>
+      <p class="lede" style="max-width:56ch">In order. Each phase starts when the one before it lands, so a slip early moves everything after it — which is why the later dates are wider.</p>
+
+      <ol class="steps" style="margin-top:1.75rem">
+        <li>
+          <div>
+            <h3 style="margin:0 0 .3rem">Locked envelopes <span class="pill pill--r">Q4 2026</span></h3>
+            <p>Mark an envelope so its money cannot be moved out — school fees, the insurance sinking fund, anything that must survive a tight month. Adding to a locked envelope always works; only taking from it is refused, and spending you actually did is still recorded.</p>
+            <p class="m">Roughly 4–6 weeks.</p>
+          </div>
+        </li>
+        <li>
+          <div>
+            <h3 style="margin:0 0 .3rem">Targets on a whole group <span class="pill pill--r">Q4 2026 – Q1 2027</span></h3>
+            <p>Set one target across a group of envelopes rather than on each, and see the group’s own subtotal on the budget screen. Useful when you care that “Food” gets ₹18,000 and not how it divides between groceries, vegetables and eating out.</p>
+            <p class="m">Roughly 10–16 weeks for both halves.</p>
+          </div>
+        </li>
+        <li>
+          <div>
+            <h3 style="margin:0 0 .3rem">Spending in another currency <span class="pill pill--r">Q2 2027</span></h3>
+            <p>Enter a transaction as <strong>$40</strong> and have it stored as the rupees it cost. Your envelopes stay rupee envelopes — the conversion happens as you type, not inside the budget.</p>
+            <p>With one honesty built in: on a card used abroad the real rupee figure is your bank’s, markup and cross-currency fee included, which is typically a few percent away from a market rate. So the converted amount is marked an estimate until your statement arrives, and then corrected to what you were actually charged.</p>
+            <p class="m">Roughly 8–12 weeks.</p>
+          </div>
+        </li>
+        <li>
+          <div>
+            <h3 style="margin:0 0 .3rem">Card milestones <span class="pill pill--r">Q2 – Q4 2027</span></h3>
+            <p>Track spend against the thresholds your cards actually use — per statement cycle, per financial-year quarter, and per financial year — so an annual fee waiver or a quarterly voucher does not pass you by unnoticed.</p>
+            <p>It will say plainly that it is an estimate. Bank statements and SMS do not carry the merchant category reliably, so the rules work off your envelopes and payees, which is close but not the issuer’s own arithmetic.</p>
+            <p class="m">Roughly 14–20 weeks.</p>
+          </div>
+        </li>
+        <li>
+          <div>
+            <h3 style="margin:0 0 .3rem">Logging by chat <span class="pill pill--r">Q4 2027 – Q1 2028</span></h3>
+            <p>Send <strong>“450 groceries hdfc”</strong> to a Telegram bot and have it land in your budget, with a confirmation before anything is written. Telegram first because it needs nothing but a bot token and works on a home server behind a normal router.</p>
+            <p class="m">Roughly 10–16 weeks.</p>
+          </div>
+        </li>
+      </ol>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="wrap prose">
+      <h2>Longshots</h2>
+      <p>These are wanted, and neither is blocked on effort. Both are blocked on a question that has nothing to do with code, and they may never happen.</p>
+
+      <h3>Account Aggregator sync <span class="pill pill--hold">No date</span></h3>
+      <p>Pulling transactions automatically through the RBI’s Account Aggregator framework requires being a registered Financial Information User — an entity-level registration with an aggregator, not something an individual household can hold. It could only work for instances we host, and only if your financial data passed through us on the way to you.</p>
+      <p>That is the opposite of how Pathayam is built, so it is not a thing we will do quietly. If it ever happens it will be an explicit, separate, opt-in choice, described in full before you make it — and it is entirely possible the answer stays no.</p>
+
+      <h3>WhatsApp logging <span class="pill pill--hold">No date</span></h3>
+      <p>The same question in different clothes. WhatsApp requires a publicly reachable webhook, which a self-hosted instance behind a home router does not have — so it would mean your messages passing through a relay we operate. Telegram achieves the same thing without that, which is why Telegram is on the plan above and this is not.</p>
+    </div>
+  </section>
+
+  <section class="sec sec--band">
+    <div class="wrap prose">
+      <h2>Considered and set aside</h2>
+      <p>Listed because “we thought about it and decided against it for now” is more useful than silence.</p>
+      <ul class="checks">
+        <li><strong>Envelopes that hold foreign currency.</strong> Different from entering a transaction in another currency, which is planned above. An envelope that genuinely holds dollars either breaks the guarantee that everything reconciles, or splits Ready to Assign into one figure per currency. Rupees only, on purpose.</li>
+        <li><strong>Envelopes nested inside envelopes.</strong> Group subtotals are planned; envelopes that fund each other are not. A parent holding money while its children also hold money is an easy way to count the same rupee twice.</li>
+        <li><strong>Reward points arithmetic.</strong> Milestones are planned; points accrual is not. Rates, accelerated categories and monthly caps change often enough that the numbers would go quietly stale, which is worse than not showing them.</li>
+      </ul>
+    </div>
+  </section>
+
+  <section class="sec">
+    <div class="wrap center">
+      <h2>Want something that is not here?</h2>
+      <p class="lede" style="max-width:48ch;margin-inline:auto">The roadmap is shaped by what households actually run into. If something is missing for you, say so.</p>
+      <p class="hero__actions" style="justify-content:center">
+        <a class="btn btn--primary" href="https://github.com/flaxvin/Pathayam/issues">Open an issue</a>
+        <a class="btn btn--ghost" href="demo.html">Try the demo</a>
+      </p>
+      <p class="hero__fine">Last reviewed 20 September 2026.</p>
+    </div>
+  </section>
+</main>
+
+<footer class="foot">
+  <div class="wrap">
+    <div class="foot__grid">
+      <div>
+        <h2 class="foot__h">Pathayam</h2>
+        <ul>
+          <li><a href="features.html">Features</a></li>
+          <li><a href="pricing.html">Pricing</a></li>
+          <li><a href="demo.html">Live demo</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2 class="foot__h">Reference</h2>
+        <ul>
+          <li><a href="guides.html">Documentation</a></li>
+          <li><a href="api.html">API guide</a></li>
+          <li><a href="roadmap.html">Roadmap</a></li>
+          <li><a href="https://github.com/flaxvin/Pathayam">Source on GitHub</a></li>
+          <li><a href="terms.html">Terms</a></li>
+          <li><a href="privacy.html">Privacy</a></li>
+        </ul>
+      </div>
+      <div>
+        <h2 class="foot__h">Built with</h2>
+        <ul>
+          <li>TypeScript on Node 24+</li>
+          <li>node:sqlite · node:http</li>
+          <li>Zero runtime dependencies</li>
+        </ul>
+      </div>
+      <div>
+        <h3 class="foot__h">The name</h3>
+        <ul>
+          <li><span class="mal">പത്തായം</span> — the wooden chest
+              that held a Kerala household's harvest, filled once and
+              drawn from deliberately.</li>
+        </ul>
+      </div>
+    </div>
+    <p class="foot__note">
+      Run it yourself and nothing is sent anywhere: your data stays on your
+      machine. Hosted instances are set up by request. Every figure and name in the screenshots
+      is fictional.
+    </p>
+    <p class="foot__legal">
+      <a href="terms.html">Terms of service</a> ·
+      <a href="privacy.html">Privacy policy</a> ·
+      <a href="terms.html#software">Licence</a> ·
+      <a href="https://github.com/flaxvin/Pathayam">Source</a>
+    </p>
+  </div>
+</footer>
+
+<script src="site.js"></script>
+</body>
+</html>
