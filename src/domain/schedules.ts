@@ -13,7 +13,9 @@ import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import {
   nowIST, todayIST, addDays, addMonths, monthOf, daysBetween, resolveDayOfMonth,
-  formatDate, type IsoDate,
+  formatDate, nthWeekdayOfMonth, weekdayOf,
+  WEEKDAY_NAMES, WEEKDAY_ORDINAL_NAMES,
+  type IsoDate, type WeekdayOrdinal,
 } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { accountBalances } from "../engine/repository.ts";
@@ -24,6 +26,39 @@ import { createTransaction, refusePaymentCategories } from "./transactions.ts";
 export type Recurrence =
   | "daily" | "weekly" | "fortnightly" | "monthly" | "monthly-nth-weekday"
   | "quarterly" | "half-yearly" | "yearly";
+
+export const RECURRENCES: readonly Recurrence[] = [
+  "daily", "weekly", "fortnightly", "monthly", "monthly-nth-weekday",
+  "quarterly", "half-yearly", "yearly",
+] as const;
+
+/**
+ * Every route took the form field and cast it: `field(body, "recurrence") as
+ * Recurrence`. A cast is not a check — any string at all was stored, and
+ * `nextOccurrence` then fell through to its default and advanced the schedule
+ * monthly. A schedule could say "fortnighly", behave as monthly, and never
+ * mention it. The column carries no CHECK either, so nothing downstream
+ * objected.
+ *
+ * The table cannot gain one without a rebuild, and `schedules` is referenced by
+ * `schedule_splits` with ON DELETE CASCADE, so the refusal lives here instead —
+ * every write goes through create or update, and both call this.
+ */
+export function parseRecurrence(value: unknown): Recurrence {
+  if (typeof value === "string" && (RECURRENCES as readonly string[]).includes(value)) {
+    return value as Recurrence;
+  }
+  throw new Refusal(
+    `"${String(value)}" is not a recurrence this app knows. ` +
+    `Choose one of: ${RECURRENCES.join(", ")}.`,
+  );
+}
+
+export const SCHEDULE_HUMAN_RECURRENCE: Record<Recurrence, string> = {
+  daily: "Daily", weekly: "Weekly", fortnightly: "Fortnightly",
+  monthly: "Monthly, on a date", "monthly-nth-weekday": "Monthly, on a weekday",
+  quarterly: "Quarterly", "half-yearly": "Half-yearly", yearly: "Yearly",
+};
 
 export interface Schedule {
   id: string;
@@ -36,6 +71,10 @@ export interface Schedule {
   recurrence: Recurrence;
   next_due: IsoDate | null;
   short_month_policy: "last-day" | "skip" | "next-day";
+  /** 'monthly-nth-weekday' only: 1..4, or -1 for the last in the month. */
+  recurrence_ordinal: number | null;
+  /** 'monthly-nth-weekday' only: 0 = Sunday. */
+  recurrence_weekday: number | null;
   auto_post: number;
   is_subscription: number;
   /** F7.8: a detected schedule is distinguished from a confirmed one. */
@@ -81,6 +120,29 @@ function requireEnvelopeForOutgoing(
   }
 }
 
+/**
+ * The ordinal and weekday belong to 'monthly-nth-weekday' and to nothing else.
+ * Storing them on a monthly-by-date schedule would leave a value that means
+ * nothing, waiting to be read by a later change of recurrence and quietly
+ * moving somebody's rent.
+ */
+function weekdayFields(
+  recurrence: Recurrence,
+  ordinal: WeekdayOrdinal | null | undefined,
+  weekday: number | null | undefined,
+): { ordinal: number | null; weekday: number | null } {
+  if (recurrence !== "monthly-nth-weekday") return { ordinal: null, weekday: null };
+  const ord = ordinal ?? 1;
+  if (![1, 2, 3, 4, -1].includes(ord)) {
+    throw new Refusal("Choose the first, second, third, fourth or last one in the month.");
+  }
+  const wd = weekday ?? 0;
+  if (!Number.isInteger(wd) || wd < 0 || wd > 6) {
+    throw new Refusal("That is not a day of the week.");
+  }
+  return { ordinal: ord, weekday: wd };
+}
+
 export function createSchedule(
   db: DB, actor: Actor,
   input: {
@@ -94,6 +156,10 @@ export function createSchedule(
     amountIsEstimate?: boolean;
     recurrence: Recurrence;
     nextDue: IsoDate;
+    /** 'monthly-nth-weekday' only. 1..4, or -1 for last. */
+    recurrenceOrdinal?: WeekdayOrdinal | null;
+    /** 'monthly-nth-weekday' only. 0 = Sunday. */
+    recurrenceWeekday?: number | null;
     shortMonthPolicy?: Schedule["short_month_policy"];
     isSubscription?: boolean;
     detected?: boolean;
@@ -113,11 +179,14 @@ export function createSchedule(
       db,
       `INSERT INTO schedules
          (id,name,account_id,payee_id,category_id,amount,amount_is_estimate,recurrence,
-          next_due,short_month_policy,is_subscription,detected,confidence,created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
+          next_due,short_month_policy,recurrence_ordinal,recurrence_weekday,
+          is_subscription,detected,confidence,created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       id, input.name, input.accountId ?? null, input.payeeId ?? null, input.categoryId ?? null,
-      input.amount ?? null, input.amountIsEstimate ? 1 : 0, input.recurrence,
+      input.amount ?? null, input.amountIsEstimate ? 1 : 0, parseRecurrence(input.recurrence),
       input.nextDue, input.shortMonthPolicy ?? "last-day",
+      weekdayFields(input.recurrence, input.recurrenceOrdinal, input.recurrenceWeekday).ordinal,
+      weekdayFields(input.recurrence, input.recurrenceOrdinal, input.recurrenceWeekday).weekday,
       input.isSubscription ? 1 : 0, input.detected ? 1 : 0, input.confidence ?? null,
       nowIST(),
     );
@@ -143,7 +212,8 @@ export function updateSchedule(
   db: DB, actor: Actor, id: string,
   patch: Partial<Pick<Schedule,
     "name" | "amount" | "recurrence" | "next_due" | "category_id" | "account_id"
-    | "short_month_policy" | "is_subscription" | "amount_is_estimate">>,
+    | "short_month_policy" | "is_subscription" | "amount_is_estimate"
+    | "recurrence_ordinal" | "recurrence_weekday">>,
   /**
    * `splitsFollow` is the caller promising to write split lines in the same
    * transaction. Without it, an edit that turns a single-envelope schedule into
@@ -160,6 +230,24 @@ export function updateSchedule(
       patch.category_id !== undefined ? patch.category_id : before.category_id,
       opts.splitsFollow === true || getScheduleSplits(db, id).length > 0,
     );
+
+    /*
+     * The weekday pair follows the recurrence, in both directions.
+     *
+     * Switching *to* a weekday rule with nothing chosen would otherwise store
+     * nulls and fall back to "first Sunday" silently; switching *away* would
+     * leave the pair behind, to be picked up and acted on if the schedule ever
+     * came back — moving a payment to a day nobody had chosen this time.
+     */
+    if (patch.recurrence !== undefined) {
+      const recurrence = parseRecurrence(patch.recurrence);
+      const pair = weekdayFields(
+        recurrence,
+        (patch.recurrence_ordinal ?? before.recurrence_ordinal) as WeekdayOrdinal | null,
+        patch.recurrence_weekday ?? before.recurrence_weekday,
+      );
+      patch = { ...patch, recurrence_ordinal: pair.ordinal, recurrence_weekday: pair.weekday };
+    }
 
     // A key present but undefined means "not mentioned", not "set to null" — the
     // same trap that wrote NULLs into accounts (B107).
@@ -396,11 +484,49 @@ export function nextOccurrence(schedule: Schedule, after: IsoDate): IsoDate | nu
     case "daily": return addDays(from, 1);
     case "weekly": return addDays(from, 7);
     case "fortnightly": return addDays(from, 14);
+    case "monthly-nth-weekday": return nextNthWeekday(schedule, from);
     case "quarterly": return shiftMonthsKeepingDay(schedule, from, 3);
     case "half-yearly": return shiftMonthsKeepingDay(schedule, from, 6);
     case "yearly": return shiftMonthsKeepingDay(schedule, from, 12);
+    case "monthly": return shiftMonthsKeepingDay(schedule, from, 1);
     default: return shiftMonthsKeepingDay(schedule, from, 1);
   }
+}
+
+/**
+ * "The first Sunday of each month" — F7.3.
+ *
+ * This case did not exist. `monthly-nth-weekday` fell through to the default
+ * and advanced by day of month, so a schedule set to the first Sunday would
+ * drift to whatever date the first Sunday happened to be when it was created
+ * and then stay there. The value was never offered by the UI, which is the only
+ * reason nobody met it.
+ *
+ * The ordinal and weekday come from the schedule rather than from `next_due`,
+ * because a date cannot tell you which of the two it meant: 8 October 2026 is
+ * both "the 8th" and "the second Thursday", and next month they are different
+ * days. Where they are missing — a row written before 0041 — the weekday of
+ * `next_due` is the best available guess and is used rather than refusing.
+ */
+function nextNthWeekday(schedule: Schedule, from: IsoDate): IsoDate | null {
+  const anchor = schedule.next_due ?? from;
+  const weekday = schedule.recurrence_weekday ?? weekdayOf(anchor);
+  const ordinal = (schedule.recurrence_ordinal ?? 1) as WeekdayOrdinal;
+
+  // This month's occurrence may still be ahead of us; only move on if it is not.
+  const thisMonth = nthWeekdayOfMonth(monthOf(from), weekday, ordinal);
+  if (thisMonth > from) return thisMonth;
+  return nthWeekdayOfMonth(addMonths(monthOf(from), 1), weekday, ordinal);
+}
+
+/** "the first Sunday" — for the schedules list and the calendar. */
+export function describeRecurrence(schedule: Schedule): string {
+  if (schedule.recurrence !== "monthly-nth-weekday") {
+    return SCHEDULE_HUMAN_RECURRENCE[schedule.recurrence] ?? schedule.recurrence;
+  }
+  const weekday = schedule.recurrence_weekday ?? weekdayOf(schedule.next_due ?? todayIST());
+  const ordinal = (schedule.recurrence_ordinal ?? 1) as WeekdayOrdinal;
+  return `The ${WEEKDAY_ORDINAL_NAMES[ordinal]} ${WEEKDAY_NAMES[weekday]} of each month`;
 }
 
 /**

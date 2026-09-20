@@ -2014,4 +2014,33 @@ CREATE TABLE schedule_splits (
 CREATE INDEX idx_schedule_splits ON schedule_splits(schedule_id);
 `,
   },
+  {
+    name: "0041-the-first-sunday-of-each-month",
+    sql: `
+--------------------------------------------------------------------------------
+-- F7.3 · A schedule that falls on a weekday rather than a date
+--------------------------------------------------------------------------------
+-- Some commitments are not "the 5th" — they are "the first Sunday", "the last
+-- Friday". The domestic help paid on the first Sunday; the standing order that
+-- runs on the last working day.
+--
+-- 'monthly-nth-weekday' has been in the Recurrence union and in the
+-- annualisation table behind the subscriptions view since P1, but
+-- nextOccurrence() never had a case for it: it fell through to the default and
+-- advanced by day of month. A schedule set that way would have behaved as
+-- ordinary monthly and said nothing. It was unreachable from the UI, which is
+-- the only reason it never bit anyone.
+--
+-- The ordinal and the weekday are stored rather than inferred from next_due,
+-- because inference cannot tell "the 8th" from "the second Sunday" once the
+-- date has moved on, and the two diverge the following month.
+--
+-- Ordinals stop at the fourth, with -1 for "last". A fifth weekday exists in
+-- some months and not others, so offering it would mean a schedule that
+-- silently skips four months a year, or a policy for what to do instead —
+-- which is not a question anybody wants to answer about their rent.
+ALTER TABLE schedules ADD COLUMN recurrence_ordinal INTEGER;
+ALTER TABLE schedules ADD COLUMN recurrence_weekday INTEGER;
+`,
+  },
 ];

@@ -463,6 +463,41 @@ export const CLIENT_SCRIPT = String.raw`
   syncCategoryRequirement();
 
   // ---------------------------------------------------------------------------
+  // F7.3 · The weekday pair belongs to one recurrence
+  //
+  // "Which weekday" means nothing next to "Quarterly", so it is hidden unless
+  // the recurrence beside it is the weekday one. Hidden rather than removed:
+  // a removed field loses what was chosen the moment somebody switches away and
+  // back, and the server clears the pair anyway when the recurrence is
+  // something else, so nothing stale can survive a save.
+  //
+  // Scoped to one form. The schedules screen carries an edit form per schedule,
+  // and a page-wide query would let one schedule's recurrence hide another's
+  // weekday fields.
+  // ---------------------------------------------------------------------------
+  function syncWeekdayFields(select) {
+    var form = select.form;
+    if (!form) return;
+    var fields = form.querySelector("[data-weekday-fields]");
+    if (!fields) return;
+    if (select.value === "monthly-nth-weekday") fields.removeAttribute("hidden");
+    else fields.setAttribute("hidden", "");
+  }
+
+  function syncAllWeekdayFields() {
+    var selects = document.querySelectorAll("[data-recurrence]");
+    for (var i = 0; i < selects.length; i++) syncWeekdayFields(selects[i]);
+  }
+
+  document.addEventListener("change", function (event) {
+    if (event.target && event.target.hasAttribute
+        && event.target.hasAttribute("data-recurrence")) {
+      syncWeekdayFields(event.target);
+    }
+  });
+  syncAllWeekdayFields();
+
+  // ---------------------------------------------------------------------------
   // B87 · Filter the budget grid
   //
   // Thirty-four categories is seven screens on a phone. Typing filters to what

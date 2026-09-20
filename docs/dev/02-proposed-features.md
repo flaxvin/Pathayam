@@ -110,7 +110,11 @@ value for a third of the cost. Reach for real nesting only if a household
 actually wants to *fund a parent and spend from children*, which is a different
 feature from wanting to see a subtotal.
 
-## 3 · Richer recurrence rules
+## 3 · Richer recurrence rules — **built**
+
+*Shipped 20 September 2026.* What follows is the assessment as written; the
+work is done, both defects are fixed, and `monthly-nth-weekday` is now offered
+by every schedule form with its ordinal and weekday stored.
 
 *Re-scoped.* This was first read as scheduling under **uncertainty** — a bill due
 "around the 15th", a service every four to six weeks. What is actually wanted is
@@ -334,7 +338,7 @@ multi-currency implementation whose identity term nobody can explain.
 | 2a | Group targets | 3–5 d | **Build.** |
 | 2b | Pooling, display-only | +2–3 d | **Build** with 2a. |
 | 2c | True nested categories | +8–12 d | Only for funding a parent, spending from children. |
-| 3 | Richer recurrence rules | 3–5 d | **Build.** Fixes a latent fault and an unvalidated enum. |
+| 3 | Richer recurrence rules | ~~3–5 d~~ | **Built** 20 Sep 2026. Both defects fixed. |
 | 4a | Card milestones, 3 windows | 7–10 d | **Build.** Cycle, FY quarter, FY year. |
 | 4b | Points accrual | +4–6 d | Later. Permanent maintenance cost. |
 | 5a | Telegram logging | 5–8 d | **Build.** NAT-friendly; pairing required. |
@@ -343,14 +347,16 @@ multi-currency implementation whose identity term nobody can explain.
 | 7a | Foreign-currency entry | 4–6 d | **Build.** Estimate until the statement lands. |
 | 7b | Multi-currency envelopes | 15–25 d | **Defer.** Threatens the identity. |
 
-**Suggested order: 1 → 3 → 2a+2b → 7a → 4a → 5a.** Roughly **24–37 days**, all
+**Suggested order: ~~3~~ → 1 → 2a+2b → 7a → 4a → 5a.** Recurrence is done;
+the rest is roughly **21–32 days**, all
 of it inside the existing architecture, none of it touching the accounting
 identity, and no external party involved. Recurrence moves up the order because
 part of it is a fix.
 
-## Two defects found while estimating
+## Two defects found while estimating — both fixed
 
-Neither is part of any feature above, and both are in shipped code.
+Neither was part of any feature above; both were in shipped code, and both went
+out with the recurrence work on 20 September 2026.
 
 1. **`monthly-nth-weekday` advances as plain monthly.** It is in the
    `Recurrence` union and in the annualisation table, but `nextOccurrence()` has
@@ -359,9 +365,13 @@ Neither is part of any feature above, and both are in shipped code.
    `field(ctx.body, "recurrence") as Recurrence`, and the column has no `CHECK`
    constraint. Any string is storable and then behaves as monthly, silently.
 
-The second is a data-integrity gap worth closing on its own — roughly half a day
-with the migration and the tests — independent of whether recurrence rules are
-ever built.
+Both are closed. `nextOccurrence()` has a `monthly-nth-weekday` case that reads
+the stored ordinal and weekday; `parseRecurrence()` refuses anything outside the
+eight known values, and every route calls it. The refusal lives in the domain
+rather than as a `CHECK` because `schedules` is referenced by `schedule_splits`
+with `ON DELETE CASCADE` and adding a constraint to an existing SQLite table
+means rebuilding it — every write goes through create or update, and both
+validate.
 
 ## The decision that gates the rest
 

@@ -86,7 +86,7 @@ A unique index on `transactions(account_id, source, source_id)` where
 
 | Table | Key columns | Notes |
 |---|---|---|
-| `schedules` | `id`, `name`, `account_id`, `payee_id`, `category_id`, `amount`, `amount_is_estimate`, `recurrence`, `next_due`, `short_month_policy`, `auto_post`, `is_subscription`, `detected`, `confidence`, `enabled` | Outgoing schedules require a category. |
+| `schedules` | `id`, `name`, `account_id`, `payee_id`, `category_id`, `amount`, `amount_is_estimate`, `recurrence`, `next_due`, `short_month_policy`, `recurrence_ordinal`, `recurrence_weekday`, `auto_post`, `is_subscription`, `detected`, `confidence`, `enabled` | Outgoing schedules require a category. `recurrence_ordinal` (1–4, or −1 for last) and `recurrence_weekday` (0 = Sunday) apply to `monthly-nth-weekday` and are null for every other recurrence. |
 | `events` | `seq`, `id`, `at`, `actor_member_id`, `real_member_id`, `source`, `entity`, `entity_id`, `action`, `before_json`, `after_json`, `summary`, `idempotency_key`, `undo_of_event_id`, `undone_by_event_id` | Append-only. |
 | `idempotency_keys` | `key`, `member_id`, `request_hash`, `status`, `status_code`, `response_json` | |
 | `job_runs` | `id`, `job`, `started_at`, `finished_at`, `status`, `detail` | Backup and verification runs. |
