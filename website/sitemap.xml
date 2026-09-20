@@ -1,0 +1,52 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Every page on pathayam.app, for Google Search Console.
+
+  Only <loc> and <lastmod>: <changefreq> and <priority> are ignored by every
+  major crawler and exist here only to go stale, which is worse than absent.
+
+  `lastmod` is the file's last commit date, so it is a fact rather than a
+  guess. A sitemap whose dates cannot be trusted is one a crawler stops reading
+  the dates in.
+
+  Kept in step with the site by src/web/sitemap.test.ts, which fails when a page
+  is added, renamed or removed without this file following.
+-->
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+  <url>
+    <loc>https://pathayam.app/</loc>
+    <lastmod>2026-09-20</lastmod>
+  </url>
+  <url>
+    <loc>https://pathayam.app/features.html</loc>
+    <lastmod>2026-09-20</lastmod>
+  </url>
+  <url>
+    <loc>https://pathayam.app/pricing.html</loc>
+    <lastmod>2026-09-20</lastmod>
+  </url>
+  <url>
+    <loc>https://pathayam.app/roadmap.html</loc>
+    <lastmod>2026-09-20</lastmod>
+  </url>
+  <url>
+    <loc>https://pathayam.app/guides.html</loc>
+    <lastmod>2026-09-20</lastmod>
+  </url>
+  <url>
+    <loc>https://pathayam.app/api.html</loc>
+    <lastmod>2026-09-20</lastmod>
+  </url>
+  <url>
+    <loc>https://pathayam.app/demo.html</loc>
+    <lastmod>2026-09-20</lastmod>
+  </url>
+  <url>
+    <loc>https://pathayam.app/terms.html</loc>
+    <lastmod>2026-09-20</lastmod>
+  </url>
+  <url>
+    <loc>https://pathayam.app/privacy.html</loc>
+    <lastmod>2026-09-20</lastmod>
+  </url>
+</urlset>
