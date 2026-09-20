@@ -157,16 +157,15 @@ export function renderAddTransaction(opts: {
           entering. Money coming in doesn't need one — it lands in Ready to Assign.
         `,
       })}
-        ${when(grouped.length > 1, () => html`
-          <!--
-            15 §3.4 · What a cross-budget filing does, said when it is chosen
-            rather than after it is refused. Whether an account is private has
-            nothing to do with this: privacy decides who can see the account,
-            and the budget decides where its spending lands.
-          -->
-          <p class="field-hint" data-cross-budget hidden></p>
-        `)}
-      </div>
+      ${when(grouped.length > 1, () => html`
+        <!--
+          15 §3.4 · What a cross-budget filing does, said when it is chosen
+          rather than after it is refused. Whether an account is private has
+          nothing to do with this: privacy decides who can see the account,
+          and the budget decides where its spending lands.
+        -->
+        <p class="field-hint" data-cross-budget hidden></p>
+      `)}
 
       <div class="grid-2">
         <div class="field">

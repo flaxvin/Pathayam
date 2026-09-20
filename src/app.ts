@@ -114,6 +114,7 @@ import {
   createTransaction, createTransfer, updateTransaction, deleteTransaction,
   getTransaction, getSplits, listPayees, payeeStats, tagsFor, type Transaction,
   resolveCategoryLines,
+  outgoingLacksEnvelope,
 } from "./domain/transactions.ts";
 import {
   accountBalances, creditOutstanding, householdSettings,
@@ -2321,7 +2322,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       for (let i = 0; i < 10; i++) {
         const cat = field(ctx.body, `split_category_${i}`);
         const raw = String(field(ctx.body, `split_amount_${i}`) ?? "").trim();
-        if (!cat && !raw) continue;
+        /*
+         * The first line counts whenever the form sends it, empty or not. An
+         * empty one is an instruction — "no envelope" — which on money coming
+         * in is ordinary: the remainder lands in Ready to Assign. Skipping it
+         * the way a blank later line is skipped promoted line 2 to first and
+         * filed the *whole* amount into it, so ₹50,000 of salary with ₹5,000
+         * named for PF put all ₹50,000 in PF.
+         */
+        if (i > 0 && !cat && !raw) continue;
+        if (i === 0 && cat === undefined && !raw) continue;
         const magnitude = raw ? Math.abs(amountField(raw, `Envelope ${i + 1}`)) : null;
         lineValues.push({
           categoryId: cat ? requireVisibleCategory(ctx, cat)! : null,
@@ -2357,7 +2367,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
        * it. Income is different and stays optional — its job is to arrive in
        * Ready to Assign and wait to be given one, which is the whole model.
        */
-      if (direction !== "in" && !filed.categoryId && !filed.splits) {
+      if (outgoingLacksEnvelope((direction === "in" ? magnitude : -magnitude) as Paise, filed)) {
         throw new HttpError(
           400,
           "Which envelope did this come out of? Money in doesn't need one — money out does.",
@@ -3370,6 +3380,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const filed = lineValues.length > 0
       ? resolveCategoryLines(signed, lineValues)
       : null;
+
+    /*
+     * B99 against the lines, not only the single-envelope case — an entry that
+     * is split still has a blank first line available, and blank means no
+     * envelope. See outgoingLacksEnvelope.
+     */
+    if (filed !== null && outgoingLacksEnvelope(signed, filed)) {
+      throw new HttpError(
+        400,
+        "One of those envelope lines is blank, so part of this would be spending " +
+        "with no envelope behind it. Money in doesn't need one — money out does.",
+      );
+    }
 
     /*
      * Nothing about envelopes was posted at all — a form that carries only the
@@ -5264,7 +5287,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       for (let i = 0; i < 10; i++) {
         const cat = field(ctx.body, `split_category_${i}`);
         const raw = String(field(ctx.body, `split_amount_${i}`) ?? "").trim();
-        if (!cat && !raw) continue;
+        // Same rule as /add: a present-but-empty first line means "no envelope".
+        if (i > 0 && !cat && !raw) continue;
+        if (i === 0 && cat === undefined && !raw) continue;
         const lineMagnitude = raw ? Math.abs(amountField(raw, `Envelope ${i + 1}`)) : null;
         lineValues.push({
           categoryId: cat ? requireVisibleCategory(ctx, cat)! : null,
@@ -5282,6 +5307,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         (direction === "in" ? magnitude : -magnitude) as Paise,
         lineValues,
       );
+      /*
+       * B99 for schedules, against the lines. A blank line here posts itself
+       * against nothing every month, for ever — see outgoingLacksEnvelope.
+       */
+      if ( outgoingLacksEnvelope((direction === "in" ? magnitude : -magnitude) as Paise, filed)) {
+        throw new Refusal(
+          "One of those envelope lines is blank, so part of this would post itself " +
+          "every month against nothing. Money coming in can be left unassigned — it " +
+          "waits in Ready to Assign — but money going out has to say where it came from.",
+        );
+      }
+
       const lines = (filed.splits ?? []).map((sp) => ({
         categoryId: sp.categoryId, amount: sp.amount,
       }));
@@ -5377,6 +5414,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const filed = lineValues.length > 0
         ? resolveCategoryLines(signedAmount, lineValues)
         : null;
+
+      /*
+       * B99 for schedules, against the lines. A blank line here posts itself
+       * against nothing every month, for ever — see outgoingLacksEnvelope.
+       */
+      if (filed !== null && outgoingLacksEnvelope(signedAmount, filed)) {
+        throw new Refusal(
+          "One of those envelope lines is blank, so part of this would post itself " +
+          "every month against nothing. Money coming in can be left unassigned — it " +
+          "waits in Ready to Assign — but money going out has to say where it came from.",
+        );
+      }
 
       return transact(db, () => {
       const schedule = updateSchedule(

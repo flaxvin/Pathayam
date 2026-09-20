@@ -92,15 +92,45 @@ describe("the first line takes what is left", () => {
   });
 });
 
-describe("what it still refuses", () => {
+describe("what it still refuses, and what it says when it does", () => {
+  /*
+   * Two different mistakes, which for a while shared one sentence — and that
+   * sentence was wrong about one of them. Told that ₹3,000 of lines "leaves
+   * nothing" out of ₹2,400, the reader has to work out for themselves that
+   * they are ₹600 over; and somebody whose actual intent was to file the whole
+   * amount into one envelope was told to "give the later lines less than the
+   * total", which is not the fix. So each case says its own figure and its own
+   * way out, and these hold them to it.
+   */
+  function refusal(lines: { categoryId: string | null; amount: Paise | null }[]): string {
+    try {
+      resolveCategoryLines(OUT, lines);
+      assert.fail("should have refused");
+    } catch (e) {
+      assert.ok(e instanceof Refusal, "refused as a 500 rather than a 422");
+      return (e as Error).message;
+    }
+  }
+
   test("claiming the whole amount leaves the first line nothing", () => {
-    assert.throws(
-      () => resolveCategoryLines(OUT, [
-        { categoryId: "a", amount: null },
-        { categoryId: "b", amount: -rupees(2_400) as Paise },
-      ]),
-      Refusal,
+    const message = refusal([
+      { categoryId: "a", amount: null },
+      { categoryId: "b", amount: -rupees(2_400) as Paise },
+    ]);
+    assert.match(message, /the whole ₹2,400/);
+    assert.match(
+      message, /choose it on the first line and clear the amount below/,
+      "the one thing they can actually do about it is not offered",
     );
+  });
+
+  test("with several lines adding to the total, the fix is to move one up", () => {
+    const message = refusal([
+      { categoryId: "a", amount: null },
+      { categoryId: "b", amount: -rupees(1_400) as Paise },
+      { categoryId: "c", amount: -rupees(1_000) as Paise },
+    ]);
+    assert.match(message, /move one up to the first line/);
   });
 
   test("claiming more than there is would make the first line negative", () => {
@@ -108,25 +138,26 @@ describe("what it still refuses", () => {
      * Money appearing in an envelope because two others took too much — the
      * quiet impossibility the accounting identity exists to prevent.
      */
-    assert.throws(
-      () => resolveCategoryLines(OUT, [
-        { categoryId: "a", amount: null },
-        { categoryId: "b", amount: -rupees(3_000) as Paise },
-      ]),
-      (e: Error) => e instanceof Refusal && /leaves nothing for the first/.test(e.message),
-    );
+    const message = refusal([
+      { categoryId: "a", amount: null },
+      { categoryId: "b", amount: -rupees(3_000) as Paise },
+    ]);
+    assert.match(message, /₹600 more than the ₹2,400/, "the reader is left to do the subtraction");
+    assert.match(message, /3,000/, "what they actually typed is not quoted back");
   });
 
-  test("and says both figures, so the fix is obvious", () => {
-    try {
-      resolveCategoryLines(OUT, [
-        { categoryId: "a", amount: null },
-        { categoryId: "b", amount: -rupees(3_000) as Paise },
-      ]);
-      assert.fail("should have refused");
-    } catch (e) {
-      assert.match((e as Error).message, /3,000/);
-      assert.match((e as Error).message, /2,400/);
-    }
+  test("the exact total is not reported as being over by nothing", () => {
+    /*
+     * Zero is not negative, so on an expense the sign test that catches an
+     * overshoot also catches an exact total — and reported it as "₹0 more than
+     * ₹2,400". The order of the two checks is the whole of the fix, and this is
+     * what holds it: income took the right branch either way, so only the
+     * outgoing case ever showed it.
+     */
+    const message = refusal([
+      { categoryId: "a", amount: null },
+      { categoryId: "b", amount: -rupees(2_400) as Paise },
+    ]);
+    assert.doesNotMatch(message, /₹0 more/, "an expense is being told it is over by nothing");
   });
 });

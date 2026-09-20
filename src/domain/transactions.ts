@@ -500,12 +500,30 @@ export function resolveCategoryLines(total: Paise, lines: CategoryLine[]): Resol
    * line negative — money appearing in an envelope because two others took too
    * much — which is exactly the kind of quiet impossibility the identity exists
    * to prevent.
+   *
+   * The two ways to get here are different mistakes and take different
+   * sentences. One message covered both and was wrong about one of them: told
+   * that ₹6,000 of lines "leaves nothing" out of ₹5,000, the reader has to work
+   * out for themselves that they are ₹1,000 over. And "give the later lines
+   * less than the total" is no help at all to somebody whose actual intent was
+   * to file the whole amount into one envelope — the fix there is to move it up
+   * to the first line, which the old wording never mentioned.
    */
-  if (remainder === 0 || (total < 0) !== (remainder < 0)) {
+  if (remainder === 0) {
     throw new Refusal(
-      `Those lines come to ${formatPaise(Math.abs(claimed) as Paise)}, which leaves ` +
-      `nothing for the first one out of ${formatPaise(Math.abs(total) as Paise)}. ` +
-      "Give the later lines less than the total.",
+      `Those lines come to the whole ${formatPaise(Math.abs(total) as Paise)}, leaving ` +
+      "nothing for the first one. " +
+      (rest.length === 1
+        ? "If all of it goes to one envelope, choose it on the first line and clear the amount below."
+        : "Give them less than the total, or move one up to the first line and clear its amount."),
+    );
+  }
+  if ((total < 0) !== (remainder < 0)) {
+    throw new Refusal(
+      `Those lines come to ${formatPaise(Math.abs(claimed) as Paise)}, which is ` +
+      `${formatPaise(Math.abs(remainder) as Paise)} more than the ` +
+      `${formatPaise(Math.abs(total) as Paise)} being filed. Give them less than the ` +
+      "total — the first line takes whatever is left.",
     );
   }
 
@@ -516,6 +534,28 @@ export function resolveCategoryLines(total: Paise, lines: CategoryLine[]): Resol
       ...rest.map((l) => ({ categoryId: l.categoryId, amount: l.amount as Paise })),
     ],
   };
+}
+
+/**
+ * B99, checked against the lines rather than only the single-envelope case.
+ *
+ * `hasSplits` was treated as satisfying the rule on its own: an entry that is
+ * split obviously names its envelopes, since the lines carry them. That stopped
+ * being true when the first line became one that may legitimately be blank —
+ * blank means Ready to Assign, which is right for income and is uncategorised
+ * spending for anything else. A ₹5,000 expense with ₹1,000 named and the first
+ * line left empty was accepted, and filed ₹4,000 against no envelope at all:
+ * precisely the queue of unrecorded spending B99 exists to prevent, now arriving
+ * through the split path instead of the box that used to offer it.
+ *
+ * Income stays exempt for B99's own reason — its job is to land in Ready to
+ * Assign and wait to be given one.
+ */
+export function outgoingLacksEnvelope(total: Paise, filed: ResolvedLines): boolean {
+  if (total >= 0) return false;
+  return filed.splits
+    ? filed.splits.some((line) => !line.categoryId)
+    : !filed.categoryId;
 }
 
 export function createTransfer(db: DB, actor: Actor, input: TransferInput): [Transaction, Transaction] {

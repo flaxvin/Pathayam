@@ -228,6 +228,29 @@ A present-but-empty first select means "clear it", not "no lines were sent". The
 two used to be indistinguishable, and reading it the other way made clearing an
 envelope a save that reported success and changed nothing.
 
+### A blank first line
+
+Blank means **no envelope**, and what that is worth depends on which way the
+money is going.
+
+- **Money in:** ordinary. The remainder lands in **Ready to Assign**, stored as
+  a line with a null `category_id` — which is what Ready to Assign is. A
+  ₹50,000 salary with ₹5,000 named for provident fund leaves ₹45,000 waiting to
+  be given a job, and `identityResidual` comes out at exactly zero.
+- **Money out:** refused on all four screens. An expense with an uncategorised
+  remainder is precisely the queue of unrecorded spending B99 exists to prevent.
+
+The rule is `outgoingLacksEnvelope`, and it checks the **lines**, not only the
+single-envelope case. That distinction is the whole of it: "this entry is split,
+so of course it names its envelopes" was true until the first line became one
+that may legitimately be left blank. Until this was fixed, `/add` refused an
+uncategorised expense and the other three screens wrote one — and none of the
+four handled the income case at all. The create routes skipped a blank first
+select as "no line sent", which promoted the second line to first and filed the
+**whole** amount into it: ₹50,000 of salary, all of it in provident fund, with
+nothing refused, because a single-envelope income is a perfectly legal
+transaction.
+
 ### The half a test cannot see
 
 The envelope select is *also* the thing the browser can decline to send. A
