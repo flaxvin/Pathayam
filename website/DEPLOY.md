@@ -138,6 +138,23 @@ form is submitted with `fetch`, so that directive is the one that governs it.
 Without it the browser blocks the request and the page reports a failure it
 cannot explain.
 
+### Submit the sitemap
+
+[`sitemap.xml`](sitemap.xml) lists every page at its canonical URL, and
+[`robots.txt`](robots.txt) points at it — which is how a crawler finds the list
+without being told, and how new pages get picked up between submissions.
+
+In [Google Search Console](https://search.google.com/search-console): add
+`pathayam.app` as a **Domain** property (verified by a DNS TXT record, so it
+covers `https`, `http` and every subdomain at once), then **Sitemaps** →
+enter `sitemap.xml` → Submit. Once only; after that the file is re-read on
+Google's own schedule.
+
+Both files are plain static assets in this directory, so they deploy with
+everything else. `src/web/sitemap.test.ts` fails if a page is added, renamed or
+removed without the sitemap following — the failure mode otherwise is silence,
+and the first sign is a page that never appears in search.
+
 ### Check nothing leaks
 
 The site loads no third-party resource: fonts are served from

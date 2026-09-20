@@ -1,0 +1,11 @@
+# pathayam.app
+#
+# Everything here is public marketing and documentation, so nothing is
+# disallowed. The line that matters is the sitemap: it is how a crawler finds
+# the page list without being told, and how Search Console picks up new pages
+# between manual submissions.
+
+User-agent: *
+Allow: /
+
+Sitemap: https://pathayam.app/sitemap.xml
