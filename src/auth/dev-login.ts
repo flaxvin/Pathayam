@@ -18,6 +18,7 @@ import type { DB } from "../db/db.ts";
 import { listMembers, createSession, type Member } from "./sessions.ts";
 import { appendEvent } from "../core/events.ts";
 import { html, type SafeHtml } from "../http/html.ts";
+import { Missing } from "../core/refusal.ts";
 
 export const DEV_LOGIN_AVAILABLE = true;
 
@@ -31,7 +32,7 @@ export function signInAsDevelopmentMember(
   opts: { userAgent?: string | null; ipHint?: string | null; days: number },
 ): { token: string } {
   const member = listMembers(db).find((m) => m.id === memberId);
-  if (!member) throw new Error("That member does not exist.");
+  if (!member) throw new Missing("That member does not exist.");
 
   const { token } = createSession(db, member.id, opts);
 

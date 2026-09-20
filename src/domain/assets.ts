@@ -25,7 +25,7 @@
 
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
-import { Refusal } from "../core/refusal.ts";
+import { Refusal, Missing } from "../core/refusal.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST, todayIST, formatDate, daysBetween, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
@@ -480,7 +480,7 @@ export function classifyInstrument(
 ): void {
   transact(db, () => {
     const before = getInstrument(db, instrumentId);
-    if (!before) throw new Error("That instrument does not exist.");
+    if (!before) throw new Missing("That instrument does not exist.");
 
     execute(
       db, `UPDATE instruments SET asset_class = ?, region = ? WHERE id = ?`,

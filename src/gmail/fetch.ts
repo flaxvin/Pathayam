@@ -35,6 +35,7 @@ import {
   listMessageIds, getMessage, getAttachment, header, plainTextBody, pdfAttachments,
   type GmailClientOptions,
 } from "./client.ts";
+import { Refusal } from "../core/refusal.ts";
 
 export interface FetchResult {
   scanned: number;
@@ -93,7 +94,7 @@ export async function fetchGmail(
   if (!memberId) throw new Error("Fetching needs a member.");
 
   const connection = getConnection(db, memberId);
-  if (!connection) throw new Error("Gmail is not connected.");
+  if (!connection) throw new Refusal("Gmail is not connected.");
 
   const { accessToken } = await refreshAccessToken({
     clientId: deps.clientId,

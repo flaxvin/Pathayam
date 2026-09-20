@@ -20,6 +20,7 @@ import { transact, queryOne, execute } from "../db/db.ts";
 import { appendEvent, type Actor } from "../core/events.ts";
 import { nowIST } from "../core/dates.ts";
 import type { StatementIdentity } from "./statement-passwords.ts";
+import { Refusal } from "../core/refusal.ts";
 
 /** Ten characters: five letters, four digits, one letter. */
 export function looksLikePan(value: string): boolean {
@@ -75,21 +76,21 @@ export function setIdentity(
   if (!memberId) throw new Error("This belongs to a member.");
 
   const name = input.name.trim();
-  if (name === "") throw new Error("A name is needed — it is what most passwords start with.");
+  if (name === "") throw new Refusal("A name is needed — it is what most passwords start with.");
 
   const pan = input.pan?.trim() || null;
   if (pan && !looksLikePan(pan)) {
-    throw new Error("That does not look like a PAN. It is five letters, four digits, one letter.");
+    throw new Refusal("That does not look like a PAN. It is five letters, four digits, one letter.");
   }
 
   const dob = input.dob?.replace(/\D/g, "") || null;
   if (dob && !looksLikeDob(dob)) {
-    throw new Error("Enter the date of birth as DDMMYYYY.");
+    throw new Refusal("Enter the date of birth as DDMMYYYY.");
   }
 
   const mobile = input.mobile?.replace(/\D/g, "") || null;
   if (mobile && (mobile.length < 10 || mobile.length > 12)) {
-    throw new Error("Enter the full registered mobile number.");
+    throw new Refusal("Enter the full registered mobile number.");
   }
 
   transact(db, () => {

@@ -15,7 +15,7 @@ import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST } from "../core/dates.ts";
-import { Refusal } from "../core/refusal.ts";
+import { Refusal, Missing } from "../core/refusal.ts";
 
 /** What a listing shows: metadata only, never the bytes. */
 export interface AttachmentMeta {
@@ -69,7 +69,7 @@ export function addAttachment(
     const transaction = queryOne<{ id: string }>(
       db, `SELECT id FROM transactions WHERE id = ? AND deleted_at IS NULL`, input.transactionId,
     );
-    if (!transaction) throw new Error("That transaction does not exist.");
+    if (!transaction) throw new Missing("That transaction does not exist.");
 
     const sha256 = createHash("sha256").update(input.bytes).digest("hex");
 

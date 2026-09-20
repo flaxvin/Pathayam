@@ -15,7 +15,7 @@
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
-import { Refusal } from "../core/refusal.ts";
+import { Missing, Refusal } from "../core/refusal.ts";
 import { setTarget, moveMoney } from "./budget.ts";
 import { nowIST, todayIST, formatDate, monthOf, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
@@ -150,8 +150,8 @@ export interface CreateLoanInput {
 }
 
 export function createLoan(db: DB, actor: Actor, input: CreateLoanInput): Loan {
-  if (input.sanctioned <= 0) throw new Error("A loan needs a sanctioned amount above zero.");
-  if (input.tenureMonths <= 0) throw new Error("A loan needs a tenure of at least one month.");
+  if (input.sanctioned <= 0) throw new Refusal("A loan needs a sanctioned amount above zero.");
+  if (input.tenureMonths <= 0) throw new Refusal("A loan needs a tenure of at least one month.");
 
   return transact(db, () => {
     // F18.g: a Tracking account, so it can never fund the budget.
@@ -396,7 +396,7 @@ export function recordDisbursement(
     note?: string | null;
   },
 ): Disbursement {
-  if (input.amount <= 0) throw new Error("A disbursement needs an amount above zero.");
+  if (input.amount <= 0) throw new Refusal("A disbursement needs an amount above zero.");
 
   // B51: a disbursement credited to a budget account MUST name the account, or
   // the cash leg below is silently skipped while the liability is still booked —
@@ -404,18 +404,18 @@ export function recordDisbursement(
   // B32 names). Reject the combination rather than record something that is
   // permanently inconsistent with itself.
   if (input.destination === "budget-account" && !input.destinationAccountId) {
-    throw new Error(
+    throw new Refusal(
       "Say which account the money landed in, or record it as paid to a third party.",
     );
   }
 
   return transact(db, () => {
     const loan = getLoan(db, input.loanId);
-    if (!loan) throw new Error("That loan does not exist.");
+    if (!loan) throw new Missing("That loan does not exist.");
 
     const disbursed = totalDisbursed(db, input.loanId);
     if (disbursed + input.amount > loan.sanctioned) {
-      throw new Error(
+      throw new Refusal(
         `That would draw ${formatPaise(disbursed + input.amount)} against a sanction of ` +
           `${formatPaise(loan.sanctioned)}.`,
       );
@@ -780,11 +780,11 @@ export function recordInstalment(
     note?: string | null;
   },
 ): LoanPayment {
-  if (input.amount <= 0) throw new Error("An instalment needs an amount above zero.");
+  if (input.amount <= 0) throw new Refusal("An instalment needs an amount above zero.");
 
   return transact(db, () => {
     const loan = getLoan(db, input.loanId);
-    if (!loan) throw new Error("That loan does not exist.");
+    if (!loan) throw new Missing("That loan does not exist.");
 
     let principal = input.principal ?? null;
     let interest = input.interest ?? null;
@@ -801,7 +801,7 @@ export function recordInstalment(
     }
 
     if (principal + interest !== input.amount) {
-      throw new Error(
+      throw new Refusal(
         `The split adds up to ${formatPaise(principal + interest)}, but the payment is ` +
           `${formatPaise(input.amount)}.`,
       );
@@ -1163,7 +1163,7 @@ export function closeLoan(
 ): LifetimeMetrics {
   return transact(db, () => {
     const projection = projectLoan(db, input.loanId);
-    if (!projection) throw new Error("That loan does not exist.");
+    if (!projection) throw new Missing("That loan does not exist.");
 
     if (input.foreclosureCharge && input.foreclosureCharge > 0) {
       if (!input.chargeAccountId) {

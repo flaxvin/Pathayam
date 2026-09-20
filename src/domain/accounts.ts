@@ -11,7 +11,7 @@ import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST, todayIST, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
-import { Refusal } from "../core/refusal.ts";
+import { Missing, Refusal } from "../core/refusal.ts";
 import { householdBudgetId } from "./budgets.ts";
 import { prepareClaim } from "./commitments.ts";
 
@@ -252,7 +252,7 @@ export function createAccount(db: DB, actor: Actor, input: CreateAccountInput): 
     }
   }
   if (input.kind === "credit" && (input.openingBalance ?? 0) > 0) {
-    throw new Error(
+    throw new Refusal(
       "A credit account's opening balance is what you owe, so it must be zero or negative.",
     );
   }
@@ -541,7 +541,7 @@ export function createCard(db: DB, actor: Actor, input: CreateCardInput): Card {
     const account = getAccount(db, input.accountId);
     if (!account) throw new Refusal("That account does not exist.");
     if (account.kind !== "credit") {
-      throw new Error("Cards belong to credit accounts only.");
+      throw new Refusal("Cards belong to credit accounts only.");
     }
 
     const id = newId();
@@ -604,9 +604,9 @@ export function findCardByLast4(db: DB, last4: string): Card | null {
 export function closeCard(db: DB, actor: Actor, id: string): void {
   transact(db, () => {
     const before = queryOne<Card>(db, `SELECT * FROM cards WHERE id = ?`, id);
-    if (!before) throw new Error("That card does not exist.");
+    if (!before) throw new Missing("That card does not exist.");
     if (before.is_primary) {
-      throw new Error("Close the account rather than its primary card.");
+      throw new Refusal("Close the account rather than its primary card.");
     }
     execute(db, `UPDATE cards SET closed_at = ? WHERE id = ?`, nowIST(), id);
     appendEvent(db, actor, {
@@ -746,9 +746,9 @@ export function recordCardStatement(
     const account = getAccount(db, input.accountId);
     if (!account) throw new Refusal("That account does not exist.");
     if (account.kind !== "credit") {
-      throw new Error("Only a credit card has a statement.");
+      throw new Refusal("Only a credit card has a statement.");
     }
-    if (input.amount < 0) throw new Error("A statement balance is what is owed — zero or more.");
+    if (input.amount < 0) throw new Refusal("A statement balance is what is owed — zero or more.");
 
     const id = newId();
     execute(

@@ -36,6 +36,7 @@ import {
   resolve, dictGet,
   type PdfDocument, type PdfDict, type PdfValue,
 } from "./objects.ts";
+import { Refusal } from "../core/refusal.ts";
 
 /** The 32-byte string every standard-security PDF pads short passwords with. */
 const PAD = new Uint8Array([
@@ -262,7 +263,7 @@ function sameBytes(a: Uint8Array, b: Uint8Array): boolean {
 function fileKey(doc: PdfDocument, encrypt: PdfDict, password: string): Encryption {
   const filter = dictGet(doc, encrypt, "Filter");
   if (isName(filter) && filter.name !== "Standard") {
-    throw new Error(
+    throw new Refusal(
       `This statement uses the ${filter.name} security handler, which this app cannot open. ` +
       `Save it as an unprotected PDF from your viewer and import that.`,
     );
