@@ -29,8 +29,9 @@ harvest, drawn from deliberately through the year.
   budget per member, excluded from the other members' lists, reports, exports,
   activity log and totals.
 - **Schedules that split.** A salary into provident fund, tax and what landed;
-  rent into rent and maintenance. The lines must add up, and posting the
-  schedule posts a split transaction.
+  rent into rent and maintenance. The first envelope takes whatever the later
+  lines do not claim, so a recurring split cannot be quietly wrong every month,
+  and posting the schedule posts a split transaction.
 - **Tax estimate.** Income tax under both regimes, side by side, with 80C, 80D
   and the HRA exemption, and capital gains at their own rates rather than at
   slab rates — an estimate on figures you enter, not a return and not advice. Slabs are data keyed by financial year, so a year the app does
@@ -120,7 +121,7 @@ function and asserts (1) and (2) after each month. Details:
 | **Cards** | `/cards` | Every credit card in the order it falls due: what is owed, what is set aside, what has nothing behind it, and the statement and due date when one has been recorded. |
 | **Register** | `/accounts/:id` | A running-balance transaction list for one account, with reconcile. |
 | **Transaction** | `/transaction/:id` | Edit, splits, tags, owner; raw imported values; full event history; **receipts**. |
-| **Add** | `/add` | One form for money in, money out and transfers. An expense must name its envelope. |
+| **Add** | `/add` | One form for money in, money out and transfers. Envelopes are a list of lines, the first taking the remainder; an expense must name one, income may leave it blank and land in Ready to Assign. |
 | **Move money** | `/move` | Move between envelopes, with a note explaining that this never changes Ready to Assign. |
 | **Hold** | `/hold` | Keep part of this month’s Ready to Assign for next month — how you get to spending last month’s income. |
 | **Review** | `/review` | Everything awaiting a decision: imports, suspected duplicates, uncategorised (filed inline), overspent, unfunded cards, proposed rules, and money you're owed. |
