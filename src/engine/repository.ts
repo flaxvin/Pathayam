@@ -41,6 +41,21 @@ import {
  * the top still built the entire history before the outer query narrowed it,
  * which left the six-month live window scaling with all of time.
  */
+/*
+ * Two guards against the ledger disagreeing with itself.
+ *
+ * `is_split` decides which branch a transaction is read from, in both
+ * directions. The first branch always checked it; the second did not, so split
+ * rows left behind on a transaction that had since been flattened to one
+ * envelope were counted as well — ₹900 of spending charged ₹1,800 across
+ * envelopes. And a transfer leg whose partner has been deleted is no longer
+ * half of anything: the partner join below ignores deleted rows, so a lone leg
+ * falls through to being an ordinary flow that Ready to Assign absorbs, rather
+ * than money that vanished between two accounts. Neither state should arise —
+ * the undo paths that produced both are fixed — but the engine is the last
+ * line, and it should not need every writer to be perfect for the identity to
+ * hold.
+ */
 const CATEGORISED_CTE = `
   WITH categorised AS (
     SELECT t.date AS date, t.account_id AS account_id, t.category_id AS category_id, t.amount AS amount
@@ -51,7 +66,7 @@ const CATEGORISED_CTE = `
     SELECT t.date, t.account_id, s.category_id, s.amount
       FROM transaction_splits s
       JOIN transactions t ON t.id = s.transaction_id
-     WHERE t.deleted_at IS NULL AND s.category_id IS NOT NULL
+     WHERE t.deleted_at IS NULL AND t.is_split = 1 AND s.category_id IS NOT NULL
        AND t.date >= ? AND t.date <= ?
   )
 `;
@@ -151,6 +166,7 @@ function transferFlowSql(budgetId?: string): string {
        JOIN accounts a ON a.id = t.account_id
        JOIN transactions other
          ON other.transfer_pair_id = t.transfer_pair_id AND other.id <> t.id
+        AND other.deleted_at IS NULL
        JOIN accounts otherAccount ON otherAccount.id = other.account_id
       WHERE t.deleted_at IS NULL AND a.kind = 'budget'
         AND t.transfer_pair_id IS NOT NULL
@@ -196,6 +212,7 @@ function crossCardPaymentSql(): string {
        JOIN accounts a ON a.id = t.account_id AND a.kind = 'budget'
        JOIN transactions other
          ON other.transfer_pair_id = t.transfer_pair_id AND other.id <> t.id
+        AND other.deleted_at IS NULL
        JOIN accounts card ON card.id = other.account_id AND card.kind = 'credit'
       WHERE t.deleted_at IS NULL AND t.transfer_pair_id IS NOT NULL
         AND a.budget_id IS NOT card.budget_id
