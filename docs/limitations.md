@@ -59,8 +59,15 @@ asset class, a hybrid fund (whose treatment turns on an equity ratio not
 tracked here), and a sale with no recorded lots are excluded from the
 computation and reported on the screen instead of being guessed into a bucket.
 Losses are floored at zero per bucket rather than set off between heads, so a
-year with losses is overstated. Surcharge on gains is capped at 15% under 111A
-and 112A; this applies the ordinary band.
+year with losses is overstated. The gains are measured against the rest of the
+person's income the way the Act does it: the 87A ceiling and the surcharge
+band are tested on total income including them; where other income is below
+the basic exemption, the unused part is set against 111A, then 112, then 112A
+gains (the order most favourable to the person — the Act fixes none); 87A never
+relieves 112A tax, and under the new regime relieves no special-rate tax at
+all; and the surcharge on special-rate tax stops at 15%. The basic-exemption
+adjustment assumes a resident under 60 — the old regime's ₹3,00,000 and
+₹5,00,000 senior limits are not modelled, so a senior's figure is overstated.
 
 **Nothing is derived from the ledger except a starting figure.** Income is
 prefilled from money that arrived in visible budget accounts, which is not

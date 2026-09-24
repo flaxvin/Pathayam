@@ -16,6 +16,7 @@ import {
   estimateTax, estimateUnder, taxOnSlabs, hraExemption, advanceTaxSchedule,
   assertKnownYear, RULES, LIMITS, ADVANCE_TAX_THRESHOLD,
 } from "./tax.ts";
+import { taxOnGains } from "./capital-gains-tax.ts";
 
 const FY = 2025;
 const none = { s80c: 0 as Paise, s80d: 0 as Paise, s80dSenior: false, other: 0 as Paise, hra: null };
@@ -315,5 +316,122 @@ describe("advance tax", () => {
     const s = advanceTaxSchedule(2025, rupees(100_000));
     assert.equal(s[0]!.date, "2025-06-15");
     assert.equal(s[3]!.date, "2026-03-15", "March of FY 2025-26 is March 2026");
+  });
+});
+
+describe("special-rate gains measured against the rest of the income", () => {
+  /*
+   * The estimate used to be handed a finished figure of gains tax and add it
+   * on. Three things the Act does with 111A, 112A and 112 gains depend on the
+   * person's other income, which only the estimate knows, so all three were
+   * wrong: the 87A ceiling and the surcharge band were tested on slab income
+   * alone, and the unused basic exemption was never set against the gains.
+   * Each case below is the arithmetic done by hand; all but the last failed
+   * before the fix (the last guards what must not change).
+   */
+  const g = (over: Partial<Parameters<typeof taxOnGains>[1]>) => taxOnGains(FY, {
+    equityLong: 0 as Paise, equityShort: 0 as Paise, otherLong: 0 as Paise,
+    slabRated: 0 as Paise, unclassified: 0 as Paise, unclassifiedReasons: [], ...over,
+  });
+
+  test("87A: total income over ₹12 lakh takes no rebate, whatever the slab income", () => {
+    /*
+     * New regime, taxable salary ₹11,00,000 (₹11,75,000 gross) plus a
+     * ₹6,25,000 112A gain. Total income ₹17,25,000 > ₹12,00,000: no rebate.
+     *   slabs: 4–8L at 5% = 20,000; 8–11L at 10% = 30,000 → 50,000
+     *   112A: (6,25,000 − 1,25,000) × 12.5% = 62,500
+     *   (50,000 + 62,500) × 1.04 = ₹1,17,000.
+     * The old code saw ₹11,00,000 under the ceiling, rebated the ₹50,000 and
+     * showed ₹65,000.
+     */
+    const e = estimateUnder(FY, "new", rupees(1_175_000), none, g({ equityLong: rupees(625_000) }));
+    assert.equal(e.totalIncome, rupees(1_725_000));
+    assert.equal(e.rebate, 0, "the rebate was given on slab income alone");
+    assert.equal(e.total, rupees(117_000));
+  });
+
+  test("87A under the old regime: the ₹5 lakh ceiling counts the gains too", () => {
+    /*
+     * Old regime, taxable ₹4,00,000 (₹4,50,000 gross) plus ₹2,00,000 of 111A.
+     * Total income ₹6,00,000 > ₹5,00,000: no rebate.
+     *   slabs: 2.5–4L at 5% = 7,500; 111A: 2,00,000 × 20% = 40,000
+     *   47,500 × 1.04 = ₹49,400. The old code rebated the 7,500: ₹41,600.
+     */
+    const e = estimateUnder(FY, "old", rupees(450_000), none, g({ equityShort: rupees(200_000) }));
+    assert.equal(e.rebate, 0);
+    assert.equal(e.total, rupees(49_400));
+  });
+
+  test("surcharge band is chosen on total income", () => {
+    /*
+     * New regime, taxable salary ₹45,00,000 plus ₹20,00,000 of 111A. Total
+     * ₹65,00,000 > ₹50,00,000: 10% band.
+     *   slabs: 20,000 + 40,000 + 60,000 + 80,000 + 1,00,000 + 21L × 30%
+     *          (6,30,000) = 9,30,000;  111A: 20L × 20% = 4,00,000
+     *   13,30,000 + 10% (1,33,000) = 14,63,000; × 1.04 = ₹15,21,520.
+     * The old code saw ₹45,00,000, no band: ₹13,83,200.
+     */
+    const e = estimateUnder(FY, "new", rupees(4_575_000), none, g({ equityShort: rupees(2_000_000) }));
+    assert.equal(e.surcharge, rupees(133_000));
+    assert.equal(e.total, rupees(1_521_520));
+  });
+
+  test("surcharge on special-rate tax stops at 15%", () => {
+    /*
+     * New regime, taxable ₹2,50,00,000 plus a ₹1,00,00,000 112A gain: the 25%
+     * band. Slab tax 3,00,000 + 2,26,00,000 × 30% = 70,80,000; 112A tax
+     * 98,75,000 × 12.5% = 12,34,375.
+     *   surcharge 70,80,000 × 25% + 12,34,375 × 15% = 17,70,000 + 1,85,156.25
+     *   (70,80,000 + 12,34,375 + 19,55,156.25) × 1.04 = 1,06,80,312.50
+     *   → ₹1,06,80,310 after 288B. At 25% on both it was ₹1,08,08,690.
+     */
+    const e = estimateUnder(FY, "new", rupees(25_075_000), none, g({ equityLong: rupees(10_000_000) }));
+    assert.equal(e.surcharge, 195_515_625);
+    assert.equal(e.total, rupees(10_680_310));
+  });
+
+  test("the unused basic exemption is set against a 112A gain (new regime)", () => {
+    /*
+     * A retiree with no salary and a ₹4,00,000 long-term equity gain. The new
+     * regime's nil slab is ₹4,00,000, all of it unused, so the gain is reduced
+     * to nil before the ₹1,25,000 exemption is even reached: ₹0 payable.
+     * The old code taxed (4,00,000 − 1,25,000) × 12.5% × 1.04 = ₹35,750.
+     */
+    const e = estimateUnder(FY, "new", 0 as Paise, none, g({ equityLong: rupees(400_000) }));
+    assert.equal(e.basicExemptionAgainstGains, rupees(400_000));
+    assert.equal(e.total, 0);
+  });
+
+  test("old regime: basic exemption shortfall, then 87A, relieve a 111A gain", () => {
+    /*
+     * Slab income ₹1,00,000 (₹1,50,000 gross) plus ₹3,00,000 of 111A.
+     *   shortfall 2,50,000 − 1,00,000 = 1,50,000 → 111A taxed on 1,50,000
+     *   1,50,000 × 20% = 30,000; total income 4,00,000 ≤ 5,00,000, so 87A
+     *   (which the old regime allows against 111A) takes 12,500 → 17,500
+     *   17,500 × 1.04 = ₹18,200. The old code: 3,00,000 × 20% × 1.04 = ₹62,400.
+     */
+    const e = estimateUnder(FY, "old", rupees(150_000), none, g({ equityShort: rupees(300_000) }));
+    assert.equal(e.rebate, rupees(12_500));
+    assert.equal(e.total, rupees(18_200));
+  });
+
+  test("old regime: 87A never relieves 112A, even under the ceiling", () => {
+    /*
+     * Slab income ₹1,00,000 plus a ₹4,00,000 112A gain. Shortfall 1,50,000
+     * leaves 2,50,000; less the 1,25,000 exemption, 1,25,000 × 12.5% = 15,625.
+     * Total income 5,00,000 is within the ceiling but 87A does not reach 112A.
+     *   15,625 × 1.04 = ₹16,250. The old code: ₹35,750.
+     */
+    const e = estimateUnder(FY, "old", rupees(150_000), none, g({ equityLong: rupees(400_000) }));
+    assert.equal(e.rebate, 0);
+    assert.equal(e.total, rupees(16_250));
+  });
+
+  test("new regime: 87A relieves slab tax only, not 111A", () => {
+    // Taxable ₹5,00,000 + 111A ₹2,00,000: rebate 5,000 (all slab tax);
+    // 111A 40,000 stays. 40,000 × 1.04 = ₹41,600. Unchanged by the fix.
+    const e = estimateUnder(FY, "new", rupees(575_000), none, g({ equityShort: rupees(200_000) }));
+    assert.equal(e.rebate, rupees(5_000));
+    assert.equal(e.total, rupees(41_600));
   });
 });
