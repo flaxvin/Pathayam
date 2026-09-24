@@ -69,6 +69,22 @@ Transaction Date,Transaction Remarks,Withdrawal Amount,Deposit Amount,Balance
     assert.equal(mapping.debit, undefined);
   });
 
+  // "Description" contains "cr", and hints matched substrings — so this file's
+  // narration column was taken as Credit, the ₹5,000 salary row was refused
+  // as "SALARY is not an amount", and that mapping was saved as the profile.
+  test("matches whole words: Description is not the Credit column", () => {
+    const text = `Date,Description,Debit,Credit,Balance
+03-08-2026,SHOP,450.00,,1000.00
+04-08-2026,SALARY,,5000.00,6000.00`;
+    const mapping = guessMapping(parseDelimited(text))!;
+    assert.equal(mapping.narration, 1);
+    assert.equal(mapping.debit, 2);
+    assert.equal(mapping.credit, 3);
+    const { result } = parseStatement(text);
+    assert.deepEqual(result.records.map((r) => r.amount), [rupees(-450), rupees(5000)]);
+    assert.equal(result.errors.length, 0);
+  });
+
   test("returns null when nothing looks like a statement", () => {
     // An unrecognised file is a mapping task, not an error — the caller shows
     // the raw rows and asks.
