@@ -237,6 +237,72 @@ export function flatRateLoan(
 }
 
 /**
+ * R16 M2 · The schedule a flat-rate loan actually runs to.
+ *
+ * Interest is charged on the ORIGINAL principal for the whole term, so every
+ * instalment carries the same interest (P₀ × rate ÷ 12) and the same principal
+ * (what is owed ÷ instalments left). Projected as a reducing-balance loan at
+ * the flat rate — which is what happened before — ₹1,00,000 at 12% flat over
+ * 12 months showed an EMI of ₹8,884.88 and ₹6,618.55 of interest; the lender
+ * collects ₹9,333.33 a month and ₹12,000 of interest.
+ *
+ * `principal` is what is owed now and `months` the instalments left, so a
+ * loan part-way through projects its remaining instalments; on schedule those
+ * are exactly the original ones.
+ */
+export function flatSchedule(input: {
+  principal: Paise;
+  originalPrincipal: Paise;
+  annualFlatPct: number;
+  months: number;
+  firstInstalmentDate?: IsoDate;
+}): Schedule {
+  const { principal, originalPrincipal, annualFlatPct, months, firstInstalmentDate } = input;
+  if (principal <= 0) throw new RangeError("A loan needs a principal above zero.");
+  if (months <= 0) throw new RangeError("A loan needs at least one instalment.");
+
+  const interest: Exact = (originalPrincipal * annualFlatPct) / 1200;
+  const principalPart: Exact = principal / months;
+  const instalments: Instalment[] = [];
+  let balance: Exact = principal;
+  let cumulative: Exact = 0;
+  for (let n = 1; n <= months; n++) {
+    const opening = balance;
+    balance = n === months ? 0 : balance - principalPart;
+    cumulative += interest;
+    // Each row is rounded from exact values, and the principal is taken as
+    // opening − closing so every row reconciles to the paisa.
+    const openingP = toPaise(opening), closingP = toPaise(balance);
+    const interestP = toPaise(cumulative) - toPaise(cumulative - interest);
+    instalments.push({
+      number: n,
+      dueDate: firstInstalmentDate ? shiftMonths(firstInstalmentDate, n - 1) : null,
+      opening: openingP,
+      payment: openingP - closingP + interestP,
+      interest: interestP,
+      principal: openingP - closingP,
+      closing: closingP,
+      cumulativeInterest: toPaise(cumulative),
+      estimated: true,
+    });
+  }
+  const totalInterest = toPaise(interest * months);
+  return {
+    instalments,
+    totalInterest,
+    months,
+    finalEmi: toPaise(principalPart + interest),
+    totalRepaid: principal + totalInterest,
+    closesOn: instalments.at(-1)?.dueDate ?? null,
+  };
+}
+
+/** R16 M2 · The fixed monthly interest on a flat-rate loan. */
+export function flatMonthlyInterest(originalPrincipal: Paise, annualFlatPct: number): Paise {
+  return toPaise((originalPrincipal * annualFlatPct) / 1200);
+}
+
+/**
  * The reducing-balance rate that produces this instalment — what a flat-rate
  * quote actually costs.
  *

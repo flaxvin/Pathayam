@@ -26,8 +26,14 @@ The amortisation schedule is computed from the rate history in `loan_rates`, not
 stored. A rate change inserts a row with `effective_from`; the schedule is
 recomputed from that date forward.
 
-For a `flat` loan the equivalent reducing-balance rate is calculated and shown,
-because a flat rate understates the real cost.
+A `flat` loan runs to its own schedule: interest on the original principal,
+the same every month, and principal in equal parts — EMI = (P + P × rate ×
+years) ÷ instalments, so ₹1,00,000 at 12% flat over 12 months is ₹9,333.33 a
+month and ₹12,000 of interest. The EMI, the payment envelope's target and the
+estimated split of an instalment paid without the lender's figures all come
+from that schedule. The equivalent reducing-balance rate is calculated and
+shown beside it, because a flat rate understates the real cost. Prepayment
+comparisons on a flat loan still price the reducing-balance case.
 
 ### Payments
 
