@@ -171,6 +171,40 @@ describe("amounts in a statement file", () => {
   });
 });
 
+/*
+ * A stray quote inside an unquoted field opened a quoted field that never
+ * closed, and every later row disappeared into that one cell: a 10-row file
+ * with `12" PIZZA` on row 5 staged 5 rows and reported no error at all.
+ */
+describe("a stray quote cannot swallow the rest of the file", () => {
+  const rows = [
+    "01-09-2026,SHOP A,-100.00",
+    '02-09-2026,12" PIZZA,-200.00',
+    "03-09-2026,SHOP C,-300.00",
+    "04-09-2026,SHOP D,-400.00",
+  ];
+
+  test("a quote in the middle of a field is an ordinary character", () => {
+    const { result } = parseStatement(`Date,Narration,Amount\n${rows.join("\n")}`);
+    assert.equal(result.records.length, 4);
+    assert.equal(result.records[1]!.narration, '12" PIZZA');
+    assert.deepEqual(result.records.map((r) => r.amount), [-10000, -20000, -30000, -40000]);
+  });
+
+  test("a quote that opens a field and never closes is read as a literal", () => {
+    const text = `Date,Narration,Amount\n01-09-2026,"SHOP A,-100.00\n${rows.slice(2).join("\n")}`;
+    const { result } = parseStatement(text);
+    assert.equal(result.records.length + result.errors.length, 3, "every row accounted for");
+    assert.equal(result.records.length, 3);
+    assert.equal(result.records[0]!.narration, '"SHOP A');
+  });
+
+  test("a properly quoted multi-line narration still works", () => {
+    const parsed = parseDelimited('a,b\n1,"x\ny"\n2,z');
+    assert.deepEqual(parsed, [["a", "b"], ["1", "x\ny"], ["2", "z"]]);
+  });
+});
+
 describe("headerSignature", () => {
   test("is stable across whitespace, case and punctuation", () => {
     assert.equal(
