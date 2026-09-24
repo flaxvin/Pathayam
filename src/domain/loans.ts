@@ -1188,6 +1188,12 @@ export function closeLoan(
     /** Where the charge is budgeted, and which account it is paid from. */
     chargeCategoryId?: string | null;
     chargeAccountId?: string | null;
+    /**
+     * Which account the settlement is paid from. Falls back to the charge's
+     * account (the settle form has one "Paid from"), then to the loan's
+     * repayment account.
+     */
+    settlementAccountId?: string | null;
   },
 ): LifetimeMetrics {
   return transact(db, () => {
@@ -1213,15 +1219,66 @@ export function closeLoan(
     }
 
     if (input.settlement && input.settlement > 0) {
+      /*
+       * The settlement is real money and moves like any other loan payment:
+       * out of a budget account, filed to the loan's payment envelope, and
+       * onto the loan account. It used to be recorded with no account at all,
+       * so a ₹40,000 settlement left the bank balance exactly where it was.
+       *
+       * And a settlement below the outstanding is a waiver, not negative
+       * interest. Settling ₹50,000 outstanding for ₹40,000 booked principal
+       * ₹50,000 and interest −₹10,000, which the interest certificate report
+       * then netted against the year's real interest. Now it is ₹40,000 of
+       * principal paid, and the ₹10,000 shortfall a separate row of principal
+       * the lender forgave: no money, no interest, and the outstanding at nil.
+       * Paid + forgiven = outstanding, always; interest is only ever what was
+       * paid above it.
+       */
+      const fromAccountId =
+        input.settlementAccountId ?? input.chargeAccountId ?? projection.loan.repayment_account_id;
+      if (!fromAccountId) {
+        throw new Refusal(
+          "Say which account the settlement was paid from — a settlement with no " +
+          "account behind it is money nobody paid.",
+        );
+      }
+      const outstanding = projection.outstanding;
+      const principalPaid = Math.min(input.settlement, outstanding) as Paise;
+      const interest = Math.max(0, input.settlement - outstanding) as Paise;
       recordInstalment(db, actor, {
         loanId: input.loanId,
         date: input.date,
         amount: input.settlement,
-        principal: projection.outstanding,
-        interest: input.settlement - projection.outstanding,
+        principal: principalPaid,
+        interest,
+        fromAccountId,
         kind: "foreclosure",
         note: "Foreclosure settlement",
       });
+
+      const forgiven = outstanding - principalPaid;
+      if (forgiven > 0) {
+        // Not through recordInstalment: nothing was paid, so there is no
+        // amount and no transaction from a budget account. The loan account
+        // is credited so its balance, like the outstanding, ends at nil.
+        const loan = projection.loan;
+        createTransaction(db, actor, {
+          accountId: loan.account_id,
+          amount: forgiven as Paise,
+          date: input.date,
+          memo: `${loan.nickname || loan.lender} — principal waived at settlement`,
+          cleared: true,
+        });
+        execute(
+          db,
+          `INSERT INTO loan_payments
+             (id,loan_id,date,amount,principal,interest,estimated,kind,transaction_id,note,created_at,created_by)
+           VALUES (?,?,?,0,?,0,0,'foreclosure',NULL,?,?,?)`,
+          newId(), input.loanId, input.date, forgiven,
+          `Principal waived at settlement: ${formatPaise(forgiven as Paise)}`,
+          nowIST(), actor.memberId,
+        );
+      }
     }
 
     execute(db, `UPDATE loans SET closed_at = ? WHERE id = ?`, nowIST(), input.loanId);
