@@ -31,13 +31,24 @@ primary_region = 'iad'
   # https:// Origin header. The demo would load and then refuse every button.
   TRUST_PROXY = "1"
 
+# ---------------------------------------------------------------------------
+# Changing this file changes nothing until a deploy runs.
+#
+# The warm-window revert learned that the hard way. A scheduled workflow edited
+# `min_machines_running` back to 0 and pushed the commit, the push succeeded,
+# the file was right in the repository — and the demo went on running always-on
+# and billing for it, because **GitHub does not trigger workflows from a push
+# made with the default GITHUB_TOKEN**. The deploy that would have applied the
+# change never started, and nothing anywhere reported a problem.
+#
+# So: any automation that edits this file must also deploy, either by pushing
+# with a PAT or deploy key, or by calling `flyctl deploy` itself. A commit alone
+# is a change to a description of the machine, not to the machine.
+# ---------------------------------------------------------------------------
+
 [http_service]
   internal_port = 8080
   force_https = true
-  # The demo is idle most of the time. Fly stops the machine when it is and
-  # starts it on the next request, so it bills for seconds of use rather than
-  # a month of uptime. The first request after a sleep pays about a second of
-  # cold start.
   # On demand, never always-on. Fly stops the machine when it goes idle and
   # starts it again on the next request, so an idle demo bills for nothing but
   # its root filesystem. The cost is that the first visitor after a quiet spell
