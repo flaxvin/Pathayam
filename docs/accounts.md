@@ -57,6 +57,13 @@ Fields by subtype:
   and cannot be edited directly. These accounts are created and managed from
   `/loans` and `/family`.
 
+**A plain transfer cannot reach a derived account.** Its value comes from its own
+records, so money transferred in would leave the bank and be counted nowhere —
+₹5,000 into a demat once made net worth fall by exactly ₹5,000. `createTransfer`
+refuses and names the screen that records it properly, and the transfer form
+does not offer these accounts. The lending code is the one caller that may,
+because a family loan's value is derived *from* its transfers.
+
 An account carries `budget_id` (which budget it belongs to), `holder_member_id`
 and `visibility` (`household` or `private`). See [privacy.md](privacy.md).
 
@@ -129,6 +136,16 @@ was split is refused with a sentence rather than half-applied.
 
 Not every event carries a whole row: marking a line cleared while reconciling
 records only `cleared`. Undo writes back exactly the columns an event recorded.
+
+Undoing an account's **creation** is refused once anything has been recorded
+against it — transactions, schedules, holdings, reconciliations, imports — and
+says so; close the account instead. The list of what counts is read from the
+schema's own foreign keys, so a table added later cannot be forgotten. Undoing an
+account **edit** restores every column an edit can change, including holder,
+visibility, budget and sort order.
+
+Undoing a **payee merge** moves back the transactions and aliases the merge
+moved, provided they still sit with the payee they were merged into.
 
 The engine also refuses to be the victim of an inconsistent ledger: split lines
 count only when the transaction says it is split, and a transfer leg whose

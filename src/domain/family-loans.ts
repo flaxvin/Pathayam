@@ -184,7 +184,7 @@ export function recordAdvance(
     createTransfer(db, actor, {
       fromAccountId: input.fromAccountId,
       toAccountId: loan.account_id,
-      amount: input.amount, date, cleared: true,
+      amount: input.amount, date, cleared: true, managedBy: "family-loans",
       memo: input.memo ?? `Paid to ${loan.counterparty}`,
     });
 
@@ -212,7 +212,7 @@ export function recordRepayment(
     createTransfer(db, actor, {
       fromAccountId: loan.account_id,
       toAccountId: input.accountId,
-      amount: input.amount, date, cleared: true,
+      amount: input.amount, date, cleared: true, managedBy: "family-loans",
       memo: input.memo ?? `Received from ${loan.counterparty}`,
     });
 
