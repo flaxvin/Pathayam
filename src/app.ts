@@ -1666,7 +1666,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // The digest belongs to the person reading, not to the month being read,
     // so it only shows on the current month.
     const digest = month === view.currentMonth
-      ? renderDigest(digestFor(db, a.viewingAs.id))
+      ? renderDigest(digestFor(db, a.viewingAs.id, todayIST(), viewer(ctx), scope))
       : undefined;
 
     // 15 · The switcher lives in the sidebar now, on every screen that shows one

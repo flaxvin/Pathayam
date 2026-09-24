@@ -424,3 +424,22 @@ describe("15 · every id-addressed route treats Ravi's things as nonexistent", (
     }
   });
 });
+
+describe("15 · the budget page's digest is the reader's", () => {
+  test("Priya's digest names none of Ravi's cards, envelopes or subscriptions", async () => {
+    await asPriya(async (app) => {
+      const body = await (await app.get("/")).text();
+      assert.deepEqual(leaks(body), []);
+    });
+  });
+
+  test("digestFor itself answers for the reader, and Ravi still hears about his own", async () => {
+    const w = build();
+    const { digestFor } = await import("../domain/digest.ts");
+    const hers = digestFor(w.db, PRIYA, todayIST(), PRIYA);
+    assert.deepEqual(hers.flatMap((i) => leaks(i.text)), []);
+    // Ravi, reading his own budget, still hears about his subscription.
+    const his = digestFor(w.db, RAVI, todayIST(), RAVI, w.ids.budget);
+    assert.ok(his.some((i) => i.text.includes("Snorlax Secret Subscription")), JSON.stringify(his));
+  });
+});
