@@ -5154,7 +5154,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       listCategories(db, { includeHidden: true, budgetId: scope, viewerMemberId: viewer(ctx) })
         .map((c) => c.id),
     );
-    const dueSoon = listSchedules(db)
+    const dueSoon = listSchedules(db, { viewerMemberId: viewer(ctx) })
       .filter((s) => s.next_due && s.next_due <= soon && (s.amount ?? 0) < 0)
       .filter((s) =>
         (!s.account_id && !s.category_id)
@@ -5313,15 +5313,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return render(
       ctx, "Schedules",
       renderSchedules({
-        schedules: listSchedules(db).filter(inScopeSchedule),
-        detected: detectSchedules(db),
+        schedules: listSchedules(db, { viewerMemberId: viewer(ctx) }).filter(inScopeSchedule),
+        detected: detectSchedules(db, todayIST(), viewer(ctx)),
         cashflow,
         cashflowReading: describeCashflow(cashflow),
-        subscriptions: subscriptions(db),
+        subscriptions: subscriptions(db, viewer(ctx)),
         horizon,
         categoryNames: new Map([...view.categories].map(([id, c]) => [id, c.name])),
         splits: new Map(
-          listSchedules(db).filter(inScopeSchedule)
+          listSchedules(db, { viewerMemberId: viewer(ctx) }).filter(inScopeSchedule)
             .map((sch) => [sch.id, getScheduleSplits(db, sch.id)]),
         ),
         // The inline edit form needs the full lists, or saving would blank the

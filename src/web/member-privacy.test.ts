@@ -443,3 +443,25 @@ describe("15 · the budget page's digest is the reader's", () => {
     assert.ok(his.some((i) => i.text.includes("Snorlax Secret Subscription")), JSON.stringify(his));
   });
 });
+
+describe("15 · the schedules screen lists the household's bills and Priya's", () => {
+  test("not Ravi's subscription, nor a suggestion made from his therapy payments", async () => {
+    await asPriya(async (app) => {
+      for (const path of ["/schedules", "/overview"]) {
+        assert.deepEqual(leaks(await (await app.get(path)).text()), [], path);
+      }
+    });
+  });
+
+  test("Ravi's own screen still has both", async () => {
+    const w = build();
+    const app = await startTestApp(w.db, { memberId: RAVI });
+    try {
+      const body = await (await app.get(`/schedules?budget=${w.ids.budget}`)).text();
+      assert.ok(body.includes("Snorlax Secret Subscription"));
+      assert.ok(body.includes("Grimalkin Therapy Clinic"), "the suggestion from his own payments");
+    } finally {
+      await app.close();
+    }
+  });
+});
