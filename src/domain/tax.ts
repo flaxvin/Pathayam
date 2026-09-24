@@ -29,8 +29,8 @@
  *
  * ## What is deliberately not modelled
  *
- * Marginal relief on surcharge, capital gains at their own rates, clubbing,
- * set-off and carry-forward of losses, presumptive income, foreign income and
+ * Marginal relief on surcharge and on the 87A cliff, clubbing, set-off and
+ * carry-forward of losses, presumptive income, foreign income and
  * relief under a treaty. Each of those changes the answer and none of them is
  * here. The screen lists them, because an estimate that hides what it ignores
  * is the kind that gets trusted too far.
@@ -254,13 +254,17 @@ export interface RegimeEstimate {
   taxable: Paise;
   taxBeforeRebate: Paise;
   rebate: Paise;
-  /** Tax on capital gains at their own rates, outside the slabs and the rebate. */
+  /** Tax on capital gains at their own rates, before any rebate taken from it. */
   specialRateTax: Paise;
   surcharge: Paise;
   cess: Paise;
   total: Paise;
   /** Total as a percentage of gross, to one decimal. */
   effectiveRatePct: number;
+  /** Slab income plus special-rate gains: what 87A and the surcharge test. */
+  totalIncome: Paise;
+  /** Unused basic exemption set against special-rate gains. */
+  basicExemptionAgainstGains: Paise;
 }
 
 export interface GainsContribution {
@@ -268,7 +272,36 @@ export interface GainsContribution {
   addToSlabIncome: Paise;
   /** Gains taxed at their own rates, added after the slabs are applied. */
   specialRateTax: Paise;
+  /**
+   * The special-rate gains themselves, section by section. When present, the
+   * estimate computes their tax itself — it has to, because three things the
+   * Act does with them depend on the rest of the person's income, which only
+   * the estimate knows: the unused basic exemption is set against them, the
+   * 87A ceiling and the surcharge band are tested on total income including
+   * them, and the surcharge on them is capped at 15%. `specialRateTax` alone
+   * is only a fallback for a caller that has nothing more.
+   */
+  special?: SpecialRateGains;
 }
+
+export interface SpecialRateGains {
+  /** s111A: listed equity held short. Positive gain, floored at zero. */
+  s111a: Paise;
+  s111aBp: number;
+  /** s112A: listed equity held long, before the annual exemption. */
+  s112a: Paise;
+  s112aBp: number;
+  s112aExemption: Paise;
+  /** s112: gold, property and the rest, held long. */
+  s112: Paise;
+  s112Bp: number;
+}
+
+/**
+ * The surcharge on tax at special rates — 111A, 112A and 112 — is capped at
+ * 15% whatever the band (Finance Act 2022 extended the 111A/112A cap to 112).
+ */
+const GAINS_SURCHARGE_CAP_BP = 1500;
 
 export function estimateUnder(
   fy: number, regime: Regime, gross: Paise, deductions: Deductions,
@@ -304,25 +337,94 @@ export function estimateUnder(
   ) as Paise;
 
   const taxBeforeRebate = taxOnSlabs(taxable, rules.slabs);
-  const rebate = taxable <= rules.rebateCeiling
-    ? Math.min(taxBeforeRebate, rules.rebateCap) as Paise
-    : 0 as Paise;
-  const afterRebate = Math.max(0, taxBeforeRebate - rebate);
+  const sp = gains?.special ?? null;
 
   /*
-   * Special-rate tax is added after the rebate, never before.
+   * Special-rate gains, with the unused basic exemption set against them.
    *
-   * Section 87A relieves tax on ordinary income; it is not available against
-   * long-term gains under 112A. Folding the two together before applying the
-   * rebate would wipe out tax that is actually payable — the mistake that makes
-   * a calculator tell somebody with a modest salary and a large equity gain
-   * that they owe nothing.
+   * A resident whose other income is below the basic exemption sets the
+   * shortfall against 111A, 112A and 112 gains before those are taxed (the
+   * provisos to 111A(1), 112(1) and 112A(2)). Without it a retiree with no
+   * salary and a ₹4,00,000 long-term equity gain was shown ₹35,750 of tax —
+   * ₹2,75,000 over the exemption at 12.5%, plus cess — when the new regime's
+   * ₹4,00,000 nil slab leaves nothing to pay. It is applied to the 20% gains
+   * first, because the Act fixes no order and this one is the person's best.
    */
-  const specialRateTax = gains?.specialRateTax ?? 0;
-  const taxBeforeSurcharge = (afterRebate + specialRateTax) as Paise;
+  const basicExemption = rules.slabs[0]?.rateBp === 0 ? (rules.slabs[0].to ?? 0) : 0;
+  let shortfall = Math.max(0, basicExemption - taxable);
+  const setOff = (gain: number): number => {
+    const used = Math.min(shortfall, gain);
+    shortfall -= used;
+    return used;
+  };
+  let tax111a = 0, tax112 = 0, tax112a = 0, basicExemptionAgainstGains = 0, gainsIncome = 0;
+  if (sp) {
+    const s111a = Math.max(0, sp.s111a), s112 = Math.max(0, sp.s112), s112a = Math.max(0, sp.s112a);
+    gainsIncome = s111a + s112 + s112a;
+    const off111a = setOff(s111a);
+    const off112 = setOff(s112);
+    // The 112A exemption applies to what is left after the shortfall.
+    const off112a = setOff(s112a);
+    basicExemptionAgainstGains = off111a + off112 + off112a;
+    tax111a = Math.round(((s111a - off111a) * sp.s111aBp) / 10_000);
+    tax112 = Math.round(((s112 - off112) * sp.s112Bp) / 10_000);
+    tax112a = Math.round((Math.max(0, s112a - off112a - sp.s112aExemption) * sp.s112aBp) / 10_000);
+  } else {
+    // A caller with only a figure: it can only be added as it came.
+    tax112a = gains?.specialRateTax ?? 0;
+  }
 
-  const band = rules.surcharge.find((b) => taxable > b.above);
-  const surcharge = band ? Math.round((taxBeforeSurcharge * band.rateBp) / 10_000) as Paise : 0 as Paise;
+  /*
+   * Total income — slab income plus the special-rate gains — is what the 87A
+   * ceiling and the surcharge bands are tested against. Testing slab income
+   * alone let ₹11,00,000 of salary plus a ₹6,25,000 112A gain (₹17,25,000 in
+   * all) take the new regime's rebate as if it were under ₹12,00,000, showing
+   * ₹65,000 against ₹1,17,000 actually payable.
+   */
+  const totalIncome = (taxable + gainsIncome) as Paise;
+
+  /*
+   * What 87A may relieve. Never 112A tax, under either regime. Under the new
+   * regime, from 2025-26, no special-rate tax at all; under the old, it does
+   * relieve 111A and 112 — so a pensioner with ₹1,00,000 of slab income and a
+   * ₹3,00,000 short-term equity gain pays ₹18,200.
+   */
+  const relievable = regime === "old" ? taxBeforeRebate + tax111a + tax112 : taxBeforeRebate;
+  const rebate = totalIncome <= rules.rebateCeiling
+    ? Math.min(relievable, rules.rebateCap) as Paise
+    : 0 as Paise;
+
+  // The rebate comes off slab tax first, then off 111A, then 112.
+  let rebateLeft: number = rebate;
+  const takeRebate = (tax: number): number => {
+    const used = Math.min(rebateLeft, tax);
+    rebateLeft -= used;
+    return tax - used;
+  };
+  const afterRebate = takeRebate(taxBeforeRebate);
+  const specialAfter = takeRebate(tax111a) + takeRebate(tax112) + tax112a;
+
+  /*
+   * Special-rate tax is shown before the rebate, so the rows read slab tax −
+   * rebate + special tax. The rebate is never taken from 112A tax (nor, under
+   * the new regime, from any of it): folding the two together first is the
+   * mistake that makes a calculator tell somebody with a modest salary and a
+   * large equity gain that they owe nothing.
+   */
+  const specialRateTax = (tax111a + tax112 + tax112a) as Paise;
+  const taxBeforeSurcharge = (afterRebate + specialAfter) as Paise;
+
+  /*
+   * The band is chosen on total income, and the rate on special-rate tax is
+   * capped at 15%. Choosing it on slab income alone put ₹45,00,000 of salary
+   * plus a ₹20,00,000 111A gain (₹65,00,000) below the 10% band: ₹13,83,200
+   * shown against ₹15,21,520 payable.
+   */
+  const band = rules.surcharge.find((b) => totalIncome > b.above);
+  const gainsBandBp = band ? (sp ? Math.min(band.rateBp, GAINS_SURCHARGE_CAP_BP) : band.rateBp) : 0;
+  const surcharge = band
+    ? Math.round((afterRebate * band.rateBp + specialAfter * gainsBandBp) / 10_000) as Paise
+    : 0 as Paise;
   const cess = Math.round(((taxBeforeSurcharge + surcharge) * CESS_BP) / 10_000) as Paise;
   const total = roundPayable((taxBeforeSurcharge + surcharge + cess) as Paise);
 
@@ -330,7 +432,8 @@ export function estimateUnder(
     regime, gross: grossWithGains,
     standardDeduction: rules.standardDeduction,
     hraExempt, chapterViA, taxable,
-    taxBeforeRebate, rebate, specialRateTax: specialRateTax as Paise, surcharge, cess, total,
+    taxBeforeRebate, rebate, specialRateTax, surcharge, cess, total,
+    totalIncome, basicExemptionAgainstGains: basicExemptionAgainstGains as Paise,
     effectiveRatePct: grossWithGains > 0 ? Math.round((total / grossWithGains) * 1000) / 10 : 0,
   };
 }

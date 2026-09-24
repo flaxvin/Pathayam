@@ -37,6 +37,7 @@ import type { Paise } from "../core/money.ts";
 import type { IsoDate } from "../core/dates.ts";
 import { fiscalYearOf, fiscalYearRange } from "../core/dates.ts";
 import type { AssetClass } from "./assets.ts";
+import type { SpecialRateGains } from "./tax.ts";
 
 /** Days held before a gain becomes long-term, by class. */
 const LONG_TERM_DAYS: Record<"equity" | "other", number> = {
@@ -208,6 +209,13 @@ export interface GainsTax {
   specialRateTax: Paise;
   /** What must be added to ordinary income before the slabs are applied. */
   addToSlabIncome: Paise;
+  /**
+   * The gains and rates behind `specialRateTax`, for the income tax estimate.
+   * The figures above are tax on the gains standing alone; the estimate
+   * recomputes them against the person's other income, because the unused
+   * basic exemption, the 87A ceiling and the surcharge band all depend on it.
+   */
+  special: SpecialRateGains;
 }
 
 export function taxOnGains(fy: number, buckets: GainsBuckets): GainsTax {
@@ -232,6 +240,11 @@ export function taxOnGains(fy: number, buckets: GainsBuckets): GainsTax {
     equityLongTax, equityShortTax, otherLongTax,
     specialRateTax: (equityLongTax + equityShortTax + otherLongTax) as Paise,
     addToSlabIncome: Math.max(0, buckets.slabRated) as Paise,
+    special: {
+      s111a: Math.max(0, buckets.equityShort) as Paise, s111aBp: rules.equityShortBp,
+      s112a: equityLongGain, s112aBp: rules.equityLongBp, s112aExemption: rules.equityLongExemption,
+      s112: Math.max(0, buckets.otherLong) as Paise, s112Bp: rules.otherLongBp,
+    },
   };
 }
 
