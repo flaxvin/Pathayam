@@ -17,7 +17,7 @@ import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST, type IsoDate } from "../core/dates.ts";
 import type { Paise } from "../core/money.ts";
-import { createTransaction, resolvePayee } from "../domain/transactions.ts";
+import { createTransaction, resolvePayee, type TransactionSource } from "../domain/transactions.ts";
 import { findCardByLast4 } from "../domain/accounts.ts";
 import { findDuplicate, type Candidate, type DuplicateMatch } from "./dedupe.ts";
 import {
@@ -420,6 +420,62 @@ export function approveStaged(
       );
     }
 
+    /*
+     * The row's own source, not always 'csv'.
+     *
+     * Every approval used to write source 'csv', whatever the batch was. The
+     * exact-match tier then never recognised a PDF or email row it had already
+     * posted, and the unique index on (account_id, source, source_id) turned
+     * the second approval into a 500 instead.
+     */
+    const source = queryOne<{ source: TransactionSource }>(
+      db, `SELECT source FROM import_batches WHERE id = ?`, row.batch_id,
+    )?.source ?? "csv";
+
+    if (row.source_id) {
+      /*
+       * This exact row is already in the ledger. The dedupe tier normally
+       * catches it at import, but it can still arrive here — ledger rows
+       * written as 'csv' by older approvals — and the database answer was a
+       * UNIQUE-constraint 500. It is the same record: resolve the review item
+       * onto the transaction that already holds it.
+       */
+      const live = queryOne<{ id: string }>(
+        db,
+        `SELECT id FROM transactions
+          WHERE account_id = ? AND source_id = ? AND deleted_at IS NULL`,
+        row.account_id, row.source_id,
+      );
+      if (live) {
+        execute(
+          db,
+          `UPDATE staged_transactions SET status = 'merged', resolved_at = ?, resolved_by = ?, transaction_id = ?
+            WHERE id = ?`,
+          nowIST(), actor.memberId, live.id, stagedId,
+        );
+        appendEvent(db, actor, {
+          entity: "staged-transaction", entityId: stagedId, action: "merge",
+          summary: "An imported row was already in the ledger, so it was matched rather than added twice",
+        });
+        return live.id;
+      }
+
+      /*
+       * A deleted transaction still holds this identity — typically an import
+       * that was undone and is now being re-imported. The unique index covers
+       * deleted rows too (loadCandidates rightly does not), so import → approve
+       * → undo → re-import → approve was a 500. The deleted row gives the
+       * identity up, keeping it recognisable with a suffix; a partial index
+       * `WHERE deleted_at IS NULL` would make this unnecessary.
+       */
+      execute(
+        db,
+        `UPDATE transactions SET source_id = source_id || '~deleted:' || id
+          WHERE account_id = ? AND source = ? AND source_id = ? AND deleted_at IS NOT NULL`,
+        row.account_id, source, row.source_id,
+      );
+    }
+
     const payeeName = patch.payeeName ?? row.proposed_payee;
     const payeeId = row.payee_id
       ?? (payeeName ? resolvePayee(db, actor, payeeName, row.raw_narration ?? undefined).id : null);
@@ -433,7 +489,7 @@ export function approveStaged(
       categoryId: patch.categoryId !== undefined ? patch.categoryId : row.category_id,
       memo: patch.memo ?? row.memo,
       cleared: true,
-      source: "csv",
+      source,
       // I5 depends on this reaching the ledger: the exact-match tier compares
       // against transactions, not staged rows, so without it re-importing the
       // same file would queue every row again. The unique index on
