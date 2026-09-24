@@ -124,7 +124,7 @@ import {
   type AutoAssignPlan, type AutoAssignProposal,
 } from "./engine/engine.ts";
 import {
-  historyFor, queryEvents, appendEvent, checkUndo, undoEvent, DEFAULT_UNDO_WINDOW_DAYS,
+  historyFor, queryEvents, getEvent, appendEvent, checkUndo, undoEvent, DEFAULT_UNDO_WINDOW_DAYS,
   type Actor,
 } from "./core/events.ts";
 import {
@@ -724,6 +724,23 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const meta = attachmentMeta(db, id);
     if (!meta) throw new NotFound("That attachment does not exist.");
     requireVisibleTransaction(ctx, meta.transaction_id);
+    return id;
+  }
+
+  /**
+   * 15 · An event is as private as what it is about.
+   *
+   * The activity log hid Ravi's events from Priya, but the undo button's route
+   * took any event id it was given: posting `/activity/<id>/undo` for the event
+   * that added his ₹60,000 private-card purchase deleted the transaction
+   * outright. Undo is the most destructive write in the app — it removes rows —
+   * so it answers exactly as it would for an id that never existed.
+   */
+  function requireVisibleEvent(ctx: RequestContext, id: string): string {
+    const event = getEvent(db, id);
+    if (!event || !eventVisibility(db, viewer(ctx))(event)) {
+      throw new NotFound("That change does not exist.");
+    }
     return id;
   }
 
@@ -1506,10 +1523,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/activity/:id/undo", (ctx) =>
     mutate(ctx, (a) => {
       const force = field(ctx.body, "force") === "1";
+      const eventId = requireVisibleEvent(ctx, ctx.params.id!);
       let result;
       try {
         result = undoEvent(
-          db, ctx.params.id!, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+          db, eventId, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
           { force },
         );
       } catch (err) {
