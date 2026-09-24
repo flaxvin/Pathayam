@@ -95,6 +95,7 @@ import {
 } from "./domain/commitments.ts";
 import { buildHouseholdView } from "./domain/household-view.ts";
 import { eventVisibility } from "./domain/event-visibility.ts";
+import { exportForMember, exportTransactionsCsvForMember } from "./ops/member-export.ts";
 import { callItEven } from "./domain/squaring-up.ts";
 import { describeDeparture, settleDeparture, type DepartureResolution } from "./domain/departure.ts";
 import { convertToEmi } from "./domain/card-emi.ts";
@@ -135,7 +136,7 @@ import {
 } from "./web/pages/health.ts";
 import {
   createBackup, verifyRestore, listBackups, lastJobRun, recordJobRun,
-  exportEverything, exportTransactionsCsv, pingHeartbeat,
+  pingHeartbeat,
 } from "./ops/backup.ts";
 import {
   renderLoanList, renderLoanDetail, renderNewLoanForm, renderRecordInstalment,
@@ -7669,11 +7670,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }),
   );
 
-  /** F15.1: the complete budget, in one action, in an open documented format. */
+  /**
+   * F15.1: the member's budget, in one action, in an open documented format.
+   *
+   * The member's, not the household's: this was `exportEverything(db)` — the
+   * operator's complete backup — so any signed-in member downloaded every other
+   * member's private accounts, envelopes and transactions. The complete copy is
+   * the backup job's, on the server; see member-export.ts for which is which.
+   */
   router.get("/export.json", (ctx) => {
-    auth(ctx);
+    const a = auth(ctx);
     return {
-      body: JSON.stringify(exportEverything(db), null, 2),
+      body: JSON.stringify(exportForMember(db, a.member.id), null, 2),
       headers: {
         "Content-Type": "application/json; charset=utf-8",
         "Content-Disposition": `attachment; filename="pathayam-${todayIST()}.json"`,
@@ -7682,9 +7690,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   });
 
   router.get("/export.csv", (ctx) => {
-    auth(ctx);
+    const a = auth(ctx);
     return {
-      body: exportTransactionsCsv(db),
+      body: exportTransactionsCsvForMember(db, a.member.id),
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": `attachment; filename="transactions-${todayIST()}.csv"`,
