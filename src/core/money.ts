@@ -349,6 +349,13 @@ export function evaluateAmountExpression(input: string): Paise | null {
   // A plain amount (possibly with a L/Cr/K suffix) is not an expression.
   if (!/[+\-*/()]/.test(src.slice(1))) return parseAmount(input);
 
+  // Nor is a plain amount in brackets: "(1,234.00)" is the accountant's
+  // negative, which is what a bank balance copied from a statement looks
+  // like. Read as grouping it came out +₹1,234 — the reconcile screen then
+  // posted an adjustment of the wrong sign, off by ₹2,468. Brackets that hold
+  // an operator ("(450+120)*2") are still grouping.
+  if (/^\([^()+\-*/]*\)$/.test(src)) return parseAmount(input);
+
   let pos = 0;
 
   function peek(): string | undefined {
