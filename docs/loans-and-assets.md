@@ -61,8 +61,13 @@ what has been drawn.
 
 ### Closing
 
-A loan can be closed by settlement, with an optional foreclosure charge. Closing
-releases the payment envelope's target.
+A loan can be closed by settlement, with an optional foreclosure charge. The
+settlement is paid like any instalment — from the chosen account (or the loan's
+repayment account), through the payment envelope, onto the loan account. Paid
+above the outstanding, the excess is interest. Paid below it, the difference is
+a waiver: a separate `foreclosure` row with no amount and the shortfall as
+principal forgiven, so paid + forgiven always equals the outstanding and
+interest is never negative. Closing releases the payment envelope's target.
 
 ### EMI conversion
 
