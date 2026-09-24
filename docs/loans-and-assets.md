@@ -104,7 +104,8 @@ A `holding` is one instrument in one asset account. Its units and cost come from
 | purchase | Opens a lot; optionally creates the paying transaction. |
 | sale | Closes lots FIFO, computes realised gain, optionally credits an account. |
 | dividend | Records income. |
-| split | Adjusts units by ratio, preserving cost. |
+| split | Adjusts every lot's units by ratio, preserving its cost and date. |
+| bonus | Adds one new lot at nil cost, dated on the allotment (section 55(2)(aa)); the lots already held keep their cost and date. A 1:1 bonus is ratio 2. |
 | merger | Replaces holdings in one instrument with another at a ratio. |
 | return of capital | Reduces cost basis. |
 
@@ -131,7 +132,9 @@ is carried at 1 and marked stale.
 
 XIRR is computed from the dated cash flows of a holding or the portfolio.
 Realised gains are reported by financial year and split by holding period, which
-is what Indian capital gains treatment requires.
+is what Indian capital gains treatment requires. The holding period is counted in
+calendar months ("more than 12 months"), not days, by the same test the tax
+estimate and the sale preview use.
 
 ### CAS import
 

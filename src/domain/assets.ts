@@ -34,7 +34,7 @@ import { createTransaction } from "./transactions.ts";
 import {
   makeLot, previewSale, totalUnits, costBasis, averageCost, averageUnitPrice, marketValue,
   unrealisedGain, absoluteReturn, xirr, holdingCashFlows, decomposeGain,
-  applySplit, applyMerger, applyReturnOfCapital, formatUnits,
+  applySplit, bonusLot, applyMerger, applyReturnOfCapital, formatUnits,
   type Lot, type Holding, type Milliunits, type MicroRupees,
   type SalePreview, type GainDecomposition,
 } from "../portfolio/holdings.ts";
@@ -1007,15 +1007,40 @@ export function recordDividend(
   });
 }
 
-/** R28 · A split or bonus. Units multiply; total cost basis is unchanged. */
+/**
+ * R28 · A split or bonus.
+ *
+ * A split re-divides every lot: units multiply, total cost is unchanged, and
+ * each lot keeps its date. A bonus does not touch the lots held — it adds one
+ * new lot at nil cost dated on the allotment (`bonusLot` says why, with the
+ * numbers). Both adjust the price history, because the market price falls
+ * ex-split and ex-bonus alike.
+ */
 export function recordSplit(
   db: DB, actor: Actor,
   input: { holdingId: string; date: IsoDate; ratio: number; kind?: "split" | "bonus" },
 ): void {
+  const kind = input.kind ?? "split";
+  if (kind === "bonus" && !(input.ratio > 1)) {
+    throw new Refusal(
+      "A bonus issue adds units, so the ratio has to be above 1 — a 1:1 bonus is 2.",
+    );
+  }
   transact(db, () => {
-    const after = applySplit(holdingOf(db, input.holdingId), input.ratio);
-    for (const lot of after.lots) {
-      execute(db, `UPDATE lots SET units = ?, price = ? WHERE id = ?`, lot.units, lot.price, lot.id);
+    const before = holdingOf(db, input.holdingId);
+    if (kind === "bonus") {
+      const lot = bonusLot(before, input.ratio, input.date, newId());
+      execute(
+        db,
+        `INSERT INTO lots (id,holding_id,trade_date,units,price,fees,cost,fx_rate,created_at)
+         VALUES (?,?,?,?,0,0,0,?,?)`,
+        lot.id, input.holdingId, lot.tradeDate, lot.units, lot.fxRate, nowIST(),
+      );
+    } else {
+      const after = applySplit(before, input.ratio);
+      for (const lot of after.lots) {
+        execute(db, `UPDATE lots SET units = ?, price = ? WHERE id = ?`, lot.units, lot.price, lot.id);
+      }
     }
 
     // R28.2: the price history is adjusted too, so a chart does not show a
@@ -1035,16 +1060,18 @@ export function recordSplit(
       db,
       `INSERT INTO holding_events (id,holding_id,date,kind,ratio,created_at,created_by)
        VALUES (?,?,?,?,?,?,?)`,
-      newId(), input.holdingId, input.date, input.kind ?? "split",
+      newId(), input.holdingId, input.date, kind,
       input.ratio, nowIST(), actor.memberId,
     );
 
     appendEvent(db, actor, {
       entity: "holding", entityId: input.holdingId, action: "split",
       after: { ratio: input.ratio },
-      summary:
-        `Applied a ${input.ratio}-for-1 ${input.kind ?? "split"}. ` +
-        `Units multiplied; the cost basis is unchanged, because nothing was bought.`,
+      summary: kind === "bonus"
+        ? `Recorded a ${input.ratio}-for-1 bonus. The new units cost nothing and are held from ` +
+          `${formatDate(input.date)}; the units already held keep their cost and date.`
+        : `Applied a ${input.ratio}-for-1 split. ` +
+          `Units multiplied; the cost basis is unchanged, because nothing was bought.`,
     });
   });
 }

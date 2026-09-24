@@ -580,7 +580,8 @@ export function renderSplitForm(opts: {
                  inputmode="decimal" autocomplete="off" required autofocus placeholder="5">
           <p class="field-hint">
             A 1:5 split is 5. A 1:1 bonus is 2 — one new unit alongside the one
-            you held.
+            you held. A split re-divides what you hold; bonus units are a new
+            lot that cost nothing and are held from the date below.
           </p>
         </div>
         <div class="field">
