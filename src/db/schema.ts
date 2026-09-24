@@ -2043,4 +2043,27 @@ ALTER TABLE schedules ADD COLUMN recurrence_ordinal INTEGER;
 ALTER TABLE schedules ADD COLUMN recurrence_weekday INTEGER;
 `,
   },
+  {
+    name: "0042-a-prepayment-penalty-is-not-interest",
+    sql: `
+--------------------------------------------------------------------------------
+-- R19.5 · A charge is a cost, not a repayment
+--------------------------------------------------------------------------------
+-- A prepayment charge was written with its whole amount in the interest column.
+-- That put the same money in two places: in fees, which sums the charge
+-- rows' amounts, and again in paidInterest, which sums every row's interest
+-- — so totalCostOfBorrowing counted it twice. And it reached
+-- loanInterestByFinancialYear, which is the figure a household would carry to
+-- a section 24(b) home-loan interest deduction. A prepayment penalty is a fee
+-- for closing early, not interest on borrowed capital.
+--
+-- The foreclosure charge has always written zeros, because it inserts its row
+-- directly and never went through the repayment split rule. The two paths
+-- disagreed; they now agree, and these rows are brought into line.
+--
+-- No money moves. The charge's amount is untouched and the cash leg it
+-- posted is untouched; only the split that says what kind of money it was.
+UPDATE loan_payments SET principal = 0, interest = 0 WHERE kind = 'charge';
+`,
+  },
 ];
