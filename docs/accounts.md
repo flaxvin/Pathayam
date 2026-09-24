@@ -100,7 +100,40 @@ A transfer is two transactions sharing a `transfer_pair_id`, one negative and
 one positive, on different accounts. Neither carries a category: money moving
 between your own accounts is not spending.
 
-Editing or deleting one leg acts on both.
+Editing or deleting one leg acts on both. Specifically:
+
+- **Amount and date** belong to the pair. Change either on one leg and the other
+  leg takes the same amount, opposite sign, and the same date. A reconciled
+  period on *either* account guards the change.
+- **Direction** cannot change from a leg — which account the money left is what
+  the transfer is. Delete it and record it the other way.
+- **No envelope, ever.** The edit screen offers none for a leg, and the domain
+  refuses one. The "money out needs an envelope" rule does not apply: nothing
+  was spent.
+- **Cleared, memo and tags** stay per leg, because each bank statement clears
+  its own side.
+- **Delete and its undo** act on both legs. So does undoing an edit.
+
+This was documented before it was true. Editing one leg of a ₹1,000 transfer to
+₹3,000 used to change that leg alone, and ₹2,000 left one account and arrived
+nowhere — the identity was out by that much in every month after. Undoing a
+transfer's delete brought back one side. `src/domain/transfer-integrity.test.ts`
+now holds all of it.
+
+## Undo
+
+An edit's undo puts back the row **and its split lines**, which live in their own
+table — an edit event now records both. Events recorded before that change
+can't restore lines they never kept; undoing one of those on a transaction that
+was split is refused with a sentence rather than half-applied.
+
+Not every event carries a whole row: marking a line cleared while reconciling
+records only `cleared`. Undo writes back exactly the columns an event recorded.
+
+The engine also refuses to be the victim of an inconsistent ledger: split lines
+count only when the transaction says it is split, and a transfer leg whose
+partner has been deleted counts as an ordinary flow into or out of Ready to
+Assign rather than as half of a transfer.
 
 ## Splits
 

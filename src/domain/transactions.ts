@@ -256,6 +256,34 @@ export function getSplits(db: DB, transactionId: string) {
   );
 }
 
+/**
+ * What undoing an edit needs to put back.
+ *
+ * The event used to record the transaction row and nothing else. Split lines
+ * live in their own table and an edit rewrites them, so undo restored the row
+ * and left the lines as the edit had made them: a split ₹900 charge flattened
+ * to one envelope and then "undone" came back as `is_split = 1` with no lines
+ * at all, and the ₹900 was in no envelope anywhere. A transfer leg is the same
+ * shape of problem — its amount and date are shared with its partner, so an
+ * edit changes two rows and the undo has to know about both.
+ */
+export interface EditSnapshot extends Transaction {
+  splits: { category_id: string | null; amount: Paise; memo: string | null }[];
+  partner?: Transaction;
+}
+
+function editSnapshot(db: DB, id: string): EditSnapshot | null {
+  const row = getTransaction(db, id);
+  if (!row) return null;
+  const splits = getSplits(db, id).map(({ category_id, amount, memo }) => ({ category_id, amount, memo }));
+  const partner = row.transfer_pair_id
+    ? queryOne<Transaction>(
+      db, `SELECT * FROM transactions WHERE transfer_pair_id = ? AND id <> ?`, row.transfer_pair_id, id,
+    ) ?? undefined
+    : undefined;
+  return { ...row, splits, ...(partner ? { partner } : {}) };
+}
+
 export interface UpdateTransactionInput {
   date?: IsoDate;
   amount?: Paise;
@@ -274,8 +302,42 @@ export function updateTransaction(
   db: DB, actor: Actor, id: string, patch: UpdateTransactionInput,
 ): Transaction {
   return transact(db, () => {
-    const before = getTransaction(db, id);
+    const before = editSnapshot(db, id);
     if (!before) throw new Missing("That transaction does not exist.");
+
+    /*
+     * A transfer leg is half of one movement, not a transaction of its own.
+     *
+     * The edit screen offered the full form for one, and this function wrote
+     * whatever it was given to that row alone. Raising the outgoing side of a
+     * ₹1,000 transfer to ₹3,000 left the incoming side at ₹1,000: two thousand
+     * rupees left one account and arrived nowhere, and the identity was out by
+     * that much in every month from then on. Flipping one side's direction did
+     * the same thing in the other sign.
+     *
+     * So the amount and the date belong to the pair and move together, the
+     * direction cannot change (that would make it a different transfer), and a
+     * leg is never filed to an envelope — the money did not leave the
+     * household. Cleared, memo and tags stay per-leg: each bank statement
+     * clears its own side.
+     */
+    const partner = before.partner;
+    if (before.transfer_pair_id) {
+      if ((patch.categoryId ?? null) !== null || (patch.splits && patch.splits.length > 0)) {
+        throw new Refusal(
+          "This is one side of a transfer, so it has no envelope — the money moved " +
+          "between your own accounts rather than being spent.",
+        );
+      }
+      if (patch.amount !== undefined && Math.sign(patch.amount) !== Math.sign(before.amount)) {
+        throw new Refusal(
+          "A transfer's direction is fixed by which account it left. To send it the " +
+          "other way, delete it and record the transfer in that direction.",
+        );
+      }
+      // Nothing to write to the envelope columns of a leg.
+      patch = { ...patch, categoryId: undefined, splits: undefined };
+    }
 
     if (patch.splits) {
       const amount = patch.amount ?? before.amount;
@@ -351,9 +413,20 @@ export function updateTransaction(
     set("updated_at", nowIST());
     execute(db, `UPDATE transactions SET ${sets.join(", ")} WHERE id = ?`, ...params, id);
 
+    // The partner takes the same amount, opposite sign, and the same date.
+    if (partner && (patch.amount !== undefined || patch.date !== undefined)) {
+      execute(
+        db,
+        `UPDATE transactions SET amount = ?, date = ?, updated_at = ? WHERE id = ?`,
+        patch.amount !== undefined ? -patch.amount : partner.amount,
+        patch.date ?? partner.date,
+        nowIST(), partner.id,
+      );
+    }
+
     if (patch.tags !== undefined) setTags(db, id, patch.tags);
 
-    const after = getTransaction(db, id)!;
+    const after = editSnapshot(db, id)!;
     appendEvent(db, actor, {
       entity: "transaction", entityId: id, action: "update", before, after,
       summary: describeChange(before, after),
@@ -895,16 +968,91 @@ registerUndoHandler("transaction", (db, event) => {
     execute(db, `DELETE FROM transactions WHERE id = ?`, id);
     return `Removed the transaction that was added`;
   }
+  const id = event.entityId!;
+  const snapshot = before as Partial<EditSnapshot>;
+
+  /*
+   * Undo used to be one statement for every kind of event: write every column
+   * of `before` back onto the row. Three different things went wrong with it.
+   *
+   * A delete of one transfer leg deletes both (deleteTransaction), and undoing
+   * it brought back only the leg the event named — so the "restore for 30 days"
+   * the delete screen promises restored half a transfer, and the other half's
+   * ₹1,000 was simply gone from the household's money.
+   *
+   * An edit rewrites the split lines, which are not columns of this row, so
+   * undoing an edit restored the row and left the lines as the edit had made
+   * them. A split charge flattened and then undone came back marked split with
+   * no lines at all.
+   *
+   * And not every event records the whole row. Marking a line cleared while
+   * reconciling records `{ cleared: 0 }`, and writing every column from that
+   * wrote NULL into account_id — a 500, on an undo the activity page kept
+   * offering and that failed every time.
+   */
+  if (event.action === "delete" || event.action === "restore") {
+    // Put deleted_at back as it was, on the row and — for a transfer — its pair.
+    const pairId = snapshot.transfer_pair_id ?? null;
+    execute(
+      db,
+      `UPDATE transactions SET deleted_at = ?, updated_at = ?
+        WHERE id = ? OR (? IS NOT NULL AND transfer_pair_id = ?)`,
+      snapshot.deleted_at ?? null, nowIST(), id, pairId, pairId,
+    );
+    return event.action === "delete"
+      ? `Restored the deleted transaction${pairId ? " and the other side of its transfer" : ""}`
+      : `Deleted the transaction again`;
+  }
+
+  // Refuse before writing anything: an older edit event that cannot restore
+  // its lines must not half-restore the row first.
+  if (!Array.isArray(snapshot.splits) && snapshot.is_split === 1 && getSplits(db, id).length === 0) {
+    throw new UndoRefused(
+      "That edit was recorded before split lines were kept with it, so undoing it " +
+      "cannot put the lines back. Open the transaction and split it again instead.",
+    );
+  }
+
+  const COLUMNS = [
+    "account_id", "card_id", "date", "amount", "payee_id", "category_id",
+    "is_split", "memo", "cleared", "owner_member_id", "reimbursable", "deleted_at",
+  ] as const;
+  const present = COLUMNS.filter((c) => c in snapshot);
+  if (present.length === 0) return `Nothing to restore`;
   execute(
     db,
-    `UPDATE transactions SET account_id=?, card_id=?, date=?, amount=?, payee_id=?, category_id=?,
-            is_split=?, memo=?, cleared=?, owner_member_id=?, reimbursable=?, deleted_at=?, updated_at=?
-      WHERE id = ?`,
-    before.account_id, before.card_id, before.date, before.amount, before.payee_id,
-    before.category_id, before.is_split, before.memo, before.cleared, before.owner_member_id,
-    before.reimbursable, before.deleted_at, nowIST(), event.entityId!,
+    `UPDATE transactions SET ${present.map((c) => `${c} = ?`).join(", ")}, updated_at = ? WHERE id = ?`,
+    ...present.map((c) => (snapshot as Record<string, unknown>)[c] as string | number | null),
+    nowIST(), id,
   );
-  return `Restored the transaction of ${formatPaise(Math.abs(before.amount))}`;
+
+  // Split lines, when the event recorded them.
+  if (Array.isArray(snapshot.splits)) {
+    execute(db, `DELETE FROM transaction_splits WHERE transaction_id = ?`, id);
+    snapshot.splits.forEach((line, i) => {
+      execute(
+        db,
+        `INSERT INTO transaction_splits (id,transaction_id,category_id,amount,memo,sort) VALUES (?,?,?,?,?,?)`,
+        newId(), id, line.category_id, line.amount, line.memo ?? null, i,
+      );
+    });
+  } else if (snapshot.is_split === 0) {
+    // An older event, from before lines were recorded. Unsplit is unambiguous.
+    execute(db, `DELETE FROM transaction_splits WHERE transaction_id = ?`, id);
+  }
+
+  // The other side of a transfer moves back with it.
+  if (snapshot.partner) {
+    execute(
+      db,
+      `UPDATE transactions SET amount = ?, date = ?, updated_at = ? WHERE id = ?`,
+      snapshot.partner.amount, snapshot.partner.date, nowIST(), snapshot.partner.id,
+    );
+  }
+
+  return typeof snapshot.amount === "number"
+    ? `Restored the transaction of ${formatPaise(Math.abs(snapshot.amount) as Paise)}`
+    : `Restored the transaction`;
 });
 
 registerUndoHandler("transfer", (db, event) => {

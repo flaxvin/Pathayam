@@ -3107,16 +3107,29 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               <input id="t-amount" name="amount" class="amount-input" type="text" inputmode="decimal"
                      value="${(Math.abs(transaction.amount) / 100).toFixed(2)}">
             </div>
-            <div class="field">
-              <label for="t-direction">Direction</label>
-              <select id="t-direction" name="direction">
-                <option value="out" ${raw(transaction.amount < 0 ? "selected" : "")}>Money out</option>
-                <option value="in" ${raw(transaction.amount >= 0 ? "selected" : "")}>Money in</option>
-              </select>
-            </div>
+            ${when(!transaction.transfer_pair_id, () => html`
+              <div class="field">
+                <label for="t-direction">Direction</label>
+                <select id="t-direction" name="direction">
+                  <option value="out" ${raw(transaction.amount < 0 ? "selected" : "")}>Money out</option>
+                  <option value="in" ${raw(transaction.amount >= 0 ? "selected" : "")}>Money in</option>
+                </select>
+              </div>
+            `)}
           </div>
 
-          ${renderCategoryLines({
+          <!--
+            One side of a transfer has no direction to choose and no envelope:
+            the money moved between the household's own accounts. Changing the
+            amount or date here changes both sides together.
+          -->
+          ${when(transaction.transfer_pair_id !== null, () => html`
+            <p class="field-hint">
+              This is one side of a transfer. Changing the amount or date changes
+              both sides; it has no envelope because nothing was spent.
+            </p>
+          `)}
+          ${when(!transaction.transfer_pair_id, () => renderCategoryLines({
             label: "Envelope",
             categories: [...view.categories.values()]
               .filter((c) => !c.isPaymentCategory && !c.hidden)
@@ -3135,7 +3148,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               The first envelope takes whatever the extra lines do not claim,
               so it never has to be worked out.
             `,
-          })}
+          }))}
 
           <div class="grid-2">
             <div class="field">
@@ -3335,17 +3348,36 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const newDate = dateRaw ? parseDate(dateRaw) ?? transaction.date : transaction.date;
     const confirmed = field(ctx.body, "confirm_checkpoint") === "1";
 
+    /*
+     * One side of a transfer. Its amount and date are shared with the other
+     * side and move with it (updateTransaction does that); it has no direction
+     * of its own to choose and no envelope to be filed to. See the comment in
+     * updateTransaction for what editing one side alone used to do.
+     */
+    const partner = transaction.transfer_pair_id
+      ? queryOne<{ account_id: string }>(
+        db, `SELECT account_id FROM transactions WHERE transfer_pair_id = ? AND id <> ?`,
+        transaction.transfer_pair_id, id,
+      )
+      : null;
+    const isTransferLeg = transaction.transfer_pair_id !== null;
+
     // R7.b: guard against *both* dates — moving a transaction out of a
     // reconciled period falsifies that period just as much as moving one in.
-    const guard = guardCheckpoints(
-      ctx, a, transaction.account_id, [transaction.date, newDate], confirmed,
-      `/transaction/${id}`, `/transaction/${id}`,
-    );
-    if (guard) return guard;
+    // A transfer's date moves on both accounts, so both are guarded.
+    for (const accountId of [transaction.account_id, ...(partner ? [partner.account_id] : [])]) {
+      const guard = guardCheckpoints(
+        ctx, a, accountId, [transaction.date, newDate], confirmed,
+        `/transaction/${id}`, `/transaction/${id}`,
+      );
+      if (guard) return guard;
+    }
 
     const magnitude = Math.abs(amountField(field(ctx.body, "amount")));
     const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
-    const signed = field(ctx.body, "direction") === "in" ? magnitude : -magnitude;
+    const signed = isTransferLeg
+      ? (transaction.amount < 0 ? -magnitude : magnitude)
+      : field(ctx.body, "direction") === "in" ? magnitude : -magnitude;
 
     // L1 · A renamed payee is the signal. Resolved here so the rename and the
     // rest of the edit land in one update, and so the *old* name is still
@@ -3368,7 +3400,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * leave, so nothing here can fail to reconcile — see resolveCategoryLines.
      */
     const lineValues: { categoryId: string | null; amount: Paise | null }[] = [];
-    for (let i = 0; i < 25; i++) {
+    for (let i = 0; i < (isTransferLeg ? 0 : 25); i++) {
       const cat = field(ctx.body, `split_category_${i}`);
       const amt = field(ctx.body, `split_amount_${i}`);
       if (cat === undefined && amt === undefined) continue;
@@ -3396,7 +3428,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * empty or not, so reading a blank as an instruction would wipe the split
      * off every save that only changed a memo.
      */
-    if (lineValues.length === 0) {
+    if (lineValues.length === 0 && !isTransferLeg) {
       const legacy = field(ctx.body, "category_id");
       const meaningful = legacy !== undefined && (legacy !== "" || transaction.is_split !== 1);
       if (meaningful) {
@@ -3427,7 +3459,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * rather than reading silence as "make it uncategorised".
      */
     const keepSplit = filed === null;
-    if (keepSplit && signed !== transaction.amount) {
+    // Only a split can fall out of step with a new amount; an unsplit
+    // transaction (or a transfer leg) keeps its filing and is fine.
+    if (keepSplit && transaction.is_split === 1 && signed !== transaction.amount) {
       throw new HttpError(
         400,
         "This transaction is split, and the lines no longer add up to the new amount. " +
