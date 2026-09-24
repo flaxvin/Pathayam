@@ -23,6 +23,27 @@ Gmail ┘                                                       → merge
 Both layouts are supported: a single signed amount column, or separate debit and
 credit columns.
 
+### Reading an amount
+
+CSV cells, PDF figures and alert amounts are read by the same rules
+(`parseAmount` in `src/core/money.ts`, in its `statement` context):
+
+- `Dr` and `Cr` are the bank's markers, attached or spaced, any case, with or
+  without a dot: `1,200.00Cr` is a ₹1,200 credit, `1200DR` a ₹1,200 debit.
+- A bank never writes shorthand, so `L`, `K` and crore are not read in a file:
+  `1.2L` in a CSV is an error row.
+- Grouping must be Indian (`12,34,567`) or Western (`1,234,567`); `1,23` is
+  refused. More than two decimal places is refused, not rounded.
+- A figure that says "minus" twice — `-450 Dr`, `(450) Dr`, `(-450)` — is
+  refused.
+- `₹`, `Rs.`, `Rs ` and `INR` prefixes and the Unicode minus `−` are accepted.
+
+In a form (typed), `Cr` can also mean crore. It is the credit marker on a
+statement-shaped figure (grouped, or four or more rupee digits: `1200Cr`),
+crore on one or two rupee digits written against it (`3Cr`, `1.25Cr`), and
+refused in between (`450Cr`, `3 Cr`), because reading either way wrongly is
+an error of 10^7.
+
 Date formats are inferred; two-digit years are resolved by the mapping's
 `dateFormat` where a bank is ambiguous.
 

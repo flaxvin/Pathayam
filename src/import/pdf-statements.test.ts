@@ -243,6 +243,15 @@ describe("04 §3.3 · the details that invert a transaction if wrong", () => {
   test("lakh-scale grouping survives", () => {
     assert.deepEqual(parseStatementAmount("1,45,000.00"), { value: 145000, credit: false });
   });
+
+  // "1,200.00Cr" with the marker attached: `\bcr` never matched after a digit,
+  // so the cell was unreadable here while CSV read it as ₹120 crore. Both now
+  // agree on a ₹1,200 credit.
+  test("a Cr or Dr marker attached to the figure is still a marker", () => {
+    assert.deepEqual(parseStatementAmount("1,200.00Cr"), { value: 1200, credit: true });
+    assert.deepEqual(parseStatementAmount("1200CR"), { value: 1200, credit: true });
+    assert.deepEqual(parseStatementAmount("1,200.00Dr"), { value: 1200, credit: false });
+  });
 });
 
 describe("04 §3.4 · which sender means which institution", () => {

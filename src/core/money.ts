@@ -201,58 +201,138 @@ function speakIndian(whole: number): string {
 // ---------------------------------------------------------------------------
 
 /**
- * Parse a typed amount into paise. Returns null on anything unparseable —
- * callers decide what to tell the user; this never throws on user input.
+ * Where a figure came from. It changes how an attached "Cr" is read.
  *
- * Accepts: "1234", "1,234", "12,34,567.89", "₹450", "450.5", "1.2L", "3Cr",
- * "1200 Dr", "(450)" (accounting negative), and the "Cr"/"Dr" suffixes that
- * Indian statements use (`04` §3.2).
+ * - `typed`: someone typed it into a form, where "1.2Cr" is crore shorthand.
+ * - `statement`: a bank printed it, where "1,200.00Cr" is a credit of ₹1,200
+ *   and no bank ever writes lakh or crore shorthand.
  */
-export function parseAmount(input: string): Paise | null {
-  let s = input.trim();
+export type AmountContext = "typed" | "statement";
+
+// Figures carry their currency in front in every shape the household's banks
+// and alerts use: "₹450", "Rs.450", "Rs. 450", "INR 450".
+const CURRENCY_PREFIX = /^(?:₹|rs\.?|inr)\s*/i;
+
+// A figure's rupee digits, grouped either way. Indian grouping puts pairs
+// above the last three digits (12,34,567); Western puts triples (1,234,567).
+// "1,23" and "1,2,3,4" are neither — a mangled cell, not a number to read
+// around (the old reader stripped every comma and made them ₹123 and ₹1,234).
+const UNGROUPED = /^\d*$/;
+const INDIAN_GROUPS = /^\d{1,2}(?:,\d{2})*,\d{3}$/;
+const WESTERN_GROUPS = /^\d{1,3}(?:,\d{3})+$/;
+
+/**
+ * Parse an amount into paise. Returns null on anything unparseable or
+ * ambiguous — callers decide what to tell the user; this never throws on user
+ * input.
+ *
+ * Accepts: "1234", "1,234", "12,34,567.89", "₹450", "Rs. 450", "INR 450",
+ * "450.5", "−450" (the Unicode minus PDFs and phone keyboards produce),
+ * "(450)" (accounting negative), the "Dr"/"Cr" markers Indian statements use
+ * (`04` §3.2), and — typed only — "1.2L", "45k" and "3Cr".
+ *
+ * **The crore rule.** "Cr" means two things in India: a bank's credit marker
+ * and crore. The old reader decided by whether a space came first, so
+ * "1,200.00Cr" — how several banks print a ₹1,200 credit — came back as ₹120
+ * crore, 10^7 times too much, while "1200DR" was refused outright. A wrong
+ * amount by a factor of ten million is the worst thing this function can
+ * return, so the rule refuses before it guesses:
+ *
+ * 1. "Dr" (any case, attached or spaced, with or without a dot) is always a
+ *    debit marker.
+ * 2. In a `statement`, "Cr" is always the credit marker, and L/K/Cr shorthand
+ *    is never read — no bank writes it.
+ * 3. When `typed`, "Cr" is the credit marker on a statement-shaped figure —
+ *    one with digit grouping or four or more rupee digits ("1,200.00Cr",
+ *    "1200CR"): nobody means ₹1,000 crore. It is crore shorthand on a figure
+ *    of one or two rupee digits written straight against it ("3Cr",
+ *    "1.25Cr"). Everything between ("450Cr", "3 Cr", "3Cr.") could be either,
+ *    and is refused.
+ *
+ * Signs are counted too: "-450 Dr", "(450) Dr" and "(-450)" each say "minus"
+ * twice — the old reader cancelled them and returned +₹450 — and whether that
+ * was meant is a guess, so they are refused. More than two decimal places is
+ * refused as well: "1.234" is not a number of paise, and rounding it to ₹1.23
+ * hides a malformed cell.
+ */
+export function parseAmount(input: string, context: AmountContext = "typed"): Paise | null {
+  let s = input.trim().replace(/−/g, "-");
   if (s === "") return null;
 
-  let sign = 1;
+  let negatives = 0;
+  let positives = 0;
 
   // Accounting-style parentheses: (450) is -450
   if (/^\(.*\)$/.test(s)) {
-    sign = -1;
+    negatives++;
     s = s.slice(1, -1).trim();
   }
 
-  // Cr / Dr suffix as used on Indian bank statements
-  const crDr = /\b(cr|dr)\.?\s*$/i.exec(s);
-  if (crDr) {
-    if (crDr[1]!.toLowerCase() === "dr") sign = -sign;
-    s = s.slice(0, crDr.index).trim();
+  // The Dr / Cr marker, or crore shorthand, at the end.
+  let crore = false;
+  const mark = /(\s*)(cr|dr)(\.?)$/i.exec(s);
+  if (mark) {
+    s = s.slice(0, mark.index).trim();
+    if (mark[2]!.toLowerCase() === "dr") {
+      negatives++;
+    } else if (context === "statement") {
+      positives++;
+    } else {
+      const figure = s.replace(CURRENCY_PREFIX, "").replace(/^[-+]\s*/, "");
+      const rupeeDigits = figure.split(".")[0]!;
+      const statementShaped = rupeeDigits.includes(",") || rupeeDigits.length >= 4;
+      if (statementShaped) {
+        positives++;
+      } else if (mark[1] === "" && mark[3] === "" && /^\d{1,2}$/.test(rupeeDigits)) {
+        crore = true;
+      } else {
+        return null;
+      }
+    }
   }
 
-  s = s.replace(/[₹\s]/g, "").replace(/,/g, "");
-
+  s = s.replace(CURRENCY_PREFIX, "");
   if (s.startsWith("-")) {
-    sign = -sign;
+    negatives++;
     s = s.slice(1);
   } else if (s.startsWith("+")) {
+    positives++;
     s = s.slice(1);
   }
+  // "-₹450" as well as "₹-450".
+  s = s.trim().replace(CURRENCY_PREFIX, "").replace(/\s+/g, "");
 
-  // Lakh / crore / thousand suffix
-  let multiplier = 1;
-  const suffix = /^(.*?)(cr|l|k)$/i.exec(s);
-  if (suffix) {
-    const unit = suffix[2]!.toLowerCase();
-    multiplier = unit === "cr" ? 1_00_00_000 : unit === "l" ? 1_00_000 : 1_000;
-    s = suffix[1]!;
+  // A minus alongside any other sign is a contradiction or a double negative.
+  if (negatives > 1 || (negatives === 1 && positives > 0)) return null;
+
+  // Lakh / thousand shorthand — typed only. Crore was settled above.
+  let multiplier = crore ? 1_00_00_000 : 1;
+  if (!crore && context === "typed") {
+    const suffix = /^(.*?)(l|k)$/i.exec(s);
+    if (suffix) {
+      multiplier = suffix[2]!.toLowerCase() === "l" ? 1_00_000 : 1_000;
+      s = suffix[1]!;
+    }
   }
 
-  if (!/^\d*\.?\d*$/.test(s) || s === "" || s === ".") return null;
+  const parts = /^([\d,]*)(?:\.(\d*))?$/.exec(s);
+  if (!parts) return null;
+  const whole = parts[1]!;
+  const fraction = parts[2] ?? "";
+  if (whole === "" && fraction === "") return null;
+  if (!UNGROUPED.test(whole) && !INDIAN_GROUPS.test(whole) && !WESTERN_GROUPS.test(whole)) {
+    return null;
+  }
 
-  const value = Number(s);
-  if (!Number.isFinite(value)) return null;
-
-  const paise = Math.round(value * multiplier * RUPEE);
+  // Exact decimal arithmetic: "1.2345Cr" is 1,23,45,000 rupees exactly, while
+  // "1.234" is not a whole number of paise and is refused rather than rounded.
+  const digits = BigInt(`${whole.replace(/,/g, "") || "0"}${fraction}`);
+  const scaled = digits * BigInt(multiplier * RUPEE);
+  const divisor = 10n ** BigInt(fraction.length);
+  if (scaled % divisor !== 0n) return null;
+  const paise = Number(scaled / divisor);
   if (!Number.isSafeInteger(paise)) return null;
-  return sign * paise;
+  return negatives === 1 && paise !== 0 ? -paise : paise;
 }
 
 /**

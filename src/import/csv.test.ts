@@ -150,6 +150,27 @@ This is a computer generated statement and does not require a signature.`,
   });
 });
 
+/*
+ * A statement's "1,200.00Cr" is a ₹1,200 credit. CSV read the attached "Cr"
+ * as crore and staged 12,00,00,00,00,000 paise — ₹120 crore — for a row the
+ * bank printed as twelve hundred rupees. A statement never uses shorthand, so
+ * "3Cr" in a bank file is ₹3, and "1.2L" is refused.
+ */
+describe("amounts in a statement file", () => {
+  test("an attached Cr or Dr is the bank's marker, never crore", () => {
+    const { result } = parseStatement(
+      "Date,Narration,Amount\n01-08-2026,SALARY,\"1,200.00Cr\"\n02-08-2026,SHOP,1200DR\n03-08-2026,CASHBACK,3Cr",
+    );
+    assert.deepEqual(result.records.map((r) => r.amount), [rupees(1200), rupees(-1200), rupees(3)]);
+  });
+
+  test("lakh shorthand in a bank file is an error, not ₹1,20,000", () => {
+    const { result } = parseStatement("Date,Narration,Amount\n01-08-2026,ODD,1.2L");
+    assert.equal(result.records.length, 0);
+    assert.equal(result.errors.length, 1);
+  });
+});
+
 describe("headerSignature", () => {
   test("is stable across whitespace, case and punctuation", () => {
     assert.equal(

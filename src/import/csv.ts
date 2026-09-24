@@ -259,8 +259,8 @@ function readAmount(
   if (mapping.debit !== undefined && mapping.credit !== undefined) {
     const rawDebit = (cells[mapping.debit] ?? "").trim();
     const rawCredit = (cells[mapping.credit] ?? "").trim();
-    const debit = rawDebit ? parseAmount(rawDebit) : null;
-    const credit = rawCredit ? parseAmount(rawCredit) : null;
+    const debit = rawDebit ? parseAmount(rawDebit, "statement") : null;
+    const credit = rawCredit ? parseAmount(rawCredit, "statement") : null;
 
     if (debit !== null && debit !== 0) {
       // Money leaving is negative regardless of how the column is signed.
@@ -284,7 +284,7 @@ function readAmount(
   }
 
   const raw = (cells[mapping.amount] ?? "").trim();
-  const amount = parseAmount(raw);
+  const amount = parseAmount(raw, "statement");
   if (amount === null) {
     return { amount: null, rawAmount: raw, reason: `"${raw}" is not an amount I can read.` };
   }
