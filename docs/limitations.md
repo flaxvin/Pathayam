@@ -35,8 +35,15 @@ outside a retirement account will not stretch quite as far as the figure
 suggests.
 
 **A short history scales up whatever it has.** With less than a year of data
-the window is annualised from what exists and the screen says so, but one
-unusual month still moves the target a long way.
+the window is annualised from the days that exist — history starts at the first
+transaction or the first budget or card account opened, whichever is earlier —
+and the screen says so, but one unusual month still moves the target a long
+way.
+
+**Investing is not spending.** Units bought through the portfolio are left out
+of the spending the target is built on, even when paid from an envelope. An
+investment made any other way — a transfer to a tracking account filed to an
+envelope, say — still counts as spending.
 
 ## Tax
 
