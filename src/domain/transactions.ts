@@ -13,7 +13,7 @@ import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts"
 import { nowIST, todayIST, formatDate, addDays, type IsoDate } from "../core/dates.ts";
 import { Missing, Refusal } from "../core/refusal.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
-import { getAccount } from "./accounts.ts";
+import { getAccount, DERIVED_VALUE_SUBTYPES, MANAGED_SUBTYPES } from "./accounts.ts";
 import { prepareClaim } from "./commitments.ts";
 
 export type TransactionSource = "manual" | "csv" | "pdf" | "email" | "sms" | "api" | "schedule";
@@ -501,6 +501,12 @@ export function purgeDeleted(db: DB, olderThanDays = 30, today = todayIST()): nu
 export interface TransferInput {
   fromAccountId: string;
   toAccountId: string;
+  /**
+   * Set only by the code that manages a derived account (family lending), for
+   * which a transfer *is* how its value is recorded. See the guard in
+   * createTransfer.
+   */
+  managedBy?: "family-loans";
   /** A positive amount: what arrives in the destination account. */
   amount: Paise;
   date?: IsoDate;
@@ -638,7 +644,29 @@ export function createTransfer(db: DB, actor: Actor, input: TransferInput): [Tra
   return transact(db, () => {
     const from = getAccount(db, input.fromAccountId);
     const to = getAccount(db, input.toAccountId);
-    if (!from || !to) throw new Refusal("That account does not exist.");
+    if (!from || !to) throw new Missing("That account does not exist.");
+
+    /*
+     * A derived account is worth what its own records say — holdings for a
+     * demat, a schedule for a loan, dated valuations for gold — so a plain
+     * transfer into one is stored and then counted nowhere. ₹5,000 moved from
+     * the bank into an investment account left the bank and never appeared in
+     * the investment's value: net worth fell by exactly ₹5,000 and nothing
+     * said why. The Add form already kept these accounts out; the transfer form
+     * offered them. Each has its own screen that records the money properly.
+     *
+     * Family loans are the exception that proves it: their value is *derived
+     * from* the transfers behind them, so the lending code passes managedBy.
+     */
+    for (const account of [from, to]) {
+      if (!DERIVED_VALUE_SUBTYPES.has(account.subtype)) continue;
+      if (account.subtype === "family-loan" && input.managedBy === "family-loans") continue;
+      const where = MANAGED_SUBTYPES[account.subtype]?.label ?? "the Portfolio page";
+      throw new Refusal(
+        `"${account.name}" is valued from its own records, so money moved into or out ` +
+        `of it here would be counted nowhere. Record it on ${where} instead.`,
+      );
+    }
 
     const pairId = newId();
     const date = input.date ?? todayIST();
@@ -816,6 +844,20 @@ export function mergePayees(db: DB, actor: Actor, loserId: string, winnerId: str
     const winner = getPayee(db, winnerId);
     if (!loser || !winner) throw new Missing("That payee does not exist.");
 
+    /*
+     * Record exactly what moves, so the merge can be undone. The event used to
+     * hold only the two payees, and undo could do no more than clear
+     * merged_into_id: the loser reappeared in the list with none of its
+     * transactions and none of its aliases, which had all stayed with the
+     * winner. "Un-merged" said the undo; it had un-merged a name.
+     */
+    const movedTransactionIds = queryAll<{ id: string }>(
+      db, `SELECT id FROM transactions WHERE payee_id = ?`, loserId,
+    ).map((r) => r.id);
+    const movedAliasIds = queryAll<{ id: string }>(
+      db, `SELECT id FROM payee_aliases WHERE payee_id = ?`, loserId,
+    ).map((r) => r.id);
+
     execute(db, `UPDATE transactions SET payee_id = ? WHERE payee_id = ?`, winnerId, loserId);
     execute(db, `UPDATE payee_aliases SET payee_id = ? WHERE payee_id = ?`, winnerId, loserId);
     // Kept rather than deleted, so the old name still resolves.
@@ -823,7 +865,7 @@ export function mergePayees(db: DB, actor: Actor, loserId: string, winnerId: str
 
     appendEvent(db, actor, {
       entity: "payee", entityId: loserId, action: "merge", before: loser,
-      after: winner,
+      after: { ...winner, movedTransactionIds, movedAliasIds },
       summary: `Merged "${loser.name}" into "${winner.name}"`,
     });
   });
@@ -1063,8 +1105,20 @@ registerUndoHandler("transfer", (db, event) => {
 registerUndoHandler("payee", (db, event) => {
   const before = event.before as Payee | undefined;
   if (event.action === "merge" && before) {
+    const after = event.after as { id?: string; movedTransactionIds?: string[]; movedAliasIds?: string[] } | undefined;
+    // Move back only what the merge moved, and only if it still sits with the
+    // winner — anything re-filed since is the household's later decision.
+    for (const tid of after?.movedTransactionIds ?? []) {
+      execute(db, `UPDATE transactions SET payee_id = ? WHERE id = ? AND payee_id = ?`, before.id, tid, after!.id ?? null);
+    }
+    for (const aliasId of after?.movedAliasIds ?? []) {
+      execute(db, `UPDATE payee_aliases SET payee_id = ? WHERE id = ? AND payee_id = ?`, before.id, aliasId, after!.id ?? null);
+    }
     execute(db, `UPDATE payees SET merged_into_id = NULL WHERE id = ?`, before.id);
-    return `Un-merged "${before.name}"`;
+    const moved = after?.movedTransactionIds?.length ?? 0;
+    return moved > 0
+      ? `Un-merged "${before.name}" and moved its ${moved} transaction${moved === 1 ? "" : "s"} back`
+      : `Un-merged "${before.name}"`;
   }
   execute(db, `DELETE FROM payees WHERE id = ?`, event.entityId!);
   return `Removed the payee that was added`;

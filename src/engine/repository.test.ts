@@ -332,8 +332,12 @@ describe("transfers out of the budget", () => {
       name: "HDFC", kind: "budget", subtype: "savings",
       openingDate: "2026-08-01", openingBalance: rupees(200_000),
     });
+    // A fixed deposit: tracking, and worth its balance. (A family loan was
+    // used here once, but that is a derived account — createTransfer refuses
+    // a plain transfer into one, because its value is kept by the lending
+    // code, not by the transfer.)
     const tracked = createAccount(db, actor, {
-      name: "Lent to Ammu", kind: "tracking", subtype: "family-loan",
+      name: "Sweep FD", kind: "tracking", subtype: "fixed-deposit",
       openingDate: "2026-08-01",
     });
     createTransfer(db, actor, {

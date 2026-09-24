@@ -2426,7 +2426,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // asset purchases and family lending.
   router.get("/transfer", (ctx) => {
     auth(ctx);
-    const accounts = listAccounts(db, { viewerMemberId: viewer(ctx) });
+    // Derived accounts are refused by createTransfer — each has its own screen
+    // that records the money properly — so offering them would be a choice that
+    // always fails. Same rule as the Add form.
+    const accounts = listAccounts(db, { viewerMemberId: viewer(ctx) })
+      .filter((a) => !DERIVED_VALUE_SUBTYPES.has(a.subtype));
     return render(
       ctx,
       "Record a transfer",

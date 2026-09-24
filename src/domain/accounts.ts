@@ -691,29 +691,87 @@ export function paymentCategoryFor(db: DB, accountId: string): { id: string; nam
   );
 }
 
+/**
+ * What still points at an account, in words a household would use.
+ *
+ * Cards and the payment envelope are the account's own and go with it; every
+ * other table here records something that happened *to* the account, and an
+ * undo that deleted the account under it failed on a foreign key — a 500 on an
+ * undo the activity page kept offering. Read from the schema's own foreign keys
+ * so a table added later cannot be forgotten.
+ */
+function accountDependants(db: DB, id: string): string[] {
+  const own = new Set(["cards.account_id", "categories.payment_account_id"]);
+  const words: Record<string, string> = {
+    transactions: "transactions", schedules: "schedules", reconciliations: "reconciliations",
+    staged_transactions: "imported rows waiting for review", import_batches: "imports",
+    import_profiles: "saved import settings", holdings: "holdings", loans: "a loan",
+    loan_disbursements: "a loan disbursement", asset_valuations: "valuations",
+    family_loans: "a family loan", card_statements: "card statements", payees: "payees",
+  };
+  const found: string[] = [];
+  const tables = queryAll<{ name: string }>(db, `SELECT name FROM sqlite_master WHERE type = 'table'`);
+  for (const { name } of tables) {
+    const fks = queryAll<{ table: string; from: string }>(db, `PRAGMA foreign_key_list(${name})`);
+    for (const fk of fks) {
+      if (fk.table !== "accounts" || own.has(`${name}.${fk.from}`)) continue;
+      const n = queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM ${name} WHERE ${fk.from} = ?`, id)?.n ?? 0;
+      if (n > 0) found.push(words[name] ?? name.replace(/_/g, " "));
+    }
+  }
+  // Money assigned to the card's payment envelope would go with the envelope.
+  const assigned = queryOne<{ n: number }>(
+    db,
+    `SELECT COUNT(*) AS n FROM assignments a JOIN categories c ON c.id = a.category_id
+      WHERE c.payment_account_id = ? AND a.amount <> 0`,
+    id,
+  )?.n ?? 0;
+  if (assigned > 0) found.push("money assigned to its payment envelope");
+  return [...new Set(found)];
+}
+
+/*
+ * The columns an account edit can change — exactly updateAccount's set, plus
+ * closed_at for close and reopen. Undo restored eight of them and reported
+ * "Restored", while the holder, visibility, budget and sort order — the
+ * route's own comment calls moving an account between budgets "one undoable
+ * step" — stayed as the edit had left them.
+ */
+const RESTORABLE_ACCOUNT_COLUMNS = [
+  "name", "nickname", "institution", "last4", "statement_day", "due_day",
+  "credit_limit", "sort", "holder_member_id", "visibility", "budget_id", "closed_at",
+] as const;
+
 registerUndoHandler("account", (db, event) => {
-  const before = event.before as Account | undefined;
+  const before = event.before as Partial<Account> | undefined;
+  const id = event.entityId!;
   if (!before) {
-    execute(db, `DELETE FROM cards WHERE account_id = ?`, event.entityId!);
-    execute(db, `DELETE FROM categories WHERE payment_account_id = ?`, event.entityId!);
-    execute(db, `DELETE FROM accounts WHERE id = ?`, event.entityId!);
+    const dependants = accountDependants(db, id);
+    if (dependants.length > 0) {
+      throw new Refusal(
+        `This account already has ${dependants.join(", ")}, so removing it would ` +
+        `leave those pointing at nothing. Close the account instead — its history stays.`,
+      );
+    }
+    execute(db, `DELETE FROM assignments WHERE category_id IN
+                   (SELECT id FROM categories WHERE payment_account_id = ?)`, id);
+    execute(db, `DELETE FROM targets WHERE category_id IN
+                   (SELECT id FROM categories WHERE payment_account_id = ?)`, id);
+    execute(db, `DELETE FROM cards WHERE account_id = ?`, id);
+    execute(db, `DELETE FROM categories WHERE payment_account_id = ?`, id);
+    execute(db, `DELETE FROM accounts WHERE id = ?`, id);
     return `Removed the account that was added`;
   }
-  execute(
-    db,
-    `UPDATE accounts SET name=?, nickname=?, institution=?, last4=?, statement_day=?,
-            due_day=?, credit_limit=?, closed_at=? WHERE id = ?`,
-    before.name,
-    before.nickname,
-    before.institution,
-    before.last4,
-    before.statement_day,
-    before.due_day,
-    before.credit_limit,
-    before.closed_at,
-    event.entityId!,
-  );
-  return `Restored ${before.name}`;
+  const present = RESTORABLE_ACCOUNT_COLUMNS.filter((c) => c in before);
+  if (present.length > 0) {
+    execute(
+      db,
+      `UPDATE accounts SET ${present.map((c) => `${c} = ?`).join(", ")} WHERE id = ?`,
+      ...present.map((c) => (before as Record<string, unknown>)[c] as string | number | null),
+      id,
+    );
+  }
+  return `Restored ${before.name ?? "the account"}`;
 });
 
 // ---------------------------------------------------------------------------
