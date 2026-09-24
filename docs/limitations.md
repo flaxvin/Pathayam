@@ -54,7 +54,11 @@ relief; presumptive schemes under 44AD and 44ADA.
 are sorted by asset class and holding period and taxed at their own rates —
 12.5% above ₹1,25,000 on long-held listed equity (112A), 20% on short-held
 (111A), 12.5% on gold and property held over 24 months (112), slab rates on
-debt. What the app cannot place, it refuses to place: an instrument with no
+debt. "Over 12 (or 24) months" is counted in calendar months, as the Act
+words it, not days — bought 2024-02-28 and sold 2025-02-28 is exactly twelve
+months and so short-term, though it is 366 days — and the sale preview, the
+gains report and the estimate all use the same test. What the app cannot
+place, it refuses to place: an instrument with no
 asset class, a hybrid fund (whose treatment turns on an equity ratio not
 tracked here), and a sale with no recorded lots are excluded from the
 computation and reported on the screen instead of being guessed into a bucket.

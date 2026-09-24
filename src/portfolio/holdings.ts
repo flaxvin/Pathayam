@@ -34,7 +34,7 @@
 
 import type { Paise } from "../core/money.ts";
 import type { IsoDate } from "../core/dates.ts";
-import { daysBetween } from "../core/dates.ts";
+import { daysBetween, heldMoreThanMonths } from "../core/dates.ts";
 
 /** Units, in thousandths. 936.043 units → 936043. */
 export type Milliunits = number;
@@ -316,11 +316,15 @@ function describeSale(
     (c) =>
       `${formatUnits(c.units)} units from ${c.tradeDate} at ₹${formatPrice(c.price)}`,
   );
+  // The same calendar-month test the tax estimate uses. This was `>= 365`
+  // days, which called a lot bought 2024-02-28 and sold 2025-02-28 "over 12
+  // months" when it is exactly twelve — short-term under the Act.
+  const longHeld = (c: FifoConsumption) => heldMoreThanMonths(c.tradeDate, saleDate!, 12);
   const holding =
     saleDate && consumed.length > 0
-      ? consumed.every((c) => c.holdingPeriodDays < 365)
-        ? " All lots held under 12 months."
-        : consumed.every((c) => c.holdingPeriodDays >= 365)
+      ? consumed.every((c) => !longHeld(c))
+        ? " All lots held 12 months or less."
+        : consumed.every(longHeld)
           ? " All lots held over 12 months."
           : " Some lots held over 12 months and some under."
       : "";
