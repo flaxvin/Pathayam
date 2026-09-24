@@ -11,6 +11,7 @@ import { parseStatement } from "./csv.ts";
 import { ingest, listStaged, approveStaged, rejectStaged, mergeStaged, undoBatch } from "./pipeline.ts";
 import { accountBalances, loadEngineInput } from "../engine/repository.ts";
 import { computeBudget, identityResidual } from "../engine/engine.ts";
+import { Missing, Refusal } from "../core/refusal.ts";
 
 const RAVI = "m-ravi";
 const actor: Actor = { memberId: RAVI, source: "ui" };
@@ -477,6 +478,53 @@ describe("I5 · an exact repeat is recognised, never a 500", () => {
       "merged",
     );
     assertIdentity(db, "after matching");
+    db.close();
+  });
+});
+
+/*
+ * The queue acted on whatever id it was given. Approve the ₹450 Swiggy row,
+ * then merge it into the manual twin: both transactions stayed (₹450 twice)
+ * and the screen said "Merged". Reject after approve flipped the row to
+ * rejected with its transaction still in the ledger. A made-up staged id or
+ * batch id reported success.
+ */
+describe("the review queue only acts on items still waiting", () => {
+  test("merging a row already approved is refused, and the ledger keeps one ₹450", () => {
+    const { db, account, group } = setup();
+    const eatingOut = createCategory(db, actor, { groupId: group.id, name: "Eating Out" });
+    createTransaction(db, actor, {
+      accountId: account.id, amount: rupees(-450), date: "2026-08-03",
+      categoryId: eatingOut.id, payeeName: "Swiggy",
+    });
+    importStatement(db, account.id);
+    const flagged = listStaged(db).find((r) => r.duplicate_of_id !== null)!;
+    approveStaged(db, actor, flagged.id, { categoryId: eatingOut.id });
+    assertIdentity(db, "after approve");
+
+    assert.throws(() => mergeStaged(db, actor, flagged.id), Refusal);
+    assert.throws(() => rejectStaged(db, actor, flagged.id), Refusal);
+    const status = queryOne<{ status: string }>(
+      db, `SELECT status FROM staged_transactions WHERE id = ?`, flagged.id,
+    )!.status;
+    assert.equal(status, "approved", "a refused reject does not flip the row");
+    assertIdentity(db, "after the refused merge");
+    db.close();
+  });
+
+  test("an id that names nothing is Missing, not a success", () => {
+    const { db } = setup();
+    assert.throws(() => rejectStaged(db, actor, "no-such-row"), Missing);
+    assert.throws(() => mergeStaged(db, actor, "no-such-row"), Missing);
+    assert.throws(() => undoBatch(db, actor, "no-such-batch"), Missing);
+    db.close();
+  });
+
+  test("a batch cannot be undone twice", () => {
+    const { db, account } = setup();
+    const first = importStatement(db, account.id);
+    undoBatch(db, actor, first.batch.id);
+    assert.throws(() => undoBatch(db, actor, first.batch.id), Refusal);
     db.close();
   });
 });
