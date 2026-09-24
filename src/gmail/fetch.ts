@@ -196,8 +196,12 @@ function routeAlert(
         ? `${record.narration} [card of ${record.cardholderName}]`
         : record.narration,
     },
+    // R6.e · The card the alert named. It was resolved here and then dropped
+    // (`void cardId`), so ingest looked for a last four in the merchant name,
+    // found none, and every add-on alert posted on the primary card — owned
+    // by the primary holder rather than the add-on's.
+    cardId,
   };
-  void cardId;
   return { accountId, record: raw };
 }
 

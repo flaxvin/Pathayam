@@ -167,7 +167,7 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
       }
 
       const extracted = extractNarrationFields(record.narration);
-      const cardId = resolveCard(db, opts.accountId, record.narration);
+      const cardId = record.cardId ?? resolveCard(db, opts.accountId, record.narration);
 
       const subject: RuleSubject = {
         narration: record.narration,
