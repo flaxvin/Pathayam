@@ -184,12 +184,12 @@ export function headerSignature(headers: string[]): string {
     .join("|");
 }
 
-const DATE_HINTS = ["date", "txn date", "transaction date", "value date", "tran date"];
+const DATE_HINTS = ["date", "txn date", "transaction date", "value date", "tran date", "txndate", "transactiondate", "valuedate", "trandate"];
 const NARRATION_HINTS = ["narration", "description", "particulars", "remarks", "details", "transaction remarks"];
-const DEBIT_HINTS = ["withdrawal", "debit", "withdrawal amt", "dr", "withdrawalamt"];
-const CREDIT_HINTS = ["deposit", "credit", "deposit amt", "cr", "depositamt"];
+const DEBIT_HINTS = ["withdrawal", "withdrawals", "debit", "debits", "withdrawal amt", "dr", "withdrawalamt"];
+const CREDIT_HINTS = ["deposit", "deposits", "credit", "credits", "deposit amt", "cr", "depositamt"];
 const AMOUNT_HINTS = ["amount", "transaction amount", "amt"];
-const BALANCE_HINTS = ["balance", "closing balance", "running balance"];
+const BALANCE_HINTS = ["balance", "closing balance", "running balance", "closingbalance"];
 const REFERENCE_HINTS = ["ref", "reference", "chq", "cheque", "ref no", "chq/ref no", "transaction id", "utr"];
 
 /**
@@ -205,8 +205,16 @@ export function guessMapping(rows: string[][]): ColumnMapping | null {
     const cells = (rows[r] ?? []).map((c) => c.trim().toLowerCase());
     if (cells.filter(Boolean).length < 3) continue;
 
+    /*
+     * Hints match whole words, not substrings. "Description" contains "cr",
+     * so a Date,Description,Debit,Credit file had its narration column taken
+     * as the Credit column — every deposit read from the narration, refused,
+     * and the wrong mapping then saved as the bank's profile. "Chq./Ref.No."
+     * still finds "ref", because punctuation separates words.
+     */
+    const cellWords = cells.map((c) => ` ${c.split(/[^a-z0-9]+/).filter(Boolean).join(" ")} `);
     const find = (hints: string[]): number =>
-      cells.findIndex((cell) => hints.some((h) => cell === h || cell.includes(h)));
+      cellWords.findIndex((words) => hints.some((h) => words.includes(` ${h} `)));
 
     const date = find(DATE_HINTS);
     const narration = find(NARRATION_HINTS);
