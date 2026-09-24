@@ -41,6 +41,7 @@ import {
   createAssetAccount, findOrCreateInstrument, recordPurchase, listHoldings,
 } from "../domain/assets.ts";
 import { units, price } from "../portfolio/holdings.ts";
+import { exportEverything } from "../ops/backup.ts";
 
 const RAVI = "m-ravi";
 const PRIYA = "m-priya";
@@ -220,5 +221,45 @@ describe("15 · the activity log names nothing of Ravi's", () => {
     } finally {
       await app.close();
     }
+  });
+});
+
+describe("F15 · a member's export is theirs, and the backup stays whole", () => {
+  test("/export.json and /export.csv carry nothing of Ravi's", async () => {
+    await asPriya(async (app, { ids }) => {
+      for (const path of ["/export.json", "/export.csv"]) {
+        const body = await (await app.get(path)).text();
+        assert.deepEqual(leaks(body), [], `${path} carries Ravi's private things off the machine`);
+        for (const id of [ids.account, ids.category, ids.sched, ids.goal, ids.demat, ids.holding]) {
+          assert.ok(!body.includes(id), `${path} names one of Ravi's private ids`);
+        }
+      }
+    });
+  });
+
+  test("its control totals are over what is in the file, so nothing falls out by subtraction", async () => {
+    await asPriya(async (app) => {
+      const file = JSON.parse(await (await app.get("/export.json")).text()) as {
+        controlTotals: { accountOpeningTotal: number; transactionTotal: number; counts: Record<string, number> };
+        data: Record<string, unknown[]>;
+      };
+      // Only the ₹50,000 joint account; Ravi's ₹3,00,000 is not in the sum.
+      assert.equal(file.controlTotals.accountOpeningTotal, rupees(50_000));
+      assert.equal(file.controlTotals.transactionTotal, 0);
+      assert.equal(file.controlTotals.counts.transactions, file.data.transactions!.length);
+    });
+  });
+
+  test("Ravi's own export has his, and the operator's backup has everybody's", async () => {
+    const w = build();
+    const app = await startTestApp(w.db, { memberId: RAVI });
+    try {
+      const body = await (await app.get("/export.json")).text();
+      assert.ok(body.includes("Zzyzx Private Account") && body.includes("Jabberwock Private Goal"));
+    } finally {
+      await app.close();
+    }
+    const whole = JSON.stringify(exportEverything(w.db));
+    assert.deepEqual(SECRETS.filter((s) => !whole.includes(s)), [], "the backup lost something");
   });
 });
