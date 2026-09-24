@@ -186,3 +186,79 @@ describe("evaluateAmountExpression — F4.10", () => {
     assert.equal(evaluateAmountExpression("1;2"), null);
   });
 });
+
+/*
+ * The crore rule. "1,200.00Cr" is how several banks print a ₹1,200 credit;
+ * parseAmount read the attached "Cr" as crore and returned 12,00,00,00,00,000
+ * paise — ₹120 crore, 10^7 too much — while "1200DR" came back null. A 10^7
+ * error is the worst thing this reader can produce, so between a marker and
+ * shorthand it now refuses rather than guesses.
+ */
+describe("parseAmount — Cr is a credit marker before it is crore", () => {
+  test("an attached Cr on a statement-shaped figure is ₹1,200, not ₹120 crore", () => {
+    assert.equal(parseAmount("1,200.00Cr"), rupees(1200));
+    assert.equal(parseAmount("1200CR"), rupees(1200));
+    assert.equal(parseAmount("1200.00 CR."), rupees(1200));
+  });
+
+  test("Dr is symmetric with Cr, attached or spaced", () => {
+    assert.equal(parseAmount("1200DR"), rupees(-1200));
+    assert.equal(parseAmount("1,200.00Dr"), rupees(-1200));
+    assert.equal(parseAmount("450 dr."), rupees(-450));
+  });
+
+  test("typed crore shorthand still works where it cannot be a marker", () => {
+    assert.equal(parseAmount("3Cr"), rupees(3_00_00_000));
+    assert.equal(parseAmount("1.25Cr"), rupees(1_25_00_000));
+  });
+
+  test("a figure that could be either is refused rather than guessed", () => {
+    assert.equal(parseAmount("450Cr"), null);
+    assert.equal(parseAmount("3 Cr"), null);
+    assert.equal(parseAmount("3Cr."), null);
+  });
+
+  test("a statement never carries shorthand: every Cr is a credit", () => {
+    assert.equal(parseAmount("3Cr", "statement"), rupees(3));
+    assert.equal(parseAmount("450Cr", "statement"), rupees(450));
+    assert.equal(parseAmount("1.2L", "statement"), null);
+    assert.equal(parseAmount("5k", "statement"), null);
+  });
+});
+
+/*
+ * Digit grouping, decimals and doubled signs. The old reader stripped every
+ * comma, so "1,23" was ₹123 and "1,2,3,4" ₹1,234; it rounded "1.234" to ₹1.23;
+ * and "-450 Dr" cancelled its two minuses into +₹450.
+ */
+describe("parseAmount — refuses malformed figures instead of reading around them", () => {
+  test("grouping must be Indian or Western", () => {
+    assert.equal(parseAmount("1,23"), null);
+    assert.equal(parseAmount("1,2,3,4"), null);
+    assert.equal(parseAmount("12,34,567"), rupees(12_34_567));
+    assert.equal(parseAmount("1,234,567"), rupees(1_234_567));
+  });
+
+  test("a third decimal place is not paise", () => {
+    assert.equal(parseAmount("1.234"), null);
+    assert.equal(parseAmount("1.005"), null);
+    assert.equal(parseAmount("1.2345Cr"), rupees(1_23_45_000));
+  });
+
+  test("two minus signs are refused, not cancelled", () => {
+    assert.equal(parseAmount("-450 Dr"), null);
+    assert.equal(parseAmount("(450) Dr"), null);
+    assert.equal(parseAmount("(-450)"), null);
+    assert.equal(parseAmount("-(450)"), null);
+    assert.equal(parseAmount("-450 Cr", "statement"), null);
+  });
+
+  test("accepts the currency and minus forms the PDF and alert readers accept", () => {
+    assert.equal(parseAmount("−450"), rupees(-450));
+    assert.equal(parseAmount("Rs.450"), rupees(450));
+    assert.equal(parseAmount("Rs. 450"), rupees(450));
+    assert.equal(parseAmount("INR 450"), rupees(450));
+    assert.equal(parseAmount("-₹450"), rupees(-450));
+    assert.equal(parseAmount("₹-450"), rupees(-450));
+  });
+});

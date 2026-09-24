@@ -31,7 +31,7 @@
  */
 
 import type { IsoDate } from "../core/dates.ts";
-import type { Paise } from "../core/money.ts";
+import { parseAmount, type Paise } from "../core/money.ts";
 
 export interface AlertRecord {
   /** Signed paise: negative for a debit/spend, positive for a credit. */
@@ -91,8 +91,9 @@ function parseAlertDate(raw: string): IsoDate | null {
 function parseAlertAmount(raw: string): number | null {
   const m = /(?:INR|Rs\.?|₹)\s*([\d,]+(?:\.\d{1,2})?)/i.exec(raw);
   if (!m) return null;
-  const value = Number(m[1]!.replace(/,/g, ""));
-  return Number.isFinite(value) ? Math.round(value * 100) : null;
+  // The same reader CSV uses, so "INR 1,23" is refused here as it is there
+  // rather than stripped of its comma and read as ₹123.
+  return parseAmount(m[1]!, "statement");
 }
 
 const DEBIT_WORDS = /\b(debited|spent|withdrawn|paid|purchase|deducted)\b/i;

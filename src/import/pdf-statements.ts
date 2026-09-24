@@ -295,8 +295,12 @@ export function parseStatementAmount(raw: string): { value: number; credit: bool
   const text = raw.trim();
   if (text === "" || text === "-") return null;
 
-  const credit = /\bcr\b\.?$/i.test(text);
-  const debit = /\bdr\b\.?$/i.test(text);
+  // The marker may sit straight against the figure: "1,200.00Cr". A `\b`
+  // before it never matched there (0 and C are both word characters), so the
+  // cell read as unrecognised, where CSV read the same text as ₹120 crore.
+  // Both paths now agree it is a ₹1,200 credit (see `parseAmount`).
+  const credit = /(?<![a-z])cr\.?$/i.test(text);
+  const debit = /(?<![a-z])dr\.?$/i.test(text);
   const bracketed = /^\(.*\)$/.test(text);
 
   /*
@@ -309,7 +313,7 @@ export function parseStatementAmount(raw: string): { value: number; credit: bool
    * the row's sign is decided by the wrong rule.
    */
   const withoutCurrency = text
-    .replace(/\b[cd]r\b\.?/i, "")
+    .replace(/(?<![a-z])[cd]r\.?$/i, "")
     .replace(/^\s*(?:Rs\.?|INR|₹|C)\s*(?=[\d(])/i, "");
 
   const digits = withoutCurrency.replace(/[(),\s₹]/g, "");
