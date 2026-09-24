@@ -14,12 +14,38 @@
 import { parseAmount, type Paise } from "../core/money.ts";
 import { parseDate, type IsoDate } from "../core/dates.ts";
 
-/** Parse delimited text into rows, honouring quotes and embedded newlines. */
+/**
+ * Parse delimited text into rows, honouring quotes and embedded newlines.
+ *
+ * A quote opens a quoted field only at the very start of a field (RFC 4180).
+ * The old reader opened one anywhere, so a narration like `12" PIZZA` began a
+ * quoted field that never closed, and every later row of the file vanished
+ * into that one cell — 10 rows in, 5 staged, no error reported.
+ *
+ * A field that does start with a quote but never closes it is the same trap
+ * from the other side: the rest of the file would be one cell. When that
+ * happens the quote is taken as a literal character and the text is read
+ * again, so every row still arrives and is judged on its own.
+ */
 export function parseDelimited(text: string, delimiter = ","): string[][] {
+  const literal = new Set<number>();
+  for (;;) {
+    const attempt = parseDelimitedOnce(text, delimiter, literal);
+    if (attempt.unclosedQuoteAt === null) return attempt.rows;
+    literal.add(attempt.unclosedQuoteAt);
+  }
+}
+
+function parseDelimitedOnce(
+  text: string, delimiter: string, literal: Set<number>,
+): { rows: string[][]; unclosedQuoteAt: number | null } {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
   let quoted = false;
+  let quoteOpenedAt = -1;
+  // True until the current field has taken any character, quote included.
+  let atFieldStart = true;
   let i = 0;
 
   // A BOM survives Excel exports and would otherwise poison the first header.
@@ -44,14 +70,17 @@ export function parseDelimited(text: string, delimiter = ","): string[][] {
       continue;
     }
 
-    if (ch === '"') {
+    if (ch === '"' && atFieldStart && !literal.has(i)) {
       quoted = true;
+      quoteOpenedAt = i;
+      atFieldStart = false;
       i++;
       continue;
     }
     if (ch === delimiter) {
       row.push(field);
       field = "";
+      atFieldStart = true;
       i++;
       continue;
     }
@@ -64,6 +93,7 @@ export function parseDelimited(text: string, delimiter = ","): string[][] {
       rows.push(row);
       row = [];
       field = "";
+      atFieldStart = true;
       i++;
       continue;
     }
@@ -72,12 +102,14 @@ export function parseDelimited(text: string, delimiter = ","): string[][] {
     i++;
   }
 
+  if (quoted) return { rows, unclosedQuoteAt: quoteOpenedAt };
+
   if (field !== "" || row.length > 0) {
     row.push(field);
     rows.push(row);
   }
 
-  return rows;
+  return { rows, unclosedQuoteAt: null };
 }
 
 /** Guess the delimiter from the first few lines. Some banks emit TSV or `;`. */
