@@ -26,11 +26,14 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+import { dirname, join } from "node:path";
 import { freshDb, seedMember, startTestApp, type TestApp } from "./harness.test-data.ts";
-import { queryOne, queryAll, type DB } from "../db/db.ts";
+import { queryOne, queryAll, execute, type DB } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { rupees, type Paise } from "../core/money.ts";
-import { todayIST, addDays } from "../core/dates.ts";
+import { todayIST, addDays, nowIST } from "../core/dates.ts";
 import { createAccount, createCard } from "../domain/accounts.ts";
 import { createGroup, createCategory } from "../domain/budget.ts";
 import { createTransaction } from "../domain/transactions.ts";
@@ -60,7 +63,7 @@ export interface World {
     account: string; category: string; group: string; budget: string;
     sched: string; goal: string; demat: string; holding: string; instrument: string;
     card: string; cardAccount: string; cardTx: string; cardEvent: string; tx: string;
-    household: string; householdCategory: string;
+    household: string; householdCategory: string; rule: string; profile: string;
   };
 }
 
@@ -126,6 +129,16 @@ export function build(): World {
     accountId: cc.id, amount: -rupees(60_000) as Paise, date: today, categoryId: category.id,
     payeeName: "Wombat Jeweller", cleared: true, ownerMemberId: RAVI,
   });
+  // A rule that files into his envelope, and an import profile for his account.
+  execute(db,
+    `INSERT INTO rules (id, name, stage, conditions_json, actions_json, enabled, proposed, created_at)
+     VALUES ('rule-his', 'Grimalkin Therapy Clinic to Qwertyuiop Envelope', 'default', ?, ?, 1, 0, ?)`,
+    JSON.stringify([{ field: "narration", op: "contains", value: "Grimalkin" }]),
+    JSON.stringify([{ type: "setCategory", categoryId: category.id }]), nowIST());
+  execute(db,
+    `INSERT INTO import_profiles (id, name, account_id, header_signature, mapping_json, created_at)
+     VALUES ('profile-his', 'Zzyzx bank format', ?, 'date|amount', '{}', ?)`, account.id, nowIST());
+
   const cardEvent = queryOne<{ id: string }>(
     db, `SELECT id FROM events WHERE entity = 'transaction' AND entity_id = ?`, cardTx.id,
   )!.id;
@@ -137,6 +150,7 @@ export function build(): World {
       sched: sched.id, goal: goal.id, demat: demat.id, holding: holding.id,
       instrument: fund.id, card: card.id, cardAccount: cc.id, cardTx: cardTx.id,
       cardEvent, tx, household: household.id, householdCategory: groceries.id,
+      rule: "rule-his", profile: "profile-his",
     },
   };
 }
@@ -261,5 +275,152 @@ describe("F15 · a member's export is theirs, and the backup stays whole", () =>
     }
     const whole = JSON.stringify(exportEverything(w.db));
     assert.deepEqual(SECRETS.filter((s) => !whole.includes(s)), [], "the backup lost something");
+  });
+});
+
+/** Run one write as Priya and return its status and whether the row changed. */
+async function attempt(
+  path: (ids: World["ids"]) => string, form: (ids: World["ids"]) => Record<string, string>,
+  probe: (db: DB, ids: World["ids"]) => unknown,
+): Promise<{ status: number; changed: boolean }> {
+  return asPriya(async (app, { db, ids }) => {
+    const before = JSON.stringify(probe(db, ids));
+    const res = await app.post(path(ids), form(ids));
+    await res.text();
+    return { status: res.status, changed: JSON.stringify(probe(db, ids)) !== before };
+  });
+}
+
+describe("15 · Ravi's schedule, goal, holding and card cannot be touched by URL", () => {
+  const cases: [string, (ids: World["ids"]) => string, Record<string, string>, (db: DB, ids: World["ids"]) => unknown][] = [
+    ["rename his subscription", (i) => `/schedules/${i.sched}/edit`,
+      { name: "Hijacked", amount: "1", direction: "out", next_due: "2026-12-01", recurrence: "monthly" },
+      (db, i) => queryOne(db, `SELECT name, amount FROM schedules WHERE id = ?`, i.sched)],
+    // Paying it posted ₹777 into his private account as Priya.
+    ["pay his subscription", (i) => `/schedules/${i.sched}/paid`, {},
+      (db) => queryOne(db, `SELECT COUNT(*) AS n FROM transactions`)],
+    ["skip his subscription", (i) => `/schedules/${i.sched}/skip`, {},
+      (db, i) => queryOne(db, `SELECT next_due FROM schedules WHERE id = ?`, i.sched)],
+    ["delete his subscription", (i) => `/schedules/${i.sched}/delete`, {},
+      (db, i) => queryOne(db, `SELECT COUNT(*) AS n FROM schedules WHERE id = ?`, i.sched)],
+    ["rename his goal", (i) => `/goals/${i.goal}/edit`, { name: "Hijacked goal", target_amount: "1" },
+      (db, i) => queryOne(db, `SELECT name, target_amount FROM goals WHERE id = ?`, i.goal)],
+    ["complete his goal", (i) => `/goals/${i.goal}/complete`, { resolution: "release" },
+      (db, i) => queryOne(db, `SELECT completed_at FROM goals WHERE id = ?`, i.goal)],
+    ["delete his goal", (i) => `/goals/${i.goal}/delete`, {},
+      (db, i) => queryOne(db, `SELECT COUNT(*) AS n FROM goals WHERE id = ?`, i.goal)],
+    ["price his fund", (i) => `/portfolio/${i.holding}/price`, { price: "12345", as_of: "2026-09-20" },
+      (db, i) => queryAll(db, `SELECT price FROM prices WHERE instrument_id = ?`, i.instrument)],
+    // 100 units became 200.
+    ["split his holding", (i) => `/portfolio/${i.holding}/split`, { ratio: "2", date: "2026-09-20", on: "2026-09-20" },
+      (db) => queryAll(db, `SELECT units FROM lots`)],
+    ["sell his holding", (i) => `/portfolio/${i.holding}/sell`, { units: "10", price: "90", date: todayIST() },
+      (db) => queryAll(db, `SELECT units, closed_at FROM lots`)],
+    ["classify his fund", (i) => `/portfolio/instrument/${i.instrument}/classify`, { asset_class: "gold" },
+      (db, i) => queryOne(db, `SELECT asset_class FROM instruments WHERE id = ?`, i.instrument)],
+    // Through the household's own account, which Priya can see.
+    ["close his add-on card", (i) => `/accounts/${i.household}/cards/${i.card}/close`, {},
+      (db, i) => queryOne(db, `SELECT closed_at FROM cards WHERE id = ?`, i.card)],
+    ["close his add-on card on his account", (i) => `/accounts/${i.cardAccount}/cards/${i.card}/close`, {},
+      (db, i) => queryOne(db, `SELECT closed_at FROM cards WHERE id = ?`, i.card)],
+    ["convert his ₹60,000 card purchase to an EMI", (i) => `/transaction/${i.cardTx}/convert-to-emi`,
+      { tenure_months: "6", annual_rate: "15" }, (db) => queryAll(db, `SELECT id FROM loans`)],
+  ];
+  for (const [what, path, form, probe] of cases) {
+    test(`Priya cannot ${what} — 404, nothing changes`, async () => {
+      const { status, changed } = await attempt(path, () => form, probe);
+      assert.equal(status, 404);
+      assert.equal(changed, false);
+    });
+  }
+});
+
+describe("15 · nothing is written into Ravi's private accounts, and a real id answers like a fake one", () => {
+  const today = todayIST();
+  const writes: [string, string, (i: World["ids"], account: string) => Record<string, string>, (db: DB, i: World["ids"]) => unknown][] = [
+    ["/add", "account", (_i, acc) => ({ account_id: acc, amount: "1", direction: "in", date: today, payee: "Priya was here" }),
+      (db, i) => queryOne(db, `SELECT COUNT(*) AS n FROM transactions WHERE account_id = ?`, i.account)],
+    ["/schedules/new", "account", (_i, acc) => ({ name: "Priya's schedule", account_id: acc, amount: "1", direction: "in", next_due: today, recurrence: "monthly" }),
+      (db, i) => queryOne(db, `SELECT COUNT(*) AS n FROM schedules WHERE account_id = ?`, i.account)],
+    ["/portfolio/add", "demat", (_i, acc) => ({ name: "Priya Fund", kind: "mutual-fund", account_id: acc, unit_price: "10", units: "5", trade_date: today }),
+      (db, i) => queryOne(db, `SELECT COUNT(*) AS n FROM holdings WHERE account_id = ?`, i.demat)],
+    ["/transfer", "account", (i, acc) => ({ from_account_id: i.household, to_account_id: acc, amount: "100", date: today }),
+      (db, i) => queryOne(db, `SELECT COUNT(*) AS n FROM transactions WHERE account_id = ?`, i.account)],
+    ["/accounts/:id/statement", "cardAccount", () => ({ statement_date: today, due_date: today, amount: "100" }),
+      (db) => queryOne(db, `SELECT COUNT(*) AS n FROM card_statements`)],
+    ["/accounts/:id/cards", "cardAccount", () => ({ label: "Priya's add-on" }),
+      (db) => queryOne(db, `SELECT COUNT(*) AS n FROM cards`)],
+    ["/accounts/:id/reconcile", "account", () => ({ as_of: today, bank_balance: "1" }),
+      (db) => queryOne(db, `SELECT COUNT(*) AS n FROM reconciliations`)],
+  ];
+  for (const [route, which, form, probe] of writes) {
+    test(`${route} into Ravi's private account is the same 404 as into no account at all`, async () => {
+      const at = (i: World["ids"], acc: string) => route.replace(":id", acc);
+      const real = await attempt((i) => at(i, i[which as keyof World["ids"]]), (i) => form(i, i[which as keyof World["ids"]]), probe);
+      const fake = await attempt((i) => at(i, "no-such-account"), (i) => form(i, "no-such-account"), probe);
+      assert.equal(real.changed, false, `${route} wrote into Ravi's private account`);
+      assert.equal(real.status, 404);
+      assert.equal(fake.status, real.status, "a real private id and a made-up one answer differently");
+    });
+  }
+});
+
+/**
+ * The broad one. Every route in the router that takes an id, pointed at each of
+ * Ravi's private things in turn, must answer exactly what it answers for an id
+ * that does not exist — same status, none of his names in the body, and
+ * nothing written. The list of routes is read from app.ts, so a route added
+ * tomorrow is checked tomorrow.
+ */
+describe("15 · every id-addressed route treats Ravi's things as nonexistent", () => {
+  const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "app.ts"), "utf8");
+  const routes = [...new Set(
+    [...source.matchAll(/router\.(get|post)\(\s*"([^"]*:[^"]*)"/g)].map((m) => `${m[1]} ${m[2]}`),
+  )].sort();
+
+  test("there are routes to check", () => {
+    assert.ok(routes.length > 60, `only ${routes.length} id-addressed routes found`);
+  });
+
+  test("Ravi's ids answer like made-up ones, on all of them", async () => {
+    const w = build();
+    const app = await startTestApp(w.db, { memberId: PRIYA });
+    const today = todayIST();
+    // A plausible form, so a route's own validation passes and its id check
+    // is what answers — an empty form would 422 for real and fake ids alike.
+    const form = {
+      name: "Probe", label: "Probe", amount: "1", direction: "out", date: today, on: today,
+      next_due: today, recurrence: "monthly", target_amount: "1", price: "10", units: "1",
+      ratio: "2", as_of: today, statement_date: today, due_date: today, bank_balance: "1",
+      tenure_months: "6", annual_rate: "10", resolution: "release", proceeds: "1", value: "1",
+      account_id: w.ids.household, category_id: w.ids.householdCategory, confirm: "1",
+    };
+    const theirs = Object.entries(w.ids).filter(([k]) => !["household", "householdCategory"].includes(k));
+    const seq = () => queryOne<{ n: number }>(w.db, `SELECT COALESCE(MAX(seq), 0) AS n FROM events`)!.n;
+    const problems: string[] = [];
+    try {
+      for (const route of routes) {
+        const [method, pattern] = route.split(" ") as ["get" | "post", string];
+        const call = (id: string) => {
+          const path = pattern.replace(/:[A-Za-z]+/g, id);
+          return method === "get" ? app.get(path) : app.post(path, form);
+        };
+        const fake = await call("00000000-0000-4000-8000-000000000000");
+        await fake.text();
+        for (const [what, id] of theirs) {
+          const before = seq();
+          const res = await call(id);
+          const body = await res.text();
+          if (res.status !== fake.status) problems.push(`${route} with his ${what}: ${res.status}, a made-up id ${fake.status}`);
+          const seen = leaks(body);
+          if (seen.length) problems.push(`${route} with his ${what} shows ${seen.join(", ")}`);
+          if (seq() !== before) problems.push(`${route} with his ${what} wrote something`);
+        }
+      }
+      assert.deepEqual(problems, []);
+      assert.deepEqual(app.failures.map((f) => `${f.method} ${f.path}`), []);
+    } finally {
+      await app.close();
+    }
   });
 });

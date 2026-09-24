@@ -95,6 +95,7 @@ import {
 } from "./domain/commitments.ts";
 import { buildHouseholdView } from "./domain/household-view.ts";
 import { eventVisibility } from "./domain/event-visibility.ts";
+import { memberScope } from "./domain/member-scope.ts";
 import { exportForMember, exportTransactionsCsvForMember } from "./ops/member-export.ts";
 import { callItEven } from "./domain/squaring-up.ts";
 import { describeDeparture, settleDeparture, type DepartureResolution } from "./domain/departure.ts";
@@ -743,6 +744,71 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       throw new NotFound("That change does not exist.");
     }
     return id;
+  }
+
+  /**
+   * 15 · The same rule for everything else a URL can name.
+   *
+   * As Priya, `/schedules/<Ravi's>/edit` renamed his private subscription,
+   * `/paid` posted ₹777 into his private account, `/goals/<his>/delete`
+   * removed his goal and `/portfolio/<his holding>/split` doubled the 100
+   * units in his private demat to 200 — each id-addressed route that had never
+   * been given a guard. What each thing hangs off is member-scope's to say, so
+   * these ask it rather than repeat the joins; a thing that does not exist and
+   * a thing that is not yours answer the same 404.
+   */
+  type Scoped = "schedules" | "goals" | "holdings" | "instruments" | "cards";
+  const SCOPED_TABLE: Record<Scoped, [table: string, noun: string]> = {
+    schedules: ["schedules", "schedule"], goals: ["goals", "goal"],
+    holdings: ["holdings", "holding"], instruments: ["instruments", "instrument"],
+    cards: ["cards", "card"],
+  };
+  function requireVisibleIn(ctx: RequestContext, kind: Scoped, id: string): string {
+    const [table, noun] = SCOPED_TABLE[kind];
+    const row = queryOne(db, `SELECT 1 AS n FROM ${table} WHERE id = ?`, id);
+    if (!row || memberScope(db, viewer(ctx))[kind].has(id)) {
+      throw new NotFound(`That ${noun} does not exist.`);
+    }
+    return id;
+  }
+  const requireVisibleSchedule = (ctx: RequestContext, id: string) => requireVisibleIn(ctx, "schedules", id);
+  const requireVisibleGoal = (ctx: RequestContext, id: string) => requireVisibleIn(ctx, "goals", id);
+  const requireVisibleHolding = (ctx: RequestContext, id: string) => requireVisibleIn(ctx, "holdings", id);
+  const requireVisibleInstrument = (ctx: RequestContext, id: string) => requireVisibleIn(ctx, "instruments", id);
+
+  /**
+   * A rule about an envelope you cannot see, and an import profile for an
+   * account you cannot see, are as private as the envelope and the account —
+   * the Rules and Import screens already hid them. Their delete routes took any
+   * id and logged "Removed a rule" whether or not there was one.
+   */
+  function requireVisibleRule(ctx: RequestContext, id: string): string {
+    const rule = queryOne<{ actions_json: string }>(db, `SELECT actions_json FROM rules WHERE id = ?`, id);
+    if (!rule || memberScope(db, viewer(ctx)).mentionsHidden(JSON.parse(rule.actions_json))) {
+      throw new NotFound("That rule does not exist.");
+    }
+    return id;
+  }
+  function requireVisibleImportProfile(ctx: RequestContext, id: string): string {
+    const profile = queryOne<{ account_id: string | null }>(
+      db, `SELECT account_id FROM import_profiles WHERE id = ?`, id,
+    );
+    if (!profile || memberScope(db, viewer(ctx)).hides(profile.account_id)) {
+      throw new NotFound("That profile does not exist.");
+    }
+    return id;
+  }
+
+  /**
+   * An account named in a form, which is a suggestion like any other field.
+   * `/add`, `/schedules/new` and `/portfolio/add` wrote into Ravi's private
+   * accounts when Priya posted their ids, and answered 422 "That account does
+   * not exist" for an id that really did not — so the two different answers
+   * told her which ids were real. Both are now the same 404.
+   */
+  function visibleAccountField(ctx: RequestContext, name: string): string | null {
+    const id = field(ctx.body, name);
+    return id ? requireVisibleAccount(ctx, id).id : null;
   }
 
   /** A group belongs to a budget, the same as the categories inside it. */
@@ -2421,7 +2487,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       }
 
       createTransaction(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
-        accountId: requiredField(ctx.body, "account_id"),
+        accountId: requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id,
         amount: direction === "in" ? magnitude : -magnitude,
         date: dateField(dateRaw),
         payeeName: field(ctx.body, "payee") || null,
@@ -2466,8 +2532,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/transfer", (ctx) =>
     mutate(ctx, (a) => {
-      const fromAccountId = requiredField(ctx.body, "from_account_id");
-      const toAccountId = requiredField(ctx.body, "to_account_id");
+      const fromAccountId = requireVisibleAccount(ctx, requiredField(ctx.body, "from_account_id")).id;
+      const toAccountId = requireVisibleAccount(ctx, requiredField(ctx.body, "to_account_id")).id;
       if (fromAccountId === toAccountId) {
         throw new HttpError(400, "A transfer needs two different accounts.");
       }
@@ -2949,8 +3015,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       const amountRaw = field(ctx.body, "amount");
       const feeRaw = field(ctx.body, "processing_fee");
+      // 15 · Another member's private card purchase is not there to convert:
+      // this created a loan against Ravi's ₹60,000 card spend for Priya.
+      const transactionId = requireVisibleTransaction(ctx, ctx.params.id!).id;
       const result = convertToEmi(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
-        transactionId: ctx.params.id!,
+        transactionId,
         amount: amountRaw?.trim() ? (amountField(amountRaw, "Amount") as Paise) : undefined,
         tenureMonths: Number(requiredField(ctx.body, "tenure_months")),
         annualRatePct: Number(requiredField(ctx.body, "annual_rate")),
@@ -3664,9 +3733,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   });
 
   router.post("/accounts/:id/reconcile", (ctx) => {
-    const account = getAccount(db, ctx.params.id!);
-    if (!account) throw new NotFound("That account does not exist.");
+    // 15 · Signed in first, then visible: this route wrote a checkpoint into
+    // any account by id, and its "difference" page printed the private
+    // account's cleared balance back to whoever asked.
     const a = auth(ctx);
+    const account = requireVisibleAccount(ctx, ctx.params.id!);
 
     const asOfRaw = field(ctx.body, "as_of");
     const asOf = dateField(asOfRaw, "As of");
@@ -3716,8 +3787,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/accounts/:id/cards", (ctx) =>
     mutate(ctx, (a) => {
-      const account = getAccount(db, ctx.params.id!);
-      if (!account) throw new NotFound("That account does not exist.");
+      const account = requireVisibleAccount(ctx, ctx.params.id!);
       const last4 = (field(ctx.body, "last4") ?? "").replace(/\D/g, "") || null;
       createCard(db, actorFor(a), {
         accountId: account.id,
@@ -3732,9 +3802,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/accounts/:id/cards/:cardId/close", (ctx) =>
     mutate(ctx, (a) => {
-      const account = getAccount(db, ctx.params.id!);
-      if (!account) throw new NotFound("That account does not exist.");
-      closeCard(db, actorFor(a), ctx.params.cardId!);
+      /*
+       * 15 · The card is checked, not only the account in the URL. This took
+       * any visible account id and then closed whatever card id followed it —
+       * so Priya closed Ravi's private add-on card through the household's
+       * joint account. The card has to be visible *and* be on that account.
+       */
+      const account = requireVisibleAccount(ctx, ctx.params.id!);
+      const cardId = requireVisibleIn(ctx, "cards", ctx.params.cardId!);
+      const onAccount = queryOne(db, `SELECT 1 AS n FROM cards WHERE id = ? AND account_id = ?`, cardId, account.id);
+      if (!onAccount) throw new NotFound("That card does not exist.");
+      closeCard(db, actorFor(a), cardId);
       return { redirect: `/accounts/${account.id}/cards`, message: "Card closed." };
     }),
   );
@@ -3816,8 +3894,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/accounts/:id/statement", (ctx) => {
     auth(ctx);
-    const account = getAccount(db, ctx.params.id!);
-    if (!account) throw new NotFound("That account does not exist.");
+    const account = requireVisibleAccount(ctx, ctx.params.id!);
     if (account.kind !== "credit") throw new NotFound("Only a credit card has a statement.");
     return render(
       ctx, `Statement — ${account.name}`,
@@ -3831,8 +3908,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/accounts/:id/statement", (ctx) =>
     mutate(ctx, (a) => {
-      const account = getAccount(db, ctx.params.id!);
-      if (!account) throw new NotFound("That account does not exist.");
+      const account = requireVisibleAccount(ctx, ctx.params.id!);
       const minRaw = field(ctx.body, "minimum_due");
       recordCardStatement(db, actorFor(a), {
         accountId: account.id,
@@ -4026,7 +4102,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/import", (ctx) => {
     const text = requiredField(ctx.body, "csv");
-    const accountId = requiredField(ctx.body, "account_id");
+    const accountId = requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id;
     const fileName = field(ctx.body, "file_name") || "pasted.csv";
 
     // 04 §3.2 · A saved profile first, then a guess, then the mapping UI.
@@ -4090,7 +4166,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    */
   router.post("/import/pdf", (ctx) => {
     const a = auth(ctx);
-    const accountId = requiredField(ctx.body, "account_id");
+    const accountId = requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id;
     const upload = fileField(ctx.req, "statement");
 
     const importPage = (error: string) =>
@@ -4240,7 +4316,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/import/map", (ctx) =>
     mutate(ctx, (a) => {
       const text = requiredField(ctx.body, "csv");
-      const accountId = requiredField(ctx.body, "account_id");
+      const accountId = requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id;
       const fileName = field(ctx.body, "file_name") || "pasted.csv";
       const pick = (name: string) => {
         const value = Number(field(ctx.body, name));
@@ -4287,7 +4363,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/import/profiles/:id/delete", (ctx) =>
     mutate(ctx, (a) => {
-      deleteProfile(db, actorFor(a), ctx.params.id!);
+      deleteProfile(db, actorFor(a), requireVisibleImportProfile(ctx, ctx.params.id!));
       return { redirect: "/import", message: "Forgotten." };
     }),
   );
@@ -4402,7 +4478,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           field(ctx.body, "disbursement_destination") === "budget-account" ? "budget-account"
             : field(ctx.body, "disbursement_destination") === "third-party" ? "third-party"
               : undefined,
-        disbursementAccountId: field(ctx.body, "disbursement_account_id") || null,
+        disbursementAccountId: visibleAccountField(ctx, "disbursement_account_id"),
         loanType: requiredField(ctx.body, "loan_type") as LoanType,
         sanctioned: amountField(field(ctx.body, "sanctioned"), "Sanctioned amount"),
         sanctionDate: dateField(field(ctx.body, "sanction_date"), "Sanction date"),
@@ -4412,7 +4488,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         tenureMonths: Number(requiredField(ctx.body, "tenure_months")),
         moratoriumMonths: Number(field(ctx.body, "moratorium_months") ?? "0") || 0,
         firstInstalmentDate: firstDue ? parseDate(firstDue) : null,
-        repaymentAccountId: field(ctx.body, "repayment_account_id") || null,
+        repaymentAccountId: visibleAccountField(ctx, "repayment_account_id"),
         currentOutstanding: outstandingRaw?.trim() ? amountField(outstandingRaw) : null,
         historyFrom: historyFrom ? parseDate(historyFrom) : null,
       });
@@ -4530,7 +4606,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         foreclosureCharge: chargeRaw?.trim()
           ? (amountField(chargeRaw, "Foreclosure charge") as Paise)
           : undefined,
-        chargeAccountId: field(ctx.body, "charge_account_id") || null,
+        chargeAccountId: visibleAccountField(ctx, "charge_account_id"),
         chargeCategoryId: requireVisibleCategory(ctx, field(ctx.body, "charge_category_id") || null) || null,
       });
       return {
@@ -4580,7 +4656,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         date: dateField(dateRaw),
         destination,
         destinationAccountId: destination === "budget-account"
-          ? field(ctx.body, "destination_account_id") || null : null,
+          ? visibleAccountField(ctx, "destination_account_id") : null,
       });
       return {
         redirect: `/loans/${loanId}`,
@@ -4660,7 +4736,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         amount: amountField(field(ctx.body, "amount")),
         principal: principalRaw?.trim() ? amountField(principalRaw) : null,
         interest: interestRaw?.trim() ? amountField(interestRaw) : null,
-        fromAccountId: field(ctx.body, "from_account_id") || null,
+        fromAccountId: visibleAccountField(ctx, "from_account_id"),
       });
 
       return { redirect: `/loans/${loanId}`, message: "Instalment recorded." };
@@ -5282,7 +5358,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       createSchedule(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         name: requiredField(ctx.body, "name"),
         payeeId: field(ctx.body, "payee_id") || null,
-        accountId: field(ctx.body, "account_id") || null,
+        accountId: visibleAccountField(ctx, "account_id"),
         categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
         amount: Number(field(ctx.body, "amount") ?? 0),
         recurrence: parseRecurrence(field(ctx.body, "recurrence") ?? "monthly"),
@@ -5381,7 +5457,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         recurrenceWeekday: weekdayField(ctx.body),
         nextDue: dateField(field(ctx.body, "next_due"), "Next due"),
         categoryId: filed.categoryId,
-        accountId: field(ctx.body, "account_id") || null,
+        accountId: visibleAccountField(ctx, "account_id"),
         isSubscription: field(ctx.body, "is_subscription") === "1",
       });
 
@@ -5413,6 +5489,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    */
   router.post("/schedules/:id/edit", (ctx) =>
     mutate(ctx, (a) => {
+      requireVisibleSchedule(ctx, ctx.params.id!);
       const amountRaw = field(ctx.body, "amount");
       const magnitude = amountRaw?.trim() ? Math.abs(amountField(amountRaw, "Amount")) : null;
       const direction = field(ctx.body, "direction") ?? "out";
@@ -5504,7 +5581,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           category_id: filed === null ? undefined : filed.categoryId,
           account_id: field(ctx.body, "account_id") === undefined
             ? undefined
-            : field(ctx.body, "account_id") || null,
+            : visibleAccountField(ctx, "account_id"),
           is_subscription: field(ctx.body, "is_subscription") === "1" ? 1 : 0,
         },
         { splitsFollow: (filed?.splits?.length ?? 0) > 0 },
@@ -5525,7 +5602,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/schedules/:id/delete", (ctx) =>
     mutate(ctx, (a) => {
-      deleteSchedule(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), ctx.params.id!);
+      deleteSchedule(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), requireVisibleSchedule(ctx, ctx.params.id!));
       return {
         redirect: "/schedules",
         message: "Removed. Anything it already recorded is untouched.",
@@ -5535,14 +5612,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/schedules/:id/paid", (ctx) =>
     mutate(ctx, (a) => {
-      markPaid(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), ctx.params.id!);
+      markPaid(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), requireVisibleSchedule(ctx, ctx.params.id!));
       return { redirect: "/schedules", message: "Marked paid." };
     }),
   );
 
   router.post("/schedules/:id/skip", (ctx) =>
     mutate(ctx, (a) => {
-      skipOccurrence(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), ctx.params.id!);
+      skipOccurrence(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), requireVisibleSchedule(ctx, ctx.params.id!));
       return { redirect: "/schedules", message: "Skipped this one." };
     }),
   );
@@ -5608,15 +5685,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/goals/:id/edit", (ctx) =>
     mutate(ctx, (a) => {
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+      const id = requireVisibleGoal(ctx, ctx.params.id!);
       const targetDate = field(ctx.body, "target_date");
       const name = requiredField(ctx.body, "name");
-      updateGoal(db, actor, ctx.params.id!, {
+      updateGoal(db, actor, id, {
         name,
         targetAmount: amountField(field(ctx.body, "target_amount"), "Target"),
         targetDate: targetDate?.trim() ? parseDate(targetDate) : null,
       });
       // Keep the owned category's name in step with the goal's.
-      for (const catId of goalCategoryIds(db, ctx.params.id!)) {
+      for (const catId of goalCategoryIds(db, id)) {
         const cat = getCategory(db, catId);
         if (cat && cat.name !== name) renameCategory(db, actor, catId, name);
       }
@@ -5627,7 +5705,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/goals/:id/delete", (ctx) =>
     mutate(ctx, (a) => {
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
-      const id = ctx.params.id!;
+      const id = requireVisibleGoal(ctx, ctx.params.id!);
       const view = buildBudgetView(db, undefined, undefined, viewer(ctx));
       // B58 · The goal owns its category. On delete, hand the envelope back as a
       // normal category (moved to a "Savings" group) so its money is never lost
@@ -5659,7 +5737,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/goals/:id/complete", (ctx) =>
     mutate(ctx, (a) => {
       const resolution = (field(ctx.body, "resolution") ?? "release") as "spend" | "roll" | "release";
-      completeGoal(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), ctx.params.id!, resolution);
+      completeGoal(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), requireVisibleGoal(ctx, ctx.params.id!), resolution);
       return { redirect: "/goals", message: "Goal completed." };
     }),
   );
@@ -5862,8 +5940,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   /** F6.6 · Apply a rule to matching existing transactions, count first. */
   router.post("/rules/:id/apply", (ctx) => {
     const a = auth(ctx);
+    const ruleId = requireVisibleRule(ctx, ctx.params.id!);
     const rules = ruleRows(db, false).concat(ruleRows(db, true));
-    const rule = rules.find((r) => r.id === ctx.params.id);
+    const rule = rules.find((r) => r.id === ruleId);
     if (!rule) throw new NotFound("That rule does not exist.");
 
     if (field(ctx.body, "confirm") !== "1") {
@@ -5955,7 +6034,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/rules/:id/delete", (ctx) =>
     mutate(ctx, (a) => {
-      const id = ctx.params.id!;
+      const id = requireVisibleRule(ctx, ctx.params.id!);
       execute(db, `UPDATE rules SET enabled = 0, dismissed_at = ? WHERE id = ?`, nowIST(), id);
       appendEvent(db, actorFor(a), {
         entity: "rule", entityId: id, action: "delete",
@@ -6017,7 +6096,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/categories/:id/rename", (ctx) =>
     mutate(ctx, (a) => {
       renameCategory(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
-        ctx.params.id!, requiredField(ctx.body, "name"));
+        requireVisibleCategory(ctx, ctx.params.id!)!, requiredField(ctx.body, "name"));
       return { redirect: "/categories", message: "Renamed." };
     }),
   );
@@ -6077,7 +6156,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       const group = renameGroup(
         db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
-        ctx.params.id!, requiredField(ctx.body, "name"),
+        requireVisibleGroup(ctx, ctx.params.id!), requiredField(ctx.body, "name"),
       );
       return { redirect: "/categories", message: `Renamed to ${group.name}.` };
     }),
@@ -6253,7 +6332,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         loanId: ctx.params.id!,
         amount: Math.abs(amountField(requiredField(ctx.body, "amount"))),
         date: dateField(dateRaw),
-        fromAccountId: requiredField(ctx.body, "account_id"),
+        fromAccountId: requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id,
       });
       return { redirect: `/family/${ctx.params.id}`, message: "Recorded." };
     }),
@@ -6267,7 +6346,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         loanId: ctx.params.id!,
         amount: Math.abs(amountField(requiredField(ctx.body, "amount"))),
         date: dateField(dateRaw),
-        accountId: requiredField(ctx.body, "account_id"),
+        accountId: requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id,
       });
       return { redirect: `/family/${ctx.params.id}`, message: "Recorded." };
     }),
@@ -6665,7 +6744,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // handed to the parser, and never assigned to anything that outlives the
     // call — not the plan, not the stash, not the event log.
     const password = field(ctx.body, "password") ?? "";
-    const accountId = requiredField(ctx.body, "account_id");
+    const accountId = requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id;
 
     let statement;
     try {
@@ -6825,14 +6904,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
       const feesRaw = field(ctx.body, "fees");
       const lot = recordPurchase(db, actor, {
-        accountId: requiredField(ctx.body, "account_id"),
+        accountId: requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id,
         instrumentId: instrument.id,
         tradeDate: dateField(field(ctx.body, "trade_date"), "Trade date"),
         price: toUnitPrice(unitPrice),
         amount: amountRaw?.trim() ? amountField(amountRaw) : undefined,
         units: amountRaw?.trim() ? undefined : toUnits(Number(field(ctx.body, "units") ?? 0)),
         fees: feesRaw?.trim() ? amountField(feesRaw) : 0,
-        fromAccountId: field(ctx.body, "from_account_id") || null,
+        fromAccountId: visibleAccountField(ctx, "from_account_id"),
         categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
       });
 
@@ -6873,14 +6952,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const assetClass = raw && (ASSET_CLASSES as readonly string[]).includes(raw)
         ? (raw as (typeof ASSET_CLASSES)[number])
         : null;
-      classifyInstrument(db, actorFor(a), ctx.params.id!, { assetClass });
+      classifyInstrument(db, actorFor(a), requireVisibleInstrument(ctx, ctx.params.id!), { assetClass });
       return { redirect: "/portfolio/allocation", message: assetClass ? "Classified." : "Cleared." };
     }),
   );
 
   router.get("/portfolio/:id", (ctx) => {
     requireAssets();
-    const view = viewHolding(db, ctx.params.id!);
+    const view = viewHolding(db, requireVisibleHolding(ctx, ctx.params.id!));
     if (!view) throw new NotFound("That holding does not exist.");
     const account = listAssetAccounts(db, { viewerMemberId: viewer(ctx) }).find((a) => a.id === view.holding.account_id);
 
@@ -6899,7 +6978,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/portfolio/:id/price", (ctx) => {
     requireAssets();
     auth(ctx);
-    const view = viewHolding(db, ctx.params.id!);
+    const view = viewHolding(db, requireVisibleHolding(ctx, ctx.params.id!));
     if (!view) throw new NotFound("That holding does not exist.");
     return render(
       ctx, `Price ${view.instrument.name}`,
@@ -6916,7 +6995,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       requireAssets();
       actorFor(a); // write-guard via mutate
-      const view = viewHolding(db, ctx.params.id!);
+      const view = viewHolding(db, requireVisibleHolding(ctx, ctx.params.id!));
       if (!view) throw new NotFound("That holding does not exist.");
       recordPrice(db, {
         instrumentId: view.instrument.id,
@@ -6932,7 +7011,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // history together. The domain function existed; the screen did not.
   router.get("/portfolio/:id/split", (ctx) => {
     requireAssets();
-    const view = viewHolding(db, ctx.params.id!);
+    const view = viewHolding(db, requireVisibleHolding(ctx, ctx.params.id!));
     if (!view) throw new NotFound("That holding does not exist.");
     return render(
       ctx, "Split or bonus",
@@ -6948,7 +7027,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/portfolio/:id/split", (ctx) =>
     mutate(ctx, (a) => {
       requireAssets();
-      const view = viewHolding(db, ctx.params.id!);
+      const view = viewHolding(db, requireVisibleHolding(ctx, ctx.params.id!));
       if (!view) throw new NotFound("That holding does not exist.");
       const ratio = Number(requiredField(ctx.body, "ratio"));
       if (!Number.isFinite(ratio) || ratio <= 0) {
@@ -6975,7 +7054,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    */
   router.get("/portfolio/:id/merge", (ctx) => {
     requireAssets();
-    const view = viewHolding(db, ctx.params.id!);
+    const view = viewHolding(db, requireVisibleHolding(ctx, ctx.params.id!));
     if (!view) throw new NotFound("That holding does not exist.");
     return render(
       ctx, "Merger",
@@ -6994,7 +7073,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/portfolio/:id/merge", (ctx) =>
     mutate(ctx, (a) => {
       requireAssets();
-      const view = viewHolding(db, ctx.params.id!);
+      const view = viewHolding(db, requireVisibleHolding(ctx, ctx.params.id!));
       if (!view) throw new NotFound("That holding does not exist.");
       const ratio = Number(requiredField(ctx.body, "ratio"));
       if (!Number.isFinite(ratio) || ratio <= 0) {
@@ -7004,7 +7083,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         holdingId: view.holding.id,
         date: dateField(field(ctx.body, "date")),
         ratio,
-        intoInstrumentId: field(ctx.body, "into_instrument_id") || null,
+        intoInstrumentId: field(ctx.body, "into_instrument_id")
+          ? requireVisibleInstrument(ctx, field(ctx.body, "into_instrument_id")!)
+          : null,
       });
       return {
         redirect: `/portfolio/${view.holding.id}`,
@@ -7017,7 +7098,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/portfolio/:id/sell", (ctx) => {
     requireAssets();
-    const view = viewHolding(db, ctx.params.id!);
+    const view = viewHolding(db, requireVisibleHolding(ctx, ctx.params.id!));
     if (!view) throw new NotFound("That holding does not exist.");
 
     const unitsRaw = ctx.query.get("units") ?? "";
@@ -7051,7 +7132,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/portfolio/:id/sell", (ctx) =>
     mutate(ctx, (a) => {
       requireAssets();
-      const holdingId = ctx.params.id!;
+      const holdingId = requireVisibleHolding(ctx, ctx.params.id!);
       const chargesRaw = field(ctx.body, "charges");
       const preview = recordSale(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         holdingId,
@@ -7063,7 +7144,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         charges: chargesRaw?.trim()
           ? (Math.abs(amountField(chargesRaw, "Charges")) as Paise)
           : undefined,
-        toAccountId: field(ctx.body, "to_account_id") || null,
+        toAccountId: visibleAccountField(ctx, "to_account_id"),
       });
 
       return {
