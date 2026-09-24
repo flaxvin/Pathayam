@@ -34,7 +34,7 @@ import { createTransaction } from "./transactions.ts";
 import {
   makeLot, previewSale, totalUnits, costBasis, averageCost, averageUnitPrice, marketValue,
   unrealisedGain, absoluteReturn, xirr, holdingCashFlows, decomposeGain,
-  applySplit, bonusLot, applyMerger, applyReturnOfCapital, formatUnits,
+  applySplit, bonusLot, applyMerger, applyReturnOfCapital, formatUnits, valueOf,
   type Lot, type Holding, type Milliunits, type MicroRupees,
   type SalePreview, type GainDecomposition,
 } from "../portfolio/holdings.ts";
@@ -536,6 +536,21 @@ export function recordPurchase(
     sourceRef?: string | null;
   },
 ): Lot {
+  /*
+   * A purchase of nothing, or of less than nothing, is refused here rather
+   * than reaching makeLot: 0 units made an empty lot, and −5 units a lot that
+   * subtracted from the holding with a negative cost that paid money INTO the
+   * bank account.
+   */
+  if (input.units !== undefined && !(Number.isFinite(input.units) && input.units > 0)) {
+    throw new Refusal("Say how many units were bought — a number above zero.");
+  }
+  if (input.amount !== undefined && !(Number.isFinite(input.amount) && input.amount > 0)) {
+    throw new Refusal("Say what the purchase cost — an amount above zero.");
+  }
+  if (!(Number.isFinite(input.price) && input.price > 0)) {
+    throw new Refusal("The purchase price has to be a number above zero.");
+  }
   return transact(db, () => {
     const holding = findOrCreateHolding(db, actor, input.accountId, input.instrumentId);
     const lot = makeLot({
@@ -838,7 +853,54 @@ export function previewHoldingSale(
   db: DB, holdingId: string, quantity: Milliunits, unitPrice: MicroRupees,
   opts: { charges?: Paise; saleDate?: IsoDate } = {},
 ): SalePreview {
-  return previewSale(holdingOf(db, holdingId), quantity, unitPrice, opts);
+  const holding = holdingOf(db, holdingId);
+  assertSaleInput(holding, quantity, unitPrice, opts);
+  return previewSale(holding, quantity, unitPrice, opts);
+}
+
+/**
+ * What a sale has to be before FIFO is asked to perform it — each a sentence
+ * the seller can act on, rather than what used to happen: selling 11 units of
+ * 10 reached `previewSale`'s RangeError and came back as a 500; −5 units "sold"
+ * and added units; a negative price booked a negative sale; a sale dated before
+ * the units were bought recorded a negative holding period; and charges above
+ * the sale value sent negative "proceeds" into the bank account.
+ */
+function assertSaleInput(
+  holding: Holding, quantity: Milliunits, unitPrice: MicroRupees,
+  opts: { charges?: Paise; saleDate?: IsoDate },
+): void {
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    throw new Refusal("Say how many units were sold — a number above zero.");
+  }
+  if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+    throw new Refusal("The sale price has to be a number, and it cannot be below zero.");
+  }
+  const held = totalUnits(holding);
+  if (quantity > held) {
+    throw new Refusal(
+      `Only ${formatUnits(held)} units are held, so ${formatUnits(quantity)} cannot be sold.`,
+    );
+  }
+  if (opts.charges !== undefined && opts.charges > valueOf(quantity, unitPrice)) {
+    throw new Refusal("The charges are more than the sale was worth. Check both figures.");
+  }
+  if (opts.saleDate) {
+    // FIFO takes the oldest first, so the last lot it reaches is the newest
+    // one this sale needs. Units bought after the sale date were not there
+    // to sell.
+    let left = quantity;
+    for (const lot of holding.lots) {
+      if (left <= 0) break;
+      if (lot.tradeDate > opts.saleDate) {
+        throw new Refusal(
+          `Some of these units were bought on ${formatDate(lot.tradeDate)}, after the ` +
+          `sale date of ${formatDate(opts.saleDate)}. A sale cannot come before the purchase.`,
+        );
+      }
+      left -= lot.units;
+    }
+  }
 }
 
 /**
@@ -860,7 +922,9 @@ export function recordSale(
   },
 ): SalePreview {
   return transact(db, () => {
-    const preview = previewSale(holdingOf(db, input.holdingId), input.units, input.price, {
+    const holding = holdingOf(db, input.holdingId);
+    assertSaleInput(holding, input.units, input.price, { charges: input.charges, saleDate: input.date });
+    const preview = previewSale(holding, input.units, input.price, {
       charges: input.charges,
       saleDate: input.date,
     });
