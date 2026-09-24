@@ -24,7 +24,7 @@ import { createTransaction, createTransfer } from "./transactions.ts";
 import { familyLoanNetWorth } from "./family-loans.ts";
 import { latestValuation } from "./assets.ts";
 import {
-  buildSchedule, emiFor, flatRateLoan, moratorium, preEmi, drift,
+  buildSchedule, emiFor, flatRateLoan, flatSchedule, flatMonthlyInterest, moratorium, preEmi, drift,
   lifetimeMetrics,
   type Schedule, type InterestModel, type LifetimeMetrics,
 } from "../loans/amortisation.ts";
@@ -809,7 +809,12 @@ export function recordInstalment(
       // R18.2: fall back to the projected split, and mark it.
       const outstanding = outstandingPrincipal(db, input.loanId);
       const rate = currentRate(db, input.loanId, input.date);
-      const projectedInterest = Math.round((outstanding * rate) / 1200);
+      // A flat-rate loan charges the same interest every month, on what was
+      // first borrowed; splitting by the reducing balance repaid its principal
+      // faster than the lender does and drifted the outstanding off.
+      const projectedInterest = loan.interest_model === "flat"
+        ? flatMonthlyInterest(principalBaseOf(db, loan), rate)
+        : Math.round((outstanding * rate) / 1200);
       interest = Math.min(projectedInterest, input.amount);
       principal = input.amount - interest;
       estimated = 1;
@@ -1006,10 +1011,8 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
   if (!loan) return null;
 
   const disbursed = totalDisbursed(db, loanId);
-  const openingOwed = Math.max(0, -(getAccount(db, loan.account_id)?.opening_balance ?? 0));
-  // A mid-life loan's baseline starts from what was owed when it was added —
-  // R22.3's "from DD-MM-YYYY", not from origination, which is unknown.
-  const principalBase = openingOwed > 0 ? openingOwed : disbursed;
+  const principalBase = principalBaseOf(db, loan);
+  const flat = loan.interest_model === "flat";
   const outstanding = outstandingPrincipal(db, loanId);
   const rate = currentRate(db, loanId);
 
@@ -1021,7 +1024,14 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
   const remainingMonths = Math.max(1, loan.tenure_months - payments.filter((p) => p.kind === "instalment").length);
 
   const baseline =
-    principalBase > 0
+    principalBase > 0 && flat
+      ? flatSchedule({
+          principal: principalBase, originalPrincipal: principalBase,
+          annualFlatPct: firstRate(db, loanId),
+          months: loan.original_tenure_months ?? loan.tenure_months,
+          firstInstalmentDate: loan.first_instalment_date ?? undefined,
+        })
+    : principalBase > 0
       ? buildSchedule({
           principal: principalBase,
           annualRatePct: firstRate(db, loanId),
@@ -1056,8 +1066,22 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
   const scheduleprincipal = moratoriumOutcome?.balanceAtRepaymentStart ?? outstanding;
   const scheduleMonths = moratoriumOutcome ? loan.tenure_months : remainingMonths;
 
+  /*
+   * R16 M2 · A flat-rate loan runs to its own schedule — the same interest on
+   * the original principal every month — not a reducing-balance one at the
+   * flat rate, which understated both the EMI (₹8,884.88 against ₹9,333.33 on
+   * ₹1,00,000 at 12% flat for a year) and the interest (₹6,618.55 against
+   * ₹12,000). The EMI below and the envelope target that follows it come
+   * from this same schedule.
+   */
   const schedule =
-    outstanding > 0
+    outstanding > 0 && flat && !moratoriumOutcome
+      ? flatSchedule({
+          principal: outstanding, originalPrincipal: principalBase || outstanding,
+          annualFlatPct: rate, months: scheduleMonths,
+          firstInstalmentDate: loan.first_instalment_date ?? undefined,
+        })
+    : outstanding > 0
       ? buildSchedule({
           principal: scheduleprincipal,
           annualRatePct: rate,
@@ -1082,7 +1106,9 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
     ratePct: rate,
     emi: moratoriumOutcome
       ? moratoriumOutcome.emiAfter
-      : outstanding > 0 ? emiFor(outstanding, rate, remainingMonths) : 0,
+      : outstanding > 0
+        ? (flat ? schedule.finalEmi : emiFor(outstanding, rate, remainingMonths))
+        : 0,
     // During a moratorium the monthly obligation is the servicing (M3) or the
     // drawn-amount pre-EMI (an under-construction loan). Capitalised (M4) pays
     // nothing now, which is exactly what makes it expensive later.
@@ -1126,6 +1152,16 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
             .equivalentReducingRatePct
         : null,
   };
+}
+
+/**
+ * What the loan's lifetime figures are measured from: the amount owed when it
+ * was added for a mid-life loan (R22.3 — origination is unknown), otherwise
+ * what has been drawn. A flat-rate loan's interest is charged on this.
+ */
+function principalBaseOf(db: DB, loan: Loan): Paise {
+  const openingOwed = Math.max(0, -(getAccount(db, loan.account_id)?.opening_balance ?? 0));
+  return openingOwed > 0 ? openingOwed : totalDisbursed(db, loan.id);
 }
 
 function firstRate(db: DB, loanId: string): number {
