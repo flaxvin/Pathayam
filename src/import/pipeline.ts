@@ -528,8 +528,24 @@ export function approveStaged(
   });
 }
 
+/**
+ * The review item, still waiting for a decision.
+ *
+ * Reject and merge used to act on whatever id they were given. Rejecting a row
+ * already approved flipped it to 'rejected' while its transaction stayed in
+ * the ledger; merging one already approved kept both transactions — ₹450
+ * twice — and said "Merged"; and a made-up id was "Dismissed." successfully.
+ */
+function pendingStaged(db: DB, stagedId: string): StagedRow {
+  const row = queryOne<StagedRow>(db, `SELECT * FROM staged_transactions WHERE id = ?`, stagedId);
+  if (!row) throw new Missing("That review item no longer exists.");
+  if (row.status !== "pending") throw new Refusal("That review item has already been dealt with.");
+  return row;
+}
+
 export function rejectStaged(db: DB, actor: Actor, stagedId: string, reason = "dismissed"): void {
   transact(db, () => {
+    pendingStaged(db, stagedId);
     execute(
       db,
       `UPDATE staged_transactions SET status = 'rejected', resolved_at = ?, resolved_by = ? WHERE id = ?`,
@@ -548,8 +564,14 @@ export function rejectStaged(db: DB, actor: Actor, stagedId: string, reason = "d
  */
 export function mergeStaged(db: DB, actor: Actor, stagedId: string): void {
   transact(db, () => {
-    const row = queryOne<StagedRow>(db, `SELECT * FROM staged_transactions WHERE id = ?`, stagedId);
-    if (!row?.duplicate_of_id) throw new Refusal("That row has nothing to merge with.");
+    const row = pendingStaged(db, stagedId);
+    if (!row.duplicate_of_id) throw new Refusal("That row has nothing to merge with.");
+    const target = queryOne<{ id: string }>(
+      db, `SELECT id FROM transactions WHERE id = ? AND deleted_at IS NULL`, row.duplicate_of_id,
+    );
+    if (!target) {
+      throw new Refusal("The transaction this row matched has since been deleted, so there is nothing to merge into.");
+    }
 
     const before = queryOne<Record<string, unknown>>(
       db, `SELECT * FROM transactions WHERE id = ?`, row.duplicate_of_id,
@@ -593,6 +615,14 @@ export interface UndoBatchResult {
 
 export function undoBatch(db: DB, actor: Actor, batchId: string): UndoBatchResult {
   return transact(db, () => {
+    // A made-up batch id "removed 0 transactions" and stamped nothing, and an
+    // undone batch could be undone again — both reported as success.
+    const batch = queryOne<{ undone_at: string | null }>(
+      db, `SELECT undone_at FROM import_batches WHERE id = ?`, batchId,
+    );
+    if (!batch) throw new Missing("That import no longer exists.");
+    if (batch.undone_at) throw new Refusal("That import has already been undone.");
+
     const created = queryAll<{ id: string; created_at: string; updated_at: string }>(
       db,
       `SELECT id, created_at, updated_at FROM transactions
