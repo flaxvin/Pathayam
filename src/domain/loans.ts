@@ -685,10 +685,25 @@ export function recordPrepayment(
     });
 
     if (input.charge && input.charge > 0) {
-      // R19.5: recorded as a separate cost, and included in the net saving.
+      /*
+       * R19.5: recorded as a separate cost, and included in the net saving.
+       *
+       * `interest: 0`, not `interest: charge`. A prepayment penalty is a fee
+       * the lender charges for closing early — it is not interest on borrowed
+       * capital, and filing it as interest put it in two places at once: in
+       * `fees`, which sums the charge rows' amounts, and again in
+       * `paidInterest`, which sums every row's interest. Worse, it reached
+       * `loanInterestByFinancialYear`, the figure a household would carry to a
+       * §24(b) home-loan interest deduction. A ₹2,000 penalty on a loan that
+       * had paid no interest at all was reported as ₹2,000 of interest for the
+       * year.
+       *
+       * The foreclosure charge has always written 0 here. These two are the
+       * same kind of cost and now say so.
+       */
       recordInstalment(db, actor, {
         loanId: input.loanId, date: input.date, amount: input.charge,
-        principal: 0, interest: input.charge, kind: "charge",
+        principal: 0, interest: 0, kind: "charge",
         fromAccountId: input.fromAccountId ?? projection.loan.repayment_account_id,
         note: "Prepayment charge",
       });
@@ -800,11 +815,25 @@ export function recordInstalment(
       estimated = 1;
     }
 
-    if (principal + interest !== input.amount) {
+    /*
+     * A charge is neither principal nor interest.
+     *
+     * The rule below is right for anything that repays a loan: what you paid
+     * has to be accounted for as principal plus interest, or money has gone
+     * somewhere nobody can name. A fee repays nothing — a prepayment penalty
+     * or a foreclosure charge is a cost of closing early, and splitting it
+     * into those two buckets is what made it turn up as deductible interest.
+     * Foreclosure had already worked around this by inserting its row
+     * directly, which is why the two paths disagreed for so long.
+     */
+    if (input.kind !== "charge" && principal + interest !== input.amount) {
       throw new Refusal(
         `The split adds up to ${formatPaise(principal + interest)}, but the payment is ` +
           `${formatPaise(input.amount)}.`,
       );
+    }
+    if (input.kind === "charge" && (principal !== 0 || interest !== 0)) {
+      throw new Refusal("A charge is a cost, not a repayment — it has no principal or interest.");
     }
 
     let transactionId: string | null = null;

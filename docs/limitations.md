@@ -70,6 +70,14 @@ interest report is deliberately not carried in: section 24(b) wants accrued
 interest on a specific property, which is a different number from cash paid
 across every loan.
 
+**Charges are not interest.** A prepayment penalty or a foreclosure charge is a
+cost of closing early, not interest on borrowed capital, and the interest report
+excludes both. It did not always: the prepayment charge was stored with its
+whole amount in the interest column, so a ₹2,000 penalty on a loan that had paid
+no interest was reported as ₹2,000 of interest for the year — and counted twice
+in the total cost of borrowing, once as interest and once as a fee. Fixed, with
+migration 0042 correcting rows already written that way.
+
 **Rates go stale.** Slabs change with each Finance Act. A year the app does not
 have is refused rather than computed with the previous year's, and the health
 page reports when the current financial year is newer than the rates carried.
