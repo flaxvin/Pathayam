@@ -474,8 +474,9 @@ export function decomposeGain(input: {
 // ---------------------------------------------------------------------------
 
 /**
- * R28 · A split or bonus multiplies units and divides per-unit cost. Total
- * cost basis is unchanged — nothing was bought and nothing was gained.
+ * R28 · A split multiplies units and divides per-unit cost. Total cost basis
+ * is unchanged — nothing was bought and nothing was gained. Not for a bonus
+ * issue: see `bonusLot`.
  */
 export function applySplit(holding: Holding, ratio: number): Holding {
   if (ratio <= 0) throw new RangeError("A split ratio must be above zero.");
@@ -486,6 +487,30 @@ export function applySplit(holding: Holding, ratio: number): Holding {
       price: Math.round(lot.price / ratio),
       // cost deliberately untouched — this is the invariant of a split.
     })),
+  };
+}
+
+/**
+ * R28 · A bonus issue: new units at NIL cost, acquired on the allotment date.
+ *
+ * Not a split, though both multiply the units. Under section 55(2)(aa) bonus
+ * shares cost nothing and are held from the day they are allotted; the
+ * original shares keep their own cost and date. Treated as a split, a 1:1
+ * bonus on 100 shares bought at ₹1,000 in January 2023 re-dated nothing and
+ * halved the cost of all 200 to ₹500 — so selling 100 in September 2025 at
+ * ₹600 booked ₹10,000 of long-term gain, when FIFO takes the originals
+ * (₹1,000 each) for a ₹40,000 long-term LOSS, and the 100 bonus shares sold
+ * next carry the full ₹60,000 as a short-term gain.
+ *
+ * `ratio` is units after for each one before, as the form asks for it: a 1:1
+ * bonus is 2, so the new lot is (ratio − 1) × the units held.
+ */
+export function bonusLot(holding: Holding, ratio: number, date: IsoDate, id: string): Lot {
+  if (!(ratio > 1)) throw new RangeError("A bonus has to add units: the ratio must be above 1.");
+  const units = Math.round(totalUnits(holding) * (ratio - 1));
+  return {
+    id, tradeDate: date, units, price: 0, fees: 0, cost: 0,
+    fxRate: holding.lots[0]?.fxRate ?? null,
   };
 }
 
