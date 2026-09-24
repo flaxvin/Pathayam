@@ -181,6 +181,15 @@ describe("evaluateAmountExpression — F4.10", () => {
     assert.equal(evaluateAmountExpression("450)"), null);
   });
 
+  // "(1,234.00)" typed or pasted into an amount field came back +₹1,234: the
+  // bracket was read as grouping, not as the accounting negative.
+  test("a bracketed plain amount is negative; brackets around arithmetic group", () => {
+    assert.equal(evaluateAmountExpression("(1,234.00)"), rupees(-1234));
+    assert.equal(evaluateAmountExpression("(450)"), rupees(-450));
+    assert.equal(evaluateAmountExpression("(450+120)*2"), rupees(1140));
+    assert.equal(evaluateAmountExpression("(-450)"), rupees(-450));
+  });
+
   test("does not execute anything that is not arithmetic", () => {
     assert.equal(evaluateAmountExpression("process.exit(1)"), null);
     assert.equal(evaluateAmountExpression("1;2"), null);
