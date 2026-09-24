@@ -158,6 +158,11 @@ export interface RawRecord {
   reference: string | null;
   /** P4 / I1: retained forever, unchanged, alongside the final transaction. */
   raw: { date: string; amount: string; narration: string };
+  /**
+   * R6.e · The card, when the source already knows it. A card alert names the
+   * card by its last four, which the narration (a merchant) does not repeat.
+   */
+  cardId?: string | null;
 }
 
 export interface ParseError {

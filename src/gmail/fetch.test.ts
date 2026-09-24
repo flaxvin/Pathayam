@@ -144,6 +144,40 @@ describe("04 §3.4 · fetching alerts from Gmail", () => {
     db.close();
   });
 
+  // routeAlert resolved the add-on card from "XX1111" and then dropped it
+  // (`void cardId`). Ingest looked for a last four in "M S NOVA EN", found
+  // none, and the ₹198 posted on the primary card, owned by Ravi.
+  test("R6.e · the add-on's alert is filed on the add-on card and owned by its holder", async () => {
+    const db = setup();
+    const credit = createAccount(db, actor, {
+      name: "Axis Atlas", kind: "credit", subtype: "credit-card",
+      openingDate: "2026-08-01", openingBalance: -rupees(1),
+    });
+    createCard(db, actor, { accountId: credit.id, label: "Ravi primary", last4: "2222", holderMemberId: RAVI });
+    const addOn = createCard(db, actor, {
+      accountId: credit.id, label: "Priya add-on", last4: "1111", holderMemberId: PRIYA,
+    });
+    const group = createGroup(db, actor, "Flexible");
+    const category = createCategory(db, actor, { groupId: group.id, name: "Fuel" }).id;
+
+    await fetchGmail(db, actor, {
+      clientId: "id", clientSecret: "secret",
+      fetchImpl: fakeGoogle({
+        m1: { from: "alerts@axis.bank.in", subject: "INR 198 spent", body: AXIS_CARD_ADDON },
+      }),
+    });
+    const [row] = listStaged(db);
+    assert.equal(row!.card_id, addOn.id);
+
+    const txId = approveStaged(db, actor, row!.id, { categoryId: category });
+    const tx = queryAll<{ card_id: string; owner_member_id: string }>(
+      db, `SELECT card_id, owner_member_id FROM transactions WHERE id = ?`, txId,
+    )[0]!;
+    assert.equal(tx.card_id, addOn.id);
+    assert.equal(tx.owner_member_id, PRIYA);
+    db.close();
+  });
+
   test("an alert for an account the household has not set up is left unmatched", async () => {
     const db = setup();
     const result = await fetchGmail(db, actor, {
