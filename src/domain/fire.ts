@@ -43,7 +43,7 @@
  */
 
 import type { DB } from "../db/db.ts";
-import { todayIST, addDays, addMonths, monthOf, type IsoDate, type MonthKey } from "../core/dates.ts";
+import { todayIST, addDays, addMonths, monthOf, daysBetween, type IsoDate, type MonthKey } from "../core/dates.ts";
 import type { Paise } from "../core/money.ts";
 import { accountBalances, envelopeSpendBetween } from "../engine/repository.ts";
 import { queryAll } from "../db/db.ts";
@@ -126,6 +126,8 @@ export interface FireProjection {
   windowDays: number;
   /** True when the history is too short for the trailing year to mean anything. */
   windowIsShort: boolean;
+  /** Days of history the annual figures are scaled from: the window, or less. */
+  observedDays: number;
 
   annualExpenses: Paise;
   annualIncome: Paise;
@@ -214,23 +216,44 @@ export function fireProjection(
   const assumptions: FireAssumptions = { ...DEFAULT_ASSUMPTIONS, ...opts.assumptions };
   const from = addDays(asOf, -windowDays);
 
+  /*
+   * Is there enough history for a trailing year to be a year? History starts
+   * with the first transaction or the first budget or card account opened,
+   * whichever is earlier: an account open since last September with a quiet
+   * spring has a year of history, and its quiet months are real.
+   */
+  const earliest = queryAll<{ d: string | null }>(
+    db,
+    `SELECT MIN(d) AS d FROM (
+       SELECT MIN(date) AS d FROM transactions WHERE deleted_at IS NULL
+       UNION ALL
+       SELECT MIN(opening_date) FROM accounts WHERE kind IN ('budget','credit')
+     )`,
+  )[0]?.d ?? null;
+  const windowIsShort = earliest === null || earliest > from;
+
+  /*
+   * Annualise over the days of history that exist, not the window asked for.
+   * Three months of ₹30,000 was divided by 365 days and multiplied by 365 —
+   * ₹90,000 a year, a quarter of the ₹3,60,000 actually being spent — while
+   * the screen said the short window had been "scaled up to a year". It had
+   * not been scaled at all.
+   */
+  const observedDays = windowIsShort && earliest !== null && earliest <= asOf
+    ? Math.max(1, daysBetween(earliest, asOf))
+    : windowDays;
+
   // --- What a year costs ----------------------------------------------------
   const spend = envelopeSpendBetween(db, from, asOf, opts.viewerMemberId);
-  const annualExpenses = Math.round((spend / windowDays) * 365);
+  const annualExpenses = Math.round((spend / observedDays) * 365);
 
   const income = incomeVsExpense(db, from, asOf, undefined, opts.viewerMemberId)
     .reduce((sum, point) => sum + point.income, 0);
-  const annualIncome = Math.round((income / windowDays) * 365);
+  const annualIncome = Math.round((income / observedDays) * 365);
   const annualSavings = annualIncome - annualExpenses;
   const savingsRatePct = annualIncome > 0
     ? (annualSavings / annualIncome) * 100
     : null;
-
-  // Is there enough history for a trailing year to be a year?
-  const earliest = queryAll<{ d: string }>(
-    db, `SELECT MIN(date) AS d FROM transactions WHERE deleted_at IS NULL`,
-  )[0]?.d ?? null;
-  const windowIsShort = earliest === null || earliest > from;
 
   // --- What the household holds ---------------------------------------------
   const balances = accountBalances(db);
@@ -335,7 +358,7 @@ export function fireProjection(
   }
 
   return {
-    asOf, windowDays, windowIsShort,
+    asOf, windowDays, windowIsShort, observedDays,
     annualExpenses, annualIncome, annualSavings, savingsRatePct,
     drawableNow, lockedUntilRetirement, corpus, excluded,
     drawableLines, lockedLines, excludedLines,

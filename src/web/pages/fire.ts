@@ -138,7 +138,7 @@ export function renderFire(opts: { projection: FireProjection }): SafeHtml {
           <table>
             <tbody>
               <tr>
-                <td>Spending, last ${Math.round(p.windowDays / 30)} months, annualised</td>
+                <td>Spending, last ${Math.max(1, Math.round(p.observedDays / 30))} months, annualised</td>
                 <td class="amount">${formatPaise(p.annualExpenses)}</td>
               </tr>
               <tr>
