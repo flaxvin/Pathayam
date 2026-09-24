@@ -7,6 +7,8 @@ import { rupees } from "../core/money.ts";
 import { createAccount, createCard } from "../domain/accounts.ts";
 import { saveConnection } from "./connection.ts";
 import { buildQuery, fetchGmail } from "./fetch.ts";
+import { createGroup, createCategory } from "../domain/budget.ts";
+import { listStaged, approveStaged } from "../import/pipeline.ts";
 
 const RAVI = "m-ravi";
 const PRIYA = "m-priya";
@@ -171,6 +173,38 @@ describe("04 §3.4 · fetching alerts from Gmail", () => {
     const second = await fetchGmail(db, actor, deps);
     assert.equal(second.alerts.staged, 0, "the content hash recognises it");
     assert.equal(queryAll(db, `SELECT id FROM staged_transactions`).length, 1);
+    db.close();
+  });
+
+  // Approval wrote every row as source 'csv', so once the ₹600 alert was
+  // approved the next fetch did not recognise it (the exact tier compared
+  // 'csv' with 'email'), staged it again, and approving that was a
+  // UNIQUE-constraint 500 — on every fetch the inbox still held the alert.
+  test("an approved alert fetched again is recognised, not re-staged", async () => {
+    const db = setup();
+    const bank = createAccount(db, actor, {
+      name: "Axis Savings", kind: "budget", subtype: "savings",
+      openingDate: "2026-08-01", last4: "0000",
+    });
+    const group = createGroup(db, actor, "Flexible");
+    const category = createCategory(db, actor, { groupId: group.id, name: "Everyday" }).id;
+    const deps = {
+      clientId: "id", clientSecret: "secret",
+      fetchImpl: fakeGoogle({
+        m1: { from: "alerts@axis.bank.in", subject: "INR 600 debited", body: AXIS_ACCOUNT },
+      }),
+    };
+
+    await fetchGmail(db, actor, deps);
+    for (const row of listStaged(db)) approveStaged(db, actor, row.id, { categoryId: category });
+
+    const second = await fetchGmail(db, actor, deps);
+    assert.equal(second.alerts.staged, 0);
+    assert.equal(listStaged(db).length, 0);
+    const tx = queryAll<{ source: string }>(
+      db, `SELECT source FROM transactions WHERE account_id = ? AND deleted_at IS NULL`, bank.id,
+    );
+    assert.deepEqual(tx.map((t) => t.source), ["email"]);
     db.close();
   });
 });

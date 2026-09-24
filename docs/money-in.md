@@ -147,6 +147,10 @@ account** and against rows already pending in that account.
 | `manual-vs-imported` | A typed transaction matching an imported one. | Queued for a decision. |
 
 `source_id` is `adapter:sha256(date, amount, narration, reference):occurrence`.
+Because it names its adapter, the exact tier compares it alone; approval keeps
+the batch's own source (`pdf`, `email`, …) on the transaction. A row that is
+somehow already in the ledger when approved is resolved onto that transaction
+rather than added twice.
 The occurrence counter distinguishes genuinely identical rows within one file.
 Uniqueness is enforced per account.
 
@@ -193,3 +197,7 @@ suppression so the same suggestion is not made again.
 
 An entire batch can be undone from `/import`, which removes the transactions it
 created and marks the batch `undone_at`.
+
+Importing the same file again after an undo stages its rows afresh, and they
+can be approved: the undone transactions give up their `source_id` (it is
+kept with a `~deleted:<id>` suffix) so the new ones can take it.
