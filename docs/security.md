@@ -22,12 +22,16 @@ it is not an adversarial boundary.
 - The email must already be a member with `allowed = 1`. Others are refused and
   the attempt recorded in `auth_attempts`.
 - Sign-in attempts are rate limited per source address; exceeding the limit
-  returns 429.
+  returns 429. Behind a proxy (`TRUST_PROXY`) the source address is the
+  **right-most** `X-Forwarded-For` entry — the one the proxy appended. Entries
+  to its left are written by the client and would let it choose a fresh
+  address per attempt. This assumes exactly one trusted hop (Fly's proxy, or
+  one tunnel); with two, every request would appear to come from the first.
 
 **Sessions.** 32 random bytes, base64url. Stored as a SHA-256 hash; the
 plaintext exists only in the cookie. Cookie flags: `HttpOnly`, `SameSite=Lax`,
 `Path=/`, and `Secure` when `BASE_URL` is HTTPS. Idle expiry is `SESSION_DAYS`.
-Sessions can be revoked individually from Settings.
+Sessions can be revoked individually from Settings — your own only. Another member's session id answers exactly like one that does not exist.
 
 **API tokens.** `Authorization: Bearer`. Stored as a hash, compared in constant
 time, checked for revocation and expiry after lookup. Scoped `read` or
@@ -152,8 +156,12 @@ successful sign-in.
   per address: IP rate limiting already exists and is the right tool against a
   flood from one place, and the wrong one against somebody patient with many.
 - A wrong password and an unknown address are refused in identical words. The
-  difference would disclose who is in this household.
-- Changing a password requires the current one.
+  difference would disclose who is in this household. For the same reason an
+  address with no usable password (not a member, removed, or no password set)
+  locks after the same eight guesses, replayed from `auth_attempts`, and spends
+  a scrypt verification on a decoy hash so it takes as long to refuse.
+- Changing a password requires the current one, and signs out every other
+  session the member has; the device that made the change stays signed in.
 
 ### Errors the household is allowed to see
 

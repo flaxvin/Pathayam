@@ -251,15 +251,30 @@ These are the routes built to be scripted. All are `GET`, all are reachable by a
 
 ### `GET /healthz`
 
-An unauthenticated liveness/health probe for external monitoring (F27.3).
-Returns `200` when healthy, `503` when any check has failed.
+A liveness probe for external monitoring (F27.3). Returns `200` while the
+instance can serve — the database answers — and `503` when it cannot. Nothing
+recorded in the past (a failed request, a missed backup) changes the status
+code.
+
+Signed out, it says nothing else: the full diagnosis names counts, backup gaps
+and build details that are nobody's business but the household's.
 
 ```bash
 curl -sS https://pathayam.example.com/healthz
 ```
 ```json
+{ "status": "ok", "serving": true, "version": "0.1.0" }
+```
+
+With a session or a `read` token it adds every check:
+
+```bash
+curl -sS -H "Authorization: Bearer $TOKEN" https://pathayam.example.com/healthz
+```
+```json
 {
   "status": "healthy",
+  "serving": true,
   "version": "0.1.0",
   "checks": [
     { "group": "Backups", "name": "Last backup", "state": "healthy", "reason": "…" },
@@ -269,8 +284,9 @@ curl -sS https://pathayam.example.com/healthz
 }
 ```
 
-`status` is the worst of the individual `state` values (`healthy` /
-`degraded` / `failed`); only `failed` flips the HTTP status to `503`.
+Authenticated, `status` is the worst of the individual `state` values
+(`healthy` / `degraded` / `failed`) and is diagnostic only: `serving` decides
+the HTTP status.
 
 ### `GET /export.json`
 

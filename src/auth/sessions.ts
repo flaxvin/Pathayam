@@ -247,15 +247,21 @@ export function revokeSession(db: DB, actor: Actor, sessionId: string): void {
   });
 }
 
-export function revokeAllSessions(db: DB, actor: Actor, memberId: string): void {
+export function revokeAllSessions(
+  db: DB, actor: Actor, memberId: string,
+  /** Keep this one signed in — the device the request came from. */
+  opts: { except?: string } = {},
+): void {
   transact(db, () => {
     execute(
-      db, `UPDATE sessions SET revoked_at = ? WHERE member_id = ? AND revoked_at IS NULL`,
-      nowIST(), memberId,
+      db,
+      `UPDATE sessions SET revoked_at = ?
+        WHERE member_id = ? AND revoked_at IS NULL AND id IS NOT ?`,
+      nowIST(), memberId, opts.except ?? null,
     );
     appendEvent(db, actor, {
       entity: "session", entityId: memberId, action: "revoke-all",
-      summary: `Signed out every device`,
+      summary: opts.except ? `Signed out every other device` : `Signed out every device`,
     });
   });
 }

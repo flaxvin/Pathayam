@@ -27,7 +27,7 @@ import {
   actorFor, setTheme, listMembers, memberCount, inviteMember, createSession,
   startImpersonation, stopImpersonation, setImpersonationWrites, listSessions,
   revokeSession, recordAuthAttempt, isRateLimited, findMemberByEmail, getMember,
-  removeMember,
+  removeMember, revokeAllSessions,
   type AuthContext,
 } from "./auth/sessions.ts";
 import {
@@ -95,6 +95,8 @@ import {
 } from "./domain/commitments.ts";
 import { buildHouseholdView } from "./domain/household-view.ts";
 import { eventVisibility } from "./domain/event-visibility.ts";
+import { memberScope } from "./domain/member-scope.ts";
+import { exportForMember, exportTransactionsCsvForMember } from "./ops/member-export.ts";
 import { callItEven } from "./domain/squaring-up.ts";
 import { describeDeparture, settleDeparture, type DepartureResolution } from "./domain/departure.ts";
 import { convertToEmi } from "./domain/card-emi.ts";
@@ -124,7 +126,7 @@ import {
   type AutoAssignPlan, type AutoAssignProposal,
 } from "./engine/engine.ts";
 import {
-  historyFor, queryEvents, appendEvent, checkUndo, undoEvent, DEFAULT_UNDO_WINDOW_DAYS,
+  historyFor, queryEvents, getEvent, appendEvent, checkUndo, undoEvent, DEFAULT_UNDO_WINDOW_DAYS,
   type Actor,
 } from "./core/events.ts";
 import {
@@ -135,7 +137,7 @@ import {
 } from "./web/pages/health.ts";
 import {
   createBackup, verifyRestore, listBackups, lastJobRun, recordJobRun,
-  exportEverything, exportTransactionsCsv, pingHeartbeat,
+  pingHeartbeat,
 } from "./ops/backup.ts";
 import {
   renderLoanList, renderLoanDetail, renderNewLoanForm, renderRecordInstalment,
@@ -166,7 +168,7 @@ import {
 } from "./domain/schedules.ts";
 import {
   listGoals, createGoal, updateGoal, deleteGoal, goalCategoryIds, goalProgress, completeGoal,
-  LEGACY_GOAL_GROUP,
+  LEGACY_GOAL_GROUP, getGoal,
 } from "./domain/goals.ts";
 import {
   renderMore, renderPayees, renderRules, renderCategories, renderFirstRun,
@@ -175,7 +177,9 @@ import {
 } from "./web/pages/manage.ts";
 import { renderPrivacy, renderTerms, type LegalMode } from "./web/pages/legal.ts";
 import { Refusal } from "./core/refusal.ts";
-import { checkPassword, setPassword, anyPasswordSet, hasPassword } from "./auth/passwords.ts";
+import {
+  checkPassword, checkAbsentPassword, setPassword, anyPasswordSet, hasPassword,
+} from "./auth/passwords.ts";
 import { beginOidc, exchangeOidcCode } from "./auth/oidc.ts";
 import {
   staleRatesWarning, RATES_VERIFIED_ON, RATES_SOURCE, RULES,
@@ -725,6 +729,88 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (!meta) throw new NotFound("That attachment does not exist.");
     requireVisibleTransaction(ctx, meta.transaction_id);
     return id;
+  }
+
+  /**
+   * 15 · An event is as private as what it is about.
+   *
+   * The activity log hid Ravi's events from Priya, but the undo button's route
+   * took any event id it was given: posting `/activity/<id>/undo` for the event
+   * that added his ₹60,000 private-card purchase deleted the transaction
+   * outright. Undo is the most destructive write in the app — it removes rows —
+   * so it answers exactly as it would for an id that never existed.
+   */
+  function requireVisibleEvent(ctx: RequestContext, id: string): string {
+    const event = getEvent(db, id);
+    if (!event || !eventVisibility(db, viewer(ctx))(event)) {
+      throw new NotFound("That change does not exist.");
+    }
+    return id;
+  }
+
+  /**
+   * 15 · The same rule for everything else a URL can name.
+   *
+   * As Priya, `/schedules/<Ravi's>/edit` renamed his private subscription,
+   * `/paid` posted ₹777 into his private account, `/goals/<his>/delete`
+   * removed his goal and `/portfolio/<his holding>/split` doubled the 100
+   * units in his private demat to 200 — each id-addressed route that had never
+   * been given a guard. What each thing hangs off is member-scope's to say, so
+   * these ask it rather than repeat the joins; a thing that does not exist and
+   * a thing that is not yours answer the same 404.
+   */
+  type Scoped = "schedules" | "goals" | "holdings" | "instruments" | "cards";
+  const SCOPED_TABLE: Record<Scoped, [table: string, noun: string]> = {
+    schedules: ["schedules", "schedule"], goals: ["goals", "goal"],
+    holdings: ["holdings", "holding"], instruments: ["instruments", "instrument"],
+    cards: ["cards", "card"],
+  };
+  function requireVisibleIn(ctx: RequestContext, kind: Scoped, id: string): string {
+    const [table, noun] = SCOPED_TABLE[kind];
+    const row = queryOne(db, `SELECT 1 AS n FROM ${table} WHERE id = ?`, id);
+    if (!row || memberScope(db, viewer(ctx))[kind].has(id)) {
+      throw new NotFound(`That ${noun} does not exist.`);
+    }
+    return id;
+  }
+  const requireVisibleSchedule = (ctx: RequestContext, id: string) => requireVisibleIn(ctx, "schedules", id);
+  const requireVisibleGoal = (ctx: RequestContext, id: string) => requireVisibleIn(ctx, "goals", id);
+  const requireVisibleHolding = (ctx: RequestContext, id: string) => requireVisibleIn(ctx, "holdings", id);
+  const requireVisibleInstrument = (ctx: RequestContext, id: string) => requireVisibleIn(ctx, "instruments", id);
+
+  /**
+   * A rule about an envelope you cannot see, and an import profile for an
+   * account you cannot see, are as private as the envelope and the account —
+   * the Rules and Import screens already hid them. Their delete routes took any
+   * id and logged "Removed a rule" whether or not there was one.
+   */
+  function requireVisibleRule(ctx: RequestContext, id: string): string {
+    const rule = queryOne<{ actions_json: string }>(db, `SELECT actions_json FROM rules WHERE id = ?`, id);
+    if (!rule || memberScope(db, viewer(ctx)).mentionsHidden(JSON.parse(rule.actions_json))) {
+      throw new NotFound("That rule does not exist.");
+    }
+    return id;
+  }
+  function requireVisibleImportProfile(ctx: RequestContext, id: string): string {
+    const profile = queryOne<{ account_id: string | null }>(
+      db, `SELECT account_id FROM import_profiles WHERE id = ?`, id,
+    );
+    if (!profile || memberScope(db, viewer(ctx)).hides(profile.account_id)) {
+      throw new NotFound("That profile does not exist.");
+    }
+    return id;
+  }
+
+  /**
+   * An account named in a form, which is a suggestion like any other field.
+   * `/add`, `/schedules/new` and `/portfolio/add` wrote into Ravi's private
+   * accounts when Priya posted their ids, and answered 422 "That account does
+   * not exist" for an id that really did not — so the two different answers
+   * told her which ids were real. Both are now the same 404.
+   */
+  function visibleAccountField(ctx: RequestContext, name: string): string | null {
+    const id = field(ctx.body, name);
+    return id ? requireVisibleAccount(ctx, id).id : null;
   }
 
   /** A group belongs to a budget, the same as the categories inside it. */
@@ -1313,9 +1399,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       throw new HttpError(401, "That email and password do not match.");
     };
 
-    if (!member || member.removed_at || !member.allowed) refuse();
-
-    const result = checkPassword(db, member!.id, password);
+    /*
+     * And one lockout for all of them: an address with no usable password
+     * locks after the same eight guesses a real one does (see
+     * checkAbsentPassword). Otherwise the eighth guess answered 429 for a
+     * member and 401 for anybody else, which says the same thing the message
+     * above was worded not to.
+     */
+    const usable = member && !member.removed_at && member.allowed && hasPassword(db, member.id);
+    const result = usable
+      ? checkPassword(db, member.id, password)
+      : checkAbsentPassword(db, email, password);
     if (!result.ok) {
       if (result.reason === "locked") {
         recordAuthAttempt(db, source, "locked", email);
@@ -1506,10 +1600,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/activity/:id/undo", (ctx) =>
     mutate(ctx, (a) => {
       const force = field(ctx.body, "force") === "1";
+      const eventId = requireVisibleEvent(ctx, ctx.params.id!);
       let result;
       try {
         result = undoEvent(
-          db, ctx.params.id!, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+          db, eventId, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
           { force },
         );
       } catch (err) {
@@ -1581,7 +1676,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // The digest belongs to the person reading, not to the month being read,
     // so it only shows on the current month.
     const digest = month === view.currentMonth
-      ? renderDigest(digestFor(db, a.viewingAs.id))
+      ? renderDigest(digestFor(db, a.viewingAs.id, todayIST(), viewer(ctx), scope))
       : undefined;
 
     // 15 · The switcher lives in the sidebar now, on every screen that shows one
@@ -2402,7 +2497,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       }
 
       createTransaction(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
-        accountId: requiredField(ctx.body, "account_id"),
+        accountId: requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id,
         amount: direction === "in" ? magnitude : -magnitude,
         date: dateField(dateRaw),
         payeeName: field(ctx.body, "payee") || null,
@@ -2451,8 +2546,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/transfer", (ctx) =>
     mutate(ctx, (a) => {
-      const fromAccountId = requiredField(ctx.body, "from_account_id");
-      const toAccountId = requiredField(ctx.body, "to_account_id");
+      const fromAccountId = requireVisibleAccount(ctx, requiredField(ctx.body, "from_account_id")).id;
+      const toAccountId = requireVisibleAccount(ctx, requiredField(ctx.body, "to_account_id")).id;
       if (fromAccountId === toAccountId) {
         throw new HttpError(400, "A transfer needs two different accounts.");
       }
@@ -2533,7 +2628,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/sessions/revoke", (ctx) =>
     mutate(ctx, (a) => {
-      revokeSession(db, actorFor(a), requiredField(ctx.body, "session_id"));
+      /*
+       * Only your own. Settings lists only the viewer's sessions, but the
+       * route revoked whatever id it was handed — so signing somebody else out
+       * needed nothing but their session id. Ids are hashes of the tokens and
+       * never shown to anyone else, which made it hard to reach, not safe.
+       * Another member's session answers exactly like one that does not exist.
+       */
+      const sessionId = requiredField(ctx.body, "session_id");
+      if (!listSessions(db, a.member.id).some((s) => s.id === sessionId)) {
+        throw new NotFound("That session does not exist.");
+      }
+      revokeSession(db, actorFor(a), sessionId);
       return { redirect: "/settings", message: "Signed that device out." };
     }),
   );
@@ -2867,7 +2973,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       }
 
       setPassword(db, a.member.id, password);
-      return { redirect: "/settings", message: "Password set." };
+      /*
+       * A new password is how somebody locks out whoever learned the old one,
+       * so it has to end the sessions the old one opened. It only rewrote the
+       * hash: a session signed in on another device with the old password
+       * went on reading and writing the ledger, for up to SESSION_DAYS (30),
+       * after the change meant to stop it. This device stays signed in.
+       */
+      const others = listSessions(db, a.member.id).filter((s) => s.id !== a.session.id).length;
+      if (others > 0) revokeAllSessions(db, actorFor(a), a.member.id, { except: a.session.id });
+      return {
+        redirect: "/settings",
+        message: others > 0
+          ? `Password set. Signed out ${others === 1 ? "one other device" : `${others} other devices`}.`
+          : "Password set.",
+      };
     }),
   );
 
@@ -2934,8 +3054,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       const amountRaw = field(ctx.body, "amount");
       const feeRaw = field(ctx.body, "processing_fee");
+      // 15 · Another member's private card purchase is not there to convert:
+      // this created a loan against Ravi's ₹60,000 card spend for Priya.
+      const transactionId = requireVisibleTransaction(ctx, ctx.params.id!).id;
       const result = convertToEmi(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
-        transactionId: ctx.params.id!,
+        transactionId,
         amount: amountRaw?.trim() ? (amountField(amountRaw, "Amount") as Paise) : undefined,
         tenureMonths: Number(requiredField(ctx.body, "tenure_months")),
         annualRatePct: Number(requiredField(ctx.body, "annual_rate")),
@@ -3683,9 +3806,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   });
 
   router.post("/accounts/:id/reconcile", (ctx) => {
-    const account = getAccount(db, ctx.params.id!);
-    if (!account) throw new NotFound("That account does not exist.");
+    // 15 · Signed in first, then visible: this route wrote a checkpoint into
+    // any account by id, and its "difference" page printed the private
+    // account's cleared balance back to whoever asked.
     const a = auth(ctx);
+    const account = requireVisibleAccount(ctx, ctx.params.id!);
 
     const asOfRaw = field(ctx.body, "as_of");
     const asOf = dateField(asOfRaw, "As of");
@@ -3735,8 +3860,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/accounts/:id/cards", (ctx) =>
     mutate(ctx, (a) => {
-      const account = getAccount(db, ctx.params.id!);
-      if (!account) throw new NotFound("That account does not exist.");
+      const account = requireVisibleAccount(ctx, ctx.params.id!);
       const last4 = (field(ctx.body, "last4") ?? "").replace(/\D/g, "") || null;
       createCard(db, actorFor(a), {
         accountId: account.id,
@@ -3751,9 +3875,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/accounts/:id/cards/:cardId/close", (ctx) =>
     mutate(ctx, (a) => {
-      const account = getAccount(db, ctx.params.id!);
-      if (!account) throw new NotFound("That account does not exist.");
-      closeCard(db, actorFor(a), ctx.params.cardId!);
+      /*
+       * 15 · The card is checked, not only the account in the URL. This took
+       * any visible account id and then closed whatever card id followed it —
+       * so Priya closed Ravi's private add-on card through the household's
+       * joint account. The card has to be visible *and* be on that account.
+       */
+      const account = requireVisibleAccount(ctx, ctx.params.id!);
+      const cardId = requireVisibleIn(ctx, "cards", ctx.params.cardId!);
+      const onAccount = queryOne(db, `SELECT 1 AS n FROM cards WHERE id = ? AND account_id = ?`, cardId, account.id);
+      if (!onAccount) throw new NotFound("That card does not exist.");
+      closeCard(db, actorFor(a), cardId);
       return { redirect: `/accounts/${account.id}/cards`, message: "Card closed." };
     }),
   );
@@ -3835,8 +3967,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/accounts/:id/statement", (ctx) => {
     auth(ctx);
-    const account = getAccount(db, ctx.params.id!);
-    if (!account) throw new NotFound("That account does not exist.");
+    const account = requireVisibleAccount(ctx, ctx.params.id!);
     if (account.kind !== "credit") throw new NotFound("Only a credit card has a statement.");
     return render(
       ctx, `Statement — ${account.name}`,
@@ -3850,8 +3981,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/accounts/:id/statement", (ctx) =>
     mutate(ctx, (a) => {
-      const account = getAccount(db, ctx.params.id!);
-      if (!account) throw new NotFound("That account does not exist.");
+      const account = requireVisibleAccount(ctx, ctx.params.id!);
       const minRaw = field(ctx.body, "minimum_due");
       recordCardStatement(db, actorFor(a), {
         accountId: account.id,
@@ -4045,7 +4175,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/import", (ctx) => {
     const text = requiredField(ctx.body, "csv");
-    const accountId = requiredField(ctx.body, "account_id");
+    const accountId = requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id;
     const fileName = field(ctx.body, "file_name") || "pasted.csv";
     // An unknown account id reached the INSERT and failed its foreign key — a
     // 500 — and a private account of another member's was importable. Both
@@ -4114,8 +4244,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    */
   router.post("/import/pdf", (ctx) => {
     const a = auth(ctx);
-    const accountId = requiredField(ctx.body, "account_id");
-    requireVisibleAccount(ctx, accountId);
+    const accountId = requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id;
     const upload = fileField(ctx.req, "statement");
 
     const importPage = (error: string) =>
@@ -4265,8 +4394,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/import/map", (ctx) =>
     mutate(ctx, (a) => {
       const text = requiredField(ctx.body, "csv");
-      const accountId = requiredField(ctx.body, "account_id");
-      requireVisibleAccount(ctx, accountId);
+      const accountId = requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id;
       const fileName = field(ctx.body, "file_name") || "pasted.csv";
       const pick = (name: string) => {
         const value = Number(field(ctx.body, name));
@@ -4313,7 +4441,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/import/profiles/:id/delete", (ctx) =>
     mutate(ctx, (a) => {
-      deleteProfile(db, actorFor(a), ctx.params.id!);
+      deleteProfile(db, actorFor(a), requireVisibleImportProfile(ctx, ctx.params.id!));
       return { redirect: "/import", message: "Forgotten." };
     }),
   );
@@ -4428,7 +4556,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           field(ctx.body, "disbursement_destination") === "budget-account" ? "budget-account"
             : field(ctx.body, "disbursement_destination") === "third-party" ? "third-party"
               : undefined,
-        disbursementAccountId: field(ctx.body, "disbursement_account_id") || null,
+        disbursementAccountId: visibleAccountField(ctx, "disbursement_account_id"),
         loanType: requiredField(ctx.body, "loan_type") as LoanType,
         sanctioned: amountField(field(ctx.body, "sanctioned"), "Sanctioned amount"),
         sanctionDate: dateField(field(ctx.body, "sanction_date"), "Sanction date"),
@@ -4438,7 +4566,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         tenureMonths: Number(requiredField(ctx.body, "tenure_months")),
         moratoriumMonths: Number(field(ctx.body, "moratorium_months") ?? "0") || 0,
         firstInstalmentDate: firstDue ? parseDate(firstDue) : null,
-        repaymentAccountId: field(ctx.body, "repayment_account_id") || null,
+        repaymentAccountId: visibleAccountField(ctx, "repayment_account_id"),
         currentOutstanding: outstandingRaw?.trim() ? amountField(outstandingRaw) : null,
         historyFrom: historyFrom ? parseDate(historyFrom) : null,
       });
@@ -4556,7 +4684,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         foreclosureCharge: chargeRaw?.trim()
           ? (amountField(chargeRaw, "Foreclosure charge") as Paise)
           : undefined,
-        chargeAccountId: field(ctx.body, "charge_account_id") || null,
+        chargeAccountId: visibleAccountField(ctx, "charge_account_id"),
         chargeCategoryId: requireVisibleCategory(ctx, field(ctx.body, "charge_category_id") || null) || null,
         // The form's one "Paid from" pays the settlement as well as the charge.
         settlementAccountId: field(ctx.body, "settlement_account_id") || field(ctx.body, "charge_account_id") || null,
@@ -4608,7 +4736,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         date: dateField(dateRaw),
         destination,
         destinationAccountId: destination === "budget-account"
-          ? field(ctx.body, "destination_account_id") || null : null,
+          ? visibleAccountField(ctx, "destination_account_id") : null,
       });
       return {
         redirect: `/loans/${loanId}`,
@@ -4688,7 +4816,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         amount: amountField(field(ctx.body, "amount")),
         principal: principalRaw?.trim() ? amountField(principalRaw) : null,
         interest: interestRaw?.trim() ? amountField(interestRaw) : null,
-        fromAccountId: field(ctx.body, "from_account_id") || null,
+        fromAccountId: visibleAccountField(ctx, "from_account_id"),
       });
 
       return { redirect: `/loans/${loanId}`, message: "Instalment recorded." };
@@ -5106,7 +5234,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       listCategories(db, { includeHidden: true, budgetId: scope, viewerMemberId: viewer(ctx) })
         .map((c) => c.id),
     );
-    const dueSoon = listSchedules(db)
+    const dueSoon = listSchedules(db, { viewerMemberId: viewer(ctx) })
       .filter((s) => s.next_due && s.next_due <= soon && (s.amount ?? 0) < 0)
       .filter((s) =>
         (!s.account_id && !s.category_id)
@@ -5265,15 +5393,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return render(
       ctx, "Schedules",
       renderSchedules({
-        schedules: listSchedules(db).filter(inScopeSchedule),
-        detected: detectSchedules(db),
+        schedules: listSchedules(db, { viewerMemberId: viewer(ctx) }).filter(inScopeSchedule),
+        detected: detectSchedules(db, todayIST(), viewer(ctx)),
         cashflow,
         cashflowReading: describeCashflow(cashflow),
-        subscriptions: subscriptions(db),
+        subscriptions: subscriptions(db, viewer(ctx)),
         horizon,
         categoryNames: new Map([...view.categories].map(([id, c]) => [id, c.name])),
         splits: new Map(
-          listSchedules(db).filter(inScopeSchedule)
+          listSchedules(db, { viewerMemberId: viewer(ctx) }).filter(inScopeSchedule)
             .map((sch) => [sch.id, getScheduleSplits(db, sch.id)]),
         ),
         // The inline edit form needs the full lists, or saving would blank the
@@ -5310,7 +5438,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       createSchedule(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         name: requiredField(ctx.body, "name"),
         payeeId: field(ctx.body, "payee_id") || null,
-        accountId: field(ctx.body, "account_id") || null,
+        accountId: visibleAccountField(ctx, "account_id"),
         categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
         amount: Number(field(ctx.body, "amount") ?? 0),
         recurrence: parseRecurrence(field(ctx.body, "recurrence") ?? "monthly"),
@@ -5409,7 +5537,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         recurrenceWeekday: weekdayField(ctx.body),
         nextDue: dateField(field(ctx.body, "next_due"), "Next due"),
         categoryId: filed.categoryId,
-        accountId: field(ctx.body, "account_id") || null,
+        accountId: visibleAccountField(ctx, "account_id"),
         isSubscription: field(ctx.body, "is_subscription") === "1",
       });
 
@@ -5441,6 +5569,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    */
   router.post("/schedules/:id/edit", (ctx) =>
     mutate(ctx, (a) => {
+      requireVisibleSchedule(ctx, ctx.params.id!);
       const amountRaw = field(ctx.body, "amount");
       const magnitude = amountRaw?.trim() ? Math.abs(amountField(amountRaw, "Amount")) : null;
       const direction = field(ctx.body, "direction") ?? "out";
@@ -5532,7 +5661,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           category_id: filed === null ? undefined : filed.categoryId,
           account_id: field(ctx.body, "account_id") === undefined
             ? undefined
-            : field(ctx.body, "account_id") || null,
+            : visibleAccountField(ctx, "account_id"),
           is_subscription: field(ctx.body, "is_subscription") === "1" ? 1 : 0,
         },
         { splitsFollow: (filed?.splits?.length ?? 0) > 0 },
@@ -5553,7 +5682,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/schedules/:id/delete", (ctx) =>
     mutate(ctx, (a) => {
-      deleteSchedule(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), ctx.params.id!);
+      deleteSchedule(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), requireVisibleSchedule(ctx, ctx.params.id!));
       return {
         redirect: "/schedules",
         message: "Removed. Anything it already recorded is untouched.",
@@ -5563,14 +5692,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/schedules/:id/paid", (ctx) =>
     mutate(ctx, (a) => {
-      markPaid(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), ctx.params.id!);
+      markPaid(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), requireVisibleSchedule(ctx, ctx.params.id!));
       return { redirect: "/schedules", message: "Marked paid." };
     }),
   );
 
   router.post("/schedules/:id/skip", (ctx) =>
     mutate(ctx, (a) => {
-      skipOccurrence(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), ctx.params.id!);
+      skipOccurrence(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), requireVisibleSchedule(ctx, ctx.params.id!));
       return { redirect: "/schedules", message: "Skipped this one." };
     }),
   );
@@ -5636,15 +5765,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/goals/:id/edit", (ctx) =>
     mutate(ctx, (a) => {
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+      const id = requireVisibleGoal(ctx, ctx.params.id!);
       const targetDate = field(ctx.body, "target_date");
       const name = requiredField(ctx.body, "name");
-      updateGoal(db, actor, ctx.params.id!, {
+      updateGoal(db, actor, id, {
         name,
         targetAmount: amountField(field(ctx.body, "target_amount"), "Target"),
         targetDate: targetDate?.trim() ? parseDate(targetDate) : null,
       });
       // Keep the owned category's name in step with the goal's.
-      for (const catId of goalCategoryIds(db, ctx.params.id!)) {
+      for (const catId of goalCategoryIds(db, id)) {
         const cat = getCategory(db, catId);
         if (cat && cat.name !== name) renameCategory(db, actor, catId, name);
       }
@@ -5655,22 +5785,31 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/goals/:id/delete", (ctx) =>
     mutate(ctx, (a) => {
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
-      const id = ctx.params.id!;
+      const id = requireVisibleGoal(ctx, ctx.params.id!);
       const view = buildBudgetView(db, undefined, undefined, viewer(ctx));
       // B58 · The goal owns its category. On delete, hand the envelope back as a
       // normal category (moved to a "Savings" group) so its money is never lost
       // and the household can manage or empty it afterwards.
       const catIds = goalCategoryIds(db, id);
       const kept = catIds.reduce((sum, cid) => sum + (view.categories.get(cid)?.state.balance ?? 0), 0) as Paise;
+      /*
+       * 15 · The envelope stays in the goal's own budget. This looked for a
+       * "Savings" group among *every* budget's groups and otherwise created one
+       * in the household's — so deleting Ravi's personal "Jabberwock Private
+       * Goal" moved its envelope into a household group, where Priya's budget
+       * page and category list showed it, balance and all. A group and the
+       * envelopes in it always share a budget.
+       */
+      const home = getGoal(db, id)?.budget_id ?? householdBudgetId(db);
       deleteGoal(db, actor, id);
-      // B61: prefer a savings group the household already has — the starting
+      // B61: prefer a savings group the budget already has — the starting
       // template's "Savings goals" is exactly the right home — over minting a
       // third group nobody asked for.
-      const groups = listGroups(db);
+      const groups = listGroups(db, home);
       const normal =
         groups.find((g) => g.kind === "normal" && g.name === LEGACY_GOAL_GROUP)
         ?? groups.find((g) => g.kind === "normal" && g.name === "Savings")
-        ?? (catIds.length > 0 ? createGroup(db, actor, "Savings", "normal") : null);
+        ?? (catIds.length > 0 ? createGroup(db, actor, "Savings", "normal", home) : null);
       for (const catId of catIds) {
         if (normal) moveCategoryToGroup(db, actor, catId, normal.id);
       }
@@ -5687,7 +5826,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/goals/:id/complete", (ctx) =>
     mutate(ctx, (a) => {
       const resolution = (field(ctx.body, "resolution") ?? "release") as "spend" | "roll" | "release";
-      completeGoal(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), ctx.params.id!, resolution);
+      completeGoal(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), requireVisibleGoal(ctx, ctx.params.id!), resolution);
       return { redirect: "/goals", message: "Goal completed." };
     }),
   );
@@ -5890,8 +6029,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   /** F6.6 · Apply a rule to matching existing transactions, count first. */
   router.post("/rules/:id/apply", (ctx) => {
     const a = auth(ctx);
+    const ruleId = requireVisibleRule(ctx, ctx.params.id!);
     const rules = ruleRows(db, false).concat(ruleRows(db, true));
-    const rule = rules.find((r) => r.id === ctx.params.id);
+    const rule = rules.find((r) => r.id === ruleId);
     if (!rule) throw new NotFound("That rule does not exist.");
 
     if (field(ctx.body, "confirm") !== "1") {
@@ -5983,7 +6123,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/rules/:id/delete", (ctx) =>
     mutate(ctx, (a) => {
-      const id = ctx.params.id!;
+      const id = requireVisibleRule(ctx, ctx.params.id!);
       execute(db, `UPDATE rules SET enabled = 0, dismissed_at = ? WHERE id = ?`, nowIST(), id);
       appendEvent(db, actorFor(a), {
         entity: "rule", entityId: id, action: "delete",
@@ -6045,7 +6185,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/categories/:id/rename", (ctx) =>
     mutate(ctx, (a) => {
       renameCategory(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
-        ctx.params.id!, requiredField(ctx.body, "name"));
+        requireVisibleCategory(ctx, ctx.params.id!)!, requiredField(ctx.body, "name"));
       return { redirect: "/categories", message: "Renamed." };
     }),
   );
@@ -6105,7 +6245,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       const group = renameGroup(
         db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
-        ctx.params.id!, requiredField(ctx.body, "name"),
+        requireVisibleGroup(ctx, ctx.params.id!), requiredField(ctx.body, "name"),
       );
       return { redirect: "/categories", message: `Renamed to ${group.name}.` };
     }),
@@ -6281,7 +6421,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         loanId: ctx.params.id!,
         amount: Math.abs(amountField(requiredField(ctx.body, "amount"))),
         date: dateField(dateRaw),
-        fromAccountId: requiredField(ctx.body, "account_id"),
+        fromAccountId: requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id,
       });
       return { redirect: `/family/${ctx.params.id}`, message: "Recorded." };
     }),
@@ -6295,7 +6435,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         loanId: ctx.params.id!,
         amount: Math.abs(amountField(requiredField(ctx.body, "amount"))),
         date: dateField(dateRaw),
-        accountId: requiredField(ctx.body, "account_id"),
+        accountId: requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id,
       });
       return { redirect: `/family/${ctx.params.id}`, message: "Recorded." };
     }),
@@ -6449,7 +6589,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/gmail/connect", (ctx) => {
     refuseInDemo(config, "Connecting a mailbox");
     const a = auth(ctx);
-    if (!config.google.clientId) throw new HttpError(500, "Google is not configured.");
+    // Not configured is a deployment state, not a fault — the same 503 as
+    // /auth/google. A 500 here told the person the app had broken.
+    if (!config.google.clientId) {
+      throw new HttpError(503, "Gmail cannot be connected: Google is not configured on this deployment.");
+    }
     const start = beginGmailConnect({
       clientId: config.google.clientId,
       redirectUri: `${config.baseUrl}/gmail/callback`,
@@ -6672,7 +6816,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     requireAssets();
     auth(ctx);
     return render(ctx, "Import a CAS", renderCasUpload({
-      accounts: casDestinations(db),
+      accounts: casDestinations(db, viewer(ctx)),
       error: ctx.query.get("error"),
     }));
   });
@@ -6684,7 +6828,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const upload = fileField(ctx.req, "statement");
     if (!upload) {
       return render(ctx, "Import a CAS", renderCasUpload({
-        accounts: casDestinations(db),
+        accounts: casDestinations(db, viewer(ctx)),
         error: "Choose the statement PDF first.",
       }));
     }
@@ -6693,7 +6837,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // handed to the parser, and never assigned to anything that outlives the
     // call — not the plan, not the stash, not the event log.
     const password = field(ctx.body, "password") ?? "";
-    const accountId = requiredField(ctx.body, "account_id");
+    const accountId = requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id;
 
     let statement;
     try {
@@ -6705,13 +6849,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         ? "That password did not open the statement. It is usually your PAN, in capitals."
         : `That file could not be read as a CAS. ${(error as Error).message}`;
       return render(ctx, "Import a CAS", renderCasUpload({
-        accounts: casDestinations(db), error: message,
+        accounts: casDestinations(db, viewer(ctx)), error: message,
       }));
     }
 
     if (statement.schemes.length === 0) {
       return render(ctx, "Import a CAS", renderCasUpload({
-        accounts: casDestinations(db),
+        accounts: casDestinations(db, viewer(ctx)),
         error:
           "That PDF opened, but no folios were found in it. If it is a CAS, " +
           "it may be a format this app has not seen — nothing was imported.",
@@ -6853,14 +6997,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
       const feesRaw = field(ctx.body, "fees");
       const lot = recordPurchase(db, actor, {
-        accountId: requiredField(ctx.body, "account_id"),
+        accountId: requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id,
         instrumentId: instrument.id,
         tradeDate: dateField(field(ctx.body, "trade_date"), "Trade date"),
         price: toUnitPrice(unitPrice),
         amount: amountRaw?.trim() ? amountField(amountRaw) : undefined,
         units: amountRaw?.trim() ? undefined : toUnits(Number(field(ctx.body, "units") ?? 0)),
         fees: feesRaw?.trim() ? amountField(feesRaw) : 0,
-        fromAccountId: field(ctx.body, "from_account_id") || null,
+        fromAccountId: visibleAccountField(ctx, "from_account_id"),
         categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
       });
 
@@ -6881,7 +7025,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/portfolio/allocation", (ctx) => {
     requireAssets();
     auth(ctx);
-    const a = assetAllocation(db);
+    const a = assetAllocation(db, todayIST(), "INR", { viewerMemberId: viewer(ctx) });
     const foreign = a.byCurrency.some((c) => c.key !== "INR") || a.byRegion.length > 1;
     return render(ctx, "Allocation", renderAllocation({
       byClass: a.byClass,
@@ -6901,14 +7045,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const assetClass = raw && (ASSET_CLASSES as readonly string[]).includes(raw)
         ? (raw as (typeof ASSET_CLASSES)[number])
         : null;
-      classifyInstrument(db, actorFor(a), ctx.params.id!, { assetClass });
+      classifyInstrument(db, actorFor(a), requireVisibleInstrument(ctx, ctx.params.id!), { assetClass });
       return { redirect: "/portfolio/allocation", message: assetClass ? "Classified." : "Cleared." };
     }),
   );
 
   router.get("/portfolio/:id", (ctx) => {
     requireAssets();
-    const view = viewHolding(db, ctx.params.id!);
+    const view = viewHolding(db, requireVisibleHolding(ctx, ctx.params.id!));
     if (!view) throw new NotFound("That holding does not exist.");
     const account = listAssetAccounts(db, { viewerMemberId: viewer(ctx) }).find((a) => a.id === view.holding.account_id);
 
@@ -6927,7 +7071,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/portfolio/:id/price", (ctx) => {
     requireAssets();
     auth(ctx);
-    const view = viewHolding(db, ctx.params.id!);
+    const view = viewHolding(db, requireVisibleHolding(ctx, ctx.params.id!));
     if (!view) throw new NotFound("That holding does not exist.");
     return render(
       ctx, `Price ${view.instrument.name}`,
@@ -6944,7 +7088,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       requireAssets();
       actorFor(a); // write-guard via mutate
-      const view = viewHolding(db, ctx.params.id!);
+      const view = viewHolding(db, requireVisibleHolding(ctx, ctx.params.id!));
       if (!view) throw new NotFound("That holding does not exist.");
       recordPrice(db, {
         instrumentId: view.instrument.id,
@@ -6960,7 +7104,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // history together. The domain function existed; the screen did not.
   router.get("/portfolio/:id/split", (ctx) => {
     requireAssets();
-    const view = viewHolding(db, ctx.params.id!);
+    const view = viewHolding(db, requireVisibleHolding(ctx, ctx.params.id!));
     if (!view) throw new NotFound("That holding does not exist.");
     return render(
       ctx, "Split or bonus",
@@ -6976,7 +7120,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/portfolio/:id/split", (ctx) =>
     mutate(ctx, (a) => {
       requireAssets();
-      const view = viewHolding(db, ctx.params.id!);
+      const view = viewHolding(db, requireVisibleHolding(ctx, ctx.params.id!));
       if (!view) throw new NotFound("That holding does not exist.");
       const ratio = Number(requiredField(ctx.body, "ratio"));
       if (!Number.isFinite(ratio) || ratio <= 0) {
@@ -7003,7 +7147,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    */
   router.get("/portfolio/:id/merge", (ctx) => {
     requireAssets();
-    const view = viewHolding(db, ctx.params.id!);
+    const view = viewHolding(db, requireVisibleHolding(ctx, ctx.params.id!));
     if (!view) throw new NotFound("That holding does not exist.");
     return render(
       ctx, "Merger",
@@ -7022,7 +7166,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/portfolio/:id/merge", (ctx) =>
     mutate(ctx, (a) => {
       requireAssets();
-      const view = viewHolding(db, ctx.params.id!);
+      const view = viewHolding(db, requireVisibleHolding(ctx, ctx.params.id!));
       if (!view) throw new NotFound("That holding does not exist.");
       const ratio = Number(requiredField(ctx.body, "ratio"));
       if (!Number.isFinite(ratio) || ratio <= 0) {
@@ -7032,7 +7176,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         holdingId: view.holding.id,
         date: dateField(field(ctx.body, "date")),
         ratio,
-        intoInstrumentId: field(ctx.body, "into_instrument_id") || null,
+        intoInstrumentId: field(ctx.body, "into_instrument_id")
+          ? requireVisibleInstrument(ctx, field(ctx.body, "into_instrument_id")!)
+          : null,
       });
       return {
         redirect: `/portfolio/${view.holding.id}`,
@@ -7045,7 +7191,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/portfolio/:id/sell", (ctx) => {
     requireAssets();
-    const view = viewHolding(db, ctx.params.id!);
+    const view = viewHolding(db, requireVisibleHolding(ctx, ctx.params.id!));
     if (!view) throw new NotFound("That holding does not exist.");
 
     const unitsRaw = ctx.query.get("units") ?? "";
@@ -7079,7 +7225,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/portfolio/:id/sell", (ctx) =>
     mutate(ctx, (a) => {
       requireAssets();
-      const holdingId = ctx.params.id!;
+      const holdingId = requireVisibleHolding(ctx, ctx.params.id!);
       const chargesRaw = field(ctx.body, "charges");
       const preview = recordSale(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         holdingId,
@@ -7091,7 +7237,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         charges: chargesRaw?.trim()
           ? (Math.abs(amountField(chargesRaw, "Charges")) as Paise)
           : undefined,
-        toAccountId: field(ctx.body, "to_account_id") || null,
+        toAccountId: visibleAccountField(ctx, "to_account_id"),
       });
 
       return {
@@ -7698,11 +7844,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }),
   );
 
-  /** F15.1: the complete budget, in one action, in an open documented format. */
+  /**
+   * F15.1: the member's budget, in one action, in an open documented format.
+   *
+   * The member's, not the household's: this was `exportEverything(db)` — the
+   * operator's complete backup — so any signed-in member downloaded every other
+   * member's private accounts, envelopes and transactions. The complete copy is
+   * the backup job's, on the server; see member-export.ts for which is which.
+   */
   router.get("/export.json", (ctx) => {
-    auth(ctx);
+    const a = auth(ctx);
     return {
-      body: JSON.stringify(exportEverything(db), null, 2),
+      body: JSON.stringify(exportForMember(db, a.member.id), null, 2),
       headers: {
         "Content-Type": "application/json; charset=utf-8",
         "Content-Disposition": `attachment; filename="pathayam-${todayIST()}.json"`,
@@ -7711,9 +7864,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   });
 
   router.get("/export.csv", (ctx) => {
-    auth(ctx);
+    const a = auth(ctx);
     return {
-      body: exportTransactionsCsv(db),
+      body: exportTransactionsCsvForMember(db, a.member.id),
       headers: {
         "Content-Type": "text/csv; charset=utf-8",
         "Content-Disposition": `attachment; filename="transactions-${todayIST()}.csv"`,
@@ -7731,9 +7884,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       },
     };
   }
-  router.get("/portfolio/holdings.csv", (ctx) => { requireAssets(); auth(ctx); return csvDownload("holdings", exportHoldingsCsv(db)); });
-  router.get("/portfolio/lots.csv", (ctx) => { requireAssets(); auth(ctx); return csvDownload("lots", exportLotsCsv(db)); });
-  router.get("/portfolio/prices.csv", (ctx) => { requireAssets(); auth(ctx); return csvDownload("prices", exportPriceHistoryCsv(db)); });
+  // 15 · Each of these is the reader's, like the page it downloads.
+  router.get("/portfolio/holdings.csv", (ctx) => {
+    requireAssets(); auth(ctx);
+    return csvDownload("holdings", exportHoldingsCsv(db, { viewerMemberId: viewer(ctx) }));
+  });
+  router.get("/portfolio/lots.csv", (ctx) => {
+    requireAssets(); auth(ctx);
+    return csvDownload("lots", exportLotsCsv(db, { viewerMemberId: viewer(ctx) }));
+  });
+  router.get("/portfolio/prices.csv", (ctx) => {
+    requireAssets(); auth(ctx);
+    const hideInstruments = memberScope(db, viewer(ctx)).instruments;
+    return csvDownload("prices", exportPriceHistoryCsv(db, { hideInstruments }));
+  });
   router.get("/net-worth.csv", (ctx) => { requireAssets(); auth(ctx); return csvDownload("net-worth", exportNetWorthCsv(db)); });
 
   /**
@@ -7830,13 +7994,34 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    * serve a request at all — which is answered by the database opening, since
    * nothing works without it.
    */
-  router.get("/healthz", () => {
+  router.get("/healthz", (ctx) => {
+    /*
+     * 15 · Public, so it says only whether this instance is alive. It used to
+     * hand every passer-by the whole diagnosis: how many transactions and
+     * events the household has, how many items wait in review, which backups
+     * are missing and whether a development-login bypass is in the build — a
+     * map of the instance for anyone who asked. A monitor (and the Fly and
+     * Docker checks) needs one bit; the operator reads the rest on /health, or
+     * here with a session or an API token.
+     *
+     * The bit is whether the database answers, read directly rather than from
+     * the checks, so nothing recorded in the past can fail it.
+     */
+    let canServe = true;
+    try {
+      queryOne(db, `SELECT 1 FROM members LIMIT 1`);
+    } catch {
+      canServe = false;
+    }
+    if (!ctx.locals.auth) {
+      return {
+        status: canServe ? 200 : 503,
+        json: { status: canServe ? "ok" : "unavailable", serving: canServe, version: "0.1.0" },
+      };
+    }
+
     const groups = healthGroups();
     const overall = overallState(groups);
-
-    const canServe = groups
-      .find((g) => g.name === "Data")?.checks
-      .find((c) => c.name === "Database")?.state !== "failed";
 
     return {
       status: canServe ? 200 : 503,

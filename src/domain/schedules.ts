@@ -8,6 +8,7 @@
  * instruction fires.
  */
 
+import { memberScope } from "./member-scope.ts";
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
@@ -405,12 +406,28 @@ export function setScheduleSplits(
   });
 }
 
-export function listSchedules(db: DB, opts: { includeDisabled?: boolean } = {}): Schedule[] {
-  return queryAll<Schedule>(
+export function listSchedules(
+  db: DB,
+  opts: {
+    includeDisabled?: boolean;
+    /**
+     * 15 · Who is looking. A schedule posting into somebody's private account,
+     * or filing into their private envelope, is theirs: the schedules screen
+     * listed Ravi's "Snorlax Secret Subscription" (₹777 a month, from his
+     * private account) to Priya among the household's bills. Omitted means
+     * every schedule, which is what the engine and the scheduler want.
+     */
+    viewerMemberId?: string | null;
+  } = {},
+): Schedule[] {
+  const rows = queryAll<Schedule>(
     db,
     `SELECT * FROM schedules ${opts.includeDisabled ? "" : "WHERE enabled = 1"}
       ORDER BY next_due IS NULL, next_due`,
   );
+  if (opts.viewerMemberId === undefined) return rows;
+  const hidden = memberScope(db, opts.viewerMemberId).schedules;
+  return rows.filter((row) => !hidden.has(row.id));
 }
 
 /**
@@ -639,19 +656,28 @@ export interface DetectedSchedule {
  * same reasoning as `04` §7: explainable, needs no training data, and more
  * accurate at this scale.
  */
-export function detectSchedules(db: DB, today = todayIST()): DetectedSchedule[] {
+export function detectSchedules(
+  db: DB, today = todayIST(),
+  /*
+   * 15 · A suggestion is made of transactions, and names their payee: "Looks
+   * like Grimalkin Therapy Clinic every month — ₹999" was offered to Priya from
+   * four payments on Ravi's private account. Only what the viewer can see.
+   */
+  viewerMemberId?: string | null,
+): DetectedSchedule[] {
+  const hidden = viewerMemberId === undefined ? null : memberScope(db, viewerMemberId).transactions;
   const rows = queryAll<{
-    payee_id: string; payee: string; account_id: string; category_id: string | null;
+    id: string; payee_id: string; payee: string; account_id: string; category_id: string | null;
     date: string; amount: number;
   }>(
     db,
-    `SELECT t.payee_id, p.name AS payee, t.account_id, t.category_id, t.date, t.amount
+    `SELECT t.id, t.payee_id, p.name AS payee, t.account_id, t.category_id, t.date, t.amount
        FROM transactions t JOIN payees p ON p.id = t.payee_id
       WHERE t.deleted_at IS NULL AND t.transfer_pair_id IS NULL
         AND t.payee_id IS NOT NULL AND t.date >= ?
       ORDER BY t.payee_id, t.date`,
     addDays(today, -400),
-  );
+  ).filter((row) => !hidden?.has(row.id));
 
   const byPayee = new Map<string, typeof rows>();
   for (const row of rows) {
@@ -661,7 +687,7 @@ export function detectSchedules(db: DB, today = todayIST()): DetectedSchedule[] 
   }
 
   const existing = new Set(
-    listSchedules(db, { includeDisabled: true }).map((s) => s.payee_id).filter(Boolean),
+    listSchedules(db, { includeDisabled: true, viewerMemberId }).map((s) => s.payee_id).filter(Boolean),
   );
 
   const detected: DetectedSchedule[] = [];
@@ -793,7 +819,7 @@ export function projectCashflow(
   const end = addDays(today, horizon);
 
   // Confirmed and detected schedules, distinguished (F7.8).
-  for (const schedule of listSchedules(db)) {
+  for (const schedule of listSchedules(db, { viewerMemberId: opts.viewerMemberId })) {
     if (!schedule.next_due || schedule.amount === null) continue;
     // A standing instruction only moves this budget's cash if it comes out of
     // one of its accounts.
@@ -875,8 +901,10 @@ export function projectCashflow(
 }
 
 /** F7.9 · Subscriptions, with what they actually cost per year. */
-export function subscriptions(db: DB): { schedule: Schedule; annualised: Paise }[] {
-  return listSchedules(db)
+export function subscriptions(
+  db: DB, viewerMemberId?: string | null,
+): { schedule: Schedule; annualised: Paise }[] {
+  return listSchedules(db, { viewerMemberId })
     .filter((s) => s.is_subscription === 1 && s.amount !== null)
     .map((s) => ({ schedule: s, annualised: annualise(s.amount!, s.recurrence) }))
     .sort((a, b) => b.annualised - a.annualised);

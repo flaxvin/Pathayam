@@ -98,3 +98,40 @@ describe("naming an account that is not there", () => {
     } finally { await app.close(); }
   });
 });
+
+/*
+ * /healthz is public, and it answered anybody with the whole diagnosis: "12
+ * transactions, 40 events", the review queue, which backups were missing and
+ * whether a development-login bypass was in the build. Signed out, it now says
+ * whether the instance is alive and nothing else.
+ */
+describe("signed out, it is a liveness probe and nothing more", () => {
+  test("three fields, no counts, and still 200 after a recorded failure", async () => {
+    const db = freshDb();
+    seedMember(db, "m-ravi", "Ravi");
+    recordRequestFailure(db, { method: "POST", path: "/add", status: 500, error: new Error("boom") });
+    const app = await startTestApp(db, { memberId: null, config: testConfig({}) });
+    try {
+      const res = await app.get("/healthz");
+      assert.equal(res.status, 200, "a past failure failed the liveness check");
+      const text = await res.text();
+      assert.deepEqual(Object.keys(JSON.parse(text)).sort(), ["serving", "status", "version"], text);
+      assert.doesNotMatch(text, /transactions|events|backup|login|review/i);
+    } finally { await app.close(); }
+  });
+});
+
+/*
+ * Not configured is a deployment state. /auth/google already answered 503 for
+ * it; /gmail/connect answered 500, which reads as the app having broken and
+ * is what a monitor pages somebody for.
+ */
+describe("Google not configured", () => {
+  test("/gmail/connect is 503, like /auth/google, not 500", async () => {
+    const { app } = await appWith();
+    try {
+      assert.equal((await app.get("/gmail/connect")).status, 503);
+      assert.equal((await app.get("/auth/google")).status, 503);
+    } finally { await app.close(); }
+  });
+});

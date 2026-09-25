@@ -225,11 +225,27 @@ export function wantsJson(ctx: RequestContext): boolean {
   return (ctx.req.headers.accept ?? "").includes("application/json");
 }
 
+/**
+ * The address a request came from, for rate limiting and the sign-in record.
+ *
+ * Behind a proxy (`TRUST_PROXY`) the socket is the proxy, so the address is
+ * read from X-Forwarded-For — and only its right-most entry. Each proxy
+ * *appends* the address it received the connection from; everything to the
+ * left of that is whatever the client chose to send. This read the left-most
+ * entry, so `X-Forwarded-For: 203.0.113.<n>` with a fresh <n> on every
+ * request made every sign-in attempt look like a new address: the per-address
+ * limit of 10 a minute never tripped, however many were sent.
+ *
+ * Right-most assumes exactly one trusted hop (Fly's proxy, or one tunnel) in
+ * front of the app, which is the deployment docs/operations.md describes. A
+ * second proxy would make every request look like it came from the first.
+ */
 export function clientIp(ctx: RequestContext, trustProxy: boolean): string {
   if (trustProxy) {
     const forwarded = ctx.req.headers["x-forwarded-for"];
-    const first = Array.isArray(forwarded) ? forwarded[0] : forwarded;
-    if (first) return first.split(",")[0]!.trim();
+    const joined = Array.isArray(forwarded) ? forwarded.join(",") : forwarded;
+    const last = joined?.split(",").map((s) => s.trim()).filter(Boolean).at(-1);
+    if (last) return last;
   }
   return ctx.req.socket.remoteAddress ?? "unknown";
 }

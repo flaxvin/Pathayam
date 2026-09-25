@@ -827,9 +827,23 @@ export function listPayees(db: DB, viewerMemberId?: string | null): Payee[] {
   );
 }
 
-/** The ids of the payees above, for a caller that needs to test one. */
+/**
+ * The ids of the payees above, for a caller that needs to test one — plus the
+ * payees merged into a visible one.
+ *
+ * A merged payee drops out of every list, which is right for choosing a payee
+ * and wrong for deciding whether somebody may see an event about one. The
+ * activity log asks this, and the loser of a merge is exactly the payee a merge
+ * event names: without this, no member could see — or undo — a merge at all.
+ * A merged payee is as visible as the payee it now resolves to.
+ */
 export function visiblePayeeIds(db: DB, viewerMemberId: string | null): Set<string> {
-  return new Set(listPayees(db, viewerMemberId).map((p) => p.id));
+  const visible = new Set(listPayees(db, viewerMemberId).map((p) => p.id));
+  const merged = queryAll<{ id: string; merged_into_id: string }>(
+    db, `SELECT id, merged_into_id FROM payees WHERE merged_into_id IS NOT NULL`,
+  );
+  for (const m of merged) if (visible.has(m.merged_into_id)) visible.add(m.id);
+  return visible;
 }
 
 export function getPayee(db: DB, id: string): Payee | null {

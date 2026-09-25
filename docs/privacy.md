@@ -29,6 +29,11 @@ A private entity is excluded from:
 - payee lists, where a payee has only ever been seen on invisible accounts;
 - **totals**, including net worth, so nothing is recoverable by subtraction.
 
+A net-worth snapshot is one shared row per date, read back by every member (the
+history, the change line, `/net-worth.csv`), so it is taken as nobody in
+particular: household accounts only, nothing held privately. Each member's live
+statement still counts their own private accounts; the history does not.
+
 Categories and groups are scoped by `budget_id`: a member sees envelopes in the
 household budget and in their own.
 
@@ -51,34 +56,63 @@ viewer may see, then pass the result to the domain:
 | `requireVisibleCategory` | category id | the category's budget |
 | `requireVisibleGroup` | group id | the group's budget |
 | `requireVisibleAttachment` | attachment id | the attachment's transaction |
+| `requireVisibleSchedule`, `requireVisibleGoal`, `requireVisibleHolding`, `requireVisibleInstrument` | schedule, goal, holding, instrument id | `memberScope` — what the thing hangs off |
+| `requireVisibleEvent` | event id (undo) | `eventVisibility` |
+| `requireVisibleRule`, `requireVisibleImportProfile` | rule, profile id | the envelope / account it names |
+
+A form field naming an account (`/add`, `/transfer`, `/schedules/new`,
+`/portfolio/add`, a loan's repayment account, a sale's destination) goes
+through `requireVisibleAccount` too, so a private account id and a made-up one
+both answer 404 — a 422 for one and not the other would confirm which exists.
+
+`src/domain/member-scope.ts` computes, once per request, every id a member may
+not see: budgets and accounts at the root, and every transaction, schedule,
+goal, card, holding, lot, instrument and loan by what it hangs off. A new kind
+of private thing belongs there, so the guards, the activity log and the export
+learn it at once.
 
 Domain and query functions that can return data for a viewer take
 `viewerMemberId` and apply the predicate in SQL: `listAccounts`,
-`listCategories`, `queryTransactions`, `netWorthStatement`, `projectCashflow`,
-`spendingInsights`, `listPayees`, `buildBudgetView`, `eventVisibility` and
-others.
+`listCategories`, `queryTransactions`, `netWorthStatement`, `assetAllocation`,
+`casDestinations`, `exportHoldingsCsv`, `exportLotsCsv`, `projectCashflow`,
+`spendingInsights`, `listPayees`, `buildBudgetView`, `digestFor`,
+`detectSchedules`, `subscriptions`, `eventVisibility` and others.
+
+### Export and backup
+
+`/export.json` and `/export.csv` are a **member's export**
+(`src/ops/member-export.ts`): what that member can read on screen, with control
+totals recomputed over what is in the file. The **operator's backup**
+(`createBackup`, `exportEverything`, restore) stays whole — every member's
+private budget included — and runs only on the server, never through a
+member's browser.
 
 ### Event visibility
 
-`eventVisibility(db, viewerMemberId)` returns a predicate over logged events. An
-event is readable when the entity it concerns is:
+`eventVisibility(db, viewerMemberId)` returns a predicate over logged events.
+An event is hidden when its entity id, or any id recorded in its before/after
+state, is one `memberScope` hides — so a deleted private schedule's delete
+event stays private too. `assignment`, `target` and `transfer` are judged by the
+category or legs their id names; `payee` by whether the payee has been seen on a
+visible account.
 
-| Entity | Test |
-|---|---|
-| `account` | account predicate |
-| `category`, `goal` | category's budget is visible |
-| `loan`, `family-loan` | holder predicate |
-| `transaction` | its account and its category |
-| `assignment` | the category in `month:categoryId` |
-| `target` | the category |
-| `transfer` | both legs' accounts |
-| `payee` | the payee has been seen on a visible account |
-| `holding`, `asset` | the holding's account |
-| anything else | visible — a household setting, a member, a rule |
+Kinds that are the household's own business (settings, members, sessions,
+backups, the price feed, the shared net-worth snapshot and similar) are listed
+explicitly and shown to everyone. **Any other kind is hidden** until it is
+declared household business — the default is deny.
+
+Undo (`/activity/:id/undo`) resolves the event through the same predicate, so
+another member's private change answers 404.
+
+### Budget-scoped moves
+
+A category group and the envelopes in it always share a `budget_id`. Deleting a
+goal hands its envelope back into a "Savings" group of the goal's own budget,
+never the household's.
 
 ## Automated checks
 
-Three test files enforce the model, each covering a different failure mode:
+These test files enforce the model, each covering a different failure mode:
 
 | File | Method |
 |---|---|
@@ -86,6 +120,7 @@ Three test files enforce the model, each covering a different failure mode:
 | `src/web/viewer-required.test.ts` | Reads every function accepting `viewerMemberId` from the source, and requires every call in `app.ts` to pass one or to be listed with a written reason. |
 | `src/web/privacy-by-id.test.ts` | Aims every parameterised route at another member's private account, transaction, category, group and attachment, and requires 404. |
 | `src/web/privacy-by-url.test.ts` | Per-loan and per-arrangement routes, including that a private loan stays out of the net-worth total. |
+| `src/web/member-privacy.test.ts` | Builds one member's private budget with one of everything; as another member, aims every id-addressed route in the router at each of those ids (none may answer 200/303), and checks that undo, the exports, the digest, schedules, allocation, CAS, portfolio CSVs and net-worth history carry none of its names or balances. |
 
 ## Commitments
 

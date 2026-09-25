@@ -160,7 +160,7 @@ Everything the app reads, and nothing it does not:
 | `ATTACHMENT_DIR` | `$DATA_DIR/attachments` | |
 | `SESSION_DAYS` | `30` | Session idle timeout. |
 | `LOG_LEVEL` | `info` in production | No financial value is ever logged. |
-| `TRUST_PROXY` | `false` | Read the client IP and forwarded host from proxy headers. Set it behind a tunnel. |
+| `TRUST_PROXY` | `false` | Read the client IP and forwarded host from proxy headers. Set it behind a tunnel. The IP is the right-most `X-Forwarded-For` entry, so exactly one proxy hop is assumed (see security.md). |
 | `HEARTBEAT_URL` | — | **Set this.** Pinged on a *successful* verified restore. |
 | `BACKUP_WEBHOOK_URL` | — | Alerted when a backup or its verification fails. |
 | `ALPHA_VANTAGE_KEY` | — | Only for direct equities; mutual funds use a keyless provider. |
@@ -225,5 +225,8 @@ know.
 
 `/health` reports the last backup and its verification, the schema version,
 whether the development bypass is absent, stale price and valuation inputs, and
-the state of any Gmail grant. `/healthz` is the machine-readable version and the
-container's health check.
+the state of any Gmail grant. `/healthz` is the container's health check: signed
+out it answers only `{status, serving, version}` — 200 while the database
+answers, 503 when it does not, never failed by anything recorded in the past.
+With a session or an API token it adds every check, the machine-readable
+version of `/health`.

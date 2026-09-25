@@ -555,11 +555,16 @@ export function writeExport(db: DB, path: string): { path: string; bytes: number
   return { path, bytes: Buffer.byteLength(payload) };
 }
 
-/** F15.3 · CSV of transactions, including the raw imported values. */
-export function exportTransactionsCsv(db: DB): string {
+/**
+ * F15.3 · CSV of transactions, including the raw imported values.
+ *
+ * Whole-household unless `keep` narrows it — a member's download goes through
+ * `exportTransactionsCsvForMember` in member-export.ts, which does.
+ */
+export function exportTransactionsCsv(db: DB, keep: (transactionId: string) => boolean = () => true): string {
   const rows = queryAll<Record<string, string | number | null>>(
     db,
-    `SELECT t.date, a.name AS account, p.name AS payee, c.name AS category,
+    `SELECT t.id, t.date, a.name AS account, p.name AS payee, c.name AS category,
             t.amount, t.memo, t.cleared, m.name AS owner, t.source,
             t.raw_payee, t.raw_amount, t.raw_date, t.raw_narration
        FROM transactions t
@@ -569,7 +574,7 @@ export function exportTransactionsCsv(db: DB): string {
        LEFT JOIN members m ON m.id = t.owner_member_id
       WHERE t.deleted_at IS NULL
       ORDER BY t.date, t.created_at`,
-  );
+  ).filter((row) => keep(String(row.id)));
 
   const headers = [
     "date", "account", "payee", "category", "amount", "memo", "cleared", "owner",
