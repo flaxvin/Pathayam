@@ -186,6 +186,16 @@ Compare `deleteCategory`, which insists the balance is already zero and only
 remaps transactions. Merge is for when the balance is the thing that has to
 survive.
 
+**Deleting an envelope with history needs somewhere for that history to go.**
+Delete removes the envelope's assignments, and the engine stops reading a
+deleted envelope, so spending left filed to it was spending nobody counted:
+₹1,000 assigned and ₹1,000 spent (balance ₹0) handed the ₹1,000 back to Ready
+to Assign while the bank still showed it gone. So delete is refused while any
+transaction or split line — trashed ones included — is filed to the envelope,
+unless a remap target is given; the Categories page points to Merge instead.
+Nothing new can be filed to a deleted envelope either (a schedule or rule saved
+before the delete is refused rather than filed into nothing).
+
 ## Splitting a transaction
 
 One payment, more than one envelope. A supermarket bill is half groceries and
