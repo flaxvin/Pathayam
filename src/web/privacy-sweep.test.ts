@@ -37,6 +37,7 @@ import { createLoan } from "../domain/loans.ts";
 import { createFamilyLoan, recordAdvance } from "../domain/family-loans.ts";
 import { ensurePersonalBudget } from "../domain/budgets.ts";
 import { monthOf } from "../core/dates.ts";
+import { reviewCount } from "./viewmodel.ts";
 
 const RAVI = "m-ravi";
 const PRIYA = "m-priya";
@@ -53,10 +54,14 @@ const SECRETS = {
   payee: "Vantablack Merchant",
   loan: "Xylophone Finance",
   arrangement: "Pennyfarthing Cousin",
+  unfiled: "Okapi Unfiled Payee",
+  statementLine: "Narwhal Statement Narration",
+  statementFile: "Axolotl-statement.pdf",
 } as const;
 
 let app: TestApp;
 let paths: string[];
+let visibleOfHisId: string;
 
 before(async () => {
   const db = freshDb();
@@ -106,6 +111,58 @@ before(async () => {
   recordAdvance(db, ravi, {
     loanId: arrangement.id, amount: rupees(5_000) as Paise, date: todayIST(),
     fromAccountId: secretAccount.id,
+  });
+
+  /*
+   * The review queue's own lists. Each read the whole household: an unfiled
+   * expense, a reimbursable one, a statement line waiting for approval and a
+   * broken reconciliation on Ravi's private account were all on Priya's
+   * /review, by payee, narration and account name.
+   */
+  execute(
+    db,
+    `INSERT INTO transactions (id,account_id,date,amount,payee_id,category_id,is_split,cleared,
+       owner_member_id,reimbursable,source,created_at,created_by,updated_at)
+     VALUES ('tx-secret-unfiled',?,?,?,NULL,NULL,0,0,?,1,'manual',?,?,?)`,
+    secretAccount.id, todayIST(), -rupees(777), RAVI, nowIST(), RAVI, nowIST(),
+  );
+  execute(db, `INSERT INTO payees (id,name,created_at) VALUES ('payee-secret-unfiled',?,?)`,
+    SECRETS.unfiled, nowIST());
+  execute(db, `UPDATE transactions SET payee_id = 'payee-secret-unfiled' WHERE id = 'tx-secret-unfiled'`);
+  execute(
+    db,
+    `INSERT INTO import_batches (id,source,adapter,account_id,file_name,member_id,created_at)
+     VALUES ('batch-secret','file','csv',?,?,?,?)`,
+    secretAccount.id, SECRETS.statementFile, RAVI, nowIST(),
+  );
+  execute(
+    db,
+    `INSERT INTO staged_transactions (id,batch_id,account_id,date,amount,raw_narration,status,created_at)
+     VALUES ('staged-secret','batch-secret',?,?,?,?,'pending',?)`,
+    secretAccount.id, todayIST(), -rupees(333), SECRETS.statementLine, nowIST(),
+  );
+  execute(
+    db,
+    `INSERT INTO reconciliations (id,account_id,as_of,bank_balance,app_balance,created_at,
+       created_by,broken_at,broken_reason)
+     VALUES ('recon-secret',?,?,0,0,?,?,?,'edited')`,
+    secretAccount.id, todayIST(), nowIST(), RAVI, nowIST(),
+  );
+
+  /*
+   * An account of Ravi's the household may see, in his own budget, whose
+   * spending is filed to his private envelope. The account is visible; the
+   * envelope is not, and memberScope hides every transaction filed to it.
+   */
+  const visibleOfHis = createAccount(db, ravi, {
+    name: "Ravi's shared savings", kind: "budget", subtype: "savings",
+    openingDate: "2026-01-01", openingBalance: rupees(50_000),
+    holderMemberId: RAVI, budgetId: his.id,
+  });
+  visibleOfHisId = visibleOfHis.id;
+  createTransaction(db, ravi, {
+    accountId: visibleOfHis.id, amount: -rupees(1_234) as Paise, date: todayIST(),
+    categoryId: secretEnvelope.id, payeeName: "Cafe", cleared: true, ownerMemberId: RAVI,
   });
 
   // A rule about the private envelope, which is how the learning feature leaked.
@@ -179,6 +236,45 @@ describe("15 · nobody sees anybody else's anything, on any screen", () => {
         assert.ok(!body.includes(secret), `${path} carries "${secret}" off the machine`);
       }
     }
+  });
+});
+
+describe("15 · the places a sweep of plain paths cannot reach", () => {
+  test("a visible account's register leaves out rows filed to a private envelope", async () => {
+    const res = await app.get(`/accounts/${visibleOfHisId}`);
+    assert.equal(res.status, 200);
+    const body = await res.text();
+    assert.ok(!body.includes(SECRETS.envelope), "the register names Ravi's private envelope");
+    // Every row it does list opens: nothing links to a transaction page that 404s.
+    for (const [, id] of body.matchAll(/href="\/transaction\/([^"]+)"/g)) {
+      assert.equal((await app.get(`/transaction/${id}`)).status, 200, `row ${id} links to a 404`);
+    }
+    // Ravi still sees his own row, envelope and all.
+    const his = await startTestApp(app.db, { memberId: RAVI });
+    try {
+      const own = await (await his.get(`/accounts/${visibleOfHisId}`)).text();
+      assert.ok(own.includes(SECRETS.envelope), "the register hides Ravi's own envelope from Ravi");
+      assert.deepEqual(his.failures, []);
+    } finally {
+      await his.close();
+    }
+  });
+
+  test("another member's statement line cannot be approved, dismissed or merged", async () => {
+    for (const verb of ["approve", "reject", "merge"]) {
+      const res = await app.post(`/review/${verb}`, { staged_id: "staged-secret" });
+      assert.equal(res.status, 404, `/review/${verb} acted on Ravi's private statement line`);
+    }
+    const row = app.db.prepare(`SELECT status FROM staged_transactions WHERE id = 'staged-secret'`)
+      .get() as { status: string };
+    assert.equal(row.status, "pending");
+  });
+
+  test("the badge counts what the review page shows the same reader", async () => {
+    const mine = reviewCount(app.db, RAVI);
+    const hers = reviewCount(app.db, PRIYA);
+    // Ravi's pending statement line, unfiled expense and broken checkpoint.
+    assert.ok(mine - hers >= 3, `Priya's badge ${hers} counts Ravi's queue (his: ${mine})`);
   });
 });
 
