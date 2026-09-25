@@ -29,6 +29,7 @@ import {
   type Schedule, type InterestModel, type LifetimeMetrics,
 } from "../loans/amortisation.ts";
 import { householdBudgetId } from "./budgets.ts";
+import { dependantsOf } from "./dependants.ts";
 
 export type LoanType =
   | "home" | "home-under-construction" | "car" | "personal" | "gold"
@@ -1338,9 +1339,58 @@ export function closeLoan(
 registerUndoHandler("loan", (db, event) => {
   if (event.action === "create") {
     const loan = event.after as Loan;
-    execute(db, `DELETE FROM loan_rates WHERE loan_id = ?`, event.entityId!);
-    execute(db, `DELETE FROM categories WHERE id = (SELECT payment_category_id FROM loans WHERE id = ?)`, event.entityId!);
-    execute(db, `DELETE FROM loans WHERE id = ?`, event.entityId!);
+    const id = event.entityId!;
+    const category = queryOne<{ payment_category_id: string | null }>(
+      db, `SELECT payment_category_id FROM loans WHERE id = ?`, id,
+    )?.payment_category_id ?? null;
+
+    /*
+     * D10 · Removing a loan removes its account and its payment envelope, and
+     * anything since that points at any of the three has to stop it: the EMI
+     * plan's instalments, a disbursement, money assigned to the envelope. The
+     * old handler also deleted the envelope before the loan that names it and
+     * left the envelope's target behind, so it hit a foreign key every time —
+     * a 500, where the household needed a sentence.
+     */
+    const dependants = [
+      ...dependantsOf(db, "loans", id, {
+        own: ["loan_rates.loan_id"],
+        words: {
+          loan_disbursements: "a disbursement", loan_payments: "payments",
+          loan_statements: "statements",
+        },
+      }),
+      ...dependantsOf(db, "accounts", loan.account_id, {
+        own: ["loans.account_id", "categories.payment_account_id", "cards.account_id"],
+        words: { transactions: "transactions", schedules: "schedules" },
+      }),
+      ...(category
+        ? dependantsOf(db, "categories", category, {
+            own: ["loans.payment_category_id", "targets.category_id", "assignments.category_id"],
+            words: { transactions: "spending filed to its envelope", schedules: "schedules" },
+          })
+        : []),
+    ];
+    const assigned = category
+      ? queryOne<{ n: number }>(
+          db, `SELECT COUNT(*) AS n FROM assignments WHERE category_id = ? AND amount <> 0`, category,
+        )?.n ?? 0
+      : 0;
+    if (assigned > 0) dependants.push("money assigned to its envelope");
+    if (dependants.length > 0) {
+      throw new Refusal(
+        `This loan already has ${[...new Set(dependants)].join(", ")}, so removing it would ` +
+        `leave those pointing at nothing. Close the loan instead — its history stays.`,
+      );
+    }
+
+    execute(db, `DELETE FROM loan_rates WHERE loan_id = ?`, id);
+    execute(db, `DELETE FROM loans WHERE id = ?`, id);
+    if (category) {
+      execute(db, `DELETE FROM assignments WHERE category_id = ?`, category);
+      execute(db, `DELETE FROM targets WHERE category_id = ?`, category);
+      execute(db, `DELETE FROM categories WHERE id = ?`, category);
+    }
     execute(db, `DELETE FROM accounts WHERE id = ?`, loan.account_id);
     return `Removed the loan that was added`;
   }

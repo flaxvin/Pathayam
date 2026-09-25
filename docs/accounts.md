@@ -172,6 +172,13 @@ schema's own foreign keys, so a table added later cannot be forgotten. Undoing a
 account **edit** restores every column an edit can change, including holder,
 visibility, budget and sort order.
 
+The same rule covers undoing the creation of a **group, an envelope, a loan or a
+payee** (`src/domain/dependants.ts` reads the foreign keys for any table). A
+group has to be empty — a deleted envelope in it with nothing behind it goes
+with it; an envelope must hold no money and have nothing filed to it; a loan's
+account, envelope, disbursements and instalments must be untouched; a payee must
+be named by nothing. Each used to reach the household as a raw foreign-key 500.
+
 Undoing a **payee merge** moves back the transactions and aliases the merge
 moved, provided they still sit with the payee they were merged into.
 
