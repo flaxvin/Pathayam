@@ -10,6 +10,13 @@ Gmail ┘                                                       → merge
                                                               → reject
 ```
 
+Each row keeps what the source actually wrote — `raw_date`, `raw_amount`,
+`raw_narration` — from staging through approval, and a merge copies them onto
+the transaction it merges into where that transaction has none. Raw is the
+text as printed (`03/08/26`, `1,450.50 Dr`, `INR 600.00`,
+`28-08-26, 00:01:28 IST`), never the parsed date or the signed rupees. An alert
+dated only by the message's received date has no raw date, and stores NULL.
+
 ## CSV
 
 `POST /import` with a pasted or uploaded delimited file.

@@ -37,8 +37,13 @@ export interface AlertRecord {
   /** Signed paise: negative for a debit/spend, positive for a credit. */
   amount: Paise;
   date: IsoDate;
-  /** The full timestamp text, kept verbatim for the raw narration. */
+  /**
+   * The date and time as the alert wrote them — the raw date (P4 / I1). Empty
+   * when the alert carries no date and the message's received date stood in.
+   */
   when: string;
+  /** The amount as the alert wrote it, "INR 600.00" — the raw amount. */
+  rawAmount: string;
   /** Last four of the account or card the alert names, for F2.9 matching. */
   accountLast4: string | null;
   cardLast4: string | null;
@@ -157,7 +162,7 @@ const axisAccount: AlertProfile = {
 
     return {
       amount: (sign * amount) as Paise,
-      date, when,
+      date, when, rawAmount: amountText,
       accountLast4: last4(account),
       cardLast4: null,
       narration,
@@ -186,7 +191,7 @@ const axisCard: AlertProfile = {
 
     return {
       amount: (-amount) as Paise, // a card alert is always a spend
-      date, when,
+      date, when, rawAmount: amountText,
       accountLast4: null,
       cardLast4: last4(card),
       narration: merchant,
@@ -216,7 +221,7 @@ const yesCard: AlertProfile = {
     const sign = m[2]!.toLowerCase() === "credited" ? 1 : -1;
     return {
       amount: (sign * amount) as Paise,
-      date, when: `${m[5]} ${m[6]!.trim()}`,
+      date, when: `${m[5]} ${m[6]!.trim()}`, rawAmount: m[1]!,
       accountLast4: null,
       cardLast4: m[3]!,
       narration: m[4]!.trim(),
@@ -243,13 +248,15 @@ const indusind: AlertProfile = {
 
     const sign = m[2]!.toLowerCase() === "credited" ? 1 : -1;
     const date = parseAlertDate(subject) ?? dateFromReceived(body);
+    const dateText = ALERT_DATE_TEXT.exec(subject)?.[0] ?? ALERT_DATE_TEXT.exec(body)?.[0] ?? "";
     // "The balance available in your Account is INR 171.95" — the same
     // reconciliation hint the other banks give, and it was being dropped.
     const bal = /balance available in your Account is\s*(INR\s*[\d,]+(?:\.\d{1,2})?)/i.exec(flat);
     return {
       amount: (sign * amount) as Paise,
       date: date ?? ("" as IsoDate),
-      when: "",
+      when: date ? dateText : "",
+      rawAmount: m[3]!,
       accountLast4: m[1]!.slice(-4),
       cardLast4: null,
       narration: m[4]!.trim(),
@@ -283,7 +290,7 @@ const axisSentence: AlertProfile = {
     const sign = m[2]!.toLowerCase() === "credited" ? 1 : -1;
     return {
       amount: (sign * amount) as Paise,
-      date, when: m[4]!,
+      date, when: m[4]!, rawAmount: m[3]!,
       accountLast4: m[1]!,
       cardLast4: null,
       narration: m[5]!.trim(),
@@ -316,7 +323,7 @@ const sbiCard: AlertProfile = {
     const sign = /credited|refunded/i.test(m[2]!) ? 1 : -1;
     return {
       amount: (sign * amount) as Paise,
-      date, when: m[5]!,
+      date, when: m[5]!, rawAmount: m[1]!,
       accountLast4: null,
       cardLast4: m[3]!,
       narration: m[4]!.trim(),
@@ -368,7 +375,10 @@ function extractReference(narration: string): string | null {
   return m ? m[1]! : null;
 }
 
+/** A date written anywhere in an alert's subject or body, as text. */
+const ALERT_DATE_TEXT = /\b(\d{1,2}[-/][A-Za-z0-9]{2,9}[-/]\d{2,4})\b/;
+
 function dateFromReceived(body: string): IsoDate | null {
-  const m = /\b(\d{1,2}[-/][A-Za-z0-9]{2,9}[-/]\d{2,4})\b/.exec(body);
+  const m = ALERT_DATE_TEXT.exec(body);
   return m ? parseAlertDate(m[1]!) : null;
 }
