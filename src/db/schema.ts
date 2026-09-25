@@ -2285,4 +2285,83 @@ UPDATE schedule_splits
  );
 `,
   },
+  {
+    name: "0050-each-budget-holds-its-own-money-for-next-month",
+    sql: `
+--------------------------------------------------------------------------------
+-- 15 · Hold for next month, per budget
+--------------------------------------------------------------------------------
+-- The table was keyed by month alone, and setHeld wrote a NULL budget while
+-- the budget-scoped loader filtered on budget_id - so holding money did nothing
+-- on any budget page, and two budgets could never each hold something in the
+-- same month. Keyed by (month, budget) now; a row with no budget was the
+-- household's, and becomes so explicitly.
+CREATE TABLE held_for_next_month_new (
+  month      TEXT NOT NULL,
+  budget_id  TEXT NOT NULL REFERENCES budgets(id),
+  amount     INTEGER NOT NULL DEFAULT 0,
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (month, budget_id)
+);
+INSERT INTO held_for_next_month_new (month, budget_id, amount, updated_at)
+SELECT month,
+       COALESCE(budget_id, (SELECT id FROM budgets WHERE kind = 'household' LIMIT 1), 'budget-household'),
+       amount, updated_at
+  FROM held_for_next_month;
+DROP TABLE held_for_next_month;
+ALTER TABLE held_for_next_month_new RENAME TO held_for_next_month;
+`,
+  },
+  {
+    name: "0051-moving-an-account-between-budgets-invalidates-the-rollup",
+    sql: `
+--------------------------------------------------------------------------------
+-- B74 · Sealed months that stopped matching the ledger
+--------------------------------------------------------------------------------
+-- The rollup cache is dropped when an account's kind, opening balance or date
+-- changes - but not when it moves to another budget, which changes every
+-- budget-scoped figure it touches. Ravi's sealed months kept reading ₹50,000 of
+-- Ready to Assign against a live ₹50,400. The code now invalidates on a move
+-- itself; the trigger watches budget_id too, so a write from anywhere else
+-- cannot reintroduce it.
+--
+-- The cache is rebuilt from scratch here as well: sealed months hold facts
+-- computed by the card-transfer and cross-budget SQL this release corrects.
+DROP TRIGGER IF EXISTS trg_rollup_account_update;
+CREATE TRIGGER trg_rollup_account_update AFTER UPDATE ON accounts
+WHEN OLD.kind <> NEW.kind
+  OR OLD.opening_balance <> NEW.opening_balance
+  OR OLD.opening_date <> NEW.opening_date
+  OR OLD.budget_id IS NOT NEW.budget_id
+BEGIN
+  DELETE FROM month_rollups;
+  DELETE FROM month_rollup_state;
+END;
+DELETE FROM month_rollups;
+DELETE FROM month_rollup_state;
+`,
+  },
+  {
+    name: "0052-an-envelope-with-spending-behind-it-is-not-deleted",
+    sql: `
+--------------------------------------------------------------------------------
+-- F3 · Envelopes deleted while spending was still filed to them
+--------------------------------------------------------------------------------
+-- Deleting an envelope without choosing where its spending should go removed
+-- its assignments and left its transactions pointing at it. Assign ₹1,000,
+-- spend ₹1,000, delete: Ready to Assign rose by ₹1,000 that did not exist, and
+-- the identity stayed out by that much for good. Deleting one now requires a
+-- remap (or Merge). The ones already deleted come back hidden, so the identity
+-- holds again; they show overspent, and merging them into the right envelope
+-- settles them.
+UPDATE categories
+   SET deleted_at = NULL,
+       hidden_at = COALESCE(hidden_at, strftime('%Y-%m-%dT%H:%M:%f', 'now', '+330 minutes') || '+05:30')
+ WHERE deleted_at IS NOT NULL AND payment_account_id IS NULL
+   AND (EXISTS (SELECT 1 FROM transactions t WHERE t.category_id = categories.id)
+     OR EXISTS (SELECT 1 FROM transaction_splits s WHERE s.category_id = categories.id));
+DELETE FROM month_rollups;
+DELETE FROM month_rollup_state;
+`,
+  },
 ];

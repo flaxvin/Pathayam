@@ -25,29 +25,14 @@ import { loadEngineInput } from "./repository.ts";
 import { computeBudget } from "./engine.ts";
 import { freshHousehold, identityProblems, RAVI } from "./identity.test-data.ts";
 import { startTestApp } from "../web/harness.test-data.ts";
+import { migrate } from "../db/db.ts";
+import { MIGRATIONS } from "../db/schema.ts";
 
 const actor: Actor = { memberId: RAVI, source: "ui" };
 const HH = "budget-household";
 
-const HELD_BY_BUDGET_MIGRATION = `
-CREATE TABLE held_for_next_month_new (
-  month      TEXT NOT NULL,
-  budget_id  TEXT NOT NULL REFERENCES budgets(id),
-  amount     INTEGER NOT NULL DEFAULT 0,
-  updated_at TEXT NOT NULL,
-  PRIMARY KEY (month, budget_id)
-);
-INSERT INTO held_for_next_month_new (month, budget_id, amount, updated_at)
-  SELECT month, COALESCE(budget_id, (SELECT id FROM budgets WHERE kind = 'household')),
-         amount, updated_at
-    FROM held_for_next_month;
-DROP TABLE held_for_next_month;
-ALTER TABLE held_for_next_month_new RENAME TO held_for_next_month;
-`;
-
-function setup(migrated: boolean) {
+function setup() {
   const db = freshHousehold();
-  if (migrated) db.exec(HELD_BY_BUDGET_MIGRATION);
   const ravi = ensurePersonalBudget(db, RAVI, "Ravi").id;
   startPersonalBudget(db, actor, ravi);
   createAccount(db, actor, {
@@ -66,44 +51,31 @@ function held(db: DB, month: string, budgetId?: string) {
   return { held: state.heldForNextMonth, rta: state.readyToAssign };
 }
 
-for (const migrated of [false, true]) {
-  describe(`D4 · held money is the budget's own (${migrated ? "after" : "before"} the rebuild)`, () => {
-    test("the household's ₹500 leaves the household's Ready to Assign", () => {
-      const { db } = setup(migrated);
-      const before = held(db, "2025-02", HH).rta;
-      setHeld(db, actor, "2025-02", 50_000);
-      assert.deepEqual(held(db, "2025-02", HH), { held: 50_000, rta: before - 50_000 });
-      assert.equal(getHeld(db, "2025-02"), 50_000);
-      assert.deepEqual(identityProblems(db, "2027-03"), []);
-    });
-
-    test("a row the old code left without a budget reads as the household's", () => {
-      const { db } = setup(false);
-      execute(db, `INSERT INTO held_for_next_month (month, amount, updated_at) VALUES (?,?,?)`,
-        "2025-02", 50_000, nowIST());
-      if (migrated) db.exec(HELD_BY_BUDGET_MIGRATION);
-      assert.equal(held(db, "2025-02", HH).held, 50_000);
-      setHeld(db, actor, "2025-02", 20_000);
-      assert.equal(held(db, "2025-02").held, 20_000, "replaced, not added to");
-      assert.deepEqual(identityProblems(db, "2027-03"), []);
-    });
-
-    test("undo puts the budget's own amount back", () => {
-      const { db, ravi } = setup(migrated);
-      setHeld(db, actor, "2025-03", 30_000, ravi);
-      const event = queryOne<{ id: string }>(
-        db, `SELECT id FROM events WHERE entity = 'held' ORDER BY seq DESC LIMIT 1`,
-      )!.id;
-      undoEvent(db, event, actor);
-      assert.equal(getHeld(db, "2025-03", ravi), 0);
-      assert.deepEqual(identityProblems(db, "2027-03"), []);
-    });
+describe("D4 · held money is the budget's own", () => {
+  test("the household's ₹500 leaves the household's Ready to Assign", () => {
+    const { db } = setup();
+    const before = held(db, "2025-02", HH).rta;
+    setHeld(db, actor, "2025-02", 50_000);
+    assert.deepEqual(held(db, "2025-02", HH), { held: 50_000, rta: before - 50_000 });
+    assert.equal(getHeld(db, "2025-02"), 50_000);
+    assert.deepEqual(identityProblems(db, "2027-03"), []);
   });
-}
+
+  test("undo puts the budget's own amount back", () => {
+    const { db, ravi } = setup();
+    setHeld(db, actor, "2025-03", 30_000, ravi);
+    const event = queryOne<{ id: string }>(
+      db, `SELECT id FROM events WHERE entity = 'held' ORDER BY seq DESC LIMIT 1`,
+    )!.id;
+    undoEvent(db, event, actor);
+    assert.equal(getHeld(db, "2025-03", ravi), 0);
+    assert.deepEqual(identityProblems(db, "2027-03"), []);
+  });
+});
 
 describe("D4 · two budgets hold in the same month", () => {
-  test("after the rebuild each keeps its own, and the combined view adds them", () => {
-    const { db, ravi } = setup(true);
+  test("each keeps its own, and the combined view adds them", () => {
+    const { db, ravi } = setup();
     setHeld(db, actor, "2025-02", 50_000);
     setHeld(db, actor, "2025-02", 12_345, ravi);
     assert.equal(held(db, "2025-02", HH).held, 50_000);
@@ -111,12 +83,29 @@ describe("D4 · two budgets hold in the same month", () => {
     assert.equal(held(db, "2025-02").held, 62_345);
     assert.deepEqual(identityProblems(db, "2027-03"), []);
   });
+});
 
-  test("before it, the second is refused with a sentence rather than a key error", () => {
-    const { db, ravi } = setup(false);
-    setHeld(db, actor, "2025-02", 50_000);
-    assert.throws(() => setHeld(db, actor, "2025-02", 12_345, ravi), Refusal);
-    assert.equal(getHeld(db, "2025-02"), 50_000);
+describe("D4 · migration 0050 keeps what the old table held", () => {
+  /*
+   * The old table was keyed by month alone and the old code wrote rows with no
+   * budget. Rebuild that shape, put a row in it, replay 0050 alone.
+   */
+  test("a row with no budget becomes the household's, and reads as held", () => {
+    const { db } = setup();
+    db.exec(`DROP TABLE held_for_next_month;
+      CREATE TABLE held_for_next_month (
+        month TEXT PRIMARY KEY, amount INTEGER NOT NULL DEFAULT 0, updated_at TEXT NOT NULL,
+        budget_id TEXT REFERENCES budgets(id));`);
+    execute(db, `INSERT INTO held_for_next_month (month, amount, updated_at) VALUES (?,?,?)`,
+      "2025-02", 50_000, nowIST());
+    db.exec("PRAGMA user_version = 49");
+    migrate(db, false, 50);
+    db.exec(`PRAGMA user_version = ${MIGRATIONS.length}`);
+
+    assert.equal(held(db, "2025-02", HH).held, 50_000, "the household's held money was lost in the rebuild");
+    setHeld(db, actor, "2025-02", 20_000);
+    assert.equal(held(db, "2025-02").held, 20_000, "replaced, not added to");
+    assert.deepEqual(identityProblems(db, "2027-03"), []);
   });
 });
 
