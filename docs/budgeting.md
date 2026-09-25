@@ -99,6 +99,15 @@ reports the next scheduled income date alongside.
 Ready to Assign and returns it in the next. It appears as its own term in the
 identity.
 
+Each budget holds its own: the Hold page acts on the budget being viewed and
+takes the amount out of *that* budget's Ready to Assign, and the combined view
+adds the budgets' amounts together. (Until this was fixed every hold was written
+with no budget at all, so the budget pages never saw it — "Held ₹500" was
+reported and Ready to Assign did not move.) A row with no budget reads as the
+household's. The table is keyed by `(month, budget_id)`; on a database still
+keyed by month alone, a second budget holding money in a month another already
+holds in is refused until the table is rebuilt.
+
 ## Goals
 
 A goal has a target amount, an optional target date, and one or more envelopes.

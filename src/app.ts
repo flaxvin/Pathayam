@@ -1915,13 +1915,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/hold", (ctx) => {
     const month = monthParam(ctx);
-    const view = buildBudgetView(db, month, undefined, viewer(ctx));
+    // D4 · The budget being looked at holds it, and it is that budget's Ready
+    // to Assign it comes out of — not the sum of everybody's.
+    const scope = budgetParam(ctx);
+    const view = buildBudgetView(db, month, scope, viewer(ctx));
     return render(
       ctx,
       "Hold for next month",
       renderHold({
         month,
-        currentlyHeld: getHeld(db, month),
+        budgetId: scope,
+        currentlyHeld: getHeld(db, month, scope),
         readyToAssign: view.monthState.readyToAssign,
       }),
     );
@@ -1932,7 +1936,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const month = monthParam(ctx);
       const rawAmount = field(ctx.body, "amount") ?? "";
       const amount = rawAmount.trim() === "" ? 0 : amountField(rawAmount);
-      setHeld(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), month, amount);
+      setHeld(
+        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), month, amount,
+        budgetParam(ctx),
+      );
       return {
         redirect: `/?month=${month}`,
         message: amount === 0 ? "Released the held money." : `Held ${formatPaise(amount)} for next month.`,

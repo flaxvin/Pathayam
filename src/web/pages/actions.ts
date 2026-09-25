@@ -567,6 +567,7 @@ export function renderAutoAssignPreview(opts: {
 
 export function renderHold(opts: {
   month: MonthKey;
+  budgetId: string;
   currentlyHeld: Paise;
   readyToAssign: Paise;
 }): SafeHtml {
@@ -577,7 +578,7 @@ export function renderHold(opts: {
       Ready to Assign and appears at the top of next month's.
     </p>
 
-    <form method="post" action="/hold" class="card">
+    <form method="post" action="/hold?budget=${opts.budgetId}" class="card">
       <input type="hidden" name="month" value="${opts.month}">
       <div class="field">
         <label for="hold-amount">Hold for ${formatMonth(nextMonthOf(opts.month))}</label>
