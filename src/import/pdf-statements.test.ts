@@ -231,6 +231,20 @@ describe("04 §3.3 · the details that invert a transaction if wrong", () => {
     assert.equal(parseStatementDate("not a date"), null);
   });
 
+  test("the raw date and amount are the text on the page (P4, I1)", () => {
+    // raw.date was the line's first twelve characters and raw.amount the
+    // computed signed rupees: "1,450.50 Dr" was kept as "-1450.5".
+    const { records } = parseStatementText(
+      "Date        Description                      Amount\n" +
+      "03/08/26    UPI/DMART                        1,450.50 Dr\n" +
+      "05-Aug-2026 NEFT SALARY                    1,45,000.00 Cr\n",
+    );
+    assert.equal(records.length, 2);
+    assert.deepEqual(records.map((r) => r.raw.date), ["03/08/26", "05-Aug-2026"]);
+    assert.deepEqual(records.map((r) => r.raw.amount), ["1,450.50 Dr", "1,45,000.00 Cr"]);
+    assert.deepEqual(records.map((r) => r.amount), [-145_050, 14_500_000]);
+  });
+
   test("a day the month does not have is refused, not stored as written", () => {
     // Only "day <= 31" was checked, so "31/02/2026" came back as the string
     // "2026-02-31" and was staged on a date that does not exist. The check is

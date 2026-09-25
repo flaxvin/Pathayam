@@ -76,6 +76,7 @@ export interface StagedRow {
   raw_narration: string | null;
   raw_payee: string | null;
   raw_amount: string | null;
+  raw_date: string | null;
   source_id: string | null;
   proposed_payee: string | null;
   payee_id: string | null;
@@ -238,7 +239,10 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
             applied_rules_json,duplicate_of_id,duplicate_tier,duplicate_reason,status,created_at)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?)`,
         stagedId, batchId, opts.accountId, cardId, record.rowNumber, record.date, record.amount,
-        record.raw.narration, extracted.merchant, record.raw.amount, record.raw.date,
+        // An adapter with no source text for a field (an alert dated from the
+        // message's own received date) leaves it empty; stored, that is NULL,
+        // not an empty string posing as what the bank wrote.
+        record.raw.narration, extracted.merchant, record.raw.amount || null, record.raw.date || null,
         sourceId, record.reference ?? extracted.reference,
         payeeId, outcome.subject.payee, outcome.subject.categoryId, outcome.subject.memo,
         outcome.subject.tags.length ? JSON.stringify(outcome.subject.tags) : null,
@@ -315,9 +319,12 @@ function upgradeExisting(
     `UPDATE transactions
         SET cleared = 1,
             raw_narration = COALESCE(raw_narration, ?),
+            raw_amount = COALESCE(raw_amount, ?),
+            raw_date = COALESCE(raw_date, ?),
             memo = COALESCE(memo, ?)
       WHERE id = ?`,
-    record.raw.narration, reference ? `Ref ${reference}` : null, duplicate.existing.id,
+    record.raw.narration, record.raw.amount || null, record.raw.date || null,
+    reference ? `Ref ${reference}` : null, duplicate.existing.id,
   );
   appendEvent(db, actor, {
     entity: "transaction", entityId: duplicate.existing.id, action: "upgrade",
@@ -496,10 +503,13 @@ export function approveStaged(
       // (source, source_id) enforces the same thing at the database.
       sourceId: row.source_id,
       importBatchId: row.batch_id,
+      // P4 / I1: every raw field the staged row kept. raw_date was staged and
+      // then dropped here, so every approved import had raw_date NULL.
       raw: {
         narration: row.raw_narration ?? undefined,
         payee: row.raw_payee ?? undefined,
         amount: row.raw_amount ?? undefined,
+        date: row.raw_date ?? undefined,
       },
     });
 
@@ -583,9 +593,10 @@ export function mergeStaged(db: DB, actor: Actor, stagedId: string): void {
           SET cleared = 1,
               payee_id = COALESCE(payee_id, ?),
               raw_narration = COALESCE(raw_narration, ?),
-              raw_amount = COALESCE(raw_amount, ?)
+              raw_amount = COALESCE(raw_amount, ?),
+              raw_date = COALESCE(raw_date, ?)
         WHERE id = ?`,
-      row.payee_id, row.raw_narration, row.raw_amount, row.duplicate_of_id,
+      row.payee_id, row.raw_narration, row.raw_amount, row.raw_date, row.duplicate_of_id,
     );
 
     execute(

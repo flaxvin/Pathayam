@@ -120,7 +120,7 @@ describe("04 §3.4 · fetching alerts from Gmail", () => {
     db.close();
   });
 
-  test("R6.e · an add-on card alert routes to the card's account and notes the holder", async () => {
+  test("R6.e · an add-on card alert routes to the card's account", async () => {
     const db = setup();
     const credit = createAccount(db, actor, {
       name: "Axis Atlas", kind: "credit", subtype: "credit-card",
@@ -140,7 +140,9 @@ describe("04 §3.4 · fetching alerts from Gmail", () => {
       db, `SELECT account_id, raw_narration FROM staged_transactions`,
     );
     assert.equal(staged[0]!.account_id, credit.id, "the add-on's alert posts to the primary's account");
-    assert.match(staged[0]!.raw_narration, /Priya Menon/, "the holder is carried for owner defaulting");
+    // The holder travels as the card (next test), not as a "[card of Priya
+    // Menon]" tag appended to what is meant to be the bank's own words.
+    assert.equal(staged[0]!.raw_narration, "M S NOVA EN");
     db.close();
   });
 
@@ -175,6 +177,36 @@ describe("04 §3.4 · fetching alerts from Gmail", () => {
     )[0]!;
     assert.equal(tx.card_id, addOn.id);
     assert.equal(tx.owner_member_id, PRIYA);
+    db.close();
+  });
+
+  // P4 / I1: the raw fields are what the alert said. They were the ISO date
+  // ("2026-08-28") and the computed signed rupees ("-600"), and approval then
+  // dropped raw_date altogether.
+  test("the raw date and amount are the alert's own text, through approval", async () => {
+    const db = setup();
+    createAccount(db, actor, {
+      name: "Axis Savings", kind: "budget", subtype: "savings",
+      openingDate: "2026-08-01", last4: "0000",
+    });
+    const group = createGroup(db, actor, "Flexible");
+    const category = createCategory(db, actor, { groupId: group.id, name: "Everyday" }).id;
+    await fetchGmail(db, actor, {
+      clientId: "id", clientSecret: "secret",
+      fetchImpl: fakeGoogle({
+        m1: { from: "alerts@axis.bank.in", subject: "INR 600 debited", body: AXIS_ACCOUNT },
+      }),
+    });
+    const [row] = listStaged(db);
+    const txId = approveStaged(db, actor, row!.id, { categoryId: category });
+    const tx = queryAll<{ raw_date: string; raw_amount: string; raw_narration: string; date: string; amount: number }>(
+      db, `SELECT raw_date, raw_amount, raw_narration, date, amount FROM transactions WHERE id = ?`, txId,
+    )[0]!;
+    assert.equal(tx.raw_date, "28-08-26, 00:01:28 IST");
+    assert.equal(tx.raw_amount, "INR 600.00");
+    assert.equal(tx.raw_narration, "UPI/P2A/400111222444/KAVYA R PILLAI");
+    assert.equal(tx.date, "2026-08-28");
+    assert.equal(tx.amount, -rupees(600));
     db.close();
   });
 

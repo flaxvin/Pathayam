@@ -189,12 +189,14 @@ function routeAlert(
     amount: record.amount,
     narration: record.narration,
     reference: record.reference,
+    // P4 / I1: raw is what the alert said, verbatim. It used to be the ISO
+    // date and the computed signed rupees ("-600" for "INR 600.00"), and the
+    // narration carried a "[card of …]" tag the bank never wrote. The card is
+    // now carried as cardId, so the tag has nothing left to do.
     raw: {
-      date: record.date,
-      amount: String(record.amount / 100),
-      narration: record.cardholderName
-        ? `${record.narration} [card of ${record.cardholderName}]`
-        : record.narration,
+      date: record.when,
+      amount: record.rawAmount,
+      narration: record.narration,
     },
     // R6.e · The card the alert named. It was resolved here and then dropped
     // (`void cardId`), so ingest looked for a last four in the merchant name,

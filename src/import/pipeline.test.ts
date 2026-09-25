@@ -77,11 +77,14 @@ describe("04 §2 · the pipeline", () => {
     const swiggy = listStaged(db).find((r) => r.raw_narration?.includes("SWIGGY"))!;
     const txId = approveStaged(db, actor, swiggy.id, { categoryId: anyCategory });
 
-    const tx = queryOne<{ raw_narration: string; raw_amount: string }>(
-      db, `SELECT raw_narration, raw_amount FROM transactions WHERE id = ?`, txId,
+    const tx = queryOne<{ raw_narration: string; raw_amount: string; raw_date: string | null }>(
+      db, `SELECT raw_narration, raw_amount, raw_date FROM transactions WHERE id = ?`, txId,
     )!;
     assert.equal(tx.raw_narration, "UPI/P2M/431202847592/SWIGGY*ORDER");
     assert.equal(tx.raw_amount, "450.00");
+    // Staged, then dropped by approveStaged: every approved row had NULL here.
+    assert.equal(tx.raw_date, "03-08-2026");
+    assertIdentity(db, "after approve");
     db.close();
   });
 
@@ -170,12 +173,19 @@ describe("04 §4 · duplicates through the pipeline", () => {
     const flagged = listStaged(db).find((r) => r.duplicate_of_id !== null)!;
     mergeStaged(db, actor, flagged.id);
 
-    const tx = queryOne<{ category_id: string; cleared: number; raw_narration: string | null }>(
+    const tx = queryOne<{
+      category_id: string; cleared: number; raw_narration: string | null;
+      raw_amount: string | null; raw_date: string | null;
+    }>(
       db, `SELECT * FROM transactions WHERE id = ?`, manual.id,
     )!;
     assert.equal(tx.category_id, eatingOut.id, "the category you chose is kept");
     assert.equal(tx.cleared, 1, "and it is now known to have cleared");
     assert.match(tx.raw_narration!, /SWIGGY/, "with the bank's own string attached");
+    // Merging copied narration and amount but not the date the bank printed.
+    assert.equal(tx.raw_amount, "450.00");
+    assert.equal(tx.raw_date, "03-08-2026");
+    assertIdentity(db, "after merge");
 
     // Exactly one transaction, not two.
     assert.equal(queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM transactions WHERE deleted_at IS NULL`)!.n, 1);

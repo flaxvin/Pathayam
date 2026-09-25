@@ -700,7 +700,10 @@ function parseRow(
   header: HeaderColumns | null,
   previousBalance: number | null,
   continuation: string[],
-): { row: RowShape; balance: number | null; suspect: boolean } | null {
+): {
+  row: RowShape; balance: number | null; suspect: boolean;
+  raw: { date: string; amount: string };
+} | null {
   const found = findDate(line);
   if (!found) return null;
 
@@ -801,6 +804,14 @@ function parseRow(
     },
     balance,
     suspect,
+    // What the page printed, not what was computed from it: the date cell as
+    // it stands on the line, and the amount figure with its Cr/Dr or
+    // brackets. When the balance movement overrides a suspect figure, the
+    // figure the bank printed is exactly what someone checking needs to see.
+    raw: {
+      date: line.slice(found.start, found.end).trim(),
+      amount: amountFigure ? amountFigure.text.trim() : "",
+    },
   };
 }
 
@@ -1070,9 +1081,12 @@ export function parseStatementText(
       amount: parsed.row.amount,
       narration: parsed.row.narration,
       reference: parsed.row.reference,
+      // P4 / I1: raw is source text. It was the line's first twelve
+      // characters (a serial number and half a payee on ICICI) and the
+      // computed signed rupees ("-1450.5" for "1,450.50").
       raw: {
-        date: line.raw.trim().slice(0, 12),
-        amount: String(parsed.row.amount / 100),
+        date: parsed.raw.date,
+        amount: parsed.raw.amount,
         narration: parsed.row.narration,
       },
     });
