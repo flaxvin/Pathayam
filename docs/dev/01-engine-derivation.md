@@ -153,6 +153,24 @@ change in the debt:
 | ₹500 annual fee, categorised to Fees | −500 | +500 | The fee needs funding too |
 | ₹900 refund, categorised | +900 | −900 | Releases money that is no longer owed |
 
+**Unfiled card flow is excluded too** (B97): a charge nobody has filed gave
+nothing up, so it must not raise the envelope. A card's transfer leg counts as
+filed — it is a card *payment* — only while its partner is live and on a budget
+account or another card. When the partner is on a **tracking** account (a
+wallet top-up, an EMI on a loan tracked off-budget) or is gone, the leg is an
+unfiled card movement: the debt moves, the envelope does not. Counting it as a
+payment moved the envelope with nothing on the budget side to meet it, and the
+identity failed by the full amount.
+
+**Across budgets** the payment is met by the claim between the two budgets
+(`crossCardPaymentSql`), not by the payer's Ready to Assign. The payer leg can be
+a budget account *or another card* — a balance transfer from one budget's card
+to another's moves both payment envelopes, each by the other budget's debt, and
+only the claim squares them. Card to card both legs are on cards, so only the
+outgoing leg (amount < 0) is read as the payer; reading both would raise the
+claim twice. `createTransfer` opens the envelope that carries the claim first
+(`prepareTransferClaim`), and refuses when nothing links the two budgets.
+
 The **opening balance is excluded** from the sum, so starting debt does not
 fund itself: R6 says the payment category "starts at ₹0" and the gap is shown
 as a debt figure, not a budgeting error.
@@ -264,6 +282,16 @@ Three things keep it honest:
    affected month — both months, when a transaction moves between them — in the
    same statement. There is no code path, present or future, that can change a
    transaction and forget.
+
+   An account's **budget** is the exception the triggers do not see (they watch
+   `kind` and the opening balance). A sealed month has already decided which
+   transfers were internal to one budget, so moving an account between budgets
+   changes history without touching a transaction: ₹400 moved Bank → Bank2 and
+   sealed, then Bank2 moved into a personal budget, read ₹400 short through the
+   rollup in every month after. `updateAccount` — and undoing a move — drops
+   every month the account has a transaction in (both legs of a transfer share
+   a date, so that covers the partner too). The trigger should watch
+   `budget_id` as well; until a migration adds that, the code does not rely on it.
 
 2. **The rollup can be bypassed.** `loadEngineInput(db, { useRollup: false })`
    derives every month from the ledger. This exists so the summary can be

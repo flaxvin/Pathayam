@@ -14,7 +14,8 @@ import { nowIST, todayIST, formatDate, addDays, type IsoDate } from "../core/dat
 import { Missing, Refusal } from "../core/refusal.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { getAccount, DERIVED_VALUE_SUBTYPES, MANAGED_SUBTYPES } from "./accounts.ts";
-import { prepareClaim } from "./commitments.ts";
+import { prepareClaim, prepareTransferClaim } from "./commitments.ts";
+import { dependantsOf } from "./dependants.ts";
 
 export type TransactionSource = "manual" | "csv" | "pdf" | "email" | "sms" | "api" | "schedule";
 
@@ -88,6 +89,15 @@ export class FiledIntoPaymentCategory extends Refusal {}
 export function refusePaymentCategories(db: DB, categoryIds: (string | null | undefined)[]): void {
   for (const id of categoryIds) {
     if (!id) continue;
+    /*
+     * An envelope that is not there at all — removed by undoing its creation
+     * while a form or a saved rule still named it — reached the INSERT and
+     * failed on the foreign key: a plain Error, so a 500. Found by the engine
+     * fuzzer once undo of a create was allowed to run.
+     */
+    if (!queryOne(db, `SELECT 1 FROM categories WHERE id = ?`, id)) {
+      throw new Refusal("That envelope does not exist any more. Pick another one.");
+    }
     const paying = queryOne<{ name: string }>(
       db, `SELECT name FROM categories WHERE id = ? AND payment_account_id IS NOT NULL`, id,
     );
@@ -95,6 +105,39 @@ export function refusePaymentCategories(db: DB, categoryIds: (string | null | un
       throw new FiledIntoPaymentCategory(
         `"${paying.name}" is a card's payment envelope — it fills itself from spending ` +
           `on that card, so nothing can be filed to it directly. Pick another envelope.`,
+      );
+    }
+
+    /*
+     * D1 · A deleted envelope is not read by the engine at all, so spending
+     * filed to one — from a schedule or a rule saved before the delete —
+     * vanished from the budget while the account still moved.
+     */
+    const deleted = queryOne<{ name: string }>(
+      db, `SELECT name FROM categories WHERE id = ? AND deleted_at IS NOT NULL`, id,
+    );
+    if (deleted) {
+      throw new Refusal(`"${deleted.name}" has been deleted. Pick another envelope.`);
+    }
+
+    /*
+     * D8 · A commitment envelope is a payment envelope seen from the other side:
+     * its balance *is* the claim between two budgets (dueFromOtherBudgets reads
+     * it), and the receiving budget's means count only what was assigned to it.
+     * ₹224 filed straight to Ravi's envelope for the household lowered the claim
+     * by ₹224 with no expense anywhere in the household to meet it, so the
+     * household's identity was out by −₹224 in every month after. Spending on the
+     * household's behalf is filed to the household's own envelope — that is what
+     * lowers the commitment, and it keeps both budgets whole.
+     */
+    const committed = queryOne<{ name: string }>(
+      db, `SELECT name FROM categories WHERE id = ? AND commits_to_budget_id IS NOT NULL`, id,
+    );
+    if (committed) {
+      throw new Refusal(
+        `"${committed.name}" holds what one budget has set aside for another, so ` +
+          `spending is not filed to it. File it to the envelope it was for — the ` +
+          `commitment goes down by itself when that envelope is in the other budget.`,
       );
     }
   }
@@ -337,6 +380,25 @@ export function updateTransaction(
       }
       // Nothing to write to the envelope columns of a leg.
       patch = { ...patch, categoryId: undefined, splits: undefined };
+    }
+
+    /*
+     * D7 · A split transaction's amount is the sum of its lines. A new amount
+     * with no lines left the old ones in place: a ₹3.36 card charge split
+     * ₹1.12 / ₹2.24 and edited to 3 paise kept lines totalling ₹3.36, so the
+     * payment envelope counted ₹3.33 more filed spending than the card was
+     * charged — the identity out by +₹3.33 from 2026-01 — and on a bank account
+     * the same ₹3.33 appeared in Ready to Assign from nowhere. The edit form
+     * already refuses this; the rule belongs here, where every caller meets it.
+     */
+    if (
+      before.is_split && patch.amount !== undefined && patch.amount !== before.amount &&
+      patch.splits === undefined && patch.categoryId === undefined
+    ) {
+      throw new Refusal(
+        `This transaction is split, so its amount is what its lines add up to. ` +
+        `Change the lines along with the amount.`,
+      );
     }
 
     if (patch.splits) {
@@ -668,6 +730,9 @@ export function createTransfer(db: DB, actor: Actor, input: TransferInput): [Tra
       );
     }
 
+    // D5 / D9 · Another budget's card: the claim that absorbs it must exist first.
+    prepareTransferClaim(db, actor, from, to);
+
     const pairId = newId();
     const date = input.date ?? todayIST();
     const isCardPayment = to.kind === "credit";
@@ -992,37 +1057,60 @@ export class UndoRefused extends Error {}
 registerUndoHandler("transaction", (db, event) => {
   const before = event.before as Transaction | undefined;
   if (!before) {
-    const id = event.entityId!;
+    /*
+     * D13 · One leg of a transfer is half of one movement, so its create undoes
+     * with its partner or not at all.
+     *
+     * createTransfer writes a create event for each leg, and undoing either one
+     * removed that leg alone: ₹123.45 paid from the bank to the card came back
+     * as a ₹123.45 card credit with no bank side — money arriving from nowhere
+     * on one account, the payment envelope moved with nothing behind it, and
+     * the identity out by the amount in every month after. Every other way of
+     * undoing a transfer (its delete, its edit, the transfer's own event)
+     * already acts on both legs; this was the one that did not.
+     */
+    const row = getTransaction(db, event.entityId!);
+    const ids = row?.transfer_pair_id
+      ? queryAll<{ id: string }>(
+        db, `SELECT id FROM transactions WHERE transfer_pair_id = ?`, row.transfer_pair_id,
+      ).map((r) => r.id)
+      : [event.entityId!];
 
-    for (const dep of TRANSACTION_DEPENDANTS) {
-      const n = queryOne<{ n: number }>(
-        db, `SELECT COUNT(*) AS n FROM ${dep.table} WHERE ${dep.column} = ?`, id,
-      )?.n ?? 0;
-      if (n > 0) {
-        throw new UndoRefused(
-          `That transaction is recorded as ${dep.describe}, so removing it would ` +
-          `leave that wrong. Undo or delete ${dep.describe} first.`,
-        );
+    for (const id of ids) {
+      for (const dep of TRANSACTION_DEPENDANTS) {
+        const n = queryOne<{ n: number }>(
+          db, `SELECT COUNT(*) AS n FROM ${dep.table} WHERE ${dep.column} = ?`, id,
+        )?.n ?? 0;
+        if (n > 0) {
+          throw new UndoRefused(
+            `That transaction is recorded as ${dep.describe}, so removing it would ` +
+            `leave that wrong. Undo or delete ${dep.describe} first.`,
+          );
+        }
       }
     }
 
-    // An imported row that was approved into this transaction goes back to
-    // waiting in the review queue: the ledger entry is gone, so the import is
-    // unresolved again rather than approved-into-nothing.
-    execute(
-      db,
-      `UPDATE staged_transactions
-          SET status = 'pending', transaction_id = NULL, resolved_at = NULL, resolved_by = NULL
-        WHERE transaction_id = ?`,
-      id,
-    );
-    // A later import may have been flagged as a duplicate *of* this one.
-    execute(db, `UPDATE staged_transactions SET duplicate_of_id = NULL WHERE duplicate_of_id = ?`, id);
+    for (const id of ids) {
+      // An imported row that was approved into this transaction goes back to
+      // waiting in the review queue: the ledger entry is gone, so the import is
+      // unresolved again rather than approved-into-nothing.
+      execute(
+        db,
+        `UPDATE staged_transactions
+            SET status = 'pending', transaction_id = NULL, resolved_at = NULL, resolved_by = NULL
+          WHERE transaction_id = ?`,
+        id,
+      );
+      // A later import may have been flagged as a duplicate *of* this one.
+      execute(db, `UPDATE staged_transactions SET duplicate_of_id = NULL WHERE duplicate_of_id = ?`, id);
 
-    execute(db, `DELETE FROM transaction_splits WHERE transaction_id = ?`, id);
-    execute(db, `DELETE FROM transaction_tags WHERE transaction_id = ?`, id);
-    execute(db, `DELETE FROM transactions WHERE id = ?`, id);
-    return `Removed the transaction that was added`;
+      execute(db, `DELETE FROM transaction_splits WHERE transaction_id = ?`, id);
+      execute(db, `DELETE FROM transaction_tags WHERE transaction_id = ?`, id);
+      execute(db, `DELETE FROM transactions WHERE id = ?`, id);
+    }
+    return ids.length > 1
+      ? `Removed the transfer that was added, both sides`
+      : `Removed the transaction that was added`;
   }
   const id = event.entityId!;
   const snapshot = before as Partial<EditSnapshot>;
@@ -1134,6 +1222,25 @@ registerUndoHandler("payee", (db, event) => {
       ? `Un-merged "${before.name}" and moved its ${moved} transaction${moved === 1 ? "" : "s"} back`
       : `Un-merged "${before.name}"`;
   }
+  /*
+   * D10 · A payee is named by whatever was recorded against it since — a
+   * transaction, a schedule, a row waiting in review — and deleting it under
+   * those hit a foreign key (a 500). Its aliases are its own and go with it.
+   */
+  const dependants = dependantsOf(db, "payees", event.entityId!, {
+    own: ["payee_aliases.payee_id"],
+    words: {
+      transactions: "transactions", schedules: "schedules",
+      staged_transactions: "imported rows waiting for review", payees: "payees merged into it",
+    },
+  });
+  if (dependants.length > 0) {
+    throw new Refusal(
+      `This payee already has ${dependants.join(", ")}, so removing it would leave ` +
+      `those naming nobody. Merge it into another payee instead.`,
+    );
+  }
+  execute(db, `DELETE FROM payee_aliases WHERE payee_id = ?`, event.entityId!);
   execute(db, `DELETE FROM payees WHERE id = ?`, event.entityId!);
   return `Removed the payee that was added`;
 });

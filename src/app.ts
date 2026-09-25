@@ -662,6 +662,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return lastBudget(db, viewer(ctx)) ?? householdBudgetId(db);
   }
 
+  /**
+   * D4 / D14 · The budget a form was showing when it was submitted, posted with
+   * it — so "Hold it" and "Assign" act on the budget whose figures were on the
+   * screen, not whichever one was opened last in another tab. Checked like
+   * budgetParam; falls back to it.
+   */
+  function postedBudget(ctx: RequestContext): string {
+    const posted = field(ctx.body, "budget");
+    if (posted && budgetsFor(db, viewer(ctx)).some((b) => b.id === posted)) return posted;
+    return budgetParam(ctx);
+  }
+
   /** Which budget this request is about: the one asked for, else the last used. */
   function currentBudget(ctx: RequestContext, memberId: string): string {
     const asked = ctx.query.get("budget");
@@ -1915,13 +1927,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/hold", (ctx) => {
     const month = monthParam(ctx);
-    const view = buildBudgetView(db, month, undefined, viewer(ctx));
+    // D4 · The budget being looked at holds it, and it is that budget's Ready
+    // to Assign it comes out of — not the sum of everybody's.
+    const scope = budgetParam(ctx);
+    const view = buildBudgetView(db, month, scope, viewer(ctx));
     return render(
       ctx,
       "Hold for next month",
       renderHold({
         month,
-        currentlyHeld: getHeld(db, month),
+        budgetId: scope,
+        currentlyHeld: getHeld(db, month, scope),
         readyToAssign: view.monthState.readyToAssign,
       }),
     );
@@ -1932,7 +1948,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const month = monthParam(ctx);
       const rawAmount = field(ctx.body, "amount") ?? "";
       const amount = rawAmount.trim() === "" ? 0 : amountField(rawAmount);
-      setHeld(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), month, amount);
+      setHeld(
+        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), month, amount,
+        postedBudget(ctx),
+      );
       return {
         redirect: `/?month=${month}`,
         message: amount === 0 ? "Released the held money." : `Held ${formatPaise(amount)} for next month.`,
@@ -1942,13 +1961,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/auto-assign", (ctx) => {
     const month = monthParam(ctx);
-    const plan = buildAutoAssignPlan(month);
-    const view = buildBudgetView(db, month, undefined, viewer(ctx));
+    const scope = budgetParam(ctx);
+    const plan = buildAutoAssignPlan(month, scope, viewer(ctx));
+    const view = buildBudgetView(db, month, scope, viewer(ctx));
     return render(
       ctx,
       "Auto-assign",
       renderAutoAssignPreview({
         month,
+        budgetId: scope,
         plan,
         categoryNames: new Map([...view.categories].map(([id, c]) => [id, c.name])),
       }),
@@ -1958,7 +1979,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/auto-assign", (ctx) =>
     mutate(ctx, (a) => {
       const month = monthParam(ctx);
-      const plan = buildAutoAssignPlan(month);
+      const plan = buildAutoAssignPlan(month, postedBudget(ctx), viewer(ctx));
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
       for (const proposal of plan.proposals) {
         setAssigned(db, actor, month, proposal.categoryId, proposal.to);
@@ -1989,9 +2010,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // B58 · Auto-assign funds each category to its target (the "budget"), in order,
   // from Ready to Assign until it runs out. It reads the targets set on the
   // Categories screen — there is no separate, hidden rules system to configure.
-  function buildAutoAssignPlan(month: MonthKey): AutoAssignPlan {
-    // No viewer: this is the budget's own plan, not a list somebody is shown.
-    const view = buildBudgetView(db, month);
+  function buildAutoAssignPlan(
+    month: MonthKey, budgetId: string, viewerMemberId: string | null,
+  ): AutoAssignPlan {
+    /*
+     * D14 · One budget's plan, from that budget's Ready to Assign.
+     *
+     * This read the combined view of every budget: household RTA ₹0 (₹1,000 all
+     * in Groceries, target ₹1,500) plus Priya's ₹50,000 made a pool of ₹50,000,
+     * so Ravi's click assigned ₹500 more to Groceries than the household had —
+     * RTA −₹500 — and ₹700 into Priya's private envelope out of her money.
+     * The caller has already checked the budget is one the reader may use.
+     */
+    const view = buildBudgetView(db, month, budgetId, viewerMemberId);
     const rtaBefore = view.monthState.readyToAssign;
     let remaining = rtaBefore;
     const proposals: AutoAssignProposal[] = [];
@@ -2538,7 +2569,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         // envelope — the domain refuses one, so offering it would be a choice
         // that always fails.
         categories: [...buildBudgetView(db, undefined, undefined, viewer(ctx)).categories.values()]
-          .filter((c) => !c.hidden && !c.isPaymentCategory)
+          .filter((c) => !c.hidden && !c.isPaymentCategory && !c.commitsToBudgetId)
           .map((c) => ({ id: c.id, name: c.name })),
       }),
     );
@@ -3218,7 +3249,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 <select id="emi-fee-category" name="fee_category_id">
                   <option value="">—</option>
                   ${[...view.categories.values()]
-                    .filter((c) => !c.isPaymentCategory && !c.hidden)
+                    .filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden)
                     .map((c) => html`<option value="${c.id}">${c.name}</option>`)}
                 </select>
               </div>
@@ -3259,7 +3290,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           ${when(!transaction.transfer_pair_id, () => renderCategoryLines({
             label: "Envelope",
             categories: [...view.categories.values()]
-              .filter((c) => !c.isPaymentCategory && !c.hidden)
+              .filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden)
               .map((c) => ({ id: c.id, name: c.name })),
             values: splits.length > 0
               ? splits.map((sp) => ({ categoryId: sp.category_id, amount: sp.amount as Paise }))
@@ -5407,7 +5438,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         // The inline edit form needs the full lists, or saving would blank the
         // fields it does not show.
         categories: [...view.categories.values()]
-          .filter((c) => !c.isPaymentCategory && !c.hidden)
+          .filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden)
           .map((c) => ({ id: c.id, name: c.name })),
         accounts: listAccounts(db, { viewerMemberId: viewer(ctx) })
           .filter((acc) => acc.kind === "budget" || acc.kind === "credit")
@@ -5424,7 +5455,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       renderNewScheduleForm({
         accounts: listAccounts(db, { viewerMemberId: viewer(ctx) }).map((a) => ({ id: a.id, name: a.name, nickname: a.nickname })),
         categories: [...view.categories.values()]
-          .filter((c) => !c.isPaymentCategory && !c.hidden)
+          .filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden)
           .map((c) => ({ id: c.id, name: c.name })),
         today: todayIST(),
       }),
@@ -5951,7 +5982,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         rules: ruleRows(db, false).filter(visibleRule),
         proposed: ruleRows(db, true).filter(visibleRule),
         categories: [...view.categories.values()]
-          .filter((c) => !c.isPaymentCategory && !c.hidden)
+          .filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden)
           .map((c) => ({ id: c.id, name: c.name })),
         test,
         draft,
@@ -6406,7 +6437,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       view,
       accounts: cashAccounts(ctx),
       categories: [...budgetView.categories.values()]
-        .filter((c) => !c.isPaymentCategory && !c.hidden)
+        .filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden)
         .map((c) => ({ id: c.id, name: c.name })),
       entries: entries.map((e) => ({ ...e, amount: e.amount as never })),
       confirmingWriteOff: ctx.query.get("confirm") === "write-off",
@@ -6957,7 +6988,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             .filter((a) => a.kind === "budget")
             .map((a) => ({ id: a.id, name: a.nickname || a.name })),
           categories: [...view.categories.values()]
-            .filter((c) => !c.isPaymentCategory && !c.hidden)
+            .filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden)
             .map((c) => ({ id: c.id, name: c.name })),
           searchResults: results,
           query,
@@ -7340,7 +7371,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         .filter((acc) => acc.kind === "budget")
         .map((acc) => ({ id: acc.id, name: acc.name })),
       categories: [...buildBudgetView(db, undefined, undefined, viewer(ctx)).categories.values()]
-        .filter((c) => !c.hidden && !c.isPaymentCategory)
+        .filter((c) => !c.hidden && !c.isPaymentCategory && !c.commitsToBudgetId)
         .map((c) => ({ id: c.id, name: c.name })),
     }));
   });
@@ -7482,7 +7513,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         .filter((acc) => acc.kind === "budget")
         .map((acc) => ({ id: acc.id, name: acc.name })),
       categories: [...buildBudgetView(db, undefined, undefined, viewer(ctx)).categories.values()]
-        .filter((c) => !c.hidden && !c.isPaymentCategory)
+        .filter((c) => !c.hidden && !c.isPaymentCategory && !c.commitsToBudgetId)
         .map((c) => ({ id: c.id, name: c.name })),
     }));
   });

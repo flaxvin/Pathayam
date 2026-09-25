@@ -587,7 +587,7 @@ export function renderCategories(
                       <button class="button-small button-quiet" type="submit">Merge</button>
                     </form>
                     <form method="post" action="/categories/${c.id}/delete"
-                          onsubmit="return confirm('Delete this category? It must be empty; its money is unaffected.')">
+                          onsubmit="return confirm('Delete this category? It must be empty and have no spending filed to it — merge it into another otherwise.')">
                       <button class="button-small button-danger" type="submit"
                               ${raw(c.balance !== 0 ? "disabled title=\"Move its balance out first\"" : "")}>Delete</button>
                     </form>

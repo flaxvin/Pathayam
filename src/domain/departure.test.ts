@@ -108,7 +108,11 @@ describe("15 §6A · what is outstanding, and every option offered", () => {
     assert.equal(departure.outstanding, rupees(10_000));
     assert.deepEqual(departure.options, ["release"], "a loan here would invent a debt");
 
-    settleDeparture(db, actor, RAVI, "release");
+    // D15 · The message is read by a person: ₹10,000, not "1000000" paise.
+    assert.equal(
+      settleDeparture(db, actor, RAVI, "release"),
+      "Released ₹10,000 back to Ravi's Ready to Assign.",
+    );
 
     const state = computeBudget(loadEngineInput(db, { through: MONTH, budgetId: mine }))
       .get(MONTH)!;

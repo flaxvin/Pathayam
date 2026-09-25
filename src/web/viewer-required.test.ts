@@ -40,9 +40,8 @@ const app = readFileSync(join(src, "app.ts"), "utf8");
  * cannot drift onto a different line. Each needs a reason.
  */
 const WHOLE_HOUSEHOLD: Record<string, string> = {
-  "buildBudgetView(db, month)":
-    "Auto-assign's plan is the budget's own arithmetic, not a list shown to " +
-    "somebody — it fills targets from Ready to Assign and never renders a name.",
+  // D14 · Auto-assign's plan was the one exemption; it now reads one budget, as
+  // the person looking at it, like every other screen.
 };
 
 /** Every function in the app that accepts a viewer, read from its signature. */

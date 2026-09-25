@@ -119,7 +119,35 @@ Editing or deleting one leg acts on both. Specifically:
   was spent.
 - **Cleared, memo and tags** stay per leg, because each bank statement clears
   its own side.
-- **Delete and its undo** act on both legs. So does undoing an edit.
+- **Delete and its undo** act on both legs. So does undoing an edit, and so
+  does undoing the *creation* of either leg: it removes the whole transfer.
+
+**Between a card and a tracking account** (topping up a wallet from the card,
+an EMI on a loan tracked outside the budget) the card side is treated exactly
+like an unfiled charge — or, the other way, an unfiled refund. The tracking
+account is outside every budget, so nothing on the budget side meets the money;
+the card's debt moves and its payment envelope does not, and the card's funding
+warning shows the gap until money is assigned to it. Treating the card leg as a
+card *payment*, as it once was, moved the envelope by the full amount with no
+category giving it up.
+
+**Paying another budget's card** — from a bank account or from a card of your
+own (a balance transfer) — buys a claim rather than spending money: the payer is
+owed what they paid, and the envelope between the two budgets (see
+[budgeting.md](budgeting.md#commitments-between-budgets)) carries it. Recording
+the transfer opens that envelope when it does not exist yet. Two budgets can
+only owe each other when something links them — the household is shared by
+definition, and between two personal budgets an add-on card held by the other
+side's member — so a transfer between two personal budgets' accounts and cards
+with nothing linking them is refused with a sentence. Before this, ₹200 from a
+personal bank to the household card left the household ₹200 up and the payer
+₹200 down in every month after, and a card-to-card transfer across budgets
+broke both by the full amount even with the envelope in place.
+
+Moving an account to another budget re-files its history, so the same rule
+applies to what it has already done: a past payment onto a card in what is now
+another budget opens that envelope, or the move is refused when nothing links
+the two budgets.
 
 This was documented before it was true. Editing one leg of a ₹1,000 transfer to
 ₹3,000 used to change that leg alone, and ₹2,000 left one account and arrived
@@ -144,13 +172,21 @@ schema's own foreign keys, so a table added later cannot be forgotten. Undoing a
 account **edit** restores every column an edit can change, including holder,
 visibility, budget and sort order.
 
+The same rule covers undoing the creation of a **group, an envelope, a loan or a
+payee** (`src/domain/dependants.ts` reads the foreign keys for any table). A
+group has to be empty — a deleted envelope in it with nothing behind it goes
+with it; an envelope must hold no money and have nothing filed to it; a loan's
+account, envelope, disbursements and instalments must be untouched; a payee must
+be named by nothing. Each used to reach the household as a raw foreign-key 500.
+
 Undoing a **payee merge** moves back the transactions and aliases the merge
 moved, provided they still sit with the payee they were merged into.
 
 The engine also refuses to be the victim of an inconsistent ledger: split lines
 count only when the transaction says it is split, and a transfer leg whose
 partner has been deleted counts as an ordinary flow into or out of Ready to
-Assign rather than as half of a transfer.
+Assign rather than as half of a transfer. On a card, a leg whose partner is gone
+counts as an unfiled card charge or refund, for the same reason.
 
 ## Splits
 
