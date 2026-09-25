@@ -7,6 +7,7 @@
  * listen.
  */
 
+import { repairCrossBudgetClaims } from "./domain/commitments.ts";
 import {
   loadConfig, assertDevLoginSafeAgainstData, assertDemoModeSafeAgainstData,
   UnsafeConfiguration, devLoginModulePresent,
@@ -48,6 +49,16 @@ function main(): void {
 
   const db = openDatabase({ path: config.databasePath });
   ensureHousehold(db);
+
+  // One-time repair for cross-budget card payments recorded before a transfer
+  // opened its own claim. Idempotent; a no-op once history is clean.
+  {
+    const repair = repairCrossBudgetClaims(db);
+    if (repair.opened > 0 || repair.unresolved.length > 0) {
+      log({ level: repair.unresolved.length ? "warn" : "info", msg: "cross-budget claims repaired",
+        opened: repair.opened, unresolved: repair.unresolved.length });
+    }
+  }
 
   try {
     const count = queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM transactions`)?.n ?? 0;

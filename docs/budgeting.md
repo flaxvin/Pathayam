@@ -437,3 +437,30 @@ and no recursion, so a narration containing braces cannot inject a placeholder
 of its own. A rules engine that evaluates expressions is one that can loop, fail
 at run time, or be handed something hostile out of a bank statement, and none of
 that buys enough to be worth it.
+
+## Data written before the engine audit fixes
+
+Most of what older versions stored wrongly is corrected automatically:
+migrations 0050–0052 rebuild held-for-next-month per budget, drop the rollup
+cache so sealed months are recomputed, and bring back (hidden) any envelope that
+was deleted while spending was still filed to it — merge those into the right
+envelope to settle them. At every start, `repairCrossBudgetClaims` opens the
+commitment envelope for any cross-budget card payment that was recorded without
+one; it is a no-op once history is clean, and it logs a count of any pair the
+current rules would refuse.
+
+Two things need a person, because the right answer depends on what was meant:
+
+```sql
+-- Spending filed straight to a commitment envelope (now refused): re-file each
+-- to the envelope it was actually for.
+SELECT t.id, t.date, t.amount FROM transactions t JOIN categories c ON c.id = t.category_id
+ WHERE c.commits_to_budget_id IS NOT NULL
+UNION ALL
+SELECT s.transaction_id, NULL, s.amount FROM transaction_splits s JOIN categories c ON c.id = s.category_id
+ WHERE c.commits_to_budget_id IS NOT NULL;
+
+-- Envelopes sitting in another budget's group (now refused): move each back.
+SELECT c.id, c.name FROM categories c JOIN category_groups g ON g.id = c.group_id
+ WHERE COALESCE(g.budget_id, 'budget-household') <> COALESCE(c.budget_id, 'budget-household');
+```

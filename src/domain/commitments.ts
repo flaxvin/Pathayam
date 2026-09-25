@@ -366,3 +366,55 @@ export function prepareClaim(
   const owed = holder === accountBudget ? categoryBudget : accountBudget;
   ensureCommitmentEnvelope(db, actor, holder, owed);
 }
+
+/**
+ * One-time repair, run at startup: cross-budget card payments recorded before
+ * a transfer opened its own claim.
+ *
+ * Paying another budget's card used to record the transfer and nothing else.
+ * Unless a commitment envelope already happened to exist between the two
+ * budgets, both budgets' identities were out by the amount — the payer's money
+ * left and bought nothing it could see, and the card's budget received a
+ * payment it had not funded. createTransfer now opens the claim itself; this
+ * opens it for payments made before that, which SQL alone cannot do (the
+ * envelope needs its group, its link and its creation event).
+ *
+ * Idempotent: a pair that already has its envelope is skipped, so running this
+ * on every start costs one query once the history is clean. A pair the current
+ * rules would refuse — two personal budgets with no shared card between them —
+ * is reported, not forced; that history needs a person.
+ */
+export function repairCrossBudgetClaims(db: DB): { opened: number; unresolved: string[] } {
+  const pairs = queryAll<{
+    from_id: string; from_kind: string; from_budget: string | null; from_name: string;
+    to_id: string; to_kind: string; to_budget: string | null; to_name: string;
+  }>(
+    db,
+    `SELECT DISTINCT a.id AS from_id, a.kind AS from_kind, a.budget_id AS from_budget, a.name AS from_name,
+            card.id AS to_id, card.kind AS to_kind, card.budget_id AS to_budget, card.name AS to_name
+       FROM transactions t
+       JOIN accounts a ON a.id = t.account_id
+       JOIN transactions o ON o.transfer_pair_id = t.transfer_pair_id AND o.id <> t.id AND o.deleted_at IS NULL
+       JOIN accounts card ON card.id = o.account_id AND card.kind = 'credit'
+      WHERE t.deleted_at IS NULL AND t.amount < 0
+        AND a.kind IN ('budget', 'credit') AND a.budget_id IS NOT card.budget_id
+        AND NOT EXISTS (SELECT 1 FROM categories e
+                         WHERE e.deleted_at IS NULL
+                           AND ((e.budget_id = a.budget_id AND e.commits_to_budget_id = card.budget_id)
+                             OR (e.budget_id = card.budget_id AND e.commits_to_budget_id = a.budget_id)))`,
+  );
+  const actor: Actor = { memberId: null, source: "system" };
+  let opened = 0;
+  const unresolved: string[] = [];
+  for (const p of pairs) {
+    try {
+      prepareTransferClaim(db, actor,
+        { id: p.from_id, kind: p.from_kind, budget_id: p.from_budget, name: p.from_name },
+        { id: p.to_id, kind: p.to_kind, budget_id: p.to_budget, name: p.to_name });
+      opened++;
+    } catch (err) {
+      unresolved.push(`${p.from_name} → ${p.to_name}: ${(err as Error).message}`);
+    }
+  }
+  return { opened, unresolved };
+}
