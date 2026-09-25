@@ -162,7 +162,7 @@ export function assertUsablePassword(password: string): void {
 // ---------------------------------------------------------------------------
 
 import type { DB } from "../db/db.ts";
-import { execute, queryOne } from "../db/db.ts";
+import { execute, queryOne, queryAll } from "../db/db.ts";
 import { nowIST } from "../core/dates.ts";
 
 /** How many wrong guesses before a credential is locked, and for how long. */
@@ -275,3 +275,54 @@ export function checkPassword(db: DB, memberId: string, password: string): Passw
   }
   return { ok: true, mustChange: row.must_change === 1 };
 }
+
+/**
+ * The same answer, for an address that has no password to check.
+ *
+ * Lockout used to exist only for members with a password: their eighth wrong
+ * guess answered 429 "locked", while an address that is not a member answered
+ * 401 for ever. Eight guesses at any address therefore said whether it belonged
+ * to this household — the one thing the identical refusal wording was there to
+ * hide. (It answered faster, too: no scrypt ran.)
+ *
+ * So an unknown address — no member, a removed or disallowed one, or a member
+ * with no password — gets the same state machine as a credential: eight
+ * failures lock it for fifteen minutes, and the count resets when the lock is
+ * set. There is no row to keep the count in, and none is added: it is replayed
+ * from `auth_attempts`, where every one of these refusals is already recorded
+ * with the address as its detail ('bad-password' before the lock, 'locked' for
+ * the attempt that sets it and those refused during it). The attempts table is
+ * pruned after seven days, which forgets a count a member's row would keep; a
+ * gap of a week between guesses is not a probe anyone runs.
+ *
+ * The caller records this attempt afterwards, exactly as for a member.
+ */
+export function checkAbsentPassword(db: DB, address: string, password: string): PasswordCheck {
+  const rows = queryAll<{ at: string }>(
+    db,
+    `SELECT at FROM auth_attempts
+      WHERE detail = ? AND outcome IN ('bad-password', 'locked') ORDER BY id`,
+    address,
+  );
+  const lockFrom = (at: string) =>
+    nowIST(new Date(Date.parse(at) + LOCK_MINUTES * 60_000));
+  let failures = 0;
+  let lockedUntil: string | null = null;
+  for (const { at } of rows) {
+    if (lockedUntil && at < lockedUntil) continue; // refused while locked; not a guess
+    failures += 1;
+    if (failures >= MAX_FAILURES) { lockedUntil = lockFrom(at); failures = 0; }
+  }
+
+  const now = nowIST();
+  if (lockedUntil && lockedUntil > now) return { ok: false, reason: "locked", lockedUntil };
+
+  // Spend what a real check spends, so the time taken says nothing either.
+  decoyHash ??= hashPassword("pathayam decoy — never a real credential");
+  verifyPassword(password, decoyHash);
+
+  return failures + 1 >= MAX_FAILURES
+    ? { ok: false, reason: "locked", lockedUntil: lockFrom(now) }
+    : { ok: false, reason: "wrong" };
+}
+let decoyHash: string | null = null;

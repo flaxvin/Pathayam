@@ -38,6 +38,8 @@ import { buildBudgetView } from "../web/viewmodel.ts";
 import { monthAwaitingClose } from "./month-close.ts";
 import { buildHouseholdView } from "./household-view.ts";
 import { projectCashflow } from "./schedules.ts";
+import { memberScope } from "./member-scope.ts";
+import { householdBudgetId } from "./budgets.ts";
 import { cameWithTheCard } from "./card-shortfall.ts";
 
 /** F14.2 · Each of these is individually mutable per member. */
@@ -94,6 +96,21 @@ const HOLD_SUGGESTION_MONTHS = 1;
 
 export function digestFor(
   db: DB, memberId: string | null, today: IsoDate = todayIST(),
+  /*
+   * 15 · Who is reading, and which budget they are reading.
+   *
+   * The digest sits at the top of the budget page, and it was built from
+   * `buildBudgetView(db, month)` with nobody named — every budget, every
+   * account. So Priya's budget page told her that "₹60,000 of your Wombat
+   * Private Card balance has no envelope behind it", that "Qwertyuiop Envelope
+   * is over by ₹4,000", that "Snorlax Secret Subscription renews in 3 days —
+   * ₹777", and folded Ravi's private cash into her shortfall projection and
+   * her "unassigned" figure. Everything below is now the reader's: the viewer
+   * is the signed-in member (not the one being viewed as), and the budget is
+   * the one on screen, the household's when none is named.
+   */
+  viewerMemberId: string | null = memberId,
+  budgetId?: string,
 ): DigestItem[] {
   const muted = mutedKinds(db, memberId);
   const items: DigestItem[] = [];
@@ -101,7 +118,9 @@ export function digestFor(
     if (!muted.has(item.kind)) items.push(item);
   };
 
-  const view = buildBudgetView(db, monthOf(today));
+  const budget = budgetId ?? householdBudgetId(db);
+  const view = buildBudgetView(db, monthOf(today), budget, viewerMemberId);
+  const scope = memberScope(db, viewerMemberId);
 
   // F8.3 · A card payment due with an unfunded shortfall. The shortfall is the
   // actionable part; the due date alone is the bank's business, not ours.
@@ -111,7 +130,7 @@ export function digestFor(
     ).map((a) => [a.id, a]),
   );
   for (const card of view.cards) {
-    if (card.unfunded <= 0) continue;
+    if (card.unfunded <= 0 || scope.accounts.has(card.accountId)) continue;
     const account = cardNames.get(card.accountId);
     /*
      * N7 · Where the money goes, not where the money is. This pointed at the
@@ -151,18 +170,18 @@ export function digestFor(
   }
 
   // F14.1 · A subscription renewing within N days.
-  const renewing = queryAll<{ name: string; next_due: string; amount: number }>(
+  const renewing = queryAll<{ id: string; name: string; next_due: string; amount: number }>(
     db,
     // Subscriptions only, and only confirmed ones: F7.8 keeps a *detected*
     // schedule unconfirmed, and nagging about a guess is how a digest earns
     // being ignored.
-    `SELECT name, next_due, amount FROM schedules
+    `SELECT id, name, next_due, amount FROM schedules
       WHERE enabled = 1 AND detected = 0 AND is_subscription = 1
         AND next_due IS NOT NULL AND next_due >= ? AND next_due <= ?
       ORDER BY next_due`,
     today, addDays(today, SUBSCRIPTION_HORIZON_DAYS),
   );
-  for (const schedule of renewing) {
+  for (const schedule of renewing.filter((s) => !scope.schedules.has(s.id))) {
     const days = daysBetween(today, schedule.next_due as IsoDate);
     add({
       kind: "subscription-due",
@@ -176,11 +195,14 @@ export function digestFor(
 
   // F14.1 · The review queue non-empty for more than N days. The *oldest* item
   // decides: a queue that turns over daily is a queue being used, not ignored.
-  const oldest = queryOne<{ created_at: string; n: number }>(
-    db,
-    `SELECT MIN(created_at) AS created_at, COUNT(*) AS n
-       FROM staged_transactions WHERE status = 'pending'`,
-  );
+  // Only rows bound for an account the reader can see: the count and the age
+  // of somebody else's private import queue are theirs.
+  const pending = queryAll<{ created_at: string; account_id: string }>(
+    db, `SELECT created_at, account_id FROM staged_transactions WHERE status = 'pending'`,
+  ).filter((r) => !scope.accounts.has(r.account_id));
+  const oldest = pending.length
+    ? { created_at: pending.map((r) => r.created_at).sort()[0]!, n: pending.length }
+    : null;
   if (oldest?.created_at && oldest.n > 0) {
     const waiting = daysBetween(oldest.created_at.slice(0, 10) as IsoDate, today);
     if (waiting >= REVIEW_PATIENCE_DAYS) {
@@ -197,7 +219,7 @@ export function digestFor(
 
   // F7.7 · A projected shortfall. This is the "will I make it to the 30th?"
   // question, and it is the one item here worth interrupting someone for.
-  const cashflow = projectCashflow(db, { today });
+  const cashflow = projectCashflow(db, { today, viewerMemberId, budgetId: budget });
   if (cashflow.firstShortfall) {
     const days = daysBetween(today, cashflow.firstShortfall);
     add({
@@ -223,7 +245,7 @@ export function digestFor(
    * against a round number, because a large Ready to Assign means nothing until
    * you know what a month takes.
    */
-  const monthlySpend = averageDailySpend(db, today) * 30;
+  const monthlySpend = averageDailySpend(db, today, 90, viewerMemberId) * 30;
   const rta = view.monthState.readyToAssign;
   if (monthlySpend > 0 && rta > monthlySpend * (HOLD_SUGGESTION_MONTHS + 1)) {
     /*

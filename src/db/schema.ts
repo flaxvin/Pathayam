@@ -2205,4 +2205,36 @@ UPDATE transactions
  WHERE instr(raw_narration, ' [card of ') > 0;
 `,
   },
+  {
+    name: "0047-an-envelope-lives-in-a-group-of-its-own-budget",
+    sql: `
+--------------------------------------------------------------------------------
+-- 15 · An envelope in a group that belongs to a different budget
+--------------------------------------------------------------------------------
+-- Deleting a personal goal moved its envelope into a "Savings" group - and
+-- created or found that group in the household budget. The envelope kept its
+-- own budget_id, so it now sat in a household group while belonging to one
+-- member's budget: inconsistent, and visible to every other member on the
+-- budget and categories screens.
+--
+-- Each such envelope goes back into a normal "Savings goals" or "Savings"
+-- group of its own budget, which is created where there is none.
+INSERT INTO category_groups (id, name, kind, sort, created_at, budget_id)
+SELECT lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))), 2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(6))), 'Savings', 'normal',
+       (SELECT COALESCE(MAX(sort), 0) + 1 FROM category_groups), strftime('%Y-%m-%dT%H:%M:%f', 'now', '+330 minutes') || '+05:30', b.budget_id
+  FROM (SELECT DISTINCT c.budget_id
+          FROM categories c JOIN category_groups g ON g.id = c.group_id
+         WHERE c.budget_id IS NOT NULL AND c.budget_id IS NOT g.budget_id) b
+ WHERE NOT EXISTS (SELECT 1 FROM category_groups x
+                    WHERE x.budget_id = b.budget_id AND x.kind = 'normal'
+                      AND x.name IN ('Savings goals', 'Savings'));
+UPDATE categories SET group_id = (
+    SELECT x.id FROM category_groups x
+     WHERE x.budget_id = categories.budget_id AND x.kind = 'normal'
+       AND x.name IN ('Savings goals', 'Savings')
+     ORDER BY x.name = 'Savings goals' DESC LIMIT 1)
+ WHERE budget_id IS NOT NULL
+   AND budget_id IS NOT (SELECT g.budget_id FROM category_groups g WHERE g.id = categories.group_id);
+`,
+  },
 ];

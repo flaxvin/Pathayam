@@ -306,8 +306,16 @@ export function applyCasPlan(
  * receive a mutual-fund lot, and offering them invites a mistake that R30
  * would not catch because it is a perfectly valid write.
  */
-export function casDestinations(db: DB): { id: string; name: string }[] {
-  return listAssetAccounts(db)
+export function casDestinations(
+  db: DB,
+  /**
+   * 15 · Who is importing. The picker listed every demat in the household, so
+   * Priya's CAS form offered Ravi's private "Quokka Private Demat" by name —
+   * an account she cannot open, offered as a place to put her statement.
+   */
+  viewerMemberId: string | null,
+): { id: string; name: string }[] {
+  return listAssetAccounts(db, { viewerMemberId })
     .filter((a) => a.subtype === "investment" || a.subtype === "retirement")
     .map((a) => ({ id: a.id, name: a.name }));
 }

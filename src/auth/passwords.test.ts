@@ -13,6 +13,7 @@ import { nowIST } from "../core/dates.ts";
 import {
   hashPassword, verifyPassword, needsRehash, assertUsablePassword, WeakPassword,
   setPassword, checkPassword, hasPassword, anyPasswordSet, clearPassword, getPasswordRow,
+  checkAbsentPassword,
 } from "./passwords.ts";
 
 // Not "correct horse battery staple": famous enough to be on the refused list.
@@ -185,5 +186,33 @@ describe("signing in", () => {
     setPassword(db, "m1", GOOD);
     execute(db, `DELETE FROM members WHERE id = ?`, "m1");
     assert.equal(hasPassword(db, "m1"), false, "a deleted member left a usable credential behind");
+  });
+});
+
+describe("an address with no password locks like one that has one", () => {
+  // The caller records each refusal in auth_attempts; this does the same.
+  const attempt = (db: ReturnType<typeof household>, outcome: string, at = nowIST()) =>
+    execute(db, `INSERT INTO auth_attempts (source, at, outcome, detail) VALUES ('x', ?, ?, ?)`,
+      at, outcome, "stranger@example.com");
+
+  test("the eighth guess locks, the lock holds, and it lapses after fifteen minutes", () => {
+    const db = household();
+    for (let i = 0; i < 7; i++) {
+      const r = checkAbsentPassword(db, "stranger@example.com", "x");
+      assert.equal(r.ok === false && r.reason, "wrong", `guess ${i + 1}`);
+      attempt(db, "bad-password");
+    }
+    const eighth = checkAbsentPassword(db, "stranger@example.com", "x");
+    assert.equal(eighth.ok === false && eighth.reason, "locked");
+    attempt(db, "locked");
+    const during = checkAbsentPassword(db, "stranger@example.com", "x");
+    assert.equal(during.ok === false && during.reason, "locked");
+
+    // Move every attempt sixteen minutes into the past: the lock has lapsed,
+    // and the count started again when it was set.
+    const past = nowIST(new Date(Date.now() - 16 * 60_000));
+    execute(db, `UPDATE auth_attempts SET at = ?`, past);
+    const after = checkAbsentPassword(db, "stranger@example.com", "x");
+    assert.equal(after.ok === false && after.reason, "wrong");
   });
 });
