@@ -7934,13 +7934,34 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    * serve a request at all — which is answered by the database opening, since
    * nothing works without it.
    */
-  router.get("/healthz", () => {
+  router.get("/healthz", (ctx) => {
+    /*
+     * 15 · Public, so it says only whether this instance is alive. It used to
+     * hand every passer-by the whole diagnosis: how many transactions and
+     * events the household has, how many items wait in review, which backups
+     * are missing and whether a development-login bypass is in the build — a
+     * map of the instance for anyone who asked. A monitor (and the Fly and
+     * Docker checks) needs one bit; the operator reads the rest on /health, or
+     * here with a session or an API token.
+     *
+     * The bit is whether the database answers, read directly rather than from
+     * the checks, so nothing recorded in the past can fail it.
+     */
+    let canServe = true;
+    try {
+      queryOne(db, `SELECT 1 FROM members LIMIT 1`);
+    } catch {
+      canServe = false;
+    }
+    if (!ctx.locals.auth) {
+      return {
+        status: canServe ? 200 : 503,
+        json: { status: canServe ? "ok" : "unavailable", serving: canServe, version: "0.1.0" },
+      };
+    }
+
     const groups = healthGroups();
     const overall = overallState(groups);
-
-    const canServe = groups
-      .find((g) => g.name === "Data")?.checks
-      .find((c) => c.name === "Database")?.state !== "failed";
 
     return {
       status: canServe ? 200 : 503,

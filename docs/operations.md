@@ -225,5 +225,8 @@ know.
 
 `/health` reports the last backup and its verification, the schema version,
 whether the development bypass is absent, stale price and valuation inputs, and
-the state of any Gmail grant. `/healthz` is the machine-readable version and the
-container's health check.
+the state of any Gmail grant. `/healthz` is the container's health check: signed
+out it answers only `{status, serving, version}` — 200 while the database
+answers, 503 when it does not, never failed by anything recorded in the past.
+With a session or an API token it adds every check, the machine-readable
+version of `/health`.
