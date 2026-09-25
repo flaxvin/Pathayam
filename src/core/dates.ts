@@ -278,8 +278,11 @@ export function monthFromName(name: string): number | null {
 }
 
 /**
- * Parse a date the user typed. Accepts DD-MM-YYYY, DD/MM/YYYY, the DD-MM and
- * DD/MM shorthands (L3), and the ISO form the app itself emits.
+ * Parse a date the user typed or a statement printed. Accepts DD-MM-YYYY,
+ * DD/MM/YYYY, DD.MM.YY, the DD-MM and DD/MM shorthands (L3), the ISO form the
+ * app itself emits and its YYYY/MM/DD cousin, a named month ("15-Jan-2026",
+ * "15 Jan 2026", "15 January 26"), and any of those followed by a time
+ * ("15-01-2026 10:32", "28-08-26, 00:01:28 IST"), which is dropped.
  *
  * Shorthand resolves against `reference`'s year, choosing the nearest
  * interpretation: typing "31-12" on 02-01-2027 means last December, not a year
@@ -287,14 +290,24 @@ export function monthFromName(name: string): number | null {
  * not a real one, or not in a plausible year.
  */
 export function parseDate(input: string, reference: IsoDate = todayIST()): IsoDate | null {
-  const s = input.trim();
+  // A trailing time of day is common in bank exports and says nothing about
+  // which day it was.
+  const s = input.trim()
+    .replace(/(?:[,\s]+(?:at\s+)?|T)\d{1,2}:\d{2}(?::\d{2})?(?:\s*[ap]\.?m\.?)?(?:\s*(?:IST|hrs?))?$/i, "")
+    .trim();
   if (s === "") return null;
 
-  const iso = /^(\d{4})-(\d{2})-(\d{2})$/.exec(s);
+  const iso = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(s);
   if (iso) return calendarDate(Number(iso[1]), Number(iso[2]), Number(iso[3]));
 
   const full = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2}|\d{4})$/.exec(s);
   if (full) return calendarDate(fullYear(full[3]!), Number(full[2]), Number(full[1]));
+
+  const named = /^(\d{1,2})(?:[-/.\s]+|(?=[a-z]))([a-z]{3,9})\.?[-/.,\s]+(\d{2}|\d{4})$/i.exec(s);
+  if (named) {
+    const month = monthFromName(named[2]!);
+    return month === null ? null : calendarDate(fullYear(named[3]!), month, Number(named[1]));
+  }
 
   const short = /^(\d{1,2})[-/.](\d{1,2})$/.exec(s);
   if (short) {

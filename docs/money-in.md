@@ -56,8 +56,18 @@ CSV cells, PDF rows, alerts and typed dates all end in one calendar check
 - A two-digit year below 70 is this century (`26` is 2026), 70 and above the
   last (`85` is 1985).
 
-Date formats are inferred; two-digit years are resolved by the mapping's
-`dateFormat` where a bank is ambiguous.
+The shapes read are the same everywhere: `15-01-2026`, `15/01/26`,
+`15.01.2026`, `2026-01-15`, `2026/01/15`, `15-Jan-2026`, `15 Jan 2026`,
+`15 January 26`, and any of them followed by a time (`15-01-2026 10:32`,
+`28-08-26, 00:01:28 IST`), which is dropped. A two-digit year-first date
+(`26-08-15`) is read as day-first unless the mapping's `dateFormat` is
+`yyyy-mm-dd`.
+
+A CSV row whose date cannot be read is an error row, never a silent skip. A
+row is skipped as a footer only when its date cell says so (`Total`,
+`Opening Balance`, `Page 2 of 3`), or its date cell is empty and it carries no
+amount or a footer marker. A merchant named `SWIGGY*ORDER` or `TOTAL GAS` no
+longer makes its row a footer.
 
 ## PDF statements
 
