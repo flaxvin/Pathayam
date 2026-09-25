@@ -319,6 +319,18 @@ day it was set to, not the date its last occurrence happened to land on. A rent
 on the 31st goes 31 Jan, 28 Feb, 31 Mar — it does not settle on the 28th after
 February. The day moves only when somebody moves the due date.
 
+**Schedules created before migration 0048** had their day read back from the
+due date, so one that had already slid from the 31st to the 28th is backfilled
+as the 28th — the day it was set for is not recorded anywhere reliable. Moving
+its due date back to the 31st once re-anchors it for good. Schedules the old
+`skip` policy ended (next due empty) can be found with
+`SELECT id, name FROM schedules WHERE next_due IS NULL AND short_month_policy = 'skip'`
+and given a due date again.
+
+Undoing a change to a schedule's **split** puts back the lines and envelope it
+replaced. It used to delete the schedule, because those events recorded no
+before-state and undo read that as "this was a creation".
+
 The short-month policy decides what happens in a month without that day:
 
 | Policy | 31st, in February 2026 |

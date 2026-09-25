@@ -427,6 +427,20 @@ export function setScheduleSplits(
     const kept = lines.filter((l) => l.amount !== 0);
 
     /*
+     * What undo needs to put back. These events recorded only what they did,
+     * with no before-state, and the undo handler reads a missing before-state
+     * as "this was a creation" — so undoing "Set Rent to split across 2
+     * envelopes" deleted the schedule outright. They are recorded as their own
+     * action now, with the lines and envelope as they were.
+     */
+    const priorState = {
+      category_id: schedule.category_id,
+      lines: getScheduleSplits(db, scheduleId).map((l) => ({
+        category_id: l.category_id, amount: l.amount, memo: l.memo ?? null,
+      })),
+    };
+
+    /*
      * One line is not a split — it is a plain single-envelope schedule, and
      * saying so is what somebody means when they delete all but one line. It
      * used to be refused, which left them stuck: the lines form would not
@@ -446,8 +460,9 @@ export function setScheduleSplits(
       execute(db, `DELETE FROM schedule_splits WHERE schedule_id = ?`, scheduleId);
       execute(db, `UPDATE schedules SET category_id = ? WHERE id = ?`, only.categoryId, scheduleId);
       appendEvent(db, actor, {
-        entity: "schedule", entityId: scheduleId, action: "update",
-        after: { splits: 0, categoryId: only.categoryId },
+        entity: "schedule", entityId: scheduleId, action: "split",
+        before: priorState,
+        after: { category_id: only.categoryId, lines: [] },
         summary: `${schedule.name} is one envelope again`,
       });
       return;
@@ -493,8 +508,12 @@ export function setScheduleSplits(
     });
 
     appendEvent(db, actor, {
-      entity: "schedule", entityId: scheduleId, action: "update",
-      after: { splits: kept.length },
+      entity: "schedule", entityId: scheduleId, action: "split",
+      before: priorState,
+      after: {
+        category_id: schedule.category_id,
+        lines: kept.map((l) => ({ category_id: l.categoryId, amount: l.amount, memo: l.memo ?? null })),
+      },
       summary: kept.length
         ? `Set ${schedule.name} to split across ${kept.length} envelopes`
         : `Removed the split from ${schedule.name}`,
@@ -1189,8 +1208,39 @@ export function describeCashflow(cashflow: Cashflow): string {
 }
 
 registerUndoHandler("schedule", (db, event) => {
+  // A split change puts back the lines and the envelope it replaced.
+  if (event.action === "split") {
+    const prior = event.before as {
+      category_id: string | null;
+      lines: { category_id: string | null; amount: number; memo: string | null }[];
+    } | undefined;
+    if (!prior) {
+      throw new Refusal("That change was recorded without what it replaced, so it cannot be undone.");
+    }
+    execute(db, `DELETE FROM schedule_splits WHERE schedule_id = ?`, event.entityId!);
+    prior.lines.forEach((line, i) => {
+      execute(
+        db,
+        `INSERT INTO schedule_splits (id, schedule_id, category_id, amount, memo, sort) VALUES (?,?,?,?,?,?)`,
+        newId(), event.entityId!, line.category_id, line.amount, line.memo, i,
+      );
+    });
+    execute(db, `UPDATE schedules SET category_id = ? WHERE id = ?`, prior.category_id, event.entityId!);
+    return prior.lines.length > 0 ? `Put the split back` : `Put the single envelope back`;
+  }
+
   const before = event.before as Schedule | undefined;
   if (!before) {
+    /*
+     * Only a creation has no before-state to return to. Anything else that
+     * arrives here without one is an older event whose shape this cannot
+     * restore — refusing is better than the old reading, which deleted the
+     * schedule for any such event, including a split change.
+     */
+    if (event.action !== "create") {
+      throw new Refusal("That change was recorded without what it replaced, so it cannot be undone.");
+    }
+    execute(db, `DELETE FROM schedule_splits WHERE schedule_id = ?`, event.entityId!);
     execute(db, `DELETE FROM schedules WHERE id = ?`, event.entityId!);
     return `Removed the schedule that was added`;
   }

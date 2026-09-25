@@ -17,6 +17,18 @@ import { openDatabase, ensureHousehold, execute, queryOne, migrate, type DB } fr
 import { nowIST } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import type { Actor } from "../core/events.ts";
+import { MIGRATIONS } from "./schema.ts";
+
+/*
+ * Replay only the migrations under test, then put the version back. Replaying
+ * everything after them stopped working once a later migration changed the
+ * schema (0048 adds a column): running it twice is a duplicate column.
+ */
+function replay(db: DB): void {
+  db.exec("PRAGMA user_version = 44");
+  migrate(db, false, 46);
+  db.exec(`PRAGMA user_version = ${MIGRATIONS.length}`);
+}
 import { createAccount } from "../domain/accounts.ts";
 
 const actor: Actor = { memberId: "m", source: "ui" };
@@ -47,15 +59,14 @@ function batch(db: DB, id: string, bank: string, source: string): void {
 }
 
 function rewindAndMigrate(db: DB): void {
-  db.exec("PRAGMA user_version = 44");
-  migrate(db, false);
+  replay(db);
 }
 
 describe("0045 · uniqueness covers live rows only", () => {
   test("a deleted import no longer blocks the same row arriving again", () => {
     const { db, bank } = household();
     batch(db, "b1", bank, "csv");
-    rewindAndMigrate(db);
+    replay(db);
     importedRow(db, "t1", bank, "b1", { source: "csv", sourceId: "row-7", deleted: true });
     // Under the old index this second insert failed: UNIQUE constraint.
     importedRow(db, "t2", bank, "b1", { source: "csv", sourceId: "row-7" });
@@ -78,7 +89,7 @@ describe("0046 · what old imports stored is corrected", () => {
       `INSERT INTO staged_transactions (id,batch_id,account_id,row_number,date,amount,raw_date,status,transaction_id,resolved_at,created_at)
        VALUES ('s1','csv1',?,1,'2026-09-02',-45000,'02/09/2026','approved','c1',?,?)`, bank, T, T);
 
-    rewindAndMigrate(db);
+    replay(db);
 
     const p1 = queryOne<Record<string, string | null>>(db, `SELECT * FROM transactions WHERE id = 'p1'`)!;
     assert.equal(p1.source, "pdf", "a PDF row still claims to have come from a CSV");

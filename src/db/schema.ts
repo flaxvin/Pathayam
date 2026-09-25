@@ -2237,4 +2237,52 @@ UPDATE categories SET group_id = (
    AND budget_id IS NOT (SELECT g.budget_id FROM category_groups g WHERE g.id = categories.group_id);
 `,
   },
+  {
+    name: "0048-a-schedule-remembers-the-day-it-was-set-for",
+    sql: `
+--------------------------------------------------------------------------------
+-- F7.3 · A monthly schedule's day, kept apart from its next due date
+--------------------------------------------------------------------------------
+-- The day of the month was read back from next_due, which by then had already
+-- been clamped: rent on the 31st went 31 Jan, 28 Feb, 28 Mar, and stayed on the
+-- 28th for good. Quarterly, half-yearly and yearly did the same, and a yearly
+-- 29 February became the 28th even in leap years.
+--
+-- Backfilled from next_due. A schedule that has already drifted is given the
+-- day it drifted to - the day it was set for is not recorded anywhere a
+-- migration can read reliably; docs/budgeting.md says how to reset one.
+ALTER TABLE schedules ADD COLUMN recurrence_day INTEGER
+  CHECK (recurrence_day IS NULL OR recurrence_day BETWEEN 1 AND 31);
+UPDATE schedules
+   SET recurrence_day = CAST(substr(next_due, 9, 2) AS INTEGER)
+ WHERE next_due IS NOT NULL
+   AND recurrence IN ('monthly', 'quarterly', 'half-yearly', 'yearly');
+`,
+  },
+  {
+    name: "0049-a-split-schedule-adds-up-to-its-amount",
+    sql: `
+--------------------------------------------------------------------------------
+-- F7 · Split schedules left with lines that no longer add up
+--------------------------------------------------------------------------------
+-- Changing a split schedule's amount left its lines at the old total, and from
+-- then on marking it paid was refused for ever - the schedule could not post.
+-- The rule everywhere else is that the first line takes whatever the others
+-- leave; applied here wherever that leaves the first line real money on the
+-- same side as the schedule. Anything else has to be re-entered by hand.
+UPDATE schedule_splits
+   SET amount = (SELECT s.amount FROM schedules s WHERE s.id = schedule_splits.schedule_id)
+              - (SELECT COALESCE(SUM(o.amount), 0) FROM schedule_splits o
+                  WHERE o.schedule_id = schedule_splits.schedule_id AND o.id <> schedule_splits.id)
+ WHERE id IN (
+   SELECT f.id FROM schedule_splits f JOIN schedules s ON s.id = f.schedule_id
+    WHERE s.amount IS NOT NULL
+      AND f.id = (SELECT x.id FROM schedule_splits x WHERE x.schedule_id = f.schedule_id
+                   ORDER BY x.sort, x.rowid LIMIT 1)
+      AND (SELECT SUM(a.amount) FROM schedule_splits a WHERE a.schedule_id = f.schedule_id) <> s.amount
+      AND (s.amount - (SELECT COALESCE(SUM(o.amount), 0) FROM schedule_splits o WHERE o.schedule_id = f.schedule_id AND o.id <> f.id)) <> 0
+      AND ((s.amount - (SELECT COALESCE(SUM(o.amount), 0) FROM schedule_splits o WHERE o.schedule_id = f.schedule_id AND o.id <> f.id)) < 0) = (s.amount < 0)
+ );
+`,
+  },
 ];

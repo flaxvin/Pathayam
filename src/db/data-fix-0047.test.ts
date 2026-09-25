@@ -14,6 +14,18 @@ import { execute, queryOne, migrate, type DB } from "./db.ts";
 import { freshDb, seedMember, startTestApp, testConfig } from "../web/harness.test-data.ts";
 import { ensurePersonalBudget } from "../domain/budgets.ts";
 import { createGroup, createCategory } from "../domain/budget.ts";
+import { MIGRATIONS } from "./schema.ts";
+
+/*
+ * Replay only the migrations under test, then put the version back. Replaying
+ * everything after them stopped working once a later migration changed the
+ * schema (0048 adds a column): running it twice is a duplicate column.
+ */
+function replay(db: DB): void {
+  db.exec("PRAGMA user_version = 46");
+  migrate(db, false, 47);
+  db.exec(`PRAGMA user_version = ${MIGRATIONS.length}`);
+}
 import { createSession } from "../auth/sessions.ts";
 
 const actor = { memberId: "m-ravi", source: "ui" as const };
@@ -28,8 +40,7 @@ describe("0047 · a stranded envelope goes home", () => {
     // What the old goal delete left behind: his envelope, the household's group.
     execute(db, `UPDATE categories SET budget_id = ? WHERE id = ?`, his.id, cat);
 
-    db.exec("PRAGMA user_version = 46");
-    migrate(db, false);
+    replay(db);
 
     const row = queryOne<{ cat_budget: string; group_budget: string; group_name: string }>(db,
       `SELECT c.budget_id AS cat_budget, g.budget_id AS group_budget, g.name AS group_name
@@ -44,8 +55,7 @@ describe("0047 · a stranded envelope goes home", () => {
     seedMember(db, "m-ravi", "Ravi");
     const g = createGroup(db, actor, "Home").id;
     const cat = createCategory(db, actor, { groupId: g, name: "Rent" }).id;
-    db.exec("PRAGMA user_version = 46");
-    migrate(db, false);
+    replay(db);
     assert.equal(queryOne<{ group_id: string }>(db, `SELECT group_id FROM categories WHERE id = ?`, cat)!.group_id, g);
   });
 });
