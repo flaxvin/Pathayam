@@ -167,6 +167,46 @@ This is a computer generated statement and does not require a signature.`,
 });
 
 /*
+ * With separate Debit and Credit columns, a non-zero debit always won:
+ * "100.00 | 50.00" staged a ₹100 debit and the ₹50 credit disappeared;
+ * "abc | 50.00" ignored the unreadable debit and staged a ₹50 credit; and
+ * "0.00 | 0.00" was refused as '"0.00" is not an amount I can read'.
+ */
+describe("a Debit and Credit pair that disagrees is refused, with the reason", () => {
+  const mapping = { headerRow: 0, date: 0, narration: 1, debit: 2, credit: 3 };
+  const run = (debit: string, credit: string) =>
+    applyMapping(parseDelimited(`Date,Narration,Debit,Credit\n01-09-2026,ROW,${debit},${credit}`), mapping);
+
+  test("both columns carrying money is an error row, not the debit", () => {
+    const result = run("100.00", "50.00");
+    assert.equal(result.records.length, 0);
+    assert.equal(result.errors.length, 1);
+    assert.match(result.errors[0]!.reason, /both a debit \(100\.00\) and a credit \(50\.00\)/);
+  });
+
+  test("an unreadable debit is not ignored because the credit reads", () => {
+    const result = run("abc", "50.00");
+    assert.equal(result.records.length, 0);
+    assert.match(result.errors[0]!.reason, /debit "abc" is not an amount/);
+    assert.match(run("50.00", "abc").errors[0]!.reason, /credit "abc" is not an amount/);
+  });
+
+  test("zero on both sides says so", () => {
+    const result = run("0.00", "0.00");
+    assert.equal(result.records.length, 0);
+    assert.match(result.errors[0]!.reason, /both zero|are zero/);
+  });
+
+  test("a zero or dash in the unused column is still an ordinary row", () => {
+    assert.equal(run("450.00", "0.00").records[0]!.amount, rupees(-450));
+    assert.equal(run("0.00", "450.00").records[0]!.amount, rupees(450));
+    assert.equal(run("-", "450.00").records[0]!.amount, rupees(450));
+    assert.equal(run("450.00", "").records[0]!.amount, rupees(-450));
+    assert.equal(run("450.00", "").records[0]!.raw.amount, "450.00");
+  });
+});
+
+/*
  * CSV read dates more narrowly than PDF and alerts: "15-Jan-2026",
  * "15 Jan 2026", "2026/01/15" and "15-01-2026 10:32" were all refused. Worse,
  * a refused row whose cells held "*" or "total" was taken for a footer and

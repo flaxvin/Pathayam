@@ -21,7 +21,10 @@ Gmail ┘                                                       → merge
 4. A saved profile is matched on subsequent imports by header signature.
 
 Both layouts are supported: a single signed amount column, or separate debit and
-credit columns.
+credit columns. With separate columns exactly one may carry money; the other is
+empty, `0.00` or a dash. A row with money in both, an unreadable figure in
+either, or zero in both is an error row naming which of those it is — never
+read as whichever column happens to win.
 
 ### Reading an amount
 

@@ -304,26 +304,10 @@ function readAmount(
   mapping: ColumnMapping,
 ): { amount: Paise | null; rawAmount: string; reason?: string } {
   if (mapping.debit !== undefined && mapping.credit !== undefined) {
-    const rawDebit = (cells[mapping.debit] ?? "").trim();
-    const rawCredit = (cells[mapping.credit] ?? "").trim();
-    const debit = rawDebit ? parseAmount(rawDebit, "statement") : null;
-    const credit = rawCredit ? parseAmount(rawCredit, "statement") : null;
-
-    if (debit !== null && debit !== 0) {
-      // Money leaving is negative regardless of how the column is signed.
-      return { amount: -Math.abs(debit), rawAmount: rawDebit };
-    }
-    if (credit !== null && credit !== 0) {
-      return { amount: Math.abs(credit), rawAmount: rawCredit };
-    }
-    if (rawDebit === "" && rawCredit === "") {
-      return { amount: null, rawAmount: "", reason: "Both the debit and credit columns are empty." };
-    }
-    return {
-      amount: null,
-      rawAmount: rawDebit || rawCredit,
-      reason: `"${rawDebit || rawCredit}" is not an amount I can read.`,
-    };
+    return readDebitCredit(
+      (cells[mapping.debit] ?? "").trim(),
+      (cells[mapping.credit] ?? "").trim(),
+    );
   }
 
   if (mapping.amount === undefined) {
@@ -336,6 +320,58 @@ function readAmount(
     return { amount: null, rawAmount: raw, reason: `"${raw}" is not an amount I can read.` };
   }
   return { amount, rawAmount: raw };
+}
+
+/** What banks print in the column a row does not use. */
+const EMPTY_CELL = /^(?:|-|–|—)$/;
+
+/**
+ * A row from a statement with separate Debit and Credit columns.
+ *
+ * Exactly one of the two may carry money. This used to take the debit
+ * whenever it was non-zero, so "100.00 | 50.00" staged a ₹100 debit and the
+ * ₹50 credit vanished; an unreadable debit beside a readable credit was
+ * ignored ("abc | 50.00" became a ₹50 credit); and "0.00 | 0.00" was refused
+ * as '"0.00" is not an amount I can read', which it plainly is. Each of those
+ * is now an error row that says what is actually wrong, because guessing
+ * which column the bank meant inverts a transaction.
+ */
+function readDebitCredit(
+  rawDebit: string,
+  rawCredit: string,
+): { amount: Paise | null; rawAmount: string; reason?: string } {
+  const debitEmpty = EMPTY_CELL.test(rawDebit);
+  const creditEmpty = EMPTY_CELL.test(rawCredit);
+  if (debitEmpty && creditEmpty) {
+    return { amount: null, rawAmount: "", reason: "Both the debit and credit columns are empty." };
+  }
+
+  const debit = debitEmpty ? null : parseAmount(rawDebit, "statement");
+  const credit = creditEmpty ? null : parseAmount(rawCredit, "statement");
+  if (!debitEmpty && debit === null) {
+    return { amount: null, rawAmount: rawDebit, reason: `The debit "${rawDebit}" is not an amount I can read.` };
+  }
+  if (!creditEmpty && credit === null) {
+    return { amount: null, rawAmount: rawCredit, reason: `The credit "${rawCredit}" is not an amount I can read.` };
+  }
+
+  const out = debit !== null && debit !== 0;
+  const into = credit !== null && credit !== 0;
+  if (out && into) {
+    return {
+      amount: null,
+      rawAmount: `${rawDebit} | ${rawCredit}`,
+      reason: `This row has both a debit (${rawDebit}) and a credit (${rawCredit}); I cannot tell which the bank meant.`,
+    };
+  }
+  // Money leaving is negative regardless of how the column is signed.
+  if (out) return { amount: -Math.abs(debit!), rawAmount: rawDebit };
+  if (into) return { amount: Math.abs(credit!), rawAmount: rawCredit };
+  return {
+    amount: null,
+    rawAmount: rawDebit || rawCredit,
+    reason: "Both the debit and credit are zero, so nothing moved on this row.",
+  };
 }
 
 /**
