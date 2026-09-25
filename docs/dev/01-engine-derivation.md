@@ -153,6 +153,15 @@ change in the debt:
 | ₹500 annual fee, categorised to Fees | −500 | +500 | The fee needs funding too |
 | ₹900 refund, categorised | +900 | −900 | Releases money that is no longer owed |
 
+**Unfiled card flow is excluded too** (B97): a charge nobody has filed gave
+nothing up, so it must not raise the envelope. A card's transfer leg counts as
+filed — it is a card *payment* — only while its partner is live and on a budget
+account or another card. When the partner is on a **tracking** account (a
+wallet top-up, an EMI on a loan tracked off-budget) or is gone, the leg is an
+unfiled card movement: the debt moves, the envelope does not. Counting it as a
+payment moved the envelope with nothing on the budget side to meet it, and the
+identity failed by the full amount.
+
 The **opening balance is excluded** from the sum, so starting debt does not
 fund itself: R6 says the payment category "starts at ₹0" and the gap is shown
 as a debt figure, not a budgeting error.
