@@ -965,18 +965,49 @@ export function projectCashflow(
 
   const end = addDays(today, horizon);
 
+  /*
+   * S5 · Cards in scope, and when each is paid. A card's balance is not cash
+   * leaving on the day it is charged; it leaves on the due date. Every card was
+   * listed whatever budget was asked about, and its current balance was
+   * charged again on every due date in the horizon: a card owing ₹10,000 due
+   * on the 5th was ₹30,000 of outflows over 90 days (5 Oct, 5 Nov, 5 Dec),
+   * a lowest balance of ₹70,000 against a true ₹90,000. What is owed today is
+   * paid once, at the next due date; what the card will owe after that is
+   * only what is scheduled on it, and that is paid at the due date its
+   * statement falls into.
+   */
+  const cards = new Map(
+    queryAll<{ id: string; name: string; due_day: number | null; statement_day: number | null }>(
+      db,
+      `SELECT id, name, due_day, statement_day FROM accounts
+        WHERE kind = 'credit' AND closed_at IS NULL
+          ${opts.budgetId ? "AND budget_id = ?" : ""}`,
+      ...(opts.budgetId ? [opts.budgetId] : []),
+    ).map((card) => [card.id, card]),
+  );
+
   // Confirmed and detected schedules, distinguished (F7.8).
   for (const schedule of listSchedules(db, { viewerMemberId: opts.viewerMemberId })) {
     if (!schedule.next_due || schedule.amount === null) continue;
-    // A standing instruction only moves this budget's cash if it comes out of
-    // one of its accounts.
-    if (opts.budgetId && schedule.account_id && !inScope.has(schedule.account_id)) continue;
+    /*
+     * S5 · Which schedules move this cash, the same rule in every scope. A
+     * schedule on a card was taken out of cash on its own date in the combined
+     * projection and dropped altogether from the household one (it is not a
+     * Budget account, so it failed the scope check): a ₹649 subscription billed
+     * to the card cost cash in one view and nothing in the other. Now: a
+     * Budget account in scope moves cash on the day; a card in scope moves it
+     * on the card's due date; a tracking account, or anything out of scope,
+     * does not move this cash at all. No account at all is taken as cash.
+     */
+    const card = schedule.account_id ? cards.get(schedule.account_id) : undefined;
+    if (schedule.account_id && !inScope.has(schedule.account_id) && !card) continue;
     let due: IsoDate | null = schedule.next_due;
     for (let guard = 0; due && due <= end && guard < 400; guard++) {
-      if (due >= today) {
-        const day = dayFor(due);
+      const leaves = card ? cardPaymentDate(card, due) : due;
+      if (leaves >= today && leaves <= end) {
+        const day = dayFor(leaves);
         const entry = {
-          label: schedule.name,
+          label: card ? `${schedule.name} (${card.name})` : schedule.name,
           amount: Math.abs(schedule.amount),
           confirmed: schedule.detected === 0,
         };
@@ -1006,18 +1037,16 @@ export function projectCashflow(
     }
   }
 
-  // Card due dates, with the statement balance as the expected payment.
-  for (const card of queryAll<{ id: string; name: string; due_day: number | null }>(
-    db, `SELECT id, name, due_day FROM accounts WHERE kind = 'credit' AND closed_at IS NULL`,
-  )) {
-    if (!card.due_day) continue;
+  // What each card owes today, paid once, at its next due date (S5).
+  for (const card of cards.values()) {
     const owed = Math.max(0, -(balances.get(card.id)?.working ?? 0));
-    if (owed === 0) continue;
-    for (let m = 0; m < Math.ceil(horizon / 28) + 1; m++) {
-      const due = resolveDayOfMonth(addMonths(monthOf(today), m), card.due_day, "last-day");
-      if (!due || due < today || due > end) continue;
-      dayFor(due).outflows.push({ label: `${card.name} due`, amount: owed, confirmed: true });
-    }
+    if (owed === 0 || !card.due_day) continue;
+    const thisMonth = resolveDayOfMonth(monthOf(today), card.due_day, "last-day")!;
+    const due = thisMonth >= today
+      ? thisMonth
+      : resolveDayOfMonth(addMonths(monthOf(today), 1), card.due_day, "last-day")!;
+    if (due > end) continue;
+    dayFor(due).outflows.push({ label: `${card.name} due`, amount: owed, confirmed: true });
   }
 
   const days: CalendarDay[] = [];
@@ -1045,6 +1074,30 @@ export function projectCashflow(
   }
 
   return { days, openingBalance: opening, floor, firstShortfall, lowestBalance: lowest, lowestOn };
+}
+
+/**
+ * When a charge on a card becomes cash leaving the bank: the first due date
+ * after the statement that takes it in. Statement on the 20th, due on the 5th —
+ * a charge on 10 Sep is paid 5 Oct, one on 25 Sep is paid 5 Nov. A card with no
+ * statement day is taken to be paid at the first due date after the charge; a
+ * card with no due day at all, on the day (nothing better is known).
+ */
+function cardPaymentDate(
+  card: { due_day: number | null; statement_day: number | null }, charged: IsoDate,
+): IsoDate {
+  if (!card.due_day) return charged;
+  let closes = charged;
+  if (card.statement_day) {
+    for (let m = 0; m <= 1; m++) {
+      const close = resolveDayOfMonth(addMonths(monthOf(charged), m), card.statement_day, "last-day")!;
+      if (close >= charged) { closes = close; break; }
+    }
+  }
+  for (let m = 0; ; m++) {
+    const due = resolveDayOfMonth(addMonths(monthOf(closes), m), card.due_day, "last-day")!;
+    if (due > closes) return due;
+  }
 }
 
 /** F7.9 · Subscriptions, with what they actually cost per year. */
