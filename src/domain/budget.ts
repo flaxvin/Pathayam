@@ -358,6 +358,44 @@ export function setCategoryHidden(db: DB, actor: Actor, id: string, hidden: bool
 }
 
 /**
+ * D2 · Where a deleted envelope's history may go.
+ *
+ * The remap target was not checked at all. ₹1,000 of spending remapped onto a
+ * card's payment envelope disappeared from the budget — that envelope's
+ * activity is derived from the card (R6), so spending filed to it is read by
+ * nothing — and the identity was out by −₹1,000 from 2025-02. A commitment
+ * envelope is the same (its balance is the claim between two budgets), and a
+ * deleted envelope, another budget's, or the envelope itself are no better.
+ */
+function refuseHistoryTarget(db: DB, from: Category, targetId: string): void {
+  const target = getCategory(db, targetId);
+  if (!target || target.deleted_at || targetId === from.id) {
+    throw new Refusal("Pick another envelope, still in use, to move the history to.");
+  }
+  if (target.payment_account_id) {
+    throw new Refusal(
+      `"${target.name}" is a card's payment envelope — it fills itself from spending on ` +
+      `that card, so history moved into it would be counted nowhere. Pick another envelope.`,
+    );
+  }
+  if (target.commits_to_budget_id) {
+    throw new Refusal(
+      `"${target.name}" holds what one budget has set aside for another, so spending ` +
+      `is not filed to it. Pick another envelope.`,
+    );
+  }
+  const budgetOf = (groupId: string) =>
+    queryOne<{ budget_id: string | null }>(
+      db, `SELECT budget_id FROM category_groups WHERE id = ?`, groupId,
+    )?.budget_id ?? null;
+  if (budgetOf(from.group_id) !== budgetOf(target.group_id)) {
+    throw new Refusal(
+      "That envelope belongs to a different budget. Move the history to one in the same budget.",
+    );
+  }
+}
+
+/**
  * F3.3: deleting requires reassigning the balance and offers to remap history.
  * The balance must be dealt with by the caller first — this refuses rather than
  * silently stranding money.
@@ -407,6 +445,7 @@ export function deleteCategory(
     }
 
     if (opts.remapTo) {
+      refuseHistoryTarget(db, before, opts.remapTo);
       execute(db, `UPDATE transactions SET category_id = ? WHERE category_id = ?`, opts.remapTo, id);
       execute(db, `UPDATE transaction_splits SET category_id = ? WHERE category_id = ?`, opts.remapTo, id);
     }
@@ -506,6 +545,14 @@ export function mergeCategories(db: DB, actor: Actor, loserId: string, winnerId:
     if (loser.payment_account_id || winner.payment_account_id) {
       throw new Refusal(
         "A card's payment category cannot be merged. Its balance is what funds that card, and the app derives it from the account (R6).",
+      );
+    }
+    // D2 / D8 · Merging into a commitment envelope files the loser's spending
+    // to it, which the claim between the budgets cannot absorb.
+    if (winner.commits_to_budget_id) {
+      throw new Refusal(
+        `"${winner.name}" holds what one budget has set aside for another, so nothing ` +
+        `can be merged into it. Pick another envelope.`,
       );
     }
 

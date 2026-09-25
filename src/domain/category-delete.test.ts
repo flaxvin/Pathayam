@@ -8,6 +8,12 @@
  * reading a deleted envelope: Ready to Assign stayed ₹1,00,000 while the bank
  * held ₹99,000 — the identity out by −₹1,000 in every month from 2025-02. Via
  * the Categories page too (303 "Category deleted.").
+ *
+ * D2 · The remap target was not checked. The same ₹1,000 remapped onto a
+ * card's payment envelope vanished — that envelope's activity is derived from
+ * the card, so spending filed to it is read by nothing — and the identity was
+ * out by −₹1,000 from 2025-02. A commitment envelope, a deleted one, another
+ * budget's, or the envelope itself were all accepted too.
  */
 
 import { test, describe } from "node:test";
@@ -16,10 +22,13 @@ import { execute } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { nowIST } from "../core/dates.ts";
 import { Refusal } from "../core/refusal.ts";
-import { createAccount } from "./accounts.ts";
+import { createAccount, paymentCategoryFor } from "./accounts.ts";
+import { ensurePersonalBudget } from "./budgets.ts";
+import { ensureCommitmentEnvelope } from "./commitments.ts";
 import { createTransaction } from "./transactions.ts";
 import {
   createGroup, createCategory, deleteCategory, mergeCategories, setAssigned, getCategory,
+  startPersonalBudget,
 } from "./budget.ts";
 import { freshHousehold, identityProblems, RAVI } from "../engine/identity.test-data.ts";
 import { startTestApp } from "../web/harness.test-data.ts";
@@ -92,5 +101,59 @@ describe("D1 · an envelope with history is not deleted outright", () => {
       await app.close();
     }
     assert.deepEqual(identityProblems(s.db, "2027-03"), []);
+  });
+});
+
+describe("D2 · history is only remapped somewhere that counts it", () => {
+  const cases: [string, (s: ReturnType<typeof spentDown>) => string][] = [
+    ["a card's payment envelope", (s) => {
+      const card = createAccount(s.db, actor, {
+        name: "Card", kind: "credit", subtype: "credit-card", openingDate: "2025-01-01",
+      }).id;
+      return paymentCategoryFor(s.db, card)!.id;
+    }],
+    ["a commitment envelope", (s) => {
+      const ravi = ensurePersonalBudget(s.db, RAVI, "Ravi").id;
+      startPersonalBudget(s.db, actor, ravi);
+      return ensureCommitmentEnvelope(s.db, actor, ravi).id;
+    }],
+    ["a deleted envelope", (s) => {
+      const gone = createCategory(s.db, actor, { groupId: s.group, name: "Gone" }).id;
+      deleteCategory(s.db, actor, gone, { currentBalance: 0 });
+      return gone;
+    }],
+    ["another budget's envelope", (s) => {
+      const ravi = ensurePersonalBudget(s.db, RAVI, "Ravi").id;
+      return createCategory(s.db, actor, {
+        groupId: createGroup(s.db, actor, "Mine", "normal", ravi).id, name: "Ravi's",
+      }).id;
+    }],
+    ["the envelope itself", (s) => s.a],
+    ["an id that is not an envelope", () => "no-such-category"],
+  ];
+  for (const [label, target] of cases) {
+    test(`remapping to ${label} is refused`, () => {
+      const s = spentDown();
+      const to = target(s);
+      assert.throws(() => deleteCategory(s.db, actor, s.a, { currentBalance: 0, remapTo: to }), Refusal);
+      assert.equal(getCategory(s.db, s.a)?.deleted_at, null);
+      assert.deepEqual(identityProblems(s.db, "2027-03"), []);
+    });
+  }
+
+  test("remapping to an ordinary envelope in the same budget works", () => {
+    const s = spentDown();
+    deleteCategory(s.db, actor, s.a, { currentBalance: 0, remapTo: s.b });
+    assert.deepEqual(identityProblems(s.db, "2027-03"), []);
+  });
+
+  test("merging into a commitment envelope is refused", () => {
+    const s = spentDown();
+    const ravi = ensurePersonalBudget(s.db, RAVI, "Ravi").id;
+    const mine = createCategory(s.db, actor, {
+      groupId: createGroup(s.db, actor, "Mine", "normal", ravi).id, name: "Ravi's",
+    }).id;
+    const envelope = ensureCommitmentEnvelope(s.db, actor, ravi).id;
+    assert.throws(() => mergeCategories(s.db, actor, mine, envelope), Refusal);
   });
 });
