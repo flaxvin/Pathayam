@@ -2538,7 +2538,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         // envelope — the domain refuses one, so offering it would be a choice
         // that always fails.
         categories: [...buildBudgetView(db, undefined, undefined, viewer(ctx)).categories.values()]
-          .filter((c) => !c.hidden && !c.isPaymentCategory)
+          .filter((c) => !c.hidden && !c.isPaymentCategory && !c.commitsToBudgetId)
           .map((c) => ({ id: c.id, name: c.name })),
       }),
     );
@@ -3218,7 +3218,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 <select id="emi-fee-category" name="fee_category_id">
                   <option value="">—</option>
                   ${[...view.categories.values()]
-                    .filter((c) => !c.isPaymentCategory && !c.hidden)
+                    .filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden)
                     .map((c) => html`<option value="${c.id}">${c.name}</option>`)}
                 </select>
               </div>
@@ -3259,7 +3259,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           ${when(!transaction.transfer_pair_id, () => renderCategoryLines({
             label: "Envelope",
             categories: [...view.categories.values()]
-              .filter((c) => !c.isPaymentCategory && !c.hidden)
+              .filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden)
               .map((c) => ({ id: c.id, name: c.name })),
             values: splits.length > 0
               ? splits.map((sp) => ({ categoryId: sp.category_id, amount: sp.amount as Paise }))
@@ -5407,7 +5407,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         // The inline edit form needs the full lists, or saving would blank the
         // fields it does not show.
         categories: [...view.categories.values()]
-          .filter((c) => !c.isPaymentCategory && !c.hidden)
+          .filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden)
           .map((c) => ({ id: c.id, name: c.name })),
         accounts: listAccounts(db, { viewerMemberId: viewer(ctx) })
           .filter((acc) => acc.kind === "budget" || acc.kind === "credit")
@@ -5424,7 +5424,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       renderNewScheduleForm({
         accounts: listAccounts(db, { viewerMemberId: viewer(ctx) }).map((a) => ({ id: a.id, name: a.name, nickname: a.nickname })),
         categories: [...view.categories.values()]
-          .filter((c) => !c.isPaymentCategory && !c.hidden)
+          .filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden)
           .map((c) => ({ id: c.id, name: c.name })),
         today: todayIST(),
       }),
@@ -5951,7 +5951,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         rules: ruleRows(db, false).filter(visibleRule),
         proposed: ruleRows(db, true).filter(visibleRule),
         categories: [...view.categories.values()]
-          .filter((c) => !c.isPaymentCategory && !c.hidden)
+          .filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden)
           .map((c) => ({ id: c.id, name: c.name })),
         test,
         draft,
@@ -6406,7 +6406,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       view,
       accounts: cashAccounts(ctx),
       categories: [...budgetView.categories.values()]
-        .filter((c) => !c.isPaymentCategory && !c.hidden)
+        .filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden)
         .map((c) => ({ id: c.id, name: c.name })),
       entries: entries.map((e) => ({ ...e, amount: e.amount as never })),
       confirmingWriteOff: ctx.query.get("confirm") === "write-off",
@@ -6957,7 +6957,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             .filter((a) => a.kind === "budget")
             .map((a) => ({ id: a.id, name: a.nickname || a.name })),
           categories: [...view.categories.values()]
-            .filter((c) => !c.isPaymentCategory && !c.hidden)
+            .filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden)
             .map((c) => ({ id: c.id, name: c.name })),
           searchResults: results,
           query,
@@ -7340,7 +7340,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         .filter((acc) => acc.kind === "budget")
         .map((acc) => ({ id: acc.id, name: acc.name })),
       categories: [...buildBudgetView(db, undefined, undefined, viewer(ctx)).categories.values()]
-        .filter((c) => !c.hidden && !c.isPaymentCategory)
+        .filter((c) => !c.hidden && !c.isPaymentCategory && !c.commitsToBudgetId)
         .map((c) => ({ id: c.id, name: c.name })),
     }));
   });
@@ -7482,7 +7482,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         .filter((acc) => acc.kind === "budget")
         .map((acc) => ({ id: acc.id, name: acc.name })),
       categories: [...buildBudgetView(db, undefined, undefined, viewer(ctx)).categories.values()]
-        .filter((c) => !c.hidden && !c.isPaymentCategory)
+        .filter((c) => !c.hidden && !c.isPaymentCategory && !c.commitsToBudgetId)
         .map((c) => ({ id: c.id, name: c.name })),
     }));
   });

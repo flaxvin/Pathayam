@@ -60,7 +60,7 @@ export function renderAddTransaction(opts: {
    * unlabelled list of thirty envelopes from two budgets cannot say that, so the
    * options are grouped and each group is named.
    */
-  const spendable = categories.filter((c) => !c.isPaymentCategory && !c.hidden);
+  const spendable = categories.filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden);
   const budgetLabel = (id: string | null): string => {
     const budget = budgets.find((b) => b.id === id);
     if (!budget) return "Other envelopes";

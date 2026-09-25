@@ -97,6 +97,27 @@ export function refusePaymentCategories(db: DB, categoryIds: (string | null | un
           `on that card, so nothing can be filed to it directly. Pick another envelope.`,
       );
     }
+
+    /*
+     * D8 · A commitment envelope is the same kind of thing from the other side:
+     * its balance *is* the claim between two budgets (dueFromOtherBudgets reads
+     * it), and the receiving budget's means count only what was assigned to it.
+     * ₹224 filed straight to Ravi's envelope for the household lowered the claim
+     * by ₹224 with no expense anywhere in the household to meet it, so the
+     * household's identity was out by −₹224 in every month after. Spending on the
+     * household's behalf is filed to the household's own envelope — that is what
+     * lowers the commitment, and it keeps both budgets whole.
+     */
+    const committed = queryOne<{ name: string }>(
+      db, `SELECT name FROM categories WHERE id = ? AND commits_to_budget_id IS NOT NULL`, id,
+    );
+    if (committed) {
+      throw new Refusal(
+        `"${committed.name}" holds what one budget has set aside for another, so ` +
+          `spending is not filed to it. File it to the envelope it was for — the ` +
+          `commitment goes down by itself when that envelope is in the other budget.`,
+      );
+    }
   }
 }
 

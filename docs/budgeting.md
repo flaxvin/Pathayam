@@ -118,6 +118,15 @@ personal budget carries `commits_to_budget_id`. Assigning to it increases the
 household's means without a transfer between accounts. Spending from the
 household on that member's behalf reduces it.
 
+Nothing is filed *to* a commitment envelope. Its balance is the claim itself,
+and the receiving budget counts only what was assigned to it, so spending filed
+there lowered the claim with no expense anywhere to meet it — ₹224 left the
+household's books out by −₹224 in every month after. Spending for the household
+is filed to the household's own envelope, which is what lowers the commitment.
+The pickers do not offer a commitment envelope, and every filing path (a
+transaction, a split line, a recategorise, the review queue, rules, schedules)
+refuses one.
+
 The claim appears in the identity as `due from other budgets`. The standing of
 a commitment envelope is described as **overfunded**, **underfunded** or
 **square** — never as debt.
