@@ -60,7 +60,7 @@ describe("D14 · auto-assign spends only the budget being viewed", () => {
     try {
       const preview = await (await app.get(`/auto-assign?month=${s.month}&budget=${HH}`)).text();
       assert.ok(preview.includes("Nothing to assign"), "the household has no Ready to Assign");
-      const res = await app.post(`/auto-assign?month=${s.month}&budget=${HH}`, { month: s.month });
+      const res = await app.post(`/auto-assign`, { month: s.month, budget: HH });
       assert.equal(res.status, 303);
       assert.deepEqual(app.failures, []);
     } finally {
@@ -79,8 +79,8 @@ describe("D14 · auto-assign spends only the budget being viewed", () => {
     const app = await startTestApp(s.db, { memberId: PRIYA });
     try {
       const preview = await (await app.get(`/auto-assign?month=${s.month}&budget=${s.priya}`)).text();
-      assert.ok(preview.includes(`action="/auto-assign?budget=${s.priya}"`));
-      await app.post(`/auto-assign?month=${s.month}&budget=${s.priya}`, { month: s.month });
+      assert.ok(preview.includes(`name="budget" value="${s.priya}"`));
+      await app.post(`/auto-assign`, { month: s.month, budget: s.priya });
       assert.deepEqual(app.failures, []);
     } finally {
       await app.close();
