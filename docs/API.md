@@ -400,7 +400,7 @@ only (out of a token's reach).
 | POST | `/assign` | W | Assign to a category. |
 | GET/POST | `/move` | R/W | Move between envelopes. |
 | GET/POST | `/hold` | R/W | Hold income for next month. |
-| GET/POST | `/auto-assign` | R/W | Fund-to-target, with preview. |
+| GET/POST | `/auto-assign` | R/W | Fund-to-target, with preview — for one budget (`?budget=`, else the last one viewed), from that budget's Ready to Assign. |
 | GET | `/overview` | R | Runway, due-soon bills, the month at a glance. |
 | POST | `/budgets/personal` | W | Create your own personal budget, if you do not have one (`15` §2). |
 | GET | `/more` | R | The hub of everything not in the primary nav. |

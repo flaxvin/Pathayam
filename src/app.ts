@@ -1949,13 +1949,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/auto-assign", (ctx) => {
     const month = monthParam(ctx);
-    const plan = buildAutoAssignPlan(month);
-    const view = buildBudgetView(db, month, undefined, viewer(ctx));
+    const scope = budgetParam(ctx);
+    const plan = buildAutoAssignPlan(month, scope);
+    const view = buildBudgetView(db, month, scope, viewer(ctx));
     return render(
       ctx,
       "Auto-assign",
       renderAutoAssignPreview({
         month,
+        budgetId: scope,
         plan,
         categoryNames: new Map([...view.categories].map(([id, c]) => [id, c.name])),
       }),
@@ -1965,7 +1967,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/auto-assign", (ctx) =>
     mutate(ctx, (a) => {
       const month = monthParam(ctx);
-      const plan = buildAutoAssignPlan(month);
+      const plan = buildAutoAssignPlan(month, budgetParam(ctx));
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
       for (const proposal of plan.proposals) {
         setAssigned(db, actor, month, proposal.categoryId, proposal.to);
@@ -1996,9 +1998,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // B58 · Auto-assign funds each category to its target (the "budget"), in order,
   // from Ready to Assign until it runs out. It reads the targets set on the
   // Categories screen — there is no separate, hidden rules system to configure.
-  function buildAutoAssignPlan(month: MonthKey): AutoAssignPlan {
-    // No viewer: this is the budget's own plan, not a list somebody is shown.
-    const view = buildBudgetView(db, month);
+  function buildAutoAssignPlan(month: MonthKey, budgetId: string): AutoAssignPlan {
+    /*
+     * D14 · One budget's plan, from that budget's Ready to Assign.
+     *
+     * This read the combined view of every budget: household RTA ₹0 (₹1,000 all
+     * in Groceries, target ₹1,500) plus Priya's ₹50,000 made a pool of ₹50,000,
+     * so Ravi's click assigned ₹500 more to Groceries than the household had —
+     * RTA −₹500 — and ₹700 into Priya's private envelope out of her money.
+     * budgetParam has already checked the budget is one the reader may use.
+     */
+    const view = buildBudgetView(db, month, budgetId);
     const rtaBefore = view.monthState.readyToAssign;
     let remaining = rtaBefore;
     const proposals: AutoAssignProposal[] = [];
