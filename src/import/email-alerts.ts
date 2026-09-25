@@ -30,7 +30,7 @@
  * anything: it reads a message and returns a record or null.
  */
 
-import type { IsoDate } from "../core/dates.ts";
+import { calendarDate, fullYear, monthFromName, type IsoDate } from "../core/dates.ts";
 import { parseAmount, type Paise } from "../core/money.ts";
 
 export interface AlertRecord {
@@ -62,27 +62,22 @@ export interface AlertProfile {
 // Shared field readers
 // ---------------------------------------------------------------------------
 
-const MONTHS: Record<string, string> = {
-  jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
-  jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
-};
-
-/** `28-08-26`, `28-08-2026`, `27-08-2026`, `27 Aug 2026`. */
+/**
+ * `28-08-26`, `28-08-2026`, `27-08-2026`, `27 Aug 2026`.
+ *
+ * Checked against the calendar (`calendarDate`), as every date reader is: this
+ * one accepted any day up to 31, so an alert dated 31/02/2026 staged a row on
+ * "2026-02-31".
+ */
 function parseAlertDate(raw: string): IsoDate | null {
-  const numeric = /(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})/.exec(raw);
+  const numeric = /(\d{1,2})[-/](\d{1,2})[-/](\d{4}|\d{2})\b/.exec(raw);
   if (numeric) {
-    const dd = numeric[1]!.padStart(2, "0");
-    const mm = numeric[2]!.padStart(2, "0");
-    const yy = numeric[3]!;
-    const yyyy = yy.length === 4 ? yy : `20${yy}`;
-    if (Number(mm) >= 1 && Number(mm) <= 12 && Number(dd) >= 1 && Number(dd) <= 31) {
-      return `${yyyy}-${mm}-${dd}` as IsoDate;
-    }
+    return calendarDate(fullYear(numeric[3]!), Number(numeric[2]), Number(numeric[1]));
   }
   const named = /(\d{1,2})[-\s]([A-Za-z]{3})[a-z]*[-\s](\d{4})/.exec(raw);
   if (named) {
-    const mm = MONTHS[named[2]!.toLowerCase()];
-    if (mm) return `${named[3]}-${mm}-${named[1]!.padStart(2, "0")}` as IsoDate;
+    const month = monthFromName(named[2]!);
+    if (month !== null) return calendarDate(Number(named[3]), month, Number(named[1]));
   }
   return null;
 }

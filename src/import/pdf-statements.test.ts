@@ -231,6 +231,20 @@ describe("04 §3.3 · the details that invert a transaction if wrong", () => {
     assert.equal(parseStatementDate("not a date"), null);
   });
 
+  test("a day the month does not have is refused, not stored as written", () => {
+    // Only "day <= 31" was checked, so "31/02/2026" came back as the string
+    // "2026-02-31" and was staged on a date that does not exist. The check is
+    // now the calendar one every date reader shares.
+    assert.equal(parseStatementDate("31/02/2026"), null);
+    assert.equal(parseStatementDate("29/02/2026"), null);
+    assert.equal(parseStatementDate("31-Apr-2026"), null);
+    assert.equal(parseStatementDate("31 Jun 26"), null);
+    assert.equal(parseStatementDate("29/02/2028"), "2028-02-29");
+    assert.equal(parseStatementDate("30-Apr-2026"), "2026-04-30");
+    // An impossible year is refused too: "0026" is a typo, not the first century.
+    assert.equal(parseStatementDate("15/01/0026"), null);
+  });
+
   test("Cr, Dr and brackets", () => {
     assert.deepEqual(parseStatementAmount("1,450.50"), { value: 1450.5, credit: false });
     assert.deepEqual(parseStatementAmount("1,450.50 Cr"), { value: 1450.5, credit: true });

@@ -122,6 +122,19 @@ describe("04 §3.4 · parsing bank transaction alerts", () => {
     assert.equal(r.record.balance, 28_436_887);
   });
 
+  test("an alert dated a day that does not exist is not staged on it", () => {
+    // parseAlertDate accepted any day up to 31 in any month, so an alert
+    // reading "on 31-02-2026" staged a ₹70 row dated "2026-02-31" — a string
+    // that sorts like a date and is not one. The shared calendar check refuses
+    // it; the message is then left for a person rather than filed wrongly.
+    const feb31 = YES_CARD.replace("27-08-2026", "31-02-2026");
+    assert.equal(parseAlert("alerts@yes.bank.in", "YES BANK - Transaction Alert", feb31), null);
+    const leap = YES_CARD.replace("27-08-2026", "29-02-2028");
+    assert.equal(parseAlert("alerts@yes.bank.in", "YES BANK - Transaction Alert", leap)!.record.date, "2028-02-29");
+    const notLeap = YES_CARD.replace("27-08-2026", "29-02-2026");
+    assert.equal(parseAlert("alerts@yes.bank.in", "YES BANK - Transaction Alert", notLeap), null);
+  });
+
   test("IndusInd account — sentence form, account last four and UPI narration", () => {
     const r = parseAlert(
       "IndusInd_Bank@indusind.com", "IndusInd Bank Transaction Alert", INDUSIND,

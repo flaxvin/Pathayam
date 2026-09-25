@@ -16,6 +16,7 @@ import {
   formatDate,
   formatMonth,
   parseDate,
+  calendarDate,
   fiscalYearOf,
   fiscalYearRange,
   formatFiscalYear,
@@ -145,6 +146,28 @@ describe("parseDate — L3 entry shorthand", () => {
     assert.equal(parseDate("yesterday"), null);
     assert.equal(parseDate("32-01-2026"), null);
     assert.equal(parseDate("2026-02-30"), null);
+  });
+
+  test("an implausible year is refused, not stored 2,000 years early", () => {
+    // "01-02-0026" is a typo for 2026. parseDate returned "0026-02-01"; an
+    // imported row carrying it sorted before every other transaction, into a
+    // month no report shows and no dedupe tier compares against.
+    assert.equal(parseDate("01-02-0026"), null);
+    assert.equal(parseDate("0026-02-01"), null);
+    assert.equal(parseDate("01-02-1899"), null);
+    assert.equal(parseDate("01-02-2200"), null);
+    assert.equal(parseDate("01-02-202"), null);
+    assert.equal(parseDate("01-02-1900"), "1900-02-01");
+    assert.equal(parseDate("01-02-69"), "2069-02-01");
+    assert.equal(parseDate("01-02-70"), "1970-02-01");
+  });
+
+  test("the calendar check is the one every reader shares", () => {
+    assert.equal(calendarDate(2026, 2, 31), null);
+    assert.equal(calendarDate(2028, 2, 29), "2028-02-29");
+    assert.equal(calendarDate(2026, 13, 1), null);
+    assert.equal(calendarDate(2026, 1, 0), null);
+    assert.equal(calendarDate(26, 1, 15), null);
   });
 });
 
