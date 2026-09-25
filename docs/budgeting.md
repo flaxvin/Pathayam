@@ -305,6 +305,53 @@ both would file the amount twice.
 A schedule with no amount cannot be split, since there is nothing to divide, and
 a card's payment envelope cannot be a line for the usual reason (R6).
 
+Changing a split schedule's amount re-files its lines the same way: the first
+takes whatever the others leave. ₹1,000.01 split ₹666.68 / ₹333.33 and changed
+to ₹500 becomes ₹166.67 / ₹333.33. If the other lines alone already use up the
+new amount, or are money going the other way, the change is refused with the
+numbers rather than stored — a schedule whose lines no longer add up could never
+be marked paid. Undoing the change puts the lines back with the old amount.
+
+## When a schedule comes round again
+
+A month-based schedule (monthly, quarterly, half-yearly, yearly) remembers the
+day it was set to, not the date its last occurrence happened to land on. A rent
+on the 31st goes 31 Jan, 28 Feb, 31 Mar — it does not settle on the 28th after
+February. The day moves only when somebody moves the due date.
+
+The short-month policy decides what happens in a month without that day:
+
+| Policy | 31st, in February 2026 |
+| --- | --- |
+| `last-day` | 28 Feb |
+| `next-day` | 1 Mar — and March's own 31st still comes |
+| `skip` | nothing in February; the next is 31 Mar. The schedule carries on. |
+
+Marking an occurrence paid moves the schedule on from the date it was **due**,
+not the date it was paid. Rent due on the 15th and paid on the 20th of the next
+month leaves that month's 15th still due; a quarterly payment due 15 Mar and
+paid 2 Apr is next due 15 Jun, not 15 Jul; a Monday payment made on a Wednesday
+stays a Monday schedule. The transaction is still dated the day it was paid.
+Paying early works the same way: due 15 Mar, paid 10 Mar, next due 15 Apr.
+
+### Suggested schedules
+
+Suggestions come from three or more transactions with the same payee at a
+steady rhythm. They keep the direction they were seen in — a salary is proposed
+as money coming in, a bill as money going out — and a payee seen both ways is
+judged on the way it mostly goes, with the odd refund left out. A monthly
+rhythm is projected in whole months on the day it usually falls, so a salary on
+the 1st is next expected on the 1st, not 30.75 days after the last one.
+
+### The cashflow calendar and cards
+
+A card's balance is not cash leaving on the day it is charged; it leaves on the
+due date. What a card owes today is projected once, at its next due date. A
+schedule billed to a card leaves cash on the due date of the statement it falls
+into — statement on the 20th, due the 5th: charged 12 Oct, paid 5 Nov. A
+schedule on a tracking account does not move cash. The same rule holds in every
+scope, and a budget's projection takes only that budget's accounts and cards.
+
 ## Rules that build a value
 
 A rule's text actions — `setMemo`, `setPayee` — may interpolate `{field}` from

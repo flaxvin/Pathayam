@@ -5664,7 +5664,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             : visibleAccountField(ctx, "account_id"),
           is_subscription: field(ctx.body, "is_subscription") === "1" ? 1 : 0,
         },
-        { splitsFollow: (filed?.splits?.length ?? 0) > 0 },
+        { splitsFollow: (filed?.splits?.length ?? 0) > 0, linesFollow: filed !== null },
       );
       // The lines, after the schedule itself — setScheduleSplits checks them
       // against the amount, which the update above may have just changed.

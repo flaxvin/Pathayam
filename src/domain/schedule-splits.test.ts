@@ -20,7 +20,10 @@ import { rupees, formatPaise, type Paise } from "../core/money.ts";
 import type { Actor } from "../core/events.ts";
 import { createAccount } from "./accounts.ts";
 import { createGroup, createCategory } from "./budget.ts";
-import { createSchedule, markPaid, setScheduleSplits, getScheduleSplits } from "./schedules.ts";
+import {
+  createSchedule, markPaid, setScheduleSplits, getScheduleSplits, updateSchedule, getSchedule,
+} from "./schedules.ts";
+import { historyFor, undoEvent } from "../core/events.ts";
 import { getSplits } from "./transactions.ts";
 import { Refusal } from "../core/refusal.ts";
 
@@ -264,5 +267,77 @@ describe("the envelope on a split schedule", () => {
       )!;
       assert.ok(after.category_id, "the envelope was cleared despite the refusal");
     } finally { await app.close(); }
+  });
+});
+
+/*
+ * S6 · Changing a split schedule's amount left its lines at the old total.
+ * ₹1,000.01 split ₹666.68 (Rent) / ₹333.33 (Maintenance), changed to ₹500 —
+ * by updateSchedule or by the edit form with no line fields (303 "updated") —
+ * kept both lines, and every markPaid after that was refused: "The lines add
+ * up to −₹1,000.01, but the transaction is −₹500". The schedule could never be
+ * paid again until somebody re-entered its lines.
+ */
+describe("S6 · a new amount re-files the lines", () => {
+  function split() {
+    const h = household();
+    const s = createSchedule(h.db, actor, {
+      name: "Odd", accountId: h.bank, categoryId: h.rent,
+      amount: -100_001 as Paise, recurrence: "monthly", nextDue: "2026-09-10",
+    });
+    setScheduleSplits(h.db, actor, s.id, [
+      { categoryId: h.rent, amount: -66_668 as Paise },
+      { categoryId: h.maint, amount: -33_333 as Paise },
+    ]);
+    return { ...h, id: s.id };
+  }
+  const amounts = (h: ReturnType<typeof split>) => getScheduleSplits(h.db, h.id).map((l) => l.amount);
+
+  test("the first line takes what the others leave, and it can still be paid", () => {
+    const h = split();
+    updateSchedule(h.db, actor, h.id, { amount: -50_000 as Paise });
+    assert.deepEqual(amounts(h), [-16_667, -33_333], "the lines stayed at −₹1,000.01");
+    markPaid(h.db, actor, h.id, "2026-09-10");
+    const posted = queryAll<{ amount: number }>(
+      h.db,
+      `SELECT ts.amount FROM transaction_splits ts JOIN transactions t ON t.id = ts.transaction_id
+        WHERE t.date = '2026-09-10' ORDER BY ts.amount`,
+    ).map((r) => r.amount);
+    assert.deepEqual(posted, [-33_333, -16_667]);
+  });
+
+  test("over the edit form, with no line fields, and then marked paid", async () => {
+    const h = split();
+    const { startTestApp, testConfig } = await import("../web/harness.test-data.ts");
+    const app = await startTestApp(h.db, { memberId: "m", config: testConfig({}) });
+    try {
+      const res = await app.post(`/schedules/${h.id}/edit`, {
+        name: "Odd", amount: "500", direction: "out", recurrence: "monthly", next_due: "2026-09-10",
+      });
+      assert.equal(res.status, 303);
+      assert.deepEqual(amounts(h), [-16_667, -33_333]);
+      const paid = await app.post(`/schedules/${h.id}/paid`, {});
+      assert.equal(paid.status, 303, "markPaid was refused for ever after the edit");
+      assert.deepEqual(app.failures, []);
+    } finally { await app.close(); }
+  });
+
+  test("an amount the other lines already use up is refused, with the numbers", () => {
+    const h = split();
+    assert.throws(
+      () => updateSchedule(h.db, actor, h.id, { amount: -30_000 as Paise }),
+      (e: unknown) => e instanceof Refusal && /come to ₹333\.33/.test(e.message),
+    );
+    assert.equal(getSchedule(h.db, h.id)!.amount, -100_001, "the amount changed anyway");
+    assert.deepEqual(amounts(h), [-66_668, -33_333]);
+  });
+
+  test("undoing the change puts the lines back with the amount", () => {
+    const h = split();
+    updateSchedule(h.db, actor, h.id, { amount: -50_000 as Paise });
+    const edit = historyFor(h.db, "schedule", h.id).find((e) => e.summary.startsWith("Edited"))!;
+    assert.ok(undoEvent(h.db, edit.id, actor).ok);
+    assert.equal(getSchedule(h.db, h.id)!.amount, -100_001);
+    assert.deepEqual(amounts(h), [-66_668, -33_333], "undo left lines adding up to −₹500");
   });
 });

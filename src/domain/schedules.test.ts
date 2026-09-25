@@ -131,15 +131,22 @@ describe("F7 · money coming in is a schedule too", () => {
 
 describe("A card due on the 31st, in a month that has no 31st", () => {
   test("the projection puts it on the last day of February", () => {
-    const { db } = setup();
+    const { db, bills } = setup();
     createAccount(db, actor, {
       name: "Joint current", kind: "budget", subtype: "savings",
       openingBalance: rupees(1_00_000), openingDate: "2026-01-01",
     });
-    createAccount(db, actor, {
+    const card = createAccount(db, actor, {
       name: "HDFC Regalia", kind: "credit", subtype: "credit-card",
       openingBalance: -rupees(12_000), openingDate: "2026-01-01",
       dueDay: 31,
+    });
+    // Something charged to the card after February's due date is paid at
+    // March's. (The ₹12,000 owed today is paid once — S5: it used to be
+    // charged again on 31 March, which this test once asserted.)
+    createSchedule(db, actor, {
+      name: "Insurance", amount: -rupees(2_000), recurrence: "yearly",
+      nextDue: "2026-03-05", accountId: card.id, categoryId: bills,
     });
 
     // Standing on 1 February, looking far enough ahead to see March too.
@@ -148,9 +155,7 @@ describe("A card due on the 31st, in a month that has no 31st", () => {
       .filter((d) => d.outflows.some((o) => o.label.includes("HDFC Regalia")))
       .map((d) => d.date);
 
-    assert.ok(dues.includes("2026-02-28"), `expected 28 Feb, got ${dues.join(", ")}`);
-    assert.ok(dues.includes("2026-03-31"), "and the 31st where the month has one");
-    assert.equal(dues.some((d) => d > "2026-02-28" && d < "2026-03-01"), false);
+    assert.deepEqual(dues, ["2026-02-28", "2026-03-31"], "28 Feb, and the 31st where the month has one");
     db.close();
   });
 
