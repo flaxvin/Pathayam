@@ -100,16 +100,6 @@ export function refusePaymentCategories(db: DB, categoryIds: (string | null | un
     }
 
     /*
-     * D8 · A commitment envelope is the same kind of thing from the other side:
-     * its balance *is* the claim between two budgets (dueFromOtherBudgets reads
-     * it), and the receiving budget's means count only what was assigned to it.
-     * ₹224 filed straight to Ravi's envelope for the household lowered the claim
-     * by ₹224 with no expense anywhere in the household to meet it, so the
-     * household's identity was out by −₹224 in every month after. Spending on the
-     * household's behalf is filed to the household's own envelope — that is what
-     * lowers the commitment, and it keeps both budgets whole.
-     */
-    /*
      * D1 · A deleted envelope is not read by the engine at all, so spending
      * filed to one — from a schedule or a rule saved before the delete —
      * vanished from the budget while the account still moved.
@@ -121,6 +111,16 @@ export function refusePaymentCategories(db: DB, categoryIds: (string | null | un
       throw new Refusal(`"${deleted.name}" has been deleted. Pick another envelope.`);
     }
 
+    /*
+     * D8 · A commitment envelope is a payment envelope seen from the other side:
+     * its balance *is* the claim between two budgets (dueFromOtherBudgets reads
+     * it), and the receiving budget's means count only what was assigned to it.
+     * ₹224 filed straight to Ravi's envelope for the household lowered the claim
+     * by ₹224 with no expense anywhere in the household to meet it, so the
+     * household's identity was out by −₹224 in every month after. Spending on the
+     * household's behalf is filed to the household's own envelope — that is what
+     * lowers the commitment, and it keeps both budgets whole.
+     */
     const committed = queryOne<{ name: string }>(
       db, `SELECT name FROM categories WHERE id = ? AND commits_to_budget_id IS NOT NULL`, id,
     );
@@ -371,6 +371,25 @@ export function updateTransaction(
       }
       // Nothing to write to the envelope columns of a leg.
       patch = { ...patch, categoryId: undefined, splits: undefined };
+    }
+
+    /*
+     * D7 · A split transaction's amount is the sum of its lines. A new amount
+     * with no lines left the old ones in place: a ₹3.36 card charge split
+     * ₹1.12 / ₹2.24 and edited to 3 paise kept lines totalling ₹3.36, so the
+     * payment envelope counted ₹3.33 more filed spending than the card was
+     * charged — the identity out by +₹3.33 from 2026-01 — and on a bank account
+     * the same ₹3.33 appeared in Ready to Assign from nowhere. The edit form
+     * already refuses this; the rule belongs here, where every caller meets it.
+     */
+    if (
+      before.is_split && patch.amount !== undefined && patch.amount !== before.amount &&
+      patch.splits === undefined && patch.categoryId === undefined
+    ) {
+      throw new Refusal(
+        `This transaction is split, so its amount is what its lines add up to. ` +
+        `Change the lines along with the amount.`,
+      );
     }
 
     if (patch.splits) {
