@@ -168,7 +168,7 @@ import {
 } from "./domain/schedules.ts";
 import {
   listGoals, createGoal, updateGoal, deleteGoal, goalCategoryIds, goalProgress, completeGoal,
-  LEGACY_GOAL_GROUP,
+  LEGACY_GOAL_GROUP, getGoal,
 } from "./domain/goals.ts";
 import {
   renderMore, renderPayees, renderRules, renderCategories, renderFirstRun,
@@ -5712,15 +5712,24 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // and the household can manage or empty it afterwards.
       const catIds = goalCategoryIds(db, id);
       const kept = catIds.reduce((sum, cid) => sum + (view.categories.get(cid)?.state.balance ?? 0), 0) as Paise;
+      /*
+       * 15 · The envelope stays in the goal's own budget. This looked for a
+       * "Savings" group among *every* budget's groups and otherwise created one
+       * in the household's — so deleting Ravi's personal "Jabberwock Private
+       * Goal" moved its envelope into a household group, where Priya's budget
+       * page and category list showed it, balance and all. A group and the
+       * envelopes in it always share a budget.
+       */
+      const home = getGoal(db, id)?.budget_id ?? householdBudgetId(db);
       deleteGoal(db, actor, id);
-      // B61: prefer a savings group the household already has — the starting
+      // B61: prefer a savings group the budget already has — the starting
       // template's "Savings goals" is exactly the right home — over minting a
       // third group nobody asked for.
-      const groups = listGroups(db);
+      const groups = listGroups(db, home);
       const normal =
         groups.find((g) => g.kind === "normal" && g.name === LEGACY_GOAL_GROUP)
         ?? groups.find((g) => g.kind === "normal" && g.name === "Savings")
-        ?? (catIds.length > 0 ? createGroup(db, actor, "Savings", "normal") : null);
+        ?? (catIds.length > 0 ? createGroup(db, actor, "Savings", "normal", home) : null);
       for (const catId of catIds) {
         if (normal) moveCategoryToGroup(db, actor, catId, normal.id);
       }
