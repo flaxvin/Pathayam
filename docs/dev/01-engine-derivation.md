@@ -283,6 +283,16 @@ Three things keep it honest:
    same statement. There is no code path, present or future, that can change a
    transaction and forget.
 
+   An account's **budget** is the exception the triggers do not see (they watch
+   `kind` and the opening balance). A sealed month has already decided which
+   transfers were internal to one budget, so moving an account between budgets
+   changes history without touching a transaction: ₹400 moved Bank → Bank2 and
+   sealed, then Bank2 moved into a personal budget, read ₹400 short through the
+   rollup in every month after. `updateAccount` — and undoing a move — drops
+   every month the account has a transaction in (both legs of a transfer share
+   a date, so that covers the partner too). The trigger should watch
+   `budget_id` as well; until a migration adds that, the code does not rely on it.
+
 2. **The rollup can be bypassed.** `loadEngineInput(db, { useRollup: false })`
    derives every month from the ledger. This exists so the summary can be
    checked against the thing it summarises from outside, which is the only
