@@ -396,6 +396,15 @@ function refuseHistoryTarget(db: DB, from: Category, targetId: string): void {
   }
 }
 
+/** D11 · Recorded on a delete event: everything the delete removed or moved. */
+interface DeleteTaken {
+  remapTo: string | null;
+  assignments: { month: string; amount: number }[];
+  target: Record<string, unknown> | null;
+  transactionIds: string[];
+  splitIds: string[];
+}
+
 /**
  * F3.3: deleting requires reassigning the balance and offers to remap history.
  * The balance must be dealt with by the caller first — this refuses rather than
@@ -445,8 +454,31 @@ export function deleteCategory(
       }
     }
 
+    /*
+     * D11 · What the delete takes, recorded so its undo can give it back.
+     * Undo used to reset the category's columns and say "Restored" while its
+     * assignments stayed purged and its remapped history stayed in the other
+     * envelope: ₹50 assigned and ₹50 spent in A, deleted with a remap to B, came
+     * back as A ₹0 and B overspent by ₹50 in 2025-03.
+     */
+    const taken: DeleteTaken = {
+      remapTo: opts.remapTo ?? null,
+      assignments: queryAll<{ month: string; amount: number }>(
+        db, `SELECT month, amount FROM assignments WHERE category_id = ?`, id,
+      ),
+      target: queryOne<Record<string, unknown>>(db, `SELECT * FROM targets WHERE category_id = ?`, id),
+      transactionIds: [],
+      splitIds: [],
+    };
+
     if (opts.remapTo) {
       refuseHistoryTarget(db, before, opts.remapTo);
+      taken.transactionIds = queryAll<{ id: string }>(
+        db, `SELECT id FROM transactions WHERE category_id = ?`, id,
+      ).map((r) => r.id);
+      taken.splitIds = queryAll<{ id: string }>(
+        db, `SELECT id FROM transaction_splits WHERE category_id = ?`, id,
+      ).map((r) => r.id);
       execute(db, `UPDATE transactions SET category_id = ? WHERE category_id = ?`, opts.remapTo, id);
       execute(db, `UPDATE transaction_splits SET category_id = ? WHERE category_id = ?`, opts.remapTo, id);
     }
@@ -455,7 +487,7 @@ export function deleteCategory(
     execute(db, `UPDATE categories SET deleted_at = ? WHERE id = ?`, nowIST(), id);
 
     appendEvent(db, actor, {
-      entity: "category", entityId: id, action: "delete", before,
+      entity: "category", entityId: id, action: "delete", before, after: taken,
       summary: opts.remapTo
         ? `Deleted "${before.name}" and moved its history to another category`
         : `Deleted "${before.name}"`,
@@ -993,6 +1025,40 @@ registerUndoHandler("category", (db, event) => {
     before.name, before.group_id, before.sort, before.hidden_at, before.deleted_at, before.note,
     event.entityId!,
   );
+
+  // D11 · A delete gives back what it took. Events from before D11 recorded
+  // nothing, and restore only the row, as they always did.
+  const taken = event.action === "delete" ? event.after as DeleteTaken | undefined : undefined;
+  if (taken?.assignments) {
+    const id = event.entityId!;
+    for (const a of taken.assignments) {
+      execute(
+        db,
+        `INSERT INTO assignments (month, category_id, amount, updated_at) VALUES (?,?,?,?)
+           ON CONFLICT(month, category_id) DO UPDATE SET amount = excluded.amount,
+             updated_at = excluded.updated_at`,
+        a.month, id, a.amount, nowIST(),
+      );
+    }
+    if (taken.target && !queryOne(db, `SELECT 1 FROM targets WHERE category_id = ?`, id)) {
+      const cols = Object.keys(taken.target);
+      execute(
+        db,
+        `INSERT INTO targets (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`,
+        ...cols.map((c) => taken.target![c] as string | number | null),
+      );
+    }
+    // Only what still sits where the delete put it: anything re-filed since is
+    // the household's later decision, the same rule a payee merge's undo keeps.
+    for (const tid of taken.transactionIds) {
+      execute(db, `UPDATE transactions SET category_id = ? WHERE id = ? AND category_id = ?`,
+        id, tid, taken.remapTo);
+    }
+    for (const sid of taken.splitIds) {
+      execute(db, `UPDATE transaction_splits SET category_id = ? WHERE id = ? AND category_id = ?`,
+        id, sid, taken.remapTo);
+    }
+  }
   return `Restored "${before.name}"`;
 });
 
