@@ -256,6 +256,31 @@ export function moveCategoryToGroup(db: DB, actor: Actor, id: string, groupId: s
   transact(db, () => {
     const before = getCategory(db, id);
     if (!before) throw new Missing("That category does not exist.");
+
+    /*
+     * D16 · A group decides which budget its envelopes are shown in, but the
+     * envelope's own budget_id decides whose money it is. Moving the
+     * household's A (₹400 assigned, ₹300 spent) into a group in Ravi's budget
+     * kept it the household's: the household grid lost the row while its Ready
+     * to Assign still netted A's ₹100, and Ravi's grid showed an envelope that
+     * was not his. Moving an envelope between budgets is a transfer of money,
+     * not a regrouping.
+     */
+    const group = queryOne<{ budget_id: string | null }>(
+      db, `SELECT budget_id FROM category_groups WHERE id = ?`, groupId,
+    );
+    if (!group) throw new Missing("That group does not exist.");
+    const from = queryOne<{ budget_id: string | null }>(
+      db, `SELECT budget_id FROM category_groups WHERE id = ?`, before.group_id,
+    );
+    const household = householdBudgetId(db);
+    if ((group.budget_id ?? household) !== (from?.budget_id ?? household)) {
+      throw new Refusal(
+        `That group is in a different budget. An envelope stays in its own budget — ` +
+        `move the money instead, then use an envelope over there.`,
+      );
+    }
+
     execute(db, `UPDATE categories SET group_id = ? WHERE id = ?`, groupId, id);
     appendEvent(db, actor, {
       entity: "category", entityId: id, action: "move",
