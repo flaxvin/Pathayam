@@ -2137,4 +2137,72 @@ DROP TABLE bonus_lots;
 DROP TABLE bonus_fix;
 `,
   },
+  {
+    name: "0045-a-deleted-import-gives-up-its-identity",
+    sql: `
+--------------------------------------------------------------------------------
+-- Import · Re-importing a row whose earlier copy was undone
+--------------------------------------------------------------------------------
+-- The uniqueness of an imported row covered deleted rows too, while the
+-- pipeline's duplicate check skips them. Import a statement, approve it, undo
+-- the import, import it again, approve: the pipeline saw nothing live to match,
+-- the index saw the deleted copy, and the approval failed with a UNIQUE
+-- constraint as a 500. Gmail re-reads a fortnight on every fetch, so this was
+-- ordinary use, not an edge case.
+--
+-- Uniqueness now covers live rows only, which is what the pipeline has always
+-- meant. approveStaged also suffixes a deleted twin's source_id, so restoring
+-- an undone row after its identity was re-imported cannot collide either.
+DROP INDEX IF EXISTS idx_tx_source_id;
+CREATE UNIQUE INDEX idx_tx_source_id ON transactions(account_id, source, source_id)
+  WHERE source_id IS NOT NULL AND deleted_at IS NULL;
+`,
+  },
+  {
+    name: "0046-an-imported-row-remembers-what-was-actually-printed",
+    sql: `
+--------------------------------------------------------------------------------
+-- Import · Correcting what earlier imports stored
+--------------------------------------------------------------------------------
+-- Three things older imports got wrong, all in columns that say where a row
+-- came from rather than how much it was. No amount or date changes here.
+--
+-- 1 · Approving a PDF or email row stored its source as csv, whatever it was.
+UPDATE transactions
+   SET source = (SELECT b.source FROM import_batches b WHERE b.id = transactions.import_batch_id)
+ WHERE source = 'csv' AND import_batch_id IS NOT NULL
+   AND EXISTS (SELECT 1 FROM import_batches b
+                WHERE b.id = transactions.import_batch_id AND b.source <> 'csv');
+
+-- 2 · raw_date never reached the ledger on approve or merge; the staged row
+--     kept it, so copy it across.
+UPDATE transactions
+   SET raw_date = (SELECT s.raw_date FROM staged_transactions s
+                    WHERE s.transaction_id = transactions.id AND s.raw_date IS NOT NULL
+                    ORDER BY s.resolved_at LIMIT 1)
+ WHERE raw_date IS NULL
+   AND EXISTS (SELECT 1 FROM staged_transactions s
+                WHERE s.transaction_id = transactions.id AND s.raw_date IS NOT NULL);
+
+-- 3 · PDF and email imports stored computed values as raw - an ISO date, a
+--     signed figure - where the raw columns promise the text as printed. Every
+--     PDF and email batch in the database at this point was written by the old
+--     code (migrations run before anything is served), and the parsed date
+--     and amount are still in their own columns, so clearing these loses
+--     nothing and stops them claiming to be source text.
+UPDATE staged_transactions SET raw_date = NULL, raw_amount = NULL
+ WHERE batch_id IN (SELECT id FROM import_batches WHERE source IN ('pdf', 'email'));
+UPDATE transactions SET raw_date = NULL, raw_amount = NULL
+ WHERE import_batch_id IN (SELECT id FROM import_batches WHERE source IN ('pdf', 'email'));
+
+-- 4 · Email narrations had a "[card of <name>]" tag appended that no bank ever
+--     wrote; the card itself now carries who holds it.
+UPDATE staged_transactions
+   SET raw_narration = substr(raw_narration, 1, instr(raw_narration, ' [card of ') - 1)
+ WHERE instr(raw_narration, ' [card of ') > 0;
+UPDATE transactions
+   SET raw_narration = substr(raw_narration, 1, instr(raw_narration, ' [card of ') - 1)
+ WHERE instr(raw_narration, ' [card of ') > 0;
+`,
+  },
 ];
