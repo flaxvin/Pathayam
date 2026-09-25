@@ -247,8 +247,12 @@ export function updateSchedule(
    * transaction. Without it, an edit that turns a single-envelope schedule into
    * a split is refused halfway: the category is cleared before the lines that
    * replace it exist, so the envelope rule sees a schedule with neither.
+   *
+   * `linesFollow` is the caller replacing or clearing the lines itself (the
+   * edit form, whenever it posts any), so the stored ones are not re-filed
+   * against a new amount first.
    */
-  opts: { splitsFollow?: boolean } = {},
+  opts: { splitsFollow?: boolean; linesFollow?: boolean } = {},
 ): Schedule {
   return transact(db, () => {
     const before = getSchedule(db, id);
@@ -306,13 +310,62 @@ export function updateSchedule(
       execute(db, `UPDATE schedules SET recurrence_day = ? WHERE id = ?`, dayOf(nextDue), id);
     }
 
+    const amount = patch.amount !== undefined ? patch.amount : before.amount;
+    const lines = amount !== before.amount && !opts.splitsFollow && !opts.linesFollow
+      ? getScheduleSplits(db, id)
+      : [];
+    const refiled = lines.length > 0 ? refileLines(db, before.name, lines, amount) : null;
+
     const after = getSchedule(db, id)!;
     appendEvent(db, actor, {
-      entity: "schedule", entityId: id, action: "update", before, after,
+      entity: "schedule", entityId: id, action: "update",
+      // The lines ride along only when they moved, so undo can put them back
+      // with the amount they added up to.
+      before: refiled ? { ...before, splits: lines } : before,
+      after: refiled ? { ...after, splits: refiled } : after,
       summary: `Edited the schedule for ${after.name}`,
     });
     return after;
   });
+}
+
+/**
+ * A split schedule's lines, against a new amount.
+ *
+ * S6 · Changing the amount left the lines at the old total: ₹1,000.01 split
+ * ₹666.68 / ₹333.33, changed to ₹500, kept both lines — the edit form said
+ * "updated" — and every markPaid after that was refused ("the lines add up to
+ * −₹1,000.01, but the transaction is −₹500"), so the schedule could never be
+ * paid again until somebody re-entered its lines. The lines are re-filed the
+ * way the form files them: the first takes whatever the others leave (₹166.67
+ * here). When the others alone are the whole new amount or more, there is no
+ * honest remainder, and the change is refused with the numbers instead.
+ */
+function refileLines(db: DB, name: string, lines: ScheduleSplit[], amount: Paise | null): ScheduleSplit[] {
+  if (amount === null) {
+    throw new Refusal(
+      `${name} is split across ${lines.length} envelopes, so it needs an amount to split. ` +
+      "Remove the split first, or keep an amount.",
+    );
+  }
+  const [first, ...rest] = lines;
+  if (rest.some((l) => (l.amount < 0) !== (amount < 0))) {
+    throw new Refusal(
+      `${name}'s envelope lines are money ${amount < 0 ? "coming in" : "going out"}, and the new ` +
+      "amount is the other way. Change the lines along with the amount.",
+    );
+  }
+  const claimed = rest.reduce((sum, l) => sum + l.amount, 0);
+  const remainder = (amount - claimed) as Paise;
+  if (remainder === 0 || (remainder < 0) !== (amount < 0)) {
+    throw new Refusal(
+      `The other envelope lines of ${name} come to ${formatPaise(Math.abs(claimed) as Paise)}, ` +
+      `which leaves nothing for the first out of ${formatPaise(Math.abs(amount) as Paise)}. ` +
+      "Change the lines along with the amount.",
+    );
+  }
+  execute(db, `UPDATE schedule_splits SET amount = ? WHERE id = ?`, remainder, first!.id);
+  return [{ ...first!, amount: remainder }, ...rest];
 }
 
 /**
@@ -1175,6 +1228,12 @@ registerUndoHandler("schedule", (db, event) => {
     before.is_subscription, before.amount_is_estimate, event.entityId!,
   );
   restoreRecurrenceDetail(db, event.entityId!, before);
+  // S6 · An amount change that re-filed the lines puts them back too, or the
+  // old amount returns over lines that add up to the new one.
+  const lines = (before as Schedule & { splits?: ScheduleSplit[] }).splits;
+  for (const line of lines ?? []) {
+    execute(db, `UPDATE schedule_splits SET amount = ? WHERE id = ?`, line.amount, line.id);
+  }
   return `Set the schedule for ${before.name} back`;
 });
 
