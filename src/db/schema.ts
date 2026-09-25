@@ -2066,4 +2066,75 @@ ALTER TABLE schedules ADD COLUMN recurrence_weekday INTEGER;
 UPDATE loan_payments SET principal = 0, interest = 0 WHERE kind = 'charge';
 `,
   },
+  {
+    name: "0043-a-settlement-below-what-is-owed-is-a-waiver",
+    sql: `
+--------------------------------------------------------------------------------
+-- R19 · Settling a loan for less than the outstanding
+--------------------------------------------------------------------------------
+-- closeLoan booked the settlement as one payment with interest set to
+-- settlement minus outstanding. Settling a 50,000 outstanding for 40,000 stored
+-- interest of minus 10,000, and loanInterestByFinancialYear then reported
+-- negative interest for the year. Interest paid is never negative: what was
+-- not paid was principal the lender forgave.
+--
+-- Each such row becomes the amount paid, all principal, plus a zero-amount row
+-- carrying the waived principal - the shape the fixed closeLoan now writes.
+--
+-- What this cannot repair: the old code also moved no money for a settlement,
+-- so no account was debited. Which account paid is not recorded anywhere, so
+-- that half has to be entered through the app; docs/loans-and-assets.md lists
+-- the query that finds them.
+INSERT INTO loan_payments
+  (id, loan_id, date, amount, principal, interest, estimated, kind, transaction_id, note, created_at, created_by)
+SELECT lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))), 2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(6))), loan_id, date, 0, -interest, 0, 0, 'foreclosure', NULL,
+       'Principal waived at settlement (corrected)', created_at, created_by
+  FROM loan_payments WHERE kind = 'foreclosure' AND interest < 0;
+UPDATE loan_payments SET principal = amount, interest = 0
+ WHERE kind = 'foreclosure' AND interest < 0;
+`,
+  },
+  {
+    name: "0044-a-bonus-issue-is-new-shares-at-nil-cost",
+    sql: `
+--------------------------------------------------------------------------------
+-- R27 · Bonus issues recorded as if they were splits
+--------------------------------------------------------------------------------
+-- A bonus multiplied the units of every open lot and divided its per-unit
+-- price, keeping each lot's original date and cost. That is a split. A bonus
+-- is new shares at nil cost, dated on allotment, so selling them is a separate
+-- gain with its own holding period: 100 units bought at 1,000 in 2023 with a
+-- 1:1 bonus in June 2025, sold 100 then 100 at 600, is a long-term loss of
+-- 40,000 and a short-term gain of 60,000 - not two long-term gains of 10,000.
+--
+-- Repaired only where nothing has happened to the holding since the bonus: no
+-- later sale, split or bonus. Where a sale followed, realised gains were booked
+-- on the wrong basis and need a person to review them; docs/loans-and-assets.md
+-- says how to find those.
+CREATE TEMP TABLE bonus_fix AS
+SELECT e.id AS event_id, e.holding_id, e.date, e.ratio, e.created_at
+  FROM holding_events e
+ WHERE e.kind = 'bonus' AND e.ratio > 1
+   AND NOT EXISTS (SELECT 1 FROM holding_events l
+                    WHERE l.holding_id = e.holding_id AND l.id <> e.id
+                      AND l.kind IN ('sale', 'split', 'bonus') AND l.created_at > e.created_at);
+CREATE TEMP TABLE bonus_lots AS
+SELECT f.event_id, l.id AS lot_id, l.fx_rate, l.units AS inflated_units,
+       CAST(round(l.units * 1.0 / f.ratio) AS INTEGER) AS original_units,
+       CAST(round(l.price * f.ratio) AS INTEGER)       AS original_price
+  FROM bonus_fix f
+  JOIN lots l ON l.holding_id = f.holding_id AND l.closed_at IS NULL AND l.created_at <= f.created_at;
+INSERT INTO lots (id, holding_id, trade_date, units, price, fees, cost, fx_rate, created_at)
+SELECT lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))), 2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(6))), f.holding_id, f.date,
+       SUM(b.inflated_units - b.original_units), 0, 0, 0, MAX(b.fx_rate), strftime('%Y-%m-%dT%H:%M:%f', 'now', '+330 minutes') || '+05:30'
+  FROM bonus_fix f JOIN bonus_lots b ON b.event_id = f.event_id
+ GROUP BY f.event_id, f.holding_id, f.date;
+UPDATE lots SET
+  units = (SELECT original_units FROM bonus_lots WHERE lot_id = lots.id),
+  price = (SELECT original_price FROM bonus_lots WHERE lot_id = lots.id)
+ WHERE id IN (SELECT lot_id FROM bonus_lots);
+DROP TABLE bonus_lots;
+DROP TABLE bonus_fix;
+`,
+  },
 ];
