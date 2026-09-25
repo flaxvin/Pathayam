@@ -15,6 +15,7 @@ import { Missing, Refusal } from "../core/refusal.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { getAccount, DERIVED_VALUE_SUBTYPES, MANAGED_SUBTYPES } from "./accounts.ts";
 import { prepareClaim, prepareTransferClaim } from "./commitments.ts";
+import { dependantsOf } from "./dependants.ts";
 
 export type TransactionSource = "manual" | "csv" | "pdf" | "email" | "sms" | "api" | "schedule";
 
@@ -1193,6 +1194,25 @@ registerUndoHandler("payee", (db, event) => {
       ? `Un-merged "${before.name}" and moved its ${moved} transaction${moved === 1 ? "" : "s"} back`
       : `Un-merged "${before.name}"`;
   }
+  /*
+   * D10 · A payee is named by whatever was recorded against it since — a
+   * transaction, a schedule, a row waiting in review — and deleting it under
+   * those hit a foreign key (a 500). Its aliases are its own and go with it.
+   */
+  const dependants = dependantsOf(db, "payees", event.entityId!, {
+    own: ["payee_aliases.payee_id"],
+    words: {
+      transactions: "transactions", schedules: "schedules",
+      staged_transactions: "imported rows waiting for review", payees: "payees merged into it",
+    },
+  });
+  if (dependants.length > 0) {
+    throw new Refusal(
+      `This payee already has ${dependants.join(", ")}, so removing it would leave ` +
+      `those naming nobody. Merge it into another payee instead.`,
+    );
+  }
+  execute(db, `DELETE FROM payee_aliases WHERE payee_id = ?`, event.entityId!);
   execute(db, `DELETE FROM payees WHERE id = ?`, event.entityId!);
   return `Removed the payee that was added`;
 });

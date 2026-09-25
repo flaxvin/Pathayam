@@ -10,6 +10,7 @@ import { Missing, Refusal } from "../core/refusal.ts";
 import { nowIST, formatMonth, type MonthKey, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { householdBudgetId, budgetsFor } from "./budgets.ts";
+import { dependantsOf } from "./dependants.ts";
 
 export interface CategoryGroup {
   id: string;
@@ -937,6 +938,34 @@ function commitmentCrossings(db: DB, id: string): string[] {
   return found;
 }
 
+/**
+ * D10 · Everything but its own target and empty assignment rows that still
+ * points at a category. A ₹0 assignment is what the grid writes when a figure
+ * is cleared; it carries no money and goes with the envelope.
+ */
+function categoryDependants(db: DB, id: string): string[] {
+  const found = dependantsOf(db, "categories", id, {
+    own: ["targets.category_id", "assignments.category_id"],
+    words: {
+      transactions: "transactions", transaction_splits: "split lines",
+      schedules: "schedules", schedule_splits: "schedule lines",
+      staged_transactions: "imported rows waiting for review",
+      even_calls: "a balance called even", loans: "a loan",
+    },
+  });
+  const assigned = queryOne<{ n: number }>(
+    db, `SELECT COUNT(*) AS n FROM assignments WHERE category_id = ? AND amount <> 0`, id,
+  )?.n ?? 0;
+  if (assigned > 0) found.unshift("money assigned to it");
+  return found;
+}
+
+function removeCategoryRow(db: DB, id: string): void {
+  execute(db, `DELETE FROM assignments WHERE category_id = ?`, id);
+  execute(db, `DELETE FROM targets WHERE category_id = ?`, id);
+  execute(db, `DELETE FROM categories WHERE id = ?`, id);
+}
+
 registerUndoHandler("category", (db, event) => {
   const before = event.before as Category | undefined;
   if (!before) {
@@ -948,7 +977,14 @@ registerUndoHandler("category", (db, event) => {
         `that — undo those first, or leave it in place.`,
       );
     }
-    execute(db, `DELETE FROM categories WHERE id = ?`, event.entityId!);
+    const dependants = categoryDependants(db, event.entityId!);
+    if (dependants.length > 0) {
+      throw new Refusal(
+        `This envelope already has ${dependants.join(", ")}, so removing it would ` +
+        `leave those pointing at nothing. Delete or merge it instead — its history stays.`,
+      );
+    }
+    removeCategoryRow(db, event.entityId!);
     return `Removed the category that was added`;
   }
   execute(
@@ -984,6 +1020,25 @@ registerUndoHandler("target", (db, event) => {
 registerUndoHandler("category-group", (db, event) => {
   const before = event.before as CategoryGroup | undefined;
   if (!before) {
+    /*
+     * D10 · The group has to be empty. A live envelope in it is refused by
+     * name; a deleted one with nothing behind it is a tombstone and goes with
+     * the group (deleteGroup's rule), and one with history is refused.
+     */
+    const inside = queryAll<{ id: string; name: string; deleted_at: string | null }>(
+      db, `SELECT id, name, deleted_at FROM categories WHERE group_id = ?`, event.entityId!,
+    );
+    const live = inside.filter((c) => !c.deleted_at);
+    const used = inside.filter((c) => c.deleted_at && categoryDependants(db, c.id).length > 0);
+    if (live.length > 0 || used.length > 0) {
+      const names = [...live, ...used].slice(0, 3).map((c) => c.name).join(", ");
+      throw new Refusal(
+        `This group already holds envelopes (${names}${live.length + used.length > 3 ? "…" : ""}), ` +
+        `so removing it would leave them in no group. Move or delete them first, ` +
+        `then delete the group.`,
+      );
+    }
+    for (const c of inside) removeCategoryRow(db, c.id);
     execute(db, `DELETE FROM category_groups WHERE id = ?`, event.entityId!);
     return `Removed the group that was added`;
   }
