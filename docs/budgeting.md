@@ -211,6 +211,12 @@ from the card, so ₹1,000 remapped into it vanished from the budget) nor a
 commitment envelope. Merge refuses a commitment envelope as the winner for the
 same reason.
 
+Undoing a delete gives back what the delete took: the envelope's assignments in
+every month, its target, and — after a remap — the transactions and split lines
+that were moved, provided they still sit in the envelope they were moved to
+(anything re-filed since stays where it was put). Deletes recorded before this
+kept no such record, and their undo restores the envelope alone.
+
 ## Splitting a transaction
 
 One payment, more than one envelope. A supermarket bill is half groceries and

@@ -14,12 +14,17 @@
  * the card, so spending filed to it is read by nothing — and the identity was
  * out by −₹1,000 from 2025-02. A commitment envelope, a deleted one, another
  * budget's, or the envelope itself were all accepted too.
+ *
+ * D11 · Undoing a delete reset the category's columns and said "Restored",
+ * but its assignments stayed purged and its remapped history stayed where the
+ * delete put it: ₹50 assigned and ₹50 spent in A, deleted with a remap to B,
+ * came back as A ₹0 and B overspent by ₹50 in 2025-03.
  */
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { execute } from "../db/db.ts";
-import type { Actor } from "../core/events.ts";
+import { execute, queryOne } from "../db/db.ts";
+import { undoEvent, type Actor } from "../core/events.ts";
 import { nowIST } from "../core/dates.ts";
 import { Refusal } from "../core/refusal.ts";
 import { createAccount, paymentCategoryFor } from "./accounts.ts";
@@ -28,8 +33,10 @@ import { ensureCommitmentEnvelope } from "./commitments.ts";
 import { createTransaction } from "./transactions.ts";
 import {
   createGroup, createCategory, deleteCategory, mergeCategories, setAssigned, getCategory,
-  startPersonalBudget,
+  startPersonalBudget, setTarget, getTarget, getAssigned, moveMoney,
 } from "./budget.ts";
+import { loadEngineInput } from "../engine/repository.ts";
+import { computeBudget } from "../engine/engine.ts";
 import { freshHousehold, identityProblems, RAVI } from "../engine/identity.test-data.ts";
 import { startTestApp } from "../web/harness.test-data.ts";
 
@@ -155,5 +162,77 @@ describe("D2 · history is only remapped somewhere that counts it", () => {
     }).id;
     const envelope = ensureCommitmentEnvelope(s.db, actor, ravi).id;
     assert.throws(() => mergeCategories(s.db, actor, mine, envelope), Refusal);
+  });
+});
+
+describe("D11 · undoing a delete gives back what it took", () => {
+  const balances = (db: Parameters<typeof loadEngineInput>[0], month: string) => {
+    const state = computeBudget(loadEngineInput(db, { through: month as never, useRollup: false }))
+      .get(month as never)!;
+    return (id: string) => state.categories.get(id)?.balance ?? null;
+  };
+  const undoDelete = (db: Parameters<typeof loadEngineInput>[0], id: string) => {
+    const event = queryOne<{ id: string }>(
+      db, `SELECT id FROM events WHERE entity = 'category' AND entity_id = ? AND action = 'delete'`, id,
+    )!.id;
+    assert.equal(undoEvent(db, event, actor, { force: true }).ok, true);
+  };
+
+  test("with a remap: the assignment, the target and the moved transaction come back", () => {
+    const db = freshHousehold();
+    const group = createGroup(db, actor, "Everyday").id;
+    const a = createCategory(db, actor, { groupId: group, name: "A" }).id;
+    const b = createCategory(db, actor, { groupId: group, name: "B" }).id;
+    const bank = createAccount(db, actor, {
+      name: "Bank", kind: "budget", subtype: "savings", openingDate: "2025-01-01", openingBalance: 1_000_000,
+    }).id;
+    setAssigned(db, actor, "2025-03", a, 5_000);
+    setTarget(db, actor, a, { type: "monthly", amount: 5_000 });
+    const tx = createTransaction(db, actor, { accountId: bank, amount: -5_000, date: "2025-03-12", categoryId: a });
+
+    deleteCategory(db, actor, a, { currentBalance: 0, remapTo: b });
+    assert.equal(balances(db, "2025-03")(b), -5_000, "B took the spending");
+    undoDelete(db, a);
+
+    const balance = balances(db, "2025-03");
+    assert.equal(balance(a), 0);
+    assert.equal(balance(b), 0, "B is not left overspent");
+    assert.equal(getAssigned(db, "2025-03", a), 5_000);
+    assert.equal(getTarget(db, a)?.amount, 5_000);
+    assert.equal(queryOne<{ category_id: string }>(
+      db, `SELECT category_id FROM transactions WHERE id = ?`, tx.id,
+    )?.category_id, a);
+    assert.deepEqual(identityProblems(db, "2027-03"), []);
+  });
+
+  test("without a remap: assignments that netted to zero come back", () => {
+    const db = freshHousehold();
+    const group = createGroup(db, actor, "Everyday").id;
+    const a = createCategory(db, actor, { groupId: group, name: "A" }).id;
+    const b = createCategory(db, actor, { groupId: group, name: "B" }).id;
+    createAccount(db, actor, {
+      name: "Bank", kind: "budget", subtype: "savings", openingDate: "2025-01-01", openingBalance: 1_000_000,
+    });
+    setAssigned(db, actor, "2025-03", a, 7_000);
+    moveMoney(db, actor, { month: "2025-04", fromCategoryId: a, toCategoryId: b, amount: 7_000 });
+    deleteCategory(db, actor, a, { currentBalance: 0 });
+    undoDelete(db, a);
+    assert.equal(getAssigned(db, "2025-03", a), 7_000);
+    assert.equal(getAssigned(db, "2025-04", a), -7_000);
+    assert.equal(balances(db, "2025-04")(b), 7_000);
+    assert.deepEqual(identityProblems(db, "2027-03"), []);
+  });
+
+  test("a transaction re-filed since the delete stays where it was put", () => {
+    const s = spentDown();
+    const c = createCategory(s.db, actor, { groupId: s.group, name: "C" }).id;
+    const tx = queryOne<{ id: string }>(s.db, `SELECT id FROM transactions WHERE category_id = ?`, s.a)!.id;
+    deleteCategory(s.db, actor, s.a, { currentBalance: 0, remapTo: s.b });
+    execute(s.db, `UPDATE transactions SET category_id = ? WHERE id = ?`, c, tx);
+    undoDelete(s.db, s.a);
+    assert.equal(queryOne<{ category_id: string }>(
+      s.db, `SELECT category_id FROM transactions WHERE id = ?`, tx,
+    )?.category_id, c);
+    assert.deepEqual(identityProblems(s.db, "2027-03"), []);
   });
 });
