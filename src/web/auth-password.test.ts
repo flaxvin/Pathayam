@@ -225,3 +225,36 @@ describe("changing a password", () => {
     } finally { await app.close(); }
   });
 });
+
+/*
+ * Behind a proxy the client's address is read from X-Forwarded-For. It was read
+ * from the left-most entry, which the client writes: a fresh made-up address on
+ * every attempt meant each one counted against a different source, and the
+ * limit of 10 failures per address never tripped — 12 wrong passwords in a row
+ * all answered 401. The proxy appends the real address on the right.
+ */
+describe("the sign-in limit behind a proxy", () => {
+  test("a forged X-Forwarded-For does not make each attempt a new address", async () => {
+    const db = freshDb();
+    seedMember(db, "m-ravi", "Ravi");
+    setPassword(db, "m-ravi", GOOD);
+    const app = await startTestApp(db, {
+      memberId: null, config: testConfig({ localLogin: true, trustProxy: true }),
+    });
+    try {
+      const statuses: number[] = [];
+      for (let i = 0; i < 12; i++) {
+        const res = await app.post("/auth/password",
+          { email: "nobody@example.com", password: "wrong" },
+          // What the proxy forwards: the client's forged entry, then the
+          // address the proxy itself saw.
+          { headers: { "X-Forwarded-For": `203.0.113.${i}, 198.51.100.7` } });
+        statuses.push(res.status);
+      }
+      assert.equal(statuses.at(-1), 429, statuses.join(" "));
+      const sources = queryOne<{ n: number }>(db,
+        `SELECT COUNT(DISTINCT source) AS n FROM auth_attempts`)!.n;
+      assert.equal(sources, 1, "attempts were recorded against the forged addresses");
+    } finally { await app.close(); }
+  });
+});
