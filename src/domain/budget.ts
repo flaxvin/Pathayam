@@ -378,6 +378,34 @@ export function deleteCategory(
       );
     }
 
+    /*
+     * D1 · "Holds nothing" is not "has no history".
+     *
+     * Deleting purges the envelope's assignments, and the engine stops reading a
+     * deleted envelope — but spending filed to it stays filed to it. ₹1,000
+     * assigned and ₹1,000 spent left a balance of ₹0, so the delete went through;
+     * Ready to Assign then got the ₹1,000 back (the assignment was gone) while
+     * the bank still showed it spent, and the identity was out by −₹1,000 in
+     * every month from then on. With history the spending has to go somewhere:
+     * a remap names where, and Merge does the same with the money and target
+     * too. Trashed rows count — restoring one would file it to nothing.
+     */
+    if (!opts.remapTo) {
+      const history = queryOne<{ n: number }>(
+        db,
+        `SELECT (SELECT COUNT(*) FROM transactions WHERE category_id = ?)
+              + (SELECT COUNT(*) FROM transaction_splits WHERE category_id = ?) AS n`,
+        id, id,
+      )?.n ?? 0;
+      if (history > 0) {
+        throw new Refusal(
+          `"${before.name}" has spending filed to it, so deleting it would hand back ` +
+          `every rupee ever assigned to it while the spending stayed. Merge it into ` +
+          `another envelope instead — its history goes with it.`,
+        );
+      }
+    }
+
     if (opts.remapTo) {
       execute(db, `UPDATE transactions SET category_id = ? WHERE category_id = ?`, opts.remapTo, id);
       execute(db, `UPDATE transaction_splits SET category_id = ? WHERE category_id = ?`, opts.remapTo, id);

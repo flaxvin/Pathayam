@@ -108,6 +108,18 @@ export function refusePaymentCategories(db: DB, categoryIds: (string | null | un
      * household's behalf is filed to the household's own envelope — that is what
      * lowers the commitment, and it keeps both budgets whole.
      */
+    /*
+     * D1 · A deleted envelope is not read by the engine at all, so spending
+     * filed to one — from a schedule or a rule saved before the delete —
+     * vanished from the budget while the account still moved.
+     */
+    const deleted = queryOne<{ name: string }>(
+      db, `SELECT name FROM categories WHERE id = ? AND deleted_at IS NOT NULL`, id,
+    );
+    if (deleted) {
+      throw new Refusal(`"${deleted.name}" has been deleted. Pick another envelope.`);
+    }
+
     const committed = queryOne<{ name: string }>(
       db, `SELECT name FROM categories WHERE id = ? AND commits_to_budget_id IS NOT NULL`, id,
     );
