@@ -662,6 +662,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return lastBudget(db, viewer(ctx)) ?? householdBudgetId(db);
   }
 
+  /**
+   * D4 / D14 · The budget a form was showing when it was submitted, posted with
+   * it — so "Hold it" and "Assign" act on the budget whose figures were on the
+   * screen, not whichever one was opened last in another tab. Checked like
+   * budgetParam; falls back to it.
+   */
+  function postedBudget(ctx: RequestContext): string {
+    const posted = field(ctx.body, "budget");
+    if (posted && budgetsFor(db, viewer(ctx)).some((b) => b.id === posted)) return posted;
+    return budgetParam(ctx);
+  }
+
   /** Which budget this request is about: the one asked for, else the last used. */
   function currentBudget(ctx: RequestContext, memberId: string): string {
     const asked = ctx.query.get("budget");
@@ -1938,7 +1950,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const amount = rawAmount.trim() === "" ? 0 : amountField(rawAmount);
       setHeld(
         db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), month, amount,
-        budgetParam(ctx),
+        postedBudget(ctx),
       );
       return {
         redirect: `/?month=${month}`,
@@ -1950,7 +1962,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/auto-assign", (ctx) => {
     const month = monthParam(ctx);
     const scope = budgetParam(ctx);
-    const plan = buildAutoAssignPlan(month, scope);
+    const plan = buildAutoAssignPlan(month, scope, viewer(ctx));
     const view = buildBudgetView(db, month, scope, viewer(ctx));
     return render(
       ctx,
@@ -1967,7 +1979,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/auto-assign", (ctx) =>
     mutate(ctx, (a) => {
       const month = monthParam(ctx);
-      const plan = buildAutoAssignPlan(month, budgetParam(ctx));
+      const plan = buildAutoAssignPlan(month, postedBudget(ctx), viewer(ctx));
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
       for (const proposal of plan.proposals) {
         setAssigned(db, actor, month, proposal.categoryId, proposal.to);
@@ -1998,7 +2010,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // B58 · Auto-assign funds each category to its target (the "budget"), in order,
   // from Ready to Assign until it runs out. It reads the targets set on the
   // Categories screen — there is no separate, hidden rules system to configure.
-  function buildAutoAssignPlan(month: MonthKey, budgetId: string): AutoAssignPlan {
+  function buildAutoAssignPlan(
+    month: MonthKey, budgetId: string, viewerMemberId: string | null,
+  ): AutoAssignPlan {
     /*
      * D14 · One budget's plan, from that budget's Ready to Assign.
      *
@@ -2006,9 +2020,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * in Groceries, target ₹1,500) plus Priya's ₹50,000 made a pool of ₹50,000,
      * so Ravi's click assigned ₹500 more to Groceries than the household had —
      * RTA −₹500 — and ₹700 into Priya's private envelope out of her money.
-     * budgetParam has already checked the budget is one the reader may use.
+     * The caller has already checked the budget is one the reader may use.
      */
-    const view = buildBudgetView(db, month, budgetId);
+    const view = buildBudgetView(db, month, budgetId, viewerMemberId);
     const rtaBefore = view.monthState.readyToAssign;
     let remaining = rtaBefore;
     const proposals: AutoAssignProposal[] = [];

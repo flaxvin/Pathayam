@@ -550,8 +550,9 @@ export function renderAutoAssignPreview(opts: {
         </table>
       </div>
 
-      <form method="post" action="/auto-assign?budget=${opts.budgetId}" style="margin-top:1rem">
+      <form method="post" action="/auto-assign" style="margin-top:1rem">
         <input type="hidden" name="month" value="${month}">
+        <input type="hidden" name="budget" value="${opts.budgetId}">
         <button class="button-primary" type="submit">
           Assign ${formatPaise(plan.totalAssigned)}
         </button>
@@ -579,8 +580,9 @@ export function renderHold(opts: {
       Ready to Assign and appears at the top of next month's.
     </p>
 
-    <form method="post" action="/hold?budget=${opts.budgetId}" class="card">
+    <form method="post" action="/hold" class="card">
       <input type="hidden" name="month" value="${opts.month}">
+      <input type="hidden" name="budget" value="${opts.budgetId}">
       <div class="field">
         <label for="hold-amount">Hold for ${formatMonth(nextMonthOf(opts.month))}</label>
         <input id="hold-amount" name="amount" class="amount-input" type="text" inputmode="decimal"

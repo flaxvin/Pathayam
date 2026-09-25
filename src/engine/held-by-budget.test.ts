@@ -129,8 +129,8 @@ describe("D4 · through the page", () => {
     const app = await startTestApp(db, { memberId: RAVI });
     try {
       const form = await (await app.get(`/hold?month=${month}&budget=${ravi}`)).text();
-      assert.ok(form.includes(`action="/hold?budget=${ravi}"`));
-      const res = await app.post(`/hold?budget=${ravi}`, { month, amount: "500" });
+      assert.ok(form.includes(`name="budget" value="${ravi}"`));
+      const res = await app.post(`/hold`, { month, amount: "500", budget: ravi });
       assert.equal(res.status, 303);
       assert.deepEqual(app.failures, []);
     } finally {
