@@ -120,3 +120,18 @@ describe("signed out, it is a liveness probe and nothing more", () => {
     } finally { await app.close(); }
   });
 });
+
+/*
+ * Not configured is a deployment state. /auth/google already answered 503 for
+ * it; /gmail/connect answered 500, which reads as the app having broken and
+ * is what a monitor pages somebody for.
+ */
+describe("Google not configured", () => {
+  test("/gmail/connect is 503, like /auth/google, not 500", async () => {
+    const { app } = await appWith();
+    try {
+      assert.equal((await app.get("/gmail/connect")).status, 503);
+      assert.equal((await app.get("/auth/google")).status, 503);
+    } finally { await app.close(); }
+  });
+});
