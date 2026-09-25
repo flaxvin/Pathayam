@@ -156,7 +156,10 @@ successful sign-in.
   per address: IP rate limiting already exists and is the right tool against a
   flood from one place, and the wrong one against somebody patient with many.
 - A wrong password and an unknown address are refused in identical words. The
-  difference would disclose who is in this household.
+  difference would disclose who is in this household. For the same reason an
+  address with no usable password (not a member, removed, or no password set)
+  locks after the same eight guesses, replayed from `auth_attempts`, and spends
+  a scrypt verification on a decoy hash so it takes as long to refuse.
 - Changing a password requires the current one, and signs out every other
   session the member has; the device that made the change stays signed in.
 

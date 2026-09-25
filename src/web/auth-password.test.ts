@@ -282,3 +282,38 @@ describe("the sign-in limit behind a proxy", () => {
     } finally { await app.close(); }
   });
 });
+
+/*
+ * The credential lockout existed only for members with a password: Ravi's
+ * address answered 401 seven times and then 429 "locked", while an address that
+ * is nobody's answered 401 for ever. Eight guesses told anybody whether an
+ * address belonged to this household. Each guess here comes from a different
+ * address, so the per-address limit is not what answers.
+ */
+describe("the lockout says nothing about who is a member", () => {
+  test("a member, a member with no password and a stranger answer alike", async () => {
+    const db = freshDb();
+    seedMember(db, "m-ravi", "Ravi");
+    seedMember(db, "m-priya", "Priya");
+    setPassword(db, "m-ravi", GOOD);
+    const app = await startTestApp(db, {
+      memberId: null, config: testConfig({ localLogin: true, trustProxy: true }),
+    });
+    let from = 0;
+    const tries = async (email: string) => {
+      const out: string[] = [];
+      for (let i = 0; i < 10; i++) {
+        const res = await app.post("/auth/password", { email, password: "not it at all" },
+          { headers: { "X-Forwarded-For": `198.51.100.${++from}` } });
+        out.push(`${res.status} ${(await res.text()).includes("locked") ? "locked" : ""}`);
+      }
+      return out;
+    };
+    try {
+      const member = await tries(emailOf(db, "m-ravi"));
+      assert.deepEqual(member.slice(6, 9), ["401 ", "429 locked", "429 locked"], member.join(" | "));
+      assert.deepEqual(await tries(emailOf(db, "m-priya")), member, "a member with no password");
+      assert.deepEqual(await tries("nobody-here@example.com"), member, "a stranger");
+    } finally { await app.close(); }
+  });
+});
