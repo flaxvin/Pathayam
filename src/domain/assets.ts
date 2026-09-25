@@ -28,7 +28,7 @@ import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { Refusal, Missing } from "../core/refusal.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST, todayIST, formatDate, daysBetween, type IsoDate } from "../core/dates.ts";
-import { formatPaise, type Paise } from "../core/money.ts";
+import { allocateByWeight, formatPaise, type Paise } from "../core/money.ts";
 import { SIMPLE_TRACKING_SUBTYPES, createAccount, getAccount } from "./accounts.ts";
 import { createTransaction } from "./transactions.ts";
 import {
@@ -957,6 +957,16 @@ export function recordSale(
       transactionId = received.id;
     }
 
+    // Each parcel's share of the proceeds, by units, summing to the sale's
+    // proceeds exactly. Rounding each share on its own did not: three 1-unit
+    // parcels sold at ₹10 less ₹0.01 of charges (₹29.99 proceeds) each
+    // rounded ₹9.9967 up to ₹10.00, so the gains statement reported ₹30.00
+    // received and a gain one paisa larger than the sale's. Whatever the
+    // truncation leaves goes on the last parcel.
+    const parcelProceeds = allocateByWeight(
+      preview.proceeds, preview.consumed.map((c) => c.units),
+    );
+
     execute(
       db,
       `INSERT INTO holding_events
@@ -980,11 +990,11 @@ export function recordSale(
        * statement is a reading of history rather than a reconstruction of it.
        */
       JSON.stringify({
-        parcels: preview.consumed.map((c) => ({
+        parcels: preview.consumed.map((c, i) => ({
           tradeDate: c.tradeDate,
           units: c.units,
           cost: c.cost,
-          proceeds: Math.round((c.units / input.units) * preview.proceeds),
+          proceeds: parcelProceeds[i]!,
           holdingPeriodDays: c.holdingPeriodDays,
         })),
       }),
