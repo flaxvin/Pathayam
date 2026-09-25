@@ -7,6 +7,13 @@ name: Deploy demo
 # Actions → New repository secret, named FLY_API_TOKEN. Create the token with
 # `fly tokens create deploy -a pathayam-demo` — a deploy token is scoped to
 # this one app and cannot touch the rest of the account.
+#
+# It also runs every Wednesday at 04:00 IST (22:30 UTC on Tuesday), which
+# rebuilds the image and so re-seeds the demo with data that ends that day.
+# The demo already resets to its seed on every wake from idle; this keeps the
+# seed itself from going stale between releases. GitHub may start a scheduled
+# run some minutes late, and disables schedules in a repository with no
+# activity for 60 days — re-enable it from the Actions tab if that happens.
 
 on:
   push:
@@ -20,6 +27,8 @@ on:
       - 'package-lock.json'
       - 'tsconfig.json'
       - '.github/workflows/fly.yml'
+  schedule:
+    - cron: '30 22 * * 2'
   workflow_dispatch:
 
 permissions:
@@ -104,6 +113,8 @@ jobs:
       # transaction or not depending on which answered.
       # --wait-timeout bounds the part that actually waits (machines becoming
       # healthy), so the step fails with a reason rather than sitting there.
-      - run: flyctl deploy --remote-only --ha=false --wait-timeout=600
+      # SEED_STAMP changes on every run, so the demo is re-seeded even when
+      # Docker could otherwise reuse the cached layer — see the Dockerfile.
+      - run: flyctl deploy --remote-only --ha=false --wait-timeout=600 --build-arg SEED_STAMP=${{ github.run_id }}
         env:
           FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
