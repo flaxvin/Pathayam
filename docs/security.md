@@ -22,7 +22,11 @@ it is not an adversarial boundary.
 - The email must already be a member with `allowed = 1`. Others are refused and
   the attempt recorded in `auth_attempts`.
 - Sign-in attempts are rate limited per source address; exceeding the limit
-  returns 429.
+  returns 429. Behind a proxy (`TRUST_PROXY`) the source address is the
+  **right-most** `X-Forwarded-For` entry — the one the proxy appended. Entries
+  to its left are written by the client and would let it choose a fresh
+  address per attempt. This assumes exactly one trusted hop (Fly's proxy, or
+  one tunnel); with two, every request would appear to come from the first.
 
 **Sessions.** 32 random bytes, base64url. Stored as a SHA-256 hash; the
 plaintext exists only in the cookie. Cookie flags: `HttpOnly`, `SameSite=Lax`,
