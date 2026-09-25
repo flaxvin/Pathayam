@@ -162,6 +162,15 @@ unfiled card movement: the debt moves, the envelope does not. Counting it as a
 payment moved the envelope with nothing on the budget side to meet it, and the
 identity failed by the full amount.
 
+**Across budgets** the payment is met by the claim between the two budgets
+(`crossCardPaymentSql`), not by the payer's Ready to Assign. The payer leg can be
+a budget account *or another card* — a balance transfer from one budget's card
+to another's moves both payment envelopes, each by the other budget's debt, and
+only the claim squares them. Card to card both legs are on cards, so only the
+outgoing leg (amount < 0) is read as the payer; reading both would raise the
+claim twice. `createTransfer` opens the envelope that carries the claim first
+(`prepareTransferClaim`), and refuses when nothing links the two budgets.
+
 The **opening balance is excluded** from the sum, so starting debt does not
 fund itself: R6 says the payment category "starts at ₹0" and the gap is shown
 as a debt figure, not a budgeting error.

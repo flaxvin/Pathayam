@@ -14,7 +14,7 @@ import { nowIST, todayIST, formatDate, addDays, type IsoDate } from "../core/dat
 import { Missing, Refusal } from "../core/refusal.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { getAccount, DERIVED_VALUE_SUBTYPES, MANAGED_SUBTYPES } from "./accounts.ts";
-import { prepareClaim } from "./commitments.ts";
+import { prepareClaim, prepareTransferClaim } from "./commitments.ts";
 
 export type TransactionSource = "manual" | "csv" | "pdf" | "email" | "sms" | "api" | "schedule";
 
@@ -667,6 +667,9 @@ export function createTransfer(db: DB, actor: Actor, input: TransferInput): [Tra
         `of it here would be counted nowhere. Record it on ${where} instead.`,
       );
     }
+
+    // D5 / D9 · Another budget's card: the claim that absorbs it must exist first.
+    prepareTransferClaim(db, actor, from, to);
 
     const pairId = newId();
     const date = input.date ?? todayIST();
