@@ -35,7 +35,7 @@
  * rather than guessed (IL3).
  */
 
-import type { IsoDate } from "../core/dates.ts";
+import { calendarDate, fullYear, monthFromName, type IsoDate } from "../core/dates.ts";
 import type { Paise } from "../core/money.ts";
 import type { RawRecord, ParseError, ParseResult } from "./csv.ts";
 import { readDocument, expandObjectStreams } from "../pdf/objects.ts";
@@ -251,43 +251,29 @@ export function detectBank(text: string): BankProfile | null {
 // Shared row parsing
 // ---------------------------------------------------------------------------
 
-const MONTHS: Record<string, string> = {
-  jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
-  jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
-};
-
 /**
  * The four date shapes these statements use.
  *
  * Two-digit years are the trap: `01/04/26` is 2026, and treating it as 1926
  * puts the transaction a century out where no dedupe tier will ever see it.
+ *
+ * The calendar check is the shared one (`calendarDate`). This reader used to
+ * accept any day up to 31 in any month, so "31/02/2026" became the string
+ * "2026-02-31" — a date that does not exist, stored as though it did.
  */
 export function parseStatementDate(raw: string): IsoDate | null {
   const text = raw.trim();
 
   const named = /^(\d{1,2})[-\s/]([A-Za-z]{3})[a-z]*[-\s/](\d{2,4})$/.exec(text);
   if (named) {
-    const month = MONTHS[named[2]!.toLowerCase()];
-    if (!month) return null;
-    return `${fullYear(named[3]!)}-${month}-${named[1]!.padStart(2, "0")}` as IsoDate;
+    const month = monthFromName(named[2]!);
+    return month === null ? null : calendarDate(fullYear(named[3]!), month, Number(named[1]));
   }
 
   const numeric = /^(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})$/.exec(text);
-  if (numeric) {
-    const month = Number(numeric[2]);
-    const day = Number(numeric[1]);
-    if (month < 1 || month > 12 || day < 1 || day > 31) return null;
-    return `${fullYear(numeric[3]!)}-${numeric[2]!.padStart(2, "0")}-${numeric[1]!.padStart(2, "0")}` as IsoDate;
-  }
+  if (numeric) return calendarDate(fullYear(numeric[3]!), Number(numeric[2]), Number(numeric[1]));
 
   return null;
-}
-
-function fullYear(raw: string): string {
-  if (raw.length === 4) return raw;
-  const n = Number(raw);
-  // A statement is never from the 1900s, and "26" is 2026.
-  return String(n < 70 ? 2000 + n : 1900 + n);
 }
 
 /** `1,234.56`, `1,234.56 Cr`, `(1,234.56)`, `1,234.56 Dr`. */

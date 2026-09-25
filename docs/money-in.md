@@ -44,6 +44,18 @@ crore on one or two rupee digits written against it (`3Cr`, `1.25Cr`), and
 refused in between (`450Cr`, `3 Cr`), because reading either way wrongly is
 an error of 10^7.
 
+### Reading a date
+
+CSV cells, PDF rows, alerts and typed dates all end in one calendar check
+(`calendarDate` in `src/core/dates.ts`):
+
+- The day must exist in that month: `31/02/2026` and `29/02/2026` are refused,
+  `29/02/2028` is read.
+- The year must be between 1900 and 2199: `15-01-0026` is a typo, refused
+  rather than stored two thousand years early.
+- A two-digit year below 70 is this century (`26` is 2026), 70 and above the
+  last (`85` is 1985).
+
 Date formats are inferred; two-digit years are resolved by the mapping's
 `dateFormat` where a bank is ambiguous.
 
