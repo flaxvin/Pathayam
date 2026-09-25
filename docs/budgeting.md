@@ -205,6 +205,12 @@ unless a remap target is given; the Categories page points to Merge instead.
 Nothing new can be filed to a deleted envelope either (a schedule or rule saved
 before the delete is refused rather than filed into nothing).
 
+A remap target has to be an envelope that counts spending: a live one, in the
+same budget, and neither a card's payment envelope (its activity is derived
+from the card, so ₹1,000 remapped into it vanished from the budget) nor a
+commitment envelope. Merge refuses a commitment envelope as the winner for the
+same reason.
+
 ## Splitting a transaction
 
 One payment, more than one envelope. A supermarket bill is half groceries and
