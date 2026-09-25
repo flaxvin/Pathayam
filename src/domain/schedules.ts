@@ -76,6 +76,14 @@ export interface Schedule {
   recurrence_ordinal: number | null;
   /** 'monthly-nth-weekday' only: 0 = Sunday. */
   recurrence_weekday: number | null;
+  /**
+   * The day of the month the household chose — 31 for "the 31st" — kept apart
+   * from next_due because next_due is where *this* occurrence landed, and in
+   * February that is the 28th. Undefined until the column is added (see
+   * hasAnchorColumn), NULL on a row written before it; both fall back to the
+   * day of next_due.
+   */
+  recurrence_day?: number | null;
   auto_post: number;
   is_subscription: number;
   /** F7.8: a detected schedule is distinguished from a confirmed one. */
@@ -119,6 +127,22 @@ function requireEnvelopeForOutgoing(
       "if it is more than one thing. Money coming in does not need any of this.",
     );
   }
+}
+
+const MONTH_BASED: readonly Recurrence[] = ["monthly", "quarterly", "half-yearly", "yearly"];
+
+/**
+ * Whether this database has somewhere to keep the anchor day yet. The column
+ * arrives by migration; until it does, a schedule still advances, reading the
+ * day from next_due as it always did.
+ */
+function hasAnchorColumn(db: DB): boolean {
+  return queryAll<{ name: string }>(db, `PRAGMA table_info(schedules)`)
+    .some((c) => c.name === "recurrence_day");
+}
+
+function dayOf(date: IsoDate): number {
+  return Number(date.slice(8, 10));
 }
 
 /**
@@ -191,6 +215,9 @@ export function createSchedule(
       input.isSubscription ? 1 : 0, input.detected ? 1 : 0, input.confidence ?? null,
       nowIST(),
     );
+    if (hasAnchorColumn(db)) {
+      execute(db, `UPDATE schedules SET recurrence_day = ? WHERE id = ?`, dayOf(input.nextDue), id);
+    }
 
     const schedule = getSchedule(db, id)!;
     appendEvent(db, actor, {
@@ -220,8 +247,12 @@ export function updateSchedule(
    * transaction. Without it, an edit that turns a single-envelope schedule into
    * a split is refused halfway: the category is cleared before the lines that
    * replace it exist, so the envelope rule sees a schedule with neither.
+   *
+   * `linesFollow` is the caller replacing or clearing the lines itself (the
+   * edit form, whenever it posts any), so the stored ones are not re-filed
+   * against a new amount first.
    */
-  opts: { splitsFollow?: boolean } = {},
+  opts: { splitsFollow?: boolean; linesFollow?: boolean } = {},
 ): Schedule {
   return transact(db, () => {
     const before = getSchedule(db, id);
@@ -263,13 +294,78 @@ export function updateSchedule(
       );
     }
 
+    /*
+     * The anchor day moves only when somebody moves it. The edit form posts
+     * next_due back every time, and for a 31st schedule sitting on 28 Feb that
+     * is "2026-02-28" — reading the day from it would quietly turn the rent
+     * into a 28th schedule on any edit of the amount. So it follows next_due
+     * only when next_due actually changed, or when the schedule has just become
+     * month-based (a weekly one never kept its anchor up to date).
+     */
+    const moved = patch.next_due !== undefined && patch.next_due !== before.next_due;
+    const becameMonthly = patch.recurrence !== undefined
+      && MONTH_BASED.includes(patch.recurrence) && !MONTH_BASED.includes(before.recurrence);
+    const nextDue = patch.next_due ?? before.next_due;
+    if ((moved || becameMonthly) && nextDue && hasAnchorColumn(db)) {
+      execute(db, `UPDATE schedules SET recurrence_day = ? WHERE id = ?`, dayOf(nextDue), id);
+    }
+
+    const amount = patch.amount !== undefined ? patch.amount : before.amount;
+    const lines = amount !== before.amount && !opts.splitsFollow && !opts.linesFollow
+      ? getScheduleSplits(db, id)
+      : [];
+    const refiled = lines.length > 0 ? refileLines(db, before.name, lines, amount) : null;
+
     const after = getSchedule(db, id)!;
     appendEvent(db, actor, {
-      entity: "schedule", entityId: id, action: "update", before, after,
+      entity: "schedule", entityId: id, action: "update",
+      // The lines ride along only when they moved, so undo can put them back
+      // with the amount they added up to.
+      before: refiled ? { ...before, splits: lines } : before,
+      after: refiled ? { ...after, splits: refiled } : after,
       summary: `Edited the schedule for ${after.name}`,
     });
     return after;
   });
+}
+
+/**
+ * A split schedule's lines, against a new amount.
+ *
+ * S6 · Changing the amount left the lines at the old total: ₹1,000.01 split
+ * ₹666.68 / ₹333.33, changed to ₹500, kept both lines — the edit form said
+ * "updated" — and every markPaid after that was refused ("the lines add up to
+ * −₹1,000.01, but the transaction is −₹500"), so the schedule could never be
+ * paid again until somebody re-entered its lines. The lines are re-filed the
+ * way the form files them: the first takes whatever the others leave (₹166.67
+ * here). When the others alone are the whole new amount or more, there is no
+ * honest remainder, and the change is refused with the numbers instead.
+ */
+function refileLines(db: DB, name: string, lines: ScheduleSplit[], amount: Paise | null): ScheduleSplit[] {
+  if (amount === null) {
+    throw new Refusal(
+      `${name} is split across ${lines.length} envelopes, so it needs an amount to split. ` +
+      "Remove the split first, or keep an amount.",
+    );
+  }
+  const [first, ...rest] = lines;
+  if (rest.some((l) => (l.amount < 0) !== (amount < 0))) {
+    throw new Refusal(
+      `${name}'s envelope lines are money ${amount < 0 ? "coming in" : "going out"}, and the new ` +
+      "amount is the other way. Change the lines along with the amount.",
+    );
+  }
+  const claimed = rest.reduce((sum, l) => sum + l.amount, 0);
+  const remainder = (amount - claimed) as Paise;
+  if (remainder === 0 || (remainder < 0) !== (amount < 0)) {
+    throw new Refusal(
+      `The other envelope lines of ${name} come to ${formatPaise(Math.abs(claimed) as Paise)}, ` +
+      `which leaves nothing for the first out of ${formatPaise(Math.abs(amount) as Paise)}. ` +
+      "Change the lines along with the amount.",
+    );
+  }
+  execute(db, `UPDATE schedule_splits SET amount = ? WHERE id = ?`, remainder, first!.id);
+  return [{ ...first!, amount: remainder }, ...rest];
 }
 
 /**
@@ -493,10 +589,30 @@ export function nextIncome(
   return soonest;
 }
 
-/** F7.2 · Advance a schedule to its next occurrence. */
+/**
+ * F7.2 · The first occurrence of the schedule after `after` — and always at
+ * least one step past next_due, since the caller is asking for "the one after
+ * this".
+ *
+ * An overdue schedule is walked forward along its own series. It used to take
+ * `after` itself as the starting point and add one step to it, which is a
+ * different series: a salary on the 26th, last ticked off on 26 Aug, asked on
+ * 25 Sep for what comes next, answered 26 Oct — September's payday had fallen
+ * out — and a weekly Monday asked on a Wednesday answered the Wednesday after.
+ */
 export function nextOccurrence(schedule: Schedule, after: IsoDate): IsoDate | null {
-  const from = schedule.next_due && schedule.next_due > after ? schedule.next_due : after;
+  if (!schedule.next_due) return followingOccurrence(schedule, after);
+  let at: IsoDate | null = schedule.next_due;
+  // Ten thousand steps is 27 years of a daily schedule nobody ticked off.
+  for (let guard = 0; at && guard < 10_000; guard++) {
+    at = followingOccurrence(schedule, at);
+    if (at && at > after) return at;
+  }
+  return at && followingOccurrence(schedule, after);
+}
 
+/** One step along the series from `from`, which is itself an occurrence. */
+function followingOccurrence(schedule: Schedule, from: IsoDate): IsoDate | null {
   switch (schedule.recurrence) {
     case "daily": return addDays(from, 1);
     case "weekly": return addDays(from, 7);
@@ -551,8 +667,40 @@ export function describeRecurrence(schedule: Schedule): string {
  * rather than silently sliding to a date the household did not choose.
  */
 function shiftMonthsKeepingDay(schedule: Schedule, from: IsoDate, months: number): IsoDate | null {
-  const day = Number((schedule.next_due ?? from).slice(8, 10));
-  return resolveDayOfMonth(addMonths(monthOf(from), months), day, schedule.short_month_policy);
+  /*
+   * S2 · The day comes from the anchor, not from where the last occurrence
+   * landed. Reading it from next_due made every clamp permanent: 31 Jan,
+   * 28 Feb, then 28 Mar, 28 Apr and the 28th for ever; yearly 29 Feb 2028 was
+   * 28 Feb even in 2032; "next-day" put a 31st on the 1st of every month.
+   */
+  const day = schedule.recurrence_day ?? dayOf(schedule.next_due ?? from);
+  /*
+   * "next-day" lands the occurrence in the following month — 31 Feb is 1 Mar —
+   * but it is still February's. Counting months from March would skip March's
+   * own 31st, so a 1st that is exactly the previous month's spill-over counts
+   * from the previous month.
+   */
+  let month = monthOf(from);
+  if (schedule.short_month_policy === "next-day" && day > 1 && dayOf(from) === 1) {
+    const previous = addMonths(month, -1);
+    if (resolveDayOfMonth(previous, day, "next-day") === from) month = previous;
+  }
+  /*
+   * "Skip" skips *that* month and carries on. resolveDayOfMonth answers null
+   * for a month without the day, and that null used to be stored as next_due:
+   * a rent on the 31st from 31 Jan 2026 was "next due never" the moment
+   * February was reached, and the projection showed it once a year. So a
+   * missing month moves on to the following step — 31 Jan, 31 Mar, 31 May;
+   * yearly 29 Feb 2028, 29 Feb 2032. Forty-eight steps covers the longest
+   * gap there is (29 Feb across 2100, which is not a leap year: eight years).
+   */
+  for (let step = 1; step <= 48; step++) {
+    const date = resolveDayOfMonth(
+      addMonths(month, months * step), day, schedule.short_month_policy,
+    );
+    if (date) return date;
+  }
+  return null;
 }
 
 /** F7.5 · Mark an occurrence paid, and move the schedule on. */
@@ -597,7 +745,21 @@ export function markPaid(db: DB, actor: Actor, scheduleId: string, on: IsoDate =
       }).id;
     }
 
-    const next = nextOccurrence(schedule, on);
+    /*
+     * S3 · Marking paid settles the occurrence that was due, so the schedule
+     * moves one step on from the *due* date — never from the day it was paid.
+     * Advancing from the payment date re-based the whole cycle on a late
+     * payment: quarterly due 15 Mar paid 2 Apr went to 15 Jul (the Mar/Jun/
+     * Sep/Dec cycle became Apr/Jul/Oct/Jan for good); monthly due 31 Jan paid
+     * 2 Feb went to 31 Mar and February's rent vanished; a weekly Monday paid
+     * on a Wednesday became a Wednesday schedule. Paid very late, the next
+     * occurrence can already be overdue — which is true: it has not been paid.
+     * Early payment was always right and still is: due 15 Mar paid 10 Mar is
+     * next due 15 Apr.
+     */
+    const next = schedule.next_due
+      ? followingOccurrence(schedule, schedule.next_due)
+      : nextOccurrence(schedule, on);
     execute(db, `UPDATE schedules SET next_due = ? WHERE id = ?`, next, scheduleId);
     appendEvent(db, actor, {
       entity: "schedule", entityId: scheduleId, action: "mark-paid",
@@ -622,7 +784,7 @@ export function skipOccurrence(db: DB, actor: Actor, scheduleId: string): void {
      */
     if (!schedule) throw new Missing("That schedule does not exist.");
     if (!schedule.next_due) throw new Refusal("That schedule has nothing due to skip.");
-    const next = nextOccurrence(schedule, schedule.next_due);
+    const next = followingOccurrence(schedule, schedule.next_due);
     execute(db, `UPDATE schedules SET next_due = ? WHERE id = ?`, next, scheduleId);
     appendEvent(db, actor, {
       entity: "schedule", entityId: scheduleId, action: "skip",
@@ -692,8 +854,23 @@ export function detectSchedules(
 
   const detected: DetectedSchedule[] = [];
 
-  for (const [payeeId, occurrences] of byPayee) {
-    if (occurrences.length < 3 || existing.has(payeeId)) continue;
+  for (const [payeeId, seen] of byPayee) {
+    if (seen.length < 3 || existing.has(payeeId)) continue;
+
+    /*
+     * S4 · Which way the money goes is what was observed, not assumed. Every
+     * suggestion used to be emitted as money out: five ₹85,000 salary credits
+     * from an employer became a proposed ₹85,000 *expense*, which markPaid
+     * would then post every month. A payee seen both ways — purchases and the
+     * odd refund — is judged on the direction it mostly goes; a refund is not
+     * part of the rhythm, and averaging it in as a payment misstated both the
+     * amount and the gaps.
+     */
+    const incoming = seen.filter((o) => o.amount > 0);
+    const outgoing = seen.filter((o) => o.amount < 0);
+    const occurrences = incoming.length > outgoing.length ? incoming : outgoing;
+    const sign = occurrences === incoming ? 1 : -1;
+    if (occurrences.length < 3) continue;
 
     const gaps: number[] = [];
     for (let i = 1; i < occurrences.length; i++) {
@@ -722,15 +899,38 @@ export function detectSchedules(
       payeeName: last.payee,
       categoryId: last.category_id,
       accountId: last.account_id,
-      amount: -typical,
+      amount: (sign * typical) as Paise,
       recurrence,
-      nextDue: addDays(last.date, Math.round(average)),
+      nextDue: detectedNextDue(occurrences.map((o) => o.date as IsoDate), recurrence, average),
       confidence,
       occurrences: occurrences.length,
     });
   }
 
   return detected.sort((a, b) => b.occurrences - a.occurrences);
+}
+
+/**
+ * Where a detected schedule lands next.
+ *
+ * The last date plus the average gap is right for a weekly rhythm and wrong for
+ * a monthly one: months are 28 to 31 days, so a salary on the 1st of May–Sep
+ * (gaps 31, 30, 31, 31 — average 30.75) was proposed for 2 Oct. A month-based
+ * rhythm steps whole months and keeps the day it usually falls on — the most
+ * common day among the occurrences, so one payment a bank holiday pushed to
+ * the 2nd does not move the rest.
+ */
+function detectedNextDue(dates: IsoDate[], recurrence: Recurrence, averageGap: number): IsoDate {
+  const last = dates.at(-1)!;
+  const months = { monthly: 1, quarterly: 3, "half-yearly": 6, yearly: 12 }[
+    recurrence as "monthly" | "quarterly" | "half-yearly" | "yearly"
+  ];
+  if (!months) return addDays(last, Math.round(averageGap));
+  const counts = new Map<number, number>();
+  for (const date of dates) counts.set(dayOf(date), (counts.get(dayOf(date)) ?? 0) + 1);
+  let day = dayOf(last);
+  for (const [d, n] of counts) if (n > (counts.get(day) ?? 0)) day = d;
+  return resolveDayOfMonth(addMonths(monthOf(last), months), day, "last-day")!;
 }
 
 function recurrenceForGap(days: number): Recurrence | null {
@@ -818,25 +1018,56 @@ export function projectCashflow(
 
   const end = addDays(today, horizon);
 
+  /*
+   * S5 · Cards in scope, and when each is paid. A card's balance is not cash
+   * leaving on the day it is charged; it leaves on the due date. Every card was
+   * listed whatever budget was asked about, and its current balance was
+   * charged again on every due date in the horizon: a card owing ₹10,000 due
+   * on the 5th was ₹30,000 of outflows over 90 days (5 Oct, 5 Nov, 5 Dec),
+   * a lowest balance of ₹70,000 against a true ₹90,000. What is owed today is
+   * paid once, at the next due date; what the card will owe after that is
+   * only what is scheduled on it, and that is paid at the due date its
+   * statement falls into.
+   */
+  const cards = new Map(
+    queryAll<{ id: string; name: string; due_day: number | null; statement_day: number | null }>(
+      db,
+      `SELECT id, name, due_day, statement_day FROM accounts
+        WHERE kind = 'credit' AND closed_at IS NULL
+          ${opts.budgetId ? "AND budget_id = ?" : ""}`,
+      ...(opts.budgetId ? [opts.budgetId] : []),
+    ).map((card) => [card.id, card]),
+  );
+
   // Confirmed and detected schedules, distinguished (F7.8).
   for (const schedule of listSchedules(db, { viewerMemberId: opts.viewerMemberId })) {
     if (!schedule.next_due || schedule.amount === null) continue;
-    // A standing instruction only moves this budget's cash if it comes out of
-    // one of its accounts.
-    if (opts.budgetId && schedule.account_id && !inScope.has(schedule.account_id)) continue;
+    /*
+     * S5 · Which schedules move this cash, the same rule in every scope. A
+     * schedule on a card was taken out of cash on its own date in the combined
+     * projection and dropped altogether from the household one (it is not a
+     * Budget account, so it failed the scope check): a ₹649 subscription billed
+     * to the card cost cash in one view and nothing in the other. Now: a
+     * Budget account in scope moves cash on the day; a card in scope moves it
+     * on the card's due date; a tracking account, or anything out of scope,
+     * does not move this cash at all. No account at all is taken as cash.
+     */
+    const card = schedule.account_id ? cards.get(schedule.account_id) : undefined;
+    if (schedule.account_id && !inScope.has(schedule.account_id) && !card) continue;
     let due: IsoDate | null = schedule.next_due;
     for (let guard = 0; due && due <= end && guard < 400; guard++) {
-      if (due >= today) {
-        const day = dayFor(due);
+      const leaves = card ? cardPaymentDate(card, due) : due;
+      if (leaves >= today && leaves <= end) {
+        const day = dayFor(leaves);
         const entry = {
-          label: schedule.name,
+          label: card ? `${schedule.name} (${card.name})` : schedule.name,
           amount: Math.abs(schedule.amount),
           confirmed: schedule.detected === 0,
         };
         if (schedule.amount > 0) day.inflows.push(entry);
         else day.outflows.push(entry);
       }
-      due = nextOccurrence(schedule, due);
+      due = followingOccurrence(schedule, due);
     }
   }
 
@@ -859,18 +1090,16 @@ export function projectCashflow(
     }
   }
 
-  // Card due dates, with the statement balance as the expected payment.
-  for (const card of queryAll<{ id: string; name: string; due_day: number | null }>(
-    db, `SELECT id, name, due_day FROM accounts WHERE kind = 'credit' AND closed_at IS NULL`,
-  )) {
-    if (!card.due_day) continue;
+  // What each card owes today, paid once, at its next due date (S5).
+  for (const card of cards.values()) {
     const owed = Math.max(0, -(balances.get(card.id)?.working ?? 0));
-    if (owed === 0) continue;
-    for (let m = 0; m < Math.ceil(horizon / 28) + 1; m++) {
-      const due = resolveDayOfMonth(addMonths(monthOf(today), m), card.due_day, "last-day");
-      if (!due || due < today || due > end) continue;
-      dayFor(due).outflows.push({ label: `${card.name} due`, amount: owed, confirmed: true });
-    }
+    if (owed === 0 || !card.due_day) continue;
+    const thisMonth = resolveDayOfMonth(monthOf(today), card.due_day, "last-day")!;
+    const due = thisMonth >= today
+      ? thisMonth
+      : resolveDayOfMonth(addMonths(monthOf(today), 1), card.due_day, "last-day")!;
+    if (due > end) continue;
+    dayFor(due).outflows.push({ label: `${card.name} due`, amount: owed, confirmed: true });
   }
 
   const days: CalendarDay[] = [];
@@ -898,6 +1127,30 @@ export function projectCashflow(
   }
 
   return { days, openingBalance: opening, floor, firstShortfall, lowestBalance: lowest, lowestOn };
+}
+
+/**
+ * When a charge on a card becomes cash leaving the bank: the first due date
+ * after the statement that takes it in. Statement on the 20th, due on the 5th —
+ * a charge on 10 Sep is paid 5 Oct, one on 25 Sep is paid 5 Nov. A card with no
+ * statement day is taken to be paid at the first due date after the charge; a
+ * card with no due day at all, on the day (nothing better is known).
+ */
+function cardPaymentDate(
+  card: { due_day: number | null; statement_day: number | null }, charged: IsoDate,
+): IsoDate {
+  if (!card.due_day) return charged;
+  let closes = charged;
+  if (card.statement_day) {
+    for (let m = 0; m <= 1; m++) {
+      const close = resolveDayOfMonth(addMonths(monthOf(charged), m), card.statement_day, "last-day")!;
+      if (close >= charged) { closes = close; break; }
+    }
+  }
+  for (let m = 0; ; m++) {
+    const due = resolveDayOfMonth(addMonths(monthOf(closes), m), card.due_day, "last-day")!;
+    if (due > closes) return due;
+  }
 }
 
 /** F7.9 · Subscriptions, with what they actually cost per year. */
@@ -960,6 +1213,7 @@ registerUndoHandler("schedule", (db, event) => {
       before.short_month_policy, before.is_subscription, before.detected,
       before.confidence, nowIST(),
     );
+    restoreRecurrenceDetail(db, event.entityId!, before);
     return `Put the schedule for ${before.name} back`;
   }
 
@@ -973,5 +1227,30 @@ registerUndoHandler("schedule", (db, event) => {
     before.category_id, before.account_id, before.short_month_policy,
     before.is_subscription, before.amount_is_estimate, event.entityId!,
   );
+  restoreRecurrenceDetail(db, event.entityId!, before);
+  // S6 · An amount change that re-filed the lines puts them back too, or the
+  // old amount returns over lines that add up to the new one.
+  const lines = (before as Schedule & { splits?: ScheduleSplit[] }).splits;
+  for (const line of lines ?? []) {
+    execute(db, `UPDATE schedule_splits SET amount = ? WHERE id = ?`, line.amount, line.id);
+  }
   return `Set the schedule for ${before.name} back`;
 });
+
+/**
+ * The parts of the recurrence the two statements above never named: the
+ * weekday pair and the anchor day. Without them an undone edit put a 31st
+ * schedule back with the anchor of the edit, and an undone delete brought a
+ * "first Sunday" schedule back with no Sunday.
+ */
+function restoreRecurrenceDetail(db: DB, id: string, before: Schedule): void {
+  if (before.recurrence_ordinal !== undefined) {
+    execute(
+      db, `UPDATE schedules SET recurrence_ordinal = ?, recurrence_weekday = ? WHERE id = ?`,
+      before.recurrence_ordinal, before.recurrence_weekday ?? null, id,
+    );
+  }
+  if (before.recurrence_day !== undefined && hasAnchorColumn(db)) {
+    execute(db, `UPDATE schedules SET recurrence_day = ? WHERE id = ?`, before.recurrence_day, id);
+  }
+}

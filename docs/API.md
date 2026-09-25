@@ -466,7 +466,7 @@ only (out of a token's reach).
 |---|---|---|---|
 | GET | `/schedules` | R | Recurring items & cashflow calendar. |
 | POST | `/schedules/new` · `/schedules/confirm` · `/schedules/dismiss` · `/schedules/:id/paid` · `/schedules/:id/skip` | W | Manage schedules. A schedule may be money in or money out; `/schedules/new` takes envelope lines like `/add`. `recurrence` must be one of the eight the app knows — an unrecognised value is refused rather than silently treated as monthly. With `monthly-nth-weekday`, `recurrence_ordinal` (1–4, or −1 for last) and `recurrence_weekday` (0 = Sunday) say which one. |
-| POST | `/schedules/:id/edit` · `/schedules/:id/delete` | W | Change or remove a schedule, including its envelope lines (`split_category_N` / `split_amount_N`; the first carries no amount and takes the remainder). Removing leaves everything it already recorded. |
+| POST | `/schedules/:id/edit` · `/schedules/:id/delete` | W | Change or remove a schedule, including its envelope lines (`split_category_N` / `split_amount_N`; the first carries no amount and takes the remainder). A new amount with no line fields re-files the stored lines the same way, or is refused when the other lines leave nothing for the first. Removing leaves everything it already recorded. |
 | GET | `/goals` | R | Savings goals. |
 | POST | `/goals/new` · `/goals/:id/complete` · `/goals/:id/edit` · `/goals/:id/delete` | W | Manage goals. |
 | GET | `/loans` · `/loans/:id` | R | Loans and one loan's detail. |

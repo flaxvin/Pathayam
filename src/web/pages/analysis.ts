@@ -866,7 +866,7 @@ export function renderSchedules(opts: {
                   ${d.confidence} confidence
                 </span>
                 <div class="faint">
-                  ${formatPaise(Math.abs(d.amount))} ${d.recurrence}, seen ${d.occurrences} times ·
+                  ${formatPaise(Math.abs(d.amount))} ${d.amount > 0 ? "coming in" : "going out"} ${d.recurrence}, seen ${d.occurrences} times ·
                   next ${formatDate(d.nextDue)}
                 </div>
               </div>
