@@ -27,7 +27,7 @@ import {
   actorFor, setTheme, listMembers, memberCount, inviteMember, createSession,
   startImpersonation, stopImpersonation, setImpersonationWrites, listSessions,
   revokeSession, recordAuthAttempt, isRateLimited, findMemberByEmail, getMember,
-  removeMember,
+  removeMember, revokeAllSessions,
   type AuthContext,
 } from "./auth/sessions.ts";
 import {
@@ -2948,7 +2948,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       }
 
       setPassword(db, a.member.id, password);
-      return { redirect: "/settings", message: "Password set." };
+      /*
+       * A new password is how somebody locks out whoever learned the old one,
+       * so it has to end the sessions the old one opened. It only rewrote the
+       * hash: a session signed in on another device with the old password
+       * went on reading and writing the ledger, for up to SESSION_DAYS (30),
+       * after the change meant to stop it. This device stays signed in.
+       */
+      const others = listSessions(db, a.member.id).filter((s) => s.id !== a.session.id).length;
+      if (others > 0) revokeAllSessions(db, actorFor(a), a.member.id, { except: a.session.id });
+      return {
+        redirect: "/settings",
+        message: others > 0
+          ? `Password set. Signed out ${others === 1 ? "one other device" : `${others} other devices`}.`
+          : "Password set.",
+      };
     }),
   );
 
