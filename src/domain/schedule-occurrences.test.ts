@@ -115,13 +115,10 @@ describe("S1 · 'skip' skips the short month and carries on", () => {
  * 28 Feb, then 28 Mar, 28 Apr and the 28th for ever. Quarterly from 30 Nov sat
  * on the 28th after February; yearly 29 Feb 2028 was 28 Feb even in 2032; and
  * "next-day" put a 31st on the 1st of every month. The anchor day is now kept
- * in its own column (recurrence_day). The migration is added separately, so
- * these tests add the column themselves — exactly the ALTER the lead applies.
+ * in its own column (recurrence_day), added by migration 0048.
  */
 function anchored() {
-  const ctx = setup();
-  execute(ctx.db, `ALTER TABLE schedules ADD COLUMN recurrence_day INTEGER`);
-  return ctx;
+  return setup();
 }
 
 describe("S2 · a month-based schedule keeps the day it was set to", () => {
@@ -205,7 +202,9 @@ describe("S2 · a month-based schedule keeps the day it was set to", () => {
   });
 
   test("without the column it still advances, reading the day from next_due", () => {
+    // A database from before 0048: the code must not depend on the column.
     const ctx = setup();
+    execute(ctx.db, `ALTER TABLE schedules DROP COLUMN recurrence_day`);
     const s = schedule(ctx, "monthly", "2026-01-15", "last-day");
     assert.equal(getSchedule(ctx.db, s.id)!.recurrence_day, undefined);
     assert.deepEqual(walk(ctx, s.id, 2), ["2026-01-15", "2026-02-15", "2026-03-15"]);

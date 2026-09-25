@@ -29,6 +29,18 @@ import {
 } from "../domain/assets.ts";
 import { units, price } from "../portfolio/holdings.ts";
 import type { IsoDate } from "../core/dates.ts";
+import { MIGRATIONS } from "./schema.ts";
+
+/*
+ * Replay only the migrations under test, then put the version back. Replaying
+ * everything after them stopped working once a later migration changed the
+ * schema (0048 adds a column): running it twice is a duplicate column.
+ */
+function replay(db: DB): void {
+  db.exec("PRAGMA user_version = 42");
+  migrate(db, false, 44);
+  db.exec(`PRAGMA user_version = ${MIGRATIONS.length}`);
+}
 
 const actor: Actor = { memberId: "m", source: "ui" };
 
@@ -42,8 +54,7 @@ function household(): { db: DB; bank: string } {
 }
 
 function rewindAndMigrate(db: DB): void {
-  db.exec("PRAGMA user_version = 42");
-  migrate(db, false);
+  replay(db);
 }
 
 describe("0043 · a settlement below the outstanding becomes a waiver", () => {
@@ -63,7 +74,7 @@ describe("0043 · a settlement below the outstanding becomes a waiver", () => {
       loan.id, "2025-10-01", rupees(40_000), rupees(50_000), -rupees(10_000), nowIST());
     assert.ok(loanInterestByFinancialYear(db).some((r) => r.interest < 0), "the fixture is not the old shape");
 
-    rewindAndMigrate(db);
+    replay(db);
 
     const rows = queryAll<{ id: string; amount: number; principal: number; interest: number }>(
       db, `SELECT id, amount, principal, interest FROM loan_payments WHERE kind = 'foreclosure' ORDER BY amount DESC`);
@@ -94,7 +105,7 @@ describe("0044 · a bonus issue becomes new shares at nil cost", () => {
 
   test("the original lot gets its units and price back, and a nil-cost lot is added", () => {
     const { db, holdingId } = holding();
-    rewindAndMigrate(db);
+    replay(db);
     const lots = lotsFor(db, holdingId).map((l) => [l.tradeDate, l.units, l.cost]);
     assert.deepEqual(lots, [
       ["2023-01-02", units(100), rupees(100_000)],
@@ -108,7 +119,7 @@ describe("0044 · a bonus issue becomes new shares at nil cost", () => {
       `INSERT INTO holding_events (id,holding_id,date,kind,units,created_at,created_by)
        VALUES ('sale-1',?,'2025-09-01','sale',?,'2099-02-01T00:00:00.000+05:30','m')`, holdingId, units(50));
     const before = lotsFor(db, holdingId).map((l) => [l.units, l.cost]);
-    rewindAndMigrate(db);
+    replay(db);
     assert.deepEqual(lotsFor(db, holdingId).map((l) => [l.units, l.cost]), before,
       "realised gains were booked on the old basis; rewriting lots under them would hide that");
   });
