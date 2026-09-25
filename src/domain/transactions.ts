@@ -89,6 +89,15 @@ export class FiledIntoPaymentCategory extends Refusal {}
 export function refusePaymentCategories(db: DB, categoryIds: (string | null | undefined)[]): void {
   for (const id of categoryIds) {
     if (!id) continue;
+    /*
+     * An envelope that is not there at all — removed by undoing its creation
+     * while a form or a saved rule still named it — reached the INSERT and
+     * failed on the foreign key: a plain Error, so a 500. Found by the engine
+     * fuzzer once undo of a create was allowed to run.
+     */
+    if (!queryOne(db, `SELECT 1 FROM categories WHERE id = ?`, id)) {
+      throw new Refusal("That envelope does not exist any more. Pick another one.");
+    }
     const paying = queryOne<{ name: string }>(
       db, `SELECT name FROM categories WHERE id = ? AND payment_account_id IS NOT NULL`, id,
     );
