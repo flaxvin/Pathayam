@@ -121,6 +121,15 @@ Editing or deleting one leg acts on both. Specifically:
   its own side.
 - **Delete and its undo** act on both legs. So does undoing an edit.
 
+**Between a card and a tracking account** (topping up a wallet from the card,
+an EMI on a loan tracked outside the budget) the card side is treated exactly
+like an unfiled charge — or, the other way, an unfiled refund. The tracking
+account is outside every budget, so nothing on the budget side meets the money;
+the card's debt moves and its payment envelope does not, and the card's funding
+warning shows the gap until money is assigned to it. Treating the card leg as a
+card *payment*, as it once was, moved the envelope by the full amount with no
+category giving it up.
+
 This was documented before it was true. Editing one leg of a ₹1,000 transfer to
 ₹3,000 used to change that leg alone, and ₹2,000 left one account and arrived
 nowhere — the identity was out by that much in every month after. Undoing a
@@ -150,7 +159,8 @@ moved, provided they still sit with the payee they were merged into.
 The engine also refuses to be the victim of an inconsistent ledger: split lines
 count only when the transaction says it is split, and a transfer leg whose
 partner has been deleted counts as an ordinary flow into or out of Ready to
-Assign rather than as half of a transfer.
+Assign rather than as half of a transfer. On a card, a leg whose partner is gone
+counts as an unfiled card charge or refund, for the same reason.
 
 ## Splits
 

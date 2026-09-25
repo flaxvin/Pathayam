@@ -227,12 +227,36 @@ function crossCardPaymentSql(): string {
  * A charge nobody has filed gave nothing up, so it must not raise the envelope.
  */
 function creditUnfiledSql(budgetId?: string): string {
+  /*
+   * A card's transfer leg is only a card *payment* when its other half is money
+   * the budget can see — a budget account, or another card. Two cases are not:
+   *
+   * - **The other half is on a tracking account.** ₹300 charged to the card to
+   *   top up a wallet, or to pay an EMI on a loan tracked outside the budget,
+   *   left through the card and arrived nowhere the budget counts. Treated as a
+   *   payment it moved the payment envelope by ₹300 with no category giving it
+   *   up and nothing on the budget side to meet it, so the identity was out by
+   *   the full amount in every month after (−₹300 card→tracking, +₹300 back).
+   *   It is exactly an unfiled charge (or refund) on the card, and B97 already
+   *   says what that is: the debt moves and nothing was set aside for it.
+   * - **The other half is gone.** A lone leg is not half of anything. The
+   *   budget-side guard (transferFlowSql's partner join) already let a lone
+   *   budget leg fall through to Ready to Assign; the card side kept excluding
+   *   the row on `transfer_pair_id` alone, so undoing one leg of a ₹123.45 card
+   *   payment left the payment envelope moved by it with nothing behind it.
+   */
   return `SELECT substr(t.date,1,7) AS month, t.account_id AS account_id,
             SUM(t.amount) AS amount
        FROM transactions t
        JOIN accounts a ON a.id = t.account_id
       WHERE t.deleted_at IS NULL AND a.kind = 'credit'
-        AND t.is_split = 0 AND t.category_id IS NULL AND t.transfer_pair_id IS NULL
+        AND t.is_split = 0 AND t.category_id IS NULL
+        AND (t.transfer_pair_id IS NULL OR NOT EXISTS (
+              SELECT 1 FROM transactions other
+                JOIN accounts otherAccount ON otherAccount.id = other.account_id
+               WHERE other.transfer_pair_id = t.transfer_pair_id AND other.id <> t.id
+                 AND other.deleted_at IS NULL
+                 AND otherAccount.kind IN ('budget','credit')))
         AND t.date >= ? AND t.date <= ?${budgetClause(budgetId)}
       GROUP BY month, t.account_id`;
 }
