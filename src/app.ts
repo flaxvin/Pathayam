@@ -177,7 +177,9 @@ import {
 } from "./web/pages/manage.ts";
 import { renderPrivacy, renderTerms, type LegalMode } from "./web/pages/legal.ts";
 import { Refusal } from "./core/refusal.ts";
-import { checkPassword, setPassword, anyPasswordSet, hasPassword } from "./auth/passwords.ts";
+import {
+  checkPassword, checkAbsentPassword, setPassword, anyPasswordSet, hasPassword,
+} from "./auth/passwords.ts";
 import { beginOidc, exchangeOidcCode } from "./auth/oidc.ts";
 import {
   staleRatesWarning, RATES_VERIFIED_ON, RATES_SOURCE, RULES,
@@ -1397,9 +1399,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       throw new HttpError(401, "That email and password do not match.");
     };
 
-    if (!member || member.removed_at || !member.allowed) refuse();
-
-    const result = checkPassword(db, member!.id, password);
+    /*
+     * And one lockout for all of them: an address with no usable password
+     * locks after the same eight guesses a real one does (see
+     * checkAbsentPassword). Otherwise the eighth guess answered 429 for a
+     * member and 401 for anybody else, which says the same thing the message
+     * above was worded not to.
+     */
+    const usable = member && !member.removed_at && member.allowed && hasPassword(db, member.id);
+    const result = usable
+      ? checkPassword(db, member.id, password)
+      : checkAbsentPassword(db, email, password);
     if (!result.ok) {
       if (result.reason === "locked") {
         recordAuthAttempt(db, source, "locked", email);
