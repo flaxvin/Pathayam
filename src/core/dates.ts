@@ -262,27 +262,73 @@ export function formatMonthShort(month: MonthKey): string {
 }
 
 /**
- * Parse a date the user typed. Accepts DD-MM-YYYY, DD/MM/YYYY, the DD-MM and
- * DD/MM shorthands (L3), and the ISO form the app itself emits.
+ * The years a date in this app can plausibly carry. "15-01-0026" is a typo
+ * for 2026, not a transaction in the first century — and accepted, it sorted
+ * 2,000 years before everything else and no dedupe tier would ever see it.
+ */
+const EARLIEST_YEAR = 1900;
+const LATEST_YEAR = 2199;
+
+/**
+ * A four-digit year from what a statement or keyboard wrote. Two digits are
+ * this century below 70 and the last one above: "26" is 2026, "85" is 1985.
+ */
+export function fullYear(raw: string): number {
+  const n = Number(raw);
+  if (raw.length !== 2) return n;
+  return n < 70 ? 2000 + n : 1900 + n;
+}
+
+/**
+ * The one calendar check every date reader shares — typed, CSV, PDF and
+ * alert. Month 1–12, a day that month actually has, a plausible year.
+ * "31/02/2026" is null here, where the PDF and alert readers used to accept
+ * any day up to 31 and emit "2026-02-31".
+ */
+export function calendarDate(year: number, month: number, day: number): IsoDate | null {
+  if (!Number.isInteger(year) || year < EARLIEST_YEAR || year > LATEST_YEAR) return null;
+  const iso = `${String(year).padStart(4, "0")}-${String(month).padStart(2, "0")}-${String(day).padStart(2, "0")}`;
+  return isIsoDate(iso) ? iso : null;
+}
+
+/** A month named in words — "Jan", "January", "Sept" — or null. */
+export function monthFromName(name: string): number | null {
+  const lower = name.toLowerCase();
+  if (lower.length < 3) return null;
+  const index = MONTH_NAMES.findIndex((m) => m.toLowerCase().startsWith(lower));
+  return index < 0 ? null : index + 1;
+}
+
+/**
+ * Parse a date the user typed or a statement printed. Accepts DD-MM-YYYY,
+ * DD/MM/YYYY, DD.MM.YY, the DD-MM and DD/MM shorthands (L3), the ISO form the
+ * app itself emits and its YYYY/MM/DD cousin, a named month ("15-Jan-2026",
+ * "15 Jan 2026", "15 January 26"), and any of those followed by a time
+ * ("15-01-2026 10:32", "28-08-26, 00:01:28 IST"), which is dropped.
  *
  * Shorthand resolves against `reference`'s year, choosing the nearest
  * interpretation: typing "31-12" on 02-01-2027 means last December, not a year
- * away. Returns null rather than guessing when the input is not a date.
+ * away. Returns null rather than guessing when the input is not a date — or
+ * not a real one, or not in a plausible year.
  */
 export function parseDate(input: string, reference: IsoDate = todayIST()): IsoDate | null {
-  const s = input.trim();
+  // A trailing time of day is common in bank exports and says nothing about
+  // which day it was.
+  const s = input.trim()
+    .replace(/(?:[,\s]+(?:at\s+)?|T)\d{1,2}:\d{2}(?::\d{2})?(?:\s*[ap]\.?m\.?)?(?:\s*(?:IST|hrs?))?$/i, "")
+    .trim();
   if (s === "") return null;
 
-  if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return isIsoDate(s) ? s : null;
+  const iso = /^(\d{4})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(s);
+  if (iso) return calendarDate(Number(iso[1]), Number(iso[2]), Number(iso[3]));
 
   const full = /^(\d{1,2})[-/.](\d{1,2})[-/.](\d{2}|\d{4})$/.exec(s);
-  if (full) {
-    const d = Number(full[1]);
-    const m = Number(full[2]);
-    let y = Number(full[3]);
-    if (full[3]!.length === 2) y += y < 70 ? 2000 : 1900;
-    const iso = `${String(y).padStart(4, "0")}-${String(m).padStart(2, "0")}-${String(d).padStart(2, "0")}`;
-    return isIsoDate(iso) ? iso : null;
+  if (full) return calendarDate(fullYear(full[3]!), Number(full[2]), Number(full[1]));
+
+  const named = /^(\d{1,2})(?:[-/.\s]+|(?=[a-z]))([a-z]{3,9})\.?[-/.,\s]+(\d{2}|\d{4})$/i.exec(s);
+  if (named) {
+    const month = monthFromName(named[2]!);
+    return month === null ? null : calendarDate(fullYear(named[3]!), month, Number(named[1]));
   }
 
   const short = /^(\d{1,2})[-/.](\d{1,2})$/.exec(s);

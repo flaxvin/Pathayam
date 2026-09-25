@@ -231,6 +231,34 @@ describe("04 §3.3 · the details that invert a transaction if wrong", () => {
     assert.equal(parseStatementDate("not a date"), null);
   });
 
+  test("the raw date and amount are the text on the page (P4, I1)", () => {
+    // raw.date was the line's first twelve characters and raw.amount the
+    // computed signed rupees: "1,450.50 Dr" was kept as "-1450.5".
+    const { records } = parseStatementText(
+      "Date        Description                      Amount\n" +
+      "03/08/26    UPI/DMART                        1,450.50 Dr\n" +
+      "05-Aug-2026 NEFT SALARY                    1,45,000.00 Cr\n",
+    );
+    assert.equal(records.length, 2);
+    assert.deepEqual(records.map((r) => r.raw.date), ["03/08/26", "05-Aug-2026"]);
+    assert.deepEqual(records.map((r) => r.raw.amount), ["1,450.50 Dr", "1,45,000.00 Cr"]);
+    assert.deepEqual(records.map((r) => r.amount), [-145_050, 14_500_000]);
+  });
+
+  test("a day the month does not have is refused, not stored as written", () => {
+    // Only "day <= 31" was checked, so "31/02/2026" came back as the string
+    // "2026-02-31" and was staged on a date that does not exist. The check is
+    // now the calendar one every date reader shares.
+    assert.equal(parseStatementDate("31/02/2026"), null);
+    assert.equal(parseStatementDate("29/02/2026"), null);
+    assert.equal(parseStatementDate("31-Apr-2026"), null);
+    assert.equal(parseStatementDate("31 Jun 26"), null);
+    assert.equal(parseStatementDate("29/02/2028"), "2028-02-29");
+    assert.equal(parseStatementDate("30-Apr-2026"), "2026-04-30");
+    // An impossible year is refused too: "0026" is a typo, not the first century.
+    assert.equal(parseStatementDate("15/01/0026"), null);
+  });
+
   test("Cr, Dr and brackets", () => {
     assert.deepEqual(parseStatementAmount("1,450.50"), { value: 1450.5, credit: false });
     assert.deepEqual(parseStatementAmount("1,450.50 Cr"), { value: 1450.5, credit: true });
@@ -242,6 +270,15 @@ describe("04 §3.3 · the details that invert a transaction if wrong", () => {
 
   test("lakh-scale grouping survives", () => {
     assert.deepEqual(parseStatementAmount("1,45,000.00"), { value: 145000, credit: false });
+  });
+
+  // "1,200.00Cr" with the marker attached: `\bcr` never matched after a digit,
+  // so the cell was unreadable here while CSV read it as ₹120 crore. Both now
+  // agree on a ₹1,200 credit.
+  test("a Cr or Dr marker attached to the figure is still a marker", () => {
+    assert.deepEqual(parseStatementAmount("1,200.00Cr"), { value: 1200, credit: true });
+    assert.deepEqual(parseStatementAmount("1200CR"), { value: 1200, credit: true });
+    assert.deepEqual(parseStatementAmount("1,200.00Dr"), { value: 1200, credit: false });
   });
 });
 

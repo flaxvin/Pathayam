@@ -30,15 +30,20 @@
  * anything: it reads a message and returns a record or null.
  */
 
-import type { IsoDate } from "../core/dates.ts";
-import type { Paise } from "../core/money.ts";
+import { calendarDate, fullYear, monthFromName, type IsoDate } from "../core/dates.ts";
+import { parseAmount, type Paise } from "../core/money.ts";
 
 export interface AlertRecord {
   /** Signed paise: negative for a debit/spend, positive for a credit. */
   amount: Paise;
   date: IsoDate;
-  /** The full timestamp text, kept verbatim for the raw narration. */
+  /**
+   * The date and time as the alert wrote them — the raw date (P4 / I1). Empty
+   * when the alert carries no date and the message's received date stood in.
+   */
   when: string;
+  /** The amount as the alert wrote it, "INR 600.00" — the raw amount. */
+  rawAmount: string;
   /** Last four of the account or card the alert names, for F2.9 matching. */
   accountLast4: string | null;
   cardLast4: string | null;
@@ -62,27 +67,22 @@ export interface AlertProfile {
 // Shared field readers
 // ---------------------------------------------------------------------------
 
-const MONTHS: Record<string, string> = {
-  jan: "01", feb: "02", mar: "03", apr: "04", may: "05", jun: "06",
-  jul: "07", aug: "08", sep: "09", oct: "10", nov: "11", dec: "12",
-};
-
-/** `28-08-26`, `28-08-2026`, `27-08-2026`, `27 Aug 2026`. */
+/**
+ * `28-08-26`, `28-08-2026`, `27-08-2026`, `27 Aug 2026`.
+ *
+ * Checked against the calendar (`calendarDate`), as every date reader is: this
+ * one accepted any day up to 31, so an alert dated 31/02/2026 staged a row on
+ * "2026-02-31".
+ */
 function parseAlertDate(raw: string): IsoDate | null {
-  const numeric = /(\d{1,2})[-/](\d{1,2})[-/](\d{2,4})/.exec(raw);
+  const numeric = /(\d{1,2})[-/](\d{1,2})[-/](\d{4}|\d{2})\b/.exec(raw);
   if (numeric) {
-    const dd = numeric[1]!.padStart(2, "0");
-    const mm = numeric[2]!.padStart(2, "0");
-    const yy = numeric[3]!;
-    const yyyy = yy.length === 4 ? yy : `20${yy}`;
-    if (Number(mm) >= 1 && Number(mm) <= 12 && Number(dd) >= 1 && Number(dd) <= 31) {
-      return `${yyyy}-${mm}-${dd}` as IsoDate;
-    }
+    return calendarDate(fullYear(numeric[3]!), Number(numeric[2]), Number(numeric[1]));
   }
   const named = /(\d{1,2})[-\s]([A-Za-z]{3})[a-z]*[-\s](\d{4})/.exec(raw);
   if (named) {
-    const mm = MONTHS[named[2]!.toLowerCase()];
-    if (mm) return `${named[3]}-${mm}-${named[1]!.padStart(2, "0")}` as IsoDate;
+    const month = monthFromName(named[2]!);
+    if (month !== null) return calendarDate(Number(named[3]), month, Number(named[1]));
   }
   return null;
 }
@@ -91,8 +91,9 @@ function parseAlertDate(raw: string): IsoDate | null {
 function parseAlertAmount(raw: string): number | null {
   const m = /(?:INR|Rs\.?|₹)\s*([\d,]+(?:\.\d{1,2})?)/i.exec(raw);
   if (!m) return null;
-  const value = Number(m[1]!.replace(/,/g, ""));
-  return Number.isFinite(value) ? Math.round(value * 100) : null;
+  // The same reader CSV uses, so "INR 1,23" is refused here as it is there
+  // rather than stripped of its comma and read as ₹123.
+  return parseAmount(m[1]!, "statement");
 }
 
 const DEBIT_WORDS = /\b(debited|spent|withdrawn|paid|purchase|deducted)\b/i;
@@ -161,7 +162,7 @@ const axisAccount: AlertProfile = {
 
     return {
       amount: (sign * amount) as Paise,
-      date, when,
+      date, when, rawAmount: amountText,
       accountLast4: last4(account),
       cardLast4: null,
       narration,
@@ -190,7 +191,7 @@ const axisCard: AlertProfile = {
 
     return {
       amount: (-amount) as Paise, // a card alert is always a spend
-      date, when,
+      date, when, rawAmount: amountText,
       accountLast4: null,
       cardLast4: last4(card),
       narration: merchant,
@@ -220,7 +221,7 @@ const yesCard: AlertProfile = {
     const sign = m[2]!.toLowerCase() === "credited" ? 1 : -1;
     return {
       amount: (sign * amount) as Paise,
-      date, when: `${m[5]} ${m[6]!.trim()}`,
+      date, when: `${m[5]} ${m[6]!.trim()}`, rawAmount: m[1]!,
       accountLast4: null,
       cardLast4: m[3]!,
       narration: m[4]!.trim(),
@@ -247,13 +248,15 @@ const indusind: AlertProfile = {
 
     const sign = m[2]!.toLowerCase() === "credited" ? 1 : -1;
     const date = parseAlertDate(subject) ?? dateFromReceived(body);
+    const dateText = ALERT_DATE_TEXT.exec(subject)?.[0] ?? ALERT_DATE_TEXT.exec(body)?.[0] ?? "";
     // "The balance available in your Account is INR 171.95" — the same
     // reconciliation hint the other banks give, and it was being dropped.
     const bal = /balance available in your Account is\s*(INR\s*[\d,]+(?:\.\d{1,2})?)/i.exec(flat);
     return {
       amount: (sign * amount) as Paise,
       date: date ?? ("" as IsoDate),
-      when: "",
+      when: date ? dateText : "",
+      rawAmount: m[3]!,
       accountLast4: m[1]!.slice(-4),
       cardLast4: null,
       narration: m[4]!.trim(),
@@ -287,7 +290,7 @@ const axisSentence: AlertProfile = {
     const sign = m[2]!.toLowerCase() === "credited" ? 1 : -1;
     return {
       amount: (sign * amount) as Paise,
-      date, when: m[4]!,
+      date, when: m[4]!, rawAmount: m[3]!,
       accountLast4: m[1]!,
       cardLast4: null,
       narration: m[5]!.trim(),
@@ -320,7 +323,7 @@ const sbiCard: AlertProfile = {
     const sign = /credited|refunded/i.test(m[2]!) ? 1 : -1;
     return {
       amount: (sign * amount) as Paise,
-      date, when: m[5]!,
+      date, when: m[5]!, rawAmount: m[1]!,
       accountLast4: null,
       cardLast4: m[3]!,
       narration: m[4]!.trim(),
@@ -372,7 +375,10 @@ function extractReference(narration: string): string | null {
   return m ? m[1]! : null;
 }
 
+/** A date written anywhere in an alert's subject or body, as text. */
+const ALERT_DATE_TEXT = /\b(\d{1,2}[-/][A-Za-z0-9]{2,9}[-/]\d{2,4})\b/;
+
 function dateFromReceived(body: string): IsoDate | null {
-  const m = /\b(\d{1,2}[-/][A-Za-z0-9]{2,9}[-/]\d{2,4})\b/.exec(body);
+  const m = ALERT_DATE_TEXT.exec(body);
   return m ? parseAlertDate(m[1]!) : null;
 }

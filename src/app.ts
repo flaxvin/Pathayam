@@ -4047,6 +4047,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const text = requiredField(ctx.body, "csv");
     const accountId = requiredField(ctx.body, "account_id");
     const fileName = field(ctx.body, "file_name") || "pasted.csv";
+    // An unknown account id reached the INSERT and failed its foreign key — a
+    // 500 — and a private account of another member's was importable. Both
+    // are the same question: can this viewer see the account?
+    auth(ctx);
+    requireVisibleAccount(ctx, accountId);
 
     // 04 §3.2 · A saved profile first, then a guess, then the mapping UI.
     // Checked before the mutation, because an unrecognised file is a *task*
@@ -4110,6 +4115,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/import/pdf", (ctx) => {
     const a = auth(ctx);
     const accountId = requiredField(ctx.body, "account_id");
+    requireVisibleAccount(ctx, accountId);
     const upload = fileField(ctx.req, "statement");
 
     const importPage = (error: string) =>
@@ -4260,6 +4266,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       const text = requiredField(ctx.body, "csv");
       const accountId = requiredField(ctx.body, "account_id");
+      requireVisibleAccount(ctx, accountId);
       const fileName = field(ctx.body, "file_name") || "pasted.csv";
       const pick = (name: string) => {
         const value = Number(field(ctx.body, name));

@@ -10,6 +10,13 @@ Gmail ┘                                                       → merge
                                                               → reject
 ```
 
+Each row keeps what the source actually wrote — `raw_date`, `raw_amount`,
+`raw_narration` — from staging through approval, and a merge copies them onto
+the transaction it merges into where that transaction has none. Raw is the
+text as printed (`03/08/26`, `1,450.50 Dr`, `INR 600.00`,
+`28-08-26, 00:01:28 IST`), never the parsed date or the signed rupees. An alert
+dated only by the message's received date has no raw date, and stores NULL.
+
 ## CSV
 
 `POST /import` with a pasted or uploaded delimited file.
@@ -21,10 +28,56 @@ Gmail ┘                                                       → merge
 4. A saved profile is matched on subsequent imports by header signature.
 
 Both layouts are supported: a single signed amount column, or separate debit and
-credit columns.
+credit columns. With separate columns exactly one may carry money; the other is
+empty, `0.00` or a dash. A row with money in both, an unreadable figure in
+either, or zero in both is an error row naming which of those it is — never
+read as whichever column happens to win.
 
-Date formats are inferred; two-digit years are resolved by the mapping's
-`dateFormat` where a bank is ambiguous.
+### Reading an amount
+
+CSV cells, PDF figures and alert amounts are read by the same rules
+(`parseAmount` in `src/core/money.ts`, in its `statement` context):
+
+- `Dr` and `Cr` are the bank's markers, attached or spaced, any case, with or
+  without a dot: `1,200.00Cr` is a ₹1,200 credit, `1200DR` a ₹1,200 debit.
+- A bank never writes shorthand, so `L`, `K` and crore are not read in a file:
+  `1.2L` in a CSV is an error row.
+- Grouping must be Indian (`12,34,567`) or Western (`1,234,567`); `1,23` is
+  refused. More than two decimal places is refused, not rounded.
+- A figure that says "minus" twice — `-450 Dr`, `(450) Dr`, `(-450)` — is
+  refused.
+- `₹`, `Rs.`, `Rs ` and `INR` prefixes and the Unicode minus `−` are accepted.
+
+In a form (typed), `Cr` can also mean crore. It is the credit marker on a
+statement-shaped figure (grouped, or four or more rupee digits: `1200Cr`),
+crore on one or two rupee digits written against it (`3Cr`, `1.25Cr`), and
+refused in between (`450Cr`, `3 Cr`), because reading either way wrongly is
+an error of 10^7.
+
+### Reading a date
+
+CSV cells, PDF rows, alerts and typed dates all end in one calendar check
+(`calendarDate` in `src/core/dates.ts`):
+
+- The day must exist in that month: `31/02/2026` and `29/02/2026` are refused,
+  `29/02/2028` is read.
+- The year must be between 1900 and 2199: `15-01-0026` is a typo, refused
+  rather than stored two thousand years early.
+- A two-digit year below 70 is this century (`26` is 2026), 70 and above the
+  last (`85` is 1985).
+
+The shapes read are the same everywhere: `15-01-2026`, `15/01/26`,
+`15.01.2026`, `2026-01-15`, `2026/01/15`, `15-Jan-2026`, `15 Jan 2026`,
+`15 January 26`, and any of them followed by a time (`15-01-2026 10:32`,
+`28-08-26, 00:01:28 IST`), which is dropped. A two-digit year-first date
+(`26-08-15`) is read as day-first unless the mapping's `dateFormat` is
+`yyyy-mm-dd`.
+
+A CSV row whose date cannot be read is an error row, never a silent skip. A
+row is skipped as a footer only when its date cell says so (`Total`,
+`Opening Balance`, `Page 2 of 3`), or its date cell is empty and it carries no
+amount or a footer marker. A merchant named `SWIGGY*ORDER` or `TOTAL GAS` no
+longer makes its row a footer.
 
 ## PDF statements
 
@@ -126,6 +179,10 @@ account** and against rows already pending in that account.
 | `manual-vs-imported` | A typed transaction matching an imported one. | Queued for a decision. |
 
 `source_id` is `adapter:sha256(date, amount, narration, reference):occurrence`.
+Because it names its adapter, the exact tier compares it alone; approval keeps
+the batch's own source (`pdf`, `email`, …) on the transaction. A row that is
+somehow already in the ledger when approved is resolved onto that transaction
+rather than added twice.
 The occurrence counter distinguishes genuinely identical rows within one file.
 Uniqueness is enforced per account.
 
@@ -172,3 +229,7 @@ suppression so the same suggestion is not made again.
 
 An entire batch can be undone from `/import`, which removes the transactions it
 created and marks the batch `undone_at`.
+
+Importing the same file again after an undo stages its rows afresh, and they
+can be approved: the undone transactions give up their `source_id` (it is
+kept with a `~deleted:<id>` suffix) so the new ones can take it.

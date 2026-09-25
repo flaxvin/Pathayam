@@ -9,7 +9,9 @@ import { createGroup, createCategory } from "../domain/budget.ts";
 import { createTransaction } from "../domain/transactions.ts";
 import { parseStatement } from "./csv.ts";
 import { ingest, listStaged, approveStaged, rejectStaged, mergeStaged, undoBatch } from "./pipeline.ts";
-import { accountBalances } from "../engine/repository.ts";
+import { accountBalances, loadEngineInput } from "../engine/repository.ts";
+import { computeBudget, identityResidual } from "../engine/engine.ts";
+import { Missing, Refusal } from "../core/refusal.ts";
 
 const RAVI = "m-ravi";
 const actor: Actor = { memberId: RAVI, source: "ui" };
@@ -75,11 +77,14 @@ describe("04 §2 · the pipeline", () => {
     const swiggy = listStaged(db).find((r) => r.raw_narration?.includes("SWIGGY"))!;
     const txId = approveStaged(db, actor, swiggy.id, { categoryId: anyCategory });
 
-    const tx = queryOne<{ raw_narration: string; raw_amount: string }>(
-      db, `SELECT raw_narration, raw_amount FROM transactions WHERE id = ?`, txId,
+    const tx = queryOne<{ raw_narration: string; raw_amount: string; raw_date: string | null }>(
+      db, `SELECT raw_narration, raw_amount, raw_date FROM transactions WHERE id = ?`, txId,
     )!;
     assert.equal(tx.raw_narration, "UPI/P2M/431202847592/SWIGGY*ORDER");
     assert.equal(tx.raw_amount, "450.00");
+    // Staged, then dropped by approveStaged: every approved row had NULL here.
+    assert.equal(tx.raw_date, "03-08-2026");
+    assertIdentity(db, "after approve");
     db.close();
   });
 
@@ -168,12 +173,19 @@ describe("04 §4 · duplicates through the pipeline", () => {
     const flagged = listStaged(db).find((r) => r.duplicate_of_id !== null)!;
     mergeStaged(db, actor, flagged.id);
 
-    const tx = queryOne<{ category_id: string; cleared: number; raw_narration: string | null }>(
+    const tx = queryOne<{
+      category_id: string; cleared: number; raw_narration: string | null;
+      raw_amount: string | null; raw_date: string | null;
+    }>(
       db, `SELECT * FROM transactions WHERE id = ?`, manual.id,
     )!;
     assert.equal(tx.category_id, eatingOut.id, "the category you chose is kept");
     assert.equal(tx.cleared, 1, "and it is now known to have cleared");
     assert.match(tx.raw_narration!, /SWIGGY/, "with the bank's own string attached");
+    // Merging copied narration and amount but not the date the bank printed.
+    assert.equal(tx.raw_amount, "450.00");
+    assert.equal(tx.raw_date, "03-08-2026");
+    assertIdentity(db, "after merge");
 
     // Exactly one transaction, not two.
     assert.equal(queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM transactions WHERE deleted_at IS NULL`)!.n, 1);
@@ -393,6 +405,136 @@ describe("I5 · idempotency with rows still awaiting review", () => {
     assert.equal(second.staged, 0);
     assert.equal(second.skipped, 2);
     assert.equal(listStaged(db).length, 2);
+    db.close();
+  });
+});
+
+/** The budget identity, in every computed month. */
+function assertIdentity(db: DB, when: string): void {
+  const state = computeBudget(loadEngineInput(db, { through: "2026-09-30", useRollup: false }));
+  for (const [month, s] of state) {
+    assert.equal(identityResidual(s), 0, `identity broken in ${month} ${when}`);
+  }
+}
+
+/*
+ * A re-imported row could not be approved. approveStaged wrote every import
+ * as source 'csv', and the unique index on (account_id, source, source_id)
+ * also covers deleted rows, which the dedupe candidates skip. So: import 3
+ * rows → approve → undo → re-import → approve was a UNIQUE-constraint 500,
+ * and a PDF or email row imported twice was never recognised as exact and
+ * 500'd the same way — on every Gmail fetch.
+ */
+describe("I5 · an exact repeat is recognised, never a 500", () => {
+  test("import, approve, undo, re-import, approve", () => {
+    const { db, account, anyCategory } = setup();
+    const first = importStatement(db, account.id);
+    for (const row of listStaged(db)) approveStaged(db, actor, row.id, { categoryId: anyCategory });
+    assertIdentity(db, "after the first approval");
+    undoBatch(db, actor, first.batch.id);
+    assertIdentity(db, "after undo");
+
+    const second = importStatement(db, account.id);
+    assert.equal(second.staged, 3, "the undone rows are staged again");
+    for (const row of listStaged(db)) approveStaged(db, actor, row.id, { categoryId: anyCategory });
+
+    const live = queryAll<{ amount: number }>(
+      db, `SELECT amount FROM transactions WHERE account_id = ? AND deleted_at IS NULL`, account.id,
+    );
+    assert.equal(live.length, 3);
+    assert.equal(accountBalances(db).get(account.id)!.working, rupees(143_099.5));
+    assertIdentity(db, "after re-approval");
+    db.close();
+  });
+
+  test("a PDF row approved once is skipped when the statement is imported again", () => {
+    const { db, account, anyCategory } = setup();
+    const { result } = parseStatement(STATEMENT);
+    const again = () => ingest(db, actor, {
+      accountId: account.id, source: "pdf", adapter: "hdfc", fileName: "hdfc.pdf",
+      records: result.records, errors: result.errors, rowsRead: result.rowsRead,
+    });
+    again();
+    for (const row of listStaged(db)) approveStaged(db, actor, row.id, { categoryId: anyCategory });
+    const sources = queryAll<{ source: string }>(db, `SELECT DISTINCT source FROM transactions`);
+    assert.deepEqual(sources.map((s) => s.source), ["pdf"], "approval keeps the row's own source");
+
+    const second = again();
+    assert.equal(second.staged, 0);
+    assert.equal(second.skipped, 3);
+    assertIdentity(db, "after the second import");
+    db.close();
+  });
+
+  test("a row already in the ledger under an old 'csv' source is matched, not added", () => {
+    const { db, account, anyCategory } = setup();
+    const { result } = parseStatement(STATEMENT);
+    ingest(db, actor, {
+      accountId: account.id, source: "email", adapter: "axis-alert",
+      records: result.records.slice(1, 2), rowsRead: 1,
+    });
+    const [row] = listStaged(db);
+    // What an approval wrote before this fix: the same identity, source 'csv'.
+    const old = createTransaction(db, actor, {
+      accountId: account.id, amount: row!.amount, date: row!.date, categoryId: anyCategory,
+      source: "csv", sourceId: row!.source_id,
+    });
+
+    const id = approveStaged(db, actor, row!.id, { categoryId: anyCategory });
+    assert.equal(id, old.id);
+    assert.equal(queryAll(db, `SELECT id FROM transactions WHERE deleted_at IS NULL`).length, 1);
+    assert.equal(
+      queryOne<{ status: string }>(db, `SELECT status FROM staged_transactions WHERE id = ?`, row!.id)!.status,
+      "merged",
+    );
+    assertIdentity(db, "after matching");
+    db.close();
+  });
+});
+
+/*
+ * The queue acted on whatever id it was given. Approve the ₹450 Swiggy row,
+ * then merge it into the manual twin: both transactions stayed (₹450 twice)
+ * and the screen said "Merged". Reject after approve flipped the row to
+ * rejected with its transaction still in the ledger. A made-up staged id or
+ * batch id reported success.
+ */
+describe("the review queue only acts on items still waiting", () => {
+  test("merging a row already approved is refused, and the ledger keeps one ₹450", () => {
+    const { db, account, group } = setup();
+    const eatingOut = createCategory(db, actor, { groupId: group.id, name: "Eating Out" });
+    createTransaction(db, actor, {
+      accountId: account.id, amount: rupees(-450), date: "2026-08-03",
+      categoryId: eatingOut.id, payeeName: "Swiggy",
+    });
+    importStatement(db, account.id);
+    const flagged = listStaged(db).find((r) => r.duplicate_of_id !== null)!;
+    approveStaged(db, actor, flagged.id, { categoryId: eatingOut.id });
+    assertIdentity(db, "after approve");
+
+    assert.throws(() => mergeStaged(db, actor, flagged.id), Refusal);
+    assert.throws(() => rejectStaged(db, actor, flagged.id), Refusal);
+    const status = queryOne<{ status: string }>(
+      db, `SELECT status FROM staged_transactions WHERE id = ?`, flagged.id,
+    )!.status;
+    assert.equal(status, "approved", "a refused reject does not flip the row");
+    assertIdentity(db, "after the refused merge");
+    db.close();
+  });
+
+  test("an id that names nothing is Missing, not a success", () => {
+    const { db } = setup();
+    assert.throws(() => rejectStaged(db, actor, "no-such-row"), Missing);
+    assert.throws(() => mergeStaged(db, actor, "no-such-row"), Missing);
+    assert.throws(() => undoBatch(db, actor, "no-such-batch"), Missing);
+    db.close();
+  });
+
+  test("a batch cannot be undone twice", () => {
+    const { db, account } = setup();
+    const first = importStatement(db, account.id);
+    undoBatch(db, actor, first.batch.id);
+    assert.throws(() => undoBatch(db, actor, first.batch.id), Refusal);
     db.close();
   });
 });

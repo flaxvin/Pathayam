@@ -17,7 +17,7 @@ import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST, type IsoDate } from "../core/dates.ts";
 import type { Paise } from "../core/money.ts";
-import { createTransaction, resolvePayee } from "../domain/transactions.ts";
+import { createTransaction, resolvePayee, type TransactionSource } from "../domain/transactions.ts";
 import { findCardByLast4 } from "../domain/accounts.ts";
 import { findDuplicate, type Candidate, type DuplicateMatch } from "./dedupe.ts";
 import {
@@ -76,6 +76,7 @@ export interface StagedRow {
   raw_narration: string | null;
   raw_payee: string | null;
   raw_amount: string | null;
+  raw_date: string | null;
   source_id: string | null;
   proposed_payee: string | null;
   payee_id: string | null;
@@ -167,7 +168,7 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
       }
 
       const extracted = extractNarrationFields(record.narration);
-      const cardId = resolveCard(db, opts.accountId, record.narration);
+      const cardId = record.cardId ?? resolveCard(db, opts.accountId, record.narration);
 
       const subject: RuleSubject = {
         narration: record.narration,
@@ -238,7 +239,10 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
             applied_rules_json,duplicate_of_id,duplicate_tier,duplicate_reason,status,created_at)
          VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?)`,
         stagedId, batchId, opts.accountId, cardId, record.rowNumber, record.date, record.amount,
-        record.raw.narration, extracted.merchant, record.raw.amount, record.raw.date,
+        // An adapter with no source text for a field (an alert dated from the
+        // message's own received date) leaves it empty; stored, that is NULL,
+        // not an empty string posing as what the bank wrote.
+        record.raw.narration, extracted.merchant, record.raw.amount || null, record.raw.date || null,
         sourceId, record.reference ?? extracted.reference,
         payeeId, outcome.subject.payee, outcome.subject.categoryId, outcome.subject.memo,
         outcome.subject.tags.length ? JSON.stringify(outcome.subject.tags) : null,
@@ -315,9 +319,12 @@ function upgradeExisting(
     `UPDATE transactions
         SET cleared = 1,
             raw_narration = COALESCE(raw_narration, ?),
+            raw_amount = COALESCE(raw_amount, ?),
+            raw_date = COALESCE(raw_date, ?),
             memo = COALESCE(memo, ?)
       WHERE id = ?`,
-    record.raw.narration, reference ? `Ref ${reference}` : null, duplicate.existing.id,
+    record.raw.narration, record.raw.amount || null, record.raw.date || null,
+    reference ? `Ref ${reference}` : null, duplicate.existing.id,
   );
   appendEvent(db, actor, {
     entity: "transaction", entityId: duplicate.existing.id, action: "upgrade",
@@ -420,6 +427,62 @@ export function approveStaged(
       );
     }
 
+    /*
+     * The row's own source, not always 'csv'.
+     *
+     * Every approval used to write source 'csv', whatever the batch was. The
+     * exact-match tier then never recognised a PDF or email row it had already
+     * posted, and the unique index on (account_id, source, source_id) turned
+     * the second approval into a 500 instead.
+     */
+    const source = queryOne<{ source: TransactionSource }>(
+      db, `SELECT source FROM import_batches WHERE id = ?`, row.batch_id,
+    )?.source ?? "csv";
+
+    if (row.source_id) {
+      /*
+       * This exact row is already in the ledger. The dedupe tier normally
+       * catches it at import, but it can still arrive here — ledger rows
+       * written as 'csv' by older approvals — and the database answer was a
+       * UNIQUE-constraint 500. It is the same record: resolve the review item
+       * onto the transaction that already holds it.
+       */
+      const live = queryOne<{ id: string }>(
+        db,
+        `SELECT id FROM transactions
+          WHERE account_id = ? AND source_id = ? AND deleted_at IS NULL`,
+        row.account_id, row.source_id,
+      );
+      if (live) {
+        execute(
+          db,
+          `UPDATE staged_transactions SET status = 'merged', resolved_at = ?, resolved_by = ?, transaction_id = ?
+            WHERE id = ?`,
+          nowIST(), actor.memberId, live.id, stagedId,
+        );
+        appendEvent(db, actor, {
+          entity: "staged-transaction", entityId: stagedId, action: "merge",
+          summary: "An imported row was already in the ledger, so it was matched rather than added twice",
+        });
+        return live.id;
+      }
+
+      /*
+       * A deleted transaction still holds this identity — typically an import
+       * that was undone and is now being re-imported. The unique index covers
+       * deleted rows too (loadCandidates rightly does not), so import → approve
+       * → undo → re-import → approve was a 500. The deleted row gives the
+       * identity up, keeping it recognisable with a suffix; a partial index
+       * `WHERE deleted_at IS NULL` would make this unnecessary.
+       */
+      execute(
+        db,
+        `UPDATE transactions SET source_id = source_id || '~deleted:' || id
+          WHERE account_id = ? AND source = ? AND source_id = ? AND deleted_at IS NOT NULL`,
+        row.account_id, source, row.source_id,
+      );
+    }
+
     const payeeName = patch.payeeName ?? row.proposed_payee;
     const payeeId = row.payee_id
       ?? (payeeName ? resolvePayee(db, actor, payeeName, row.raw_narration ?? undefined).id : null);
@@ -433,17 +496,20 @@ export function approveStaged(
       categoryId: patch.categoryId !== undefined ? patch.categoryId : row.category_id,
       memo: patch.memo ?? row.memo,
       cleared: true,
-      source: "csv",
+      source,
       // I5 depends on this reaching the ledger: the exact-match tier compares
       // against transactions, not staged rows, so without it re-importing the
       // same file would queue every row again. The unique index on
       // (source, source_id) enforces the same thing at the database.
       sourceId: row.source_id,
       importBatchId: row.batch_id,
+      // P4 / I1: every raw field the staged row kept. raw_date was staged and
+      // then dropped here, so every approved import had raw_date NULL.
       raw: {
         narration: row.raw_narration ?? undefined,
         payee: row.raw_payee ?? undefined,
         amount: row.raw_amount ?? undefined,
+        date: row.raw_date ?? undefined,
       },
     });
 
@@ -472,8 +538,24 @@ export function approveStaged(
   });
 }
 
+/**
+ * The review item, still waiting for a decision.
+ *
+ * Reject and merge used to act on whatever id they were given. Rejecting a row
+ * already approved flipped it to 'rejected' while its transaction stayed in
+ * the ledger; merging one already approved kept both transactions — ₹450
+ * twice — and said "Merged"; and a made-up id was "Dismissed." successfully.
+ */
+function pendingStaged(db: DB, stagedId: string): StagedRow {
+  const row = queryOne<StagedRow>(db, `SELECT * FROM staged_transactions WHERE id = ?`, stagedId);
+  if (!row) throw new Missing("That review item no longer exists.");
+  if (row.status !== "pending") throw new Refusal("That review item has already been dealt with.");
+  return row;
+}
+
 export function rejectStaged(db: DB, actor: Actor, stagedId: string, reason = "dismissed"): void {
   transact(db, () => {
+    pendingStaged(db, stagedId);
     execute(
       db,
       `UPDATE staged_transactions SET status = 'rejected', resolved_at = ?, resolved_by = ? WHERE id = ?`,
@@ -492,8 +574,14 @@ export function rejectStaged(db: DB, actor: Actor, stagedId: string, reason = "d
  */
 export function mergeStaged(db: DB, actor: Actor, stagedId: string): void {
   transact(db, () => {
-    const row = queryOne<StagedRow>(db, `SELECT * FROM staged_transactions WHERE id = ?`, stagedId);
-    if (!row?.duplicate_of_id) throw new Refusal("That row has nothing to merge with.");
+    const row = pendingStaged(db, stagedId);
+    if (!row.duplicate_of_id) throw new Refusal("That row has nothing to merge with.");
+    const target = queryOne<{ id: string }>(
+      db, `SELECT id FROM transactions WHERE id = ? AND deleted_at IS NULL`, row.duplicate_of_id,
+    );
+    if (!target) {
+      throw new Refusal("The transaction this row matched has since been deleted, so there is nothing to merge into.");
+    }
 
     const before = queryOne<Record<string, unknown>>(
       db, `SELECT * FROM transactions WHERE id = ?`, row.duplicate_of_id,
@@ -505,9 +593,10 @@ export function mergeStaged(db: DB, actor: Actor, stagedId: string): void {
           SET cleared = 1,
               payee_id = COALESCE(payee_id, ?),
               raw_narration = COALESCE(raw_narration, ?),
-              raw_amount = COALESCE(raw_amount, ?)
+              raw_amount = COALESCE(raw_amount, ?),
+              raw_date = COALESCE(raw_date, ?)
         WHERE id = ?`,
-      row.payee_id, row.raw_narration, row.raw_amount, row.duplicate_of_id,
+      row.payee_id, row.raw_narration, row.raw_amount, row.raw_date, row.duplicate_of_id,
     );
 
     execute(
@@ -537,6 +626,14 @@ export interface UndoBatchResult {
 
 export function undoBatch(db: DB, actor: Actor, batchId: string): UndoBatchResult {
   return transact(db, () => {
+    // A made-up batch id "removed 0 transactions" and stamped nothing, and an
+    // undone batch could be undone again — both reported as success.
+    const batch = queryOne<{ undone_at: string | null }>(
+      db, `SELECT undone_at FROM import_batches WHERE id = ?`, batchId,
+    );
+    if (!batch) throw new Missing("That import no longer exists.");
+    if (batch.undone_at) throw new Refusal("That import has already been undone.");
+
     const created = queryAll<{ id: string; created_at: string; updated_at: string }>(
       db,
       `SELECT id, created_at, updated_at FROM transactions
