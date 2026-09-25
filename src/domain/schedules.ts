@@ -76,6 +76,14 @@ export interface Schedule {
   recurrence_ordinal: number | null;
   /** 'monthly-nth-weekday' only: 0 = Sunday. */
   recurrence_weekday: number | null;
+  /**
+   * The day of the month the household chose — 31 for "the 31st" — kept apart
+   * from next_due because next_due is where *this* occurrence landed, and in
+   * February that is the 28th. Undefined until the column is added (see
+   * hasAnchorColumn), NULL on a row written before it; both fall back to the
+   * day of next_due.
+   */
+  recurrence_day?: number | null;
   auto_post: number;
   is_subscription: number;
   /** F7.8: a detected schedule is distinguished from a confirmed one. */
@@ -127,6 +135,22 @@ function requireEnvelopeForOutgoing(
  * nothing, waiting to be read by a later change of recurrence and quietly
  * moving somebody's rent.
  */
+const MONTH_BASED: readonly Recurrence[] = ["monthly", "quarterly", "half-yearly", "yearly"];
+
+/**
+ * Whether this database has somewhere to keep the anchor day yet. The column
+ * arrives by migration; until it does, a schedule still advances, reading the
+ * day from next_due as it always did.
+ */
+function hasAnchorColumn(db: DB): boolean {
+  return queryAll<{ name: string }>(db, `PRAGMA table_info(schedules)`)
+    .some((c) => c.name === "recurrence_day");
+}
+
+function dayOf(date: IsoDate): number {
+  return Number(date.slice(8, 10));
+}
+
 function weekdayFields(
   recurrence: Recurrence,
   ordinal: WeekdayOrdinal | null | undefined,
@@ -191,6 +215,9 @@ export function createSchedule(
       input.isSubscription ? 1 : 0, input.detected ? 1 : 0, input.confidence ?? null,
       nowIST(),
     );
+    if (hasAnchorColumn(db)) {
+      execute(db, `UPDATE schedules SET recurrence_day = ? WHERE id = ?`, dayOf(input.nextDue), id);
+    }
 
     const schedule = getSchedule(db, id)!;
     appendEvent(db, actor, {
@@ -261,6 +288,22 @@ export function updateSchedule(
         ...fields.map((f) => patch[f] as never),
         id,
       );
+    }
+
+    /*
+     * The anchor day moves only when somebody moves it. The edit form posts
+     * next_due back every time, and for a 31st schedule sitting on 28 Feb that
+     * is "2026-02-28" — reading the day from it would quietly turn the rent
+     * into a 28th schedule on any edit of the amount. So it follows next_due
+     * only when next_due actually changed, or when the schedule has just become
+     * month-based (a weekly one never kept its anchor up to date).
+     */
+    const moved = patch.next_due !== undefined && patch.next_due !== before.next_due;
+    const becameMonthly = patch.recurrence !== undefined
+      && MONTH_BASED.includes(patch.recurrence) && !MONTH_BASED.includes(before.recurrence);
+    const nextDue = patch.next_due ?? before.next_due;
+    if ((moved || becameMonthly) && nextDue && hasAnchorColumn(db)) {
+      execute(db, `UPDATE schedules SET recurrence_day = ? WHERE id = ?`, dayOf(nextDue), id);
     }
 
     const after = getSchedule(db, id)!;
@@ -551,7 +594,24 @@ export function describeRecurrence(schedule: Schedule): string {
  * rather than silently sliding to a date the household did not choose.
  */
 function shiftMonthsKeepingDay(schedule: Schedule, from: IsoDate, months: number): IsoDate | null {
-  const day = Number((schedule.next_due ?? from).slice(8, 10));
+  /*
+   * S2 · The day comes from the anchor, not from where the last occurrence
+   * landed. Reading it from next_due made every clamp permanent: 31 Jan,
+   * 28 Feb, then 28 Mar, 28 Apr and the 28th for ever; yearly 29 Feb 2028 was
+   * 28 Feb even in 2032; "next-day" put a 31st on the 1st of every month.
+   */
+  const day = schedule.recurrence_day ?? dayOf(schedule.next_due ?? from);
+  /*
+   * "next-day" lands the occurrence in the following month — 31 Feb is 1 Mar —
+   * but it is still February's. Counting months from March would skip March's
+   * own 31st, so a 1st that is exactly the previous month's spill-over counts
+   * from the previous month.
+   */
+  let month = monthOf(from);
+  if (schedule.short_month_policy === "next-day" && day > 1 && dayOf(from) === 1) {
+    const previous = addMonths(month, -1);
+    if (resolveDayOfMonth(previous, day, "next-day") === from) month = previous;
+  }
   /*
    * "Skip" skips *that* month and carries on. resolveDayOfMonth answers null
    * for a month without the day, and that null used to be stored as next_due:
@@ -563,7 +623,7 @@ function shiftMonthsKeepingDay(schedule: Schedule, from: IsoDate, months: number
    */
   for (let step = 1; step <= 48; step++) {
     const date = resolveDayOfMonth(
-      addMonths(monthOf(from), months * step), day, schedule.short_month_policy,
+      addMonths(month, months * step), day, schedule.short_month_policy,
     );
     if (date) return date;
   }
@@ -975,6 +1035,7 @@ registerUndoHandler("schedule", (db, event) => {
       before.short_month_policy, before.is_subscription, before.detected,
       before.confidence, nowIST(),
     );
+    restoreRecurrenceDetail(db, event.entityId!, before);
     return `Put the schedule for ${before.name} back`;
   }
 
@@ -988,5 +1049,24 @@ registerUndoHandler("schedule", (db, event) => {
     before.category_id, before.account_id, before.short_month_policy,
     before.is_subscription, before.amount_is_estimate, event.entityId!,
   );
+  restoreRecurrenceDetail(db, event.entityId!, before);
   return `Set the schedule for ${before.name} back`;
 });
+
+/**
+ * The parts of the recurrence the two statements above never named: the
+ * weekday pair and the anchor day. Without them an undone edit put a 31st
+ * schedule back with the anchor of the edit, and an undone delete brought a
+ * "first Sunday" schedule back with no Sunday.
+ */
+function restoreRecurrenceDetail(db: DB, id: string, before: Schedule): void {
+  if (before.recurrence_ordinal !== undefined) {
+    execute(
+      db, `UPDATE schedules SET recurrence_ordinal = ?, recurrence_weekday = ? WHERE id = ?`,
+      before.recurrence_ordinal, before.recurrence_weekday ?? null, id,
+    );
+  }
+  if (before.recurrence_day !== undefined && hasAnchorColumn(db)) {
+    execute(db, `UPDATE schedules SET recurrence_day = ? WHERE id = ?`, before.recurrence_day, id);
+  }
+}
