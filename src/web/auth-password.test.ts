@@ -11,6 +11,7 @@ import assert from "node:assert/strict";
 import { freshDb, seedMember, startTestApp, testConfig, type TestApp } from "./harness.test-data.ts";
 import { setPassword, checkPassword } from "../auth/passwords.ts";
 import { queryOne } from "../db/db.ts";
+import { createSession, authenticate } from "../auth/sessions.ts";
 
 const GOOD = "seven pathayam granary evenings";
 
@@ -171,6 +172,29 @@ describe("changing a password", () => {
       });
       assert.equal(right.status, 303);
       assert.ok(checkPassword(db, "m-ravi", "a-brand-new-passphrase").ok, "it did not change");
+    } finally { await app.close(); }
+  });
+
+  /*
+   * Changing a password only rewrote the hash. A session opened on another
+   * device with the old password — the one somebody changes it to shut out —
+   * stayed signed in, for up to the 30 days a session lasts.
+   */
+  test("signs out every other device, and not this one", async () => {
+    const db = freshDb();
+    seedMember(db, "m-ravi", "Ravi");
+    setPassword(db, "m-ravi", GOOD);
+    const other = createSession(db, "m-ravi", { userAgent: "old phone", ipHint: null, days: 30 });
+    const app = await startTestApp(db, {
+      memberId: "m-ravi", config: testConfig({ localLogin: true }),
+    });
+    try {
+      const res = await app.post("/settings/password", {
+        current: GOOD, password: "a-brand-new-passphrase", confirm: "a-brand-new-passphrase",
+      });
+      assert.equal(res.status, 303);
+      assert.equal(authenticate(db, other.token), null, "the old phone is still signed in");
+      assert.equal((await app.get("/settings")).status, 200, "this device was signed out too");
     } finally { await app.close(); }
   });
 

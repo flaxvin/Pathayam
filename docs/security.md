@@ -157,7 +157,8 @@ successful sign-in.
   flood from one place, and the wrong one against somebody patient with many.
 - A wrong password and an unknown address are refused in identical words. The
   difference would disclose who is in this household.
-- Changing a password requires the current one.
+- Changing a password requires the current one, and signs out every other
+  session the member has; the device that made the change stays signed in.
 
 ### Errors the household is allowed to see
 
