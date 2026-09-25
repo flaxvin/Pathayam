@@ -81,6 +81,19 @@ a waiver: a separate `foreclosure` row with no amount and the shortfall as
 principal forgiven, so paid + forgiven always equals the outstanding and
 interest is never negative. Closing releases the payment envelope's target.
 
+**Settlements recorded before migration 0043.** The old code moved no money
+when a loan was settled — no account was debited — and stored a settlement below
+the outstanding as one payment with *negative* interest. Migration 0043 corrects
+the interest (the shortfall becomes forgiven principal), but it cannot know which
+account paid, so the payment itself has to be entered again through the app.
+This lists the settlements that need it:
+
+```sql
+SELECT lp.loan_id, l.lender, lp.date, lp.amount
+  FROM loan_payments lp JOIN loans l ON l.id = lp.loan_id
+ WHERE lp.kind = 'foreclosure' AND lp.amount > 0 AND lp.transaction_id IS NULL;
+```
+
 ### EMI conversion
 
 A credit-card charge can be converted into an instalment plan. The conversion
@@ -125,6 +138,21 @@ A `holding` is one instrument in one asset account. Its units and cost come from
 | bonus | Adds one new lot at nil cost, dated on the allotment (section 55(2)(aa)); the lots already held keep their cost and date. A 1:1 bonus is ratio 2. |
 | merger | Replaces holdings in one instrument with another at a ratio. |
 | return of capital | Reduces cost basis. |
+
+**Bonus issues recorded before migration 0044** were stored as splits: every
+lot's units multiplied and price divided, keeping the original date and cost.
+0044 rebuilds them as a nil-cost lot dated on allotment wherever nothing has
+happened to the holding since. Where a sale, split or later bonus followed, the
+gains already realised were booked on the wrong basis and are left for a person
+to review rather than rewritten underneath them:
+
+```sql
+SELECT h.id, e.date AS bonus_date
+  FROM holding_events e JOIN holdings h ON h.id = e.holding_id
+ WHERE e.kind = 'bonus' AND EXISTS (SELECT 1 FROM holding_events l
+        WHERE l.holding_id = e.holding_id AND l.id <> e.id
+          AND l.kind IN ('sale','split','bonus') AND l.created_at > e.created_at);
+```
 
 ### Prices
 
