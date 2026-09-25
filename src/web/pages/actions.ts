@@ -486,6 +486,7 @@ export function renderMoveMoney(opts: {
 
 export function renderAutoAssignPreview(opts: {
   month: MonthKey;
+  budgetId: string;
   plan: AutoAssignPlan;
   categoryNames: Map<string, string>;
 }): SafeHtml {
@@ -549,7 +550,7 @@ export function renderAutoAssignPreview(opts: {
         </table>
       </div>
 
-      <form method="post" action="/auto-assign" style="margin-top:1rem">
+      <form method="post" action="/auto-assign?budget=${opts.budgetId}" style="margin-top:1rem">
         <input type="hidden" name="month" value="${month}">
         <button class="button-primary" type="submit">
           Assign ${formatPaise(plan.totalAssigned)}
