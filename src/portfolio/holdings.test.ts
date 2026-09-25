@@ -169,7 +169,7 @@ describe("R25 · FIFO", () => {
     assert.equal(preview.consumed[0]!.holdingPeriodDays, 233);
     // J18's sentence, stated before the sale is confirmed.
     assert.match(preview.description, /FIFO takes 312\.500 units from 2026-01-05/);
-    assert.match(preview.description, /All lots held under 12 months/);
+    assert.match(preview.description, /All lots held 12 months or less/);
   });
 
   test("distinguishes long-held lots in the same sentence", () => {

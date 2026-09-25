@@ -26,8 +26,20 @@ The amortisation schedule is computed from the rate history in `loan_rates`, not
 stored. A rate change inserts a row with `effective_from`; the schedule is
 recomputed from that date forward.
 
-For a `flat` loan the equivalent reducing-balance rate is calculated and shown,
-because a flat rate understates the real cost.
+A `flat` loan runs to its own schedule: interest on the original principal,
+the same every month, and principal in equal parts — EMI = (P + P × rate ×
+years) ÷ instalments, so ₹1,00,000 at 12% flat over 12 months is ₹9,333.33 a
+month and ₹12,000 of interest. The EMI, the payment envelope's target and the
+estimated split of an instalment paid without the lender's figures all come
+from that schedule. The equivalent reducing-balance rate is calculated and
+shown beside it, because a flat rate understates the real cost. Prepayment
+comparisons on a flat loan still price the reducing-balance case.
+
+The engine carries unrounded figures and rounds once per row, in a way that
+keeps every row checkable: opening − principal = closing, principal + interest
+= the instalment, and the rows sum to the principal, the lifetime interest and
+the total repaid exactly. So a projected instalment can sit a paisa either side
+of the quoted EMI.
 
 ### Payments
 
@@ -61,8 +73,13 @@ what has been drawn.
 
 ### Closing
 
-A loan can be closed by settlement, with an optional foreclosure charge. Closing
-releases the payment envelope's target.
+A loan can be closed by settlement, with an optional foreclosure charge. The
+settlement is paid like any instalment — from the chosen account (or the loan's
+repayment account), through the payment envelope, onto the loan account. Paid
+above the outstanding, the excess is interest. Paid below it, the difference is
+a waiver: a separate `foreclosure` row with no amount and the shortfall as
+principal forgiven, so paid + forgiven always equals the outstanding and
+interest is never negative. Closing releases the payment envelope's target.
 
 ### EMI conversion
 
@@ -104,7 +121,8 @@ A `holding` is one instrument in one asset account. Its units and cost come from
 | purchase | Opens a lot; optionally creates the paying transaction. |
 | sale | Closes lots FIFO, computes realised gain, optionally credits an account. |
 | dividend | Records income. |
-| split | Adjusts units by ratio, preserving cost. |
+| split | Adjusts every lot's units by ratio, preserving its cost and date. |
+| bonus | Adds one new lot at nil cost, dated on the allotment (section 55(2)(aa)); the lots already held keep their cost and date. A 1:1 bonus is ratio 2. |
 | merger | Replaces holdings in one instrument with another at a ratio. |
 | return of capital | Reduces cost basis. |
 
@@ -131,7 +149,9 @@ is carried at 1 and marked stale.
 
 XIRR is computed from the dated cash flows of a holding or the portfolio.
 Realised gains are reported by financial year and split by holding period, which
-is what Indian capital gains treatment requires.
+is what Indian capital gains treatment requires. The holding period is counted in
+calendar months ("more than 12 months"), not days, by the same test the tax
+estimate and the sale preview use.
 
 ### CAS import
 

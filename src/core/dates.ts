@@ -90,6 +90,28 @@ export function daysBetween(a: IsoDate, b: IsoDate): number {
   return Math.round((Date.parse(`${b}T00:00:00Z`) - Date.parse(`${a}T00:00:00Z`)) / 86_400_000);
 }
 
+/**
+ * Whether an asset bought on `from` and sold on `to` was held for MORE than
+ * `months` calendar months — the test the Income-tax Act actually states for
+ * long-term capital gains ("more than twelve months", "more than twenty-four").
+ *
+ * Counted in months, not days, because the two disagree at the edges: bought
+ * 2024-02-28 and sold 2025-02-28 is 366 days (a leap year sits between them),
+ * which a `> 365` test calls long-term, but it is exactly twelve months, which
+ * is not more than twelve — short-term, at 20% rather than 12.5%. A month-end
+ * purchase anniversaries on the last day of a shorter month: 2024-02-29 plus
+ * twelve months is 2025-02-28.
+ */
+export function heldMoreThanMonths(from: IsoDate, to: IsoDate, months: number): boolean {
+  const target = addMonths(from.slice(0, 7) as MonthKey, months);
+  const day = Math.min(
+    Number(from.slice(8, 10)),
+    daysInMonth(Number(target.slice(0, 4)), Number(target.slice(5))),
+  );
+  const anniversary = `${target}-${String(day).padStart(2, "0")}`;
+  return to > anniversary;
+}
+
 /** Sunday is 0, matching `Date.prototype.getUTCDay`. */
 export const WEEKDAY_NAMES = [
   "Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday",

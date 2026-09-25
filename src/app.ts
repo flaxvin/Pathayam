@@ -4551,6 +4551,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           : undefined,
         chargeAccountId: field(ctx.body, "charge_account_id") || null,
         chargeCategoryId: requireVisibleCategory(ctx, field(ctx.body, "charge_category_id") || null) || null,
+        // The form's one "Paid from" pays the settlement as well as the charge.
+        settlementAccountId: field(ctx.body, "settlement_account_id") || field(ctx.body, "charge_account_id") || null,
       });
       return {
         redirect: "/loans",

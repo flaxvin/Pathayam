@@ -978,6 +978,14 @@ export function averageDailySpend(
  * `viewerMemberId` omitted means count everything, which is what the buffer and
  * the digest want. A screen passes the authenticated member, so a private
  * account's spending never lands in somebody else's total.
+ *
+ * Money that bought an investment is not consumption either. A SIP paid from
+ * the budget leaves an "Investments" envelope like any bill, and was counted:
+ * ₹30,000 a month of groceries and a ₹50,000 SIP read as ₹9,60,000 a year of
+ * living costs rather than ₹3,60,000, and FIRE divided that by its 3.5%
+ * withdrawal rate — a target of ₹2.74 crore where ₹1.03 crore would do,
+ * receding faster the more the household saved. A purchase recorded through the portfolio names its
+ * transaction on the lot, and that transaction is left out.
  */
 export function envelopeSpendBetween(
   db: DB, from: IsoDate, to: IsoDate, viewerMemberId?: string | null,
@@ -989,14 +997,28 @@ export function envelopeSpendBetween(
       params: [viewerMemberId ?? null],
     };
 
+  // The shared CTE with the transaction id carried through, so a purchase can
+  // be recognised; kept local rather than widening the CTE every query uses.
   return queryValue<number>(
     db,
-    `${CATEGORISED_CTE}
+    `WITH categorised AS (
+       SELECT t.id AS transaction_id, t.account_id AS account_id, t.category_id AS category_id, t.amount AS amount
+         FROM transactions t
+        WHERE t.deleted_at IS NULL AND t.is_split = 0 AND t.category_id IS NOT NULL
+          AND t.date >= ? AND t.date <= ?
+       UNION ALL
+       SELECT t.id, t.account_id, s.category_id, s.amount
+         FROM transaction_splits s
+         JOIN transactions t ON t.id = s.transaction_id
+        WHERE t.deleted_at IS NULL AND s.category_id IS NOT NULL
+          AND t.date >= ? AND t.date <= ?
+     )
      SELECT COALESCE(SUM(-c.amount), 0)
        FROM categorised c
        LEFT JOIN categories cat ON cat.id = c.category_id
        JOIN accounts a ON a.id = c.account_id
-      WHERE c.amount < 0 AND cat.payment_account_id IS NULL${seen.sql}`,
+      WHERE c.amount < 0 AND cat.payment_account_id IS NULL
+        AND NOT EXISTS (SELECT 1 FROM lots l WHERE l.transaction_id = c.transaction_id)${seen.sql}`,
     // Each leg of the union is bounded to the window, so a long history
     // costs no more than a short one.
     from, to,
