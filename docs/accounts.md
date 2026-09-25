@@ -119,7 +119,8 @@ Editing or deleting one leg acts on both. Specifically:
   was spent.
 - **Cleared, memo and tags** stay per leg, because each bank statement clears
   its own side.
-- **Delete and its undo** act on both legs. So does undoing an edit.
+- **Delete and its undo** act on both legs. So does undoing an edit, and so
+  does undoing the *creation* of either leg: it removes the whole transfer.
 
 **Between a card and a tracking account** (topping up a wallet from the card,
 an EMI on a loan tracked outside the budget) the card side is treated exactly

@@ -992,37 +992,60 @@ export class UndoRefused extends Error {}
 registerUndoHandler("transaction", (db, event) => {
   const before = event.before as Transaction | undefined;
   if (!before) {
-    const id = event.entityId!;
+    /*
+     * D13 · One leg of a transfer is half of one movement, so its create undoes
+     * with its partner or not at all.
+     *
+     * createTransfer writes a create event for each leg, and undoing either one
+     * removed that leg alone: ₹123.45 paid from the bank to the card came back
+     * as a ₹123.45 card credit with no bank side — money arriving from nowhere
+     * on one account, the payment envelope moved with nothing behind it, and
+     * the identity out by the amount in every month after. Every other way of
+     * undoing a transfer (its delete, its edit, the transfer's own event)
+     * already acts on both legs; this was the one that did not.
+     */
+    const row = getTransaction(db, event.entityId!);
+    const ids = row?.transfer_pair_id
+      ? queryAll<{ id: string }>(
+        db, `SELECT id FROM transactions WHERE transfer_pair_id = ?`, row.transfer_pair_id,
+      ).map((r) => r.id)
+      : [event.entityId!];
 
-    for (const dep of TRANSACTION_DEPENDANTS) {
-      const n = queryOne<{ n: number }>(
-        db, `SELECT COUNT(*) AS n FROM ${dep.table} WHERE ${dep.column} = ?`, id,
-      )?.n ?? 0;
-      if (n > 0) {
-        throw new UndoRefused(
-          `That transaction is recorded as ${dep.describe}, so removing it would ` +
-          `leave that wrong. Undo or delete ${dep.describe} first.`,
-        );
+    for (const id of ids) {
+      for (const dep of TRANSACTION_DEPENDANTS) {
+        const n = queryOne<{ n: number }>(
+          db, `SELECT COUNT(*) AS n FROM ${dep.table} WHERE ${dep.column} = ?`, id,
+        )?.n ?? 0;
+        if (n > 0) {
+          throw new UndoRefused(
+            `That transaction is recorded as ${dep.describe}, so removing it would ` +
+            `leave that wrong. Undo or delete ${dep.describe} first.`,
+          );
+        }
       }
     }
 
-    // An imported row that was approved into this transaction goes back to
-    // waiting in the review queue: the ledger entry is gone, so the import is
-    // unresolved again rather than approved-into-nothing.
-    execute(
-      db,
-      `UPDATE staged_transactions
-          SET status = 'pending', transaction_id = NULL, resolved_at = NULL, resolved_by = NULL
-        WHERE transaction_id = ?`,
-      id,
-    );
-    // A later import may have been flagged as a duplicate *of* this one.
-    execute(db, `UPDATE staged_transactions SET duplicate_of_id = NULL WHERE duplicate_of_id = ?`, id);
+    for (const id of ids) {
+      // An imported row that was approved into this transaction goes back to
+      // waiting in the review queue: the ledger entry is gone, so the import is
+      // unresolved again rather than approved-into-nothing.
+      execute(
+        db,
+        `UPDATE staged_transactions
+            SET status = 'pending', transaction_id = NULL, resolved_at = NULL, resolved_by = NULL
+          WHERE transaction_id = ?`,
+        id,
+      );
+      // A later import may have been flagged as a duplicate *of* this one.
+      execute(db, `UPDATE staged_transactions SET duplicate_of_id = NULL WHERE duplicate_of_id = ?`, id);
 
-    execute(db, `DELETE FROM transaction_splits WHERE transaction_id = ?`, id);
-    execute(db, `DELETE FROM transaction_tags WHERE transaction_id = ?`, id);
-    execute(db, `DELETE FROM transactions WHERE id = ?`, id);
-    return `Removed the transaction that was added`;
+      execute(db, `DELETE FROM transaction_splits WHERE transaction_id = ?`, id);
+      execute(db, `DELETE FROM transaction_tags WHERE transaction_id = ?`, id);
+      execute(db, `DELETE FROM transactions WHERE id = ?`, id);
+    }
+    return ids.length > 1
+      ? `Removed the transfer that was added, both sides`
+      : `Removed the transaction that was added`;
   }
   const id = event.entityId!;
   const snapshot = before as Partial<EditSnapshot>;
