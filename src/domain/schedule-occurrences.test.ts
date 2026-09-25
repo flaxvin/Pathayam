@@ -16,6 +16,7 @@ import { createAccount } from "./accounts.ts";
 import { createGroup, createCategory } from "./budget.ts";
 import {
   createSchedule, getSchedule, updateSchedule, skipOccurrence, markPaid, projectCashflow,
+  nextOccurrence,
   type Recurrence, type Schedule,
 } from "./schedules.ts";
 import { rupees, type Paise } from "../core/money.ts";
@@ -206,5 +207,64 @@ describe("S2 · a month-based schedule keeps the day it was set to", () => {
     const s = schedule(ctx, "monthly", "2026-01-15", "last-day");
     assert.equal(getSchedule(ctx.db, s.id)!.recurrence_day, undefined);
     assert.deepEqual(walk(ctx, s.id, 2), ["2026-01-15", "2026-02-15", "2026-03-15"]);
+  });
+});
+
+/*
+ * S3 · Marking an occurrence paid late re-based the schedule on the payment
+ * date. Quarterly due 15 Mar paid 2 Apr went to 15 Jul — the Mar/Jun/Sep/Dec
+ * cycle became Apr/Jul/Oct/Jan for good; monthly due 31 Jan paid 2 Feb went to
+ * 31 Mar and February's occurrence vanished; due 15 Mar paid 20 Apr went to
+ * 15 May and April's never came due; a weekly Monday paid on Wednesday became a
+ * Wednesday schedule.
+ */
+describe("S3 · paying late settles the occurrence that was due", () => {
+  function paidOn(
+    ctx: ReturnType<typeof setup>, recurrence: Recurrence, due: string, on: string,
+  ): string | null {
+    const s = schedule(ctx, recurrence, due, "last-day");
+    markPaid(ctx.db, actor, s.id, on as IsoDate);
+    return getSchedule(ctx.db, s.id)!.next_due;
+  }
+
+  test("quarterly due 15 Mar paid 2 Apr is next due 15 Jun, not 15 Jul", () => {
+    assert.equal(paidOn(setup(), "quarterly", "2026-03-15", "2026-04-02"), "2026-06-15");
+  });
+
+  test("monthly due 31 Jan paid 2 Feb keeps February's occurrence", () => {
+    assert.equal(paidOn(anchored(), "monthly", "2026-01-31", "2026-02-02"), "2026-02-28");
+  });
+
+  test("monthly due 15 Mar paid 20 Apr leaves April's 15th due", () => {
+    assert.equal(paidOn(setup(), "monthly", "2026-03-15", "2026-04-20"), "2026-04-15");
+  });
+
+  test("a weekly Monday paid on Wednesday is still a Monday schedule", () => {
+    // 1 June 2026 is a Monday.
+    assert.equal(paidOn(setup(), "weekly", "2026-06-01", "2026-06-03"), "2026-06-08");
+  });
+
+  test("paying early still moves on from the due date", () => {
+    assert.equal(paidOn(setup(), "monthly", "2026-03-15", "2026-03-10"), "2026-04-15");
+  });
+
+  test("the transaction is still dated the day it was paid", () => {
+    const ctx = setup();
+    const s = schedule(ctx, "monthly", "2026-03-15", "last-day");
+    markPaid(ctx.db, actor, s.id, "2026-04-02" as IsoDate);
+    const posted = historyFor(ctx.db, "schedule", s.id).find((e) => e.action === "mark-paid")!;
+    const txnId = (posted.after as { transactionId: string }).transactionId;
+    const row = ctx.db.prepare(`SELECT date FROM transactions WHERE id = ?`).get(txnId) as { date: string };
+    assert.equal(row.date, "2026-04-02");
+  });
+
+  test("an overdue schedule rolls forward along its own days", () => {
+    // Salary on the 26th, last ticked off 26 Aug; asked on 25 Sep. September's
+    // payday is still ahead — it used to answer 26 Oct.
+    const ctx = setup();
+    const s = schedule(ctx, "monthly", "2026-08-26", "last-day");
+    assert.equal(nextOccurrence(s, "2026-09-25" as IsoDate), "2026-09-26");
+    const w = schedule(ctx, "weekly", "2026-06-01", "last-day");
+    assert.equal(nextOccurrence(w, "2026-06-10" as IsoDate), "2026-06-15", "a Monday, not a Wednesday");
   });
 });

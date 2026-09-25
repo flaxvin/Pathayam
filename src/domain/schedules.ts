@@ -129,12 +129,6 @@ function requireEnvelopeForOutgoing(
   }
 }
 
-/**
- * The ordinal and weekday belong to 'monthly-nth-weekday' and to nothing else.
- * Storing them on a monthly-by-date schedule would leave a value that means
- * nothing, waiting to be read by a later change of recurrence and quietly
- * moving somebody's rent.
- */
 const MONTH_BASED: readonly Recurrence[] = ["monthly", "quarterly", "half-yearly", "yearly"];
 
 /**
@@ -151,6 +145,12 @@ function dayOf(date: IsoDate): number {
   return Number(date.slice(8, 10));
 }
 
+/**
+ * The ordinal and weekday belong to 'monthly-nth-weekday' and to nothing else.
+ * Storing them on a monthly-by-date schedule would leave a value that means
+ * nothing, waiting to be read by a later change of recurrence and quietly
+ * moving somebody's rent.
+ */
 function weekdayFields(
   recurrence: Recurrence,
   ordinal: WeekdayOrdinal | null | undefined,
@@ -536,10 +536,30 @@ export function nextIncome(
   return soonest;
 }
 
-/** F7.2 · Advance a schedule to its next occurrence. */
+/**
+ * F7.2 · The first occurrence of the schedule after `after` — and always at
+ * least one step past next_due, since the caller is asking for "the one after
+ * this".
+ *
+ * An overdue schedule is walked forward along its own series. It used to take
+ * `after` itself as the starting point and add one step to it, which is a
+ * different series: a salary on the 26th, last ticked off on 26 Aug, asked on
+ * 25 Sep for what comes next, answered 26 Oct — September's payday had fallen
+ * out — and a weekly Monday asked on a Wednesday answered the Wednesday after.
+ */
 export function nextOccurrence(schedule: Schedule, after: IsoDate): IsoDate | null {
-  const from = schedule.next_due && schedule.next_due > after ? schedule.next_due : after;
+  if (!schedule.next_due) return followingOccurrence(schedule, after);
+  let at: IsoDate | null = schedule.next_due;
+  // Ten thousand steps is 27 years of a daily schedule nobody ticked off.
+  for (let guard = 0; at && guard < 10_000; guard++) {
+    at = followingOccurrence(schedule, at);
+    if (at && at > after) return at;
+  }
+  return at && followingOccurrence(schedule, after);
+}
 
+/** One step along the series from `from`, which is itself an occurrence. */
+function followingOccurrence(schedule: Schedule, from: IsoDate): IsoDate | null {
   switch (schedule.recurrence) {
     case "daily": return addDays(from, 1);
     case "weekly": return addDays(from, 7);
@@ -672,7 +692,21 @@ export function markPaid(db: DB, actor: Actor, scheduleId: string, on: IsoDate =
       }).id;
     }
 
-    const next = nextOccurrence(schedule, on);
+    /*
+     * S3 · Marking paid settles the occurrence that was due, so the schedule
+     * moves one step on from the *due* date — never from the day it was paid.
+     * Advancing from the payment date re-based the whole cycle on a late
+     * payment: quarterly due 15 Mar paid 2 Apr went to 15 Jul (the Mar/Jun/
+     * Sep/Dec cycle became Apr/Jul/Oct/Jan for good); monthly due 31 Jan paid
+     * 2 Feb went to 31 Mar and February's rent vanished; a weekly Monday paid
+     * on a Wednesday became a Wednesday schedule. Paid very late, the next
+     * occurrence can already be overdue — which is true: it has not been paid.
+     * Early payment was always right and still is: due 15 Mar paid 10 Mar is
+     * next due 15 Apr.
+     */
+    const next = schedule.next_due
+      ? followingOccurrence(schedule, schedule.next_due)
+      : nextOccurrence(schedule, on);
     execute(db, `UPDATE schedules SET next_due = ? WHERE id = ?`, next, scheduleId);
     appendEvent(db, actor, {
       entity: "schedule", entityId: scheduleId, action: "mark-paid",
@@ -697,7 +731,7 @@ export function skipOccurrence(db: DB, actor: Actor, scheduleId: string): void {
      */
     if (!schedule) throw new Missing("That schedule does not exist.");
     if (!schedule.next_due) throw new Refusal("That schedule has nothing due to skip.");
-    const next = nextOccurrence(schedule, schedule.next_due);
+    const next = followingOccurrence(schedule, schedule.next_due);
     execute(db, `UPDATE schedules SET next_due = ? WHERE id = ?`, next, scheduleId);
     appendEvent(db, actor, {
       entity: "schedule", entityId: scheduleId, action: "skip",
@@ -911,7 +945,7 @@ export function projectCashflow(
         if (schedule.amount > 0) day.inflows.push(entry);
         else day.outflows.push(entry);
       }
-      due = nextOccurrence(schedule, due);
+      due = followingOccurrence(schedule, due);
     }
   }
 
