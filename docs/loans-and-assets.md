@@ -35,6 +35,12 @@ from that schedule. The equivalent reducing-balance rate is calculated and
 shown beside it, because a flat rate understates the real cost. Prepayment
 comparisons on a flat loan still price the reducing-balance case.
 
+The engine carries unrounded figures and rounds once per row, in a way that
+keeps every row checkable: opening − principal = closing, principal + interest
+= the instalment, and the rows sum to the principal, the lifetime interest and
+the total repaid exactly. So a projected instalment can sit a paisa either side
+of the quoted EMI.
+
 ### Payments
 
 `loan_payments` records each instalment with its principal and interest split.
