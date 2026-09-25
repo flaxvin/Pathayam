@@ -127,6 +127,11 @@ The pickers do not offer a commitment envelope, and every filing path (a
 transaction, a split line, a recategorise, the review queue, rules, schedules)
 refuses one.
 
+The envelope is opened automatically the first time anything crosses the two
+budgets. Undoing that "opened" event is refused while a filing, a split line or
+a card payment still crosses them — the filings name the other budget's
+envelope, not this one, so nothing else would stop the claim being lost.
+
 The claim appears in the identity as `due from other budgets`. The standing of
 a commitment envelope is described as **overfunded**, **underfunded** or
 **square** — never as debt.

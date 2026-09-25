@@ -790,9 +790,56 @@ registerUndoHandler("held", (db, event) => {
   return `Set the held amount back to ${formatPaise(before)}`;
 });
 
+/**
+ * D12 · What still leans on a commitment envelope, beyond rows that name it.
+ *
+ * The envelope carries the claim between two budgets, but the filings that
+ * raise the claim name the *other* budget's category, not the envelope — so no
+ * foreign key stops it being deleted. Priya's ₹500.03 filed to a household
+ * envelope opened hers automatically; undoing that "opened" event deleted it,
+ * claimLinks found no link any more, and the household was +₹500.03 and Priya
+ * −₹500.03 in every month after. Anything that crosses the two budgets — a
+ * filing, a split line, a card payment — needs the envelope to exist.
+ */
+function commitmentCrossings(db: DB, id: string): string[] {
+  const envelope = queryOne<{ budget_id: string | null; commits_to_budget_id: string | null }>(
+    db, `SELECT budget_id, commits_to_budget_id FROM categories WHERE id = ?`, id,
+  );
+  if (!envelope?.budget_id || !envelope.commits_to_budget_id) return [];
+  const pair = [envelope.budget_id, envelope.commits_to_budget_id, envelope.commits_to_budget_id, envelope.budget_id];
+  const crosses = `((a.budget_id = ? AND c.budget_id = ?) OR (a.budget_id = ? AND c.budget_id = ?))`;
+  const found: string[] = [];
+  const count = (sql: string) => queryOne<{ n: number }>(db, sql, ...pair)?.n ?? 0;
+  if (count(
+    `SELECT COUNT(*) AS n FROM transactions t
+       JOIN accounts a ON a.id = t.account_id JOIN categories c ON c.id = t.category_id
+      WHERE ${crosses}`,
+  ) + count(
+    `SELECT COUNT(*) AS n FROM transaction_splits s JOIN transactions t ON t.id = s.transaction_id
+       JOIN accounts a ON a.id = t.account_id JOIN categories c ON c.id = s.category_id
+      WHERE ${crosses}`,
+  ) > 0) found.push("spending filed across the two budgets");
+  // `c` is the card here: a payment onto the other budget's card.
+  if (count(
+    `SELECT COUNT(*) AS n FROM transactions t JOIN accounts a ON a.id = t.account_id
+       JOIN transactions o ON o.transfer_pair_id = t.transfer_pair_id AND o.id <> t.id
+       JOIN accounts c ON c.id = o.account_id AND c.kind = 'credit'
+      WHERE ${crosses}`,
+  ) > 0) found.push("card payments between the two budgets");
+  return found;
+}
+
 registerUndoHandler("category", (db, event) => {
   const before = event.before as Category | undefined;
   if (!before) {
+    const crossings = commitmentCrossings(db, event.entityId!);
+    if (crossings.length > 0) {
+      throw new Refusal(
+        `This envelope carries what the two budgets owe each other, and there is ` +
+        `${crossings.join(" and ")} that needs it. Removing it would lose track of ` +
+        `that — undo those first, or leave it in place.`,
+      );
+    }
     execute(db, `DELETE FROM categories WHERE id = ?`, event.entityId!);
     return `Removed the category that was added`;
   }
