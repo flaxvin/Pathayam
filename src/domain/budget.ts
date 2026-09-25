@@ -445,6 +445,17 @@ export function deleteCategory(
     if (before.payment_account_id) {
       throw new Refusal("A card's payment category cannot be deleted while the account exists (R6).");
     }
+    /*
+     * The route guards a commitment envelope (guardCommitmentEnvelope) but the
+     * domain did not, so any other caller could delete the envelope that
+     * carries the claim between two budgets — the D12 hole by another door.
+     */
+    if (before.commits_to_budget_id) {
+      throw new Refusal(
+        `"${before.name}" is what the other budget is counting on, so it cannot be ` +
+        `deleted. Move money out of it instead.`,
+      );
+    }
     if (opts.currentBalance !== 0) {
       throw new Refusal(
         `"${before.name}" still holds ${formatPaise(opts.currentBalance)}. Move it somewhere else first.`,
@@ -606,11 +617,12 @@ export function mergeCategories(db: DB, actor: Actor, loserId: string, winnerId:
       );
     }
     // D2 / D8 · Merging into a commitment envelope files the loser's spending
-    // to it, which the claim between the budgets cannot absorb.
-    if (winner.commits_to_budget_id) {
+    // to it, which the claim between the budgets cannot absorb; merging one
+    // away deletes it (the route guards that side; the domain now does too).
+    if (winner.commits_to_budget_id || loser.commits_to_budget_id) {
       throw new Refusal(
-        `"${winner.name}" holds what one budget has set aside for another, so nothing ` +
-        `can be merged into it. Pick another envelope.`,
+        `"${(winner.commits_to_budget_id ? winner : loser).name}" holds what one budget ` +
+        `has set aside for another, so it cannot be merged. Pick another envelope.`,
       );
     }
 

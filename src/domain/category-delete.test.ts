@@ -236,3 +236,31 @@ describe("D11 · undoing a delete gives back what it took", () => {
     assert.deepEqual(identityProblems(s.db, "2027-03"), []);
   });
 });
+
+/*
+ * Found by the engine fuzzer once it exercised the D-cases: the domain let any
+ * caller delete (or merge away) a commitment envelope — only the route guarded
+ * it — and filing to an envelope whose creation had been undone reached the
+ * INSERT as a raw FOREIGN KEY 500.
+ */
+describe("fuzzer · the domain guards what the routes guarded", () => {
+  test("a commitment envelope cannot be deleted or merged away", () => {
+    const s = spentDown();
+    const ravi = ensurePersonalBudget(s.db, RAVI, "Ravi").id;
+    const envelope = ensureCommitmentEnvelope(s.db, actor, ravi).id;
+    const mine = createCategory(s.db, actor, {
+      groupId: createGroup(s.db, actor, "Mine", "normal", ravi).id, name: "Ravi's",
+    }).id;
+    assert.throws(() => deleteCategory(s.db, actor, envelope, { currentBalance: 0 }), Refusal);
+    assert.throws(() => mergeCategories(s.db, actor, envelope, mine), Refusal);
+    assert.equal(getCategory(s.db, envelope)?.deleted_at, null);
+  });
+
+  test("filing to an envelope that no longer exists is a refusal, not a 500", () => {
+    const s = spentDown();
+    assert.throws(
+      () => createTransaction(s.db, actor, { accountId: s.bank, amount: -500, date: "2025-03-01", categoryId: "gone" }),
+      (e: unknown) => e instanceof Refusal && /does not exist any more/.test((e as Error).message),
+    );
+  });
+});
