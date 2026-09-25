@@ -257,6 +257,11 @@ lines carry the categories. Setting both would file the amount twice. B99's rule
 still holds: money out needs an envelope, and the first line is that envelope —
 so it is required for an expense whether or not the entry is split.
 
+A split transaction's amount changes only with its lines (or by filing it whole
+to one envelope). `updateTransaction` refuses a new amount on its own: the old
+lines stayed, so a ₹3.36 card charge split ₹1.12 / ₹2.24 and edited to 3 paise
+left the card's payment envelope ₹3.33 ahead of the card.
+
 ### Going back to one envelope
 
 **One line means one envelope.** Clear the extra lines and the split is removed;
