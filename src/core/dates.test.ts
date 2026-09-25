@@ -148,6 +148,20 @@ describe("parseDate — L3 entry shorthand", () => {
     assert.equal(parseDate("2026-02-30"), null);
   });
 
+  test("reads the shapes bank exports use, as the PDF and alert readers do", () => {
+    assert.equal(parseDate("15-Jan-2026"), "2026-01-15");
+    assert.equal(parseDate("15 Jan 2026"), "2026-01-15");
+    assert.equal(parseDate("15 January 26"), "2026-01-15");
+    assert.equal(parseDate("15-Sept-2026"), "2026-09-15");
+    assert.equal(parseDate("2026/01/15"), "2026-01-15");
+    assert.equal(parseDate("15-01-2026 10:32"), "2026-01-15");
+    assert.equal(parseDate("28-08-26, 00:01:28 IST"), "2026-08-28");
+    assert.equal(parseDate("2026-01-15T10:32:00"), "2026-01-15");
+    assert.equal(parseDate("31-Feb-2026"), null);
+    assert.equal(parseDate("15-Jnu-2026"), null);
+    assert.equal(parseDate("15-01-2026 99"), null);
+  });
+
   test("an implausible year is refused, not stored 2,000 years early", () => {
     // "01-02-0026" is a typo for 2026. parseDate returned "0026-02-01"; an
     // imported row carrying it sorted before every other transaction, into a

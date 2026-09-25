@@ -12,7 +12,7 @@
  */
 
 import { parseAmount, type Paise } from "../core/money.ts";
-import { parseDate, type IsoDate } from "../core/dates.ts";
+import { calendarDate, fullYear, parseDate, type IsoDate } from "../core/dates.ts";
 
 /**
  * Parse delimited text into rows, honouring quotes and embedded newlines.
@@ -268,10 +268,12 @@ export function applyMapping(rows: string[][], mapping: ColumnMapping): ParseRes
     const rawDate = (cells[mapping.date] ?? "").trim();
     const narration = (cells[mapping.narration] ?? "").trim().replace(/\s+/g, " ");
 
-    // A footer line has no date where a date belongs.
-    const date = parseDate(rawDate);
+    // A footer line has no date where a date belongs — but neither does a row
+    // whose date this reader cannot parse, and only one of them is safe to
+    // skip. See `looksLikeFooter`.
+    const date = readDate(rawDate, mapping);
     if (!date) {
-      if (looksLikeFooter(cells)) continue;
+      if (looksLikeFooter(cells, rawDate, readAmount(cells, mapping).amount !== null)) continue;
       rowsRead++;
       errors.push({ rowNumber: r + 1, cells, reason: `"${rawDate}" is not a date I can read.` });
       continue;
@@ -336,13 +338,49 @@ function readAmount(
   return { amount, rawAmount: raw };
 }
 
-function looksLikeFooter(cells: string[]): boolean {
-  const joined = cells.join(" ").toLowerCase();
-  if (joined.trim() === "") return true;
-  return [
-    "total", "opening balance", "closing balance", "statement", "generated",
-    "computer generated", "end of", "please", "disclaimer", "*", "unless",
-  ].some((marker) => joined.includes(marker));
+/**
+ * The mapping's date format, then the shared reader.
+ *
+ * `dateFormat` was stored on the profile and never read. It matters for one
+ * shape: "26-08-15" is 15 Aug 2026 to a bank that writes year first, and
+ * 26 Aug 2015 to everybody else.
+ */
+function readDate(raw: string, mapping: ColumnMapping): IsoDate | null {
+  if (mapping.dateFormat === "yyyy-mm-dd") {
+    const ymd = /^(\d{4}|\d{2})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(raw.trim());
+    if (ymd) return calendarDate(fullYear(ymd[1]!), Number(ymd[2]), Number(ymd[3]));
+  }
+  return parseDate(raw);
+}
+
+const FOOTER_MARKERS = [
+  "total", "opening balance", "closing balance", "statement", "generated",
+  "end of", "page ", "please", "disclaimer", "unless",
+];
+
+/**
+ * Whether a row with no readable date is a footer, safe to skip.
+ *
+ * It used to be enough for a marker to appear anywhere in the row, and "*"
+ * was a marker — so "15-Jan-2026,SWIGGY*ORDER,450.00", whose date this reader
+ * could not then parse, was skipped without a word, and so was any merchant
+ * with "total" in its name. Now:
+ *
+ * - a date cell that itself says "Total", "Opening Balance", "Page 2 of 3" is
+ *   a footer;
+ * - a date cell holding something else, on a row with a readable amount, is a
+ *   transaction whose date could not be read — reported, never dropped;
+ * - an empty date cell is a footer when the row has no amount, or when it
+ *   carries a marker (",Closing Balance,,50,000.00").
+ */
+function looksLikeFooter(cells: string[], rawDate: string, hasAmount: boolean): boolean {
+  const joined = cells.join(" ").trim().toLowerCase();
+  if (joined === "") return true;
+  const dateCell = rawDate.toLowerCase() + " ";
+  if (FOOTER_MARKERS.some((marker) => dateCell.includes(marker))) return true;
+  if (rawDate !== "" && hasAmount) return false;
+  if (rawDate === "" && !hasAmount) return true;
+  return FOOTER_MARKERS.some((marker) => (joined + " ").includes(marker));
 }
 
 /** Parse a file end to end with a known or guessed mapping. */

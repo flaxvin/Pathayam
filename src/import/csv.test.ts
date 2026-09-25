@@ -167,6 +167,58 @@ This is a computer generated statement and does not require a signature.`,
 });
 
 /*
+ * CSV read dates more narrowly than PDF and alerts: "15-Jan-2026",
+ * "15 Jan 2026", "2026/01/15" and "15-01-2026 10:32" were all refused. Worse,
+ * a refused row whose cells held "*" or "total" was taken for a footer and
+ * skipped without a word — so "15-Jan-2026,SWIGGY*ORDER,450.00" vanished and
+ * the import said nothing was wrong. And the mapping's `dateFormat` was
+ * stored and never read.
+ */
+describe("dates in a statement file", () => {
+  test("named months, year-first slashes and a trailing time all read", () => {
+    const { result } = parseStatement(
+      `Date,Narration,Amount
+15-Jan-2026,SWIGGY*ORDER,-450.00
+15 Jan 2026,TOTAL GAS STATION,-1200.00
+2026/01/15,RENT,-41000.00
+15-01-2026 10:32,UPI/KAVYA,-600.00
+15-01-2026 10:32:05 AM,UPI/ARJUN,-50.00
+2026-01-15T10:32:00,NEFT/SALARY,145000.00`,
+    );
+    assert.equal(result.errors.length, 0, JSON.stringify(result.errors));
+    assert.equal(result.records.length, 6);
+    for (const r of result.records) assert.equal(r.date, "2026-01-15");
+    assert.equal(result.records[0]!.raw.date, "15-Jan-2026", "the raw text is kept as written");
+  });
+
+  test("a row whose date cannot be read is reported, not taken for a footer", () => {
+    const { result } = parseStatement(
+      `Date,Narration,Amount
+01-08-2026,SALARY,145000.00
+15/Jnu/2026,SWIGGY*ORDER,-450.00
+32-08-2026,TOTAL GAS STATION,-1200.00
+Total,,143350.00
+,Closing Balance,143350.00`,
+    );
+    assert.equal(result.records.length, 1);
+    assert.equal(result.errors.length, 2, "both unreadable dates are reported");
+    assert.deepEqual(result.errors.map((e) => e.rowNumber), [3, 4]);
+    assert.equal(result.rowsRead, 3, "footers are not counted, the two bad rows are");
+  });
+
+  test("the mapping's dateFormat decides a two-digit year-first date", () => {
+    const text = `Date,Narration,Amount
+26-08-15,SALARY,145000.00`;
+    const base = { headerRow: 0, date: 0, narration: 1, amount: 2 };
+    assert.equal(parseStatement(text, base).result.records[0]!.date, "2015-08-26");
+    assert.equal(
+      parseStatement(text, { ...base, dateFormat: "yyyy-mm-dd" }).result.records[0]!.date,
+      "2026-08-15",
+    );
+  });
+});
+
+/*
  * A statement's "1,200.00Cr" is a ₹1,200 credit. CSV read the attached "Cr"
  * as crore and staged 12,00,00,00,00,000 paise — ₹120 crore — for a row the
  * bank printed as twelve hundred rupees. A statement never uses shorthand, so
