@@ -296,6 +296,10 @@ describe("the bridge to a provident fund", () => {
 describe("the figure carries its own caveats", () => {
   test("a short history is flagged, because a trailing year needs a year", () => {
     const { db, bank, groceries } = household();
+    // History starts with the first account opened as well as the first
+    // transaction (an account open for a year with quiet months has a year of
+    // history), so a household that is actually new opens its accounts late.
+    execute(db, `UPDATE accounts SET opening_date = '2026-09-01'`);
     createTransaction(db, actor, {
       accountId: bank, amount: -rupees(5_000), date: "2026-09-05", categoryId: groceries,
     });

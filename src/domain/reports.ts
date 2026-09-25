@@ -15,7 +15,7 @@ import { queryAll } from "../db/db.ts";
 import type { Paise } from "../core/money.ts";
 import {
   todayIST, addDays, addMonths, monthOf, fiscalYearOf, fiscalYearRange, formatFiscalYear,
-  type IsoDate, type MonthKey,
+  heldMoreThanMonths, type IsoDate, type MonthKey,
 } from "../core/dates.ts";
 
 export interface TransactionFilter {
@@ -529,8 +529,12 @@ export function outstandingReimbursements(db: DB): OutstandingClaim[] {
  * Sales recorded before parcels were stored (B88) have no breakdown. They are
  * reported under `unknownPeriod` rather than guessed at, because a gain filed
  * in the wrong column is worse than one the household is told to check.
+ *
+ * "Twelve months" is calendar months, by the same helper the tax estimate
+ * uses: it was `> 365` days, which disagreed with the estimate across a leap
+ * day (2024-02-28 to 2025-02-28 is 366 days but exactly twelve months).
  */
-const LONG_TERM_DAYS = 365;
+const LONG_TERM_MONTHS = 12;
 
 export interface GainsParcel {
   soldOn: IsoDate;
@@ -598,7 +602,7 @@ export function capitalGainsByYear(db: DB): GainsYear[] {
 
     for (const parcel of parcels) {
       const gain = (parcel.proceeds - parcel.cost) as Paise;
-      const longTerm = parcel.holdingPeriodDays > LONG_TERM_DAYS;
+      const longTerm = heldMoreThanMonths(parcel.tradeDate ?? addDays(sale.date, -parcel.holdingPeriodDays), sale.date, LONG_TERM_MONTHS);
       if (longTerm) year.longTerm = (year.longTerm + gain) as Paise;
       else year.shortTerm = (year.shortTerm + gain) as Paise;
 

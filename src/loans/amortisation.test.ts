@@ -329,3 +329,38 @@ describe("rounding is display-only (06 §12)", () => {
     assert.equal(R(schedule.instalments[0]!.payment), 10_000);
   });
 });
+
+/*
+ * Every row of a projected schedule adds up, and the rows add up to the totals.
+ *
+ * Opening, principal and closing were each rounded from the exact float on
+ * their own, so on ₹1,00,000 at 12% over 300 months, opening − principal
+ * missed closing by a paisa on row after row, and the 300 rounded payments
+ * summed to ₹1.24 less than the ₹3,15,967.24 "total repaid" above them. Across
+ * 180 loan shapes the auditor found 9,441 rows that did not reconcile. Now the
+ * principal is opening − closing and the interest is the step in the rounded
+ * running total, so each row, and the table, reconciles to the paisa while the
+ * lifetime interest stays the unrounded figure `06` pins.
+ */
+describe("R17 · a schedule you can check with a pencil", () => {
+  test("opening − principal = closing, principal + interest = payment, sums = totals", () => {
+    let broken = 0;
+    for (const principal of [rupees(1_00_000), rupees(25_00_000), 1_23_456_78]) {
+      for (const annualRatePct of [7.5, 8.35, 12, 14.99]) {
+        for (const months of [12, 60, 240, 300]) {
+          const s = buildSchedule({ principal, annualRatePct, months });
+          for (const i of s.instalments) {
+            if (i.opening - i.principal !== i.closing) broken++;
+            if (i.principal + i.interest !== i.payment) broken++;
+          }
+          const sum = (f: (i: (typeof s.instalments)[number]) => number) =>
+            s.instalments.reduce((a, i) => a + f(i), 0);
+          assert.equal(sum((i) => i.principal), principal, "principal rows sum to the loan");
+          assert.equal(sum((i) => i.interest), s.totalInterest, "interest rows sum to the total");
+          assert.equal(sum((i) => i.payment), s.totalRepaid, "payments sum to total repaid");
+        }
+      }
+    }
+    assert.equal(broken, 0, "every row reconciles");
+  });
+});

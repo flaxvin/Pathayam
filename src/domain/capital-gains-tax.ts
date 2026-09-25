@@ -18,8 +18,10 @@
  *   debt, bought after 1 April 2023  →  slab rates always        (s50AA)
  *
  * So the holding-period threshold is not one number — it is 12 months for
- * listed equity and 24 for most else — and `reports.ts` uses a flat 365 days
- * because it is reporting, not taxing. That is fine there and not here.
+ * listed equity and 24 for most else — and `reports.ts` splits at twelve
+ * months because it is reporting, not taxing. Both count calendar months with
+ * the same helper, so a parcel is never long-term on one screen and short on
+ * the other.
  *
  * ## What it refuses to guess
  *
@@ -35,16 +37,31 @@ import type { DB } from "../db/db.ts";
 import { queryAll } from "../db/db.ts";
 import type { Paise } from "../core/money.ts";
 import type { IsoDate } from "../core/dates.ts";
-import { fiscalYearOf, fiscalYearRange } from "../core/dates.ts";
+import { addDays, fiscalYearOf, fiscalYearRange, heldMoreThanMonths } from "../core/dates.ts";
 import type { AssetClass } from "./assets.ts";
+import type { SpecialRateGains } from "./tax.ts";
 
-/** Days held before a gain becomes long-term, by class. */
-const LONG_TERM_DAYS: Record<"equity" | "other", number> = {
+/**
+ * Months held before a gain becomes long-term, by class. "More than" that
+ * many months, counted as calendar months — see `heldMoreThanMonths`. This
+ * used to be days (> 365, > 730), which called a lot bought 2024-02-28 and
+ * sold 2025-02-28 long-term because a leap day made it 366 days; it is exactly
+ * twelve months, so short-term.
+ */
+export const LONG_TERM_MONTHS: Record<"equity" | "other", number> = {
   /** Listed equity and equity-oriented funds: 12 months. */
-  equity: 365,
+  equity: 12,
   /** Property, gold, unlisted: 24 months. */
-  other: 730,
+  other: 24,
 };
+
+/**
+ * The purchase date of a stored parcel. Parcels carry it (B88); if an older
+ * one somehow does not, the sale date less the days held recovers it exactly.
+ */
+function acquiredOn(parcel: { tradeDate?: IsoDate; holdingPeriodDays: number }, soldOn: IsoDate): IsoDate {
+  return parcel.tradeDate ?? addDays(soldOn, -parcel.holdingPeriodDays);
+}
 
 export interface GainsTaxRules {
   /** s112A — listed equity held long. */
@@ -131,7 +148,7 @@ export function gainsBucketsForYear(db: DB, fy: number, memberId: string): Gains
     // Another member's private holding is not part of this person's estimate.
     if (sale.visibility && sale.visibility !== "household" && sale.holder !== memberId) continue;
 
-    let parcels: { cost: number; proceeds: number; holdingPeriodDays: number }[] = [];
+    let parcels: { tradeDate?: IsoDate; cost: number; proceeds: number; holdingPeriodDays: number }[] = [];
     try {
       parcels = sale.detail_json ? (JSON.parse(sale.detail_json).parcels ?? []) : [];
     } catch {
@@ -168,7 +185,7 @@ export function gainsBucketsForYear(db: DB, fy: number, memberId: string): Gains
       }
 
       if (cls === "equity") {
-        if (parcel.holdingPeriodDays > LONG_TERM_DAYS.equity) {
+        if (heldMoreThanMonths(acquiredOn(parcel, sale.date), sale.date, LONG_TERM_MONTHS.equity)) {
           out.equityLong = (out.equityLong + gain) as Paise;
         } else {
           out.equityShort = (out.equityShort + gain) as Paise;
@@ -185,7 +202,7 @@ export function gainsBucketsForYear(db: DB, fy: number, memberId: string): Gains
       }
 
       // gold, real-estate: 24 months, then 12.5%.
-      if (parcel.holdingPeriodDays > LONG_TERM_DAYS.other) {
+      if (heldMoreThanMonths(acquiredOn(parcel, sale.date), sale.date, LONG_TERM_MONTHS.other)) {
         out.otherLong = (out.otherLong + gain) as Paise;
       } else {
         out.slabRated = (out.slabRated + gain) as Paise;
@@ -208,6 +225,13 @@ export interface GainsTax {
   specialRateTax: Paise;
   /** What must be added to ordinary income before the slabs are applied. */
   addToSlabIncome: Paise;
+  /**
+   * The gains and rates behind `specialRateTax`, for the income tax estimate.
+   * The figures above are tax on the gains standing alone; the estimate
+   * recomputes them against the person's other income, because the unused
+   * basic exemption, the 87A ceiling and the surcharge band all depend on it.
+   */
+  special: SpecialRateGains;
 }
 
 export function taxOnGains(fy: number, buckets: GainsBuckets): GainsTax {
@@ -232,6 +256,11 @@ export function taxOnGains(fy: number, buckets: GainsBuckets): GainsTax {
     equityLongTax, equityShortTax, otherLongTax,
     specialRateTax: (equityLongTax + equityShortTax + otherLongTax) as Paise,
     addToSlabIncome: Math.max(0, buckets.slabRated) as Paise,
+    special: {
+      s111a: Math.max(0, buckets.equityShort) as Paise, s111aBp: rules.equityShortBp,
+      s112a: equityLongGain, s112aBp: rules.equityLongBp, s112aExemption: rules.equityLongExemption,
+      s112: Math.max(0, buckets.otherLong) as Paise, s112Bp: rules.otherLongBp,
+    },
   };
 }
 

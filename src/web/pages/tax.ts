@@ -274,6 +274,13 @@ export function renderTax(p: TaxPageProps): SafeHtml {
               listed equity. It does not extend to short-term gains, to gold, or
               to property.
             </p>
+            <p class="field-hint">
+              The tax column is each gain on its own. The estimate above goes
+              further: where your other income is below the basic exemption,
+              the unused part is set against these gains first; the 87A
+              ceiling and the surcharge band are tested on your income
+              including them; and surcharge on them stops at 15%.
+            </p>
           </section>
         `
       : html``}
@@ -323,7 +330,6 @@ export function renderTax(p: TaxPageProps): SafeHtml {
       <ul class="checks">
         <li><strong>Marginal relief</strong> on surcharge, and on the 87A cliff — so a figure just over a threshold is overstated.</li>
         <li><strong>Losses set off between heads.</strong> A long-term loss can only go against a long-term gain, and this nets nothing — each bucket is floored at zero, so a year with losses is overstated.</li>
-        <li><strong>Surcharge on gains</strong> is capped at 15% under 111A and 112A; this applies the ordinary band.</li>
         <li><strong>Tax already deducted at source.</strong> Nothing here is netted against your Form 16 or 26AS.</li>
         <li><strong>Losses</strong> set off or carried forward, house property loss, and clubbing.</li>
         <li><strong>Anything foreign</strong> — income, assets, or relief under a treaty.</li>

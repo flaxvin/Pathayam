@@ -28,13 +28,13 @@ import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { Refusal, Missing } from "../core/refusal.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST, todayIST, formatDate, daysBetween, type IsoDate } from "../core/dates.ts";
-import { formatPaise, type Paise } from "../core/money.ts";
+import { allocateByWeight, formatPaise, type Paise } from "../core/money.ts";
 import { SIMPLE_TRACKING_SUBTYPES, createAccount, getAccount } from "./accounts.ts";
 import { createTransaction } from "./transactions.ts";
 import {
   makeLot, previewSale, totalUnits, costBasis, averageCost, averageUnitPrice, marketValue,
   unrealisedGain, absoluteReturn, xirr, holdingCashFlows, decomposeGain,
-  applySplit, applyMerger, applyReturnOfCapital, formatUnits,
+  applySplit, bonusLot, applyMerger, applyReturnOfCapital, formatUnits, valueOf,
   type Lot, type Holding, type Milliunits, type MicroRupees,
   type SalePreview, type GainDecomposition,
 } from "../portfolio/holdings.ts";
@@ -536,6 +536,21 @@ export function recordPurchase(
     sourceRef?: string | null;
   },
 ): Lot {
+  /*
+   * A purchase of nothing, or of less than nothing, is refused here rather
+   * than reaching makeLot: 0 units made an empty lot, and −5 units a lot that
+   * subtracted from the holding with a negative cost that paid money INTO the
+   * bank account.
+   */
+  if (input.units !== undefined && !(Number.isFinite(input.units) && input.units > 0)) {
+    throw new Refusal("Say how many units were bought — a number above zero.");
+  }
+  if (input.amount !== undefined && !(Number.isFinite(input.amount) && input.amount > 0)) {
+    throw new Refusal("Say what the purchase cost — an amount above zero.");
+  }
+  if (!(Number.isFinite(input.price) && input.price > 0)) {
+    throw new Refusal("The purchase price has to be a number above zero.");
+  }
   return transact(db, () => {
     const holding = findOrCreateHolding(db, actor, input.accountId, input.instrumentId);
     const lot = makeLot({
@@ -838,7 +853,54 @@ export function previewHoldingSale(
   db: DB, holdingId: string, quantity: Milliunits, unitPrice: MicroRupees,
   opts: { charges?: Paise; saleDate?: IsoDate } = {},
 ): SalePreview {
-  return previewSale(holdingOf(db, holdingId), quantity, unitPrice, opts);
+  const holding = holdingOf(db, holdingId);
+  assertSaleInput(holding, quantity, unitPrice, opts);
+  return previewSale(holding, quantity, unitPrice, opts);
+}
+
+/**
+ * What a sale has to be before FIFO is asked to perform it — each a sentence
+ * the seller can act on, rather than what used to happen: selling 11 units of
+ * 10 reached `previewSale`'s RangeError and came back as a 500; −5 units "sold"
+ * and added units; a negative price booked a negative sale; a sale dated before
+ * the units were bought recorded a negative holding period; and charges above
+ * the sale value sent negative "proceeds" into the bank account.
+ */
+function assertSaleInput(
+  holding: Holding, quantity: Milliunits, unitPrice: MicroRupees,
+  opts: { charges?: Paise; saleDate?: IsoDate },
+): void {
+  if (!Number.isFinite(quantity) || quantity <= 0) {
+    throw new Refusal("Say how many units were sold — a number above zero.");
+  }
+  if (!Number.isFinite(unitPrice) || unitPrice < 0) {
+    throw new Refusal("The sale price has to be a number, and it cannot be below zero.");
+  }
+  const held = totalUnits(holding);
+  if (quantity > held) {
+    throw new Refusal(
+      `Only ${formatUnits(held)} units are held, so ${formatUnits(quantity)} cannot be sold.`,
+    );
+  }
+  if (opts.charges !== undefined && opts.charges > valueOf(quantity, unitPrice)) {
+    throw new Refusal("The charges are more than the sale was worth. Check both figures.");
+  }
+  if (opts.saleDate) {
+    // FIFO takes the oldest first, so the last lot it reaches is the newest
+    // one this sale needs. Units bought after the sale date were not there
+    // to sell.
+    let left = quantity;
+    for (const lot of holding.lots) {
+      if (left <= 0) break;
+      if (lot.tradeDate > opts.saleDate) {
+        throw new Refusal(
+          `Some of these units were bought on ${formatDate(lot.tradeDate)}, after the ` +
+          `sale date of ${formatDate(opts.saleDate)}. A sale cannot come before the purchase.`,
+        );
+      }
+      left -= lot.units;
+    }
+  }
 }
 
 /**
@@ -860,7 +922,9 @@ export function recordSale(
   },
 ): SalePreview {
   return transact(db, () => {
-    const preview = previewSale(holdingOf(db, input.holdingId), input.units, input.price, {
+    const holding = holdingOf(db, input.holdingId);
+    assertSaleInput(holding, input.units, input.price, { charges: input.charges, saleDate: input.date });
+    const preview = previewSale(holding, input.units, input.price, {
       charges: input.charges,
       saleDate: input.date,
     });
@@ -893,6 +957,16 @@ export function recordSale(
       transactionId = received.id;
     }
 
+    // Each parcel's share of the proceeds, by units, summing to the sale's
+    // proceeds exactly. Rounding each share on its own did not: three 1-unit
+    // parcels sold at ₹10 less ₹0.01 of charges (₹29.99 proceeds) each
+    // rounded ₹9.9967 up to ₹10.00, so the gains statement reported ₹30.00
+    // received and a gain one paisa larger than the sale's. Whatever the
+    // truncation leaves goes on the last parcel.
+    const parcelProceeds = allocateByWeight(
+      preview.proceeds, preview.consumed.map((c) => c.units),
+    );
+
     execute(
       db,
       `INSERT INTO holding_events
@@ -916,11 +990,11 @@ export function recordSale(
        * statement is a reading of history rather than a reconstruction of it.
        */
       JSON.stringify({
-        parcels: preview.consumed.map((c) => ({
+        parcels: preview.consumed.map((c, i) => ({
           tradeDate: c.tradeDate,
           units: c.units,
           cost: c.cost,
-          proceeds: Math.round((c.units / input.units) * preview.proceeds),
+          proceeds: parcelProceeds[i]!,
           holdingPeriodDays: c.holdingPeriodDays,
         })),
       }),
@@ -1007,15 +1081,40 @@ export function recordDividend(
   });
 }
 
-/** R28 · A split or bonus. Units multiply; total cost basis is unchanged. */
+/**
+ * R28 · A split or bonus.
+ *
+ * A split re-divides every lot: units multiply, total cost is unchanged, and
+ * each lot keeps its date. A bonus does not touch the lots held — it adds one
+ * new lot at nil cost dated on the allotment (`bonusLot` says why, with the
+ * numbers). Both adjust the price history, because the market price falls
+ * ex-split and ex-bonus alike.
+ */
 export function recordSplit(
   db: DB, actor: Actor,
   input: { holdingId: string; date: IsoDate; ratio: number; kind?: "split" | "bonus" },
 ): void {
+  const kind = input.kind ?? "split";
+  if (kind === "bonus" && !(input.ratio > 1)) {
+    throw new Refusal(
+      "A bonus issue adds units, so the ratio has to be above 1 — a 1:1 bonus is 2.",
+    );
+  }
   transact(db, () => {
-    const after = applySplit(holdingOf(db, input.holdingId), input.ratio);
-    for (const lot of after.lots) {
-      execute(db, `UPDATE lots SET units = ?, price = ? WHERE id = ?`, lot.units, lot.price, lot.id);
+    const before = holdingOf(db, input.holdingId);
+    if (kind === "bonus") {
+      const lot = bonusLot(before, input.ratio, input.date, newId());
+      execute(
+        db,
+        `INSERT INTO lots (id,holding_id,trade_date,units,price,fees,cost,fx_rate,created_at)
+         VALUES (?,?,?,?,0,0,0,?,?)`,
+        lot.id, input.holdingId, lot.tradeDate, lot.units, lot.fxRate, nowIST(),
+      );
+    } else {
+      const after = applySplit(before, input.ratio);
+      for (const lot of after.lots) {
+        execute(db, `UPDATE lots SET units = ?, price = ? WHERE id = ?`, lot.units, lot.price, lot.id);
+      }
     }
 
     // R28.2: the price history is adjusted too, so a chart does not show a
@@ -1035,16 +1134,18 @@ export function recordSplit(
       db,
       `INSERT INTO holding_events (id,holding_id,date,kind,ratio,created_at,created_by)
        VALUES (?,?,?,?,?,?,?)`,
-      newId(), input.holdingId, input.date, input.kind ?? "split",
+      newId(), input.holdingId, input.date, kind,
       input.ratio, nowIST(), actor.memberId,
     );
 
     appendEvent(db, actor, {
       entity: "holding", entityId: input.holdingId, action: "split",
       after: { ratio: input.ratio },
-      summary:
-        `Applied a ${input.ratio}-for-1 ${input.kind ?? "split"}. ` +
-        `Units multiplied; the cost basis is unchanged, because nothing was bought.`,
+      summary: kind === "bonus"
+        ? `Recorded a ${input.ratio}-for-1 bonus. The new units cost nothing and are held from ` +
+          `${formatDate(input.date)}; the units already held keep their cost and date.`
+        : `Applied a ${input.ratio}-for-1 split. ` +
+          `Units multiplied; the cost basis is unchanged, because nothing was bought.`,
     });
   });
 }

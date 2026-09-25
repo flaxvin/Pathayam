@@ -35,8 +35,15 @@ outside a retirement account will not stretch quite as far as the figure
 suggests.
 
 **A short history scales up whatever it has.** With less than a year of data
-the window is annualised from what exists and the screen says so, but one
-unusual month still moves the target a long way.
+the window is annualised from the days that exist — history starts at the first
+transaction or the first budget or card account opened, whichever is earlier —
+and the screen says so, but one unusual month still moves the target a long
+way.
+
+**Investing is not spending.** Units bought through the portfolio are left out
+of the spending the target is built on, even when paid from an envelope. An
+investment made any other way — a transfer to a tracking account filed to an
+envelope, say — still counts as spending.
 
 ## Tax
 
@@ -54,13 +61,24 @@ relief; presumptive schemes under 44AD and 44ADA.
 are sorted by asset class and holding period and taxed at their own rates —
 12.5% above ₹1,25,000 on long-held listed equity (112A), 20% on short-held
 (111A), 12.5% on gold and property held over 24 months (112), slab rates on
-debt. What the app cannot place, it refuses to place: an instrument with no
+debt. "Over 12 (or 24) months" is counted in calendar months, as the Act
+words it, not days — bought 2024-02-28 and sold 2025-02-28 is exactly twelve
+months and so short-term, though it is 366 days — and the sale preview, the
+gains report and the estimate all use the same test. What the app cannot
+place, it refuses to place: an instrument with no
 asset class, a hybrid fund (whose treatment turns on an equity ratio not
 tracked here), and a sale with no recorded lots are excluded from the
 computation and reported on the screen instead of being guessed into a bucket.
 Losses are floored at zero per bucket rather than set off between heads, so a
-year with losses is overstated. Surcharge on gains is capped at 15% under 111A
-and 112A; this applies the ordinary band.
+year with losses is overstated. The gains are measured against the rest of the
+person's income the way the Act does it: the 87A ceiling and the surcharge
+band are tested on total income including them; where other income is below
+the basic exemption, the unused part is set against 111A, then 112, then 112A
+gains (the order most favourable to the person — the Act fixes none); 87A never
+relieves 112A tax, and under the new regime relieves no special-rate tax at
+all; and the surcharge on special-rate tax stops at 15%. The basic-exemption
+adjustment assumes a resident under 60 — the old regime's ₹3,00,000 and
+₹5,00,000 senior limits are not modelled, so a senior's figure is overstated.
 
 **Nothing is derived from the ledger except a starting figure.** Income is
 prefilled from money that arrived in visible budget accounts, which is not

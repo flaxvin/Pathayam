@@ -146,6 +146,47 @@ describe("B88 · a sale keeps what it consumed", () => {
     db.close();
   });
 
+  /*
+   * Per-parcel proceeds must add up to the sale.
+   *
+   * Three 1-unit purchases, sold together at ₹10 with ₹0.01 of charges:
+   * proceeds = 3 × ₹10 − ₹0.01 = ₹29.99 = 2,999 paise. Each parcel's share was
+   * rounded on its own — 2,999 / 3 = 999.67 → 1,000 paise, three times — so the
+   * stored parcels said ₹30.00 was received, one paisa more than the money
+   * that landed, and the gains statement's gain was a paisa larger than the
+   * sale's. Now: 999 + 999 + 1,001 = 2,999, the remainder on the last parcel.
+   */
+  test("parcel proceeds sum exactly to the sale's proceeds", () => {
+    const { db, bank, demat, fund } = portfolio();
+    for (const day of ["2024-01-10", "2024-02-10", "2024-03-10"]) {
+      recordPurchase(db, actor, {
+        accountId: demat, instrumentId: fund, tradeDate: day,
+        price: toPrice(8), units: toUnits(1), fromAccountId: bank,
+      });
+    }
+    const holding = listHoldings(db, demat)[0]!;
+    const sale = recordSale(db, actor, {
+      holdingId: holding.id, date: "2025-06-01", units: toUnits(3),
+      price: toPrice(10), charges: 1, toAccountId: bank,
+    });
+    assert.equal(sale.proceeds, 2999);
+
+    const row = db.prepare(
+      `SELECT amount, realised_gain, detail_json FROM holding_events WHERE kind = 'sale'`,
+    ).get() as { amount: number; realised_gain: number; detail_json: string };
+    const parcels = JSON.parse(row.detail_json).parcels as { proceeds: number; cost: number }[];
+    assert.equal(parcels.length, 3);
+    assert.equal(parcels.reduce((s, p) => s + p.proceeds, 0), row.amount, "parcels sum to the sale");
+    assert.deepEqual(parcels.map((p) => p.proceeds), [999, 999, 1001]);
+
+    const year = capitalGainsByYear(db)[0]!;
+    assert.equal(
+      year.parcels.reduce((s, p) => s + p.gain, 0), row.realised_gain,
+      "the statement's gain is the sale's gain, to the paisa",
+    );
+    db.close();
+  });
+
   test("no sales, no report", () => {
     const { db } = portfolio();
     assert.deepEqual(capitalGainsByYear(db), []);
