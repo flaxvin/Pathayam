@@ -144,6 +144,11 @@ personal bank to the household card left the household ₹200 up and the payer
 ₹200 down in every month after, and a card-to-card transfer across budgets
 broke both by the full amount even with the envelope in place.
 
+Moving an account to another budget re-files its history, so the same rule
+applies to what it has already done: a past payment onto a card in what is now
+another budget opens that envelope, or the move is refused when nothing links
+the two budgets.
+
 This was documented before it was true. Editing one leg of a ₹1,000 transfer to
 ₹3,000 used to change that leg alone, and ₹2,000 left one account and arrived
 nowhere — the identity was out by that much in every month after. Undoing a

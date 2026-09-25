@@ -13,7 +13,7 @@ import { nowIST, todayIST, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { Missing, Refusal } from "../core/refusal.ts";
 import { householdBudgetId } from "./budgets.ts";
-import { prepareClaim } from "./commitments.ts";
+import { prepareClaim, prepareTransferClaim } from "./commitments.ts";
 
 export type AccountKind = "budget" | "credit" | "tracking";
 
@@ -383,6 +383,26 @@ export function hiddenAccountIds(
   return new Set(rows.map((r) => r.id));
 }
 
+/**
+ * D6 · A sealed month decided, when it was built, which of this account's
+ * transfers were internal to a budget — and that depends on which budget the
+ * account was in. The rollup's invalidation trigger fires on kind and opening
+ * balance, not on budget_id, so moving Bank2 (₹400 in from the household Bank
+ * in 2025-02) into Ravi's budget left the sealed months saying "internal":
+ * live, Ravi's Ready to Assign was ₹50,400; through the rollup ₹50,000, residual
+ * +₹400 in every month from 2025-02.
+ *
+ * Every month the account moved money in is dropped and rebuilt — both legs of
+ * a transfer share a date, so that covers the partner's side too. The trigger
+ * should watch budget_id as well (the report carries that migration); this does
+ * not depend on it.
+ */
+function dropRollupsFor(db: DB, accountId: string): void {
+  const months = `SELECT DISTINCT substr(date, 1, 7) FROM transactions WHERE account_id = ?`;
+  execute(db, `DELETE FROM month_rollups WHERE month IN (${months})`, accountId);
+  execute(db, `DELETE FROM month_rollup_state WHERE month IN (${months})`, accountId);
+}
+
 export function updateAccount(
   db: DB,
   actor: Actor,
@@ -459,6 +479,22 @@ export function updateAccount(
       )) {
         prepareClaim(db, actor, id, after.budget_id, row.budget_id);
       }
+
+      // D5 · The same for a transfer that now touches another budget's card:
+      // its claim needs the envelope too, or the move is refused.
+      for (const partner of queryAll<{ account_id: string }>(
+        db,
+        `SELECT DISTINCT other.account_id FROM transactions t
+           JOIN transactions other
+             ON other.transfer_pair_id = t.transfer_pair_id AND other.id <> t.id
+          WHERE t.account_id = ? AND t.deleted_at IS NULL AND other.deleted_at IS NULL`,
+        id,
+      )) {
+        const other = getAccount(db, partner.account_id);
+        if (other) prepareTransferClaim(db, actor, after, other);
+      }
+
+      dropRollupsFor(db, id);
     }
 
     appendEvent(db, actor, {
@@ -763,6 +799,7 @@ registerUndoHandler("account", (db, event) => {
     return `Removed the account that was added`;
   }
   const present = RESTORABLE_ACCOUNT_COLUMNS.filter((c) => c in before);
+  const movedBack = "budget_id" in before && getAccount(db, id)?.budget_id !== before.budget_id;
   if (present.length > 0) {
     execute(
       db,
@@ -771,6 +808,8 @@ registerUndoHandler("account", (db, event) => {
       id,
     );
   }
+  // D6 · Undoing a move is a move.
+  if (movedBack) dropRollupsFor(db, id);
   return `Restored ${before.name ?? "the account"}`;
 });
 
