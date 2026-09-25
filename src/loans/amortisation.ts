@@ -159,11 +159,13 @@ export function buildSchedule(input: ScheduleInput): Schedule {
 
     const opening = balance;
     const interest = balance * r;
+    const cumulativeBefore = cumulative;
     totalInterest += interest;
     cumulative += interest;
 
     const due = Math.min(payment + extraMonthly, balance + interest);
     balance = balance + interest - due;
+    const afterInstalment = balance;
 
     const prepayment = prepayments.get(month);
     if (prepayment !== undefined) {
@@ -176,13 +178,27 @@ export function buildSchedule(input: ScheduleInput): Schedule {
       }
     }
 
+    /*
+     * Each row is rounded from the exact figures, but not column by column.
+     * Rounding opening, principal and closing separately left rows that did
+     * not add up — on ₹1,00,000 at 12% over 300 months, opening − principal
+     * missed closing by a paisa on row after row, and the payments summed to
+     * ₹1.24 less than the total repaid. So the principal is opening − closing
+     * (before any prepayment, which is not part of the instalment), and the
+     * interest is the step in the rounded running total, so the rows add up to
+     * exactly the unrounded lifetime interest `06` §12 pins. The instalment is
+     * their sum, which can sit a paisa either side of the quoted EMI.
+     */
+    const openingP = toPaise(opening);
+    const principalP = openingP - toPaise(Math.max(afterInstalment, 0));
+    const interestP = toPaise(cumulative) - toPaise(cumulativeBefore);
     instalments.push({
       number: month,
       dueDate: firstInstalmentDate ? shiftMonths(firstInstalmentDate, month - 1) : null,
-      opening: toPaise(opening),
-      payment: toPaise(due),
-      interest: toPaise(interest),
-      principal: toPaise(due - interest),
+      opening: openingP,
+      payment: principalP + interestP,
+      interest: interestP,
+      principal: principalP,
       closing: toPaise(Math.max(balance, 0)),
       cumulativeInterest: toPaise(cumulative),
       estimated: true,
