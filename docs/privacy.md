@@ -29,6 +29,11 @@ A private entity is excluded from:
 - payee lists, where a payee has only ever been seen on invisible accounts;
 - **totals**, including net worth, so nothing is recoverable by subtraction.
 
+A net-worth snapshot is one shared row per date, read back by every member (the
+history, the change line, `/net-worth.csv`), so it is taken as nobody in
+particular: household accounts only, nothing held privately. Each member's live
+statement still counts their own private accounts; the history does not.
+
 Categories and groups are scoped by `budget_id`: a member sees envelopes in the
 household budget and in their own.
 

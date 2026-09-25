@@ -82,8 +82,9 @@ export function netWorthStatement(
    * a total shown to somebody else: they can see every other line, so a total
    * that includes what they cannot see publishes it by subtraction.
    *
-   * Omitted means count everything, which is what a snapshot and the export
-   * want. Screens pass the authenticated member.
+   * Omitted means count everything, which is what the operator's backup
+   * wants. Screens pass the authenticated member; a snapshot passes null (see
+   * snapshotNetWorth).
    */
   opts: { viewerMemberId?: string | null; scope?: HolderScope } = {},
 ): NetWorthStatement {
@@ -322,8 +323,22 @@ export interface Snapshot {
   net_worth: Paise;
 }
 
+/**
+ * 15 · A snapshot is one row per date, read back by every member — the history
+ * on /net-worth, the change line under it, the sparkline on the budget page and
+ * /net-worth.csv. It used to count everything, so with Ravi's private
+ * ₹3,00,000 savings account in the household, the figure Priya's history showed
+ * for today was ₹3,00,000 above the live total on the same page: his balance,
+ * published by subtraction.
+ *
+ * A shared row can only hold what everybody may see, so it is taken as nobody
+ * in particular — the household's accounts and nothing held privately. Each
+ * member's live statement still counts their own private accounts; the history
+ * is the household's. (Per-member history would need a member column on the
+ * snapshot table.)
+ */
 export function snapshotNetWorth(db: DB, actor: Actor, asOf = todayIST()): Snapshot {
-  const statement = netWorthStatement(db, asOf);
+  const statement = netWorthStatement(db, asOf, "INR", { viewerMemberId: null });
   const find = (groups: NetWorthGroup[], name: string) =>
     groups.find((g) => g.name === name)?.total ?? 0;
 
@@ -425,7 +440,10 @@ export function netWorthChange(
 /** R34.2 · Asset gain and FX gain aggregated separately across foreign holdings. */
 function portfolioFxMovement(db: DB, from: IsoDate, to: IsoDate): Paise {
   let movement = 0;
+  // 15 · Over the holdings the snapshots counted, and no others.
+  const hidden = hiddenAccountIds(db, null);
   for (const holding of listHoldings(db)) {
+    if (hidden.has(holding.account_id)) continue;
     const before = viewHolding(db, holding.id, from);
     const after = viewHolding(db, holding.id, to);
     if (!before?.decomposition || !after?.decomposition) continue;

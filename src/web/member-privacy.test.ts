@@ -45,7 +45,7 @@ import {
 } from "../domain/assets.ts";
 import { units, price } from "../portfolio/holdings.ts";
 import { exportEverything } from "../ops/backup.ts";
-import { assetAllocation } from "../domain/networth.ts";
+import { assetAllocation, netWorthStatement } from "../domain/networth.ts";
 
 const RAVI = "m-ravi";
 const PRIYA = "m-priya";
@@ -539,5 +539,27 @@ describe("15 · allocation, the CAS picker and the portfolio files are the reade
     } finally {
       await app.close();
     }
+  });
+});
+
+/*
+ * A net worth snapshot is one shared row per date. It counted everything, so
+ * after Priya pressed "snapshot", the net worth in her history and in
+ * /net-worth.csv was her live total plus Ravi's private ₹3,00,000 savings
+ * account, his ₹8,000 demat and less his ₹60,000 card — his private balances,
+ * published by subtraction.
+ */
+describe("15 · the net worth history holds only what everybody may see", () => {
+  test("Priya's snapshot and CSV agree with the total she is shown", async () => {
+    await asPriya(async (app, w) => {
+      const res = await app.post("/net-worth/snapshot", {});
+      assert.equal(res.status, 303);
+      const live = netWorthStatement(w.db, todayIST(), "INR", { viewerMemberId: PRIYA }).netWorth;
+      assert.equal(live, rupees(50_000), "her live total is the joint account");
+      const csv = (await (await app.get("/net-worth.csv")).text()).trim().split("\n");
+      const header = csv[0]!.split(",");
+      const row = csv.at(-1)!.split(",");
+      assert.equal(row[header.indexOf("net_worth")], "50000.00", csv.join("\n"));
+    });
   });
 });
