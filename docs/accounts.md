@@ -131,6 +131,19 @@ warning shows the gap until money is assigned to it. Treating the card leg as a
 card *payment*, as it once was, moved the envelope by the full amount with no
 category giving it up.
 
+**Paying another budget's card** — from a bank account or from a card of your
+own (a balance transfer) — buys a claim rather than spending money: the payer is
+owed what they paid, and the envelope between the two budgets (see
+[budgeting.md](budgeting.md#commitments-between-budgets)) carries it. Recording
+the transfer opens that envelope when it does not exist yet. Two budgets can
+only owe each other when something links them — the household is shared by
+definition, and between two personal budgets an add-on card held by the other
+side's member — so a transfer between two personal budgets' accounts and cards
+with nothing linking them is refused with a sentence. Before this, ₹200 from a
+personal bank to the household card left the household ₹200 up and the payer
+₹200 down in every month after, and a card-to-card transfer across budgets
+broke both by the full amount even with the envelope in place.
+
 This was documented before it was true. Editing one leg of a ₹1,000 transfer to
 ₹3,000 used to change that leg alone, and ₹2,000 left one account and arrived
 nowhere — the identity was out by that much in every month after. Undoing a

@@ -205,16 +205,27 @@ function transferFlowSql(budgetId?: string): string {
  * that cancelled in the combined view.
  */
 function crossCardPaymentSql(): string {
+  /*
+   * D9 · The payer can be a card too. ₹500 moved from Ravi's card to the
+   * household card (a balance transfer) raised Ravi's payment envelope by ₹500
+   * and lowered the household's by ₹500 — each budget's envelope moving by the
+   * other's debt — and no claim met either, so both identities were out by ₹500,
+   * in opposite directions, even with the envelope between them in place.
+   *
+   * Card to card, both legs are on cards, so only the outgoing one is read as the
+   * payer; reading both would raise the claim twice.
+   */
   return `SELECT substr(t.date,1,7) AS month,
             a.budget_id AS account_budget, card.budget_id AS card_budget,
             SUM(t.amount) AS amount
        FROM transactions t
-       JOIN accounts a ON a.id = t.account_id AND a.kind = 'budget'
+       JOIN accounts a ON a.id = t.account_id
        JOIN transactions other
          ON other.transfer_pair_id = t.transfer_pair_id AND other.id <> t.id
         AND other.deleted_at IS NULL
        JOIN accounts card ON card.id = other.account_id AND card.kind = 'credit'
       WHERE t.deleted_at IS NULL AND t.transfer_pair_id IS NOT NULL
+        AND (a.kind = 'budget' OR (a.kind = 'credit' AND t.amount < 0))
         AND a.budget_id IS NOT card.budget_id
         AND t.date >= ? AND t.date <= ?
       GROUP BY month, a.budget_id, card.budget_id`;
