@@ -118,7 +118,7 @@ India brings in consumer protection, GST and the DPDP Act all at once.
 | Host | Serves | Notes |
 |---|---|---|
 | `pathayam.app` | this directory | Static. Redirect `www` to the apex. |
-| `demo.pathayam.app` | the app, `DEMO_MODE=1` | Reseed on a schedule; the data is public. |
+| `demo.pathayam.app` | the app, `DEMO_MODE=1` | Resets on every wake from idle; re-seeded every Wednesday 04:00 IST. The data is public. |
 
 Serve both over HTTPS and redirect HTTP. `BASE_URL` on the demo must be exactly
 `https://demo.pathayam.app` — sign-in redirects and cookie scoping depend on

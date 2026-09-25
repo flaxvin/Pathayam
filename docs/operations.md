@@ -39,6 +39,11 @@ sign-in page.
 
 The seeder refuses to run against a database that already contains accounts.
 
+The hosted demo at demo.pathayam.app bakes this seed into its image and copies
+it back over the database on every boot, so it resets whenever it wakes from
+idle. The deploy workflow also rebuilds it every Wednesday at 04:00 IST, so the
+seed's dates stay current between releases.
+
 ## Docker Compose
 
 [`compose.yaml`](../compose.yaml) is the intended deployment. Put the settings

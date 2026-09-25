@@ -113,6 +113,12 @@ ENV DEMO_MODE=1 \
     DATABASE_PATH=/app/demo.sqlite
 
 USER root
+# The seed's dates end on the day it runs, so a seed baked months ago shows a
+# demo whose current month is empty. The weekly scheduled deploy re-seeds by
+# passing a new SEED_STAMP: an ARG whose value changes misses the build cache
+# at the next RUN, so the seed below runs again even though no source changed.
+# Left unset, a local build behaves exactly as before.
+ARG SEED_STAMP=
 # SQLite writes -wal and -shm beside the database, so the directory has to be
 # writable by the runtime user, not just the file.
 #
