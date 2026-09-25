@@ -512,7 +512,17 @@ export interface AssetAllocation {
  */
 export function assetAllocation(
   db: DB, asOf: IsoDate = todayIST(), baseCurrency = "INR",
+  /**
+   * 15 · Who is looking. The allocation page asked for everything, so Priya's
+   * "Equity" slice included the ₹8,000 of "Bandersnatch Secret Fund" in Ravi's
+   * private demat, and the unclassified list named the fund outright. The
+   * same rule as the net worth statement: omitted counts everything.
+   */
+  opts: { viewerMemberId?: string | null } = {},
 ): AssetAllocation {
+  const hidden = opts.viewerMemberId === undefined
+    ? new Set<string>()
+    : hiddenAccountIds(db, opts.viewerMemberId ?? null);
   const byClass = new Map<string, number>();
   const byRegion = new Map<string, number>();
   const byCurrency = new Map<string, number>();
@@ -531,6 +541,7 @@ export function assetAllocation(
 
   // Unit holdings.
   for (const holding of listHoldings(db)) {
+    if (hidden.has(holding.account_id)) continue;
     const view = viewHolding(db, holding.id, asOf, baseCurrency);
     if (!view || view.marketValue <= 0) continue;
 
@@ -552,6 +563,7 @@ export function assetAllocation(
 
   // Manually-valued asset accounts. Their subtype fixes the class.
   for (const account of listAssetAccounts(db)) {
+    if (hidden.has(account.id)) continue;
     if (listHoldings(db, account.id).length > 0) continue; // a unit account, counted above
     // R32 · In the base currency, like every other line in this total. The
     // slice is still labelled with the account's own currency — that is the
