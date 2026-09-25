@@ -45,6 +45,7 @@ import {
 } from "../domain/assets.ts";
 import { units, price } from "../portfolio/holdings.ts";
 import { exportEverything } from "../ops/backup.ts";
+import { assetAllocation } from "../domain/networth.ts";
 
 const RAVI = "m-ravi";
 const PRIYA = "m-priya";
@@ -499,6 +500,44 @@ describe("15 · deleting a personal goal keeps its envelope in that budget", () 
       }
     } finally {
       await priya.close();
+    }
+  });
+});
+
+/*
+ * The portfolio page had been taught to hide Ravi's private demat; the pages
+ * and files around it had not. As Priya, the allocation counted his 100 units
+ * of "Bandersnatch Secret Fund" at ₹80 (₹8,000) into her slices, the CAS form
+ * offered "Quokka Private Demat" as a destination, and holdings.csv, lots.csv
+ * and prices.csv carried the demat, the fund, its units and its price.
+ */
+describe("15 · allocation, the CAS picker and the portfolio files are the reader's", () => {
+  test("Priya's carry nothing of Ravi's demat", async () => {
+    await asPriya(async (app, w) => {
+      for (const path of [
+        "/portfolio/allocation", "/portfolio/cas",
+        "/portfolio/holdings.csv", "/portfolio/lots.csv", "/portfolio/prices.csv",
+      ]) {
+        const res = await app.get(path);
+        assert.equal(res.status, 200, path);
+        assert.deepEqual(leaks(await res.text()), [], path);
+      }
+      const hers = assetAllocation(w.db, todayIST(), "INR", { viewerMemberId: PRIYA });
+      assert.equal(hers.total + hers.unclassified.value, 0, "her allocation counts his fund");
+    });
+  });
+
+  test("Ravi's still have it", async () => {
+    const w = build();
+    const his = assetAllocation(w.db, todayIST(), "INR", { viewerMemberId: RAVI });
+    assert.equal(his.total + his.unclassified.value, rupees(8_000));
+    const app = await startTestApp(w.db, { memberId: RAVI });
+    try {
+      for (const path of ["/portfolio/cas", "/portfolio/holdings.csv", "/portfolio/lots.csv"]) {
+        assert.ok((await (await app.get(path)).text()).includes("Quokka Private Demat"), path);
+      }
+    } finally {
+      await app.close();
     }
   });
 });

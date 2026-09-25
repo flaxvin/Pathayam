@@ -1195,7 +1195,19 @@ function toCsv(headers: string[], rows: (unknown[])[]): string {
  * this file is for a human in Excel — the milliunit/micro-rupee integers are an
  * internal storage detail (E13), not something to export raw.
  */
-export function exportHoldingsCsv(db: DB): string {
+/**
+ * 15 · Scoped to the reader when `viewerMemberId` is given, like every other
+ * list: `/portfolio/holdings.csv` and `/portfolio/lots.csv` were whole-household
+ * files, so Priya could download Ravi's private demat, the fund in it and all
+ * 100 units at ₹80 — the portfolio page itself had long since hidden them.
+ */
+const visibleAccountClause = (viewerMemberId: string | null | undefined): [string, (string | null)[]] =>
+  viewerMemberId === undefined
+    ? ["", []]
+    : ["AND (a.visibility = 'household' OR a.holder_member_id IS ?)", [viewerMemberId]];
+
+export function exportHoldingsCsv(db: DB, opts: { viewerMemberId?: string | null } = {}): string {
+  const [visible, params] = visibleAccountClause(opts.viewerMemberId);
   const rows = queryAll<{
     account: string; instrument: string; isin: string | null; kind: string;
     asset_class: string | null; region: string | null; currency: string;
@@ -1209,9 +1221,10 @@ export function exportHoldingsCsv(db: DB): string {
        JOIN accounts a ON a.id = h.account_id
        JOIN instruments i ON i.id = h.instrument_id
        LEFT JOIN lots l ON l.holding_id = h.id AND l.closed_at IS NULL
-      WHERE h.closed_at IS NULL
+      WHERE h.closed_at IS NULL ${visible}
       GROUP BY h.id
       ORDER BY a.name, i.name`,
+    ...params,
   );
   return toCsv(
     ["account", "instrument", "isin", "kind", "asset_class", "region", "currency", "units", "cost_basis"],
@@ -1222,7 +1235,8 @@ export function exportHoldingsCsv(db: DB): string {
   );
 }
 
-export function exportLotsCsv(db: DB): string {
+export function exportLotsCsv(db: DB, opts: { viewerMemberId?: string | null } = {}): string {
+  const [visible, params] = visibleAccountClause(opts.viewerMemberId);
   const rows = queryAll<{
     account: string; instrument: string; trade_date: string;
     units: number; price: number; fees: number; cost: number;
@@ -1235,7 +1249,9 @@ export function exportLotsCsv(db: DB): string {
        JOIN holdings h ON h.id = l.holding_id
        JOIN accounts a ON a.id = h.account_id
        JOIN instruments i ON i.id = h.instrument_id
+      WHERE 1 = 1 ${visible}
       ORDER BY i.name, l.trade_date, l.created_at`,
+    ...params,
   );
   return toCsv(
     ["account", "instrument", "trade_date", "units", "price_per_unit", "fees", "cost_basis", "fx_rate", "closed", "source"],
@@ -1248,13 +1264,17 @@ export function exportLotsCsv(db: DB): string {
   );
 }
 
-export function exportPriceHistoryCsv(db: DB): string {
-  const rows = queryAll<{ instrument: string; isin: string | null; as_of: string; price: number; source: string }>(
+export function exportPriceHistoryCsv(
+  db: DB,
+  /** 15 · Instruments held only where the reader cannot see (memberScope().instruments). */
+  opts: { hideInstruments?: ReadonlySet<string> } = {},
+): string {
+  const rows = queryAll<{ id: string; instrument: string; isin: string | null; as_of: string; price: number; source: string }>(
     db,
-    `SELECT i.name AS instrument, i.isin, p.as_of, p.price, p.source
+    `SELECT i.id, i.name AS instrument, i.isin, p.as_of, p.price, p.source
        FROM prices p JOIN instruments i ON i.id = p.instrument_id
       ORDER BY i.name, p.as_of`,
-  );
+  ).filter((r) => !opts.hideInstruments?.has(r.id));
   return toCsv(
     ["instrument", "isin", "as_of", "price", "source"],
     rows.map((r) => [r.instrument, r.isin, r.as_of, (r.price / 1_000_000).toFixed(4), r.source]),

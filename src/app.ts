@@ -6732,7 +6732,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     requireAssets();
     auth(ctx);
     return render(ctx, "Import a CAS", renderCasUpload({
-      accounts: casDestinations(db),
+      accounts: casDestinations(db, viewer(ctx)),
       error: ctx.query.get("error"),
     }));
   });
@@ -6744,7 +6744,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const upload = fileField(ctx.req, "statement");
     if (!upload) {
       return render(ctx, "Import a CAS", renderCasUpload({
-        accounts: casDestinations(db),
+        accounts: casDestinations(db, viewer(ctx)),
         error: "Choose the statement PDF first.",
       }));
     }
@@ -6765,13 +6765,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         ? "That password did not open the statement. It is usually your PAN, in capitals."
         : `That file could not be read as a CAS. ${(error as Error).message}`;
       return render(ctx, "Import a CAS", renderCasUpload({
-        accounts: casDestinations(db), error: message,
+        accounts: casDestinations(db, viewer(ctx)), error: message,
       }));
     }
 
     if (statement.schemes.length === 0) {
       return render(ctx, "Import a CAS", renderCasUpload({
-        accounts: casDestinations(db),
+        accounts: casDestinations(db, viewer(ctx)),
         error:
           "That PDF opened, but no folios were found in it. If it is a CAS, " +
           "it may be a format this app has not seen — nothing was imported.",
@@ -6941,7 +6941,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/portfolio/allocation", (ctx) => {
     requireAssets();
     auth(ctx);
-    const a = assetAllocation(db);
+    const a = assetAllocation(db, todayIST(), "INR", { viewerMemberId: viewer(ctx) });
     const foreign = a.byCurrency.some((c) => c.key !== "INR") || a.byRegion.length > 1;
     return render(ctx, "Allocation", renderAllocation({
       byClass: a.byClass,
@@ -7800,9 +7800,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       },
     };
   }
-  router.get("/portfolio/holdings.csv", (ctx) => { requireAssets(); auth(ctx); return csvDownload("holdings", exportHoldingsCsv(db)); });
-  router.get("/portfolio/lots.csv", (ctx) => { requireAssets(); auth(ctx); return csvDownload("lots", exportLotsCsv(db)); });
-  router.get("/portfolio/prices.csv", (ctx) => { requireAssets(); auth(ctx); return csvDownload("prices", exportPriceHistoryCsv(db)); });
+  // 15 · Each of these is the reader's, like the page it downloads.
+  router.get("/portfolio/holdings.csv", (ctx) => {
+    requireAssets(); auth(ctx);
+    return csvDownload("holdings", exportHoldingsCsv(db, { viewerMemberId: viewer(ctx) }));
+  });
+  router.get("/portfolio/lots.csv", (ctx) => {
+    requireAssets(); auth(ctx);
+    return csvDownload("lots", exportLotsCsv(db, { viewerMemberId: viewer(ctx) }));
+  });
+  router.get("/portfolio/prices.csv", (ctx) => {
+    requireAssets(); auth(ctx);
+    const hideInstruments = memberScope(db, viewer(ctx)).instruments;
+    return csvDownload("prices", exportPriceHistoryCsv(db, { hideInstruments }));
+  });
   router.get("/net-worth.csv", (ctx) => { requireAssets(); auth(ctx); return csvDownload("net-worth", exportNetWorthCsv(db)); });
 
   /**
