@@ -90,10 +90,14 @@ export function findDuplicate(incoming: Incoming, candidates: Candidate[]): Dupl
 
   // I5: re-running the same import produces zero new transactions. This is
   // idempotency, not a duplicate, so it is skipped silently and by design.
+  //
+  // The source id already names its adapter ("hdfc:…", "csv:…"), so it is
+  // compared alone. Comparing `source` too never matched a PDF or email row:
+  // approval used to write every import as 'csv', so a Gmail alert fetched a
+  // second time missed this tier, queued again, and then 500'd on the unique
+  // index when approved — on every fetch.
   if (incoming.sourceId) {
-    const exact = sameAccount.find(
-      (c) => c.source === incoming.source && c.sourceId === incoming.sourceId,
-    );
+    const exact = sameAccount.find((c) => c.sourceId === incoming.sourceId);
     if (exact) {
       return {
         tier: "exact",

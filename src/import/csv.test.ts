@@ -69,6 +69,22 @@ Transaction Date,Transaction Remarks,Withdrawal Amount,Deposit Amount,Balance
     assert.equal(mapping.debit, undefined);
   });
 
+  // "Description" contains "cr", and hints matched substrings — so this file's
+  // narration column was taken as Credit, the ₹5,000 salary row was refused
+  // as "SALARY is not an amount", and that mapping was saved as the profile.
+  test("matches whole words: Description is not the Credit column", () => {
+    const text = `Date,Description,Debit,Credit,Balance
+03-08-2026,SHOP,450.00,,1000.00
+04-08-2026,SALARY,,5000.00,6000.00`;
+    const mapping = guessMapping(parseDelimited(text))!;
+    assert.equal(mapping.narration, 1);
+    assert.equal(mapping.debit, 2);
+    assert.equal(mapping.credit, 3);
+    const { result } = parseStatement(text);
+    assert.deepEqual(result.records.map((r) => r.amount), [rupees(-450), rupees(5000)]);
+    assert.equal(result.errors.length, 0);
+  });
+
   test("returns null when nothing looks like a statement", () => {
     // An unrecognised file is a mapping task, not an error — the caller shows
     // the raw rows and asks.
@@ -147,6 +163,153 @@ This is a computer generated statement and does not require a signature.`,
       `Date,Narration,Withdrawal Amt.,Deposit Amt.\n01-08-26,SALARY,,145000.00`,
     );
     assert.equal(result.records[0]!.date, "2026-08-01");
+  });
+});
+
+/*
+ * With separate Debit and Credit columns, a non-zero debit always won:
+ * "100.00 | 50.00" staged a ₹100 debit and the ₹50 credit disappeared;
+ * "abc | 50.00" ignored the unreadable debit and staged a ₹50 credit; and
+ * "0.00 | 0.00" was refused as '"0.00" is not an amount I can read'.
+ */
+describe("a Debit and Credit pair that disagrees is refused, with the reason", () => {
+  const mapping = { headerRow: 0, date: 0, narration: 1, debit: 2, credit: 3 };
+  const run = (debit: string, credit: string) =>
+    applyMapping(parseDelimited(`Date,Narration,Debit,Credit\n01-09-2026,ROW,${debit},${credit}`), mapping);
+
+  test("both columns carrying money is an error row, not the debit", () => {
+    const result = run("100.00", "50.00");
+    assert.equal(result.records.length, 0);
+    assert.equal(result.errors.length, 1);
+    assert.match(result.errors[0]!.reason, /both a debit \(100\.00\) and a credit \(50\.00\)/);
+  });
+
+  test("an unreadable debit is not ignored because the credit reads", () => {
+    const result = run("abc", "50.00");
+    assert.equal(result.records.length, 0);
+    assert.match(result.errors[0]!.reason, /debit "abc" is not an amount/);
+    assert.match(run("50.00", "abc").errors[0]!.reason, /credit "abc" is not an amount/);
+  });
+
+  test("zero on both sides says so", () => {
+    const result = run("0.00", "0.00");
+    assert.equal(result.records.length, 0);
+    assert.match(result.errors[0]!.reason, /both zero|are zero/);
+  });
+
+  test("a zero or dash in the unused column is still an ordinary row", () => {
+    assert.equal(run("450.00", "0.00").records[0]!.amount, rupees(-450));
+    assert.equal(run("0.00", "450.00").records[0]!.amount, rupees(450));
+    assert.equal(run("-", "450.00").records[0]!.amount, rupees(450));
+    assert.equal(run("450.00", "").records[0]!.amount, rupees(-450));
+    assert.equal(run("450.00", "").records[0]!.raw.amount, "450.00");
+  });
+});
+
+/*
+ * CSV read dates more narrowly than PDF and alerts: "15-Jan-2026",
+ * "15 Jan 2026", "2026/01/15" and "15-01-2026 10:32" were all refused. Worse,
+ * a refused row whose cells held "*" or "total" was taken for a footer and
+ * skipped without a word — so "15-Jan-2026,SWIGGY*ORDER,450.00" vanished and
+ * the import said nothing was wrong. And the mapping's `dateFormat` was
+ * stored and never read.
+ */
+describe("dates in a statement file", () => {
+  test("named months, year-first slashes and a trailing time all read", () => {
+    const { result } = parseStatement(
+      `Date,Narration,Amount
+15-Jan-2026,SWIGGY*ORDER,-450.00
+15 Jan 2026,TOTAL GAS STATION,-1200.00
+2026/01/15,RENT,-41000.00
+15-01-2026 10:32,UPI/KAVYA,-600.00
+15-01-2026 10:32:05 AM,UPI/ARJUN,-50.00
+2026-01-15T10:32:00,NEFT/SALARY,145000.00`,
+    );
+    assert.equal(result.errors.length, 0, JSON.stringify(result.errors));
+    assert.equal(result.records.length, 6);
+    for (const r of result.records) assert.equal(r.date, "2026-01-15");
+    assert.equal(result.records[0]!.raw.date, "15-Jan-2026", "the raw text is kept as written");
+  });
+
+  test("a row whose date cannot be read is reported, not taken for a footer", () => {
+    const { result } = parseStatement(
+      `Date,Narration,Amount
+01-08-2026,SALARY,145000.00
+15/Jnu/2026,SWIGGY*ORDER,-450.00
+32-08-2026,TOTAL GAS STATION,-1200.00
+Total,,143350.00
+,Closing Balance,143350.00`,
+    );
+    assert.equal(result.records.length, 1);
+    assert.equal(result.errors.length, 2, "both unreadable dates are reported");
+    assert.deepEqual(result.errors.map((e) => e.rowNumber), [3, 4]);
+    assert.equal(result.rowsRead, 3, "footers are not counted, the two bad rows are");
+  });
+
+  test("the mapping's dateFormat decides a two-digit year-first date", () => {
+    const text = `Date,Narration,Amount
+26-08-15,SALARY,145000.00`;
+    const base = { headerRow: 0, date: 0, narration: 1, amount: 2 };
+    assert.equal(parseStatement(text, base).result.records[0]!.date, "2015-08-26");
+    assert.equal(
+      parseStatement(text, { ...base, dateFormat: "yyyy-mm-dd" }).result.records[0]!.date,
+      "2026-08-15",
+    );
+  });
+});
+
+/*
+ * A statement's "1,200.00Cr" is a ₹1,200 credit. CSV read the attached "Cr"
+ * as crore and staged 12,00,00,00,00,000 paise — ₹120 crore — for a row the
+ * bank printed as twelve hundred rupees. A statement never uses shorthand, so
+ * "3Cr" in a bank file is ₹3, and "1.2L" is refused.
+ */
+describe("amounts in a statement file", () => {
+  test("an attached Cr or Dr is the bank's marker, never crore", () => {
+    const { result } = parseStatement(
+      "Date,Narration,Amount\n01-08-2026,SALARY,\"1,200.00Cr\"\n02-08-2026,SHOP,1200DR\n03-08-2026,CASHBACK,3Cr",
+    );
+    assert.deepEqual(result.records.map((r) => r.amount), [rupees(1200), rupees(-1200), rupees(3)]);
+  });
+
+  test("lakh shorthand in a bank file is an error, not ₹1,20,000", () => {
+    const { result } = parseStatement("Date,Narration,Amount\n01-08-2026,ODD,1.2L");
+    assert.equal(result.records.length, 0);
+    assert.equal(result.errors.length, 1);
+  });
+});
+
+/*
+ * A stray quote inside an unquoted field opened a quoted field that never
+ * closed, and every later row disappeared into that one cell: a 10-row file
+ * with `12" PIZZA` on row 5 staged 5 rows and reported no error at all.
+ */
+describe("a stray quote cannot swallow the rest of the file", () => {
+  const rows = [
+    "01-09-2026,SHOP A,-100.00",
+    '02-09-2026,12" PIZZA,-200.00',
+    "03-09-2026,SHOP C,-300.00",
+    "04-09-2026,SHOP D,-400.00",
+  ];
+
+  test("a quote in the middle of a field is an ordinary character", () => {
+    const { result } = parseStatement(`Date,Narration,Amount\n${rows.join("\n")}`);
+    assert.equal(result.records.length, 4);
+    assert.equal(result.records[1]!.narration, '12" PIZZA');
+    assert.deepEqual(result.records.map((r) => r.amount), [-10000, -20000, -30000, -40000]);
+  });
+
+  test("a quote that opens a field and never closes is read as a literal", () => {
+    const text = `Date,Narration,Amount\n01-09-2026,"SHOP A,-100.00\n${rows.slice(2).join("\n")}`;
+    const { result } = parseStatement(text);
+    assert.equal(result.records.length + result.errors.length, 3, "every row accounted for");
+    assert.equal(result.records.length, 3);
+    assert.equal(result.records[0]!.narration, '"SHOP A');
+  });
+
+  test("a properly quoted multi-line narration still works", () => {
+    const parsed = parseDelimited('a,b\n1,"x\ny"\n2,z');
+    assert.deepEqual(parsed, [["a", "b"], ["1", "x\ny"], ["2", "z"]]);
   });
 });
 

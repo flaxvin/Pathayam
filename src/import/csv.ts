@@ -12,14 +12,40 @@
  */
 
 import { parseAmount, type Paise } from "../core/money.ts";
-import { parseDate, type IsoDate } from "../core/dates.ts";
+import { calendarDate, fullYear, parseDate, type IsoDate } from "../core/dates.ts";
 
-/** Parse delimited text into rows, honouring quotes and embedded newlines. */
+/**
+ * Parse delimited text into rows, honouring quotes and embedded newlines.
+ *
+ * A quote opens a quoted field only at the very start of a field (RFC 4180).
+ * The old reader opened one anywhere, so a narration like `12" PIZZA` began a
+ * quoted field that never closed, and every later row of the file vanished
+ * into that one cell — 10 rows in, 5 staged, no error reported.
+ *
+ * A field that does start with a quote but never closes it is the same trap
+ * from the other side: the rest of the file would be one cell. When that
+ * happens the quote is taken as a literal character and the text is read
+ * again, so every row still arrives and is judged on its own.
+ */
 export function parseDelimited(text: string, delimiter = ","): string[][] {
+  const literal = new Set<number>();
+  for (;;) {
+    const attempt = parseDelimitedOnce(text, delimiter, literal);
+    if (attempt.unclosedQuoteAt === null) return attempt.rows;
+    literal.add(attempt.unclosedQuoteAt);
+  }
+}
+
+function parseDelimitedOnce(
+  text: string, delimiter: string, literal: Set<number>,
+): { rows: string[][]; unclosedQuoteAt: number | null } {
   const rows: string[][] = [];
   let row: string[] = [];
   let field = "";
   let quoted = false;
+  let quoteOpenedAt = -1;
+  // True until the current field has taken any character, quote included.
+  let atFieldStart = true;
   let i = 0;
 
   // A BOM survives Excel exports and would otherwise poison the first header.
@@ -44,14 +70,17 @@ export function parseDelimited(text: string, delimiter = ","): string[][] {
       continue;
     }
 
-    if (ch === '"') {
+    if (ch === '"' && atFieldStart && !literal.has(i)) {
       quoted = true;
+      quoteOpenedAt = i;
+      atFieldStart = false;
       i++;
       continue;
     }
     if (ch === delimiter) {
       row.push(field);
       field = "";
+      atFieldStart = true;
       i++;
       continue;
     }
@@ -64,6 +93,7 @@ export function parseDelimited(text: string, delimiter = ","): string[][] {
       rows.push(row);
       row = [];
       field = "";
+      atFieldStart = true;
       i++;
       continue;
     }
@@ -72,12 +102,14 @@ export function parseDelimited(text: string, delimiter = ","): string[][] {
     i++;
   }
 
+  if (quoted) return { rows, unclosedQuoteAt: quoteOpenedAt };
+
   if (field !== "" || row.length > 0) {
     row.push(field);
     rows.push(row);
   }
 
-  return rows;
+  return { rows, unclosedQuoteAt: null };
 }
 
 /** Guess the delimiter from the first few lines. Some banks emit TSV or `;`. */
@@ -126,6 +158,11 @@ export interface RawRecord {
   reference: string | null;
   /** P4 / I1: retained forever, unchanged, alongside the final transaction. */
   raw: { date: string; amount: string; narration: string };
+  /**
+   * R6.e · The card, when the source already knows it. A card alert names the
+   * card by its last four, which the narration (a merchant) does not repeat.
+   */
+  cardId?: string | null;
 }
 
 export interface ParseError {
@@ -152,12 +189,12 @@ export function headerSignature(headers: string[]): string {
     .join("|");
 }
 
-const DATE_HINTS = ["date", "txn date", "transaction date", "value date", "tran date"];
+const DATE_HINTS = ["date", "txn date", "transaction date", "value date", "tran date", "txndate", "transactiondate", "valuedate", "trandate"];
 const NARRATION_HINTS = ["narration", "description", "particulars", "remarks", "details", "transaction remarks"];
-const DEBIT_HINTS = ["withdrawal", "debit", "withdrawal amt", "dr", "withdrawalamt"];
-const CREDIT_HINTS = ["deposit", "credit", "deposit amt", "cr", "depositamt"];
+const DEBIT_HINTS = ["withdrawal", "withdrawals", "debit", "debits", "withdrawal amt", "dr", "withdrawalamt"];
+const CREDIT_HINTS = ["deposit", "deposits", "credit", "credits", "deposit amt", "cr", "depositamt"];
 const AMOUNT_HINTS = ["amount", "transaction amount", "amt"];
-const BALANCE_HINTS = ["balance", "closing balance", "running balance"];
+const BALANCE_HINTS = ["balance", "closing balance", "running balance", "closingbalance"];
 const REFERENCE_HINTS = ["ref", "reference", "chq", "cheque", "ref no", "chq/ref no", "transaction id", "utr"];
 
 /**
@@ -173,8 +210,16 @@ export function guessMapping(rows: string[][]): ColumnMapping | null {
     const cells = (rows[r] ?? []).map((c) => c.trim().toLowerCase());
     if (cells.filter(Boolean).length < 3) continue;
 
+    /*
+     * Hints match whole words, not substrings. "Description" contains "cr",
+     * so a Date,Description,Debit,Credit file had its narration column taken
+     * as the Credit column — every deposit read from the narration, refused,
+     * and the wrong mapping then saved as the bank's profile. "Chq./Ref.No."
+     * still finds "ref", because punctuation separates words.
+     */
+    const cellWords = cells.map((c) => ` ${c.split(/[^a-z0-9]+/).filter(Boolean).join(" ")} `);
     const find = (hints: string[]): number =>
-      cells.findIndex((cell) => hints.some((h) => cell === h || cell.includes(h)));
+      cellWords.findIndex((words) => hints.some((h) => words.includes(` ${h} `)));
 
     const date = find(DATE_HINTS);
     const narration = find(NARRATION_HINTS);
@@ -223,10 +268,12 @@ export function applyMapping(rows: string[][], mapping: ColumnMapping): ParseRes
     const rawDate = (cells[mapping.date] ?? "").trim();
     const narration = (cells[mapping.narration] ?? "").trim().replace(/\s+/g, " ");
 
-    // A footer line has no date where a date belongs.
-    const date = parseDate(rawDate);
+    // A footer line has no date where a date belongs — but neither does a row
+    // whose date this reader cannot parse, and only one of them is safe to
+    // skip. See `looksLikeFooter`.
+    const date = readDate(rawDate, mapping);
     if (!date) {
-      if (looksLikeFooter(cells)) continue;
+      if (looksLikeFooter(cells, rawDate, readAmount(cells, mapping).amount !== null)) continue;
       rowsRead++;
       errors.push({ rowNumber: r + 1, cells, reason: `"${rawDate}" is not a date I can read.` });
       continue;
@@ -257,26 +304,10 @@ function readAmount(
   mapping: ColumnMapping,
 ): { amount: Paise | null; rawAmount: string; reason?: string } {
   if (mapping.debit !== undefined && mapping.credit !== undefined) {
-    const rawDebit = (cells[mapping.debit] ?? "").trim();
-    const rawCredit = (cells[mapping.credit] ?? "").trim();
-    const debit = rawDebit ? parseAmount(rawDebit) : null;
-    const credit = rawCredit ? parseAmount(rawCredit) : null;
-
-    if (debit !== null && debit !== 0) {
-      // Money leaving is negative regardless of how the column is signed.
-      return { amount: -Math.abs(debit), rawAmount: rawDebit };
-    }
-    if (credit !== null && credit !== 0) {
-      return { amount: Math.abs(credit), rawAmount: rawCredit };
-    }
-    if (rawDebit === "" && rawCredit === "") {
-      return { amount: null, rawAmount: "", reason: "Both the debit and credit columns are empty." };
-    }
-    return {
-      amount: null,
-      rawAmount: rawDebit || rawCredit,
-      reason: `"${rawDebit || rawCredit}" is not an amount I can read.`,
-    };
+    return readDebitCredit(
+      (cells[mapping.debit] ?? "").trim(),
+      (cells[mapping.credit] ?? "").trim(),
+    );
   }
 
   if (mapping.amount === undefined) {
@@ -284,20 +315,108 @@ function readAmount(
   }
 
   const raw = (cells[mapping.amount] ?? "").trim();
-  const amount = parseAmount(raw);
+  const amount = parseAmount(raw, "statement");
   if (amount === null) {
     return { amount: null, rawAmount: raw, reason: `"${raw}" is not an amount I can read.` };
   }
   return { amount, rawAmount: raw };
 }
 
-function looksLikeFooter(cells: string[]): boolean {
-  const joined = cells.join(" ").toLowerCase();
-  if (joined.trim() === "") return true;
-  return [
-    "total", "opening balance", "closing balance", "statement", "generated",
-    "computer generated", "end of", "please", "disclaimer", "*", "unless",
-  ].some((marker) => joined.includes(marker));
+/** What banks print in the column a row does not use. */
+const EMPTY_CELL = /^(?:|-|–|—)$/;
+
+/**
+ * A row from a statement with separate Debit and Credit columns.
+ *
+ * Exactly one of the two may carry money. This used to take the debit
+ * whenever it was non-zero, so "100.00 | 50.00" staged a ₹100 debit and the
+ * ₹50 credit vanished; an unreadable debit beside a readable credit was
+ * ignored ("abc | 50.00" became a ₹50 credit); and "0.00 | 0.00" was refused
+ * as '"0.00" is not an amount I can read', which it plainly is. Each of those
+ * is now an error row that says what is actually wrong, because guessing
+ * which column the bank meant inverts a transaction.
+ */
+function readDebitCredit(
+  rawDebit: string,
+  rawCredit: string,
+): { amount: Paise | null; rawAmount: string; reason?: string } {
+  const debitEmpty = EMPTY_CELL.test(rawDebit);
+  const creditEmpty = EMPTY_CELL.test(rawCredit);
+  if (debitEmpty && creditEmpty) {
+    return { amount: null, rawAmount: "", reason: "Both the debit and credit columns are empty." };
+  }
+
+  const debit = debitEmpty ? null : parseAmount(rawDebit, "statement");
+  const credit = creditEmpty ? null : parseAmount(rawCredit, "statement");
+  if (!debitEmpty && debit === null) {
+    return { amount: null, rawAmount: rawDebit, reason: `The debit "${rawDebit}" is not an amount I can read.` };
+  }
+  if (!creditEmpty && credit === null) {
+    return { amount: null, rawAmount: rawCredit, reason: `The credit "${rawCredit}" is not an amount I can read.` };
+  }
+
+  const out = debit !== null && debit !== 0;
+  const into = credit !== null && credit !== 0;
+  if (out && into) {
+    return {
+      amount: null,
+      rawAmount: `${rawDebit} | ${rawCredit}`,
+      reason: `This row has both a debit (${rawDebit}) and a credit (${rawCredit}); I cannot tell which the bank meant.`,
+    };
+  }
+  // Money leaving is negative regardless of how the column is signed.
+  if (out) return { amount: -Math.abs(debit!), rawAmount: rawDebit };
+  if (into) return { amount: Math.abs(credit!), rawAmount: rawCredit };
+  return {
+    amount: null,
+    rawAmount: rawDebit || rawCredit,
+    reason: "Both the debit and credit are zero, so nothing moved on this row.",
+  };
+}
+
+/**
+ * The mapping's date format, then the shared reader.
+ *
+ * `dateFormat` was stored on the profile and never read. It matters for one
+ * shape: "26-08-15" is 15 Aug 2026 to a bank that writes year first, and
+ * 26 Aug 2015 to everybody else.
+ */
+function readDate(raw: string, mapping: ColumnMapping): IsoDate | null {
+  if (mapping.dateFormat === "yyyy-mm-dd") {
+    const ymd = /^(\d{4}|\d{2})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(raw.trim());
+    if (ymd) return calendarDate(fullYear(ymd[1]!), Number(ymd[2]), Number(ymd[3]));
+  }
+  return parseDate(raw);
+}
+
+const FOOTER_MARKERS = [
+  "total", "opening balance", "closing balance", "statement", "generated",
+  "end of", "page ", "please", "disclaimer", "unless",
+];
+
+/**
+ * Whether a row with no readable date is a footer, safe to skip.
+ *
+ * It used to be enough for a marker to appear anywhere in the row, and "*"
+ * was a marker — so "15-Jan-2026,SWIGGY*ORDER,450.00", whose date this reader
+ * could not then parse, was skipped without a word, and so was any merchant
+ * with "total" in its name. Now:
+ *
+ * - a date cell that itself says "Total", "Opening Balance", "Page 2 of 3" is
+ *   a footer;
+ * - a date cell holding something else, on a row with a readable amount, is a
+ *   transaction whose date could not be read — reported, never dropped;
+ * - an empty date cell is a footer when the row has no amount, or when it
+ *   carries a marker (",Closing Balance,,50,000.00").
+ */
+function looksLikeFooter(cells: string[], rawDate: string, hasAmount: boolean): boolean {
+  const joined = cells.join(" ").trim().toLowerCase();
+  if (joined === "") return true;
+  const dateCell = rawDate.toLowerCase() + " ";
+  if (FOOTER_MARKERS.some((marker) => dateCell.includes(marker))) return true;
+  if (rawDate !== "" && hasAmount) return false;
+  if (rawDate === "" && !hasAmount) return true;
+  return FOOTER_MARKERS.some((marker) => (joined + " ").includes(marker));
 }
 
 /** Parse a file end to end with a known or guessed mapping. */
