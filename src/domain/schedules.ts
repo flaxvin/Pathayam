@@ -552,7 +552,22 @@ export function describeRecurrence(schedule: Schedule): string {
  */
 function shiftMonthsKeepingDay(schedule: Schedule, from: IsoDate, months: number): IsoDate | null {
   const day = Number((schedule.next_due ?? from).slice(8, 10));
-  return resolveDayOfMonth(addMonths(monthOf(from), months), day, schedule.short_month_policy);
+  /*
+   * "Skip" skips *that* month and carries on. resolveDayOfMonth answers null
+   * for a month without the day, and that null used to be stored as next_due:
+   * a rent on the 31st from 31 Jan 2026 was "next due never" the moment
+   * February was reached, and the projection showed it once a year. So a
+   * missing month moves on to the following step — 31 Jan, 31 Mar, 31 May;
+   * yearly 29 Feb 2028, 29 Feb 2032. Forty-eight steps covers the longest
+   * gap there is (29 Feb across 2100, which is not a leap year: eight years).
+   */
+  for (let step = 1; step <= 48; step++) {
+    const date = resolveDayOfMonth(
+      addMonths(monthOf(from), months * step), day, schedule.short_month_policy,
+    );
+    if (date) return date;
+  }
+  return null;
 }
 
 /** F7.5 · Mark an occurrence paid, and move the schedule on. */
