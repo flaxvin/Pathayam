@@ -191,6 +191,11 @@ budgets** — two budgets are two people's money, so moving a balance between
 them is a transfer, not a rename, and it would tip a private envelope's
 contents into the shared budget where everyone can see it.
 
+Moving an envelope to another group stays inside its budget: a group in
+another budget is refused, because the group decides which grid shows the
+envelope while the envelope's own budget decides whose money it is — moved
+across, it vanished from its own grid while its money still counted there.
+
 Compare `deleteCategory`, which insists the balance is already zero and only
 remaps transactions. Merge is for when the balance is the thing that has to
 survive.
