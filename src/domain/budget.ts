@@ -742,33 +742,72 @@ export function moveMoney(
 // R11 · Hold income for next month
 // ---------------------------------------------------------------------------
 
-export function getHeld(db: DB, month: MonthKey): Paise {
-  return (
-    queryOne<{ amount: number }>(db, `SELECT amount FROM held_for_next_month WHERE month = ?`, month)
-      ?.amount ?? 0
+/*
+ * D4 · Held money belongs to one budget.
+ *
+ * Since budgets were scoped the engine reads `held_for_next_month` for one
+ * budget at a time (`budget_id = ?`), but this wrote every row with budget_id
+ * NULL: "Held ₹500 for next month" was reported, the row was written, and the
+ * budget page's Ready to Assign did not move — only the combined view saw it.
+ * And the table was keyed by month alone, so two budgets could never each hold
+ * money in the same month.
+ *
+ * The rows now carry the budget. A row left NULL by the old code reads as the
+ * household's, which is what the column's own backfill decided. Until the table
+ * is rebuilt keyed by (month, budget) — a migration the release adds — a second
+ * budget holding money in a month another already holds in is refused rather
+ * than failing on the old primary key.
+ */
+function heldKeyedByBudget(db: DB): boolean {
+  return (queryOne<{ n: number }>(
+    db, `SELECT COUNT(*) AS n FROM pragma_table_info('held_for_next_month') WHERE pk > 0`,
+  )?.n ?? 1) > 1;
+}
+
+function writeHeld(db: DB, month: MonthKey, budgetId: string, amount: Paise): void {
+  const household = householdBudgetId(db);
+  execute(
+    db, `DELETE FROM held_for_next_month WHERE month = ? AND COALESCE(budget_id, ?) = ?`,
+    month, household, budgetId,
+  );
+  if (amount === 0) return;
+  if (!heldKeyedByBudget(db) &&
+      queryOne(db, `SELECT 1 FROM held_for_next_month WHERE month = ?`, month)) {
+    throw new Refusal(
+      `Another budget is already holding money back in ${formatMonth(month)}, and ` +
+      `this database can only record one per month until it is upgraded.`,
+    );
+  }
+  execute(
+    db,
+    `INSERT INTO held_for_next_month (month, budget_id, amount, updated_at) VALUES (?,?,?,?)`,
+    month, budgetId, amount, nowIST(),
   );
 }
 
-export function setHeld(db: DB, actor: Actor, month: MonthKey, amount: Paise): void {
+export function getHeld(db: DB, month: MonthKey, budgetId = householdBudgetId(db)): Paise {
+  return (
+    queryOne<{ amount: number }>(
+      db,
+      `SELECT amount FROM held_for_next_month WHERE month = ? AND COALESCE(budget_id, ?) = ?`,
+      month, householdBudgetId(db), budgetId,
+    )?.amount ?? 0
+  );
+}
+
+export function setHeld(
+  db: DB, actor: Actor, month: MonthKey, amount: Paise, budgetId = householdBudgetId(db),
+): void {
   if (amount < 0) throw new Refusal("You cannot hold a negative amount.");
   transact(db, () => {
-    const before = getHeld(db, month);
+    const before = getHeld(db, month, budgetId);
     if (before === amount) return;
 
-    if (amount === 0) {
-      execute(db, `DELETE FROM held_for_next_month WHERE month = ?`, month);
-    } else {
-      execute(
-        db,
-        `INSERT INTO held_for_next_month (month, amount, updated_at) VALUES (?,?,?)
-           ON CONFLICT(month) DO UPDATE SET amount = excluded.amount, updated_at = excluded.updated_at`,
-        month, amount, nowIST(),
-      );
-    }
+    writeHeld(db, month, budgetId, amount);
 
     appendEvent(db, actor, {
       entity: "held", entityId: month, action: "set",
-      before: { amount: before }, after: { amount },
+      before: { amount: before, budgetId }, after: { amount, budgetId },
       summary:
         amount === 0
           ? `Released the money held for next month`
@@ -805,16 +844,10 @@ registerUndoHandler("assignment", (db, event) => {
 });
 
 registerUndoHandler("held", (db, event) => {
-  const before = (event.before as { amount: Paise } | undefined)?.amount ?? 0;
-  const month = event.entityId as MonthKey;
-  if (before === 0) execute(db, `DELETE FROM held_for_next_month WHERE month = ?`, month);
-  else
-    execute(
-      db,
-      `INSERT INTO held_for_next_month (month, amount, updated_at) VALUES (?,?,?)
-         ON CONFLICT(month) DO UPDATE SET amount = excluded.amount`,
-      month, before, nowIST(),
-    );
+  const recorded = event.before as { amount: Paise; budgetId?: string } | undefined;
+  const before = recorded?.amount ?? 0;
+  // Events from before D4 name no budget; theirs was the household's.
+  writeHeld(db, event.entityId as MonthKey, recorded?.budgetId ?? householdBudgetId(db), before);
   return `Set the held amount back to ${formatPaise(before)}`;
 });
 

@@ -624,10 +624,16 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
     if (f) f.budgetTransferFlow += r.amount;
   }
 
+  /*
+   * D4 · One row per budget per month. The combined view sums them — it used to
+   * take whichever row came last — and a row the old setHeld left without a
+   * budget is the household's, as the column's backfill decided.
+   */
   for (const r of queryAll<{ month: string; amount: number }>(
     db,
-    `SELECT month, amount FROM held_for_next_month
-      WHERE month <= ?${scope ? " AND budget_id = ?" : ""}`,
+    `SELECT month, SUM(amount) AS amount FROM held_for_next_month
+      WHERE month <= ?${scope ? " AND COALESCE(budget_id, (SELECT id FROM budgets WHERE kind = 'household')) = ?" : ""}
+      GROUP BY month`,
     through, ...budgetParams(scope),
   )) {
     const f = ensure(r.month);
