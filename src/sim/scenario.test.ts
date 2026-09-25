@@ -232,6 +232,8 @@ describe("top-down · nothing in the domain went unexercised", () => {
       "a rate change, a prepayment. It has no caller of its own by design.",
     prepareClaim: "Called by createTransaction whenever an account and a category " +
       "sit in different budgets, which the scenario does every month.",
+    prepareTransferClaim: "Called by createTransfer before every transfer; it only " +
+      "acts when one side is another budget's card.",
     backfillMonthlySnapshots: "A one-off repair for databases that predate dated " +
       "net-worth history. It rewrites history and is run from a console.",
     reanchorToLenderBalance: "Drift is surfaced and reconciled through the statement " +

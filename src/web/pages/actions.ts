@@ -60,7 +60,7 @@ export function renderAddTransaction(opts: {
    * unlabelled list of thirty envelopes from two budgets cannot say that, so the
    * options are grouped and each group is named.
    */
-  const spendable = categories.filter((c) => !c.isPaymentCategory && !c.hidden);
+  const spendable = categories.filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden);
   const budgetLabel = (id: string | null): string => {
     const budget = budgets.find((b) => b.id === id);
     if (!budget) return "Other envelopes";
@@ -486,6 +486,7 @@ export function renderMoveMoney(opts: {
 
 export function renderAutoAssignPreview(opts: {
   month: MonthKey;
+  budgetId: string;
   plan: AutoAssignPlan;
   categoryNames: Map<string, string>;
 }): SafeHtml {
@@ -551,6 +552,7 @@ export function renderAutoAssignPreview(opts: {
 
       <form method="post" action="/auto-assign" style="margin-top:1rem">
         <input type="hidden" name="month" value="${month}">
+        <input type="hidden" name="budget" value="${opts.budgetId}">
         <button class="button-primary" type="submit">
           Assign ${formatPaise(plan.totalAssigned)}
         </button>
@@ -567,6 +569,7 @@ export function renderAutoAssignPreview(opts: {
 
 export function renderHold(opts: {
   month: MonthKey;
+  budgetId: string;
   currentlyHeld: Paise;
   readyToAssign: Paise;
 }): SafeHtml {
@@ -579,6 +582,7 @@ export function renderHold(opts: {
 
     <form method="post" action="/hold" class="card">
       <input type="hidden" name="month" value="${opts.month}">
+      <input type="hidden" name="budget" value="${opts.budgetId}">
       <div class="field">
         <label for="hold-amount">Hold for ${formatMonth(nextMonthOf(opts.month))}</label>
         <input id="hold-amount" name="amount" class="amount-input" type="text" inputmode="decimal"

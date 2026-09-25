@@ -275,6 +275,64 @@ export function sharedInstrumentBetween(
 }
 
 /**
+ * D5 / D9 · The same preparation for a transfer that touches another budget's
+ * card.
+ *
+ * Paying somebody else's card buys a claim rather than spending money (see
+ * crossCardPaymentSql in the engine), and the claim is carried by the envelope
+ * between the two budgets. Filing already made sure that envelope existed;
+ * transfers never did. So ₹200 from Ravi's bank to the household card, with no
+ * envelope yet, left the household ₹200 up and Ravi ₹200 down in every month
+ * after — and between two personal budgets, where nothing ever opened one, it
+ * was always broken. A card-to-card balance transfer across budgets was the
+ * same story from the other side.
+ *
+ * A leg on a tracking account is not this: the tracking side is outside every
+ * budget, so the card leg is simply unfiled card flow and nobody owes anybody.
+ */
+export function prepareTransferClaim(
+  db: DB, actor: Actor,
+  from: { id: string; kind: string; budget_id: string | null; name: string },
+  to: { id: string; kind: string; budget_id: string | null; name: string },
+): void {
+  if (from.kind !== "credit" && to.kind !== "credit") return;
+  if (from.kind === "tracking" || to.kind === "tracking") return;
+  if (!from.budget_id || !to.budget_id || from.budget_id === to.budget_id) return;
+
+  /*
+   * Which arrangement lets the two budgets owe each other: the household is
+   * shared by definition, and between two personal budgets only an add-on card
+   * links them — held by the other side's member on whichever card is involved.
+   */
+  const linked = [from, to].some((card) =>
+    card.kind === "credit" &&
+    sharedInstrumentBetween(
+      db, card.id, card.budget_id!, card === from ? to.budget_id! : from.budget_id!,
+    ),
+  );
+  if (!linked) {
+    const payer = getBudget(db, from.budget_id)?.name ?? "that budget";
+    const payee = getBudget(db, to.budget_id)?.name ?? "the other";
+    throw new Refusal(
+      `This would move ${payer}'s money onto ${payee}'s card (or the other way), and ` +
+      `nothing links the two budgets — no shared account, and no add-on card. Pay it ` +
+      `from an account in the same budget as the card, or through the household.`,
+    );
+  }
+
+  if (claimFor(claimLinks(db), from.budget_id, to.budget_id)) return;
+
+  // The personal side holds the envelope. Between two personal budgets it is
+  // the one whose card is being paid, so the debt reads as theirs.
+  const household = householdBudgetId(db);
+  const holder = from.budget_id === household ? to.budget_id
+    : to.budget_id === household ? from.budget_id
+    : to.kind === "credit" ? to.budget_id : from.budget_id;
+  const owed = holder === from.budget_id ? to.budget_id : from.budget_id;
+  ensureCommitmentEnvelope(db, actor, holder, owed);
+}
+
+/**
  * Called before a filing is written: make sure the two budgets may owe each
  * other, and that the envelope which carries it exists.
  *

@@ -14,7 +14,7 @@ answer 404 when the viewer may not see the entity
 | `GET /categories` | Manage groups and envelopes: rename, reorder, set targets, hide, delete. |
 | `GET /move` | Move money between envelopes. |
 | `GET /hold` | Withhold part of this month's Ready to Assign for next month. |
-| `GET /auto-assign` | Plan filling targets from Ready to Assign. |
+| `GET /auto-assign` | Plan filling the viewed budget's targets from that budget's Ready to Assign. |
 | `POST /assign` | Set one envelope's assignment for a month. |
 | `POST /copy-last-month` | Copy the previous month's assignments. |
 | `POST /move` | Move money between envelopes, including to cover an overspend. |

@@ -154,7 +154,7 @@ function renderStagedRow(row: StagedRow, categories: CategoryView[]): SafeHtml {
           ${when(row.amount >= 0, () => html`
             <optgroup label="Or put it back — a refund into…">
               ${categories
-                .filter((c) => !c.isPaymentCategory && !c.hidden)
+                .filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden)
                 .map((c) => html`
                   <option value="${c.id}" ${raw(c.id === row.category_id ? "selected" : "")}>
                     ${c.name}
@@ -164,7 +164,7 @@ function renderStagedRow(row: StagedRow, categories: CategoryView[]): SafeHtml {
           `)}
           ${when(row.amount < 0, () => html`
             ${categories
-              .filter((c) => !c.isPaymentCategory && !c.hidden)
+              .filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden)
               .map((c) => html`
                 <option value="${c.id}" ${raw(c.id === row.category_id ? "selected" : "")}>
                   ${c.name}
@@ -239,7 +239,7 @@ function usualOf(
 ): { id: string; name: string } | null {
   if (!row.usual_category_id) return null;
   const category = data.categories.find(
-    (c) => c.id === row.usual_category_id && !c.isPaymentCategory && !c.hidden,
+    (c) => c.id === row.usual_category_id && !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden,
   );
   return category ? { id: category.id, name: category.name } : null;
 }
@@ -297,7 +297,7 @@ function renderUncategorised(data: ReviewData): SafeHtml {
                 <select id="cat-${t.id}" name="category_id" style="max-width:16rem">
                   <option value="">Leave uncategorised</option>
                   ${data.categories
-                    .filter((c) => !c.isPaymentCategory && !c.hidden)
+                    .filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden)
                     .map((c) => html`
                       <option value="${c.id}">${c.name} — ${formatPaise(c.state.balance)} left</option>
                     `)}

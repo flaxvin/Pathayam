@@ -99,6 +99,15 @@ reports the next scheduled income date alongside.
 Ready to Assign and returns it in the next. It appears as its own term in the
 identity.
 
+Each budget holds its own: the Hold page acts on the budget being viewed and
+takes the amount out of *that* budget's Ready to Assign, and the combined view
+adds the budgets' amounts together. (Until this was fixed every hold was written
+with no budget at all, so the budget pages never saw it — "Held ₹500" was
+reported and Ready to Assign did not move.) A row with no budget reads as the
+household's. The table is keyed by `(month, budget_id)`; on a database still
+keyed by month alone, a second budget holding money in a month another already
+holds in is refused until the table is rebuilt.
+
 ## Goals
 
 A goal has a target amount, an optional target date, and one or more envelopes.
@@ -117,6 +126,20 @@ A personal budget can commit money to the household budget: an envelope in the
 personal budget carries `commits_to_budget_id`. Assigning to it increases the
 household's means without a transfer between accounts. Spending from the
 household on that member's behalf reduces it.
+
+Nothing is filed *to* a commitment envelope. Its balance is the claim itself,
+and the receiving budget counts only what was assigned to it, so spending filed
+there lowered the claim with no expense anywhere to meet it — ₹224 left the
+household's books out by −₹224 in every month after. Spending for the household
+is filed to the household's own envelope, which is what lowers the commitment.
+The pickers do not offer a commitment envelope, and every filing path (a
+transaction, a split line, a recategorise, the review queue, rules, schedules)
+refuses one.
+
+The envelope is opened automatically the first time anything crosses the two
+budgets. Undoing that "opened" event is refused while a filing, a split line or
+a card payment still crosses them — the filings name the other budget's
+envelope, not this one, so nothing else would stop the claim being lost.
 
 The claim appears in the identity as `due from other budgets`. The standing of
 a commitment envelope is described as **overfunded**, **underfunded** or
@@ -168,9 +191,36 @@ budgets** — two budgets are two people's money, so moving a balance between
 them is a transfer, not a rename, and it would tip a private envelope's
 contents into the shared budget where everyone can see it.
 
+Moving an envelope to another group stays inside its budget: a group in
+another budget is refused, because the group decides which grid shows the
+envelope while the envelope's own budget decides whose money it is — moved
+across, it vanished from its own grid while its money still counted there.
+
 Compare `deleteCategory`, which insists the balance is already zero and only
 remaps transactions. Merge is for when the balance is the thing that has to
 survive.
+
+**Deleting an envelope with history needs somewhere for that history to go.**
+Delete removes the envelope's assignments, and the engine stops reading a
+deleted envelope, so spending left filed to it was spending nobody counted:
+₹1,000 assigned and ₹1,000 spent (balance ₹0) handed the ₹1,000 back to Ready
+to Assign while the bank still showed it gone. So delete is refused while any
+transaction or split line — trashed ones included — is filed to the envelope,
+unless a remap target is given; the Categories page points to Merge instead.
+Nothing new can be filed to a deleted envelope either (a schedule or rule saved
+before the delete is refused rather than filed into nothing).
+
+A remap target has to be an envelope that counts spending: a live one, in the
+same budget, and neither a card's payment envelope (its activity is derived
+from the card, so ₹1,000 remapped into it vanished from the budget) nor a
+commitment envelope. Merge refuses a commitment envelope as the winner for the
+same reason.
+
+Undoing a delete gives back what the delete took: the envelope's assignments in
+every month, its target, and — after a remap — the transactions and split lines
+that were moved, provided they still sit in the envelope they were moved to
+(anything re-filed since stays where it was put). Deletes recorded before this
+kept no such record, and their undo restores the envelope alone.
 
 ## Splitting a transaction
 
@@ -211,6 +261,11 @@ When lines are present the transaction's own `category_id` is **null** and the
 lines carry the categories. Setting both would file the amount twice. B99's rule
 still holds: money out needs an envelope, and the first line is that envelope —
 so it is required for an expense whether or not the entry is split.
+
+A split transaction's amount changes only with its lines (or by filing it whole
+to one envelope). `updateTransaction` refuses a new amount on its own: the old
+lines stayed, so a ₹3.36 card charge split ₹1.12 / ₹2.24 and edited to 3 paise
+left the card's payment envelope ₹3.33 ahead of the card.
 
 ### Going back to one envelope
 

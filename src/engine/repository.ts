@@ -205,16 +205,27 @@ function transferFlowSql(budgetId?: string): string {
  * that cancelled in the combined view.
  */
 function crossCardPaymentSql(): string {
+  /*
+   * D9 · The payer can be a card too. ₹500 moved from Ravi's card to the
+   * household card (a balance transfer) raised Ravi's payment envelope by ₹500
+   * and lowered the household's by ₹500 — each budget's envelope moving by the
+   * other's debt — and no claim met either, so both identities were out by ₹500,
+   * in opposite directions, even with the envelope between them in place.
+   *
+   * Card to card, both legs are on cards, so only the outgoing one is read as the
+   * payer; reading both would raise the claim twice.
+   */
   return `SELECT substr(t.date,1,7) AS month,
             a.budget_id AS account_budget, card.budget_id AS card_budget,
             SUM(t.amount) AS amount
        FROM transactions t
-       JOIN accounts a ON a.id = t.account_id AND a.kind = 'budget'
+       JOIN accounts a ON a.id = t.account_id
        JOIN transactions other
          ON other.transfer_pair_id = t.transfer_pair_id AND other.id <> t.id
         AND other.deleted_at IS NULL
        JOIN accounts card ON card.id = other.account_id AND card.kind = 'credit'
       WHERE t.deleted_at IS NULL AND t.transfer_pair_id IS NOT NULL
+        AND (a.kind = 'budget' OR (a.kind = 'credit' AND t.amount < 0))
         AND a.budget_id IS NOT card.budget_id
         AND t.date >= ? AND t.date <= ?
       GROUP BY month, a.budget_id, card.budget_id`;
@@ -227,12 +238,36 @@ function crossCardPaymentSql(): string {
  * A charge nobody has filed gave nothing up, so it must not raise the envelope.
  */
 function creditUnfiledSql(budgetId?: string): string {
+  /*
+   * A card's transfer leg is only a card *payment* when its other half is money
+   * the budget can see — a budget account, or another card. Two cases are not:
+   *
+   * - **The other half is on a tracking account.** ₹300 charged to the card to
+   *   top up a wallet, or to pay an EMI on a loan tracked outside the budget,
+   *   left through the card and arrived nowhere the budget counts. Treated as a
+   *   payment it moved the payment envelope by ₹300 with no category giving it
+   *   up and nothing on the budget side to meet it, so the identity was out by
+   *   the full amount in every month after (−₹300 card→tracking, +₹300 back).
+   *   It is exactly an unfiled charge (or refund) on the card, and B97 already
+   *   says what that is: the debt moves and nothing was set aside for it.
+   * - **The other half is gone.** A lone leg is not half of anything. The
+   *   budget-side guard (transferFlowSql's partner join) already let a lone
+   *   budget leg fall through to Ready to Assign; the card side kept excluding
+   *   the row on `transfer_pair_id` alone, so undoing one leg of a ₹123.45 card
+   *   payment left the payment envelope moved by it with nothing behind it.
+   */
   return `SELECT substr(t.date,1,7) AS month, t.account_id AS account_id,
             SUM(t.amount) AS amount
        FROM transactions t
        JOIN accounts a ON a.id = t.account_id
       WHERE t.deleted_at IS NULL AND a.kind = 'credit'
-        AND t.is_split = 0 AND t.category_id IS NULL AND t.transfer_pair_id IS NULL
+        AND t.is_split = 0 AND t.category_id IS NULL
+        AND (t.transfer_pair_id IS NULL OR NOT EXISTS (
+              SELECT 1 FROM transactions other
+                JOIN accounts otherAccount ON otherAccount.id = other.account_id
+               WHERE other.transfer_pair_id = t.transfer_pair_id AND other.id <> t.id
+                 AND other.deleted_at IS NULL
+                 AND otherAccount.kind IN ('budget','credit')))
         AND t.date >= ? AND t.date <= ?${budgetClause(budgetId)}
       GROUP BY month, t.account_id`;
 }
@@ -589,10 +624,16 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
     if (f) f.budgetTransferFlow += r.amount;
   }
 
+  /*
+   * D4 · One row per budget per month. The combined view sums them — it used to
+   * take whichever row came last — and a row the old setHeld left without a
+   * budget is the household's, as the column's backfill decided.
+   */
   for (const r of queryAll<{ month: string; amount: number }>(
     db,
-    `SELECT month, amount FROM held_for_next_month
-      WHERE month <= ?${scope ? " AND budget_id = ?" : ""}`,
+    `SELECT month, SUM(amount) AS amount FROM held_for_next_month
+      WHERE month <= ?${scope ? " AND COALESCE(budget_id, (SELECT id FROM budgets WHERE kind = 'household')) = ?" : ""}
+      GROUP BY month`,
     through, ...budgetParams(scope),
   )) {
     const f = ensure(r.month);
