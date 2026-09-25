@@ -801,8 +801,23 @@ export function detectSchedules(
 
   const detected: DetectedSchedule[] = [];
 
-  for (const [payeeId, occurrences] of byPayee) {
-    if (occurrences.length < 3 || existing.has(payeeId)) continue;
+  for (const [payeeId, seen] of byPayee) {
+    if (seen.length < 3 || existing.has(payeeId)) continue;
+
+    /*
+     * S4 · Which way the money goes is what was observed, not assumed. Every
+     * suggestion used to be emitted as money out: five ₹85,000 salary credits
+     * from an employer became a proposed ₹85,000 *expense*, which markPaid
+     * would then post every month. A payee seen both ways — purchases and the
+     * odd refund — is judged on the direction it mostly goes; a refund is not
+     * part of the rhythm, and averaging it in as a payment misstated both the
+     * amount and the gaps.
+     */
+    const incoming = seen.filter((o) => o.amount > 0);
+    const outgoing = seen.filter((o) => o.amount < 0);
+    const occurrences = incoming.length > outgoing.length ? incoming : outgoing;
+    const sign = occurrences === incoming ? 1 : -1;
+    if (occurrences.length < 3) continue;
 
     const gaps: number[] = [];
     for (let i = 1; i < occurrences.length; i++) {
@@ -831,15 +846,38 @@ export function detectSchedules(
       payeeName: last.payee,
       categoryId: last.category_id,
       accountId: last.account_id,
-      amount: -typical,
+      amount: (sign * typical) as Paise,
       recurrence,
-      nextDue: addDays(last.date, Math.round(average)),
+      nextDue: detectedNextDue(occurrences.map((o) => o.date as IsoDate), recurrence, average),
       confidence,
       occurrences: occurrences.length,
     });
   }
 
   return detected.sort((a, b) => b.occurrences - a.occurrences);
+}
+
+/**
+ * Where a detected schedule lands next.
+ *
+ * The last date plus the average gap is right for a weekly rhythm and wrong for
+ * a monthly one: months are 28 to 31 days, so a salary on the 1st of May–Sep
+ * (gaps 31, 30, 31, 31 — average 30.75) was proposed for 2 Oct. A month-based
+ * rhythm steps whole months and keeps the day it usually falls on — the most
+ * common day among the occurrences, so one payment a bank holiday pushed to
+ * the 2nd does not move the rest.
+ */
+function detectedNextDue(dates: IsoDate[], recurrence: Recurrence, averageGap: number): IsoDate {
+  const last = dates.at(-1)!;
+  const months = { monthly: 1, quarterly: 3, "half-yearly": 6, yearly: 12 }[
+    recurrence as "monthly" | "quarterly" | "half-yearly" | "yearly"
+  ];
+  if (!months) return addDays(last, Math.round(averageGap));
+  const counts = new Map<number, number>();
+  for (const date of dates) counts.set(dayOf(date), (counts.get(dayOf(date)) ?? 0) + 1);
+  let day = dayOf(last);
+  for (const [d, n] of counts) if (n > (counts.get(day) ?? 0)) day = d;
+  return resolveDayOfMonth(addMonths(monthOf(last), months), day, "last-day")!;
 }
 
 function recurrenceForGap(days: number): Recurrence | null {

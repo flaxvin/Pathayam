@@ -16,13 +16,14 @@ import { createAccount } from "./accounts.ts";
 import { createGroup, createCategory } from "./budget.ts";
 import {
   createSchedule, getSchedule, updateSchedule, skipOccurrence, markPaid, projectCashflow,
-  nextOccurrence,
+  nextOccurrence, detectSchedules,
   type Recurrence, type Schedule,
 } from "./schedules.ts";
 import { rupees, type Paise } from "../core/money.ts";
 import type { IsoDate } from "../core/dates.ts";
 import { execute } from "../db/db.ts";
 import { historyFor, undoEvent } from "../core/events.ts";
+import { createTransaction } from "./transactions.ts";
 
 const actor = { memberId: "m-ravi", source: "ui" as const };
 
@@ -266,5 +267,68 @@ describe("S3 · paying late settles the occurrence that was due", () => {
     assert.equal(nextOccurrence(s, "2026-09-25" as IsoDate), "2026-09-26");
     const w = schedule(ctx, "weekly", "2026-06-01", "last-day");
     assert.equal(nextOccurrence(w, "2026-06-10" as IsoDate), "2026-06-15", "a Monday, not a Wednesday");
+  });
+});
+
+/*
+ * S4 · detectSchedules proposed every recurring payee as money going out. Five
+ * ₹85,000 credits from "Employer Pvt Ltd" on the 1st of May–Sep 2026 came back
+ * as amount −₹85,000 — accept it and markPaid posts an ₹85,000 expense every
+ * month. Its next due was 2 Oct (last + the 30.75-day average gap), not 1 Oct.
+ */
+describe("S4 · a detected schedule keeps the direction it was seen in", () => {
+  function seed(ctx: ReturnType<typeof setup>, payee: string, rows: [string, number][]) {
+    for (const [date, amount] of rows) {
+      createTransaction(ctx.db, actor, {
+        accountId: ctx.bank, amount: amount as Paise, date: date as IsoDate,
+        payeeName: payee, categoryId: amount < 0 ? ctx.rent : null,
+      });
+    }
+  }
+
+  test("a salary is proposed as money coming in, on the 1st", () => {
+    const ctx = setup();
+    seed(ctx, "Employer Pvt Ltd", [
+      ["2026-05-01", 8_500_000], ["2026-06-01", 8_500_000], ["2026-07-01", 8_500_000],
+      ["2026-08-01", 8_500_000], ["2026-09-01", 8_500_000],
+    ]);
+    const [salary] = detectSchedules(ctx.db, "2026-09-25" as IsoDate);
+    assert.ok(salary);
+    assert.equal(salary.amount, 8_500_000, "an ₹85,000 salary was proposed as an ₹85,000 expense");
+    assert.equal(salary.recurrence, "monthly");
+    assert.equal(salary.nextDue, "2026-10-01");
+
+    // Accepted and marked arrived, it is income.
+    const s = createSchedule(ctx.db, actor, {
+      name: salary.payeeName, payeeId: salary.payeeId, accountId: salary.accountId,
+      amount: salary.amount, recurrence: salary.recurrence, nextDue: salary.nextDue,
+    });
+    markPaid(ctx.db, actor, s.id, "2026-10-01" as IsoDate);
+    const row = ctx.db.prepare(
+      `SELECT amount FROM transactions WHERE date = '2026-10-01' AND deleted_at IS NULL`,
+    ).get() as { amount: number };
+    assert.equal(row.amount, 8_500_000);
+  });
+
+  test("a bill is still money going out", () => {
+    const ctx = setup();
+    seed(ctx, "Broadband", [
+      ["2026-06-10", -99_900], ["2026-07-10", -99_900], ["2026-08-10", -99_900], ["2026-09-10", -99_900],
+    ]);
+    const [bill] = detectSchedules(ctx.db, "2026-09-25" as IsoDate);
+    assert.equal(bill!.amount, -99_900);
+    assert.equal(bill!.nextDue, "2026-10-10");
+  });
+
+  test("an odd refund is not averaged in as a payment", () => {
+    const ctx = setup();
+    seed(ctx, "Milk Co", [
+      ["2026-06-05", -300_000], ["2026-07-05", -300_000], ["2026-07-20", 50_000],
+      ["2026-08-05", -300_000], ["2026-09-05", -300_000],
+    ]);
+    const [milk] = detectSchedules(ctx.db, "2026-09-25" as IsoDate);
+    assert.ok(milk, "the refund broke the monthly rhythm");
+    assert.equal(milk.amount, -300_000);
+    assert.equal(milk.confidence, "high");
   });
 });
