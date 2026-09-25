@@ -29,7 +29,7 @@ import type { DB } from "../db/db.ts";
 import { queryOne } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { monthOf, todayIST, type MonthKey } from "../core/dates.ts";
-import type { Paise } from "../core/money.ts";
+import { formatPaise, type Paise } from "../core/money.ts";
 import { Refusal } from "../core/refusal.ts";
 import { getMember } from "../auth/sessions.ts";
 import { personalBudgetFor, householdBudgetId } from "./budgets.ts";
@@ -130,7 +130,8 @@ export function settleDeparture(
       // Take back what was promised and not spent. An ordinary un-assignment, so
       // their Ready to Assign rises by it and the household's claim falls.
       setAssigned(db, actor, month, departure.envelopeId, (assigned - departure.balance) as Paise);
-      return `Released ${departure.outstanding} back to ${departure.memberName}'s Ready to Assign.`;
+      // D15 · The figure in words: this printed "Released 1000000" — raw paise.
+      return `Released ${formatPaise(departure.outstanding)} back to ${departure.memberName}'s Ready to Assign.`;
     }
     case "call-it-even": {
       callItEven(db, actor, {
