@@ -465,3 +465,40 @@ describe("15 · the schedules screen lists the household's bills and Priya's", (
     }
   });
 });
+
+/*
+ * Deleting a goal hands its envelope back as an ordinary category. The route
+ * looked for a "Savings" group among every budget's groups and otherwise
+ * created one with no budget — i.e. the household's. So Ravi deleting his
+ * personal "Jabberwock Private Goal" moved its envelope into a household
+ * group, and Priya's budget page listed it by name.
+ */
+describe("15 · deleting a personal goal keeps its envelope in that budget", () => {
+  test("the envelope's group is Ravi's, and Priya never sees it", async () => {
+    const w = build();
+    const app = await startTestApp(w.db, { memberId: RAVI });
+    try {
+      const res = await app.post(`/goals/${w.ids.goal}/delete`, {});
+      assert.deepEqual(app.failures, []);
+      assert.equal(res.status, 303);
+      assert.deepEqual(app.failures, []);
+    } finally {
+      await app.close();
+    }
+    const rows = queryAll<{ name: string; group_budget: string | null }>(w.db,
+      `SELECT c.name, g.budget_id AS group_budget FROM categories c
+         JOIN category_groups g ON g.id = c.group_id
+        WHERE c.name = 'Jabberwock Private Goal'`);
+    assert.equal(rows.length, 1);
+    assert.equal(rows[0]!.group_budget, w.ids.budget, "moved into another budget's group");
+    const priya = await startTestApp(w.db, { memberId: PRIYA });
+    try {
+      for (const path of ["/", "/categories"]) {
+        const body = await (await priya.get(path)).text();
+        assert.ok(!body.includes("Jabberwock Private Goal"), path);
+      }
+    } finally {
+      await priya.close();
+    }
+  });
+});

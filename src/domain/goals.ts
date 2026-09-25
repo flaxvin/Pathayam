@@ -28,6 +28,8 @@ export interface Goal {
   note: string | null;
   completed_at: string | null;
   created_at: string;
+  /** 15 · The budget the goal (and its envelope) belongs to; null on goals from before budgets. */
+  budget_id: string | null;
 }
 
 export interface GoalProgress {
