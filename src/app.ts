@@ -6533,7 +6533,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/gmail/connect", (ctx) => {
     refuseInDemo(config, "Connecting a mailbox");
     const a = auth(ctx);
-    if (!config.google.clientId) throw new HttpError(500, "Google is not configured.");
+    // Not configured is a deployment state, not a fault — the same 503 as
+    // /auth/google. A 500 here told the person the app had broken.
+    if (!config.google.clientId) {
+      throw new HttpError(503, "Gmail cannot be connected: Google is not configured on this deployment.");
+    }
     const start = beginGmailConnect({
       clientId: config.google.clientId,
       redirectUri: `${config.baseUrl}/gmail/callback`,
