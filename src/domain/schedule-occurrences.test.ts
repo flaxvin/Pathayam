@@ -24,6 +24,7 @@ import type { IsoDate } from "../core/dates.ts";
 import { execute } from "../db/db.ts";
 import { historyFor, undoEvent } from "../core/events.ts";
 import { createTransaction } from "./transactions.ts";
+import { ensurePersonalBudget, householdBudgetId } from "./budgets.ts";
 
 const actor = { memberId: "m-ravi", source: "ui" as const };
 
@@ -330,5 +331,66 @@ describe("S4 · a detected schedule keeps the direction it was seen in", () => {
     assert.ok(milk, "the refund broke the monthly rhythm");
     assert.equal(milk.amount, -300_000);
     assert.equal(milk.confidence, "high");
+  });
+});
+
+/*
+ * S5 · projectCashflow charged a card's whole current balance again on every due
+ * date in the horizon: a card owing ₹10,000, due on the 5th, projected ₹10,000
+ * out on 5 Oct, 5 Nov and 5 Dec — lowest ₹70,000 from ₹1,00,000 instead of
+ * ₹90,000. And a ₹649 subscription billed to the card cost cash on its own
+ * date in the combined projection (lowest ₹89,351) and nothing at all in the
+ * household one (₹90,000).
+ */
+describe("S5 · a card is paid once, on its due date, in every scope", () => {
+  function withCard(ctx: ReturnType<typeof setup>, budgetId?: string) {
+    const card = createAccount(ctx.db, actor, {
+      name: "Card", kind: "credit", subtype: "credit-card", openingDate: "2025-01-01",
+      statementDay: 20, dueDay: 5, ...(budgetId ? { budgetId } : {}),
+    }).id;
+    createTransaction(ctx.db, actor, {
+      accountId: card, amount: -rupees(10_000) as Paise, date: "2026-09-10" as IsoDate, categoryId: ctx.rent,
+    });
+    return card;
+  }
+  const outflows = (cf: ReturnType<typeof projectCashflow>) =>
+    cf.days.flatMap((d) => d.outflows.map((o) => `${d.date} ${o.label} ${o.amount}`));
+
+  test("what the card owes today leaves once, at the next due date", () => {
+    const ctx = setup();
+    withCard(ctx);
+    const cf = projectCashflow(ctx.db, { today: "2026-09-25" as IsoDate, days: 90 });
+    assert.deepEqual(outflows(cf), ["2026-10-05 Card due 1000000"], "charged on 5 Oct, 5 Nov and 5 Dec");
+    assert.equal(cf.lowestBalance, rupees(90_000));
+  });
+
+  test("a subscription on the card leaves cash on the due date its statement falls into", () => {
+    const ctx = setup();
+    const card = withCard(ctx);
+    createSchedule(ctx.db, actor, {
+      name: "StreamCo", accountId: card, categoryId: ctx.rent,
+      amount: -64_900 as Paise, recurrence: "monthly", nextDue: "2026-10-12" as IsoDate,
+    });
+    const all = projectCashflow(ctx.db, { today: "2026-09-25" as IsoDate, days: 60 });
+    // 12 Oct is on the statement of 20 Oct, due 5 Nov; 12 Nov on 20 Nov's, due 5 Dec.
+    assert.deepEqual(outflows(all), [
+      "2026-10-05 Card due 1000000",
+      "2026-11-05 StreamCo (Card) 64900",
+    ]);
+    const household = projectCashflow(ctx.db, {
+      today: "2026-09-25" as IsoDate, days: 60, budgetId: householdBudgetId(ctx.db),
+    });
+    assert.equal(household.lowestBalance, all.lowestBalance, "the household view ignored the card schedule");
+    assert.equal(all.lowestBalance, rupees(90_000) - 64_900);
+  });
+
+  test("another budget's card is not paid out of the household's cash", () => {
+    const ctx = setup();
+    const mine = ensurePersonalBudget(ctx.db, "m-ravi", "Ravi");
+    withCard(ctx, mine.id);
+    const household = projectCashflow(ctx.db, {
+      today: "2026-09-25" as IsoDate, days: 60, budgetId: householdBudgetId(ctx.db),
+    });
+    assert.deepEqual(outflows(household), []);
   });
 });
