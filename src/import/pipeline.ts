@@ -19,6 +19,7 @@ import { nowIST, type IsoDate } from "../core/dates.ts";
 import type { Paise } from "../core/money.ts";
 import { createTransaction, resolvePayee, type TransactionSource } from "../domain/transactions.ts";
 import { findCardByLast4 } from "../domain/accounts.ts";
+import { hiddenAccountSql } from "../domain/member-scope.ts";
 import { findDuplicate, type Candidate, type DuplicateMatch } from "./dedupe.ts";
 import {
   applyRules, extractNarrationFields, mayAutoApprove,
@@ -385,13 +386,25 @@ export function loadRules(db: DB): Rule[] {
 // The review queue (S4)
 // ---------------------------------------------------------------------------
 
-export function listStaged(db: DB, opts: { batchId?: string } = {}): StagedRow[] {
+export function listStaged(
+  db: DB, opts: { batchId?: string; viewerMemberId?: string | null } = {},
+): StagedRow[] {
+  /*
+   * 15 · A statement line is as private as the account it came from. The queue
+   * listed every member's pending rows to everybody — raw narration, amount and
+   * all — before any of them reached the ledger the other guards protect.
+   * Undefined is the whole household, for the simulation and nothing else.
+   */
+  const hidden = opts.viewerMemberId === undefined
+    ? null : hiddenAccountSql("a", opts.viewerMemberId);
   return queryAll<StagedRow>(
     db,
-    `SELECT * FROM staged_transactions
-      WHERE status = 'pending' ${opts.batchId ? "AND batch_id = ?" : ""}
-      ORDER BY duplicate_tier IS NULL, date DESC`,
+    `SELECT s.* FROM staged_transactions s JOIN accounts a ON a.id = s.account_id
+      WHERE s.status = 'pending' ${opts.batchId ? "AND s.batch_id = ?" : ""}
+        ${hidden ? `AND NOT ${hidden.sql}` : ""}
+      ORDER BY s.duplicate_tier IS NULL, s.date DESC`,
     ...(opts.batchId ? [opts.batchId] : []),
+    ...(hidden?.params ?? []),
   );
 }
 
@@ -676,9 +689,18 @@ export function undoBatch(db: DB, actor: Actor, batchId: string): UndoBatchResul
   });
 }
 
-export function listBatches(db: DB, limit = 30): ImportBatch[] {
+export function listBatches(
+  db: DB, opts: { viewerMemberId: string | null; limit?: number },
+): ImportBatch[] {
+  // 15 · A statement imported into a private account names its file, and the
+  // file is usually named for the account. A batch with no account is nobody's.
+  const hidden = hiddenAccountSql("a", opts.viewerMemberId);
   return queryAll<ImportBatch>(
-    db, `SELECT * FROM import_batches ORDER BY created_at DESC LIMIT ?`, limit,
+    db,
+    `SELECT b.* FROM import_batches b LEFT JOIN accounts a ON a.id = b.account_id
+      WHERE (b.account_id IS NULL OR NOT ${hidden.sql})
+      ORDER BY b.created_at DESC LIMIT ?`,
+    ...hidden.params, opts.limit ?? 30,
   );
 }
 
