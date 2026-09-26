@@ -123,6 +123,14 @@ describe("08 F30 · personal API tokens", () => {
     }
   });
 
+  test("SECURITY-OPS-12 · an empty segment does not walk around the deny-list", () => {
+    // The router drops empty segments, so each of these IS /tokens or
+    // /members/invite to it — and must be to the deny-list too.
+    for (const path of ["//tokens", "/tokens/", "///members//invite", "//auth/dev"]) {
+      assert.equal(tokenMayReach(path), false, `${path} must be unreachable`);
+    }
+  });
+
   test("a path that merely starts with a forbidden word is not blocked", () => {
     // "/tokensomething" is not under "/tokens".
     assert.equal(tokenMayReach("/tokensomething"), true);

@@ -56,8 +56,21 @@ const FORBIDDEN_PREFIXES = [
   "/signout",
 ];
 
+/*
+ * Compared segment by segment — the way the router matches — not as a string
+ * prefix. The server collapses repeated slashes before this runs, but the rule
+ * must not depend on that: "//tokens" and "/tokens/" are /tokens to the router,
+ * and a string comparison said they were somewhere else (SECURITY-OPS-12).
+ */
+const FORBIDDEN_SEGMENTS = FORBIDDEN_PREFIXES.map(segmentsOf);
+
+function segmentsOf(path: string): string[] {
+  return path.split("/").filter((s) => s.length > 0);
+}
+
 export function tokenMayReach(path: string): boolean {
-  return !FORBIDDEN_PREFIXES.some((p) => path === p || path.startsWith(`${p}/`));
+  const parts = segmentsOf(path);
+  return !FORBIDDEN_SEGMENTS.some((p) => p.every((seg, i) => parts[i] === seg));
 }
 
 function hash(secret: string): string {
