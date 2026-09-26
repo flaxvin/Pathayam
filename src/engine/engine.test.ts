@@ -446,9 +446,45 @@ describe("R6 · Credit cards", () => {
     assert.equal(sep.cashOverspendCarriedIn, 0, "RTA must not be reduced (R6)");
     assert.equal(sep.readyToAssign, rupees(49_000));
     assert.equal(cat(sep, "shopping").opening, 0, "the category still reopens at zero");
-    // The gap surfaces as unfunded card debt instead.
-    assert.equal(sep.unfundedCreditAbsorbed, rupees(3_200));
+    // BUDGET-18 · The gap surfaces as unfunded card debt instead: the payment
+    // envelope keeps only the ₹1,000 Shopping had, against ₹4,200 owed.
+    assert.equal(cat(sep, "pay-hdfc").opening, rupees(1_000));
+    assert.equal(
+      cardFunding("acct-hdfc-card", rupees(-4_200), cat(sep, "pay-hdfc").balance).unfunded,
+      rupees(3_200),
+    );
     assertIdentity(state);
+  });
+
+  test("BUDGET-18 · paying off a credit overspend spends real cash, and Ready to Assign pays for it", () => {
+    // ₹1,000 of Food on the card with nothing assigned, the card paid in full
+    // from the bank next month. Every account and envelope ends at ₹0, so
+    // there is nothing to assign — it used to say ₹1,000.
+    for (const model of ["reduce-rta", "carry-negative"] as const) {
+      const state = computeBudget(
+        new Scenario()
+          .overspendModel(model)
+          .category("food")
+          .paymentCategory("pay-hdfc", "acct-hdfc")
+          .income(AUG, 1_000)
+          .spendCard(AUG, "acct-hdfc", "food", 1_000)
+          .month(SEP)
+          .payCard(SEP, "acct-hdfc", 1_000)
+          .month(OCT)
+          .build(),
+      );
+      const sep = state.get(SEP)!;
+      assert.equal(sep.readyToAssign, rupees(1_000), `${model}: the charge never took any cash`);
+      assert.equal(cat(sep, "pay-hdfc").opening, 0, `${model}: nothing funded the charge`);
+      assert.equal(cat(sep, "pay-hdfc").balance, rupees(-1_000), `${model}: paid with unbudgeted cash`);
+
+      const oct = state.get(OCT)!;
+      const left = oct.readyToAssign + cat(oct, "pay-hdfc").balance + cat(oct, "food").balance;
+      assert.equal(oct.budgetAccountBalance, 0);
+      assert.equal(left, 0, `${model}: ₹1,000 offered that exists nowhere`);
+      assert.equal(oct.unfundedCreditAbsorbed, 0);
+      assertIdentity(state);
+    }
   });
 
   test("splits a mixed overspend into its cash and credit parts", () => {
@@ -612,7 +648,9 @@ describe("R6 · Credit cards", () => {
      */
     assert.equal(cat(state.get(SEP)!, "shopping").balance, 0);
     assert.equal(state.get(SEP)!.unfundedByAccount["acct-hdfc"], undefined);
-    assert.equal(state.get(SEP)!.unfundedCreditAbsorbed, rupees(3_200));
+    // BUDGET-18 · …and the envelope gives back the ₹3,200 nobody put in, so
+    // comparing it with the debt tells the truth from here on.
+    assert.equal(cat(state.get(SEP)!, "pay-hdfc").opening, rupees(1_000));
   });
 
   test("B92 · a card is never reported short by more than it owes", () => {
@@ -902,7 +940,7 @@ describe("R13 · Month rollover", () => {
     assert.equal(cat(sep, "groceries").opening, 0, "2. cash overspend resets to zero");
     assert.equal(sep.cashOverspendCarriedIn, rupees(1_500), "   ...and reduces the new RTA");
     assert.equal(cat(sep, "shopping").opening, 0, "3. credit overspend resets to zero");
-    assert.equal(sep.unfundedCreditAbsorbed, rupees(2_000), "   ...and stays flagged as unfunded");
+    assert.equal(cat(sep, "pay-card").opening, rupees(1_000), "   ...and the card's envelope keeps only what was given");
     assert.equal(sep.heldForNextMonth, 0, "4. held income is released into RTA");
     assertIdentity(state);
   });

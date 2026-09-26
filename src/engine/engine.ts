@@ -110,7 +110,8 @@ export function computeBudget(input: EngineInput): BudgetState {
     const categoryStates = new Map<string, CategoryState>();
     let nextCarry = new Map<string, Paise>();
     let cashOverspendThisMonth = 0;
-    let creditAbsorbedThisMonth = 0;
+    // A card whose payment envelope is in another budget: see BUDGET-18 below.
+    let creditAbsorbedElsewhere = 0;
     const overspendByAccountThisMonth: Record<string, Paise> = {};
 
     for (const meta of categories) {
@@ -150,7 +151,6 @@ export function computeBudget(input: EngineInput): BudgetState {
         carry = overspendModel === "carry-negative" ? -cashOverspend : 0;
 
         cashOverspendThisMonth += cashOverspend;
-        creditAbsorbedThisMonth += creditOverspend;
 
         // Attribute the shortfall to the card(s) that actually carry the debt,
         // in proportion to what this category charged to each. Without this
@@ -188,6 +188,45 @@ export function computeBudget(input: EngineInput): BudgetState {
         carry,
       });
       nextCarry.set(meta.id, carry);
+    }
+
+    /*
+     * BUDGET-18 · R6 · A credit overspend leaves the card's payment envelope.
+     *
+     * A card charge moves its full amount into the payment envelope, including
+     * the part the spending category never had. At the rollover that category
+     * reopens at zero, and the part it never had used to go into a running
+     * `unfundedCreditAbsorbed` term while the envelope kept it. Nothing ever
+     * discharged that term: pay the card from the bank and the envelope spent
+     * money that had never existed, so Ready to Assign went on offering the
+     * whole charge again — ₹1,000 charged with nothing assigned, the card paid
+     * in full, every account and envelope at ₹0, and ₹1,000 to assign.
+     *
+     * So the envelope gives it back here, the way docs/budgeting.md always said
+     * it worked ("not automatically topped up"): it opens next month holding
+     * only what categories gave, and the card's shortfall is simply the debt
+     * the envelope does not cover. Paying the card beyond that is then an
+     * ordinary cash overspend of the envelope, which Ready to Assign pays for —
+     * the cash really left. A payment envelope already short is short by the
+     * more; one outside this budget's scope keeps the old accounting.
+     */
+    for (const [accountId, amount] of Object.entries(overspendByAccountThisMonth)) {
+      const paymentId = paymentCategoryByAccount.get(accountId);
+      const payment = paymentId === undefined ? undefined : categoryStates.get(paymentId);
+      if (!payment) {
+        creditAbsorbedElsewhere += amount;
+        continue;
+      }
+      // Classified again as if the envelope had ended the month without it. A
+      // payment envelope has no card outflow of its own, so any negative is cash.
+      const remaining = payment.balance - amount;
+      if (remaining >= 0) {
+        payment.carry = remaining;
+      } else {
+        cashOverspendThisMonth += -remaining - payment.cashOverspend;
+        payment.carry = overspendModel === "carry-negative" ? remaining : 0;
+      }
+      nextCarry.set(payment.categoryId, payment.carry);
     }
 
     // R2. The full derivation, including why assignments in *every* month are
@@ -253,7 +292,7 @@ export function computeBudget(input: EngineInput): BudgetState {
 
     carryForward = nextCarry;
     pendingCashOverspend = cashOverspendThisMonth;
-    pendingCreditOverspend = creditAbsorbedThisMonth;
+    pendingCreditOverspend = creditAbsorbedElsewhere;
     pendingOverspendByAccount = overspendByAccountThisMonth;
   }
 

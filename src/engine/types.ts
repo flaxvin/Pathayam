@@ -213,9 +213,14 @@ export interface MonthState {
    */
   dueFromOtherBudgets: Paise;
   /**
-   * Cumulative credit overspend absorbed at rollovers up to here. This is the
-   * part of card debt no envelope is funding (R6) — the figure S2b states as
-   * "₹3,200 of this balance isn't funded yet".
+   * Cumulative credit overspend absorbed at rollovers up to here on cards whose
+   * payment envelope is outside this budget's scope.
+   *
+   * BUDGET-18 · On a card this budget's scope can see, the absorbed overspend
+   * comes out of the card's payment envelope instead, so the envelope holds only
+   * what categories gave and the card's shortfall is the debt it does not cover.
+   * This term used to hold every card's, and nothing discharged it: once the
+   * card was paid, Ready to Assign still offered the charge again.
    */
   unfundedCreditAbsorbed: Paise;
   /**
