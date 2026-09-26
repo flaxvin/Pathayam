@@ -12,7 +12,8 @@ import assert from "node:assert/strict";
 import { execute, type DB } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { nowIST, todayIST, monthOf, addMonths } from "../core/dates.ts";
-import { createAccount } from "../domain/accounts.ts";
+import { createAccount, listAccounts } from "../domain/accounts.ts";
+import { createTransaction } from "../domain/transactions.ts";
 import { ensurePersonalBudget } from "../domain/budgets.ts";
 import {
   createGroup, createCategory, startPersonalBudget, setAssigned, getAssigned, setTarget,
@@ -120,5 +121,39 @@ describe("BUDGET-3 · Fill from last month fills the budget on screen", () => {
     assert.equal(getAssigned(db, NOW, rent.id), 50_000);
     assert.equal(getAssigned(db, NOW, therapy.id), 0);
     assert.equal(rta(db, priyaBudget), before);
+  });
+});
+
+/**
+ * Priya pays ₹200 of the household's groceries from her private account with
+ * nothing committed, so her commitment is underfunded and her budget is the one
+ * that would give it up.
+ */
+function priyaShort() {
+  const { db, priyaBudget } = household();
+  const pg = createGroup(db, priya, "Mine", "normal", priyaBudget);
+  const secret = createCategory(db, priya, { groupId: pg.id, name: "Divorce lawyer fund" });
+  const hg = createGroup(db, ravi, "Home", "normal", HH);
+  const groceries = createCategory(db, ravi, { groupId: hg.id, name: "Groceries" });
+  setAssigned(db, ravi, NOW, groceries.id, 50_000);
+  const hers = listAccounts(db).find((a) => a.name === "Priya private")!;
+  createTransaction(db, priya, {
+    accountId: hers.id, amount: -20_000, date: `${NOW}-01`, categoryId: groceries.id,
+  });
+  return { db, priyaBudget, secret };
+}
+
+describe("BUDGET-10 · the household page never lists another member's envelopes", () => {
+  test("Ravi's Spent-from picker has none of Priya's; Priya's has hers", async () => {
+    const { db } = priyaShort();
+    for (const [who, sees] of [[RAVI, false], [PRIYA, true]] as const) {
+      const app = await startTestApp(db, { memberId: who });
+      try {
+        const page = await (await app.get(`/household?month=${NOW}`)).text();
+        assert.equal(page.includes("Divorce lawyer fund"), sees, who);
+      } finally {
+        await app.close();
+      }
+    }
   });
 });
