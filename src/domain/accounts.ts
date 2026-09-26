@@ -13,6 +13,7 @@ import { nowIST, todayIST, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { Missing, Refusal } from "../core/refusal.ts";
 import { householdBudgetId } from "./budgets.ts";
+import { hiddenAccountSql } from "./member-scope.ts";
 import { prepareClaim, prepareTransferClaim } from "./commitments.ts";
 
 export type AccountKind = "budget" | "credit" | "tracking";
@@ -633,6 +634,37 @@ export function findCardByLast4(db: DB, last4: string): Card | null {
     db,
     `SELECT * FROM cards WHERE last4 = ? AND closed_at IS NULL LIMIT 1`,
     last4,
+  );
+}
+
+/**
+ * The open accounts ending in `last4` that `memberId` may see, and the open
+ * cards on them. An alert fetched from one member's mailbox names an account
+ * by its last four; the household-wide lookups above took the oldest match,
+ * so Ravi's Axis alert for XX0000 landed in Priya's private account that also
+ * ends 0000 — his spend in her private ledger, and never in his. A caller
+ * that has more than one of these to choose from should not guess.
+ */
+export function accountsByLast4For(db: DB, last4: string, memberId: string): Account[] {
+  const hidden = hiddenAccountSql("a", memberId);
+  return queryAll<Account>(
+    db,
+    `SELECT a.* FROM accounts a
+      WHERE a.last4 = ? AND a.closed_at IS NULL AND NOT ${hidden.sql}
+      ORDER BY a.created_at`,
+    last4, ...hidden.params,
+  );
+}
+
+export function cardsByLast4For(db: DB, last4: string, memberId: string): (Card & { account_holder: string | null })[] {
+  const hidden = hiddenAccountSql("a", memberId);
+  return queryAll<Card & { account_holder: string | null }>(
+    db,
+    `SELECT c.*, a.holder_member_id AS account_holder
+       FROM cards c JOIN accounts a ON a.id = c.account_id
+      WHERE c.last4 = ? AND c.closed_at IS NULL AND a.closed_at IS NULL AND NOT ${hidden.sql}
+      ORDER BY c.created_at`,
+    last4, ...hidden.params,
   );
 }
 

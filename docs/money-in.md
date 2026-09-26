@@ -180,6 +180,12 @@ read. Attachments are passed to the PDF path; alert bodies to the email-alert
 parser. The refresh token is stored in `gmail_connections` and excluded from
 every export.
 
+An alert is routed by the last four digits it names, among only the accounts
+and cards the member whose mailbox it came from can see — another member's
+private account ending in the same digits is never a candidate. The ones that
+member holds are preferred; if two still match, the alert is left alone with a
+note rather than guessed. A statement attachment is routed the same way.
+
 ## Duplicate detection
 
 Every staged row is compared against existing transactions **in the same
