@@ -173,3 +173,47 @@ describe("MONEY-CORE-22 · \"Try it on my history\" reads only the tester's hist
     } finally { await app.close(); }
   });
 });
+
+describe("MONEY-CORE-12 · applying a rule to history undoes in one action", () => {
+  test("puts back every row it changed, except one changed again since", async () => {
+    const w = household();
+    const a = createTransaction(w.db, ravi, {
+      accountId: w.hBank, amount: -12_300, date: "2026-09-01", payeeName: "Swiggy", categoryId: w.fun,
+    });
+    const b = createTransaction(w.db, ravi, {
+      accountId: w.hBank, amount: -4_500, date: "2026-09-02", payeeName: "Swiggy Mart",
+    });
+    const c = createTransaction(w.db, ravi, {
+      accountId: w.hBank, amount: -9_900, date: "2026-09-03", payeeName: "Swiggy One", categoryId: w.fun,
+    });
+    assert.equal(applyRetroactive(w.db, ravi, swiggyTo(w.food)), 3);
+    const { updateTransaction } = await import("../domain/transactions.ts");
+    updateTransaction(w.db, ravi, c.id, { memo: "changed since" });
+
+    const apply = queryOne<{ id: string }>(w.db, `SELECT id FROM events WHERE action = 'apply-retroactive'`)!.id;
+    const app = await startTestApp(w.db, { memberId: RAVI });
+    try {
+      const res = await app.post(`/activity/${apply}/undo`, {});
+      assert.equal(res.status, 303, `answered ${res.status}`);
+      assert.match(decodeURIComponent(res.headers.get("location") ?? ""), /Put 2 transactions back/);
+      assert.deepEqual(app.failures, []);
+    } finally { await app.close(); }
+    const categoryOf = (id: string) =>
+      queryOne<{ c: string | null }>(w.db, `SELECT category_id c FROM transactions WHERE id = ?`, id)!.c;
+    assert.equal(categoryOf(a.id), w.fun);
+    assert.equal(categoryOf(b.id), null);
+    assert.equal(categoryOf(c.id), w.food);
+    assert.deepEqual(identityProblems(w.db, "2026-12"), []);
+  });
+
+  test("a rule's other changes still cannot be undone, so none is offered", async () => {
+    const { checkUndo } = await import("../core/events.ts");
+    const w = household();
+    const app = await startTestApp(w.db, { memberId: RAVI });
+    try {
+      await app.post("/rules/new", { name: "Swiggy is food", field: "payee", op: "contains", value: "Swiggy", category_id: w.food });
+    } finally { await app.close(); }
+    const created = queryOne<{ id: string }>(w.db, `SELECT id FROM events WHERE entity = 'rule' AND action = 'create'`)!.id;
+    assert.equal(checkUndo(w.db, created).ok, false);
+  });
+});

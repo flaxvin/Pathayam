@@ -12,9 +12,9 @@
 
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
-import { appendEvent, type Actor } from "../core/events.ts";
+import { appendEvent, registerUndoHandler, undoEvent, type Actor } from "../core/events.ts";
 import { Refusal } from "../core/refusal.ts";
-import { refusePaymentCategories } from "../domain/transactions.ts";
+import { refusePaymentCategories, UndoRefused } from "../domain/transactions.ts";
 import { prepareClaim, sharedInstrumentBetween } from "../domain/commitments.ts";
 import { hiddenTransactionSql } from "../domain/member-scope.ts";
 import { nowIST } from "../core/dates.ts";
@@ -390,6 +390,7 @@ export function previewRetroactive(db: DB, rule: Rule, viewerMemberId: string | 
 export function applyRetroactive(db: DB, actor: Actor, rule: Rule): number {
   return transact(db, () => {
     let changed = 0;
+    const eventIds: string[] = [];
 
     for (const subject of ruleSubjects(db, actor.memberId)) {
       const outcome = applyRules(subject, [rule]);
@@ -418,11 +419,11 @@ export function applyRetroactive(db: DB, actor: Actor, rule: Rule): number {
         subject.id, rule.id, nowIST(),
       );
 
-      appendEvent(db, { ...actor, source: "rule", sourceDetail: rule.name }, {
+      eventIds.push(appendEvent(db, { ...actor, source: "rule", sourceDetail: rule.name }, {
         entity: "transaction", entityId: subject.id, action: "categorise",
         before, after: queryOne(db, `SELECT * FROM transactions WHERE id = ?`, subject.id),
         summary: `Categorised by the rule "${rule.name}"`,
-      });
+      }).id);
       changed++;
     }
 
@@ -432,7 +433,7 @@ export function applyRetroactive(db: DB, actor: Actor, rule: Rule): number {
 
     appendEvent(db, actor, {
       entity: "rule", entityId: rule.id, action: "apply-retroactive",
-      after: { changed },
+      after: { changed, eventIds },
       summary:
         `Applied "${rule.name}" to ${changed} existing ` +
         `${changed === 1 ? "transaction" : "transactions"}`,
@@ -441,3 +442,35 @@ export function applyRetroactive(db: DB, actor: Actor, rule: Rule): number {
     return changed;
   });
 }
+
+/*
+ * MONEY-CORE-12 · The apply page promises "Undoable in one action for the next
+ * 30 days", and nothing could undo it: "rule" had no undo handler, so Activity
+ * answered "Changes to rule cannot be undone" and the only way back was each
+ * "Categorised by the rule" entry, one by one. The apply now records the
+ * events it wrote, and undoing it undoes each of them — except a transaction
+ * changed again since, which is the household's later decision and stays (the
+ * same rule a payee merge's undo keeps). Only this action of a rule undoes;
+ * the rest stay "cannot be undone", so Activity offers no button for them.
+ */
+registerUndoHandler("rule", (db, event, actor) => {
+  const recorded = (event.after as { eventIds?: string[] } | undefined)?.eventIds;
+  if (!recorded) {
+    throw new UndoRefused(
+      "That was recorded before an apply kept a list of what it changed. Undo each " +
+      "\"Categorised by the rule\" entry instead.",
+    );
+  }
+  let back = 0;
+  for (const id of recorded) {
+    try {
+      if (undoEvent(db, id, actor).ok) back++;
+    } catch (err) {
+      // Refused before writing (its old envelope merged away since, say): kept.
+      if (!(err instanceof UndoRefused || err instanceof Refusal)) throw err;
+    }
+  }
+  const kept = recorded.length - back;
+  return `Put ${back} ${back === 1 ? "transaction" : "transactions"} back as they were` +
+    (kept > 0 ? `; ${kept} changed since ${kept === 1 ? "was" : "were"} left as ${kept === 1 ? "it is" : "they are"}` : "");
+}, ["apply-retroactive"]);
