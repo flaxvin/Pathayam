@@ -66,6 +66,8 @@ function main(): void {
     assertDemoModeSafeAgainstData(config, {
       gmailConnections: queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM gmail_connections`)?.n ?? 0,
       statementIdentities: queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM statement_identity`)?.n ?? 0,
+      passwords: queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM member_passwords`)?.n ?? 0,
+      googleLinks: queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM members WHERE google_sub IS NOT NULL`)?.n ?? 0,
     });
   } catch (err) {
     if (err instanceof UnsafeConfiguration) {
