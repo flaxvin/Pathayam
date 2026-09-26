@@ -71,7 +71,7 @@ import {
   parseWith,
 } from "./import/profiles.ts";
 import {
-  proposeCategoryRules, proposePayeeRule, previewRetroactive, applyRetroactive,
+  proposeCategoryRules, proposePayeeRule, previewRetroactive, applyRetroactive, ruleSubjects,
   suppress, learningEnabled, setLearningEnabled, confirmRule, dismissRule,
 } from "./import/learning.ts";
 import {
@@ -6054,25 +6054,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const rule = ruleFromBody(ctx);
     const view = buildBudgetView(db, undefined, undefined, viewer(ctx));
 
-    const subjects: RuleSubject[] = queryAll<{
-      narration: string | null; payee: string | null; account_id: string;
-      amount: number; date: string; memo: string | null; category_id: string | null;
-      cleared: number; source: string;
-    }>(
-      db,
-      `SELECT t.raw_narration AS narration, p.name AS payee, t.account_id, t.amount, t.date,
-              t.memo, t.category_id, t.cleared, t.source
-         FROM transactions t LEFT JOIN payees p ON p.id = t.payee_id
-        WHERE t.deleted_at IS NULL ORDER BY t.date DESC LIMIT 500`,
-    ).map((r) => {
-      const narration = r.narration ?? r.payee ?? "";
-      return {
-        narration, importedPayee: r.payee, payee: r.payee, accountId: r.account_id,
-        amount: r.amount, date: r.date, memo: r.memo, tags: [],
-        categoryId: r.category_id, cleared: r.cleared === 1, source: r.source,
-        cardLast4: null, ...extractNarrationFields(narration),
-      };
-    });
+    // MONEY-CORE-22 · The history the viewer can see, as the apply preview reads
+    // it. This read the household's latest 500 rows, so Ravi's test matched and
+    // listed a payee that exists only on Priya's private account.
+    const subjects: RuleSubject[] = ruleSubjects(db, viewer(ctx), 500);
 
     const result = testRule(rule, subjects);
     return rulesPage(
