@@ -178,6 +178,12 @@ account** and against rows already pending in that account.
 | `weak` | Weaker match. | Queued for a decision. |
 | `manual-vs-imported` | A typed transaction matching an imported one. | Queued for a decision. |
 
+A row still pending from an earlier import has no transaction to merge into.
+A strong match with one — an alert awaiting approval when its statement line
+arrives — is folded into the queued row; a weaker match is queued beside it
+with its reason, and approving one and dismissing the other is the decision.
+Rows of the same file are never compared with each other (D2).
+
 `source_id` is `adapter:sha256(date, amount, narration, reference):occurrence`.
 Because it names its adapter, the exact tier compares it alone; approval keeps
 the batch's own source (`pdf`, `email`, …) on the transaction. A row that is
