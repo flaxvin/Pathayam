@@ -428,6 +428,45 @@ interface DeleteTaken {
   target: Record<string, unknown> | null;
   transactionIds: string[];
   splitIds: string[];
+  /** Rules re-pointed at `remapTo`, as they were. Absent on older events. */
+  rules?: RuleJson[];
+}
+
+interface RuleJson { id: string; name: string; conditions_json: string; actions_json: string }
+
+/** Rules whose conditions or actions name this envelope. Ids are UUIDs, so a quoted match is exact. */
+function rulesNaming(db: DB, categoryId: string): RuleJson[] {
+  const needle = `"${categoryId}"`;
+  return queryAll<RuleJson>(
+    db,
+    `SELECT id, name, conditions_json, actions_json FROM rules
+      WHERE instr(actions_json, ?) > 0 OR instr(conditions_json, ?) > 0`,
+    needle, needle,
+  );
+}
+
+const renameIn = (json: string, from: string, to: string): string =>
+  json.split(`"${from}"`).join(`"${to}"`);
+
+/**
+ * A rule follows its envelope, the way the envelope's history does.
+ *
+ * Merging and remapping moved transactions, splits, queued rows and schedules
+ * and left `rules.actions_json` naming the envelope that was gone. /rules hides
+ * a rule whose envelope is not in the live view, so it vanished from the one
+ * page that could remove it — and went on filing every Swiggy import into the
+ * dead envelope, where approving it was refused, and "Apply to existing" wrote
+ * the dead id straight onto transactions and broke the identity.
+ */
+function repointRules(db: DB, fromId: string, toId: string): RuleJson[] {
+  const rules = rulesNaming(db, fromId);
+  for (const r of rules) {
+    execute(
+      db, `UPDATE rules SET conditions_json = ?, actions_json = ? WHERE id = ?`,
+      renameIn(r.conditions_json, fromId, toId), renameIn(r.actions_json, fromId, toId), r.id,
+    );
+  }
+  return rules;
 }
 
 /**
@@ -474,6 +513,22 @@ export function deleteCategory(
      * a remap names where, and Merge does the same with the money and target
      * too. Trashed rows count — restoring one would file it to nothing.
      */
+    /*
+     * A rule filing into the envelope needs somewhere to file once it is gone.
+     * A remap is that somewhere; without one the rule would be left naming a
+     * deleted envelope, hidden from /rules and still firing on every import.
+     */
+    if (!opts.remapTo) {
+      const rules = rulesNaming(db, id);
+      if (rules.length > 0) {
+        throw new Refusal(
+          `The rule${rules.length === 1 ? "" : "s"} ${rules.map((r) => `"${r.name}"`).join(", ")} ` +
+          `file${rules.length === 1 ? "s" : ""} into "${before.name}". Choose an envelope for ` +
+          `its history to move to, and ${rules.length === 1 ? "that rule follows" : "they follow"} ` +
+          `it — or delete ${rules.length === 1 ? "the rule" : "them"} first.`,
+        );
+      }
+    }
     if (!opts.remapTo) {
       const history = queryOne<{ n: number }>(
         db,
@@ -517,6 +572,7 @@ export function deleteCategory(
       ).map((r) => r.id);
       execute(db, `UPDATE transactions SET category_id = ? WHERE category_id = ?`, opts.remapTo, id);
       execute(db, `UPDATE transaction_splits SET category_id = ? WHERE category_id = ?`, opts.remapTo, id);
+      taken.rules = repointRules(db, id, opts.remapTo);
     }
     execute(db, `DELETE FROM assignments WHERE category_id = ?`, id);
     execute(db, `DELETE FROM targets WHERE category_id = ?`, id);
@@ -659,6 +715,7 @@ export function mergeCategories(db: DB, actor: Actor, loserId: string, winnerId:
     execute(db, `UPDATE loans SET payment_category_id = ? WHERE payment_category_id = ?`, winnerId, loserId);
     execute(db, `UPDATE even_calls SET envelope_id = ? WHERE envelope_id = ?`, winnerId, loserId);
     execute(db, `UPDATE even_calls SET giving_category_id = ? WHERE giving_category_id = ?`, winnerId, loserId);
+    repointRules(db, loserId, winnerId);
 
     // A goal can name both; (goal_id, category_id) is a key, so insert what is
     // missing and drop the rest rather than colliding.
@@ -1094,6 +1151,16 @@ registerUndoHandler("category", (db, event) => {
     for (const sid of taken.splitIds) {
       execute(db, `UPDATE transaction_splits SET category_id = ? WHERE id = ? AND category_id = ?`,
         id, sid, taken.remapTo);
+    }
+    // A rule goes back only if it still says what the delete made it say.
+    for (const r of taken.rules ?? []) {
+      execute(
+        db,
+        `UPDATE rules SET conditions_json = ?, actions_json = ?
+          WHERE id = ? AND conditions_json = ? AND actions_json = ?`,
+        r.conditions_json, r.actions_json, r.id,
+        renameIn(r.conditions_json, id, taken.remapTo!), renameIn(r.actions_json, id, taken.remapTo!),
+      );
     }
   }
   return `Restored "${before.name}"`;

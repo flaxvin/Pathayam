@@ -178,7 +178,10 @@ one into the other and deletes the loser:
   money out of the ledger without taking it out of any account. The identity
   would break by exactly the amount discarded.
 - **History follows**: transactions, splits, staged imports, schedules, a
-  loan's payment envelope, goal membership.
+  loan's payment envelope, goal membership — and the import rules that file
+  into it, which used to keep naming the loser, drop off /rules and go on
+  filing into the deleted envelope. Migration 0053 moves the rules an earlier
+  merge left behind, and switches off any still naming a deleted envelope.
 - **The winner's target stands.** The loser's is inherited only where the
   winner has none — two targets cannot both apply, and the category being kept
   is the one whose intent was meant to survive.
@@ -208,7 +211,10 @@ to Assign while the bank still showed it gone. So delete is refused while any
 transaction or split line — trashed ones included — is filed to the envelope,
 unless a remap target is given; the Categories page points to Merge instead.
 Nothing new can be filed to a deleted envelope either (a schedule or rule saved
-before the delete is refused rather than filed into nothing).
+before the delete is refused rather than filed into nothing — "Apply to
+existing" included). A remap takes the envelope's rules along with its history,
+and undoing the delete takes them back; without a remap, a delete is refused
+while a rule files into the envelope, naming the rule.
 
 A remap target has to be an envelope that counts spending: a live one, in the
 same budget, and neither a card's payment envelope (its activity is derived
