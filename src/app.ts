@@ -758,6 +758,23 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return id;
   }
 
+  /**
+   * 15 · An import, by the account it was read into. The history hid another
+   * member's private-account batches, but `/import/undo` took any batch id, so
+   * Ravi could post Priya's and remove every transaction her statement had
+   * created — the queue writes beside it were guarded, the undo was not. A
+   * batch with no account (a Gmail fetch that matched nothing) is nobody's.
+   */
+  function requireVisibleBatch(ctx: RequestContext, id: string): string {
+    const row = queryOne<{ account_id: string | null }>(
+      db, `SELECT account_id FROM import_batches WHERE id = ?`, id,
+    );
+    if (!row || memberScope(db, viewer(ctx)).hides(row.account_id)) {
+      throw new NotFound("That import does not exist.");
+    }
+    return id;
+  }
+
   function requireVisibleAttachment(ctx: RequestContext, id: string): string {
     const meta = attachmentMeta(db, id);
     if (!meta) throw new NotFound("That attachment does not exist.");
@@ -4523,7 +4540,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/import/undo", (ctx) =>
     mutate(ctx, (a) => {
       const result = undoBatch(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
-        requiredField(ctx.body, "batch_id"));
+        requireVisibleBatch(ctx, requiredField(ctx.body, "batch_id")));
       return {
         redirect: "/import",
         message:
