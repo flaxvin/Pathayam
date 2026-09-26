@@ -386,6 +386,11 @@ Undoing a change to a schedule's **split** puts back the lines and envelope it
 replaced. It used to delete the schedule, because those events recorded no
 before-state and undo read that as "this was a creation".
 
+Undoing **Mark paid** removes the transaction it recorded and puts the due date
+back; undoing **Skip** puts the skipped occurrence back. If the recorded
+transaction has been edited since, the undo is refused rather than throw the
+edit away — delete it from the register instead.
+
 The short-month policy decides what happens in a month without that day:
 
 | Policy | 31st, in February 2026 |
