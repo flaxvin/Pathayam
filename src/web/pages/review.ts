@@ -125,6 +125,14 @@ function renderStagedRow(row: StagedRow, categories: CategoryView[]): SafeHtml {
           ${when(row.applied_rules_json, () => html`
             <span class="chip chip-info">set by a rule</span>
           `)}
+          <!--
+            A match with a row still in this queue: there is no transaction to
+            merge into, so it waits here with its reason, and approving one of
+            the two and dismissing the other is the decision.
+          -->
+          ${when(row.duplicate_reason, () => html`
+            <p class="notice notice-warning" style="margin:.5rem 0 0">${row.duplicate_reason}</p>
+          `)}
         </div>
         <strong class="amount ${row.amount < 0 ? "amount-negative" : "amount-positive"}">
           ${formatPaise(row.amount)}

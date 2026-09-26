@@ -134,6 +134,7 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
 
     const rules = loadRules(db);
     const existing = loadCandidates(db, opts.accountId);
+    const pending = loadPendingCandidates(db, opts.accountId);
 
     // I5 requires zero new transactions *and* zero new review items. A row
     // still waiting in the queue is not in the ledger, so the exact-match tier
@@ -203,7 +204,8 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
           source: opts.source,
           sourceId,
         },
-        existing,
+        // Ledger rows first, so a transaction wins a tie with a queued row.
+        [...existing, ...pending],
       );
 
       if (duplicate?.action === "skip") {
@@ -212,7 +214,13 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
       }
 
       if (duplicate?.action === "upgrade") {
-        upgradeExisting(db, actor, duplicate, record, extracted.reference);
+        // A strong match on a row still in the queue is the same event too —
+        // the alert waiting for approval when its statement line arrives. The
+        // queued row stands for both; there is no transaction to upgrade yet,
+        // and approving it marks it cleared like any import.
+        if (!duplicate.existing.staged) {
+          upgradeExisting(db, actor, duplicate, record, extracted.reference);
+        }
         duplicates++;
         continue;
       }
@@ -248,7 +256,16 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
         payeeId, outcome.subject.payee, outcome.subject.categoryId, outcome.subject.memo,
         outcome.subject.tags.length ? JSON.stringify(outcome.subject.tags) : null,
         outcome.appliedRuleIds.length ? JSON.stringify(outcome.appliedRuleIds) : null,
-        duplicate?.existing.id ?? null, duplicate?.tier ?? null, duplicate?.reason ?? null,
+        // A pair with a queued row has no transaction to merge into: the tier
+        // and reason are kept so Review says why, and approving or dismissing
+        // the row is the choice.
+        duplicate && !duplicate.existing.staged ? duplicate.existing.id : null,
+        duplicate?.tier ?? null,
+        duplicate
+          ? duplicate.existing.staged
+            ? `${duplicate.reason} The other one is still waiting in this queue.`
+            : duplicate.reason
+          : null,
         nowIST(),
       );
       staged++;
@@ -354,6 +371,40 @@ function loadCandidates(db: DB, accountId: string): Candidate[] {
     reference: extractReference(r.memo, r.raw_narration),
     source: r.source,
     sourceId: r.source_id,
+  }));
+}
+
+/**
+ * `04` §4 · Rows already pending in the account, from earlier imports.
+ *
+ * Only the exact tier used to look at the queue. An alert still awaiting
+ * approval when the month's statement arrived was invisible to every other
+ * tier, so the statement's line for the same ₹450 staged beside it unflagged
+ * and approving the queue put the order in the ledger twice. The current
+ * batch's own rows are not here — two identical lines in one file are D2's
+ * two real transactions, not a duplicate.
+ */
+function loadPendingCandidates(db: DB, accountId: string): Candidate[] {
+  return queryAll<{
+    id: string; date: string; amount: number; proposed_payee: string | null;
+    raw_narration: string | null; reference: string | null; source: string; source_id: string | null;
+  }>(
+    db,
+    `SELECT s.id, s.date, s.amount, s.proposed_payee, s.raw_narration, s.reference,
+            b.source, s.source_id
+       FROM staged_transactions s JOIN import_batches b ON b.id = s.batch_id
+      WHERE s.account_id = ? AND s.status = 'pending'`,
+    accountId,
+  ).map((r) => ({
+    id: r.id,
+    accountId,
+    date: r.date,
+    amount: r.amount,
+    payee: r.proposed_payee ?? r.raw_narration,
+    reference: r.reference ?? (r.raw_narration ? extractNarrationFields(r.raw_narration).reference : null),
+    source: r.source,
+    sourceId: r.source_id,
+    staged: true,
   }));
 }
 

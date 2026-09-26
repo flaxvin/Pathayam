@@ -31,6 +31,11 @@ export interface Candidate {
   /** 'manual' for a hand-entered transaction; the adapter name otherwise. */
   source: string;
   sourceId: string | null;
+  /**
+   * A row still waiting in the review queue rather than a transaction in the
+   * ledger. It can be matched like one, but nothing can be merged into it.
+   */
+  staged?: boolean;
 }
 
 export interface Incoming {
