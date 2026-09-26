@@ -5535,10 +5535,23 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       listCategories(db, { includeHidden: true, budgetId: scope, viewerMemberId: viewer(ctx) })
         .map((c) => c.id),
     );
+    /*
+     * A tracking account belongs to no budget, and money into it names no
+     * envelope — so a "PPF deposit" schedule matched neither end in any scope:
+     * "Schedule added.", then never listed, with no Paid, Skip, Edit or Remove
+     * anywhere. With no envelope to place it, it shows wherever its account is
+     * visible, the way a schedule with neither end always has.
+     */
+    const unbudgetedAccounts = new Set(
+      listAccounts(db, { viewerMemberId: viewer(ctx) })
+        .filter((a) => a.budget_id === null)
+        .map((a) => a.id),
+    );
     const inScopeSchedule = (s: { account_id: string | null; category_id: string | null }) =>
       (!s.account_id && !s.category_id)
       || (s.account_id !== null && accountsInScope.has(s.account_id))
-      || (s.category_id !== null && categoriesInScope.has(s.category_id));
+      || (s.category_id !== null && categoriesInScope.has(s.category_id))
+      || (s.category_id === null && s.account_id !== null && unbudgetedAccounts.has(s.account_id));
 
     return render(
       ctx, "Schedules",
@@ -5555,12 +5568,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             .map((sch) => [sch.id, getScheduleSplits(db, sch.id)]),
         ),
         // The inline edit form needs the full lists, or saving would blank the
-        // fields it does not show.
+        // fields it does not show — the same accounts /schedules/new offers, or
+        // a schedule on a tracking account saved as "Not set".
         categories: [...view.categories.values()]
           .filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden)
           .map((c) => ({ id: c.id, name: c.name })),
         accounts: listAccounts(db, { viewerMemberId: viewer(ctx) })
-          .filter((acc) => acc.kind === "budget" || acc.kind === "credit")
           .map((acc) => ({ id: acc.id, name: acc.nickname || acc.name })),
       }),
     );
