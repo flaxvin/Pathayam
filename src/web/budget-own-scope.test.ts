@@ -209,3 +209,33 @@ describe("BUDGET-25 · the household's month close counts the household", () => 
     assert.equal(row!.spending, 50_000);
   });
 });
+
+describe("BUDGET-22 · the settled history never names another member's envelope", () => {
+  test("Priya calls it even from her private envelope; Ravi reads only 'Priya'", async () => {
+    const { db, secret } = priyaShort();
+    const hers = await startTestApp(db, { memberId: PRIYA });
+    try {
+      const page = await (await hers.get(`/household?month=${NOW}`)).text();
+      const envelope = page.match(
+        /action="\/household\/call-it-even"[\s\S]*?name="envelope_id" value="([^"]+)"/,
+      )?.[1];
+      assert.ok(envelope, "Priya is not offered call it even");
+      const res = await hers.post("/household/call-it-even", {
+        envelope_id: envelope, month: NOW, amount: "200", giving_category_id: secret.id,
+      });
+      assert.equal(res.status, 303);
+      assert.match(text(await (await hers.get(`/household?month=${NOW}`)).text()),
+        /Priya, from Divorce lawyer fund/, "her own page names her own envelope");
+    } finally {
+      await hers.close();
+    }
+    const his = await startTestApp(db, { memberId: RAVI });
+    try {
+      const page = text(await (await his.get(`/household?month=${NOW}`)).text());
+      assert.match(page, /₹200 Priya /);
+      assert.doesNotMatch(page, /Divorce lawyer fund/);
+    } finally {
+      await his.close();
+    }
+  });
+});

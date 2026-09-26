@@ -19,7 +19,7 @@ import { computeBudget } from "../engine/engine.ts";
 import { loadTargets } from "../engine/repository.ts";
 import { householdBudgetId, getBudget } from "./budgets.ts";
 import { commitmentSources } from "./commitments.ts";
-import { listCategories } from "./budget.ts";
+import { listCategories, visibleBudgetIds } from "./budget.ts";
 import { GIVEN_UP_CATEGORY, listEvenCalls, calledEvenTotal } from "./squaring-up.ts";
 import { standingOf, outstanding, standingSentence, type Standing } from "./standing.ts";
 
@@ -108,7 +108,8 @@ export interface SettledEntry {
   amount: Paise;
   /** The budget that gave it up, and the envelope it was spent from. */
   givingBudgetName: string;
-  givingCategoryName: string;
+  /** Null when that envelope is in a budget the reader cannot see (BUDGET-22). */
+  givingCategoryName: string | null;
   note: string | null;
 }
 
@@ -168,7 +169,7 @@ export function buildHouseholdView(
     members,
     separateBudgets: sources.length > 0,
     underfunded: members.filter((m) => m.standing === "underfunded"),
-    settled: describeSettled(db, members, month),
+    settled: describeSettled(db, members, month, viewerMemberId),
     settledTotal: members.reduce(
       (sum, m) => sum + calledEvenTotal(db, m.categoryId, month), 0,
     ) as Paise,
@@ -183,12 +184,20 @@ export function buildHouseholdView(
  * row of identifiers.
  */
 function describeSettled(
-  db: DB, members: MemberCommitment[], month: MonthKey,
+  db: DB, members: MemberCommitment[], month: MonthKey, viewerMemberId?: string | null,
 ): SettledEntry[] {
   const byEnvelope = new Map(members.map((m) => [m.categoryId, m.name]));
+  /*
+   * BUDGET-22 · Named as the reader may see them. When Priya called her
+   * shortfall even from her private "Divorce lawyer fund", Ravi's household
+   * page printed "Priya, from Divorce lawyer fund" for good — long after the
+   * picker BUDGET-10 closed was gone. Somebody else's envelope is left
+   * unnamed; the budget's name says whose it was.
+   */
   const categoryNames = new Map(
-    listCategories(db, { includeHidden: true }).map((c) => [c.id, c.name]),
+    listCategories(db, { includeHidden: true, viewerMemberId }).map((c) => [c.id, c.name]),
   );
+  const canSee = viewerMemberId === undefined ? null : visibleBudgetIds(db, viewerMemberId ?? null);
 
   const entries: SettledEntry[] = [];
   for (const envelopeId of byEnvelope.keys()) {
@@ -201,7 +210,8 @@ function describeSettled(
         amount: call.amount,
         givingBudgetName:
           giving?.kind === "household" ? "the household" : giving?.name ?? "a budget since removed",
-        givingCategoryName: categoryNames.get(call.giving_category_id) ?? GIVEN_UP_CATEGORY,
+        givingCategoryName: categoryNames.get(call.giving_category_id)
+          ?? (canSee === null || canSee.has(call.giving_budget_id) ? GIVEN_UP_CATEGORY : null),
         note: call.note,
       });
     }
