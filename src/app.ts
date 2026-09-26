@@ -145,7 +145,7 @@ import {
 } from "./web/pages/loans.ts";
 import {
   createLoan, listLoans, getLoan, projectLoan, recordInstalment, listPayments, closeLoan,
-  recordDisbursement, recordLoanStatement, recordRateChange, recordPrepayment, canSeeLoan,
+  recordDisbursement, recordLoanStatement, recordRateChange, recordPrepayment, canSeeLoan, loanPaymentBudgetId,
   listDisbursements, listRatePeriods, debtOverview, type LoanType,
 } from "./domain/loans.ts";
 import { comparePrepayment, rateResetOptions, NegativeAmortisation } from "./loans/amortisation.ts";
@@ -5097,7 +5097,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     const amount = rupeesFromQuery(ctx, "amount", 1_00_000);
     const atMonth = Number(ctx.query.get("at_month") ?? 1);
-    const view = buildBudgetView(db, undefined, undefined, viewer(ctx));
+    // MONEY-CORE-18 · Only the envelopes of the budget the loan is paid from —
+    // recordPrepayment refuses any other.
+    const view = buildBudgetView(
+      db, undefined, loanPaymentBudgetId(db, projection.loan.id) ?? undefined, viewer(ctx),
+    );
 
     return render(
       ctx, "Prepay",

@@ -351,6 +351,23 @@ export function paymentCategoryForLoan(db: DB, loanId: string): { id: string; na
   );
 }
 
+/** The budget an envelope's money belongs to — its own budget_id, else the household's. */
+function budgetOfCategory(db: DB, categoryId: string): string {
+  return queryOne<{ budget_id: string | null }>(
+    db, `SELECT budget_id FROM categories WHERE id = ?`, categoryId,
+  )?.budget_id ?? householdBudgetId(db);
+}
+
+/**
+ * MONEY-CORE-18 · The budget a loan's instalments are paid from — the one its
+ * payment envelope sits in, and so the only budget a prepayment may be funded
+ * from. Null for a loan with no payment envelope.
+ */
+export function loanPaymentBudgetId(db: DB, loanId: string): string | null {
+  const payment = paymentCategoryForLoan(db, loanId);
+  return payment ? budgetOfCategory(db, payment.id) : null;
+}
+
 // ---------------------------------------------------------------------------
 // R15 · Disbursement
 // ---------------------------------------------------------------------------
@@ -666,6 +683,24 @@ export function recordPrepayment(
      * made deliberately. Move it first, from the envelope they named.
      */
     if (input.fundingCategoryId && payment && input.fundingCategoryId !== payment.id) {
+      /*
+       * MONEY-CORE-18 · …and from the same budget. An envelope's money is its
+       * budget's (the root BUDGET-5 names for Move). Funding Ravi's personal
+       * loan from the household's Food moved ₹10,000 out of that envelope, but
+       * the cash left Ravi's account: the household's Ready to Assign rose by
+       * what Food lost while Ravi's own budget paid, and every scope still
+       * balanced, so nothing flagged it. Refused, naming where to pick from.
+       */
+      const payingBudget = budgetOfCategory(db, payment.id);
+      if (budgetOfCategory(db, input.fundingCategoryId) !== payingBudget) {
+        const name = queryOne<{ name: string }>(
+          db, `SELECT name FROM budgets WHERE id = ?`, payingBudget,
+        )?.name ?? "the loan's budget";
+        throw new Refusal(
+          `That envelope is in another budget. This loan is paid from ${name}, ` +
+          `so the prepayment has to come out of an envelope there.`,
+        );
+      }
       moveMoney(db, actor, {
         month: monthOf(input.date),
         fromCategoryId: input.fundingCategoryId,
