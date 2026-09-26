@@ -17,7 +17,7 @@ import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST, type IsoDate } from "../core/dates.ts";
 import type { Paise } from "../core/money.ts";
-import { createTransaction, resolvePayee, type TransactionSource } from "../domain/transactions.ts";
+import { createTransaction, resolvePayee, livePayeeId, type TransactionSource } from "../domain/transactions.ts";
 import { findCardByLast4 } from "../domain/accounts.ts";
 import { breakCheckpoints, checkpointsAffectedBy } from "../domain/reconciliation.ts";
 import { hiddenAccountSql } from "../domain/member-scope.ts";
@@ -332,9 +332,10 @@ function cardLast4Of(db: DB, cardId: string): string | null {
 
 function findExistingPayee(db: DB, name: string | null): string | null {
   if (!name) return null;
-  return (
-    queryOne<{ id: string }>(db, `SELECT id FROM payees WHERE name = ? COLLATE NOCASE`, name)?.id ?? null
-  );
+  const id = queryOne<{ id: string }>(db, `SELECT id FROM payees WHERE name = ? COLLATE NOCASE`, name)?.id;
+  // A merged-away payee keeps its row (and its name) so undo can bring it
+  // back; an import finding it by name files to the payee it became.
+  return id ? livePayeeId(db, id) : null;
 }
 
 /**
@@ -564,7 +565,8 @@ export function approveStaged(
     }
 
     const payeeName = patch.payeeName ?? row.proposed_payee;
-    const payeeId = row.payee_id
+    // Staged before a payee merge, the row still names the merged-away one.
+    const payeeId = (row.payee_id ? livePayeeId(db, row.payee_id) : null)
       ?? (payeeName ? resolvePayee(db, actor, payeeName, row.raw_narration ?? undefined).id : null);
 
     const transaction = createTransaction(db, actor, {
@@ -682,7 +684,8 @@ export function mergeStaged(db: DB, actor: Actor, stagedId: string): void {
               raw_amount = COALESCE(raw_amount, ?),
               raw_date = COALESCE(raw_date, ?)
         WHERE id = ?`,
-      row.payee_id, row.raw_narration, row.raw_amount, row.raw_date, row.duplicate_of_id,
+      row.payee_id ? livePayeeId(db, row.payee_id) : null,
+      row.raw_narration, row.raw_amount, row.raw_date, row.duplicate_of_id,
     );
 
     execute(

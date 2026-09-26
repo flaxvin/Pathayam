@@ -840,6 +840,16 @@ export function resolvePayee(db: DB, actor: Actor, name: string, raw?: string | 
   });
 }
 
+/**
+ * The payee an id now stands for: itself, or the one it was merged into. A
+ * row that captured a payee id before a merge (an import staged the day
+ * before) posts to the winner, or the merge would quietly undo itself.
+ */
+export function livePayeeId(db: DB, payeeId: string): string {
+  const payee = queryOne<Payee>(db, `SELECT * FROM payees WHERE id = ?`, payeeId);
+  return payee ? followMerge(db, payee).id : payeeId;
+}
+
 function followMerge(db: DB, payee: Payee): Payee {
   let current = payee;
   for (let i = 0; i < 10 && current.merged_into_id; i++) {
