@@ -848,6 +848,11 @@ export function recordInstalment(
     let loanTransactionId: string | null = null;
     if (input.fromAccountId) {
       const from = getAccount(db, input.fromAccountId);
+      // WEALTH-19 · Money that pays a loan leaves a bank account or a card. A
+      // tracking account holds no money to pay with, and filing an envelope's
+      // spending against one takes it out of the budget with nothing behind it.
+      if (!from) throw new Missing("That account does not exist.");
+      if (from.kind === "tracking") throw new Refusal("Pay a loan from a bank account or a card.");
 
       if (from?.kind === "credit") {
         /*
