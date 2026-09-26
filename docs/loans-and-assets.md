@@ -161,7 +161,8 @@ capital has changed the lot, the undo is refused. A sale, split,
 bonus, merger, dividend or return of capital is refused with a sentence saying
 what to record instead: none of them keeps the lots as they were before it, so
 there is nothing honest to restore, and the log never marks as undone a change
-that is still in force.
+that is still in force. Undoing an instrument's classification puts back the
+class it replaced; undoing its creation is refused while anything is held in it.
 
 ### Prices
 

@@ -31,6 +31,7 @@ import { nowIST, todayIST, formatDate, daysBetween, type IsoDate } from "../core
 import { allocateByWeight, formatPaise, type Paise } from "../core/money.ts";
 import { SIMPLE_TRACKING_SUBTYPES, createAccount, getAccount } from "./accounts.ts";
 import { createTransaction, UndoRefused } from "./transactions.ts";
+import { dependantsOf } from "./dependants.ts";
 import {
   makeLot, previewSale, totalUnits, costBasis, averageCost, averageUnitPrice, marketValue,
   unrealisedGain, absoluteReturn, xirr, holdingCashFlows, decomposeGain,
@@ -1381,7 +1382,41 @@ registerUndoHandler("asset-account", (db, event) => {
 });
 
 registerUndoHandler("instrument", (db, event) => {
-  execute(db, `DELETE FROM instruments WHERE id = ?`, event.entityId!);
+  /*
+   * WEALTH-22 · A classification undoes to the class it replaced; only a
+   * create removes the instrument, and only while nothing is held in it.
+   *
+   * This ran DELETE for every action. Undoing "Classified Fictional Fund A as
+   * Debt" deleted the fund outright, and for a fund that was held it hit the
+   * holdings foreign key and answered 500 — as did undoing the create of an
+   * instrument that had since been bought.
+   */
+  const id = event.entityId!;
+  if (event.action === "classify") {
+    const before = (event.before ?? {}) as { asset_class?: AssetClass | null; region?: Region | null };
+    execute(
+      db, `UPDATE instruments SET asset_class = ?, region = ? WHERE id = ?`,
+      before.asset_class ?? null, before.region ?? null, id,
+    );
+    return `Put back the instrument's previous class`;
+  }
+  if (event.action !== "create") {
+    throw new UndoRefused("That change to the instrument cannot be undone from here.");
+  }
+  const found = dependantsOf(db, "instruments", id, {
+    // Its price history and fetch log are about it alone, and go with it.
+    own: ["prices.instrument_id", "price_fetches.instrument_id"],
+    words: { holdings: "a holding" },
+  });
+  if (found.length > 0) {
+    throw new UndoRefused(
+      `That instrument is still used by ${found.join(", ")}, so it cannot be removed. ` +
+      `Sell or remove what is held in it first.`,
+    );
+  }
+  execute(db, `DELETE FROM prices WHERE instrument_id = ?`, id);
+  execute(db, `DELETE FROM price_fetches WHERE instrument_id = ?`, id);
+  execute(db, `DELETE FROM instruments WHERE id = ?`, id);
   return `Removed the instrument that was added`;
 });
 
