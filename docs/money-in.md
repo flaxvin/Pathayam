@@ -40,6 +40,11 @@ column describing the balance is left alone; an amount column with its own
 signs or markers is never given one. A row whose indicator says neither is an
 error row. The mapping screen can name the column too.
 
+In a single amount column, a bare figure is money in — unless the file marks
+some figures as money in (`Cr`, a leading `+`) and none as money out. That is a
+card's CSV: payments and refunds say `Cr`, purchases are left bare, so there a
+bare figure is a purchase, the same as on a card's PDF.
+
 ### Reading an amount
 
 CSV cells, PDF figures and alert amounts are read by the same rules

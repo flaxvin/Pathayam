@@ -273,6 +273,23 @@ describe("amounts in a statement file", () => {
     assert.deepEqual(result.records.map((r) => r.amount), [rupees(1200), rupees(-1200), rupees(3)]);
   });
 
+  test("where only the money in is marked, a bare figure is money out (IMPORTS-SCHEDULES-28)", () => {
+    // A card's CSV: the payment says Cr, the purchases say nothing.
+    const { result } = parseStatement(
+      "Date,Transaction Details,Amount (in Rs.)\n03/09/2026,ZZ FICTIONAL STORE,\"1,299.00\"\n" +
+      "05/09/2026,PAYMENT RECEIVED,\"5,000.00 Cr\"\n07/09/2026,ZZ CAFE,240.00\n08/09/2026,ZZ REFUND,+99.00",
+    );
+    assert.deepEqual(result.records.map((r) => r.amount),
+      [rupees(-1299), rupees(5000), rupees(-240), rupees(99)]);
+  });
+
+  test("a file that marks its money out too keeps a bare figure as money in", () => {
+    const { result } = parseStatement(
+      "Date,Narration,Amount\n01-08-2026,SALARY,\"1,200.00Cr\"\n02-08-2026,SHOP,-40.00\n03-08-2026,INTEREST,12.00",
+    );
+    assert.deepEqual(result.records.map((r) => r.amount), [rupees(1200), rupees(-40), rupees(12)]);
+  });
+
   test("lakh shorthand in a bank file is an error, not ₹1,20,000", () => {
     const { result } = parseStatement("Date,Narration,Amount\n01-08-2026,ODD,1.2L");
     assert.equal(result.records.length, 0);

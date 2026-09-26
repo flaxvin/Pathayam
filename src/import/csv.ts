@@ -315,6 +315,7 @@ export function applyMapping(rows: string[][], mapping: ColumnMapping): ParseRes
   const records: RawRecord[] = [];
   const errors: ParseError[] = [];
   let rowsRead = 0;
+  const bare = bareSign(rows, mapping);
 
   for (let r = mapping.headerRow + 1; r < rows.length; r++) {
     const cells = rows[r] ?? [];
@@ -328,14 +329,14 @@ export function applyMapping(rows: string[][], mapping: ColumnMapping): ParseRes
     // skip. See `looksLikeFooter`.
     const date = readDate(rawDate, mapping);
     if (!date) {
-      if (looksLikeFooter(cells, rawDate, readAmount(cells, mapping).amount !== null)) continue;
+      if (looksLikeFooter(cells, rawDate, readAmount(cells, mapping, bare).amount !== null)) continue;
       rowsRead++;
       errors.push({ rowNumber: r + 1, cells, reason: `"${rawDate}" is not a date I can read.` });
       continue;
     }
 
     rowsRead++;
-    const { amount, rawAmount, reason } = readAmount(cells, mapping);
+    const { amount, rawAmount, reason } = readAmount(cells, mapping, bare);
     if (amount === null) {
       errors.push({ rowNumber: r + 1, cells, reason: reason ?? "No amount on this row." });
       continue;
@@ -354,9 +355,42 @@ export function applyMapping(rows: string[][], mapping: ColumnMapping): ParseRes
   return { records, errors, rowsRead };
 }
 
+/** A figure with nothing on it saying which way it went. */
+const BARE_FIGURE = /^(?:Rs\.?|INR|₹)?\s*\d[\d,]*(?:\.\d+)?$/i;
+/** A figure marked as money in: "5,000.00 Cr", "+240.00". */
+const MARKED_IN = /^\+|(?<![a-z])cr\.?$/i;
+/** A figure marked as money out: "450.00 Dr", "-450.00", "(450.00)". */
+const MARKED_OUT = /^[-−(]|(?<![a-z])dr\.?$/i;
+
+/**
+ * Which way a bare figure goes in a single amount column: 1 in, -1 out.
+ *
+ * A card's CSV marks the few payments and refunds ("5,000.00 Cr") and leaves
+ * the purchases bare, the same convention the PDF reader's rule 4 already
+ * follows. Read one figure at a time, every bare purchase was money in — a
+ * ₹1,299 purchase credited to the card, no error row, and the guess saved as
+ * next month's profile. So the file decides: where some figures are marked as
+ * money in and none as money out, the bare ones are the other way. Anything
+ * else — minus signs for debits, Dr suffixes, a mixture — keeps a bare figure
+ * positive, as before.
+ */
+function bareSign(rows: string[][], mapping: ColumnMapping): 1 | -1 {
+  if (mapping.amount === undefined || mapping.direction !== undefined) return 1;
+  if (mapping.debit !== undefined && mapping.credit !== undefined) return 1;
+  let markedIn = false;
+  for (let r = mapping.headerRow + 1; r < rows.length; r++) {
+    const raw = (rows[r]?.[mapping.amount] ?? "").trim();
+    if (raw === "" || BARE_FIGURE.test(raw)) continue;
+    if (MARKED_OUT.test(raw)) return 1;
+    if (MARKED_IN.test(raw)) markedIn = true;
+  }
+  return markedIn ? -1 : 1;
+}
+
 function readAmount(
   cells: string[],
   mapping: ColumnMapping,
+  bare: 1 | -1 = 1,
 ): { amount: Paise | null; rawAmount: string; reason?: string } {
   if (mapping.debit !== undefined && mapping.credit !== undefined) {
     return readDebitCredit(
@@ -393,6 +427,7 @@ function readAmount(
     }
     return { amount: (way === "out" ? -Math.abs(amount) : Math.abs(amount)) as Paise, rawAmount };
   }
+  if (bare === -1 && BARE_FIGURE.test(raw)) return { amount: -Math.abs(amount) as Paise, rawAmount: raw };
   return { amount, rawAmount: raw };
 }
 
