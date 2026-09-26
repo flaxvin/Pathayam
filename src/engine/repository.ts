@@ -420,13 +420,25 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
   const horizon = lastDayOfMonth(through);
   const scope = opts.budgetId;
 
+  /*
+   * BUDGET-1 · Except assignments, which are read in every month.
+   *
+   * R2 subtracts assignments made in *future* months from today's Ready to
+   * Assign — money given a job next month is not free this month — and
+   * `monthRange` walks on to the last assigned month for exactly that reason.
+   * Bounding this read by `through` left those months empty, so the total the
+   * engine subtracts never included them: ₹1,000 assigned to next month still
+   * showed as ₹1,000 ready today, and could be assigned a second time. The
+   * table is months × envelopes, never the ledger, so reading all of it costs
+   * nothing B73 was worried about.
+   */
   for (const r of queryAll<{ month: string; category_id: string; amount: number }>(
     db,
     `SELECT s.month AS month, s.category_id AS category_id, s.amount AS amount
        FROM assignments s
        JOIN categories c ON c.id = s.category_id
-      WHERE s.month <= ?${scope ? " AND c.budget_id = ?" : ""}`,
-    through, ...budgetParams(scope),
+      ${scope ? "WHERE c.budget_id = ?" : ""}`,
+    ...budgetParams(scope),
   )) {
     const f = ensure(r.month);
     if (f) f.assigned[r.category_id] = (f.assigned[r.category_id] ?? 0) + r.amount;
