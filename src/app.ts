@@ -6161,12 +6161,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const subjects: RuleSubject[] = queryAll<{
       narration: string | null; payee: string | null; account_id: string;
       amount: number; date: string; memo: string | null; category_id: string | null;
-      cleared: number; source: string;
+      cleared: number; source: string; card_last4: string | null;
     }>(
       db,
       `SELECT t.raw_narration AS narration, p.name AS payee, t.account_id, t.amount, t.date,
-              t.memo, t.category_id, t.cleared, t.source
+              t.memo, t.category_id, t.cleared, t.source, c.last4 AS card_last4
          FROM transactions t LEFT JOIN payees p ON p.id = t.payee_id
+         LEFT JOIN cards c ON c.id = t.card_id
         WHERE t.deleted_at IS NULL ORDER BY t.date DESC LIMIT 500`,
     ).map((r) => {
       const narration = r.narration ?? r.payee ?? "";
@@ -6174,7 +6175,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         narration, importedPayee: r.payee, payee: r.payee, accountId: r.account_id,
         amount: r.amount, date: r.date, memo: r.memo, tags: [],
         categoryId: r.category_id, cleared: r.cleared === 1, source: r.source,
-        cardLast4: null, ...extractNarrationFields(narration),
+        cardLast4: r.card_last4, ...extractNarrationFields(narration),
       };
     });
 

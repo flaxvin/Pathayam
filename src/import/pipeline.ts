@@ -193,7 +193,10 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
         categoryId: null,
         cleared: opts.source === "csv" || opts.source === "pdf", // D5
         source: opts.source,
-        cardLast4: null,
+        // The card is known by now (an alert names it, a narration's XX4321
+        // was just resolved); a rule on "the card's last four digits" reads
+        // it here. It was always null, so such a rule never fired.
+        cardLast4: cardId ? cardLast4Of(db, cardId) : null,
         ...extracted,
       };
 
@@ -321,6 +324,10 @@ function resolveCard(db: DB, accountId: string, narration: string): string | nul
   if (!match) return null;
   const card = findCardByLast4(db, match[1]!);
   return card && card.account_id === accountId ? card.id : null;
+}
+
+function cardLast4Of(db: DB, cardId: string): string | null {
+  return queryOne<{ last4: string | null }>(db, `SELECT last4 FROM cards WHERE id = ?`, cardId)?.last4 ?? null;
 }
 
 function findExistingPayee(db: DB, name: string | null): string | null {
