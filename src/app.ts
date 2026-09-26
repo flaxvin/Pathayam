@@ -171,7 +171,7 @@ import {
   LEGACY_GOAL_GROUP, getGoal,
 } from "./domain/goals.ts";
 import {
-  renderMore, renderPayees, renderRules, renderCategories, renderFirstRun,
+  renderMore, renderPayees, renderRules, conditionValueText, renderCategories, renderFirstRun,
   renderTokens,
   type PayeeRow, type RuleRow,
 } from "./web/pages/manage.ts";
@@ -6083,6 +6083,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   }
 
   function ruleFromBody(ctx: RequestContext): Rule {
+    const conditionField = requiredField(ctx.body, "field") as Rule["conditions"][number]["field"];
+    /*
+     * An amount is typed in rupees and compared in paise. The typed "5000" was
+     * stored as it stood and compared against 6000 paise, so "is more than
+     * 5000" filed a ₹60 chai into Big spends and "is exactly 649" never met a
+     * ₹649 Netflix (64900). It is read like every other amount field here.
+     */
+    let value: string | number = requiredField(ctx.body, "value");
+    if (conditionField === "amount" || conditionField === "absoluteAmount") {
+      const paise = parseAmount(value);
+      if (paise === null) throw new HttpError(422, `"${value}" isn't an amount I can read.`);
+      value = conditionField === "absoluteAmount" ? Math.abs(paise) : paise;
+    }
     return {
       id: "draft",
       name: requiredField(ctx.body, "name"),
@@ -6090,9 +6103,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       match: "all",
       conditions: [
         {
-          field: requiredField(ctx.body, "field") as Rule["conditions"][number]["field"],
+          field: conditionField,
           op: requiredField(ctx.body, "op") as Rule["conditions"][number]["op"],
-          value: requiredField(ctx.body, "value"),
+          value,
         },
       ],
       actions: [{ type: "setCategory", categoryId: requireVisibleCategory(ctx, requiredField(ctx.body, "category_id"))! }],
@@ -6177,7 +6190,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         name: rule.name,
         field: String(rule.conditions[0]!.field),
         op: String(rule.conditions[0]!.op),
-        value: String(rule.conditions[0]!.value),
+        value: conditionValueText(rule.conditions[0]!),
         categoryId: (rule.actions[0] as { categoryId: string }).categoryId,
         stage: rule.stage,
       },

@@ -2429,4 +2429,36 @@ UPDATE rules SET enabled = 0
                 WHERE c.deleted_at IS NOT NULL AND instr(rules.actions_json, '"' || c.id || '"') > 0);
 `,
   },
+  {
+    name: "0054-rule-amounts-in-paise",
+    sql: `
+--------------------------------------------------------------------------------
+-- Rules on an amount, typed in rupees, compared in paise
+--------------------------------------------------------------------------------
+-- The /rules form stored "the amount is more than 5000" with the 5000 as the
+-- text typed, and the evaluator compared it with paise: a 60-rupee chai is
+-- 6000, and more than 5000. The form now stores paise, as a number. The
+-- conditions it saved before are the text ones on an amount field; each one
+-- that reads as a plain figure becomes that many rupees in paise. Anything
+-- else there - a word, a pattern - is left as it is, and never matched a
+-- number anyway.
+UPDATE rules
+   SET conditions_json = (
+     SELECT json_group_array(
+              CASE
+                WHEN json_extract(c.value, '$.field') IN ('amount', 'absoluteAmount')
+                 AND json_type(c.value, '$.value') = 'text'
+                 AND trim(replace(json_extract(c.value, '$.value'), ',', '')) <> ''
+                 AND trim(replace(json_extract(c.value, '$.value'), ',', '')) NOT GLOB '*[^0-9.]*'
+                THEN json_set(c.value, '$.value',
+                       CAST(round(CAST(trim(replace(json_extract(c.value, '$.value'), ',', '')) AS REAL) * 100) AS INTEGER))
+                ELSE json(c.value)
+              END)
+       FROM json_each(rules.conditions_json) c)
+ WHERE EXISTS (
+   SELECT 1 FROM json_each(rules.conditions_json) c
+    WHERE json_extract(c.value, '$.field') IN ('amount', 'absoluteAmount')
+      AND json_type(c.value, '$.value') = 'text');
+`,
+  },
 ];
