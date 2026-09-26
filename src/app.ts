@@ -6635,7 +6635,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const budgetId = budgetParam(ctx);
     return render(
       ctx, `Closing ${formatMonth(month)}`,
-      renderMonthClose(monthCloseView(db, month, todayIST(), budgetId)),
+      renderMonthClose(monthCloseView(db, month, todayIST(), budgetId, viewer(ctx))),
     );
   });
 
