@@ -350,7 +350,7 @@ export function renderHousehold(
                   <td>${s.name}</td>
                   <td class="num amount">${formatPaise(s.amount)}</td>
                   <td>
-                    ${s.givingBudgetName}, from ${s.givingCategoryName}
+                    ${s.givingBudgetName}${when(s.givingCategoryName, () => html`, from ${s.givingCategoryName}`)}
                     ${when(s.note, () => html`<span class="faint"> — ${s.note}</span>`)}
                   </td>
                 </tr>
