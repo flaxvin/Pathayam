@@ -62,6 +62,12 @@ export interface GroupView {
 
 export interface BudgetView {
   month: MonthKey;
+  /**
+   * BUDGET-2 · The budget this view is of, or null for every budget at once —
+   * so the page's own links (explain, move, fill from last month) can say which
+   * one they are about instead of leaving the next request to guess.
+   */
+  budgetId: string | null;
   currentMonth: MonthKey;
   today: IsoDate;
   monthState: MonthState;
@@ -204,6 +210,7 @@ export function buildBudgetView(
 
   return {
     month: target,
+    budgetId: budgetId ?? null,
     currentMonth,
     today,
     monthState,
