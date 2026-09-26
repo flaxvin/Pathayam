@@ -462,3 +462,28 @@ describe("WEALTH-8 · the standard deduction is a deduction from salary", () => 
     assert.equal(estimateUnder(FY, "old", rupees(1_300_000), none).standardDeduction, rupees(50_000));
   });
 });
+
+describe("WEALTH-10 · the effective rate", () => {
+  test("is over all the income taxed, special-rate gains included", () => {
+    // ₹1,00,000 of salary and a ₹1 crore 111A gain: the total is tax on about
+    // ₹1.01 crore, so the rate is in the twenties, not 2302.3%.
+    const g = taxOnGains(FY, {
+      equityLong: 0 as Paise, equityShort: rupees(10_000_000), otherLong: 0 as Paise,
+      slabRated: 0 as Paise, unclassified: 0 as Paise, unclassifiedReasons: [],
+    });
+    const e = estimateUnder(FY, "new", rupees(100_000), none, g);
+    const expected = Math.round((e.total / rupees(10_100_000)) * 1000) / 10;
+    assert.equal(e.effectiveRatePct, expected);
+    assert.ok(e.effectiveRatePct > 20 && e.effectiveRatePct < 30, `${e.effectiveRatePct}%`);
+  });
+
+  test("is not 0% beside a non-zero total when there is no gross", () => {
+    const g = taxOnGains(FY, {
+      equityLong: 0 as Paise, equityShort: rupees(1_000_000), otherLong: 0 as Paise,
+      slabRated: 0 as Paise, unclassified: 0 as Paise, unclassifiedReasons: [],
+    });
+    const e = estimateUnder(FY, "new", 0 as Paise, none, g);
+    assert.ok(e.total > 0);
+    assert.ok(e.effectiveRatePct > 0);
+  });
+});

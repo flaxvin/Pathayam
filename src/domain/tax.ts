@@ -259,7 +259,7 @@ export interface RegimeEstimate {
   surcharge: Paise;
   cess: Paise;
   total: Paise;
-  /** Total as a percentage of gross, to one decimal. */
+  /** Total as a percentage of gross plus every gain, to one decimal. */
   effectiveRatePct: number;
   /** Slab income plus special-rate gains: what 87A and the surcharge test. */
   totalIncome: Paise;
@@ -437,6 +437,7 @@ export function estimateUnder(
     : 0 as Paise;
   const cess = Math.round(((taxBeforeSurcharge + surcharge) * CESS_BP) / 10_000) as Paise;
   const total = roundPayable((taxBeforeSurcharge + surcharge + cess) as Paise);
+  const incomeTaxed = grossWithGains + gainsIncome;
 
   return {
     regime, gross: grossWithGains,
@@ -444,7 +445,10 @@ export function estimateUnder(
     hraExempt, chapterViA, taxable,
     taxBeforeRebate, rebate, specialRateTax, surcharge, cess, total,
     totalIncome, basicExemptionAgainstGains: basicExemptionAgainstGains as Paise,
-    effectiveRatePct: grossWithGains > 0 ? Math.round((total / grossWithGains) * 1000) / 10 : 0,
+    // WEALTH-10 · Over all the income the total is tax on, special-rate gains
+    // included. Dividing by gross plus slab-rated gains alone put ₹23,02,300
+    // of tax on a ₹1,00,000 salary and a ₹1 crore 111A gain at "2302.3%".
+    effectiveRatePct: incomeTaxed > 0 ? Math.round((total / incomeTaxed) * 1000) / 10 : 0,
   };
 }
 
