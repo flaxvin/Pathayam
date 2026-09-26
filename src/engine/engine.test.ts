@@ -234,6 +234,40 @@ describe("R4 · Cash overspending", () => {
     assertIdentity(state);
   });
 
+  test("BUDGET-24 · a carried cash negative stays cash when the next charge is on a card", () => {
+    // ₹300 of groceries in cash with nothing assigned; next month ₹400 assigned
+    // and ₹400 on the card. The ₹300 left the bank — it is not the card's.
+    const scenario = (model: "reduce-rta" | "carry-negative") =>
+      new Scenario()
+        .overspendModel(model)
+        .category("groceries")
+        .paymentCategory("pay-hdfc", "acct-hdfc")
+        .income(AUG, 1_000)
+        .spendCash(AUG, "groceries", 300)
+        .month(SEP)
+        .assign(SEP, "groceries", 400)
+        .spendCard(SEP, "acct-hdfc", "groceries", 400)
+        .month(OCT)
+        .build();
+
+    const state = computeBudget(scenario("carry-negative"));
+    const groceries = cat(state.get(SEP)!, "groceries");
+    assert.equal(groceries.balance, rupees(-300));
+    assert.equal(groceries.cashOverspend, rupees(300));
+    assert.equal(groceries.creditOverspend, 0, "the carried cash was relabelled credit");
+    const oct = state.get(OCT)!;
+    assert.equal(cat(oct, "groceries").opening, rupees(-300), "…and absorbed at the rollover");
+    assert.equal(cat(oct, "pay-hdfc").opening, rupees(400), "the card is fully funded");
+    assertIdentity(state);
+
+    // And the two models agree on what is really free: ₹1,000 − ₹300 − ₹400.
+    const free = (s: MonthState) =>
+      s.readyToAssign + [...s.categories.values()]
+        .filter((c) => c.categoryId !== "pay-hdfc").reduce((a, c) => a + c.balance, 0);
+    assert.equal(free(oct), rupees(300));
+    assert.equal(free(computeBudget(scenario("reduce-rta")).get(OCT)!), rupees(300));
+  });
+
   test("both models leave the household equally well off — only the location differs", () => {
     const scenario = () =>
       new Scenario()
