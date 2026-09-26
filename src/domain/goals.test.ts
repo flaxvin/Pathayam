@@ -5,7 +5,7 @@ import type { Actor } from "../core/events.ts";
 import { nowIST } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import { historyFor, undoEvent } from "../core/events.ts";
-import { createGroup, createCategory } from "./budget.ts";
+import { createGroup, createCategory, moveCategoryToGroup } from "./budget.ts";
 import {
   createGoal, updateGoal, deleteGoal, getGoal, listGoals, goalCategoryIds,
 } from "./goals.ts";
@@ -131,5 +131,26 @@ describe("B58 · a goal owns its own envelope, whoever makes it", () => {
       }),
       /only be measured by envelopes in its own/,
     );
+  });
+});
+
+describe("BUDGET-15 · undoing a goal's delete gives back whose it was and its envelope", () => {
+  test("a personal goal comes back in its budget, linked to its envelope in Goals", () => {
+    const db = freshDb();
+    const mine = ensurePersonalBudget(db, "m", "Ravi");
+    const goal = createGoal(db, actor, { name: "Secret ring", targetAmount: rupees(5_000), budgetId: mine.id });
+    const envelope = goalCategoryIds(db, goal.id)[0]!;
+    const goalsGroup = queryOne<{ group_id: string }>(db, `SELECT group_id FROM categories WHERE id = ?`, envelope)!.group_id;
+
+    // What the delete route does: remove the goal, hand the envelope back in "Savings".
+    deleteGoal(db, actor, goal.id);
+    moveCategoryToGroup(db, actor, envelope, createGroup(db, actor, "Savings", "normal", mine.id).id);
+
+    undoEvent(db, historyFor(db, "goal", goal.id).find((e) => e.action === "delete")!.id, actor);
+    assert.equal(getGoal(db, goal.id)!.budget_id, mine.id);
+    assert.deepEqual(goalCategoryIds(db, goal.id), [envelope]);
+    assert.equal(queryOne<{ group_id: string }>(db, `SELECT group_id FROM categories WHERE id = ?`, envelope)!.group_id, goalsGroup);
+    // Nobody else's goal list shows it.
+    assert.deepEqual(listGoals(db, { budgetIds: [householdBudgetId(db)] }).map((g) => g.id), []);
   });
 });
