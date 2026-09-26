@@ -145,7 +145,7 @@ import {
 } from "./web/pages/loans.ts";
 import {
   createLoan, listLoans, getLoan, projectLoan, recordInstalment, listPayments, closeLoan,
-  recordDisbursement, recordLoanStatement, recordRateChange, recordPrepayment, canSeeLoan,
+  recordDisbursement, recordLoanStatement, recordRateChange, recordPrepayment, canSeeLoan, checkAnnualRate,
   listDisbursements, listRatePeriods, debtOverview, type LoanType,
 } from "./domain/loans.ts";
 import { comparePrepayment, rateResetOptions, NegativeAmortisation } from "./loans/amortisation.ts";
@@ -4986,9 +4986,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       parseDate(ctx.query.get("effective_from") ?? ctx.query.get("from") ?? "") ?? todayIST();
     const keep = ctx.query.get("keep") === "emi" ? "emi" : "tenure";
 
-    if (!Number.isFinite(newRatePct) || newRatePct < 0) {
-      throw new HttpError(400, "That is not a rate.");
-    }
+    // WEBUX-13 · The preview takes the bounds the change itself does.
+    checkAnnualRate(newRatePct);
 
     if (projection.outstanding <= 0) {
       return render(
@@ -5036,7 +5035,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const from = parseDate(requiredField(ctx.body, "effective_from"));
       if (!from) throw new HttpError(400, "That is not a date I can read.");
       const rate = Number(requiredField(ctx.body, "annual_rate_pct"));
-      if (!Number.isFinite(rate) || rate < 0) throw new HttpError(400, "That is not a rate.");
+      checkAnnualRate(rate);
 
       const keep = field(ctx.body, "keep") === "emi" ? "emi" : "tenure";
 

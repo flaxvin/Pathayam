@@ -805,6 +805,20 @@ export function recordRateChange(
      * choice is taken when the rate applies; keeping the tenure needs no such
      * wait, because nothing moves before the date.
      */
+    /*
+     * WEBUX-13 · The same bounds a loan is added with. 1e20% was accepted here and
+     * the loan page then read "Monthly ₹NaN.NaN"; a change dated 1900 sat before
+     * the loan existed, ahead of the rate it was sanctioned at.
+     */
+    checkAnnualRate(input.annualRatePct);
+    const subject = getLoan(db, input.loanId);
+    if (!subject) throw new Missing("That loan does not exist.");
+    if (input.effectiveFrom < subject.sanction_date) {
+      throw new Refusal(
+        `The loan was sanctioned on ${formatDate(subject.sanction_date)}, so a rate change ` +
+        `cannot take effect before that.`,
+      );
+    }
     if (input.keep === "emi" && input.effectiveFrom > todayIST()) {
       throw new Refusal(
         `The instalment can only be held once the new rate applies, on ` +

@@ -103,3 +103,38 @@ describe("WEALTH-38 · adding a loan checks what it is given", () => {
     } finally { await app.close(); }
   });
 });
+
+describe("WEBUX-13 · a rate change is bounded like a new loan's rate", () => {
+  test("1e20%, a negative rate and a date before the sanction are 422s, and no period is added", async () => {
+    const { db, app, loan } = await setup();
+    try {
+      const periods = () => count(db, `SELECT COUNT(*) AS n FROM loan_rates WHERE loan_id = ?`, loan.id);
+      for (const body of [
+        { annual_rate_pct: "1e20", effective_from: "2025-06-01" },
+        { annual_rate_pct: "1e308", effective_from: "2025-06-01" },
+        { annual_rate_pct: "-1", effective_from: "2025-06-01" },
+        { annual_rate_pct: "11", effective_from: "1900-01-01" },
+      ]) {
+        const res = await app.post(`/loans/${loan.id}/rate`, body);
+        assert.equal(res.status, 422, JSON.stringify(body));
+      }
+      assert.equal(periods(), 1);
+      assert.equal((await app.get(`/loans/${loan.id}/rate?annual_rate_pct=1e20`)).status, 422);
+
+      assert.equal((await app.post(`/loans/${loan.id}/rate`, { annual_rate_pct: "11", effective_from: "2025-06-01" })).status, 303);
+      assert.equal(periods(), 2);
+    } finally { await app.close(); }
+  });
+
+  test("an instalment that cannot cover the interest is said in rupees", async () => {
+    const { app, loan } = await setup();
+    try {
+      const res = await app.post(`/loans/${loan.id}/rate`, {
+        annual_rate_pct: "99", effective_from: "2025-06-01", keep: "emi",
+      });
+      assert.equal(res.status, 422);
+      const text = await res.text();
+      assert.match(text, /An instalment of ₹[\d,]+(\.\d\d)? does not cover the ₹[\d,]+(\.\d\d)? of interest/);
+    } finally { await app.close(); }
+  });
+});
