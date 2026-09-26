@@ -861,6 +861,34 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   }
 
   /**
+   * An id posted in a form field, checked by one of the guards above: absent
+   * is null, present is either the id or that guard's 404.
+   *
+   * visibleAccountField did this for accounts only, and every other id in a
+   * form body went straight to the domain. An audit found the same two
+   * outcomes route after route: another member's private budget, group, payee
+   * or rule was written to (a 303 that confirmed it was real), and a made-up
+   * one reached the database, failed its foreign key, and answered 500 —
+   * recorded as a fault, and distinguishable from the real ones. One helper so
+   * the next form field has the obvious thing to reach for.
+   */
+  function guardedField(
+    ctx: RequestContext, name: string,
+    guard: (ctx: RequestContext, id: string) => string | null,
+  ): string | null {
+    const id = field(ctx.body, name);
+    return id ? guard(ctx, id) : null;
+  }
+
+  /** A budget this member may file into: the household's, or their own. */
+  function requireVisibleBudget(ctx: RequestContext, id: string): string {
+    if (!budgetsFor(db, viewer(ctx)).some((b) => b.id === id)) {
+      throw new NotFound("That budget does not exist.");
+    }
+    return id;
+  }
+
+  /**
    * Somewhere inside this app, and nowhere else.
    *
    * Four places took a redirect target from the request and used it as given:
@@ -2265,8 +2293,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         statement_day: numberOrNull(field(ctx.body, "statement_day")),
         due_day: numberOrNull(field(ctx.body, "due_day")),
         // 15 · Moving an account between budgets is one undoable step, recorded
-        // like any other edit, because it moves money's home.
-        budget_id: text("budget_id"),
+        // like any other edit, because it moves money's home. Only into a
+        // budget this member could have picked: any id was taken, so the
+        // household's joint account could be moved into another member's
+        // personal budget (SECURITY-OPS-4).
+        budget_id: text("budget_id") && requireVisibleBudget(ctx, text("budget_id")!),
         visibility: field(ctx.body, "visibility") === "private" ? "private"
           : field(ctx.body, "visibility") === "household" ? "household" : undefined,
       });
@@ -2340,8 +2371,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         statementDay: numberOrNull(field(ctx.body, "statement_day")),
         dueDay: numberOrNull(field(ctx.body, "due_day")),
         // 15 · Whose money it is, and who can see it, are settled at creation
-        // rather than as a second edit nobody remembers to make.
-        budgetId: field(ctx.body, "budget_id") || undefined,
+        // rather than as a second edit nobody remembers to make. The budget
+        // must be one this member can see (SECURITY-OPS-4): another member's
+        // personal budget took the account and its opening balance.
+        budgetId: guardedField(ctx, "budget_id", requireVisibleBudget) ?? undefined,
         visibility: field(ctx.body, "visibility") === "private" ? "private" : undefined,
       });
 
