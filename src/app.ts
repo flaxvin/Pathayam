@@ -1530,8 +1530,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const name = String(requiredField(ctx.body, "name")).trim();
     const password = String(requiredField(ctx.body, "password"));
 
-    const member = inviteMember(db, { memberId: null, source: "system" }, { email, name });
-    setPassword(db, member.id, password);
+    /*
+     * One transaction. inviteMember committed before setPassword checked the
+     * password, so a password the rules refuse (too short, or on the refused
+     * list) answered 422 with the member already created and no password set:
+     * this door then closed (the household has a member) and /auth/password
+     * had nothing to check, so nobody could ever sign in without editing the
+     * database (SECURITY-OPS-16). Refused now, the member is not created
+     * either, and the form can simply be tried again.
+     */
+    const member = transact(db, () => {
+      const created = inviteMember(db, { memberId: null, source: "system" }, { email, name });
+      setPassword(db, created.id, password);
+      return created;
+    });
 
     const { token } = createSession(db, member.id, {
       userAgent: ctx.req.headers["user-agent"] ?? null,

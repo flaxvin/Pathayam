@@ -136,6 +136,32 @@ describe("the first password on an empty household", () => {
     } finally { await app.close(); }
   });
 
+  test("SECURITY-OPS-16 · a refused password leaves the household empty, so it can be retried", async () => {
+    const db = freshDb();
+    const app = await startTestApp(db, {
+      memberId: null, config: testConfig({ localLogin: true }),
+    });
+    try {
+      for (const password of ["too-short", "passwordpassword"]) {
+        const res = await app.post("/auth/first-run", {
+          name: "Ravi", email: "ravi@example.com", password,
+        });
+        assert.equal(res.status, 422, `${password} should be refused`);
+        assert.equal(
+          queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM members`)!.n, 0,
+          "a refused password must not leave a member behind",
+        );
+      }
+      assert.equal((await app.get("/auth/first-run")).status, 200, "the door is still open");
+
+      const res = await app.post("/auth/first-run", {
+        name: "Ravi", email: "ravi@example.com", password: GOOD,
+      });
+      assert.equal(res.status, 303);
+      assert.deepEqual(app.failures, []);
+    } finally { await app.close(); }
+  });
+
   test("closes the moment somebody has walked through it", async () => {
     const db = freshDb();
     seedMember(db, "m-ravi", "Ravi");
