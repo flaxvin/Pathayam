@@ -1406,7 +1406,7 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
         actions: JSON.parse(rule.actions_json),
         enabled: true, timesApplied: 0,
       };
-      did("previewRetroactive", () => previewRetroactive(db, shaped));
+      did("previewRetroactive", () => previewRetroactive(db, shaped, actor.memberId));
       did("applyRetroactive", () => applyRetroactive(db, actor, shaped));
     }
     did("suppress", () => suppress(db, "rule", proposals.at(-1)!.name, ravi.id));

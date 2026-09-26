@@ -287,7 +287,7 @@ import {
   applyStartingTemplate, startBlank,
 } from "./domain/starting-budget.ts";
 import {
-  mergePayees, getPayee, resolvePayee, UndoRefused,
+  mergePayees, getPayee, resolvePayee, UndoRefused, refusePaymentCategories,
 } from "./domain/transactions.ts";
 import {
   createCategory, renameCategory, moveCategoryToGroup, setCategoryHidden, deleteCategory,
@@ -5991,9 +5991,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           value: requiredField(ctx.body, "value"),
         },
       ],
-      actions: [{ type: "setCategory", categoryId: requireVisibleCategory(ctx, requiredField(ctx.body, "category_id"))! }],
+      actions: [{ type: "setCategory", categoryId: ruleTarget(ctx) }],
       enabled: true,
     };
+  }
+
+  /*
+   * MONEY-CORE-27 · The envelope a rule files to meets the refusals of every
+   * other filing path. A card's payment envelope or a commitment envelope was
+   * accepted here (the picker hides them; a crafted or stale post did not), and
+   * applying the rule filed spending straight into one — the identity out by
+   * the amount in every month after.
+   */
+  function ruleTarget(ctx: RequestContext): string {
+    const categoryId = requireVisibleCategory(ctx, requiredField(ctx.body, "category_id"))!;
+    refusePaymentCategories(db, [categoryId]);
+    return categoryId;
   }
 
   function rulesPage(
@@ -6110,7 +6123,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     if (field(ctx.body, "confirm") !== "1") {
       // F6.6 requires the count and a preview *before* commit.
-      const preview = previewRetroactive(db, rule);
+      const preview = previewRetroactive(db, rule, viewer(ctx));
       return render(
         ctx, "Apply to existing transactions",
         html`
