@@ -18,7 +18,9 @@ import { nowIST, todayIST, monthOf, monthsBetween, type IsoDate } from "../core/
 import { formatPaise, allocate, type Paise } from "../core/money.ts";
 import { Missing, Refusal } from "../core/refusal.ts";
 import { householdBudgetId } from "./budgets.ts";
-import { listGroups, createGroup, renameGroup, createCategory, type Category } from "./budget.ts";
+import {
+  listGroups, createGroup, renameGroup, createCategory, moveCategoryToGroup, type Category,
+} from "./budget.ts";
 
 export interface Goal {
   id: string;
@@ -78,17 +80,20 @@ export const LEGACY_GOAL_GROUP = "Savings goals";
 export function ensureGoalEnvelope(
   db: DB, actor: Actor, goalName: string, budgetId: string,
 ): Category {
+  return createCategory(db, actor, { groupId: goalGroup(db, actor, budgetId).id, name: goalName });
+}
+
+/** The budget's app-managed "Goals" group, made (or renamed from B61's old name) on first use. */
+function goalGroup(db: DB, actor: Actor, budgetId: string): { id: string } {
   const groups = listGroups(db, budgetId);
   const existing = groups.find(
     (g) => g.kind === "internal" && (g.name === GOAL_GROUP || g.name === LEGACY_GOAL_GROUP),
   );
-  const group = !existing
+  return !existing
     ? createGroup(db, actor, GOAL_GROUP, "internal", budgetId)
     : existing.name !== GOAL_GROUP
       ? renameGroup(db, actor, existing.id, GOAL_GROUP)
       : existing;
-
-  return createCategory(db, actor, { groupId: group.id, name: goalName });
 }
 
 export function createGoal(
@@ -313,33 +318,70 @@ export function deleteGoal(db: DB, actor: Actor, goalId: string): void {
   transact(db, () => {
     const goal = getGoal(db, goalId);
     if (!goal) throw new Missing("That goal does not exist.");
+    // BUDGET-15 · Recorded so undoing this can link the envelope back.
+    const categoryIds = goalCategoryIds(db, goalId);
     execute(db, `DELETE FROM goal_categories WHERE goal_id = ?`, goalId);
     execute(db, `DELETE FROM goals WHERE id = ?`, goalId);
     appendEvent(db, actor, {
-      entity: "goal", entityId: goalId, action: "delete", before: goal,
+      entity: "goal", entityId: goalId, action: "delete", before: { ...goal, categoryIds },
       summary: `Removed the goal "${goal.name}". The money stays in its categories.`,
     });
   });
 }
 
-registerUndoHandler("goal", (db, event) => {
-  const before = event.before as Goal | undefined;
+registerUndoHandler("goal", (db, event, actor) => {
+  const before = event.before as
+    | (Goal & { created_by?: string | null; categoryIds?: string[] })
+    | undefined;
   if (!before) {
     execute(db, `DELETE FROM goal_categories WHERE goal_id = ?`, event.entityId!);
     execute(db, `DELETE FROM goals WHERE id = ?`, event.entityId!);
     return `Removed the goal that was added`;
   }
-  // Restore every field, so undoing an edit (name/target/date) or a completion
-  // both land back exactly where they were — not just completed_at.
+  /*
+   * Restore every field, so undoing an edit (name/target/date) or a completion
+   * both land back exactly where they were — not just completed_at.
+   *
+   * BUDGET-15 · And undoing a delete restores whose goal it was. The row came
+   * back with no budget_id, which listGoals reads as the household's: Ravi's
+   * personal "Secret ring" appeared on Priya's /goals. A goal from before
+   * budgets had none and is the household's, as createGoal would have made it.
+   */
+  const budgetId = before.budget_id ?? householdBudgetId(db);
   execute(
     db,
-    `INSERT INTO goals (id,name,target_amount,target_date,note,completed_at,created_at)
-     VALUES (?,?,?,?,?,?,?)
+    `INSERT INTO goals (id,name,target_amount,target_date,note,completed_at,created_at,created_by,budget_id)
+     VALUES (?,?,?,?,?,?,?,?,?)
        ON CONFLICT(id) DO UPDATE SET name = excluded.name,
          target_amount = excluded.target_amount, target_date = excluded.target_date,
          note = excluded.note, completed_at = excluded.completed_at`,
     before.id, before.name, before.target_amount, before.target_date,
-    before.note, before.completed_at, before.created_at,
+    before.note, before.completed_at, before.created_at, before.created_by ?? null, budgetId,
   );
+
+  /*
+   * BUDGET-15 · …and what it was measured by. The links were deleted with the
+   * goal and never recorded, so the restored goal read "₹0 of ₹5,000" beside
+   * an envelope still holding ₹2,000. The delete route handed that envelope
+   * back as an ordinary category in "Savings"; it goes back to being the goal's
+   * app-managed envelope. One deleted since, or now in another budget, stays
+   * where it is.
+   */
+  for (const categoryId of before.categoryIds ?? []) {
+    const category = queryOne<{ budget_id: string | null; kind: string }>(
+      db,
+      `SELECT c.budget_id, g.kind FROM categories c JOIN category_groups g ON g.id = c.group_id
+        WHERE c.id = ? AND c.deleted_at IS NULL`,
+      categoryId,
+    );
+    if (!category || (category.budget_id ?? householdBudgetId(db)) !== budgetId) continue;
+    execute(
+      db, `INSERT OR IGNORE INTO goal_categories (goal_id, category_id) VALUES (?,?)`,
+      before.id, categoryId,
+    );
+    if (category.kind !== "internal") {
+      moveCategoryToGroup(db, actor, categoryId, goalGroup(db, actor, budgetId).id);
+    }
+  }
   return `Restored the goal "${before.name}"`;
 });
