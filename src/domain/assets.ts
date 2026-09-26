@@ -40,7 +40,15 @@ import {
   type SalePreview, type GainDecomposition,
 } from "../portfolio/holdings.ts";
 
-export type InstrumentKind = "mutual-fund" | "equity" | "etf" | "bond" | "commodity" | "other";
+export const INSTRUMENT_KINDS = ["mutual-fund", "equity", "etf", "bond", "commodity", "other"] as const;
+export type InstrumentKind = (typeof INSTRUMENT_KINDS)[number];
+
+/**
+ * WEALTH-39 · The dearest a single unit of anything is allowed to be, in
+ * rupees. The costliest listed shares trade in lakhs; a hundred crore a unit is
+ * a slipped key, and 1e30 put a holding worth 1e31 rupees into net worth.
+ */
+export const MAX_UNIT_PRICE_RUPEES = 1_000_000_000;
 
 /** F19.11 · The allocation buckets, in the sense Indian investing uses. */
 export const ASSET_CLASSES = ["equity", "debt", "hybrid", "gold", "cash", "real-estate", "other"] as const;
@@ -427,6 +435,10 @@ export function findOrCreateInstrument(
     currency?: string; provider?: PriceProvider; manualOnly?: boolean;
   },
 ): Instrument {
+  // WEALTH-39 · An unknown kind reached the table's CHECK and answered 500.
+  if (!(INSTRUMENT_KINDS as readonly string[]).includes(input.kind)) {
+    throw new Refusal(`"${input.kind}" is not a kind of holding this knows — pick one from the list.`);
+  }
   return transact(db, () => {
     // R24.6: match on ISIN first — it survives a change of price provider.
     const existing =
@@ -584,6 +596,19 @@ export function recordPurchase(
   if (!(Number.isFinite(input.price) && input.price > 0)) {
     throw new Refusal("The purchase price has to be a number above zero.");
   }
+  /*
+   * WEALTH-39 · Units live in an investment account. A purchase filed into
+   * the bank was accepted and then never seen again: the portfolio, net worth
+   * and allocation read holdings only from tracking asset accounts, so the lot
+   * and what it cost vanished from every total.
+   */
+  const into = getAccount(db, input.accountId);
+  if (!into || into.kind !== "tracking" || !(ASSET_SUBTYPES as readonly string[]).includes(into.subtype)) {
+    throw new Refusal(
+      "Units are held in an investment, retirement, property or commodity account — " +
+        "choose one of those as the account it is held in.",
+    );
+  }
   return transact(db, () => {
     const fx = tradeFxRate(db, input.instrumentId, input.tradeDate, input.fxRate);
     const holding = findOrCreateHolding(db, actor, input.accountId, input.instrumentId);
@@ -695,6 +720,13 @@ export function recordPrice(
   db: DB,
   input: { instrumentId: string; price: MicroRupees; asOf: IsoDate; source: string },
 ): void {
+  // WEALTH-39 · A price of −50 was saved, and the holding counted −₹500 in
+  // net worth; one of 1e30 counted 1e31 rupees.
+  if (!Number.isSafeInteger(input.price) || input.price <= 0 || input.price > MAX_UNIT_PRICE_RUPEES * 1_000_000) {
+    throw new Refusal(
+      `A price has to be above zero and no more than ₹${MAX_UNIT_PRICE_RUPEES.toLocaleString("en-IN")} a unit.`,
+    );
+  }
   // R26.5: a later fetch never overwrites a good price for the same date with
   // a worse one — the primary key makes a re-fetch idempotent.
   execute(

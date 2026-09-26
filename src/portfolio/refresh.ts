@@ -23,6 +23,7 @@
 import type { DB } from "../db/db.ts";
 import { queryAll, queryOne, execute } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
+import { Refusal } from "../core/refusal.ts";
 import { todayIST, nowIST, type IsoDate } from "../core/dates.ts";
 import { recordPrice, recordFxRate, listInstruments, listHoldings } from "../domain/assets.ts";
 import {
@@ -172,13 +173,21 @@ export async function refreshPrices(
     logFetch(db, instrument.id, provider.name, result);
 
     if (result.ok) {
-      recordPrice(db, {
-        instrumentId: instrument.id,
-        price: result.price,
-        asOf: result.asOf,
-        source: result.source,
-      });
-      outcome.updated++;
+      try {
+        recordPrice(db, {
+          instrumentId: instrument.id,
+          price: result.price,
+          asOf: result.asOf,
+          source: result.source,
+        });
+        outcome.updated++;
+      } catch (err) {
+        // WEALTH-39 · recordPrice refuses a price of zero or less, or an absurd
+        // one; a feed that sends one is a failed fetch, not the end of the run.
+        if (!(err instanceof Refusal)) throw err;
+        outcome.failed++;
+        outcome.notes.push(`${instrument.name}: the feed sent a price that cannot be right.`);
+      }
     } else {
       outcome.failed++;
       // FW9 · The old price stays, with its date shown. A stale number the
