@@ -878,6 +878,83 @@ export function viewHolding(
   };
 }
 
+/**
+ * WEALTH-15 · What a holding was worth at the end of a past day.
+ *
+ * viewHolding prices today's open lots at the date's price, so a snapshot
+ * dated 30 June counted units bought in September and left out units sold in
+ * July. This rebuilds the position as it stood:
+ *
+ *   - lots bought on or before `asOf` that are still open;
+ *   - plus the parcels of every later sale that were bought by then — a sale
+ *     records exactly which parcels it consumed (B88), and a lot it emptied is
+ *     closed rather than deleted, so those units were held on `asOf`.
+ *
+ * Units are counted in today's terms, which is the frame the price history is
+ * in: a split or bonus divides every earlier price by its ratio (R28.2), and a
+ * split multiplies the lots in place. So a later split needs nothing, a later
+ * sale's parcels are scaled by the splits after it, and a later bonus — which
+ * adds a lot instead of multiplying the old ones — scales the whole position.
+ * A later merger is not unwound: its units and price move to the new scheme.
+ *
+ * With no price published by `asOf`, the units are worth what they cost, as
+ * viewHolding does.
+ */
+export function holdingValueOn(
+  db: DB, holdingId: string, asOf: IsoDate, baseCurrency = "INR",
+): { value: Paise; quote: Quote | null; fx: FxQuote | null } | null {
+  const record = queryOne<HoldingRecord>(db, `SELECT * FROM holdings WHERE id = ?`, holdingId);
+  if (!record) return null;
+  const instrument = getInstrument(db, record.instrument_id)!;
+
+  const later = queryAll<{ date: string; kind: string; ratio: number | null; units: number | null; detail_json: string | null }>(
+    db,
+    `SELECT date, kind, ratio, units, detail_json FROM holding_events
+      WHERE holding_id = ? AND date > ? AND kind IN ('sale','split','bonus')`,
+    holdingId, asOf,
+  );
+  const ratioAfter = (kind: string, date: string) => later
+    .filter((e) => e.kind === kind && e.date > date && (e.ratio ?? 0) > 0)
+    .reduce((product, e) => product * e.ratio!, 1);
+
+  const held = queryOne<{ units: number; cost: number }>(
+    db,
+    `SELECT COALESCE(SUM(units),0) AS units, COALESCE(SUM(cost),0) AS cost FROM lots
+      WHERE holding_id = ? AND trade_date <= ? AND closed_at IS NULL`,
+    holdingId, asOf,
+  )!;
+  let units = held.units;
+  let cost = held.cost;
+  for (const sale of later.filter((e) => e.kind === "sale")) {
+    const parcels = (() => {
+      try { return (JSON.parse(sale.detail_json ?? "{}").parcels ?? null) as { tradeDate: string; units: number; cost: number }[] | null; }
+      catch { return null; }
+    })();
+    const scale = ratioAfter("split", sale.date);
+    if (parcels) {
+      for (const p of parcels.filter((p) => p.tradeDate <= asOf)) {
+        units += Math.round(p.units * scale);
+        cost += p.cost;
+      }
+    } else if (sale.units) {
+      // A sale from before parcels were recorded. FIFO sells the oldest units
+      // first, so they were held on `asOf`.
+      units += Math.round(sale.units * scale);
+    }
+  }
+  units = Math.round(units * ratioAfter("bonus", asOf));
+  if (units <= 0) return { value: 0, quote: null, fx: null };
+
+  const quote = latestPrice(db, instrument.id, asOf);
+  const fx = instrument.currency === baseCurrency
+    ? { rate: 1, asOf, source: "identity", stale: false }
+    : fxRate(db, instrument.currency, baseCurrency, asOf);
+  const value = quote
+    ? Math.round(valueOf(units, quote.price) * (fx?.rate ?? 1))
+    : cost;
+  return { value, quote, fx };
+}
+
 // ---------------------------------------------------------------------------
 // R25, R28 · Sales and corporate actions
 // ---------------------------------------------------------------------------

@@ -219,6 +219,14 @@ Every line carries the date of its oldest input, and the statement reports the
 worst of those. Snapshots are written to `net_worth_snapshots` at month close
 and on demand, giving a dated history.
 
+A snapshot for a past date holds that date's figures, not today's: balances
+count transactions dated on or before it, holdings are the lots held on it
+(later purchases left out, later sales put back, in today's split-adjusted
+units at that date's price), loans owe what their draws and payments dated by
+then leave, and an account closed since still counts. Closing June in
+September therefore records June's net worth on 30 June. A merger after the
+date is not unwound.
+
 Totals are computed per viewer: an account a member cannot see is excluded from
 the total shown to them, not merely from the list.
 

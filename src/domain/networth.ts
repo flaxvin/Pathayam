@@ -22,13 +22,13 @@ import { queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, type Actor } from "../core/events.ts";
 import { nowIST, todayIST, monthOf, addMonths, formatDate, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
-import { accountBalances } from "../engine/repository.ts";
-import { listLoans, projectLoan } from "./loans.ts";
+import { accountBalances, accountBalancesThrough } from "../engine/repository.ts";
+import { listLoans, projectLoan, outstandingPrincipal } from "./loans.ts";
 import { accountDrifts, type AccountDrift } from "./account-drift.ts";
-import { familyLoanNetWorth } from "./family-loans.ts";
+import { familyLoanNetWorth, listFamilyLoans } from "./family-loans.ts";
 import { SIMPLE_TRACKING_SUBTYPES, hiddenAccountIds, type HolderScope } from "./accounts.ts";
 import {
-  listAssetAccounts, listHoldings, viewHolding, valuationInBase, ASSET_LABELS,
+  listAssetAccounts, listHoldings, viewHolding, holdingValueOn, valuationInBase, ASSET_LABELS,
   ASSET_CLASS_LABELS,
   type AssetSubtype, type AssetClass,
 } from "./assets.ts";
@@ -88,15 +88,44 @@ export function netWorthStatement(
    */
   opts: { viewerMemberId?: string | null; scope?: HolderScope } = {},
 ): NetWorthStatement {
-  const balances = accountBalances(db);
+  /*
+   * WEALTH-15 · A statement for a past day is that day's, not today's.
+   *
+   * Month close snapshots the last day of the month it closes, and
+   * backfillMonthlySnapshots the first of each earlier month — but every line
+   * here was read as of now: all transactions ever, today's open lots, the
+   * loan's current outstanding. Closing June in September recorded September's
+   * money against 30 June, and overwrote whatever had been stored for that
+   * date. So for a date before today the balances run through that day only,
+   * holdings are the lots held on it, loans owe what they owed then, and an
+   * account closed since still counts. (Its opening date is no test: a demat
+   * opened today can hold lots bought years ago, and a balance before an
+   * account's opening is nil anyway.)
+   *
+   * Today's statement is unchanged: a future-dated transaction still counts,
+   * because a screen is "as of now".
+   */
+  const dated = asOf < todayIST();
+  const balances = dated ? accountBalancesThrough(db, asOf) : accountBalances(db);
+  const openOnDate = dated
+    ? new Set(queryAll<{ id: string }>(
+        db,
+        `SELECT id FROM accounts WHERE closed_at IS NULL OR substr(closed_at, 1, 10) > ?`,
+        asOf,
+      ).map((r) => r.id))
+    : null;
   const hidden = opts.viewerMemberId === undefined
     ? new Set<string>()
     : hiddenAccountIds(db, opts.viewerMemberId ?? null, opts.scope ?? "household");
+  /** Counted on this statement: visible to the reader, and not closed by its date. */
+  const counts = (accountId: string) =>
+    !hidden.has(accountId) && (openOnDate === null || openOnDate.has(accountId));
+  const stillOpen = dated ? "" : "AND closed_at IS NULL";
 
   // --- Assets ---------------------------------------------------------------
   const cashLines: NetWorthLine[] = queryAll<{ id: string; name: string }>(
-    db, `SELECT id, name FROM accounts WHERE kind = 'budget' AND closed_at IS NULL ORDER BY name`,
-  ).filter((a) => !hidden.has(a.id)).map((a) => ({
+    db, `SELECT id, name FROM accounts WHERE kind = 'budget' ${stillOpen} ORDER BY name`,
+  ).filter((a) => counts(a.id)).map((a) => ({
     label: a.name,
     accountId: a.id,
     value: balances.get(a.id)?.working ?? 0,
@@ -115,11 +144,38 @@ export function netWorthStatement(
     if (date && (worstDate === null || date < worstDate)) worstDate = date;
   };
 
-  for (const account of listAssetAccounts(db)) {
-    if (hidden.has(account.id)) continue;
+  for (const account of listAssetAccounts(db, { includeClosed: dated })) {
+    if (!counts(account.id)) continue;
     const holdings = listHoldings(db, account.id);
 
-    if (holdings.length > 0) {
+    if (dated) {
+      // Every holding the account has ever had, closed ones included: one
+      // sold out in August was still held on a June date.
+      const everHeld = queryAll<{ id: string }>(
+        db, `SELECT id FROM holdings WHERE account_id = ?`, account.id,
+      );
+      if (everHeld.length > 0) {
+        let total = 0;
+        let oldest: IsoDate | null = null;
+        let stale = false;
+        for (const holding of everHeld) {
+          const view = holdingValueOn(db, holding.id, asOf, baseCurrency);
+          if (!view || view.value === 0) continue;
+          total += view.value;
+          if (view.quote) {
+            if (!oldest || view.quote.asOf < oldest) oldest = view.quote.asOf;
+            if (view.quote.stale) stale = true;
+          }
+          if (view.fx?.stale) stale = true;
+        }
+        investmentLines.push({
+          label: account.name, accountId: account.id, value: total, asOf: oldest, stale,
+          href: "/portfolio",
+        });
+        noteDate(oldest, stale);
+        continue;
+      }
+    } else if (holdings.length > 0) {
       let total = 0;
       let oldest: IsoDate | null = null;
       let stale = false;
@@ -161,9 +217,9 @@ export function netWorthStatement(
 
   // --- Liabilities ----------------------------------------------------------
   const cardLines: NetWorthLine[] = queryAll<{ id: string; name: string }>(
-    db, `SELECT id, name FROM accounts WHERE kind = 'credit' AND closed_at IS NULL ORDER BY name`,
+    db, `SELECT id, name FROM accounts WHERE kind = 'credit' ${stillOpen} ORDER BY name`,
   )
-    .filter((a) => !hidden.has(a.id))
+    .filter((a) => counts(a.id))
     .map((a) => ({
       label: a.name,
       accountId: a.id,
@@ -178,17 +234,22 @@ export function netWorthStatement(
   const untrackedAssetWarnings: string[] = [];
   const assetNames = listAssetAccounts(db).map((a) => a.name.toLowerCase());
 
-  for (const loan of listLoans(db)) {
+  for (const loan of listLoans(db, { includeClosed: dated })) {
     // H2.2 · A private loan leaves somebody else's total as well as their list —
     // the cash and asset lines above already do this, and the liabilities did not,
     // so the debt side of a private arrangement was published to everyone.
-    if (hidden.has(loan.account_id)) continue;
-    const projection = projectLoan(db, loan.id);
-    if (!projection) continue;
+    if (!counts(loan.account_id)) continue;
+    if (dated && loan.sanction_date > asOf) continue;
+    // WEALTH-15 · On a past date, what was owed then: draws and payments dated
+    // by that day. A loan closed since was still owed on it.
+    const outstanding = dated
+      ? outstandingPrincipal(db, loan.id, asOf)
+      : projectLoan(db, loan.id)?.outstanding;
+    if (outstanding === undefined) continue;
     loanLines.push({
       label: loan.nickname || loan.lender,
       accountId: loan.account_id,
-      value: projection.outstanding,
+      value: outstanding,
       asOf,
       stale: false,
       href: `/loans/${loan.id}`,
@@ -197,13 +258,13 @@ export function netWorthStatement(
     // R23.4: a tracked liability without its underlying asset makes net worth
     // systematically wrong and alarming.
     const secured = ["home", "home-under-construction", "car", "loan-against-property", "gold"];
-    if (secured.includes(loan.loan_type) && projection.outstanding > 0) {
+    if (secured.includes(loan.loan_type) && outstanding > 0) {
       const hint = loan.loan_type.startsWith("home") ? "property" : loan.loan_type;
       const tracked = assetNames.some((n) => n.includes(hint));
       if (!tracked) {
         untrackedAssetWarnings.push(
           `${loan.nickname || loan.lender} is secured against something you haven't ` +
-            `recorded as an asset. Net worth is ${formatPaise(projection.outstanding)} lower ` +
+            `recorded as an asset. Net worth is ${formatPaise(outstanding)} lower ` +
             `than reality until you add it.`,
         );
       }
@@ -217,13 +278,13 @@ export function netWorthStatement(
   // H2.2 · And a private arrangement is hidden from everyone but its holder, by
   // the same set that hides a private loan. Money lent to a cousin out of your
   // own pocket was being published on both sides of somebody else's net worth.
-  const family = familyLoanNetWorth(db);
+  const family = dated ? familyLoansOn(db, balances) : familyLoanNetWorth(db);
   for (const line of family.lent) {
-    if (hidden.has(line.accountId)) continue;
+    if (!counts(line.accountId)) continue;
     otherAssetLines.push({ ...line, asOf, stale: false });
   }
   const familyLines: NetWorthLine[] = family.borrowed
-    .filter((line: { accountId: string }) => !hidden.has(line.accountId))
+    .filter((line: { accountId: string }) => counts(line.accountId))
     .map((line: { label: string; accountId: string; value: Paise }) => ({
       ...line, asOf, stale: false,
     }));
@@ -236,13 +297,13 @@ export function netWorthStatement(
   const simpleTracking = queryAll<{ id: string; name: string; subtype: string; currency: string }>(
     db,
     `SELECT id, name, subtype, currency FROM accounts
-      WHERE kind = 'tracking' AND closed_at IS NULL
+      WHERE kind = 'tracking' ${stillOpen}
         AND subtype IN (${SIMPLE_TRACKING_SUBTYPES.map(() => "?").join(",")})
       ORDER BY name`,
     ...SIMPLE_TRACKING_SUBTYPES,
   );
   for (const account of simpleTracking) {
-    if (hidden.has(account.id)) continue;
+    if (!counts(account.id)) continue;
     const working = balances.get(account.id)?.working ?? 0;
     /*
      * B56 · A tracking account is worth its balance — unless somebody has
@@ -307,6 +368,27 @@ export function netWorthStatement(
     untrackedAssetWarnings,
     drifts: accountDrifts(db, { viewerMemberId: opts.viewerMemberId, asOf }),
   };
+}
+
+/**
+ * WEALTH-15 · Family arrangements on a past date: familyLoanNetWorth's lines,
+ * read off the balances through that date. A family loan's outstanding is its
+ * tracking account's balance (viewFamilyLoan), and one written off or closed
+ * since was still owed on the day.
+ */
+function familyLoansOn(
+  db: DB, balances: Map<string, { working: Paise }>,
+): ReturnType<typeof familyLoanNetWorth> {
+  const out: ReturnType<typeof familyLoanNetWorth> = { lent: [], borrowed: [] };
+  for (const loan of listFamilyLoans(db, { includeClosed: true })) {
+    const balance = balances.get(loan.account_id)?.working ?? 0;
+    if (balance > 0) {
+      out.lent.push({ label: `${loan.counterparty} owes you`, accountId: loan.account_id, value: balance });
+    } else if (balance < 0) {
+      out.borrowed.push({ label: `You owe ${loan.counterparty}`, accountId: loan.account_id, value: -balance });
+    }
+  }
+  return out;
 }
 
 // ---------------------------------------------------------------------------
@@ -470,9 +552,15 @@ export function backfillMonthlySnapshots(
   db: DB, actor: Actor, months = 12, today = todayIST(),
 ): number {
   let created = 0;
+  // WEALTH-15 · Nothing was recorded before the first account opened, so a
+  // snapshot then would be a ₹0 the household never had.
+  const firstOpened = queryOne<{ d: string | null }>(
+    db, `SELECT MIN(opening_date) AS d FROM accounts`,
+  )?.d ?? null;
   for (let i = months; i >= 0; i--) {
     const asOf = `${addMonths(monthOf(today), -i)}-01`;
     if (asOf > today) continue;
+    if (firstOpened === null || asOf < firstOpened) continue;
     const existing = queryOne(db, `SELECT as_of FROM net_worth_snapshots WHERE as_of = ?`, asOf);
     if (existing) continue;
     snapshotNetWorth(db, actor, asOf);
