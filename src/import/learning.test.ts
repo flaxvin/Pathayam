@@ -203,7 +203,7 @@ describe("F6.6 · retroactive apply", () => {
 
     const preview = previewRetroactive(db, {
       ...rule, actions: [{ type: "setCategory", categoryId: eatingOut.id }],
-    });
+    }, actor.memberId);
 
     assert.equal(preview.count, 3, "three Swiggy transactions match");
     assert.equal(preview.changing, 2, "one already agrees with the rule");
