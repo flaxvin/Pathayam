@@ -57,3 +57,36 @@ describe("MONEY-CORE-7 · deleting a transfer from its unreconciled side", () =>
     } finally { await app.close(); }
   });
 });
+
+describe("MONEY-CORE-17 · adding a cleared entry inside a reconciled period", () => {
+  test("asks first, and breaks the checkpoint once confirmed", async () => {
+    const { db, a, food } = household();
+    reconcile(db, actor, { accountId: a, bankBalance: 1_000_000, asOf: "2026-09-10" });
+    const app = await startTestApp(db, { memberId: RAVI });
+    const form = { account_id: a, amount: "700", direction: "out", date: "05-09-2026", payee: "Shop", split_category_0: food, cleared: "1" };
+    try {
+      const ask = await app.post("/add", form);
+      assert.equal(ask.status, 200);
+      assert.match(await ask.text(), /Bank A was reconciled/);
+      assert.equal(clearedBalanceAsOf(db, a, "2026-09-10"), 1_000_000, "nothing added before the yes");
+
+      const yes = await app.post("/add", { ...form, confirm_checkpoint: "1" });
+      assert.equal(yes.status, 303);
+      assert.equal(clearedBalanceAsOf(db, a, "2026-09-10"), 930_000);
+      assert.equal(broken(db, a), true);
+      assert.deepEqual(app.failures, []);
+    } finally { await app.close(); }
+  });
+
+  test("an uncleared entry, or one after the checkpoint, asks nothing", async () => {
+    const { db, a, food } = household();
+    reconcile(db, actor, { accountId: a, bankBalance: 1_000_000, asOf: "2026-09-10" });
+    const app = await startTestApp(db, { memberId: RAVI });
+    try {
+      const base = { account_id: a, amount: "700", direction: "out", payee: "Shop", split_category_0: food };
+      assert.equal((await app.post("/add", { ...base, date: "05-09-2026" })).status, 303);
+      assert.equal((await app.post("/add", { ...base, date: "15-09-2026", cleared: "1" })).status, 303);
+      assert.equal(broken(db, a), false);
+    } finally { await app.close(); }
+  });
+});

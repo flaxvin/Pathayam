@@ -2479,8 +2479,24 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     );
   });
 
-  router.post("/add", (ctx) =>
-    mutate(ctx, (a) => {
+  router.post("/add", (ctx) => {
+    /*
+     * MONEY-CORE-17 · A cleared entry dated inside a reconciled period changes
+     * the balance the checkpoint asserted, exactly as editing one there does —
+     * so it meets the same "Already reconciled" confirmation, and confirming
+     * breaks the checkpoint (R7.b/c). Adding ₹700 "already cleared" on the 5th
+     * under a checkpoint of the 10th left it intact at ₹10,000 while the
+     * cleared balance was ₹9,300, and nothing reached Review. An uncleared
+     * entry is not part of what the bank asserted, so it asks nothing.
+     */
+    if (field(ctx.body, "cleared") === "1") {
+      const guard = guardCheckpoints(
+        ctx, auth(ctx), requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id,
+        [dateField(field(ctx.body, "date"))], field(ctx.body, "confirm_checkpoint") === "1", "/add", "/add",
+      );
+      if (guard) return guard;
+    }
+    return mutate(ctx, (a) => {
       const magnitude = Math.abs(amountField(field(ctx.body, "amount")));
       const direction = field(ctx.body, "direction") ?? "out";
       const dateRaw = field(ctx.body, "date");
@@ -2576,8 +2592,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       });
 
       return { redirect: "/", message: `Saved ${formatPaise(magnitude)}.` };
-    }),
-  );
+    });
+  });
 
   // B51: the form that was missing — POST /transfer shipped, but no GET
   // rendered a form and the only link 405'd. Transfers underpin card payments,
