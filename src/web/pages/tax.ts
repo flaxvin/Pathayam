@@ -50,7 +50,7 @@ function regimeCard(e: RegimeEstimate, isBetter: boolean): SafeHtml {
       <p class="amount" style="font-size:1.6rem;margin:.25rem 0">
         <strong>${formatPaise(e.total)}</strong>
       </p>
-      <p class="faint">${e.effectiveRatePct}% of gross</p>
+      <p class="faint">${e.effectiveRatePct}% of income, gains included</p>
       <div class="table-scroll">
         <table>
           <tbody>
