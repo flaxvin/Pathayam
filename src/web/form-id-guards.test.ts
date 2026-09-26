@@ -123,4 +123,28 @@ describe("ids posted in form fields", () => {
       });
       assert.equal(ok.status, 303);
     }));
+
+  test("SECURITY-OPS-7 · a payee merge takes only payees this member can see", () =>
+    asPriya(async (app, w) => {
+      for (const [loser, winner] of [
+        [w.ids.herPayee, w.ids.hisPayee],
+        [w.ids.hisPayee, w.ids.herPayee],
+        [w.ids.herPayee, "no-such-payee"],
+        ["no-such-payee", w.ids.herPayee],
+      ]) {
+        const res = await app.post("/payees/merge", { loser_id: loser, winner_id: winner });
+        assert.equal(res.status, 404, `${loser} → ${winner}`);
+        assert.doesNotMatch(await res.text(), /Grimalkin/);
+      }
+      // Nothing moved in either direction.
+      assert.equal(
+        queryOne<{ n: number }>(
+          w.db, `SELECT COUNT(*) AS n FROM transactions WHERE payee_id = ?`, w.ids.hisPayee,
+        )!.n,
+        1,
+      );
+      assert.equal(
+        queryOne(w.db, `SELECT 1 FROM payees WHERE merged_into_id IS NOT NULL`), null,
+      );
+    }));
 });

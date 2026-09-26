@@ -287,7 +287,7 @@ import {
   applyStartingTemplate, startBlank,
 } from "./domain/starting-budget.ts";
 import {
-  mergePayees, getPayee, resolvePayee, UndoRefused,
+  mergePayees, getPayee, visiblePayeeIds, resolvePayee, UndoRefused,
 } from "./domain/transactions.ts";
 import {
   createCategory, renameCategory, moveCategoryToGroup, setCategoryHidden, deleteCategory,
@@ -885,6 +885,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (!budgetsFor(db, viewer(ctx)).some((b) => b.id === id)) {
       throw new NotFound("That budget does not exist.");
     }
+    return id;
+  }
+
+  /**
+   * A payee is visible by the rule listPayees applies — seen somewhere this
+   * member can see, or nowhere yet — plus one merged into a visible payee.
+   * A payee seen only on another member's private account is where they spend;
+   * merging into it announced its name, and merging it away re-pointed their
+   * private transactions (SECURITY-OPS-7).
+   */
+  function requireVisiblePayee(ctx: RequestContext, id: string): string {
+    if (!visiblePayeeIds(db, viewer(ctx)).has(id)) throw new NotFound("That payee does not exist.");
     return id;
   }
 
@@ -6013,8 +6025,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/payees/merge", (ctx) =>
     mutate(ctx, (a) => {
-      const loser = requiredField(ctx.body, "loser_id");
-      const winner = requiredField(ctx.body, "winner_id");
+      const loser = requireVisiblePayee(ctx, requiredField(ctx.body, "loser_id"));
+      const winner = requireVisiblePayee(ctx, requiredField(ctx.body, "winner_id"));
       mergePayees(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), loser, winner);
       return {
         redirect: "/payees",
