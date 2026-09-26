@@ -133,4 +133,28 @@ describe("SSO callbacks", () => {
       await app.close();
     }
   });
+
+  test("SECURITY-OPS-18 · a code the provider rejects is a 400 and an auth attempt, not a fault", async () => {
+    const { db } = household();
+    const idp = provider(); // answers every token exchange with a 400
+    const app = await startTestApp(db, {
+      memberId: null, config: { oidc: OIDC, google: GOOGLE }, fetchImpl: idp.fetchImpl,
+    });
+    try {
+      for (const flow of ["/auth/google", "/auth/oidc"]) {
+        const state = await beginAt(app.baseUrl, flow);
+        const res = await fetch(`${app.baseUrl}${flow}/callback?state=${state}&code=forged`, { redirect: "manual" });
+        assert.equal(res.status, 400, flow);
+        assert.equal(res.headers.get("set-cookie"), null);
+      }
+      assert.deepEqual(app.failures, [], "recorded as a server fault");
+      assert.equal(queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM request_failures`)!.n, 0);
+      assert.equal(
+        queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM auth_attempts WHERE outcome = 'rejected-code'`)!.n,
+        2,
+      );
+    } finally {
+      await app.close();
+    }
+  });
 });
