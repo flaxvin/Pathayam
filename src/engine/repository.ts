@@ -19,6 +19,7 @@ import { computeBudget } from "./engine.ts";
 import { commitmentSources, claimByMonth, claimLinks, claimFor } from "../domain/commitments.ts";
 import {
   emptyMonth,
+  ENGINE_WINDOW_MONTHS,
   type EngineInput,
   type MonthlyFacts,
   type CategoryMeta,
@@ -814,11 +815,23 @@ export function monthRange(db: DB, through: MonthKey): MonthKey[] {
   const latestAssignment = queryValue<string>(db, `SELECT MAX(month) FROM assignments`) ?? through;
   const last = latestAssignment > through ? latestAssignment : through;
 
+  /*
+   * A corrupt or absurd date must not spin here; a household budget will never
+   * legitimately span more than a few decades.
+   *
+   * WEBUX-3 · The cap used to be counted from the *start*. One assignment in
+   * January 1900 — the budget page's ‹ link walks back that far — made 1900-01
+   * the earliest month, the walk stopped at 1999-12, and every real month fell
+   * off the end: today's budget read Ready to Assign -₹1,000 and every envelope
+   * "Not funded, spent ₹0" for everyone until the row was undone. The cap now
+   * keeps the months nearest the one being asked about, so a stray ancient row
+   * can only drop itself out of the walk, never the present.
+   */
+  const floor = addMonths(through, -(ENGINE_WINDOW_MONTHS - 1));
   const months: MonthKey[] = [];
   let cursor = earliest < through ? earliest : through;
-  // A corrupt or absurd date must not spin here; a household budget will never
-  // legitimately span more than a few decades.
-  for (let guard = 0; cursor <= last && guard < 1200; guard++) {
+  if (cursor < floor) cursor = floor;
+  for (let guard = 0; cursor <= last && guard < ENGINE_WINDOW_MONTHS; guard++) {
     months.push(cursor);
     cursor = addMonths(cursor, 1);
   }

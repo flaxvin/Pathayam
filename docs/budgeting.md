@@ -167,6 +167,12 @@ past month can read lower than it did at the time. See
 [dev/01-engine-derivation.md](dev/01-engine-derivation.md) §4 and
 [limitations.md](limitations.md).
 
+The budget screen's ‹ stops at the first month with an account, a transaction
+or an assignment in it. The engine walks at most a century (1,200 months) up to
+the month being viewed, so anything older is left out rather than pushing the
+present out of the walk, and an assignment or move more than a century back is
+refused (422). Setting such a row back to zero is always allowed.
+
 ## Merging two categories
 
 Two envelopes turn out to be the same envelope. Merging moves everything from
