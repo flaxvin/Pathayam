@@ -114,7 +114,7 @@ import {
 } from "./domain/budget.ts";
 import {
   createTransaction, createTransfer, updateTransaction, deleteTransaction,
-  getTransaction, getSplits, listPayees, payeeStats, tagsFor, type Transaction,
+  getTransaction, getSplits, listPayees, payeeStats, payeeAliases, tagsFor, type Transaction,
   resolveCategoryLines,
   outgoingLacksEnvelope,
 } from "./domain/transactions.ts";
@@ -2461,7 +2461,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         accounts,
         categories: [...view.categories.values()],
         payees: listPayees(db, viewer(ctx)).map((p) => {
-          const stats = payeeStats(db, p.id);
+          const stats = payeeStats(db, p.id, viewer(ctx));
           return {
             id: p.id,
             name: p.name,
@@ -5953,16 +5953,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       listCategories(db, { includeHidden: true, viewerMemberId: viewer(ctx) }).map((c) => c.id),
     );
     const rows: PayeeRow[] = listPayees(db, viewer(ctx)).map((p) => {
-      const stats = payeeStats(db, p.id);
+      // MONEY-CORE-21 · Its figures and aliases as far as this member may see.
+      const stats = payeeStats(db, p.id, viewer(ctx));
       return {
         id: p.id,
         name: p.name,
         count: stats.count,
         total: stats.total,
         lastSeen: stats.lastSeen,
-        aliases: queryAll<{ raw: string }>(
-          db, `SELECT raw FROM payee_aliases WHERE payee_id = ? LIMIT 5`, p.id,
-        ).map((r) => r.raw),
+        aliases: payeeAliases(db, p.id, viewer(ctx)),
         /*
          * 15 · And not if it is somebody else's envelope. "Blinkist — Books and
          * courses" told the whole household which private envelope one member

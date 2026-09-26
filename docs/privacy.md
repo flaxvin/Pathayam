@@ -26,7 +26,9 @@ A private entity is excluded from:
 - every picker and dropdown, and the write side of every form;
 - reports, queries, insights and the CSV and JSON exports;
 - the activity log, including event summaries that merely name it;
-- payee lists, where a payee has only ever been seen on invisible accounts;
+- payee lists, where a payee has only ever been seen on invisible accounts —
+  and the figures and raw aliases beside a shared payee (count, total, last
+  amount and date, usual envelope), which count only what the viewer can see;
 - **totals**, including net worth, so nothing is recoverable by subtraction.
 
 A net-worth snapshot is one shared row per date, read back by every member (the
