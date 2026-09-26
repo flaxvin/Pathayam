@@ -2137,13 +2137,31 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const category = view.categories.get(own.id);
     if (!category) throw new NotFound();
 
+    /*
+     * BUDGET-6 · The envelope's own transactions this month, split lines
+     * included, and every event on each. This read the 40 *oldest* transaction
+     * events in the household and kept those in this envelope and month — so
+     * past its first 40 transactions every envelope said "Nothing has affected
+     * this figure yet" under a figure that plainly had been, and a split line
+     * (no category on the transaction itself) was never matched at all. A row
+     * in an account the viewer may not see stays out, as it does in registers.
+     */
+    const hidden = hiddenTransactionSql("t", viewer(ctx));
+    const transactionIds = queryAll<{ id: string }>(
+      db,
+      `SELECT t.id FROM transactions t
+        WHERE t.deleted_at IS NULL AND t.date >= ? AND t.date < ?
+          AND (t.category_id = ?
+               OR EXISTS (SELECT 1 FROM transaction_splits s
+                           WHERE s.transaction_id = t.id AND s.category_id = ?))
+          AND NOT ${hidden.sql}`,
+      `${month}-01`, `${addMonths(month, 1)}-01`, category.id, category.id, ...hidden.params,
+    ).map((r) => r.id);
+
     // J22: three events, three actors, one answer.
     const events = [
       ...historyFor(db, "assignment", `${month}:${category.id}`),
-      ...queryEvents(db, { entity: "transaction", limit: 40, descending: false }).filter((e) => {
-        const after = e.after as { category_id?: string; date?: string } | undefined;
-        return after?.category_id === category.id && after?.date?.startsWith(month);
-      }),
+      ...transactionIds.flatMap((id) => historyFor(db, "transaction", id)),
     ].sort((a, b) => a.seq - b.seq);
 
     return {
