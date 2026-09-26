@@ -7,7 +7,7 @@
  * which is where the verified-email claim was read and then ignored.
  */
 
-import { test, describe } from "node:test";
+import { test, describe, mock } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb, seedMember, startTestApp } from "./harness.test-data.ts";
 import { queryOne } from "../db/db.ts";
@@ -153,6 +153,26 @@ describe("SSO callbacks", () => {
         queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM auth_attempts WHERE outcome = 'rejected-code'`)!.n,
         2,
       );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("SECURITY-OPS-19 · an OIDC state used an hour later is expired, with no Google to prune it", async () => {
+    const { db, email } = household();
+    const idp = provider();
+    idp.state.answer = tokenFor({ iss: ISSUER, aud: "pathayam", sub: "priya", email, email_verified: true });
+    const app = await startTestApp(db, { memberId: null, config: { oidc: OIDC }, fetchImpl: idp.fetchImpl });
+    try {
+      const state = await beginAt(app.baseUrl, "/auth/oidc");
+      mock.timers.enable({ apis: ["Date"], now: Date.now() + 60 * 60_000 });
+      try {
+        const res = await fetch(`${app.baseUrl}/auth/oidc/callback?state=${state}&code=x`, { redirect: "manual" });
+        assert.equal(res.status, 400);
+        assert.equal(res.headers.get("set-cookie"), null);
+      } finally {
+        mock.timers.reset();
+      }
     } finally {
       await app.close();
     }

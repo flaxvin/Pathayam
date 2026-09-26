@@ -35,6 +35,7 @@ import {
   mintToken, listTokens, revokeToken, type TokenScope,
 } from "./auth/tokens.ts";
 import { beginOAuth, exchangeCode, OAuthError } from "./auth/google.ts";
+import { PendingStates } from "./auth/pending.ts";
 import {
   beginGmailConnect, exchangeGmailCode, revokeToken as revokeGmailToken,
 } from "./gmail/oauth.ts";
@@ -1076,8 +1077,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
   // Sign in
   // -------------------------------------------------------------------------
-  const pendingOAuth = new Map<string, { verifier: string; next: string; at: number }>();
-  const pendingGmail = new Map<string, { verifier: string; memberId: string; at: number }>();
+  // Expiring and capped — see auth/pending.ts (SECURITY-OPS-19).
+  const pendingOAuth = new PendingStates<{ verifier: string; next: string; at: number }>();
+  const pendingGmail = new PendingStates<{ verifier: string; memberId: string; at: number }>();
 
   router.get("/signin", async (ctx) => {
     if (ctx.locals.auth) return { redirect: "/" };
@@ -1295,9 +1297,6 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       next: ctx.query.get("next") ?? "/",
       at: Date.now(),
     });
-    for (const [key, value] of pendingOAuth) {
-      if (Date.now() - value.at > 10 * 60_000) pendingOAuth.delete(key);
-    }
 
     return { redirect: start.url };
   });
@@ -1336,8 +1335,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (!oidcConfigured(config)) throw new NotFound();
 
     const state = ctx.query.get("state") ?? "";
-    const pending = pendingOAuth.get(state);
-    pendingOAuth.delete(state);
+    const pending = pendingOAuth.take(state);
     if (!pending) {
       recordAuthAttempt(db, source, "bad-state");
       throw new HttpError(400, "That sign-in link has expired. Please try again.");
@@ -1410,8 +1408,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }
 
     const state = ctx.query.get("state") ?? "";
-    const pending = pendingOAuth.get(state);
-    pendingOAuth.delete(state);
+    const pending = pendingOAuth.take(state);
     if (!pending) {
       recordAuthAttempt(db, source, "bad-state");
       throw new HttpError(400, "That sign-in link has expired. Please try again.");
@@ -6813,15 +6810,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       redirectUri: `${config.baseUrl}/gmail/callback`,
     });
     pendingGmail.set(start.state, { verifier: start.codeVerifier, memberId: a.member.id, at: Date.now() });
-    for (const [k, v] of pendingGmail) if (Date.now() - v.at > 10 * 60_000) pendingGmail.delete(k);
     return { redirect: start.url };
   });
 
   router.get("/gmail/callback", async (ctx) => {
     const a = auth(ctx);
     const state = ctx.query.get("state") ?? "";
-    const pending = pendingGmail.get(state);
-    pendingGmail.delete(state);
+    const pending = pendingGmail.take(state);
     if (!pending || pending.memberId !== a.member.id) {
       throw new HttpError(400, "That Gmail connection link has expired. Try again.");
     }
