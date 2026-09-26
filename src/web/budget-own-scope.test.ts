@@ -285,3 +285,30 @@ describe("BUDGET-11 · call it even is offered to whoever may let it go", () => 
     }
   });
 });
+
+describe("BUDGET-23 · picking it up commits a positive amount to the household", () => {
+  test("negative, zero and a non-commitment envelope are refused; ₹500 is not", async () => {
+    const { db, priyaBudget } = household();
+    const commitment = ensureCommitmentEnvelope(db, priya, priyaBudget);
+    const pg = createGroup(db, priya, "Mine", "normal", priyaBudget);
+    const fun = createCategory(db, priya, { groupId: pg.id, name: "Fun" });
+    const hers = await startTestApp(db, { memberId: PRIYA });
+    try {
+      for (const [envelope, amount] of [
+        [commitment.id, "-3000"], [commitment.id, "0"], [fun.id, "700"],
+      ] as const) {
+        const res = await hers.post("/household/pick-up", { envelope_id: envelope, month: NOW, amount });
+        assert.equal(res.status, 422, `${amount} into ${envelope === fun.id ? "Fun" : "the commitment"}`);
+      }
+      assert.equal(getAssigned(db, NOW, commitment.id), 0);
+      assert.equal(getAssigned(db, NOW, fun.id), 0);
+      assert.equal(rta(db, HH), 100_000, "the household was told it owed her");
+
+      const res = await hers.post("/household/pick-up", { envelope_id: commitment.id, month: NOW, amount: "500" });
+      assert.equal(res.status, 303);
+      assert.equal(getAssigned(db, NOW, commitment.id), 50_000);
+    } finally {
+      await hers.close();
+    }
+  });
+});
