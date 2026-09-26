@@ -3974,7 +3974,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      */
     const scope = budgetParam(ctx);
     const view = buildBudgetView(db, month, scope, viewer(ctx));
-    const outstanding = creditOutstanding(db);
+    // WEBUX-2 · The envelope is the viewed month's, so the debt it is weighed
+    // against is too; what the card owes, beside its statement, is today's.
+    const outstanding = creditOutstanding(db, month);
+    const owedNow = month < monthOf(todayIST()) ? creditOutstanding(db) : outstanding;
     const today = todayIST();
 
     const cards: CardDue[] = listAccounts(db, { viewerMemberId: viewer(ctx) })
@@ -3997,7 +4000,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           name: account.nickname || account.name,
           last4: account.last4,
           startingDebtNote: cameWithTheCard(funding),
-          owed: Math.max(0, -(outstanding.get(account.id) ?? 0)) as Paise,
+          owed: Math.max(0, -(owedNow.get(account.id) ?? 0)) as Paise,
           funded,
           unfunded: funding.unfunded,
           statement: statement
@@ -4068,7 +4071,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const visible = visibleBudgetIds(db, viewer(ctx));
     const month = monthParam(ctx);
     const view = buildBudgetView(db, month, undefined, viewer(ctx));
-    const outstanding = creditOutstanding(db);
+    const outstanding = creditOutstanding(db, month);
     /*
      * 15 · The queue's own lists read the whole household: another member's
      * unfiled spending, reimbursable claims and broken checkpoints on their

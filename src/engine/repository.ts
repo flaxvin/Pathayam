@@ -1081,8 +1081,35 @@ export function envelopeSpendBetween(
   ) ?? 0;
 }
 
-/** The current outstanding on each Credit account, for R6's funding figures. */
-export function creditOutstanding(db: DB): Map<string, Paise> {
+/**
+ * The outstanding on each Credit account, for R6's funding figures.
+ *
+ * WEBUX-2 · Weighed against a month's payment envelope, the debt has to be from
+ * the same moment. Paired with today's debt, September 2023's budget warned
+ * "₹17,840 of your Amazon Pay ICICI balance isn't funded yet" — a card opened in
+ * October 2023, owing today's figure — and January 2024's gave ₹8,912.40, today's
+ * debt less January's envelope, a figure that was never true. So a past month
+ * reads the debt as it stood at its last day; the current month and later ones
+ * read it as it is now, the money you have today (R10).
+ */
+export function creditOutstanding(db: DB, month?: MonthKey): Map<string, Paise> {
+  if (month !== undefined && month < monthOf(todayIST())) {
+    const asOf = lastDayOfMonth(month);
+    const out = new Map<string, Paise>();
+    for (const a of queryAll<{ id: string; balance: number }>(
+      db,
+      `SELECT a.id,
+              CASE WHEN a.opening_date <= ? THEN a.opening_balance ELSE 0 END
+              + COALESCE((SELECT SUM(t.amount) FROM transactions t
+                           WHERE t.account_id = a.id AND t.deleted_at IS NULL
+                             AND t.date <= ?), 0) AS balance
+         FROM accounts a WHERE a.kind = 'credit'`,
+      asOf, asOf,
+    )) {
+      out.set(a.id, a.balance as Paise);
+    }
+    return out;
+  }
   const balances = accountBalances(db);
   const out = new Map<string, Paise>();
   for (const a of queryAll<{ id: string }>(db, `SELECT id FROM accounts WHERE kind = 'credit'`)) {
