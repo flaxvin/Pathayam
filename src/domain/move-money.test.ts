@@ -16,6 +16,7 @@ import { undoEvent, appendEvent, type Actor } from "../core/events.ts";
 import { Refusal } from "../core/refusal.ts";
 import { createAccount } from "./accounts.ts";
 import { createGroup, createCategory, setAssigned, getAssigned, moveMoney } from "./budget.ts";
+import { ensurePersonalBudget } from "./budgets.ts";
 import { freshHousehold, identityProblems, rtaOf, RAVI } from "../engine/identity.test-data.ts";
 
 const actor: Actor = { memberId: RAVI, source: "ui" };
@@ -79,5 +80,26 @@ describe("BUDGET-4 · undoing a move puts both envelopes back", () => {
       [getAssigned(db, M, a), getAssigned(db, M, b), getAssigned(db, M, c)],
       [20_000, 10_000, 20_000],
     );
+  });
+});
+
+describe("BUDGET-5 · money moves between envelopes of one budget only", () => {
+  test("a move from the household's Groceries to Ravi's own Fun is refused", () => {
+    const { db, a } = setup();
+    const mine = ensurePersonalBudget(db, RAVI, "Ravi").id;
+    createAccount(db, actor, {
+      name: "Ravi's", kind: "budget", subtype: "savings", openingDate: `${M}-01`,
+      openingBalance: 100_000, budgetId: mine, holderMemberId: RAVI,
+    });
+    const fun = createCategory(db, actor, { groupId: createGroup(db, actor, "Mine", "normal", mine).id, name: "Fun" });
+    setAssigned(db, actor, M, a, 100_000);
+    setAssigned(db, actor, M, fun.id, 100_000);
+    const before = [rtaOf(db, M, "budget-household"), rtaOf(db, M, mine)];
+    assert.throws(
+      () => moveMoney(db, actor, { month: M, fromCategoryId: a, toCategoryId: fun.id, amount: 40_000 }),
+      Refusal,
+    );
+    assert.deepEqual([rtaOf(db, M, "budget-household"), rtaOf(db, M, mine)], before);
+    assert.equal(getAssigned(db, M, a), 100_000);
   });
 });
