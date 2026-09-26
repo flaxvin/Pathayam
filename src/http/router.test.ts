@@ -57,3 +57,20 @@ describe("B51 · Router.match specificity", () => {
     assert.equal(hit(r, "GET", "/portfolio/asset/new"), "asset-new");
   });
 });
+
+describe("SECURITY-OPS-1 · a malformed escape in a :param segment", () => {
+  test("matches nothing — a 404 — instead of throwing URIError (a 500)", () => {
+    const r = new Router();
+    r.get("/accounts/:id", ok("account"));
+    r.post("/accounts/:id/close", ok("close"));
+    for (const [method, path] of [
+      ["GET", "/accounts/%E0%A4%A"], ["GET", "/accounts/%ZZ"], ["POST", "/accounts/%ZZ/close"],
+    ] as const) {
+      assert.doesNotThrow(() => r.match(method, path), path);
+      assert.equal(r.match(method, path), null, path);
+      assert.equal(r.hasPath(path), false, `${path} is not a 405 either`);
+    }
+    // A well-formed escape still decodes.
+    assert.equal(r.match("GET", "/accounts/a%20b")?.params.id, "a b");
+  });
+});
