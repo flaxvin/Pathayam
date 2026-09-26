@@ -733,6 +733,25 @@ export function recordRateChange(
   },
 ): RatePeriod {
   return transact(db, () => {
+    /*
+     * WEALTH-18 · Keeping the instalment through a rise that has not happened yet.
+     *
+     * The tenure is the only lever, and the projection prices the loan at
+     * today's rate. Stretched now, at today's rate, it answered "no change" — so
+     * the notice said the instalment was kept and it jumped on the day. Stretched
+     * now at the new rate, it would be right from that day and wrong until then:
+     * the old rate over the longer tenure asks for a smaller instalment, and the
+     * envelope target falls with it. Neither is what the lender does, so the
+     * choice is taken when the rate applies; keeping the tenure needs no such
+     * wait, because nothing moves before the date.
+     */
+    if (input.keep === "emi" && input.effectiveFrom > todayIST()) {
+      throw new Refusal(
+        `The instalment can only be held once the new rate applies, on ` +
+        `${formatDate(input.effectiveFrom)} — the tenure it needs depends on the balance that day. ` +
+        `Record the change then, or keep the tenure and let the instalment move.`,
+      );
+    }
     const previous = currentRate(db, input.loanId, input.effectiveFrom);
 
     // Read the instalment before the new rate exists: keeping it is the whole

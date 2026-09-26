@@ -26,6 +26,12 @@ The amortisation schedule is computed from the rate history in `loan_rates`, not
 stored. A rate change inserts a row with `effective_from`; the schedule is
 recomputed from that date forward.
 
+A rate change can keep the tenure (the instalment moves) or keep the
+instalment (the tenure moves). Keeping the instalment is only accepted once the
+new rate applies — dated today or earlier — because the tenure it needs depends
+on the balance that day, and stretching it early would lower the instalment the
+projection asks for until the date arrives.
+
 A `flat` loan runs to its own schedule: interest on the original principal,
 the same every month, and principal in equal parts — EMI = (P + P × rate ×
 years) ÷ instalments, so ₹1,00,000 at 12% flat over 12 months is ₹9,333.33 a

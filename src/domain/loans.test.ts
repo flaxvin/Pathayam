@@ -15,7 +15,7 @@ import { getTarget, createGroup, createCategory, setAssigned } from "./budget.ts
 import { computeBudget, identityResidual } from "../engine/engine.ts";
 import { monthOf } from "../core/dates.ts";
 import { netWorthStatement } from "./networth.ts";
-import { todayIST } from "../core/dates.ts";
+import { todayIST, addDays } from "../core/dates.ts";
 
 const RAVI = "m-ravi";
 const actor: Actor = { memberId: RAVI, source: "ui" };
@@ -549,6 +549,28 @@ describe("06 R20.2 · a rate reset is a choice, and the choice is carried out", 
       loanId: loan.id, effectiveFrom: "2026-07-01", annualRatePct: 9.5, keep: "emi",
     });
     assert.equal(getLoan(db, loan.id)!.original_tenure_months, 240);
+  });
+
+  /*
+   * WEALTH-18 · Dated ahead, "keep the instalment" moved nothing — the tenure
+   * was worked out at today's rate — and the notice said it had; on the day the
+   * instalment jumped. It is refused until the rate applies, and nothing is
+   * written.
+   */
+  test("keeping the instalment through a rise dated ahead is refused, and nothing is written", () => {
+    const { db, bankId } = setup();
+    const loan = homeLoan(db, bankId);
+    const ahead = addDays(todayIST(), 20);
+    assert.throws(
+      () => recordRateChange(db, actor, { loanId: loan.id, effectiveFrom: ahead, annualRatePct: 9.5, keep: "emi" }),
+      /only be held once the new rate applies/,
+    );
+    assert.equal(queryAll(db, `SELECT id FROM loan_rates WHERE loan_id = ?`, loan.id).length, 1);
+    assert.equal(getLoan(db, loan.id)!.tenure_months, 240);
+
+    // Keeping the tenure through the same rise is fine: nothing moves before the date.
+    recordRateChange(db, actor, { loanId: loan.id, effectiveFrom: ahead, annualRatePct: 9.5, keep: "tenure" });
+    assert.equal(queryAll(db, `SELECT id FROM loan_rates WHERE loan_id = ?`, loan.id).length, 2);
   });
 });
 
