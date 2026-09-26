@@ -1859,7 +1859,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/move", (ctx) => {
     const month = monthParam(ctx);
-    const view = buildBudgetView(db, month, undefined, viewer(ctx));
+    /*
+     * BUDGET-2 / BUDGET-5 · One budget's envelopes and one budget's Ready to
+     * Assign. The combined view offered "Ready to Assign — ₹78,777" on a
+     * household page reading ₹1,000, the difference being another member's
+     * private account, and listed two budgets' envelopes side by side as if
+     * money could move between them without a transfer.
+     */
+    const view = buildBudgetView(db, month, budgetParam(ctx), viewer(ctx));
     const to = ctx.query.get("to");
     /*
      * Rupees, as typed. It used to be paise, because every caller was a generated
@@ -2075,7 +2082,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
   router.get("/explain/ready-to-assign", (ctx) => {
     const month = monthParam(ctx);
-    const view = buildBudgetView(db, month, undefined, viewer(ctx));
+    // BUDGET-2 · The figure being explained is one budget's; so is the answer.
+    const view = buildBudgetView(db, month, budgetParam(ctx), viewer(ctx));
     const b = view.monthState.rtaBreakdown;
 
     const lines = [
@@ -2098,8 +2106,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/explain/category/:id", (ctx) => {
     const month = monthParam(ctx);
-    const view = buildBudgetView(db, month, undefined, viewer(ctx));
-    const category = view.categories.get(ctx.params.id!);
+    // BUDGET-2 · Computed in the envelope's own budget, which the viewer must
+    // be able to see — the same answer the grid it was opened from shows.
+    const own = listCategories(db, { includeHidden: true, viewerMemberId: viewer(ctx) })
+      .find((c) => c.id === ctx.params.id);
+    if (!own) throw new NotFound();
+    const view = buildBudgetView(db, month, own.budget_id ?? householdBudgetId(db), viewer(ctx));
+    const category = view.categories.get(own.id);
     if (!category) throw new NotFound();
 
     // J22: three events, three actors, one answer.
