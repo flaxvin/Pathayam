@@ -121,6 +121,8 @@ Editing or deleting one leg acts on both. Specifically:
   its own side.
 - **Delete and its undo** act on both legs. So does undoing an edit, and so
   does undoing the *creation* of either leg: it removes the whole transfer.
+  Deleting from either leg asks about a reconciled period on *both* accounts,
+  as an edit does.
 
 **Between a card and a tracking account** (topping up a wallet from the card,
 an EMI on a loan tracked outside the budget) the card side is treated exactly
