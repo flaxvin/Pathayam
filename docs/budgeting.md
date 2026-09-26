@@ -420,6 +420,7 @@ as money coming in, a bill as money going out — and a payee seen both ways is
 judged on the way it mostly goes, with the odd refund left out. A monthly
 rhythm is projected in whole months on the day it usually falls, so a salary on
 the 1st is next expected on the 1st, not 30.75 days after the last one.
+"Not a schedule" is remembered for that payee: the suggestion does not return.
 
 ### The cashflow calendar and cards
 
