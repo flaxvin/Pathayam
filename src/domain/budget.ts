@@ -847,8 +847,9 @@ export function moveMoney(
       entity: "assignment",
       entityId: `${month}:${toCategoryId}`,
       action: "move",
-      before: { from: fromBefore, to: toBefore },
-      after: { from: fromBefore - amount, to: toBefore + amount },
+      // BUDGET-4 · Both envelopes are named, so the undo restores them by id.
+      before: { from: fromBefore, to: toBefore, fromCategoryId },
+      after: { from: fromBefore - amount, to: toBefore + amount, fromCategoryId },
       summary: `Moved ${formatPaise(amount)} from ${from.name} to ${to.name}`,
     });
     // Logged against both categories so either one's history tells the story.
@@ -949,17 +950,38 @@ registerUndoHandler("assignment", (db, event) => {
   const [month, categoryId] = (event.entityId ?? "").split(":") as [MonthKey, string];
 
   if (event.action === "move") {
-    const before = event.before as { from: Paise; to: Paise };
-    const after = event.after as { from: Paise; to: Paise };
-    // Recover the other side from the delta, since the id names only one.
+    const before = event.before as { from: Paise; to: Paise; fromCategoryId?: string };
+    const after = event.after as { from: Paise; to: Paise; fromCategoryId?: string };
     const moved = after.to - before.to;
+    /*
+     * BUDGET-4 · The source envelope, by id.
+     *
+     * The event used to name only the destination, and the source was guessed
+     * as "the envelope now holding `after.from`". Moving everything out of A
+     * left A at ₹0, which has no row, so nothing matched: B was restored, A was
+     * not, and ₹500 went quietly back to Ready to Assign under "Reversed the
+     * move of ₹500". And when another envelope happened to hold the same amount
+     * as A, either might be picked. Events written since carry the id; older
+     * ones still have only the guess, and are refused rather than guessed at
+     * when it is ambiguous.
+     */
+    let fromId = before.fromCategoryId ?? after.fromCategoryId ?? null;
+    if (!fromId) {
+      const candidates = queryAll<{ category_id: string }>(
+        db,
+        `SELECT category_id FROM assignments WHERE month = ? AND category_id != ? AND amount = ?`,
+        month, categoryId, after.from,
+      );
+      if (candidates.length !== 1) {
+        throw new Refusal(
+          "This move was recorded before it named the envelope the money came from, " +
+          "and that envelope can no longer be told apart. Move the money back by hand.",
+        );
+      }
+      fromId = candidates[0]!.category_id;
+    }
     writeAssignment(db, month, categoryId, before.to);
-    const other = queryOne<{ category_id: string }>(
-      db,
-      `SELECT category_id FROM assignments WHERE month = ? AND category_id != ? AND amount = ?`,
-      month, categoryId, after.from,
-    );
-    if (other) writeAssignment(db, month, other.category_id, before.from);
+    writeAssignment(db, month, fromId, before.from);
     return `Reversed the move of ${formatPaise(moved)}`;
   }
 
