@@ -1172,6 +1172,28 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     );
   });
 
+  /*
+   * The allow-list is a list of email addresses, so an address is only worth
+   * matching once the provider vouches that the person signing in owns it.
+   * Both callbacks parsed `email_verified` and neither read it: an identity
+   * provider that lets people register themselves, or set an address without
+   * confirming it (Keycloak and Authentik can both be set up that way), let
+   * anyone sign in as any household member by typing that member's address —
+   * and on an empty household, become its first member (SECURITY-OPS-17).
+   * Refused here, before the address is looked up at all. A provider that
+   * does not send the claim is refused too: this cannot tell "not verified"
+   * from "not said", and guessing is the wrong way round for a sign-in.
+   */
+  function refuseUnverifiedEmail(source: string, profile: { email: string; emailVerified: boolean }): void {
+    if (profile.emailVerified) return;
+    recordAuthAttempt(db, source, "unverified-email", profile.email);
+    throw new HttpError(
+      403,
+      "Your sign-in provider has not verified that email address, so it cannot be used to sign in here. " +
+      "Verify it with the provider and try again.",
+    );
+  }
+
   router.get("/auth/google", (ctx) => {
     /*
      * Not configured is a *deployment* state, not a server fault — a demo
@@ -1256,6 +1278,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       codeVerifier: pending.verifier,
       fetchImpl: deps.fetchImpl,
     });
+    refuseUnverifiedEmail(source, profile);
 
     let member = findMemberByEmail(db, profile.email);
 
@@ -1326,6 +1349,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       codeVerifier: pending.verifier,
       fetchImpl: deps.fetchImpl,
     });
+    refuseUnverifiedEmail(source, profile);
 
     let member = findMemberByEmail(db, profile.email);
 

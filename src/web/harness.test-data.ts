@@ -72,11 +72,11 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
  */
 export async function startTestApp(
   db: DB,
-  opts: { memberId?: string | null; config?: Partial<Config> } = {},
+  opts: { memberId?: string | null; config?: Partial<Config>; fetchImpl?: typeof fetch } = {},
 ): Promise<TestApp> {
   const failures: TestApp["failures"] = [];
   const config = testConfig(opts.config);
-  const { router, middleware } = buildApp({ db, config });
+  const { router, middleware } = buildApp({ db, config, fetchImpl: opts.fetchImpl });
 
   const server = createHttpServer({
     router,
