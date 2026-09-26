@@ -90,6 +90,31 @@ describe("undo on an account", () => {
     } finally { await app.close(); }
   });
 
+  test("MONEY-CORE-9 · a live card's payment envelope cannot be undone on its own", async () => {
+    const { db } = setup();
+    const card = createAccount(db, actor, { name: "Card", kind: "credit", subtype: "credit-card",
+      openingDate: "2026-08-01", openingBalance: 0 }).id;
+    const envelopeEvent = queryOne<{ id: string }>(
+      db, `SELECT id FROM events WHERE entity = 'category' AND summary LIKE 'Created the payment category%'`,
+    )!.id;
+    const app = await startTestApp(db, { memberId: "m-ravi", config: testConfig({}) });
+    try {
+      const res = await app.post(`/activity/${envelopeEvent}/undo`, { force: "1" });
+      assert.equal(res.status, 422, `answered ${res.status}`);
+      assert.match(await res.text(), /payment envelope of Card/);
+      assert.ok(queryOne(db, `SELECT 1 FROM categories WHERE payment_account_id = ?`, card), "the envelope went");
+      assert.deepEqual(app.failures, []);
+    } finally { await app.close(); }
+
+    // Undoing the card itself still takes the envelope with it.
+    const cardEvent = queryOne<{ id: string }>(
+      db, `SELECT id FROM events WHERE entity = 'account' AND action = 'create' AND entity_id = ?`, card,
+    )!.id;
+    const { undoEvent } = await import("../core/events.ts");
+    assert.equal(undoEvent(db, cardEvent, actor, { force: true }).ok, true);
+    assert.equal(queryOne(db, `SELECT 1 FROM categories WHERE payment_account_id = ?`, card), null);
+  });
+
   test("undoing an edit restores the holder, visibility and sort too", async () => {
     const { db } = setup();
     seedMember(db, "m-priya", "Priya");

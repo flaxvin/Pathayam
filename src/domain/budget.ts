@@ -1038,6 +1038,26 @@ function removeCategoryRow(db: DB, id: string): void {
 registerUndoHandler("category", (db, event) => {
   const before = event.before as Category | undefined;
   if (!before) {
+    /*
+     * MONEY-CORE-9 · A card's payment envelope is created with the card
+     * ("Created the payment category for Card") and the card is what needs it,
+     * not anything recorded against the envelope itself — so the dependants
+     * check below found nothing and let the undo remove it from a live card.
+     * The card then worked with no payment envelope: every later charge moved
+     * its debt and nothing in any budget, and the "all" scope was out by the
+     * charge in every month after. The envelope goes when the card goes.
+     */
+    const card = queryOne<{ name: string }>(
+      db,
+      `SELECT a.name FROM categories c JOIN accounts a ON a.id = c.payment_account_id WHERE c.id = ?`,
+      event.entityId!,
+    );
+    if (card) {
+      throw new Refusal(
+        `This is the payment envelope of ${card.name}, which needs it for as long as the card ` +
+        `exists. Close the card, or undo adding it, instead.`,
+      );
+    }
     const crossings = commitmentCrossings(db, event.entityId!);
     if (crossings.length > 0) {
       throw new Refusal(

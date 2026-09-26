@@ -185,6 +185,9 @@ group has to be empty — a deleted envelope in it with nothing behind it goes
 with it; an envelope must hold no money and have nothing filed to it; a loan's
 account, envelope, disbursements and instalments must be untouched; a payee must
 be named by nothing. Each used to reach the household as a raw foreign-key 500.
+A card's **payment envelope** is refused on its own for as long as the card
+exists — the card is what needs it, and a card left without one moved its debt
+and nothing in any budget; undoing the card's creation takes the envelope with it.
 
 Undoing a **payee merge** moves back the transactions and aliases the merge
 moved, provided they still sit with the payee they were merged into.
