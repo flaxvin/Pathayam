@@ -84,7 +84,7 @@ import {
 } from "./domain/reconciliation.ts";
 import { parseStatement } from "./import/csv.ts";
 import {
-  ingest, listStaged, approveStaged, rejectStaged, mergeStaged, undoBatch, listBatches,
+  ingest, listStaged, approveStaged, rejectStaged, mergeStaged, undoBatch, listBatches, batchUndoDates,
 } from "./import/pipeline.ts";
 import {
   householdBudgetId, budgetsFor, lastBudget, rememberBudget, ensurePersonalBudget, listBudgets, getBudget,
@@ -3826,6 +3826,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   function guardCheckpoints(
     ctx: RequestContext, a: AuthContext, accountId: string, dates: string[],
     confirmed: boolean, action: string, cancelHref: string,
+    /**
+     * False where the domain breaks them itself, inside the change's own
+     * transaction — the import paths — so a change that is then refused does
+     * not leave a checkpoint broken for nothing.
+     */
+    breakHere = true,
   ): Response | null {
     const account = getAccount(db, accountId)!;
     const affected = new Map<string, ReturnType<typeof listCheckpoints>[number]>();
@@ -3857,7 +3863,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     // R7.c/R7.e: mark them broken, with both values in the log. R7.f: they are
     // never repaired — only a fresh reconciliation asserts the balance again.
-    breakCheckpoints(
+    if (breakHere) breakCheckpoints(
       db, actorFor(a), [...affected.values()],
       `a transaction dated on or before it was changed`,
     );
@@ -4204,8 +4210,48 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     );
   });
 
-  router.post("/review/approve", (ctx) =>
-    mutate(ctx, (a) => {
+  /*
+   * R7.b · Approving or merging an imported row dated on or before a
+   * reconciliation changes the balance it confirmed; undoing an import removes
+   * from it. Each asks first, naming the checkpoint, as deleting one
+   * transaction always has. The pipeline marks it broken in the same
+   * transaction as the change.
+   */
+  function confirmImportCheckpoints(
+    ctx: RequestContext, a: AuthContext, dates: Map<string, string[]>, action: string, cancelHref: string,
+  ): Response | null {
+    const confirmed = field(ctx.body, "confirm_checkpoint") === "1";
+    for (const [accountId, list] of dates) {
+      const guard = guardCheckpoints(ctx, a, accountId, list, confirmed, action, cancelHref, false);
+      if (guard) return guard;
+    }
+    return null;
+  }
+
+  function stagedCheckpointDates(stagedId: string, merging: boolean): Map<string, string[]> {
+    const row = queryOne<{ account_id: string; date: string; status: string; duplicate_of_id: string | null }>(
+      db, `SELECT account_id, date, status, duplicate_of_id FROM staged_transactions WHERE id = ?`, stagedId,
+    );
+    if (!row || row.status !== "pending") return new Map();
+    if (!merging) return new Map([[row.account_id, [row.date]]]);
+    // A merge moves nothing but the cleared flag, so only an uncleared target counts.
+    const target = row.duplicate_of_id
+      ? queryOne<{ account_id: string; date: string }>(
+        db, `SELECT account_id, date FROM transactions WHERE id = ? AND cleared = 0 AND deleted_at IS NULL`,
+        row.duplicate_of_id,
+      )
+      : null;
+    return target ? new Map([[target.account_id, [target.date]]]) : new Map();
+  }
+
+  router.post("/review/approve", (ctx) => {
+    const guard = confirmImportCheckpoints(
+      ctx, auth(ctx),
+      stagedCheckpointDates(requireVisibleStaged(ctx, requiredField(ctx.body, "staged_id")), false),
+      "/review/approve", "/review",
+    );
+    if (guard) return guard;
+    return mutate(ctx, (a) => {
       /*
        * B99 · Approving is what puts a row in the ledger, so it is the same
        * rule as manual entry: an expense names its envelope, income does not
@@ -4230,8 +4276,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             ? ` Spotted a pattern — there ${proposals.length === 1 ? "is a rule" : `are ${proposals.length} rules`} to confirm below.`
             : ""),
       };
-    }),
-  );
+    });
+  });
 
   router.post("/review/reject", (ctx) =>
     mutate(ctx, (a) => {
@@ -4241,13 +4287,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }),
   );
 
-  router.post("/review/merge", (ctx) =>
-    mutate(ctx, (a) => {
+  router.post("/review/merge", (ctx) => {
+    const guard = confirmImportCheckpoints(
+      ctx, auth(ctx),
+      stagedCheckpointDates(requireVisibleStaged(ctx, requiredField(ctx.body, "staged_id")), true),
+      "/review/merge", "/review",
+    );
+    if (guard) return guard;
+    return mutate(ctx, (a) => {
       mergeStaged(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
         requireVisibleStaged(ctx, requiredField(ctx.body, "staged_id")));
       return { redirect: "/review", message: "Merged into the transaction you already had." };
-    }),
-  );
+    });
+  });
 
   // -------------------------------------------------------------------------
   // S10 · Import
@@ -4538,8 +4590,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }),
   );
 
-  router.post("/import/undo", (ctx) =>
-    mutate(ctx, (a) => {
+  router.post("/import/undo", (ctx) => {
+    const guard = confirmImportCheckpoints(
+      ctx, auth(ctx),
+      batchUndoDates(db, requireVisibleBatch(ctx, requiredField(ctx.body, "batch_id"))),
+      "/import/undo", "/import",
+    );
+    if (guard) return guard;
+    return mutate(ctx, (a) => {
       const result = undoBatch(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
         requireVisibleBatch(ctx, requiredField(ctx.body, "batch_id")));
       return {
@@ -4550,8 +4608,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             ? `. ${result.keptBecauseEdited.length} had been edited since and were left alone.`
             : "."),
       };
-    }),
-  );
+    });
+  });
 
 
   // -------------------------------------------------------------------------

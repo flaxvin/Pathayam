@@ -19,6 +19,7 @@ import { nowIST, type IsoDate } from "../core/dates.ts";
 import type { Paise } from "../core/money.ts";
 import { createTransaction, resolvePayee, type TransactionSource } from "../domain/transactions.ts";
 import { findCardByLast4 } from "../domain/accounts.ts";
+import { breakCheckpoints, checkpointsAffectedBy } from "../domain/reconciliation.ts";
 import { hiddenAccountSql } from "../domain/member-scope.ts";
 import { findDuplicate, type Candidate, type DuplicateMatch } from "./dedupe.ts";
 import {
@@ -588,6 +589,7 @@ export function approveStaged(
     if (patch.autoApproved) {
       execute(db, `UPDATE transactions SET auto_approved_at = ? WHERE id = ?`, nowIST(), transaction.id);
     }
+    breakCheckpointsBehind(db, actor, row.account_id, row.date, "an imported transaction dated on or before it was added");
 
     // R-E4: record which rules touched it, for the details pane.
     for (const ruleId of JSON.parse(row.applied_rules_json ?? "[]") as string[]) {
@@ -658,6 +660,11 @@ export function mergeStaged(db: DB, actor: Actor, stagedId: string): void {
     const before = queryOne<Record<string, unknown>>(
       db, `SELECT * FROM transactions WHERE id = ?`, row.duplicate_of_id,
     );
+    // Merging clears it, and a cleared transaction is in the reconciled balance.
+    if (before!.cleared !== 1) {
+      breakCheckpointsBehind(db, actor, before!.account_id as string, before!.date as IsoDate,
+        "a transaction dated on or before it was cleared by merging an imported row into it");
+    }
 
     execute(
       db,
@@ -690,6 +697,40 @@ export function mergeStaged(db: DB, actor: Actor, stagedId: string): void {
 // IL2 · Batch undo
 // ---------------------------------------------------------------------------
 
+/**
+ * R7.c · An import that changes reconciled history marks the checkpoint broken.
+ *
+ * Undoing a batch deleted its transactions with a raw UPDATE, and approving a
+ * row posted one straight into the ledger, both dated wherever the bank dated
+ * them — behind a checkpoint as often as not. The cleared balance at 31 Aug
+ * moved from ₹8,800 to ₹10,000 while the checkpoint went on asserting ₹8,800,
+ * unbroken, so Review never said so. A single delete has always broken it.
+ * The routes ask first (R7.b); this is what holds for every other way in —
+ * auto-approval, undo from the activity log.
+ */
+function breakCheckpointsBehind(
+  db: DB, actor: Actor, accountId: string, date: IsoDate, reason: string,
+): void {
+  breakCheckpoints(db, actor, checkpointsAffectedBy(db, accountId, date), reason);
+}
+
+/**
+ * The accounts and dates undoing a batch would remove transactions from — what
+ * the route names in its R7.b confirmation before anything is removed.
+ */
+export function batchUndoDates(db: DB, batchId: string): Map<string, IsoDate[]> {
+  const out = new Map<string, IsoDate[]>();
+  for (const t of queryAll<{ account_id: string; date: IsoDate }>(
+    db,
+    `SELECT account_id, date FROM transactions
+      WHERE import_batch_id = ? AND deleted_at IS NULL AND updated_at = created_at`,
+    batchId,
+  )) {
+    out.set(t.account_id, [...(out.get(t.account_id) ?? []), t.date]);
+  }
+  return out;
+}
+
 export interface UndoBatchResult {
   removed: number;
   /** Records the batch created that have since been edited, and so were left. */
@@ -706,9 +747,11 @@ export function undoBatch(db: DB, actor: Actor, batchId: string): UndoBatchResul
     if (!batch) throw new Missing("That import no longer exists.");
     if (batch.undone_at) throw new Refusal("That import has already been undone.");
 
-    const created = queryAll<{ id: string; created_at: string; updated_at: string }>(
+    const created = queryAll<{
+      id: string; account_id: string; date: IsoDate; created_at: string; updated_at: string;
+    }>(
       db,
-      `SELECT id, created_at, updated_at FROM transactions
+      `SELECT id, account_id, date, created_at, updated_at FROM transactions
         WHERE import_batch_id = ? AND deleted_at IS NULL`,
       batchId,
     );
@@ -724,6 +767,7 @@ export function undoBatch(db: DB, actor: Actor, batchId: string): UndoBatchResul
       }
       execute(db, `UPDATE transactions SET deleted_at = ? WHERE id = ?`, nowIST(), t.id);
       removed++;
+      breakCheckpointsBehind(db, actor, t.account_id, t.date, "an imported transaction dated on or before it was removed by undoing the import");
     }
 
     execute(
