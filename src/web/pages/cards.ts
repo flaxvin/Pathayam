@@ -47,10 +47,14 @@ function urgency(card: CardDue): { label: string; chip: string } | null {
   if (card.statement && card.paidSinceStatement >= card.statement.amount) {
     return { label: "Paid", chip: "chip-positive" };
   }
+  // WEBUX-7 · One day is a day: "Due in 1 days" and "1 days overdue" were what
+  // a card due tomorrow, or paid a day late, read as.
+  if (card.daysToDue === -1) return { label: "1 day overdue", chip: "chip-danger" };
   if (card.daysToDue < 0) {
     return { label: `${Math.abs(card.daysToDue)} days overdue`, chip: "chip-danger" };
   }
   if (card.daysToDue === 0) return { label: "Due today", chip: "chip-danger" };
+  if (card.daysToDue === 1) return { label: "Due tomorrow", chip: "chip-warning" };
   if (card.daysToDue <= 3) return { label: `Due in ${card.daysToDue} days`, chip: "chip-warning" };
   return { label: `Due in ${card.daysToDue} days`, chip: "" };
 }
