@@ -264,6 +264,49 @@ describe("B68 · the mutations a household actually performs", () => {
     assert.equal((await app.post(`/goals/${id}/delete`)).status, 303);
   });
 
+  test("WEBUX-14 · a goal's unreadable target date is refused, not saved as no date", async () => {
+    const created = await app.post("/goals/new", {
+      name: "Scooter", target_amount: "90000", target_date: "01-05-2028",
+    });
+    assert.equal(created.status, 303);
+    const id = queryOne<{ id: string }>(
+      fixture.db, `SELECT id FROM goals WHERE name = 'Scooter'`,
+    )!.id;
+    const saved = () => queryOne<{ target_date: string | null }>(
+      fixture.db, `SELECT target_date FROM goals WHERE id = ?`, id,
+    )!.target_date;
+    assert.equal(saved(), "2028-05-01");
+
+    // `type=date` keeps browsers from sending these; API clients and browsers
+    // without a date picker do. Each used to answer "Goal updated." and wipe
+    // the saved date.
+    for (const bad of ["31-02-2026", "2026-13-01", "0000-01-01", "abc"]) {
+      const edited = await app.post(`/goals/${id}/edit`, {
+        name: "Scooter", target_amount: "90000", target_date: bad,
+      });
+      assert.ok(edited.status >= 400 && edited.status < 500, `edit with ${bad}: ${edited.status}`);
+      assert.match(await edited.text(), /isn(&#39;|&#x27;|')t a date I can read/);
+      assert.equal(saved(), "2028-05-01", `edit with ${bad} kept the date`);
+
+      const fresh = await app.post("/goals/new", {
+        name: `Bad ${bad}`, target_amount: "1000", target_date: bad,
+      });
+      assert.ok(fresh.status >= 400 && fresh.status < 500, `new with ${bad}: ${fresh.status}`);
+    }
+    assert.equal(
+      queryOne<{ n: number }>(fixture.db, `SELECT COUNT(*) AS n FROM goals WHERE name LIKE 'Bad %'`)!.n,
+      0,
+    );
+
+    // A blank field still means "no date".
+    assert.equal(
+      (await app.post(`/goals/${id}/edit`, { name: "Scooter", target_amount: "90000", target_date: "" })).status,
+      303,
+    );
+    assert.equal(saved(), null);
+    assert.equal((await app.post(`/goals/${id}/delete`)).status, 303);
+  });
+
   test("B65 · undo is reachable and reverses the change", async () => {
     const before = queryOne<{ n: number }>(
       fixture.db, `SELECT COUNT(*) AS n FROM transactions WHERE deleted_at IS NULL`,
