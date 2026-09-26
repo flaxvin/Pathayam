@@ -118,21 +118,21 @@ const EMPTY: GainsBuckets = {
  * Sort one financial year's realised gains into the buckets the Act taxes
  * differently.
  *
- * `visibleHoldingOwners` scopes this the way every other total is scoped: a
- * member's own tax estimate must not be built from another member's holdings,
- * and a household figure would be meaningless anyway since gains are assessed
- * on the person who owns the asset.
+ * `memberId` scopes this to that member's own holdings — the accounts they
+ * are named holder of. A member's tax estimate must not be built from another
+ * member's holdings, and a household figure would be meaningless anyway since
+ * gains are assessed on the person who owns the asset.
  */
 export function gainsBucketsForYear(db: DB, fy: number, memberId: string): GainsBuckets {
   const { from, to } = fiscalYearRange(fy);
   const sales = queryAll<{
     date: IsoDate; realised_gain: number | null; detail_json: string | null;
-    instrument: string; asset_class: string | null; holder: string | null; visibility: string | null;
+    instrument: string; asset_class: string | null; holder: string | null;
   }>(
     db,
     `SELECT e.date, e.realised_gain, e.detail_json,
             i.name AS instrument, i.asset_class,
-            a.holder_member_id AS holder, a.visibility
+            a.holder_member_id AS holder
        FROM holding_events e
        JOIN holdings h ON h.id = e.holding_id
        JOIN instruments i ON i.id = h.instrument_id
@@ -144,9 +144,36 @@ export function gainsBucketsForYear(db: DB, fy: number, memberId: string): Gains
 
   const out: GainsBuckets = { ...EMPTY, unclassifiedReasons: [] };
 
+  /*
+   * WEALTH-7 · Whose gain it is follows the account's holder, not who can see
+   * it. This used to skip only *private* accounts, so a sale in Priya's
+   * household-visible demat was in Priya's estimate and in Ravi's too — the
+   * household's gain taxed twice across the two, and Ravi's figure built from
+   * an asset he does not own. Visibility is about who may look; income tax is
+   * assessed on the owner.
+   *
+   * An account with no holder named is the one case that cannot be decided.
+   * With a single member it is theirs; otherwise it is reported as a gain
+   * that could not be placed, like every other thing this refuses to guess —
+   * naming the holder on the account resolves it.
+   */
+  const soleMember = (queryAll<{ n: number }>(
+    db, `SELECT COUNT(*) AS n FROM members WHERE removed_at IS NULL`,
+  )[0]?.n ?? 0) <= 1;
+
   for (const sale of sales) {
-    // Another member's private holding is not part of this person's estimate.
-    if (sale.visibility && sale.visibility !== "household" && sale.holder !== memberId) continue;
+    if (sale.holder !== null && sale.holder !== memberId) continue;
+    if (sale.holder === null && !soleMember) {
+      const gain = (sale.realised_gain ?? 0) as Paise;
+      if (gain !== 0) {
+        out.unclassified = (out.unclassified + gain) as Paise;
+        out.unclassifiedReasons.push({
+          instrument: sale.instrument, gain,
+          reason: "the account it was held in names no holder, so whose gain it is cannot be told — name the holder on the account",
+        });
+      }
+      continue;
+    }
 
     let parcels: { tradeDate?: IsoDate; cost: number; proceeds: number; holdingPeriodDays: number }[] = [];
     try {

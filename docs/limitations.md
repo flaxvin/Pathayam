@@ -69,6 +69,10 @@ place, it refuses to place: an instrument with no
 asset class, a hybrid fund (whose treatment turns on an equity ratio not
 tracked here), and a sale with no recorded lots are excluded from the
 computation and reported on the screen instead of being guessed into a bucket.
+A gain is the account holder's: a member's estimate takes sales from the
+accounts they are named holder of, whoever else can see them. A sale in an
+account with no holder is the sole member's in a one-member household and is
+otherwise reported as unplaced until a holder is named.
 Losses are floored at zero per bucket rather than set off between heads, so a
 year with losses is overstated. The gains are measured against the rest of the
 person's income the way the Act does it: the 87A ceiling and the surcharge
