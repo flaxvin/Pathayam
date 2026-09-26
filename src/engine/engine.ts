@@ -143,7 +143,18 @@ export function computeBudget(input: EngineInput): BudgetState {
         // cash, so it must not reduce RTA. Attribute up to the card outflow
         // in this category this month; whatever is left is cash.
         const creditOutflow = Math.max(0, -(f.creditActivity[meta.id] ?? 0));
-        creditOverspend = Math.min(shortfall, creditOutflow);
+        /*
+         * BUDGET-24 · Only this month's shortfall can be a card's. Under
+         * carry-negative a cash overspend rides in on the opening, and it is
+         * cash for good — it left a bank account last month. Measured against
+         * the whole negative, the next card charge relabelled it credit and the
+         * rollover absorbed it: ₹300 of food paid in cash, then ₹400 assigned and
+         * ₹400 on the card, and Ready to Assign said ₹600 where ₹300 was free.
+         * Under reduce-rta an overspent envelope never opens negative, so this
+         * is the whole balance there, as before.
+         */
+        const shortfallThisMonth = Math.max(0, -(balance - Math.min(0, opening)));
+        creditOverspend = Math.min(shortfall, shortfallThisMonth, creditOutflow);
         cashOverspend = shortfall - creditOverspend;
 
         // Both kinds of overspent category reopen at zero, except under the

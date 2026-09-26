@@ -241,9 +241,15 @@ A category ending the month negative is split by cause, because R4 and R6
 handle them differently and only one of them destroys cash:
 
 ```
-credit overspend = min(|negative balance|, outflow charged to cards in that category this month)
+credit overspend = min(|negative balance|, this month's shortfall, outflow charged to cards in that category this month)
+this month's shortfall = max(0, −(balance − min(0, opening)))
 cash overspend   = |negative balance| − credit overspend
 ```
+
+The middle term matters only under carry-negative, where an envelope can open
+negative: that carried amount was cash last month and stays cash (BUDGET-24).
+Without it the next card charge relabelled it credit and the rollover absorbed
+it, so a cash overspend vanished from the envelope without reaching anything.
 
 **Cash overspend**, default model (Actual's): the category reopens at zero and
 the amount is subtracted from the next month's RTA. The money genuinely left a
