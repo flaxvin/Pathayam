@@ -520,6 +520,22 @@ export function deleteTransaction(db: DB, actor: Actor, id: string): void {
         ).map((r) => r.id)
       : [id];
 
+    /*
+     * MONEY-CORE-8 · The same B65 guard the create-undo runs. Deleting the
+     * bank side of a ₹20,000 instalment gave the bank its money back while
+     * the loan_payments row stayed — the loan still showed ₹15,000 of
+     * principal repaid by money that had come home, and the loan account's
+     * leg stayed live. Delete and undo remove the same rows, so they refuse
+     * the same way.
+     */
+    const dependant = loadBearingDependant(db, ids);
+    if (dependant) {
+      throw new Refusal(
+        `That transaction is recorded as ${dependant}, so deleting it would ` +
+        `leave that wrong. Undo or delete ${dependant} first.`,
+      );
+    }
+
     for (const target of ids) {
       execute(db, `UPDATE transactions SET deleted_at = ? WHERE id = ?`, nowIST(), target);
     }
@@ -1051,6 +1067,19 @@ const TRANSACTION_DEPENDANTS: { table: string; column: string; describe: string 
   { table: "family_loans", column: "write_off_transaction_id", describe: "a family-loan write-off" },
 ];
 
+/** What the first of `ids` that something derived still points at is recorded as, if any. */
+function loadBearingDependant(db: DB, ids: string[]): string | null {
+  for (const id of ids) {
+    for (const dep of TRANSACTION_DEPENDANTS) {
+      const n = queryOne<{ n: number }>(
+        db, `SELECT COUNT(*) AS n FROM ${dep.table} WHERE ${dep.column} = ?`, id,
+      )?.n ?? 0;
+      if (n > 0) return dep.describe;
+    }
+  }
+  return null;
+}
+
 /** Thrown when an undo is refused for a reason the household can act on. */
 export class UndoRefused extends Error {}
 
@@ -1076,18 +1105,12 @@ registerUndoHandler("transaction", (db, event) => {
       ).map((r) => r.id)
       : [event.entityId!];
 
-    for (const id of ids) {
-      for (const dep of TRANSACTION_DEPENDANTS) {
-        const n = queryOne<{ n: number }>(
-          db, `SELECT COUNT(*) AS n FROM ${dep.table} WHERE ${dep.column} = ?`, id,
-        )?.n ?? 0;
-        if (n > 0) {
-          throw new UndoRefused(
-            `That transaction is recorded as ${dep.describe}, so removing it would ` +
-            `leave that wrong. Undo or delete ${dep.describe} first.`,
-          );
-        }
-      }
+    const dependant = loadBearingDependant(db, ids);
+    if (dependant) {
+      throw new UndoRefused(
+        `That transaction is recorded as ${dependant}, so removing it would ` +
+        `leave that wrong. Undo or delete ${dependant} first.`,
+      );
     }
 
     for (const id of ids) {

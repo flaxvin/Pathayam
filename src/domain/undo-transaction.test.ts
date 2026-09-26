@@ -16,7 +16,8 @@ import { nowIST } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import { createAccount } from "./accounts.ts";
 import { createGroup, createCategory } from "./budget.ts";
-import { createTransaction, UndoRefused } from "./transactions.ts";
+import { createTransaction, deleteTransaction, UndoRefused } from "./transactions.ts";
+import { Refusal } from "../core/refusal.ts";
 
 const actor: Actor = { memberId: "m", source: "ui" };
 
@@ -129,6 +130,39 @@ describe("B65 · undoing a created transaction", () => {
 
     // The refusal rolled back cleanly — the transaction is still there.
     assert.ok(queryOne(db, `SELECT id FROM transactions WHERE id = ?`, txn.id));
+    db.close();
+  });
+});
+
+describe("MONEY-CORE-8 · deleting a transaction something depends on", () => {
+  test("refuses, as undo does, and leaves the transaction live", () => {
+    const { db, account, category } = setup();
+    const txn = spend(db, account, category);
+    execute(db, `INSERT INTO loans (id,account_id,lender,loan_type,sanctioned,sanction_date,tenure_months,created_at)
+                 VALUES ('l1',?,'HDFC','personal',?,'2026-01-01',36,?)`,
+      account, rupees(500000), nowIST());
+    execute(db, `INSERT INTO loan_payments (id,loan_id,date,amount,principal,interest,transaction_id,created_at)
+                 VALUES ('p1','l1','2026-09-05',?,?,?,?,?)`,
+      rupees(2500), rupees(2000), rupees(500), txn.id, nowIST());
+
+    assert.throws(() => deleteTransaction(db, actor, txn.id), (err: unknown) =>
+      err instanceof Refusal && /a loan instalment/.test(err.message));
+    assert.equal(
+      queryOne<{ deleted_at: string | null }>(db, `SELECT deleted_at FROM transactions WHERE id = ?`, txn.id)!
+        .deleted_at,
+      null,
+    );
+    db.close();
+  });
+
+  test("a transaction nothing points at still deletes", () => {
+    const { db, account, category } = setup();
+    const txn = spend(db, account, category);
+    deleteTransaction(db, actor, txn.id);
+    assert.ok(
+      queryOne<{ deleted_at: string | null }>(db, `SELECT deleted_at FROM transactions WHERE id = ?`, txn.id)!
+        .deleted_at,
+    );
     db.close();
   });
 });
