@@ -1376,6 +1376,20 @@ export function closeLoan(
       });
     }
 
+    /*
+     * WEALTH-20 · A loan closes at nil, or by being settled. With neither, the
+     * route closed a ₹5,00,000 loan on request: no payment, no waiver, and the
+     * debt simply left net worth. The page only offers "Close it" at zero; the
+     * server now holds the same line.
+     */
+    if (!(input.settlement && input.settlement > 0) && projection.outstanding > 0) {
+      throw new Refusal(
+        `${formatPaise(projection.outstanding)} is still outstanding on this loan. ` +
+        `Settle it — say what was paid, and anything the lender waived is recorded as waived — ` +
+        `rather than closing it with the debt still on it.`,
+      );
+    }
+
     if (input.settlement && input.settlement > 0) {
       /*
        * The settlement is real money and moves like any other loan payment:
