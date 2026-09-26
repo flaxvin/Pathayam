@@ -453,10 +453,21 @@ export function categoryTrend(
 export function loanInterestByFinancialYear(
   db: DB,
 ): { fy: number; label: string; interest: Paise; principal: Paise; lender: string }[] {
+  /*
+   * WEALTH-35 · Only rows that moved money are payments.
+   *
+   * A settlement below the outstanding writes a zero-amount row carrying the
+   * principal the lender waived, and a re-anchor writes a zero-amount row
+   * carrying the correction to the lender's balance. Both reduce the
+   * outstanding; neither was paid. Summing them here reported a ₹50,000 loan
+   * settled for ₹40,000 as ₹50,000 of principal paid — in a section that says
+   * it states what was paid.
+   */
   const rows = queryAll<{ date: string; interest: number; principal: number; lender: string }>(
     db,
     `SELECT p.date, p.interest, p.principal, l.lender
        FROM loan_payments p JOIN loans l ON l.id = p.loan_id
+      WHERE p.amount > 0
       ORDER BY p.date`,
   );
 
