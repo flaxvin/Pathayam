@@ -173,7 +173,7 @@ Everything the app reads, and nothing it does not:
 | `FEATURE_ASSETS` | `true` | |
 | `FEATURE_MULTI_CURRENCY` | `false` | |
 | `ADMIN_DEBUG` | `false` | Enables view-as-another-member, read-only by default, bannered. |
-| `DEMO_MODE` | `false` | Bypasses authentication. Refuses to start alongside `DEV_LOGIN`, and checks the deployment does not look like production. |
+| `DEMO_MODE` | `false` | Bypasses authentication. Refuses to start alongside `DEV_LOGIN`, Google or OIDC credentials, or `LOCAL_LOGIN`, and against a database with passwords, linked Google accounts, a connected mailbox or a statement identity. |
 | `DEV_LOGIN` | `false` | Local auth bypass. Absent from the production image; the app refuses to start with it in a production-shaped environment. |
 
 A disabled feature module **keeps its data**. Re-enabling restores it intact.

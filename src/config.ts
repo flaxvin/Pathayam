@@ -223,22 +223,55 @@ export function assertDemoModeIsSafe(config: Config): void {
       "DEMO_MODE and DEV_LOGIN are both set; enable exactly one",
     ], "DEMO_MODE");
   }
+  /*
+   * SECURITY-OPS-26 · A demo cannot use NODE_ENV or a public hostname as signs
+   * of production — it is production-shaped by definition. What it can use is
+   * a real way in. The demo's front door signs every visitor in, so a deployment
+   * that has also configured Google, OIDC or passwords is a household that
+   * switched DEMO_MODE on by mistake, and starting would hand its ledger to
+   * anyone who reached /demo/enter. The public demo configures none of them.
+   */
+  const doors = realSignInDoors(config);
+  if (doors.length > 0) throw new UnsafeConfiguration(doors, "DEMO_MODE");
+}
+
+/**
+ * The ways a real member signs in. Either bypass alongside any of them means the
+ * deployment has people who expect only they can get in.
+ */
+function realSignInDoors(config: Config): string[] {
+  const found: string[] = [];
+  if (config.google.clientId || config.google.clientSecret) {
+    found.push("real Google OAuth credentials are configured");
+  }
+  if (config.oidc.issuer || config.oidc.clientId || config.oidc.clientSecret) {
+    found.push("OpenID Connect credentials are configured (OIDC_*)");
+  }
+  if (config.localLogin) {
+    found.push("password sign-in is enabled (LOCAL_LOGIN)");
+  }
+  return found;
 }
 
 /**
  * The guard that matters: demo mode opens the front door to anyone, so it must
- * never come up against a database somebody actually uses. A connected mailbox
- * or a saved statement identity means real use, and neither can be explained
+ * never come up against a database somebody actually uses. A connected mailbox,
+ * a saved statement identity, a password or a linked Google account means real use, and neither can be explained
  * away as demo data, so the app refuses to start rather than exposing them.
  */
 export function assertDemoModeSafeAgainstData(
   config: Config,
-  signs: { gmailConnections: number; statementIdentities: number },
+  signs: { gmailConnections: number; statementIdentities: number; passwords: number; googleLinks: number },
 ): void {
   if (!config.demoMode) return;
   const found: string[] = [];
   if (signs.gmailConnections > 0) found.push("a connected mailbox");
   if (signs.statementIdentities > 0) found.push("a saved statement identity");
+  // SECURITY-OPS-26 · A member who has a password or a linked Google account
+  // signed in some real way; the demo's seed members never do, and the demo
+  // refuses to set a password.
+  if (signs.passwords > 0) found.push("a member's password");
+  if (signs.googleLinks > 0) found.push("a member linked to a Google account");
   if (found.length > 0) {
     throw new UnsafeConfiguration([
       `this database holds ${found.join(" and ")} — it is in real use`,

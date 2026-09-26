@@ -111,16 +111,16 @@ describe("R38 · demo mode is a separate bypass with its own guards", () => {
   test("it refuses a database that somebody actually uses", () => {
     const config = loadConfig({ ...base, DEMO_MODE: "true" });
     assert.doesNotThrow(() =>
-      assertDemoModeSafeAgainstData(config, { gmailConnections: 0, statementIdentities: 0 }));
+      assertDemoModeSafeAgainstData(config, { gmailConnections: 0, statementIdentities: 0, passwords: 0, googleLinks: 0 }));
 
     // A connected mailbox or a saved PAN cannot be explained away as demo data,
     // and demo mode opens the front door to anyone who can reach the URL.
     assert.throws(
-      () => assertDemoModeSafeAgainstData(config, { gmailConnections: 1, statementIdentities: 0 }),
+      () => assertDemoModeSafeAgainstData(config, { gmailConnections: 1, statementIdentities: 0, passwords: 0, googleLinks: 0 }),
       /real use/,
     );
     assert.throws(
-      () => assertDemoModeSafeAgainstData(config, { gmailConnections: 0, statementIdentities: 1 }),
+      () => assertDemoModeSafeAgainstData(config, { gmailConnections: 0, statementIdentities: 1, passwords: 0, googleLinks: 0 }),
       /real use/,
     );
   });
@@ -130,15 +130,48 @@ describe("R38 · demo mode is a separate bypass with its own guards", () => {
     // sends them looking for something that is not there.
     const config = loadConfig({ ...base, DEMO_MODE: "true" });
     assert.throws(
-      () => assertDemoModeSafeAgainstData(config, { gmailConnections: 1, statementIdentities: 0 }),
+      () => assertDemoModeSafeAgainstData(config, { gmailConnections: 1, statementIdentities: 0, passwords: 0, googleLinks: 0 }),
       (err: Error) => err.message.includes("DEMO_MODE") && !err.message.includes("DEV_LOGIN"),
+    );
+  });
+
+  test("SECURITY-OPS-26 · it refuses a deployment that has a real way in", () => {
+    // A household that switched DEMO_MODE on by mistake: production, a public
+    // hostname, and its own sign-in configured. /demo/enter would hand the
+    // ledger to anyone, so it must not start.
+    for (const extra of [
+      { GOOGLE_CLIENT_ID: "id", GOOGLE_CLIENT_SECRET: "secret" },
+      { OIDC_ISSUER: "https://auth.example.org", OIDC_CLIENT_ID: "id", OIDC_CLIENT_SECRET: "secret" },
+      { LOCAL_LOGIN: "1" },
+    ]) {
+      assert.throws(
+        () => loadConfig({ ...base, DEMO_MODE: "true", NODE_ENV: "production", ...extra }),
+        (err: Error) => err instanceof UnsafeConfiguration && err.message.includes("DEMO_MODE"),
+        JSON.stringify(extra),
+      );
+    }
+    // The public demo itself configures none of them, and still starts.
+    assert.doesNotThrow(() => loadConfig({ ...base, DEMO_MODE: "true", NODE_ENV: "production" }));
+  });
+
+  test("SECURITY-OPS-26 · it refuses a database whose members sign in for real", () => {
+    const config = loadConfig({ ...base, DEMO_MODE: "true" });
+    assert.throws(
+      () => assertDemoModeSafeAgainstData(config,
+        { gmailConnections: 0, statementIdentities: 0, passwords: 2, googleLinks: 0 }),
+      /password.*real use/,
+    );
+    assert.throws(
+      () => assertDemoModeSafeAgainstData(config,
+        { gmailConnections: 0, statementIdentities: 0, passwords: 0, googleLinks: 1 }),
+      /Google account.*real use/,
     );
   });
 
   test("with demo mode off, the data guard does nothing at all", () => {
     const config = loadConfig({ ...base });
     assert.doesNotThrow(() =>
-      assertDemoModeSafeAgainstData(config, { gmailConnections: 9, statementIdentities: 9 }));
+      assertDemoModeSafeAgainstData(config, { gmailConnections: 9, statementIdentities: 9, passwords: 0, googleLinks: 0 }));
   });
 });
 

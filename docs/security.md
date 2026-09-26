@@ -50,7 +50,11 @@ application also refuses to start with it enabled in a production-shaped
 environment.
 
 **Demo mode** (`DEMO_MODE`) bypasses authentication. It refuses to start
-alongside `DEV_LOGIN` and applies its own deployment safety check.
+alongside `DEV_LOGIN`, or alongside any real way in — Google or OIDC
+credentials, or `LOCAL_LOGIN` — and refuses a database with a connected
+mailbox, a saved statement identity, a member's password or a linked Google
+account. A demo is production-shaped by design, so these, not `NODE_ENV` or the
+hostname, are what tell a household's instance apart from one.
 
 ## Authorisation
 
