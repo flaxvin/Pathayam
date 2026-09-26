@@ -171,6 +171,11 @@ export function createCategory(
   db: DB, actor: Actor, input: { groupId: string; name: string; note?: string },
 ): Category {
   return transact(db, () => {
+    // A missing group is a 404, not the foreign key's 500 (BUDGET-7).
+    const group = queryOne<{ budget_id: string | null }>(
+      db, `SELECT budget_id FROM category_groups WHERE id = ?`, input.groupId,
+    );
+    if (!group) throw new Missing("That group does not exist.");
     const id = newId();
     const sort =
       queryOne<{ n: number }>(
@@ -183,9 +188,7 @@ export function createCategory(
       id, input.groupId, input.name, sort, input.note ?? null, nowIST(),
       // 15 · A new envelope joins the budget its group is in, which is the
       // household's unless somebody moved the group.
-      queryOne<{ budget_id: string | null }>(
-        db, `SELECT budget_id FROM category_groups WHERE id = ?`, input.groupId,
-      )?.budget_id ?? householdBudgetId(db),
+      group.budget_id ?? householdBudgetId(db),
     );
     const category = queryOne<Category>(db, `SELECT * FROM categories WHERE id = ?`, id)!;
     appendEvent(db, actor, {

@@ -6329,8 +6329,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/categories/new", (ctx) =>
     mutate(ctx, (a) => {
+      // A group in a budget this member can see (SECURITY-OPS-6): another
+      // member's private group took the envelope into their budget, and a
+      // made-up id failed its foreign key as a 500. And one of the groups the
+      // form offers — the app keeps its own (card payments, loans, internal)
+      // and fills them itself.
+      const groupId = requireVisibleGroup(ctx, requiredField(ctx.body, "group_id"));
+      const kind = queryOne<{ kind: string }>(db, `SELECT kind FROM category_groups WHERE id = ?`, groupId)!.kind;
+      if (kind !== "normal") throw new Refusal("Envelopes in that group are managed by the app. Pick another group.");
       createCategory(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
-        groupId: requiredField(ctx.body, "group_id"),
+        groupId,
         name: requiredField(ctx.body, "name"),
       });
       return { redirect: "/categories", message: "Category added." };
