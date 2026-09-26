@@ -57,8 +57,9 @@ of the quoted EMI.
 ### Payments
 
 `loan_payments` records each instalment with its principal and interest split.
-Where the lender's split is known it is recorded; otherwise it is computed and
-marked `estimated`.
+Where the lender's split is known it is recorded; where only one half is given
+(the principal, say) the other is what is left of the payment; only when both
+are blank is the split computed and marked `estimated`.
 
 Paying an instalment:
 

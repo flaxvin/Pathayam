@@ -742,3 +742,51 @@ describe("06 R14 · the EMI comes out of the envelope that was funded for it", (
     assert.ok(projectLoan(db, loan.id)!.outstanding < owed, "the debt fell by the principal");
   });
 });
+
+/*
+ * WEALTH-32 · With only the lender's principal entered, both halves were
+ * replaced by the projection and marked estimated — the lender's ₹7,900 became
+ * ₹7,885, and the interest that reaches the tax reports was the projection's.
+ */
+describe("WEALTH-32 · one half of the lender's split is kept, and the other is what is left", () => {
+  function personal(db: DB, bankId: string) {
+    return createLoan(db, actor, {
+      lender: "Fictional Bank", loanType: "personal", sanctioned: rupees(1_00_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 12,
+      tenureMonths: 12, currentOutstanding: rupees(1_00_000), repaymentAccountId: bankId,
+    });
+  }
+
+  test("principal only: interest is the rest, nothing is estimated", () => {
+    const { db, bankId } = setup();
+    const loan = personal(db, bankId);
+    const p = recordInstalment(db, actor, {
+      loanId: loan.id, date: "2026-02-05", amount: rupees(8_885), principal: rupees(7_900), fromAccountId: bankId,
+    });
+    assert.equal(p.principal, rupees(7_900));
+    assert.equal(p.interest, rupees(985));
+    assert.equal(p.estimated, 0);
+    assert.equal(projectLoan(db, loan.id)!.outstanding, rupees(92_100));
+  });
+
+  test("interest only: principal is the rest", () => {
+    const { db, bankId } = setup();
+    const loan = personal(db, bankId);
+    const p = recordInstalment(db, actor, {
+      loanId: loan.id, date: "2026-02-05", amount: rupees(8_885), interest: rupees(1_200), fromAccountId: bankId,
+    });
+    assert.equal(p.principal, rupees(7_685));
+    assert.equal(p.estimated, 0);
+  });
+
+  test("a half larger than the payment is refused", () => {
+    const { db, bankId } = setup();
+    const loan = personal(db, bankId);
+    assert.throws(
+      () => recordInstalment(db, actor, {
+        loanId: loan.id, date: "2026-02-05", amount: rupees(8_885), principal: rupees(9_000), fromAccountId: bankId,
+      }),
+      /does not fit in a payment/,
+    );
+  });
+});
