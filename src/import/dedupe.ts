@@ -80,6 +80,14 @@ export function normalisePayee(payee: string | null): string {
 }
 
 /**
+ * How far apart an alert and its statement line can be dated and still be the
+ * same event: the bank posts a card swipe or a cheque a few days after it
+ * happens, and a statement may date it by value date. A recurring payment
+ * repeats weeks later, never inside this.
+ */
+export const STRONG_WINDOW_DAYS = 5;
+
+/**
  * Find the best duplicate match for an incoming record, or null.
  *
  * Tiers are checked strongest first and the first hit wins, so a reference
@@ -110,12 +118,21 @@ export function findDuplicate(incoming: Incoming, candidates: Candidate[]): Dupl
 
   const sameAmount = sameAccount.filter((c) => c.amount === incoming.amount);
 
-  // Strong: same account, same amount, same bank reference. Auto-linked and
-  // logged, not queued — the reference is the bank's own identity for the
-  // transaction, so this is the same event arriving twice.
+  // Strong: same account, same amount, same bank reference, within a few
+  // days. Auto-linked and logged, not queued — the reference is the bank's own
+  // identity for the transaction, so this is the same event arriving twice.
+  //
+  // The window is what keeps it the same event. The "reference" read out of a
+  // narration is its longest digit run, and on a standing instruction that is
+  // a loan, employee or mandate number printed identically every month: with
+  // no window, September's ₹85,000 salary matched August's by reference and
+  // amount, was folded into it as an 'upgrade', and never reached the ledger
+  // or the queue. An alert and its statement line are days apart, never a
+  // month.
   if (incoming.reference) {
     const strong = sameAmount.find(
-      (c) => c.reference && c.reference === incoming.reference,
+      (c) => c.reference && c.reference === incoming.reference &&
+        Math.abs(daysBetween(c.date, incoming.date)) <= STRONG_WINDOW_DAYS,
     );
     if (strong) {
       return {
