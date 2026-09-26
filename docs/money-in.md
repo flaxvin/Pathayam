@@ -211,7 +211,9 @@ way an edit would: a card's payment envelope, a commitment envelope or a
 deleted one is never a rule's target (saving such a rule is refused), a row in
 a personal budget with nothing linking it to the envelope's budget is left as
 it is, and filing across two linked budgets opens the envelope between them.
-The preview's "would change" count leaves those rows out.
+The preview's "would change" count leaves those rows out. The apply is one
+entry in Activity, and undoing it puts back every row it changed — except one
+changed again since, which stays as it is and is counted in the notice.
 
 ### Narration extraction
 
