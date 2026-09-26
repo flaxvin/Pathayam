@@ -244,4 +244,28 @@ describe("ids posted in form fields", () => {
         category_id: w.ids.householdCategory, amount: "-25000", recurrence: "monthly",
       })).status, 303);
     }));
+
+  test("SECURITY-OPS-11 · deleting an envelope remaps only into one this member can see", () =>
+    asPriya(async (app, w) => {
+      const card = createAccount(w.db, ravi, {
+        name: "Wombat Private Card", kind: "credit", subtype: "credit-card",
+        openingDate: "2025-01-01", openingBalance: 0 as Paise, holderMemberId: RAVI,
+        visibility: "private", budgetId: w.ids.budget,
+      });
+      const payment = queryOne<{ id: string }>(
+        w.db, `SELECT id FROM categories WHERE payment_account_id = ?`, card.id,
+      )!.id;
+      const answers = new Set<string>();
+      for (const target of [payment, w.ids.category, "no-such-envelope"]) {
+        const res = await app.post(`/categories/${w.ids.householdCategory}/delete`, { remap_to: target }, {
+          headers: { Accept: "application/json" },
+        });
+        const body = await res.text();
+        assert.equal(res.status, 404, `remap_to=${target}`);
+        assert.doesNotMatch(body, /Wombat|different budget/);
+        answers.add(body);
+      }
+      assert.equal(answers.size, 1, "one answer for all three");
+      assert.ok(queryOne(w.db, `SELECT 1 FROM categories WHERE id = ?`, w.ids.householdCategory));
+    }));
 });

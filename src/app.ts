@@ -6479,7 +6479,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const balance = view.categories.get(id)?.state.balance ?? 0;
       deleteCategory(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, {
         currentBalance: balance,
-        remapTo: field(ctx.body, "remap_to") || null,
+        // An envelope this member can see (SECURITY-OPS-11): the refusals
+        // for another member's envelope named their private card and told a
+        // real id from a made-up one. Now one 404 for both.
+        remapTo: requireVisibleCategory(ctx, field(ctx.body, "remap_to") || null) || null,
       });
       return { redirect: "/categories", message: "Category deleted." };
     }),
