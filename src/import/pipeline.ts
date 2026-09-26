@@ -140,11 +140,19 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
     // still waiting in the queue is not in the ledger, so the exact-match tier
     // cannot see it — without this, re-importing a file whose rows have not
     // been approved yet queues every one of them a second time.
+    //
+    // A dismissed row is a decision too. Only pending rows used to count, so a
+    // row dismissed from Review came back on the next import of the same file,
+    // and a dismissed alert on every Gmail fetch in its 14-day window, "Won't
+    // import" meaning nothing. A batch that was undone gives its rows back:
+    // importing that file again is how the undo is meant to be followed up.
     const stagedSourceIds = new Set(
       queryAll<{ source_id: string }>(
         db,
-        `SELECT source_id FROM staged_transactions
-          WHERE account_id = ? AND status = 'pending' AND source_id IS NOT NULL`,
+        `SELECT s.source_id FROM staged_transactions s
+           LEFT JOIN import_batches b ON b.id = s.batch_id
+          WHERE s.account_id = ? AND s.source_id IS NOT NULL
+            AND (s.status = 'pending' OR (s.status = 'rejected' AND b.undone_at IS NULL))`,
         opts.accountId,
       ).map((r) => r.source_id),
     );
