@@ -5,7 +5,8 @@ import type { Actor } from "../core/events.ts";
 import { nowIST } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import { historyFor, undoEvent } from "../core/events.ts";
-import { createAccount } from "./accounts.ts";
+import { createAccount, getAccount } from "./accounts.ts";
+import { accountBalances } from "../engine/repository.ts";
 import { createGroup, createCategory, setAssigned } from "./budget.ts";
 import { buildBudgetView } from "../web/viewmodel.ts";
 import { netWorthStatement } from "./networth.ts";
@@ -326,5 +327,108 @@ describe("H2 / H2.2 · whose arrangement it is", () => {
     const view = viewFamilyLoan(db, shared.id)!;
     assert.equal(view.holderMemberId, null);
     assert.equal(view.isPrivate, false);
+  });
+});
+
+/*
+ * WEALTH-29 / MONEY-CORE-4 / MONEY-CORE-25 · Undoing lending moves the money back.
+ *
+ * Advances and repayments answered "Nothing to undo." and were then marked
+ * undone — the log said ₹50,000 to a cousin was reversed while the bank stayed
+ * down and the cousin still owed it. Undoing a close reopened the arrangement
+ * but left its account closed, off /accounts while advances kept landing in it.
+ */
+describe("WEALTH-29 · undoing lending reverses it, or refuses", () => {
+  const working = (db: ReturnType<typeof setup>["db"], id: string) =>
+    accountBalances(db).get(id)?.working ?? 0;
+  const eventFor = (db: ReturnType<typeof setup>["db"], loanId: string, action: string) =>
+    historyFor(db, "family-loan", loanId).find((e) => e.action === action)!;
+
+  test("an advance undone puts the money back in the bank and nothing is owed", () => {
+    const { db, bank } = setup();
+    const loan = createFamilyLoan(db, actor, { counterparty: "Cousin Fictional" });
+    recordAdvance(db, actor, { loanId: loan.id, amount: rupees(50_000), date: "2026-08-05", fromAccountId: bank.id });
+    assert.equal(working(db, bank.id), rupees(150_000));
+
+    const result = undoEvent(db, eventFor(db, loan.id, "advance").id, actor);
+    assert.ok(result.ok, result.reason);
+    assert.equal(working(db, bank.id), rupees(200_000), "the bank is whole again");
+    assert.equal(viewFamilyLoan(db, loan.id, "2026-08-28")!.outstanding, 0, "and nothing is owed");
+    db.close();
+  });
+
+  test("a repayment undone takes the money back out of the bank", () => {
+    const { db, bank } = setup();
+    const loan = createFamilyLoan(db, actor, { counterparty: "Cousin Fictional" });
+    recordAdvance(db, actor, { loanId: loan.id, amount: rupees(50_000), date: "2026-08-05", fromAccountId: bank.id });
+    recordRepayment(db, actor, { loanId: loan.id, amount: rupees(20_000), date: "2026-08-20", accountId: bank.id });
+
+    const result = undoEvent(db, eventFor(db, loan.id, "repayment").id, actor, { force: true });
+    assert.ok(result.ok, result.reason);
+    assert.equal(working(db, bank.id), rupees(150_000));
+    assert.equal(viewFamilyLoan(db, loan.id, "2026-08-28")!.outstanding, rupees(50_000));
+    db.close();
+  });
+
+  test("an advance from before the event carried its legs is refused, not marked undone", () => {
+    const { db, bank } = setup();
+    const loan = createFamilyLoan(db, actor, { counterparty: "Cousin Fictional" });
+    recordAdvance(db, actor, { loanId: loan.id, amount: rupees(50_000), date: "2026-08-05", fromAccountId: bank.id });
+    const event = eventFor(db, loan.id, "advance");
+    execute(db, `UPDATE events SET after_json = ? WHERE id = ?`, JSON.stringify({ amount: rupees(50_000) }), event.id);
+
+    assert.throws(() => undoEvent(db, event.id, actor), /recorded before undo could reverse it/);
+    assert.equal(eventFor(db, loan.id, "advance").undoneByEventId ?? null, null);
+    assert.equal(working(db, bank.id), rupees(150_000));
+    db.close();
+  });
+
+  test("undoing a close reopens the arrangement and its account", () => {
+    const { db } = setup();
+    const loan = createFamilyLoan(db, actor, { counterparty: "Cousin Fictional" });
+    closeFamilyLoan(db, actor, loan.id);
+    const result = undoEvent(db, eventFor(db, loan.id, "close").id, actor);
+    assert.ok(result.ok, result.reason);
+    assert.equal(listFamilyLoans(db).find((l) => l.id === loan.id)!.closed_at, null);
+    assert.equal(getAccount(db, loan.account_id)!.closed_at, null, "the account stayed closed");
+    db.close();
+  });
+
+  test("undoing the start removes an empty arrangement, and refuses one with money behind it", () => {
+    const { db, bank } = setup();
+    const empty = createFamilyLoan(db, actor, { counterparty: "Cousin Fictional" });
+    assert.ok(undoEvent(db, eventFor(db, empty.id, "create").id, actor).ok);
+    assert.equal(getAccount(db, empty.account_id), null);
+
+    const used = createFamilyLoan(db, actor, { counterparty: "Aunt Fictional" });
+    recordAdvance(db, actor, { loanId: used.id, amount: rupees(10_000), date: "2026-08-05", fromAccountId: bank.id });
+    assert.throws(
+      () => undoEvent(db, eventFor(db, used.id, "create").id, actor, { force: true }),
+      /already has money recorded against it/,
+    );
+    assert.ok(getAccount(db, used.account_id));
+    db.close();
+  });
+});
+
+describe("WEALTH-30 · an arrangement closes only when nothing is owed", () => {
+  test("closing while the cousin owes ₹50,000 is refused, and it stays in net worth", () => {
+    const { db, bank } = setup();
+    const loan = createFamilyLoan(db, actor, { counterparty: "Cousin Fictional" });
+    recordAdvance(db, actor, { loanId: loan.id, amount: rupees(50_000), date: "2026-08-05", fromAccountId: bank.id });
+    const worth = netWorthStatement(db, "2026-08-28").netWorth;
+
+    assert.throws(() => closeFamilyLoan(db, actor, loan.id), /still owes ₹50,000/);
+    assert.equal(listFamilyLoans(db).length, 1, "still open");
+    assert.equal(netWorthStatement(db, "2026-08-28").netWorth, worth);
+    db.close();
+  });
+
+  test("and the other way: while the household owes them", () => {
+    const { db, bank } = setup();
+    const loan = createFamilyLoan(db, actor, { counterparty: "Aunt Fictional" });
+    recordRepayment(db, actor, { loanId: loan.id, amount: rupees(20_000), date: "2026-08-05", accountId: bank.id });
+    assert.throws(() => closeFamilyLoan(db, actor, loan.id), /You still owe Aunt Fictional ₹20,000/);
+    db.close();
   });
 });

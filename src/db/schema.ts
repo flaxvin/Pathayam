@@ -2364,4 +2364,105 @@ DELETE FROM month_rollups;
 DELETE FROM month_rollup_state;
 `,
   },
+  {
+    name: "0053-an-instalment-credits-the-loan-with-its-principal",
+    sql: `
+--------------------------------------------------------------------------------
+-- R18 · The loan account credited with interest as if it were repayment
+--------------------------------------------------------------------------------
+-- Every instalment credited the loan's tracking account with the whole amount
+-- paid, interest included, while the outstanding (rightly) fell by the
+-- principal alone. One EMI of 8,997.26 on a 10 lakh loan at 9% left the
+-- account saying 9,91,002.74 owed against a schedule of 9,98,502.74, and net
+-- worth then blamed the household for "a payment entered straight onto the
+-- account". The gap grew by every month's interest. A prepayment charge did
+-- the same with its whole amount, though a fee repays nothing.
+--
+-- The loan leg now carries the principal, and its id is kept on the payment
+-- (loan_transaction_id) so undo can remove both sides and the leg cannot be
+-- removed on its own. The rows already written are repaired two ways:
+--
+-- 1. Since B124 the leg was written as its own transaction, memo
+--    "<loan> instalment", same date and amount as the payment. Each payment
+--    is paired with such a leg in creation order and the leg is set to the
+--    principal - or removed (soft-deleted) where the principal is nil: a
+--    charge, or interest-only servicing.
+-- 2. Before B124 the instalment was a transfer, and a transfer's two legs are
+--    one movement that must stay equal. Those keep their legs; the interest
+--    is taken back out with one correcting debit on the loan account, dated
+--    with the instalment.
+--
+-- A waiver row (principal forgiven at settlement) is linked to the credit it
+-- wrote, so undoing that settlement's close can take the credit back too.
+-- A leg the household has since edited or deleted no longer matches and is
+-- left alone: net worth's drift line will show it, and it is theirs to judge.
+ALTER TABLE loan_payments ADD COLUMN loan_transaction_id TEXT REFERENCES transactions(id);
+
+CREATE TEMP TABLE fix_pay AS
+SELECT p.id AS payment_id, l.account_id, p.date, p.amount,
+       ROW_NUMBER() OVER (PARTITION BY l.account_id, p.date, p.amount ORDER BY p.created_at, p.rowid) AS rn
+  FROM loan_payments p
+  JOIN loans l ON l.id = p.loan_id
+  JOIN transactions b ON b.id = p.transaction_id
+ WHERE p.amount > 0 AND b.transfer_pair_id IS NULL;
+CREATE TEMP TABLE fix_leg AS
+SELECT t.id AS transaction_id, t.account_id, t.date, t.amount,
+       ROW_NUMBER() OVER (PARTITION BY t.account_id, t.date, t.amount ORDER BY t.created_at, t.rowid) AS rn
+  FROM transactions t JOIN loans l ON l.account_id = t.account_id
+ WHERE t.deleted_at IS NULL AND t.transfer_pair_id IS NULL AND t.amount > 0
+   AND t.memo LIKE '% instalment';
+UPDATE loan_payments
+   SET loan_transaction_id = (
+     SELECT g.transaction_id FROM fix_pay f
+       JOIN fix_leg g ON g.account_id = f.account_id AND g.date = f.date
+                     AND g.amount = f.amount AND g.rn = f.rn
+      WHERE f.payment_id = loan_payments.id)
+ WHERE id IN (SELECT payment_id FROM fix_pay);
+UPDATE transactions
+   SET amount = (SELECT p.principal FROM loan_payments p WHERE p.loan_transaction_id = transactions.id),
+       updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now', '+330 minutes') || '+05:30'
+ WHERE id IN (SELECT loan_transaction_id FROM loan_payments
+               WHERE loan_transaction_id IS NOT NULL AND principal > 0 AND principal <> amount);
+UPDATE transactions
+   SET deleted_at = strftime('%Y-%m-%dT%H:%M:%f', 'now', '+330 minutes') || '+05:30', updated_at = strftime('%Y-%m-%dT%H:%M:%f', 'now', '+330 minutes') || '+05:30'
+ WHERE id IN (SELECT loan_transaction_id FROM loan_payments
+               WHERE loan_transaction_id IS NOT NULL AND principal <= 0);
+UPDATE loan_payments SET loan_transaction_id = NULL
+ WHERE loan_transaction_id IN (SELECT id FROM transactions WHERE deleted_at IS NOT NULL);
+DROP TABLE fix_pay;
+DROP TABLE fix_leg;
+
+INSERT INTO transactions (id, account_id, date, amount, memo, cleared, source, created_at, updated_at)
+SELECT lower(hex(randomblob(4))) || '-' || lower(hex(randomblob(2))) || '-4' || substr(lower(hex(randomblob(2))), 2) || '-' || substr('89ab', 1 + (abs(random()) % 4), 1) || substr(lower(hex(randomblob(2))), 2) || '-' || lower(hex(randomblob(6))),
+       t.account_id, p.date, -(p.amount - p.principal),
+       'Interest in the ' || p.date || ' instalment, which is not repayment (corrected)',
+       1, 'manual', strftime('%Y-%m-%dT%H:%M:%f', 'now', '+330 minutes') || '+05:30', strftime('%Y-%m-%dT%H:%M:%f', 'now', '+330 minutes') || '+05:30'
+  FROM loan_payments p
+  JOIN loans l ON l.id = p.loan_id
+  JOIN transactions b ON b.id = p.transaction_id AND b.transfer_pair_id IS NOT NULL
+  JOIN transactions t ON t.transfer_pair_id = b.transfer_pair_id AND t.id <> b.id
+                     AND t.account_id = l.account_id
+ WHERE t.deleted_at IS NULL AND t.amount = p.amount AND p.amount > p.principal;
+
+CREATE TEMP TABLE fix_pay AS
+SELECT p.id AS payment_id, l.account_id, p.date, p.principal AS amount,
+       ROW_NUMBER() OVER (PARTITION BY l.account_id, p.date, p.principal ORDER BY p.created_at, p.rowid) AS rn
+  FROM loan_payments p JOIN loans l ON l.id = p.loan_id
+ WHERE p.kind = 'foreclosure' AND p.amount = 0 AND p.principal > 0;
+CREATE TEMP TABLE fix_leg AS
+SELECT t.id AS transaction_id, t.account_id, t.date, t.amount,
+       ROW_NUMBER() OVER (PARTITION BY t.account_id, t.date, t.amount ORDER BY t.created_at, t.rowid) AS rn
+  FROM transactions t JOIN loans l ON l.account_id = t.account_id
+ WHERE t.deleted_at IS NULL AND t.memo LIKE '% principal waived at settlement';
+UPDATE loan_payments
+   SET loan_transaction_id = (
+     SELECT g.transaction_id FROM fix_pay f
+       JOIN fix_leg g ON g.account_id = f.account_id AND g.date = f.date
+                     AND g.amount = f.amount AND g.rn = f.rn
+      WHERE f.payment_id = loan_payments.id)
+ WHERE id IN (SELECT payment_id FROM fix_pay);
+DROP TABLE fix_pay;
+DROP TABLE fix_leg;
+`,
+  },
 ];

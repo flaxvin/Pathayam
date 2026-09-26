@@ -15,7 +15,7 @@ import { getTarget, createGroup, createCategory, setAssigned } from "./budget.ts
 import { computeBudget, identityResidual } from "../engine/engine.ts";
 import { monthOf } from "../core/dates.ts";
 import { netWorthStatement } from "./networth.ts";
-import { todayIST } from "../core/dates.ts";
+import { todayIST, addDays } from "../core/dates.ts";
 
 const RAVI = "m-ravi";
 const actor: Actor = { memberId: RAVI, source: "ui" };
@@ -293,7 +293,9 @@ describe("R21 · a loan that has been paid off", () => {
       repaymentAccountId: bankId,
     });
 
-    const metrics = closeLoan(db, actor, { loanId: loan.id, date: "2026-06-01" });
+    const metrics = closeLoan(db, actor, {
+      loanId: loan.id, date: "2026-06-01", settlement: rupees(1_00_000), settlementAccountId: bankId,
+    });
     assert.ok(metrics, "the closure reports what it cost (R21.2)");
 
     // Gone from the open list, still there when asked for everything.
@@ -439,13 +441,13 @@ describe("R19.5 · settling early, and what it cost", () => {
     const before = accountBalances(db).get(bankId)!.working;
 
     closeLoan(db, actor, {
-      loanId: loan.id, date: todayIST(),
+      loanId: loan.id, date: todayIST(), settlement: rupees(3_00_000),
       foreclosureCharge: rupees(6_000),
       chargeAccountId: bankId, chargeCategoryId: charges.id,
     });
 
     assert.equal(
-      accountBalances(db).get(bankId)!.working, before - rupees(6_000),
+      accountBalances(db).get(bankId)!.working, before - rupees(3_00_000) - rupees(6_000),
       "it came out of a real account",
     );
     assert.ok(getLoan(db, loan.id)?.closed_at, "and the loan is closed");
@@ -474,7 +476,27 @@ describe("R19.5 · settling early, and what it cost", () => {
       tenureMonths: 60, currentOutstanding: rupees(5_00_000), repaymentAccountId: bankId,
     });
     const before = accountBalances(db).get(bankId)!.working;
-    closeLoan(db, actor, { loanId: loan.id, date: todayIST() });
+    const worth = netWorthStatement(db, todayIST()).netWorth;
+    /*
+     * WEALTH-20 · With ₹5,00,000 outstanding and no settlement, "close" used to
+     * close it anyway and the debt left net worth. It is refused, and nothing moves.
+     */
+    assert.throws(
+      () => closeLoan(db, actor, { loanId: loan.id, date: todayIST() }),
+      /still outstanding on this loan\. Settle it/,
+    );
+    assert.equal(getLoan(db, loan.id)!.closed_at, null);
+    assert.equal(accountBalances(db).get(bankId)!.working, before);
+    assert.equal(netWorthStatement(db, todayIST()).netWorth, worth, "the debt stayed in net worth");
+
+    // Nothing owed — never drawn, here — and it closes, moving no money.
+    const undrawn = createLoan(db, actor, {
+      lender: "Canara", loanType: "education", sanctioned: rupees(5_00_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 10,
+      tenureMonths: 60, repaymentAccountId: bankId,
+    });
+    closeLoan(db, actor, { loanId: undrawn.id, date: todayIST() });
+    assert.ok(getLoan(db, undrawn.id)!.closed_at);
     assert.equal(accountBalances(db).get(bankId)!.working, before);
   });
 });
@@ -549,6 +571,28 @@ describe("06 R20.2 · a rate reset is a choice, and the choice is carried out", 
       loanId: loan.id, effectiveFrom: "2026-07-01", annualRatePct: 9.5, keep: "emi",
     });
     assert.equal(getLoan(db, loan.id)!.original_tenure_months, 240);
+  });
+
+  /*
+   * WEALTH-18 · Dated ahead, "keep the instalment" moved nothing — the tenure
+   * was worked out at today's rate — and the notice said it had; on the day the
+   * instalment jumped. It is refused until the rate applies, and nothing is
+   * written.
+   */
+  test("keeping the instalment through a rise dated ahead is refused, and nothing is written", () => {
+    const { db, bankId } = setup();
+    const loan = homeLoan(db, bankId);
+    const ahead = addDays(todayIST(), 20);
+    assert.throws(
+      () => recordRateChange(db, actor, { loanId: loan.id, effectiveFrom: ahead, annualRatePct: 9.5, keep: "emi" }),
+      /only be held once the new rate applies/,
+    );
+    assert.equal(queryAll(db, `SELECT id FROM loan_rates WHERE loan_id = ?`, loan.id).length, 1);
+    assert.equal(getLoan(db, loan.id)!.tenure_months, 240);
+
+    // Keeping the tenure through the same rise is fine: nothing moves before the date.
+    recordRateChange(db, actor, { loanId: loan.id, effectiveFrom: ahead, annualRatePct: 9.5, keep: "tenure" });
+    assert.equal(queryAll(db, `SELECT id FROM loan_rates WHERE loan_id = ?`, loan.id).length, 2);
   });
 });
 
@@ -696,5 +740,53 @@ describe("06 R14 · the EMI comes out of the envelope that was funded for it", (
 
     assert.equal(accountBalances(db).get(bankId)!.working, before - emi);
     assert.ok(projectLoan(db, loan.id)!.outstanding < owed, "the debt fell by the principal");
+  });
+});
+
+/*
+ * WEALTH-32 · With only the lender's principal entered, both halves were
+ * replaced by the projection and marked estimated — the lender's ₹7,900 became
+ * ₹7,885, and the interest that reaches the tax reports was the projection's.
+ */
+describe("WEALTH-32 · one half of the lender's split is kept, and the other is what is left", () => {
+  function personal(db: DB, bankId: string) {
+    return createLoan(db, actor, {
+      lender: "Fictional Bank", loanType: "personal", sanctioned: rupees(1_00_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 12,
+      tenureMonths: 12, currentOutstanding: rupees(1_00_000), repaymentAccountId: bankId,
+    });
+  }
+
+  test("principal only: interest is the rest, nothing is estimated", () => {
+    const { db, bankId } = setup();
+    const loan = personal(db, bankId);
+    const p = recordInstalment(db, actor, {
+      loanId: loan.id, date: "2026-02-05", amount: rupees(8_885), principal: rupees(7_900), fromAccountId: bankId,
+    });
+    assert.equal(p.principal, rupees(7_900));
+    assert.equal(p.interest, rupees(985));
+    assert.equal(p.estimated, 0);
+    assert.equal(projectLoan(db, loan.id)!.outstanding, rupees(92_100));
+  });
+
+  test("interest only: principal is the rest", () => {
+    const { db, bankId } = setup();
+    const loan = personal(db, bankId);
+    const p = recordInstalment(db, actor, {
+      loanId: loan.id, date: "2026-02-05", amount: rupees(8_885), interest: rupees(1_200), fromAccountId: bankId,
+    });
+    assert.equal(p.principal, rupees(7_685));
+    assert.equal(p.estimated, 0);
+  });
+
+  test("a half larger than the payment is refused", () => {
+    const { db, bankId } = setup();
+    const loan = personal(db, bankId);
+    assert.throws(
+      () => recordInstalment(db, actor, {
+        loanId: loan.id, date: "2026-02-05", amount: rupees(8_885), principal: rupees(9_000), fromAccountId: bankId,
+      }),
+      /does not fit in a payment/,
+    );
   });
 });

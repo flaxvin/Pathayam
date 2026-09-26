@@ -17,15 +17,15 @@ import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { Missing, Refusal } from "../core/refusal.ts";
 import { setTarget, moveMoney } from "./budget.ts";
-import { nowIST, todayIST, formatDate, monthOf, type IsoDate } from "../core/dates.ts";
+import { nowIST, todayIST, formatDate, monthOf, type IsoDate, type MonthKey } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { createAccount, getAccount } from "./accounts.ts";
-import { createTransaction, createTransfer } from "./transactions.ts";
+import { createTransaction, createTransfer, eraseTransaction, UndoRefused } from "./transactions.ts";
 import { familyLoanNetWorth } from "./family-loans.ts";
 import { latestValuation } from "./assets.ts";
 import {
   buildSchedule, emiFor, flatRateLoan, flatSchedule, flatMonthlyInterest, moratorium, preEmi, drift,
-  lifetimeMetrics,
+  lifetimeMetrics, MAX_ANNUAL_RATE_PCT, MAX_TENURE_MONTHS,
   type Schedule, type InterestModel, type LifetimeMetrics,
 } from "../loans/amortisation.ts";
 import { householdBudgetId } from "./budgets.ts";
@@ -103,6 +103,8 @@ export interface LoanPayment {
   estimated: number;
   kind: "instalment" | "prepayment" | "extra" | "charge" | "foreclosure";
   transaction_id: string | null;
+  /** WEALTH-16 · The loan account's side: the principal, credited to the debt. */
+  loan_transaction_id: string | null;
   note: string | null;
 }
 
@@ -150,9 +152,62 @@ export interface CreateLoanInput {
   disbursementAccountId?: string | null;
 }
 
+/** WEALTH-38 · The bounds live beside the arithmetic they protect. */
+export { MAX_ANNUAL_RATE_PCT, MAX_TENURE_MONTHS };
+
+const INTEREST_MODELS: readonly InterestModel[] = [
+  "reducing", "flat", "moratorium-serviced", "moratorium-capitalised",
+];
+
+/** A rate as a sentence-refusal, for every path that sets one (WEALTH-38, WEBUX-13). */
+export function checkAnnualRate(pct: number): void {
+  if (!Number.isFinite(pct)) throw new Refusal("That is not a rate — enter it as a percentage, like 8.5.");
+  if (pct < 0) throw new Refusal("A loan's rate cannot be negative.");
+  if (pct > MAX_ANNUAL_RATE_PCT) {
+    throw new Refusal(
+      `A rate of ${pct}% a year is more than any loan charges — the most this takes is ` +
+      `${MAX_ANNUAL_RATE_PCT}%. Check it against the sanction letter.`,
+    );
+  }
+}
+
 export function createLoan(db: DB, actor: Actor, input: CreateLoanInput): Loan {
-  if (input.sanctioned <= 0) throw new Refusal("A loan needs a sanctioned amount above zero.");
-  if (input.tenureMonths <= 0) throw new Refusal("A loan needs a tenure of at least one month.");
+  if (!(input.sanctioned > 0)) throw new Refusal("A loan needs a sanctioned amount above zero.");
+  /*
+   * WEALTH-38 · Everything the form sends is checked here, where every caller
+   * passes, rather than left to the database. "abc" for the tenure or the rate,
+   * or a loan type or interest model outside the lists, reached a CHECK
+   * constraint or a label lookup and answered 500; a negative rate, a tenure of
+   * 1.5 months and an outstanding five times the sanction were saved, and the
+   * loan then reported negative interest remaining.
+   */
+  if (!Number.isInteger(input.tenureMonths) || input.tenureMonths < 1) {
+    throw new Refusal("A loan needs a tenure of at least one month, in whole months.");
+  }
+  if (input.tenureMonths > MAX_TENURE_MONTHS) {
+    throw new Refusal(`A tenure of ${input.tenureMonths} months is longer than fifty years. Check it.`);
+  }
+  checkAnnualRate(input.annualRatePct);
+  if (!Object.hasOwn(LOAN_TYPE_LABELS, input.loanType)) throw new Refusal("Pick a loan type from the list.");
+  if (!INTEREST_MODELS.includes(input.interestModel)) throw new Refusal("Pick how interest is charged from the list.");
+  const moratorium = input.moratoriumMonths ?? 0;
+  if (!Number.isInteger(moratorium) || moratorium < 0 || moratorium > MAX_TENURE_MONTHS) {
+    throw new Refusal("A moratorium is a whole number of months.");
+  }
+  /*
+   * What is owed now can exceed what was sanctioned only when unpaid interest
+   * has been added to the principal — a capitalised moratorium. Otherwise it
+   * is a typo that would put a debt the lender never lent into net worth.
+   */
+  if (
+    input.currentOutstanding != null && input.currentOutstanding > input.sanctioned &&
+    input.interestModel !== "moratorium-capitalised"
+  ) {
+    throw new Refusal(
+      `${formatPaise(input.currentOutstanding)} outstanding is more than the ` +
+      `${formatPaise(input.sanctioned)} sanctioned. Check both against the lender's statement.`,
+    );
+  }
 
   return transact(db, () => {
     // F18.g: a Tracking account, so it can never fund the budget.
@@ -433,25 +488,26 @@ export function recordDisbursement(
     );
 
     // The liability rises either way.
-    createTransaction(db, actor, {
+    const legs: string[] = [];
+    legs.push(createTransaction(db, actor, {
       accountId: loan.account_id,
       amount: -input.amount,
       date: input.date,
       memo: `Disbursement — ${input.destination === "third-party" ? "paid to a third party" : "credited to an account"}`,
       cleared: true,
-    });
+    }).id);
 
     if (input.destination === "budget-account" && input.destinationAccountId) {
       // R15.2: arrives as income requiring assignment, never as an
       // uncategorised transaction. Leaving category_id null is what makes it
       // reach Ready to Assign (derivation §3) and appear in Review.
-      createTransaction(db, actor, {
+      legs.push(createTransaction(db, actor, {
         accountId: input.destinationAccountId,
         amount: input.amount,
         date: input.date,
         memo: `Loan disbursement from ${loan.lender}`,
         cleared: true,
-      });
+      }).id);
     }
 
     // R15.4 · Drawing more changes the instalment, so the envelope follows.
@@ -459,7 +515,8 @@ export function recordDisbursement(
 
     const record = queryOne<Disbursement>(db, `SELECT * FROM loan_disbursements WHERE id = ?`, id)!;
     appendEvent(db, actor, {
-      entity: "loan", entityId: input.loanId, action: "disburse", after: record,
+      // WEALTH-21 · The legs ride along, so undoing the draw can take them back.
+      entity: "loan", entityId: input.loanId, action: "disburse", after: { ...record, transactionIds: legs },
       summary:
         `Drew ${formatPaise(input.amount)} on ${formatDate(input.date)}` +
         (input.destination === "third-party"
@@ -538,7 +595,7 @@ export function recordLoanStatement(
     const result = drift(appOutstanding, input.lenderOutstanding);
     appendEvent(db, actor, {
       entity: "loan", entityId: input.loanId, action: "statement",
-      before: { appOutstanding }, after: { lenderOutstanding: input.lenderOutstanding },
+      before: { appOutstanding }, after: { id, lenderOutstanding: input.lenderOutstanding },
       summary: result.material
         ? `Lender statement of ${formatDate(input.asOf)} says ${formatPaise(input.lenderOutstanding)}, ` +
           `the app says ${formatPaise(appOutstanding)} — a difference of ${formatPaise(result.amount)}`
@@ -729,11 +786,45 @@ export function recordRateChange(
   },
 ): RatePeriod {
   return transact(db, () => {
+    /*
+     * WEALTH-18 · Keeping the instalment through a rise that has not happened yet.
+     *
+     * The tenure is the only lever, and the projection prices the loan at
+     * today's rate. Stretched now, at today's rate, it answered "no change" — so
+     * the notice said the instalment was kept and it jumped on the day. Stretched
+     * now at the new rate, it would be right from that day and wrong until then:
+     * the old rate over the longer tenure asks for a smaller instalment, and the
+     * envelope target falls with it. Neither is what the lender does, so the
+     * choice is taken when the rate applies; keeping the tenure needs no such
+     * wait, because nothing moves before the date.
+     */
+    /*
+     * WEBUX-13 · The same bounds a loan is added with. 1e20% was accepted here and
+     * the loan page then read "Monthly ₹NaN.NaN"; a change dated 1900 sat before
+     * the loan existed, ahead of the rate it was sanctioned at.
+     */
+    checkAnnualRate(input.annualRatePct);
+    const subject = getLoan(db, input.loanId);
+    if (!subject) throw new Missing("That loan does not exist.");
+    if (input.effectiveFrom < subject.sanction_date) {
+      throw new Refusal(
+        `The loan was sanctioned on ${formatDate(subject.sanction_date)}, so a rate change ` +
+        `cannot take effect before that.`,
+      );
+    }
+    if (input.keep === "emi" && input.effectiveFrom > todayIST()) {
+      throw new Refusal(
+        `The instalment can only be held once the new rate applies, on ` +
+        `${formatDate(input.effectiveFrom)} — the tenure it needs depends on the balance that day. ` +
+        `Record the change then, or keep the tenure and let the instalment move.`,
+      );
+    }
     const previous = currentRate(db, input.loanId, input.effectiveFrom);
 
     // Read the instalment before the new rate exists: keeping it is the whole
     // point of the option, and a moment later it is not the same number.
     const emiBefore = projectLoan(db, input.loanId)?.emi ?? 0;
+    const tenureBefore = getLoan(db, input.loanId)?.tenure_months ?? null;
 
     const id = newId();
     execute(
@@ -757,7 +848,10 @@ export function recordRateChange(
 
     appendEvent(db, actor, {
       entity: "loan", entityId: input.loanId, action: "rate-change",
-      before: { rate: previous }, after: { rate: input.annualRatePct },
+      // WEALTH-21 · The period's id and the tenure either side, so an undo can
+      // remove exactly this period and put a tenure it moved back.
+      before: { rate: previous, tenure_months: tenureBefore },
+      after: { id, rate: input.annualRatePct, tenure_months: getLoan(db, input.loanId)?.tenure_months ?? null },
       summary:
         `Rate moved from ${previous}% to ${input.annualRatePct}% ` +
         `with effect from ${formatDate(input.effectiveFrom)}` +
@@ -806,6 +900,28 @@ export function recordInstalment(
     let interest = input.interest ?? null;
     let estimated = 0;
 
+    /*
+     * WEALTH-32 · One side of the lender's split is still the lender's.
+     *
+     * With only the principal entered (the interest box left blank), both
+     * figures were replaced by the projection: ₹7,900 of principal from the
+     * statement was stored as ₹7,885, marked estimated, and the interest that
+     * feeds the tax reports was the projection's too. The form promises the
+     * lender's figures win where you have them; the other side is simply what
+     * is left of the payment.
+     */
+    if ((principal === null) !== (interest === null) && input.kind !== "charge") {
+      const given = (principal ?? interest)!;
+      if (!(given >= 0) || given > input.amount) {
+        throw new Refusal(
+          `The ${principal !== null ? "principal" : "interest"} of ${formatPaise(given)} ` +
+          `does not fit in a payment of ${formatPaise(input.amount)}.`,
+        );
+      }
+      if (principal === null) principal = (input.amount - given) as Paise;
+      else interest = (input.amount - given) as Paise;
+    }
+
     if (principal === null || interest === null) {
       // R18.2: fall back to the projected split, and mark it.
       const outstanding = outstandingPrincipal(db, input.loanId);
@@ -843,8 +959,14 @@ export function recordInstalment(
     }
 
     let transactionId: string | null = null;
+    let loanTransactionId: string | null = null;
     if (input.fromAccountId) {
       const from = getAccount(db, input.fromAccountId);
+      // WEALTH-19 · Money that pays a loan leaves a bank account or a card. A
+      // tracking account holds no money to pay with, and filing an envelope's
+      // spending against one takes it out of the budget with nothing behind it.
+      if (!from) throw new Missing("That account does not exist.");
+      if (from.kind === "tracking") throw new Refusal("Pay a loan from a bank account or a card.");
 
       if (from?.kind === "credit") {
         /*
@@ -871,15 +993,6 @@ export function recordInstalment(
           cleared: true,
         });
         transactionId = charge.id;
-
-        // And the debt itself falls, so the loan's own balance keeps step.
-        createTransaction(db, actor, {
-          accountId: loan.account_id,
-          amount: input.amount,
-          date: input.date,
-          memo: `${loan.nickname || loan.lender} instalment`,
-          cleared: true,
-        });
       } else {
         /*
          * B124 · The payment envelope is reduced by the full amount, and the
@@ -908,14 +1021,38 @@ export function recordInstalment(
           memo: `${loan.nickname || loan.lender} instalment`,
           cleared: true,
         });
-        createTransaction(db, actor, {
+        transactionId = out.id;
+      }
+
+      /*
+       * WEALTH-16 · And the debt itself falls — by the principal, not by the
+       * whole instalment.
+       *
+       * Both branches credited the loan account with everything paid, interest
+       * included. The interest is not repayment: it is the cost of the month's
+       * borrowing, and it has already left the budget as spending filed to the
+       * payment envelope above. Counting it again on the loan account made the
+       * account read ₹9,91,002.74 owed after one EMI on a ₹10 lakh loan whose
+       * schedule, correctly, said ₹9,98,502.74 — and the drift check then told
+       * the household that a payment the app itself had booked was "entered
+       * straight onto the account". The gap grew by every month's interest.
+       *
+       * So the loan leg carries exactly what outstandingPrincipal subtracts, and
+       * the account balance equals the outstanding after every instalment,
+       * prepayment and settlement. A charge, or an interest-only payment during
+       * a moratorium, repays nothing and so has no loan leg at all.
+       *
+       * The leg's id is kept on the payment so that undoing it removes both
+       * sides, and so that the leg cannot be undone on its own.
+       */
+      if (principal > 0) {
+        loanTransactionId = createTransaction(db, actor, {
           accountId: loan.account_id,
-          amount: input.amount,
+          amount: principal as Paise,
           date: input.date,
           memo: `${loan.nickname || loan.lender} instalment`,
           cleared: true,
-        });
-        transactionId = out.id;
+        }).id;
       }
     }
 
@@ -923,15 +1060,20 @@ export function recordInstalment(
     execute(
       db,
       `INSERT INTO loan_payments
-         (id,loan_id,date,amount,principal,interest,estimated,kind,transaction_id,note,created_at,created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+         (id,loan_id,date,amount,principal,interest,estimated,kind,transaction_id,loan_transaction_id,
+          note,created_at,created_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       id, input.loanId, input.date, input.amount, principal, interest, estimated,
-      input.kind ?? "instalment", transactionId, input.note ?? null, nowIST(), actor.memberId,
+      input.kind ?? "instalment", transactionId, loanTransactionId, input.note ?? null,
+      nowIST(), actor.memberId,
     );
 
     const payment = queryOne<LoanPayment>(db, `SELECT * FROM loan_payments WHERE id = ?`, id)!;
     appendEvent(db, actor, {
       entity: "loan", entityId: input.loanId, action: "instalment", after: payment,
+      // WEALTH-21 · A prepayment taken as a shorter tenure moves it straight
+      // after this; the tenure it had is what an undo puts back.
+      before: { tenure_months: loan.tenure_months },
       summary:
         `Paid ${formatPaise(input.amount)} on ${formatDate(input.date)} — ` +
         `${formatPaise(principal)} principal, ${formatPaise(interest)} interest` +
@@ -1187,19 +1329,20 @@ export function reanchorToLenderBalance(
 
     // R18.7: recorded history and lifetime interest paid are untouched. The
     // adjustment is a principal-only correction to the forward projection.
+    const paymentId = newId();
     execute(
       db,
       `INSERT INTO loan_payments
          (id,loan_id,date,amount,principal,interest,estimated,kind,note,created_at,created_by)
        VALUES (?,?,?,?,?,0,0,'charge',?,?,?)`,
-      newId(), input.loanId, input.asOf, 0, difference,
+      paymentId, input.loanId, input.asOf, 0, difference,
       `Re-anchored to the lender's balance of ${formatPaise(input.lenderOutstanding)}`,
       nowIST(), actor.memberId,
     );
 
     appendEvent(db, actor, {
       entity: "loan", entityId: input.loanId, action: "reanchor",
-      before: { outstanding: projected }, after: { outstanding: input.lenderOutstanding },
+      before: { outstanding: projected }, after: { paymentId, outstanding: input.lenderOutstanding },
       summary:
         `Re-anchored the projection to the lender's ${formatPaise(input.lenderOutstanding)} ` +
         `as of ${formatDate(input.asOf)} — a difference of ${formatPaise(difference)}. ` +
@@ -1255,6 +1398,20 @@ export function closeLoan(
       });
     }
 
+    /*
+     * WEALTH-20 · A loan closes at nil, or by being settled. With neither, the
+     * route closed a ₹5,00,000 loan on request: no payment, no waiver, and the
+     * debt simply left net worth. The page only offers "Close it" at zero; the
+     * server now holds the same line.
+     */
+    if (!(input.settlement && input.settlement > 0) && projection.outstanding > 0) {
+      throw new Refusal(
+        `${formatPaise(projection.outstanding)} is still outstanding on this loan. ` +
+        `Settle it — say what was paid, and anything the lender waived is recorded as waived — ` +
+        `rather than closing it with the debt still on it.`,
+      );
+    }
+
     if (input.settlement && input.settlement > 0) {
       /*
        * The settlement is real money and moves like any other loan payment:
@@ -1299,7 +1456,7 @@ export function closeLoan(
         // amount and no transaction from a budget account. The loan account
         // is credited so its balance, like the outstanding, ends at nil.
         const loan = projection.loan;
-        createTransaction(db, actor, {
+        const waived = createTransaction(db, actor, {
           accountId: loan.account_id,
           amount: forgiven as Paise,
           date: input.date,
@@ -1309,9 +1466,10 @@ export function closeLoan(
         execute(
           db,
           `INSERT INTO loan_payments
-             (id,loan_id,date,amount,principal,interest,estimated,kind,transaction_id,note,created_at,created_by)
-           VALUES (?,?,?,0,?,0,0,'foreclosure',NULL,?,?,?)`,
-          newId(), input.loanId, input.date, forgiven,
+             (id,loan_id,date,amount,principal,interest,estimated,kind,transaction_id,loan_transaction_id,
+              note,created_at,created_by)
+           VALUES (?,?,?,0,?,0,0,'foreclosure',NULL,?,?,?,?)`,
+          newId(), input.loanId, input.date, forgiven, waived.id,
           `Principal waived at settlement: ${formatPaise(forgiven as Paise)}`,
           nowIST(), actor.memberId,
         );
@@ -1336,69 +1494,214 @@ export function closeLoan(
   });
 }
 
-registerUndoHandler("loan", (db, event) => {
+/**
+ * Remove a loan outright: its rates, its payment envelope and its tracking
+ * account. Refused, with the reason, while anything else points at any of them.
+ */
+function removeLoan(db: DB, id: string, loan: Pick<Loan, "account_id">): void {
+  const category = queryOne<{ payment_category_id: string | null }>(
+    db, `SELECT payment_category_id FROM loans WHERE id = ?`, id,
+  )?.payment_category_id ?? null;
+
+  /*
+   * D10 · Removing a loan removes its account and its payment envelope, and
+   * anything since that points at any of the three has to stop it: the EMI
+   * plan's instalments, a disbursement, money assigned to the envelope. The
+   * old handler also deleted the envelope before the loan that names it and
+   * left the envelope's target behind, so it hit a foreign key every time —
+   * a 500, where the household needed a sentence.
+   */
+  const dependants = [
+    ...dependantsOf(db, "loans", id, {
+      own: ["loan_rates.loan_id"],
+      words: {
+        loan_disbursements: "a disbursement", loan_payments: "payments",
+        loan_statements: "statements",
+      },
+    }),
+    ...dependantsOf(db, "accounts", loan.account_id, {
+      own: ["loans.account_id", "categories.payment_account_id", "cards.account_id"],
+      words: { transactions: "transactions", schedules: "schedules" },
+    }),
+    ...(category
+      ? dependantsOf(db, "categories", category, {
+          own: ["loans.payment_category_id", "targets.category_id", "assignments.category_id"],
+          words: { transactions: "spending filed to its envelope", schedules: "schedules" },
+        })
+      : []),
+  ];
+  const assigned = category
+    ? queryOne<{ n: number }>(
+        db, `SELECT COUNT(*) AS n FROM assignments WHERE category_id = ? AND amount <> 0`, category,
+      )?.n ?? 0
+    : 0;
+  if (assigned > 0) dependants.push("money assigned to its envelope");
+  if (dependants.length > 0) {
+    throw new Refusal(
+      `This loan already has ${[...new Set(dependants)].join(", ")}, so removing it would ` +
+      `leave those pointing at nothing. Close the loan instead — its history stays.`,
+    );
+  }
+
+  execute(db, `DELETE FROM loan_rates WHERE loan_id = ?`, id);
+  execute(db, `DELETE FROM loans WHERE id = ?`, id);
+  if (category) {
+    execute(db, `DELETE FROM assignments WHERE category_id = ?`, category);
+    execute(db, `DELETE FROM targets WHERE category_id = ?`, category);
+    execute(db, `DELETE FROM categories WHERE id = ?`, category);
+  }
+  execute(db, `DELETE FROM accounts WHERE id = ?`, loan.account_id);
+}
+
+registerUndoHandler("loan", (db, event, actor) => {
   if (event.action === "create") {
-    const loan = event.after as Loan;
-    const id = event.entityId!;
-    const category = queryOne<{ payment_category_id: string | null }>(
-      db, `SELECT payment_category_id FROM loans WHERE id = ?`, id,
-    )?.payment_category_id ?? null;
-
-    /*
-     * D10 · Removing a loan removes its account and its payment envelope, and
-     * anything since that points at any of the three has to stop it: the EMI
-     * plan's instalments, a disbursement, money assigned to the envelope. The
-     * old handler also deleted the envelope before the loan that names it and
-     * left the envelope's target behind, so it hit a foreign key every time —
-     * a 500, where the household needed a sentence.
-     */
-    const dependants = [
-      ...dependantsOf(db, "loans", id, {
-        own: ["loan_rates.loan_id"],
-        words: {
-          loan_disbursements: "a disbursement", loan_payments: "payments",
-          loan_statements: "statements",
-        },
-      }),
-      ...dependantsOf(db, "accounts", loan.account_id, {
-        own: ["loans.account_id", "categories.payment_account_id", "cards.account_id"],
-        words: { transactions: "transactions", schedules: "schedules" },
-      }),
-      ...(category
-        ? dependantsOf(db, "categories", category, {
-            own: ["loans.payment_category_id", "targets.category_id", "assignments.category_id"],
-            words: { transactions: "spending filed to its envelope", schedules: "schedules" },
-          })
-        : []),
-    ];
-    const assigned = category
-      ? queryOne<{ n: number }>(
-          db, `SELECT COUNT(*) AS n FROM assignments WHERE category_id = ? AND amount <> 0`, category,
-        )?.n ?? 0
-      : 0;
-    if (assigned > 0) dependants.push("money assigned to its envelope");
-    if (dependants.length > 0) {
-      throw new Refusal(
-        `This loan already has ${[...new Set(dependants)].join(", ")}, so removing it would ` +
-        `leave those pointing at nothing. Close the loan instead — its history stays.`,
-      );
-    }
-
-    execute(db, `DELETE FROM loan_rates WHERE loan_id = ?`, id);
-    execute(db, `DELETE FROM loans WHERE id = ?`, id);
-    if (category) {
-      execute(db, `DELETE FROM assignments WHERE category_id = ?`, category);
-      execute(db, `DELETE FROM targets WHERE category_id = ?`, category);
-      execute(db, `DELETE FROM categories WHERE id = ?`, category);
-    }
-    execute(db, `DELETE FROM accounts WHERE id = ?`, loan.account_id);
+    removeLoan(db, event.entityId!, event.after as Loan);
     return `Removed the loan that was added`;
   }
+  /*
+   * WEALTH-21 · Everything else a loan records, reversed for real or refused.
+   *
+   * This handler knew "create" and "close" and answered every other action with
+   * "Reversed a change to the loan" while touching nothing — so undoing a ₹5,000
+   * instalment was logged as undone (and could never be undone again) while the
+   * payment, the bank debit and the ₹96,000 outstanding all stayed. A log that
+   * says a thing was reversed when it was not is worse than one that refuses.
+   * Each action now removes exactly what it wrote, found by the ids its event
+   * carries; an event from before it carried them is refused with a sentence.
+   */
+  const id = event.entityId!;
+  const after = (event.after ?? {}) as Record<string, unknown>;
+  const before = (event.before ?? {}) as Record<string, unknown>;
+  const loan = getLoan(db, id);
+  if (!loan) throw new UndoRefused("That loan no longer exists.");
+  const tooOld = (what: string) =>
+    new UndoRefused(
+      `That ${what} was recorded before undo could reverse it, so it cannot be taken back ` +
+      `from here. Record the correction on the loan instead.`,
+    );
+
   if (event.action === "close") {
-    execute(db, `UPDATE loans SET closed_at = NULL WHERE id = ?`, event.entityId!);
-    return `Reopened the loan`;
+    /*
+     * Reopen both halves. closeLoan closes the loan *and* its tracking account;
+     * reopening only the loan left the account closed, so the reopened loan
+     * dropped out of every account list. The principal waived at settlement
+     * was part of closing and goes with it; the settlement payment and any
+     * charge have their own entries in the log and are undone there.
+     */
+    for (const waiver of queryAll<{ id: string; loan_transaction_id: string | null }>(
+      db,
+      `SELECT id, loan_transaction_id FROM loan_payments
+        WHERE loan_id = ? AND kind = 'foreclosure' AND amount = 0`,
+      id,
+    )) {
+      execute(db, `DELETE FROM loan_payments WHERE id = ?`, waiver.id);
+      eraseTransaction(db, waiver.loan_transaction_id);
+    }
+    execute(db, `UPDATE loans SET closed_at = NULL WHERE id = ?`, id);
+    execute(db, `UPDATE accounts SET closed_at = NULL WHERE id = ?`, loan.account_id);
+    syncLoanPaymentTarget(db, actor, id);
+    return `Reopened the loan and its account. A settlement payment stays recorded until you undo it too`;
   }
-  return `Reversed a change to the loan`;
+
+  if (event.action === "instalment") {
+    const recorded = after as Partial<LoanPayment>;
+    const payment = recorded.id
+      ? queryOne<LoanPayment>(db, `SELECT * FROM loan_payments WHERE id = ?`, recorded.id)
+      : null;
+    if (!payment) throw new UndoRefused("That payment has already been removed.");
+    if (loan.closed_at) {
+      throw new UndoRefused("The loan has been closed since. Undo the close first, then this payment.");
+    }
+    // Paid from an account, but from before the loan leg was kept (0053 could
+    // not pair it): removing the bank side alone would leave the credit behind.
+    if (payment.transaction_id && payment.principal > 0 && !payment.loan_transaction_id) {
+      throw tooOld("payment");
+    }
+    execute(db, `DELETE FROM loan_payments WHERE id = ?`, payment.id);
+    eraseTransaction(db, payment.transaction_id);
+    eraseTransaction(db, payment.loan_transaction_id);
+    // A prepayment taken as a shorter tenure moved it; put it back.
+    if (payment.kind === "prepayment" && typeof before.tenure_months === "number") {
+      execute(db, `UPDATE loans SET tenure_months = ? WHERE id = ?`, before.tenure_months, id);
+    }
+    syncLoanPaymentTarget(db, actor, id);
+    const what = {
+      instalment: "instalment", prepayment: "prepayment", extra: "payment", charge: "charge",
+      foreclosure: "settlement payment",
+    }[payment.kind];
+    return `Removed the ${formatPaise(payment.amount)} ${what} of ${formatDate(payment.date)}, ` +
+      `and the money it moved`;
+  }
+
+  if (event.action === "rate-change") {
+    if (typeof after.id !== "string") throw tooOld("rate change");
+    execute(db, `DELETE FROM loan_rates WHERE id = ?`, after.id);
+    if (typeof before.tenure_months === "number" && after.tenure_months !== before.tenure_months) {
+      execute(db, `UPDATE loans SET tenure_months = ? WHERE id = ?`, before.tenure_months, id);
+    }
+    syncLoanPaymentTarget(db, actor, id);
+    return `Removed the rate change to ${String(after.rate)}%`;
+  }
+
+  if (event.action === "reanchor") {
+    if (typeof after.paymentId !== "string") throw tooOld("re-anchor");
+    execute(db, `DELETE FROM loan_payments WHERE id = ?`, after.paymentId);
+    syncLoanPaymentTarget(db, actor, id);
+    return `Removed the re-anchor to the lender's balance`;
+  }
+
+  if (event.action === "statement") {
+    if (typeof after.id !== "string") throw tooOld("lender statement");
+    execute(db, `DELETE FROM loan_statements WHERE id = ?`, after.id);
+    return `Removed the lender statement`;
+  }
+
+  if (event.action === "disburse") {
+    if (typeof after.id !== "string" || !Array.isArray(after.transactionIds)) throw tooOld("disbursement");
+    execute(db, `DELETE FROM loan_disbursements WHERE id = ?`, after.id);
+    for (const leg of after.transactionIds as string[]) eraseTransaction(db, leg);
+    syncLoanPaymentTarget(db, actor, id);
+    return `Removed the ${formatPaise(after.amount as Paise)} disbursement`;
+  }
+
+  if (event.action === "convert-to-emi") {
+    /*
+     * MONEY-CORE-24 · Undoing a conversion takes the whole of it back: the plan,
+     * the credit it put on the card, the fee, and the money it moved from the
+     * card's envelope to the plan's. That is the only way a conversion made by
+     * mistake — the same charge twice — can be put right from the log.
+     */
+    if (!("feeTransactionId" in after)) throw tooOld("conversion");
+    if (queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM loan_payments WHERE loan_id = ?`, id)!.n > 0) {
+      throw new UndoRefused(
+        "Instalments have been recorded against this plan since. Undo those first, or close the plan.",
+      );
+    }
+    for (const draw of listDisbursements(db, id)) {
+      const legs = queryOne<{ after_json: string | null }>(
+        db,
+        `SELECT after_json FROM events
+          WHERE entity = 'loan' AND entity_id = ? AND action = 'disburse' AND after_json LIKE ?`,
+        id, `%${draw.id}%`,
+      );
+      const ids = (legs?.after_json ? JSON.parse(legs.after_json).transactionIds : null) as string[] | null;
+      if (!Array.isArray(ids)) throw tooOld("conversion");
+      execute(db, `DELETE FROM loan_disbursements WHERE id = ?`, draw.id);
+      for (const leg of ids) eraseTransaction(db, leg);
+    }
+    eraseTransaction(db, after.feeTransactionId as string | null);
+    const moved = after.moved as { month: MonthKey; fromCategoryId: string; toCategoryId: string; amount: Paise } | null;
+    if (moved) {
+      moveMoney(db, actor, {
+        month: moved.month, fromCategoryId: moved.toCategoryId, toCategoryId: moved.fromCategoryId,
+        amount: moved.amount,
+      });
+    }
+    removeLoan(db, id, loan);
+    return `Took back the conversion to EMI: the plan, the card credit and the fee`;
+  }
+
+  throw new UndoRefused("That change to the loan cannot be undone from here.");
 });
 
 /** Where the household's monthly obligations sit, for the debt overview (F18.16). */
