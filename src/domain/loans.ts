@@ -103,6 +103,8 @@ export interface LoanPayment {
   estimated: number;
   kind: "instalment" | "prepayment" | "extra" | "charge" | "foreclosure";
   transaction_id: string | null;
+  /** WEALTH-16 · The loan account's side: the principal, credited to the debt. */
+  loan_transaction_id: string | null;
   note: string | null;
 }
 
@@ -843,6 +845,7 @@ export function recordInstalment(
     }
 
     let transactionId: string | null = null;
+    let loanTransactionId: string | null = null;
     if (input.fromAccountId) {
       const from = getAccount(db, input.fromAccountId);
 
@@ -871,15 +874,6 @@ export function recordInstalment(
           cleared: true,
         });
         transactionId = charge.id;
-
-        // And the debt itself falls, so the loan's own balance keeps step.
-        createTransaction(db, actor, {
-          accountId: loan.account_id,
-          amount: input.amount,
-          date: input.date,
-          memo: `${loan.nickname || loan.lender} instalment`,
-          cleared: true,
-        });
       } else {
         /*
          * B124 · The payment envelope is reduced by the full amount, and the
@@ -908,14 +902,38 @@ export function recordInstalment(
           memo: `${loan.nickname || loan.lender} instalment`,
           cleared: true,
         });
-        createTransaction(db, actor, {
+        transactionId = out.id;
+      }
+
+      /*
+       * WEALTH-16 · And the debt itself falls — by the principal, not by the
+       * whole instalment.
+       *
+       * Both branches credited the loan account with everything paid, interest
+       * included. The interest is not repayment: it is the cost of the month's
+       * borrowing, and it has already left the budget as spending filed to the
+       * payment envelope above. Counting it again on the loan account made the
+       * account read ₹9,91,002.74 owed after one EMI on a ₹10 lakh loan whose
+       * schedule, correctly, said ₹9,98,502.74 — and the drift check then told
+       * the household that a payment the app itself had booked was "entered
+       * straight onto the account". The gap grew by every month's interest.
+       *
+       * So the loan leg carries exactly what outstandingPrincipal subtracts, and
+       * the account balance equals the outstanding after every instalment,
+       * prepayment and settlement. A charge, or an interest-only payment during
+       * a moratorium, repays nothing and so has no loan leg at all.
+       *
+       * The leg's id is kept on the payment so that undoing it removes both
+       * sides, and so that the leg cannot be undone on its own.
+       */
+      if (principal > 0) {
+        loanTransactionId = createTransaction(db, actor, {
           accountId: loan.account_id,
-          amount: input.amount,
+          amount: principal as Paise,
           date: input.date,
           memo: `${loan.nickname || loan.lender} instalment`,
           cleared: true,
-        });
-        transactionId = out.id;
+        }).id;
       }
     }
 
@@ -923,10 +941,12 @@ export function recordInstalment(
     execute(
       db,
       `INSERT INTO loan_payments
-         (id,loan_id,date,amount,principal,interest,estimated,kind,transaction_id,note,created_at,created_by)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+         (id,loan_id,date,amount,principal,interest,estimated,kind,transaction_id,loan_transaction_id,
+          note,created_at,created_by)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       id, input.loanId, input.date, input.amount, principal, interest, estimated,
-      input.kind ?? "instalment", transactionId, input.note ?? null, nowIST(), actor.memberId,
+      input.kind ?? "instalment", transactionId, loanTransactionId, input.note ?? null,
+      nowIST(), actor.memberId,
     );
 
     const payment = queryOne<LoanPayment>(db, `SELECT * FROM loan_payments WHERE id = ?`, id)!;
@@ -1299,7 +1319,7 @@ export function closeLoan(
         // amount and no transaction from a budget account. The loan account
         // is credited so its balance, like the outstanding, ends at nil.
         const loan = projection.loan;
-        createTransaction(db, actor, {
+        const waived = createTransaction(db, actor, {
           accountId: loan.account_id,
           amount: forgiven as Paise,
           date: input.date,
@@ -1309,9 +1329,10 @@ export function closeLoan(
         execute(
           db,
           `INSERT INTO loan_payments
-             (id,loan_id,date,amount,principal,interest,estimated,kind,transaction_id,note,created_at,created_by)
-           VALUES (?,?,?,0,?,0,0,'foreclosure',NULL,?,?,?)`,
-          newId(), input.loanId, input.date, forgiven,
+             (id,loan_id,date,amount,principal,interest,estimated,kind,transaction_id,loan_transaction_id,
+              note,created_at,created_by)
+           VALUES (?,?,?,0,?,0,0,'foreclosure',NULL,?,?,?,?)`,
+          newId(), input.loanId, input.date, forgiven, waived.id,
           `Principal waived at settlement: ${formatPaise(forgiven as Paise)}`,
           nowIST(), actor.memberId,
         );
