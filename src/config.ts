@@ -97,6 +97,21 @@ function defaultDatabasePath(dataDir: string): string {
   return !existsSync(renamed) && existsSync(legacy) ? legacy : renamed;
 }
 
+const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
+
+/*
+ * SECURITY-OPS-27 · LOG_LEVEL was cast, not read. "INFO" became a level with no
+ * threshold, the comparison against undefined never filtered, and every debug
+ * line was logged in production. Case is forgiven; anything else stops the
+ * process with the list of what it takes, rather than guessing what was meant.
+ */
+function logLevel(value: string | undefined, environment: Config["environment"]): Config["logLevel"] {
+  if (value === undefined || value.trim() === "") return environment === "production" ? "info" : "debug";
+  const level = value.trim().toLowerCase();
+  if ((LOG_LEVELS as readonly string[]).includes(level)) return level as Config["logLevel"];
+  throw new InvalidConfiguration(`LOG_LEVEL is '${value}'; use one of ${LOG_LEVELS.join(", ")}.`);
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const environment = env.NODE_ENV === "production" ? "production" : "development";
   const dataDir = resolve(env.DATA_DIR ?? "./data");
@@ -111,7 +126,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     backupDir: env.BACKUP_DIR ?? join(dataDir, "backups"),
     attachmentDir: env.ATTACHMENT_DIR ?? join(dataDir, "attachments"),
     environment,
-    logLevel: (env.LOG_LEVEL as Config["logLevel"]) ?? (environment === "production" ? "info" : "debug"),
+    logLevel: logLevel(env.LOG_LEVEL, environment),
     google: {
       clientId: env.GOOGLE_CLIENT_ID || null,
       clientSecret: env.GOOGLE_CLIENT_SECRET || null,
@@ -158,6 +173,14 @@ export function devLoginModulePresent(): boolean {
   );
 }
 
+/** A setting whose value this app cannot read, reported rather than guessed at. */
+export class InvalidConfiguration extends Error {
+  constructor(problem: string) {
+    super(`Refusing to start: ${problem}\n`);
+    this.name = "InvalidConfiguration";
+  }
+}
+
 export class UnsafeConfiguration extends Error {
   /*
    * The advice has to name the right setting. Both bypasses raise this, and a
@@ -196,14 +219,19 @@ export function productionIndicators(config: Config): string[] {
     found.push(`BASE_URL points at a public hostname: ${host}`);
   }
 
-  if (config.google.clientId || config.google.clientSecret) {
-    found.push("real Google OAuth credentials are configured");
-  }
+  // SECURITY-OPS-27 · Google was the only door checked. OIDC is the other real
+  // SSO door, and LOCAL_LOGIN means members have passwords they expect to
+  // matter: a homelab on 192.168.x behind Authelia with DEV_LOGIN left on let
+  // anyone on the LAN pick any member.
+  found.push(...realSignInDoors(config));
 
   return found;
 }
 
 function isLocalHostname(host: string): boolean {
+  // URL.hostname keeps the brackets on an IPv6 literal, so "::1" never matched
+  // and the loopback was refused as "a public hostname: [::1]".
+  if (host.startsWith("[") && host.endsWith("]")) host = host.slice(1, -1);
   if (host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "0.0.0.0") return true;
   if (host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".test")) return true;
   // RFC1918 ranges, so a homelab machine on a LAN still counts as development.

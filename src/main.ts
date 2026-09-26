@@ -9,7 +9,7 @@
 
 import { repairCrossBudgetClaims } from "./domain/commitments.ts";
 import {
-  loadConfig, assertDevLoginSafeAgainstData, assertDemoModeSafeAgainstData,
+  loadConfig, assertDevLoginSafeAgainstData, assertDemoModeSafeAgainstData, InvalidConfiguration,
   UnsafeConfiguration, devLoginModulePresent,
 } from "./config.ts";
 import { openDatabase, ensureHousehold, queryOne } from "./db/db.ts";
@@ -31,7 +31,7 @@ function main(): void {
   try {
     config = loadConfig();
   } catch (err) {
-    if (err instanceof UnsafeConfiguration) {
+    if (err instanceof UnsafeConfiguration || err instanceof InvalidConfiguration) {
       console.error(`\n${err.message}`);
       process.exit(1);
     }

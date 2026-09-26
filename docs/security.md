@@ -47,7 +47,9 @@ including token management itself. Rate limited per token.
 **Development login** (`DEV_LOGIN`) is absent from the production image: the
 module is compiled then deleted, and the build asserts its absence. The
 application also refuses to start with it enabled in a production-shaped
-environment.
+environment: `NODE_ENV=production`, a `BASE_URL` that is not loopback, `.local`,
+`.test` or a private LAN address, Google or OIDC credentials, or
+`LOCAL_LOGIN`.
 
 **Demo mode** (`DEMO_MODE`) bypasses authentication. It refuses to start
 alongside `DEV_LOGIN`, or alongside any real way in — Google or OIDC

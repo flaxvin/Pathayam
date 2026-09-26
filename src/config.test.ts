@@ -2,6 +2,7 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import {
   loadConfig, productionIndicators, assertDevLoginSafeAgainstData, UnsafeConfiguration, assertDemoModeSafeAgainstData,
+  InvalidConfiguration,
 } from "./config.ts";
 
 const base = { DATA_DIR: "/tmp/budget-test" };
@@ -68,8 +69,42 @@ describe("R38.3 · the dev login bypass refuses to start near production", () =>
     assert.doesNotThrow(() => assertDevLoginSafeAgainstData(config, 100_000));
   });
 
+  test("SECURITY-OPS-27 · refuses alongside the other real doors: OIDC and passwords", () => {
+    // A homelab on a LAN address behind its own identity provider is
+    // development-shaped by hostname, and still has people who sign in.
+    const lan = { ...base, DEV_LOGIN: "true", BASE_URL: "http://192.168.1.10:8080" };
+    assert.throws(
+      () => loadConfig({ ...lan, OIDC_ISSUER: "https://auth.example.org", OIDC_CLIENT_ID: "x", OIDC_CLIENT_SECRET: "y" }),
+      (err: unknown) => err instanceof UnsafeConfiguration && /OpenID Connect/.test(err.message),
+    );
+    assert.throws(
+      () => loadConfig({ ...lan, LOCAL_LOGIN: "1" }),
+      (err: unknown) => err instanceof UnsafeConfiguration && /LOCAL_LOGIN/.test(err.message),
+    );
+  });
+
+  test("SECURITY-OPS-27 · the IPv6 loopback is a local address", () => {
+    const config = loadConfig({ ...base, DEV_LOGIN: "true", BASE_URL: "http://[::1]:8080" });
+    assert.deepEqual(productionIndicators(config), []);
+  });
   test("is off by default (R38.2)", () => {
     assert.equal(loadConfig(base).devLogin, false);
+  });
+});
+
+describe("SECURITY-OPS-27 · LOG_LEVEL is read, not cast", () => {
+  test("case is forgiven, and unset falls back to the environment's default", () => {
+    assert.equal(loadConfig({ ...base, LOG_LEVEL: "INFO" }).logLevel, "info");
+    assert.equal(loadConfig({ ...base, LOG_LEVEL: " Warn " }).logLevel, "warn");
+    assert.equal(loadConfig({ ...base }).logLevel, "debug");
+    assert.equal(loadConfig({ ...base, LOG_LEVEL: "", NODE_ENV: "production" }).logLevel, "info");
+  });
+
+  test("an unknown level stops the process rather than logging everything", () => {
+    assert.throws(
+      () => loadConfig({ ...base, LOG_LEVEL: "verbose" }),
+      (err: unknown) => err instanceof InvalidConfiguration && /debug, info, warn, error/.test(err.message),
+    );
   });
 });
 
