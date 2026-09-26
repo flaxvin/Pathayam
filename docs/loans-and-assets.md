@@ -11,7 +11,7 @@ equal to the current instalment.
 | Field | Notes |
 |---|---|
 | `loan_type` | `home`, `home-under-construction`, `car`, `personal`, `gold`, `education`, `loan-against-property`, `credit-card-emi`, `bnpl`, `other`. |
-| `interest_model` | `reducing` or `flat`. |
+| `interest_model` | `reducing`, `flat`, `moratorium-serviced` or `moratorium-capitalised`. |
 | `sanctioned`, `sanction_date` | |
 | `tenure_months`, `original_tenure_months` | The original is retained when a rate change alters the tenure. |
 | `first_instalment_date`, `instalment_day` | |
@@ -19,6 +19,12 @@ equal to the current instalment.
 | `repayment_account_id` | Where instalments are paid from. |
 | `payment_category_id` | The envelope funding them. |
 | `benchmark` | For floating-rate loans. |
+
+Adding a loan refuses, with a sentence: a rate that is not a number, negative,
+or above 100% a year; a tenure that is not a whole number of months from 1 to
+600; a moratorium that is not a whole number of months; a type or interest
+model outside the lists; and an outstanding above the sanction, except on a
+capitalised moratorium, where unpaid interest can take it there.
 
 ### Schedule
 

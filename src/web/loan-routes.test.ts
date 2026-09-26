@@ -65,3 +65,41 @@ describe("WEALTH-17 · a replayed prepayment is applied once", () => {
     } finally { await app.close(); }
   });
 });
+
+describe("WEALTH-38 · adding a loan checks what it is given", () => {
+  const base = (bank: string): Record<string, string> => ({
+    lender: "Fictional Lender", loan_type: "personal", sanctioned: "100000", sanction_date: "2026-01-01",
+    interest_model: "reducing", annual_rate: "12", tenure_months: "12", repayment_account_id: bank,
+  });
+
+  test("nonsense is a 422 with a sentence, never a 500, and nothing is saved", async () => {
+    const { db, app, bank } = await setup();
+    try {
+      const cases: Record<string, string>[] = [
+        { tenure_months: "abc" }, { tenure_months: "1.5" }, { tenure_months: "0" },
+        { annual_rate: "abc" }, { annual_rate: "-3" }, { annual_rate: "1e20" },
+        { loan_type: "bogus" }, { interest_model: "bogus" },
+        { interest_model: "moratorium-serviced", moratorium_months: "abc" },
+        { current_outstanding: "500000" },
+      ];
+      const before = count(db, `SELECT COUNT(*) AS n FROM loans`);
+      for (const over of cases) {
+        const res = await app.post("/loans/new", { ...base(bank), ...over });
+        assert.equal(res.status, 422, JSON.stringify(over));
+      }
+      assert.equal(count(db, `SELECT COUNT(*) AS n FROM loans`), before);
+    } finally { await app.close(); }
+  });
+
+  test("a sound loan still saves, and a capitalised moratorium may owe more than it drew", async () => {
+    const { db, app, bank } = await setup();
+    try {
+      assert.equal((await app.post("/loans/new", base(bank))).status, 303);
+      assert.equal((await app.post("/loans/new", {
+        ...base(bank), interest_model: "moratorium-capitalised", moratorium_months: "24",
+        current_outstanding: "120000",
+      })).status, 303);
+      assert.equal(count(db, `SELECT COUNT(*) AS n FROM loans`), 3);
+    } finally { await app.close(); }
+  });
+});

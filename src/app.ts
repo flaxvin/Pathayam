@@ -4659,7 +4659,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           "reducing" | "flat" | "moratorium-serviced" | "moratorium-capitalised",
         annualRatePct: Number(requiredField(ctx.body, "annual_rate")),
         tenureMonths: Number(requiredField(ctx.body, "tenure_months")),
-        moratoriumMonths: Number(field(ctx.body, "moratorium_months") ?? "0") || 0,
+        // "abc" is refused by createLoan (WEALTH-38), not quietly read as none.
+        moratoriumMonths: field(ctx.body, "moratorium_months")?.trim()
+          ? Number(field(ctx.body, "moratorium_months")) : 0,
         firstInstalmentDate: firstDue ? parseDate(firstDue) : null,
         repaymentAccountId: visibleAccountField(ctx, "repayment_account_id"),
         currentOutstanding: outstandingRaw?.trim() ? amountField(outstandingRaw) : null,
