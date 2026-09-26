@@ -218,7 +218,20 @@ export function buildBudgetView(
     categories,
     underfunded: totalUnderfunded(progressList),
     nextIncome: nextIncome(db, { today, budgetId, viewerMemberId }),
-    buffer: computeBuffer(monthState.categories, input.categories, averageDailySpend(db, today)),
+    /*
+     * BUDGET-20 · Both halves read the same envelopes: what this view holds, over
+     * what those budgets' envelopes spend, as the viewer may see them. The
+     * denominator was every budget's spending, another member's private
+     * spending included — a wrong figure, and one her rate could be read from.
+     */
+    buffer: computeBuffer(
+      new Map([...categories].map(([id, c]) => [id, c.state])),
+      input.categories,
+      averageDailySpend(
+        db, today, 90, viewerMemberId,
+        budgetId !== undefined ? [budgetId] : visibleBudgets ? [...visibleBudgets] : undefined,
+      ),
+    ),
     fullyFunded: isFullyFunded(progressList, monthState.readyToAssign),
     cards,
     futureCaveat: futureMonthCaveat(target, currentMonth),

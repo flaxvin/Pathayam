@@ -24,6 +24,7 @@ import { freshHousehold, RAVI, PRIYA } from "../engine/identity.test-data.ts";
 import { closeMonth, closedMonths } from "../domain/month-close.ts";
 import { commitmentEnvelope, ensureCommitmentEnvelope } from "../domain/commitments.ts";
 import { startTestApp } from "./harness.test-data.ts";
+import { buildBudgetView } from "./viewmodel.ts";
 
 const ravi: Actor = { memberId: RAVI, source: "ui" };
 const priya: Actor = { memberId: PRIYA, source: "ui" };
@@ -310,5 +311,29 @@ describe("BUDGET-23 · picking it up commits a positive amount to the household"
     } finally {
       await hers.close();
     }
+  });
+});
+
+describe("BUDGET-20 · the buffer divides a budget's envelopes by that budget's spending", () => {
+  test("Ravi's household buffer leaves Priya's private spending out of the rate", () => {
+    const { db, priyaBudget } = household();
+    const joint = listAccounts(db).find((a) => a.name === "Joint")!;
+    const g = createGroup(db, ravi, "Shared", "normal", HH);
+    const food = createCategory(db, ravi, { groupId: g.id, name: "Food" });
+    setAssigned(db, ravi, NOW, food.id, 900_000);
+    createTransaction(db, ravi, { accountId: joint.id, amount: -90_000, date: todayIST(), categoryId: food.id });
+
+    const pg = createGroup(db, priya, "Hers", "normal", priyaBudget);
+    const shop = createCategory(db, priya, { groupId: pg.id, name: "Shopping" });
+    const hers = listAccounts(db).find((a) => a.name === "Priya private")!;
+    createTransaction(db, priya, { accountId: hers.id, amount: -27_000_000, date: todayIST(), categoryId: shop.id });
+
+    // ₹900 over 90 days is ₹10 a day; ₹8,100 left in Food is 810 days of it.
+    for (const view of [buildBudgetView(db, NOW, HH, RAVI), buildBudgetView(db, NOW, undefined, RAVI)]) {
+      assert.equal(view.buffer.averageDailySpend, 1_000);
+      assert.equal(view.buffer.days, 810);
+    }
+    // Her own budget is read at her own rate.
+    assert.equal(buildBudgetView(db, NOW, priyaBudget, PRIYA).buffer.averageDailySpend, 300_000);
   });
 });
