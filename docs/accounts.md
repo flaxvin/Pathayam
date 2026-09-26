@@ -217,7 +217,10 @@ created to close the gap.
 
 A checkpoint **breaks** when a transaction dated on or before `as_of` is later
 added, edited or deleted. The account shows the break and the reason until it is
-reconciled again.
+reconciled again. Imports count: approving an imported row, merging one into an
+uncleared transaction, or undoing a whole import asks first, naming the
+checkpoint, and breaks it on the yes — and auto-approval or undo from the
+activity log breaks it without asking.
 
 ## Credit cards
 
