@@ -102,6 +102,18 @@ export function createHttpServer(options: ServerOptions): Server {
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const started = Date.now();
     const url = new URL(req.url ?? "/", baseUrl);
+    /*
+     * One spelling of every path, decided here, before anything reads it.
+     *
+     * The router splits on "/" and drops empty segments, so "//tokens" routes
+     * to /tokens. Everything that reads the pathname as a string did not: the
+     * token deny-list (F30.6) compared "//tokens" against "/tokens", found no
+     * match, and let a bearer token mint more tokens and invite outsiders
+     * through "/.//tokens" (WHATWG resolves the dot and leaves the double
+     * slash). Collapsing runs of slashes once makes every string check and the
+     * router agree on which route a request is for.
+     */
+    if (url.pathname.includes("//")) url.pathname = url.pathname.replace(/\/{2,}/g, "/");
 
     const ctx: RequestContext = {
       req,
