@@ -108,6 +108,25 @@ SELECT lp.loan_id, l.lender, lp.date, lp.amount
  WHERE lp.kind = 'foreclosure' AND lp.amount > 0 AND lp.transaction_id IS NULL;
 ```
 
+### Undo
+
+Every loan change in the activity log undoes for real or is refused with a
+reason — none is marked undone without moving anything:
+
+| Undoing | Reverses |
+|---|---|
+| An instalment, prepayment, charge or settlement payment | The payment row and both of its legs (the bank or card debit, the loan-account credit). A prepayment taken as a shorter tenure puts the tenure back. Refused while the loan is closed — undo the close first. |
+| A rate change | The rate period, and the tenure if "keep the instalment" moved it. |
+| A re-anchor, a lender statement | The row it wrote. |
+| A disbursement | The draw and both of its legs. |
+| A close | Reopens the loan **and** its account, and removes the principal waived at settlement. The settlement payment and any charge are separate entries, undone separately. |
+| A conversion to EMI | Refused: close the plan, or delete the fee, instead. |
+
+Events written before these carried the ids an undo needs (rate changes,
+re-anchors, statements and disbursements from before this release, and an
+instalment 0053 could not pair with its loan-account leg) are refused rather
+than guessed at.
+
 ### EMI conversion
 
 A credit-card charge can be converted into an instalment plan. The conversion
