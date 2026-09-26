@@ -69,7 +69,9 @@ Two independent controls:
    guarantees a same-origin request carries a `Referer` and a cross-origin one
    does not. Failure returns 403.
 
-Bearer-authenticated requests are exempt from (2): they carry no cookie.
+Bearer-authenticated requests are exempt from (2) because they carry no cookie —
+and only when they carry no session cookie: a request with one is held to (2)
+whatever `Authorization` header it also sends.
 
 The check is one middleware, applied before routing, and therefore covers every
 route.

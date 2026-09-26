@@ -447,11 +447,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * Bearer-authenticated calls are exempt. They carry no cookie, so a browser
      * cannot be tricked into making one on somebody's behalf — which is the
      * whole mechanism CSRF depends on.
+     *
+     * That premise is now checked rather than assumed (SECURITY-OPS-2). The
+     * exemption keyed on the header alone, while authentication below lets a
+     * valid session cookie win over a bearer that does not authenticate — so
+     * "Authorization: Bearer nonsense" plus a victim's cookie was a
+     * cookie-authenticated write with no Origin check at all. A request that
+     * carries a session cookie is held to the rule whatever else it carries.
      */
     function sameOriginWrites(ctx: RequestContext): Response | void {
       const method = ctx.method.toUpperCase();
       if (method === "GET" || method === "HEAD" || method === "OPTIONS") return;
-      if (/^Bearer\s/i.test(String(ctx.req.headers.authorization ?? ""))) return;
+      if (
+        /^Bearer\s/i.test(String(ctx.req.headers.authorization ?? ""))
+        && parseCookies(ctx.req.headers.cookie)[SESSION_COOKIE] === undefined
+      ) return;
 
       /*
        * Where this request believes it arrived. The configured base URL is one
