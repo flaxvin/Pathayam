@@ -2364,4 +2364,69 @@ DELETE FROM month_rollups;
 DELETE FROM month_rollup_state;
 `,
   },
+  {
+    name: "0053-rules-follow-a-merged-envelope",
+    sql: `
+--------------------------------------------------------------------------------
+-- F6 · Rules left naming an envelope that was merged away
+--------------------------------------------------------------------------------
+-- Merging (or deleting with a remap) moved an envelope's history, schedules
+-- and queued rows to the other envelope and left the rules naming the old one.
+-- /rules hid them, since their envelope was gone, while they went on filing
+-- imports into it, and "Apply to existing" wrote the dead id onto transactions.
+-- The code now moves them with the rest. Here, each rule naming a merged-away
+-- envelope follows the merge - through any later merge of the winner - to the
+-- envelope that is still there; run twice for a rule naming two of them. A
+-- rule still naming a deleted envelope after that has nowhere to file, and is
+-- switched off rather than left firing.
+WITH RECURSIVE merged(loser, winner) AS (
+  SELECT e.entity_id, json_extract(e.after_json, '$.id') FROM events e
+   WHERE e.entity = 'category' AND e.action = 'merge' AND e.undone_by_event_id IS NULL
+     AND json_extract(e.after_json, '$.id') IS NOT NULL
+),
+hop(start, id, depth) AS (
+  SELECT loser, winner, 1 FROM merged
+  UNION ALL
+  SELECT hop.start, merged.winner, hop.depth + 1 FROM hop JOIN merged ON merged.loser = hop.id
+   WHERE hop.depth < 20
+),
+final(loser, winner) AS (
+  SELECT hop.start, hop.id FROM hop JOIN categories c ON c.id = hop.id
+   WHERE c.deleted_at IS NULL
+     AND EXISTS (SELECT 1 FROM categories l WHERE l.id = hop.start AND l.deleted_at IS NOT NULL)
+)
+UPDATE rules
+   SET actions_json = replace(actions_json, '"' || final.loser || '"', '"' || final.winner || '"'),
+       conditions_json = replace(conditions_json, '"' || final.loser || '"', '"' || final.winner || '"')
+  FROM final
+ WHERE instr(rules.actions_json, '"' || final.loser || '"') > 0
+    OR instr(rules.conditions_json, '"' || final.loser || '"') > 0;
+WITH RECURSIVE merged(loser, winner) AS (
+  SELECT e.entity_id, json_extract(e.after_json, '$.id') FROM events e
+   WHERE e.entity = 'category' AND e.action = 'merge' AND e.undone_by_event_id IS NULL
+     AND json_extract(e.after_json, '$.id') IS NOT NULL
+),
+hop(start, id, depth) AS (
+  SELECT loser, winner, 1 FROM merged
+  UNION ALL
+  SELECT hop.start, merged.winner, hop.depth + 1 FROM hop JOIN merged ON merged.loser = hop.id
+   WHERE hop.depth < 20
+),
+final(loser, winner) AS (
+  SELECT hop.start, hop.id FROM hop JOIN categories c ON c.id = hop.id
+   WHERE c.deleted_at IS NULL
+     AND EXISTS (SELECT 1 FROM categories l WHERE l.id = hop.start AND l.deleted_at IS NOT NULL)
+)
+UPDATE rules
+   SET actions_json = replace(actions_json, '"' || final.loser || '"', '"' || final.winner || '"'),
+       conditions_json = replace(conditions_json, '"' || final.loser || '"', '"' || final.winner || '"')
+  FROM final
+ WHERE instr(rules.actions_json, '"' || final.loser || '"') > 0
+    OR instr(rules.conditions_json, '"' || final.loser || '"') > 0;
+UPDATE rules SET enabled = 0
+ WHERE enabled = 1
+   AND EXISTS (SELECT 1 FROM categories c
+                WHERE c.deleted_at IS NOT NULL AND instr(rules.actions_json, '"' || c.id || '"') > 0);
+`,
+  },
 ];

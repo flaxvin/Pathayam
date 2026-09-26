@@ -16,6 +16,7 @@ import { appendEvent, type Actor } from "../core/events.ts";
 import { nowIST } from "../core/dates.ts";
 import type { Rule, RuleStage } from "./rules.ts";
 import { extractNarrationFields, applyRules, type RuleSubject } from "./rules.ts";
+import { refusePaymentCategories } from "../domain/transactions.ts";
 
 export interface Proposal {
   id: string;
@@ -338,6 +339,13 @@ export function applyRetroactive(db: DB, actor: Actor, rule: Rule): number {
 
       const proposed = outcome.subject.categoryId;
       if (!proposed || proposed === subject.categoryId) continue;
+      /*
+       * The same check every other filing path makes. This wrote the rule's
+       * envelope straight into category_id, so a rule naming an envelope since
+       * merged away filed ₹450 into a deleted envelope the engine never reads —
+       * the identity out by that much in every month after.
+       */
+      refusePaymentCategories(db, [proposed]);
 
       const before = queryOne<Record<string, unknown>>(
         db, `SELECT * FROM transactions WHERE id = ?`, subject.id,
