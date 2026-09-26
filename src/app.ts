@@ -5822,7 +5822,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       createGoal(db, actor, {
         name,
         targetAmount: amountField(field(ctx.body, "target_amount"), "Target"),
-        targetDate: targetDate ? parseDate(targetDate) : null,
+        // Only a blank field means "no date". A date parseDate cannot read
+        // used to come back null and be saved as no date — silently, with
+        // "Goal added" — so dateField refuses it like every other date field.
+        targetDate: targetDate?.trim() ? dateField(targetDate, "Target date") : null,
         budgetId,
       });
       const budget = getBudget(db, budgetId);
@@ -5848,7 +5851,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       updateGoal(db, actor, id, {
         name,
         targetAmount: amountField(field(ctx.body, "target_amount"), "Target"),
-        targetDate: targetDate?.trim() ? parseDate(targetDate) : null,
+        // As on /goals/new: an unreadable date is refused, not read as "no
+        // date" — which here wiped the goal's saved date and stopped it
+        // computing a monthly amount.
+        targetDate: targetDate?.trim() ? dateField(targetDate, "Target date") : null,
       });
       // Keep the owned category's name in step with the goal's.
       for (const catId of goalCategoryIds(db, id)) {
