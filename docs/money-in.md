@@ -187,7 +187,7 @@ account** and against rows already pending in that account.
 
 | Tier | Test | Handling |
 |---|---|---|
-| `exact` | Same `source_id`. | Skipped. Re-importing a file adds nothing. |
+| `exact` | Same `source_id` — in the ledger, pending in Review, or dismissed from it. | Skipped. Re-importing a file adds nothing, and a dismissed row stays dismissed. |
 | `strong` | Same amount and the same bank reference, dated within 5 days of each other. | Upgrades the existing transaction automatically, with a note. A reference repeated a month later — a loan or employee number on a standing instruction — is a new transaction, not this. |
 | `probable` | Close on date and amount. | Queued for a decision. |
 | `weak` | Weaker match. | Queued for a decision. |
@@ -253,4 +253,5 @@ created and marks the batch `undone_at`.
 
 Importing the same file again after an undo stages its rows afresh, and they
 can be approved: the undone transactions give up their `source_id` (it is
-kept with a `~deleted:<id>` suffix) so the new ones can take it.
+kept with a `~deleted:<id>` suffix) so the new ones can take it. Rows dismissed
+from an undone batch come back with the rest.

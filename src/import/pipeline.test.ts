@@ -619,3 +619,32 @@ describe("04 §4 · rows still waiting in the queue are candidates too", () => {
     db.close();
   });
 });
+
+/*
+ * IMPORTS-SCHEDULES-3 · Only pending rows counted as already seen, so a row
+ * dismissed from Review came back on the next import of the same file — and a
+ * dismissed alert on every Gmail fetch in its 14-day window.
+ */
+describe("a dismissed row stays dismissed", () => {
+  test("re-importing the file does not bring a dismissed row back", () => {
+    const { db, account } = setup();
+    importStatement(db, account.id);
+    for (const row of listStaged(db)) rejectStaged(db, actor, row.id);
+
+    const again = importStatement(db, account.id);
+    assert.equal(again.staged, 0);
+    assert.equal(again.skipped, 3);
+    assert.equal(listStaged(db).length, 0);
+    db.close();
+  });
+
+  test("but an undone import gives its dismissed rows back", () => {
+    const { db, account } = setup();
+    const first = importStatement(db, account.id);
+    rejectStaged(db, actor, listStaged(db)[0]!.id);
+    undoBatch(db, actor, first.batch.id);
+
+    assert.equal(importStatement(db, account.id).staged, 3);
+    db.close();
+  });
+});
