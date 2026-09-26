@@ -34,7 +34,8 @@ import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts"
 import { todayIST, nowIST, daysBetween, formatDate, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { createAccount, getAccount } from "./accounts.ts";
-import { createTransfer, createTransaction, deleteTransaction } from "./transactions.ts";
+import { createTransfer, createTransaction, deleteTransaction, eraseTransaction, UndoRefused } from "./transactions.ts";
+import { dependantsOf } from "./dependants.ts";
 import { accountBalances } from "../engine/repository.ts";
 import { Missing, Refusal } from "../core/refusal.ts";
 
@@ -181,7 +182,7 @@ export function recordAdvance(
     if (input.amount <= 0) throw new Refusal("Enter an amount greater than zero.");
     const date = input.date ?? todayIST();
 
-    createTransfer(db, actor, {
+    const legs = createTransfer(db, actor, {
       fromAccountId: input.fromAccountId,
       toAccountId: loan.account_id,
       amount: input.amount, date, cleared: true, managedBy: "family-loans",
@@ -190,7 +191,8 @@ export function recordAdvance(
 
     appendEvent(db, actor, {
       entity: "family-loan", entityId: loan.id, action: "advance",
-      after: { amount: input.amount, date },
+      // WEALTH-29 · The two legs, so an undo can take back exactly this money.
+      after: { amount: input.amount, date, transactionIds: legs.map((t) => t.id) },
       summary: `Paid ${formatPaise(input.amount)} to ${loan.counterparty}`,
     });
   });
@@ -209,7 +211,7 @@ export function recordRepayment(
     if (input.amount <= 0) throw new Refusal("Enter an amount greater than zero.");
     const date = input.date ?? todayIST();
 
-    createTransfer(db, actor, {
+    const legs = createTransfer(db, actor, {
       fromAccountId: loan.account_id,
       toAccountId: input.accountId,
       amount: input.amount, date, cleared: true, managedBy: "family-loans",
@@ -218,7 +220,7 @@ export function recordRepayment(
 
     appendEvent(db, actor, {
       entity: "family-loan", entityId: loan.id, action: "repayment",
-      after: { amount: input.amount, date },
+      after: { amount: input.amount, date, transactionIds: legs.map((t) => t.id) },
       summary: `Received ${formatPaise(input.amount)} from ${loan.counterparty}`,
     });
   });
@@ -465,14 +467,84 @@ registerUndoHandler("family-loan", (db, event) => {
     return `Reversed the write-off for ${loan?.counterparty ?? "that arrangement"}`;
   }
 
+  /*
+   * WEALTH-29 / MONEY-CORE-25 · Closing and reopening move both halves.
+   * closeFamilyLoan and reopenFamilyLoan set the arrangement's closed_at *and*
+   * its tracking account's; this set only the first, so undoing a close left an
+   * open arrangement whose account was missing from /accounts while advances
+   * kept landing in it.
+   */
   if (event.action === "close" || event.action === "reopen") {
     const closing = event.action === "close";
+    const stamp = closing ? null : nowIST();
+    execute(db, `UPDATE family_loans SET closed_at = ? WHERE id = ?`, stamp, event.entityId);
     execute(
-      db, `UPDATE family_loans SET closed_at = ? WHERE id = ?`,
-      closing ? null : nowIST(), event.entityId,
+      db,
+      `UPDATE accounts SET closed_at = ?
+        WHERE id = (SELECT account_id FROM family_loans WHERE id = ?)`,
+      stamp, event.entityId,
     );
-    return closing ? "Reopened it" : "Closed it again";
+    return closing ? "Reopened it and its account" : "Closed it and its account again";
   }
 
-  return "Nothing to undo.";
+  /*
+   * WEALTH-29 / MONEY-CORE-4 · An advance or a repayment is money that moved,
+   * and undoing it takes the money back — both legs of its transfer, found by
+   * the ids the event now carries. This answered "Nothing to undo." and
+   * undoEvent then marked the event undone: the log said ₹50,000 to a cousin
+   * was reversed while the bank stayed ₹50,000 down and the cousin still owed
+   * it — and, marked undone, it could never be undone again.
+   */
+  if (event.action === "advance" || event.action === "repayment") {
+    const ids = (event.after as { transactionIds?: unknown } | null)?.transactionIds;
+    if (!Array.isArray(ids)) {
+      throw new UndoRefused(
+        "That was recorded before undo could reverse it, so it cannot be taken back from " +
+        "here. Delete the transfer on the account instead.",
+      );
+    }
+    const loan = getFamilyLoan(db, event.entityId!);
+    if (loan?.written_off_at) {
+      throw new UndoRefused(
+        "The balance has been written off since, and the write-off was worked out from this. " +
+        "Undo the write-off first.",
+      );
+    }
+    for (const id of ids as string[]) eraseTransaction(db, id);
+    return event.action === "advance"
+      ? "Took back the money paid, from both accounts"
+      : "Took back the money received, from both accounts";
+  }
+
+  /*
+   * Undoing the start of an arrangement removes it — while nothing has been
+   * recorded against it. Once money has moved, those entries are its history
+   * and are undone one by one first.
+   */
+  if (event.action === "create") {
+    const loan = getFamilyLoan(db, event.entityId!);
+    if (!loan) throw new UndoRefused("That arrangement has already been removed.");
+    const dependants = [
+      ...dependantsOf(db, "family_loans", loan.id),
+      ...dependantsOf(db, "accounts", loan.account_id, {
+        own: ["family_loans.account_id"],
+        words: { transactions: "money recorded against it", schedules: "schedules" },
+      }),
+    ];
+    // A departure opens one with the balance the member left owing; removing
+    // it alone would drop that debt and keep the rest of the departure.
+    const opening = getAccount(db, loan.account_id)?.opening_balance ?? 0;
+    if (opening !== 0) dependants.push("a balance it was opened with");
+    if (dependants.length > 0) {
+      throw new UndoRefused(
+        `The arrangement with ${loan.counterparty} already has ${dependants.join(", ")}. ` +
+        `Undo those first, or close it — its history stays.`,
+      );
+    }
+    execute(db, `DELETE FROM family_loans WHERE id = ?`, loan.id);
+    execute(db, `DELETE FROM accounts WHERE id = ?`, loan.account_id);
+    return `Removed the arrangement with ${loan.counterparty}`;
+  }
+
+  throw new UndoRefused("That change cannot be undone from here.");
 });

@@ -156,6 +156,11 @@ Money lent to or borrowed from a person, held in a tracking account of subtype
 - A loan can be **written off**, which records the loss against an envelope and
   closes the arrangement.
 - `agreed_total` is optional and documentary.
+- Undo reverses for real: an advance or repayment takes back both legs of its
+  transfer (refused once the balance has been written off — undo the write-off
+  first); a close or reopen moves the arrangement **and** its account; the
+  start of an arrangement removes it only while nothing has been recorded
+  against it and it did not open with a balance.
 
 ## Portfolio
 
