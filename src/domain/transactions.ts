@@ -16,6 +16,7 @@ import { formatPaise, type Paise } from "../core/money.ts";
 import { getAccount, DERIVED_VALUE_SUBTYPES, MANAGED_SUBTYPES } from "./accounts.ts";
 import { prepareClaim, prepareTransferClaim } from "./commitments.ts";
 import { dependantsOf } from "./dependants.ts";
+import { hiddenTransactionSql, hiddenAccountSql } from "./member-scope.ts";
 
 export type TransactionSource = "manual" | "csv" | "pdf" | "email" | "sms" | "api" | "schedule";
 
@@ -976,31 +977,47 @@ export interface PayeeStats {
   usualCategoryId: string | null;
 }
 
-/** F5.3, F5.4: what the entry sheet shows when a payee is chosen. */
-export function payeeStats(db: DB, payeeId: string): PayeeStats {
+/**
+ * F5.3, F5.4: what the entry sheet shows when a payee is chosen.
+ *
+ * MONEY-CORE-21 · Counted over what `viewerMemberId` may see. A payee is a
+ * household-wide name, but its history is not: Ravi's /payees said "2
+ * transactions · ₹45,801 total" for a Zomato he had spent ₹123 at, and his Add
+ * form carried ₹45,678 on 20-09 as the payee's last amount — Priya's spend on
+ * her private account, amount and date. listPayees is filtered so that a
+ * private merchant is not given away; the figures beside a shared one are
+ * filtered the same way (memberScope's rule, envelopes included). Omitted
+ * viewer means every transaction, as for listPayees.
+ */
+export function payeeStats(db: DB, payeeId: string, viewerMemberId?: string | null): PayeeStats {
+  const hidden = viewerMemberId === undefined
+    ? { sql: "0", params: [] as (string | null)[] }
+    : hiddenTransactionSql("t", viewerMemberId);
+  const seen = `t.payee_id = ? AND t.deleted_at IS NULL AND NOT ${hidden.sql}`;
+
   const agg = queryOne<{
     count: number; total: number; first_seen: string | null; last_seen: string | null;
   }>(
     db,
     `SELECT COUNT(*) AS count, COALESCE(SUM(amount),0) AS total,
             MIN(date) AS first_seen, MAX(date) AS last_seen
-       FROM transactions WHERE payee_id = ? AND deleted_at IS NULL`,
-    payeeId,
+       FROM transactions t WHERE ${seen}`,
+    payeeId, ...hidden.params,
   );
 
   const last = queryOne<{ amount: number }>(
     db,
-    `SELECT amount FROM transactions WHERE payee_id = ? AND deleted_at IS NULL
+    `SELECT amount FROM transactions t WHERE ${seen}
       ORDER BY date DESC, created_at DESC LIMIT 1`,
-    payeeId,
+    payeeId, ...hidden.params,
   );
 
   const usual = queryOne<{ category_id: string }>(
     db,
-    `SELECT category_id FROM transactions
-      WHERE payee_id = ? AND deleted_at IS NULL AND category_id IS NOT NULL
+    `SELECT category_id FROM transactions t
+      WHERE ${seen} AND category_id IS NOT NULL
       GROUP BY category_id ORDER BY COUNT(*) DESC LIMIT 1`,
-    payeeId,
+    payeeId, ...hidden.params,
   );
 
   const count = agg?.count ?? 0;
@@ -1014,6 +1031,36 @@ export function payeeStats(db: DB, payeeId: string): PayeeStats {
     lastAmount: last?.amount ?? null,
     usualCategoryId: usual?.category_id ?? null,
   };
+}
+
+/**
+ * MONEY-CORE-21 · The raw bank strings a payee has been matched from, as far as
+ * `viewerMemberId` may see them. An alias is a narration or raw payee off
+ * somebody's statement ("UPI-ZOMATO-PRIYA@OKAXIS"); one seen only on another member's
+ * private account, or only in their imports, is theirs. One nobody's row
+ * carries any more is nobody's secret.
+ */
+export function payeeAliases(
+  db: DB, payeeId: string, viewerMemberId: string | null, limit = 5,
+): string[] {
+  const hiddenTx = hiddenTransactionSql("t", viewerMemberId);
+  const hiddenAcc = hiddenAccountSql("a", viewerMemberId);
+  return queryAll<{ raw: string }>(
+    db,
+    `SELECT pa.raw FROM payee_aliases pa
+      WHERE pa.payee_id = ?
+        AND (
+          EXISTS (SELECT 1 FROM transactions t
+                   WHERE pa.raw IN (t.raw_narration, t.raw_payee) AND NOT ${hiddenTx.sql})
+          OR NOT (
+            EXISTS (SELECT 1 FROM transactions t WHERE pa.raw IN (t.raw_narration, t.raw_payee))
+            OR EXISTS (SELECT 1 FROM staged_transactions st JOIN accounts a ON a.id = st.account_id
+                        WHERE pa.raw IN (st.raw_narration, st.raw_payee) AND ${hiddenAcc.sql})
+          )
+        )
+      ORDER BY pa.created_at LIMIT ?`,
+    payeeId, ...hiddenTx.params, ...hiddenAcc.params, limit,
+  ).map((r) => r.raw);
 }
 
 // ---------------------------------------------------------------------------
