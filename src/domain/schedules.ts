@@ -377,8 +377,12 @@ function refileLines(db: DB, name: string, lines: ScheduleSplit[], amount: Paise
  */
 export function deleteSchedule(db: DB, actor: Actor, id: string): void {
   transact(db, () => {
-    const before = getSchedule(db, id);
-    if (!before) throw new Refusal("That schedule does not exist.");
+    const row = getSchedule(db, id);
+    if (!row) throw new Refusal("That schedule does not exist.");
+    // The split lines go with the row (ON DELETE CASCADE), so they are recorded
+    // with it: undo put back a split schedule with no envelope and no lines,
+    // and its next "Mark paid" posted ₹30,000 out of no envelope at all (B99).
+    const before = { ...row, splits: getScheduleSplits(db, id) };
     execute(db, `DELETE FROM schedules WHERE id = ?`, id);
     appendEvent(db, actor, {
       entity: "schedule", entityId: id, action: "delete", before,
@@ -1291,6 +1295,14 @@ registerUndoHandler("schedule", (db, event, actor) => {
       before.confidence, nowIST(),
     );
     restoreRecurrenceDetail(db, event.entityId!, before);
+    // Events from before the lines were recorded carry none.
+    ((before as Schedule & { splits?: ScheduleSplit[] }).splits ?? []).forEach((line, i) => {
+      execute(
+        db,
+        `INSERT INTO schedule_splits (id, schedule_id, category_id, amount, memo, sort) VALUES (?,?,?,?,?,?)`,
+        line.id, event.entityId!, line.category_id, line.amount, line.memo, i,
+      );
+    });
     return `Put the schedule for ${before.name} back`;
   }
 
