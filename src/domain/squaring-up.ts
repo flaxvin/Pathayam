@@ -28,7 +28,7 @@ import { appendEvent, registerUndoHandler } from "../core/events.ts";
 import { nowIST, monthOf, todayIST, type MonthKey } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { Refusal } from "../core/refusal.ts";
-import { getBudget, householdBudgetId } from "./budgets.ts";
+import { getBudget, householdBudgetId, budgetsFor } from "./budgets.ts";
 import { createGroup, createCategory, listCategories, type Category } from "./budget.ts";
 import { standingOf, outstanding } from "./standing.ts";
 import { loadEngineInput } from "../engine/repository.ts";
@@ -90,6 +90,12 @@ export interface CallItEvenInput {
   givingCategoryId?: string;
   month?: MonthKey;
   note?: string | null;
+  /**
+   * BUDGET-11 · Who is acting. The giving budget has to be one they can see:
+   * any member may let the household's side go, but only Priya may let hers.
+   * Omitted means the caller has already decided (a script, a test).
+   */
+  viewerMemberId?: string | null;
 }
 
 /**
@@ -142,6 +148,14 @@ export function callItEven(db: DB, actor: Actor, input: CallItEvenInput): EvenCa
 
     const giving = getBudget(db, givingBudget);
     if (!giving) throw new Refusal("That budget no longer exists.");
+    if (
+      input.viewerMemberId !== undefined
+      && !budgetsFor(db, input.viewerMemberId).some((b) => b.id === givingBudget)
+    ) {
+      throw new Refusal(
+        `This is ${giving.name}'s to let go — it would be spending in their budget, not yours.`,
+      );
+    }
 
     const givingCategoryId =
       input.givingCategoryId ?? ensureGivenUpCategory(db, actor, givingBudget).id;
