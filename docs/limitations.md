@@ -111,7 +111,8 @@ entry for the date requested. Budget accounts, envelopes and Ready to Assign are
 single-currency.
 
 **Missing rate.** Where no rate exists for a pair, the value is carried at 1 and
-marked stale rather than dropped.
+marked stale rather than dropped. A purchase or sale of a foreign instrument is the
+exception: with no rate given and none stored for the trade date, it is refused.
 
 ## Import
 

@@ -173,6 +173,12 @@ Hand-valued accounts (gold, retirement balances, property) carry dated entries i
 valuation is converted the same way a holding is; where no rate exists the value
 is carried at 1 and marked stale.
 
+A **trade** in a non-base instrument is different: the purchase cost and the
+sale proceeds are what left and reached the bank, so they are converted at the
+rate given on the form, else the stored rate on or before the trade date. With
+neither, the purchase or sale is refused rather than booked at 1 — a $1,000
+purchase is never ₹1,000.
+
 ### Returns
 
 XIRR is computed from the dated cash flows of a holding or the portfolio.
