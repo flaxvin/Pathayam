@@ -164,7 +164,7 @@ Everything the app reads, and nothing it does not:
 | `BACKUP_DIR` | `$DATA_DIR/backups` | |
 | `ATTACHMENT_DIR` | `$DATA_DIR/attachments` | |
 | `SESSION_DAYS` | `30` | Session idle timeout. |
-| `LOG_LEVEL` | `info` in production | No financial value is ever logged. |
+| `LOG_LEVEL` | `info` in production | `debug`, `info`, `warn` or `error` (any case); anything else refuses to start. No financial value is ever logged. |
 | `TRUST_PROXY` | `false` | Read the client IP and forwarded host from proxy headers. Set it behind a tunnel. The IP is the right-most `X-Forwarded-For` entry, so exactly one proxy hop is assumed (see security.md). |
 | `HEARTBEAT_URL` | — | **Set this.** Pinged on a *successful* verified restore. |
 | `BACKUP_WEBHOOK_URL` | — | Alerted when a backup or its verification fails. |
@@ -174,7 +174,7 @@ Everything the app reads, and nothing it does not:
 | `FEATURE_MULTI_CURRENCY` | `false` | |
 | `ADMIN_DEBUG` | `false` | Enables view-as-another-member, read-only by default, bannered. |
 | `DEMO_MODE` | `false` | Bypasses authentication. Refuses to start alongside `DEV_LOGIN`, Google or OIDC credentials, or `LOCAL_LOGIN`, and against a database with passwords, linked Google accounts, a connected mailbox or a statement identity. |
-| `DEV_LOGIN` | `false` | Local auth bypass. Absent from the production image; the app refuses to start with it in a production-shaped environment. |
+| `DEV_LOGIN` | `false` | Local auth bypass. Absent from the production image; the app refuses to start with it in a production-shaped environment (production `NODE_ENV`, a public `BASE_URL`, Google or OIDC credentials, `LOCAL_LOGIN`). |
 
 A disabled feature module **keeps its data**. Re-enabling restores it intact.
 
