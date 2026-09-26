@@ -129,6 +129,16 @@ export function createAssetAccount(
     asOf?: IsoDate;
   },
 ) {
+  /*
+   * WEBUX-9 · The route passes the form's subtype through a cast, so a value
+   * outside the list ("gold", "abc") reached ASSET_LABELS[subtype].toLowerCase()
+   * and answered 500. It is the domain's list, so the domain refuses it.
+   */
+  if (!(ASSET_SUBTYPES as readonly string[]).includes(input.subtype)) {
+    throw new Refusal(
+      `Pick a kind of asset: ${ASSET_SUBTYPES.map((s) => ASSET_LABELS[s].toLowerCase()).join(", ")}.`,
+    );
+  }
   return transact(db, () => {
     // FW1: a Tracking account, so it can never fund the budget.
     const account = createAccount(db, actor, {
