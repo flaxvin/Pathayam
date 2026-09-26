@@ -154,6 +154,12 @@ SELECT h.id, e.date AS bonus_date
           AND l.kind IN ('sale','split','bonus') AND l.created_at > e.created_at);
 ```
 
+**Undo.** From the activity log, a purchase can be undone. A sale, split,
+bonus, merger, dividend or return of capital is refused with a sentence saying
+what to record instead: none of them keeps the lots as they were before it, so
+there is nothing honest to restore, and the log never marks as undone a change
+that is still in force.
+
 ### Prices
 
 Mutual funds are priced from a keyless public provider by scheme code; equities
