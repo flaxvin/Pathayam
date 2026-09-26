@@ -1208,6 +1208,33 @@ export function recordDividend(
 }
 
 /**
+ * WEBUX-12 · The widest ratio a real corporate action has.
+ *
+ * The routes checked only that a ratio was a finite number above zero, and
+ * 1e308 is both: units × ratio overflowed to Infinity, which SQLite stores as
+ * NULL, and the holding read "Market value ₹NaN.NaN" with no undo to repair it
+ * (a split is not reversible — WEALTH-2). Nothing listed splits or merges
+ * beyond a thousand to one in either direction; a ratio outside that is a typo.
+ */
+const MAX_CORPORATE_RATIO = 1_000;
+
+function assertCorporateRatio(ratio: number, what: string): void {
+  if (!Number.isFinite(ratio) || ratio < 1 / MAX_CORPORATE_RATIO || ratio > MAX_CORPORATE_RATIO) {
+    throw new Refusal(
+      `A ${what} ratio has to be between 0.001 and ${MAX_CORPORATE_RATIO.toLocaleString("en-IN")} ` +
+        `new units for each one held.`,
+    );
+  }
+}
+
+/** Every lot a corporate action writes must still be a whole, positive count. */
+function assertLotUnits(lots: { units: number }[], what: string): void {
+  if (lots.some((l) => !Number.isSafeInteger(l.units) || l.units <= 0)) {
+    throw new Refusal(`That ${what} would leave a lot with no units, or too many to count. Check the ratio.`);
+  }
+}
+
+/**
  * R28 · A split or bonus.
  *
  * A split re-divides every lot: units multiply, total cost is unchanged, and
@@ -1221,6 +1248,7 @@ export function recordSplit(
   input: { holdingId: string; date: IsoDate; ratio: number; kind?: "split" | "bonus" },
 ): void {
   const kind = input.kind ?? "split";
+  assertCorporateRatio(input.ratio, kind);
   if (kind === "bonus" && !(input.ratio > 1)) {
     throw new Refusal(
       "A bonus issue adds units, so the ratio has to be above 1 — a 1:1 bonus is 2.",
@@ -1285,6 +1313,7 @@ export function recordSplit(
       if (before.lots.length === 0) continue;
       if (kind === "bonus") {
         const lot = bonusLot(before, input.ratio, input.date, newId());
+        assertLotUnits([lot], kind);
         execute(
           db,
           `INSERT INTO lots (id,holding_id,trade_date,units,price,fees,cost,fx_rate,created_at)
@@ -1293,6 +1322,7 @@ export function recordSplit(
         );
       } else {
         const after = applySplit(before, input.ratio);
+        assertLotUnits(after.lots, kind);
         for (const lot of after.lots) {
           execute(db, `UPDATE lots SET units = ?, price = ? WHERE id = ?`, lot.units, lot.price, lot.id);
         }
@@ -1346,10 +1376,12 @@ export function recordMerger(
   input: { holdingId: string; date: IsoDate; ratio: number; intoInstrumentId?: string | null },
 ): void {
   if (!(input.ratio > 0)) throw new Refusal("A merger ratio has to be a number above zero.");
+  assertCorporateRatio(input.ratio, "merger");
 
   transact(db, () => {
     const before = holdingOf(db, input.holdingId);
     const after = applyMerger(before, input.ratio);
+    assertLotUnits(after.lots, "merger");
     for (const lot of after.lots) {
       execute(db, `UPDATE lots SET units = ?, price = ? WHERE id = ?`, lot.units, lot.price, lot.id);
     }
