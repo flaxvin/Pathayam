@@ -497,8 +497,8 @@ export function renderGmailConnection(
               <table>
                 <tbody>
                   <tr><td>Connected mailbox</td><td>${connection.email}</td></tr>
-                  <tr><td>Since</td><td>${connection.connectedAt.slice(0, 10)}</td></tr>
-                  <tr><td>Last fetched</td><td>${connection.lastFetchedAt?.slice(0, 10) ?? "Never"}</td></tr>
+                  <tr><td>Since</td><td>${formatDate(connection.connectedAt.slice(0, 10))}</td></tr>
+                  <tr><td>Last fetched</td><td>${connection.lastFetchedAt ? formatDate(connection.lastFetchedAt.slice(0, 10)) : "Never"}</td></tr>
                 </tbody>
               </table>
             </div>

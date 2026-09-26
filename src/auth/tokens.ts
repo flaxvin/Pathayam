@@ -23,7 +23,7 @@ import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, type Actor } from "../core/events.ts";
-import { nowIST, todayIST, addDays, type IsoDate } from "../core/dates.ts";
+import { nowIST, todayIST, addDays, formatDate, type IsoDate } from "../core/dates.ts";
 import { Missing, Refusal } from "../core/refusal.ts";
 
 export type TokenScope = "read" | "read-write";
@@ -112,7 +112,7 @@ export function mintToken(
       after: { name: input.name, scope: input.scope, expiresAt },
       summary:
         `Created the API token "${input.name}" (${input.scope})` +
-        (expiresAt ? `, expiring ${expiresAt}` : ""),
+        (expiresAt ? `, expiring ${formatDate(expiresAt)}` : ""),
     });
 
     return { token: getToken(db, id)!, secret };

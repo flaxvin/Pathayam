@@ -7,7 +7,7 @@ import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { Missing, Refusal } from "../core/refusal.ts";
-import { nowIST, todayIST, monthOf, addMonths, formatMonth, type MonthKey, type IsoDate } from "../core/dates.ts";
+import { nowIST, todayIST, monthOf, addMonths, formatMonth, formatDate, type MonthKey, type IsoDate } from "../core/dates.ts";
 import { ENGINE_WINDOW_MONTHS } from "../engine/types.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { householdBudgetId, budgetsFor } from "./budgets.ts";
@@ -565,7 +565,7 @@ export function setTarget(
       before, after: queryOne(db, `SELECT * FROM targets WHERE category_id = ?`, categoryId),
       summary:
         `Set ${category.name}'s target to ${formatPaise(input.amount)}` +
-        (input.type === "by-date" ? ` by ${input.targetDate}` : " a month"),
+        (input.type === "by-date" ? ` by ${formatDate(input.targetDate!)}` : " a month"),
     });
   });
 }
