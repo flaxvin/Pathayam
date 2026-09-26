@@ -6262,7 +6262,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/rules/confirm", (ctx) =>
     mutate(ctx, (a) => {
-      confirmRule(db, actorFor(a), requiredField(ctx.body, "rule_id"));
+      // A rule filing into another member's private envelope is theirs, as it
+      // is for /rules/:id/delete (SECURITY-OPS-8).
+      confirmRule(db, actorFor(a), requireVisibleRule(ctx, requiredField(ctx.body, "rule_id")));
       return { redirect: "/rules", message: "Rule confirmed." };
     }),
   );
@@ -6270,7 +6272,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/rules/dismiss", (ctx) =>
     mutate(ctx, (a) => {
       // L5: dismissing a proposal suppresses that specific proposal for good.
-      const id = requiredField(ctx.body, "rule_id");
+      const id = requireVisibleRule(ctx, requiredField(ctx.body, "rule_id"));
       dismissRule(db, actorFor(a), id, ruleRows(db, true).find((r) => r.id === id));
       return { redirect: "/rules", message: "Won't suggest that again." };
     }),

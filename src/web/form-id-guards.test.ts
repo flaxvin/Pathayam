@@ -16,7 +16,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb, seedMember, startTestApp, type TestApp } from "./harness.test-data.ts";
-import { queryOne, type DB } from "../db/db.ts";
+import { queryOne, execute, type DB } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { rupees, type Paise } from "../core/money.ts";
 import { todayIST, addDays } from "../core/dates.ts";
@@ -163,5 +163,38 @@ describe("ids posted in form fields", () => {
         w.db, `SELECT group_id FROM categories WHERE id = ?`, w.ids.householdCategory,
       )!.group_id;
       assert.equal((await app.post("/categories/new", { group_id: household, name: "Hers" })).status, 303);
+    }));
+
+  test("SECURITY-OPS-8 · a proposed rule is confirmed or dismissed only if this member can see it", () =>
+    asPriya(async (app, w) => {
+      const propose = (id: string, categoryId: string) => execute(
+        w.db,
+        `INSERT INTO rules (id,name,stage,conditions_json,actions_json,enabled,proposed,created_at)
+           VALUES (?,?,'default',?,?,1,1,?)`,
+        id, `Proposal ${id}`,
+        JSON.stringify([{ field: "payee", op: "contains", value: "CLINIC" }]),
+        JSON.stringify([{ type: "setCategory", categoryId }]),
+        "2025-01-01T00:00:00+05:30",
+      );
+      propose("rule-his", w.ids.category);
+      propose("rule-hers", w.ids.householdCategory);
+      const events = () => queryOne<{ n: number }>(w.db, `SELECT COUNT(*) AS n FROM events`)!.n;
+      const before = events();
+
+      for (const path of ["/rules/confirm", "/rules/dismiss"]) {
+        for (const id of ["rule-his", "no-such-rule"]) {
+          assert.equal((await app.post(path, { rule_id: id })).status, 404, `${path} ${id}`);
+        }
+      }
+      assert.deepEqual(
+        { ...queryOne(w.db, `SELECT proposed, dismissed_at FROM rules WHERE id = 'rule-his'`) },
+        { proposed: 1, dismissed_at: null },
+      );
+      assert.equal(events(), before, "no event for a refused confirm or dismiss");
+
+      assert.equal((await app.post("/rules/confirm", { rule_id: "rule-hers" })).status, 303);
+      assert.equal(
+        queryOne<{ proposed: number }>(w.db, `SELECT proposed FROM rules WHERE id = 'rule-hers'`)!.proposed, 0,
+      );
     }));
 });
