@@ -387,9 +387,27 @@ export function parseCookies(header: string | undefined): Record<string, string>
     const index = part.indexOf("=");
     if (index < 0) continue;
     const key = part.slice(0, index).trim();
-    if (key) out[key] = decodeURIComponent(part.slice(index + 1).trim());
+    if (key) out[key] = decodeCookieValue(part.slice(index + 1).trim());
   }
   return out;
+}
+
+/*
+ * The Cookie header carries every cookie for this host, not just ours — and
+ * cookies are not port-scoped, so on a homelab or localhost a sibling app's
+ * cookies arrive here too. One of them holding a stray "%" made
+ * decodeURIComponent throw, and because this runs on every request, every
+ * route answered 500 for that browser, sign-in page included, each one written
+ * to request_failures (SECURITY-OPS-14). A value that is not valid
+ * percent-encoding is kept as sent: it is somebody else's cookie, or a session
+ * token that will simply not authenticate.
+ */
+function decodeCookieValue(value: string): string {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
 }
 
 export function sessionCookie(token: string, opts: { secure: boolean; days: number }): string {
