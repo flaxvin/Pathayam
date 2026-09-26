@@ -5094,7 +5094,28 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       );
     }
 
-    const amount = rupeesFromQuery(ctx, "amount", 1_00_000);
+    /*
+     * WEALTH-37 · comparePrepayment now refuses a prepayment that would clear
+     * the loan, so the page's own opening figure must not be one: ₹1,00,000 is
+     * the default only where it leaves something owed after the first
+     * instalment, and half of what would be left otherwise.
+     */
+    const leftAfterNext = projection.schedule.instalments[0]?.closing ?? 0;
+    if (leftAfterNext <= 0) {
+      return render(
+        ctx, "Prepay",
+        html`
+          <h1>Prepay ${projection.loan.nickname ?? projection.loan.lender}</h1>
+          <div class="card empty-state">
+            <p>Only the last instalment is left, so there is nothing to prepay.</p>
+            <p><a class="button" href="/loans/${projection.loan.id}">Back to the loan</a></p>
+          </div>
+        `,
+      );
+    }
+    const amount = ctx.query.get("amount")
+      ? rupeesFromQuery(ctx, "amount", 1_00_000)
+      : Math.min(1_00_000 * 100, Math.floor(leftAfterNext / 2)) as Paise;
     const atMonth = Number(ctx.query.get("at_month") ?? 1);
     const view = buildBudgetView(db, undefined, undefined, viewer(ctx));
 

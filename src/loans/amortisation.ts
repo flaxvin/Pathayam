@@ -28,6 +28,7 @@
  */
 
 import { formatPaise, type Paise } from "../core/money.ts";
+import { Refusal } from "../core/refusal.ts";
 import { type IsoDate, addMonths, monthOf } from "../core/dates.ts";
 
 /** Fractional paise. Internal to this module only. */
@@ -35,6 +36,16 @@ type Exact = number;
 
 /** R17.4's guard — a schedule that never closes means negative amortisation. */
 const MAX_MONTHS = 1200;
+
+/**
+ * WEALTH-38 · The highest annual rate a loan is taken to carry. Above it the
+ * figure is a typo, and the amortisation arithmetic stops being arithmetic:
+ * 1e20% priced an instalment of ₹NaN.NaN. Even the costliest short-term credit
+ * sold to a household sits well below it.
+ */
+export const MAX_ANNUAL_RATE_PCT = 100;
+/** And the longest tenure: fifty years, in months. A schedule is built month by month. */
+export const MAX_TENURE_MONTHS = 600;
 
 export function toPaise(value: Exact): Paise {
   return Math.round(value);
@@ -445,7 +456,43 @@ export function comparePrepayment(input: {
   const { principal, annualRatePct, months, prepayment, atMonth } = input;
   const prepaymentCharge = input.prepaymentCharge ?? 0;
 
+  /*
+   * WEALTH-37 · The calculator is open to anyone who can type, so what it is
+   * given is checked before any arithmetic, with a sentence back. It took raw
+   * Number()s: a zero loan or tenure reached buildSchedule's RangeError (500);
+   * "abc" printed "₹NaN.NaN"; a negative rate printed negative lifetime
+   * interest; and a prepayment larger than the loan was priced as if twelve
+   * instalments remained after it, "saving" more interest than the loan charges.
+   */
+  if (!(Number.isFinite(principal) && principal > 0)) {
+    throw new Refusal("Enter the loan amount — something above zero.");
+  }
+  if (!Number.isInteger(months) || months < 1 || months > MAX_TENURE_MONTHS) {
+    throw new Refusal(`Enter the tenure as whole months, from 1 to ${MAX_TENURE_MONTHS}.`);
+  }
+  if (!Number.isFinite(annualRatePct) || annualRatePct < 0 || annualRatePct > MAX_ANNUAL_RATE_PCT) {
+    throw new Refusal(`Enter the rate as a percentage a year, from 0 to ${MAX_ANNUAL_RATE_PCT}.`);
+  }
+  if (!Number.isInteger(atMonth) || atMonth < 1 || atMonth > months) {
+    throw new Refusal(`The prepayment month is a whole number from 1 to ${months}, within the tenure.`);
+  }
+  if (!(Number.isFinite(prepayment) && prepayment > 0)) {
+    throw new Refusal("Enter a prepayment above zero.");
+  }
+  if (!(Number.isFinite(prepaymentCharge) && prepaymentCharge >= 0)) {
+    throw new Refusal("A prepayment charge cannot be negative.");
+  }
+
   const base = buildSchedule({ principal, annualRatePct, months });
+  // What is still owed when the prepayment is made — after that month's instalment.
+  const owedThen = base.instalments[atMonth - 1]?.closing ?? 0;
+  if (prepayment >= owedThen) {
+    throw new Refusal(
+      `By instalment ${atMonth} only ${formatPaise(owedThen)} is left, so ` +
+      `${formatPaise(prepayment)} would clear the loan outright — that is settling it, ` +
+      `not prepaying. Try a smaller amount or an earlier month.`,
+    );
+  }
   const prepayments = new Map([[atMonth, prepayment]]);
 
   const tenure = buildSchedule({

@@ -25,7 +25,7 @@ import { familyLoanNetWorth } from "./family-loans.ts";
 import { latestValuation } from "./assets.ts";
 import {
   buildSchedule, emiFor, flatRateLoan, flatSchedule, flatMonthlyInterest, moratorium, preEmi, drift,
-  lifetimeMetrics,
+  lifetimeMetrics, MAX_ANNUAL_RATE_PCT, MAX_TENURE_MONTHS,
   type Schedule, type InterestModel, type LifetimeMetrics,
 } from "../loans/amortisation.ts";
 import { householdBudgetId } from "./budgets.ts";
@@ -152,15 +152,8 @@ export interface CreateLoanInput {
   disbursementAccountId?: string | null;
 }
 
-/**
- * WEALTH-38 · The highest annual rate a loan is taken to carry. Above it the
- * figure is a typo, and the amortisation arithmetic stops being arithmetic:
- * 1e20% priced an instalment of ₹NaN.NaN. Even the costliest short-term credit
- * sold to a household sits well below it.
- */
-export const MAX_ANNUAL_RATE_PCT = 100;
-/** And the longest tenure: fifty years, in months. A schedule is built month by month. */
-export const MAX_TENURE_MONTHS = 600;
+/** WEALTH-38 · The bounds live beside the arithmetic they protect. */
+export { MAX_ANNUAL_RATE_PCT, MAX_TENURE_MONTHS };
 
 const INTEREST_MODELS: readonly InterestModel[] = [
   "reducing", "flat", "moratorium-serviced", "moratorium-capitalised",
