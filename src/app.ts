@@ -44,7 +44,7 @@ import {
 import { fetchGmail } from "./gmail/fetch.ts";
 import { withIdempotency, IdempotencyConflict } from "./core/idempotency.ts";
 import { parseAmount, evaluateAmountExpression, formatPaise, type Paise } from "./core/money.ts";
-import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, lastDayOfMonth, daysBetween, fiscalYearOf, formatFiscalYear, statementPeriodOf, type MonthKey, type IsoDate, type WeekdayOrdinal } from "./core/dates.ts";
+import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, formatDate, lastDayOfMonth, daysBetween, fiscalYearOf, formatFiscalYear, statementPeriodOf, type MonthKey, type IsoDate, type WeekdayOrdinal } from "./core/dates.ts";
 import { buildBudgetView, reviewCount } from "./web/viewmodel.ts";
 import { renderBudget } from "./web/pages/budget.ts";
 import {
@@ -2916,7 +2916,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               <div class="row-between" style="padding:.5rem 0;border-top:1px solid var(--border)">
                 <div>
                   <div>${s.user_agent ?? "Unknown device"}</div>
-                  <div class="faint">Last seen ${s.last_seen_at.slice(0, 10)}</div>
+                  <div class="faint">Last seen ${formatDate(s.last_seen_at.slice(0, 10))}</div>
                 </div>
                 ${s.id === a.session.id
                   ? html`<span class="chip chip-positive">This device</span>`
@@ -3212,7 +3212,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           <div>
             <h1 style="margin-bottom:.15rem">${formatPaise(Math.abs(transaction.amount))}</h1>
             <p class="muted" style="margin:0">
-              ${account.nickname || account.name} · ${transaction.date}
+              ${account.nickname || account.name} · ${formatDate(transaction.date)}
             </p>
           </div>
           <!--
@@ -3454,7 +3454,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 <li>
                   <div>${e.summary ?? e.action}</div>
                   <div class="explain-when">
-                    ${e.at.slice(0, 10)} · ${memberName(e.actorMemberId)}
+                    ${formatDate(e.at.slice(0, 10))} · ${memberName(e.actorMemberId)}
                   </div>
                 </li>
               `,
@@ -6154,7 +6154,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                         ${preview.matches.map(
                           (m) => html`
                             <tr>
-                              <td>${m.date}</td>
+                              <td>${formatDate(m.date)}</td>
                               <td>${m.payee ?? "—"}</td>
                               <td class="faint">${m.currentCategory ?? "Uncategorised"}</td>
                               <td><strong>${m.proposedCategory ?? "—"}</strong></td>
@@ -7404,7 +7404,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const snapshot = snapshotNetWorth(db, actorFor(a));
       return {
         redirect: "/net-worth",
-        message: `Recorded ${formatPaise(snapshot.net_worth)} as of ${snapshot.as_of}.`,
+        message: `Recorded ${formatPaise(snapshot.net_worth)} as of ${formatDate(snapshot.as_of)}.`,
       };
     }),
   );
@@ -7780,7 +7780,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             name: "Tax rates",
             state: staleRatesWarning(fiscalYearOf(todayIST())) ? "degraded" : "healthy",
             reason: staleRatesWarning(fiscalYearOf(todayIST()))
-              ?? `Cover the current financial year. Last checked ${RATES_VERIFIED_ON} against ${RATES_SOURCE}.`,
+              ?? `Cover the current financial year. Last checked ${formatDate(RATES_VERIFIED_ON)} against ${RATES_SOURCE}.`,
           },
         ],
       },

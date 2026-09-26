@@ -15,7 +15,7 @@
 
 import { html, raw, escape, type SafeHtml } from "../http/html.ts";
 import { formatPaise, formatCompact, type Paise } from "../core/money.ts";
-import { daysBetween, type IsoDate } from "../core/dates.ts";
+import { daysBetween, formatDate, type IsoDate } from "../core/dates.ts";
 
 /** Round to keep the SVG markup small; sub-pixel precision buys nothing. */
 const r2 = (n: number): number => Math.round(n * 100) / 100;
@@ -533,7 +533,7 @@ export function heatmapCalendar(opts: {
     cells.push(
       `<rect x="${col * step}" y="${row * step}" width="${cell}" height="${cell}" rx="2.5" ` +
       `fill="${v > 0 ? escape(color) : "var(--chart-grid)"}" ${v > 0 ? `fill-opacity="${r2(opacity)}"` : ""}>` +
-      `<title>${escape(d.date)}: ${escape(formatPaise(v as Paise))}</title></rect>`,
+      `<title>${escape(formatDate(d.date))}: ${escape(formatPaise(v as Paise))}</title></rect>`,
     );
   }
   const w = (maxCol + 1) * step - gap;

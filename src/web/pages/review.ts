@@ -664,7 +664,7 @@ export function renderImport(opts: {
               <span>
                 ${p.name}
                 ${when(p.last_used_at, () => html`
-                  <span class="faint">· last used ${p.last_used_at!.slice(0, 10)}</span>
+                  <span class="faint">· last used ${formatDate(p.last_used_at!.slice(0, 10))}</span>
                 `)}
               </span>
               <button class="button-small button-quiet" type="submit">Forget</button>

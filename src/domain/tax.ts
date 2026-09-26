@@ -179,7 +179,7 @@ export const NEWEST_KNOWN_FY = Math.max(...Object.keys(RULES).map(Number));
 export function staleRatesWarning(fy: number): string | null {
   if (fy <= NEWEST_KNOWN_FY) return null;
   return `This app's rates go up to ${NEWEST_KNOWN_FY}-${String((NEWEST_KNOWN_FY + 1) % 100).padStart(2, "0")}, ` +
-    `last checked on ${RATES_VERIFIED_ON}. Slabs change with each Finance Act, so update the app before relying on a later year.`;
+    `last checked on ${formatDate(RATES_VERIFIED_ON)}. Slabs change with each Finance Act, so update the app before relying on a later year.`;
 }
 
 /** Ceilings on the deductions this models, under the old regime. */
@@ -518,7 +518,7 @@ export function advanceTaxSchedule(fy: number, liability: Paise): AdvanceInstalm
 
 import type { DB } from "../db/db.ts";
 import { execute, queryOne } from "../db/db.ts";
-import { nowIST, fiscalYearRange } from "../core/dates.ts";
+import { nowIST, fiscalYearRange, formatDate } from "../core/dates.ts";
 
 export interface Declaration extends Deductions {
   gross: Paise;
