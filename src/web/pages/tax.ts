@@ -55,7 +55,7 @@ function regimeCard(e: RegimeEstimate, isBetter: boolean): SafeHtml {
         <table>
           <tbody>
             ${row("Gross income", e.gross)}
-            ${row("Standard deduction", -e.standardDeduction as Paise, { muted: true })}
+            ${e.standardDeduction > 0 ? row("Standard deduction", -e.standardDeduction as Paise, { muted: true }) : html``}
             ${e.hraExempt > 0 ? row("HRA exempt", -e.hraExempt as Paise, { muted: true }) : html``}
             ${e.chapterViA > 0 ? row("80C, 80D and other", -e.chapterViA as Paise, { muted: true }) : html``}
             ${row("Taxable income", e.taxable, { strong: true })}
