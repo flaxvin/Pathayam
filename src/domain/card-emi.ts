@@ -79,9 +79,28 @@ export interface ConversionResult {
 export function convertToEmi(db: DB, actor: Actor, input: ConvertToEmiInput): ConversionResult {
   return transact(db, () => {
     const source = input.transactionId ? getTransaction(db, input.transactionId) : null;
-    if (input.transactionId && !source) {
+    if (input.transactionId && (!source || source.deleted_at)) {
       throw new Refusal("That transaction does not exist.");
     }
+    /*
+     * WEALTH-40 / MONEY-CORE-24 · Only a purchase converts, and only once.
+     *
+     * The one check here was that the amount did not exceed the charge — so the
+     * same ₹60,000 phone converted twice made two ₹60,000 plans and credited the
+     * card twice, leaving it ₹60,000 in credit for a purchase paid for once. A
+     * refund and the card side of a payment converted too (their magnitude
+     * passed the same check), each crediting the card again. Nothing downstream
+     * could notice: every step balanced.
+     */
+    if (source && source.amount >= 0) {
+      throw new Refusal(
+        "Only a charge converts to EMI. This is money that came onto the card — a refund or a payment.",
+      );
+    }
+    if (source?.transfer_pair_id) {
+      throw new Refusal("That is one side of a transfer, not a purchase, so there is nothing to convert.");
+    }
+    const alreadyConverted = source ? convertedFrom(db, source.id) : 0;
 
     const accountId = source?.account_id ?? input.accountId;
     if (!accountId) throw new Refusal("Say which card is being converted.");
@@ -99,12 +118,19 @@ export function convertToEmi(db: DB, actor: Actor, input: ConvertToEmiInput): Co
      * magnitude. Converting more than was charged is the sort of typo that would
      * hand the household free money on the card, so it is refused.
      */
-    const amount = (input.amount ?? (source ? Math.abs(source.amount) : 0)) as Paise;
+    const left = source ? Math.abs(source.amount) - alreadyConverted : 0;
+    if (source && left <= 0) {
+      throw new Refusal("That charge is already on an EMI plan, all of it.");
+    }
+    const amount = (input.amount ?? (source ? left : 0)) as Paise;
     if (amount <= 0) throw new Refusal("Say how much is being converted.");
-    if (source && amount > Math.abs(source.amount)) {
+    if (source && amount > left) {
       throw new Refusal(
-        `That charge was ${formatPaise(Math.abs(source.amount) as Paise)}, so ` +
-        `${formatPaise(amount)} cannot be converted from it.`,
+        alreadyConverted > 0
+          ? `${formatPaise(alreadyConverted as Paise)} of that charge is already on an EMI plan, so ` +
+            `only ${formatPaise(left as Paise)} is left to convert.`
+          : `That charge was ${formatPaise(Math.abs(source.amount) as Paise)}, so ` +
+            `${formatPaise(amount)} cannot be converted from it.`,
       );
     }
     if (input.tenureMonths <= 0) throw new Refusal("An EMI plan needs a tenure of at least a month.");
@@ -171,8 +197,9 @@ export function convertToEmi(db: DB, actor: Actor, input: ConvertToEmiInput): Co
      * household budgets for it like anything else it bought.
      */
     const feeWithGst = Math.round(fee * (1 + GST_PCT / 100)) as Paise;
+    let feeTransactionId: string | null = null;
     if (feeWithGst > 0) {
-      createTransaction(db, actor, {
+      feeTransactionId = createTransaction(db, actor, {
         accountId: card.id,
         amount: -feeWithGst as Paise,
         date,
@@ -180,7 +207,7 @@ export function convertToEmi(db: DB, actor: Actor, input: ConvertToEmiInput): Co
         payeeName: card.institution || card.name,
         memo: `EMI processing fee (${formatPaise(fee)} + ${GST_PCT}% GST)`,
         cleared: true,
-      });
+      }).id;
     }
 
     /*
@@ -197,6 +224,7 @@ export function convertToEmi(db: DB, actor: Actor, input: ConvertToEmiInput): Co
      */
     const cardEnvelope = paymentCategoryFor(db, card.id);
     const planEnvelope = paymentCategoryForLoan(db, loan.id);
+    let moved: { month: string; fromCategoryId: string; toCategoryId: string; amount: Paise } | null = null;
     if (cardEnvelope && planEnvelope) {
       const held = computeBudget(loadEngineInput(db, { through: monthOf(date) }))
         .get(monthOf(date))?.categories.get(cardEnvelope.id)?.balance ?? 0;
@@ -208,6 +236,7 @@ export function convertToEmi(db: DB, actor: Actor, input: ConvertToEmiInput): Co
           toCategoryId: planEnvelope.id,
           amount: toMove,
         });
+        moved = { month: monthOf(date), fromCategoryId: cardEnvelope.id, toCategoryId: planEnvelope.id, amount: toMove };
       }
     }
 
@@ -216,7 +245,9 @@ export function convertToEmi(db: DB, actor: Actor, input: ConvertToEmiInput): Co
 
     appendEvent(db, actor, {
       entity: "loan", entityId: loan.id, action: "convert-to-emi",
-      after: { amount, tenureMonths: input.tenureMonths, fee: feeWithGst },
+      // What undoing it has to take back (MONEY-CORE-24): the fee, and the
+      // envelope move. The plan and its draw are the loan's own.
+      after: { amount, tenureMonths: input.tenureMonths, fee: feeWithGst, feeTransactionId, moved },
       summary:
         `Converted ${formatPaise(amount)} on ${card.nickname || card.name} to ` +
         `${input.tenureMonths} instalments — ${formatPaise(interest)} interest` +
@@ -231,4 +262,17 @@ export function convertToEmi(db: DB, actor: Actor, input: ConvertToEmiInput): Co
       emi: (projection?.emi ?? 0) as Paise,
     };
   });
+}
+
+/**
+ * How much of a card charge is already on an EMI plan. A plan that has been
+ * closed still converted it — the bank does not un-convert a purchase — so
+ * closed plans count too.
+ */
+export function convertedFrom(db: DB, transactionId: string): Paise {
+  return (queryOne<{ total: number }>(
+    db,
+    `SELECT COALESCE(SUM(sanctioned), 0) AS total FROM loans WHERE converted_from_transaction_id = ?`,
+    transactionId,
+  )?.total ?? 0) as Paise;
 }

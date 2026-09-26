@@ -1045,6 +1045,7 @@ export function tagsFor(db: DB, transactionId: string): string[] {
  */
 const TRANSACTION_DEPENDANTS: { table: string; column: string; describe: string }[] = [
   { table: "loan_payments", column: "transaction_id", describe: "a loan instalment" },
+  { table: "loan_payments", column: "loan_transaction_id", describe: "a loan instalment" },
   { table: "lots", column: "transaction_id", describe: "a portfolio lot" },
   { table: "holding_events", column: "transaction_id", describe: "a portfolio transaction" },
   { table: "reconciliations", column: "adjustment_transaction_id", describe: "a reconciliation adjustment" },
@@ -1053,6 +1054,46 @@ const TRANSACTION_DEPENDANTS: { table: string; column: string; describe: string 
 
 /** Thrown when an undo is refused for a reason the household can act on. */
 export class UndoRefused extends Error {}
+
+/**
+ * Remove a transaction that another record's undo is taking back — a loan
+ * instalment's legs, a family-loan advance — the way undoing the transaction's
+ * own create does: the import it was approved from goes back to the queue, its
+ * lines and tags go with it, and it is gone rather than soft-deleted, because
+ * it never happened.
+ *
+ * The caller removes its own record first. Anything *else* that still leans
+ * on the transaction stops the undo with a sentence, never a foreign key.
+ */
+export function eraseTransaction(db: DB, id: string | null | undefined): void {
+  if (!id || !getTransaction(db, id)) return;
+  const leaning = [
+    ...TRANSACTION_DEPENDANTS,
+    { table: "loans", column: "converted_from_transaction_id", describe: "the charge an EMI plan was converted from" },
+  ];
+  for (const dep of leaning) {
+    const n = queryOne<{ n: number }>(
+      db, `SELECT COUNT(*) AS n FROM ${dep.table} WHERE ${dep.column} = ?`, id,
+    )?.n ?? 0;
+    if (n > 0) {
+      throw new UndoRefused(
+        `A transaction this created is also recorded as ${dep.describe}, so it cannot ` +
+        `be taken back without leaving that wrong. Undo ${dep.describe} first.`,
+      );
+    }
+  }
+  execute(
+    db,
+    `UPDATE staged_transactions
+        SET status = 'pending', transaction_id = NULL, resolved_at = NULL, resolved_by = NULL
+      WHERE transaction_id = ?`,
+    id,
+  );
+  execute(db, `UPDATE staged_transactions SET duplicate_of_id = NULL WHERE duplicate_of_id = ?`, id);
+  execute(db, `DELETE FROM transaction_splits WHERE transaction_id = ?`, id);
+  execute(db, `DELETE FROM transaction_tags WHERE transaction_id = ?`, id);
+  execute(db, `DELETE FROM transactions WHERE id = ?`, id);
+}
 
 registerUndoHandler("transaction", (db, event) => {
   const before = event.before as Transaction | undefined;

@@ -99,7 +99,7 @@ import { memberScope, hiddenTransactionSql, hiddenAccountSql } from "./domain/me
 import { exportForMember, exportTransactionsCsvForMember } from "./ops/member-export.ts";
 import { callItEven } from "./domain/squaring-up.ts";
 import { describeDeparture, settleDeparture, type DepartureResolution } from "./domain/departure.ts";
-import { convertToEmi } from "./domain/card-emi.ts";
+import { convertToEmi, convertedFrom } from "./domain/card-emi.ts";
 import { renderDeparture } from "./web/pages/departure.ts";
 import { renderHousehold } from "./web/pages/household.ts";
 import {
@@ -145,7 +145,7 @@ import {
 } from "./web/pages/loans.ts";
 import {
   createLoan, listLoans, getLoan, projectLoan, recordInstalment, listPayments, closeLoan,
-  recordDisbursement, recordLoanStatement, recordRateChange, recordPrepayment, canSeeLoan,
+  recordDisbursement, recordLoanStatement, recordRateChange, recordPrepayment, canSeeLoan, checkAnnualRate,
   listDisbursements, listRatePeriods, debtOverview, type LoanType,
 } from "./domain/loans.ts";
 import { comparePrepayment, rateResetOptions, NegativeAmortisation } from "./loans/amortisation.ts";
@@ -3200,6 +3200,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const splits = transaction.is_split ? getSplits(db, transaction.id) : [];
     const tags = tagsFor(db, transaction.id).join(", ");
     const members = listMembers(db);
+    /*
+     * WEALTH-40 · What is left of this charge to convert. The form stayed on the
+     * page after a conversion, inviting the same purchase onto a second plan;
+     * once all of it is on one, the page says so and links to it instead.
+     */
+    const convertedAlready = convertedFrom(db, transaction.id);
+    const convertLeft = account.kind === "credit" && transaction.amount < 0 && !transaction.transfer_pair_id
+      ? Math.abs(transaction.amount) - convertedAlready
+      : 0;
+    const plans = convertedAlready > 0
+      ? queryAll<{ id: string; nickname: string | null; lender: string }>(
+          db, `SELECT id, nickname, lender FROM loans WHERE converted_from_transaction_id = ?`, transaction.id,
+        )
+      : [];
     const categoryName = new Map(
       [...view.categories.values()].map((c) => [c.id, c.name]),
     );
@@ -3221,12 +3235,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             summary line is how the account edit form and the loan holder control
             both ended up reported as missing.
           -->
-          ${when(account.kind === "credit" && transaction.amount < 0, () => html`
+          ${when(convertLeft > 0, () => html`
             <a class="button button-primary" href="#emi">Convert to EMI</a>
           `)}
         </div>
 
-        ${when(account.kind === "credit" && transaction.amount < 0, () => html`
+        ${when(plans.length > 0, () => html`
+          <p class="muted">
+            ${formatPaise(convertedAlready)} of this is on an EMI plan:
+            ${plans.map((p, i) => html`${i > 0 ? ", " : ""}<a href="/loans/${p.id}">${p.nickname || p.lender}</a>`)}.
+          </p>
+        `)}
+
+        ${when(convertLeft > 0, () => html`
           <details class="card" id="emi">
             <summary class="linkish">The bank offered to convert this to EMI</summary>
             <p class="muted" style="margin-top:.75rem">
@@ -3241,7 +3262,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                   <label for="emi-amount">How much of it</label>
                   <input id="emi-amount" name="amount" class="amount-input" type="text"
                          inputmode="decimal"
-                         value="${(Math.abs(transaction.amount) / 100).toFixed(2)}">
+                         value="${(convertLeft / 100).toFixed(2)}">
                 </div>
                 <div class="field">
                   <label for="emi-tenure">Over how many months</label>
@@ -4638,7 +4659,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           "reducing" | "flat" | "moratorium-serviced" | "moratorium-capitalised",
         annualRatePct: Number(requiredField(ctx.body, "annual_rate")),
         tenureMonths: Number(requiredField(ctx.body, "tenure_months")),
-        moratoriumMonths: Number(field(ctx.body, "moratorium_months") ?? "0") || 0,
+        // "abc" is refused by createLoan (WEALTH-38), not quietly read as none.
+        moratoriumMonths: field(ctx.body, "moratorium_months")?.trim()
+          ? Number(field(ctx.body, "moratorium_months")) : 0,
         firstInstalmentDate: firstDue ? parseDate(firstDue) : null,
         repaymentAccountId: visibleAccountField(ctx, "repayment_account_id"),
         currentOutstanding: outstandingRaw?.trim() ? amountField(outstandingRaw) : null,
@@ -4760,8 +4783,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           : undefined,
         chargeAccountId: visibleAccountField(ctx, "charge_account_id"),
         chargeCategoryId: requireVisibleCategory(ctx, field(ctx.body, "charge_category_id") || null) || null,
-        // The form's one "Paid from" pays the settlement as well as the charge.
-        settlementAccountId: field(ctx.body, "settlement_account_id") || field(ctx.body, "charge_account_id") || null,
+        /*
+         * The form's one "Paid from" pays the settlement as well as the charge.
+         *
+         * WEALTH-19 · Through the same visibility check as the charge's account.
+         * This one was read raw, so a member could name another member's private
+         * account here and settle their own loan out of it: a ₹1,00,000 debit,
+         * created by somebody who is told that account does not exist.
+         */
+        settlementAccountId:
+          visibleAccountField(ctx, "settlement_account_id") ?? visibleAccountField(ctx, "charge_account_id"),
       });
       return {
         redirect: "/loans",
@@ -4955,9 +4986,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       parseDate(ctx.query.get("effective_from") ?? ctx.query.get("from") ?? "") ?? todayIST();
     const keep = ctx.query.get("keep") === "emi" ? "emi" : "tenure";
 
-    if (!Number.isFinite(newRatePct) || newRatePct < 0) {
-      throw new HttpError(400, "That is not a rate.");
-    }
+    // WEBUX-13 · The preview takes the bounds the change itself does.
+    checkAnnualRate(newRatePct);
 
     if (projection.outstanding <= 0) {
       return render(
@@ -5005,7 +5035,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const from = parseDate(requiredField(ctx.body, "effective_from"));
       if (!from) throw new HttpError(400, "That is not a date I can read.");
       const rate = Number(requiredField(ctx.body, "annual_rate_pct"));
-      if (!Number.isFinite(rate) || rate < 0) throw new HttpError(400, "That is not a rate.");
+      checkAnnualRate(rate);
 
       const keep = field(ctx.body, "keep") === "emi" ? "emi" : "tenure";
 
@@ -5064,7 +5094,28 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       );
     }
 
-    const amount = rupeesFromQuery(ctx, "amount", 1_00_000);
+    /*
+     * WEALTH-37 · comparePrepayment now refuses a prepayment that would clear
+     * the loan, so the page's own opening figure must not be one: ₹1,00,000 is
+     * the default only where it leaves something owed after the first
+     * instalment, and half of what would be left otherwise.
+     */
+    const leftAfterNext = projection.schedule.instalments[0]?.closing ?? 0;
+    if (leftAfterNext <= 0) {
+      return render(
+        ctx, "Prepay",
+        html`
+          <h1>Prepay ${projection.loan.nickname ?? projection.loan.lender}</h1>
+          <div class="card empty-state">
+            <p>Only the last instalment is left, so there is nothing to prepay.</p>
+            <p><a class="button" href="/loans/${projection.loan.id}">Back to the loan</a></p>
+          </div>
+        `,
+      );
+    }
+    const amount = ctx.query.get("amount")
+      ? rupeesFromQuery(ctx, "amount", 1_00_000)
+      : Math.min(1_00_000 * 100, Math.floor(leftAfterNext / 2)) as Paise;
     const atMonth = Number(ctx.query.get("at_month") ?? 1);
     const view = buildBudgetView(db, undefined, undefined, viewer(ctx));
 
@@ -5094,7 +5145,6 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/loans/:id/prepay", (ctx) => {
     requireLoans();
     requireLoanVisible(ctx);
-    const a = auth(ctx);
     const loanId = ctx.params.id!;
     const projection = projectLoan(db, loanId);
     if (!projection) throw new NotFound("That loan does not exist.");
@@ -5107,38 +5157,46 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       return { redirect: `/loans/${loanId}/prepay?amount=${amount}&at_month=${atMonth}` };
     }
 
-    const chargeRaw = field(ctx.body, "charge");
-    const charge = chargeRaw?.trim() ? amountField(chargeRaw) : 0;
-    const mode = field(ctx.body, "mode") === "emi" ? "emi" : "tenure";
-    const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
-
     /*
-     * B115 · The mode and the funding envelope were both collected here and
-     * neither was carried out: the mode went into the note, and the envelope
-     * went nowhere. `recordPrepayment` applies both — which is also where R19.1
-     * belongs, rather than in the route that renders the form.
+     * WEALTH-17 · The commit goes through mutate(), like every other loan write.
+     * This route called recordPrepayment directly, so withIdempotency never saw
+     * the Idempotency-Key: a retried POST — what the client sends when the first
+     * answer is lost — prepaid ₹50,000 twice, debited the bank twice and
+     * shortened the tenure twice. The preview above writes nothing and stays out.
      */
-    recordPrepayment(db, actor, {
-      loanId,
-      date: todayIST(),
-      amount,
-      mode,
-      charge,
-      fromAccountId: projection.loan.repayment_account_id,
-      fundingCategoryId: requireVisibleCategory(ctx, field(ctx.body, "funding_category_id") || null) || null,
-    });
+    return mutate(ctx, (a) => {
+      const chargeRaw = field(ctx.body, "charge");
+      const charge = chargeRaw?.trim() ? amountField(chargeRaw) : 0;
+      const mode = field(ctx.body, "mode") === "emi" ? "emi" : "tenure";
+      const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
 
-    const after = projectLoan(db, loanId);
-    return {
-      redirect: withNotice(
-        `/loans/${loanId}`,
-        mode === "emi"
-          ? `Prepaid ${formatPaise(amount)}. The instalment is now ` +
-            `${formatPaise(after?.emi ?? 0)} and the closure date is unchanged.`
-          : `Prepaid ${formatPaise(amount)}. The instalment is unchanged and there are ` +
-            `${after?.schedule.months ?? 0} left.`,
-      ),
-    };
+      /*
+       * B115 · The mode and the funding envelope were both collected here and
+       * neither was carried out: the mode went into the note, and the envelope
+       * went nowhere. `recordPrepayment` applies both — which is also where R19.1
+       * belongs, rather than in the route that renders the form.
+       */
+      recordPrepayment(db, actor, {
+        loanId,
+        date: todayIST(),
+        amount,
+        mode,
+        charge,
+        fromAccountId: projection.loan.repayment_account_id,
+        fundingCategoryId: requireVisibleCategory(ctx, field(ctx.body, "funding_category_id") || null) || null,
+      });
+
+      const after = projectLoan(db, loanId);
+      return {
+        redirect: `/loans/${loanId}`,
+        message:
+          mode === "emi"
+            ? `Prepaid ${formatPaise(amount)}. The instalment is now ` +
+              `${formatPaise(after?.emi ?? 0)} and the closure date is unchanged.`
+            : `Prepaid ${formatPaise(amount)}. The instalment is unchanged and there are ` +
+              `${after?.schedule.months ?? 0} left.`,
+      };
+    });
   });
 
   function rupeesFromQuery(ctx: RequestContext, name: string, fallbackRupees: number): number {

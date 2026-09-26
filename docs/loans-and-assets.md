@@ -11,7 +11,7 @@ equal to the current instalment.
 | Field | Notes |
 |---|---|
 | `loan_type` | `home`, `home-under-construction`, `car`, `personal`, `gold`, `education`, `loan-against-property`, `credit-card-emi`, `bnpl`, `other`. |
-| `interest_model` | `reducing` or `flat`. |
+| `interest_model` | `reducing`, `flat`, `moratorium-serviced` or `moratorium-capitalised`. |
 | `sanctioned`, `sanction_date` | |
 | `tenure_months`, `original_tenure_months` | The original is retained when a rate change alters the tenure. |
 | `first_instalment_date`, `instalment_day` | |
@@ -20,11 +20,24 @@ equal to the current instalment.
 | `payment_category_id` | The envelope funding them. |
 | `benchmark` | For floating-rate loans. |
 
+Adding a loan refuses, with a sentence: a rate that is not a number, negative,
+or above 100% a year; a tenure that is not a whole number of months from 1 to
+600; a moratorium that is not a whole number of months; a type or interest
+model outside the lists; and an outstanding above the sanction, except on a
+capitalised moratorium, where unpaid interest can take it there.
+
 ### Schedule
 
 The amortisation schedule is computed from the rate history in `loan_rates`, not
 stored. A rate change inserts a row with `effective_from`; the schedule is
 recomputed from that date forward.
+
+A rate change takes the same rate bounds as a new loan (0–100% a year), and
+cannot take effect before the sanction date. A rate change can keep the tenure (the instalment moves) or keep the
+instalment (the tenure moves). Keeping the instalment is only accepted once the
+new rate applies — dated today or earlier — because the tenure it needs depends
+on the balance that day, and stretching it early would lower the instalment the
+projection asks for until the date arrives.
 
 A `flat` loan runs to its own schedule: interest on the original principal,
 the same every month, and principal in equal parts — EMI = (P + P × rate ×
@@ -44,14 +57,29 @@ of the quoted EMI.
 ### Payments
 
 `loan_payments` records each instalment with its principal and interest split.
-Where the lender's split is known it is recorded; otherwise it is computed and
-marked `estimated`.
+Where the lender's split is known it is recorded; where only one half is given
+(the principal, say) the other is what is left of the payment; only when both
+are blank is the split computed and marked `estimated`.
 
 Paying an instalment:
 
-1. Creates a transaction on the repayment account.
-2. Consumes the payment envelope.
-3. Records principal and interest against the loan.
+1. Creates a transaction for the whole instalment on the repayment account (or
+   card), filed to the payment envelope — which is what consumes it.
+2. Credits the loan account with the **principal only**. The interest is the
+   cost of the month's borrowing, already spent from the envelope; it repays
+   nothing, so the loan account's balance always equals the outstanding. A
+   charge, or an interest-only payment, has no loan-account leg at all.
+3. Records principal and interest against the loan, with both legs' ids
+   (`transaction_id`, `loan_transaction_id`) so the payment can be undone
+   whole and neither leg can be removed on its own.
+
+**Instalments recorded before migration 0053** credited the loan account with
+the whole amount, interest included, so the account under-stated the debt and
+net worth reported a drift the household had not caused. 0053 sets each such
+leg to its principal (removing a charge's leg), and for instalments from before
+B124 — a transfer, whose two legs must stay equal — adds one correcting debit
+for the interest instead. A leg edited or deleted since no longer matches and
+is left alone; the drift line on net worth shows it.
 
 ### Prepayment
 
@@ -80,6 +108,8 @@ above the outstanding, the excess is interest. Paid below it, the difference is
 a waiver: a separate `foreclosure` row with no amount and the shortfall as
 principal forgiven, so paid + forgiven always equals the outstanding and
 interest is never negative. Closing releases the payment envelope's target.
+Without a settlement a loan closes only when nothing is outstanding; closing
+one that still owes money is refused with a pointer to settling it.
 
 **Settlements recorded before migration 0043.** The old code moved no money
 when a loan was settled — no account was debited — and stored a settlement below
@@ -94,12 +124,35 @@ SELECT lp.loan_id, l.lender, lp.date, lp.amount
  WHERE lp.kind = 'foreclosure' AND lp.amount > 0 AND lp.transaction_id IS NULL;
 ```
 
+### Undo
+
+Every loan change in the activity log undoes for real or is refused with a
+reason — none is marked undone without moving anything:
+
+| Undoing | Reverses |
+|---|---|
+| An instalment, prepayment, charge or settlement payment | The payment row and both of its legs (the bank or card debit, the loan-account credit). A prepayment taken as a shorter tenure puts the tenure back. Refused while the loan is closed — undo the close first. |
+| A rate change | The rate period, and the tenure if "keep the instalment" moved it. |
+| A re-anchor, a lender statement | The row it wrote. |
+| A disbursement | The draw and both of its legs. |
+| A close | Reopens the loan **and** its account, and removes the principal waived at settlement. The settlement payment and any charge are separate entries, undone separately. |
+| A conversion to EMI | The plan, its credit to the card, the processing fee and the money moved from the card's envelope to the plan's. Refused once an instalment has been recorded against the plan. |
+
+Events written before these carried the ids an undo needs (rate changes,
+re-anchors, statements and disbursements from before this release, and an
+instalment 0053 could not pair with its loan-account leg) are refused rather
+than guessed at.
+
 ### EMI conversion
 
 A credit-card charge can be converted into an instalment plan. The conversion
 creates a loan of type `credit-card-emi` linked to the originating transaction
 and card, dated from the **charge**, with the processing fee recorded against a
 chosen envelope.
+
+Only a charge converts — not a refund, and not the card side of a payment — and
+only once: a charge partly on a plan offers just the rest, and one wholly on
+plans offers nothing, with links to them instead.
 
 ## Family lending
 
@@ -113,6 +166,13 @@ Money lent to or borrowed from a person, held in a tracking account of subtype
 - A loan can be **written off**, which records the loss against an envelope and
   closes the arrangement.
 - `agreed_total` is optional and documentary.
+- An arrangement closes only at a nil balance; while money is owed either way,
+  closing is refused — record the repayment or write it off first.
+- Undo reverses for real: an advance or repayment takes back both legs of its
+  transfer (refused once the balance has been written off — undo the write-off
+  first); a close or reopen moves the arrangement **and** its account; the
+  start of an arrangement removes it only while nothing has been recorded
+  against it and it did not open with a balance.
 
 ## Portfolio
 
