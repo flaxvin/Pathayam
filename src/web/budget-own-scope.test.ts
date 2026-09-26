@@ -11,10 +11,14 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { execute, type DB } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
-import { nowIST, todayIST, monthOf } from "../core/dates.ts";
+import { nowIST, todayIST, monthOf, addMonths } from "../core/dates.ts";
 import { createAccount } from "../domain/accounts.ts";
 import { ensurePersonalBudget } from "../domain/budgets.ts";
-import { createGroup, createCategory, startPersonalBudget } from "../domain/budget.ts";
+import {
+  createGroup, createCategory, startPersonalBudget, setAssigned, getAssigned, setTarget,
+} from "../domain/budget.ts";
+import { loadEngineInput } from "../engine/repository.ts";
+import { computeBudget } from "../engine/engine.ts";
 import { freshHousehold, RAVI, PRIYA } from "../engine/identity.test-data.ts";
 import { startTestApp } from "./harness.test-data.ts";
 
@@ -38,6 +42,9 @@ function household(): { db: DB; priyaBudget: string } {
   execute(db, `UPDATE household SET setup_completed_at = ? WHERE id = 1`, nowIST());
   return { db, priyaBudget };
 }
+
+const rta = (db: DB, budgetId: string, month = NOW) =>
+  computeBudget(loadEngineInput(db, { through: month, budgetId, useRollup: false })).get(month)!.readyToAssign;
 
 const text = (html: string) => html.replace(/<[^>]+>/g, " ").replace(/\s+/g, " ");
 
@@ -84,5 +91,34 @@ describe("BUDGET-2 · the explain popover and Move money use the budget on scree
     } finally {
       await app.close();
     }
+  });
+});
+
+describe("BUDGET-3 · Fill from last month fills the budget on screen", () => {
+  test("Ravi's click on the household page leaves Priya's private envelope alone", async () => {
+    const { db, priyaBudget } = household();
+    const prev = addMonths(NOW, -1);
+    const pg = createGroup(db, priya, "Mine", "normal", priyaBudget);
+    const therapy = createCategory(db, priya, { groupId: pg.id, name: "Therapy" });
+    setAssigned(db, priya, prev, therapy.id, 300_000);
+    const g = createGroup(db, ravi, "Bills", "normal", HH);
+    const rent = createCategory(db, ravi, { groupId: g.id, name: "Rent" });
+    setAssigned(db, ravi, prev, rent.id, 50_000);
+    setTarget(db, ravi, rent.id, { type: "monthly", amount: 60_000 });
+    const before = rta(db, priyaBudget);
+
+    const app = await startTestApp(db, { memberId: RAVI });
+    try {
+      const page = await (await app.get(`/?month=${NOW}&budget=${HH}`)).text();
+      assert.match(page, new RegExp(`name="budget" value="${HH}"`));
+      const r = await app.post("/copy-last-month", { month: NOW, budget: HH });
+      assert.equal(r.status, 303);
+      assert.match(decodeURIComponent(r.headers.get("location") ?? ""), /Filled 1 category with ₹500/);
+    } finally {
+      await app.close();
+    }
+    assert.equal(getAssigned(db, NOW, rent.id), 50_000);
+    assert.equal(getAssigned(db, NOW, therapy.id), 0);
+    assert.equal(rta(db, priyaBudget), before);
   });
 });

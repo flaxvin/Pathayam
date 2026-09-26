@@ -2027,7 +2027,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
       const { recompute, result } = withForwardRecompute(
         db, actor, { month, cause: "Filled from last month's budget" },
-        () => copyAssignmentsFromMonth(db, actor, month, addMonths(month, -1)),
+        () => copyAssignmentsFromMonth(db, actor, month, addMonths(month, -1), postedBudget(ctx)),
       );
       const msg = result.filled === 0
         ? "Nothing to fill — last month had no assignments the empty categories could take."

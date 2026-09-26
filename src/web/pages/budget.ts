@@ -155,6 +155,7 @@ function renderReadyToAssign(view: BudgetView): SafeHtml {
         </p>
         <form id="fill-last-month" method="post" action="/copy-last-month" hidden>
           <input type="hidden" name="month" value="${view.month}">
+          ${when(view.budgetId, () => html`<input type="hidden" name="budget" value="${view.budgetId}">`)}
         </form>
       `)}
 

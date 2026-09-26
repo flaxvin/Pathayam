@@ -795,10 +795,18 @@ export function addAssigned(
  */
 export function copyAssignmentsFromMonth(
   db: DB, actor: Actor, month: MonthKey, fromMonth: MonthKey,
+  /**
+   * BUDGET-3 · The budget whose envelopes are filled. The button sits on one
+   * budget's page, and filling every budget's envelopes gave another member's
+   * private "Therapy" ₹3,000 from somebody else's click — taking her Ready to
+   * Assign negative and reporting her private total in his notice. Omitted
+   * means every budget, which only the simulator asks for.
+   */
+  budgetId?: string,
 ): { filled: number; total: Paise } {
   let filled = 0;
   let total = 0 as Paise;
-  for (const category of listCategories(db)) {
+  for (const category of listCategories(db, { budgetId })) {
     if (getAssigned(db, month, category.id) !== 0) continue; // don't clobber
     const prior = getAssigned(db, fromMonth, category.id);
     if (prior <= 0) continue;
