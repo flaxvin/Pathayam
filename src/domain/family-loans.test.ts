@@ -410,3 +410,25 @@ describe("WEALTH-29 · undoing lending reverses it, or refuses", () => {
     db.close();
   });
 });
+
+describe("WEALTH-30 · an arrangement closes only when nothing is owed", () => {
+  test("closing while the cousin owes ₹50,000 is refused, and it stays in net worth", () => {
+    const { db, bank } = setup();
+    const loan = createFamilyLoan(db, actor, { counterparty: "Cousin Fictional" });
+    recordAdvance(db, actor, { loanId: loan.id, amount: rupees(50_000), date: "2026-08-05", fromAccountId: bank.id });
+    const worth = netWorthStatement(db, "2026-08-28").netWorth;
+
+    assert.throws(() => closeFamilyLoan(db, actor, loan.id), /still owes ₹50,000/);
+    assert.equal(listFamilyLoans(db).length, 1, "still open");
+    assert.equal(netWorthStatement(db, "2026-08-28").netWorth, worth);
+    db.close();
+  });
+
+  test("and the other way: while the household owes them", () => {
+    const { db, bank } = setup();
+    const loan = createFamilyLoan(db, actor, { counterparty: "Aunt Fictional" });
+    recordRepayment(db, actor, { loanId: loan.id, amount: rupees(20_000), date: "2026-08-05", accountId: bank.id });
+    assert.throws(() => closeFamilyLoan(db, actor, loan.id), /You still owe Aunt Fictional ₹20,000/);
+    db.close();
+  });
+});
