@@ -1004,9 +1004,10 @@ export function accountBalances(db: DB): Map<string, AccountBalances> {
 export function averageDailySpend(
   db: DB, asOf: IsoDate = todayIST(), windowDays = 90,
   viewerMemberId?: string | null,
+  budgetIds?: readonly string[],
 ): Paise {
   const from = addDays(asOf, -windowDays);
-  const total = envelopeSpendBetween(db, from, asOf, viewerMemberId);
+  const total = envelopeSpendBetween(db, from, asOf, viewerMemberId, budgetIds);
   const days = Math.max(1, daysBetween(from, asOf));
   return Math.round(total / days);
 }
@@ -1039,15 +1040,30 @@ export function averageDailySpend(
  * withdrawal rate — a target of ₹2.74 crore where ₹1.03 crore would do,
  * receding faster the more the household saved. A purchase recorded through the portfolio names its
  * transaction on the lot, and that transaction is left out.
+ *
+ * BUDGET-20 · `budgetIds` narrows it to those budgets' envelopes. The budget
+ * page's buffer divided one budget's envelopes by every budget's spending —
+ * Ravi's household page read "2 days" where the household's own rate gave 100,
+ * because Priya's private ₹2,70,000 was in the denominator, and knowing the
+ * assigned total he could back out her spending rate from it.
  */
 export function envelopeSpendBetween(
   db: DB, from: IsoDate, to: IsoDate, viewerMemberId?: string | null,
+  budgetIds?: readonly string[],
 ): Paise {
   const seen = viewerMemberId === undefined
     ? { sql: "", params: [] as (string | null)[] }
     : {
       sql: " AND (a.visibility <> 'private' OR a.holder_member_id IS ?)",
       params: [viewerMemberId ?? null],
+    };
+  // A category with no budget of its own is the household's, as listCategories reads it.
+  const scoped = budgetIds === undefined
+    ? { sql: "", params: [] as string[] }
+    : {
+      sql: ` AND COALESCE(cat.budget_id, (SELECT id FROM budgets WHERE kind = 'household'))
+                 IN (${budgetIds.map(() => "?").join(",") || "NULL"})`,
+      params: [...budgetIds],
     };
 
   // The shared CTE with the transaction id carried through, so a purchase can
@@ -1071,12 +1087,13 @@ export function envelopeSpendBetween(
        LEFT JOIN categories cat ON cat.id = c.category_id
        JOIN accounts a ON a.id = c.account_id
       WHERE c.amount < 0 AND cat.payment_account_id IS NULL
-        AND NOT EXISTS (SELECT 1 FROM lots l WHERE l.transaction_id = c.transaction_id)${seen.sql}`,
+        AND NOT EXISTS (SELECT 1 FROM lots l WHERE l.transaction_id = c.transaction_id)${seen.sql}${scoped.sql}`,
     // Each leg of the union is bounded to the window, so a long history
     // costs no more than a short one.
     from, to,
     from, to,
     ...seen.params,
+    ...scoped.params,
   ) ?? 0;
 }
 
