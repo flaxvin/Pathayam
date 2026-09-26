@@ -18,6 +18,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { mkdtempSync, mkdirSync, rmSync, copyFileSync, existsSync, readdirSync } from "node:fs";
+import { spawnSync } from "node:child_process";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { openDatabase, ensureHousehold, execute, queryAll } from "../db/db.ts";
@@ -140,6 +141,54 @@ describe("B91 · restoring over a stale write-ahead log", () => {
       assert.equal(found.length, 1);
       assert.ok(found[0]!.bytes > 0);
       assert.ok(existsSync(found[0]!.path));
+    } finally {
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("SECURITY-OPS-22 · --force after a crash keeps the journal's writes in the replaced copy", () => {
+    const dir = mkdtempSync(join(tmpdir(), "budget-restore-"));
+    try {
+      // The backup is taken, then the afternoon's work lands only in the -wal
+      // (autocheckpoint off), and the process dies with the journal still hot:
+      // the three files are copied while the connection is open, as a crash
+      // leaves them.
+      const hot = household(join(dir, "hot"));
+      hot.db.exec("PRAGMA wal_autocheckpoint = 0");
+      createBackup(hot.db, join(dir, "backups"));
+      const account = queryAll<{ id: string }>(hot.db, `SELECT id FROM accounts LIMIT 1`)[0]!.id;
+      for (let i = 0; i < 50; i++) {
+        createTransaction(hot.db, actor, {
+          accountId: account, amount: -rupees(100 + i), date: "2026-09-06", payeeName: `After ${i}`,
+        });
+      }
+      const expected = controlTotals(hot.db);
+      const live = join(dir, "pathayam.sqlite");
+      copyFileSync(hot.path, live);
+      copyFileSync(`${hot.path}-wal`, `${live}-wal`);
+      copyFileSync(`${hot.path}-shm`, `${live}-shm`);
+      hot.db.close();
+
+      const run = spawnSync(process.execPath, [
+        "--experimental-strip-types", "--no-warnings",
+        join(import.meta.dirname, "..", "restore.ts"), "--latest", "--force",
+      ], {
+        env: { ...process.env, DATA_DIR: dir, DATABASE_PATH: live, BACKUP_DIR: join(dir, "backups") },
+        encoding: "utf8",
+      });
+      assert.equal(run.status, 0, run.stderr);
+
+      const kept = readdirSync(dir).filter((f) => f.startsWith("pathayam.sqlite.replaced-"));
+      assert.deepEqual(kept.filter((f) => !f.endsWith("-wal") && !f.endsWith("-shm")).length, 1);
+      assert.equal(kept.length, 1, "the journal was folded in, so the kept copy stands alone");
+      assert.ok(!existsSync(`${live}-wal`), "the live database starts without a stale journal");
+
+      // The kept copy still holds the writes that were only in the journal.
+      const reopened = openDatabase({ path: join(dir, kept[0]!), verbose: false });
+      const totals = controlTotals(reopened);
+      reopened.close();
+      assert.equal(totals.counts.transactions, expected.counts.transactions);
+      assert.equal(totals.transactionTotal, expected.transactionTotal);
     } finally {
       rmSync(dir, { recursive: true, force: true });
     }
