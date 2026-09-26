@@ -337,3 +337,30 @@ describe("BUDGET-20 · the buffer divides a budget's envelopes by that budget's 
     assert.equal(buildBudgetView(db, NOW, priyaBudget, PRIYA).buffer.averageDailySpend, 300_000);
   });
 });
+
+describe("BUDGET-6 · an envelope's explanation lists this month's spending from it", () => {
+  test("past the household's first 40 transactions, split lines included", async () => {
+    const { db } = household();
+    const joint = listAccounts(db).find((a) => a.name === "Joint")!;
+    const g = createGroup(db, ravi, "Shared", "normal", HH);
+    const food = createCategory(db, ravi, { groupId: g.id, name: "Food" });
+    const other = createCategory(db, ravi, { groupId: g.id, name: "Other" });
+    for (let i = 0; i < 40; i++) {
+      createTransaction(db, ravi, { accountId: joint.id, amount: -100, date: `${NOW}-01`, categoryId: other.id });
+    }
+    createTransaction(db, ravi, { accountId: joint.id, amount: -12_300, date: `${NOW}-01`, categoryId: food.id });
+    createTransaction(db, ravi, {
+      accountId: joint.id, amount: -4_500, date: `${NOW}-01`,
+      splits: [{ categoryId: food.id, amount: -4_000 }, { categoryId: other.id, amount: -500 }],
+    });
+    const app = await startTestApp(db, { memberId: RAVI });
+    try {
+      const body = text(await (await app.get(`/explain/category/${food.id}?month=${NOW}`)).text());
+      assert.match(body, /Spent ₹123 /);
+      assert.match(body, /Spent ₹45 /);
+      assert.doesNotMatch(body, /Nothing has affected this figure yet|Spent ₹1 /);
+    } finally {
+      await app.close();
+    }
+  });
+});
