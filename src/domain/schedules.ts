@@ -874,6 +874,16 @@ export function detectSchedules(
   const existing = new Set(
     listSchedules(db, { includeDisabled: true, viewerMemberId }).map((s) => s.payee_id).filter(Boolean),
   );
+  /*
+   * "Not a schedule" is an answer. /schedules/dismiss wrote it down and said
+   * "Won't suggest that again." — and nothing here read it, so the same four
+   * gym payments were suggested again on the very next page load.
+   */
+  for (const r of queryAll<{ ref: string }>(
+    db, `SELECT ref FROM review_dismissals WHERE kind = 'detected-schedule'`,
+  )) {
+    existing.add(r.ref);
+  }
 
   const detected: DetectedSchedule[] = [];
 
