@@ -152,9 +152,69 @@ export interface CreateLoanInput {
   disbursementAccountId?: string | null;
 }
 
+/**
+ * WEALTH-38 · The highest annual rate a loan is taken to carry. Above it the
+ * figure is a typo, and the amortisation arithmetic stops being arithmetic:
+ * 1e20% priced an instalment of ₹NaN.NaN. Even the costliest short-term credit
+ * sold to a household sits well below it.
+ */
+export const MAX_ANNUAL_RATE_PCT = 100;
+/** And the longest tenure: fifty years, in months. A schedule is built month by month. */
+export const MAX_TENURE_MONTHS = 600;
+
+const INTEREST_MODELS: readonly InterestModel[] = [
+  "reducing", "flat", "moratorium-serviced", "moratorium-capitalised",
+];
+
+/** A rate as a sentence-refusal, for every path that sets one (WEALTH-38, WEBUX-13). */
+export function checkAnnualRate(pct: number): void {
+  if (!Number.isFinite(pct)) throw new Refusal("That is not a rate — enter it as a percentage, like 8.5.");
+  if (pct < 0) throw new Refusal("A loan's rate cannot be negative.");
+  if (pct > MAX_ANNUAL_RATE_PCT) {
+    throw new Refusal(
+      `A rate of ${pct}% a year is more than any loan charges — the most this takes is ` +
+      `${MAX_ANNUAL_RATE_PCT}%. Check it against the sanction letter.`,
+    );
+  }
+}
+
 export function createLoan(db: DB, actor: Actor, input: CreateLoanInput): Loan {
-  if (input.sanctioned <= 0) throw new Refusal("A loan needs a sanctioned amount above zero.");
-  if (input.tenureMonths <= 0) throw new Refusal("A loan needs a tenure of at least one month.");
+  if (!(input.sanctioned > 0)) throw new Refusal("A loan needs a sanctioned amount above zero.");
+  /*
+   * WEALTH-38 · Everything the form sends is checked here, where every caller
+   * passes, rather than left to the database. "abc" for the tenure or the rate,
+   * or a loan type or interest model outside the lists, reached a CHECK
+   * constraint or a label lookup and answered 500; a negative rate, a tenure of
+   * 1.5 months and an outstanding five times the sanction were saved, and the
+   * loan then reported negative interest remaining.
+   */
+  if (!Number.isInteger(input.tenureMonths) || input.tenureMonths < 1) {
+    throw new Refusal("A loan needs a tenure of at least one month, in whole months.");
+  }
+  if (input.tenureMonths > MAX_TENURE_MONTHS) {
+    throw new Refusal(`A tenure of ${input.tenureMonths} months is longer than fifty years. Check it.`);
+  }
+  checkAnnualRate(input.annualRatePct);
+  if (!Object.hasOwn(LOAN_TYPE_LABELS, input.loanType)) throw new Refusal("Pick a loan type from the list.");
+  if (!INTEREST_MODELS.includes(input.interestModel)) throw new Refusal("Pick how interest is charged from the list.");
+  const moratorium = input.moratoriumMonths ?? 0;
+  if (!Number.isInteger(moratorium) || moratorium < 0 || moratorium > MAX_TENURE_MONTHS) {
+    throw new Refusal("A moratorium is a whole number of months.");
+  }
+  /*
+   * What is owed now can exceed what was sanctioned only when unpaid interest
+   * has been added to the principal — a capitalised moratorium. Otherwise it
+   * is a typo that would put a debt the lender never lent into net worth.
+   */
+  if (
+    input.currentOutstanding != null && input.currentOutstanding > input.sanctioned &&
+    input.interestModel !== "moratorium-capitalised"
+  ) {
+    throw new Refusal(
+      `${formatPaise(input.currentOutstanding)} outstanding is more than the ` +
+      `${formatPaise(input.sanctioned)} sanctioned. Check both against the lender's statement.`,
+    );
+  }
 
   return transact(db, () => {
     // F18.g: a Tracking account, so it can never fund the budget.
