@@ -1303,8 +1303,38 @@ export function recordReturnOfCapital(
 registerUndoHandler("holding", (db, event) => {
   if (event.action === "purchase") {
     const lot = event.after as Lot;
+    /*
+     * WEALTH-3 · The purchase goes with the money that paid for it, and only
+     * while its lot is still the lot it bought.
+     *
+     * This used to delete the lot and nothing else. The ₹1,000 bank debit the
+     * same call had written stayed, so the bank was ₹1,000 short with nothing
+     * to show for it. And forced past a later sale, it deleted the surviving
+     * units while the sale — and its realised gain — stayed on the books,
+     * recorded against units that no longer existed. A lot a sale has closed
+     * or shrunk, a split has rescaled or a return of capital has re-costed is
+     * no longer this purchase's alone to remove.
+     */
+    const row = queryOne<{ units: number; cost: number; closed_at: string | null; transaction_id: string | null }>(
+      db, `SELECT units, cost, closed_at, transaction_id FROM lots WHERE id = ?`, lot.id,
+    );
+    if (!row) return `That purchase was already removed`;
+    if (row.closed_at !== null || row.units !== lot.units || row.cost !== lot.cost) {
+      throw new UndoRefused(
+        "Units from this purchase have since been sold, split or re-costed, so removing it would leave " +
+        "those records pointing at units that were never bought. Undo the later change first, if it can be.",
+      );
+    }
     execute(db, `DELETE FROM lots WHERE id = ?`, lot.id);
-    return `Removed the purchase of ${formatUnits(lot.units)} units`;
+    if (row.transaction_id) {
+      // Soft, like a delete: it can be restored from the transaction for 30 days.
+      execute(
+        db, `UPDATE transactions SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`,
+        nowIST(), nowIST(), row.transaction_id,
+      );
+    }
+    return `Removed the purchase of ${formatUnits(lot.units)} units` +
+      (row.transaction_id ? `, and the payment for it` : ``);
   }
   /*
    * WEALTH-2 · Everything else is refused rather than "reversed".
