@@ -147,4 +147,21 @@ describe("ids posted in form fields", () => {
         queryOne(w.db, `SELECT 1 FROM payees WHERE merged_into_id IS NOT NULL`), null,
       );
     }));
+
+  test("SECURITY-OPS-6 / BUDGET-7 · an envelope is added only to a group this member can see", () =>
+    asPriya(async (app, w) => {
+      for (const group of [w.ids.group, "no-such-group"]) {
+        const res = await app.post("/categories/new", { group_id: group, name: "Planted" });
+        assert.equal(res.status, 404, `group_id=${group}`);
+      }
+      // The app's own groups are not offered by the form, and not taken from it.
+      const cards = createGroup(w.db, priya, "Kept by the app", "internal");
+      assert.equal((await app.post("/categories/new", { group_id: cards.id, name: "Planted" })).status, 422);
+      assert.equal(queryOne(w.db, `SELECT 1 FROM categories WHERE name = 'Planted'`), null);
+
+      const household = queryOne<{ group_id: string }>(
+        w.db, `SELECT group_id FROM categories WHERE id = ?`, w.ids.householdCategory,
+      )!.group_id;
+      assert.equal((await app.post("/categories/new", { group_id: household, name: "Hers" })).status, 303);
+    }));
 });
