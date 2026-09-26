@@ -49,9 +49,23 @@ marked `estimated`.
 
 Paying an instalment:
 
-1. Creates a transaction on the repayment account.
-2. Consumes the payment envelope.
-3. Records principal and interest against the loan.
+1. Creates a transaction for the whole instalment on the repayment account (or
+   card), filed to the payment envelope — which is what consumes it.
+2. Credits the loan account with the **principal only**. The interest is the
+   cost of the month's borrowing, already spent from the envelope; it repays
+   nothing, so the loan account's balance always equals the outstanding. A
+   charge, or an interest-only payment, has no loan-account leg at all.
+3. Records principal and interest against the loan, with both legs' ids
+   (`transaction_id`, `loan_transaction_id`) so the payment can be undone
+   whole and neither leg can be removed on its own.
+
+**Instalments recorded before migration 0053** credited the loan account with
+the whole amount, interest included, so the account under-stated the debt and
+net worth reported a drift the household had not caused. 0053 sets each such
+leg to its principal (removing a charge's leg), and for instalments from before
+B124 — a transfer, whose two legs must stay equal — adds one correcting debit
+for the interest instead. A leg edited or deleted since no longer matches and
+is left alone; the drift line on net worth shows it.
 
 ### Prepayment
 

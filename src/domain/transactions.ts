@@ -1045,6 +1045,7 @@ export function tagsFor(db: DB, transactionId: string): string[] {
  */
 const TRANSACTION_DEPENDANTS: { table: string; column: string; describe: string }[] = [
   { table: "loan_payments", column: "transaction_id", describe: "a loan instalment" },
+  { table: "loan_payments", column: "loan_transaction_id", describe: "a loan instalment" },
   { table: "lots", column: "transaction_id", describe: "a portfolio lot" },
   { table: "holding_events", column: "transaction_id", describe: "a portfolio transaction" },
   { table: "reconciliations", column: "adjustment_transaction_id", describe: "a reconciliation adjustment" },
