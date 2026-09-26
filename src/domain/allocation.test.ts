@@ -35,6 +35,8 @@ function hold(
   recordPurchase(db, actor, {
     accountId, instrumentId: inst.id, tradeDate: "2026-08-01",
     price: price(opts.mkt), units: units(opts.n),
+    // A foreign instrument cannot be bought without a rate (R33).
+    fxRate: (opts.currency ?? "INR") === "INR" ? undefined : 83,
   });
   recordPrice(db, { instrumentId: inst.id, price: price(opts.mkt), asOf: todayIST(), source: "test" });
   return inst;

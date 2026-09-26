@@ -7070,6 +7070,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       }
 
       const feesRaw = field(ctx.body, "fees");
+      // R33 · Blank means "use the stored rate for the trade date" — the domain
+      // looks it up and refuses when there is none, rather than booking at 1.
+      const fxRaw = field(ctx.body, "fx_rate")?.trim();
       const lot = recordPurchase(db, actor, {
         accountId: requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id,
         instrumentId: instrument.id,
@@ -7078,6 +7081,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         amount: amountRaw?.trim() ? amountField(amountRaw) : undefined,
         units: amountRaw?.trim() ? undefined : toUnits(Number(field(ctx.body, "units") ?? 0)),
         fees: feesRaw?.trim() ? amountField(feesRaw) : 0,
+        fxRate: fxRaw ? Number(fxRaw) : null,
         fromAccountId: visibleAccountField(ctx, "from_account_id"),
         categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
       });
@@ -7270,15 +7274,24 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     const unitsRaw = ctx.query.get("units") ?? "";
     const priceRaw = ctx.query.get("price") ?? (view.quote ? String(view.quote.price / 1_000_000) : "");
+    const fxRaw = ctx.query.get("fx_rate")?.trim() ?? "";
 
     let preview = null;
+    let error: string | null = null;
     if (unitsRaw && priceRaw) {
       const quantity = toUnits(Number(unitsRaw));
       const unitPrice = toUnitPrice(Number(priceRaw));
       if (quantity > 0 && unitPrice > 0 && quantity <= view.units) {
-        preview = previewHoldingSale(db, view.holding.id, quantity, unitPrice, {
-          saleDate: todayIST(),
-        });
+        try {
+          preview = previewHoldingSale(db, view.holding.id, quantity, unitPrice, {
+            saleDate: todayIST(),
+            fxRate: fxRaw ? Number(fxRaw) : null,
+          });
+        } catch (err) {
+          // A foreign holding with no rate for today: say so on the form.
+          if (!(err instanceof Refusal)) throw err;
+          error = err.message;
+        }
       }
     }
 
@@ -7288,6 +7301,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         view, preview,
         unitsToSell: unitsRaw,
         priceInput: priceRaw,
+        fxInput: fxRaw,
+        error,
         accounts: listAccounts(db, { viewerMemberId: viewer(ctx) })
           .filter((a) => a.kind === "budget")
           .map((a) => ({ id: a.id, name: a.nickname || a.name })),
@@ -7301,6 +7316,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       requireAssets();
       const holdingId = requireVisibleHolding(ctx, ctx.params.id!);
       const chargesRaw = field(ctx.body, "charges");
+      const fxRaw = field(ctx.body, "fx_rate")?.trim();
       const preview = recordSale(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         holdingId,
         units: toUnits(Number(requiredField(ctx.body, "units"))),
@@ -7312,6 +7328,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           ? (Math.abs(amountField(chargesRaw, "Charges")) as Paise)
           : undefined,
         toAccountId: visibleAccountField(ctx, "to_account_id"),
+        // R33 · Converted at the sale-date rate; blank uses the stored one.
+        fxRate: fxRaw ? Number(fxRaw) : null,
       });
 
       return {

@@ -509,6 +509,38 @@ export function listInstruments(db: DB): Instrument[] {
 }
 
 /**
+ * R33 · The rate a foreign trade converts at: the one the person gave, else the
+ * stored rate for the trade date, else a refusal.
+ *
+ * The forms offered "$ US dollar" and then never asked for a rate, and nothing
+ * looked one up, so a $1,000 purchase went into the books — and out of the bank
+ * — as ₹1,000, and selling half of it credited ₹500. The holding page then
+ * valued the same units at today's rate and reported an ₹82,000 unrealised gain
+ * that never happened. A trade with no rate cannot be booked honestly, so it is
+ * not booked at all rather than being booked at 1.
+ */
+export function tradeFxRate(
+  db: DB, instrumentId: string, date: IsoDate, given?: number | null,
+): number | null {
+  const instrument = getInstrument(db, instrumentId);
+  if (!instrument || instrument.currency === "INR") return given ?? null;
+  if (given !== undefined && given !== null) {
+    if (!(Number.isFinite(given) && given > 0)) {
+      throw new Refusal("The exchange rate has to be a number above zero — rupees for one unit of the currency.");
+    }
+    return given;
+  }
+  const stored = fxRate(db, instrument.currency, "INR", date);
+  if (!stored) {
+    throw new Refusal(
+      `${instrument.name} is priced in ${instrument.currency}, and no ${instrument.currency}→INR rate is ` +
+      `recorded on or before ${formatDate(date)}. Enter the rate you were charged, so the cost is in rupees.`,
+    );
+  }
+  return stored.rate;
+}
+
+/**
  * FW4 · Buying an investment is money **leaving the budget**: a transfer from
  * a Budget account, consuming a savings/investment category, so envelope
  * arithmetic stays whole and reports do not count it as consumption.
@@ -552,6 +584,7 @@ export function recordPurchase(
     throw new Refusal("The purchase price has to be a number above zero.");
   }
   return transact(db, () => {
+    const fx = tradeFxRate(db, input.instrumentId, input.tradeDate, input.fxRate);
     const holding = findOrCreateHolding(db, actor, input.accountId, input.instrumentId);
     const lot = makeLot({
       id: newId(),
@@ -561,7 +594,7 @@ export function recordPurchase(
       amount: input.amount,
       fees: input.fees,
       capitaliseFees: input.capitaliseFees,
-      fxRate: input.fxRate,
+      fxRate: fx,
     });
 
     let transactionId: string | null = null;
@@ -851,11 +884,20 @@ export function viewHolding(
 /** S13c · The FIFO preview, before anything is confirmed. */
 export function previewHoldingSale(
   db: DB, holdingId: string, quantity: Milliunits, unitPrice: MicroRupees,
-  opts: { charges?: Paise; saleDate?: IsoDate } = {},
+  opts: { charges?: Paise; saleDate?: IsoDate; fxRate?: number | null } = {},
 ): SalePreview {
   const holding = holdingOf(db, holdingId);
-  assertSaleInput(holding, quantity, unitPrice, opts);
-  return previewSale(holding, quantity, unitPrice, opts);
+  const fx = tradeFxRate(db, instrumentOfHolding(db, holdingId), opts.saleDate ?? todayIST(), opts.fxRate);
+  assertSaleInput(holding, quantity, unitPrice, { ...opts, fxRate: fx });
+  return previewSale(holding, quantity, unitPrice, { ...opts, fxRate: fx });
+}
+
+function instrumentOfHolding(db: DB, holdingId: string): string {
+  const row = queryOne<{ instrument_id: string }>(
+    db, `SELECT instrument_id FROM holdings WHERE id = ?`, holdingId,
+  );
+  if (!row) throw new Missing("That holding does not exist.");
+  return row.instrument_id;
 }
 
 /**
@@ -868,7 +910,7 @@ export function previewHoldingSale(
  */
 function assertSaleInput(
   holding: Holding, quantity: Milliunits, unitPrice: MicroRupees,
-  opts: { charges?: Paise; saleDate?: IsoDate },
+  opts: { charges?: Paise; saleDate?: IsoDate; fxRate?: number | null },
 ): void {
   if (!Number.isFinite(quantity) || quantity <= 0) {
     throw new Refusal("Say how many units were sold — a number above zero.");
@@ -882,7 +924,7 @@ function assertSaleInput(
       `Only ${formatUnits(held)} units are held, so ${formatUnits(quantity)} cannot be sold.`,
     );
   }
-  if (opts.charges !== undefined && opts.charges > valueOf(quantity, unitPrice)) {
+  if (opts.charges !== undefined && opts.charges > Math.round(valueOf(quantity, unitPrice) * (opts.fxRate ?? 1))) {
     throw new Refusal("The charges are more than the sale was worth. Check both figures.");
   }
   if (opts.saleDate) {
@@ -919,14 +961,20 @@ export function recordSale(
     toAccountId?: string | null;
     /** The statement row this came from, if any. See migration 0006. */
     sourceRef?: string | null;
+    /** R33 · For a foreign instrument; the stored sale-date rate otherwise. */
+    fxRate?: number | null;
   },
 ): SalePreview {
   return transact(db, () => {
     const holding = holdingOf(db, input.holdingId);
-    assertSaleInput(holding, input.units, input.price, { charges: input.charges, saleDate: input.date });
+    const fx = tradeFxRate(db, instrumentOfHolding(db, input.holdingId), input.date, input.fxRate);
+    assertSaleInput(holding, input.units, input.price, {
+      charges: input.charges, saleDate: input.date, fxRate: fx,
+    });
     const preview = previewSale(holding, input.units, input.price, {
       charges: input.charges,
       saleDate: input.date,
+      fxRate: fx,
     });
 
     // R25.4: consumed lots are closed and partials rewritten at their original

@@ -241,7 +241,7 @@ export function previewSale(
   holding: Holding,
   quantity: Milliunits,
   unitPrice: MicroRupees,
-  opts: { charges?: Paise; saleDate?: IsoDate } = {},
+  opts: { charges?: Paise; saleDate?: IsoDate; fxRate?: number | null } = {},
 ): SalePreview {
   const held = totalUnits(holding);
   if (quantity > held) {
@@ -296,7 +296,16 @@ export function previewSale(
     }
   }
 
-  const proceeds = valueOf(quantity, unitPrice) - (opts.charges ?? 0);
+  /*
+   * R33 · The proceeds of a foreign sale are converted at the sale-date rate
+   * before anything is compared with the cost, which was frozen in base at the
+   * purchase-date rate. Without this, ten dollars of sale booked ten rupees of
+   * proceeds against a cost of ₹830 — a loss nobody made. Charges are what the
+   * bank statement shows, so they are already in base.
+   */
+  const rate = opts.fxRate ?? 1;
+  const gross = valueOf(quantity, unitPrice);
+  const proceeds = (rate === 1 ? gross : Math.round(gross * rate)) - (opts.charges ?? 0);
 
   return {
     consumed,

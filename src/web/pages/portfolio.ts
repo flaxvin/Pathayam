@@ -827,10 +827,15 @@ export function renderSalePreview(opts: {
   } | null;
   unitsToSell: string;
   priceInput: string;
+  /** R33 · Only asked for a foreign instrument; blank uses the stored rate. */
+  fxInput?: string;
+  /** Why no preview could be made — a missing exchange rate, say. */
+  error?: string | null;
   accounts: { id: string; name: string }[];
   today: IsoDate;
 }): SafeHtml {
   const v = opts.view;
+  const foreign = v.instrument.currency !== "INR";
 
   return html`
     <h1>Sell ${v.instrument.name}</h1>
@@ -849,8 +854,21 @@ export function renderSalePreview(opts: {
                  value="${opts.priceInput}" required>
         </div>
       </div>
+      ${when(foreign, () => html`
+        <div class="field">
+          <label for="fx_rate">Rupees per ${v.instrument.currency} on the sale date</label>
+          <input id="fx_rate" name="fx_rate" type="text" inputmode="decimal"
+                 value="${opts.fxInput ?? ""}" placeholder="the stored rate">
+          <p class="field-hint">
+            The price is in ${v.instrument.currency}; the proceeds reach the bank in rupees.
+            Leave it blank to use the rate recorded for that day.
+          </p>
+        </div>
+      `)}
       <button type="submit">Preview</button>
     </form>
+
+    ${when(opts.error, () => html`<p class="notice notice-warning">${opts.error}</p>`)}
 
     ${when(opts.preview, () => html`
       <div class="card">
@@ -894,6 +912,7 @@ export function renderSalePreview(opts: {
         <form method="post" action="/portfolio/${v.holding.id}/sell" style="margin-top:1rem">
           <input type="hidden" name="units" value="${opts.unitsToSell}">
           <input type="hidden" name="price" value="${opts.priceInput}">
+          ${when(foreign, () => html`<input type="hidden" name="fx_rate" value="${opts.fxInput ?? ""}">`)}
           <div class="grid-2">
             <div class="field">
               <label for="sale_date">Date of sale</label>
@@ -1237,6 +1256,16 @@ export function renderAddHolding(opts: {
               <option value="USD">$ US dollar</option>
             </select>
           </div>
+        </div>
+        <div class="field">
+          <label for="fx_rate">Exchange rate <span class="faint">(foreign currency only)</span></label>
+          <input id="fx_rate" name="fx_rate" type="text" inputmode="decimal" placeholder="the stored rate">
+          <p class="field-hint">
+            Rupees for one unit of the currency on the day you bought — what the
+            bank charged. The amount and price are in the instrument's currency;
+            this is what turns them into what left your account. Leave it blank to
+            use the rate recorded for that day.
+          </p>
         </div>
 
         <fieldset>
