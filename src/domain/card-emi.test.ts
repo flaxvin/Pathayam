@@ -11,12 +11,12 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { openDatabase, ensureHousehold, execute, queryOne, type DB } from "../db/db.ts";
-import type { Actor } from "../core/events.ts";
+import { undoEvent, type Actor } from "../core/events.ts";
 import { nowIST, todayIST, monthOf } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import { createAccount } from "./accounts.ts";
 import { createGroup, createCategory, setAssigned } from "./budget.ts";
-import { createTransaction } from "./transactions.ts";
+import { createTransaction, createTransfer } from "./transactions.ts";
 import { loadEngineInput, accountBalances } from "../engine/repository.ts";
 import { computeBudget, identityResidual, cardFunding } from "../engine/engine.ts";
 import { convertToEmi, GST_PCT } from "./card-emi.ts";
@@ -379,5 +379,79 @@ describe("06 §7.4 · the plan is dated from the charge it replaces", () => {
       )!.sanction_date,
       "2026-05-02",
     );
+  });
+});
+
+/*
+ * WEALTH-40 / MONEY-CORE-24 · One purchase, one conversion.
+ *
+ * The only check was that the amount did not exceed the charge, so the same
+ * ₹60,000 converted twice made two ₹60,000 plans and credited the card twice;
+ * a refund and the card side of a payment converted too. And undoing a
+ * conversion from the log was a no-op marked done.
+ */
+describe("WEALTH-40 · a charge converts once, and only a charge converts", () => {
+  const balance = (db: DB, id: string) => accountBalances(db).get(id)?.working ?? 0;
+
+  test("converting the same charge again is refused, and the card is credited once", () => {
+    const { db, card, charge } = cardWithCharge();
+    convertToEmi(db, actor, { transactionId: charge.id, tenureMonths: 6, annualRatePct: 15 });
+    assert.throws(
+      () => convertToEmi(db, actor, { transactionId: charge.id, tenureMonths: 6, annualRatePct: 15 }),
+      /already on an EMI plan/,
+    );
+    assert.equal(listLoans(db).length, 1);
+    assert.equal(balance(db, card.id), 0);
+  });
+
+  test("a part conversion leaves only the rest to convert", () => {
+    const { db, charge } = cardWithCharge();
+    convertToEmi(db, actor, { transactionId: charge.id, amount: rupees(40_000), tenureMonths: 6, annualRatePct: 15 });
+    assert.throws(
+      () => convertToEmi(db, actor, { transactionId: charge.id, amount: rupees(30_000), tenureMonths: 6, annualRatePct: 15 }),
+      /only ₹20,000 is left/,
+    );
+    const rest = convertToEmi(db, actor, { transactionId: charge.id, tenureMonths: 6, annualRatePct: 15 });
+    assert.equal(rest.loan.sanctioned, rupees(20_000), "the default is what is left, not the whole charge");
+  });
+
+  test("a refund and the card side of a payment do not convert", () => {
+    const { db, card, electronics } = cardWithCharge();
+    const refund = createTransaction(db, actor, {
+      accountId: card.id, amount: rupees(5_000), date: todayIST(), categoryId: electronics, payeeName: "Croma",
+    });
+    assert.throws(
+      () => convertToEmi(db, actor, { transactionId: refund.id, tenureMonths: 6, annualRatePct: 15 }),
+      /Only a charge converts/,
+    );
+    const bank = queryOne<{ id: string }>(db, `SELECT id FROM accounts WHERE kind = 'budget'`)!.id;
+    createTransfer(db, actor, { fromAccountId: bank, toAccountId: card.id, amount: rupees(10_000), date: todayIST() });
+    const leg = queryOne<{ id: string }>(
+      db, `SELECT id FROM transactions WHERE account_id = ? AND transfer_pair_id IS NOT NULL`, card.id)!.id;
+    assert.throws(
+      () => convertToEmi(db, actor, { transactionId: leg, tenureMonths: 6, annualRatePct: 15 }),
+      /Only a charge converts|one side of a transfer/,
+    );
+    assert.equal(listLoans(db).length, 0);
+  });
+
+  test("undoing a conversion takes back the plan, the card credit, the fee and the envelope move", () => {
+    const { db, card, charge, fees } = cardWithCharge();
+    const before = paymentEnvelope(db, card.id).balance;
+    convertToEmi(db, actor, {
+      transactionId: charge.id, tenureMonths: 12, annualRatePct: 15,
+      processingFee: rupees(199), feeCategoryId: fees,
+    });
+    const event = queryOne<{ id: string }>(
+      db, `SELECT id FROM events WHERE entity = 'loan' AND action = 'convert-to-emi'`)!.id;
+    const result = undoEvent(db, event, actor, { force: true });
+    assert.ok(result.ok, result.reason);
+
+    assert.equal(listLoans(db, { includeClosed: true }).length, 0);
+    assert.equal(balance(db, card.id), -rupees(60_000), "the card credit or the fee stayed");
+    assert.equal(paymentEnvelope(db, card.id).balance, before, "the envelope move stayed");
+    assert.equal(identityResidual(state(db)), 0);
+    // And the charge can be converted again, properly this time.
+    convertToEmi(db, actor, { transactionId: charge.id, tenureMonths: 6, annualRatePct: 15 });
   });
 });

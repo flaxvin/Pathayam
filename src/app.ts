@@ -99,7 +99,7 @@ import { memberScope, hiddenTransactionSql, hiddenAccountSql } from "./domain/me
 import { exportForMember, exportTransactionsCsvForMember } from "./ops/member-export.ts";
 import { callItEven } from "./domain/squaring-up.ts";
 import { describeDeparture, settleDeparture, type DepartureResolution } from "./domain/departure.ts";
-import { convertToEmi } from "./domain/card-emi.ts";
+import { convertToEmi, convertedFrom } from "./domain/card-emi.ts";
 import { renderDeparture } from "./web/pages/departure.ts";
 import { renderHousehold } from "./web/pages/household.ts";
 import {
@@ -3200,6 +3200,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const splits = transaction.is_split ? getSplits(db, transaction.id) : [];
     const tags = tagsFor(db, transaction.id).join(", ");
     const members = listMembers(db);
+    /*
+     * WEALTH-40 · What is left of this charge to convert. The form stayed on the
+     * page after a conversion, inviting the same purchase onto a second plan;
+     * once all of it is on one, the page says so and links to it instead.
+     */
+    const convertedAlready = convertedFrom(db, transaction.id);
+    const convertLeft = account.kind === "credit" && transaction.amount < 0 && !transaction.transfer_pair_id
+      ? Math.abs(transaction.amount) - convertedAlready
+      : 0;
+    const plans = convertedAlready > 0
+      ? queryAll<{ id: string; nickname: string | null; lender: string }>(
+          db, `SELECT id, nickname, lender FROM loans WHERE converted_from_transaction_id = ?`, transaction.id,
+        )
+      : [];
     const categoryName = new Map(
       [...view.categories.values()].map((c) => [c.id, c.name]),
     );
@@ -3221,12 +3235,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             summary line is how the account edit form and the loan holder control
             both ended up reported as missing.
           -->
-          ${when(account.kind === "credit" && transaction.amount < 0, () => html`
+          ${when(convertLeft > 0, () => html`
             <a class="button button-primary" href="#emi">Convert to EMI</a>
           `)}
         </div>
 
-        ${when(account.kind === "credit" && transaction.amount < 0, () => html`
+        ${when(plans.length > 0, () => html`
+          <p class="muted">
+            ${formatPaise(convertedAlready)} of this is on an EMI plan:
+            ${plans.map((p, i) => html`${i > 0 ? ", " : ""}<a href="/loans/${p.id}">${p.nickname || p.lender}</a>`)}.
+          </p>
+        `)}
+
+        ${when(convertLeft > 0, () => html`
           <details class="card" id="emi">
             <summary class="linkish">The bank offered to convert this to EMI</summary>
             <p class="muted" style="margin-top:.75rem">
@@ -3241,7 +3262,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                   <label for="emi-amount">How much of it</label>
                   <input id="emi-amount" name="amount" class="amount-input" type="text"
                          inputmode="decimal"
-                         value="${(Math.abs(transaction.amount) / 100).toFixed(2)}">
+                         value="${(convertLeft / 100).toFixed(2)}">
                 </div>
                 <div class="field">
                   <label for="emi-tenure">Over how many months</label>

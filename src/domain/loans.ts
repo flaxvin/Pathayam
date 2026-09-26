@@ -17,7 +17,7 @@ import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { Missing, Refusal } from "../core/refusal.ts";
 import { setTarget, moveMoney } from "./budget.ts";
-import { nowIST, todayIST, formatDate, monthOf, type IsoDate } from "../core/dates.ts";
+import { nowIST, todayIST, formatDate, monthOf, type IsoDate, type MonthKey } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { createAccount, getAccount } from "./accounts.ts";
 import { createTransaction, createTransfer, eraseTransaction, UndoRefused } from "./transactions.ts";
@@ -1372,62 +1372,68 @@ export function closeLoan(
   });
 }
 
+/**
+ * Remove a loan outright: its rates, its payment envelope and its tracking
+ * account. Refused, with the reason, while anything else points at any of them.
+ */
+function removeLoan(db: DB, id: string, loan: Pick<Loan, "account_id">): void {
+  const category = queryOne<{ payment_category_id: string | null }>(
+    db, `SELECT payment_category_id FROM loans WHERE id = ?`, id,
+  )?.payment_category_id ?? null;
+
+  /*
+   * D10 · Removing a loan removes its account and its payment envelope, and
+   * anything since that points at any of the three has to stop it: the EMI
+   * plan's instalments, a disbursement, money assigned to the envelope. The
+   * old handler also deleted the envelope before the loan that names it and
+   * left the envelope's target behind, so it hit a foreign key every time —
+   * a 500, where the household needed a sentence.
+   */
+  const dependants = [
+    ...dependantsOf(db, "loans", id, {
+      own: ["loan_rates.loan_id"],
+      words: {
+        loan_disbursements: "a disbursement", loan_payments: "payments",
+        loan_statements: "statements",
+      },
+    }),
+    ...dependantsOf(db, "accounts", loan.account_id, {
+      own: ["loans.account_id", "categories.payment_account_id", "cards.account_id"],
+      words: { transactions: "transactions", schedules: "schedules" },
+    }),
+    ...(category
+      ? dependantsOf(db, "categories", category, {
+          own: ["loans.payment_category_id", "targets.category_id", "assignments.category_id"],
+          words: { transactions: "spending filed to its envelope", schedules: "schedules" },
+        })
+      : []),
+  ];
+  const assigned = category
+    ? queryOne<{ n: number }>(
+        db, `SELECT COUNT(*) AS n FROM assignments WHERE category_id = ? AND amount <> 0`, category,
+      )?.n ?? 0
+    : 0;
+  if (assigned > 0) dependants.push("money assigned to its envelope");
+  if (dependants.length > 0) {
+    throw new Refusal(
+      `This loan already has ${[...new Set(dependants)].join(", ")}, so removing it would ` +
+      `leave those pointing at nothing. Close the loan instead — its history stays.`,
+    );
+  }
+
+  execute(db, `DELETE FROM loan_rates WHERE loan_id = ?`, id);
+  execute(db, `DELETE FROM loans WHERE id = ?`, id);
+  if (category) {
+    execute(db, `DELETE FROM assignments WHERE category_id = ?`, category);
+    execute(db, `DELETE FROM targets WHERE category_id = ?`, category);
+    execute(db, `DELETE FROM categories WHERE id = ?`, category);
+  }
+  execute(db, `DELETE FROM accounts WHERE id = ?`, loan.account_id);
+}
+
 registerUndoHandler("loan", (db, event, actor) => {
   if (event.action === "create") {
-    const loan = event.after as Loan;
-    const id = event.entityId!;
-    const category = queryOne<{ payment_category_id: string | null }>(
-      db, `SELECT payment_category_id FROM loans WHERE id = ?`, id,
-    )?.payment_category_id ?? null;
-
-    /*
-     * D10 · Removing a loan removes its account and its payment envelope, and
-     * anything since that points at any of the three has to stop it: the EMI
-     * plan's instalments, a disbursement, money assigned to the envelope. The
-     * old handler also deleted the envelope before the loan that names it and
-     * left the envelope's target behind, so it hit a foreign key every time —
-     * a 500, where the household needed a sentence.
-     */
-    const dependants = [
-      ...dependantsOf(db, "loans", id, {
-        own: ["loan_rates.loan_id"],
-        words: {
-          loan_disbursements: "a disbursement", loan_payments: "payments",
-          loan_statements: "statements",
-        },
-      }),
-      ...dependantsOf(db, "accounts", loan.account_id, {
-        own: ["loans.account_id", "categories.payment_account_id", "cards.account_id"],
-        words: { transactions: "transactions", schedules: "schedules" },
-      }),
-      ...(category
-        ? dependantsOf(db, "categories", category, {
-            own: ["loans.payment_category_id", "targets.category_id", "assignments.category_id"],
-            words: { transactions: "spending filed to its envelope", schedules: "schedules" },
-          })
-        : []),
-    ];
-    const assigned = category
-      ? queryOne<{ n: number }>(
-          db, `SELECT COUNT(*) AS n FROM assignments WHERE category_id = ? AND amount <> 0`, category,
-        )?.n ?? 0
-      : 0;
-    if (assigned > 0) dependants.push("money assigned to its envelope");
-    if (dependants.length > 0) {
-      throw new Refusal(
-        `This loan already has ${[...new Set(dependants)].join(", ")}, so removing it would ` +
-        `leave those pointing at nothing. Close the loan instead — its history stays.`,
-      );
-    }
-
-    execute(db, `DELETE FROM loan_rates WHERE loan_id = ?`, id);
-    execute(db, `DELETE FROM loans WHERE id = ?`, id);
-    if (category) {
-      execute(db, `DELETE FROM assignments WHERE category_id = ?`, category);
-      execute(db, `DELETE FROM targets WHERE category_id = ?`, category);
-      execute(db, `DELETE FROM categories WHERE id = ?`, category);
-    }
-    execute(db, `DELETE FROM accounts WHERE id = ?`, loan.account_id);
+    removeLoan(db, event.entityId!, event.after as Loan);
     return `Removed the loan that was added`;
   }
   /*
@@ -1537,10 +1543,40 @@ registerUndoHandler("loan", (db, event, actor) => {
   }
 
   if (event.action === "convert-to-emi") {
-    throw new UndoRefused(
-      "Converting a charge to EMI made a plan, a credit on the card and a fee. " +
-      "Close the plan, or delete the fee, rather than undoing the conversion.",
-    );
+    /*
+     * MONEY-CORE-24 · Undoing a conversion takes the whole of it back: the plan,
+     * the credit it put on the card, the fee, and the money it moved from the
+     * card's envelope to the plan's. That is the only way a conversion made by
+     * mistake — the same charge twice — can be put right from the log.
+     */
+    if (!("feeTransactionId" in after)) throw tooOld("conversion");
+    if (queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM loan_payments WHERE loan_id = ?`, id)!.n > 0) {
+      throw new UndoRefused(
+        "Instalments have been recorded against this plan since. Undo those first, or close the plan.",
+      );
+    }
+    for (const draw of listDisbursements(db, id)) {
+      const legs = queryOne<{ after_json: string | null }>(
+        db,
+        `SELECT after_json FROM events
+          WHERE entity = 'loan' AND entity_id = ? AND action = 'disburse' AND after_json LIKE ?`,
+        id, `%${draw.id}%`,
+      );
+      const ids = (legs?.after_json ? JSON.parse(legs.after_json).transactionIds : null) as string[] | null;
+      if (!Array.isArray(ids)) throw tooOld("conversion");
+      execute(db, `DELETE FROM loan_disbursements WHERE id = ?`, draw.id);
+      for (const leg of ids) eraseTransaction(db, leg);
+    }
+    eraseTransaction(db, after.feeTransactionId as string | null);
+    const moved = after.moved as { month: MonthKey; fromCategoryId: string; toCategoryId: string; amount: Paise } | null;
+    if (moved) {
+      moveMoney(db, actor, {
+        month: moved.month, fromCategoryId: moved.toCategoryId, toCategoryId: moved.fromCategoryId,
+        amount: moved.amount,
+      });
+    }
+    removeLoan(db, id, loan);
+    return `Took back the conversion to EMI: the plan, the card credit and the fee`;
   }
 
   throw new UndoRefused("That change to the loan cannot be undone from here.");

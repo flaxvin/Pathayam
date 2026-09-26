@@ -120,7 +120,7 @@ reason — none is marked undone without moving anything:
 | A re-anchor, a lender statement | The row it wrote. |
 | A disbursement | The draw and both of its legs. |
 | A close | Reopens the loan **and** its account, and removes the principal waived at settlement. The settlement payment and any charge are separate entries, undone separately. |
-| A conversion to EMI | Refused: close the plan, or delete the fee, instead. |
+| A conversion to EMI | The plan, its credit to the card, the processing fee and the money moved from the card's envelope to the plan's. Refused once an instalment has been recorded against the plan. |
 
 Events written before these carried the ids an undo needs (rate changes,
 re-anchors, statements and disbursements from before this release, and an
@@ -133,6 +133,10 @@ A credit-card charge can be converted into an instalment plan. The conversion
 creates a loan of type `credit-card-emi` linked to the originating transaction
 and card, dated from the **charge**, with the processing fee recorded against a
 chosen envelope.
+
+Only a charge converts — not a refund, and not the card side of a payment — and
+only once: a charge partly on a plan offers just the rest, and one wholly on
+plans offers nothing, with links to them instead.
 
 ## Family lending
 
