@@ -138,3 +138,47 @@ describe("WEBUX-13 · a rate change is bounded like a new loan's rate", () => {
     } finally { await app.close(); }
   });
 });
+
+describe("WEALTH-37 · the prepayment calculator answers nonsense with a sentence", () => {
+  const good = { principal: "500000", rate: "9", months: "120", amount: "10000", at_month: "12" };
+
+  test("zero, text, negative, fractional and out-of-range inputs are 422s on POST and GET", async () => {
+    const { app } = await setup();
+    try {
+      for (const over of [
+        { months: "0" }, { principal: "0" }, { rate: "abc" }, { months: "abc" }, { rate: "-5" },
+        { months: "1.5" }, { at_month: "0" }, { at_month: "121" }, { amount: "900000" },
+      ]) {
+        const form = { ...good, ...over };
+        const post = await app.post("/loans/what-if", form);
+        assert.equal(post.status, 422, `POST ${JSON.stringify(over)}`);
+        assert.doesNotMatch(await post.text(), /NaN/);
+        const get = await app.get(`/loans/what-if?${new URLSearchParams(form)}`);
+        assert.equal(get.status, 422, `GET ${JSON.stringify(over)}`);
+      }
+    } finally { await app.close(); }
+  });
+
+  test("sound inputs, a 0% loan and the bare page still price", async () => {
+    const { app } = await setup();
+    try {
+      assert.equal((await app.post("/loans/what-if", good)).status, 200);
+      assert.equal((await app.post("/loans/what-if", { ...good, rate: "0" })).status, 200);
+      assert.equal((await app.get("/loans/what-if")).status, 200);
+    } finally { await app.close(); }
+  });
+
+  test("a loan's own prepay page opens on an amount that does not clear it", async () => {
+    const { db, app, bank } = await setup();
+    try {
+      const small = createLoan(db, ravi, {
+        lender: "Fictional Bank", loanType: "personal", sanctioned: rupees(60_000) as Paise,
+        sanctionDate: "2025-01-01", interestModel: "reducing", annualRatePct: 12, tenureMonths: 12,
+        currentOutstanding: rupees(60_000) as Paise, repaymentAccountId: bank,
+      });
+      const res = await app.get(`/loans/${small.id}/prepay`);
+      assert.equal(res.status, 200);
+      assert.doesNotMatch(await res.text(), /NaN/);
+    } finally { await app.close(); }
+  });
+});
