@@ -12,7 +12,7 @@
  * about money the person looking could actually receive.
  */
 
-import { test, describe } from "node:test";
+import { test, describe, mock } from "node:test";
 import assert from "node:assert/strict";
 import { freshDb, seedMember, startTestApp } from "./harness.test-data.ts";
 import { buildBudgetView } from "./viewmodel.ts";
@@ -22,7 +22,7 @@ import { createAccount } from "../domain/accounts.ts";
 import { createGroup, createCategory, setTarget } from "../domain/budget.ts";
 import { ensurePersonalBudget } from "../domain/budgets.ts";
 import { rupees, type Paise } from "../core/money.ts";
-import { todayIST, monthOf, addDays } from "../core/dates.ts";
+import { todayIST, monthOf, addDays, formatDate } from "../core/dates.ts";
 import type { Actor } from "../core/events.ts";
 
 const RAVI = "m-ravi";
@@ -30,7 +30,7 @@ const PRIYA = "m-priya";
 const ravi: Actor = { memberId: RAVI, source: "ui" };
 
 /** A household with a target it cannot yet fund, and a salary on its way. */
-function household(opts: { salaryIntoPrivate?: boolean } = {}) {
+function household(opts: { salaryIntoPrivate?: boolean; paydayIn?: number } = {}) {
   const db = freshDb();
   seedMember(db, RAVI, "Ravi");
   seedMember(db, PRIYA, "Priya");
@@ -53,7 +53,7 @@ function household(opts: { salaryIntoPrivate?: boolean } = {}) {
     }).id;
   }
 
-  const payday = addDays(todayIST(), 5);
+  const payday = addDays(todayIST(), opts.paydayIn ?? 5);
   createSchedule(db, ravi, {
     name: "Salary — Ravi", accountId: into, amount: rupees(1_20_000) as Paise,
     recurrence: "monthly", nextDue: payday,
@@ -70,17 +70,41 @@ describe("N5 · the underfunded line says when the money arrives", () => {
     assert.equal(view.nextIncome?.label, "Salary — Ravi");
   });
 
-  test("and the budget screen says it in words", async () => {
-    const { db } = household();
-    const app = await startTestApp(db, { memberId: RAVI });
+  /*
+   * WEBUX-6 · This used to put payday five days from the real today and expect
+   * "on the Nth" — so from the 26th of a 30-day month on, payday was next month,
+   * the page rightly said "on 01-10-2026", and the test failed for the last five
+   * days of every month. The clock is frozen now, once per phrasing the page has.
+   */
+  async function sentenceOn(now: string, paydayIn: number): Promise<string> {
+    mock.timers.enable({ apis: ["Date"], now: new Date(now) });
     try {
-      const body = (await (await app.get("/")).text()).replace(/\s+/g, " ");
-      assert.match(body, /underfunded across/);
-      assert.match(body, /your next income, Salary — Ravi, is on the \d+(st|nd|rd|th)/);
-      assert.deepEqual(app.failures, []);
+      const { db, payday } = household({ paydayIn });
+      const app = await startTestApp(db, { memberId: RAVI });
+      try {
+        const body = (await (await app.get("/")).text()).replace(/\s+/g, " ");
+        assert.match(body, /underfunded across/);
+        assert.deepEqual(app.failures, []);
+        const said = body.match(/your next income, Salary — Ravi, is ([^<]+?) <\/span>/)?.[1];
+        assert.ok(said, `the line is missing (payday ${payday})`);
+        return said!;
+      } finally {
+        await app.close();
+      }
     } finally {
-      await app.close();
+      mock.timers.reset();
     }
+  }
+
+  test("and the budget screen says it in words", async () => {
+    assert.equal(await sentenceOn("2026-09-10T12:00:00+05:30", 5), "on the 15th");
+  });
+
+  test("today, tomorrow, and a date when it is next month", async () => {
+    assert.equal(await sentenceOn("2026-09-10T12:00:00+05:30", 0), "today");
+    assert.equal(await sentenceOn("2026-09-10T12:00:00+05:30", 1), "tomorrow");
+    // The 26th of a 30-day month, five days out: the day the old test broke.
+    assert.equal(await sentenceOn("2026-09-26T12:00:00+05:30", 5), `on ${formatDate("2026-10-01")}`);
   });
 
   test("a payday nobody ticked off still rolls forward", () => {
