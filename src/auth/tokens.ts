@@ -54,6 +54,20 @@ const FORBIDDEN_PREFIXES = [
   "/impersonate",        // R38.12
   "/auth",               // sign-in, and the dev-bypass state (F30.6)
   "/signout",
+  /*
+   * The ways into the account that do not need the token. A read-write token
+   * could set its member's password (none is asked for when none is set), and
+   * with LOCAL_LOGIN that password signs in — a leaked script token became a
+   * sign-in credential that outlives revoking the token, and setting it also
+   * signed the member's real browsers out (SECURITY-OPS-13). Revoking
+   * sessions and linking a mailbox are the same kind of thing: who can get
+   * in, not what the budget says.
+   */
+  "/settings/password",
+  "/sessions",
+  "/gmail/connect",
+  "/gmail/callback",
+  "/gmail/disconnect",
 ];
 
 /*

@@ -128,6 +128,9 @@ enforced as a deny-list in [`tokenMayReach`](../src/auth/tokens.ts)):
 | `/impersonate` | Impersonation is a session-only, logged human action (R38.12). |
 | `/auth` | Sign-in, SSO, and the dev-bypass state. |
 | `/signout` | Nothing for a token to sign out of. |
+| `/settings/password` | A password is a way in that does not need the token. A token that could set one would outlive its own revocation — and setting it signs the member's browsers out. |
+| `/sessions` | Signing the member's devices out is a human decision, not a script's. |
+| `/gmail/connect`, `/gmail/callback`, `/gmail/disconnect` | Linking or unlinking a mailbox changes what can reach the household, not what the budget says. `/gmail/fetch` stays reachable. |
 
 ```json
 // 403 on any forbidden prefix

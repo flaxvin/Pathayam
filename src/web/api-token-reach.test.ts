@@ -86,11 +86,53 @@ describe("API tokens over HTTP", () => {
     }
   });
 
+  test("SECURITY-OPS-13 · a token cannot set its member's password, and so cannot become a sign-in", async () => {
+    const { db, secret } = household();
+    // Priya also has a browser session, which setting a password would revoke.
+    const app = await startTestApp(db, { memberId: "m-priya", config: { localLogin: true } });
+    const live = () => queryOne<{ n: number }>(
+      db, `SELECT COUNT(*) AS n FROM sessions WHERE member_id = 'm-priya' AND revoked_at IS NULL`,
+    )!.n;
+    try {
+      const before = live();
+      const res = await fetch(app.baseUrl + "/settings/password", {
+        method: "POST", redirect: "manual",
+        headers: {
+          Authorization: `Bearer ${secret}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: "password=correct-horse-battery&confirm=correct-horse-battery",
+      });
+      assert.equal(res.status, 403);
+      assert.equal(
+        queryOne(db, `SELECT 1 FROM member_passwords WHERE member_id = 'm-priya'`),
+        null,
+      );
+      assert.equal(live(), before, "her browsers stay signed in");
+
+      const sessionId = queryOne<{ id: string }>(
+        db, `SELECT id FROM sessions WHERE member_id = 'm-priya'`,
+      )!.id;
+      const revoke = await fetch(app.baseUrl + "/sessions/revoke", {
+        method: "POST", redirect: "manual",
+        headers: {
+          Authorization: `Bearer ${secret}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+        body: `session_id=${sessionId}`,
+      });
+      assert.equal(revoke.status, 403);
+      assert.equal(live(), before);
+    } finally {
+      await app.close();
+    }
+  });
+
   test("a doubled slash still reaches an ordinary page", async () => {
     const { db, secret } = household();
     const app = await startTestApp(db, { memberId: null });
     try {
-      const res = await raw(app.baseUrl, "GET", "//settings", { Authorization: `Bearer ${secret}` });
+      const res = await raw(app.baseUrl, "GET", "/.//settings", { Authorization: `Bearer ${secret}` });
       assert.equal(res.status, 200);
     } finally {
       await app.close();
