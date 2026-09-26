@@ -11,6 +11,9 @@ import type { Paise } from "../core/money.ts";
 import type { MonthKey, IsoDate } from "../core/dates.ts";
 import { todayIST, monthOf } from "../core/dates.ts";
 import { budgetsFor } from "../domain/budgets.ts";
+import { listCategories } from "../domain/budget.ts";
+import { hiddenTransactionSql, hiddenAccountSql } from "../domain/member-scope.ts";
+import { listStaged } from "../import/pipeline.ts";
 import { nextIncome, type NextIncome } from "../domain/schedules.ts";
 import {
   computeBudget, targetProgress, totalUnderfunded, computeBuffer, isFullyFunded,
@@ -267,11 +270,15 @@ function describeState(
  * S4's badge: everything that needs a human, counted in one place so the
  * number in the nav and the number on the page cannot disagree.
  */
-export function reviewCount(db: DB): number {
-  const staged =
-    queryAll<{ n: number }>(
-      db, `SELECT COUNT(*) AS n FROM staged_transactions WHERE status = 'pending'`,
-    )[0]?.n ?? 0;
+export function reviewCount(db: DB, viewerMemberId: string | null): number {
+  /*
+   * 15 · The same reader as the page. Counting the whole household put another
+   * member's private statement lines and unfiled spending into everybody's
+   * badge, and a badge that disagrees with the page it points at is B79 again.
+   */
+  const staged = listStaged(db, { viewerMemberId }).length;
+  const hiddenTx = hiddenTransactionSql("t", viewerMemberId);
+  const hiddenAccount = hiddenAccountSql("a", viewerMemberId);
 
   /*
    * B94 · Money *in* with no category is not a pending decision.
@@ -297,18 +304,28 @@ export function reviewCount(db: DB): number {
          JOIN accounts a ON a.id = t.account_id
         WHERE t.deleted_at IS NULL AND t.is_split = 0 AND t.category_id IS NULL
           AND t.transfer_pair_id IS NULL AND a.kind != 'tracking'
-          AND t.amount < 0`,
+          AND t.amount < 0 AND NOT ${hiddenTx.sql}`,
+      ...hiddenTx.params,
     )[0]?.n ?? 0;
 
   const brokenCheckpoints =
     queryAll<{ n: number }>(
-      db, `SELECT COUNT(*) AS n FROM reconciliations WHERE broken_at IS NOT NULL`,
+      db,
+      `SELECT COUNT(*) AS n FROM reconciliations r JOIN accounts a ON a.id = r.account_id
+        WHERE r.broken_at IS NOT NULL AND NOT ${hiddenAccount.sql}`,
+      ...hiddenAccount.params,
     )[0]?.n ?? 0;
 
-  const proposedRules =
-    queryAll<{ n: number }>(
-      db, `SELECT COUNT(*) AS n FROM rules WHERE proposed = 1 AND dismissed_at IS NULL`,
-    )[0]?.n ?? 0;
+  // Review offers a proposal only to somebody who can see every envelope it files to.
+  const visibleCategories = new Set(
+    listCategories(db, { includeHidden: true, viewerMemberId }).map((c) => c.id),
+  );
+  const proposedRules = queryAll<{ actions_json: string }>(
+    db, `SELECT actions_json FROM rules WHERE proposed = 1 AND dismissed_at IS NULL`,
+  ).filter((rule) =>
+    (JSON.parse(rule.actions_json) as { categoryId?: string }[])
+      .every((a) => !a.categoryId || visibleCategories.has(a.categoryId)),
+  ).length;
 
   /*
    * B79 · The badge counted four of the six things the Review page lists, so
@@ -321,7 +338,7 @@ export function reviewCount(db: DB): number {
    * they were left out. That is cheap now (B73–B75), and a badge that
    * disagrees with the page it points at is worse than the millisecond.
    */
-  const view = buildBudgetView(db);
+  const view = buildBudgetView(db, undefined, undefined, viewerMemberId);
   const overspent = view.overspentCategories.length;
 
   // The same reckoning the Review page itself does — cardFunding weighs what

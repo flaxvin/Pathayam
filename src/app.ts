@@ -95,7 +95,7 @@ import {
 } from "./domain/commitments.ts";
 import { buildHouseholdView } from "./domain/household-view.ts";
 import { eventVisibility } from "./domain/event-visibility.ts";
-import { memberScope } from "./domain/member-scope.ts";
+import { memberScope, hiddenTransactionSql, hiddenAccountSql } from "./domain/member-scope.ts";
 import { exportForMember, exportTransactionsCsvForMember } from "./ops/member-export.ts";
 import { callItEven } from "./domain/squaring-up.ts";
 import { describeDeparture, settleDeparture, type DepartureResolution } from "./domain/departure.ts";
@@ -584,7 +584,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           devMode: config.devLogin,
           demoMode: config.demoMode,
           path: ctx.url.pathname,
-          reviewCount: a ? reviewCount(db) : 0,
+          reviewCount: a ? reviewCount(db, viewer(ctx)) : 0,
           notice: opts.notice ?? noticeFrom(ctx),
           bare: opts.bare,
           features: {
@@ -733,7 +733,29 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // private envelope is as much a disclosure as a private account's is.
     requireVisibleAccount(ctx, transaction.account_id);
     if (transaction.category_id) requireVisibleCategory(ctx, transaction.category_id);
+    // And a split line's envelope, which the two checks above never look at.
+    if (memberScope(db, viewer(ctx)).transactions.has(transaction.id)) {
+      throw new NotFound("That transaction does not exist.");
+    }
     return transaction;
+  }
+
+  /**
+   * 15 · A statement line waiting in the queue, by the account it came from.
+   * Approving, dismissing or merging one took any id it was given.
+   */
+  function requireVisibleStaged(ctx: RequestContext, id: string): string {
+    const row = queryOne<{ account_id: string }>(
+      db, `SELECT account_id FROM staged_transactions WHERE id = ?`, id,
+    );
+    if (!row) throw new NotFound("That review item does not exist.");
+    try {
+      requireVisibleAccount(ctx, row.account_id);
+    } catch (e) {
+      if (e instanceof NotFound) throw new NotFound("That review item does not exist.");
+      throw e;
+    }
+    return id;
   }
 
   function requireVisibleAttachment(ctx: RequestContext, id: string): string {
@@ -2298,14 +2320,23 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const balances = accountBalances(db).get(account.id)!;
     const cardFilter = ctx.query.get("card");
 
+    /*
+     * 15 · Rows filed to an envelope the reader cannot see are left out, the
+     * same transactions memberScope hides from the transaction page, the
+     * activity log and the export. They are still read, so every running
+     * balance shown is the account's real balance after that row: the account
+     * is visible and so is its balance; the envelope, payee and memo are not.
+     */
+    const registerHidden = hiddenTransactionSql("t", viewer(ctx));
     const raws = queryAll<{
       id: string; date: string; amount: number; cleared: number; memo: string | null;
       payee: string | null; category: string | null; transfer_pair_id: string | null;
-      card_label: string | null; owner_name: string | null;
+      card_label: string | null; owner_name: string | null; hidden: number;
     }>(
       db,
       `SELECT t.id, t.date, t.amount, t.cleared, t.memo, t.transfer_pair_id,
-              p.name AS payee, c.name AS category, cd.label AS card_label, m.name AS owner_name
+              p.name AS payee, c.name AS category, cd.label AS card_label, m.name AS owner_name,
+              ${registerHidden.sql} AS hidden
          FROM transactions t
          LEFT JOIN payees p   ON p.id = t.payee_id
          LEFT JOIN categories c ON c.id = t.category_id
@@ -2315,6 +2346,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           ${cardFilter ? "AND t.card_id = ?" : ""}
         ORDER BY t.date DESC, t.created_at DESC
         LIMIT 300`,
+      ...registerHidden.params,
       ...(cardFilter ? [account.id, cardFilter] : [account.id]),
     );
 
@@ -2343,8 +2375,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         runningBalance: running,
       };
       running -= r.amount;
-      return row;
-    });
+      return r.hidden ? null : row;
+    }).filter((row): row is RegisterRow => row !== null);
 
     const paymentCategory = account.kind === "credit" ? paymentCategoryFor(db, account.id) : null;
     const view = paymentCategory ? buildBudgetView(db, undefined, undefined, viewer(ctx)) : null;
@@ -4037,6 +4069,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const month = monthParam(ctx);
     const view = buildBudgetView(db, month, undefined, viewer(ctx));
     const outstanding = creditOutstanding(db);
+    /*
+     * 15 · The queue's own lists read the whole household: another member's
+     * unfiled spending, reimbursable claims and broken checkpoints on their
+     * private account, by payee and account name. The same rule as everywhere
+     * else, from the one place it is written down.
+     */
+    const reviewHidden = hiddenTransactionSql("t", viewer(ctx));
+    const reviewHiddenAccount = hiddenAccountSql("a", viewer(ctx));
 
     const unfundedCards = [...view.categories.values()]
       .filter((c) => c.paymentAccountId)
@@ -4057,7 +4097,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ctx,
       "Review",
       renderReview({
-        staged: listStaged(db),
+        staged: listStaged(db, { viewerMemberId: viewer(ctx) }),
         uncategorised: queryAll<{
           id: string; date: string; amount: number; payee: string | null; account: string;
         }>(
@@ -4081,9 +4121,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
              LEFT JOIN payees p ON p.id = t.payee_id
             WHERE t.deleted_at IS NULL AND t.is_split = 0 AND t.category_id IS NULL
               AND t.transfer_pair_id IS NULL AND a.kind != 'tracking'
-              AND t.amount < 0
+              AND t.amount < 0 AND NOT ${reviewHidden.sql}
             ORDER BY t.date DESC LIMIT ?`,
-          UNCATEGORISED_PAGE,
+          ...reviewHidden.params, UNCATEGORISED_PAGE,
         ),
         uncategorisedTotal: queryOne<{ n: number }>(
           db,
@@ -4091,9 +4131,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
              JOIN accounts a ON a.id = t.account_id
             WHERE t.deleted_at IS NULL AND t.is_split = 0 AND t.category_id IS NULL
               AND t.transfer_pair_id IS NULL AND a.kind != 'tracking'
-              AND t.amount < 0`,
+              AND t.amount < 0 AND NOT ${reviewHidden.sql}`,
+          ...reviewHidden.params,
         )?.n ?? 0,
-        claims: outstandingReimbursements(db),
+        claims: outstandingReimbursements(db, viewer(ctx)),
         overspent: view.overspentCategories,
         unfundedCards,
         brokenCheckpoints: queryAll<{
@@ -4103,7 +4144,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           `SELECT r.account_id AS accountId, a.name AS name, r.as_of AS asOf,
                   r.broken_reason AS reason
              FROM reconciliations r JOIN accounts a ON a.id = r.account_id
-            WHERE r.broken_at IS NOT NULL ORDER BY r.as_of DESC`,
+            WHERE r.broken_at IS NOT NULL AND NOT ${reviewHiddenAccount.sql}
+            ORDER BY r.as_of DESC`,
+          ...reviewHiddenAccount.params,
         ),
         /*
          * 15 · And not a proposal about somebody else's envelope.
@@ -4153,7 +4196,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
        * is exactly where an unfiled row is supposed to wait.
        */
       approveStaged(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
-        requiredField(ctx.body, "staged_id"),
+        requireVisibleStaged(ctx, requiredField(ctx.body, "staged_id")),
         { categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null },
       );
 
@@ -4176,7 +4219,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/review/reject", (ctx) =>
     mutate(ctx, (a) => {
       rejectStaged(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
-        requiredField(ctx.body, "staged_id"));
+        requireVisibleStaged(ctx, requiredField(ctx.body, "staged_id")));
       return { redirect: "/review", message: "Dismissed." };
     }),
   );
@@ -4184,7 +4227,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/review/merge", (ctx) =>
     mutate(ctx, (a) => {
       mergeStaged(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
-        requiredField(ctx.body, "staged_id"));
+        requireVisibleStaged(ctx, requiredField(ctx.body, "staged_id")));
       return { redirect: "/review", message: "Merged into the transaction you already had." };
     }),
   );
@@ -4195,7 +4238,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/import", (ctx) =>
     render(ctx, "Import", renderImport({
       accounts: listAccounts(db, { viewerMemberId: viewer(ctx) }),
-      batches: listBatches(db),
+      batches: listBatches(db, { viewerMemberId: viewer(ctx) }),
       profiles: listProfiles(db).map((p) => ({
         id: p.id, name: p.name, last_used_at: p.last_used_at,
       })),
@@ -4281,7 +4324,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const importPage = (error: string) =>
       render(ctx, "Import", renderImport({
         accounts: listAccounts(db, { viewerMemberId: viewer(ctx) }),
-        batches: listBatches(db),
+        batches: listBatches(db, { viewerMemberId: viewer(ctx) }),
         profiles: listProfiles(db).map((p) => ({
           id: p.id, name: p.name, last_used_at: p.last_used_at,
         })),
@@ -7674,7 +7717,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
   // F27 · Health, F26 · backup, F15 · export
   // -------------------------------------------------------------------------
-  function healthGroups(): HealthGroup[] {
+  function healthGroups(viewerMemberId: string | null): HealthGroup[] {
     const backup = lastJobRun(db, "backup");
     const verification = lastJobRun(db, "restore-verification");
     const heartbeat = lastJobRun(db, "heartbeat");
@@ -7687,7 +7730,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       )?.n ?? 0;
     const requestFailures24h = countRequestFailures(db);
     const recentFailures = requestFailures24h > 0 ? recentRequestFailures(db, 3) : [];
-    const queue = reviewCount(db);
+    const queue = reviewCount(db, viewerMemberId);
 
     return [
       {
@@ -7839,7 +7882,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     ];
   }
 
-  router.get("/health", (ctx) => render(ctx, "Health", renderHealth(healthGroups())));
+  router.get("/health", (ctx) => render(ctx, "Health", renderHealth(healthGroups(viewer(ctx)))));
 
   router.post("/health/backup", (ctx) =>
     mutate(ctx, (a) => {
@@ -8051,7 +8094,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       };
     }
 
-    const groups = healthGroups();
+    const groups = healthGroups(viewer(ctx));
     const overall = overallState(groups);
 
     return {

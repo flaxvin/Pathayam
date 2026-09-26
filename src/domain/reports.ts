@@ -13,6 +13,7 @@
 import type { DB } from "../db/db.ts";
 import { queryAll } from "../db/db.ts";
 import type { Paise } from "../core/money.ts";
+import { hiddenTransactionSql } from "./member-scope.ts";
 import {
   todayIST, addDays, addMonths, monthOf, fiscalYearOf, fiscalYearRange, formatFiscalYear,
   heldMoreThanMonths, type IsoDate, type MonthKey,
@@ -104,14 +105,16 @@ export interface QueryRow {
  */
 export function queryTransactions(db: DB, filter: TransactionFilter = {}): QueryRow[] {
   const where: string[] = ["t.deleted_at IS NULL"];
-  const params: (string | number)[] = [];
+  const params: (string | number | null)[] = [];
 
   if (!filter.includeTransfers) where.push("t.transfer_pair_id IS NULL");
   if (filter.viewerMemberId !== undefined) {
-    // The same predicate the accounts list and net worth use, on the account the
-    // money actually moved on.
-    where.push("(a.visibility <> 'private' OR a.holder_member_id IS ?)");
-    params.push(filter.viewerMemberId as string);
+    // 15 · memberScope's rule: the account the money moved on, and the envelope
+    // it was filed to. The account alone let a household-visible account in
+    // somebody's own budget print their private envelope on every row.
+    const hidden = hiddenTransactionSql("t", filter.viewerMemberId);
+    where.push(`NOT ${hidden.sql}`);
+    params.push(...hidden.params);
   }
   if (filter.from) { where.push("t.date >= ?"); params.push(filter.from); }
   if (filter.to) { where.push("t.date <= ?"); params.push(filter.to); }
@@ -496,7 +499,11 @@ export interface OutstandingClaim {
   category: string | null;
 }
 
-export function outstandingReimbursements(db: DB): OutstandingClaim[] {
+export function outstandingReimbursements(
+  db: DB, viewerMemberId: string | null,
+): OutstandingClaim[] {
+  // 15 · Fronting money from a private account is as private as spending it.
+  const hidden = hiddenTransactionSql("t", viewerMemberId);
   return queryAll<{
     id: string; date: IsoDate; amount: number;
     payee: string | null; memo: string | null; category: string | null;
@@ -506,8 +513,9 @@ export function outstandingReimbursements(db: DB): OutstandingClaim[] {
        FROM transactions t
        LEFT JOIN payees p ON p.id = t.payee_id
        LEFT JOIN categories c ON c.id = t.category_id
-      WHERE t.deleted_at IS NULL AND t.reimbursable = 1
+      WHERE t.deleted_at IS NULL AND t.reimbursable = 1 AND NOT ${hidden.sql}
       ORDER BY t.date DESC`,
+    ...hidden.params,
   ).map((r) => ({ ...r, amount: Math.abs(r.amount) as Paise }));
 }
 
