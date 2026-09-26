@@ -227,4 +227,21 @@ describe("ids posted in form fields", () => {
         holder_member_id: PRIYA, visibility: "household",
       })).status, 303);
     }));
+
+  test("SECURITY-OPS-28 · a confirmed schedule takes only a payee this member can see", () =>
+    asPriya(async (app, w) => {
+      for (const payee of [w.ids.hisPayee, "no-such-payee"]) {
+        const res = await app.post("/schedules/confirm", {
+          name: "Planted", payee_id: payee, account_id: w.ids.household,
+          category_id: w.ids.householdCategory, amount: "-99900", recurrence: "monthly",
+        });
+        assert.equal(res.status, 404, `payee_id=${payee}`);
+      }
+      assert.equal(queryOne(w.db, `SELECT 1 FROM schedules WHERE name = 'Planted'`), null);
+
+      assert.equal((await app.post("/schedules/confirm", {
+        name: "Hers", payee_id: w.ids.herPayee, account_id: w.ids.household,
+        category_id: w.ids.householdCategory, amount: "-25000", recurrence: "monthly",
+      })).status, 303);
+    }));
 });

@@ -5606,7 +5606,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // being marked "detected" once it is.
       createSchedule(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         name: requiredField(ctx.body, "name"),
-        payeeId: field(ctx.body, "payee_id") || null,
+        // The payee too, like the account and envelope beside it
+        // (SECURITY-OPS-28): another member's private payee rode along into
+        // the household register, and a made-up one was a foreign-key 500.
+        payeeId: guardedField(ctx, "payee_id", requireVisiblePayee),
         accountId: visibleAccountField(ctx, "account_id"),
         categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
         amount: Number(field(ctx.body, "amount") ?? 0),
