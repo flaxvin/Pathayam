@@ -22,6 +22,7 @@ import { loadEngineInput } from "../engine/repository.ts";
 import { computeBudget } from "../engine/engine.ts";
 import { freshHousehold, RAVI, PRIYA } from "../engine/identity.test-data.ts";
 import { closeMonth, closedMonths } from "../domain/month-close.ts";
+import { commitmentEnvelope, ensureCommitmentEnvelope } from "../domain/commitments.ts";
 import { startTestApp } from "./harness.test-data.ts";
 
 const ravi: Actor = { memberId: RAVI, source: "ui" };
@@ -234,6 +235,51 @@ describe("BUDGET-22 · the settled history never names another member's envelope
       const page = text(await (await his.get(`/household?month=${NOW}`)).text());
       assert.match(page, /₹200 Priya /);
       assert.doesNotMatch(page, /Divorce lawyer fund/);
+    } finally {
+      await his.close();
+    }
+  });
+});
+
+describe("BUDGET-11 · call it even is offered to whoever may let it go", () => {
+  const offered = (page: string) => page.includes('action="/household/call-it-even"');
+
+  test("Priya's shortfall is hers to let go: Ravi is not offered it, and cannot post it", async () => {
+    const { db, priyaBudget } = priyaShort();
+    const envelope = commitmentEnvelope(db, priyaBudget)!;
+    const his = await startTestApp(db, { memberId: RAVI });
+    try {
+      assert.equal(offered(await (await his.get(`/household?month=${NOW}`)).text()), false);
+      const res = await his.post("/household/call-it-even", {
+        envelope_id: envelope.id, month: NOW, amount: "200",
+      });
+      assert.equal(res.status, 422, "Ravi spent from Priya's budget");
+    } finally {
+      await his.close();
+    }
+    const hers = await startTestApp(db, { memberId: PRIYA });
+    try {
+      assert.equal(offered(await (await hers.get(`/household?month=${NOW}`)).text()), true);
+      const res = await hers.post("/household/call-it-even", {
+        envelope_id: envelope.id, month: NOW, amount: "200",
+      });
+      assert.equal(res.status, 303);
+    } finally {
+      await hers.close();
+    }
+  });
+
+  test("the household's side is any member's: Ravi settles Priya's overfunded commitment", async () => {
+    const { db, priyaBudget } = household();
+    const envelope = ensureCommitmentEnvelope(db, priya, priyaBudget);
+    setAssigned(db, priya, NOW, envelope.id, 50_000);
+    const his = await startTestApp(db, { memberId: RAVI });
+    try {
+      // The route, not the page: the page offers it on an underfunded row.
+      const res = await his.post("/household/call-it-even", {
+        envelope_id: envelope.id, month: NOW, amount: "200",
+      });
+      assert.equal(res.status, 303, "a member settling the household's side was told 404");
     } finally {
       await his.close();
     }

@@ -71,6 +71,13 @@ export interface MemberCommitment {
     receiverName: string;
     /** The giving budget's ordinary envelopes, so it need not be the default. */
     choices: { id: string; name: string }[];
+    /**
+     * BUDGET-11 · Whether the reader may call it even: it belongs to the
+     * budget giving something up, so it is theirs only when they can see that
+     * budget. Ravi was offered the form for Priya's shortfall — spending in
+     * her budget — and every press of it answered 404.
+     */
+    canAct: boolean;
   } | null;
 }
 
@@ -260,5 +267,6 @@ function describeGivingUp(
     choices: listCategories(db, asViewer)
       .filter((c) => !c.commits_to_budget_id && !c.payment_account_id)
       .map((c) => ({ id: c.id, name: c.name })),
+    canAct: viewerMemberId === undefined || visibleBudgetIds(db, viewerMemberId ?? null).has(givingId),
   };
 }

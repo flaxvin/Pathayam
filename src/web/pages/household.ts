@@ -263,7 +263,7 @@ export function renderHousehold(
                         own Ready to Assign.
                       </li>
                     `}
-                <li>
+                ${when(m.givingUp?.canAct ?? true, () => html`<li>
                   <strong>${CALL_IT_EVEN}</strong> — ${CALL_IT_EVEN_HINT}
                   ${when(Boolean(m.givingUp), () => html`
                     <!--
@@ -310,7 +310,10 @@ export function renderHousehold(
                     `)}
                     <button class="button-small" type="submit">${CALL_IT_EVEN}</button>
                   </form>
-                </li>
+                </li>`)}
+                ${when(!(m.givingUp?.canAct ?? true), () => html`<li class="faint">
+                  ${m.name} can instead ${CALL_IT_EVEN.toLowerCase()} — it is theirs to let go.
+                </li>`)}
               </ul>
             </div>
           `;

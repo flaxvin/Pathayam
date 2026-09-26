@@ -1792,12 +1792,23 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    */
   router.post("/household/call-it-even", (ctx) =>
     mutate(ctx, (a) => {
+      /*
+       * BUDGET-11 · A commitment to a budget you can see is yours to settle when
+       * that side is the one letting go, even though the envelope itself sits in
+       * the member's own budget: 15 §4A.5, "for a balance with the household any
+       * member may act". callItEven checks the giving side against the viewer.
+       */
+      const envelopeId = requiredField(ctx.body, "envelope_id");
+      const envelope = getCategory(db, envelopeId);
+      const settles = envelope?.commits_to_budget_id
+        && visibleBudgetIds(db, viewer(ctx)).has(envelope.commits_to_budget_id);
       const call = callItEven(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
-        envelopeId: requireVisibleCategory(ctx, requiredField(ctx.body, "envelope_id"))!,
+        envelopeId: settles ? envelopeId : requireVisibleCategory(ctx, envelopeId)!,
         amount: amountField(requiredField(ctx.body, "amount"), "Amount") as Paise,
         givingCategoryId: requireVisibleCategory(ctx, field(ctx.body, "giving_category_id") || null) || undefined,
         month: monthParam(ctx),
         note: field(ctx.body, "note") || null,
+        viewerMemberId: viewer(ctx),
       });
       return {
         redirect: "/household",
