@@ -392,6 +392,22 @@ export function closeFamilyLoan(db: DB, actor: Actor, id: string): void {
   transact(db, () => {
     const loan = getFamilyLoan(db, id);
     if (!loan) throw new Missing("That does not exist.");
+    /*
+     * WEALTH-30 · Only a settled arrangement closes. The page offers "Close it"
+     * only at nil, but the route did not check: with the cousin owing ₹50,000,
+     * closing answered "Closed, with the history kept." and the ₹50,000 left net
+     * worth with no write-off to say where it went.
+     */
+    const view = viewFamilyLoan(db, id);
+    if (view && view.balance !== 0) {
+      throw new Refusal(
+        view.owedToYou
+          ? `${loan.counterparty} still owes ${formatPaise(view.outstanding)}. Record the repayment, ` +
+            `or write it off, before closing this.`
+          : `You still owe ${loan.counterparty} ${formatPaise(view.outstanding)}. Record what you ` +
+            `paid back, or record it as forgiven, before closing this.`,
+      );
+    }
     execute(db, `UPDATE family_loans SET closed_at = ? WHERE id = ?`, nowIST(), id);
     execute(db, `UPDATE accounts SET closed_at = ? WHERE id = ?`, nowIST(), loan.account_id);
     appendEvent(db, actor, {
