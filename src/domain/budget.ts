@@ -836,6 +836,20 @@ export function moveMoney(
     const from = getCategory(db, fromCategoryId);
     const to = getCategory(db, toCategoryId);
     if (!from || !to) throw new Missing("That category does not exist.");
+    /*
+     * BUDGET-5 · Within one budget only. Two envelopes in two budgets are two
+     * Ready to Assigns: moving ₹400 from the household's Groceries to Ravi's
+     * Fun left the household ₹400 unassigned and Ravi ₹400 over-assigned, with
+     * no account moving — under a form that says moving never changes Ready to
+     * Assign. Merge and regroup already refuse this; money between budgets is a
+     * transfer.
+     */
+    if ((from.budget_id ?? null) !== (to.budget_id ?? null)) {
+      throw new Refusal(
+        "Those two categories belong to different budgets. Moving money between budgets " +
+        "is a transfer between their accounts, not a move between envelopes.",
+      );
+    }
 
     const fromBefore = getAssigned(db, month, fromCategoryId);
     const toBefore = getAssigned(db, month, toCategoryId);
