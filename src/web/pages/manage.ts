@@ -239,6 +239,17 @@ function proposalRow(r: ProposedRule): SafeHtml {
   `;
 }
 
+/**
+ * A condition's value as the household would type it: an amount in rupees,
+ * since it is stored in paise, and anything else as it stands.
+ */
+export function conditionValueText(c: Rule["conditions"][number]): string {
+  if ((c.field === "amount" || c.field === "absoluteAmount") && typeof c.value === "number") {
+    return formatPaise(c.value as Paise, { symbol: false });
+  }
+  return String(c.value);
+}
+
 export function renderRules(opts: {
   rules: RuleRow[];
   proposed: RuleRow[];
@@ -363,7 +374,7 @@ export function renderRules(opts: {
                     <strong>${r.name}</strong>
                     <span class="chip">${r.stage}</span>
                     <div class="faint">
-                      ${r.conditions.map((c) => `${c.field} ${c.op} ${String(c.value)}`).join(", ")}
+                      ${r.conditions.map((c) => `${c.field} ${c.op} ${conditionValueText(c)}`).join(", ")}
                       · applied ${r.timesApplied} times
                     </div>
                   </div>
