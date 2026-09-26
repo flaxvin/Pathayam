@@ -983,6 +983,40 @@ export function accountBalances(db: DB): Map<string, AccountBalances> {
 }
 
 /**
+ * WEALTH-15 · Every account's balance at the end of a past day.
+ *
+ * accountBalances is "as of now" — every transaction ever, a future-dated one
+ * included — which is right for a screen and wrong for a dated record: closing
+ * June in September stamped September's money on 30 June. This counts only
+ * what was dated on or before `asOf`, straight from the ledger (the rollups
+ * seal whole months, and a balance at a day inside one cannot come from them).
+ * The opening balance is counted from the account's opening date.
+ */
+export function accountBalancesThrough(db: DB, asOf: IsoDate): Map<string, AccountBalances> {
+  const out = new Map<string, AccountBalances>();
+  for (const r of queryAll<{ id: string; opening: number; cleared: number; uncleared: number }>(
+    db,
+    `SELECT a.id,
+            CASE WHEN a.opening_date <= ? THEN a.opening_balance ELSE 0 END AS opening,
+            COALESCE(SUM(CASE WHEN t.cleared THEN t.amount END), 0) AS cleared,
+            COALESCE(SUM(CASE WHEN t.cleared THEN 0 ELSE t.amount END), 0) AS uncleared
+       FROM accounts a
+       LEFT JOIN transactions t
+         ON t.account_id = a.id AND t.deleted_at IS NULL AND t.date <= ?
+      GROUP BY a.id`,
+    asOf, asOf,
+  )) {
+    out.set(r.id, {
+      accountId: r.id,
+      cleared: r.opening + r.cleared,
+      uncleared: r.uncleared,
+      working: r.opening + r.cleared + r.uncleared,
+    });
+  }
+  return out;
+}
+
+/**
  * R12's denominator: average daily spend over the trailing 90 days.
  *
  * Counts money leaving categories, so transfers, card payments and income are
