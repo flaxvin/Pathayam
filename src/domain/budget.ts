@@ -7,7 +7,8 @@ import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { Missing, Refusal } from "../core/refusal.ts";
-import { nowIST, formatMonth, type MonthKey, type IsoDate } from "../core/dates.ts";
+import { nowIST, todayIST, monthOf, addMonths, formatMonth, type MonthKey, type IsoDate } from "../core/dates.ts";
+import { ENGINE_WINDOW_MONTHS } from "../engine/types.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { householdBudgetId, budgetsFor } from "./budgets.ts";
 import { dependantsOf } from "./dependants.ts";
@@ -744,11 +745,51 @@ function writeAssignment(db: DB, month: MonthKey, categoryId: string, amount: Pa
 }
 
 /**
+ * WEBUX-3 · The first month the budget has anything in: the earliest account
+ * opening, transaction or assignment, or this month when there is none yet. The
+ * budget page's ‹ link stops here — an assignment counts, so a stray one in an
+ * old month can still be reached and set back to zero.
+ */
+export function firstBudgetMonth(db: DB): MonthKey {
+  const now = monthOf(todayIST());
+  const first = queryOne<{ m: string | null }>(
+    db,
+    `SELECT MIN(m) AS m FROM (
+       SELECT substr(MIN(date),1,7) AS m FROM transactions WHERE deleted_at IS NULL
+       UNION ALL SELECT MIN(month) FROM assignments
+       UNION ALL SELECT substr(MIN(opening_date),1,7) FROM accounts
+     )`,
+  )?.m as MonthKey | null | undefined;
+  return first && first < now ? first : now;
+}
+
+/**
+ * WEBUX-3 · A month the engine can never show is not one money can be given a
+ * job in. The ‹ link used to walk back without end, and ₹1,000 assigned to
+ * Groceries in January 1900 was accepted — and, because the engine's cap was
+ * counted from that row, threw every figure in the present off for everyone.
+ *
+ * The bound is the engine's own window rather than the first month with data:
+ * setting up accounts today and then budgeting last month, before its
+ * transactions are imported, is ordinary.
+ */
+function refuseBeyondHorizon(month: MonthKey): void {
+  const floor = addMonths(monthOf(todayIST()), -(ENGINE_WINDOW_MONTHS - 1));
+  if (month < floor) {
+    throw new Refusal(
+      `${formatMonth(month)} is too far back for a budget — the earliest month ` +
+      `that can take an assignment is ${formatMonth(floor)}.`,
+    );
+  }
+}
+
+/**
  * Set the amount assigned to a category for a month (R7).
  *
  * Q5: **any** past month is editable. Where that collides with a reconciliation
  * checkpoint, the caller must have taken the confirmation and marked it broken
- * (`09` §5) — see `reconciliation.ts`. Nothing is refused here.
+ * (`09` §5) — see `reconciliation.ts`. The checkpoint is not refused here; only
+ * a month older than the engine can show is (WEBUX-3, `refuseBeyondHorizon`).
  */
 export function setAssigned(
   db: DB, actor: Actor, month: MonthKey, categoryId: string, amount: Paise,
@@ -759,6 +800,9 @@ export function setAssigned(
 
     const category = getCategory(db, categoryId);
     if (!category) throw new Missing("That category does not exist.");
+    // Setting a stray row back to zero is how it is repaired, so only a
+    // non-zero amount is held to the horizon.
+    if (amount !== 0) refuseBeyondHorizon(month);
 
     writeAssignment(db, month, categoryId, amount);
     appendEvent(db, actor, {
@@ -828,6 +872,7 @@ export function moveMoney(
     const from = getCategory(db, fromCategoryId);
     const to = getCategory(db, toCategoryId);
     if (!from || !to) throw new Missing("That category does not exist.");
+    refuseBeyondHorizon(month);
 
     const fromBefore = getAssigned(db, month, fromCategoryId);
     const toBefore = getAssigned(db, month, toCategoryId);
