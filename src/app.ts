@@ -183,7 +183,7 @@ import {
 import { beginOidc, exchangeOidcCode } from "./auth/oidc.ts";
 import {
   staleRatesWarning, RATES_VERIFIED_ON, RATES_SOURCE, RULES,
-  estimateTax, advanceTaxSchedule, getDeclaration, saveDeclaration,
+  estimateTax, advanceTaxSchedule, getDeclaration, hasDeclaration, saveDeclaration,
   incomeInFinancialYear, type AdvanceInstalment,
 } from "./domain/tax.ts";
 import { renderTax } from "./web/pages/tax.ts";
@@ -8023,7 +8023,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       .filter((acc) => acc.kind === "budget")
       .map((acc) => acc.id);
     const ledgerIncome = incomeInFinancialYear(db, fy, visible);
-    const gross = stored.gross > 0 ? stored.gross : ledgerIncome;
+    // WEALTH-6 · A saved declaration is used as saved, ₹0 included; the
+    // ledger's receipts are only the starting point before anything is saved.
+    const gross = hasDeclaration(db, a.member.id, fy) ? stored.gross : ledgerIncome;
 
     // Capital gains are taxed at their own rates and are scoped to this
     // member's own holdings — another member's sale is not part of their

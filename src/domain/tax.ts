@@ -558,6 +558,20 @@ export function getDeclaration(db: DB, memberId: string, fy: number): Declaratio
   };
 }
 
+/**
+ * WEALTH-6 · Whether this member has saved anything for the year.
+ *
+ * The page used `gross > 0` to mean "declared", so a gross income declared as
+ * ₹0 — somebody whose only receipt was a gift — fell back to the ledger's
+ * receipts and was taxed on the gift, with no way to correct it. A saved row
+ * is a declaration, whatever its gross.
+ */
+export function hasDeclaration(db: DB, memberId: string, fy: number): boolean {
+  return queryOne(
+    db, `SELECT 1 FROM tax_declarations WHERE member_id = ? AND fy = ?`, memberId, fy,
+  ) !== null;
+}
+
 export function saveDeclaration(db: DB, memberId: string, fy: number, d: Declaration): void {
   assertKnownYear(fy);
   for (const [label, value] of [
