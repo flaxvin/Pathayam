@@ -11,6 +11,11 @@ import assert from "node:assert/strict";
 import { rupees } from "../core/money.ts";
 import { createAccount } from "../domain/accounts.ts";
 import { createTransaction } from "../domain/transactions.ts";
+import {
+  createAssetAccount, findOrCreateInstrument, recordPurchase, recordSale, listHoldings,
+  classifyInstrument,
+} from "../domain/assets.ts";
+import { units, price } from "../portfolio/holdings.ts";
 import { freshDb, seedMember, startTestApp } from "./harness.test-data.ts";
 
 const ravi = { memberId: "m", source: "ui" as const };
@@ -42,6 +47,38 @@ describe("WEALTH-6 · a declared gross of ₹0", () => {
       const page = await (await app.get("/tax?fy=2025")).text();
       assert.equal(grossField(page), "0.00");
       assert.doesNotMatch(page, /₹85,800/);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe("WEALTH-9 · slab-rated gains alone", () => {
+  test("are enough for an estimate", async () => {
+    const { db, app, bank } = await setup();
+    try {
+      // ₹21,00,000 of debt-fund gain in Ravi's own demat, and no salary.
+      const demat = createAssetAccount(db, ravi, {
+        name: "Demat", subtype: "investment", holderMemberId: "m", visibility: "household",
+      }).id;
+      const fund = findOrCreateInstrument(db, ravi, {
+        name: "Gilt Fund", kind: "mutual-fund", symbol: "GILT", provider: "manual",
+      }).id;
+      classifyInstrument(db, ravi, fund, { assetClass: "debt" });
+      recordPurchase(db, ravi, {
+        accountId: demat, instrumentId: fund, tradeDate: "2025-04-10",
+        price: price(100), units: units(1_000), fromAccountId: bank,
+      });
+      recordSale(db, ravi, {
+        holdingId: listHoldings(db, demat)[0]!.id, date: "2025-12-01",
+        units: units(1_000), price: price(2_200), toAccountId: bank,
+      });
+      await app.post("/tax", { fy: "2025", gross: "0", s80c: "0", s80d: "0", other: "0" });
+
+      const page = await (await app.get("/tax?fy=2025")).text();
+      assert.doesNotMatch(page, /Enter a gross income to see an estimate/);
+      assert.match(page, /New regime/);
+      assert.match(page, /Advance tax/);
     } finally {
       await app.close();
     }
