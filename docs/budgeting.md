@@ -118,7 +118,11 @@ goal releases its envelopes; the money stays where it is.
 
 Closing records income, spending, assigned and commitments for a month in one
 budget, takes a net-worth snapshot, and writes an event. Closed months can be
-reopened. Each budget closes independently.
+reopened. Each budget closes independently, and counts only its own money: a
+transaction belongs to it through the account it moved on or the envelope it was
+filed to, as in the reports. The page is read as the member looking at it, so
+another member's private envelope never appears under "Where it went", and "Is
+next month funded?" is this budget's Ready to Assign alone.
 
 ## Commitments between budgets
 
@@ -444,7 +448,9 @@ Most of what older versions stored wrongly is corrected automatically:
 migrations 0050–0052 rebuild held-for-next-month per budget, drop the rollup
 cache so sealed months are recomputed, and bring back (hidden) any envelope that
 was deleted while spending was still filed to it — merge those into the right
-envelope to settle them. At every start, `repairCrossBudgetClaims` opens the
+envelope to settle them. Migration 0053 recomputes the income and spending
+stored on every closed month from that budget's own transactions; they had
+counted every budget's. At every start, `repairCrossBudgetClaims` opens the
 commitment envelope for any cross-budget card payment that was recorded without
 one; it is a no-op once history is clean, and it logs a count of any pair the
 current rules would refuse.

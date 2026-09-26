@@ -21,6 +21,7 @@ import {
 import { loadEngineInput } from "../engine/repository.ts";
 import { computeBudget } from "../engine/engine.ts";
 import { freshHousehold, RAVI, PRIYA } from "../engine/identity.test-data.ts";
+import { closeMonth, closedMonths } from "../domain/month-close.ts";
 import { startTestApp } from "./harness.test-data.ts";
 
 const ravi: Actor = { memberId: RAVI, source: "ui" };
@@ -155,5 +156,56 @@ describe("BUDGET-10 · the household page never lists another member's envelopes
         await app.close();
       }
     }
+  });
+});
+
+/**
+ * Last month: the household spent ₹500 on Food from the joint account and has
+ * ₹400 left for this month. Priya was paid ₹90,000 into her private account and
+ * spent ₹25,000 of it from her own "Divorce lawyer" envelope.
+ */
+function lastMonthWithPriya() {
+  const db = freshHousehold();
+  const prev = addMonths(NOW, -1);
+  const joint = createAccount(db, ravi, {
+    name: "Joint", kind: "budget", subtype: "savings", openingDate: `${prev}-01`, openingBalance: 100_000,
+  });
+  const hg = createGroup(db, ravi, "Home", "normal", HH);
+  const food = createCategory(db, ravi, { groupId: hg.id, name: "Food" });
+  setAssigned(db, ravi, prev, food.id, 60_000);
+  createTransaction(db, ravi, { accountId: joint.id, amount: -50_000, date: `${prev}-05`, categoryId: food.id });
+  const priyaBudget = ensurePersonalBudget(db, PRIYA, "Priya").id;
+  const hers = createAccount(db, priya, {
+    name: "Priya secret", kind: "budget", subtype: "savings", openingDate: `${prev}-01`,
+    openingBalance: 0, budgetId: priyaBudget, holderMemberId: PRIYA, visibility: "private",
+  });
+  const pg = createGroup(db, priya, "Mine", "normal", priyaBudget);
+  const secret = createCategory(db, priya, { groupId: pg.id, name: "Divorce lawyer" });
+  createTransaction(db, priya, { accountId: hers.id, amount: 9_000_000, date: `${prev}-02` });
+  createTransaction(db, priya, { accountId: hers.id, amount: -2_500_000, date: `${prev}-06`, categoryId: secret.id });
+  execute(db, `UPDATE household SET setup_completed_at = ? WHERE id = 1`, nowIST());
+  return { db, prev };
+}
+
+describe("BUDGET-25 · the household's month close counts the household", () => {
+  test("Ravi's close page: ₹500 out, ₹400 ready, nothing of Priya's", async () => {
+    const { db, prev } = lastMonthWithPriya();
+    const app = await startTestApp(db, { memberId: RAVI });
+    try {
+      const page = text(await (await app.get(`/months/${prev}/close?budget=${HH}`)).text());
+      assert.match(page, /Came in ₹0 Went out ₹500 /);
+      assert.match(page, /₹400 ready to assign/);
+      assert.doesNotMatch(page, /Divorce lawyer|90,000|25,500|65,400/);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("and what closing stores is the household's, whoever closes it", () => {
+    const { db, prev } = lastMonthWithPriya();
+    closeMonth(db, priya, prev, null, HH);
+    const [row] = closedMonths(db, 24, HH);
+    assert.equal(row!.income, 0);
+    assert.equal(row!.spending, 50_000);
   });
 });
