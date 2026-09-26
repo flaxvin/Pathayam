@@ -11,7 +11,7 @@
 import { memberScope } from "./member-scope.ts";
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
-import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
+import { appendEvent, registerUndoHandler, undoEvent, type Actor } from "../core/events.ts";
 import {
   nowIST, todayIST, addDays, addMonths, monthOf, daysBetween, resolveDayOfMonth,
   formatDate, nthWeekdayOfMonth, weekdayOf,
@@ -22,7 +22,7 @@ import { formatPaise, type Paise } from "../core/money.ts";
 import { accountBalances } from "../engine/repository.ts";
 import { listLoans, projectLoan } from "./loans.ts";
 import { Refusal, Missing } from "../core/refusal.ts";
-import { createTransaction, refusePaymentCategories } from "./transactions.ts";
+import { createTransaction, refusePaymentCategories, UndoRefused } from "./transactions.ts";
 
 export type Recurrence =
   | "daily" | "weekly" | "fortnightly" | "monthly" | "monthly-nth-weekday"
@@ -1207,7 +1207,34 @@ export function describeCashflow(cashflow: Cashflow): string {
   );
 }
 
-registerUndoHandler("schedule", (db, event) => {
+registerUndoHandler("schedule", (db, event, actor) => {
+  /*
+   * Marking paid and skipping record only the due date they moved (and, for a
+   * payment, the transaction it posted) — not the whole schedule. They fell
+   * through to the edit branch below, which wrote every column of that
+   * `{ nextDue }` back onto the row: NULL into `name`, a 500 on an Undo the
+   * activity page offered every time, and the ₹25,000 stayed posted.
+   */
+  if (event.action === "mark-paid" || event.action === "skip") {
+    const prior = event.before as { nextDue?: IsoDate | null } | undefined;
+    if (!prior || !("nextDue" in prior)) {
+      throw new Refusal("That change was recorded without what it replaced, so it cannot be undone.");
+    }
+    const schedule = getSchedule(db, event.entityId!);
+    if (!schedule) {
+      throw new Refusal("That schedule has since been removed. Put it back first, then undo this.");
+    }
+    const posted = event.action === "mark-paid"
+      ? (event.after as { transactionId?: string | null } | undefined)?.transactionId ?? null
+      : null;
+    const removed = posted ? removePostedOccurrence(db, actor, schedule.name, posted) : false;
+    execute(db, `UPDATE schedules SET next_due = ? WHERE id = ?`, prior.nextDue ?? null, event.entityId!);
+    if (event.action === "skip") return `Put back the ${schedule.name} occurrence that was skipped`;
+    return removed
+      ? `Removed the ${schedule.name} payment and put its due date back`
+      : `Put the ${schedule.name} due date back`;
+  }
+
   // A split change puts back the lines and the envelope it replaced.
   if (event.action === "split") {
     const prior = event.before as {
@@ -1286,6 +1313,37 @@ registerUndoHandler("schedule", (db, event) => {
   }
   return `Set the schedule for ${before.name} back`;
 });
+
+/**
+ * The transaction a "Mark paid" posted, removed by undoing its own creation, so
+ * the transaction's rules apply — a transfer goes with its pair, and one that a
+ * loan or a claim now records is refused rather than pulled out from under it.
+ * One that has been edited since is somebody's correction, and is refused too;
+ * one already deleted is simply gone. True when a transaction was removed.
+ */
+function removePostedOccurrence(db: DB, actor: Actor, name: string, transactionId: string): boolean {
+  const live = queryOne<{ id: string }>(
+    db, `SELECT id FROM transactions WHERE id = ? AND deleted_at IS NULL`, transactionId,
+  );
+  if (!live) return false;
+  const created = queryOne<{ id: string }>(
+    db,
+    `SELECT id FROM events
+      WHERE entity = 'transaction' AND entity_id = ? AND action = 'create'
+        AND undone_by_event_id IS NULL AND undo_of_event_id IS NULL
+      ORDER BY seq DESC LIMIT 1`,
+    transactionId,
+  );
+  const result = created ? undoEvent(db, created.id, actor) : null;
+  if (!result?.ok) {
+    throw new UndoRefused(
+      `The ${name} transaction it recorded has been changed since, so undoing this would ` +
+      "throw that change away. Delete the transaction from the register instead, or undo " +
+      "the change to it first.",
+    );
+  }
+  return true;
+}
 
 /**
  * The parts of the recurrence the two statements above never named: the
