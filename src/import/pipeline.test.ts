@@ -538,3 +538,35 @@ describe("the review queue only acts on items still waiting", () => {
     db.close();
   });
 });
+
+describe("04 §4 · the strong tier is one event, not a standing instruction", () => {
+  test("next month's EMI and salary are not folded into last month's (IMPORTS-SCHEDULES-6)", () => {
+    const { db, account, anyCategory } = setup();
+    // The longest digit run is the loan / employee number, the same every month.
+    importStatement(db, account.id, `Date,Narration,Amount
+05-08-2026,ACH-DR/ZZ FINANCE LOAN 4011223344,-5000.00
+01-08-2026,SALARY EMP 20045678 ZZCORP,85000.00`, "aug.csv");
+    for (const row of listStaged(db)) approveStaged(db, actor, row.id, { categoryId: anyCategory });
+
+    const september = importStatement(db, account.id, `Date,Narration,Amount
+05-09-2026,ACH-DR/ZZ FINANCE LOAN 4011223344,-5000.00
+01-09-2026,SALARY EMP 20045678 ZZCORP,85000.00`, "sep.csv");
+    assert.equal(september.staged, 2, "both of September's rows wait for review");
+    assert.equal(september.duplicates, 0);
+    assert.equal(listStaged(db).length, 2);
+    db.close();
+  });
+
+  test("an alert and its statement line a few days apart still upgrade", () => {
+    const { db, account, anyCategory } = setup();
+    importStatement(db, account.id, `Date,Narration,Chq./Ref.No.,Withdrawal Amt.,Deposit Amt.
+03-08-2026,UPI/P2M/431202847592/SWIGGY*ORDER,431202847592,450.00,`, "alert.csv");
+    for (const row of listStaged(db)) approveStaged(db, actor, row.id, { categoryId: anyCategory });
+    const later = importStatement(db, account.id, `Date,Narration,Chq./Ref.No.,Withdrawal Amt.,Deposit Amt.
+06-08-2026,UPI-SWIGGY-431202847592,431202847592,450.00,`, "statement.csv");
+    assert.equal(later.staged, 0);
+    assert.equal(queryOne<{ n: number }>(db,
+      `SELECT COUNT(*) AS n FROM transactions WHERE deleted_at IS NULL`)!.n, 1);
+    db.close();
+  });
+});

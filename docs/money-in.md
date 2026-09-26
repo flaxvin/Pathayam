@@ -173,7 +173,7 @@ account** and against rows already pending in that account.
 | Tier | Test | Handling |
 |---|---|---|
 | `exact` | Same `source_id`. | Skipped. Re-importing a file adds nothing. |
-| `strong` | Same date, amount and narration. | Merged automatically, with a note. |
+| `strong` | Same amount and the same bank reference, dated within 5 days of each other. | Upgrades the existing transaction automatically, with a note. A reference repeated a month later — a loan or employee number on a standing instruction — is a new transaction, not this. |
 | `probable` | Close on date and amount. | Queued for a decision. |
 | `weak` | Weaker match. | Queued for a decision. |
 | `manual-vs-imported` | A typed transaction matching an imported one. | Queued for a decision. |
