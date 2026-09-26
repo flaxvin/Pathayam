@@ -1,5 +1,6 @@
 /**
  * WEALTH-4 · A split or bonus happens to the instrument, not to one holding.
+ * WEALTH-5 · And only to what was held before its date.
  *
  * The lots of the holding it was recorded on were adjusted, but the price
  * history — the instrument's — was divided for every holding. The same shares
@@ -16,7 +17,7 @@ import { Refusal } from "../core/refusal.ts";
 import type { Actor } from "../core/events.ts";
 import {
   createAssetAccount, findOrCreateInstrument, recordPurchase, recordPrice, recordSplit,
-  listHoldings, viewHolding,
+  listHoldings, viewHolding, lotsFor,
 } from "./assets.ts";
 import { units, price } from "../portfolio/holdings.ts";
 
@@ -69,6 +70,57 @@ describe("WEALTH-4 · a split is recorded once, for every holding of the instrum
       Refusal,
     );
     assert.equal(viewHolding(db, h2, "2025-08-10")!.marketValue, rupees(10_000));
+    db.close();
+  });
+});
+
+describe("WEALTH-5 · a split changes only the lots bought before its date", () => {
+  test("a lot bought after a split is left in the units it was bought in", () => {
+    const { db, inst } = setup();
+    const demat = createAssetAccount(db, actor, { name: "Demat", subtype: "investment" }).id;
+    recordPurchase(db, actor, {
+      accountId: demat, instrumentId: inst, tradeDate: "2025-06-01", price: price(1000), units: units(10),
+    });
+    // Bought after the split, at the post-split price.
+    recordPurchase(db, actor, {
+      accountId: demat, instrumentId: inst, tradeDate: "2025-09-10", price: price(500), units: units(10),
+    });
+    const holdingId = listHoldings(db, demat)[0]!.id;
+    recordSplit(db, actor, { holdingId, date: "2025-09-01", ratio: 2 });
+
+    const lots = lotsFor(db, holdingId);
+    assert.deepEqual(lots.map((l) => [l.tradeDate, l.units, l.price]), [
+      ["2025-06-01", units(20), price(500)],
+      ["2025-09-10", units(10), price(500)],
+    ]);
+    db.close();
+  });
+
+  test("a bonus is sized from the units held before its record date", () => {
+    const { db, inst } = setup();
+    const demat = createAssetAccount(db, actor, { name: "Demat", subtype: "investment" }).id;
+    recordPurchase(db, actor, {
+      accountId: demat, instrumentId: inst, tradeDate: "2025-06-01", price: price(1000), units: units(10),
+    });
+    recordPurchase(db, actor, {
+      accountId: demat, instrumentId: inst, tradeDate: "2025-09-10", price: price(500), units: units(10),
+    });
+    const holdingId = listHoldings(db, demat)[0]!.id;
+    recordSplit(db, actor, { holdingId, date: "2025-09-01", ratio: 2, kind: "bonus" });
+
+    const bonus = lotsFor(db, holdingId).find((l) => l.cost === 0)!;
+    assert.equal(bonus.units, units(10), "a 1:1 bonus on the 10 units held before it");
+    db.close();
+  });
+
+  test("a split dated before anything was bought is refused", () => {
+    const { db, inst } = setup();
+    const demat = createAssetAccount(db, actor, { name: "Demat", subtype: "investment" }).id;
+    recordPurchase(db, actor, {
+      accountId: demat, instrumentId: inst, tradeDate: "2025-06-01", price: price(1000), units: units(10),
+    });
+    const holdingId = listHoldings(db, demat)[0]!.id;
+    assert.throws(() => recordSplit(db, actor, { holdingId, date: "2025-01-01", ratio: 2 }), Refusal);
     db.close();
   });
 });

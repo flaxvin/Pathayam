@@ -1263,8 +1263,25 @@ export function recordSplit(
     ).map((h) => h.id);
     if (!holdingIds.includes(input.holdingId)) holdingIds.push(input.holdingId);
 
+    /*
+     * WEALTH-5 · Only what was held before the split date splits. A lot bought
+     * on or after it was bought at the post-split price, in post-split units;
+     * multiplying it too made 10 units bought after a 2-for-1 split into 20 at
+     * half the price — phantom units at market. A bonus is sized the same way,
+     * from the units held before its record date.
+     */
+    const heldBefore = (holdingId: string) => ({
+      lots: holdingOf(db, holdingId).lots.filter((l) => l.tradeDate < input.date),
+    });
+    if (heldBefore(input.holdingId).lots.length === 0) {
+      throw new Refusal(
+        `Nothing in this holding was bought before ${formatDate(input.date)}, so a ${kind} ` +
+          `from that date has nothing to change. Check the date.`,
+      );
+    }
+
     for (const holdingId of holdingIds) {
-      const before = holdingOf(db, holdingId);
+      const before = heldBefore(holdingId);
       if (before.lots.length === 0) continue;
       if (kind === "bonus") {
         const lot = bonusLot(before, input.ratio, input.date, newId());
