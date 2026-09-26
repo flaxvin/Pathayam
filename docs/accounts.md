@@ -90,6 +90,10 @@ Rules enforced on write:
   accounts are outside the budget.
 - Deleting is soft (`deleted_at`). The row remains so the activity log and undo
   can reach it.
+- A transaction something else is recorded against — a loan instalment, a
+  portfolio lot or transaction, a reconciliation adjustment, a family-loan
+  write-off — cannot be deleted, nor its creation undone. Undo or delete that
+  first.
 
 Optional fields: `memo`, `tags`, `owner_member_id` (who spent it),
 `reimbursable`, `card_id` (which physical card on a multi-card account),
