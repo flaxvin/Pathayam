@@ -8034,7 +8034,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     let estimate = null;
     let advance: AdvanceInstalment[] = [];
-    if ((gross > 0 || gains.specialRateTax > 0) && !staleRatesWarning(fy)) {
+    // WEALTH-9 · Slab-rated gains are income too: a member whose only income
+    // is a debt-fund gain was told to "enter a gross income" and shown nothing.
+    if ((gross > 0 || gains.addToSlabIncome > 0 || gains.specialRateTax > 0) && !staleRatesWarning(fy)) {
       estimate = estimateTax(fy, gross, stored, gains);
       const liability = estimate.better === "old" ? estimate.old.total : estimate.new.total;
       advance = advanceTaxSchedule(fy, liability);
