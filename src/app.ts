@@ -7794,7 +7794,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               queue === 0
                 ? "Nothing waiting."
                 : `${queue} item${queue === 1 ? "" : "s"} waiting for a decision.`,
-            action: queue > 0 ? { label: "Open", href: "/review" } : null,
+            action: queue > 0 ? { label: "Open", href: "/review", method: "get" } : null,
           },
         ],
       },
