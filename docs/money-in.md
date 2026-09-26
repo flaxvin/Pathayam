@@ -131,7 +131,10 @@ that are never transactions.
 Amounts are derived from **balance movement**: the difference between
 consecutive running balances is the amount, sign included. The printed amount
 verifies that movement. Where the two disagree, the row is reported as an error
-rather than guessed.
+rather than guessed. A balance marked `Dr` — or bracketed, or with a leading
+minus — is overdrawn and counts below zero, so an overdraft account's rows keep
+their signs; the opening and closing balances the reconciliation checks are
+read the same way.
 
 Where a statement prints no balance column, amounts are read by column position
 against the table header.

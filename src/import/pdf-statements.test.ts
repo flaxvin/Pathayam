@@ -537,3 +537,38 @@ DATE & TIME  TRANSACTION DESCRIPTION  AMOUNT
     assert.equal(result.records[0]!.narration, "ZEPTO MARKETPLACE Bangalore");
   });
 });
+
+describe("an overdrawn running balance (IMPORTS-SCHEDULES-27)", () => {
+  test("a balance marked Dr is below zero, and the rows keep their signs", () => {
+    /*
+     * Read as bare figures, 5,000 Dr → 6,000 Dr looked like the balance rising:
+     * the withdrawal imported as money in, both deposits as money out, and the
+     * reconciliation — opening and closing read as blindly — said it all agreed.
+     */
+    const result = parseStatementText([
+      "ZZ FICTIONAL BANK   Statement of Account",
+      "Date        Narration                 Withdrawal      Deposit        Balance",
+      "            Opening Balance                                          5,000.00 Dr",
+      "01-08-2026  UPI/SHOP A                1,000.00                       6,000.00 Dr",
+      "02-08-2026  NEFT CREDIT                               2,500.00       3,500.00 Dr",
+      "03-08-2026  CASH DEPOSIT                              4,000.00         500.00 Cr",
+      "            Closing Balance                                            500.00 Cr",
+    ].join("\n"));
+
+    assert.deepEqual(result.records.map((r) => r.amount), [-100_000, 250_000, 400_000]);
+    assert.deepEqual(result.errors, []);
+    assert.equal(result.reconciliation!.opening, -500_000);
+    assert.equal(result.reconciliation!.ok, true);
+  });
+
+  test("a wrong sign would now fail the reconciliation rather than pass it", () => {
+    const result = parseStatementText([
+      "Date        Narration                 Withdrawal      Deposit        Balance",
+      "            Opening Balance                                         (2,000.00)",
+      "01-08-2026  ZZ SHOP                   1,000.00                      (3,000.00)",
+      "            Closing Balance                                           1,000.00",
+    ].join("\n"));
+    assert.equal(result.records[0]!.amount, -100_000);
+    assert.equal(result.reconciliation!.ok, false);
+  });
+});
