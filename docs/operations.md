@@ -206,12 +206,16 @@ docker compose exec pathayam node dist/restore.js --latest
 ```
 
 It keeps the database it replaced as `pathayam.sqlite.replaced-<timestamp>`,
-reads the restored copy back, and prints the control totals.
+reads the restored copy back, and prints the control totals. After a crash the
+last writes live only in the `-wal`; with `--force` that journal moves with the
+kept copy and is folded into it, so the `.replaced` file holds everything up to
+the crash. If the fold fails it says so, and the kept `-wal`/`-shm` stay beside
+it — keep the three together.
 
 > **Do not copy a backup over the database file directly.** SQLite maintains
 > `-wal` and `-shm` sidecar files, which persist after a crash. Replacing the
 > database while they remain produces `database disk image is malformed` on the
-> next query. `restore.ts` removes them in the correct order.
+> next query. `restore.ts` moves them aside with the replaced copy, in the correct order.
 
 ## Updating
 
