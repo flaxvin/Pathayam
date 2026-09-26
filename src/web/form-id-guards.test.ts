@@ -197,4 +197,34 @@ describe("ids posted in form fields", () => {
         queryOne<{ proposed: number }>(w.db, `SELECT proposed FROM rules WHERE id = 'rule-hers'`)!.proposed, 0,
       );
     }));
+
+  test("SECURITY-OPS-10 / WEBUX-11 · a made-up member id is a 404, not a foreign-key 500", () =>
+    asPriya(async (app, w) => {
+      const today = todayIST();
+      const cases: [string, Record<string, string>][] = [
+        ["/add", {
+          account_id: w.ids.household, amount: "10", direction: "in", date: today,
+          owner_member_id: "no-such-member",
+        }],
+        [`/accounts/${w.ids.household}/edit`, { name: "Joint current", holder_member_id: "no-such-member" }],
+        ["/family/new", { counterparty: "Cousin", holder_member_id: "no-such-member" }],
+      ];
+      for (const [path, form] of cases) {
+        assert.equal((await app.post(path, form)).status, 404, path);
+      }
+
+      assert.equal((await app.post("/loans/new", {
+        lender: "Probe Bank", loan_type: "personal", sanctioned: "100000", sanction_date: "01-01-2026",
+        annual_rate: "10", tenure_months: "12", current_outstanding: "50000",
+      })).status, 303);
+      const loan = queryOne<{ id: string }>(w.db, `SELECT id FROM loans WHERE lender = 'Probe Bank'`)!;
+      for (const holder of ["nobody", "0"]) {
+        const res = await app.post(`/loans/${loan.id}/holder`, { holder_member_id: holder, visibility: "household" });
+        assert.equal(res.status, 404, `loan holder ${holder}`);
+      }
+      // A real member is still accepted.
+      assert.equal((await app.post(`/loans/${loan.id}/holder`, {
+        holder_member_id: PRIYA, visibility: "household",
+      })).status, 303);
+    }));
 });

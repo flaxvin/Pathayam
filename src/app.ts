@@ -889,6 +889,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   }
 
   /**
+   * A member named in a form — a holder, or who spent it. Members are no
+   * secret inside the household, so this is only about existence: a made-up
+   * id reached the database and failed its foreign key, a 500 recorded as a
+   * fault on every form that names one (SECURITY-OPS-10, WEBUX-11). A member
+   * since removed still counts, so an edit form that re-posts an old holder
+   * keeps working.
+   */
+  function requireMember(_ctx: RequestContext, id: string): string {
+    if (!getMember(db, id)) throw new NotFound("That member does not exist.");
+    return id;
+  }
+
+  /**
    * A payee is visible by the rule listPayees applies — seen somewhere this
    * member can see, or nowhere yet — plus one merged into a visible payee.
    * A payee seen only on another member's private account is where they spend;
@@ -2301,7 +2314,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         nickname: text("nickname"),
         institution: text("institution"),
         last4: text("last4"),
-        holder_member_id: text("holder_member_id"),
+        holder_member_id: text("holder_member_id") && requireMember(ctx, text("holder_member_id")!),
         statement_day: numberOrNull(field(ctx.body, "statement_day")),
         due_day: numberOrNull(field(ctx.body, "due_day")),
         // 15 · Moving an account between budgets is one undoable step, recorded
@@ -2653,7 +2666,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         reimbursable: field(ctx.body, "reimbursable") === "1",
         // H2 · Who spent it. A card with its own holder still wins — an add-on
         // charge belongs to whoever holds the add-on (R6.e).
-        ownerMemberId: field(ctx.body, "owner_member_id") || undefined,
+        ownerMemberId: guardedField(ctx, "owner_member_id", requireMember) ?? undefined,
       });
 
       return { redirect: "/", message: `Saved ${formatPaise(magnitude)}.` };
@@ -3742,6 +3755,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     const tagsRaw = field(ctx.body, "tags");
     const ownerRaw = field(ctx.body, "owner_member_id");
+    if (ownerRaw) requireMember(ctx, ownerRaw);
 
     // Guard the earlier of the two dates: moving a transaction backwards means
     // the ripple starts where it lands, not where it was.
@@ -4011,7 +4025,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         label: requiredField(ctx.body, "label"),
         last4,
         isPrimary: false,
-        holderMemberId: field(ctx.body, "holder_member_id") || null,
+        holderMemberId: guardedField(ctx, "holder_member_id", requireMember),
       });
       return { redirect: `/accounts/${account.id}/cards`, message: "Card added." };
     }),
@@ -4704,7 +4718,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const loan = createLoan(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         lender: requiredField(ctx.body, "lender"),
         nickname: field(ctx.body, "nickname") || null,
-        holderMemberId: field(ctx.body, "holder_member_id") || null,
+        holderMemberId: guardedField(ctx, "holder_member_id", requireMember),
         visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
         // R15 · Where the drawn money landed, if the household said.
         disbursementDestination:
@@ -4871,7 +4885,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       if (!loan) throw new NotFound("That loan does not exist.");
       updateAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
         loan.account_id, {
-          holder_member_id: field(ctx.body, "holder_member_id") || null,
+          holder_member_id: guardedField(ctx, "holder_member_id", requireMember),
           visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
         });
       return { redirect: `/loans/${loan.id}`, message: "Saved." };
@@ -6543,7 +6557,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         note: field(ctx.body, "note") || null,
         // H2 / H2.2 · Money lent to your cousin can be yours rather than the
         // household's, the same as an asset or a loan.
-        holderMemberId: field(ctx.body, "holder_member_id") || null,
+        holderMemberId: guardedField(ctx, "holder_member_id", requireMember),
         visibility: field(ctx.body, "visibility") === "private" ? "private" : undefined,
       });
       return {
@@ -7515,7 +7529,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       requireAssets();
       const valueRaw = field(ctx.body, "value");
       const account = createAssetAccount(db, actorFor(a), {
-        holderMemberId: field(ctx.body, "holder_member_id") || null,
+        holderMemberId: guardedField(ctx, "holder_member_id", requireMember),
         visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
         name: requiredField(ctx.body, "name"),
         subtype: requiredField(ctx.body, "subtype") as "physical",
