@@ -14,7 +14,7 @@ import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, undoEvent, type Actor } from "../core/events.ts";
 import {
   nowIST, todayIST, addDays, addMonths, monthOf, daysBetween, resolveDayOfMonth,
-  formatDate, nthWeekdayOfMonth, weekdayOf,
+  formatDate, nthWeekdayOfMonth, weekdayOf, isIsoDate,
   WEEKDAY_NAMES, WEEKDAY_ORDINAL_NAMES,
   type IsoDate, type WeekdayOrdinal,
 } from "../core/dates.ts";
@@ -197,6 +197,7 @@ export function createSchedule(
    * has to take the promise — and the route that makes it wraps both in one
    * transaction, so a refused split takes the schedule with it.
    */
+  requireScheduleFigures(input.amount, input.nextDue);
   requireEnvelopeForOutgoing(input.amount, input.categoryId, input.splitsFollow === true);
   return transact(db, () => {
     const id = newId();
@@ -236,6 +237,24 @@ export function createSchedule(
  * day all meant living with the wrong figure in the cashflow projection — the one
  * screen whose whole job is answering "will I make it to the 30th".
  */
+/**
+ * What a schedule's figures have to be, whoever is asking.
+ *
+ * /schedules/confirm posted its hidden fields straight in: "12.5" stored twelve
+ * and a half paise, which markPaid would post into the ledger; "abc" a NULL
+ * amount; "2026-02-31" verbatim as the next due date; and "someday" reached a
+ * CHECK constraint as a 500. The routes read their fields properly now; this
+ * is the backstop for any that does not.
+ */
+function requireScheduleFigures(amount: number | null | undefined, nextDue: string | null | undefined): void {
+  if (amount !== null && amount !== undefined && !Number.isSafeInteger(amount)) {
+    throw new Refusal("A schedule's amount has to be a whole number of paise.");
+  }
+  if (nextDue !== null && nextDue !== undefined && !isIsoDate(nextDue)) {
+    throw new Refusal(`"${nextDue}" is not a date a schedule can fall due on.`);
+  }
+}
+
 export function updateSchedule(
   db: DB, actor: Actor, id: string,
   patch: Partial<Pick<Schedule,
@@ -257,6 +276,7 @@ export function updateSchedule(
   return transact(db, () => {
     const before = getSchedule(db, id);
     if (!before) throw new Refusal("That schedule does not exist.");
+    requireScheduleFigures(patch.amount, patch.next_due);
     requireEnvelopeForOutgoing(
       patch.amount !== undefined ? patch.amount : before.amount,
       patch.category_id !== undefined ? patch.category_id : before.category_id,

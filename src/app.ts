@@ -5585,16 +5585,31 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       // F7.6: a detected schedule becomes real only when confirmed, and stops
       // being marked "detected" once it is.
+      /*
+       * The suggestion's figures arrive as hidden fields, and hidden is not
+       * checked. The amount is paise, written by the page itself, so it is a
+       * whole, non-zero number or the form was not ours; the date is read like
+       * any other; the payee has to exist.
+       */
+      const rawAmount = (field(ctx.body, "amount") ?? "").trim();
+      const amount = /^-?\d+$/.test(rawAmount) ? Number(rawAmount) : NaN;
+      if (!Number.isSafeInteger(amount) || amount === 0) {
+        throw new HttpError(422, `"${rawAmount}" is not an amount this suggestion could have made.`);
+      }
+      const payeeId = field(ctx.body, "payee_id") || null;
+      if (payeeId && !queryOne(db, `SELECT 1 FROM payees WHERE id = ?`, payeeId)) {
+        throw new HttpError(422, "That payee no longer exists.");
+      }
       createSchedule(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         name: requiredField(ctx.body, "name"),
-        payeeId: field(ctx.body, "payee_id") || null,
+        payeeId,
         accountId: visibleAccountField(ctx, "account_id"),
         categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
-        amount: Number(field(ctx.body, "amount") ?? 0),
+        amount: amount as Paise,
         recurrence: parseRecurrence(field(ctx.body, "recurrence") ?? "monthly"),
         recurrenceOrdinal: weekdayOrdinalField(ctx.body),
         recurrenceWeekday: weekdayField(ctx.body),
-        nextDue: field(ctx.body, "next_due") ?? todayIST(),
+        nextDue: dateField(field(ctx.body, "next_due"), "Next due"),
       });
       return { redirect: "/schedules", message: "Added to your schedules." };
     }),
