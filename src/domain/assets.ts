@@ -30,7 +30,7 @@ import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts"
 import { nowIST, todayIST, formatDate, daysBetween, type IsoDate } from "../core/dates.ts";
 import { allocateByWeight, formatPaise, type Paise } from "../core/money.ts";
 import { SIMPLE_TRACKING_SUBTYPES, createAccount, getAccount } from "./accounts.ts";
-import { createTransaction } from "./transactions.ts";
+import { createTransaction, UndoRefused } from "./transactions.ts";
 import {
   makeLot, previewSale, totalUnits, costBasis, averageCost, averageUnitPrice, marketValue,
   unrealisedGain, absoluteReturn, xirr, holdingCashFlows, decomposeGain,
@@ -1306,8 +1306,40 @@ registerUndoHandler("holding", (db, event) => {
     execute(db, `DELETE FROM lots WHERE id = ?`, lot.id);
     return `Removed the purchase of ${formatUnits(lot.units)} units`;
   }
-  return `Reversed a change to the holding`;
+  /*
+   * WEALTH-2 · Everything else is refused rather than "reversed".
+   *
+   * This handler used to answer "Reversed a change to the holding" for a sale,
+   * split, bonus, merger, dividend or return of capital without touching a
+   * thing: the event was marked undone (so it could never be undone again and
+   * the log showed it reversed) while the lots, the realised gain and the bank
+   * credit all stayed. None of those events records the lots as they were
+   * before it — a sale closes and rewrites lots, a split rescales every one —
+   * so there is nothing honest to restore them from. Saying so is the undo
+   * this handler can actually keep.
+   */
+  throw new UndoRefused(
+    HOLDING_UNDO_REFUSALS[event.action] ??
+      "That change to the holding cannot be undone from here. Record the opposite change on the holding instead.",
+  );
 });
+
+const HOLDING_UNDO_REFUSALS: Record<string, string> = {
+  sale:
+    "A sale cannot be undone: the lots it closed were rewritten, and nothing kept them as they were. " +
+    "If it was recorded by mistake, add the units back as purchases on their original dates.",
+  // A bonus issue is logged as a "split" too; recordSplit tells them apart.
+  split:
+    "A split or bonus issue cannot be undone from here: it rescaled the lots, or added one, " +
+    "and they may have been sold from since.",
+  merger:
+    "A merger cannot be undone from here: the holding it moved into may have changed since.",
+  dividend:
+    "A dividend cannot be undone from here. Delete the credit it made from the account, " +
+    "and for a reinvested dividend, record a sale of the units it bought.",
+  "return-of-capital":
+    "A return of capital cannot be undone from here: the cost it reduced was rewritten on every lot.",
+};
 
 registerUndoHandler("asset-account", (db, event) => {
   if (event.action === "create") {
