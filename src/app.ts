@@ -5413,7 +5413,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ctx, "Reports",
       renderReports({
         insights: spendingInsights(db, todayIST(), 6, viewer(ctx)),
-        gains: config.features.assets ? capitalGainsByYear(db) : [],
+        gains: config.features.assets ? capitalGainsByYear(db, viewer(ctx)) : [],
         trend: incomeVsExpense(db, period.from, period.to, scope, viewer(ctx)),
         categorySpend: categorySpend.map((g) => ({ label: g.label, value: g.value })),
         categoryTrends,
@@ -5422,7 +5422,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         sankey: { income: monthIncome, month: bview.month, groups: sankeyGroups },
         period,
         periods: periodPresets(),
-        loanInterest: config.features.loans ? loanInterestByFinancialYear(db) : [],
+        loanInterest: config.features.loans ? loanInterestByFinancialYear(db, viewer(ctx)) : [],
         budgets: budgetsFor(db, viewer(ctx)).map((b) => ({ id: b.id, name: b.name, kind: b.kind })),
         scope: asked ?? "all",
       }),

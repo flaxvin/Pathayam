@@ -451,13 +451,18 @@ export function categoryTrend(
  * cash paid across every loan. Q31 reversed L14 and N15, but not into here.
  */
 export function loanInterestByFinancialYear(
-  db: DB,
+  db: DB, viewerMemberId?: string | null,
 ): { fy: number; label: string; interest: Paise; principal: Paise; lender: string }[] {
+  // WEALTH-23 · A private loan's lender and interest are its holder's alone.
+  const seen = visibilityClause(viewerMemberId);
   const rows = queryAll<{ date: string; interest: number; principal: number; lender: string }>(
     db,
     `SELECT p.date, p.interest, p.principal, l.lender
        FROM loan_payments p JOIN loans l ON l.id = p.loan_id
+       JOIN accounts a ON a.id = l.account_id
+      WHERE 1 = 1${seen.sql}
       ORDER BY p.date`,
+    ...seen.params,
   );
 
   const groups = new Map<string, { fy: number; interest: Paise; principal: Paise; lender: string }>();
@@ -565,7 +570,13 @@ export interface GainsYear {
   parcels: GainsParcel[];
 }
 
-export function capitalGainsByYear(db: DB): GainsYear[] {
+/**
+ * WEALTH-23 · Scoped like every other report: `/reports` passes the viewer, so
+ * a private demat's sales — the fund, its cost, its proceeds — are its
+ * holder's alone. Called with no viewer it counts everything.
+ */
+export function capitalGainsByYear(db: DB, viewerMemberId?: string | null): GainsYear[] {
+  const seen = visibilityClause(viewerMemberId);
   const sales = queryAll<{
     date: IsoDate; realised_gain: number | null; amount: number | null;
     detail_json: string | null; instrument: string;
@@ -574,9 +585,11 @@ export function capitalGainsByYear(db: DB): GainsYear[] {
     `SELECT e.date, e.realised_gain, e.amount, e.detail_json, i.name AS instrument
        FROM holding_events e
        JOIN holdings h ON h.id = e.holding_id
+       JOIN accounts a ON a.id = h.account_id
        JOIN instruments i ON i.id = h.instrument_id
-      WHERE e.kind = 'sale'
+      WHERE e.kind = 'sale'${seen.sql}
       ORDER BY e.date`,
+    ...seen.params,
   );
 
   const years = new Map<number, GainsYear>();
