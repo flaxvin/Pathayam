@@ -5123,7 +5123,6 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/loans/:id/prepay", (ctx) => {
     requireLoans();
     requireLoanVisible(ctx);
-    const a = auth(ctx);
     const loanId = ctx.params.id!;
     const projection = projectLoan(db, loanId);
     if (!projection) throw new NotFound("That loan does not exist.");
@@ -5136,38 +5135,46 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       return { redirect: `/loans/${loanId}/prepay?amount=${amount}&at_month=${atMonth}` };
     }
 
-    const chargeRaw = field(ctx.body, "charge");
-    const charge = chargeRaw?.trim() ? amountField(chargeRaw) : 0;
-    const mode = field(ctx.body, "mode") === "emi" ? "emi" : "tenure";
-    const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
-
     /*
-     * B115 · The mode and the funding envelope were both collected here and
-     * neither was carried out: the mode went into the note, and the envelope
-     * went nowhere. `recordPrepayment` applies both — which is also where R19.1
-     * belongs, rather than in the route that renders the form.
+     * WEALTH-17 · The commit goes through mutate(), like every other loan write.
+     * This route called recordPrepayment directly, so withIdempotency never saw
+     * the Idempotency-Key: a retried POST — what the client sends when the first
+     * answer is lost — prepaid ₹50,000 twice, debited the bank twice and
+     * shortened the tenure twice. The preview above writes nothing and stays out.
      */
-    recordPrepayment(db, actor, {
-      loanId,
-      date: todayIST(),
-      amount,
-      mode,
-      charge,
-      fromAccountId: projection.loan.repayment_account_id,
-      fundingCategoryId: requireVisibleCategory(ctx, field(ctx.body, "funding_category_id") || null) || null,
-    });
+    return mutate(ctx, (a) => {
+      const chargeRaw = field(ctx.body, "charge");
+      const charge = chargeRaw?.trim() ? amountField(chargeRaw) : 0;
+      const mode = field(ctx.body, "mode") === "emi" ? "emi" : "tenure";
+      const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
 
-    const after = projectLoan(db, loanId);
-    return {
-      redirect: withNotice(
-        `/loans/${loanId}`,
-        mode === "emi"
-          ? `Prepaid ${formatPaise(amount)}. The instalment is now ` +
-            `${formatPaise(after?.emi ?? 0)} and the closure date is unchanged.`
-          : `Prepaid ${formatPaise(amount)}. The instalment is unchanged and there are ` +
-            `${after?.schedule.months ?? 0} left.`,
-      ),
-    };
+      /*
+       * B115 · The mode and the funding envelope were both collected here and
+       * neither was carried out: the mode went into the note, and the envelope
+       * went nowhere. `recordPrepayment` applies both — which is also where R19.1
+       * belongs, rather than in the route that renders the form.
+       */
+      recordPrepayment(db, actor, {
+        loanId,
+        date: todayIST(),
+        amount,
+        mode,
+        charge,
+        fromAccountId: projection.loan.repayment_account_id,
+        fundingCategoryId: requireVisibleCategory(ctx, field(ctx.body, "funding_category_id") || null) || null,
+      });
+
+      const after = projectLoan(db, loanId);
+      return {
+        redirect: `/loans/${loanId}`,
+        message:
+          mode === "emi"
+            ? `Prepaid ${formatPaise(amount)}. The instalment is now ` +
+              `${formatPaise(after?.emi ?? 0)} and the closure date is unchanged.`
+            : `Prepaid ${formatPaise(amount)}. The instalment is unchanged and there are ` +
+              `${after?.schedule.months ?? 0} left.`,
+      };
+    });
   });
 
   function rupeesFromQuery(ctx: RequestContext, name: string, fallbackRupees: number): number {
