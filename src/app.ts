@@ -34,7 +34,7 @@ import {
   authenticateToken, tokenMayReach, checkTokenRateLimit,
   mintToken, listTokens, revokeToken, type TokenScope,
 } from "./auth/tokens.ts";
-import { beginOAuth, exchangeCode } from "./auth/google.ts";
+import { beginOAuth, exchangeCode, OAuthError } from "./auth/google.ts";
 import {
   beginGmailConnect, exchangeGmailCode, revokeToken as revokeGmailToken,
 } from "./gmail/oauth.ts";
@@ -1257,6 +1257,25 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     );
   }
 
+  /**
+   * The provider said no to the code — forged, replayed, expired, or a token
+   * that fails its checks. That is a failed sign-in, not a broken server
+   * (SECURITY-OPS-18): OAuthError is a plain Error, so it reached the
+   * generic 500 page and request_failures, and anybody could mint a state at
+   * the public /auth/google and write a fault row per request. Now it is a
+   * 400 that says what the provider said, recorded as an auth attempt so it
+   * counts toward the rate limit like every other failed sign-in.
+   */
+  async function exchangeOrRefuse<T>(source: string, exchange: () => Promise<T>): Promise<T> {
+    try {
+      return await exchange();
+    } catch (error) {
+      if (!(error instanceof OAuthError)) throw error;
+      recordAuthAttempt(db, source, "rejected-code", error.message);
+      throw new HttpError(400, `${error.message} Please try signing in again.`);
+    }
+  }
+
   router.get("/auth/google", (ctx) => {
     /*
      * Not configured is a *deployment* state, not a server fault — a demo
@@ -1330,7 +1349,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       throw new HttpError(400, "The identity provider did not return a sign-in code.");
     }
 
-    const profile = await exchangeOidcCode({
+    const profile = await exchangeOrRefuse(source, () => exchangeOidcCode({
       config: {
         issuer: config.oidc.issuer!,
         clientId: config.oidc.clientId!,
@@ -1340,7 +1359,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       code,
       codeVerifier: pending.verifier,
       fetchImpl: deps.fetchImpl,
-    });
+    }));
     refuseUnverifiedEmail(source, profile);
 
     let member = findMemberByEmail(db, profile.email);
@@ -1404,14 +1423,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       throw new HttpError(400, "Google did not return a sign-in code.");
     }
 
-    const profile = await exchangeCode({
+    const profile = await exchangeOrRefuse(source, () => exchangeCode({
       clientId: config.google.clientId!,
       clientSecret: config.google.clientSecret!,
       redirectUri: `${config.baseUrl}/auth/google/callback`,
       code,
       codeVerifier: pending.verifier,
       fetchImpl: deps.fetchImpl,
-    });
+    }));
     refuseUnverifiedEmail(source, profile);
 
     let member = findMemberByEmail(db, profile.email);
