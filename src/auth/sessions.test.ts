@@ -293,6 +293,13 @@ describe("cookies", () => {
     assert.deepEqual(parseCookies(undefined), {});
     assert.deepEqual(parseCookies("pathayam_session=x%2Fy"), { pathayam_session: "x/y" });
   });
+
+  test("SECURITY-OPS-14 · another app's malformed cookie does not throw", () => {
+    assert.deepEqual(
+      parseCookies("other_app=%E0%A4; pathayam_session=x%2Fy"),
+      { other_app: "%E0%A4", pathayam_session: "x/y" },
+    );
+  });
 });
 
 describe("Google SSO", () => {
