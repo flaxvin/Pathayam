@@ -163,7 +163,14 @@ can't restore lines they never kept; undoing one of those on a transaction that
 was split is refused with a sentence rather than half-applied.
 
 Not every event carries a whole row: marking a line cleared while reconciling
-records only `cleared`. Undo writes back exactly the columns an event recorded.
+records only `cleared`. Undo writes back exactly the columns an event recorded —
+and of those, only the ones the edit actually changed. A memo edit's undo puts
+back the memo and nothing else: not `deleted_at` (a transfer deleted since stays
+deleted, both legs), not the envelope (one merged away since keeps the spend in
+the envelope it was merged into). When an edit did move the money out of an
+envelope that has since been merged away, deleted or removed, the undo is
+refused with a sentence rather than filing the money where no budget counts it;
+a payee merged since comes back as the payee it was merged into.
 
 Undoing an account's **creation** is refused once anything has been recorded
 against it — transactions, schedules, holdings, reconciliations, imports — and
