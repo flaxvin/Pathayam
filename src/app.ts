@@ -8028,8 +8028,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const gross = hasDeclaration(db, a.member.id, fy) ? stored.gross : ledgerIncome;
 
     // Capital gains are taxed at their own rates and are scoped to this
-    // member's own holdings — another member's sale is not part of their
-    // assessment.
+    // member's own holdings — the accounts they are named holder of (WEALTH-7).
+    // Another member's sale is not part of their assessment, however visible.
     const gains = capitalGainsTaxFor(db, fy, a.member.id);
 
     let estimate = null;
