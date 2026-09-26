@@ -1227,41 +1227,74 @@ export function recordSplit(
     );
   }
   transact(db, () => {
-    const before = holdingOf(db, input.holdingId);
-    if (kind === "bonus") {
-      const lot = bonusLot(before, input.ratio, input.date, newId());
-      execute(
-        db,
-        `INSERT INTO lots (id,holding_id,trade_date,units,price,fees,cost,fx_rate,created_at)
-         VALUES (?,?,?,?,0,0,0,?,?)`,
-        lot.id, input.holdingId, lot.tradeDate, lot.units, lot.fxRate, nowIST(),
-      );
-    } else {
-      const after = applySplit(before, input.ratio);
-      for (const lot of after.lots) {
-        execute(db, `UPDATE lots SET units = ?, price = ? WHERE id = ?`, lot.units, lot.price, lot.id);
-      }
-    }
-
-    // R28.2: the price history is adjusted too, so a chart does not show a
-    // false crash on the split date.
     const holdingRow = queryOne<{ instrument_id: string }>(
       db, `SELECT instrument_id FROM holdings WHERE id = ?`, input.holdingId,
     );
-    if (holdingRow) {
+    if (!holdingRow) throw new Missing("That holding does not exist.");
+
+    /*
+     * WEALTH-4 · A split is something that happens to the instrument, so it
+     * happens to every holding of it at once.
+     *
+     * The lots were adjusted for this holding only while the price history —
+     * which belongs to the instrument — was divided for all of them. With the
+     * same shares in two demats, recording the split on one halved the value of
+     * the other on the spot, and recording it on the second as well divided the
+     * prices a second time: both then showed half their worth. So every open
+     * holding of the instrument is adjusted together, each gets its own event
+     * (a dated valuation reads them per holding), the prices move once, and the
+     * same action recorded again is refused rather than applied twice.
+     */
+    const already = queryOne<{ n: number }>(
+      db,
+      `SELECT COUNT(*) AS n FROM holding_events e JOIN holdings h ON h.id = e.holding_id
+        WHERE h.instrument_id = ? AND e.kind = ? AND e.date = ?`,
+      holdingRow.instrument_id, kind, input.date,
+    )!.n;
+    if (already > 0) {
+      throw new Refusal(
+        `A ${kind} on ${formatDate(input.date)} is already recorded for this instrument, ` +
+          `and it was applied to every holding of it then.`,
+      );
+    }
+    const holdingIds = queryAll<{ id: string }>(
+      db, `SELECT id FROM holdings WHERE instrument_id = ? AND closed_at IS NULL`,
+      holdingRow.instrument_id,
+    ).map((h) => h.id);
+    if (!holdingIds.includes(input.holdingId)) holdingIds.push(input.holdingId);
+
+    for (const holdingId of holdingIds) {
+      const before = holdingOf(db, holdingId);
+      if (before.lots.length === 0) continue;
+      if (kind === "bonus") {
+        const lot = bonusLot(before, input.ratio, input.date, newId());
+        execute(
+          db,
+          `INSERT INTO lots (id,holding_id,trade_date,units,price,fees,cost,fx_rate,created_at)
+           VALUES (?,?,?,?,0,0,0,?,?)`,
+          lot.id, holdingId, lot.tradeDate, lot.units, lot.fxRate, nowIST(),
+        );
+      } else {
+        const after = applySplit(before, input.ratio);
+        for (const lot of after.lots) {
+          execute(db, `UPDATE lots SET units = ?, price = ? WHERE id = ?`, lot.units, lot.price, lot.id);
+        }
+      }
       execute(
-        db, `UPDATE prices SET price = CAST(price / ? AS INTEGER)
-              WHERE instrument_id = ? AND as_of < ?`,
-        input.ratio, holdingRow.instrument_id, input.date,
+        db,
+        `INSERT INTO holding_events (id,holding_id,date,kind,ratio,created_at,created_by)
+         VALUES (?,?,?,?,?,?,?)`,
+        newId(), holdingId, input.date, kind,
+        input.ratio, nowIST(), actor.memberId,
       );
     }
 
+    // R28.2: the price history is adjusted too, so a chart does not show a
+    // false crash on the split date — once, for the instrument.
     execute(
-      db,
-      `INSERT INTO holding_events (id,holding_id,date,kind,ratio,created_at,created_by)
-       VALUES (?,?,?,?,?,?,?)`,
-      newId(), input.holdingId, input.date, kind,
-      input.ratio, nowIST(), actor.memberId,
+      db, `UPDATE prices SET price = CAST(price / ? AS INTEGER)
+            WHERE instrument_id = ? AND as_of < ?`,
+      input.ratio, holdingRow.instrument_id, input.date,
     );
 
     appendEvent(db, actor, {

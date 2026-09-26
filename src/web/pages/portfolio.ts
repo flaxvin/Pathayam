@@ -570,7 +570,8 @@ export function renderSplitForm(opts: {
     <p class="faint">
       You hold ${opts.units} units. A split or a bonus changes how many units
       you hold and what each one cost — never what the holding is worth. Every lot and the whole price history move together, so the chart stays
-      accurate.
+      accurate. It is recorded once for ${opts.instrumentName}, and applies to
+      every account that holds it.
     </p>
     <form method="post" action="/portfolio/${opts.holdingId}/split" class="card">
       <div class="grid-2">
