@@ -16,7 +16,7 @@ import type { Actor } from "../core/events.ts";
 import { createAccount } from "./accounts.ts";
 import {
   createAssetAccount, findOrCreateInstrument, recordPurchase, recordSale, recordSplit,
-  recordDividend, recordReturnOfCapital, listHoldings,
+  recordDividend, recordReturnOfCapital, listHoldings, classifyInstrument, getInstrument,
 } from "./assets.ts";
 import { price, units } from "../portfolio/holdings.ts";
 import { freshDb, seedMember, startTestApp } from "../web/harness.test-data.ts";
@@ -115,6 +115,46 @@ describe("WEALTH-3 · purchase undo", () => {
       const r = await app.post(`/activity/${eventOf(db, "purchase")}/undo`, { force: "1" });
       assert.equal(r.status, 422);
       assert.equal(held(db, holdingId), units(6), "the surviving units stay");
+    } finally { await app.close(); }
+  });
+});
+
+/*
+ * WEALTH-22 · The instrument handler ran DELETE for every action: undoing a
+ * classification deleted the instrument, or answered 500 when it was held.
+ */
+describe("WEALTH-22 · instrument undo", () => {
+  test("undoing a classification puts the old class back and keeps the instrument", async () => {
+    const { db, app } = await setup();
+    try {
+      const fund = findOrCreateInstrument(db, actor, {
+        name: "Fictional Fund A", kind: "mutual-fund", provider: "manual",
+      });
+      classifyInstrument(db, actor, fund.id, { assetClass: "debt" });
+      const ev = queryOne<{ id: string }>(db, `SELECT id FROM events WHERE entity = 'instrument' AND action = 'classify'`)!;
+      assert.equal((await app.post(`/activity/${ev.id}/undo`, {})).status, 303);
+      assert.equal(getInstrument(db, fund.id)?.asset_class, null);
+    } finally { await app.close(); }
+  });
+
+  test("the same for a held instrument — no foreign-key 500", async () => {
+    const { db, app, holdingId } = await setup();
+    try {
+      const inst = queryOne<{ instrument_id: string }>(db, `SELECT instrument_id FROM holdings WHERE id = ?`, holdingId)!.instrument_id;
+      classifyInstrument(db, actor, inst, { assetClass: "hybrid" });
+      const ev = queryOne<{ id: string }>(db, `SELECT id FROM events WHERE entity = 'instrument' AND action = 'classify'`)!;
+      assert.equal((await app.post(`/activity/${ev.id}/undo`, {})).status, 303);
+      assert.equal(getInstrument(db, inst)?.asset_class, "equity", "back to what its kind implied");
+    } finally { await app.close(); }
+  });
+
+  test("undoing the create of a held instrument is refused with a sentence", async () => {
+    const { db, app } = await setup();
+    try {
+      const ev = queryOne<{ id: string }>(db, `SELECT id FROM events WHERE entity = 'instrument' AND action = 'create'`)!;
+      const r = await app.post(`/activity/${ev.id}/undo`, { force: "1" });
+      assert.equal(r.status, 422);
+      assert.match(await r.text(), /still used by a holding/);
     } finally { await app.close(); }
   });
 });
