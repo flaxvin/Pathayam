@@ -136,6 +136,11 @@ export interface ColumnMapping {
   /** …or a separate debit and credit pair, which most Indian banks use. */
   debit?: number;
   credit?: number;
+  /**
+   * With a single `amount` column: the column that says which way it went —
+   * "Dr" / "Cr", "Debit" / "Credit" — when the amount itself is unsigned.
+   */
+  direction?: number;
   balance?: number;
   reference?: number;
   /** Overrides the two-digit-year guess when a bank is ambiguous. */
@@ -237,6 +242,15 @@ export function guessMapping(rows: string[][]): ColumnMapping | null {
       mapping.credit = credit;
     } else if (amount >= 0) {
       mapping.amount = amount;
+      /*
+       * One column that matched both the debit and the credit hints — "Dr /
+       * Cr", "Debit / Credit" — is not a pair: it says which way the unsigned
+       * amount beside it went. It used to be dropped, and the amount read as
+       * signed, so every "450.00, DR" imported as ₹450 *in* and the guess was
+       * saved as the bank's profile for every month after.
+       */
+      const direction = directionColumn(rows, r, amount, balance);
+      if (direction !== null) mapping.direction = direction;
     } else {
       continue; // No usable amount column; keep looking.
     }
@@ -247,6 +261,47 @@ export function guessMapping(rows: string[][]): ColumnMapping | null {
   }
 
   return null;
+}
+
+const DIRECTION_WORD = /^(?:dr|cr|debit|credit|d|c)\.?$/i;
+
+/** Which way a Dr / Cr cell says the money went, or null when it does not say. */
+function directionOf(cell: string): "out" | "in" | null {
+  const word = cell.trim().toLowerCase().replace(/\.$/, "");
+  if (word === "dr" || word === "debit" || word === "d") return "out";
+  if (word === "cr" || word === "credit" || word === "c") return "in";
+  return null;
+}
+
+/**
+ * The column saying Dr / Cr for an unsigned amount, found by what it holds
+ * rather than its heading ("Dr / Cr", "Type", "Debit/Credit" all occur): every
+ * filled cell under it is one of those words. A statement that prints one after
+ * the balance too ("Balance, Dr / Cr") has two; that one is the balance's, and
+ * the one nearest after the amount is the amount's.
+ *
+ * Only for an amount column that is unsigned throughout: one that carries its
+ * own minus signs or Dr / Cr suffixes already says which way it went.
+ */
+function directionColumn(
+  rows: string[][], headerRow: number, amount: number, balance: number,
+): number | null {
+  const data = rows.slice(headerRow + 1, headerRow + 41)
+    .filter((row) => row.some((c) => c.trim() !== ""));
+  const signed = data.some((row) => /^[-−(+]|(?:cr|dr)\.?$/i.test((row[amount] ?? "").trim()));
+  if (signed) return null;
+  const width = Math.max(0, ...data.map((row) => row.length));
+  const found: number[] = [];
+  for (let col = 0; col < width; col++) {
+    if (col === amount) continue;
+    if (balance >= 0 && col === balance + 1 && col !== amount + 1) continue;
+    const cells = data.map((row) => (row[col] ?? "").trim()).filter(Boolean);
+    if (cells.length > 0 && cells.every((c) => DIRECTION_WORD.test(c))) found.push(col);
+  }
+  if (found.length === 0) return null;
+  const after = found.filter((col) => col > amount);
+  if (after.length > 0) return after[0]!;
+  return found[found.length - 1]!;
 }
 
 /**
@@ -318,6 +373,25 @@ function readAmount(
   const amount = parseAmount(raw, "statement");
   if (amount === null) {
     return { amount: null, rawAmount: raw, reason: `"${raw}" is not an amount I can read.` };
+  }
+  if (mapping.direction !== undefined) {
+    // P4: the figure and the word the bank put beside it, both kept.
+    const flag = (cells[mapping.direction] ?? "").trim();
+    const rawAmount = flag ? `${raw} ${flag}` : raw;
+    const way = directionOf(flag);
+    if (!way) {
+      return {
+        amount: null, rawAmount,
+        reason: `"${flag}" does not say whether this was money out (Dr) or in (Cr).`,
+      };
+    }
+    if (amount < 0 && way === "in") {
+      return {
+        amount: null, rawAmount,
+        reason: `The amount "${raw}" is money out, but the row says ${flag}; I cannot tell which is right.`,
+      };
+    }
+    return { amount: (way === "out" ? -Math.abs(amount) : Math.abs(amount)) as Paise, rawAmount };
   }
   return { amount, rawAmount: raw };
 }
