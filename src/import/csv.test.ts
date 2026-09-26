@@ -5,6 +5,7 @@ import {
   headerSignature,
 } from "./csv.ts";
 import { rupees } from "../core/money.ts";
+import { mappingFromSelections } from "./profiles.ts";
 
 describe("parseDelimited", () => {
   test("handles quotes, embedded delimiters and doubled quotes", () => {
@@ -326,5 +327,45 @@ describe("headerSignature", () => {
       headerSignature(["Date", "Narration", "Withdrawal Amt."]),
       headerSignature(["Transaction Date", "Transaction Remarks", "Withdrawal Amount"]),
     );
+  });
+});
+
+describe("an unsigned amount with a Dr / Cr column beside it (IMPORTS-SCHEDULES-19)", () => {
+  test("a Dr / Cr column decides the sign, and the balance's own Dr / Cr is left alone", () => {
+    const { result, mapping } = parseStatement(`Sl. No.,Transaction Date,Value Date,Description,Chq / Ref No.,Amount,Dr / Cr,Balance,Dr / Cr
+1,01-08-2026,01-08-2026,UPI/ZZFOOD/4312,UPI-4312,450.00,DR,99550.00,CR
+2,02-08-2026,02-08-2026,NEFT SALARY ZZCORP,NEFT-1,85000.00,CR,184550.00,CR`);
+    assert.equal(mapping?.direction, 6);
+    assert.deepEqual(result.records.map((r) => r.amount), [-45000, 8500000]);
+    assert.equal(result.records[0]!.raw.amount, "450.00 DR", "the word the bank wrote is kept");
+  });
+
+  test("a card file's Debit / Credit column", () => {
+    const { result } = parseStatement(`Date,Transaction Description,Amount,Debit / Credit
+03/08/2026,ZZ STORE,1299.00,Debit
+05/08/2026,PAYMENT RECEIVED THANK YOU,5000.00,Credit`);
+    assert.deepEqual(result.records.map((r) => r.amount), [-129900, 500000]);
+  });
+
+  test("a row whose Dr / Cr cell says neither is reported, not guessed", () => {
+    const { result } = parseStatement(`Date,Description,Amount,Dr / Cr
+03/08/2026,ZZ STORE,1299.00,Debit
+04/08/2026,ZZ CAFE,240.00,`);
+    assert.equal(result.records.length, 1);
+    assert.equal(result.errors.length, 1);
+    assert.match(result.errors[0]!.reason, /money out \(Dr\) or in \(Cr\)/);
+  });
+
+  test("a signed amount column is left to its own signs", () => {
+    const { result, mapping } = parseStatement(`Date,Narration,Amount,Balance,Dr / Cr
+03-08-2026,ZZ SHOP,-450.00,1000.00,CR
+04-08-2026,ZZ REFUND,120.00,1120.00,CR`);
+    assert.equal(mapping?.direction, undefined);
+    assert.deepEqual(result.records.map((r) => r.amount), [-45000, 12000]);
+  });
+
+  test("the mapping screen can name the column", () => {
+    const mapping = mappingFromSelections({ headerRow: 0, date: 0, narration: 1, amount: 2, direction: 3 });
+    assert.equal(mapping.direction, 3);
   });
 });

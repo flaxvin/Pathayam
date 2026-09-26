@@ -198,6 +198,7 @@ export function mappingFromSelections(input: {
   amount?: number | null;
   debit?: number | null;
   credit?: number | null;
+  direction?: number | null;
   balance?: number | null;
   reference?: number | null;
 }): ColumnMapping {
@@ -214,6 +215,9 @@ export function mappingFromSelections(input: {
     mapping.credit = input.credit;
   } else if (input.amount != null && input.amount >= 0) {
     mapping.amount = input.amount;
+    if (input.direction != null && input.direction >= 0 && input.direction !== input.amount) {
+      mapping.direction = input.direction;
+    }
   }
 
   if (input.balance != null && input.balance >= 0) mapping.balance = input.balance;

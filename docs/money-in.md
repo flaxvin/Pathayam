@@ -33,6 +33,13 @@ empty, `0.00` or a dash. A row with money in both, an unreadable figure in
 either, or zero in both is an error row naming which of those it is — never
 read as whichever column happens to win.
 
+A third layout is an unsigned amount with a column beside it saying `Dr` / `Cr`
+(or `Debit` / `Credit`). The guess finds that column by what it holds — only
+those words — and uses the one nearest after the amount, so a second `Dr / Cr`
+column describing the balance is left alone; an amount column with its own
+signs or markers is never given one. A row whose indicator says neither is an
+error row. The mapping screen can name the column too.
+
 ### Reading an amount
 
 CSV cells, PDF figures and alert amounts are read by the same rules

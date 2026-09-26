@@ -4499,6 +4499,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         amount: pick("amount"),
         debit: pick("debit"),
         credit: pick("credit"),
+        direction: pick("direction"),
         balance: pick("balance"),
         reference: pick("reference"),
       });

@@ -543,7 +543,9 @@ export function renderMapping(opts: MappingPrompt): SafeHtml {
         </p>
         ${column("debit", "Money out", "The withdrawal or debit column.")}
         ${column("credit", "Money in", "The deposit or credit column.")}
-        ${column("amount", "Or one signed column", "Negative for money out.")}
+        ${column("amount", "Or one amount column", "Negative for money out — or pick the Dr / Cr column below.")}
+        ${column("direction", "Its Dr / Cr column",
+          "Only if the amount is unsigned and another column says Dr or Cr (Debit or Credit).")}
       </fieldset>
 
       <fieldset>
