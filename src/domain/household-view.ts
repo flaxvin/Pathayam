@@ -112,7 +112,16 @@ export interface SettledEntry {
   note: string | null;
 }
 
-export function buildHouseholdView(db: DB, month: MonthKey): HouseholdView {
+export function buildHouseholdView(
+  db: DB, month: MonthKey,
+  /**
+   * BUDGET-10 · Who is reading. The page is shared, but what it may say about
+   * a budget's *other* envelopes depends on whose budget it is: the member
+   * reading it sees their own, and nobody else's. Omitted means no reader —
+   * the month close and the digest, which read only the totals.
+   */
+  viewerMemberId?: string | null,
+): HouseholdView {
   const household = householdBudgetId(db);
   const sources = commitmentSources(db, household);
   const targets = new Map(loadTargets(db).map((t) => [t.categoryId, t]));
@@ -145,7 +154,7 @@ export function buildHouseholdView(db: DB, month: MonthKey): HouseholdView {
       target,
       shortOfTarget: (target === null ? 0 : Math.max(0, target - assigned)) as Paise,
       standing: standingOf(balance),
-      givingUp: describeGivingUp(db, source.budgetId, balance),
+      givingUp: describeGivingUp(db, source.budgetId, balance, viewerMemberId),
       outstanding: outstanding(balance),
       sentence: standingSentence(balance, source.budgetName),
     };
@@ -208,7 +217,7 @@ function describeSettled(
  * quietly make an envelope somebody may never use.
  */
 function describeGivingUp(
-  db: DB, envelopeBudgetId: string, balance: Paise,
+  db: DB, envelopeBudgetId: string, balance: Paise, viewerMemberId?: string | null,
 ): MemberCommitment["givingUp"] {
   if (balance === 0) return null;
   const household = householdBudgetId(db);
@@ -220,7 +229,16 @@ function describeGivingUp(
   const receiving = getBudget(db, receivingId);
   if (!giving || !receiving) return null;
 
-  const existing = listCategories(db, { includeHidden: true, budgetId: givingId })
+  /*
+   * BUDGET-10 · Read as the viewer. The picker below was every envelope in the
+   * giving budget, rendered for everybody who opened the page — so when Priya's
+   * commitment was short, Ravi's household page listed her private envelopes by
+   * name, which is exactly "what else is in their budget" that the header of
+   * this file rules out. He could not use one either: the route 404s an
+   * envelope he cannot see. A budget the viewer cannot see offers no choices.
+   */
+  const asViewer = { budgetId: givingId, viewerMemberId };
+  const existing = listCategories(db, { includeHidden: true, ...asViewer })
     .find((c) => c.name === GIVEN_UP_CATEGORY);
   return {
     budgetName: giving.kind === "household" ? "the household budget" : `${giving.name}'s budget`,
@@ -229,7 +247,7 @@ function describeGivingUp(
     receiverName: receiving.kind === "household" ? "the household" : receiving.name,
     // Ordinary envelopes only: a commitment or a card's payment envelope is not
     // somewhere the household gets to book this.
-    choices: listCategories(db, { budgetId: givingId })
+    choices: listCategories(db, asViewer)
       .filter((c) => !c.commits_to_budget_id && !c.payment_account_id)
       .map((c) => ({ id: c.id, name: c.name })),
   };

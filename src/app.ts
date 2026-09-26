@@ -1810,8 +1810,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/household", (ctx) => {
     const month = monthParam(ctx);
-    const view = buildHouseholdView(db, month);
     const me = viewer(ctx);
+    const view = buildHouseholdView(db, month, viewer(ctx));
     const own = me ? personalBudgetFor(db, me) : null;
     const canOpenOwn = Boolean(me) && !own;
 
