@@ -704,9 +704,19 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
      */
     if (ix % 3 === 2 && ix > 3) {
       const rows: string[][] = [["Date", "Narration", "Debit", "Credit", "Ref"]];
-      const line = (d: number, narration: string, debit: number, ref: string) =>
+      /*
+       * WEBUX-4 · A statement lists what has happened. This block was the one
+       * place without the `live` guard every other one has, and the current
+       * month is always a statement month, so any re-seed before the 21st filed
+       * cleared rows on days still to come — 21-11-2026 at the top of the HDFC
+       * register on 01-11-2026, and future spending in this month's Activity.
+       * The amounts are still drawn, so the months after keep their figures.
+       */
+      const line = (d: number, narration: string, debit: number, ref: string) => {
+        if (!live(d)) return;
         rows.push([day(month, d).split("-").reverse().join("-"), narration,
                    debit > 0 ? debit.toFixed(2) : "", debit < 0 ? (-debit).toFixed(2) : "", ref]);
+      };
 
       /*
        * The shape a bank actually prints: rail, reference, merchant. The first
@@ -727,11 +737,12 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
        * are exercised by fixtures alone.
        */
       const alsoTyped = tidy(between(300, 900));
-      spend(acc.savings, cat("Eating out"), alsoTyped, "Swiggy", day(month, 17));
+      if (live(17)) spend(acc.savings, cat("Eating out"), alsoTyped, "Swiggy", day(month, 17));
       line(17, "UPI/992130045511/SWIGGY", alsoTyped, `R${ix}04`);
       line(21, "IMPS/CREDIT/REFUND", -tidy(between(200, 1_400)), `R${ix}05`);
 
-      const mapping = did("guessMapping", () => guessMapping(rows));
+      // Nothing has cleared yet this month: no statement to import.
+      const mapping = rows.length > 1 ? did("guessMapping", () => guessMapping(rows)) : null;
       if (mapping) {
         const parsed = did("applyMapping", () => applyMapping(rows, mapping));
         // The household teaches the app this layout once, and it is recognised
