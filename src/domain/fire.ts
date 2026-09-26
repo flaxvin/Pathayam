@@ -47,7 +47,7 @@ import { todayIST, addDays, addMonths, monthOf, daysBetween, type IsoDate, type 
 import type { Paise } from "../core/money.ts";
 import { accountBalances, envelopeSpendBetween } from "../engine/repository.ts";
 import { queryAll } from "../db/db.ts";
-import { hiddenAccountIds, type HolderScope } from "./accounts.ts";
+import { hiddenAccountIds, DERIVED_VALUE_SUBTYPES, type HolderScope } from "./accounts.ts";
 import {
   listValuableAccounts, listHoldings, viewHolding, valuationInBase,
   type AssetSubtype,
@@ -291,11 +291,21 @@ export function fireProjection(
         if (view) value += view.marketValue;
       }
     } else {
+      /*
+       * WEALTH-31 · A deposit is worth its balance unless a value is stated,
+       * as on the net worth page (B56). This read stated valuations only, and
+       * a fixed or recurring deposit never has one — /revalue refuses them,
+       * because a stated figure would freeze the interest out — so ₹10 lakh in
+       * an FD was in neither the counted nor the excluded list, and the FIRE
+       * number was measured against a corpus missing most of the money.
+       */
       const valuation = valuationInBase(db, account, asOf, baseCurrency);
-      if (!valuation) continue;
-      value = valuation.value;
+      if (valuation) value = valuation.value;
+      else if (!DERIVED_VALUE_SUBTYPES.has(account.subtype)) value = balances.get(account.id)?.working ?? 0;
+      else continue;
     }
-    if (value === 0) continue;
+    // A liability ("other liability") is not a corpus, and not a negative one.
+    if (value <= 0) continue;
 
     const line: CorpusLine = {
       label: account.name, accountId: account.id, value, subtype: account.subtype,
