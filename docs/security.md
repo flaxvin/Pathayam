@@ -21,6 +21,12 @@ it is not an adversarial boundary.
   after ten minutes.
 - The email must already be a member with `allowed = 1`. Others are refused and
   the attempt recorded in `auth_attempts`.
+- The provider must say the address is verified (`email_verified: true` in the
+  ID token), for Google and for any OpenID Connect provider alike. An
+  unverified address — or a provider that does not send the claim — is refused
+  with 403 before the allow-list is consulted, and recorded as
+  `unverified-email`. Otherwise a provider that lets people register
+  themselves would let anyone sign in as a member by typing their address.
 - Sign-in attempts are rate limited per source address; exceeding the limit
   returns 429. Behind a proxy (`TRUST_PROXY`) the source address is the
   **right-most** `X-Forwarded-For` entry — the one the proxy appended. Entries
