@@ -88,3 +88,33 @@ describe("WEALTH-2 · holding undo", () => {
     } finally { await app.close(); }
   });
 });
+
+/*
+ * WEALTH-3 · Undoing a purchase deleted the lot and left the bank debit the
+ * same call made — the bank ₹1,000 short with nothing to show for it — and,
+ * forced past a later sale, deleted the surviving units while the sale stayed.
+ */
+describe("WEALTH-3 · purchase undo", () => {
+  test("takes the payment with it", async () => {
+    const { db, app, bank } = await setup();
+    try {
+      const r = await app.post(`/activity/${eventOf(db, "purchase")}/undo`, {});
+      assert.equal(r.status, 303);
+      assert.equal(queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM lots`)!.n, 0);
+      const live = queryOne<{ s: number | null }>(
+        db, `SELECT SUM(amount) AS s FROM transactions WHERE account_id = ? AND deleted_at IS NULL`, bank,
+      )!.s;
+      assert.equal(live ?? 0, 0, "the ₹1,000 debit is gone with the lot");
+    } finally { await app.close(); }
+  });
+
+  test("is refused once a sale has taken units from the lot, even forced", async () => {
+    const { db, app, holdingId } = await setup();
+    try {
+      recordSale(db, actor, { holdingId, units: units(4), price: price(150), date: "2025-08-01" });
+      const r = await app.post(`/activity/${eventOf(db, "purchase")}/undo`, { force: "1" });
+      assert.equal(r.status, 422);
+      assert.equal(held(db, holdingId), units(6), "the surviving units stay");
+    } finally { await app.close(); }
+  });
+});
