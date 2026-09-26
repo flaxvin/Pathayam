@@ -3782,11 +3782,26 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const transaction = requireVisibleTransaction(ctx, id);
 
     const confirmed = field(ctx.body, "confirm_checkpoint") === "1";
-    const guard = guardCheckpoints(
-      ctx, a, transaction.account_id, [transaction.date], confirmed,
-      `/transaction/${id}/delete`, `/transaction/${id}`,
-    );
-    if (guard) return guard;
+    /*
+     * MONEY-CORE-7 · Deleting a transfer leg deletes both (deleteTransaction),
+     * so both accounts' checkpoints are at stake, as they are for an edit.
+     * Guarding only this leg's account let a transfer deleted from its
+     * unreconciled side take ₹3,000 out of the other account's reconciled
+     * period with no confirmation and the checkpoint left intact.
+     */
+    const partner = transaction.transfer_pair_id
+      ? queryOne<{ account_id: string }>(
+        db, `SELECT account_id FROM transactions WHERE transfer_pair_id = ? AND id <> ? AND deleted_at IS NULL`,
+        transaction.transfer_pair_id, id,
+      )
+      : null;
+    for (const accountId of [transaction.account_id, ...(partner ? [partner.account_id] : [])]) {
+      const guard = guardCheckpoints(
+        ctx, a, accountId, [transaction.date], confirmed,
+        `/transaction/${id}/delete`, `/transaction/${id}`,
+      );
+      if (guard) return guard;
+    }
 
     const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
     const { recompute } = withForwardRecompute(
