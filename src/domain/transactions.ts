@@ -1157,36 +1157,99 @@ registerUndoHandler("transaction", (db, event) => {
     );
   }
 
+  /*
+   * MONEY-CORE-2 / 19 · Put back what the edit changed, and only that.
+   *
+   * This wrote every column of the snapshot, including two the edit had not
+   * touched and the world since had:
+   *
+   * - `deleted_at`. Edit the memo on one leg of a ₹1,000 transfer, delete the
+   *   transfer, then undo the memo edit: the edited leg came back from the
+   *   snapshot's `deleted_at = NULL` and its partner stayed deleted — ₹1,000
+   *   left one account and arrived nowhere. Deleting and restoring have their
+   *   own events and their own undo above; an edit never changes it.
+   * - `category_id` (and the split lines). Merging Snacks into Food re-points
+   *   the ₹500 spend with no event on the transaction, so undoing an earlier
+   *   memo edit filed it back to the merged-away Snacks — an envelope the
+   *   engine no longer reads — and the ₹500 was in no envelope anywhere.
+   *
+   * An event that recorded no `after` (none do now) falls back to writing
+   * everything it has, as before.
+   */
   const COLUMNS = [
     "account_id", "card_id", "date", "amount", "payee_id", "category_id",
-    "is_split", "memo", "cleared", "owner_member_id", "reimbursable", "deleted_at",
+    "is_split", "memo", "cleared", "owner_member_id", "reimbursable",
   ] as const;
-  const present = COLUMNS.filter((c) => c in snapshot);
-  if (present.length === 0) return `Nothing to restore`;
-  execute(
-    db,
-    `UPDATE transactions SET ${present.map((c) => `${c} = ?`).join(", ")}, updated_at = ? WHERE id = ?`,
-    ...present.map((c) => (snapshot as Record<string, unknown>)[c] as string | number | null),
-    nowIST(), id,
-  );
+  const edited = event.after as Partial<EditSnapshot> | undefined;
+  const changed = (c: keyof EditSnapshot) =>
+    !edited || !(c in edited) || JSON.stringify(edited[c] ?? null) !== JSON.stringify(snapshot[c] ?? null);
+  const present = COLUMNS.filter((c) => c in snapshot && changed(c));
+  const linesBack = Array.isArray(snapshot.splits) && changed("splits");
 
-  // Split lines, when the event recorded them.
-  if (Array.isArray(snapshot.splits)) {
+  /*
+   * MONEY-CORE-3 / 19 · The envelope it goes back to has to still be one.
+   * Removed since (its creation undone), writing it back was a FOREIGN KEY
+   * failure — a 500; merged away or deleted, it filed the money to an envelope
+   * that no longer counts. Refused before anything is written.
+   */
+  const envelopes = [
+    ...(present.includes("category_id") ? [snapshot.category_id ?? null] : []),
+    ...(linesBack ? snapshot.splits!.map((l) => l.category_id) : []),
+  ].filter((c): c is string => c !== null);
+  for (const categoryId of new Set(envelopes)) {
+    const envelope = queryOne<{ name: string; deleted_at: string | null }>(
+      db, `SELECT name, deleted_at FROM categories WHERE id = ?`, categoryId,
+    );
+    if (!envelope || envelope.deleted_at) {
+      throw new UndoRefused(
+        `${envelope ? `"${envelope.name}"` : "The envelope it was filed to before that edit"} ` +
+        `has since been ${envelope ? "merged away or deleted" : "removed"}, so undoing the edit ` +
+        `would file the money to an envelope that no longer counts. Edit the transaction instead.`,
+      );
+    }
+  }
+  // A payee removed since is the same foreign key; one merged since goes back
+  // as the payee it was merged into, which is what every other row of it shows.
+  let payeeBack = snapshot.payee_id ?? null;
+  if (present.includes("payee_id") && payeeBack !== null) {
+    const payee = getPayee(db, payeeBack);
+    if (!payee) {
+      throw new UndoRefused(
+        "The payee it had before that edit has since been removed, so the edit cannot be " +
+        "undone as it stood. Edit the transaction instead.",
+      );
+    }
+    payeeBack = followMerge(db, payee).id;
+  }
+
+  if (present.length === 0 && !linesBack) return `Nothing to restore`;
+  if (present.length > 0) {
+    execute(
+      db,
+      `UPDATE transactions SET ${present.map((c) => `${c} = ?`).join(", ")}, updated_at = ? WHERE id = ?`,
+      ...present.map((c) =>
+        c === "payee_id" ? payeeBack : (snapshot as Record<string, unknown>)[c] as string | number | null),
+      nowIST(), id,
+    );
+  }
+
+  // Split lines, when the event recorded them and the edit changed them.
+  if (linesBack) {
     execute(db, `DELETE FROM transaction_splits WHERE transaction_id = ?`, id);
-    snapshot.splits.forEach((line, i) => {
+    snapshot.splits!.forEach((line, i) => {
       execute(
         db,
         `INSERT INTO transaction_splits (id,transaction_id,category_id,amount,memo,sort) VALUES (?,?,?,?,?,?)`,
         newId(), id, line.category_id, line.amount, line.memo ?? null, i,
       );
     });
-  } else if (snapshot.is_split === 0) {
+  } else if (!Array.isArray(snapshot.splits) && snapshot.is_split === 0) {
     // An older event, from before lines were recorded. Unsplit is unambiguous.
     execute(db, `DELETE FROM transaction_splits WHERE transaction_id = ?`, id);
   }
 
   // The other side of a transfer moves back with it.
-  if (snapshot.partner) {
+  if (snapshot.partner && (present.includes("amount") || present.includes("date"))) {
     execute(
       db,
       `UPDATE transactions SET amount = ?, date = ?, updated_at = ? WHERE id = ?`,
