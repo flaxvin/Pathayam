@@ -1772,6 +1772,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       if (!own || envelope?.budget_id !== own.id) {
         throw new HttpError(403, "You can only commit from your own budget.");
       }
+      /*
+       * BUDGET-23 · Picking it up is committing more to the household, and only
+       * that. Any of her envelopes used to do — "You have picked up ₹700" into
+       * Fun, with nothing reaching the household — and so did a negative amount:
+       * −₹3,000 took her commitment below zero and told the household it owed
+       * her money she never paid. Call it even already refused one.
+       */
+      if (envelope.commits_to_budget_id !== householdBudgetId(db)) {
+        throw new Refusal("Picking it up commits money to the household, from your household envelope.");
+      }
+      if (extra <= 0) throw new Refusal("Say how much you are picking up.");
 
       // On top of what is already committed, not instead of it.
       const view = buildBudgetView(db, month, own.id, viewer(ctx));
