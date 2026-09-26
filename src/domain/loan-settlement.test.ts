@@ -82,6 +82,11 @@ describe("settling a loan", () => {
 
     const interest = loanInterestByFinancialYear(db).filter((r) => r.lender === "Fictional Lender");
     assert.ok(interest.every((r) => r.interest >= 0), "the interest report carries a negative");
+    // WEALTH-35 · The report states what was paid: the ₹10,000 waived is not.
+    assert.equal(
+      interest.reduce((sum, r) => sum + r.principal, 0), rupees(40_000),
+      "the principal the lender waived was reported as paid",
+    );
 
     identityHolds(db);
   });
