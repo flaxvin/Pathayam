@@ -182,3 +182,14 @@ describe("WEALTH-37 · the prepayment calculator answers nonsense with a sentenc
     } finally { await app.close(); }
   });
 });
+
+describe("WEALTH-20 · a loan with money outstanding is settled, not closed", () => {
+  test("POST /loans/:id/close with ₹5,00,000 outstanding is a 422, and the loan stays open", async () => {
+    const { db, app, loan } = await setup();
+    try {
+      const res = await app.post(`/loans/${loan.id}/close`, {});
+      assert.equal(res.status, 422);
+      assert.equal(count(db, `SELECT COUNT(*) AS n FROM loans WHERE id = ? AND closed_at IS NOT NULL`, loan.id), 0);
+    } finally { await app.close(); }
+  });
+});

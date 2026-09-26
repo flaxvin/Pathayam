@@ -107,6 +107,8 @@ above the outstanding, the excess is interest. Paid below it, the difference is
 a waiver: a separate `foreclosure` row with no amount and the shortfall as
 principal forgiven, so paid + forgiven always equals the outstanding and
 interest is never negative. Closing releases the payment envelope's target.
+Without a settlement a loan closes only when nothing is outstanding; closing
+one that still owes money is refused with a pointer to settling it.
 
 **Settlements recorded before migration 0043.** The old code moved no money
 when a loan was settled — no account was debited — and stored a settlement below

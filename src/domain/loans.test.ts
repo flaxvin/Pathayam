@@ -293,7 +293,9 @@ describe("R21 · a loan that has been paid off", () => {
       repaymentAccountId: bankId,
     });
 
-    const metrics = closeLoan(db, actor, { loanId: loan.id, date: "2026-06-01" });
+    const metrics = closeLoan(db, actor, {
+      loanId: loan.id, date: "2026-06-01", settlement: rupees(1_00_000), settlementAccountId: bankId,
+    });
     assert.ok(metrics, "the closure reports what it cost (R21.2)");
 
     // Gone from the open list, still there when asked for everything.
@@ -439,13 +441,13 @@ describe("R19.5 · settling early, and what it cost", () => {
     const before = accountBalances(db).get(bankId)!.working;
 
     closeLoan(db, actor, {
-      loanId: loan.id, date: todayIST(),
+      loanId: loan.id, date: todayIST(), settlement: rupees(3_00_000),
       foreclosureCharge: rupees(6_000),
       chargeAccountId: bankId, chargeCategoryId: charges.id,
     });
 
     assert.equal(
-      accountBalances(db).get(bankId)!.working, before - rupees(6_000),
+      accountBalances(db).get(bankId)!.working, before - rupees(3_00_000) - rupees(6_000),
       "it came out of a real account",
     );
     assert.ok(getLoan(db, loan.id)?.closed_at, "and the loan is closed");
@@ -474,7 +476,27 @@ describe("R19.5 · settling early, and what it cost", () => {
       tenureMonths: 60, currentOutstanding: rupees(5_00_000), repaymentAccountId: bankId,
     });
     const before = accountBalances(db).get(bankId)!.working;
-    closeLoan(db, actor, { loanId: loan.id, date: todayIST() });
+    const worth = netWorthStatement(db, todayIST()).netWorth;
+    /*
+     * WEALTH-20 · With ₹5,00,000 outstanding and no settlement, "close" used to
+     * close it anyway and the debt left net worth. It is refused, and nothing moves.
+     */
+    assert.throws(
+      () => closeLoan(db, actor, { loanId: loan.id, date: todayIST() }),
+      /still outstanding on this loan\. Settle it/,
+    );
+    assert.equal(getLoan(db, loan.id)!.closed_at, null);
+    assert.equal(accountBalances(db).get(bankId)!.working, before);
+    assert.equal(netWorthStatement(db, todayIST()).netWorth, worth, "the debt stayed in net worth");
+
+    // Nothing owed — never drawn, here — and it closes, moving no money.
+    const undrawn = createLoan(db, actor, {
+      lender: "Canara", loanType: "education", sanctioned: rupees(5_00_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 10,
+      tenureMonths: 60, repaymentAccountId: bankId,
+    });
+    closeLoan(db, actor, { loanId: undrawn.id, date: todayIST() });
+    assert.ok(getLoan(db, undrawn.id)!.closed_at);
     assert.equal(accountBalances(db).get(bankId)!.working, before);
   });
 });
