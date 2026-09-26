@@ -153,3 +153,23 @@ describe("MONEY-CORE-27 · a rule never files to a payment or commitment envelop
     assert.deepEqual(identityProblems(w.db, "2026-12"), []);
   });
 });
+
+describe("MONEY-CORE-22 · \"Try it on my history\" reads only the tester's history", () => {
+  test("a payee on another member's private account is neither counted nor listed", async () => {
+    const w = household();
+    createTransaction(w.db, ravi, {
+      accountId: w.hBank, amount: -12_300, date: "2026-09-01", payeeName: "Swiggy", categoryId: w.fun,
+    });
+    createTransaction(w.db, priya, {
+      accountId: w.pSecret, amount: -4_567_800, date: "2026-09-20", payeeName: "Swiggy Clinic",
+    });
+    const app = await startTestApp(w.db, { memberId: RAVI });
+    try {
+      const page = await (await app.post("/rules/test", {
+        name: "Swiggy", field: "payee", op: "contains", value: "Swiggy", category_id: w.food,
+      })).text();
+      assert.doesNotMatch(page, /Swiggy Clinic|45,678/);
+      assert.match(page, /Matches <strong>1<\/strong>/);
+    } finally { await app.close(); }
+  });
+});
