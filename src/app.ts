@@ -4760,8 +4760,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           : undefined,
         chargeAccountId: visibleAccountField(ctx, "charge_account_id"),
         chargeCategoryId: requireVisibleCategory(ctx, field(ctx.body, "charge_category_id") || null) || null,
-        // The form's one "Paid from" pays the settlement as well as the charge.
-        settlementAccountId: field(ctx.body, "settlement_account_id") || field(ctx.body, "charge_account_id") || null,
+        /*
+         * The form's one "Paid from" pays the settlement as well as the charge.
+         *
+         * WEALTH-19 · Through the same visibility check as the charge's account.
+         * This one was read raw, so a member could name another member's private
+         * account here and settle their own loan out of it: a ₹1,00,000 debit,
+         * created by somebody who is told that account does not exist.
+         */
+        settlementAccountId:
+          visibleAccountField(ctx, "settlement_account_id") ?? visibleAccountField(ctx, "charge_account_id"),
       });
       return {
         redirect: "/loans",
