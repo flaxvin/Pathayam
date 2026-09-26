@@ -80,6 +80,11 @@ describes. `startingDebt` is the portion of what is owed that arrived with the
 account, for which no transaction exists; the interface states this where it
 applies.
 
+`outstanding` is taken at the same moment as the envelope it is weighed
+against: for a past month, the card's balance at that month's last day (zero
+before the card was opened); for the current and future months, today's
+balance.
+
 ## Targets
 
 | Type | Needed this month |

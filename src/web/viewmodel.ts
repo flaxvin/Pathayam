@@ -187,7 +187,8 @@ export function buildBudgetView(
     });
   }
 
-  const outstanding = creditOutstanding(db);
+  // WEBUX-2 · The debt as it stood in the month being viewed, not today's.
+  const outstanding = creditOutstanding(db, target);
   const cards: CardFunding[] = [];
   for (const c of categories.values()) {
     if (!c.paymentAccountId) continue;
