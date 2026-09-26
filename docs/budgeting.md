@@ -43,7 +43,7 @@ Set per household (`household.overspend_model`).
 
 | Model | Cash overspend at rollover | Credit overspend at rollover |
 |---|---|---|
-| `reduce-rta` | The negative balance is cleared and subtracted from the next month's Ready to Assign. | Absorbed into `unfunded credit absorbed`; the payment envelope is not automatically topped up. |
+| `reduce-rta` | The negative balance is cleared and subtracted from the next month's Ready to Assign. | The envelope reopens at zero and the card's payment envelope gives the same amount back, so it is not topped up with money no envelope had; the card shows it as unfunded. |
 | `carry-negative` | The negative balance rolls forward on the envelope. | As above. |
 
 **Covering** an overspend moves money from another envelope into the overspent
@@ -51,7 +51,9 @@ one, within the same month.
 
 Cash and credit overspend are treated differently because they are different
 facts: a cash overspend has already left a bank account; a credit overspend has
-increased a debt that no envelope is funding.
+increased a debt that no envelope is funding. Paying that debt from a bank
+account before funding it overspends the card's payment envelope, which is then
+an ordinary cash overspend — the cash really left.
 
 ## Credit cards
 
