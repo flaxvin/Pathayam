@@ -900,6 +900,28 @@ export function recordInstalment(
     let interest = input.interest ?? null;
     let estimated = 0;
 
+    /*
+     * WEALTH-32 · One side of the lender's split is still the lender's.
+     *
+     * With only the principal entered (the interest box left blank), both
+     * figures were replaced by the projection: ₹7,900 of principal from the
+     * statement was stored as ₹7,885, marked estimated, and the interest that
+     * feeds the tax reports was the projection's too. The form promises the
+     * lender's figures win where you have them; the other side is simply what
+     * is left of the payment.
+     */
+    if ((principal === null) !== (interest === null) && input.kind !== "charge") {
+      const given = (principal ?? interest)!;
+      if (!(given >= 0) || given > input.amount) {
+        throw new Refusal(
+          `The ${principal !== null ? "principal" : "interest"} of ${formatPaise(given)} ` +
+          `does not fit in a payment of ${formatPaise(input.amount)}.`,
+        );
+      }
+      if (principal === null) principal = (input.amount - given) as Paise;
+      else interest = (input.amount - given) as Paise;
+    }
+
     if (principal === null || interest === null) {
       // R18.2: fall back to the projected split, and mark it.
       const outstanding = outstandingPrincipal(db, input.loanId);

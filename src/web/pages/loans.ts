@@ -1189,8 +1189,9 @@ export function renderRecordInstalment(opts: {
           </div>
         </div>
         <p class="field-hint">
-          Leave these blank to use the projection. The lender's figures are always
-          authoritative where you have them.
+          Leave both blank to use the projection. With only one, the other is the
+          rest of the payment. The lender's figures are always authoritative where
+          you have them.
         </p>
       </fieldset>
 
