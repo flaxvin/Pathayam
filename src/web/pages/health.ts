@@ -19,8 +19,15 @@ export interface Check {
   /** F27.4: why it is in that state, in words. */
   reason: string;
   lastRun?: string | null;
-  /** Where a "run now" control makes sense (F26.8). */
-  action?: { label: string; href: string } | null;
+  /**
+   * Where a "run now" control makes sense (F26.8).
+   *
+   * WEBUX-8 · `method` says whether it does something or goes somewhere. Every
+   * action was a POST form, which is right for "Back up now" and wrong for the
+   * import queue's "Open": it posted to /review, a page, and landed on "That
+   * action is not allowed here" (405). A place to go is a link.
+   */
+  action?: { label: string; href: string; method?: "get" | "post" } | null;
 }
 
 export interface HealthGroup {
@@ -77,7 +84,9 @@ export function renderHealth(groups: HealthGroup[]): SafeHtml {
                 </div>
                 <div class="row">
                   <span class="chip ${CHIP[check.state]}">${LABEL[check.state]}</span>
-                  ${when(check.action, () => html`
+                  ${when(check.action, () => check.action!.method === "get"
+                    ? html`<a class="button button-small" href="${check.action!.href}">${check.action!.label}</a>`
+                    : html`
                     <form method="post" action="${check.action!.href}">
                       <button class="button-small" type="submit">${check.action!.label}</button>
                     </form>
