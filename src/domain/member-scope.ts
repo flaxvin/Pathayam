@@ -49,6 +49,49 @@ export interface MemberScope {
   mentionsHidden(value: unknown): boolean;
 }
 
+/** Every personal budget but the viewer's own. Binds the viewer once. */
+const HIDDEN_BUDGETS = `(SELECT id FROM budgets WHERE kind <> 'household' AND member_id IS NOT ?)`;
+/** Every account held privately by somebody else. Binds the viewer once. */
+const HIDDEN_ACCOUNTS =
+  `(SELECT id FROM accounts WHERE NOT (visibility = 'household' OR holder_member_id IS ?))`;
+/** Envelopes of those budgets, and card payment envelopes of those accounts. Binds it three times. */
+const HIDDEN_CATEGORIES =
+  `(SELECT c.id FROM categories c
+     WHERE c.budget_id IN ${HIDDEN_BUDGETS}
+        OR c.group_id IN (SELECT id FROM category_groups WHERE budget_id IN ${HIDDEN_BUDGETS})
+        OR c.payment_account_id IN ${HIDDEN_ACCOUNTS})`;
+
+/**
+ * The transaction half of `memberScope`, as SQL a list can filter on.
+ *
+ * The sets suit a guard asking about one id; a register or a query of five
+ * hundred rows wants the rule inside its WHERE, so its LIMIT counts what the
+ * reader can see. The account list and Query applied the account half of the
+ * rule and not the envelope half: a household-visible account in Ravi's own
+ * budget listed its spending to Priya with his private envelope's name on
+ * every row, and each row linked to a transaction page that answered 404.
+ *
+ * True when `t` (a `transactions` alias) is one the viewer may not see.
+ */
+export function hiddenTransactionSql(
+  t: string, viewerMemberId: string | null,
+): { sql: string; params: (string | null)[] } {
+  return {
+    sql: `(${t}.account_id IN ${HIDDEN_ACCOUNTS}
+           OR ${t}.category_id IN ${HIDDEN_CATEGORIES}
+           OR EXISTS (SELECT 1 FROM transaction_splits hs
+                       WHERE hs.transaction_id = ${t}.id AND hs.category_id IN ${HIDDEN_CATEGORIES}))`,
+    params: Array<string | null>(7).fill(viewerMemberId),
+  };
+}
+
+/** True when account `a` (an `accounts` alias) is one the viewer may not see. */
+export function hiddenAccountSql(
+  a: string, viewerMemberId: string | null,
+): { sql: string; params: (string | null)[] } {
+  return { sql: `(${a}.id IN ${HIDDEN_ACCOUNTS})`, params: [viewerMemberId] };
+}
+
 const ids = (db: DB, sql: string, ...params: (string | null)[]): Set<string> =>
   new Set(queryAll<{ id: string }>(db, sql, ...params).map((r) => r.id));
 
@@ -59,28 +102,18 @@ const ids = (db: DB, sql: string, ...params: (string | null)[]): Set<string> =>
 export function memberScope(db: DB, viewerMemberId: string | null): MemberScope {
   const v = viewerMemberId;
   // The two roots. Everything below hangs off one or the other.
-  const budgets = ids(db,
-    `SELECT id FROM budgets WHERE kind <> 'household' AND member_id IS NOT ?`, v);
-  const accounts = ids(db,
-    `SELECT id FROM accounts WHERE NOT (visibility = 'household' OR holder_member_id IS ?)`, v);
+  const budgets = ids(db, `SELECT id FROM ${HIDDEN_BUDGETS}`, v);
+  const accounts = ids(db, `SELECT id FROM ${HIDDEN_ACCOUNTS}`, v);
 
-  const hiddenBudget = `(SELECT id FROM budgets WHERE kind <> 'household' AND member_id IS NOT ?)`;
-  const hiddenAccount =
-    `(SELECT id FROM accounts WHERE NOT (visibility = 'household' OR holder_member_id IS ?))`;
-  const groups = ids(db, `SELECT id FROM category_groups WHERE budget_id IN ${hiddenBudget}`, v);
-  const categories = ids(db,
-    `SELECT c.id FROM categories c
-      WHERE c.budget_id IN ${hiddenBudget}
-         OR c.group_id IN (SELECT id FROM category_groups WHERE budget_id IN ${hiddenBudget})
-         OR c.payment_account_id IN ${hiddenAccount}`,
-    v, v, v);
+  const groups = ids(db, `SELECT id FROM category_groups WHERE budget_id IN ${HIDDEN_BUDGETS}`, v);
+  const categories = ids(db, `SELECT id FROM ${HIDDEN_CATEGORIES}`, v, v, v);
   const hiddenCategory = [...categories];
   const inCategories = hiddenCategory.length
     ? `IN (${hiddenCategory.map(() => "?").join(",")})` : "IN (NULL)";
 
   const transactions = ids(db,
     `SELECT t.id FROM transactions t
-      WHERE t.account_id IN ${hiddenAccount}
+      WHERE t.account_id IN ${HIDDEN_ACCOUNTS}
          OR t.category_id ${inCategories}
          OR EXISTS (SELECT 1 FROM transaction_splits s
                      WHERE s.transaction_id = t.id AND s.category_id ${inCategories})`,
@@ -88,36 +121,36 @@ export function memberScope(db: DB, viewerMemberId: string | null): MemberScope 
   // A transfer is addressed by its pair id, and names both ends.
   for (const r of queryAll<{ id: string }>(db,
     `SELECT DISTINCT transfer_pair_id AS id FROM transactions
-      WHERE transfer_pair_id IS NOT NULL AND account_id IN ${hiddenAccount}`, v)) {
+      WHERE transfer_pair_id IS NOT NULL AND account_id IN ${HIDDEN_ACCOUNTS}`, v)) {
     transactions.add(r.id);
   }
 
-  const cards = ids(db, `SELECT id FROM cards WHERE account_id IN ${hiddenAccount}`, v);
+  const cards = ids(db, `SELECT id FROM cards WHERE account_id IN ${HIDDEN_ACCOUNTS}`, v);
   const schedules = ids(db,
     `SELECT s.id FROM schedules s
-      WHERE s.account_id IN ${hiddenAccount}
+      WHERE s.account_id IN ${HIDDEN_ACCOUNTS}
          OR s.category_id ${inCategories}
          OR EXISTS (SELECT 1 FROM schedule_splits x
                      WHERE x.schedule_id = s.id AND x.category_id ${inCategories})`,
     v, ...hiddenCategory, ...hiddenCategory);
   const goals = ids(db,
     `SELECT g.id FROM goals g
-      WHERE g.budget_id IN ${hiddenBudget}
+      WHERE g.budget_id IN ${HIDDEN_BUDGETS}
          OR EXISTS (SELECT 1 FROM goal_categories gc
                      WHERE gc.goal_id = g.id AND gc.category_id ${inCategories})`,
     v, ...hiddenCategory);
-  const holdings = ids(db, `SELECT id FROM holdings WHERE account_id IN ${hiddenAccount}`, v);
+  const holdings = ids(db, `SELECT id FROM holdings WHERE account_id IN ${HIDDEN_ACCOUNTS}`, v);
   const lots = ids(db,
     `SELECT l.id FROM lots l JOIN holdings h ON h.id = l.holding_id
-      WHERE h.account_id IN ${hiddenAccount}`, v);
+      WHERE h.account_id IN ${HIDDEN_ACCOUNTS}`, v);
   const instruments = ids(db,
     `SELECT i.id FROM instruments i
       WHERE EXISTS (SELECT 1 FROM holdings h WHERE h.instrument_id = i.id)
         AND NOT EXISTS (SELECT 1 FROM holdings h WHERE h.instrument_id = i.id
-                         AND h.account_id NOT IN ${hiddenAccount})`, v);
-  const loans = ids(db, `SELECT id FROM loans WHERE account_id IN ${hiddenAccount}`, v);
+                         AND h.account_id NOT IN ${HIDDEN_ACCOUNTS})`, v);
+  const loans = ids(db, `SELECT id FROM loans WHERE account_id IN ${HIDDEN_ACCOUNTS}`, v);
   const familyLoans = ids(db,
-    `SELECT id FROM family_loans WHERE account_id IN ${hiddenAccount}`, v);
+    `SELECT id FROM family_loans WHERE account_id IN ${HIDDEN_ACCOUNTS}`, v);
 
   const all = [budgets, accounts, groups, categories, transactions, cards, schedules,
     goals, holdings, lots, instruments, loans, familyLoans];

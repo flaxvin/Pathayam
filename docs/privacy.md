@@ -52,10 +52,11 @@ viewer may see, then pass the result to the domain:
 | Guard | Resolves | Checks |
 |---|---|---|
 | `requireVisibleAccount` | account id | account visibility |
-| `requireVisibleTransaction` | transaction id | its account **and** its category |
+| `requireVisibleTransaction` | transaction id | its account, its category **and** its split lines' categories |
 | `requireVisibleCategory` | category id | the category's budget |
 | `requireVisibleGroup` | group id | the group's budget |
 | `requireVisibleAttachment` | attachment id | the attachment's transaction |
+| `requireVisibleStaged` | staged statement line id (approve, dismiss, merge) | the account it was imported into |
 | `requireVisibleSchedule`, `requireVisibleGoal`, `requireVisibleHolding`, `requireVisibleInstrument` | schedule, goal, holding, instrument id | `memberScope` — what the thing hangs off |
 | `requireVisibleEvent` | event id (undo) | `eventVisibility` |
 | `requireVisibleRule`, `requireVisibleImportProfile` | rule, profile id | the envelope / account it names |
@@ -70,6 +71,13 @@ not see: budgets and accounts at the root, and every transaction, schedule,
 goal, card, holding, lot, instrument and loan by what it hangs off. A new kind
 of private thing belongs there, so the guards, the activity log and the export
 learn it at once.
+
+A list that filters in SQL uses the same rule from the same file:
+`hiddenTransactionSql` (the account **or** any envelope a transaction is filed
+to) and `hiddenAccountSql`. The account register, Query, Search, the reports,
+the review queue and its badge, and the import history all read through them.
+A household-visible account in a member's own budget is visible; the rows on it
+filed to that member's envelopes are not, exactly as on the transaction page.
 
 Domain and query functions that can return data for a viewer take
 `viewerMemberId` and apply the predicate in SQL: `listAccounts`,
