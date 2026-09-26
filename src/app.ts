@@ -340,7 +340,7 @@ import {
   assetAllocation,
 } from "./domain/networth.ts";
 import {
-  units as toUnits, price as toUnitPrice, xirr, formatUnits,
+  units as toUnits, price as toUnitPrice, xirr, formatUnits, type MicroRupees,
 } from "./portfolio/holdings.ts";
 import { searchSchemes } from "./portfolio/providers.ts";
 import { refreshPrices } from "./portfolio/refresh.ts";
@@ -965,6 +965,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const value = evaluateAmountExpression(raw) ?? parseAmount(raw);
     if (value === null) throw new HttpError(400, `"${raw}" isn't an amount I can read.`);
     return value;
+  }
+
+  /**
+   * WEALTH-39 · A per-unit price the user typed, kept to the micro-rupee a NAV
+   * needs (amountField stops at the paisa). `Number("abc")` went straight into
+   * the prices table as NULL and answered 500; now it is a sentence.
+   */
+  function unitPriceField(raw: string | undefined, name = "Price"): MicroRupees {
+    if (raw === undefined || raw.trim() === "") throw new HttpError(400, `${name} is required.`);
+    const value = Number(raw.trim());
+    if (!Number.isFinite(value)) throw new Refusal(`"${raw}" isn't a price I can read.`);
+    if (value <= 0) throw new Refusal(`${name} has to be above zero.`);
+    return toUnitPrice(value);
   }
 
   /**
@@ -7064,10 +7077,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       }
 
       const amountRaw = field(ctx.body, "amount");
-      const unitPrice = Number(requiredField(ctx.body, "unit_price"));
-      if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
-        throw new HttpError(400, "That price is not a number I can use.");
-      }
+      const unitPrice = unitPriceField(field(ctx.body, "unit_price"));
 
       const feesRaw = field(ctx.body, "fees");
       // R33 · Blank means "use the stored rate for the trade date" — the domain
@@ -7077,7 +7087,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         accountId: requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id,
         instrumentId: instrument.id,
         tradeDate: dateField(field(ctx.body, "trade_date"), "Trade date"),
-        price: toUnitPrice(unitPrice),
+        price: unitPrice,
         amount: amountRaw?.trim() ? amountField(amountRaw) : undefined,
         units: amountRaw?.trim() ? undefined : toUnits(Number(field(ctx.body, "units") ?? 0)),
         fees: feesRaw?.trim() ? amountField(feesRaw) : 0,
@@ -7170,7 +7180,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       if (!view) throw new NotFound("That holding does not exist.");
       recordPrice(db, {
         instrumentId: view.instrument.id,
-        price: toUnitPrice(Number(requiredField(ctx.body, "price"))),
+        price: unitPriceField(field(ctx.body, "price")),
         asOf: dateField(field(ctx.body, "as_of"), "As of"),
         source: "manual",
       });
@@ -7320,7 +7330,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const preview = recordSale(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         holdingId,
         units: toUnits(Number(requiredField(ctx.body, "units"))),
-        price: toUnitPrice(Number(requiredField(ctx.body, "price"))),
+        price: unitPriceField(field(ctx.body, "price")),
         // R27 · Realised gains are reported by financial year, so a sale
         // recorded late under today's date lands in the wrong year's figure.
         date: dateField(field(ctx.body, "date"), "Date of sale"),
