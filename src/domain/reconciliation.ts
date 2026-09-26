@@ -38,7 +38,7 @@ import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts"
 import { nowIST, todayIST, formatDate, daysBetween, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { getAccount } from "./accounts.ts";
-import { createTransaction, getTransaction } from "./transactions.ts";
+import { createTransaction, getTransaction, UndoRefused } from "./transactions.ts";
 
 export interface Checkpoint {
   id: string;
@@ -403,11 +403,41 @@ export function brokenCheckpoints(db: DB): (Checkpoint & { account_name: string 
 }
 
 registerUndoHandler("reconciliation", (db, event) => {
-  // Undoing a reconciliation removes the checkpoint and its adjustment. The
-  // event stays in the log; only the assertion is withdrawn.
   const checkpoint = queryOne<Checkpoint>(
     db, `SELECT * FROM reconciliations WHERE id = ?`, event.entityId!,
   );
+
+  /*
+   * MONEY-CORE-6 · Undoing "no longer holds" is about the warning, not the
+   * checkpoint. This handler used to ignore the action and withdraw the whole
+   * reconciliation for either event — undoing the break of a ₹10,300 checkpoint
+   * deleted the checkpoint and soft-deleted its ₹100 adjustment, so the bank
+   * fell ₹100 and Ready to Assign moved, from an undo that claimed to be about
+   * a warning. (The "create" event was then still offered, and did nothing.)
+   *
+   * Now the break's undo marks the checkpoint intact again — but only when it
+   * is true again (R7.f: the app never re-asserts a balance that does not
+   * hold). A memo edit that broke it leaves the cleared balance as it was, so
+   * the undo applies; an amount change still standing is refused, naming both
+   * figures, so the user undoes that first or reconciles again.
+   */
+  if (event.action === "break") {
+    if (!checkpoint) return `That reconciliation has since been withdrawn`;
+    if (checkpoint.broken_at === null) return `The reconciliation of ${formatDate(checkpoint.as_of)} already holds`;
+    const cleared = clearedBalanceAsOf(db, checkpoint.account_id, checkpoint.as_of);
+    if (cleared !== checkpoint.bank_balance) {
+      throw new UndoRefused(
+        `The reconciliation of ${formatDate(checkpoint.as_of)} said ${formatPaise(checkpoint.bank_balance)}, ` +
+        `and the cleared balance on that date is now ${formatPaise(cleared)}, so it still does not hold. ` +
+        `Undo the change that broke it, or reconcile the account again.`,
+      );
+    }
+    execute(db, `UPDATE reconciliations SET broken_at = NULL, broken_reason = NULL WHERE id = ?`, checkpoint.id);
+    return `The reconciliation of ${formatDate(checkpoint.as_of)} holds again`;
+  }
+
+  // Undoing a reconciliation removes the checkpoint and its adjustment. The
+  // event stays in the log; only the assertion is withdrawn.
   if (checkpoint?.adjustment_transaction_id) {
     execute(
       db, `UPDATE transactions SET deleted_at = ? WHERE id = ?`,

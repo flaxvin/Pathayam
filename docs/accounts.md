@@ -226,6 +226,13 @@ A checkpoint **breaks** when a transaction dated on or before `as_of` is later
 added, edited or deleted. The account shows the break and the reason until it is
 reconciled again.
 
+Undoing the reconciliation from Activity withdraws the checkpoint and its
+adjustment. Undoing the **"no longer holds"** entry is different: it marks the
+checkpoint intact again, keeping it and its adjustment — and only when the
+cleared balance on `as_of` matches the bank's figure again (a memo edit that
+broke it, or an amount change undone since). Otherwise it is refused, naming both
+figures; the app never re-asserts a balance that does not hold.
+
 ## Credit cards
 
 An account of kind `credit` may have several physical `cards` — a primary and
