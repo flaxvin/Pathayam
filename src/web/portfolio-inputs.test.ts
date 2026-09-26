@@ -5,13 +5,16 @@
  * counted 1e31 rupees; "abc" and an unknown kind answered 500; and a purchase
  * filed into the bank was accepted and then never seen again, because only
  * tracking asset accounts are read for holdings.
+ *
+ * WEBUX-15 · And a price typed with grouping commas or a rupee sign is read,
+ * as every amount field reads it — Number("1,250.50") was NaN, a 500.
  */
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { queryAll } from "../db/db.ts";
+import { queryAll, queryOne } from "../db/db.ts";
 import { rupees } from "../core/money.ts";
-import { units, price } from "../portfolio/holdings.ts";
+import { units, price, parseUnitPrice } from "../portfolio/holdings.ts";
 import { createAccount } from "../domain/accounts.ts";
 import {
   createAssetAccount, findOrCreateInstrument, recordPurchase, listHoldings,
@@ -75,6 +78,34 @@ describe("WEALTH-39 · portfolio form inputs", () => {
       });
       assert.equal(r.status, 422);
       assert.equal(queryAll(db, `SELECT id FROM holdings WHERE account_id = ?`, bank).length, 0);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe("WEBUX-15 · a unit price with grouping commas or ₹ is read", () => {
+  test("parseUnitPrice reads the forms people type and nothing else", () => {
+    assert.equal(parseUnitPrice("1,250.50"), 1250.5);
+    assert.equal(parseUnitPrice("₹1,250"), 1250);
+    assert.equal(parseUnitPrice("Rs. 86.4213"), 86.4213);
+    assert.equal(parseUnitPrice("1,25,000"), 125000);
+    assert.equal(parseUnitPrice("abc"), null);
+    assert.equal(parseUnitPrice("1.2.3"), null);
+  });
+
+  test("the price form saves ₹1,250.50", async () => {
+    const { db, app, holdingId } = await setup();
+    try {
+      for (const typed of ["1,250.50", "₹1,250.50"]) {
+        const r = await app.post(`/portfolio/${holdingId}/price`, { price: typed, as_of: "2025-09-01" });
+        assert.equal(r.status, 303, typed);
+      }
+      assert.deepEqual(app.failures, []);
+      assert.equal(
+        queryOne<{ price: number }>(db, `SELECT price FROM prices WHERE as_of = '2025-09-01'`)!.price,
+        price(1250.5),
+      );
     } finally {
       await app.close();
     }

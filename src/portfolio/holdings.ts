@@ -53,6 +53,23 @@ export function price(value: number): MicroRupees {
   return Math.round(value * PRICE_SCALE);
 }
 
+/**
+ * WEBUX-15 · A per-unit price as people type it: "1,250.50", "₹1,250",
+ * "Rs. 86.4213", "1,25,000" (lakh grouping). Every amount field in the app
+ * reads those forms, and the price fields ran them through Number(), which
+ * made the comma form NaN — a 500. Kept to full precision rather than routed
+ * through parseAmount, because a NAV has four or five decimals and an amount
+ * stops at the paisa. Returns null for anything that is not one plain number.
+ */
+export function parseUnitPrice(raw: string): number | null {
+  let s = raw.trim().replace(/^(?:₹|rs\.?|inr)\s*/i, "");
+  // Grouping commas only — between digits, and never after the decimal point.
+  if (/^\d{1,3}(?:,\d{2,3})+(?:\.\d+)?$/.test(s)) s = s.replace(/,/g, "");
+  if (!/^[+-]?(?:\d+\.?\d*|\.\d+)(?:e[+-]?\d+)?$/i.test(s)) return null;
+  const value = Number(s);
+  return Number.isFinite(value) ? value : null;
+}
+
 export function formatUnits(u: Milliunits): string {
   return (u / UNIT_SCALE).toFixed(3);
 }

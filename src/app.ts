@@ -340,7 +340,7 @@ import {
   assetAllocation,
 } from "./domain/networth.ts";
 import {
-  units as toUnits, price as toUnitPrice, xirr, formatUnits, type MicroRupees,
+  units as toUnits, price as toUnitPrice, xirr, formatUnits, parseUnitPrice, type MicroRupees,
 } from "./portfolio/holdings.ts";
 import { searchSchemes } from "./portfolio/providers.ts";
 import { refreshPrices } from "./portfolio/refresh.ts";
@@ -970,12 +970,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   /**
    * WEALTH-39 · A per-unit price the user typed, kept to the micro-rupee a NAV
    * needs (amountField stops at the paisa). `Number("abc")` went straight into
-   * the prices table as NULL and answered 500; now it is a sentence.
+   * the prices table as NULL and answered 500; now it is a sentence. WEBUX-15:
+   * "1,250.50" and "₹1,250" are read the way every amount field reads them.
    */
   function unitPriceField(raw: string | undefined, name = "Price"): MicroRupees {
     if (raw === undefined || raw.trim() === "") throw new HttpError(400, `${name} is required.`);
-    const value = Number(raw.trim());
-    if (!Number.isFinite(value)) throw new Refusal(`"${raw}" isn't a price I can read.`);
+    const value = parseUnitPrice(raw);
+    if (value === null) throw new Refusal(`"${raw}" isn't a price I can read.`);
     if (value <= 0) throw new Refusal(`${name} has to be above zero.`);
     return toUnitPrice(value);
   }
@@ -7290,7 +7291,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     let error: string | null = null;
     if (unitsRaw && priceRaw) {
       const quantity = toUnits(Number(unitsRaw));
-      const unitPrice = toUnitPrice(Number(priceRaw));
+      const unitPrice = toUnitPrice(parseUnitPrice(priceRaw) ?? NaN);
       if (quantity > 0 && unitPrice > 0 && quantity <= view.units) {
         try {
           preview = previewHoldingSale(db, view.holding.id, quantity, unitPrice, {
