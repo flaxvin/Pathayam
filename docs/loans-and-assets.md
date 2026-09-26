@@ -32,7 +32,8 @@ The amortisation schedule is computed from the rate history in `loan_rates`, not
 stored. A rate change inserts a row with `effective_from`; the schedule is
 recomputed from that date forward.
 
-A rate change can keep the tenure (the instalment moves) or keep the
+A rate change takes the same rate bounds as a new loan (0–100% a year), and
+cannot take effect before the sanction date. A rate change can keep the tenure (the instalment moves) or keep the
 instalment (the tenure moves). Keeping the instalment is only accepted once the
 new rate applies — dated today or earlier — because the tenure it needs depends
 on the balance that day, and stretching it early would lower the instalment the

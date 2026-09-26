@@ -27,7 +27,7 @@
  * ledger (R18) is authoritative for what was really paid regardless.
  */
 
-import type { Paise } from "../core/money.ts";
+import { formatPaise, type Paise } from "../core/money.ts";
 import { type IsoDate, addMonths, monthOf } from "../core/dates.ts";
 
 /** Fractional paise. Internal to this module only. */
@@ -51,8 +51,9 @@ export type PrepayMode = "tenure" | "emi";
 export class NegativeAmortisation extends Error {
   constructor(instalment: Paise, monthlyInterest: Paise) {
     super(
-      `An instalment of ${(instalment / 100).toFixed(2)} does not cover the ` +
-        `${(monthlyInterest / 100).toFixed(2)} of interest that accrues each month, ` +
+      // WEBUX-13 · In rupees, the way every other figure on the page reads.
+      `An instalment of ${formatPaise(instalment)} does not cover the ` +
+        `${formatPaise(monthlyInterest)} of interest that accrues each month, ` +
         `so the balance would grow rather than shrink and the loan would never close.`,
     );
     this.name = "NegativeAmortisation";
