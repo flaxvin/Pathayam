@@ -451,6 +451,8 @@ export interface MappingPrompt {
   accountId: string;
   fileName: string;
   csv: string;
+  /** How `csv` was split into `rows`, by name; posted back so it is split the same way. */
+  delimiter: string;
   /** The rows exactly as parsed — 04 §3.2 keeps them visible throughout. */
   rows: string[][];
   candidateHeaders: { index: number; cells: string[] }[];
@@ -514,6 +516,7 @@ export function renderMapping(opts: MappingPrompt): SafeHtml {
       <input type="hidden" name="account_id" value="${opts.accountId}">
       <input type="hidden" name="file_name" value="${opts.fileName}">
       <textarea name="csv" hidden>${opts.csv}</textarea>
+      <input type="hidden" name="delimiter" value="${opts.delimiter}">
 
       <div class="field">
         <label for="header_row">Which row holds the column names?</label>
