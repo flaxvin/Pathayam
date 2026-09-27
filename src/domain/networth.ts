@@ -216,19 +216,29 @@ export function netWorthStatement(
   }
 
   // --- Liabilities ----------------------------------------------------------
-  const cardLines: NetWorthLine[] = queryAll<{ id: string; name: string }>(
+  const cardLines: NetWorthLine[] = [];
+  for (const a of queryAll<{ id: string; name: string }>(
     db, `SELECT id, name FROM accounts WHERE kind = 'credit' ${stillOpen} ORDER BY name`,
-  )
-    .filter((a) => counts(a.id))
-    .map((a) => ({
-      label: a.name,
-      accountId: a.id,
-      value: Math.max(0, -(balances.get(a.id)?.working ?? 0)),
-      asOf,
-      stale: false,
-      href: `/accounts/${a.id}`,
-    }))
-    .filter((line) => line.value > 0);
+  )) {
+    if (!counts(a.id)) continue;
+    const balance = balances.get(a.id)?.working ?? 0;
+    if (balance < 0) {
+      cardLines.push({
+        label: a.name, accountId: a.id, value: -balance, asOf, stale: false, href: `/accounts/${a.id}`,
+      });
+    } else if (balance > 0) {
+      /*
+       * WEALTH-28 · A card in credit — overpaid, or refunded after the bill
+       * was paid — owes the household money, and was on neither side: the
+       * liability was floored at nil and then dropped. It is money you can
+       * spend, so it sits with the cash.
+       */
+      cashLines.push({
+        label: `${a.name} (in credit)`, accountId: a.id, value: balance, asOf, stale: false,
+        href: `/accounts/${a.id}`,
+      });
+    }
+  }
 
   const loanLines: NetWorthLine[] = [];
   const untrackedAssetWarnings: string[] = [];
