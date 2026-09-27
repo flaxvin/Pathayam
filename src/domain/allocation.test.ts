@@ -10,6 +10,7 @@ import {
 } from "./assets.ts";
 import { units, price } from "../portfolio/holdings.ts";
 import { assetAllocation } from "./networth.ts";
+import { createAccount } from "./accounts.ts";
 
 const RAVI = "m-ravi";
 const actor: Actor = { memberId: RAVI, source: "ui" };
@@ -182,6 +183,34 @@ describe("07 F19.13 · portfolio CSV export", () => {
       price: price(100), units: units(10),
     });
     assert.match(exportHoldingsCsv(db), /"HDFC Corp Bond, Direct"/);
+    db.close();
+  });
+});
+
+describe("WEALTH-36 · deposits and other assets in the allocation", () => {
+  test("a fixed deposit is cash, at its balance; a liability is no slice", () => {
+    const { db, demat } = setup();
+    hold(db, demat.id, { name: "Fictional Equity Fund", kind: "equity", n: 1_000, mkt: 100 }); // ₹1,00,000
+    createAccount(db, actor, {
+      name: "Fictional FD", kind: "tracking", subtype: "fixed-deposit",
+      openingDate: "2026-01-01", openingBalance: rupees(1_000_000),
+    });
+    createAccount(db, actor, {
+      name: "Fictional Plot", kind: "tracking", subtype: "asset",
+      openingDate: "2026-01-01", openingBalance: rupees(400_000),
+    });
+    createAccount(db, actor, {
+      name: "Fictional IOU", kind: "tracking", subtype: "liability",
+      openingDate: "2026-01-01", openingBalance: rupees(-50_000),
+    });
+
+    const a = assetAllocation(db);
+    assert.equal(a.total, rupees(1_500_000));
+    const share = (key: string) => a.byClass.find((s) => s.key === key);
+    assert.equal(share("cash")?.value, rupees(1_000_000));
+    assert.equal(share("other")?.value, rupees(400_000));
+    assert.equal(share("equity")?.value, rupees(100_000));
+    assert.equal(a.byClass.length, 3);
     db.close();
   });
 });
