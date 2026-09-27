@@ -9,7 +9,8 @@ import type { DB } from "../db/db.ts";
 import { queryAll } from "../db/db.ts";
 import type { Paise } from "../core/money.ts";
 import type { MonthKey, IsoDate } from "../core/dates.ts";
-import { todayIST, monthOf } from "../core/dates.ts";
+import { todayIST, monthOf, formatMonth } from "../core/dates.ts";
+import { Refusal } from "../core/refusal.ts";
 import { budgetsFor } from "../domain/budgets.ts";
 import { listCategories } from "../domain/budget.ts";
 import { hiddenTransactionSql, hiddenAccountSql } from "../domain/member-scope.ts";
@@ -116,7 +117,15 @@ export function buildBudgetView(
    */
   const input = loadEngineInput(db, { through: target, budgetId });
   const budget = computeBudget(input);
-  const monthState = budget.get(target) ?? budget.get(input.months.at(-1)!)!;
+  /*
+   * BUDGET-13 · Never another month's figures under this month's name. The
+   * fallback to the last month walked showed December 2099 as "June 2150";
+   * the routes refuse a month out of reach before it gets here.
+   */
+  const monthState = budget.get(target);
+  if (!monthState) {
+    throw new Refusal(`${formatMonth(target)} is too far from the rest of this budget for it to reach.`);
+  }
 
   const targets = new Map(loadTargets(db).map((t) => [t.categoryId, t]));
   const groupMetas = loadCategoryGroups(db).filter(

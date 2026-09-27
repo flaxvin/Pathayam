@@ -10,6 +10,11 @@ to Assign can therefore read lower than it did at the time. Closed months record
 their figures in `month_closes`, which is the durable record. See
 [dev/01-engine-derivation.md](dev/01-engine-derivation.md) §4.
 
+**A budget spans at most a hundred years.** The engine walks every month from
+the first one with data, and stops after 1,200. A month beyond that is refused
+by name — viewing it, or assigning money to it — rather than shown with the last
+month the walk reached; so is an assignment that would stretch the walk past it.
+
 **One household per deployment.** There is no multi-tenancy. Two households need
 two deployments.
 

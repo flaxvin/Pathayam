@@ -11,6 +11,7 @@ import { nowIST, formatMonth, type MonthKey, type IsoDate } from "../core/dates.
 import { formatPaise, type Paise } from "../core/money.ts";
 import { householdBudgetId, budgetsFor } from "./budgets.ts";
 import { dependantsOf } from "./dependants.ts";
+import { monthInReach } from "../engine/repository.ts";
 
 export interface CategoryGroup {
   id: string;
@@ -869,6 +870,18 @@ export function setAssigned(
 
     const category = getCategory(db, categoryId);
     if (!category) throw new Missing("That category does not exist.");
+    /*
+     * BUDGET-13 · Money assigned where the engine's walk does not reach is money
+     * nothing reads: "Assigned ₹600 to Rent." for June 2150, and the page as it
+     * was. Clearing such a row is always allowed — it is how one written before
+     * this refusal goes away.
+     */
+    if (amount !== 0 && !monthInReach(db, month, { writing: true })) {
+      throw new Refusal(
+        `${formatMonth(month)} is too far from the rest of this budget for it to reach — ` +
+        `a budget spans at most a hundred years.`,
+      );
+    }
 
     writeAssignment(db, month, categoryId, amount);
     appendEvent(db, actor, {

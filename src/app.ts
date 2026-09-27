@@ -120,6 +120,7 @@ import {
 } from "./domain/transactions.ts";
 import {
   accountBalances, creditOutstanding, householdSettings,
+  monthInReach,
 } from "./engine/repository.ts";
 import {
   suggestCoverSources, cardFunding,
@@ -954,7 +955,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   function monthParam(ctx: RequestContext): MonthKey {
     const value = ctx.query.get("month") ?? field(ctx.body, "month");
-    return value && isMonthKey(value) ? value : monthOf(todayIST());
+    const month = value && isMonthKey(value) ? value : monthOf(todayIST());
+    /*
+     * BUDGET-13 · A month the engine's walk does not reach was shown with the
+     * last month it did reach, under the requested heading: /?month=2150-06
+     * read "June 2150" over December 2099's figures. Said instead.
+     */
+    if (!monthInReach(db, month)) {
+      throw new Refusal(
+        `${formatMonth(month)} is too far from the rest of this budget for it to reach — ` +
+        `a budget spans at most a hundred years.`,
+      );
+    }
+    return month;
   }
 
   /** Amount fields accept an expression (F4.10) before falling back to a plain parse. */
