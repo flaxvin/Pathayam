@@ -367,7 +367,7 @@ export function applyMapping(rows: string[][], mapping: ColumnMapping): ParseRes
       date,
       amount,
       narration,
-      reference: mapping.reference !== undefined ? (cells[mapping.reference] ?? "").trim() || null : null,
+      reference: mapping.reference !== undefined ? readReference(cells[mapping.reference] ?? "") : null,
       raw: { date: rawDate, amount: rawAmount, narration },
     });
   }
@@ -453,6 +453,19 @@ function readAmount(
 
 /** What banks print in the column a row does not use. */
 const EMPTY_CELL = /^(?:|-|–|—)$/;
+
+/**
+ * The bank's reference for a row, or null when the cell only fills space.
+ *
+ * A reference is what the strong dedupe tier treats as the same event, so a
+ * placeholder read as one made every row printing it "the same transaction":
+ * a ₹450 kirana payment the day after a ₹450 Swiggy order, both "-" in the
+ * Ref No column, was folded into the order and never staged.
+ */
+function readReference(cell: string): string | null {
+  const ref = cell.trim();
+  return EMPTY_CELL.test(ref) || /^0+$/.test(ref) ? null : ref;
+}
 
 /**
  * A row from a statement with separate Debit and Credit columns.

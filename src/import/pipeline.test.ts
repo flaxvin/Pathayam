@@ -265,6 +265,54 @@ describe("F6 · rules through the pipeline", () => {
     db.close();
   });
 
+  test("two identical orders in one file, the first auto-approved, both reach the ledger or Review", () => {
+    const { db, account, group } = setup();
+    const eatingOut = createCategory(db, actor, { groupId: group.id, name: "Eating Out" });
+    addRule(db, eatingOut.id, { autoApprove: true });
+    createTransaction(db, actor, {
+      accountId: account.id, amount: rupees(-120), date: "2026-07-20", payeeName: "Swiggy",
+      categoryId: eatingOut.id,
+    });
+
+    // The second row was matched to the first's *review item*, and staged
+    // naming it as the transaction it duplicates: a foreign key failure, and
+    // the whole statement refused.
+    const outcome = importStatement(db, account.id, `Date,Narration,Withdrawal Amt.,Deposit Amt.
+03-08-2026,UPI/P2M/SWIGGY*ORDER,450.00,
+03-08-2026,UPI/P2M/SWIGGY*ORDER,450.00,
+`);
+    assert.equal(outcome.autoApproved, 1);
+    const [second] = listStaged(db);
+    assert.ok(second, "the second order waits in Review as a possible duplicate");
+    const first = queryOne<{ id: string }>(
+      db, `SELECT id FROM transactions WHERE import_batch_id = ?`, outcome.batch.id,
+    )!;
+    assert.equal(second.duplicate_of_id, first.id, "paired with the transaction, not the review item");
+    db.close();
+  });
+
+  test("a placeholder reference does not make two different rows one event", () => {
+    const { db, account, group } = setup();
+    const eatingOut = createCategory(db, actor, { groupId: group.id, name: "Eating Out" });
+    addRule(db, eatingOut.id, { autoApprove: true });
+    createTransaction(db, actor, {
+      accountId: account.id, amount: rupees(-120), date: "2026-07-20", payeeName: "Swiggy",
+      categoryId: eatingOut.id,
+    });
+
+    // The kirana payment "upgraded" the auto-approved Swiggy order because both
+    // said "-" under Ref No, and was never seen again.
+    const outcome = importStatement(db, account.id, `Date,Narration,Ref No,Withdrawal Amt.,Deposit Amt.
+03-08-2026,UPI/P2M/SWIGGY*ORDER,-,450.00,
+04-08-2026,RAMESH KIRANA,-,450.00,
+05-08-2026,ANAND MEDICALS,0000000000,450.00,
+06-08-2026,CITY BAKERY,0000000000,450.00,
+`);
+    const inLedger = queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM transactions WHERE import_batch_id = ?`, outcome.batch.id)!.n;
+    assert.equal(inLedger + listStaged(db).length, 4, "every row is in the ledger or in Review");
+    db.close();
+  });
+
   test("an ignore rule keeps the row out entirely", () => {
     const { db, account } = setup();
     execute(
