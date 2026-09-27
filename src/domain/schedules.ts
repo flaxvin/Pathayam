@@ -443,6 +443,15 @@ export function getScheduleSplits(db: DB, scheduleId: string): ScheduleSplit[] {
  */
 export function setScheduleSplits(
   db: DB, actor: Actor, scheduleId: string, lines: { categoryId: string | null; amount: Paise; memo?: string | null }[],
+  /**
+   * The amount the schedule had before the same edit changed it. The edit
+   * form writes the amount (updateSchedule) and then the lines (here) as two
+   * events; recording only the lines, undoing this one put the ₹25,000 /
+   * ₹5,000 lines back under the new ₹32,000 amount, and every Mark paid was
+   * refused after that. With the amount alongside, the lines come back with
+   * the amount they added up to.
+   */
+  opts: { priorAmount?: Paise | null } = {},
 ): void {
   transact(db, () => {
     const schedule = getSchedule(db, scheduleId);
@@ -458,6 +467,7 @@ export function setScheduleSplits(
      * action now, with the lines and envelope as they were.
      */
     const priorState = {
+      amount: opts.priorAmount !== undefined ? opts.priorAmount : schedule.amount,
       category_id: schedule.category_id,
       lines: getScheduleSplits(db, scheduleId).map((l) => ({
         category_id: l.category_id, amount: l.amount, memo: l.memo ?? null,
@@ -486,7 +496,7 @@ export function setScheduleSplits(
       appendEvent(db, actor, {
         entity: "schedule", entityId: scheduleId, action: "split",
         before: priorState,
-        after: { category_id: only.categoryId, lines: [] },
+        after: { amount: schedule.amount, category_id: only.categoryId, lines: [] },
         summary: `${schedule.name} is one envelope again`,
       });
       return;
@@ -535,6 +545,7 @@ export function setScheduleSplits(
       entity: "schedule", entityId: scheduleId, action: "split",
       before: priorState,
       after: {
+        amount: schedule.amount,
         category_id: schedule.category_id,
         lines: kept.map((l) => ({ category_id: l.categoryId, amount: l.amount, memo: l.memo ?? null })),
       },
@@ -1272,6 +1283,8 @@ registerUndoHandler("schedule", (db, event, actor) => {
   // A split change puts back the lines and the envelope it replaced.
   if (event.action === "split") {
     const prior = event.before as {
+      /** Absent on events from before it was recorded. */
+      amount?: Paise | null;
       category_id: string | null;
       lines: { category_id: string | null; amount: number; memo: string | null }[];
     } | undefined;
@@ -1287,6 +1300,10 @@ registerUndoHandler("schedule", (db, event, actor) => {
       );
     });
     execute(db, `UPDATE schedules SET category_id = ? WHERE id = ?`, prior.category_id, event.entityId!);
+    if (prior.amount !== undefined) {
+      execute(db, `UPDATE schedules SET amount = ? WHERE id = ?`, prior.amount, event.entityId!);
+    }
+    requireLinesAddUp(db, event.entityId!);
     return prior.lines.length > 0 ? `Put the split back` : `Put the single envelope back`;
   }
 
@@ -1353,8 +1370,31 @@ registerUndoHandler("schedule", (db, event, actor) => {
   for (const line of lines ?? []) {
     execute(db, `UPDATE schedule_splits SET amount = ? WHERE id = ?`, line.amount, line.id);
   }
+  requireLinesAddUp(db, event.entityId!);
   return `Set the schedule for ${before.name} back`;
 });
+
+/**
+ * IMPORTS-SCHEDULES-24 · An undo may not leave a split schedule whose lines
+ * and amount disagree. The edit form's amount and lines are two entries on
+ * /activity; undoing the older one alone ("Undo anyway") put ₹30,000 back
+ * over lines of ₹32,000, and the schedule could never be marked paid again.
+ * The undo runs in a transaction, so refusing here leaves everything as it was.
+ */
+function requireLinesAddUp(db: DB, scheduleId: string): void {
+  const schedule = getSchedule(db, scheduleId);
+  const lines = getScheduleSplits(db, scheduleId);
+  if (!schedule || lines.length === 0) return;
+  const total = lines.reduce((sum, l) => sum + l.amount, 0);
+  if (schedule.amount === null || total !== schedule.amount) {
+    throw new Refusal(
+      `Undoing this would leave ${schedule.name}'s envelope lines adding up to ` +
+      `${formatPaise(total as Paise)} against an amount of ` +
+      `${schedule.amount === null ? "nothing" : formatPaise(schedule.amount as Paise)}. ` +
+      "Undo the newer change to its lines first.",
+    );
+  }
+}
 
 /**
  * The transaction a "Mark paid" posted, removed by undoing its own creation, so

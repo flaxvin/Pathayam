@@ -372,6 +372,9 @@ to ₹500 becomes ₹166.67 / ₹333.33. If the other lines alone already use up
 new amount, or are money going the other way, the change is refused with the
 numbers rather than stored — a schedule whose lines no longer add up could never
 be marked paid. Undoing the change puts the lines back with the old amount.
+The edit form records an amount change and its new lines as two entries on the
+activity page; undoing the lines entry restores the amount with them, and an
+undo that would still leave lines and amount disagreeing is refused.
 
 ## When a schedule comes round again
 
