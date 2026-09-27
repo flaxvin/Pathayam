@@ -386,3 +386,18 @@ describe("an unsigned amount with a Dr / Cr column beside it (IMPORTS-SCHEDULES-
     assert.equal(mapping.direction, 3);
   });
 });
+
+describe("the transaction date over the value date (IMPORTS-SCHEDULES-20)", () => {
+  test("a Value Date column before the Transaction Date column is not the date", () => {
+    const { result, mapping } = parseStatement(`S No.,Value Date,Transaction Date,Cheque Number,Transaction Remarks,Withdrawal Amount (INR ),Deposit Amount (INR ),Balance (INR )
+1,31/07/2026,01/08/2026,-,UPI/ZZFOOD/1234,450.00,0.00,"1,00,000.00"
+2,02/08/2026,02/08/2026,-,NEFT/ZZSAL,0.00,"1,45,000.00","2,45,000.00"`);
+    assert.equal(mapping?.date, 2);
+    assert.equal(result.records[0]!.date, "2026-08-01");
+  });
+
+  test("a plain Date column wins over a value date, and a value date alone still serves", () => {
+    assert.equal(guessMapping([["Value Date", "Date", "Narration", "Amount"]])?.date, 1);
+    assert.equal(guessMapping([["Value Date", "Narration", "Amount"]])?.date, 0);
+  });
+});
