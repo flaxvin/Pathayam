@@ -3943,8 +3943,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * updateTransaction for what editing one side alone used to do.
      */
     const partner = transaction.transfer_pair_id
-      ? queryOne<{ account_id: string }>(
-        db, `SELECT account_id FROM transactions WHERE transfer_pair_id = ? AND id <> ?`,
+      ? queryOne<{ account_id: string; date: string }>(
+        db, `SELECT account_id, date FROM transactions WHERE transfer_pair_id = ? AND id <> ?`,
         transaction.transfer_pair_id, id,
       )
       : null;
@@ -3952,10 +3952,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     // R7.b: guard against *both* dates — moving a transaction out of a
     // reconciled period falsifies that period just as much as moving one in.
-    // A transfer's date moves on both accounts, so both are guarded.
-    for (const accountId of [transaction.account_id, ...(partner ? [partner.account_id] : [])]) {
+    // A transfer's date and amount move on both accounts, so when either
+    // changes the other side is guarded too — from its own date, which an
+    // imported transfer's two statements need not share with this leg.
+    const amountRaw = field(ctx.body, "amount");
+    const partnerMoves = partner !== null && (
+      newDate !== transaction.date ||
+      (amountRaw !== undefined && amountRaw.trim() !== "" &&
+        Math.abs(amountField(amountRaw)) !== Math.abs(transaction.amount))
+    );
+    const sides = [
+      { accountId: transaction.account_id, from: transaction.date },
+      ...(partner && partnerMoves ? [{ accountId: partner.account_id, from: partner.date }] : []),
+    ];
+    for (const side of sides) {
       const guard = guardCheckpoints(
-        ctx, a, accountId, [transaction.date, newDate], confirmed,
+        ctx, a, side.accountId, [side.from, newDate], confirmed,
         `/transaction/${id}`, `/transaction/${id}`,
       );
       if (guard) return guard;
