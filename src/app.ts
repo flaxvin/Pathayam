@@ -3102,8 +3102,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           <h1>${existing ? "Change your password" : "Set a password"}</h1>
           <p>
             ${existing
-              ? html`Changing it does not sign out your other sessions. End those
-                     from <a href="/settings">Settings</a> if you need to.`
+              ? html`Changing it signs you out on every other device; this one
+                     stays signed in.`
               : html`A password is a second way into this household that does not
                      depend on anybody else's service. You can keep using Google
                      as well.`}

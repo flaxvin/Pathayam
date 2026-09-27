@@ -224,6 +224,20 @@ describe("changing a password", () => {
     } finally { await app.close(); }
   });
 
+  test("SECURITY-OPS-25 · and the page says so, before you press it", async () => {
+    const db = freshDb();
+    seedMember(db, "m-ravi", "Ravi");
+    setPassword(db, "m-ravi", GOOD);
+    const app = await startTestApp(db, {
+      memberId: "m-ravi", config: testConfig({ localLogin: true }),
+    });
+    try {
+      const html = (await (await app.get("/settings/password")).text()).replace(/\s+/g, " ");
+      assert.doesNotMatch(html, /does not sign out/, "the page promised the opposite of what happens");
+      assert.match(html, /signs you out on every other device/);
+    } finally { await app.close(); }
+  });
+
   test("refuses when the two new ones disagree", async () => {
     const db = freshDb();
     seedMember(db, "m-ravi", "Ravi");
