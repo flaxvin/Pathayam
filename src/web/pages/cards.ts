@@ -186,7 +186,7 @@ function renderCard(card: CardDue, month: string): SafeHtml {
       <div class="row" style="gap:.5rem;margin-top:.75rem;flex-wrap:wrap">
         ${when(card.owed > 0, () => html`
           <a class="button button-small button-primary"
-             href="/transfer?to=${card.accountId}&amount=${card.owed}">Pay it off</a>
+             href="/transfer?to=${card.accountId}&amount=${(card.owed / 100).toFixed(2)}">Pay it off</a>
         `)}
         <a class="button button-small" href="/accounts/${card.accountId}/statement">Record a statement</a>
         <a class="button button-small button-quiet" href="/accounts/${card.accountId}">Register</a>

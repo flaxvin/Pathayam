@@ -163,3 +163,65 @@ describe("an id that names nothing is a 404, not a fault", () => {
     assert.equal(res.status, 404);
   });
 });
+
+describe("a cashflow horizon from the address bar", () => {
+  /*
+   * /schedules?days= was read with Number() and handed to the date arithmetic:
+   * "abc" was an Invalid time value (500), -5 read "the next -1 days", and two
+   * million days overflowed the chart's stack after five seconds of work.
+   */
+  for (const days of ["abc", "31-02-2026", "1.5", "-5", "0", ""]) {
+    test(`days=${days || "(empty)"} falls back to the default window`, async () => {
+      const before = app.failures.length;
+      const res = await app.get(`/schedules?days=${encodeURIComponent(days)}`);
+      assert.equal(res.status, 200);
+      assert.match(await res.text(), /The next 60 days/);
+      assert.equal(app.failures.length, before, "recorded as a fault");
+    });
+  }
+
+  test("a horizon past ten years is refused, not projected", async () => {
+    const before = app.failures.length;
+    const res = await app.get("/schedules?days=2000000");
+    assert.equal(res.status, 422);
+    assert.equal(app.failures.length, before, "recorded as a fault");
+  });
+
+  test("a whole number of days is still honoured", async () => {
+    const body = await (await app.get("/schedules?days=365")).text();
+    assert.match(body, /The next 365 days/);
+  });
+});
+
+describe("a card's 'Pay it off'", () => {
+  /*
+   * The link carried the balance in paise (`amount=500000` for ₹5,000) and
+   * /transfer ignored it anyway, so the button promised an amount and opened
+   * an empty field. It carries rupees now, and the form fills them in.
+   */
+  test("arrives with what the card owes filled in", async () => {
+    const db = freshDb();
+    seedMember(db, "m-ravi", "Ravi");
+    createAccount(db, actor, {
+      name: "HDFC", kind: "budget", subtype: "savings",
+      openingDate: "2026-08-01", openingBalance: rupees(100_000),
+    });
+    createAccount(db, actor, {
+      name: "Card", kind: "credit", subtype: "credit-card",
+      openingDate: "2026-08-01", openingBalance: -rupees(5_000),
+      statementDay: 18, dueDay: 8,
+    });
+    const own = await startTestApp(db, { memberId: "m-ravi" });
+    try {
+      const cards = await (await own.get("/cards")).text();
+      const link = /href="(\/transfer\?to=[^"]+)"[^>]*>\s*Pay it off/.exec(cards)?.[1]?.replace(/&amp;/g, "&");
+      assert.ok(link, "no Pay it off link on /cards");
+      assert.match(link, /amount=5000\.00$/, "the link carries rupees, as /transfer reads them");
+      const form = await (await own.get(link)).text();
+      assert.match(form, /name="amount"[^>]*value="5000\.00"/);
+      assert.deepEqual(own.failures, []);
+    } finally {
+      await own.close();
+    }
+  });
+});
