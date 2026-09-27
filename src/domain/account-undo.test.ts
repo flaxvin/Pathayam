@@ -157,3 +157,32 @@ describe("undo on a payee merge", () => {
     } finally { await app.close(); }
   });
 });
+
+describe("MONEY-CORE-20 · a payee merge whose winner was merged again", () => {
+  test("stays listed in Activity, undoes, and brings its transactions back", async () => {
+    const { db, bank, food } = setup();
+    const spend = (payeeName: string) => createTransaction(db, actor, {
+      accountId: bank, amount: -rupees(10) as Paise, date: "2026-09-10" as IsoDate, categoryId: food, payeeName,
+    }).id;
+    const moved = [spend("D-Mart Ltd"), spend("D-Mart Ltd"), spend("D-Mart Ltd")];
+    spend("DMart");
+    spend("DMart Ready");
+    const id = (name: string) => resolvePayee(db, actor, name).id;
+    const [a, b, c] = [id("D-Mart Ltd"), id("DMart"), id("DMart Ready")];
+
+    mergePayees(db, actor, a, b);
+    const first = lastEvent(db, "payee", "merge");
+    mergePayees(db, actor, b, c);
+
+    const app = await startTestApp(db, { memberId: "m-ravi", config: testConfig({}) });
+    try {
+      assert.match(await (await app.get("/activity")).text(), /D-Mart Ltd/, "the first merge vanished from Activity");
+      const undo = await app.post(`/activity/${first}/undo`, {});
+      assert.equal(undo.status, 303);
+      assert.match(decodeURIComponent(undo.headers.get("location") ?? ""), /moved its 3 transactions back/);
+      for (const t of moved) {
+        assert.equal(queryOne<{ payee_id: string }>(db, `SELECT payee_id FROM transactions WHERE id = ?`, t)!.payee_id, a);
+      }
+    } finally { await app.close(); }
+  });
+});

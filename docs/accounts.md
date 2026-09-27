@@ -199,7 +199,10 @@ exists — the card is what needs it, and a card left without one moved its debt
 and nothing in any budget; undoing the card's creation takes the envelope with it.
 
 Undoing a **payee merge** moves back the transactions and aliases the merge
-moved, provided they still sit with the payee they were merged into.
+moved, provided they still sit with the payee they were merged into — or with
+any payee that one has itself been merged into since — and reports the count it
+actually moved back. A merge stays listed in Activity, and undoable, after its
+winner is merged again.
 
 The engine also refuses to be the victim of an inconsistent ledger: split lines
 count only when the transaction says it is split, and a transfer leg whose
