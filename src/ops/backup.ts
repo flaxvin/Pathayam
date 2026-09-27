@@ -302,15 +302,33 @@ export function verifyRestore(db: DB, backupDir: string): VerificationResult {
     totalIf("net_worth_snapshots", "net-worth history", live.netWorthSnapshotTotal, restored.netWorthSnapshotTotal);
     totalIf("attachments", "receipt bytes", live.attachmentBytesTotal, restored.attachmentBytesTotal);
 
-    // Event log integrity: the sequence must be contiguous from 1, or events
-    // have been lost and R37.3's replay guarantee no longer holds.
+    // Event log integrity: no event may be lost, or R37.3's replay guarantee
+    // no longer holds.
     const gaps = queryValue<number>(
       scratch as unknown as DB,
       `SELECT COUNT(*) FROM (SELECT seq FROM events) WHERE seq < 1`,
     ) ?? 0;
     if (gaps > 0) mismatches.push("the event log contains invalid sequence numbers");
-    if (restored.eventCount > 0 && restored.maxEventSeq < restored.eventCount) {
-      mismatches.push("the event log is shorter than its highest sequence number");
+    /*
+     * SECURITY-OPS-23 · This read `maxEventSeq < eventCount`, which unique
+     * positive sequence numbers can never satisfy — a lost event makes the
+     * maximum *larger* than the count — so a backup missing events passed as
+     * "all control totals matched", and the row-count rule excused it as
+     * writes since the snapshot. Nothing deletes an event, so every event live
+     * holds up to the backup's highest seq must be in the backup too. Measured
+     * against live rather than against 1..max, so it is the copy being judged,
+     * not the history.
+     */
+    if (restored.eventCount > 0) {
+      const liveThrough = queryValue<number>(
+        db, `SELECT COUNT(*) FROM events WHERE seq <= ?`, restored.maxEventSeq,
+      ) ?? 0;
+      if (restored.eventCount < liveThrough) {
+        mismatches.push(
+          `the event log: backup holds ${restored.eventCount} events through seq ` +
+            `${restored.maxEventSeq}, live holds ${liveThrough} — events are missing from the copy`,
+        );
+      }
     }
 
     const ok = mismatches.length === 0;
