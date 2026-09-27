@@ -128,6 +128,50 @@ describe("API tokens over HTTP", () => {
     }
   });
 
+  test("a removed member's token stops working, as their sessions do", async () => {
+    const { db, secret } = household();
+    seedMember(db, "m-ravi", "Ravi");
+    const app = await startTestApp(db, { memberId: "m-ravi" });
+    try {
+      const removed = await app.post("/members/m-priya/remove");
+      assert.equal(removed.status, 303);
+      assert.ok(queryOne(db, `SELECT 1 FROM members WHERE id = 'm-priya' AND removed_at IS NOT NULL`));
+
+      const read = await raw(app.baseUrl, "GET", "/export.json", {
+        Authorization: `Bearer ${secret}`, Accept: "application/json",
+      });
+      assert.equal(read.status, 401, "the household's export must not answer a removed member");
+      const write = await raw(app.baseUrl, "POST", "/categories/new", {
+        Authorization: `Bearer ${secret}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+      }, "name=Planted");
+      assert.equal(write.status, 401);
+      assert.equal(queryOne(db, `SELECT 1 FROM categories WHERE name = 'Planted'`), null);
+      assert.deepEqual(app.failures, []);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("viewing as somebody else cannot mint a token that outlives the view", async () => {
+    const { db } = household();
+    seedMember(db, "m-ravi", "Ravi");
+    const app = await startTestApp(db, { memberId: "m-ravi", config: { adminDebug: true } });
+    try {
+      assert.equal((await app.post("/impersonate/start", { member_id: "m-priya" })).status, 303);
+      assert.equal((await app.post("/impersonate/writes", { allow: "1" })).status, 303);
+
+      const res = await app.post("/tokens", { name: "kept", scope: "read-write" });
+      assert.equal(res.status, 403);
+      assert.doesNotMatch(await res.text(), /bgt_/);
+      assert.equal(queryOne(db, `SELECT 1 FROM api_tokens WHERE name = 'kept'`), null);
+      assert.deepEqual(app.failures, []);
+    } finally {
+      await app.close();
+    }
+  });
+
   test("a doubled slash still reaches an ordinary page", async () => {
     const { db, secret } = household();
     const app = await startTestApp(db, { memberId: null });

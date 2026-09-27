@@ -526,7 +526,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         }
 
         const member = getMember(db, bearer.token.member_id);
-        if (member) {
+        // The allow-list is authority for a token as it is for a session
+        // (R38.16): removing a member revokes their sessions, and a token
+        // they minted must not outlive them either.
+        if (member && !member.removed_at && member.allowed) {
           // F30.5 · Attributed to the member, naming the token.
           ctx.locals.token = bearer.token;
           auth = {
@@ -1166,6 +1169,35 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   const pendingOAuth = new PendingStates<{ verifier: string; next: string; at: number }>();
   const pendingGmail = new PendingStates<{ verifier: string; memberId: string; at: number }>();
 
+  /*
+   * A sign-in's state, bound to the browser that started it.
+   *
+   * The state was held in server memory alone, so it proved the flow was
+   * started *here* but not *by whom*: anybody could start a sign-in with their
+   * own account, stop at the callback, and send that link on — whoever opened
+   * it was signed in as them (login CSRF), and entered their own spending into
+   * somebody else's ledger. The cookie is set where the flow starts and must
+   * come back with the callback, which a link sent to anyone else cannot do.
+   * Lax, because the callback is the provider's top-level redirect back.
+   */
+  const OAUTH_STATE_COOKIE = "pathayam_oauth";
+  function oauthStateCookie(state: string): string {
+    return [
+      `${OAUTH_STATE_COOKIE}=${state}`, "Path=/auth", "HttpOnly", "SameSite=Lax", "Max-Age=600",
+      config.baseUrl.startsWith("https") ? "Secure" : "",
+    ].filter(Boolean).join("; ");
+  }
+  function takeOAuthState(ctx: RequestContext, source: string) {
+    const state = ctx.query.get("state") ?? "";
+    const pending = pendingOAuth.take(state);
+    const bound = parseCookies(ctx.req.headers.cookie)[OAUTH_STATE_COOKIE];
+    if (!pending || bound !== state) {
+      recordAuthAttempt(db, source, "bad-state");
+      throw new HttpError(400, "That sign-in link has expired. Please try again.");
+    }
+    return pending;
+  }
+
   router.get("/signin", async (ctx) => {
     if (ctx.locals.auth) return { redirect: "/" };
 
@@ -1383,7 +1415,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       at: Date.now(),
     });
 
-    return { redirect: start.url };
+    return { redirect: start.url, headers: { "Set-Cookie": oauthStateCookie(start.state) } };
   });
 
   /*
@@ -1409,7 +1441,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       next: safePath(ctx.query.get("next"), "/"),
       at: Date.now(),
     });
-    return { redirect: start.url };
+    return { redirect: start.url, headers: { "Set-Cookie": oauthStateCookie(start.state) } };
   });
 
   router.get("/auth/oidc/callback", async (ctx) => {
@@ -1419,12 +1451,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }
     if (!oidcConfigured(config)) throw new NotFound();
 
-    const state = ctx.query.get("state") ?? "";
-    const pending = pendingOAuth.take(state);
-    if (!pending) {
-      recordAuthAttempt(db, source, "bad-state");
-      throw new HttpError(400, "That sign-in link has expired. Please try again.");
-    }
+    const pending = takeOAuthState(ctx, source);
 
     const code = ctx.query.get("code");
     if (!code) {
@@ -1492,12 +1519,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       throw new HttpError(429, "Too many sign-in attempts. Try again in a few minutes.");
     }
 
-    const state = ctx.query.get("state") ?? "";
-    const pending = pendingOAuth.take(state);
-    if (!pending) {
-      recordAuthAttempt(db, source, "bad-state");
-      throw new HttpError(400, "That sign-in link has expired. Please try again.");
-    }
+    const pending = takeOAuthState(ctx, source);
 
     const code = ctx.query.get("code");
     if (!code) {
@@ -7247,6 +7269,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/tokens", (ctx) => {
     refuseInDemo(config, "Creating API tokens");
     const a = auth(ctx);
+    /*
+     * A token is minted for whoever the actor is, and while viewing as
+     * somebody that is them: the time-boxed, logged view became a credential
+     * of theirs that never expires and that nothing about ending the view
+     * revokes. Impersonation is session-only (R38.12), so this is refused.
+     */
+    if (a.impersonating) {
+      throw new HttpError(403, "API tokens cannot be created while viewing as another member.");
+    }
     const days = field(ctx.body, "expires_in_days");
     const scope = field(ctx.body, "scope") === "read-write" ? "read-write" : "read";
 
