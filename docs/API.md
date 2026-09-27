@@ -457,7 +457,7 @@ only (out of a token's reach).
 | POST | `/categories/new` · `/categories/:id/rename` · `/categories/:id/hide` · `/categories/:id/delete` | W | Manage categories. |
 | GET/POST | `/tax` | W | Income tax estimate for the signed-in member and one financial year (`fy`). POST saves gross income and deductions. Refuses a year whose rates the app does not have. |
 | POST | `/categories/:id/merge` | W | Merge this category into `winner_id`: assignments are summed month by month, history and targets move across, and this one is deleted. Refuses a payment category and a merge across budgets. |
-| POST | `/categories/:id/target` | W | Set or clear a category's target. |
+| POST | `/categories/:id/target` | W | Set or clear a category's target: `amount`, `kind` (`monthly` or `refill`; omitted keeps a stored refill) and optional `target_date` (makes it by-date). |
 | POST | `/categories/:id/reorder` · `/groups/:id/reorder` | W | Move a category or group up or down. |
 
 ### Schedules, goals & loans

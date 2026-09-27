@@ -6305,7 +6305,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               return {
                 id: c.id, name: c.name, hidden: c.hidden,
                 balance: c.state.balance, isPayment: c.isPaymentCategory,
-                target: t ? { amount: t.amount ?? 0, date: t.target_date } : null,
+                target: t ? { amount: t.amount ?? 0, date: t.target_date, type: t.type } : null,
               };
             }),
         })),
@@ -6369,7 +6369,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         return { redirect: "/categories", message: "Target removed." };
       }
       const dateRaw = field(ctx.body, "target_date");
-      const type = dateRaw?.trim() ? "by-date" : "monthly";
+      /*
+       * BUDGET-17 · Every target without a date was written back as monthly, and
+       * the form called them all "Monthly target". The starting template's
+       * "refill up to ₹20,000" on Medical, saved unchanged, became "₹20,000 every
+       * month" — the full envelope flipped to "Not funded ₹0 of ₹20,000". The
+       * form now says which kind it is and sends it back; a client that sends no
+       * kind keeps the stored one.
+       */
+      const kindRaw = field(ctx.body, "kind")?.trim()
+        || (getTarget(db, ctx.params.id!)?.type === "refill" ? "refill" : "monthly");
+      if (kindRaw !== "monthly" && kindRaw !== "refill") {
+        throw new Refusal("A target is either an amount each month or a level to refill up to.");
+      }
+      const type = dateRaw?.trim() ? "by-date" : kindRaw;
       setTarget(db, actor, ctx.params.id!, {
         type,
         amount: Math.abs(amountField(amountRaw, "Target")),
