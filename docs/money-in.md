@@ -198,9 +198,15 @@ account** and against rows already pending in that account.
 |---|---|---|
 | `exact` | Same `source_id` — in the ledger, pending in Review, or dismissed from it. | Skipped. Re-importing a file adds nothing, and a dismissed row stays dismissed. |
 | `strong` | Same amount and the same bank reference, dated within 5 days of each other. | Upgrades the existing transaction automatically, with a note. A reference repeated a month later — a loan or employee number on a standing instruction — is a new transaction, not this. |
-| `probable` | Close on date and amount. | Queued for a decision. |
-| `weak` | Weaker match. | Queued for a decision. |
-| `manual-vs-imported` | A typed transaction matching an imported one. | Queued for a decision. |
+| `manual-vs-imported` | Same amount as a transaction typed by hand, dated within 5 days of it (the counter dates it today; the bank posts it days later). | Queued for a decision, "merge" suggested — the typed side keeps its envelope, the imported side brings the bank's payee and reference. |
+| `probable` | Same amount and the same payee (normalised: `SWIGGY*ORDER123` is Swiggy), dated within 3 days. | Queued for a decision, "merge" suggested. |
+| `weak` | Same amount within 1 day, but a different payee. | Queued at low prominence, "keep both" suggested — two people paying the same bill at one restaurant is a normal Saturday. |
+
+Tiers are checked in that order and the first that fits wins, so a reference
+match is never demoted to a fuzzy one. Same date, amount and narration without
+a bank reference is not `strong`: nothing proves it is the same event rather
+than a second identical payment, so it is queued as `probable`, never merged
+on its own.
 
 A row still pending from an earlier import has no transaction to merge into.
 A strong match with one — an alert awaiting approval when its statement line
