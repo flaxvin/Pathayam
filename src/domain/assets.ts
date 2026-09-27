@@ -37,7 +37,7 @@ import {
   unrealisedGain, absoluteReturn, xirr, holdingCashFlows, decomposeGain,
   applySplit, bonusLot, applyMerger, applyReturnOfCapital, formatUnits, valueOf,
   type Lot, type Holding, type Milliunits, type MicroRupees,
-  type SalePreview, type GainDecomposition,
+  type SalePreview, type GainDecomposition, type CashFlow,
 } from "../portfolio/holdings.ts";
 
 export const INSTRUMENT_KINDS = ["mutual-fund", "equity", "etf", "bond", "commodity", "other"] as const;
@@ -863,6 +863,8 @@ export interface HoldingView {
   absoluteReturn: number;
   /** R27.1 · The default headline for anything with more than one lot. */
   xirr: number | null;
+  /** The dated flows the XIRR is solved from — the portfolio's XIRR pools them. */
+  cashFlows: CashFlow[];
   realisedGain: Paise;
   /** R28 / R27.5 · Tracked separately, never folded into price gains. */
   dividends: Paise;
@@ -887,8 +889,8 @@ export function viewHolding(
   const rate = fx?.rate ?? 1;
   const unitPrice = quote?.price ?? averageCost(holding);
 
-  const events = queryAll<{ kind: string; realised_gain: number | null; amount: number | null }>(
-    db, `SELECT kind, realised_gain, amount FROM holding_events WHERE holding_id = ?`, holdingId,
+  const events = queryAll<{ kind: string; date: IsoDate; realised_gain: number | null; amount: number | null }>(
+    db, `SELECT kind, date, realised_gain, amount FROM holding_events WHERE holding_id = ?`, holdingId,
   );
 
   const realisedGain = events
@@ -897,6 +899,16 @@ export function viewHolding(
   const dividends = events
     .filter((e) => e.kind === "dividend")
     .reduce((sum, e) => sum + (e.amount ?? 0), 0);
+
+  // WEALTH-25 · Dividends are money back (or, reinvested, not money in).
+  const cashFlows = holding.lots.length > 0
+    ? holdingCashFlows(
+        holding, unitPrice, asOf, rate,
+        events
+          .filter((e) => e.kind === "dividend" || e.kind === "dividend-reinvested")
+          .map((e) => ({ date: e.date, amount: e.amount ?? 0, reinvested: e.kind === "dividend-reinvested" })),
+      )
+    : [];
 
   // R34: only meaningful when the instrument is priced in another currency.
   const firstLot = holding.lots[0];
@@ -926,10 +938,8 @@ export function viewHolding(
     marketValue: marketValue(holding, unitPrice, rate),
     unrealisedGain: unrealisedGain(holding, unitPrice, rate),
     absoluteReturn: absoluteReturn(holding, unitPrice, rate),
-    xirr:
-      holding.lots.length > 0
-        ? xirr(holdingCashFlows(holding, unitPrice, asOf, rate))
-        : null,
+    xirr: cashFlows.length > 0 ? xirr(cashFlows) : null,
+    cashFlows,
     realisedGain,
     dividends,
     decomposition,
