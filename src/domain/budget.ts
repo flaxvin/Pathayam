@@ -12,6 +12,7 @@ import { ENGINE_WINDOW_MONTHS } from "../engine/types.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { householdBudgetId, budgetsFor } from "./budgets.ts";
 import { dependantsOf } from "./dependants.ts";
+import { monthInReach } from "../engine/repository.ts";
 
 export interface CategoryGroup {
   id: string;
@@ -140,22 +141,54 @@ export function deleteGroup(db: DB, actor: Actor, id: string): void {
     const tombstones = queryAll<{ id: string; name: string }>(
       db, `SELECT id, name FROM categories WHERE group_id = ? AND deleted_at IS NOT NULL`, id,
     );
-    const stillUsed = tombstones.filter((c) =>
-      (queryOne<{ n: number }>(
-        db,
-        `SELECT (SELECT COUNT(*) FROM transactions WHERE category_id = ?)
-              + (SELECT COUNT(*) FROM transaction_splits WHERE category_id = ?) AS n`,
-        c.id, c.id,
-      )?.n ?? 0) > 0,
-    );
+
+    /*
+     * BUDGET-21 · Everything that can point at an envelope, not just spending.
+     * Only transactions and split lines were counted, so a tombstone a schedule
+     * or an even-call still named passed the check and the DELETE below hit a
+     * foreign key — "Something went wrong". categoryDependants reads the
+     * schema's own foreign keys, so a table added later is covered too.
+     */
+    const stillUsed = tombstones
+      .map((c) => ({ ...c, by: categoryDependants(db, c.id).filter((w) => w !== STAGED_WORDS) }))
+      .filter((c) => c.by.length > 0);
     if (stillUsed.length > 0) {
+      const by = [...new Set(stillUsed.flatMap((c) => c.by))];
       throw new Refusal(
         `"${before.name}" holds ${stillUsed.length === 1 ? "a deleted envelope" : "deleted envelopes"} ` +
         `(${stillUsed.slice(0, 3).map((c) => c.name).join(", ")}${stillUsed.length > 3 ? "…" : ""}) ` +
-        `that spending is still filed against. Re-file that spending somewhere else ` +
-        `first — the group is the last thing saying where it used to go.`,
+        `that ${by.join(", ")} still point at. Point those somewhere else first — the ` +
+        `group is the last thing saying where they used to go.`,
       );
     }
+
+    /*
+     * BUDGET-21 · An import's proposed envelope is a suggestion (N9), and one
+     * for an envelope that no longer exists suggests nothing. A row stays in
+     * staged_transactions after it is approved or rejected, so without this a
+     * tombstone any import had ever proposed kept its group for good. What is
+     * cleared is written down, and the group's undo puts it back.
+     */
+    const proposals = tombstones.flatMap((c) =>
+      queryAll<{ id: string; category_id: string }>(
+        db, `SELECT id, category_id FROM staged_transactions WHERE category_id = ?`, c.id,
+      ),
+    );
+    for (const p of proposals) {
+      execute(db, `UPDATE staged_transactions SET category_id = NULL WHERE id = ?`, p.id);
+    }
+
+    /*
+     * BUDGET-9 · The tombstones are written down before they go. An envelope's
+     * delete stays undoable from the log after its group has gone, and undoing
+     * it then UPDATEd a row that no longer existed — "Restored" over nothing,
+     * or, with its assignments to put back, a foreign key and a 500. Undoing
+     * this delete puts them back with the group, and the envelope's own undo
+     * works again from there.
+     */
+    const purged = queryAll<Record<string, unknown>>(
+      db, `SELECT * FROM categories WHERE group_id = ? AND deleted_at IS NOT NULL`, id,
+    );
     for (const c of tombstones) {
       execute(db, `DELETE FROM categories WHERE id = ?`, c.id);
     }
@@ -163,6 +196,7 @@ export function deleteGroup(db: DB, actor: Actor, id: string): void {
     execute(db, `DELETE FROM category_groups WHERE id = ?`, id);
     appendEvent(db, actor, {
       entity: "category-group", entityId: id, action: "delete", before,
+      after: { tombstones: purged, proposals },
       summary: `Deleted the empty group "${before.name}"`,
     });
   });
@@ -426,6 +460,24 @@ function refuseHistoryTarget(db: DB, from: Category, targetId: string): void {
 }
 
 /** D11 · Recorded on a delete event: everything the delete removed or moved. */
+/** BUDGET-8 · What a merge moved from the loser to the winner, by id. */
+interface MergeTaken {
+  assignments: { month: string; amount: number }[];
+  target: Record<string, unknown> | null;
+  /** True when the loser's target became the winner's (the winner had none). */
+  targetMoved: boolean;
+  transactionIds: string[];
+  splitIds: string[];
+  stagedIds: string[];
+  scheduleIds: string[];
+  loanIds: string[];
+  evenCallEnvelopeIds: string[];
+  evenCallGivingIds: string[];
+  goalIds: string[];
+  /** Goals the merge newly linked to the winner. */
+  goalIdsAdded: string[];
+}
+
 interface DeleteTaken {
   remapTo: string | null;
   assignments: { month: string; amount: number }[];
@@ -495,6 +547,34 @@ export function deleteCategory(
     }
 
     /*
+     * BUDGET-21 · A schedule is spending that has not happened yet, filed ahead.
+     * Deleting the envelope a schedule files to left the schedule pointing at a
+     * tombstone — every payment it posted afterwards landed in an envelope no
+     * screen shows, and the group holding the tombstone could no longer be
+     * deleted (a foreign key, a 500). Merge moves schedules with the history;
+     * a delete names them instead.
+     */
+    const schedules = queryAll<{ name: string }>(
+      db,
+      `SELECT DISTINCT s.name FROM schedules s
+        WHERE s.category_id = ?
+           OR s.id IN (SELECT schedule_id FROM schedule_splits WHERE category_id = ?)
+        ORDER BY s.name`,
+      id, id,
+    );
+    if (schedules.length > 0) {
+      const names = schedules.slice(0, 3).map((r) => `"${r.name}"`).join(", ") +
+        (schedules.length > 3 ? "…" : "");
+      throw new Refusal(
+        `"${before.name}" is where ${schedules.length === 1 ? "the schedule" : "the schedules"} ` +
+        `${names} ${schedules.length === 1 ? "files its payments" : "file their payments"}, so ` +
+        `deleting it would leave ${schedules.length === 1 ? "that schedule" : "them"} posting to an ` +
+        `envelope that is not there. Point ${schedules.length === 1 ? "it" : "them"} at another ` +
+        `envelope first, or merge this one into another — schedules go with it.`,
+      );
+    }
+
+    /*
      * D11 · What the delete takes, recorded so its undo can give it back.
      * Undo used to reset the category's columns and say "Restored" while its
      * assignments stayed purged and its remapped history stayed in the other
@@ -544,7 +624,7 @@ export function deleteCategory(
  */
 export function setTarget(
   db: DB, actor: Actor, categoryId: string,
-  input: { type: "monthly" | "by-date"; amount: Paise; targetDate?: IsoDate | null },
+  input: { type: "monthly" | "refill" | "by-date"; amount: Paise; targetDate?: IsoDate | null },
 ): void {
   transact(db, () => {
     const category = getCategory(db, categoryId);
@@ -568,7 +648,8 @@ export function setTarget(
       before, after: queryOne(db, `SELECT * FROM targets WHERE category_id = ?`, categoryId),
       summary:
         `Set ${category.name}'s target to ${formatPaise(input.amount)}` +
-        (input.type === "by-date" ? ` by ${formatDate(input.targetDate!)}` : " a month"),
+        (input.type === "by-date" ? ` by ${formatDate(input.targetDate!)}`
+          : input.type === "refill" ? ", refilled up to" : " a month"),
     });
   });
 }
@@ -641,6 +722,35 @@ export function mergeCategories(db: DB, actor: Actor, loserId: string, winnerId:
     }
 
     /*
+     * BUDGET-8 · What the merge moves, written down so undoing it can move it
+     * back. Undo used to reset the loser's row and say "Restored": Eating out
+     * came back empty — no money, no transactions, no target — while
+     * Groceries kept its ₹300 on top of its own ₹500.
+     */
+    const ids = (sql: string) => queryAll<{ id: string }>(db, sql, loserId).map((r) => r.id);
+    const merged: MergeTaken = {
+      assignments: queryAll<{ month: string; amount: number }>(
+        db, `SELECT month, amount FROM assignments WHERE category_id = ?`, loserId,
+      ),
+      target: queryOne<Record<string, unknown>>(db, `SELECT * FROM targets WHERE category_id = ?`, loserId),
+      targetMoved: false,
+      transactionIds: ids(`SELECT id FROM transactions WHERE category_id = ?`),
+      splitIds: ids(`SELECT id FROM transaction_splits WHERE category_id = ?`),
+      stagedIds: ids(`SELECT id FROM staged_transactions WHERE category_id = ?`),
+      scheduleIds: ids(`SELECT id FROM schedules WHERE category_id = ?`),
+      loanIds: ids(`SELECT id FROM loans WHERE payment_category_id = ?`),
+      evenCallEnvelopeIds: ids(`SELECT id FROM even_calls WHERE envelope_id = ?`),
+      evenCallGivingIds: ids(`SELECT id FROM even_calls WHERE giving_category_id = ?`),
+      goalIds: ids(`SELECT goal_id AS id FROM goal_categories WHERE category_id = ?`),
+      goalIdsAdded: queryAll<{ id: string }>(
+        db,
+        `SELECT goal_id AS id FROM goal_categories WHERE category_id = ?
+           AND goal_id NOT IN (SELECT goal_id FROM goal_categories WHERE category_id = ?)`,
+        loserId, winnerId,
+      ).map((r) => r.id),
+    };
+
+    /*
      * Assignments: added, month by month. ON CONFLICT is what keeps the
      * identity — see above.
      */
@@ -681,6 +791,7 @@ export function mergeCategories(db: DB, actor: Actor, loserId: string, winnerId:
      */
     const winnerTarget = queryOne(db, `SELECT category_id FROM targets WHERE category_id = ?`, winnerId);
     if (!winnerTarget) {
+      merged.targetMoved = merged.target !== null;
       execute(db, `UPDATE targets SET category_id = ? WHERE category_id = ?`, winnerId, loserId);
     }
     execute(db, `DELETE FROM targets WHERE category_id = ?`, loserId);
@@ -696,7 +807,7 @@ export function mergeCategories(db: DB, actor: Actor, loserId: string, winnerId:
     execute(db, `UPDATE categories SET deleted_at = ? WHERE id = ?`, nowIST(), loserId);
 
     appendEvent(db, actor, {
-      entity: "category", entityId: loserId, action: "merge", before: loser, after: winner,
+      entity: "category", entityId: loserId, action: "merge", before: loser, after: { ...winner, merged },
       summary: `Merged "${loser.name}" into "${winner.name}"`,
     });
   });
@@ -806,6 +917,18 @@ export function setAssigned(
     // Setting a stray row back to zero is how it is repaired, so only a
     // non-zero amount is held to the horizon.
     if (amount !== 0) refuseBeyondHorizon(month);
+    /*
+     * BUDGET-13 · Money assigned where the engine's walk does not reach is money
+     * nothing reads: "Assigned ₹600 to Rent." for June 2150, and the page as it
+     * was. Clearing such a row is always allowed — it is how one written before
+     * this refusal goes away.
+     */
+    if (amount !== 0 && !monthInReach(db, month, { writing: true })) {
+      throw new Refusal(
+        `${formatMonth(month)} is too far from the rest of this budget for it to reach — ` +
+        `a budget spans at most a hundred years.`,
+      );
+    }
 
     writeAssignment(db, month, categoryId, amount);
     appendEvent(db, actor, {
@@ -842,10 +965,18 @@ export function addAssigned(
  */
 export function copyAssignmentsFromMonth(
   db: DB, actor: Actor, month: MonthKey, fromMonth: MonthKey,
+  /**
+   * BUDGET-3 · The budget whose envelopes are filled. The button sits on one
+   * budget's page, and filling every budget's envelopes gave another member's
+   * private "Therapy" ₹3,000 from somebody else's click — taking her Ready to
+   * Assign negative and reporting her private total in his notice. Omitted
+   * means every budget, which only the simulator asks for.
+   */
+  budgetId?: string,
 ): { filled: number; total: Paise } {
   let filled = 0;
   let total = 0 as Paise;
-  for (const category of listCategories(db)) {
+  for (const category of listCategories(db, { budgetId })) {
     if (getAssigned(db, month, category.id) !== 0) continue; // don't clobber
     const prior = getAssigned(db, fromMonth, category.id);
     if (prior <= 0) continue;
@@ -876,6 +1007,20 @@ export function moveMoney(
     const to = getCategory(db, toCategoryId);
     if (!from || !to) throw new Missing("That category does not exist.");
     refuseBeyondHorizon(month);
+    /*
+     * BUDGET-5 · Within one budget only. Two envelopes in two budgets are two
+     * Ready to Assigns: moving ₹400 from the household's Groceries to Ravi's
+     * Fun left the household ₹400 unassigned and Ravi ₹400 over-assigned, with
+     * no account moving — under a form that says moving never changes Ready to
+     * Assign. Merge and regroup already refuse this; money between budgets is a
+     * transfer.
+     */
+    if ((from.budget_id ?? null) !== (to.budget_id ?? null)) {
+      throw new Refusal(
+        "Those two categories belong to different budgets. Moving money between budgets " +
+        "is a transfer between their accounts, not a move between envelopes.",
+      );
+    }
 
     const fromBefore = getAssigned(db, month, fromCategoryId);
     const toBefore = getAssigned(db, month, toCategoryId);
@@ -887,8 +1032,9 @@ export function moveMoney(
       entity: "assignment",
       entityId: `${month}:${toCategoryId}`,
       action: "move",
-      before: { from: fromBefore, to: toBefore },
-      after: { from: fromBefore - amount, to: toBefore + amount },
+      // BUDGET-4 · Both envelopes are named, so the undo restores them by id.
+      before: { from: fromBefore, to: toBefore, fromCategoryId },
+      after: { from: fromBefore - amount, to: toBefore + amount, fromCategoryId },
       summary: `Moved ${formatPaise(amount)} from ${from.name} to ${to.name}`,
     });
     // Logged against both categories so either one's history tells the story.
@@ -989,17 +1135,38 @@ registerUndoHandler("assignment", (db, event) => {
   const [month, categoryId] = (event.entityId ?? "").split(":") as [MonthKey, string];
 
   if (event.action === "move") {
-    const before = event.before as { from: Paise; to: Paise };
-    const after = event.after as { from: Paise; to: Paise };
-    // Recover the other side from the delta, since the id names only one.
+    const before = event.before as { from: Paise; to: Paise; fromCategoryId?: string };
+    const after = event.after as { from: Paise; to: Paise; fromCategoryId?: string };
     const moved = after.to - before.to;
+    /*
+     * BUDGET-4 · The source envelope, by id.
+     *
+     * The event used to name only the destination, and the source was guessed
+     * as "the envelope now holding `after.from`". Moving everything out of A
+     * left A at ₹0, which has no row, so nothing matched: B was restored, A was
+     * not, and ₹500 went quietly back to Ready to Assign under "Reversed the
+     * move of ₹500". And when another envelope happened to hold the same amount
+     * as A, either might be picked. Events written since carry the id; older
+     * ones still have only the guess, and are refused rather than guessed at
+     * when it is ambiguous.
+     */
+    let fromId = before.fromCategoryId ?? after.fromCategoryId ?? null;
+    if (!fromId) {
+      const candidates = queryAll<{ category_id: string }>(
+        db,
+        `SELECT category_id FROM assignments WHERE month = ? AND category_id != ? AND amount = ?`,
+        month, categoryId, after.from,
+      );
+      if (candidates.length !== 1) {
+        throw new Refusal(
+          "This move was recorded before it named the envelope the money came from, " +
+          "and that envelope can no longer be told apart. Move the money back by hand.",
+        );
+      }
+      fromId = candidates[0]!.category_id;
+    }
     writeAssignment(db, month, categoryId, before.to);
-    const other = queryOne<{ category_id: string }>(
-      db,
-      `SELECT category_id FROM assignments WHERE month = ? AND category_id != ? AND amount = ?`,
-      month, categoryId, after.from,
-    );
-    if (other) writeAssignment(db, month, other.category_id, before.from);
+    writeAssignment(db, month, fromId, before.from);
     return `Reversed the move of ${formatPaise(moved)}`;
   }
 
@@ -1060,13 +1227,14 @@ function commitmentCrossings(db: DB, id: string): string[] {
  * points at a category. A ₹0 assignment is what the grid writes when a figure
  * is cleared; it carries no money and goes with the envelope.
  */
+const STAGED_WORDS = "imported rows waiting for review";
 function categoryDependants(db: DB, id: string): string[] {
   const found = dependantsOf(db, "categories", id, {
     own: ["targets.category_id", "assignments.category_id"],
     words: {
       transactions: "transactions", transaction_splits: "split lines",
       schedules: "schedules", schedule_splits: "schedule lines",
-      staged_transactions: "imported rows waiting for review",
+      staged_transactions: STAGED_WORDS,
       even_calls: "a balance called even", loans: "a loan",
     },
   });
@@ -1104,12 +1272,54 @@ registerUndoHandler("category", (db, event) => {
     removeCategoryRow(db, event.entityId!);
     return `Removed the category that was added`;
   }
+  /*
+   * BUDGET-9 · Every other undo writes to the row, so the row has to be there.
+   * A deleted envelope's tombstone goes when its group is deleted (deleteGroup),
+   * and without this the UPDATE below touched nothing and said "Restored" — or,
+   * with the delete's assignments to put back, hit a foreign key and was a 500.
+   */
+  if (!queryOne(db, `SELECT 1 FROM categories WHERE id = ?`, event.entityId!)) {
+    const group = queryOne<{ id: string }>(db, `SELECT id FROM category_groups WHERE id = ?`, before.group_id);
+    throw new Refusal(
+      group
+        ? `"${before.name}" was cleared away when its group was deleted, so there is ` +
+          `nothing left to put back.`
+        : `"${before.name}" went with its group when that was deleted. Undo the ` +
+          `group's delete first, then this.`,
+    );
+  }
+  /*
+   * BUDGET-8 · A merge is undone only by giving back what it moved. One logged
+   * before the merge wrote that down cannot be, and saying "Restored" over an
+   * empty envelope was worse than saying so.
+   */
+  const merged = event.action === "merge"
+    ? (event.after as { id?: string; merged?: MergeTaken } | undefined)
+    : undefined;
+  if (event.action === "merge") {
+    if (!merged?.merged || !merged.id) {
+      throw new Refusal(
+        `This merge was made before the app kept a record of what it moved, so it ` +
+        `cannot be taken apart. Move the money and re-file the history by hand.`,
+      );
+    }
+    const winner = getCategory(db, merged.id);
+    if (!winner || winner.deleted_at) {
+      throw new Refusal(
+        `"${before.name}" was merged into an envelope that has since been deleted, so ` +
+        `there is nothing to take it back from.`,
+      );
+    }
+  }
+
   execute(
     db,
     `UPDATE categories SET name=?, group_id=?, sort=?, hidden_at=?, deleted_at=?, note=? WHERE id=?`,
     before.name, before.group_id, before.sort, before.hidden_at, before.deleted_at, before.note,
     event.entityId!,
   );
+
+  if (merged?.merged && merged.id) undoMerge(db, event.entityId!, merged.id, merged.merged);
 
   // D11 · A delete gives back what it took. Events from before D11 recorded
   // nothing, and restore only the row, as they always did.
@@ -1146,6 +1356,54 @@ registerUndoHandler("category", (db, event) => {
   }
   return `Restored "${before.name}"`;
 });
+
+/**
+ * BUDGET-8 · Move back what a merge moved. Only what still sits where the merge
+ * put it: anything re-filed since is the household's later decision, the rule
+ * the delete's undo keeps.
+ */
+function undoMerge(db: DB, loserId: string, winnerId: string, m: MergeTaken): void {
+  for (const a of m.assignments) {
+    const winnerNow = getAssigned(db, a.month as MonthKey, winnerId);
+    writeAssignment(db, a.month as MonthKey, winnerId, (winnerNow - a.amount) as Paise);
+    writeAssignment(db, a.month as MonthKey, loserId, a.amount as Paise);
+  }
+  const back = (table: string, column: string, idsToMove: string[]) => {
+    for (const id of idsToMove) {
+      execute(db, `UPDATE ${table} SET ${column} = ? WHERE id = ? AND ${column} = ?`, loserId, id, winnerId);
+    }
+  };
+  back("transactions", "category_id", m.transactionIds);
+  back("transaction_splits", "category_id", m.splitIds);
+  back("staged_transactions", "category_id", m.stagedIds);
+  back("schedules", "category_id", m.scheduleIds);
+  back("loans", "payment_category_id", m.loanIds);
+  back("even_calls", "envelope_id", m.evenCallEnvelopeIds);
+  back("even_calls", "giving_category_id", m.evenCallGivingIds);
+
+  for (const goalId of m.goalIds) {
+    execute(db, `INSERT OR IGNORE INTO goal_categories (goal_id, category_id) VALUES (?,?)`, goalId, loserId);
+  }
+  for (const goalId of m.goalIdsAdded) {
+    execute(db, `DELETE FROM goal_categories WHERE goal_id = ? AND category_id = ?`, goalId, winnerId);
+  }
+
+  if (m.target) {
+    if (m.targetMoved) execute(db, `DELETE FROM targets WHERE category_id = ?`, winnerId);
+    if (!queryOne(db, `SELECT 1 FROM targets WHERE category_id = ?`, loserId)) {
+      const cols = Object.keys(m.target);
+      execute(
+        db,
+        `INSERT INTO targets (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`,
+        ...cols.map((c) => m.target![c] as string | number | null),
+      );
+    }
+  }
+
+  // Keyed by category, and wrong for both again — as the merge found it.
+  execute(db, `DELETE FROM month_rollups`);
+  execute(db, `DELETE FROM month_rollup_state`);
+}
 
 interface TargetRow { category_id: string; type: string; amount: number | null; target_date: string | null; created_at: string; updated_at: string }
 registerUndoHandler("target", (db, event) => {
@@ -1202,6 +1460,29 @@ registerUndoHandler("category-group", (db, event) => {
       event.entityId!, before.name, before.kind, before.sort,
       nowIST(), before.budget_id ?? null,
     );
+    // BUDGET-9 · And the deleted envelopes that went with it, so their own
+    // deletes can still be undone. Events from before this recorded none.
+    const after = event.after as {
+      tombstones?: Record<string, unknown>[];
+      proposals?: { id: string; category_id: string }[];
+    } | undefined;
+    for (const row of after?.tombstones ?? []) {
+      if (queryOne(db, `SELECT 1 FROM categories WHERE id = ?`, row.id as string)) continue;
+      const cols = Object.keys(row);
+      execute(
+        db,
+        `INSERT INTO categories (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`,
+        ...cols.map((c) => row[c] as string | number | null),
+      );
+    }
+    // BUDGET-21 · An import's proposal the delete cleared, where nothing has
+    // been proposed for that row since.
+    for (const p of after?.proposals ?? []) {
+      execute(
+        db, `UPDATE staged_transactions SET category_id = ? WHERE id = ? AND category_id IS NULL`,
+        p.category_id, p.id,
+      );
+    }
     return `Put the group "${before.name}" back`;
   }
   execute(

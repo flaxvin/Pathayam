@@ -1167,10 +1167,35 @@ function renderGoalCard(g: GoalProgress): SafeHtml {
         <form method="post" action="/goals/${g.goal.id}/complete" style="margin-top:.75rem">
           <div class="row" style="flex-wrap:wrap">
             <button class="button-small" name="resolution" value="spend" type="submit">Spend it</button>
-            <button class="button-small" name="resolution" value="roll" type="submit">Roll into a new goal</button>
             <button class="button-small" name="resolution" value="release" type="submit">Back to Ready to Assign</button>
           </div>
         </form>
+        <!-- BUDGET-14 · Rolling over needs the goal it rolls into. -->
+        <details style="margin-top:.5rem">
+          <summary style="min-height:36px;display:flex;align-items:center;cursor:pointer;color:var(--text-muted);font-size:.9rem">
+            Roll into a new goal
+          </summary>
+          <form method="post" action="/goals/${g.goal.id}/complete" style="margin-top:.5rem">
+            <input type="hidden" name="resolution" value="roll">
+            <div class="grid-2">
+              <div class="field">
+                <label for="roll-name-${g.goal.id}">What for next?</label>
+                <input id="roll-name-${g.goal.id}" name="name" required>
+              </div>
+              <div class="field">
+                <label for="roll-amount-${g.goal.id}">How much?</label>
+                <input id="roll-amount-${g.goal.id}" name="target_amount" class="amount-input"
+                       type="text" inputmode="decimal" required>
+              </div>
+            </div>
+            <div class="field">
+              <label for="roll-date-${g.goal.id}">By when <span class="faint">(optional)</span></label>
+              <input type="date" id="roll-date-${g.goal.id}" name="target_date">
+              <p class="field-hint">The ${formatPaise(g.saved)} already saved counts toward it.</p>
+            </div>
+            <button class="button-small" type="submit">Roll it over</button>
+          </form>
+        </details>
       `)}
 
       <!-- F11 · Edit and delete. -->

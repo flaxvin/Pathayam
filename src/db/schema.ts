@@ -2465,4 +2465,60 @@ DROP TABLE fix_pay;
 DROP TABLE fix_leg;
 `,
   },
+  {
+    name: "0054-a-month-close-records-its-own-budget",
+    sql: `
+--------------------------------------------------------------------------------
+-- BUDGET-25 · Month closes that counted every budget
+--------------------------------------------------------------------------------
+-- A close is per budget, but what it stored as the month's income and spending
+-- was read from every budget's transactions. The household's August recorded
+-- Priya's salary into her private account as money that came in, and /months
+-- prints those two figures for every closed month. Recomputed here the way the
+-- close now reads them: this budget's transactions - by the account the money
+-- moved on or the envelope it was filed to - less transfers and deleted rows.
+-- It is the ledger as it stands today, which is also what closing the month
+-- again would record. Assigned was always one budget's, and is left alone.
+UPDATE month_closes
+   SET income = (
+         SELECT COALESCE(SUM(CASE WHEN l.amount > 0 THEN l.amount ELSE 0 END), 0)
+           FROM transactions t
+           JOIN (SELECT id AS tx_id, category_id, amount FROM transactions WHERE is_split = 0
+                 UNION ALL
+                 SELECT transaction_id, category_id, amount FROM transaction_splits) l
+             ON l.tx_id = t.id
+           JOIN accounts a ON a.id = t.account_id
+          WHERE t.deleted_at IS NULL AND t.transfer_pair_id IS NULL
+            AND substr(t.date, 1, 7) = month_closes.month
+            AND (a.budget_id = month_closes.budget_id
+              OR l.category_id IN (SELECT id FROM categories WHERE budget_id = month_closes.budget_id))),
+       spending = (
+         SELECT COALESCE(SUM(CASE WHEN l.amount < 0 THEN -l.amount ELSE 0 END), 0)
+           FROM transactions t
+           JOIN (SELECT id AS tx_id, category_id, amount FROM transactions WHERE is_split = 0
+                 UNION ALL
+                 SELECT transaction_id, category_id, amount FROM transaction_splits) l
+             ON l.tx_id = t.id
+           JOIN accounts a ON a.id = t.account_id
+          WHERE t.deleted_at IS NULL AND t.transfer_pair_id IS NULL
+            AND substr(t.date, 1, 7) = month_closes.month
+            AND (a.budget_id = month_closes.budget_id
+              OR l.category_id IN (SELECT id FROM categories WHERE budget_id = month_closes.budget_id)));
+`,
+  },
+  {
+    name: "0055-a-closed-loan-asks-for-no-instalment",
+    sql: `
+--------------------------------------------------------------------------------
+-- BUDGET-27 · Closed loans whose envelope still asked for the EMI
+--------------------------------------------------------------------------------
+-- Closing a loan left the monthly target the loan had put on its payment
+-- envelope, so a loan settled in full stayed "underfunded" by its EMI every
+-- month and Auto-assign funded it. Closing now clears the target; the loans
+-- closed before that lose theirs here.
+DELETE FROM targets
+ WHERE category_id IN (SELECT payment_category_id FROM loans
+                        WHERE closed_at IS NOT NULL AND payment_category_id IS NOT NULL);
+`,
+  },
 ];

@@ -13,7 +13,7 @@ import type { Paise } from "../core/money.ts";
 import type { MonthKey, IsoDate } from "../core/dates.ts";
 import {
   addMonths, monthOf, todayIST, nowIST, addDays, daysBetween,
-  firstDayOfMonth, lastDayOfMonth,
+  firstDayOfMonth, lastDayOfMonth, monthsBetween,
 } from "../core/dates.ts";
 import { computeBudget } from "./engine.ts";
 import { commitmentSources, claimByMonth, claimLinks, claimFor } from "../domain/commitments.ts";
@@ -421,13 +421,25 @@ export function loadEngineInput(db: DB, opts: LoadOptions = {}): EngineInput {
   const horizon = lastDayOfMonth(through);
   const scope = opts.budgetId;
 
+  /*
+   * BUDGET-1 · Except assignments, which are read in every month.
+   *
+   * R2 subtracts assignments made in *future* months from today's Ready to
+   * Assign — money given a job next month is not free this month — and
+   * `monthRange` walks on to the last assigned month for exactly that reason.
+   * Bounding this read by `through` left those months empty, so the total the
+   * engine subtracts never included them: ₹1,000 assigned to next month still
+   * showed as ₹1,000 ready today, and could be assigned a second time. The
+   * table is months × envelopes, never the ledger, so reading all of it costs
+   * nothing B73 was worried about.
+   */
   for (const r of queryAll<{ month: string; category_id: string; amount: number }>(
     db,
     `SELECT s.month AS month, s.category_id AS category_id, s.amount AS amount
        FROM assignments s
        JOIN categories c ON c.id = s.category_id
-      WHERE s.month <= ?${scope ? " AND c.budget_id = ?" : ""}`,
-    through, ...budgetParams(scope),
+      ${scope ? "WHERE c.budget_id = ?" : ""}`,
+    ...budgetParams(scope),
   )) {
     const f = ensure(r.month);
     if (f) f.assigned[r.category_id] = (f.assigned[r.category_id] ?? 0) + r.amount;
@@ -789,11 +801,14 @@ function loadClaim(
 }
 
 /**
- * The contiguous span the engine must walk: from the earliest month carrying
- * any data through the later of `through` and the last month with an
- * assignment, since a future assignment reduces today's RTA (R2).
+ * The most months one walk covers — the engine's own window. A corrupt or
+ * absurd date must not spin the engine, and a household budget will never
+ * legitimately span more than a few decades — a hundred years is room enough.
  */
-export function monthRange(db: DB, through: MonthKey): MonthKey[] {
+export const MONTH_SPAN = ENGINE_WINDOW_MONTHS;
+
+/** The earliest month carrying any data, and the last month with an assignment. */
+function dataBounds(db: DB): { earliest: MonthKey | null; latestAssignment: MonthKey | null } {
   /*
    * B75 · `MIN(substr(date,1,7))` cannot use an index — SQLite has to read every
    * row to work out the minimum of an expression — so finding the first month
@@ -810,10 +825,21 @@ export function monthRange(db: DB, through: MonthKey): MonthKey[] {
          UNION ALL SELECT MIN(month) FROM assignments
          UNION ALL SELECT substr(MIN(opening_date),1,7) FROM accounts
        )`,
-    ) ?? through;
+    ) ?? null;
+  const latestAssignment = queryValue<string>(db, `SELECT MAX(month) FROM assignments`) ?? null;
+  return { earliest, latestAssignment };
+}
 
-  const latestAssignment = queryValue<string>(db, `SELECT MAX(month) FROM assignments`) ?? through;
-  const last = latestAssignment > through ? latestAssignment : through;
+/**
+ * The contiguous span the engine must walk: from the earliest month carrying
+ * any data through the later of `through` and the last month with an
+ * assignment, since a future assignment reduces today's RTA (R2).
+ */
+export function monthRange(db: DB, through: MonthKey): MonthKey[] {
+  const { earliest: first, latestAssignment } = dataBounds(db);
+  const earliest = first ?? through;
+  const latest = latestAssignment ?? through;
+  const last = latest > through ? latest : through;
 
   /*
    * A corrupt or absurd date must not spin here; a household budget will never
@@ -836,6 +862,32 @@ export function monthRange(db: DB, through: MonthKey): MonthKey[] {
     cursor = addMonths(cursor, 1);
   }
   return months;
+}
+
+/**
+ * BUDGET-13 · Whether the engine's walk reaches `month` — and, for a write,
+ * whether an assignment there still leaves every month within one walk.
+ *
+ * The walk stops after MONTH_SPAN months from the first month with data, so
+ * with an account opened in 2000-01, "June 2150" was never computed: the
+ * budget page showed December 2099's figures under the heading "June 2150",
+ * and ₹600 assigned there said "Assigned ₹600 to Rent." while nothing read the
+ * row — nor, beyond the walk, would today's Ready to Assign ever subtract it.
+ * A month outside the walk is refused by name instead.
+ */
+export function monthInReach(db: DB, month: MonthKey, opts: { writing?: boolean } = {}): boolean {
+  const { earliest, latestAssignment } = dataBounds(db);
+  const first = earliest && earliest < month ? earliest : month;
+  if (monthsBetween(first, month) >= MONTH_SPAN) return false;
+  /*
+   * A write before the first month with data moves where the walk starts, so
+   * the last assignment has to stay within reach of it. Only then: a row left
+   * out of reach before this check existed must not refuse every later write.
+   */
+  if (opts.writing && earliest && month < earliest && latestAssignment) {
+    return monthsBetween(month, latestAssignment) < MONTH_SPAN;
+  }
+  return true;
 }
 
 export function loadCategories(db: DB): CategoryMeta[] {
@@ -1005,9 +1057,10 @@ export function accountBalances(db: DB): Map<string, AccountBalances> {
 export function averageDailySpend(
   db: DB, asOf: IsoDate = todayIST(), windowDays = 90,
   viewerMemberId?: string | null,
+  budgetIds?: readonly string[],
 ): Paise {
   const from = addDays(asOf, -windowDays);
-  const total = envelopeSpendBetween(db, from, asOf, viewerMemberId);
+  const total = envelopeSpendBetween(db, from, asOf, viewerMemberId, budgetIds);
   const days = Math.max(1, daysBetween(from, asOf));
   return Math.round(total / days);
 }
@@ -1040,15 +1093,30 @@ export function averageDailySpend(
  * withdrawal rate — a target of ₹2.74 crore where ₹1.03 crore would do,
  * receding faster the more the household saved. A purchase recorded through the portfolio names its
  * transaction on the lot, and that transaction is left out.
+ *
+ * BUDGET-20 · `budgetIds` narrows it to those budgets' envelopes. The budget
+ * page's buffer divided one budget's envelopes by every budget's spending —
+ * Ravi's household page read "2 days" where the household's own rate gave 100,
+ * because Priya's private ₹2,70,000 was in the denominator, and knowing the
+ * assigned total he could back out her spending rate from it.
  */
 export function envelopeSpendBetween(
   db: DB, from: IsoDate, to: IsoDate, viewerMemberId?: string | null,
+  budgetIds?: readonly string[],
 ): Paise {
   const seen = viewerMemberId === undefined
     ? { sql: "", params: [] as (string | null)[] }
     : {
       sql: " AND (a.visibility <> 'private' OR a.holder_member_id IS ?)",
       params: [viewerMemberId ?? null],
+    };
+  // A category with no budget of its own is the household's, as listCategories reads it.
+  const scoped = budgetIds === undefined
+    ? { sql: "", params: [] as string[] }
+    : {
+      sql: ` AND COALESCE(cat.budget_id, (SELECT id FROM budgets WHERE kind = 'household'))
+                 IN (${budgetIds.map(() => "?").join(",") || "NULL"})`,
+      params: [...budgetIds],
     };
 
   // The shared CTE with the transaction id carried through, so a purchase can
@@ -1072,12 +1140,13 @@ export function envelopeSpendBetween(
        LEFT JOIN categories cat ON cat.id = c.category_id
        JOIN accounts a ON a.id = c.account_id
       WHERE c.amount < 0 AND cat.payment_account_id IS NULL
-        AND NOT EXISTS (SELECT 1 FROM lots l WHERE l.transaction_id = c.transaction_id)${seen.sql}`,
+        AND NOT EXISTS (SELECT 1 FROM lots l WHERE l.transaction_id = c.transaction_id)${seen.sql}${scoped.sql}`,
     // Each leg of the union is bounded to the window, so a long history
     // costs no more than a short one.
     from, to,
     from, to,
     ...seen.params,
+    ...scoped.params,
   ) ?? 0;
 }
 

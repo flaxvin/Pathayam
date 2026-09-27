@@ -2,12 +2,15 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { openDatabase, ensureHousehold, execute } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
-import { nowIST } from "../core/dates.ts";
+import { nowIST, todayIST, monthOf } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import { historyFor, undoEvent } from "../core/events.ts";
-import { createGroup, createCategory } from "./budget.ts";
+import { createGroup, createCategory, moveCategoryToGroup, setAssigned } from "./budget.ts";
+import { createAccount } from "./accounts.ts";
+import { loadEngineInput } from "../engine/repository.ts";
+import { computeBudget } from "../engine/engine.ts";
 import {
-  createGoal, updateGoal, deleteGoal, getGoal, listGoals, goalCategoryIds,
+  createGoal, updateGoal, deleteGoal, getGoal, listGoals, goalCategoryIds, completeGoal,
 } from "./goals.ts";
 import { queryOne } from "../db/db.ts";
 import { householdBudgetId, ensurePersonalBudget } from "./budgets.ts";
@@ -131,5 +134,67 @@ describe("B58 · a goal owns its own envelope, whoever makes it", () => {
       }),
       /only be measured by envelopes in its own/,
     );
+  });
+});
+
+describe("BUDGET-15 · undoing a goal's delete gives back whose it was and its envelope", () => {
+  test("a personal goal comes back in its budget, linked to its envelope in Goals", () => {
+    const db = freshDb();
+    const mine = ensurePersonalBudget(db, "m", "Ravi");
+    const goal = createGoal(db, actor, { name: "Secret ring", targetAmount: rupees(5_000), budgetId: mine.id });
+    const envelope = goalCategoryIds(db, goal.id)[0]!;
+    const goalsGroup = queryOne<{ group_id: string }>(db, `SELECT group_id FROM categories WHERE id = ?`, envelope)!.group_id;
+
+    // What the delete route does: remove the goal, hand the envelope back in "Savings".
+    deleteGoal(db, actor, goal.id);
+    moveCategoryToGroup(db, actor, envelope, createGroup(db, actor, "Savings", "normal", mine.id).id);
+
+    undoEvent(db, historyFor(db, "goal", goal.id).find((e) => e.action === "delete")!.id, actor);
+    assert.equal(getGoal(db, goal.id)!.budget_id, mine.id);
+    assert.deepEqual(goalCategoryIds(db, goal.id), [envelope]);
+    assert.equal(queryOne<{ group_id: string }>(db, `SELECT group_id FROM categories WHERE id = ?`, envelope)!.group_id, goalsGroup);
+    // Nobody else's goal list shows it.
+    assert.deepEqual(listGoals(db, { budgetIds: [householdBudgetId(db)] }).map((g) => g.id), []);
+  });
+});
+
+describe("BUDGET-14 · completing a goal does what the button says", () => {
+  function reached() {
+    const db = freshDb();
+    const month = monthOf(todayIST());
+    createAccount(db, actor, { name: "Bank", kind: "budget", subtype: "savings",
+      openingDate: `${month}-01`, openingBalance: rupees(10_000) });
+    const goal = createGoal(db, actor, { name: "New phone", targetAmount: rupees(3_000) });
+    const envelope = goalCategoryIds(db, goal.id)[0]!;
+    setAssigned(db, actor, month, envelope, rupees(3_000));
+    const state = () => computeBudget(loadEngineInput(db, { through: month, budgetId: householdBudgetId(db) })).get(month)!;
+    return { db, goal, envelope, state };
+  }
+
+  test("back to Ready to Assign: the ₹3,000 leaves the envelope and is assignable again", () => {
+    const { db, goal, envelope, state } = reached();
+    assert.equal(state().readyToAssign, rupees(7_000));
+    completeGoal(db, actor, goal.id, "release");
+    assert.equal(state().readyToAssign, rupees(10_000));
+    assert.equal(state().categories.get(envelope)!.balance, 0);
+    assert.ok(getGoal(db, goal.id)!.completed_at);
+  });
+
+  test("roll into a new goal: the new goal is measured by the same envelope, balance and all", () => {
+    const { db, goal, envelope, state } = reached();
+    assert.throws(() => completeGoal(db, actor, goal.id, "roll"), /Name the goal it rolls into/);
+    const next = completeGoal(db, actor, goal.id, "roll", { name: "New laptop", targetAmount: rupees(8_000) })!;
+    assert.deepEqual(goalCategoryIds(db, next.id), [envelope]);
+    assert.equal(next.budget_id, householdBudgetId(db));
+    assert.deepEqual(listGoals(db).map((g) => g.name), ["New laptop"]);
+    assert.equal(state().categories.get(envelope)!.balance, rupees(3_000));
+    assert.equal(state().readyToAssign, rupees(7_000));
+  });
+
+  test("spend it: the money stays where it is", () => {
+    const { db, goal, envelope, state } = reached();
+    completeGoal(db, actor, goal.id, "spend");
+    assert.equal(state().categories.get(envelope)!.balance, rupees(3_000));
+    assert.equal(state().readyToAssign, rupees(7_000));
   });
 });
