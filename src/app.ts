@@ -5789,8 +5789,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           mode === "emi"
             ? `Prepaid ${formatPaise(amount)}. The instalment is now ` +
               `${formatPaise(after?.emi ?? 0)} and the closure date is unchanged.`
-            : `Prepaid ${formatPaise(amount)}. The instalment is unchanged and there are ` +
-              `${after?.schedule.months ?? 0} left.`,
+            // EXTRA-1 · Said from the projection, which now keeps it — "unchanged"
+            // was printed beside an instalment that had moved.
+            : `Prepaid ${formatPaise(amount)}. The instalment stays ${formatPaise(after?.emi ?? 0)} ` +
+              `and there are ${after?.schedule.months ?? 0} left.`,
       };
     });
   });
