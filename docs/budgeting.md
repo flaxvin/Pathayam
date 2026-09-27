@@ -214,7 +214,11 @@ Nothing new can be filed to a deleted envelope either (a schedule or rule saved
 before the delete is refused rather than filed into nothing — "Apply to
 existing" included). A remap takes the envelope's rules along with its history,
 and undoing the delete takes them back; without a remap, a delete is refused
-while a rule files into the envelope, naming the rule.
+while a rule files into the envelope, naming the rule. Schedules and their
+envelope lines are treated the same way, along with imported rows still waiting
+in Review: a remap moves them (a merge does too), and without one the delete is
+refused, naming the schedules — left behind, a schedule's every "Mark paid" was
+refused for naming a deleted envelope.
 
 A remap target has to be an envelope that counts spending: a live one, in the
 same budget, and neither a card's payment envelope (its activity is derived

@@ -430,6 +430,10 @@ interface DeleteTaken {
   splitIds: string[];
   /** Rules re-pointed at `remapTo`, as they were. Absent on older events. */
   rules?: RuleJson[];
+  /** Schedules, schedule lines and waiting imported rows moved to `remapTo`. Absent on older events. */
+  scheduleIds?: string[];
+  scheduleSplitIds?: string[];
+  stagedIds?: string[];
 }
 
 interface RuleJson { id: string; name: string; conditions_json: string; actions_json: string }
@@ -529,6 +533,30 @@ export function deleteCategory(
         );
       }
     }
+    /*
+     * IMPORTS-SCHEDULES-31 · A schedule filed into the envelope, the same.
+     * Left behind, it named a deleted envelope and every "Mark paid" after
+     * was refused ('"Streaming old" has been deleted.'). With a remap it
+     * follows the history below; without one there is nowhere for it to go.
+     */
+    if (!opts.remapTo) {
+      const schedules = queryAll<{ name: string }>(
+        db,
+        `SELECT name FROM schedules WHERE category_id = ?
+          UNION SELECT s.name FROM schedule_splits l JOIN schedules s ON s.id = l.schedule_id
+                WHERE l.category_id = ?
+          ORDER BY name`,
+        id, id,
+      );
+      if (schedules.length > 0) {
+        throw new Refusal(
+          `The schedule${schedules.length === 1 ? "" : "s"} ${schedules.map((r) => `"${r.name}"`).join(", ")} ` +
+          `${schedules.length === 1 ? "is" : "are"} filed to "${before.name}". Choose an envelope for its ` +
+          `history to move to, and ${schedules.length === 1 ? "that schedule follows" : "they follow"} it — ` +
+          `or file ${schedules.length === 1 ? "it" : "them"} elsewhere first.`,
+        );
+      }
+    }
     if (!opts.remapTo) {
       const history = queryOne<{ n: number }>(
         db,
@@ -573,6 +601,15 @@ export function deleteCategory(
       execute(db, `UPDATE transactions SET category_id = ? WHERE category_id = ?`, opts.remapTo, id);
       execute(db, `UPDATE transaction_splits SET category_id = ? WHERE category_id = ?`, opts.remapTo, id);
       taken.rules = repointRules(db, id, opts.remapTo);
+
+      const ids = (sql: string) => queryAll<{ id: string }>(db, sql, id).map((r) => r.id);
+      taken.scheduleIds = ids(`SELECT id FROM schedules WHERE category_id = ?`);
+      taken.scheduleSplitIds = ids(`SELECT id FROM schedule_splits WHERE category_id = ?`);
+      taken.stagedIds = ids(`SELECT id FROM staged_transactions WHERE category_id = ? AND status = 'pending'`);
+      execute(db, `UPDATE schedules SET category_id = ? WHERE category_id = ?`, opts.remapTo, id);
+      execute(db, `UPDATE schedule_splits SET category_id = ? WHERE category_id = ?`, opts.remapTo, id);
+      execute(db, `UPDATE staged_transactions SET category_id = ? WHERE category_id = ? AND status = 'pending'`,
+        opts.remapTo, id);
     }
     execute(db, `DELETE FROM assignments WHERE category_id = ?`, id);
     execute(db, `DELETE FROM targets WHERE category_id = ?`, id);
@@ -712,6 +749,8 @@ export function mergeCategories(db: DB, actor: Actor, loserId: string, winnerId:
     execute(db, `UPDATE transaction_splits SET category_id = ? WHERE category_id = ?`, winnerId, loserId);
     execute(db, `UPDATE staged_transactions SET category_id = ? WHERE category_id = ?`, winnerId, loserId);
     execute(db, `UPDATE schedules SET category_id = ? WHERE category_id = ?`, winnerId, loserId);
+    // A split schedule's lines too, or its next Mark paid files into the loser.
+    execute(db, `UPDATE schedule_splits SET category_id = ? WHERE category_id = ?`, winnerId, loserId);
     execute(db, `UPDATE loans SET payment_category_id = ? WHERE payment_category_id = ?`, winnerId, loserId);
     execute(db, `UPDATE even_calls SET envelope_id = ? WHERE envelope_id = ?`, winnerId, loserId);
     execute(db, `UPDATE even_calls SET giving_category_id = ? WHERE giving_category_id = ?`, winnerId, loserId);
@@ -1151,6 +1190,15 @@ registerUndoHandler("category", (db, event) => {
     for (const sid of taken.splitIds) {
       execute(db, `UPDATE transaction_splits SET category_id = ? WHERE id = ? AND category_id = ?`,
         id, sid, taken.remapTo);
+    }
+    for (const [table, list] of [
+      ["schedules", taken.scheduleIds], ["schedule_splits", taken.scheduleSplitIds],
+      ["staged_transactions", taken.stagedIds],
+    ] as const) {
+      for (const rowId of list ?? []) {
+        execute(db, `UPDATE ${table} SET category_id = ? WHERE id = ? AND category_id = ?`,
+          id, rowId, taken.remapTo);
+      }
     }
     // A rule goes back only if it still says what the delete made it say.
     for (const r of taken.rules ?? []) {
