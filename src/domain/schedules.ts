@@ -121,9 +121,9 @@ function requireEnvelopeForOutgoing(
 ): void {
   if ((amount ?? 0) < 0 && !categoryId && !hasSplits) {
     throw new Refusal(
-      "Which envelope does this come out of? A scheduled payment posts itself " +
-      "every month, so without one it would quietly build a queue of spending " +
-      "with nothing recording where it went. Split it across envelopes instead " +
+      "Which envelope does this come out of? Each time you mark a scheduled " +
+      "payment paid, it records a transaction, so without one it would build up " +
+      "spending with nothing recording where it went. Split it across envelopes instead " +
       "if it is more than one thing. Money coming in does not need any of this.",
     );
   }
@@ -540,8 +540,8 @@ export function setScheduleSplits(
      */
     if (kept.length === 0 && (schedule.amount ?? 0) < 0 && !schedule.category_id) {
       throw new Refusal(
-        "Removing the split would leave this schedule with no envelope at all, and it " +
-        "posts itself every month. Either keep the lines, or leave one line for the " +
+        "Removing the split would leave this schedule with no envelope at all, and " +
+        "each time you mark it paid it records a transaction. Either keep the lines, or leave one line for the " +
         "whole amount to make it a single envelope again.",
       );
     }
