@@ -23,8 +23,8 @@ import { randomBytes, createHash, timingSafeEqual } from "node:crypto";
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, type Actor } from "../core/events.ts";
-import { nowIST, todayIST, addDays, type IsoDate } from "../core/dates.ts";
-import { Missing } from "../core/refusal.ts";
+import { nowIST, todayIST, addDays, formatDate, type IsoDate } from "../core/dates.ts";
+import { Missing, Refusal } from "../core/refusal.ts";
 
 export type TokenScope = "read" | "read-write";
 
@@ -97,6 +97,9 @@ export interface MintedToken {
   secret: string;
 }
 
+/** Ten years: longer than that is "never" with extra steps. */
+export const MAX_TOKEN_DAYS = 3650;
+
 export function mintToken(
   db: DB, actor: Actor,
   input: { name: string; scope: TokenScope; expiresInDays?: number | null },
@@ -105,11 +108,22 @@ export function mintToken(
     const memberId = actor.memberId;
     if (!memberId) throw new Error("A token belongs to a member.");
 
+    // The form offers 90 days, a year or never; anything else is a crafted
+    // value, and each one used to fail in its own bad way: "Infinity" or a
+    // twenty-digit number made an invalid date (a 500), "-5" minted a token
+    // that had expired before its secret was shown, and "abc" became NaN —
+    // falsy — so the least safe answer, *never expires*, won by accident.
+    // Only null means never; a number must be whole days in a sane range.
+    const days = input.expiresInDays ?? null;
+    if (days !== null && !(Number.isInteger(days) && days >= 1 && days <= MAX_TOKEN_DAYS)) {
+      throw new Refusal(
+        `A token expires after a whole number of days, from 1 to ${MAX_TOKEN_DAYS} — or never.`,
+      );
+    }
+
     const secret = `bgt_${randomBytes(32).toString("base64url")}`;
     const id = newId();
-    const expiresAt = input.expiresInDays
-      ? addDays(todayIST(), input.expiresInDays)
-      : null;
+    const expiresAt = days !== null ? addDays(todayIST(), days) : null;
 
     execute(
       db,
@@ -125,7 +139,7 @@ export function mintToken(
       after: { name: input.name, scope: input.scope, expiresAt },
       summary:
         `Created the API token "${input.name}" (${input.scope})` +
-        (expiresAt ? `, expiring ${expiresAt}` : ""),
+        (expiresAt ? `, expiring ${formatDate(expiresAt)}` : ""),
     });
 
     return { token: getToken(db, id)!, secret };

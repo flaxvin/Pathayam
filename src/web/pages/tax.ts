@@ -10,7 +10,7 @@
 
 import { html, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, type Paise } from "../../core/money.ts";
-import { formatFiscalYear } from "../../core/dates.ts";
+import { formatFiscalYear, formatDate } from "../../core/dates.ts";
 import type { TaxEstimate, RegimeEstimate, Deductions, AdvanceInstalment } from "../../domain/tax.ts";
 import type { GainsTax } from "../../domain/capital-gains-tax.ts";
 
@@ -83,7 +83,7 @@ export function renderTax(p: TaxPageProps): SafeHtml {
     <div class="notice notice-warning">
       <strong>An estimate, not a return, and not advice.</strong>
       This is arithmetic on the figures below, under the slabs as last checked on
-      ${p.ratesVerifiedOn}. It is not a computation of what you owe, it does not
+      ${formatDate(p.ratesVerifiedOn)}. It is not a computation of what you owe, it does not
       file anything, and it is not a substitute for an accountant. Check anything
       that matters against
       <a href="${p.ratesSource}" rel="noopener noreferrer" target="_blank">the department</a>.

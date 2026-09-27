@@ -295,6 +295,36 @@ describe("top-down · the ledger is internally consistent", () => {
     );
   });
 
+  test("WEBUX-5 · no bank account or wallet goes below zero, on any day", () => {
+    /*
+     * The joint account paid the household's bills on a flat ₹30,000 a month
+     * and ended the run about ₹20 lakh overdrawn, with Cash a lakh or two
+     * under: arithmetic the engine balanced perfectly and a public demo that
+     * looked broken. A savings account or a wallet cannot do that. Checked at
+     * the end of every day, not only at the end, because a register shows the
+     * running balance on every row.
+     */
+    const overdrawn = queryAll<{ name: string; date: string; balance: number }>(
+      db,
+      `WITH daily AS (
+         SELECT account_id, date, SUM(amount) AS amount FROM transactions
+          WHERE deleted_at IS NULL GROUP BY account_id, date
+       ), running AS (
+         SELECT d.account_id, d.date,
+                a.opening_balance + SUM(d.amount) OVER (PARTITION BY d.account_id ORDER BY d.date) AS balance
+           FROM daily d JOIN accounts a ON a.id = d.account_id
+          WHERE a.kind = 'budget'
+       )
+       SELECT a.name, r.date, MIN(r.balance) AS balance
+         FROM running r JOIN accounts a ON a.id = r.account_id
+        WHERE r.balance < 0
+        GROUP BY a.id`,
+    );
+    assert.deepEqual(
+      overdrawn.map((o) => `${o.name} ${formatPaise(o.balance as never)} on ${o.date}`), [],
+    );
+  });
+
   test("net worth computes, and its parts sum to its total", () => {
     const statement = netWorthStatement(db);
     const assets = statement.assetGroups

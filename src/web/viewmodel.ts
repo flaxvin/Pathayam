@@ -11,7 +11,7 @@ import type { Paise } from "../core/money.ts";
 import type { MonthKey, IsoDate } from "../core/dates.ts";
 import { todayIST, monthOf } from "../core/dates.ts";
 import { budgetsFor } from "../domain/budgets.ts";
-import { listCategories } from "../domain/budget.ts";
+import { listCategories, firstBudgetMonth } from "../domain/budget.ts";
 import { hiddenTransactionSql, hiddenAccountSql } from "../domain/member-scope.ts";
 import { listStaged } from "../import/pipeline.ts";
 import { nextIncome, type NextIncome } from "../domain/schedules.ts";
@@ -63,6 +63,8 @@ export interface GroupView {
 export interface BudgetView {
   month: MonthKey;
   currentMonth: MonthKey;
+  /** WEBUX-3 · The earliest month the budget has anything in; ‹ stops here. */
+  firstMonth: MonthKey;
   today: IsoDate;
   monthState: MonthState;
   groups: GroupView[];
@@ -185,7 +187,8 @@ export function buildBudgetView(
     });
   }
 
-  const outstanding = creditOutstanding(db);
+  // WEBUX-2 · The debt as it stood in the month being viewed, not today's.
+  const outstanding = creditOutstanding(db, target);
   const cards: CardFunding[] = [];
   for (const c of categories.values()) {
     if (!c.paymentAccountId) continue;
@@ -205,6 +208,7 @@ export function buildBudgetView(
   return {
     month: target,
     currentMonth,
+    firstMonth: firstBudgetMonth(db),
     today,
     monthState,
     groups,

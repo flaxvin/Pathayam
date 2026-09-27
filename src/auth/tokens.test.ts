@@ -79,6 +79,31 @@ describe("08 F30 · personal API tokens", () => {
     db.close();
   });
 
+  test("an expiry that is not whole days from 1 to 3650 is refused, and nothing is minted", () => {
+    const db = setup();
+    // What POST /tokens hands over for a crafted <select>: Number("abc") is
+    // NaN, which used to be falsy and so meant *never expires*; -5 minted a
+    // token already dead; Infinity and 1e20 made an invalid date (a 500).
+    for (const days of [Number("abc"), -5, 0, 0.5, Infinity, 1e20, 3651]) {
+      assert.throws(
+        () => mintToken(db, actor, { name: `Bad ${days}`, scope: "read", expiresInDays: days }),
+        (e: Error) => e.name === "Refusal" && /whole number of days/.test(e.message),
+        `expiresInDays ${days}`,
+      );
+    }
+    assert.equal(listTokens(db, RAVI).length, 0);
+
+    // The three answers the form offers still work.
+    mintToken(db, actor, { name: "Ninety", scope: "read", expiresInDays: 90 });
+    mintToken(db, actor, { name: "Year", scope: "read", expiresInDays: 365 });
+    mintToken(db, actor, { name: "Never", scope: "read", expiresInDays: null });
+    assert.deepEqual(
+      listTokens(db, RAVI).map((t) => t.expires_at).sort(),
+      [addDays(todayIST(), 365), addDays(todayIST(), 90), null].sort(),
+    );
+    db.close();
+  });
+
   test("F30.3 · a revoked token disappears from the list", () => {
     const db = setup();
     const { token } = mintToken(db, actor, { name: "One", scope: "read" });

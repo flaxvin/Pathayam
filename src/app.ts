@@ -45,7 +45,7 @@ import {
 import { fetchGmail } from "./gmail/fetch.ts";
 import { withIdempotency, IdempotencyConflict } from "./core/idempotency.ts";
 import { parseAmount, evaluateAmountExpression, formatPaise, type Paise } from "./core/money.ts";
-import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, lastDayOfMonth, daysBetween, fiscalYearOf, formatFiscalYear, statementPeriodOf, type MonthKey, type IsoDate, type WeekdayOrdinal } from "./core/dates.ts";
+import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, formatDate, lastDayOfMonth, daysBetween, fiscalYearOf, formatFiscalYear, statementPeriodOf, type MonthKey, type IsoDate, type WeekdayOrdinal } from "./core/dates.ts";
 import { buildBudgetView, reviewCount } from "./web/viewmodel.ts";
 import { renderBudget } from "./web/pages/budget.ts";
 import {
@@ -3043,7 +3043,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               <div class="row-between" style="padding:.5rem 0;border-top:1px solid var(--border)">
                 <div>
                   <div>${s.user_agent ?? "Unknown device"}</div>
-                  <div class="faint">Last seen ${s.last_seen_at.slice(0, 10)}</div>
+                  <div class="faint">Last seen ${formatDate(s.last_seen_at.slice(0, 10))}</div>
                 </div>
                 ${s.id === a.session.id
                   ? html`<span class="chip chip-positive">This device</span>`
@@ -3353,7 +3353,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           <div>
             <h1 style="margin-bottom:.15rem">${formatPaise(Math.abs(transaction.amount))}</h1>
             <p class="muted" style="margin:0">
-              ${account.nickname || account.name} · ${transaction.date}
+              ${account.nickname || account.name} · ${formatDate(transaction.date)}
             </p>
           </div>
           <!--
@@ -3602,7 +3602,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 <li>
                   <div>${e.summary ?? e.action}</div>
                   <div class="explain-when">
-                    ${e.at.slice(0, 10)} · ${memberName(e.actorMemberId)}
+                    ${formatDate(e.at.slice(0, 10))} · ${memberName(e.actorMemberId)}
                   </div>
                 </li>
               `,
@@ -4123,7 +4123,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      */
     const scope = budgetParam(ctx);
     const view = buildBudgetView(db, month, scope, viewer(ctx));
-    const outstanding = creditOutstanding(db);
+    // WEBUX-2 · The envelope is the viewed month's, so the debt it is weighed
+    // against is too; what the card owes, beside its statement, is today's.
+    const outstanding = creditOutstanding(db, month);
+    const owedNow = month < monthOf(todayIST()) ? creditOutstanding(db) : outstanding;
     const today = todayIST();
 
     const cards: CardDue[] = listAccounts(db, { viewerMemberId: viewer(ctx) })
@@ -4146,7 +4149,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           name: account.nickname || account.name,
           last4: account.last4,
           startingDebtNote: cameWithTheCard(funding),
-          owed: Math.max(0, -(outstanding.get(account.id) ?? 0)) as Paise,
+          owed: Math.max(0, -(owedNow.get(account.id) ?? 0)) as Paise,
           funded,
           unfunded: funding.unfunded,
           statement: statement
@@ -4217,7 +4220,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const visible = visibleBudgetIds(db, viewer(ctx));
     const month = monthParam(ctx);
     const view = buildBudgetView(db, month, undefined, viewer(ctx));
-    const outstanding = creditOutstanding(db);
+    const outstanding = creditOutstanding(db, month);
     /*
      * 15 · The queue's own lists read the whole household: another member's
      * unfiled spending, reimbursable claims and broken checkpoints on their
@@ -6008,7 +6011,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       createGoal(db, actor, {
         name,
         targetAmount: amountField(field(ctx.body, "target_amount"), "Target"),
-        targetDate: targetDate ? parseDate(targetDate) : null,
+        // Only a blank field means "no date". A date parseDate cannot read
+        // used to come back null and be saved as no date — silently, with
+        // "Goal added" — so dateField refuses it like every other date field.
+        targetDate: targetDate?.trim() ? dateField(targetDate, "Target date") : null,
         budgetId,
       });
       const budget = getBudget(db, budgetId);
@@ -6034,7 +6040,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       updateGoal(db, actor, id, {
         name,
         targetAmount: amountField(field(ctx.body, "target_amount"), "Target"),
-        targetDate: targetDate?.trim() ? parseDate(targetDate) : null,
+        // As on /goals/new: an unreadable date is refused, not read as "no
+        // date" — which here wiped the goal's saved date and stopped it
+        // computing a monthly amount.
+        targetDate: targetDate?.trim() ? dateField(targetDate, "Target date") : null,
       });
       // Keep the owned category's name in step with the goal's.
       for (const catId of goalCategoryIds(db, id)) {
@@ -6334,7 +6343,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                         ${preview.matches.map(
                           (m) => html`
                             <tr>
-                              <td>${m.date}</td>
+                              <td>${formatDate(m.date)}</td>
                               <td>${m.payee ?? "—"}</td>
                               <td class="faint">${m.currentCategory ?? "Uncategorised"}</td>
                               <td><strong>${m.proposedCategory ?? "—"}</strong></td>
@@ -7595,7 +7604,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const snapshot = snapshotNetWorth(db, actorFor(a));
       return {
         redirect: "/net-worth",
-        message: `Recorded ${formatPaise(snapshot.net_worth)} as of ${snapshot.as_of}.`,
+        message: `Recorded ${formatPaise(snapshot.net_worth)} as of ${formatDate(snapshot.as_of)}.`,
       };
     }),
   );
@@ -7971,7 +7980,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             name: "Tax rates",
             state: staleRatesWarning(fiscalYearOf(todayIST())) ? "degraded" : "healthy",
             reason: staleRatesWarning(fiscalYearOf(todayIST()))
-              ?? `Cover the current financial year. Last checked ${RATES_VERIFIED_ON} against ${RATES_SOURCE}.`,
+              ?? `Cover the current financial year. Last checked ${formatDate(RATES_VERIFIED_ON)} against ${RATES_SOURCE}.`,
           },
         ],
       },
@@ -7991,7 +8000,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               queue === 0
                 ? "Nothing waiting."
                 : `${queue} item${queue === 1 ? "" : "s"} waiting for a decision.`,
-            action: queue > 0 ? { label: "Open", href: "/review" } : null,
+            action: queue > 0 ? { label: "Open", href: "/review", method: "get" } : null,
           },
         ],
       },

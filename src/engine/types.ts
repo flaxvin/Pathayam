@@ -106,6 +106,14 @@ export interface MonthlyFacts {
   calledEvenIncome: Paise;
 }
 
+/**
+ * The most months the engine walks for one read — a century. A household's
+ * history is decades at most; anything older than this before the month being
+ * asked about is a typo, and is left out of the walk rather than allowed to
+ * push the present out of it (WEBUX-3).
+ */
+export const ENGINE_WINDOW_MONTHS = 1200;
+
 export function emptyMonth(): MonthlyFacts {
   return {
     assigned: {},

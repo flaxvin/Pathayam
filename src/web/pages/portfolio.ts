@@ -1649,7 +1649,7 @@ export function renderDisposeAsset(opts: {
     <h1>Sell ${opts.account.name}</h1>
     <p class="faint">
       ${opts.lastAsOf
-        ? html`Last valued at ${formatPaise(opts.lastValue)} on ${opts.lastAsOf}.`
+        ? html`Last valued at ${formatPaise(opts.lastValue)} on ${formatDate(opts.lastAsOf)}.`
         : html`This asset has never been valued.`}
     </p>
     <p>
@@ -1724,7 +1724,7 @@ export function renderAddToAsset(opts: {
     <h1>Add to ${opts.account.name}</h1>
     <p class="faint">
       ${opts.lastAsOf
-        ? html`Currently ${formatPaise(opts.lastValue)}, as of ${opts.lastAsOf}.`
+        ? html`Currently ${formatPaise(opts.lastValue)}, as of ${formatDate(opts.lastAsOf)}.`
         : html`This asset has no value recorded yet.`}
     </p>
 
