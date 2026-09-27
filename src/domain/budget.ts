@@ -490,6 +490,8 @@ interface DeleteTaken {
   scheduleIds?: string[];
   scheduleSplitIds?: string[];
   stagedIds?: string[];
+  /** Balances called even that were spent from it, moved to `remapTo`. Absent on older events. */
+  evenCallIds?: string[];
 }
 
 interface RuleJson { id: string; name: string; conditions_json: string; actions_json: string }
@@ -614,11 +616,14 @@ export function deleteCategory(
       }
     }
     if (!opts.remapTo) {
+      // A balance called even is spent from an envelope with no transaction
+      // behind it, so it is history the same as one (squaring-up.ts).
       const history = queryOne<{ n: number }>(
         db,
         `SELECT (SELECT COUNT(*) FROM transactions WHERE category_id = ?)
-              + (SELECT COUNT(*) FROM transaction_splits WHERE category_id = ?) AS n`,
-        id, id,
+              + (SELECT COUNT(*) FROM transaction_splits WHERE category_id = ?)
+              + (SELECT COUNT(*) FROM even_calls WHERE giving_category_id = ?) AS n`,
+        id, id, id,
       )?.n ?? 0;
       if (history > 0) {
         throw new Refusal(
@@ -666,6 +671,8 @@ export function deleteCategory(
       execute(db, `UPDATE schedule_splits SET category_id = ? WHERE category_id = ?`, opts.remapTo, id);
       execute(db, `UPDATE staged_transactions SET category_id = ? WHERE category_id = ? AND status = 'pending'`,
         opts.remapTo, id);
+      taken.evenCallIds = ids(`SELECT id FROM even_calls WHERE giving_category_id = ?`);
+      execute(db, `UPDATE even_calls SET giving_category_id = ? WHERE giving_category_id = ?`, opts.remapTo, id);
     }
     execute(db, `DELETE FROM assignments WHERE category_id = ?`, id);
     execute(db, `DELETE FROM targets WHERE category_id = ?`, id);
@@ -1470,6 +1477,10 @@ registerUndoHandler("category", (db, event) => {
         execute(db, `UPDATE ${table} SET category_id = ? WHERE id = ? AND category_id = ?`,
           id, rowId, taken.remapTo);
       }
+    }
+    for (const callId of taken.evenCallIds ?? []) {
+      execute(db, `UPDATE even_calls SET giving_category_id = ? WHERE id = ? AND giving_category_id = ?`,
+        id, callId, taken.remapTo);
     }
     // A rule goes back only if it still says what the delete made it say.
     for (const r of taken.rules ?? []) {

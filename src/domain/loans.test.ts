@@ -790,3 +790,45 @@ describe("WEALTH-32 · one half of the lender's split is kept, and the other is 
     );
   });
 });
+
+/*
+ * An instalment's split is two non-negative halves, and the principal cannot
+ * repay more than is owed. A principal of −₹5,000 with ₹15,000 of interest
+ * "added up" to a ₹10,000 payment and raised the debt by ₹5,000; ₹2,00,000
+ * paid against ₹1,00,000 floored the outstanding at nil while the loan account
+ * read ₹98,950 in credit.
+ */
+describe("an instalment cannot run the debt backwards or past zero", () => {
+  function personal(db: DB, bankId: string) {
+    return createLoan(db, actor, {
+      lender: "Fictional Bank", loanType: "personal", sanctioned: rupees(1_00_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 12,
+      tenureMonths: 12, currentOutstanding: rupees(1_00_000), repaymentAccountId: bankId,
+    });
+  }
+
+  test("a negative half is refused, and the outstanding is untouched", () => {
+    const { db, bankId } = setup();
+    const loan = personal(db, bankId);
+    assert.throws(
+      () => recordInstalment(db, actor, {
+        loanId: loan.id, date: "2026-02-05", amount: rupees(10_000),
+        principal: rupees(-5_000), interest: rupees(15_000), fromAccountId: bankId,
+      }),
+      /can be negative/,
+    );
+    assert.equal(projectLoan(db, loan.id)!.outstanding, rupees(1_00_000));
+  });
+
+  test("a principal larger than what is owed is refused", () => {
+    const { db, bankId } = setup();
+    const loan = personal(db, bankId);
+    assert.throws(
+      () => recordInstalment(db, actor, {
+        loanId: loan.id, date: "2026-02-05", amount: rupees(2_00_000), fromAccountId: bankId,
+      }),
+      /still outstanding/,
+    );
+    assert.equal(accountBalances(db).get(loan.account_id)?.working, -rupees(1_00_000));
+  });
+});

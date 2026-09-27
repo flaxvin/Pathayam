@@ -316,3 +316,29 @@ describe("F4.9 · tags and ownership are editable where the record is", () => {
     assert.match(body, /name="split_category_0"/);
   });
 });
+
+describe("an edit with a date that is not a date", () => {
+  test("is refused, rather than saved on the old date under \"Saved.\"", async () => {
+    const t = createTransaction(db, actor, {
+      accountId: bank, amount: -rupees(500), date: "2026-09-05", categoryId: groceries,
+    });
+    const res = await app.post(`/transaction/${t.id}`, {
+      amount: "700", direction: "out", date: "31-02-2026", split_category_0: groceries,
+    });
+    assert.equal(res.status, 400);
+    const row = getTransaction(db, t.id)!;
+    assert.deepEqual([row.amount, row.date], [-rupees(500), "2026-09-05"]);
+  });
+
+  test("a blank date keeps the one it had", async () => {
+    const t = createTransaction(db, actor, {
+      accountId: bank, amount: -rupees(500), date: "2026-09-05", categoryId: groceries,
+    });
+    const res = await app.post(`/transaction/${t.id}`, {
+      amount: "700", direction: "out", date: "", split_category_0: groceries,
+    });
+    assert.equal(res.status, 303);
+    const row = getTransaction(db, t.id)!;
+    assert.deepEqual([row.amount, row.date], [-rupees(700), "2026-09-05"]);
+  });
+});

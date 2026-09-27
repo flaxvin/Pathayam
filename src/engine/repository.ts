@@ -16,6 +16,7 @@ import {
   firstDayOfMonth, lastDayOfMonth, monthsBetween,
 } from "../core/dates.ts";
 import { computeBudget } from "./engine.ts";
+import { hiddenTransactionSql } from "../domain/member-scope.ts";
 import { commitmentSources, claimByMonth, claimLinks, claimFor } from "../domain/commitments.ts";
 import {
   emptyMonth,
@@ -1149,12 +1150,16 @@ export function envelopeSpendBetween(
   db: DB, from: IsoDate, to: IsoDate, viewerMemberId?: string | null,
   budgetIds?: readonly string[],
 ): Paise {
-  const seen = viewerMemberId === undefined
-    ? { sql: "", params: [] as (string | null)[] }
-    : {
-      sql: " AND (a.visibility <> 'private' OR a.holder_member_id IS ?)",
-      params: [viewerMemberId ?? null],
-    };
+  /*
+   * memberScope's rule, the account and the envelope. The account half alone
+   * counted spending on a household-visible account in Ravi's own budget, filed
+   * to his own envelope — a row every screen hides from Priya — into her FIRE
+   * page's living costs.
+   */
+  const hidden = viewerMemberId === undefined ? null : hiddenTransactionSql("t", viewerMemberId);
+  const seen = hidden
+    ? { sql: ` AND NOT ${hidden.sql}`, params: hidden.params }
+    : { sql: "", params: [] as (string | null)[] };
   // A category with no budget of its own is the household's, as listCategories reads it.
   const scoped = budgetIds === undefined
     ? { sql: "", params: [] as string[] }
@@ -1172,25 +1177,23 @@ export function envelopeSpendBetween(
        SELECT t.id AS transaction_id, t.account_id AS account_id, t.category_id AS category_id, t.amount AS amount
          FROM transactions t
         WHERE t.deleted_at IS NULL AND t.is_split = 0 AND t.category_id IS NOT NULL
-          AND t.date >= ? AND t.date <= ?
+          AND t.date >= ? AND t.date <= ?${seen.sql}
        UNION ALL
        SELECT t.id, t.account_id, s.category_id, s.amount
          FROM transaction_splits s
          JOIN transactions t ON t.id = s.transaction_id
         WHERE t.deleted_at IS NULL AND s.category_id IS NOT NULL
-          AND t.date >= ? AND t.date <= ?
+          AND t.date >= ? AND t.date <= ?${seen.sql}
      )
      SELECT COALESCE(SUM(-c.amount), 0)
        FROM categorised c
        LEFT JOIN categories cat ON cat.id = c.category_id
-       JOIN accounts a ON a.id = c.account_id
       WHERE c.amount < 0 AND cat.payment_account_id IS NULL
-        AND NOT EXISTS (SELECT 1 FROM lots l WHERE l.transaction_id = c.transaction_id)${seen.sql}${scoped.sql}`,
+        AND NOT EXISTS (SELECT 1 FROM lots l WHERE l.transaction_id = c.transaction_id)${scoped.sql}`,
     // Each leg of the union is bounded to the window, so a long history
     // costs no more than a short one.
-    from, to,
-    from, to,
-    ...seen.params,
+    from, to, ...seen.params,
+    from, to, ...seen.params,
     ...scoped.params,
   ) ?? 0;
 }

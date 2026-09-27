@@ -162,9 +162,14 @@ export function reconcile(db: DB, actor: Actor, input: ReconcileInput): Reconcil
     const adjustment = preview.difference;
 
     if (adjustment !== 0) {
-      // F9.2: a balancing entry, categorised so it is never invisible.
-      const category =
-        input.adjustmentCategoryId ?? ensureReconciliationCategory(db, actor, input.accountId);
+      // F9.2: a balancing entry, categorised so it is never invisible — except
+      // on a tracking account, which funds no budget (FW1). Filed to an
+      // envelope, a fixed deposit's ₹100 adjustment put ₹100 into the
+      // household's Reconciliation envelope with no budget money behind it,
+      // and Ready to Assign fell by the same ₹100.
+      const category = account.kind === "tracking"
+        ? null
+        : input.adjustmentCategoryId ?? ensureReconciliationCategory(db, actor, input.accountId);
       const entry = createTransaction(db, actor, {
         accountId: input.accountId,
         amount: adjustment,

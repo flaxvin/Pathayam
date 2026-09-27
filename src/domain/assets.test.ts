@@ -25,7 +25,7 @@ import { createLoan } from "./loans.ts";
 import {
   createAssetAccount, findOrCreateInstrument, recordPurchase, recordSale,
   recordDividend, recordSplit, recordMerger, recordPrice, recordFxRate, recordValuation,
-  latestValuation, latestPrice, fxRate, viewHolding, listHoldings,
+  latestValuation, latestPrice, fxRate, viewHolding, listHoldings, lotsFor,
 } from "./assets.ts";
 import { netWorthStatement, snapshotNetWorth, netWorthChange } from "./networth.ts";
 import { units, price, formatUnits } from "../portfolio/holdings.ts";
@@ -624,6 +624,26 @@ describe("R28 · corporate actions through the database", () => {
       () => recordMerger(db, actor, { holdingId: holding.id, date: "2026-08-01", ratio: 0 }),
       /above zero/,
     );
+    db.close();
+  });
+});
+
+/*
+ * Fees are a cost. ₹1,000 of units with "−₹500" of fees was booked at a cost
+ * of ₹500, so the holding showed a ₹500 gain on the day it was bought and the
+ * bank was debited half of what left it.
+ */
+describe("R24.5 · purchase fees", () => {
+  test("negative fees are refused, and nothing is booked", () => {
+    const { db, demat, fund } = setup();
+    assert.throws(
+      () => recordPurchase(db, actor, {
+        accountId: demat.id, instrumentId: fund.id,
+        tradeDate: "2026-01-05", price: price(100), units: units(10), fees: -rupees(500),
+      }),
+      /fees/i,
+    );
+    assert.equal(listHoldings(db, demat.id).flatMap((h) => lotsFor(db, h.id)).length, 0);
     db.close();
   });
 });

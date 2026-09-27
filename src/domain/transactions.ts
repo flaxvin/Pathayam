@@ -478,13 +478,23 @@ export function updateTransaction(
     set("updated_at", nowIST());
     execute(db, `UPDATE transactions SET ${sets.join(", ")} WHERE id = ?`, ...params, id);
 
-    // The partner takes the same amount, opposite sign, and the same date.
-    if (partner && (patch.amount !== undefined || patch.date !== undefined)) {
+    /*
+     * The partner takes the same amount, opposite sign, and the same date —
+     * when this leg's actually change. The edit form posts both on every save,
+     * and the legs of an imported transfer are dated by their own statements
+     * (the card credits a payment two days after the bank sends it), so
+     * rewriting the partner on any posted value moved the bank's leg to the
+     * card's date on a memo edit: out of the bank's reconciled period, with
+     * the checkpoint left asserting a balance that no longer held.
+     */
+    const amountMoved = patch.amount !== undefined && patch.amount !== before.amount;
+    const dateMoved = patch.date !== undefined && patch.date !== before.date;
+    if (partner && (amountMoved || dateMoved)) {
       execute(
         db,
         `UPDATE transactions SET amount = ?, date = ?, updated_at = ? WHERE id = ?`,
-        patch.amount !== undefined ? -patch.amount : partner.amount,
-        patch.date ?? partner.date,
+        amountMoved ? -patch.amount! : partner.amount,
+        dateMoved ? patch.date! : partner.date,
         nowIST(), partner.id,
       );
     }
@@ -575,7 +585,40 @@ export function restoreTransaction(db: DB, actor: Actor, id: string): void {
 /** Hard-delete anything soft-deleted longer than the window (F4.8). */
 export function purgeDeleted(db: DB, olderThanDays = 30, today = todayIST()): number {
   const cutoff = addDays(today, -olderThanDays);
-  return execute(db, `DELETE FROM transactions WHERE deleted_at IS NOT NULL AND deleted_at < ?`, cutoff);
+  /*
+   * One statement used to delete every expired row at once, and the first one
+   * anything still pointed at failed it on a foreign key — so nothing was ever
+   * purged again, and the rest of housekeeping after it never ran. The row
+   * that did it is the most ordinary one there is: an imported line, approved
+   * from Review and then deleted, whose staged row still names it.
+   *
+   * The review queue's pointers are let go, as eraseTransaction does, except
+   * that the staged row keeps its status: the household approved it and then
+   * deleted the result, which is not a reason to offer it for review again.
+   * A row that something derived still leans on (a loan instalment, a lot, a
+   * converted EMI plan) is left soft-deleted rather than orphaning that record.
+   */
+  return transact(db, () => {
+    const expired = queryAll<{ id: string }>(
+      db, `SELECT id FROM transactions WHERE deleted_at IS NOT NULL AND deleted_at < ?`, cutoff,
+    ).map((r) => r.id);
+    const leaning = [
+      ...TRANSACTION_DEPENDANTS,
+      { table: "loans", column: "converted_from_transaction_id", describe: "" },
+    ];
+    let purged = 0;
+    for (const id of expired) {
+      const held = leaning.some((dep) =>
+        (queryOne<{ n: number }>(
+          db, `SELECT COUNT(*) AS n FROM ${dep.table} WHERE ${dep.column} = ?`, id,
+        )?.n ?? 0) > 0);
+      if (held) continue;
+      execute(db, `UPDATE staged_transactions SET transaction_id = NULL WHERE transaction_id = ?`, id);
+      execute(db, `UPDATE staged_transactions SET duplicate_of_id = NULL WHERE duplicate_of_id = ?`, id);
+      purged += execute(db, `DELETE FROM transactions WHERE id = ?`, id);
+    }
+    return purged;
+  });
 }
 
 // ---------------------------------------------------------------------------
@@ -770,7 +813,24 @@ export function createTransfer(db: DB, actor: Actor, input: TransferInput): [Tra
     const pairId = newId();
     const date = input.date ?? todayIST();
     const isCardPayment = to.kind === "credit";
-    const memo = input.memo ?? (isCardPayment ? `Card payment — ${to.name}` : `Transfer to ${to.name}`);
+    /*
+     * 15 · Each leg's memo names the other account, and each leg is read by
+     * whoever can see its own account. ₹1,000 moved from Priya's private
+     * account into the joint one put "Transfer from <her account's name>" in
+     * Ravi's register, on his transaction page, in Search and in his CSV
+     * export — a private account named on four screens. A leg names the other
+     * side only when everyone who can read the leg can also see that side.
+     */
+    const nameOn = (
+      leg: { visibility: string; holder_member_id: string | null },
+      other: { name: string; visibility: string; holder_member_id: string | null },
+    ): string =>
+      other.visibility !== "private" ||
+      (leg.visibility === "private" && leg.holder_member_id === other.holder_member_id)
+        ? other.name
+        : "a private account";
+    const memo = input.memo ??
+      (isCardPayment ? `Card payment — ${nameOn(from, to)}` : `Transfer to ${nameOn(from, to)}`);
 
     const fee = input.fee && input.fee.amount > 0 ? input.fee : null;
     if (fee) {
@@ -787,7 +847,7 @@ export function createTransfer(db: DB, actor: Actor, input: TransferInput): [Tra
       accountId: input.toAccountId,
       amount: input.amount,
       date,
-      memo: isCardPayment ? `Card payment from ${from.name}` : `Transfer from ${from.name}`,
+      memo: isCardPayment ? `Card payment from ${nameOn(to, from)}` : `Transfer from ${nameOn(to, from)}`,
       cleared: input.cleared,
     });
 
@@ -806,7 +866,9 @@ export function createTransfer(db: DB, actor: Actor, input: TransferInput): [Tra
       amount: -fee.amount as Paise,
       date,
       categoryId: fee.categoryId,
-      memo: isCardPayment ? `Charge on payment to ${to.name}` : `Charge on transfer to ${to.name}`,
+      memo: isCardPayment
+        ? `Charge on payment to ${nameOn(from, to)}`
+        : `Charge on transfer to ${nameOn(from, to)}`,
       cleared: input.cleared,
     });
 

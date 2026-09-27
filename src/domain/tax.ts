@@ -430,7 +430,15 @@ export function estimateUnder(
    * plus a ₹20,00,000 111A gain (₹65,00,000) below the 10% band: ₹13,83,200
    * shown against ₹15,21,520 payable.
    */
-  const band = rules.surcharge.find((b) => totalIncome > b.above);
+  /*
+   * Except the bands above that cap (25%, 37%): those are tested on income
+   * *without* the special-rate gains, and income that crosses ₹2 crore only
+   * because of them takes 15% (First Schedule, Part I, Paragraph A). Testing
+   * total income put ₹1,50,00,000 of salary plus a ₹1,00,00,000 111A gain in
+   * the 25% band: ₹76,96,000 shown against ₹72,71,680.
+   */
+  const band = rules.surcharge.find((b) =>
+    (b.rateBp > GAINS_SURCHARGE_CAP_BP ? taxable : totalIncome) > b.above);
   const gainsBandBp = band ? (sp ? Math.min(band.rateBp, GAINS_SURCHARGE_CAP_BP) : band.rateBp) : 0;
   const surcharge = band
     ? Math.round((afterRebate * band.rateBp + specialAfter * gainsBandBp) / 10_000) as Paise

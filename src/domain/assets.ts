@@ -418,11 +418,17 @@ export interface Valuation {
 export function latestValuation(
   db: DB, accountId: string, today = todayIST(),
 ): Valuation | null {
+  /*
+   * WEALTH-15 · For a past day, the valuation that stood on that day. Every
+   * valuation was read regardless of date, so a flat revalued in September
+   * carried September's figure into June's snapshot. Today's reading is
+   * unchanged: the latest, whatever its date, like a future-dated transaction.
+   */
   const row = queryOne<{ value: number; as_of: string }>(
     db,
-    `SELECT value, as_of FROM asset_valuations WHERE account_id = ?
+    `SELECT value, as_of FROM asset_valuations WHERE account_id = ? AND as_of <= ?
       ORDER BY as_of DESC, created_at DESC LIMIT 1`,
-    accountId,
+    accountId, today < todayIST() ? today : "9999-12-31",
   );
   if (!row) return null;
 
@@ -632,6 +638,11 @@ export function recordPurchase(
   }
   if (!(Number.isFinite(input.price) && input.price > 0)) {
     throw new Refusal("The purchase price has to be a number above zero.");
+  }
+  // Fees add to what a lot cost; negative ones knocked it down, and the bank
+  // was debited less than the units cost.
+  if (input.fees !== undefined && !(Number.isFinite(input.fees) && input.fees >= 0)) {
+    throw new Refusal("The fees are what the purchase cost on top — zero or more.");
   }
   /*
    * WEALTH-39 · Units live in an investment account. A purchase filed into

@@ -378,6 +378,34 @@ export function dictGet(doc: PdfDocument, dict: PdfDict, key: string): PdfValue 
  * find nothing in — better than throwing on a font file nobody asked for.
  */
 export function decodeStream(doc: PdfDocument, stream: PdfStream, data?: Uint8Array): Uint8Array {
+  const bytes = decodeUncharged(doc, stream, data);
+  // What this document may still decode. Past it, a stream reads as empty —
+  // the same answer as one whose compression is broken.
+  const remaining = decodeBudget.get(doc) ?? MAX_DECODED_BYTES;
+  if (bytes.length > remaining) {
+    decodeBudget.set(doc, 0);
+    return new Uint8Array(0);
+  }
+  decodeBudget.set(doc, remaining - bytes.length);
+  return bytes;
+}
+
+/**
+ * How much one document may decode, in all, across every stream it asks for.
+ *
+ * A statement's content is a few megabytes at most. Flate has no such sense:
+ * a stream compressed twice over is a few hundred bytes that inflate to
+ * gigabytes, and a page may list the same stream as its contents any number
+ * of times. Decoded in full, a file of under a kilobyte held this
+ * single-threaded server for minutes and asked it for gigabytes — from an
+ * upload, or from an attachment a Gmail fetch picked up unasked. The budget is
+ * per document, not per stream, because repetition multiplies any per-stream
+ * limit; and it is spent on every decode, filtered or not.
+ */
+const MAX_DECODED_BYTES = 32 * 1024 * 1024;
+const decodeBudget = new WeakMap<PdfDocument, number>();
+
+function decodeUncharged(doc: PdfDocument, stream: PdfStream, data?: Uint8Array): Uint8Array {
   let bytes = data ?? stream.raw;
   const filter = dictGet(doc, stream.dict, "Filter");
   const filters = Array.isArray(filter) ? filter : filter === null ? [] : [filter];
@@ -386,8 +414,13 @@ export function decodeStream(doc: PdfDocument, stream: PdfStream, data?: Uint8Ar
     if (!isName(f)) continue;
     if (f.name === "FlateDecode" || f.name === "Fl") {
       try {
-        bytes = new Uint8Array(inflateSync(Buffer.from(bytes)));
-      } catch {
+        // Never inflated past what the document has left to spend.
+        const limit = Math.max(1, decodeBudget.get(doc) ?? MAX_DECODED_BYTES);
+        bytes = new Uint8Array(inflateSync(Buffer.from(bytes), { maxOutputLength: limit }));
+      } catch (error) {
+        // Over budget once is over budget for good: the next reference to the
+        // same stream must not pay to inflate it all over again.
+        if ((error as { code?: string }).code === "ERR_BUFFER_TOO_LARGE") decodeBudget.set(doc, 0);
         return new Uint8Array(0);
       }
     } else if (f.name === "ASCIIHexDecode" || f.name === "AHx") {

@@ -223,6 +223,18 @@ function refusePrivateWithNoHolder(visibility: string | null | undefined, holder
   }
 }
 
+/**
+ * A statement or due day is a day of the month: a whole number from 1 to 31.
+ * Days past a short month's end fall on its last day wherever they are read.
+ * Anything else — 45, −3, 2.5 — was stored as typed.
+ */
+function refuseImpossibleDay(label: string, day: number | null | undefined): void {
+  if (day === null || day === undefined) return;
+  if (!Number.isInteger(day) || day < 1 || day > 31) {
+    throw new Refusal(`The ${label} is a day of the month, from 1 to 31.`);
+  }
+}
+
 export function createAccount(db: DB, actor: Actor, input: CreateAccountInput): Account {
   if (!ACCOUNT_SUBTYPES[input.kind]?.includes(input.subtype)) {
     throw new Refusal(
@@ -240,6 +252,8 @@ export function createAccount(db: DB, actor: Actor, input: CreateAccountInput): 
    * Tracking accounts fund nothing (FW1), so they can be hidden honestly.
    */
   refusePrivateWithNoHolder(input.visibility, input.holderMemberId);
+  refuseImpossibleDay("statement day", input.statementDay);
+  refuseImpossibleDay("due day", input.dueDay);
   if (input.visibility === "private" && input.kind !== "tracking") {
     // H2.2a · Allowed once the account sits in somebody's own budget, because
     // the household's Ready to Assign no longer sums it.
@@ -425,6 +439,18 @@ export function updateAccount(
     const nextHolder =
       patch.holder_member_id !== undefined ? patch.holder_member_id : before.holder_member_id;
     refusePrivateWithNoHolder(nextVisibility, nextHolder);
+    refuseImpossibleDay("statement day", patch.statement_day);
+    refuseImpossibleDay("due day", patch.due_day);
+    /*
+     * An account that funds a budget always belongs to one. A NULL here took
+     * the account out of every budget's sums at once, so its balance left the
+     * household's Ready to Assign with nothing on any register to explain it.
+     */
+    if (patch.budget_id === null && before.kind !== "tracking") {
+      throw new Refusal(
+        "Say which budget this account funds — every account you budget from belongs to one.",
+      );
+    }
     const nextBudget = patch.budget_id ?? before.budget_id ?? householdBudgetId(db);
     if (nextVisibility === "private" && before.kind !== "tracking") {
       const budget = nextBudget;

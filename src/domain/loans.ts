@@ -996,6 +996,26 @@ export function recordInstalment(
       throw new Refusal("A charge is a cost, not a repayment — it has no principal or interest.");
     }
 
+    /*
+     * Both halves only ever reduce what is owed or cost money. A principal of
+     * −₹5,000 beside ₹15,000 of interest still added up to a ₹10,000 payment,
+     * and the "payment" raised the debt. And a principal past the outstanding
+     * floored the debt at nil while the loan account went into credit by the
+     * excess — the same case recordPrepayment refuses, reached by the pay form.
+     */
+    if (input.kind !== "charge") {
+      if (principal < 0 || interest < 0) {
+        throw new Refusal("Neither the principal nor the interest of a payment can be negative.");
+      }
+      const owed = outstandingPrincipal(db, input.loanId);
+      if (principal > owed) {
+        throw new Refusal(
+          `That repays ${formatPaise(principal)} of principal, more than the ${formatPaise(owed)} ` +
+          `still outstanding. To clear the loan, settle and close it instead.`,
+        );
+      }
+    }
+
     let transactionId: string | null = null;
     let loanTransactionId: string | null = null;
     if (input.fromAccountId) {

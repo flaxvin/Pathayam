@@ -260,3 +260,34 @@ Closing Unit Balance: 200.000
     db.close();
   });
 });
+
+describe("15 · a CAS lands in the importer's account, not another member's private one", () => {
+  test("Priya's private holding of the same fund is not where Ravi's folio goes", () => {
+    const { db, account } = setup();
+    execute(db, `INSERT INTO members (id,email,name,created_at) VALUES (?,?,?,?)`,
+      "m-priya", "priya@example.com", "Priya", nowIST());
+    const priya: Actor = { memberId: "m-priya", source: "ui" };
+    const hers = createAssetAccount(db, priya, {
+      name: "Priya's funds", subtype: "investment", holderMemberId: "m-priya", visibility: "private",
+    });
+    const fund = (folio: string, row: string) => parseCasText(`
+Axis Asset Management Company Limited
+Folio No: ${folio}
+Axis Bluechip Fund - Direct Plan - Growth
+ISIN: INF846K01131    Registrar : KFINTECH
+${row}
+`);
+    applyCasPlan(db, priya, planCasImport(db,
+      fund("11112222", "01/05/2026  Purchase  10,000.00  200.000  50.0000  200.000"), hers.id), [0]);
+
+    // Ravi's own folio of the same fund went into Priya's private account:
+    // the plan took the first holding of the instrument anywhere in the house.
+    const plan = planCasImport(db,
+      fund("33334444", "03/05/2026  Purchase  5,000.00  100.000  50.0000  100.000"), account.id, RAVI);
+    assert.equal(plan.schemes[0]!.accountId, account.id);
+    applyCasPlan(db, actor, plan, [0]);
+    assert.equal(lotsFor(db, listHoldings(db, hers.id)[0]!.id).length, 1, "Priya's holding is untouched");
+    assert.equal(listHoldings(db, account.id).length, 1, "Ravi's lot is in Ravi's account");
+    db.close();
+  });
+});
