@@ -18,6 +18,11 @@ import {
 } from "../domain/assets.ts";
 import { createLoan, recordInstalment } from "../domain/loans.ts";
 import { price, units } from "../portfolio/holdings.ts";
+import { todayIST, addDays } from "../core/dates.ts";
+import { createTransaction } from "../domain/transactions.ts";
+import { createGroup, createCategory, startPersonalBudget } from "../domain/budget.ts";
+import { spendByTag, spendingCalendar } from "../domain/reports.ts";
+import { envelopeSpendBetween } from "../engine/repository.ts";
 import { freshDb, seedMember, startTestApp } from "./harness.test-data.ts";
 
 const ravi: Actor = { memberId: "m", source: "ui" };
@@ -70,5 +75,55 @@ describe("WEALTH-23 · /reports privacy", () => {
       assert.ok(page.includes("Jabberwock Fictional Lender"));
       assert.ok(page.includes("Bandersnatch Fictional Fund"));
     } finally { await app.close(); }
+  });
+});
+
+/*
+ * Found by the budget-engine audit. A household-visible account in Ravi's own
+ * budget, spent from into his own envelope: the row is hidden from Priya
+ * everywhere (hiddenTransactionSql hides it by the envelope), but the tag and
+ * heatmap sections asked the account half of the rule only. Priya's /reports
+ * charted his tag "Snicker-snack Tag" at ₹4,321, the heatmap put the ₹4,321
+ * on its day, and her FIRE page counted it as a year's living costs.
+ */
+describe("/reports counts nothing filed to another member's envelope", () => {
+  const today = todayIST();
+  function ownEnvelopeSpend() {
+    const db = freshDb();
+    seedMember(db, "m", "Ravi");
+    seedMember(db, "p", "Priya");
+    const budgetId = ensurePersonalBudget(db, "m", "Ravi").id;
+    startPersonalBudget(db, ravi, budgetId);
+    const bank = createAccount(db, ravi, {
+      name: "Ravi shared bank", kind: "budget", subtype: "savings", openingDate: "2024-01-01",
+      openingBalance: rupees(500_000), holderMemberId: "m", budgetId,
+    }).id;
+    const envelope = createCategory(db, ravi, {
+      groupId: createGroup(db, ravi, "Mine", "normal", budgetId).id, name: "Vorpal Envelope",
+    }).id;
+    createTransaction(db, ravi, {
+      accountId: bank, amount: -rupees(4_321), date: today, categoryId: envelope,
+      payeeName: "Somebody", tags: ["Snicker-snack Tag"],
+    });
+    return db;
+  }
+
+  test("neither its tag nor its day's spending reaches Priya", async () => {
+    const db = ownEnvelopeSpend();
+    assert.deepEqual(spendByTag(db, addDays(today, -30), today, "p"), []);
+    assert.deepEqual(spendingCalendar(db, addDays(today, -30), today, "p"), []);
+    assert.equal(envelopeSpendBetween(db, addDays(today, -30), today, "p"), 0, "FIRE's expenses");
+    const app = await startTestApp(db, { memberId: "p" });
+    try {
+      const page = await (await app.get("/reports")).text();
+      assert.ok(!page.includes("Snicker-snack Tag"), "the tag on his envelope's spending is hidden");
+    } finally { await app.close(); }
+  });
+
+  test("Ravi still sees both", () => {
+    const db = ownEnvelopeSpend();
+    assert.equal(spendByTag(db, addDays(today, -30), today, "m")[0]?.spent, rupees(4_321));
+    assert.equal(spendingCalendar(db, addDays(today, -30), today, "m")[0]?.value, rupees(4_321));
+    assert.equal(envelopeSpendBetween(db, addDays(today, -30), today, "m"), rupees(4_321));
   });
 });
