@@ -5850,6 +5850,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         setScheduleSplits(
           db, actorFor(a, "ui"), schedule.id,
           (filed.splits ?? []).map((sp) => ({ categoryId: sp.categoryId, amount: sp.amount })),
+          { priorAmount: existing?.amount ?? null },
         );
       }
 
