@@ -2618,4 +2618,89 @@ UPDATE rules
       AND json_type(c.value, '$.value') = 'text');
 `,
   },
+  {
+    name: "0058-a-kept-instalment-is-stored",
+    sql: `
+--------------------------------------------------------------------------------
+-- EXTRA-1 · "Reduce the tenure" kept the tenure whole months, not the instalment
+--------------------------------------------------------------------------------
+-- The projection derived the instalment from the outstanding over the months
+-- left, and a tenure is a whole number of months: ₹1,00,000 at 12% over a year
+-- is ₹8,884.88 a month, and ₹20,000 prepaid "keeping the instalment" left
+-- ₹80,000 over ten months, which is ₹8,446.57 - while the notice said the
+-- instalment was unchanged. The instalment a borrower chose to keep is now
+-- stored, and the projection runs the loan down at it. A later rate change
+-- that keeps the tenure moves the instalment again from the day it applies,
+-- which is what emi_pinned_until holds while that day is still ahead.
+ALTER TABLE loans ADD COLUMN emi_pinned INTEGER;
+ALTER TABLE loans ADD COLUMN emi_pinned_until TEXT;
+
+-- The loans that chose it before: open loans whose latest choice - a
+-- prepayment, or a rate change - kept the instalment and moved the tenure. The
+-- instalment kept is the last regular one recorded before that choice; with
+-- none recorded, the loan's first instalment, priced as the projection priced
+-- it (the principal it was added with, at its first rate, over its first
+-- tenure). A later choice to move the instalment, or an undone one, pins
+-- nothing. Flat-rate loans run to their own schedule and are left alone.
+WITH choice AS (
+  SELECT e.entity_id AS loan_id, e.seq, e.at,
+         CASE WHEN e.action = 'rate-change'
+              THEN COALESCE(e.summary, '') LIKE '%keeping the instalment%'
+              ELSE COALESCE(json_extract(e.after_json, '$.note'), '') LIKE '%reducing the tenure%'
+         END AS keeps
+    FROM events e
+   WHERE e.entity = 'loan' AND e.undone_by_event_id IS NULL
+     AND (e.action = 'rate-change'
+          OR (e.action = 'instalment' AND json_extract(e.after_json, '$.kind') = 'prepayment'))
+),
+latest AS (
+  SELECT c.loan_id, c.at FROM choice c
+   WHERE c.keeps = 1
+     AND c.seq = (SELECT MAX(d.seq) FROM choice d WHERE d.loan_id = c.loan_id)
+),
+priced AS (
+  SELECT l.id AS loan_id,
+         CASE WHEN -a.opening_balance > 0 THEN -a.opening_balance
+              ELSE l.disbursed_at_creation
+                   + (SELECT COALESCE(SUM(d.amount), 0) FROM loan_disbursements d WHERE d.loan_id = l.id)
+         END AS principal,
+         (SELECT r.annual_rate_pct FROM loan_rates r WHERE r.loan_id = l.id
+           ORDER BY r.effective_from LIMIT 1) / 1200.0 AS r,
+         COALESCE(l.original_tenure_months, l.tenure_months) AS n
+    FROM loans l JOIN accounts a ON a.id = l.account_id
+)
+UPDATE loans
+   SET emi_pinned = COALESCE(
+     (SELECT lp.amount FROM loan_payments lp
+       WHERE lp.loan_id = loans.id AND lp.kind = 'instalment' AND lp.created_at <= latest.at
+       ORDER BY lp.date DESC, lp.created_at DESC LIMIT 1),
+     (SELECT CASE WHEN p.principal <= 0 OR p.n <= 0 THEN NULL
+                  WHEN COALESCE(p.r, 0) = 0 THEN CAST(round(p.principal * 1.0 / p.n) AS INTEGER)
+                  ELSE CAST(round(p.principal * p.r * pow(1 + p.r, p.n) / (pow(1 + p.r, p.n) - 1)) AS INTEGER)
+             END
+        FROM priced p WHERE p.loan_id = loans.id))
+  FROM latest
+ WHERE latest.loan_id = loans.id
+   AND loans.closed_at IS NULL
+   AND loans.interest_model <> 'flat';
+`,
+  },
+  {
+    name: "0059-80d-for-parents-is-its-own-deduction",
+    sql: `
+--------------------------------------------------------------------------------
+-- EXTRA-6 · Section 80D has two ceilings, not one
+--------------------------------------------------------------------------------
+-- Premiums for parents are a deduction of their own, ₹25,000 or ₹50,000 for a
+-- senior parent, on top of the one for yourself and family; and preventive
+-- check-ups count up to ₹5,000 inside them. One figure against one ceiling
+-- allowed ₹50,000 at most where the Act allows up to ₹1,00,000. A declaration
+-- saved before holds its 80D figure as the self-and-family one, which is
+-- what it was capped as; the parents' part is entered again.
+ALTER TABLE tax_declarations ADD COLUMN s80d_parents INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tax_declarations ADD COLUMN s80d_parents_senior INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tax_declarations ADD COLUMN s80d_checkup INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tax_declarations ADD COLUMN s80d_parents_checkup INTEGER NOT NULL DEFAULT 0;
+`,
+  },
 ];

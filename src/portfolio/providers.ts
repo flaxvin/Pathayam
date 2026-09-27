@@ -472,8 +472,8 @@ export function quotaFor(provider: Provider, usedToday: number): QuotaState {
  * P5 · Jitter, so a fleet of refreshes does not arrive as a burst. Small and
  * deterministic in tests via the injected random.
  */
-export function jitterMs(random: () => number = Math.random): number {
-  return Math.floor(random() * 30_000);
+export function jitterMs(random: () => number = Math.random, maxMs = 30_000): number {
+  return Math.floor(random() * maxMs);
 }
 
 /** P5 · Exponential backoff on failure, capped so it cannot stall a day. */

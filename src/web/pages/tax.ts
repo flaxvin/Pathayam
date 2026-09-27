@@ -155,13 +155,34 @@ export function renderTax(p: TaxPageProps): SafeHtml {
       </div>
 
       <div class="field">
-        <label for="s80d">Section 80D</label>
+        <label for="s80d">Section 80D — yourself, spouse and children</label>
         <input id="s80d" name="s80d" inputmode="decimal" value="${(d.s80d / 100).toFixed(2)}">
+        <label for="s80d_checkup" class="faint">Preventive health check-ups for them</label>
+        <input id="s80d_checkup" name="s80d_checkup" inputmode="decimal" value="${((d.s80dCheckup ?? 0) / 100).toFixed(2)}">
         <label class="row" style="gap:.5rem;margin-top:.5rem">
           <input type="checkbox" name="s80d_senior" value="1" ${d.s80dSenior ? "checked" : ""}>
-          A senior citizen is covered
+          One of them is a senior citizen
         </label>
-        <p class="field-hint">Health insurance premiums. ₹25,000, or ₹50,000 where a senior citizen is covered.</p>
+        <p class="field-hint">
+          Health insurance premiums. ₹25,000, or ₹50,000 where one of them is a senior
+          citizen (whose medical bills count, if they are not insured).
+        </p>
+      </div>
+
+      <div class="field">
+        <label for="s80d_parents">Section 80D — parents</label>
+        <input id="s80d_parents" name="s80d_parents" inputmode="decimal" value="${((d.s80dParents ?? 0) / 100).toFixed(2)}">
+        <label for="s80d_parents_checkup" class="faint">Preventive health check-ups for them</label>
+        <input id="s80d_parents_checkup" name="s80d_parents_checkup" inputmode="decimal" value="${((d.s80dParentsCheckup ?? 0) / 100).toFixed(2)}">
+        <label class="row" style="gap:.5rem;margin-top:.5rem">
+          <input type="checkbox" name="s80d_parents_senior" value="1" ${d.s80dParentsSenior ? "checked" : ""}>
+          A parent is a senior citizen
+        </label>
+        <p class="field-hint">
+          A second ceiling of its own: ₹25,000, or ₹50,000 where a parent is a senior
+          citizen. For a senior parent with no insurance, their medical bills count
+          here instead. Check-ups count up to ₹5,000 in all, inside these ceilings.
+        </p>
       </div>
 
       <div class="field">
