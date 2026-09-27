@@ -114,7 +114,7 @@ function renderReadyToAssign(view: BudgetView): SafeHtml {
           <div class="rta-secondary muted">
             ${wording}
             <!-- F25.10: every computed figure carries an explain affordance. -->
-            <a class="explain-link" data-explain href="/explain/ready-to-assign?month=${view.month}">
+            <a class="explain-link" data-explain href="/explain/ready-to-assign?month=${view.month}${raw(inBudget(view.budgetId))}">
               How is this worked out?
             </a>
           </div>
@@ -152,13 +152,14 @@ function renderReadyToAssign(view: BudgetView): SafeHtml {
             is ${whenItArrives(view.nextIncome!.date, view.today)}
           </span>`)}
           ·
-          <a href="/auto-assign?month=${view.month}">Auto-assign</a>
+          <a href="/auto-assign?month=${view.month}${raw(inBudget(view.budgetId))}">Auto-assign</a>
           ·
           <!-- F3.9: budget like last month, then adjust. -->
           <button class="linkish" type="submit" form="fill-last-month">Fill from last month</button>
         </p>
         <form id="fill-last-month" method="post" action="/copy-last-month" hidden>
           <input type="hidden" name="month" value="${view.month}">
+          ${when(view.budgetId, () => html`<input type="hidden" name="budget" value="${view.budgetId}">`)}
         </form>
       `)}
 
@@ -172,6 +173,20 @@ function renderReadyToAssign(view: BudgetView): SafeHtml {
 }
 
 /** R6 / F8.3: the shortfall stated in words, not as a bare number (03 §7). */
+/**
+ * BUDGET-2 · Which budget a link from this page is about.
+ *
+ * The explain popover and the Move money page each built their own view of
+ * "every budget at once", so on the household's page they printed a Ready to
+ * Assign that included another member's private account — a figure that
+ * disagreed with the one it claimed to explain, and disclosed the difference.
+ * The routes now resolve the budget like every other budget screen; the link
+ * names it so a second tab left on another budget cannot change the answer.
+ */
+function inBudget(budgetId: string | null): string {
+  return budgetId ? `&budget=${encodeURIComponent(budgetId)}` : "";
+}
+
 function renderCardWarnings(view: BudgetView): SafeHtml {
   const unfunded = view.cards.filter((c) => c.unfunded > 0);
   if (unfunded.length === 0) return raw("");
@@ -186,7 +201,7 @@ function renderCardWarnings(view: BudgetView): SafeHtml {
           <!-- N7: a shortfall with no spending behind it says so, or it reads as
                a broken warning and then as wallpaper. -->
           ${when(cameWithTheCard(card), () => html`${cameWithTheCard(card)!}`)}
-          <a href="/move?to=${category?.id ?? ""}&amount=${(card.unfunded / 100).toFixed(2)}&month=${view.month}">
+          <a href="/move?to=${category?.id ?? ""}&amount=${(card.unfunded / 100).toFixed(2)}&month=${view.month}${raw(inBudget(view.budgetId))}">
             Fund it
           </a>
         </p>
@@ -291,7 +306,7 @@ function renderCategoryRow(
             says that instead.
           -->
           <a class="button button-small ${category.commitsToBudgetId ? "" : "button-danger"}"
-             href="/move?to=${category.id}&amount=${(-state.balance / 100).toFixed(2)}&month=${month}"
+             href="/move?to=${category.id}&amount=${(-state.balance / 100).toFixed(2)}&month=${month}${raw(inBudget(category.budgetId))}"
              ${raw(category.commitsToBudgetId ? `title="${PUT_IT_DOWN_TO_ME_HINT}"` : "")}>
             ${category.commitsToBudgetId
               ? `${PUT_IT_DOWN_TO_ME} · ${formatPaise(-state.balance as Paise)}`
@@ -349,9 +364,9 @@ function renderFooterActions(view: BudgetView): SafeHtml {
   return html`
     <div class="card">
       <div class="row" style="flex-wrap:wrap">
-        <a class="button" href="/auto-assign?month=${view.month}">Auto-assign this month</a>
-        <a class="button" href="/move?month=${view.month}">Move money</a>
-        <a class="button" href="/hold?month=${view.month}">Hold for next month</a>
+        <a class="button" href="/auto-assign?month=${view.month}${raw(inBudget(view.budgetId))}">Auto-assign this month</a>
+        <a class="button" href="/move?month=${view.month}${raw(inBudget(view.budgetId))}">Move money</a>
+        <a class="button" href="/hold?month=${view.month}${raw(inBudget(view.budgetId))}">Hold for next month</a>
         <a class="button button-quiet" href="/categories">Manage categories</a>
       </div>
     </div>

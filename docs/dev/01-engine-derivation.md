@@ -17,8 +17,12 @@ month `M`:
   + Ready to Assign
   + held for next month
   + Σ assignments made into months after M
-  − unfunded credit-card balance
+  − credit overspend absorbed on cards outside this budget
 ```
+
+The last term is zero whenever the card's payment envelope is in the budget
+being computed: that envelope gives an absorbed credit overspend back at the
+rollover (§5.1).
 
 Each term is defined below. If a change to the engine breaks this equation, the
 change is wrong — `src/engine/engine.test.ts` asserts it after every scenario,
@@ -213,6 +217,17 @@ Where a category was charged to several cards, the overspend is split between
 them in proportion to what each was charged, so S2b can name a card rather than
 report a household-level total.
 
+That holds while the month is open. **At the rollover the payment envelope gives
+the credit overspend back** (BUDGET-18): the category reopens at zero and the
+envelope opens next month holding only what categories gave, so from then on
+`debt − payment envelope` *is* the shortfall. It used to keep the inflated
+balance, with the gap parked in a running `unfundedCreditAbsorbed` term that
+nothing discharged — pay the card from the bank and the envelope spent money
+that never existed, while Ready to Assign went on offering the charge. Now
+paying beyond what the envelope holds overspends it in cash, and R4 takes it
+from Ready to Assign. `unfundedCreditAbsorbed` remains only for a card whose
+payment envelope is outside the budget being computed.
+
 This only became visible by running the app against seeded data — every
 engine test passed while the warning could never fire. It is covered now by
 `engine.test.ts` under "a credit overspend leaves the card's balance partly
@@ -226,9 +241,15 @@ A category ending the month negative is split by cause, because R4 and R6
 handle them differently and only one of them destroys cash:
 
 ```
-credit overspend = min(|negative balance|, outflow charged to cards in that category this month)
+credit overspend = min(|negative balance|, this month's shortfall, outflow charged to cards in that category this month)
+this month's shortfall = max(0, −(balance − min(0, opening)))
 cash overspend   = |negative balance| − credit overspend
 ```
+
+The middle term matters only under carry-negative, where an envelope can open
+negative: that carried amount was cash last month and stays cash (BUDGET-24).
+Without it the next card charge relabelled it credit and the rollover absorbed
+it, so a cash overspend vanished from the envelope without reaching anything.
 
 **Cash overspend**, default model (Actual's): the category reopens at zero and
 the amount is subtracted from the next month's RTA. The money genuinely left a
@@ -242,9 +263,11 @@ rather than a rewrite — the difference is only *which* term absorbs the
 negative. Both are implemented and tested; neither is a stub.
 
 **Credit overspend** never reduces RTA — no cash was created (R6). The category
-reopens at zero and the shortfall surfaces as the `unfunded credit-card
-balance` term in the identity, which is the figure S2b states in words:
-*"₹3,200 of this balance isn't funded yet"*.
+reopens at zero, the card's payment envelope drops by the same amount (so the
+identity needs no extra term), and the shortfall is the debt the envelope no
+longer covers — the figure S2b states in words: *"₹3,200 of this balance isn't
+funded yet"*. Only when the card is paid with money nobody assigned does cash
+leave, and that is a cash overspend of the payment envelope.
 
 ---
 

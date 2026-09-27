@@ -680,7 +680,10 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
       }));
     }
     // Holding income back for next month, but only what there is to hold.
-    if (ix === 11) {
+    // Early in the run: once BUDGET-18 stopped paid-off card overspends from
+    // being offered again, this household has nothing spare by its first year's
+    // end, and a hold of nothing exercises nothing.
+    if (ix === 2) {
       const spare = Math.min(rupees(1_50_000), Math.max(0, available()));
       if (spare > 0) did("setHeld", () => setHeld(db, actor, month, spare as Paise));
     }

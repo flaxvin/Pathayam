@@ -72,13 +72,20 @@ const HIDDEN_CATEGORIES =
  * every row, and each row linked to a transaction page that answered 404.
  *
  * True when `t` (a `transactions` alias) is one the viewer may not see.
+ *
+ * A split or unfiled row has no category of its own, and `NULL IN (…)` is
+ * NULL rather than false whenever anybody has an envelope the viewer may not
+ * see — so `NOT` this was NULL too, and every split and every unfiled row
+ * dropped out of Query, the month close and an envelope's explanation for
+ * every member of a household with a personal budget. The null is ruled out
+ * first, so the answer is always true or false.
  */
 export function hiddenTransactionSql(
   t: string, viewerMemberId: string | null,
 ): { sql: string; params: (string | null)[] } {
   return {
     sql: `(${t}.account_id IN ${HIDDEN_ACCOUNTS}
-           OR ${t}.category_id IN ${HIDDEN_CATEGORIES}
+           OR (${t}.category_id IS NOT NULL AND ${t}.category_id IN ${HIDDEN_CATEGORIES})
            OR EXISTS (SELECT 1 FROM transaction_splits hs
                        WHERE hs.transaction_id = ${t}.id AND hs.category_id IN ${HIDDEN_CATEGORIES}))`,
     params: Array<string | null>(7).fill(viewerMemberId),

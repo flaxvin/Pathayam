@@ -17,14 +17,14 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { openDatabase, ensureHousehold, execute, queryAll } from "../db/db.ts";
-import type { Actor } from "../core/events.ts";
+import { openDatabase, ensureHousehold, execute, queryAll, queryOne } from "../db/db.ts";
+import { historyFor, undoEvent, type Actor } from "../core/events.ts";
 import { nowIST, monthOf } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import { createAccount } from "./accounts.ts";
 import { accountBalances, loadEngineInput } from "../engine/repository.ts";
 import { computeBudget, identityResidual } from "../engine/engine.ts";
-import { createLoan, closeLoan, outstandingPrincipal } from "./loans.ts";
+import { createLoan, closeLoan, outstandingPrincipal, paymentCategoryForLoan } from "./loans.ts";
 import { loanInterestByFinancialYear } from "./reports.ts";
 
 const actor: Actor = { memberId: "m", source: "ui" };
@@ -106,5 +106,23 @@ describe("settling a loan", () => {
       [{ principal: rupees(50_000), interest: rupees(2_000) }],
     );
     identityHolds(db);
+  });
+});
+
+describe("BUDGET-27 · a closed loan's envelope asks for no instalment", () => {
+  test("closing clears the EMI target; reopening puts it back", () => {
+    const { db, loan } = setup();
+    const envelope = paymentCategoryForLoan(db, loan.id)!.id;
+    const targetOf = () => queryOne<{ type: string; amount: number }>(
+      db, `SELECT type, amount FROM targets WHERE category_id = ?`, envelope,
+    );
+    const emi = targetOf();
+    assert.equal(emi?.type, "monthly");
+
+    closeLoan(db, actor, { loanId: loan.id, date: DATE, settlement: rupees(50_000) });
+    assert.equal(targetOf(), null, "the settled loan still asks for its EMI");
+
+    undoEvent(db, historyFor(db, "loan", loan.id).find((e) => e.action === "close")!.id, actor);
+    assert.deepEqual({ ...targetOf() }, { ...emi });
   });
 });

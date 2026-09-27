@@ -9,7 +9,8 @@ import type { DB } from "../db/db.ts";
 import { queryAll } from "../db/db.ts";
 import type { Paise } from "../core/money.ts";
 import type { MonthKey, IsoDate } from "../core/dates.ts";
-import { todayIST, monthOf } from "../core/dates.ts";
+import { todayIST, monthOf, formatMonth } from "../core/dates.ts";
+import { Refusal } from "../core/refusal.ts";
 import { budgetsFor } from "../domain/budgets.ts";
 import { listCategories, firstBudgetMonth } from "../domain/budget.ts";
 import { hiddenTransactionSql, hiddenAccountSql } from "../domain/member-scope.ts";
@@ -62,6 +63,12 @@ export interface GroupView {
 
 export interface BudgetView {
   month: MonthKey;
+  /**
+   * BUDGET-2 · The budget this view is of, or null for every budget at once —
+   * so the page's own links (explain, move, fill from last month) can say which
+   * one they are about instead of leaving the next request to guess.
+   */
+  budgetId: string | null;
   currentMonth: MonthKey;
   /** WEBUX-3 · The earliest month the budget has anything in; ‹ stops here. */
   firstMonth: MonthKey;
@@ -112,7 +119,15 @@ export function buildBudgetView(
    */
   const input = loadEngineInput(db, { through: target, budgetId });
   const budget = computeBudget(input);
-  const monthState = budget.get(target) ?? budget.get(input.months.at(-1)!)!;
+  /*
+   * BUDGET-13 · Never another month's figures under this month's name. The
+   * fallback to the last month walked showed December 2099 as "June 2150";
+   * the routes refuse a month out of reach before it gets here.
+   */
+  const monthState = budget.get(target);
+  if (!monthState) {
+    throw new Refusal(`${formatMonth(target)} is too far from the rest of this budget for it to reach.`);
+  }
 
   const targets = new Map(loadTargets(db).map((t) => [t.categoryId, t]));
   const groupMetas = loadCategoryGroups(db).filter(
@@ -207,6 +222,7 @@ export function buildBudgetView(
 
   return {
     month: target,
+    budgetId: budgetId ?? null,
     currentMonth,
     firstMonth: firstBudgetMonth(db),
     today,
@@ -215,7 +231,20 @@ export function buildBudgetView(
     categories,
     underfunded: totalUnderfunded(progressList),
     nextIncome: nextIncome(db, { today, budgetId, viewerMemberId }),
-    buffer: computeBuffer(monthState.categories, input.categories, averageDailySpend(db, today)),
+    /*
+     * BUDGET-20 · Both halves read the same envelopes: what this view holds, over
+     * what those budgets' envelopes spend, as the viewer may see them. The
+     * denominator was every budget's spending, another member's private
+     * spending included — a wrong figure, and one her rate could be read from.
+     */
+    buffer: computeBuffer(
+      new Map([...categories].map(([id, c]) => [id, c.state])),
+      input.categories,
+      averageDailySpend(
+        db, today, 90, viewerMemberId,
+        budgetId !== undefined ? [budgetId] : visibleBudgets ? [...visibleBudgets] : undefined,
+      ),
+    ),
     fullyFunded: isFullyFunded(progressList, monthState.readyToAssign),
     cards,
     futureCaveat: futureMonthCaveat(target, currentMonth),

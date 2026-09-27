@@ -39,6 +39,8 @@ import { loadEngineInput } from "../engine/repository.ts";
 import { computeBudget } from "../engine/engine.ts";
 import { freshHousehold, identityProblems, RAVI } from "../engine/identity.test-data.ts";
 import { startTestApp } from "../web/harness.test-data.ts";
+import { createSchedule, setScheduleSplits } from "./schedules.ts";
+import { deleteGroup, listGroups } from "./budget.ts";
 
 const actor: Actor = { memberId: RAVI, source: "ui" };
 
@@ -262,5 +264,109 @@ describe("fuzzer · the domain guards what the routes guarded", () => {
       () => createTransaction(s.db, actor, { accountId: s.bank, amount: -500, date: "2025-03-01", categoryId: "gone" }),
       (e: unknown) => e instanceof Refusal && /does not exist any more/.test((e as Error).message),
     );
+  });
+});
+
+/*
+ * BUDGET-21 · Group "Streaming" with envelope "Netflix" and a monthly Netflix
+ * schedule filed to it. The envelope's delete went through (303 "Category
+ * deleted.", the schedule still pointing at it), and deleting the now-empty
+ * group was then a 500 "FOREIGN KEY constraint failed": its check counted only
+ * transactions and split lines behind a tombstone, not schedules, even-calls or
+ * an import's proposal.
+ */
+describe("BUDGET-21 · a group's deleted envelopes and what still names them", () => {
+  function streaming() {
+    const db = freshHousehold();
+    const bank = createAccount(db, actor, {
+      name: "Bank", kind: "budget", subtype: "savings", openingDate: "2025-01-01", openingBalance: 100_000,
+    }).id;
+    const group = createGroup(db, actor, "Streaming").id;
+    const netflix = createCategory(db, actor, { groupId: group, name: "Netflix" }).id;
+    return { db, bank, group, netflix };
+  }
+  const refused = (what: RegExp) => (e: unknown) => e instanceof Refusal && what.test((e as Error).message);
+
+  test("an envelope a schedule files to is not deleted, and the schedule is named", () => {
+    const { db, bank, netflix } = streaming();
+    createSchedule(db, actor, {
+      name: "Netflix", accountId: bank, categoryId: netflix, amount: -64_900,
+      recurrence: "monthly", nextDue: "2025-02-10",
+    });
+    assert.throws(() => deleteCategory(db, actor, netflix, { currentBalance: 0 }), refused(/the schedule "Netflix"/));
+    assert.equal(getCategory(db, netflix)?.deleted_at, null);
+  });
+
+  test("so is one a schedule's split line files to", () => {
+    const { db, bank, group, netflix } = streaming();
+    const other = createCategory(db, actor, { groupId: group, name: "Music" }).id;
+    const bundle = createSchedule(db, actor, {
+      name: "Bundle", accountId: bank, categoryId: other, amount: -80_000,
+      recurrence: "monthly", nextDue: "2025-02-10",
+    });
+    setScheduleSplits(db, actor, bundle.id, [
+      { categoryId: netflix, amount: -50_000 }, { categoryId: other, amount: -30_000 },
+    ]);
+    assert.throws(() => deleteCategory(db, actor, netflix, { currentBalance: 0 }), refused(/"Bundle"/));
+  });
+
+  test("a tombstone a schedule still names (from before the refusal) keeps its group, by a sentence", () => {
+    const { db, bank, group, netflix } = streaming();
+    const elsewhere = createCategory(db, actor, { groupId: createGroup(db, actor, "Bills").id, name: "Other" }).id;
+    const schedule = createSchedule(db, actor, {
+      name: "Netflix", accountId: bank, categoryId: elsewhere, amount: -64_900,
+      recurrence: "monthly", nextDue: "2025-02-10",
+    });
+    deleteCategory(db, actor, netflix, { currentBalance: 0 });
+    // What the delete let through before it refused.
+    execute(db, `UPDATE schedules SET category_id = ? WHERE id = ?`, netflix, schedule.id);
+    assert.throws(() => deleteGroup(db, actor, group), refused(/\(Netflix\) that schedules still point at/));
+    assert.equal(listGroups(db).some((g) => g.id === group), true);
+  });
+
+  test("an import's proposal does not keep the group; its undo gives the proposal back", () => {
+    const { db, bank, group, netflix } = streaming();
+    execute(
+      db,
+      `INSERT INTO import_batches (id,source,adapter,account_id,created_at,rows_read)
+       VALUES ('b1','csv','csv',?,?,1)`,
+      bank, nowIST(),
+    );
+    execute(
+      db,
+      `INSERT INTO staged_transactions
+         (id,batch_id,account_id,date,amount,raw_narration,category_id,status,created_at)
+       VALUES ('s1','b1',?,'2025-02-10',-64900,'NETFLIX',?,'rejected',?)`,
+      bank, netflix, nowIST(),
+    );
+    deleteCategory(db, actor, netflix, { currentBalance: 0 });
+    deleteGroup(db, actor, group);
+    assert.equal(listGroups(db).some((g) => g.id === group), false);
+    const proposed = () => queryOne<{ c: string | null }>(db, `SELECT category_id AS c FROM staged_transactions WHERE id = 's1'`)!.c;
+    assert.equal(proposed(), null);
+
+    const event = queryOne<{ id: string }>(
+      db, `SELECT id FROM events WHERE entity = 'category-group' AND action = 'delete' ORDER BY seq DESC LIMIT 1`,
+    )!.id;
+    assert.equal(undoEvent(db, event, actor, { force: true }).ok, true);
+    assert.equal(proposed(), netflix);
+  });
+
+  test("through the Categories page the envelope's delete is a 422, not \"Category deleted.\"", async () => {
+    const { db, bank, group, netflix } = streaming();
+    createSchedule(db, actor, {
+      name: "Netflix", accountId: bank, categoryId: netflix, amount: -64_900,
+      recurrence: "monthly", nextDue: "2025-02-10",
+    });
+    execute(db, `UPDATE household SET setup_completed_at = ? WHERE id = 1`, nowIST());
+    const app = await startTestApp(db, { memberId: RAVI });
+    try {
+      const del = await app.post(`/categories/${netflix}/delete`, {});
+      assert.equal(del.status, 422);
+      assert.equal(getCategory(db, netflix)?.deleted_at, null);
+      assert.deepEqual(app.failures, []);
+    } finally {
+      await app.close();
+    }
   });
 });

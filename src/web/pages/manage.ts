@@ -441,7 +441,7 @@ export function renderCategories(
     kind: string;
     categories: {
       id: string; name: string; hidden: boolean; balance: Paise; isPayment: boolean;
-      target: { amount: Paise; date: string | null } | null;
+      target: { amount: Paise; date: string | null; type: string } | null;
     }[];
   }[],
   /** 15 · Whose grid this is, so the heading says which money is being shaped. */
@@ -562,10 +562,19 @@ export function renderCategories(
                   <div class="row" style="gap:.6rem;flex-wrap:wrap;margin-top:.4rem;align-items:flex-end">
                     <form method="post" action="/categories/${c.id}/target" class="row" style="gap:.4rem;align-items:flex-end">
                       <div class="field" style="margin:0">
-                        <label style="font-size:.75rem" for="tgt-${c.id}">Monthly target</label>
+                        <label style="font-size:.75rem" for="tgt-${c.id}">Target</label>
                         <input id="tgt-${c.id}" name="amount" class="amount-input" style="max-width:8rem"
                                type="text" inputmode="decimal" placeholder="none"
                                value="${c.target ? (c.target.amount / 100).toFixed(2) : ""}">
+                      </div>
+                      <!-- BUDGET-17 · Which kind, so a refill target saved unchanged
+                           stays a refill instead of becoming one a month. -->
+                      <div class="field" style="margin:0">
+                        <label style="font-size:.75rem" for="tgtk-${c.id}">Kind</label>
+                        <select id="tgtk-${c.id}" name="kind" style="max-width:9rem">
+                          <option value="monthly" ${raw(c.target?.type === "refill" ? "" : "selected")}>Each month</option>
+                          <option value="refill" ${raw(c.target?.type === "refill" ? "selected" : "")}>Refill up to</option>
+                        </select>
                       </div>
                       <div class="field" style="margin:0">
                         <label style="font-size:.75rem" for="tgtd-${c.id}">By date (optional)</label>

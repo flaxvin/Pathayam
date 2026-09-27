@@ -108,13 +108,29 @@ export function isClosed(db: DB, month: MonthKey, budgetId?: string): boolean {
 /** What the month did, and whether the next one is ready. Reads only. */
 export function monthCloseView(
   db: DB, month: MonthKey, today: IsoDate = todayIST(), budgetId?: string,
+  /**
+   * BUDGET-25 · Who is reading. Omitted means the whole of this budget, which
+   * is what closeMonth stores — the figures on record should not depend on
+   * which member pressed the button. The page passes the member looking at it.
+   */
+  viewerMemberId?: string | null,
 ): MonthCloseView {
   const from = firstDayOfMonth(month);
   const to = lastDayOfMonth(month);
   const budget = budgetId ?? householdBudgetId(db);
-  const view = buildBudgetView(db, month, budget);
+  const view = buildBudgetView(db, month, budget, viewerMemberId);
 
-  const rows = queryTransactions(db, { from, to });
+  /*
+   * BUDGET-25 · This budget's money, read as the viewer. The query had neither,
+   * so every budget's close counted every budget: Ravi closing the household's
+   * August saw Priya's ₹90,000 salary into her private account as "Came in",
+   * her private "Divorce lawyer" envelope under "Where it went" — and closeMonth
+   * wrote those figures into month_closes, where /months printed them for good.
+   * A row belongs to the budget through either end, as it does in the reports:
+   * her paying for household groceries from her own account is the household's
+   * spending too.
+   */
+  const rows = queryTransactions(db, { from, to, budgetId: budget, viewerMemberId });
 
   let income = 0;
   let spending = 0;
@@ -157,7 +173,9 @@ export function monthCloseView(
   };
 
   const following = addMonths(month, 1);
-  const nextView = buildBudgetView(db, following);
+  // BUDGET-25 · The same budget's next month. Unscoped, "Is September funded?"
+  // answered with every budget's Ready to Assign added together.
+  const nextView = buildBudgetView(db, following, budget, viewerMemberId);
   const cardNames = new Map(
     queryAll<{ id: string; name: string }>(
       db, `SELECT id, name FROM accounts WHERE kind = 'credit'`,

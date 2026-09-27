@@ -43,7 +43,7 @@ Set per household (`household.overspend_model`).
 
 | Model | Cash overspend at rollover | Credit overspend at rollover |
 |---|---|---|
-| `reduce-rta` | The negative balance is cleared and subtracted from the next month's Ready to Assign. | Absorbed into `unfunded credit absorbed`; the payment envelope is not automatically topped up. |
+| `reduce-rta` | The negative balance is cleared and subtracted from the next month's Ready to Assign. | The envelope reopens at zero and the card's payment envelope gives the same amount back, so it is not topped up with money no envelope had; the card shows it as unfunded. |
 | `carry-negative` | The negative balance rolls forward on the envelope. | As above. |
 
 **Covering** an overspend moves money from another envelope into the overspent
@@ -51,7 +51,9 @@ one, within the same month.
 
 Cash and credit overspend are treated differently because they are different
 facts: a cash overspend has already left a bank account; a credit overspend has
-increased a debt that no envelope is funding.
+increased a debt that no envelope is funding. Paying that debt from a bank
+account before funding it overspends the card's payment envelope, which is then
+an ordinary cash overspend — the cash really left.
 
 ## Credit cards
 
@@ -91,12 +93,18 @@ balance.
 |---|---|
 | `monthly` | The target amount, every month. |
 | `refill` | `max(0, amount − opening balance)`. |
-| `by-date` | The remainder spread across the months to `target_date`. |
+| `by-date` | The remainder spread across the months to `target_date`; nothing once that month has passed. |
 | `debt-payoff` | The instalment the linked loan requires; kept in step with the loan's schedule. |
 | `spending` | The target pro-rated by day of month. |
 
 `underfunded = max(0, needed − assigned)`. The budget screen totals these and
 reports the next scheduled income date alongside.
+
+The Categories page sets three of these by hand: an amount **each month**, a
+level to **refill up to**, or — with a date — **by a date**. It shows which kind
+a target is and sends it back, so a refill target (the starting template gives
+some) saved unchanged stays a refill; a request that names no kind keeps a
+stored refill as a refill.
 
 ## Held for next month
 
@@ -117,13 +125,20 @@ holds in is refused until the table is rebuilt.
 
 A goal has a target amount, an optional target date, and one or more envelopes.
 Progress is the sum of those envelope balances against the target. Completing a
-goal releases its envelopes; the money stays where it is.
+goal offers three endings: *spend it* leaves the money in the envelope; *back to
+Ready to Assign* un-assigns the envelope's balance in the current month; *roll
+into a new goal* creates the next goal on the same envelope, so what was saved
+counts toward it.
 
 ## Month close
 
 Closing records income, spending, assigned and commitments for a month in one
 budget, takes a net-worth snapshot, and writes an event. Closed months can be
-reopened. Each budget closes independently.
+reopened. Each budget closes independently, and counts only its own money: a
+transaction belongs to it through the account it moved on or the envelope it was
+filed to, as in the reports. The page is read as the member looking at it, so
+another member's private envelope never appears under "Where it went", and "Is
+next month funded?" is this budget's Ready to Assign alone.
 
 ## Commitments between budgets
 
@@ -219,7 +234,17 @@ to Assign while the bank still showed it gone. So delete is refused while any
 transaction or split line — trashed ones included — is filed to the envelope,
 unless a remap target is given; the Categories page points to Merge instead.
 Nothing new can be filed to a deleted envelope either (a schedule or rule saved
-before the delete is refused rather than filed into nothing).
+before the delete is refused rather than filed into nothing). Delete is also
+refused, naming the schedule, while a schedule or one of its split lines still
+files to the envelope: point the schedule elsewhere first, or merge, which takes
+schedules with it.
+
+Deleting a **group** takes the tombstones of its deleted envelopes with it, so
+it is refused, by a sentence, while anything still points at one of them —
+transactions, split lines, schedules, a balance called even (the list is read
+from the schema's foreign keys). An import's proposed envelope does not hold the
+group: a proposal for an envelope that no longer exists is cleared, and undoing
+the group's delete puts it back.
 
 A remap target has to be an envelope that counts spending: a live one, in the
 same budget, and neither a card's payment envelope (its activity is derived
@@ -455,7 +480,9 @@ Most of what older versions stored wrongly is corrected automatically:
 migrations 0050–0052 rebuild held-for-next-month per budget, drop the rollup
 cache so sealed months are recomputed, and bring back (hidden) any envelope that
 was deleted while spending was still filed to it — merge those into the right
-envelope to settle them. At every start, `repairCrossBudgetClaims` opens the
+envelope to settle them. Migration 0053 recomputes the income and spending
+stored on every closed month from that budget's own transactions; they had
+counted every budget's. At every start, `repairCrossBudgetClaims` opens the
 commitment envelope for any cross-budget card payment that was recorded without
 one; it is a no-op once history is clean, and it logs a count of any pair the
 current rules would refuse.

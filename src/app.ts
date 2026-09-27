@@ -121,6 +121,7 @@ import {
 } from "./domain/transactions.ts";
 import {
   accountBalances, creditOutstanding, householdSettings,
+  monthInReach,
 } from "./engine/repository.ts";
 import {
   suggestCoverSources, cardFunding,
@@ -1018,7 +1019,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   function monthParam(ctx: RequestContext): MonthKey {
     const value = ctx.query.get("month") ?? field(ctx.body, "month");
-    return value && isMonthKey(value) ? value : monthOf(todayIST());
+    const month = value && isMonthKey(value) ? value : monthOf(todayIST());
+    /*
+     * BUDGET-13 · A month the engine's walk does not reach was shown with the
+     * last month it did reach, under the requested heading: /?month=2150-06
+     * read "June 2150" over December 2099's figures. Said instead.
+     */
+    if (!monthInReach(db, month)) {
+      throw new Refusal(
+        `${formatMonth(month)} is too far from the rest of this budget for it to reach — ` +
+        `a budget spans at most a hundred years.`,
+      );
+    }
+    return month;
   }
 
   /** Amount fields accept an expression (F4.10) before falling back to a plain parse. */
@@ -1887,6 +1900,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       if (!own || envelope?.budget_id !== own.id) {
         throw new HttpError(403, "You can only commit from your own budget.");
       }
+      /*
+       * BUDGET-23 · Picking it up is committing more to the household, and only
+       * that. Any of her envelopes used to do — "You have picked up ₹700" into
+       * Fun, with nothing reaching the household — and so did a negative amount:
+       * −₹3,000 took her commitment below zero and told the household it owed
+       * her money she never paid. Call it even already refused one.
+       */
+      if (envelope.commits_to_budget_id !== householdBudgetId(db)) {
+        throw new Refusal("Picking it up commits money to the household, from your household envelope.");
+      }
+      if (extra <= 0) throw new Refusal("Say how much you are picking up.");
 
       // On top of what is already committed, not instead of it.
       const view = buildBudgetView(db, month, own.id, viewer(ctx));
@@ -1907,12 +1931,23 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    */
   router.post("/household/call-it-even", (ctx) =>
     mutate(ctx, (a) => {
+      /*
+       * BUDGET-11 · A commitment to a budget you can see is yours to settle when
+       * that side is the one letting go, even though the envelope itself sits in
+       * the member's own budget: 15 §4A.5, "for a balance with the household any
+       * member may act". callItEven checks the giving side against the viewer.
+       */
+      const envelopeId = requiredField(ctx.body, "envelope_id");
+      const envelope = getCategory(db, envelopeId);
+      const settles = envelope?.commits_to_budget_id
+        && visibleBudgetIds(db, viewer(ctx)).has(envelope.commits_to_budget_id);
       const call = callItEven(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
-        envelopeId: requireVisibleCategory(ctx, requiredField(ctx.body, "envelope_id"))!,
+        envelopeId: settles ? envelopeId : requireVisibleCategory(ctx, envelopeId)!,
         amount: amountField(requiredField(ctx.body, "amount"), "Amount") as Paise,
         givingCategoryId: requireVisibleCategory(ctx, field(ctx.body, "giving_category_id") || null) || undefined,
         month: monthParam(ctx),
         note: field(ctx.body, "note") || null,
+        viewerMemberId: viewer(ctx),
       });
       return {
         redirect: "/household",
@@ -1925,8 +1960,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/household", (ctx) => {
     const month = monthParam(ctx);
-    const view = buildHouseholdView(db, month);
     const me = viewer(ctx);
+    const view = buildHouseholdView(db, month, viewer(ctx));
     const own = me ? personalBudgetFor(db, me) : null;
     const canOpenOwn = Boolean(me) && !own;
 
@@ -1974,7 +2009,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/move", (ctx) => {
     const month = monthParam(ctx);
-    const view = buildBudgetView(db, month, undefined, viewer(ctx));
+    /*
+     * BUDGET-2 / BUDGET-5 · One budget's envelopes and one budget's Ready to
+     * Assign. The combined view offered "Ready to Assign — ₹78,777" on a
+     * household page reading ₹1,000, the difference being another member's
+     * private account, and listed two budgets' envelopes side by side as if
+     * money could move between them without a transfer.
+     */
+    const view = buildBudgetView(db, month, budgetParam(ctx), viewer(ctx));
     const to = ctx.query.get("to");
     /*
      * Rupees, as typed. It used to be paise, because every caller was a generated
@@ -2135,7 +2177,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
       const { recompute, result } = withForwardRecompute(
         db, actor, { month, cause: "Filled from last month's budget" },
-        () => copyAssignmentsFromMonth(db, actor, month, addMonths(month, -1)),
+        () => copyAssignmentsFromMonth(db, actor, month, addMonths(month, -1), postedBudget(ctx)),
       );
       const msg = result.filled === 0
         ? "Nothing to fill — last month had no assignments the empty categories could take."
@@ -2190,7 +2232,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
   router.get("/explain/ready-to-assign", (ctx) => {
     const month = monthParam(ctx);
-    const view = buildBudgetView(db, month, undefined, viewer(ctx));
+    // BUDGET-2 · The figure being explained is one budget's; so is the answer.
+    const view = buildBudgetView(db, month, budgetParam(ctx), viewer(ctx));
     const b = view.monthState.rtaBreakdown;
 
     const lines = [
@@ -2213,17 +2256,40 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/explain/category/:id", (ctx) => {
     const month = monthParam(ctx);
-    const view = buildBudgetView(db, month, undefined, viewer(ctx));
-    const category = view.categories.get(ctx.params.id!);
+    // BUDGET-2 · Computed in the envelope's own budget, which the viewer must
+    // be able to see — the same answer the grid it was opened from shows.
+    const own = listCategories(db, { includeHidden: true, viewerMemberId: viewer(ctx) })
+      .find((c) => c.id === ctx.params.id);
+    if (!own) throw new NotFound();
+    const view = buildBudgetView(db, month, own.budget_id ?? householdBudgetId(db), viewer(ctx));
+    const category = view.categories.get(own.id);
     if (!category) throw new NotFound();
+
+    /*
+     * BUDGET-6 · The envelope's own transactions this month, split lines
+     * included, and every event on each. This read the 40 *oldest* transaction
+     * events in the household and kept those in this envelope and month — so
+     * past its first 40 transactions every envelope said "Nothing has affected
+     * this figure yet" under a figure that plainly had been, and a split line
+     * (no category on the transaction itself) was never matched at all. A row
+     * in an account the viewer may not see stays out, as it does in registers.
+     */
+    const hidden = hiddenTransactionSql("t", viewer(ctx));
+    const transactionIds = queryAll<{ id: string }>(
+      db,
+      `SELECT t.id FROM transactions t
+        WHERE t.deleted_at IS NULL AND t.date >= ? AND t.date < ?
+          AND (t.category_id = ?
+               OR EXISTS (SELECT 1 FROM transaction_splits s
+                           WHERE s.transaction_id = t.id AND s.category_id = ?))
+          AND NOT ${hidden.sql}`,
+      `${month}-01`, `${addMonths(month, 1)}-01`, category.id, category.id, ...hidden.params,
+    ).map((r) => r.id);
 
     // J22: three events, three actors, one answer.
     const events = [
       ...historyFor(db, "assignment", `${month}:${category.id}`),
-      ...queryEvents(db, { entity: "transaction", limit: 40, descending: false }).filter((e) => {
-        const after = e.after as { category_id?: string; date?: string } | undefined;
-        return after?.category_id === category.id && after?.date?.startsWith(month);
-      }),
+      ...transactionIds.flatMap((id) => historyFor(db, "transaction", id)),
     ].sort((a, b) => a.seq - b.seq);
 
     return {
@@ -5592,7 +5658,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const sankeyGroups = bview.groups
       .map((g) => ({
         name: g.name,
+        /*
+         * BUDGET-19 · Where the money was spent, not where it was settled. A
+         * card's payment envelope nets this month's charges against paying last
+         * month's bill, so a ₹20,000 bill for July's food showed as August
+         * spending beside August's food — the same purchase twice. A commitment
+         * envelope moves money between budgets and consumes none. Both are left
+         * out, as envelopeSpendBetween leaves them out of "spent".
+         */
         categories: g.categories
+          .filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId)
           .map((c) => ({ name: c.name, value: -c.state.activity as Paise }))
           .filter((c) => c.value > 0),
       }))
@@ -6098,8 +6173,26 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/goals/:id/complete", (ctx) =>
     mutate(ctx, (a) => {
       const resolution = (field(ctx.body, "resolution") ?? "release") as "spend" | "roll" | "release";
-      completeGoal(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), requireVisibleGoal(ctx, ctx.params.id!), resolution);
-      return { redirect: "/goals", message: "Goal completed." };
+      if (!["spend", "roll", "release"].includes(resolution)) throw new Refusal("Choose what happens to the money.");
+      // BUDGET-14 · Rolling names the goal it rolls into.
+      const targetDate = field(ctx.body, "target_date");
+      const next = resolution === "roll"
+        ? {
+          name: requiredField(ctx.body, "name"),
+          targetAmount: amountField(field(ctx.body, "target_amount"), "Target"),
+          targetDate: targetDate?.trim() ? parseDate(targetDate) : null,
+        }
+        : undefined;
+      const rolled = completeGoal(
+        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+        requireVisibleGoal(ctx, ctx.params.id!), resolution, next,
+      );
+      return {
+        redirect: "/goals",
+        message: rolled ? `Goal completed. Its money now counts toward "${rolled.name}".`
+          : resolution === "release" ? "Goal completed. Its money is back in Ready to Assign."
+          : "Goal completed.",
+      };
     }),
   );
 
@@ -6425,7 +6518,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               return {
                 id: c.id, name: c.name, hidden: c.hidden,
                 balance: c.state.balance, isPayment: c.isPaymentCategory,
-                target: t ? { amount: t.amount ?? 0, date: t.target_date } : null,
+                target: t ? { amount: t.amount ?? 0, date: t.target_date, type: t.type } : null,
               };
             }),
         })),
@@ -6497,7 +6590,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         return { redirect: "/categories", message: "Target removed." };
       }
       const dateRaw = field(ctx.body, "target_date");
-      const type = dateRaw?.trim() ? "by-date" : "monthly";
+      /*
+       * BUDGET-17 · Every target without a date was written back as monthly, and
+       * the form called them all "Monthly target". The starting template's
+       * "refill up to ₹20,000" on Medical, saved unchanged, became "₹20,000 every
+       * month" — the full envelope flipped to "Not funded ₹0 of ₹20,000". The
+       * form now says which kind it is and sends it back; a client that sends no
+       * kind keeps the stored one.
+       */
+      const kindRaw = field(ctx.body, "kind")?.trim()
+        || (getTarget(db, ctx.params.id!)?.type === "refill" ? "refill" : "monthly");
+      if (kindRaw !== "monthly" && kindRaw !== "refill") {
+        throw new Refusal("A target is either an amount each month or a level to refill up to.");
+      }
+      const type = dateRaw?.trim() ? "by-date" : kindRaw;
       setTarget(db, actor, ctx.params.id!, {
         type,
         amount: Math.abs(amountField(amountRaw, "Target")),
@@ -6833,7 +6939,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const budgetId = budgetParam(ctx);
     return render(
       ctx, `Closing ${formatMonth(month)}`,
-      renderMonthClose(monthCloseView(db, month, todayIST(), budgetId)),
+      renderMonthClose(monthCloseView(db, month, todayIST(), budgetId, viewer(ctx))),
     );
   });
 
