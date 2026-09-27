@@ -18,6 +18,7 @@ import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { dirname, join } from "node:path";
 import { freshDb, seedMember, startTestApp } from "./harness.test-data.ts";
+import { queryOne } from "../db/db.ts";
 
 const RAVI = "m-ravi";
 const app = readFileSync(
@@ -68,6 +69,41 @@ describe("a redirect goes somewhere inside this app", () => {
       // And an ordinary path still works, or the fix has broken the feature.
       const ok = await signed.post("/settings/theme", { theme: "light", return_to: "/accounts" });
       assert.equal(ok.headers.get("location"), "/accounts");
+      assert.deepEqual(signed.failures, []);
+    } finally {
+      await signed.close();
+    }
+  });
+
+  test("SECURITY-OPS-3 · the theme toggle is a POST that returns only inside the app", async () => {
+    const db = freshDb();
+    seedMember(db, RAVI, "Ravi");
+    const signed = await startTestApp(db, { memberId: RAVI });
+    const theme = () => queryOne<{ theme: string }>(db, `SELECT theme FROM members WHERE id = ?`, RAVI)!.theme;
+    try {
+      // A cross-site link is a GET with the cookie attached (SameSite=Lax), so
+      // a GET must not write; and the prefix-matching Referer went elsewhere.
+      const before = theme();
+      const link = await signed.get("/settings/theme-toggle", {
+        headers: { Referer: "http://127.0.0.1.evil.example/phish" },
+      });
+      assert.notEqual(link.status, 303);
+      assert.equal(link.headers.get("location"), null);
+      assert.equal(theme(), before, "a GET flipped the theme");
+
+      // A cross-site form post is refused by the origin check.
+      const forged = await signed.post("/settings/theme-toggle", { return_to: "/accounts" }, {
+        headers: { Origin: "https://evil.example" },
+      });
+      assert.equal(forged.status, 403);
+      assert.equal(theme(), before);
+
+      // The palette's post flips it and comes back to where it was.
+      const ok = await signed.post("/settings/theme-toggle", { return_to: "/accounts?x=1" });
+      assert.equal(ok.headers.get("location"), "/accounts?x=1");
+      assert.notEqual(theme(), before);
+      const away = await signed.post("/settings/theme-toggle", { return_to: "//evil.example" });
+      assert.equal(away.headers.get("location"), "/");
       assert.deepEqual(signed.failures, []);
     } finally {
       await signed.close();

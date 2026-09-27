@@ -660,7 +660,9 @@ export const CLIENT_SCRIPT = String.raw`
     { label: "Reconcile an account", href: "/accounts", group: "Do" },
     { label: "Import a CAS", href: "/portfolio/cas", group: "Do", feature: "assets" },
     { label: "Prepayment calculator", href: "/loans/what-if", group: "Do", feature: "loans" },
-    { label: "Toggle theme", href: "/settings/theme-toggle", group: "Do" },
+    // A write, so it names a form action to post rather than an href to
+    // follow (SECURITY-OPS-3).
+    { label: "Toggle theme", action: "/settings/theme-toggle", group: "Do" },
   ];
 
   function enabledFeatures() {
@@ -687,8 +689,15 @@ export const CLIENT_SCRIPT = String.raw`
     matches.forEach(function (c) {
       var li = document.createElement("li");
       var a = document.createElement("a");
-      a.href = c.href;
+      a.href = c.href || c.action;
       a.textContent = c.label;
+      if (c.action) {
+        a.setAttribute("data-post", "");
+        a.addEventListener("click", function (event) {
+          event.preventDefault();
+          runCommand(a);
+        });
+      }
       li.appendChild(a);
       var group = document.createElement("span");
       group.className = "chip";
@@ -708,6 +717,27 @@ export const CLIENT_SCRIPT = String.raw`
     }
   }
 
+  // A command that changes something is a form post, not a link: no GET
+  // writes, and the server's origin check only guards a POST. It comes back
+  // to this page through return_to, which the server keeps same-site.
+  function runCommand(link) {
+    var href = link.getAttribute("href");
+    if (!link.hasAttribute("data-post")) {
+      window.location.href = href;
+      return;
+    }
+    var form = document.createElement("form");
+    form.method = "post";
+    form.action = href;
+    var back = document.createElement("input");
+    back.type = "hidden";
+    back.name = "return_to";
+    back.value = window.location.pathname + window.location.search;
+    form.appendChild(back);
+    document.body.appendChild(form);
+    form.submit();
+  }
+
   function openPalette() {
     if (!palette) {
       palette = buildPalette();
@@ -721,7 +751,7 @@ export const CLIENT_SCRIPT = String.raw`
           var first = palette.querySelector("#palette-results a");
           if (first) {
             event.preventDefault();
-            window.location.href = first.getAttribute("href");
+            runCommand(first);
           }
         }
         if (event.key === "ArrowDown") {

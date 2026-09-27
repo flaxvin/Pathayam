@@ -31,6 +31,7 @@ const NOT_FROM_A_FORM: Record<string, string> = {
   "/auth/password": "Rendered on /signin, which this scan does not read as a page component.",
   "/auth/first-run": "Its own bare page, posted to by the form it renders.",
   "/tax": "Posted to by the tax page's own form, which is built in web/pages/tax.ts.",
+  "/settings/theme-toggle": "The command palette in web/client.ts builds a form and posts it (SECURITY-OPS-3).",
 
   /*
    * Reachable, but by markup this scan cannot see: the action is built from a
