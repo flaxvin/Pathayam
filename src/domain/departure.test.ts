@@ -12,10 +12,10 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { openDatabase, ensureHousehold, execute, queryOne, type DB } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
-import { nowIST, todayIST, monthOf } from "../core/dates.ts";
+import { nowIST, todayIST, monthOf, addMonths } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import { createAccount } from "./accounts.ts";
-import { createGroup, createCategory, setAssigned } from "./budget.ts";
+import { createGroup, createCategory, setAssigned, getAssigned } from "./budget.ts";
 import { createTransaction } from "./transactions.ts";
 import { loadEngineInput } from "../engine/repository.ts";
 import { computeBudget, identityResidual } from "../engine/engine.ts";
@@ -188,6 +188,28 @@ describe("15 §6A · what is outstanding, and every option offered", () => {
     assert.equal(departure.budgetId, null);
     assert.equal(departure.standing, "even");
     assert.deepEqual(departure.options, []);
+    db.close();
+  });
+});
+
+describe("BUDGET-12 · the whole commitment ends, later months included", () => {
+  test("₹10,000 now and ₹5,000 next month: ₹15,000 released, nothing left committed", () => {
+    const db = setup();
+    const { household, envelope } = withCommitment(db);
+    const NEXT = addMonths(MONTH, 1);
+    setAssigned(db, actor, NEXT, envelope, rupees(5_000));
+
+    const departure = describeDeparture(db, RAVI);
+    assert.equal(departure.outstanding, rupees(15_000));
+    assert.equal(
+      settleDeparture(db, actor, RAVI, "release"),
+      "Released ₹15,000 back to Ravi's Ready to Assign.",
+    );
+
+    assert.equal(getAssigned(db, NEXT, envelope), 0, "next month's commitment outlived him");
+    const hh = computeBudget(loadEngineInput(db, { through: NEXT, budgetId: household })).get(NEXT)!;
+    assert.equal(hh.readyToAssign, 0, "the household still counted his next month");
+    assert.deepEqual(allClose(db, [household]), []);
     db.close();
   });
 });

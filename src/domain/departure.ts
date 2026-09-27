@@ -26,7 +26,7 @@
  */
 
 import type { DB } from "../db/db.ts";
-import { queryOne } from "../db/db.ts";
+import { queryAll } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { monthOf, todayIST, type MonthKey } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
@@ -71,9 +71,18 @@ export function describeDeparture(db: DB, memberId: string, month: MonthKey = mo
   const budget = personalBudgetFor(db, memberId);
   const envelope = budget ? commitmentEnvelope(db, budget.id) : null;
 
+  /*
+   * BUDGET-12 · The whole commitment, not this month's part of it. Money she
+   * had already committed to later months stayed committed after she left:
+   * "Released ₹500" while next month's ₹500 still counted as the household's,
+   * spending money from somebody no longer in it. What is assigned ahead is
+   * part of what she promised, so it is part of what ends.
+   */
+  const ahead = envelope ? committedAhead(db, envelope.id, month) : [];
   const balance = (budget && envelope
-    ? computeBudget(loadEngineInput(db, { through: month, budgetId: budget.id }))
-        .get(month)?.categories.get(envelope.id)?.balance ?? 0
+    ? (computeBudget(loadEngineInput(db, { through: month, budgetId: budget.id }))
+        .get(month)?.categories.get(envelope.id)?.balance ?? 0)
+      + ahead.reduce((sum, r) => sum + r.amount, 0)
     : 0) as Paise;
 
   /*
@@ -123,7 +132,17 @@ export function settleDeparture(
 
   const state = computeBudget(loadEngineInput(db, { through: month, budgetId: departure.budgetId! }))
     .get(month)?.categories.get(departure.envelopeId);
-  const assigned = (state?.assigned ?? 0) as Paise;
+  let assigned = (state?.assigned ?? 0) as Paise;
+
+  // BUDGET-12 · What was committed to later months comes forward into this
+  // one, so the envelope's balance now is the whole of it and each ending
+  // below settles all of it.
+  const ahead = committedAhead(db, departure.envelopeId, month);
+  if (ahead.length > 0) {
+    for (const r of ahead) setAssigned(db, actor, r.month, departure.envelopeId, 0 as Paise);
+    assigned = (assigned + ahead.reduce((sum, r) => sum + r.amount, 0)) as Paise;
+    setAssigned(db, actor, month, departure.envelopeId, assigned);
+  }
 
   switch (resolution) {
     case "release": {
@@ -164,6 +183,15 @@ export function settleDeparture(
       return `Recorded as family lending with ${departure.memberName}.`;
     }
   }
+}
+
+/** Assignments to the commitment envelope in months after `month`. */
+function committedAhead(db: DB, envelopeId: string, month: MonthKey): { month: MonthKey; amount: number }[] {
+  return queryAll<{ month: MonthKey; amount: number }>(
+    db,
+    `SELECT month, amount FROM assignments WHERE category_id = ? AND month > ? AND amount <> 0 ORDER BY month`,
+    envelopeId, month,
+  );
 }
 
 /** Whether removing this member needs a decision first. */

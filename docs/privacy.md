@@ -154,4 +154,6 @@ another member:
 
 Removing a member sets `removed_at`. Nothing they created is deleted and their
 name remains on it. Before removal the household settles any balance between
-budgets. A removed member can be restored, and is found by the same identity.
+budgets — the whole of their commitment, including what they had already
+assigned to later months. A removed member can be restored, and is found by the
+same identity.
