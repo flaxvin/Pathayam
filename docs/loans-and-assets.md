@@ -87,6 +87,11 @@ The prepayment screen compares the two options a lender must offer — reduce th
 tenure, or reduce the instalment — and prices both, showing the interest saved
 by each. Recording one applies it and recomputes the schedule.
 
+The lump sum comes out of an envelope the household names, moved into the
+loan's payment envelope first so no envelope is quietly overdrawn. That envelope
+has to be in the budget the loan is paid from — the one its payment envelope
+sits in — and the form offers only those.
+
 ### Drift
 
 `loan_statements` records the lender's own outstanding figure at a date beside

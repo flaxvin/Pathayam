@@ -199,9 +199,17 @@ export function getEvent(db: DB, id: string): LoggedEvent | null {
 export type UndoHandler = (db: DB, event: LoggedEvent, actor: Actor) => string;
 
 const undoHandlers = new Map<string, UndoHandler>();
+/** Entities whose handler reverses only some of their actions. */
+const undoableActions = new Map<string, Set<string>>();
 
-export function registerUndoHandler(entity: string, handler: UndoHandler): void {
+/**
+ * `actions` limits the handler to those actions; the rest of the entity's
+ * events stay "cannot be undone" exactly as if no handler were registered, so
+ * Activity offers no button it would then refuse.
+ */
+export function registerUndoHandler(entity: string, handler: UndoHandler, actions?: string[]): void {
   undoHandlers.set(entity, handler);
+  if (actions) undoableActions.set(entity, new Set(actions));
 }
 
 export const DEFAULT_UNDO_WINDOW_DAYS = 30; // Q25
@@ -231,7 +239,7 @@ export function checkUndo(
   if (event.undoOfEventId) {
     return { ok: false, reason: "That entry is itself an undo — undo the original instead.", supersededBy: [] };
   }
-  if (!undoHandlers.has(event.entity)) {
+  if (!undoHandlers.has(event.entity) || undoableActions.get(event.entity)?.has(event.action) === false) {
     return { ok: false, reason: `Changes to ${event.entity} cannot be undone.`, supersededBy: [] };
   }
 

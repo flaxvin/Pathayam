@@ -34,7 +34,7 @@ import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts"
 import { todayIST, nowIST, daysBetween, formatDate, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { createAccount, getAccount } from "./accounts.ts";
-import { createTransfer, createTransaction, deleteTransaction, eraseTransaction, UndoRefused } from "./transactions.ts";
+import { createTransfer, createTransaction, deleteTransaction, eraseTransaction, getTransaction, UndoRefused } from "./transactions.ts";
 import { dependantsOf } from "./dependants.ts";
 import { accountBalances } from "../engine/repository.ts";
 import { Missing, Refusal } from "../core/refusal.ts";
@@ -471,15 +471,17 @@ registerUndoHandler("family-loan", (db, event) => {
       db, `SELECT write_off_transaction_id, counterparty FROM family_loans WHERE id = ?`,
       event.entityId,
     );
-    if (loan?.write_off_transaction_id) {
-      deleteTransaction(db, { memberId: null, source: "system" }, loan.write_off_transaction_id);
-    }
+    // The arrangement lets go of the write-off first: deleteTransaction refuses
+    // a transaction something still points at (MONEY-CORE-8).
     execute(
       db,
       `UPDATE family_loans SET written_off_at = NULL, closed_at = NULL,
          write_off_transaction_id = NULL WHERE id = ?`,
       event.entityId,
     );
+    if (loan?.write_off_transaction_id && getTransaction(db, loan.write_off_transaction_id)?.deleted_at === null) {
+      deleteTransaction(db, { memberId: null, source: "system" }, loan.write_off_transaction_id);
+    }
     return `Reversed the write-off for ${loan?.counterparty ?? "that arrangement"}`;
   }
 

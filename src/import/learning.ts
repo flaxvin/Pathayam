@@ -12,12 +12,15 @@
 
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
-import { appendEvent, type Actor } from "../core/events.ts";
+import { appendEvent, registerUndoHandler, undoEvent, type Actor } from "../core/events.ts";
+import { Refusal } from "../core/refusal.ts";
+import { refusePaymentCategories, UndoRefused } from "../domain/transactions.ts";
+import { prepareClaim, sharedInstrumentBetween } from "../domain/commitments.ts";
+import { hiddenTransactionSql } from "../domain/member-scope.ts";
 import { nowIST } from "../core/dates.ts";
 import { Missing } from "../core/refusal.ts";
 import type { Rule, RuleStage } from "./rules.ts";
 import { extractNarrationFields, applyRules, type RuleSubject } from "./rules.ts";
-import { refusePaymentCategories } from "../domain/transactions.ts";
 
 export interface Proposal {
   id: string;
@@ -265,25 +268,46 @@ export interface RetroactivePreview {
   changing: number;
 }
 
-function subjectsFor(db: DB, limit = 2000): (RuleSubject & { id: string; payeeName: string | null })[] {
+/**
+ * The history a rule is tried against, as `viewerMemberId` may see it.
+ *
+ * MONEY-CORE-10 / 11 / 22 · This read every live transaction in the
+ * household. Ravi's "Swiggy → Food" then listed, and re-filed, a ₹400 spend on
+ * Priya's personal account (out of her own envelope, whose name the preview
+ * showed) and an entry on her private tracking account — the same leak the
+ * rules page itself is careful to avoid. Now: only rows the viewer can see
+ * (account, envelope and every split line — member-scope's own test), only
+ * budget accounts (a tracking account's rows carry no envelope), and no split
+ * rows, whose envelopes are their lines — writing one `category_id` onto a
+ * split changed nothing and was counted as a change.
+ */
+export function ruleSubjects(
+  db: DB, viewerMemberId: string | null, limit = 2000,
+): (RuleSubject & { id: string; payeeName: string | null; budgetId: string | null })[] {
+  const hidden = hiddenTransactionSql("t", viewerMemberId);
   return queryAll<{
     id: string; narration: string | null; payee: string | null; account_id: string;
     amount: number; date: string; memo: string | null; category_id: string | null;
-    cleared: number; source: string; card_last4: string | null;
+    cleared: number; source: string; card_last4: string | null; budget_id: string | null;
   }>(
     db,
     `SELECT t.id, t.raw_narration AS narration, p.name AS payee, t.account_id, t.amount,
-            t.date, t.memo, t.category_id, t.cleared, t.source, c.last4 AS card_last4
-       FROM transactions t LEFT JOIN payees p ON p.id = t.payee_id
+            t.date, t.memo, t.category_id, t.cleared, t.source, c.last4 AS card_last4, a.budget_id
+       FROM transactions t
+       JOIN accounts a ON a.id = t.account_id
+       LEFT JOIN payees p ON p.id = t.payee_id
        LEFT JOIN cards c ON c.id = t.card_id
       WHERE t.deleted_at IS NULL AND t.transfer_pair_id IS NULL
+        AND t.is_split = 0 AND a.kind <> 'tracking'
+        AND NOT ${hidden.sql}
       ORDER BY t.date DESC LIMIT ?`,
-    limit,
+    ...hidden.params, limit,
   ).map((r) => {
     const narration = r.narration ?? r.payee ?? "";
     return {
       id: r.id,
       payeeName: r.payee,
+      budgetId: r.budget_id,
       narration,
       importedPayee: r.payee,
       payee: r.payee,
@@ -301,8 +325,41 @@ function subjectsFor(db: DB, limit = 2000): (RuleSubject & { id: string; payeeNa
   });
 }
 
-/** F6.6 · What applying this rule to existing transactions would do. */
-export function previewRetroactive(db: DB, rule: Rule): RetroactivePreview {
+/**
+ * MONEY-CORE-10 / 27 · Whether the rule may file this row to that envelope:
+ * the refusals every other filing path meets. The raw UPDATE below skipped
+ * them, so a rule could file Priya's personal-account spend to a household
+ * envelope with nothing linking the two budgets, or file spending to a card's
+ * payment envelope or a commitment envelope — each put a budget's identity out
+ * by the amount in every month after. A refused row is left as it is.
+ */
+function refuseRuleFiling(
+  db: DB, subject: { accountId: string; budgetId: string | null }, categoryId: string,
+): void {
+  refusePaymentCategories(db, [categoryId]);
+  const categoryBudget = queryOne<{ budget_id: string | null }>(
+    db, `SELECT budget_id FROM categories WHERE id = ?`, categoryId,
+  )?.budget_id ?? null;
+  if (
+    subject.budgetId && categoryBudget && subject.budgetId !== categoryBudget &&
+    !sharedInstrumentBetween(db, subject.accountId, subject.budgetId, categoryBudget)
+  ) {
+    throw new Refusal("Nothing links the account's budget to that envelope's.");
+  }
+}
+
+function fileable(db: DB, subject: { accountId: string; budgetId: string | null }, categoryId: string): boolean {
+  try {
+    refuseRuleFiling(db, subject, categoryId);
+    return true;
+  } catch (err) {
+    if (err instanceof Refusal) return false;
+    throw err;
+  }
+}
+
+/** F6.6 · What applying this rule to existing transactions would do, as `viewerMemberId` sees it. */
+export function previewRetroactive(db: DB, rule: Rule, viewerMemberId: string | null): RetroactivePreview {
   const categoryNames = new Map(
     queryAll<{ id: string; name: string }>(db, `SELECT id, name FROM categories`)
       .map((c) => [c.id, c.name]),
@@ -311,11 +368,12 @@ export function previewRetroactive(db: DB, rule: Rule): RetroactivePreview {
   const matches: RetroactiveMatch[] = [];
   let changing = 0;
 
-  for (const subject of subjectsFor(db)) {
+  for (const subject of ruleSubjects(db, viewerMemberId)) {
     const outcome = applyRules(subject, [rule]);
     if (outcome.appliedRuleIds.length === 0) continue;
 
     const proposed = outcome.subject.categoryId;
+    if (proposed && proposed !== subject.categoryId && !fileable(db, subject, proposed)) continue;
     if (proposed !== subject.categoryId) changing++;
 
     matches.push({
@@ -340,20 +398,29 @@ export function previewRetroactive(db: DB, rule: Rule): RetroactivePreview {
 export function applyRetroactive(db: DB, actor: Actor, rule: Rule): number {
   return transact(db, () => {
     let changed = 0;
+    const eventIds: string[] = [];
 
-    for (const subject of subjectsFor(db)) {
+    for (const subject of ruleSubjects(db, actor.memberId)) {
       const outcome = applyRules(subject, [rule]);
       if (outcome.appliedRuleIds.length === 0) continue;
 
       const proposed = outcome.subject.categoryId;
       if (!proposed || proposed === subject.categoryId) continue;
       /*
-       * The same check every other filing path makes. This wrote the rule's
-       * envelope straight into category_id, so a rule naming an envelope since
-       * merged away filed ₹450 into a deleted envelope the engine never reads —
-       * the identity out by that much in every month after.
+       * A rule naming an envelope that has since gone is refused outright, by
+       * name, rather than skipped row by row: "Applied to 0 transactions" would
+       * not say why (MONEY-CORE-26).
        */
-      refusePaymentCategories(db, [proposed]);
+      if (queryOne(db, `SELECT 1 FROM categories WHERE id = ? AND deleted_at IS NOT NULL`, proposed)) {
+        refusePaymentCategories(db, [proposed]);
+      }
+      if (!fileable(db, subject, proposed)) continue;
+      // Across two linked budgets the envelope between them carries the claim,
+      // opened here if this is the first filing to need it — as updateTransaction does.
+      const categoryBudget = queryOne<{ budget_id: string | null }>(
+        db, `SELECT budget_id FROM categories WHERE id = ?`, proposed,
+      )?.budget_id ?? null;
+      prepareClaim(db, actor, subject.accountId, subject.budgetId, categoryBudget);
 
       const before = queryOne<Record<string, unknown>>(
         db, `SELECT * FROM transactions WHERE id = ?`, subject.id,
@@ -368,11 +435,11 @@ export function applyRetroactive(db: DB, actor: Actor, rule: Rule): number {
         subject.id, rule.id, nowIST(),
       );
 
-      appendEvent(db, { ...actor, source: "rule", sourceDetail: rule.name }, {
+      eventIds.push(appendEvent(db, { ...actor, source: "rule", sourceDetail: rule.name }, {
         entity: "transaction", entityId: subject.id, action: "categorise",
         before, after: queryOne(db, `SELECT * FROM transactions WHERE id = ?`, subject.id),
         summary: `Categorised by the rule "${rule.name}"`,
-      });
+      }).id);
       changed++;
     }
 
@@ -382,7 +449,7 @@ export function applyRetroactive(db: DB, actor: Actor, rule: Rule): number {
 
     appendEvent(db, actor, {
       entity: "rule", entityId: rule.id, action: "apply-retroactive",
-      after: { changed },
+      after: { changed, eventIds },
       summary:
         `Applied "${rule.name}" to ${changed} existing ` +
         `${changed === 1 ? "transaction" : "transactions"}`,
@@ -391,3 +458,35 @@ export function applyRetroactive(db: DB, actor: Actor, rule: Rule): number {
     return changed;
   });
 }
+
+/*
+ * MONEY-CORE-12 · The apply page promises "Undoable in one action for the next
+ * 30 days", and nothing could undo it: "rule" had no undo handler, so Activity
+ * answered "Changes to rule cannot be undone" and the only way back was each
+ * "Categorised by the rule" entry, one by one. The apply now records the
+ * events it wrote, and undoing it undoes each of them — except a transaction
+ * changed again since, which is the household's later decision and stays (the
+ * same rule a payee merge's undo keeps). Only this action of a rule undoes;
+ * the rest stay "cannot be undone", so Activity offers no button for them.
+ */
+registerUndoHandler("rule", (db, event, actor) => {
+  const recorded = (event.after as { eventIds?: string[] } | undefined)?.eventIds;
+  if (!recorded) {
+    throw new UndoRefused(
+      "That was recorded before an apply kept a list of what it changed. Undo each " +
+      "\"Categorised by the rule\" entry instead.",
+    );
+  }
+  let back = 0;
+  for (const id of recorded) {
+    try {
+      if (undoEvent(db, id, actor).ok) back++;
+    } catch (err) {
+      // Refused before writing (its old envelope merged away since, say): kept.
+      if (!(err instanceof UndoRefused || err instanceof Refusal)) throw err;
+    }
+  }
+  const kept = recorded.length - back;
+  return `Put ${back} ${back === 1 ? "transaction" : "transactions"} back as they were` +
+    (kept > 0 ? `; ${kept} changed since ${kept === 1 ? "was" : "were"} left as ${kept === 1 ? "it is" : "they are"}` : "");
+}, ["apply-retroactive"]);

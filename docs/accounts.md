@@ -90,6 +90,10 @@ Rules enforced on write:
   accounts are outside the budget.
 - Deleting is soft (`deleted_at`). The row remains so the activity log and undo
   can reach it.
+- A transaction something else is recorded against — a loan instalment, a
+  portfolio lot or transaction, a reconciliation adjustment, a family-loan
+  write-off — cannot be deleted, nor its creation undone. Undo or delete that
+  first.
 
 Optional fields: `memo`, `tags`, `owner_member_id` (who spent it),
 `reimbursable`, `card_id` (which physical card on a multi-card account),
@@ -121,6 +125,11 @@ Editing or deleting one leg acts on both. Specifically:
   its own side.
 - **Delete and its undo** act on both legs. So does undoing an edit, and so
   does undoing the *creation* of either leg: it removes the whole transfer.
+  Deleting from either leg asks about a reconciled period on *both* accounts,
+  as an edit does.
+- **A charge on the transfer** is a third, ordinary transaction filed to an
+  envelope, outside the pair. Undoing the transfer from Activity removes it
+  with the legs.
 
 **Between a card and a tracking account** (topping up a wallet from the card,
 an EMI on a loan tracked outside the budget) the card side is treated exactly
@@ -163,7 +172,18 @@ can't restore lines they never kept; undoing one of those on a transaction that
 was split is refused with a sentence rather than half-applied.
 
 Not every event carries a whole row: marking a line cleared while reconciling
-records only `cleared`. Undo writes back exactly the columns an event recorded.
+records only `cleared`. Undo writes back exactly the columns an event recorded —
+and of those, only the ones the edit actually changed. A memo edit's undo puts
+back the memo and nothing else: not `deleted_at` (a transfer deleted since stays
+deleted, both legs), not the envelope (one merged away since keeps the spend in
+the envelope it was merged into). When an edit did move the money out of an
+envelope that has since been merged away, deleted or removed, the undo is
+refused with a sentence rather than filing the money where no budget counts it;
+a payee merged since comes back as the payee it was merged into. Two things
+travel as a unit even so: split lines and the amount they add up to come back
+together (with the filing they had), whichever of the two the edit changed; and
+a transfer leg's partner takes back the same columns as the leg — its date for
+a date edit, its amount for an amount edit — and no others.
 
 Undoing an account's **creation** is refused once anything has been recorded
 against it — transactions, schedules, holdings, reconciliations, imports — and
@@ -178,6 +198,9 @@ group has to be empty — a deleted envelope in it with nothing behind it goes
 with it; an envelope must hold no money and have nothing filed to it; a loan's
 account, envelope, disbursements and instalments must be untouched; a payee must
 be named by nothing. Each used to reach the household as a raw foreign-key 500.
+A card's **payment envelope** is refused on its own for as long as the card
+exists — the card is what needs it, and a card left without one moved its debt
+and nothing in any budget; undoing the card's creation takes the envelope with it.
 
 Deleting a group takes the tombstones of its deleted envelopes with it, and
 writes them down: undoing the group's delete puts them back, and only then can
@@ -186,7 +209,11 @@ with a sentence saying so, rather than "Restored" over an envelope that is not
 there.
 
 Undoing a **payee merge** moves back the transactions and aliases the merge
-moved, provided they still sit with the payee they were merged into.
+moved, provided they still sit with the payee they were merged into — or with
+any payee that one has itself been merged into since — and reports the count it
+actually moved back. A merge stays listed in Activity, and undoable, after its
+winner is merged again. Undoing a payee's creation is refused once it has been
+merged into another: its merge is undone first.
 
 The engine also refuses to be the victim of an inconsistent ledger: split lines
 count only when the transaction says it is split, and a transfer leg whose
@@ -222,11 +249,21 @@ application's computed balance. If they differ, an adjustment transaction can be
 created to close the gap.
 
 A checkpoint **breaks** when a transaction dated on or before `as_of` is later
-added, edited or deleted. The account shows the break and the reason until it is
-reconciled again. Imports count: approving an imported row, merging one into an
-uncleared transaction, or undoing a whole import asks first, naming the
-checkpoint, and breaks it on the yes — and auto-approval or undo from the
-activity log breaks it without asking.
+added, edited or deleted — after an "Already reconciled" confirmation. A new
+entry asks only when it is marked already cleared; an uncleared one is not part of
+what the bank asserted. An undo from Activity asks too, when it would move the
+cleared balance a checkpoint rests on — on whichever account its handler
+writes. The account shows the break and the reason until it is reconciled
+again. Imports count: approving an imported row, merging one into an uncleared
+transaction, or undoing a whole import asks first, naming the checkpoint, and
+breaks it on the yes; auto-approval breaks it without asking.
+
+Undoing the reconciliation from Activity withdraws the checkpoint and its
+adjustment. Undoing the **"no longer holds"** entry is different: it marks the
+checkpoint intact again, keeping it and its adjustment — and only when the
+cleared balance on `as_of` matches the bank's figure again (a memo edit that
+broke it, or an amount change undone since). Otherwise it is refused, naming both
+figures; the app never re-asserts a balance that does not hold.
 
 ## Credit cards
 
@@ -236,7 +273,9 @@ are attributed to a card by matching the digits in the narration.
 
 Recording a statement (`card_statements`) stores the statement date, due date,
 amount and minimum due. Funding advice keys off the statement rather than the
-calendar month, because statement cycles do not follow calendar months.
+calendar month, because statement cycles do not follow calendar months. The due
+date may not fall before the statement date, nor the minimum exceed the balance;
+a mistyped statement is undone from Activity.
 
 ## Account lifecycle
 

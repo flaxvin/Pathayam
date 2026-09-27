@@ -84,6 +84,9 @@ export function hiddenTransactionSql(
   t: string, viewerMemberId: string | null,
 ): { sql: string; params: (string | null)[] } {
   return {
+    // `category_id IS NOT NULL` first: NULL IN (…) is NULL, not false, so an
+    // unfiled row made the whole test NULL and `NOT hidden` dropped it — from
+    // Query, and from a rule's history, as soon as anyone had a budget of their own.
     sql: `(${t}.account_id IN ${HIDDEN_ACCOUNTS}
            OR (${t}.category_id IS NOT NULL AND ${t}.category_id IN ${HIDDEN_CATEGORIES})
            OR EXISTS (SELECT 1 FROM transaction_splits hs

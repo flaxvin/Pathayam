@@ -256,13 +256,24 @@ function creditUnfiledSql(budgetId?: string): string {
    *   budget leg fall through to Ready to Assign; the card side kept excluding
    *   the row on `transfer_pair_id` alone, so undoing one leg of a ₹123.45 card
    *   payment left the payment envelope moved by it with nothing behind it.
+   *
+   * A split is unfiled in part when one of its lines names no envelope. The
+   * charge was read only as a whole row with no category, and CATEGORISED_CTE
+   * drops a blank split line, so the blank part of a split card charge (or of a
+   * refund split between an envelope and nothing) was counted by neither: a
+   * ₹100 refund with ₹60 back to Food and ₹40 left blank moved the card's debt
+   * by ₹100 and its envelopes by ₹60, and the identity was out by ₹40 in every
+   * month after. The blank lines are the unfiled part, so they are read here.
    */
   return `SELECT substr(t.date,1,7) AS month, t.account_id AS account_id,
-            SUM(t.amount) AS amount
+            SUM(CASE WHEN t.is_split = 0 THEN t.amount ELSE (
+                  SELECT COALESCE(SUM(s.amount), 0) FROM transaction_splits s
+                   WHERE s.transaction_id = t.id AND s.category_id IS NULL)
+                END) AS amount
        FROM transactions t
        JOIN accounts a ON a.id = t.account_id
       WHERE t.deleted_at IS NULL AND a.kind = 'credit'
-        AND t.is_split = 0 AND t.category_id IS NULL
+        AND (t.is_split = 1 OR t.category_id IS NULL)
         AND (t.transfer_pair_id IS NULL OR NOT EXISTS (
               SELECT 1 FROM transactions other
                 JOIN accounts otherAccount ON otherAccount.id = other.account_id

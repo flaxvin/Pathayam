@@ -90,6 +90,31 @@ describe("undo on an account", () => {
     } finally { await app.close(); }
   });
 
+  test("MONEY-CORE-9 · a live card's payment envelope cannot be undone on its own", async () => {
+    const { db } = setup();
+    const card = createAccount(db, actor, { name: "Card", kind: "credit", subtype: "credit-card",
+      openingDate: "2026-08-01", openingBalance: 0 }).id;
+    const envelopeEvent = queryOne<{ id: string }>(
+      db, `SELECT id FROM events WHERE entity = 'category' AND summary LIKE 'Created the payment category%'`,
+    )!.id;
+    const app = await startTestApp(db, { memberId: "m-ravi", config: testConfig({}) });
+    try {
+      const res = await app.post(`/activity/${envelopeEvent}/undo`, { force: "1" });
+      assert.equal(res.status, 422, `answered ${res.status}`);
+      assert.match(await res.text(), /payment envelope of Card/);
+      assert.ok(queryOne(db, `SELECT 1 FROM categories WHERE payment_account_id = ?`, card), "the envelope went");
+      assert.deepEqual(app.failures, []);
+    } finally { await app.close(); }
+
+    // Undoing the card itself still takes the envelope with it.
+    const cardEvent = queryOne<{ id: string }>(
+      db, `SELECT id FROM events WHERE entity = 'account' AND action = 'create' AND entity_id = ?`, card,
+    )!.id;
+    const { undoEvent } = await import("../core/events.ts");
+    assert.equal(undoEvent(db, cardEvent, actor, { force: true }).ok, true);
+    assert.equal(queryOne(db, `SELECT 1 FROM categories WHERE payment_account_id = ?`, card), null);
+  });
+
   test("undoing an edit restores the holder, visibility and sort too", async () => {
     const { db } = setup();
     seedMember(db, "m-priya", "Priya");
@@ -129,6 +154,57 @@ describe("undo on a payee merge", () => {
       );
       const aliases = queryAll<{ payee_id: string }>(db, `SELECT payee_id FROM payee_aliases WHERE raw = 'CORNER SHOP 123'`);
       assert.equal(aliases[0]?.payee_id, loser, "the alias stayed with the winner");
+    } finally { await app.close(); }
+  });
+});
+
+describe("MONEY-CORE-20 · a payee merge whose winner was merged again", () => {
+  test("stays listed in Activity, undoes, and brings its transactions back", async () => {
+    const { db, bank, food } = setup();
+    const spend = (payeeName: string) => createTransaction(db, actor, {
+      accountId: bank, amount: -rupees(10) as Paise, date: "2026-09-10" as IsoDate, categoryId: food, payeeName,
+    }).id;
+    const moved = [spend("D-Mart Ltd"), spend("D-Mart Ltd"), spend("D-Mart Ltd")];
+    spend("DMart");
+    spend("DMart Ready");
+    const id = (name: string) => resolvePayee(db, actor, name).id;
+    const [a, b, c] = [id("D-Mart Ltd"), id("DMart"), id("DMart Ready")];
+
+    mergePayees(db, actor, a, b);
+    const first = lastEvent(db, "payee", "merge");
+    mergePayees(db, actor, b, c);
+
+    const app = await startTestApp(db, { memberId: "m-ravi", config: testConfig({}) });
+    try {
+      assert.match(await (await app.get("/activity")).text(), /D-Mart Ltd/, "the first merge vanished from Activity");
+      const undo = await app.post(`/activity/${first}/undo`, {});
+      assert.equal(undo.status, 303);
+      assert.match(decodeURIComponent(undo.headers.get("location") ?? ""), /moved its 3 transactions back/);
+      for (const t of moved) {
+        assert.equal(queryOne<{ payee_id: string }>(db, `SELECT payee_id FROM transactions WHERE id = ?`, t)!.payee_id, a);
+      }
+    } finally { await app.close(); }
+  });
+});
+
+describe("MONEY-CORE-20 (follow-up) · undoing the creation of a payee merged away since", () => {
+  test("is refused, and the merge still undoes rather than failing on a missing payee", async () => {
+    const { db, bank, food } = setup();
+    const loser = resolvePayee(db, actor, "Wombat Cabs").id;
+    const created = lastEvent(db, "payee", "create");
+    const winner = resolvePayee(db, actor, "Uber").id;
+    const t = createTransaction(db, actor, { accountId: bank, amount: -rupees(250) as Paise,
+      date: "2026-09-05" as IsoDate, categoryId: food, payeeName: "Wombat Cabs" }).id;
+    mergePayees(db, actor, loser, winner);
+    const merge = lastEvent(db, "payee", "merge");
+
+    const app = await startTestApp(db, { memberId: "m-ravi", config: testConfig({}) });
+    try {
+      await app.post(`/activity/${created}/undo`, { force: "1" });
+      assert.ok(queryOne(db, `SELECT 1 FROM payees WHERE id = ?`, loser), "the merged payee was removed");
+      assert.equal((await app.post(`/activity/${merge}/undo`, { force: "1" })).status, 303);
+      assert.equal(queryOne<{ payee_id: string }>(db, `SELECT payee_id FROM transactions WHERE id = ?`, t)!.payee_id, loser);
+      assert.deepEqual(app.failures, []);
     } finally { await app.close(); }
   });
 });

@@ -210,7 +210,11 @@ describe("undo puts back what it took", () => {
     } as never);
     const app = await startTestApp(w.db, { memberId: "m-ravi", config: testConfig({}) });
     try {
-      const res = await app.post(`/activity/${lastEvent(w.db, "clear")}/undo`, {});
+      // Un-clearing it moves the reconciled balance, so it asks first
+      // (MONEY-CORE-23) — and the confirmed undo is the one that must not crash.
+      const clear = lastEvent(w.db, "clear");
+      assert.match(await (await app.post(`/activity/${clear}/undo`, {})).text(), /already reconciled/);
+      const res = await app.post(`/activity/${clear}/undo`, { confirm_checkpoint: "1" });
       assert.equal(res.status, 303, `answered ${res.status}`);
       const row = getTransaction(w.db, t.id)!;
       assert.equal(row.cleared, 0);

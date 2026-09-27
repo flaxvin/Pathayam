@@ -158,7 +158,9 @@ change in the debt:
 | ₹900 refund, categorised | +900 | −900 | Releases money that is no longer owed |
 
 **Unfiled card flow is excluded too** (B97): a charge nobody has filed gave
-nothing up, so it must not raise the envelope. A card's transfer leg counts as
+nothing up, so it must not raise the envelope. A blank (no-envelope) line of a
+split card charge or refund is unfiled in exactly this sense: only the split's
+filed lines move the envelope. A card's transfer leg counts as
 filed — it is a card *payment* — only while its partner is live and on a budget
 account or another card. When the partner is on a **tracking** account (a
 wallet top-up, an EMI on a loan tracked off-budget) or is gone, the leg is an

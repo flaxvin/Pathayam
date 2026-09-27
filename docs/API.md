@@ -205,6 +205,11 @@ curl -sS .../add -X POST \
 Generate a UUID per logical action. Reusing a key across unrelated writes will
 mask the second one.
 
+Routes that ask a question before writing — the "Already reconciled"
+confirmation on an edit, delete or undo, the preview before applying a rule to
+history — answer the question afresh; only the write behind it is keyed. A
+repeated reconcile shows the same checkpoint again rather than recording another.
+
 ---
 
 ## Response & error shapes
