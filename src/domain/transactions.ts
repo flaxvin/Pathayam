@@ -343,12 +343,24 @@ export interface UpdateTransactionInput {
   tags?: string[];
 }
 
+/** EXTRA-3 · Said wherever a change is aimed at a deleted transaction. */
+export const DELETED_TRANSACTION =
+  "That transaction has been deleted, so it can't be changed. Undo the delete in Activity to bring it back first.";
+
 export function updateTransaction(
   db: DB, actor: Actor, id: string, patch: UpdateTransactionInput,
 ): Transaction {
   return transact(db, () => {
     const before = editSnapshot(db, id);
     if (!before) throw new Missing("That transaction does not exist.");
+    /*
+     * EXTRA-3 · A deleted transaction is not edited. It counts for nothing —
+     * every balance and envelope skips it — so a new amount, date or envelope
+     * written to it changed nothing anyone could see, until the delete was
+     * undone and the row came back as something it never was, with a history
+     * that says it was edited while it was gone.
+     */
+    if (before.deleted_at) throw new Refusal(DELETED_TRANSACTION);
 
     /*
      * A transfer leg is half of one movement, not a transaction of its own.

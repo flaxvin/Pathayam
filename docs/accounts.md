@@ -89,7 +89,9 @@ Rules enforced on write:
 - A transaction on a tracking account must not carry a category; tracking
   accounts are outside the budget.
 - Deleting is soft (`deleted_at`). The row remains so the activity log and undo
-  can reach it.
+  can reach it. A deleted transaction can still be viewed, but not changed:
+  editing, filing, settling, attaching a receipt to or converting one is refused
+  (422) until its delete is undone.
 - A transaction something else is recorded against — a loan instalment, a
   portfolio lot or transaction, a reconciliation adjustment, a family-loan
   write-off — cannot be deleted, nor its creation undone. Undo or delete that
