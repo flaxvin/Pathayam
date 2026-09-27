@@ -76,6 +76,6 @@ describe("IMPORTS-SCHEDULES-23 · card last four in rules", () => {
       conditions: [{ field: "cardLast4", op: "is", value: "4321" }],
       actions: [{ type: "setCategory", categoryId: hers }],
     };
-    assert.equal(previewRetroactive(db, rule).count, 1);
+    assert.equal(previewRetroactive(db, rule, "m-ravi").count, 1);
   });
 });
