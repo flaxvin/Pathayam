@@ -411,12 +411,62 @@ export function xirr(flows: CashFlow[], opts: { maxRate?: number } = {}): number
   return ((low + high) / 2) * 100;
 }
 
-/** Build the flows for a holding: every purchase out, current value back in. */
+/** A dividend, as the holding's cash flows see it (R28). */
+export interface DividendFlow {
+  date: IsoDate;
+  amount: Paise;
+  /** Allotted as new units rather than paid out. */
+  reinvested: boolean;
+}
+
+/**
+ * Build the flows for a holding: every purchase out, every dividend back, and
+ * current value back in.
+ *
+ * WEALTH-25 · Dividends were left out, so a ₹1,000 dividend reinvested into
+ * ten units read as ₹1,000 of new money put in, and one paid to the bank never
+ * came back at all: an income fund or a dividend stock showed "XIRR 0.00%"
+ * however much it had paid. Now:
+ *
+ *   - A cash dividend is money back on its date.
+ *   - A reinvested dividend is not new money. Its lot stays an outflow (the
+ *     lot cannot be told from a purchase), and the dividend comes back on the
+ *     same date to cancel it — but never for more than the open lots of that
+ *     date still cost, since a lot sold since has left the flows already.
+ *
+ * The flows are those of the position held now: a lot sold out is not in
+ * them, and so a dividend dated before the oldest open lot — earned wholly by
+ * units since sold — is not either.
+ */
 export function holdingCashFlows(
   holding: Holding, unitPrice: MicroRupees, asOf: IsoDate, fxRate = 1,
+  dividends: readonly DividendFlow[] = [],
 ): CashFlow[] {
+  const oldest = holding.lots.reduce<IsoDate | null>(
+    (min, lot) => (min === null || lot.tradeDate < min ? lot.tradeDate : min), null,
+  );
+  const openCostOn = new Map<IsoDate, number>();
+  for (const lot of holding.lots) {
+    openCostOn.set(lot.tradeDate, (openCostOn.get(lot.tradeDate) ?? 0) + lot.cost);
+  }
+
+  const income: CashFlow[] = [];
+  for (const d of dividends) {
+    if (oldest === null || d.date < oldest || d.date > asOf) continue;
+    if (!d.reinvested) {
+      income.push({ date: d.date, amount: d.amount });
+      continue;
+    }
+    const left = openCostOn.get(d.date) ?? 0;
+    const cancels = Math.min(d.amount, left);
+    if (cancels <= 0) continue;
+    openCostOn.set(d.date, left - cancels);
+    income.push({ date: d.date, amount: cancels });
+  }
+
   return [
     ...holding.lots.map((lot) => ({ date: lot.tradeDate, amount: -lot.cost })),
+    ...income,
     { date: asOf, amount: marketValue(holding, unitPrice, fxRate) },
   ];
 }

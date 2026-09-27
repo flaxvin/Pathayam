@@ -196,7 +196,9 @@ purchase is never ₹1,000.
 
 ### Returns
 
-XIRR is computed from the dated cash flows of a holding or the portfolio.
+XIRR is computed from the dated cash flows of a holding or the portfolio: each
+open lot's cost out, each cash dividend back on its date, and today's value back.
+A reinvested dividend is not new money — its units are return, not a purchase.
 Realised gains are reported by financial year and split by holding period, which
 is what Indian capital gains treatment requires. The holding period is counted in
 calendar months ("more than 12 months"), not days, by the same test the tax

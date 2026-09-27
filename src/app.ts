@@ -6833,11 +6833,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       })
       .filter((r): r is PortfolioRow => r !== null);
 
-    // F19.16 · A portfolio-level XIRR, labelled money-weighted.
-    const flows = rows.flatMap((r) => [
-      ...r.view.lots.map((l) => ({ date: l.tradeDate, amount: -l.cost })),
-      { date: todayIST(), amount: r.view.marketValue },
-    ]);
+    // F19.16 · A portfolio-level XIRR, labelled money-weighted — pooled from
+    // each holding's own flows, dividends included (WEALTH-25).
+    const flows = rows.flatMap((r) => r.view.cashFlows);
 
     /*
      * B101 · An asset with no valuation yet is still an asset.
