@@ -163,8 +163,8 @@ Everything the app reads, and nothing it does not:
 | `DATABASE_PATH` | `$DATA_DIR/pathayam.sqlite` | |
 | `BACKUP_DIR` | `$DATA_DIR/backups` | |
 | `ATTACHMENT_DIR` | `$DATA_DIR/attachments` | |
-| `SESSION_DAYS` | `30` | Session idle timeout. |
-| `LOG_LEVEL` | `info` in production | No financial value is ever logged. |
+| `SESSION_DAYS` | `30` | How long a session lasts from sign-in (absolute, not extended by use). |
+| `LOG_LEVEL` | `info` in production | `debug`, `info`, `warn` or `error` (any case); anything else refuses to start. No financial value is ever logged. |
 | `TRUST_PROXY` | `false` | Read the client IP and forwarded host from proxy headers. Set it behind a tunnel. The IP is the right-most `X-Forwarded-For` entry, so exactly one proxy hop is assumed (see security.md). |
 | `HEARTBEAT_URL` | — | **Set this.** Pinged on a *successful* verified restore. |
 | `BACKUP_WEBHOOK_URL` | — | Alerted when a backup or its verification fails. |
@@ -173,8 +173,8 @@ Everything the app reads, and nothing it does not:
 | `FEATURE_ASSETS` | `true` | |
 | `FEATURE_MULTI_CURRENCY` | `false` | |
 | `ADMIN_DEBUG` | `false` | Enables view-as-another-member, read-only by default, bannered. |
-| `DEMO_MODE` | `false` | Bypasses authentication. Refuses to start alongside `DEV_LOGIN`, and checks the deployment does not look like production. |
-| `DEV_LOGIN` | `false` | Local auth bypass. Absent from the production image; the app refuses to start with it in a production-shaped environment. |
+| `DEMO_MODE` | `false` | Bypasses authentication. Refuses to start alongside `DEV_LOGIN`, Google or OIDC credentials, or `LOCAL_LOGIN`, and against a database with passwords, linked Google accounts, a connected mailbox or a statement identity. |
+| `DEV_LOGIN` | `false` | Local auth bypass. Absent from the production image; the app refuses to start with it in a production-shaped environment (production `NODE_ENV`, a public `BASE_URL`, Google or OIDC credentials, `LOCAL_LOGIN`). |
 
 A disabled feature module **keeps its data**. Re-enabling restores it intact.
 
@@ -189,7 +189,10 @@ cannot be affected, and compares record counts and magnitude totals across every
 durable table. `src/ops/coverage.test.ts` asserts that every durable table is
 included in that comparison.
 
-- The result appears on the **health page**.
+- The result appears on the **health page**, which can also take a backup or
+  run a verification on demand. A manual backup prunes to the same 14 the job
+  keeps. On the demo (`DEMO_MODE`) both buttons are refused: every visitor is
+  signed in, and each is a full-database copy on a disk the reset never clears.
 - A failure fires `BACKUP_WEBHOOK_URL`.
 - A success pings `HEARTBEAT_URL`. Every other alert originates from the
   deployment, so a deployment that is down cannot raise one. Point
@@ -206,12 +209,16 @@ docker compose exec pathayam node dist/restore.js --latest
 ```
 
 It keeps the database it replaced as `pathayam.sqlite.replaced-<timestamp>`,
-reads the restored copy back, and prints the control totals.
+reads the restored copy back, and prints the control totals. After a crash the
+last writes live only in the `-wal`; with `--force` that journal moves with the
+kept copy and is folded into it, so the `.replaced` file holds everything up to
+the crash. If the fold fails it says so, and the kept `-wal`/`-shm` stay beside
+it — keep the three together.
 
 > **Do not copy a backup over the database file directly.** SQLite maintains
 > `-wal` and `-shm` sidecar files, which persist after a crash. Replacing the
 > database while they remain produces `database disk image is malformed` on the
-> next query. `restore.ts` removes them in the correct order.
+> next query. `restore.ts` moves them aside with the replaced copy, in the correct order.
 
 ## Updating
 

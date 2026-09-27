@@ -922,6 +922,18 @@ export function mergePayees(db: DB, actor: Actor, loserId: string, winnerId: str
     const loser = getPayee(db, loserId);
     const winner = getPayee(db, winnerId);
     if (!loser || !winner) throw new Missing("That payee does not exist.");
+    /*
+     * Either side already merged away is a stale page — a second tab, or the
+     * list from before the first merge. Merging "DMart" back into "D-Mart
+     * Ltd" after the opposite merge left both rows pointing at each other: a
+     * cycle, both gone from every list, and the merchant impossible to see,
+     * rename or merge again (MONEY-CORE-13). Undo the earlier merge instead.
+     */
+    for (const p of [loser, winner]) {
+      if (p.merged_into_id) {
+        throw new Refusal(`"${p.name}" was already merged into another payee. Reload the page and try again.`);
+      }
+    }
 
     /*
      * Record exactly what moves, so the merge can be undone. The event used to

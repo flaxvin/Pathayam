@@ -14,6 +14,7 @@ import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, type Actor } from "../core/events.ts";
 import { nowIST } from "../core/dates.ts";
+import { Missing } from "../core/refusal.ts";
 import type { Rule, RuleStage } from "./rules.ts";
 import { extractNarrationFields, applyRules, type RuleSubject } from "./rules.ts";
 
@@ -159,7 +160,11 @@ function persist(db: DB, actor: Actor, proposal: Proposal): void {
  */
 export function confirmRule(db: DB, actor: Actor, ruleId: string): void {
   transact(db, () => {
-    execute(db, `UPDATE rules SET proposed = 0 WHERE id = ?`, ruleId);
+    // No row, no event: a made-up id used to "succeed" and log a confirmation
+    // of nothing (SECURITY-OPS-8).
+    if (execute(db, `UPDATE rules SET proposed = 0 WHERE id = ?`, ruleId) === 0) {
+      throw new Missing("That rule does not exist.");
+    }
     appendEvent(db, actor, {
       entity: "rule", entityId: ruleId, action: "confirm",
       summary: `Confirmed a proposed rule`,
@@ -176,7 +181,9 @@ export function dismissRule(
   db: DB, actor: Actor, ruleId: string, rule?: Pick<Rule, "conditions" | "actions">,
 ): void {
   transact(db, () => {
-    execute(db, `UPDATE rules SET dismissed_at = ? WHERE id = ?`, nowIST(), ruleId);
+    if (execute(db, `UPDATE rules SET dismissed_at = ? WHERE id = ?`, nowIST(), ruleId) === 0) {
+      throw new Missing("That rule does not exist.");
+    }
 
     if (rule) {
       const condition = rule.conditions[0];

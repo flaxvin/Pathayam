@@ -95,7 +95,15 @@ function matchSegments(pattern: string[], actual: string[]): Record<string, stri
   for (let i = 0; i < pattern.length; i++) {
     const p = pattern[i]!;
     if (p.startsWith(":")) {
-      params[p.slice(1)] = decodeURIComponent(actual[i]!);
+      // A malformed escape ("%ZZ", a truncated UTF-8 sequence) names nothing
+      // this app could have linked to, so it matches nothing: a 404. Uncaught,
+      // decodeURIComponent's URIError was a 500 on every :param route,
+      // recorded as a fault by anyone who typed one (SECURITY-OPS-1).
+      try {
+        params[p.slice(1)] = decodeURIComponent(actual[i]!);
+      } catch {
+        return null;
+      }
     } else if (p !== actual[i]) {
       return null;
     }

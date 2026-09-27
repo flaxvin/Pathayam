@@ -25,6 +25,7 @@
  */
 
 import { copyFileSync, existsSync, rmSync, renameSync, statSync } from "node:fs";
+import { DatabaseSync } from "node:sqlite";
 import { loadConfig } from "./config.ts";
 import { openDatabase } from "./db/db.ts";
 import { listBackups, controlTotals } from "./ops/backup.ts";
@@ -88,13 +89,41 @@ function main(): void {
     }
   }
 
-  // Keep what is being replaced. It may be the only copy of the last few hours.
+  /*
+   * Keep what is being replaced. It may be the only copy of the last few hours.
+   *
+   * SECURITY-OPS-22 · After a crash those last few hours are not in the main
+   * file at all: they are in the -wal, committed but not yet checkpointed. This
+   * used to rename the main file and then delete the sidecars, which kept a
+   * bare file that could not even be opened ("no such table") and threw away
+   * exactly the writes the comment above promises to keep. So the sidecars now
+   * move with it, under the names SQLite itself looks for (<kept>-wal), and the
+   * kept copy is opened once so SQLite replays the journal into it and the
+   * .replaced file stands on its own. If that open fails, nothing is lost — the
+   * journal is still beside it — and the message says so.
+   */
   if (existsSync(live)) {
     const kept = `${live}.replaced-${new Date().toISOString().replace(/[:.]/g, "-")}`;
     renameSync(live, kept);
+    for (const suffix of SIDECARS) {
+      if (existsSync(`${live}${suffix}`)) renameSync(`${live}${suffix}`, `${kept}${suffix}`);
+    }
+    try {
+      const old = new DatabaseSync(kept);
+      old.exec("PRAGMA wal_checkpoint(TRUNCATE)");
+      old.close();
+      for (const suffix of SIDECARS) rmSync(`${kept}${suffix}`, { force: true });
+    } catch (error) {
+      console.warn(
+        `  could not fold the journal into the kept copy (${(error as Error).message});\n` +
+        `  its -wal and -shm are kept beside it — do not separate them.`,
+      );
+    }
     console.log(`  kept the current database as ${kept.split("/").pop()}`);
   }
   // The whole point: a stale journal against a fresh database reads as corruption.
+  // Any sidecar still here has no main file to belong to (the database was
+  // already missing), so there is nothing of value in it to keep.
   for (const suffix of SIDECARS) rmSync(`${live}${suffix}`, { force: true });
 
   copyFileSync(chosen, live);

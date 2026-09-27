@@ -34,7 +34,8 @@ import {
   authenticateToken, tokenMayReach, checkTokenRateLimit,
   mintToken, listTokens, revokeToken, type TokenScope,
 } from "./auth/tokens.ts";
-import { beginOAuth, exchangeCode } from "./auth/google.ts";
+import { beginOAuth, exchangeCode, OAuthError } from "./auth/google.ts";
+import { PendingStates } from "./auth/pending.ts";
 import {
   beginGmailConnect, exchangeGmailCode, revokeToken as revokeGmailToken,
 } from "./gmail/oauth.ts";
@@ -136,7 +137,7 @@ import {
   renderHealth, overallState, type HealthGroup,
 } from "./web/pages/health.ts";
 import {
-  createBackup, verifyRestore, listBackups, lastJobRun, recordJobRun,
+  createBackup, pruneBackups, verifyRestore, listBackups, lastJobRun, recordJobRun,
   pingHeartbeat,
 } from "./ops/backup.ts";
 import {
@@ -287,7 +288,7 @@ import {
   applyStartingTemplate, startBlank,
 } from "./domain/starting-budget.ts";
 import {
-  mergePayees, getPayee, resolvePayee, UndoRefused,
+  mergePayees, getPayee, visiblePayeeIds, resolvePayee, UndoRefused,
 } from "./domain/transactions.ts";
 import {
   createCategory, renameCategory, moveCategoryToGroup, setCategoryHidden, deleteCategory,
@@ -447,11 +448,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * Bearer-authenticated calls are exempt. They carry no cookie, so a browser
      * cannot be tricked into making one on somebody's behalf — which is the
      * whole mechanism CSRF depends on.
+     *
+     * That premise is now checked rather than assumed (SECURITY-OPS-2). The
+     * exemption keyed on the header alone, while authentication below lets a
+     * valid session cookie win over a bearer that does not authenticate — so
+     * "Authorization: Bearer nonsense" plus a victim's cookie was a
+     * cookie-authenticated write with no Origin check at all. A request that
+     * carries a session cookie is held to the rule whatever else it carries.
      */
     function sameOriginWrites(ctx: RequestContext): Response | void {
       const method = ctx.method.toUpperCase();
       if (method === "GET" || method === "HEAD" || method === "OPTIONS") return;
-      if (/^Bearer\s/i.test(String(ctx.req.headers.authorization ?? ""))) return;
+      if (
+        /^Bearer\s/i.test(String(ctx.req.headers.authorization ?? ""))
+        && parseCookies(ctx.req.headers.cookie)[SESSION_COOKIE] === undefined
+      ) return;
 
       /*
        * Where this request believes it arrived. The configured base URL is one
@@ -861,6 +872,59 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   }
 
   /**
+   * An id posted in a form field, checked by one of the guards above: absent
+   * is null, present is either the id or that guard's 404.
+   *
+   * visibleAccountField did this for accounts only, and every other id in a
+   * form body went straight to the domain. An audit found the same two
+   * outcomes route after route: another member's private budget, group, payee
+   * or rule was written to (a 303 that confirmed it was real), and a made-up
+   * one reached the database, failed its foreign key, and answered 500 —
+   * recorded as a fault, and distinguishable from the real ones. One helper so
+   * the next form field has the obvious thing to reach for.
+   */
+  function guardedField(
+    ctx: RequestContext, name: string,
+    guard: (ctx: RequestContext, id: string) => string | null,
+  ): string | null {
+    const id = field(ctx.body, name);
+    return id ? guard(ctx, id) : null;
+  }
+
+  /** A budget this member may file into: the household's, or their own. */
+  function requireVisibleBudget(ctx: RequestContext, id: string): string {
+    if (!budgetsFor(db, viewer(ctx)).some((b) => b.id === id)) {
+      throw new NotFound("That budget does not exist.");
+    }
+    return id;
+  }
+
+  /**
+   * A member named in a form — a holder, or who spent it. Members are no
+   * secret inside the household, so this is only about existence: a made-up
+   * id reached the database and failed its foreign key, a 500 recorded as a
+   * fault on every form that names one (SECURITY-OPS-10, WEBUX-11). A member
+   * since removed still counts, so an edit form that re-posts an old holder
+   * keeps working.
+   */
+  function requireMember(_ctx: RequestContext, id: string): string {
+    if (!getMember(db, id)) throw new NotFound("That member does not exist.");
+    return id;
+  }
+
+  /**
+   * A payee is visible by the rule listPayees applies — seen somewhere this
+   * member can see, or nowhere yet — plus one merged into a visible payee.
+   * A payee seen only on another member's private account is where they spend;
+   * merging into it announced its name, and merging it away re-pointed their
+   * private transactions (SECURITY-OPS-7).
+   */
+  function requireVisiblePayee(ctx: RequestContext, id: string): string {
+    if (!visiblePayeeIds(db, viewer(ctx)).has(id)) throw new NotFound("That payee does not exist.");
+    return id;
+  }
+
+  /**
    * Somewhere inside this app, and nowhere else.
    *
    * Four places took a redirect target from the request and used it as given:
@@ -1013,8 +1077,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
   // Sign in
   // -------------------------------------------------------------------------
-  const pendingOAuth = new Map<string, { verifier: string; next: string; at: number }>();
-  const pendingGmail = new Map<string, { verifier: string; memberId: string; at: number }>();
+  // Expiring and capped — see auth/pending.ts (SECURITY-OPS-19).
+  const pendingOAuth = new PendingStates<{ verifier: string; next: string; at: number }>();
+  const pendingGmail = new PendingStates<{ verifier: string; memberId: string; at: number }>();
 
   router.get("/signin", async (ctx) => {
     if (ctx.locals.auth) return { redirect: "/" };
@@ -1172,6 +1237,47 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     );
   });
 
+  /*
+   * The allow-list is a list of email addresses, so an address is only worth
+   * matching once the provider vouches that the person signing in owns it.
+   * Both callbacks parsed `email_verified` and neither read it: an identity
+   * provider that lets people register themselves, or set an address without
+   * confirming it (Keycloak and Authentik can both be set up that way), let
+   * anyone sign in as any household member by typing that member's address —
+   * and on an empty household, become its first member (SECURITY-OPS-17).
+   * Refused here, before the address is looked up at all. A provider that
+   * does not send the claim is refused too: this cannot tell "not verified"
+   * from "not said", and guessing is the wrong way round for a sign-in.
+   */
+  function refuseUnverifiedEmail(source: string, profile: { email: string; emailVerified: boolean }): void {
+    if (profile.emailVerified) return;
+    recordAuthAttempt(db, source, "unverified-email", profile.email);
+    throw new HttpError(
+      403,
+      "Your sign-in provider has not verified that email address, so it cannot be used to sign in here. " +
+      "Verify it with the provider and try again.",
+    );
+  }
+
+  /**
+   * The provider said no to the code — forged, replayed, expired, or a token
+   * that fails its checks. That is a failed sign-in, not a broken server
+   * (SECURITY-OPS-18): OAuthError is a plain Error, so it reached the
+   * generic 500 page and request_failures, and anybody could mint a state at
+   * the public /auth/google and write a fault row per request. Now it is a
+   * 400 that says what the provider said, recorded as an auth attempt so it
+   * counts toward the rate limit like every other failed sign-in.
+   */
+  async function exchangeOrRefuse<T>(source: string, exchange: () => Promise<T>): Promise<T> {
+    try {
+      return await exchange();
+    } catch (error) {
+      if (!(error instanceof OAuthError)) throw error;
+      recordAuthAttempt(db, source, "rejected-code", error.message);
+      throw new HttpError(400, `${error.message} Please try signing in again.`);
+    }
+  }
+
   router.get("/auth/google", (ctx) => {
     /*
      * Not configured is a *deployment* state, not a server fault — a demo
@@ -1191,9 +1297,6 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       next: ctx.query.get("next") ?? "/",
       at: Date.now(),
     });
-    for (const [key, value] of pendingOAuth) {
-      if (Date.now() - value.at > 10 * 60_000) pendingOAuth.delete(key);
-    }
 
     return { redirect: start.url };
   });
@@ -1232,8 +1335,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (!oidcConfigured(config)) throw new NotFound();
 
     const state = ctx.query.get("state") ?? "";
-    const pending = pendingOAuth.get(state);
-    pendingOAuth.delete(state);
+    const pending = pendingOAuth.take(state);
     if (!pending) {
       recordAuthAttempt(db, source, "bad-state");
       throw new HttpError(400, "That sign-in link has expired. Please try again.");
@@ -1245,7 +1347,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       throw new HttpError(400, "The identity provider did not return a sign-in code.");
     }
 
-    const profile = await exchangeOidcCode({
+    const profile = await exchangeOrRefuse(source, () => exchangeOidcCode({
       config: {
         issuer: config.oidc.issuer!,
         clientId: config.oidc.clientId!,
@@ -1255,7 +1357,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       code,
       codeVerifier: pending.verifier,
       fetchImpl: deps.fetchImpl,
-    });
+    }));
+    refuseUnverifiedEmail(source, profile);
 
     let member = findMemberByEmail(db, profile.email);
 
@@ -1305,8 +1408,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }
 
     const state = ctx.query.get("state") ?? "";
-    const pending = pendingOAuth.get(state);
-    pendingOAuth.delete(state);
+    const pending = pendingOAuth.take(state);
     if (!pending) {
       recordAuthAttempt(db, source, "bad-state");
       throw new HttpError(400, "That sign-in link has expired. Please try again.");
@@ -1318,14 +1420,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       throw new HttpError(400, "Google did not return a sign-in code.");
     }
 
-    const profile = await exchangeCode({
+    const profile = await exchangeOrRefuse(source, () => exchangeCode({
       clientId: config.google.clientId!,
       clientSecret: config.google.clientSecret!,
       redirectUri: `${config.baseUrl}/auth/google/callback`,
       code,
       codeVerifier: pending.verifier,
       fetchImpl: deps.fetchImpl,
-    });
+    }));
+    refuseUnverifiedEmail(source, profile);
 
     let member = findMemberByEmail(db, profile.email);
 
@@ -1530,8 +1633,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const name = String(requiredField(ctx.body, "name")).trim();
     const password = String(requiredField(ctx.body, "password"));
 
-    const member = inviteMember(db, { memberId: null, source: "system" }, { email, name });
-    setPassword(db, member.id, password);
+    /*
+     * One transaction. inviteMember committed before setPassword checked the
+     * password, so a password the rules refuse (too short, or on the refused
+     * list) answered 422 with the member already created and no password set:
+     * this door then closed (the household has a member) and /auth/password
+     * had nothing to check, so nobody could ever sign in without editing the
+     * database (SECURITY-OPS-16). Refused now, the member is not created
+     * either, and the form can simply be tried again.
+     */
+    const member = transact(db, () => {
+      const created = inviteMember(db, { memberId: null, source: "system" }, { email, name });
+      setPassword(db, created.id, password);
+      return created;
+    });
 
     const { token } = createSession(db, member.id, {
       userAgent: ctx.req.headers["user-agent"] ?? null,
@@ -2225,12 +2340,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         nickname: text("nickname"),
         institution: text("institution"),
         last4: text("last4"),
-        holder_member_id: text("holder_member_id"),
+        holder_member_id: text("holder_member_id") && requireMember(ctx, text("holder_member_id")!),
         statement_day: numberOrNull(field(ctx.body, "statement_day")),
         due_day: numberOrNull(field(ctx.body, "due_day")),
         // 15 · Moving an account between budgets is one undoable step, recorded
-        // like any other edit, because it moves money's home.
-        budget_id: text("budget_id"),
+        // like any other edit, because it moves money's home. Only into a
+        // budget this member could have picked: any id was taken, so the
+        // household's joint account could be moved into another member's
+        // personal budget (SECURITY-OPS-4).
+        budget_id: text("budget_id") && requireVisibleBudget(ctx, text("budget_id")!),
         visibility: field(ctx.body, "visibility") === "private" ? "private"
           : field(ctx.body, "visibility") === "household" ? "household" : undefined,
       });
@@ -2304,8 +2422,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         statementDay: numberOrNull(field(ctx.body, "statement_day")),
         dueDay: numberOrNull(field(ctx.body, "due_day")),
         // 15 · Whose money it is, and who can see it, are settled at creation
-        // rather than as a second edit nobody remembers to make.
-        budgetId: field(ctx.body, "budget_id") || undefined,
+        // rather than as a second edit nobody remembers to make. The budget
+        // must be one this member can see (SECURITY-OPS-4): another member's
+        // personal budget took the account and its opening balance.
+        budgetId: guardedField(ctx, "budget_id", requireVisibleBudget) ?? undefined,
         visibility: field(ctx.body, "visibility") === "private" ? "private" : undefined,
       });
 
@@ -2572,7 +2692,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         reimbursable: field(ctx.body, "reimbursable") === "1",
         // H2 · Who spent it. A card with its own holder still wins — an add-on
         // charge belongs to whoever holds the add-on (R6.e).
-        ownerMemberId: field(ctx.body, "owner_member_id") || undefined,
+        ownerMemberId: guardedField(ctx, "owner_member_id", requireMember) ?? undefined,
       });
 
       return { redirect: "/", message: `Saved ${formatPaise(magnitude)}.` };
@@ -2652,13 +2772,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // existed, so it 404'd. A quick flip between light and dark (anything not
   // already dark becomes dark), stored against the real member, returning to
   // where the user was.
-  router.get("/settings/theme-toggle", (ctx) => {
-    const a = auth(ctx);
-    const next: Theme = a.viewingAs.theme === "dark" ? "light" : "dark";
-    setTheme(db, actorFor(a), a.member.id, next);
-    const referer = ctx.req.headers.referer;
-    return { redirect: referer && referer.startsWith(config.baseUrl) ? referer : "/" };
-  });
+  //
+  // SECURITY-OPS-3 · It was a GET, the one GET that wrote: a cross-site link
+  // flipped the theme and logged an event (SameSite=Lax sends the cookie on a
+  // top-level navigation), and it returned to any Referer that merely *began*
+  // with BASE_URL — http://127.0.0.1.evil.example passed for http://127.0.0.1.
+  // Now a POST through mutate, so the origin check applies, and it returns only
+  // to a same-site path the palette sends, the way POST /settings/theme does.
+  router.post("/settings/theme-toggle", (ctx) =>
+    mutate(ctx, (a) => {
+      const next: Theme = a.viewingAs.theme === "dark" ? "light" : "dark";
+      setTheme(db, actorFor(a), a.member.id, next);
+      return { redirect: safePath(field(ctx.body, "return_to"), "/") };
+    }),
+  );
 
   router.post("/impersonate/start", (ctx) => {
     if (!config.adminDebug) throw new NotFound();
@@ -2975,8 +3102,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           <h1>${existing ? "Change your password" : "Set a password"}</h1>
           <p>
             ${existing
-              ? html`Changing it does not sign out your other sessions. End those
-                     from <a href="/settings">Settings</a> if you need to.`
+              ? html`Changing it signs you out on every other device; this one
+                     stays signed in.`
               : html`A password is a second way into this household that does not
                      depend on anybody else's service. You can keep using Google
                      as well.`}
@@ -3682,6 +3809,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     const tagsRaw = field(ctx.body, "tags");
     const ownerRaw = field(ctx.body, "owner_member_id");
+    if (ownerRaw) requireMember(ctx, ownerRaw);
 
     // Guard the earlier of the two dates: moving a transaction backwards means
     // the ripple starts where it lands, not where it was.
@@ -3951,7 +4079,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         label: requiredField(ctx.body, "label"),
         last4,
         isPrimary: false,
-        holderMemberId: field(ctx.body, "holder_member_id") || null,
+        holderMemberId: guardedField(ctx, "holder_member_id", requireMember),
       });
       return { redirect: `/accounts/${account.id}/cards`, message: "Card added." };
     }),
@@ -4644,7 +4772,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const loan = createLoan(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         lender: requiredField(ctx.body, "lender"),
         nickname: field(ctx.body, "nickname") || null,
-        holderMemberId: field(ctx.body, "holder_member_id") || null,
+        holderMemberId: guardedField(ctx, "holder_member_id", requireMember),
         visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
         // R15 · Where the drawn money landed, if the household said.
         disbursementDestination:
@@ -4821,7 +4949,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       if (!loan) throw new NotFound("That loan does not exist.");
       updateAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
         loan.account_id, {
-          holder_member_id: field(ctx.body, "holder_member_id") || null,
+          holder_member_id: guardedField(ctx, "holder_member_id", requireMember),
           visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
         });
       return { redirect: `/loans/${loan.id}`, message: "Saved." };
@@ -5569,7 +5697,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // being marked "detected" once it is.
       createSchedule(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         name: requiredField(ctx.body, "name"),
-        payeeId: field(ctx.body, "payee_id") || null,
+        // The payee too, like the account and envelope beside it
+        // (SECURITY-OPS-28): another member's private payee rode along into
+        // the household register, and a made-up one was a foreign-key 500.
+        payeeId: guardedField(ctx, "payee_id", requireVisiblePayee),
         accountId: visibleAccountField(ctx, "account_id"),
         categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
         amount: Number(field(ctx.body, "amount") ?? 0),
@@ -6002,8 +6133,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/payees/merge", (ctx) =>
     mutate(ctx, (a) => {
-      const loser = requiredField(ctx.body, "loser_id");
-      const winner = requiredField(ctx.body, "winner_id");
+      const loser = requireVisiblePayee(ctx, requiredField(ctx.body, "loser_id"));
+      const winner = requireVisiblePayee(ctx, requiredField(ctx.body, "winner_id"));
       mergePayees(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), loser, winner);
       return {
         redirect: "/payees",
@@ -6239,7 +6370,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/rules/confirm", (ctx) =>
     mutate(ctx, (a) => {
-      confirmRule(db, actorFor(a), requiredField(ctx.body, "rule_id"));
+      // A rule filing into another member's private envelope is theirs, as it
+      // is for /rules/:id/delete (SECURITY-OPS-8).
+      confirmRule(db, actorFor(a), requireVisibleRule(ctx, requiredField(ctx.body, "rule_id")));
       return { redirect: "/rules", message: "Rule confirmed." };
     }),
   );
@@ -6247,7 +6380,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/rules/dismiss", (ctx) =>
     mutate(ctx, (a) => {
       // L5: dismissing a proposal suppresses that specific proposal for good.
-      const id = requiredField(ctx.body, "rule_id");
+      const id = requireVisibleRule(ctx, requiredField(ctx.body, "rule_id"));
       dismissRule(db, actorFor(a), id, ruleRows(db, true).find((r) => r.id === id));
       return { redirect: "/rules", message: "Won't suggest that again." };
     }),
@@ -6306,8 +6439,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/categories/new", (ctx) =>
     mutate(ctx, (a) => {
+      // A group in a budget this member can see (SECURITY-OPS-6): another
+      // member's private group took the envelope into their budget, and a
+      // made-up id failed its foreign key as a 500. And one of the groups the
+      // form offers — the app keeps its own (card payments, loans, internal)
+      // and fills them itself.
+      const groupId = requireVisibleGroup(ctx, requiredField(ctx.body, "group_id"));
+      const kind = queryOne<{ kind: string }>(db, `SELECT kind FROM category_groups WHERE id = ?`, groupId)!.kind;
+      if (kind !== "normal") throw new Refusal("Envelopes in that group are managed by the app. Pick another group.");
       createCategory(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
-        groupId: requiredField(ctx.body, "group_id"),
+        groupId,
         name: requiredField(ctx.body, "name"),
       });
       return { redirect: "/categories", message: "Category added." };
@@ -6429,7 +6570,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const balance = view.categories.get(id)?.state.balance ?? 0;
       deleteCategory(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, {
         currentBalance: balance,
-        remapTo: field(ctx.body, "remap_to") || null,
+        // An envelope this member can see (SECURITY-OPS-11): the refusals
+        // for another member's envelope named their private card and told a
+        // real id from a made-up one. Now one 404 for both.
+        remapTo: requireVisibleCategory(ctx, field(ctx.body, "remap_to") || null) || null,
       });
       return { redirect: "/categories", message: "Category deleted." };
     }),
@@ -6510,7 +6654,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         note: field(ctx.body, "note") || null,
         // H2 / H2.2 · Money lent to your cousin can be yours rather than the
         // household's, the same as an asset or a loan.
-        holderMemberId: field(ctx.body, "holder_member_id") || null,
+        holderMemberId: guardedField(ctx, "holder_member_id", requireMember),
         visibility: field(ctx.body, "visibility") === "private" ? "private" : undefined,
       });
       return {
@@ -6731,15 +6875,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       redirectUri: `${config.baseUrl}/gmail/callback`,
     });
     pendingGmail.set(start.state, { verifier: start.codeVerifier, memberId: a.member.id, at: Date.now() });
-    for (const [k, v] of pendingGmail) if (Date.now() - v.at > 10 * 60_000) pendingGmail.delete(k);
     return { redirect: start.url };
   });
 
   router.get("/gmail/callback", async (ctx) => {
     const a = auth(ctx);
     const state = ctx.query.get("state") ?? "";
-    const pending = pendingGmail.get(state);
-    pendingGmail.delete(state);
+    const pending = pendingGmail.take(state);
     if (!pending || pending.memberId !== a.member.id) {
       throw new HttpError(400, "That Gmail connection link has expired. Try again.");
     }
@@ -7482,7 +7624,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       requireAssets();
       const valueRaw = field(ctx.body, "value");
       const account = createAssetAccount(db, actorFor(a), {
-        holderMemberId: field(ctx.body, "holder_member_id") || null,
+        holderMemberId: guardedField(ctx, "holder_member_id", requireMember),
         visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
         name: requiredField(ctx.body, "name"),
         subtype: requiredField(ctx.body, "subtype") as "physical",
@@ -7942,9 +8084,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/health", (ctx) => render(ctx, "Health", renderHealth(healthGroups(viewer(ctx)))));
 
+  /*
+   * SECURITY-OPS-24 · On the demo anyone is signed in, and each of these is a
+   * synchronous full-database read on the one event loop — a backup also a
+   * whole VACUUM INTO copy on a disk the reset does not clear. Twenty POSTs
+   * were twenty files until the six-hourly prune. The demo's job runs them
+   * anyway; a visitor has no reason to. And a manual backup now prunes like the
+   * scheduled one, so a household pressing the button cannot fill the disk
+   * either.
+   */
   router.post("/health/backup", (ctx) =>
     mutate(ctx, (a) => {
+      refuseInDemo(config, "Taking backups");
       const backup = createBackup(db, config.backupDir);
+      pruneBackups(config.backupDir);
       recordJobRun(db, "backup", "ok", `${backup.path} (${backup.bytes} bytes)`);
       appendEvent(db, actorFor(a, "job"), {
         entity: "backup", entityId: backup.path, action: "create",
@@ -7956,6 +8109,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/health/verify", (ctx) =>
     mutate(ctx, () => {
+      refuseInDemo(config, "Verifying a restore");
       const result = verifyRestore(db, config.backupDir);
       recordJobRun(db, "restore-verification", result.ok ? "ok" : "failed", result.summary);
 

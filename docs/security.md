@@ -21,6 +21,12 @@ it is not an adversarial boundary.
   after ten minutes.
 - The email must already be a member with `allowed = 1`. Others are refused and
   the attempt recorded in `auth_attempts`.
+- The provider must say the address is verified (`email_verified: true` in the
+  ID token), for Google and for any OpenID Connect provider alike. An
+  unverified address — or a provider that does not send the claim — is refused
+  with 403 before the allow-list is consulted, and recorded as
+  `unverified-email`. Otherwise a provider that lets people register
+  themselves would let anyone sign in as a member by typing their address.
 - Sign-in attempts are rate limited per source address; exceeding the limit
   returns 429. Behind a proxy (`TRUST_PROXY`) the source address is the
   **right-most** `X-Forwarded-For` entry — the one the proxy appended. Entries
@@ -30,7 +36,10 @@ it is not an adversarial boundary.
 
 **Sessions.** 32 random bytes, base64url. Stored as a SHA-256 hash; the
 plaintext exists only in the cookie. Cookie flags: `HttpOnly`, `SameSite=Lax`,
-`Path=/`, and `Secure` when `BASE_URL` is HTTPS. Idle expiry is `SESSION_DAYS`.
+`Path=/`, and `Secure` when `BASE_URL` is HTTPS. A session lasts `SESSION_DAYS`
+from sign-in, however often it is used — an absolute lifetime, not an idle
+timeout, so a stolen cookie that is kept busy still dies on schedule. Signing
+in again starts a new one.
 Sessions can be revoked individually from Settings — your own only. Another member's session id answers exactly like one that does not exist.
 
 **API tokens.** `Authorization: Bearer`. Stored as a hash, compared in constant
@@ -41,10 +50,16 @@ including token management itself. Rate limited per token.
 **Development login** (`DEV_LOGIN`) is absent from the production image: the
 module is compiled then deleted, and the build asserts its absence. The
 application also refuses to start with it enabled in a production-shaped
-environment.
+environment: `NODE_ENV=production`, a `BASE_URL` that is not loopback, `.local`,
+`.test` or a private LAN address, Google or OIDC credentials, or
+`LOCAL_LOGIN`.
 
 **Demo mode** (`DEMO_MODE`) bypasses authentication. It refuses to start
-alongside `DEV_LOGIN` and applies its own deployment safety check.
+alongside `DEV_LOGIN`, or alongside any real way in — Google or OIDC
+credentials, or `LOCAL_LOGIN` — and refuses a database with a connected
+mailbox, a saved statement identity, a member's password or a linked Google
+account. A demo is production-shaped by design, so these, not `NODE_ENV` or the
+hostname, are what tell a household's instance apart from one.
 
 ## Authorisation
 
@@ -63,7 +78,9 @@ Two independent controls:
    guarantees a same-origin request carries a `Referer` and a cross-origin one
    does not. Failure returns 403.
 
-Bearer-authenticated requests are exempt from (2): they carry no cookie.
+Bearer-authenticated requests are exempt from (2) because they carry no cookie —
+and only when they carry no session cookie: a request with one is held to (2)
+whatever `Authorization` header it also sends.
 
 The check is one middleware, applied before routing, and therefore covers every
 route.
@@ -97,6 +114,10 @@ interpolated label.
   is reduced to word characters, dots, spaces, parentheses and hyphens.
 - **Untrusted parsers**: the PDF and CSV readers are fuzzed with empty,
   truncated, malformed, all-null, absurd-length and self-referential inputs.
+- **CSV exports**: imported text (payees, narrations) is chosen by whoever sent
+  the statement or alert, so every exported cell that starts with `=`, `+`,
+  `-`, `@`, tab or carriage return is prefixed with `'` and opens as text, never
+  as a formula. Plain numbers are left alone so amounts still sum.
 
 ## Transport and headers
 
