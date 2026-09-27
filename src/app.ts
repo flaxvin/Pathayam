@@ -81,7 +81,7 @@ import {
 import {
   reconcile, reconciliationStatus, listCheckpoints, clearedBalanceAsOf,
   guardHistoricalEdit, breakCheckpoints, CheckpointConfirmationRequired,
-  intactCheckpointBalances, checkpointsMovedSince, type Checkpoint,
+  intactCheckpointBalances, checkpointsMovedSince, previewReconciliation, type Checkpoint,
 } from "./domain/reconciliation.ts";
 import { parseStatement } from "./import/csv.ts";
 import {
@@ -943,6 +943,34 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       if (err instanceof IdempotencyConflict) {
         throw new HttpError(err.statusCode, err.message);
       }
+      throw err;
+    }
+  }
+
+  /**
+   * MONEY-CORE-14 · R36 for a route that cannot go through `mutate` — one that
+   * asks a question first (the "Already reconciled" guard, a preview) or
+   * renders a page rather than redirecting. `fn` does the writing and returns
+   * a JSON-safe description of the answer; a retry with the same key gets that
+   * description back instead of doing the work again. Reconcile repeated made a
+   * second checkpoint and a second Activity entry, and a repeated delete
+   * logged a second "Deleted ₹50" and re-stamped deleted_at.
+   */
+  function once<T>(ctx: RequestContext, a: AuthContext, fn: () => T): T {
+    try {
+      return withIdempotency(
+        db,
+        {
+          key: (ctx.req.headers["idempotency-key"] as string | undefined) ?? null,
+          memberId: a.member.id,
+          method: ctx.method,
+          path: ctx.url.pathname,
+          payload: ctx.body,
+        },
+        () => ({ statusCode: 200, body: fn() }),
+      ).body;
+    } catch (err) {
+      if (err instanceof IdempotencyConflict) throw new HttpError(err.statusCode, err.message);
       throw err;
     }
   }
@@ -3643,153 +3671,156 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       if (guard) return guard;
     }
 
-    const magnitude = Math.abs(amountField(field(ctx.body, "amount")));
-    const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
-    const signed = isTransferLeg
-      ? (transaction.amount < 0 ? -magnitude : magnitude)
-      : field(ctx.body, "direction") === "in" ? magnitude : -magnitude;
+    // MONEY-CORE-14 · Past the guards, a retry replays rather than re-saves.
+    return once(ctx, a, () => {
+      const magnitude = Math.abs(amountField(field(ctx.body, "amount")));
+      const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+      const signed = isTransferLeg
+        ? (transaction.amount < 0 ? -magnitude : magnitude)
+        : field(ctx.body, "direction") === "in" ? magnitude : -magnitude;
 
-    // L1 · A renamed payee is the signal. Resolved here so the rename and the
-    // rest of the edit land in one update, and so the *old* name is still
-    // readable when we decide whether anything actually changed.
-    const newPayee = (field(ctx.body, "payee") ?? "").trim();
-    const previousPayee = transaction.payee_id ? getPayee(db, transaction.payee_id)?.name ?? null : null;
-    const renamed = newPayee !== "" && newPayee !== previousPayee;
-    const payeeId = renamed
-      ? resolvePayee(db, actor, newPayee, transaction.raw_narration).id
-      : undefined;
+      // L1 · A renamed payee is the signal. Resolved here so the rename and the
+      // rest of the edit land in one update, and so the *old* name is still
+      // readable when we decide whether anything actually changed.
+      const newPayee = (field(ctx.body, "payee") ?? "").trim();
+      const previousPayee = transaction.payee_id ? getPayee(db, transaction.payee_id)?.name ?? null : null;
+      const renamed = newPayee !== "" && newPayee !== previousPayee;
+      const payeeId = renamed
+        ? resolvePayee(db, actor, newPayee, transaction.raw_narration).id
+        : undefined;
 
-    /*
-     * F4.3 · Split lines from the form. Each filled line is an envelope and an
-     * unsigned amount; the sign follows the transaction's direction. The form
-     * that edits a record must carry all of it — this form once knew nothing
-     * of splits, so saving any split transaction silently flattened it.
-     */
-    /*
-     * Envelope lines. The first carries no amount and takes whatever the others
-     * leave, so nothing here can fail to reconcile — see resolveCategoryLines.
-     */
-    const lineValues: { categoryId: string | null; amount: Paise | null }[] = [];
-    for (let i = 0; i < (isTransferLeg ? 0 : 25); i++) {
-      const cat = field(ctx.body, `split_category_${i}`);
-      const amt = field(ctx.body, `split_amount_${i}`);
-      if (cat === undefined && amt === undefined) continue;
       /*
-       * An empty *first* select is an instruction — "this has no envelope" —
-       * and the form always sends it. Skipping it the way a blank later line is
-       * skipped would make clearing the envelope a silent no-op that still
-       * reports "saved", and would leave income that was once filed somewhere
-       * with no way back to ready-to-assign.
+       * F4.3 · Split lines from the form. Each filled line is an envelope and an
+       * unsigned amount; the sign follows the transaction's direction. The form
+       * that edits a record must carry all of it — this form once knew nothing
+       * of splits, so saving any split transaction silently flattened it.
        */
-      if (i > 0 && !cat && !amt?.trim()) continue;
-      const magnitudeOfLine = amt?.trim() ? Math.abs(amountField(amt)) : null;
-      lineValues.push({
-        categoryId: cat ? requireVisibleCategory(ctx, cat) : null,
-        amount: i === 0 || magnitudeOfLine === null
-          ? null
-          : ((signed < 0 ? -magnitudeOfLine : magnitudeOfLine) as Paise),
-      });
-    }
-
-    /*
-     * A caller still posting the old field is honoured — but an *empty* one on
-     * a transaction that is already split means "I am not saying anything about
-     * envelopes", not "file it nowhere". The old form always sent the field,
-     * empty or not, so reading a blank as an instruction would wipe the split
-     * off every save that only changed a memo.
-     */
-    if (lineValues.length === 0 && !isTransferLeg) {
-      const legacy = field(ctx.body, "category_id");
-      const meaningful = legacy !== undefined && (legacy !== "" || transaction.is_split !== 1);
-      if (meaningful) {
-        lineValues.push({ categoryId: legacy ? requireVisibleCategory(ctx, legacy) : null, amount: null });
+      /*
+       * Envelope lines. The first carries no amount and takes whatever the others
+       * leave, so nothing here can fail to reconcile — see resolveCategoryLines.
+       */
+      const lineValues: { categoryId: string | null; amount: Paise | null }[] = [];
+      for (let i = 0; i < (isTransferLeg ? 0 : 25); i++) {
+        const cat = field(ctx.body, `split_category_${i}`);
+        const amt = field(ctx.body, `split_amount_${i}`);
+        if (cat === undefined && amt === undefined) continue;
+        /*
+         * An empty *first* select is an instruction — "this has no envelope" —
+         * and the form always sends it. Skipping it the way a blank later line is
+         * skipped would make clearing the envelope a silent no-op that still
+         * reports "saved", and would leave income that was once filed somewhere
+         * with no way back to ready-to-assign.
+         */
+        if (i > 0 && !cat && !amt?.trim()) continue;
+        const magnitudeOfLine = amt?.trim() ? Math.abs(amountField(amt)) : null;
+        lineValues.push({
+          categoryId: cat ? requireVisibleCategory(ctx, cat) : null,
+          amount: i === 0 || magnitudeOfLine === null
+            ? null
+            : ((signed < 0 ? -magnitudeOfLine : magnitudeOfLine) as Paise),
+        });
       }
-    }
 
-    const filed = lineValues.length > 0
-      ? resolveCategoryLines(signed, lineValues)
-      : null;
-
-    /*
-     * B99 against the lines, not only the single-envelope case — an entry that
-     * is split still has a blank first line available, and blank means no
-     * envelope. See outgoingLacksEnvelope.
-     */
-    if (filed !== null && outgoingLacksEnvelope(signed, filed)) {
-      throw new HttpError(
-        400,
-        "One of those envelope lines is blank, so part of this would be spending " +
-        "with no envelope behind it. Money in doesn't need one — money out does.",
-      );
-    }
-
-    /*
-     * Nothing about envelopes was posted at all — a form that carries only the
-     * amount, or an API caller changing a date. Leave what is filed alone
-     * rather than reading silence as "make it uncategorised".
-     */
-    const keepSplit = filed === null;
-    // Only a split can fall out of step with a new amount; an unsplit
-    // transaction (or a transfer leg) keeps its filing and is fine.
-    if (keepSplit && transaction.is_split === 1 && signed !== transaction.amount) {
-      throw new HttpError(
-        400,
-        "This transaction is split, and the lines no longer add up to the new amount. " +
-          "Change the split lines to match, or file it to one envelope.",
-      );
-    }
-
-    const tagsRaw = field(ctx.body, "tags");
-    const ownerRaw = field(ctx.body, "owner_member_id");
-
-    // Guard the earlier of the two dates: moving a transaction backwards means
-    // the ripple starts where it lands, not where it was.
-    const rippleFrom = monthOf(newDate < transaction.date ? newDate : transaction.date);
-    const { recompute } = withForwardRecompute(
-        db, actor, { month: rippleFrom, cause: "Edited a transaction" },
-        () =>
-          updateTransaction(db, actor, id, {
-          amount: signed,
-          date: newDate,
-          ...(keepSplit
-            ? {}
-            : filed!.splits
-              ? { splits: filed!.splits }
-              // One line: it stops being a split and becomes that envelope.
-              : { splits: null, categoryId: filed!.categoryId }),
-          memo: field(ctx.body, "memo") || null,
-          cleared: field(ctx.body, "cleared") === "1",
-          ...(tagsRaw !== undefined
-            ? { tags: tagsRaw.split(",").map((t) => t.trim()).filter(Boolean) }
-            : {}),
-          ...(ownerRaw !== undefined ? { ownerMemberId: ownerRaw || null } : {}),
-          ...(field(ctx.body, "reimbursable_present") === "1"
-            ? { reimbursable: field(ctx.body, "reimbursable") === "1" }
-            : {}),
-          ...(payeeId !== undefined ? { payeeId } : {}),
-        }),
-    );
-
-    // L1 · Cleaning up an imported payee proposes a pre-stage rule mapping the
-    // raw string to the clean name, so next month's identical narration
-    // arrives already named. Only for imported rows: a manually typed
-    // transaction has no bank string to key a rule on.
-    let learned = "";
-    if (renamed && transaction.raw_narration && learningEnabled(db)) {
-      const proposal = proposePayeeRule(db, actorFor(a), {
-        rawNarration: transaction.raw_narration, cleanName: newPayee,
-      });
-      if (proposal) {
-        learned = " There's a rule to confirm in Review, so this one renames itself next time.";
+      /*
+       * A caller still posting the old field is honoured — but an *empty* one on
+       * a transaction that is already split means "I am not saying anything about
+       * envelopes", not "file it nowhere". The old form always sent the field,
+       * empty or not, so reading a blank as an instruction would wipe the split
+       * off every save that only changed a memo.
+       */
+      if (lineValues.length === 0 && !isTransferLeg) {
+        const legacy = field(ctx.body, "category_id");
+        const meaningful = legacy !== undefined && (legacy !== "" || transaction.is_split !== 1);
+        if (meaningful) {
+          lineValues.push({ categoryId: legacy ? requireVisibleCategory(ctx, legacy) : null, amount: null });
+        }
       }
-    }
 
-    return {
-      redirect: withNotice(
-        `/accounts/${transaction.account_id}`,
-        "Saved." + rippleNote(recompute) + learned,
-      ),
-    };
+      const filed = lineValues.length > 0
+        ? resolveCategoryLines(signed, lineValues)
+        : null;
+
+      /*
+       * B99 against the lines, not only the single-envelope case — an entry that
+       * is split still has a blank first line available, and blank means no
+       * envelope. See outgoingLacksEnvelope.
+       */
+      if (filed !== null && outgoingLacksEnvelope(signed, filed)) {
+        throw new HttpError(
+          400,
+          "One of those envelope lines is blank, so part of this would be spending " +
+          "with no envelope behind it. Money in doesn't need one — money out does.",
+        );
+      }
+
+      /*
+       * Nothing about envelopes was posted at all — a form that carries only the
+       * amount, or an API caller changing a date. Leave what is filed alone
+       * rather than reading silence as "make it uncategorised".
+       */
+      const keepSplit = filed === null;
+      // Only a split can fall out of step with a new amount; an unsplit
+      // transaction (or a transfer leg) keeps its filing and is fine.
+      if (keepSplit && transaction.is_split === 1 && signed !== transaction.amount) {
+        throw new HttpError(
+          400,
+          "This transaction is split, and the lines no longer add up to the new amount. " +
+            "Change the split lines to match, or file it to one envelope.",
+        );
+      }
+
+      const tagsRaw = field(ctx.body, "tags");
+      const ownerRaw = field(ctx.body, "owner_member_id");
+
+      // Guard the earlier of the two dates: moving a transaction backwards means
+      // the ripple starts where it lands, not where it was.
+      const rippleFrom = monthOf(newDate < transaction.date ? newDate : transaction.date);
+      const { recompute } = withForwardRecompute(
+          db, actor, { month: rippleFrom, cause: "Edited a transaction" },
+          () =>
+            updateTransaction(db, actor, id, {
+            amount: signed,
+            date: newDate,
+            ...(keepSplit
+              ? {}
+              : filed!.splits
+                ? { splits: filed!.splits }
+                // One line: it stops being a split and becomes that envelope.
+                : { splits: null, categoryId: filed!.categoryId }),
+            memo: field(ctx.body, "memo") || null,
+            cleared: field(ctx.body, "cleared") === "1",
+            ...(tagsRaw !== undefined
+              ? { tags: tagsRaw.split(",").map((t) => t.trim()).filter(Boolean) }
+              : {}),
+            ...(ownerRaw !== undefined ? { ownerMemberId: ownerRaw || null } : {}),
+            ...(field(ctx.body, "reimbursable_present") === "1"
+              ? { reimbursable: field(ctx.body, "reimbursable") === "1" }
+              : {}),
+            ...(payeeId !== undefined ? { payeeId } : {}),
+          }),
+      );
+
+      // L1 · Cleaning up an imported payee proposes a pre-stage rule mapping the
+      // raw string to the clean name, so next month's identical narration
+      // arrives already named. Only for imported rows: a manually typed
+      // transaction has no bank string to key a rule on.
+      let learned = "";
+      if (renamed && transaction.raw_narration && learningEnabled(db)) {
+        const proposal = proposePayeeRule(db, actorFor(a), {
+          rawNarration: transaction.raw_narration, cleanName: newPayee,
+        });
+        if (proposal) {
+          learned = " There's a rule to confirm in Review, so this one renames itself next time.";
+        }
+      }
+
+      return {
+        redirect: withNotice(
+          `/accounts/${transaction.account_id}`,
+          "Saved." + rippleNote(recompute) + learned,
+        ),
+      };
+    });
   });
 
   /*
@@ -3883,17 +3914,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       if (guard) return guard;
     }
 
-    const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
-    const { recompute } = withForwardRecompute(
-      db, actor, { month: monthOf(transaction.date), cause: "Deleted a transaction" },
-      () => deleteTransaction(db, actor, id),
-    );
-    return {
-      redirect: withNotice(
-        `/accounts/${transaction.account_id}`,
-        "Deleted. You can restore it for the next 30 days." + rippleNote(recompute),
-      ),
-    };
+    // MONEY-CORE-14 · A retry replays the first answer rather than deleting twice.
+    return once(ctx, a, () => {
+      const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+      const { recompute } = withForwardRecompute(
+        db, actor, { month: monthOf(transaction.date), cause: "Deleted a transaction" },
+        () => deleteTransaction(db, actor, id),
+      );
+      return {
+        redirect: withNotice(
+          `/accounts/${transaction.account_id}`,
+          "Deleted. You can restore it for the next 30 days." + rippleNote(recompute),
+        ),
+      };
+    });
   });
 
   /**
@@ -3976,28 +4010,40 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const clearIds = fieldList(ctx.body, "clear");
     const allowAdjustment = field(ctx.body, "allow_adjustment") === "1";
 
-    const result = reconcile(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
-      accountId: account.id,
-      bankBalance,
-      asOf,
-      clearTransactionIds: clearIds,
-      allowAdjustment,
+    // MONEY-CORE-14 · What happened is kept against the key, and a retry is
+    // shown that again rather than recording a second checkpoint.
+    const outcome = once(ctx, a, () => {
+      const result = reconcile(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+        accountId: account.id,
+        bankBalance,
+        asOf,
+        clearTransactionIds: clearIds,
+        allowAdjustment,
+      });
+      return result.status === "needs-decision"
+        ? { checkpointId: null, adjustment: 0 }
+        : { checkpointId: result.checkpoint.id, adjustment: result.adjustment };
     });
+    const checkpoint = outcome.checkpointId
+      ? queryOne<Checkpoint>(db, `SELECT * FROM reconciliations WHERE id = ?`, outcome.checkpointId)
+      : null;
 
-    if (result.status === "needs-decision") {
+    if (!checkpoint) {
       // F9.2: never guess. Show the difference and the uncleared list, and let
       // the user pick one of the three options.
       return render(
         ctx,
         `Reconcile ${account.name}`,
-        renderReconcileDifference({ account, preview: result.preview }),
+        renderReconcileDifference({
+          account, preview: previewReconciliation(db, account.id, bankBalance, asOf),
+        }),
       );
     }
 
     return render(
       ctx,
       "Reconciled",
-      renderReconcileDone({ account, checkpoint: result.checkpoint, adjustment: result.adjustment }),
+      renderReconcileDone({ account, checkpoint, adjustment: outcome.adjustment }),
     );
   });
 
@@ -6266,7 +6312,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       );
     }
 
-    const changed = applyRetroactive(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), rule);
+    // MONEY-CORE-14 · A retry replays the count rather than applying again.
+    const changed = once(ctx, a, () =>
+      applyRetroactive(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), rule));
     return {
       redirect: withNotice(
         "/rules",
