@@ -257,7 +257,9 @@ are attributed to a card by matching the digits in the narration.
 
 Recording a statement (`card_statements`) stores the statement date, due date,
 amount and minimum due. Funding advice keys off the statement rather than the
-calendar month, because statement cycles do not follow calendar months.
+calendar month, because statement cycles do not follow calendar months. The due
+date may not fall before the statement date, nor the minimum exceed the balance;
+a mistyped statement is undone from Activity.
 
 ## Account lifecycle
 
