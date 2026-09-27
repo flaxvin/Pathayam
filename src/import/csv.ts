@@ -195,6 +195,8 @@ export function headerSignature(headers: string[]): string {
 }
 
 const DATE_HINTS = ["date", "txn date", "transaction date", "value date", "tran date", "txndate", "transactiondate", "valuedate", "trandate"];
+const TXN_DATE_HINTS = ["txn date", "transaction date", "tran date", "txndate", "transactiondate", "trandate"];
+const VALUE_DATE_HINTS = ["value date", "valuedate"];
 const NARRATION_HINTS = ["narration", "description", "particulars", "remarks", "details", "transaction remarks"];
 const DEBIT_HINTS = ["withdrawal", "withdrawals", "debit", "debits", "withdrawal amt", "dr", "withdrawalamt"];
 const CREDIT_HINTS = ["deposit", "deposits", "credit", "credits", "deposit amt", "cr", "depositamt"];
@@ -226,7 +228,19 @@ export function guessMapping(rows: string[][]): ColumnMapping | null {
     const find = (hints: string[]): number =>
       cellWords.findIndex((words) => hints.some((h) => words.includes(` ${h} `)));
 
-    const date = find(DATE_HINTS);
+    /*
+     * IMPORTS-SCHEDULES-20 · The transaction date, not the value date. An
+     * ICICI-style "S No.,Value Date,Transaction Date,…" header took whichever
+     * date column came first, so a Swiggy order on 1 Aug valued 31 Jul landed
+     * in July's budget. A column that says transaction/txn/tran wins, then any
+     * other date column, and a value date only when it is the only one.
+     */
+    const isValueDate = (i: number) => VALUE_DATE_HINTS.some((h) => cellWords[i]!.includes(` ${h} `));
+    const dateColumns = cellWords
+      .map((_, i) => i)
+      .filter((i) => DATE_HINTS.some((h) => cellWords[i]!.includes(` ${h} `)));
+    const date = find(TXN_DATE_HINTS) >= 0 ? find(TXN_DATE_HINTS)
+      : dateColumns.find((i) => !isValueDate(i)) ?? dateColumns[0] ?? -1;
     const narration = find(NARRATION_HINTS);
     if (date < 0 || narration < 0) continue;
 
