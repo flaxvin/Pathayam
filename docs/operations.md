@@ -189,7 +189,10 @@ cannot be affected, and compares record counts and magnitude totals across every
 durable table. `src/ops/coverage.test.ts` asserts that every durable table is
 included in that comparison.
 
-- The result appears on the **health page**.
+- The result appears on the **health page**, which can also take a backup or
+  run a verification on demand. A manual backup prunes to the same 14 the job
+  keeps. On the demo (`DEMO_MODE`) both buttons are refused: every visitor is
+  signed in, and each is a full-database copy on a disk the reset never clears.
 - A failure fires `BACKUP_WEBHOOK_URL`.
 - A success pings `HEARTBEAT_URL`. Every other alert originates from the
   deployment, so a deployment that is down cannot raise one. Point

@@ -137,7 +137,7 @@ import {
   renderHealth, overallState, type HealthGroup,
 } from "./web/pages/health.ts";
 import {
-  createBackup, verifyRestore, listBackups, lastJobRun, recordJobRun,
+  createBackup, pruneBackups, verifyRestore, listBackups, lastJobRun, recordJobRun,
   pingHeartbeat,
 } from "./ops/backup.ts";
 import {
@@ -8026,9 +8026,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/health", (ctx) => render(ctx, "Health", renderHealth(healthGroups(viewer(ctx)))));
 
+  /*
+   * SECURITY-OPS-24 · On the demo anyone is signed in, and each of these is a
+   * synchronous full-database read on the one event loop — a backup also a
+   * whole VACUUM INTO copy on a disk the reset does not clear. Twenty POSTs
+   * were twenty files until the six-hourly prune. The demo's job runs them
+   * anyway; a visitor has no reason to. And a manual backup now prunes like the
+   * scheduled one, so a household pressing the button cannot fill the disk
+   * either.
+   */
   router.post("/health/backup", (ctx) =>
     mutate(ctx, (a) => {
+      refuseInDemo(config, "Taking backups");
       const backup = createBackup(db, config.backupDir);
+      pruneBackups(config.backupDir);
       recordJobRun(db, "backup", "ok", `${backup.path} (${backup.bytes} bytes)`);
       appendEvent(db, actorFor(a, "job"), {
         entity: "backup", entityId: backup.path, action: "create",
@@ -8040,6 +8051,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/health/verify", (ctx) =>
     mutate(ctx, () => {
+      refuseInDemo(config, "Verifying a restore");
       const result = verifyRestore(db, config.backupDir);
       recordJobRun(db, "restore-verification", result.ok ? "ok" : "failed", result.summary);
 
