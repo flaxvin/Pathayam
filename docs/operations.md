@@ -163,7 +163,7 @@ Everything the app reads, and nothing it does not:
 | `DATABASE_PATH` | `$DATA_DIR/pathayam.sqlite` | |
 | `BACKUP_DIR` | `$DATA_DIR/backups` | |
 | `ATTACHMENT_DIR` | `$DATA_DIR/attachments` | |
-| `SESSION_DAYS` | `30` | Session idle timeout. |
+| `SESSION_DAYS` | `30` | How long a session lasts from sign-in (absolute, not extended by use). |
 | `LOG_LEVEL` | `info` in production | `debug`, `info`, `warn` or `error` (any case); anything else refuses to start. No financial value is ever logged. |
 | `TRUST_PROXY` | `false` | Read the client IP and forwarded host from proxy headers. Set it behind a tunnel. The IP is the right-most `X-Forwarded-For` entry, so exactly one proxy hop is assumed (see security.md). |
 | `HEARTBEAT_URL` | — | **Set this.** Pinged on a *successful* verified restore. |

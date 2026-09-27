@@ -36,7 +36,10 @@ it is not an adversarial boundary.
 
 **Sessions.** 32 random bytes, base64url. Stored as a SHA-256 hash; the
 plaintext exists only in the cookie. Cookie flags: `HttpOnly`, `SameSite=Lax`,
-`Path=/`, and `Secure` when `BASE_URL` is HTTPS. Idle expiry is `SESSION_DAYS`.
+`Path=/`, and `Secure` when `BASE_URL` is HTTPS. A session lasts `SESSION_DAYS`
+from sign-in, however often it is used — an absolute lifetime, not an idle
+timeout, so a stolen cookie that is kept busy still dies on schedule. Signing
+in again starts a new one.
 Sessions can be revoked individually from Settings — your own only. Another member's session id answers exactly like one that does not exist.
 
 **API tokens.** `Authorization: Bearer`. Stored as a hash, compared in constant
