@@ -2405,4 +2405,19 @@ UPDATE month_closes
               OR l.category_id IN (SELECT id FROM categories WHERE budget_id = month_closes.budget_id)));
 `,
   },
+  {
+    name: "0054-a-closed-loan-asks-for-no-instalment",
+    sql: `
+--------------------------------------------------------------------------------
+-- BUDGET-27 · Closed loans whose envelope still asked for the EMI
+--------------------------------------------------------------------------------
+-- Closing a loan left the monthly target the loan had put on its payment
+-- envelope, so a loan settled in full stayed "underfunded" by its EMI every
+-- month and Auto-assign funded it. Closing now clears the target; the loans
+-- closed before that lose theirs here.
+DELETE FROM targets
+ WHERE category_id IN (SELECT payment_category_id FROM loans
+                        WHERE closed_at IS NOT NULL AND payment_category_id IS NOT NULL);
+`,
+  },
 ];
