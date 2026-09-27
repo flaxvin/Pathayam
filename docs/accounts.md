@@ -234,8 +234,10 @@ created to close the gap.
 A checkpoint **breaks** when a transaction dated on or before `as_of` is later
 added, edited or deleted — after an "Already reconciled" confirmation. A new
 entry asks only when it is marked already cleared; an uncleared one is not part of
-what the bank asserted. The account shows the break and the reason until it is
-reconciled again.
+what the bank asserted. An undo from Activity asks too, when it would move the
+cleared balance a checkpoint rests on — on whichever account its handler
+writes. The account shows the break and the reason until it is reconciled
+again.
 
 Undoing the reconciliation from Activity withdraws the checkpoint and its
 adjustment. Undoing the **"no longer holds"** entry is different: it marks the
