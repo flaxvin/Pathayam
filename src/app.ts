@@ -5456,7 +5456,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const sankeyGroups = bview.groups
       .map((g) => ({
         name: g.name,
+        /*
+         * BUDGET-19 · Where the money was spent, not where it was settled. A
+         * card's payment envelope nets this month's charges against paying last
+         * month's bill, so a ₹20,000 bill for July's food showed as August
+         * spending beside August's food — the same purchase twice. A commitment
+         * envelope moves money between budgets and consumes none. Both are left
+         * out, as envelopeSpendBetween leaves them out of "spent".
+         */
         categories: g.categories
+          .filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId)
           .map((c) => ({ name: c.name, value: -c.state.activity as Paise }))
           .filter((c) => c.value > 0),
       }))
