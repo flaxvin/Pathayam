@@ -991,8 +991,8 @@ export function renderNewScheduleForm(opts: {
         label: "Which envelope",
         categories: (opts.categories ?? []).map((c) => ({ id: c.id, name: c.name })),
         hint: html`
-          Money going out needs one: a scheduled payment posts itself, so without
-          an envelope it would quietly build a queue of spending with nothing
+          Money going out needs one: each time you mark it paid, it records the
+          payment, so without an envelope it would build up spending with nothing
           recording where it went. Money coming in lands in Ready to Assign.
           The first envelope takes whatever the extra lines do not claim.
         `,

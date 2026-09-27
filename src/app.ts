@@ -5739,13 +5739,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         lineValues,
       );
       /*
-       * B99 for schedules, against the lines. A blank line here posts itself
-       * against nothing every month, for ever — see outgoingLacksEnvelope.
+       * B99 for schedules, against the lines. A blank line here is recorded
+       * against nothing each time it is marked paid — see outgoingLacksEnvelope.
        */
       if ( outgoingLacksEnvelope((direction === "in" ? magnitude : -magnitude) as Paise, filed)) {
         throw new Refusal(
-          "One of those envelope lines is blank, so part of this would post itself " +
-          "every month against nothing. Money coming in can be left unassigned — it " +
+          "One of those envelope lines is blank, so each time you mark it paid, part " +
+          "of it would be recorded against nothing. Money coming in can be left unassigned — it " +
           "waits in Ready to Assign — but money going out has to say where it came from.",
         );
       }
@@ -5850,13 +5850,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         : null;
 
       /*
-       * B99 for schedules, against the lines. A blank line here posts itself
-       * against nothing every month, for ever — see outgoingLacksEnvelope.
+       * B99 for schedules, against the lines. A blank line here is recorded
+       * against nothing each time it is marked paid — see outgoingLacksEnvelope.
        */
       if (filed !== null && outgoingLacksEnvelope(signedAmount, filed)) {
         throw new Refusal(
-          "One of those envelope lines is blank, so part of this would post itself " +
-          "every month against nothing. Money coming in can be left unassigned — it " +
+          "One of those envelope lines is blank, so each time you mark it paid, part " +
+          "of it would be recorded against nothing. Money coming in can be left unassigned — it " +
           "waits in Ready to Assign — but money going out has to say where it came from.",
         );
       }

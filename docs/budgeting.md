@@ -285,8 +285,8 @@ used to be refused as "not a split", which was a dead end.
 
 Clearing the *first* line is how you say "no envelope". On money coming in that
 is ordinary — it lands in Ready to Assign. On an outgoing schedule with nothing
-else to post to it is **refused**: it would post itself every month into
-nothing, which is the queue of unrecorded spending the envelope rule exists to
+else to post to it is **refused**: each time it was marked paid it would record
+a payment into nothing, which is the queue of unrecorded spending the envelope rule exists to
 prevent.
 
 A present-but-empty first select means "clear it", not "no lines were sent". The
