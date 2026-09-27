@@ -249,10 +249,19 @@ export function renderQuery(opts: QueryOptions): SafeHtml {
 function renderGroupRow(group: GroupedTotal, opts: QueryOptions): SafeHtml {
   const largest = Math.max(...opts.groups.map((g) => Math.abs(g.total)), 1);
   const width = Math.round((Math.abs(group.total) / largest) * 100);
-  const drill =
-    opts.groupBy === "category" && group.key !== "none"
-      ? `/query?period=${opts.period.key}&category=${encodeURIComponent(group.key)}`
-      : null;
+  /*
+   * WEALTH-33 · The rest of the question travels with the click. This carried
+   * the period and category only, so a group read −₹2,000 filtered to the card
+   * and opened on −₹5,000 across every account — the figure clicked was not
+   * the figure behind it.
+   */
+  const drill = (() => {
+    if (opts.groupBy !== "category" || group.key === "none") return null;
+    const params = new URLSearchParams(filterQueryString(opts).slice(1));
+    params.set("category", group.key);
+    params.delete("group_by");
+    return `/query?${params}`;
+  })();
 
   return html`
     <div style="padding:.5rem 0;border-top:1px solid var(--border)">
