@@ -2924,7 +2924,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         );
       }
 
-      createTransaction(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+      breakGuardedCheckpoints(ctx, a, () => createTransaction(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         accountId: requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id,
         amount: direction === "in" ? magnitude : -magnitude,
         date: dateField(dateRaw),
@@ -2938,7 +2938,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         // H2 · Who spent it. A card with its own holder still wins — an add-on
         // charge belongs to whoever holds the add-on (R6.e).
         ownerMemberId: guardedField(ctx, "owner_member_id", requireMember) ?? undefined,
-      });
+      }));
 
       return { redirect: "/", message: `Saved ${formatPaise(magnitude)}.` };
     });
@@ -3928,7 +3928,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const transaction = requireVisibleTransaction(ctx, id);
 
     const dateRaw = field(ctx.body, "date");
-    const newDate = dateRaw ? parseDate(dateRaw) ?? transaction.date : transaction.date;
+    /*
+     * Blank keeps the date it had; anything else has to read as one. A typo
+     * ("31-02-2026") used to fall back to the old date too, and the page said
+     * "Saved." over an edit that had quietly dropped the change asked for.
+     */
+    const newDate = dateRaw?.trim() ? dateField(dateRaw) : transaction.date;
     const confirmed = field(ctx.body, "confirm_checkpoint") === "1";
 
     /*
@@ -4061,7 +4066,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // Guard the earlier of the two dates: moving a transaction backwards means
       // the ripple starts where it lands, not where it was.
       const rippleFrom = monthOf(newDate < transaction.date ? newDate : transaction.date);
-      const { recompute } = withForwardRecompute(
+      const { recompute } = breakGuardedCheckpoints(ctx, a, () => withForwardRecompute(
           db, actor, { month: rippleFrom, cause: "Edited a transaction" },
           () =>
             updateTransaction(db, actor, id, {
@@ -4084,7 +4089,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               : {}),
             ...(payeeId !== undefined ? { payeeId } : {}),
           }),
-      );
+      ));
 
       // L1 · Cleaning up an imported payee proposes a pre-stage rule mapping the
       // raw string to the clean name, so next month's identical narration
@@ -4203,10 +4208,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // MONEY-CORE-14 · A retry replays the first answer rather than deleting twice.
     return once(ctx, a, () => {
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
-      const { recompute } = withForwardRecompute(
+      const { recompute } = breakGuardedCheckpoints(ctx, a, () => withForwardRecompute(
         db, actor, { month: monthOf(transaction.date), cause: "Deleted a transaction" },
         () => deleteTransaction(db, actor, id),
-      );
+      ));
       return {
         redirect: withNotice(
           `/accounts/${transaction.account_id}`,
@@ -4259,13 +4264,42 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       }
     }
 
-    // R7.c/R7.e: mark them broken, with both values in the log. R7.f: they are
-    // never repaired — only a fresh reconciliation asserts the balance again.
-    if (breakHere) breakCheckpoints(
-      db, actorFor(a), [...affected.values()],
-      `a transaction dated on or before it was changed`,
-    );
+    /*
+     * R7.c/R7.e: mark them broken, with both values in the log. R7.f: they are
+     * never repaired — only a fresh reconciliation asserts the balance again.
+     *
+     * Not here, though: once the change has been made (breakGuardedCheckpoints,
+     * in the change's own transaction). Breaking them on the way past meant a
+     * confirmed edit that was then refused — split lines over the total, a
+     * blank envelope on spending, a load-bearing delete — left the checkpoint
+     * broken over a balance nothing had changed, and Review asking the
+     * household to reconcile again for no reason.
+     */
+    if (breakHere) {
+      const pending = pendingCheckpointBreaks.get(ctx) ?? new Map<string, Checkpoint>();
+      for (const [id, c] of affected) pending.set(id, c);
+      pendingCheckpointBreaks.set(ctx, pending);
+    }
     return null;
+  }
+
+  /** What guardCheckpoints was told to break, per request, until the change lands. */
+  const pendingCheckpointBreaks = new WeakMap<RequestContext, Map<string, Checkpoint>>();
+
+  /**
+   * Make the change and break the checkpoints its guard confirmed, together or
+   * not at all. Call inside the idempotent section, so a replay breaks nothing.
+   */
+  function breakGuardedCheckpoints<T>(ctx: RequestContext, a: AuthContext, change: () => T): T {
+    return transact(db, () => {
+      const result = change();
+      const pending = pendingCheckpointBreaks.get(ctx);
+      pendingCheckpointBreaks.delete(ctx);
+      if (pending?.size) {
+        breakCheckpoints(db, actorFor(a), [...pending.values()], `a transaction dated on or before it was changed`);
+      }
+      return result;
+    });
   }
 
   // -------------------------------------------------------------------------

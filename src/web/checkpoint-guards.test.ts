@@ -137,3 +137,41 @@ describe("MONEY-CORE-23 · undoing an earlier change inside a reconciled period"
     } finally { await app.close(); }
   });
 });
+
+describe("a confirmed change that is then refused", () => {
+  test("leaves the checkpoint intact — nothing it asserted has moved", async () => {
+    const { db, a, food } = household();
+    const fun = createCategory(db, actor, { groupId: createGroup(db, actor, "F").id, name: "Fun" }).id;
+    const t = createTransaction(db, actor, {
+      accountId: a, amount: -50_000, date: "2026-09-05", categoryId: food, cleared: true,
+    });
+    reconcile(db, actor, { accountId: a, bankBalance: 950_000, asOf: "2026-09-10" });
+    const app = await startTestApp(db, { memberId: RAVI });
+    try {
+      // ₹900 of lines on a ₹500 spend: refused, with the figures.
+      const edit = await app.post(`/transaction/${t.id}`, {
+        amount: "500", direction: "out", date: "05-09-2026", cleared: "1",
+        split_category_0: food, split_category_1: fun, split_amount_1: "900", confirm_checkpoint: "1",
+      });
+      assert.equal(edit.status, 422);
+      assert.equal(broken(db, a), false);
+
+      // Spending with no envelope: refused by the add form.
+      const add = await app.post("/add", {
+        account_id: a, amount: "700", direction: "out", date: "05-09-2026", cleared: "1", confirm_checkpoint: "1",
+      });
+      assert.equal(add.status, 400);
+      assert.equal(broken(db, a), false);
+      assert.equal(clearedBalanceAsOf(db, a, "2026-09-10"), 950_000);
+
+      // The same edit, made properly, still breaks it (R7.c).
+      const ok = await app.post(`/transaction/${t.id}`, {
+        amount: "600", direction: "out", date: "05-09-2026", cleared: "1",
+        split_category_0: food, confirm_checkpoint: "1",
+      });
+      assert.equal(ok.status, 303);
+      assert.equal(broken(db, a), true);
+      assert.deepEqual(app.failures, []);
+    } finally { await app.close(); }
+  });
+});
