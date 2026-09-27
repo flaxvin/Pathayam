@@ -168,7 +168,10 @@ exposed on `StatementParse.reconciliation` and reported after import.
 
 A PDF with no extractable text is refused with an explanation — it is a scan.
 A PDF whose table cannot be parsed falls through to the manual column mapping
-screen, the same one an unrecognised CSV uses.
+screen, the same one an unrecognised CSV uses. Its lines are cut into cells by
+position under the header row, so an empty Withdrawal or Deposit stays an empty
+cell, and the screen posts back the delimiter it split on rather than guessing
+again. A mapping that reads no transaction at all is not remembered.
 
 ## Gmail
 

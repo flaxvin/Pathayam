@@ -68,6 +68,7 @@ import { getIdentity, setIdentity, clearIdentity, maskedIdentity } from "./impor
 import {
   recognise, saveProfile, listProfiles, markProfileUsed, deleteProfile,
   mappingFromSelections, validateMapping, columnChoices, candidateHeaderRows, looksMappable,
+  rowsByPosition, delimiterName, MAPPING_DELIMITERS,
   parseWith,
 } from "./import/profiles.ts";
 import {
@@ -82,7 +83,7 @@ import {
   reconcile, reconciliationStatus, listCheckpoints, clearedBalanceAsOf,
   guardHistoricalEdit, breakCheckpoints, CheckpointConfirmationRequired,
 } from "./domain/reconciliation.ts";
-import { parseStatement } from "./import/csv.ts";
+import { parseStatement, detectDelimiter } from "./import/csv.ts";
 import {
   ingest, listStaged, approveStaged, rejectStaged, mergeStaged, undoBatch, listBatches, batchUndoDates,
 } from "./import/pipeline.ts";
@@ -4336,7 +4337,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       return render(
         ctx, "Which column is which?",
         renderMapping({
-          accountId, fileName, csv: text,
+          accountId, fileName, csv: text, delimiter: delimiterName(detectDelimiter(text)),
           rows: recognition.rows,
           candidateHeaders: candidateHeaderRows(recognition.rows),
           headerRow,
@@ -4464,12 +4465,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // mapping task, not an error. The extracted rows go to the same screen an
     // unrecognised CSV goes to.
     if (parsed.records.length === 0) {
-      const rows = parsed.text.split("\n").map((line) => line.split(/\s{2,}/));
+      const lines = parsed.text.split("\n");
+      const loose = lines.map((line) => line.split(/\s{2,}/));
 
       // B64 · A mapping task needs columns to map. A scanned statement has
       // none, and the mapping screen would offer "Column 1" for every field
       // above a table of nothing. Say what is actually wrong instead.
-      if (!looksMappable(rows)) {
+      if (!looksMappable(loose)) {
         return importPage(
           "There is no text in that PDF to read — it is almost certainly a scan " +
           "or an image rather than a statement with selectable text. Ask the bank " +
@@ -4478,13 +4480,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         );
       }
 
-      const headerRow = candidateHeaderRows(rows)[0]?.index ?? 0;
+      // The header row is found on the loose split; the cells are then cut
+      // by position under it, so an empty Deposit stays an empty cell.
+      const headerRow = candidateHeaderRows(loose)[0]?.index ?? 0;
+      const rows = rowsByPosition(lines, headerRow);
       return render(
         ctx, "Which column is which?",
         renderMapping({
           accountId,
           fileName: upload.filename,
           csv: rows.map((r) => r.join("\t")).join("\n"),
+          delimiter: "tab",
           rows,
           candidateHeaders: candidateHeaderRows(rows),
           headerRow,
@@ -4559,15 +4565,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const problem = validateMapping(mapping);
       if (problem) throw new HttpError(400, problem);
 
-      const recognition = recognise(db, text, accountId);
+      const delimiter = MAPPING_DELIMITERS[field(ctx.body, "delimiter") ?? ""];
+      const recognition = recognise(db, text, accountId, delimiter);
       const result = parseWith(recognition.rows, mapping);
 
-      saveProfile(db, actorFor(a), {
-        name: requiredField(ctx.body, "profile_name"),
-        accountId,
-        headers: recognition.rows[mapping.headerRow] ?? [],
-        mapping,
-      });
+      // A mapping that read no transaction at all is not one to remember:
+      // the next file like this would import the same nothing without asking.
+      const worked = result.records.length > 0;
+      if (worked) {
+        saveProfile(db, actorFor(a), {
+          name: requiredField(ctx.body, "profile_name"),
+          accountId,
+          headers: recognition.rows[mapping.headerRow] ?? [],
+          mapping,
+        });
+      }
 
       const outcome = ingest(db, actorFor(a, "import"), {
         accountId, source: "csv", adapter: "csv", fileName,
@@ -4576,9 +4588,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
       return {
         redirect: outcome.staged > 0 ? "/review" : "/import",
-        message:
-          `Read ${outcome.batch.rows_read} rows, and remembered these columns — ` +
-          `the next file like this will import without asking.`,
+        message: worked
+          ? `Read ${outcome.batch.rows_read} rows, and remembered these columns — ` +
+            `the next file like this will import without asking.`
+          : `Read ${outcome.batch.rows_read} rows, but none came out as a transaction, ` +
+            `so these columns were not remembered. The import history shows why each row was skipped.`,
       };
     }),
   );
