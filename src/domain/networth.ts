@@ -242,7 +242,28 @@ export function netWorthStatement(
 
   const loanLines: NetWorthLine[] = [];
   const untrackedAssetWarnings: string[] = [];
-  const assetNames = listAssetAccounts(db).map((a) => a.name.toLowerCase());
+  /*
+   * WEALTH-41 · What a secured loan can be secured against, by the kind of
+   * asset account that records it. This matched the loan type against asset
+   * *names* — "property" had to appear in the name — so "Flat in Fictionville"
+   * never satisfied a home loan and "loan-against-property" could match no
+   * name at all. A property or a car is a physical asset, gold a commodity, and
+   * an "other asset" account may be either. On this statement, and counted.
+   */
+  const heldSubtypes = new Set(
+    queryAll<{ id: string; subtype: string }>(
+      db,
+      `SELECT id, subtype FROM accounts
+        WHERE kind = 'tracking' AND subtype IN ('physical', 'commodity', 'asset') ${stillOpen}`,
+    ).filter((a) => counts(a.id)).map((a) => a.subtype),
+  );
+  const securedBy: Record<string, string[]> = {
+    home: ["physical", "asset"],
+    "home-under-construction": ["physical", "asset"],
+    "loan-against-property": ["physical", "asset"],
+    car: ["physical", "asset"],
+    gold: ["commodity", "asset"],
+  };
 
   for (const loan of listLoans(db, { includeClosed: dated })) {
     // H2.2 · A private loan leaves somebody else's total as well as their list —
@@ -267,17 +288,15 @@ export function netWorthStatement(
 
     // R23.4: a tracked liability without its underlying asset makes net worth
     // systematically wrong and alarming.
-    const secured = ["home", "home-under-construction", "car", "loan-against-property", "gold"];
-    if (secured.includes(loan.loan_type) && outstanding > 0) {
-      const hint = loan.loan_type.startsWith("home") ? "property" : loan.loan_type;
-      const tracked = assetNames.some((n) => n.includes(hint));
-      if (!tracked) {
-        untrackedAssetWarnings.push(
-          `${loan.nickname || loan.lender} is secured against something you haven't ` +
-            `recorded as an asset. Net worth is ${formatPaise(outstanding)} lower ` +
-            `than reality until you add it.`,
-        );
-      }
+    // The outstanding is not the asset's value, so no figure is quoted for
+    // what is missing: the loan's size says nothing about the flat's.
+    const securedAgainst = securedBy[loan.loan_type];
+    if (securedAgainst && outstanding > 0 && !securedAgainst.some((t) => heldSubtypes.has(t))) {
+      untrackedAssetWarnings.push(
+        `${loan.nickname || loan.lender} is secured against something you haven't ` +
+          `recorded as an asset. Net worth counts the loan but not what it bought ` +
+          `until you add it.`,
+      );
     }
   }
 
