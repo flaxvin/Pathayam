@@ -60,8 +60,10 @@ relief; presumptive schemes under 44AD and 44ADA.
 **Capital gains are computed, with caveats.** Realised gains from the portfolio
 are sorted by asset class and holding period and taxed at their own rates —
 12.5% above ₹1,25,000 on long-held listed equity (112A), 20% on short-held
-(111A), 12.5% on gold and property held over 24 months (112), slab rates on
-debt. "Over 12 (or 24) months" is counted in calendar months, as the Act
+(111A), 12.5% on gold, property and foreign shares held over 24 months (112),
+slab rates on debt and on those three held shorter. A share whose instrument
+is international (or, with no region set, not in rupees) is never 111A/112A,
+which are for equity listed in India. "Over 12 (or 24) months" is counted in calendar months, as the Act
 words it, not days — bought 2024-02-28 and sold 2025-02-28 is exactly twelve
 months and so short-term, though it is 366 days — and the sale preview, the
 gains report and the estimate all use the same test. What the app cannot

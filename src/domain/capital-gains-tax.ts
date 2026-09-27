@@ -13,8 +13,8 @@
  *
  *   listed equity, held > 12 months  →  12.5% above ₹1.25 lakh   (s112A)
  *   listed equity, held ≤ 12 months  →  20%                      (s111A)
- *   property or gold, held > 24 months → 12.5%                   (s112)
- *   property or gold, held ≤ 24 months → slab rates
+ *   property, gold or foreign shares, held > 24 months → 12.5%   (s112)
+ *   property, gold or foreign shares, held ≤ 24 months → slab rates
  *   debt, bought after 1 April 2023  →  slab rates always        (s50AA)
  *
  * So the holding-period threshold is not one number — it is 12 months for
@@ -51,7 +51,7 @@ import type { SpecialRateGains } from "./tax.ts";
 export const LONG_TERM_MONTHS: Record<"equity" | "other", number> = {
   /** Listed equity and equity-oriented funds: 12 months. */
   equity: 12,
-  /** Property, gold, unlisted: 24 months. */
+  /** Property, gold, unlisted and foreign shares: 24 months. */
   other: 24,
 };
 
@@ -127,11 +127,12 @@ export function gainsBucketsForYear(db: DB, fy: number, memberId: string): Gains
   const { from, to } = fiscalYearRange(fy);
   const sales = queryAll<{
     date: IsoDate; realised_gain: number | null; detail_json: string | null;
-    instrument: string; asset_class: string | null; holder: string | null;
+    instrument: string; asset_class: string | null; region: string | null; currency: string;
+    holder: string | null;
   }>(
     db,
     `SELECT e.date, e.realised_gain, e.detail_json,
-            i.name AS instrument, i.asset_class,
+            i.name AS instrument, i.asset_class, i.region, i.currency,
             a.holder_member_id AS holder
        FROM holding_events e
        JOIN holdings h ON h.id = e.holding_id
@@ -211,7 +212,19 @@ export function gainsBucketsForYear(db: DB, fy: number, memberId: string): Gains
         continue;
       }
 
-      if (cls === "equity") {
+      /*
+       * WEALTH-13 · 111A and 112A are for equity listed in India, sold with
+       * STT paid. A US share is neither: it is long-term only after 24
+       * months, then s112 at 12.5% with no ₹1.25 lakh exemption, and
+       * slab-rated before that — the gold and property path below. It was
+       * filed as 112A because its class is "equity", though the instrument
+       * itself says it is international. An instrument with no region is
+       * judged by its currency, the way `classifyInstrument` seeds one.
+       */
+      const foreign = sale.region === "international"
+        || (sale.region === null && sale.currency !== "INR");
+
+      if (cls === "equity" && !foreign) {
         if (heldMoreThanMonths(acquiredOn(parcel, sale.date), sale.date, LONG_TERM_MONTHS.equity)) {
           out.equityLong = (out.equityLong + gain) as Paise;
         } else {
@@ -228,7 +241,7 @@ export function gainsBucketsForYear(db: DB, fy: number, memberId: string): Gains
         continue;
       }
 
-      // gold, real-estate: 24 months, then 12.5%.
+      // gold, real-estate, foreign equity: 24 months, then 12.5%.
       if (heldMoreThanMonths(acquiredOn(parcel, sale.date), sale.date, LONG_TERM_MONTHS.other)) {
         out.otherLong = (out.otherLong + gain) as Paise;
       } else {
