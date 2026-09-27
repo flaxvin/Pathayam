@@ -114,7 +114,10 @@ holds in is refused until the table is rebuilt.
 
 A goal has a target amount, an optional target date, and one or more envelopes.
 Progress is the sum of those envelope balances against the target. Completing a
-goal releases its envelopes; the money stays where it is.
+goal offers three endings: *spend it* leaves the money in the envelope; *back to
+Ready to Assign* un-assigns the envelope's balance in the current month; *roll
+into a new goal* creates the next goal on the same envelope, so what was saved
+counts toward it.
 
 ## Month close
 
