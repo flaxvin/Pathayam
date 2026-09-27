@@ -5962,8 +5962,26 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/goals/:id/complete", (ctx) =>
     mutate(ctx, (a) => {
       const resolution = (field(ctx.body, "resolution") ?? "release") as "spend" | "roll" | "release";
-      completeGoal(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), requireVisibleGoal(ctx, ctx.params.id!), resolution);
-      return { redirect: "/goals", message: "Goal completed." };
+      if (!["spend", "roll", "release"].includes(resolution)) throw new Refusal("Choose what happens to the money.");
+      // BUDGET-14 · Rolling names the goal it rolls into.
+      const targetDate = field(ctx.body, "target_date");
+      const next = resolution === "roll"
+        ? {
+          name: requiredField(ctx.body, "name"),
+          targetAmount: amountField(field(ctx.body, "target_amount"), "Target"),
+          targetDate: targetDate?.trim() ? parseDate(targetDate) : null,
+        }
+        : undefined;
+      const rolled = completeGoal(
+        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+        requireVisibleGoal(ctx, ctx.params.id!), resolution, next,
+      );
+      return {
+        redirect: "/goals",
+        message: rolled ? `Goal completed. Its money now counts toward "${rolled.name}".`
+          : resolution === "release" ? "Goal completed. Its money is back in Ready to Assign."
+          : "Goal completed.",
+      };
     }),
   );
 

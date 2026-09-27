@@ -19,8 +19,11 @@ import { formatPaise, allocate, type Paise } from "../core/money.ts";
 import { Missing, Refusal } from "../core/refusal.ts";
 import { householdBudgetId } from "./budgets.ts";
 import {
-  listGroups, createGroup, renameGroup, createCategory, moveCategoryToGroup, type Category,
+  listGroups, createGroup, renameGroup, createCategory, moveCategoryToGroup, renameCategory,
+  getAssigned, setAssigned, type Category,
 } from "./budget.ts";
+import { loadEngineInput } from "../engine/repository.ts";
+import { computeBudget } from "../engine/engine.ts";
 
 export interface Goal {
   id: string;
@@ -273,10 +276,35 @@ function describe(
 export function completeGoal(
   db: DB, actor: Actor, goalId: string,
   resolution: "spend" | "roll" | "release",
-): void {
-  transact(db, () => {
+  /** What "roll" rolls into: the new goal, measured by the same envelope. */
+  next?: { name: string; targetAmount: Paise; targetDate?: IsoDate | null },
+): Goal | null {
+  return transact(db, () => {
     const goal = getGoal(db, goalId);
     if (!goal) throw new Missing("That goal does not exist.");
+    if (goal.completed_at) throw new Refusal(`"${goal.name}" is already completed.`);
+    if (resolution === "roll" && !next) throw new Refusal("Name the goal it rolls into, and how much.");
+
+    /*
+     * BUDGET-14 · Each choice does what its button says. All three only set
+     * completed_at, so "Back to Ready to Assign" left ₹3,000 in the goal's
+     * app-managed envelope and Ready to Assign where it was, "Roll into a new
+     * goal" made no goal — and the activity log said both had happened.
+     */
+    const budgetId = goal.budget_id ?? householdBudgetId(db);
+    const envelopes = goalCategoryIds(db, goalId);
+
+    // Back to Ready to Assign: un-assign this month what the envelope holds.
+    if (resolution === "release") {
+      const month = monthOf(todayIST());
+      const state = computeBudget(loadEngineInput(db, { through: month, budgetId })).get(month);
+      for (const categoryId of envelopes) {
+        const balance = state?.categories.get(categoryId)?.balance ?? 0;
+        if (balance > 0) {
+          setAssigned(db, actor, month, categoryId, (getAssigned(db, month, categoryId) - balance) as Paise);
+        }
+      }
+    }
 
     execute(db, `UPDATE goals SET completed_at = ? WHERE id = ?`, nowIST(), goalId);
     appendEvent(db, actor, {
@@ -285,9 +313,21 @@ export function completeGoal(
       summary:
         `Completed "${goal.name}" — ` +
         (resolution === "spend" ? "keeping the money where it is to spend"
-        : resolution === "roll" ? "rolling the balance into a new goal"
+        : resolution === "roll" ? `rolling the balance into "${next!.name}"`
         : "returning the balance to Ready to Assign"),
     });
+
+    // Roll: the new goal starts from the same envelope, and so from its balance.
+    if (resolution === "roll") {
+      const rolled = createGoal(db, actor, {
+        name: next!.name, targetAmount: next!.targetAmount, targetDate: next!.targetDate ?? null,
+        budgetId, categoryIds: envelopes,
+      });
+      // Kept in step with the goal's name, as editing a goal does.
+      if (envelopes.length === 1) renameCategory(db, actor, envelopes[0]!, next!.name);
+      return rolled;
+    }
+    return null;
   });
 }
 
