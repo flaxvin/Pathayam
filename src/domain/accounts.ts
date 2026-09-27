@@ -846,6 +846,19 @@ export function recordCardStatement(
       throw new Refusal("Only a credit card has a statement.");
     }
     if (input.amount < 0) throw new Refusal("A statement balance is what is owed — zero or more.");
+    /*
+     * MONEY-CORE-16 · A day/month typo — "due 01-09-2026" on a statement of
+     * 15-09-2026 — was recorded as given, and /cards then called the fresh
+     * statement 25 days overdue; a minimum of ₹9,000 on a ₹5,000 statement
+     * likewise. No card is due before its statement is drawn, or asks for more
+     * than it says is owed.
+     */
+    if (input.dueDate < input.statementDate) {
+      throw new Refusal("The due date comes after the statement date. Check the day and month.");
+    }
+    if (input.minimumDue != null && (input.minimumDue < 0 || input.minimumDue > input.amount)) {
+      throw new Refusal("The minimum due is between zero and the statement balance.");
+    }
 
     const id = newId();
     execute(
@@ -866,6 +879,21 @@ export function recordCardStatement(
     return statement;
   });
 }
+
+/*
+ * MONEY-CORE-16 · R37 · Every action undoes. Activity said "Changes to
+ * card-statement cannot be undone", so a mistyped statement could only be
+ * buried under another one. A statement is a note of what the bank said —
+ * nothing else points at it — so undoing it removes the row.
+ */
+registerUndoHandler("card-statement", (db, event) => {
+  const statement = queryOne<CardStatement>(
+    db, `SELECT * FROM card_statements WHERE id = ?`, event.entityId!,
+  );
+  if (!statement) return "Nothing to undo.";
+  execute(db, `DELETE FROM card_statements WHERE id = ?`, statement.id);
+  return `Removed the statement of ${formatPaise(statement.amount)}, due ${statement.due_date}`;
+});
 
 /** The most recent statement for a card, or null. */
 export function lastCardStatement(db: DB, accountId: string): CardStatement | null {

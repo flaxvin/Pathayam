@@ -1,7 +1,8 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { openDatabase, ensureHousehold, execute, type DB } from "../db/db.ts";
-import type { Actor } from "../core/events.ts";
+import { undoEvent, queryEvents, type Actor } from "../core/events.ts";
+import { Refusal } from "../core/refusal.ts";
 import { nowIST } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import {
@@ -131,5 +132,46 @@ describe("B127 · what has come off the card since the statement", () => {
       memo: "Earlier payment", cleared: true,
     });
     assert.equal(creditedSinceStatement(db, card, "2026-08-18"), 0);
+  });
+});
+
+describe("MONEY-CORE-16 · a statement that cannot be right, and undoing one", () => {
+  test("a due date before the statement date is refused", () => {
+    const { db, card } = setup();
+    assert.throws(
+      () => recordCardStatement(db, actor, {
+        accountId: card, statementDate: "2026-09-15", dueDate: "2026-09-01", amount: rupees(5_000),
+      }),
+      (err: unknown) => err instanceof Refusal && /due date comes after/.test(err.message),
+    );
+    assert.equal(lastCardStatement(db, card), null);
+  });
+
+  test("a minimum due above the balance is refused", () => {
+    const { db, card } = setup();
+    assert.throws(
+      () => recordCardStatement(db, actor, {
+        accountId: card, statementDate: "2026-09-15", dueDate: "2026-10-05",
+        amount: rupees(5_000), minimumDue: rupees(9_000),
+      }),
+      Refusal,
+    );
+    // Equal to the balance is fine — a small statement is often due in full.
+    recordCardStatement(db, actor, {
+      accountId: card, statementDate: "2026-09-15", dueDate: "2026-09-15",
+      amount: rupees(5_000), minimumDue: rupees(5_000),
+    });
+  });
+
+  test("undoing a statement removes it, and the earlier one is the latest again", () => {
+    const { db, card } = setup();
+    recordCardStatement(db, actor, { accountId: card, statementDate: "2026-08-05", dueDate: "2026-08-25", amount: rupees(10_000) });
+    const typo = recordCardStatement(db, actor, {
+      accountId: card, statementDate: "2026-09-05", dueDate: "2026-09-25", amount: rupees(99_000),
+    });
+    const event = queryEvents(db, { entity: "card-statement", entityId: typo.id })[0]!;
+    const result = undoEvent(db, event.id, actor);
+    assert.equal(result.ok, true, result.ok ? "" : result.reason);
+    assert.equal(lastCardStatement(db, card)!.amount, rupees(10_000));
   });
 });
