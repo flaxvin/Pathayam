@@ -2770,9 +2770,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      */
     const accounts = listAccounts(db, { viewerMemberId: viewer(ctx) })
       .filter((a) => !DERIVED_VALUE_SUBTYPES.has(a.subtype));
+    // The reader's last-used account. The household's could be somebody
+    // else's private one, which is not in the list, so nothing was preselected.
+    const lastUsedHidden = hiddenTransactionSql("t", viewer(ctx));
     const lastUsed = queryOne<{ account_id: string }>(
       db,
-      `SELECT account_id FROM transactions WHERE deleted_at IS NULL ORDER BY created_at DESC LIMIT 1`,
+      `SELECT t.account_id FROM transactions t
+        WHERE t.deleted_at IS NULL AND NOT ${lastUsedHidden.sql}
+        ORDER BY t.created_at DESC LIMIT 1`,
+      ...lastUsedHidden.params,
     );
 
     return render(
@@ -4484,6 +4490,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * else, from the one place it is written down.
      */
     const reviewHidden = hiddenTransactionSql("t", viewer(ctx));
+    /*
+     * And the envelope a payee "usually" goes to is the reader's usual, as it
+     * is on /add. Counted over the household, a payee Ravi files privately
+     * more often than Priya files it anywhere came out as his envelope, which
+     * the page rightly would not name, so Priya got no suggestion at all.
+     */
+    const usualHidden = hiddenTransactionSql("prev", viewer(ctx));
     const reviewHiddenAccount = hiddenAccountSql("a", viewer(ctx));
 
     const unfundedCards = [...view.categories.values()]
@@ -4523,7 +4536,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                   (SELECT prev.category_id
                      FROM transactions prev
                     WHERE prev.payee_id = t.payee_id AND prev.category_id IS NOT NULL
-                      AND prev.deleted_at IS NULL
+                      AND prev.deleted_at IS NULL AND NOT ${usualHidden.sql}
                     GROUP BY prev.category_id
                     ORDER BY COUNT(*) DESC, MAX(prev.date) DESC
                     LIMIT 1) AS usual_category_id
@@ -4534,7 +4547,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               AND t.transfer_pair_id IS NULL AND a.kind != 'tracking'
               AND t.amount < 0 AND NOT ${reviewHidden.sql}
             ORDER BY t.date DESC LIMIT ?`,
-          ...reviewHidden.params, UNCATEGORISED_PAGE,
+          ...usualHidden.params, ...reviewHidden.params, UNCATEGORISED_PAGE,
         ),
         uncategorisedTotal: queryOne<{ n: number }>(
           db,
@@ -8457,6 +8470,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const requestFailures24h = countRequestFailures(db);
     const recentFailures = requestFailures24h > 0 ? recentRequestFailures(db, 3) : [];
     const queue = reviewCount(db, viewerMemberId);
+    const visibleCount = hiddenTransactionSql("t", viewerMemberId);
 
     return [
       {
@@ -8507,7 +8521,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           {
             name: "Database",
             state: "healthy",
-            reason: `Connected. ${queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM transactions WHERE deleted_at IS NULL`)?.n ?? 0} transactions, ` +
+            // 15 · The transactions the reader can see: a household-wide count
+            // moved whenever somebody spent privately.
+            reason: `Connected. ${queryOne<{ n: number }>(
+              db,
+              `SELECT COUNT(*) AS n FROM transactions t
+                WHERE t.deleted_at IS NULL AND NOT ${visibleCount.sql}`,
+              ...visibleCount.params,
+            )?.n ?? 0} transactions, ` +
               `${queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM events`)?.n ?? 0} events.`,
           },
           {
