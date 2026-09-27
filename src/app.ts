@@ -7593,10 +7593,35 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    * Buying more of a hand-valued asset. The mirror of disposing of one: money
    * leaves, and the stated value changes. Revaluing alone loses the payment.
    */
+  /*
+   * WEALTH-27 · "Add to it" and "Sell" are for what is valued by hand. They
+   * took any visible account: adding ₹10,000 to a fixed deposit stated its
+   * value as ₹10,000, overriding the ₹1,00,000 balance it is worth; "Sell" on
+   * a demat closed it with its shares in it, and on the bank closed the bank.
+   * The same test /revalue makes, plus: an account whose worth is its unit
+   * holdings has no stated value to change.
+   */
+  function requireHandValuedAsset(ctx: RequestContext, id: string) {
+    const account = listValuableAccounts(db, { viewerMemberId: viewer(ctx) }).find((acc) => acc.id === id);
+    if (!account) throw new NotFound("That asset does not exist.");
+    if (!REVALUABLE_SUBTYPES.has(account.subtype)) {
+      throw new Refusal(
+        `${account.name} is worth its balance, so there is no stated value to change. ` +
+        "Record money paid in or taken out as a transfer, and closing it from its account page.",
+      );
+    }
+    if (queryOne(db, `SELECT 1 FROM holdings WHERE account_id = ? AND closed_at IS NULL`, account.id)) {
+      throw new Refusal(
+        `${account.name} is worth its holdings. Buy and sell them from the portfolio instead.`,
+      );
+    }
+    return getAccount(db, account.id)!;
+  }
+
   router.get("/portfolio/asset/:id/add", (ctx) => {
     requireAssets();
     auth(ctx);
-    const account = requireVisibleAccount(ctx, ctx.params.id!)!;
+    const account = requireHandValuedAsset(ctx, ctx.params.id!);
     const valuation = latestValuation(db, account.id);
     return render(ctx, `Add to ${account.name}`, renderAddToAsset({
       account: { id: account.id, name: account.name },
@@ -7615,7 +7640,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/portfolio/asset/:id/add", (ctx) =>
     mutate(ctx, (a) => {
       requireAssets();
-      const account = requireVisibleAccount(ctx, ctx.params.id!)!;
+      const account = requireHandValuedAsset(ctx, ctx.params.id!);
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
       const spent = amountField(requiredField(ctx.body, "spent"), "What you paid");
       if (spent <= 0) throw new Refusal("Enter what you paid, above zero.");
@@ -7654,7 +7679,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/portfolio/asset/:id/dispose", (ctx) => {
     requireAssets();
     auth(ctx);
-    const account = requireVisibleAccount(ctx, ctx.params.id!)!;
+    const account = requireHandValuedAsset(ctx, ctx.params.id!);
     const valuation = latestValuation(db, account.id);
     return render(ctx, `Sell ${account.name}`, renderDisposeAsset({
       account: { id: account.id, name: account.name },
@@ -7670,7 +7695,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/portfolio/asset/:id/dispose", (ctx) =>
     mutate(ctx, (a) => {
       requireAssets();
-      const account = requireVisibleAccount(ctx, ctx.params.id!)!;
+      const account = requireHandValuedAsset(ctx, ctx.params.id!);
       const proceeds = amountField(field(ctx.body, "proceeds"), "Proceeds");
       const on = dateField(field(ctx.body, "on"), "Date");
       const into = field(ctx.body, "into_account");

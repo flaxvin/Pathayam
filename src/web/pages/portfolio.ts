@@ -177,7 +177,6 @@ export function renderPortfolio(opts: {
                         <span class="chip chip-warning">no value yet</span>
                         · <a href="/portfolio/asset/${a.id}/revalue">Say what it's worth</a>
                         · <a href="/accounts/${a.id}">History</a>
-                        · <a href="/accounts/${a.id}">History</a>
                         · <a href="/portfolio/asset/${a.id}/add">Add to it</a>
                         · <a href="/portfolio/asset/${a.id}/dispose">Sell</a>
                       `}
