@@ -784,22 +784,21 @@ export function createTransfer(db: DB, actor: Actor, input: TransferInput): [Tra
      * other categorised spend — it shows up in the envelope, in the reports and
      * in the month's spending, which is where somebody would go looking for it.
      */
-    if (fee) {
-      createTransaction(db, actor, {
-        accountId: input.fromAccountId,
-        amount: -fee.amount as Paise,
-        date,
-        categoryId: fee.categoryId,
-        memo: isCardPayment ? `Charge on payment to ${to.name}` : `Charge on transfer to ${to.name}`,
-        cleared: input.cleared,
-      });
-    }
+    const feeRow = !fee ? null : createTransaction(db, actor, {
+      accountId: input.fromAccountId,
+      amount: -fee.amount as Paise,
+      date,
+      categoryId: fee.categoryId,
+      memo: isCardPayment ? `Charge on payment to ${to.name}` : `Charge on transfer to ${to.name}`,
+      cleared: input.cleared,
+    });
 
     appendEvent(db, actor, {
       entity: "transfer", entityId: pairId, action: "create",
       after: {
         from: from.name, to: to.name, amount: input.amount, date,
-        ...(fee ? { fee: fee.amount } : {}),
+        // MONEY-CORE-5 · The fee's id, so undoing the transfer takes it too.
+        ...(fee ? { fee: fee.amount, feeTransactionId: feeRow!.id } : {}),
       },
       summary:
         (isCardPayment
@@ -1333,8 +1332,39 @@ registerUndoHandler("transaction", (db, event) => {
 });
 
 registerUndoHandler("transfer", (db, event) => {
-  execute(db, `UPDATE transactions SET deleted_at = ? WHERE transfer_pair_id = ?`, nowIST(), event.entityId!);
-  return `Reversed the transfer`;
+  /*
+   * MONEY-CORE-5 · "Moved ₹1,000 from Bank to Bank2, plus ₹5 in charges" undid
+   * as "Reversed the transfer" and left the ₹5 behind, live in Bank and in the
+   * fee's envelope: the fee is a transaction of its own, outside the pair (see
+   * createTransfer), and nothing recorded which one it was. It is recorded now.
+   * An event written before that is matched the way createTransfer wrote it —
+   * the paying account, the day, the amount and the memo, no earlier than the
+   * outgoing leg.
+   */
+  const after = event.after as { fee?: number; feeTransactionId?: string; to?: string } | undefined;
+  let feeId = after?.feeTransactionId ?? null;
+  if (!feeId && after?.fee) {
+    const out = queryOne<{ account_id: string; date: string; created_at: string }>(
+      db, `SELECT account_id, date, created_at FROM transactions WHERE transfer_pair_id = ? AND amount < 0`,
+      event.entityId!,
+    );
+    feeId = out ? queryOne<{ id: string }>(
+      db,
+      `SELECT id FROM transactions
+        WHERE account_id = ? AND date = ? AND amount = ? AND transfer_pair_id IS NULL
+          AND memo IN (?, ?) AND created_at >= ? AND deleted_at IS NULL
+        ORDER BY created_at LIMIT 1`,
+      out.account_id, out.date, -after.fee,
+      `Charge on transfer to ${after.to}`, `Charge on payment to ${after.to}`, out.created_at,
+    )?.id ?? null : null;
+  }
+
+  const now = nowIST();
+  execute(db, `UPDATE transactions SET deleted_at = ? WHERE transfer_pair_id = ?`, now, event.entityId!);
+  if (feeId) {
+    execute(db, `UPDATE transactions SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`, now, feeId);
+  }
+  return feeId ? `Reversed the transfer and its charge` : `Reversed the transfer`;
 });
 
 registerUndoHandler("payee", (db, event) => {
