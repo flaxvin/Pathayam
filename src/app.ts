@@ -352,7 +352,7 @@ import {
   units as toUnits, price as toUnitPrice, xirr, formatUnits, parseUnitPrice, type MicroRupees,
 } from "./portfolio/holdings.ts";
 import { searchSchemes } from "./portfolio/providers.ts";
-import { refreshPrices } from "./portfolio/refresh.ts";
+import { refreshPrices, MANUAL_REFRESH } from "./portfolio/refresh.ts";
 
 export interface AppDeps {
   db: DB;
@@ -8183,9 +8183,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     requireAssets();
     const a = auth(ctx);
 
+    // EXTRA-5 · Bounded: a few seconds a provider, twelve in all, and what
+    // was not reached in that time is reported rather than waited for.
     const outcome = await refreshPrices(db, actorFor(a, "ui"), {
       force: true,
       alphaVantageKey: config.alphaVantageKey,
+      fetchImpl: deps.fetchImpl,
+      ...MANUAL_REFRESH,
     });
 
     appendEvent(db, actorFor(a, "ui"), {
@@ -8205,10 +8209,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return {
       redirect: withNotice(
         "/portfolio",
-        (outcome.failed === 0
+        (outcome.failed === 0 && outcome.unfinished === 0
           ? `Refreshed ${outcome.updated} prices.`
-          : `Refreshed ${outcome.updated}. ${outcome.failed} couldn't be fetched — ` +
-            `cached prices are still shown, with their dates.`) +
+          : `Refreshed ${outcome.updated}. ` +
+            (outcome.failed ? `${outcome.failed} couldn't be fetched` : "") +
+            (outcome.failed && outcome.unfinished ? `, and ` : "") +
+            (outcome.unfinished
+              ? `${outcome.unfinished} weren't reached before the providers ran out of time`
+              : "") +
+            ` — cached prices are still shown, with their dates.`) +
         (quota ? ` (${quota})` : ""),
       ),
     };

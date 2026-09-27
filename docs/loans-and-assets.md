@@ -263,6 +263,13 @@ Mutual funds are priced from a keyless public provider by scheme code; equities
 from Alpha Vantage when a key is configured. Prices are stored with their date;
 `price_fetches` records outcomes. Instruments may be marked `manual_only`.
 
+The scheduled refresh takes its time (a jittered, backed-off fetch per held
+instrument). The Refresh button does not: each request gets at most 4 seconds,
+the jitter at most a quarter of a second, and the whole run 12 seconds. The
+AMFI fallback is skipped when there is no time left for it, and instruments not
+reached in time keep their cached prices; the notice says how many were
+refreshed, how many failed and how many it ran out of time for.
+
 Prices and valuations older than the configured threshold are reported as stale
 on the health page and beside the figures they affect.
 
