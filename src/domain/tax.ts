@@ -185,10 +185,42 @@ export function staleRatesWarning(fy: number): string | null {
 /** Ceilings on the deductions this models, under the old regime. */
 export const LIMITS = {
   s80c: L(1.5),
-  /** 80D: ₹25,000, or ₹50,000 where a senior citizen is covered. */
+  /**
+   * 80D, for each of its two groups separately — self, spouse and children;
+   * and parents: ₹25,000, or ₹50,000 where someone in that group is a senior
+   * citizen. So ₹50,000, ₹75,000 or ₹1,00,000 in all.
+   */
   s80dStandard: R(25_000),
   s80dSenior: R(50_000),
+  /** 80D: preventive health check-ups, across both groups, within their ceilings. */
+  s80dCheckup: R(5_000),
 };
+
+/**
+ * EXTRA-6 · Section 80D, as the Act has it.
+ *
+ * One figure against one ceiling of ₹25,000 or ₹50,000 was the rule for a
+ * household that insures only itself. Premiums for parents are a second
+ * deduction with a ceiling of their own: ₹25,000 for yourself and ₹25,000 for
+ * your parents is ₹50,000 allowed, not ₹25,000; with a senior parent it is
+ * ₹75,000, and with seniors on both sides ₹1,00,000 — where the single box
+ * allowed ₹50,000 at most.
+ *
+ * Preventive check-ups count up to ₹5,000 across the family, inside those
+ * ceilings rather than on top: each group's check-up uses that group's room
+ * left after its premiums.
+ */
+export function deduction80D(d: Deductions): Paise {
+  const selfCap = d.s80dSenior ? LIMITS.s80dSenior : LIMITS.s80dStandard;
+  const parentsCap = d.s80dParentsSenior ? LIMITS.s80dSenior : LIMITS.s80dStandard;
+  const self = Math.min(d.s80d, selfCap);
+  const parents = Math.min(d.s80dParents ?? 0, parentsCap);
+  const checkups = Math.min(
+    LIMITS.s80dCheckup,
+    Math.min(d.s80dCheckup ?? 0, selfCap - self) + Math.min(d.s80dParentsCheckup ?? 0, parentsCap - parents),
+  );
+  return (self + parents + checkups) as Paise;
+}
 
 export function assertKnownYear(fy: number): void {
   if (!RULES[fy]) {
@@ -213,10 +245,17 @@ export function taxOnSlabs(taxable: Paise, slabs: Slab[]): Paise {
 export interface Deductions {
   /** 80C: PF, ELSS, life premium, principal on a home loan, tuition. */
   s80c: Paise;
-  /** 80D: health insurance premiums. */
+  /** 80D: health insurance premiums for yourself, your spouse and children. */
   s80d: Paise;
-  /** Whether a senior citizen is covered, which raises the 80D ceiling. */
+  /** Whether one of them is a senior citizen, which raises that ceiling. */
   s80dSenior: boolean;
+  /** EXTRA-6 · 80D: premiums for parents, a deduction with its own ceiling. */
+  s80dParents?: Paise;
+  /** Whether a parent covered is a senior citizen. */
+  s80dParentsSenior?: boolean;
+  /** Preventive health check-ups for yourself and family, and for parents. */
+  s80dCheckup?: Paise;
+  s80dParentsCheckup?: Paise;
   /** Anything else under Chapter VI-A, entered as one figure. */
   other: Paise;
   hra: HraInput | null;
@@ -321,7 +360,7 @@ export function estimateUnder(
    */
   const chapterViA = rules.allowsDeductions
     ? (Math.min(deductions.s80c, LIMITS.s80c)
-      + Math.min(deductions.s80d, deductions.s80dSenior ? LIMITS.s80dSenior : LIMITS.s80dStandard)
+      + deduction80D(deductions)
       + deductions.other) as Paise
     : 0 as Paise;
 
@@ -548,16 +587,19 @@ export interface Declaration extends Deductions {
 
 const EMPTY: Declaration = {
   gross: 0 as Paise, s80c: 0 as Paise, s80d: 0 as Paise,
-  s80dSenior: false, other: 0 as Paise, hra: null,
+  s80dSenior: false, s80dParents: 0 as Paise, s80dParentsSenior: false,
+  s80dCheckup: 0 as Paise, s80dParentsCheckup: 0 as Paise, other: 0 as Paise, hra: null,
 };
 
 export function getDeclaration(db: DB, memberId: string, fy: number): Declaration {
   const row = queryOne<{
     gross: number; s80c: number; s80d: number; s80d_senior: number; other: number;
+    s80d_parents: number; s80d_parents_senior: number; s80d_checkup: number; s80d_parents_checkup: number;
     hra_received: number; hra_rent_paid: number; hra_basic: number; hra_metro: number;
   }>(
     db,
     `SELECT gross, s80c, s80d, s80d_senior, other,
+            s80d_parents, s80d_parents_senior, s80d_checkup, s80d_parents_checkup,
             hra_received, hra_rent_paid, hra_basic, hra_metro
        FROM tax_declarations WHERE member_id = ? AND fy = ?`,
     memberId, fy,
@@ -568,6 +610,10 @@ export function getDeclaration(db: DB, memberId: string, fy: number): Declaratio
     s80c: row.s80c as Paise,
     s80d: row.s80d as Paise,
     s80dSenior: row.s80d_senior === 1,
+    s80dParents: row.s80d_parents as Paise,
+    s80dParentsSenior: row.s80d_parents_senior === 1,
+    s80dCheckup: row.s80d_checkup as Paise,
+    s80dParentsCheckup: row.s80d_parents_checkup as Paise,
     other: row.other as Paise,
     hra: (row.hra_received || row.hra_rent_paid || row.hra_basic)
       ? {
@@ -598,6 +644,8 @@ export function saveDeclaration(db: DB, memberId: string, fy: number, d: Declara
   assertKnownYear(fy);
   for (const [label, value] of [
     ["Gross income", d.gross], ["Section 80C", d.s80c], ["Section 80D", d.s80d],
+    ["Section 80D for parents", d.s80dParents ?? 0], ["A preventive check-up", d.s80dCheckup ?? 0],
+    ["A parents' preventive check-up", d.s80dParentsCheckup ?? 0],
     ["Other deductions", d.other],
   ] as const) {
     if (value < 0) throw new Refusal(`${label} cannot be negative.`);
@@ -606,15 +654,19 @@ export function saveDeclaration(db: DB, memberId: string, fy: number, d: Declara
     db,
     `INSERT INTO tax_declarations
        (member_id, fy, gross, s80c, s80d, s80d_senior, other,
+        s80d_parents, s80d_parents_senior, s80d_checkup, s80d_parents_checkup,
         hra_received, hra_rent_paid, hra_basic, hra_metro, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(member_id, fy) DO UPDATE SET
          gross = excluded.gross, s80c = excluded.s80c, s80d = excluded.s80d,
          s80d_senior = excluded.s80d_senior, other = excluded.other,
+         s80d_parents = excluded.s80d_parents, s80d_parents_senior = excluded.s80d_parents_senior,
+         s80d_checkup = excluded.s80d_checkup, s80d_parents_checkup = excluded.s80d_parents_checkup,
          hra_received = excluded.hra_received, hra_rent_paid = excluded.hra_rent_paid,
          hra_basic = excluded.hra_basic, hra_metro = excluded.hra_metro,
          updated_at = excluded.updated_at`,
     memberId, fy, d.gross, d.s80c, d.s80d, d.s80dSenior ? 1 : 0, d.other,
+    d.s80dParents ?? 0, d.s80dParentsSenior ? 1 : 0, d.s80dCheckup ?? 0, d.s80dParentsCheckup ?? 0,
     d.hra?.received ?? 0, d.hra?.rentPaid ?? 0, d.hra?.basic ?? 0, d.hra?.metro ? 1 : 0,
     nowIST(),
   );

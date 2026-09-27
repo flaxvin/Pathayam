@@ -8946,6 +8946,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         s80c: money("s80c"),
         s80d: money("s80d"),
         s80dSenior: field(ctx.body, "s80d_senior") === "1",
+        // EXTRA-6 · Parents are a second 80D deduction, with a ceiling of their own.
+        s80dParents: money("s80d_parents"),
+        s80dParentsSenior: field(ctx.body, "s80d_parents_senior") === "1",
+        s80dCheckup: money("s80d_checkup"),
+        s80dParentsCheckup: money("s80d_parents_checkup"),
         other: money("other"),
         hra: (received || rentPaid || basic)
           ? { received, rentPaid, basic, metro: field(ctx.body, "hra_metro") === "1" }
