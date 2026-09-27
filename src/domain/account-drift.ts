@@ -37,7 +37,7 @@ import type { DB } from "../db/db.ts";
 import { queryAll, queryOne } from "../db/db.ts";
 import type { Paise } from "../core/money.ts";
 import { formatPaise } from "../core/money.ts";
-import { todayIST, type IsoDate } from "../core/dates.ts";
+import { todayIST, formatDate, type IsoDate } from "../core/dates.ts";
 import { SIMPLE_TRACKING_SUBTYPES } from "./accounts.ts";
 import { listLoans, projectLoan } from "./loans.ts";
 
@@ -122,7 +122,7 @@ export function accountDrifts(
       gap: moved, since: valuation.as_of as IsoDate,
       explanation:
         `${formatPaise(Math.abs(moved) as Paise)} ${moved > 0 ? "went into" : "came out of"} ` +
-        `this account after the valuation dated ${valuation.as_of}, and the stated figure is what ` +
+        `this account after the valuation dated ${formatDate(valuation.as_of)}, and the stated figure is what ` +
         `net worth shows. If that valuation already accounts for it, nothing is wrong; if not, ` +
         `the figure is out by that much.`,
       fixHref: `/portfolio/asset/${account.id}/revalue`,

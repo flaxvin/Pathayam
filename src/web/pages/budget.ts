@@ -17,7 +17,7 @@ import { cameWithTheCard } from "../../domain/card-shortfall.ts";
 
 export function renderBudget(view: BudgetView, digest?: SafeHtml): SafeHtml {
   return html`
-    ${renderMonthBar(view.month, view.currentMonth)}
+    ${renderMonthBar(view.month, view.currentMonth, view.firstMonth)}
     ${renderReadyToAssign(view)}
     <!-- F14.3 as errata E12 leaves it: the digest on next open, in the one
          place everyone lands. -->
@@ -62,8 +62,10 @@ function renderFilter(): SafeHtml {
   `;
 }
 
-function renderMonthBar(month: MonthKey, currentMonth: MonthKey): SafeHtml {
+function renderMonthBar(month: MonthKey, currentMonth: MonthKey, firstMonth: MonthKey): SafeHtml {
   // F3.7: navigable back to the first month with data, and forward 24 months.
+  // WEBUX-3 · "Back to the first month" was only a comment: ‹ walked on to
+  // 1899-12 and beyond, and every month it reached took an assignment.
   const previous = addMonths(month, -1);
   const next = addMonths(month, 1);
   return html`
@@ -75,7 +77,9 @@ function renderMonthBar(month: MonthKey, currentMonth: MonthKey): SafeHtml {
         no heading, and the document outline began at h2.
       -->
       <nav class="month-switch" aria-label="Month">
-        <a href="?month=${previous}" rel="prev" aria-label="Go to ${formatMonth(previous)}">‹</a>
+        ${month > firstMonth
+          ? html`<a href="?month=${previous}" rel="prev" aria-label="Go to ${formatMonth(previous)}">‹</a>`
+          : html`<span style="min-width:var(--tap)" aria-hidden="true"></span>`}
         <h1 class="month-name">${formatMonth(month)}</h1>
         <a href="?month=${next}" rel="next" aria-label="Go to ${formatMonth(next)}">›</a>
       </nav>

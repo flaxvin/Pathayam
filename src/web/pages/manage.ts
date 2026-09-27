@@ -761,8 +761,8 @@ export function renderTokens(opts: {
                       <tr>
                         <td>${t.name}</td>
                         <td>${t.scope === "read" ? "Read only" : "Read and write"}</td>
-                        <td class="faint">${t.created_at.slice(0, 10)}</td>
-                        <td class="faint">${t.last_used_at?.slice(0, 10) ?? "Never"}</td>
+                        <td class="faint">${formatDate(t.created_at.slice(0, 10))}</td>
+                        <td class="faint">${t.last_used_at ? formatDate(t.last_used_at.slice(0, 10)) : "Never"}</td>
                         <td>
                           <form method="post" action="/tokens/${t.id}/revoke">
                             <button class="button-small button-danger" type="submit">Revoke</button>

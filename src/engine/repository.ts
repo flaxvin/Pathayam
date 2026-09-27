@@ -19,6 +19,7 @@ import { computeBudget } from "./engine.ts";
 import { commitmentSources, claimByMonth, claimLinks, claimFor } from "../domain/commitments.ts";
 import {
   emptyMonth,
+  ENGINE_WINDOW_MONTHS,
   type EngineInput,
   type MonthlyFacts,
   type CategoryMeta,
@@ -814,11 +815,23 @@ export function monthRange(db: DB, through: MonthKey): MonthKey[] {
   const latestAssignment = queryValue<string>(db, `SELECT MAX(month) FROM assignments`) ?? through;
   const last = latestAssignment > through ? latestAssignment : through;
 
+  /*
+   * A corrupt or absurd date must not spin here; a household budget will never
+   * legitimately span more than a few decades.
+   *
+   * WEBUX-3 · The cap used to be counted from the *start*. One assignment in
+   * January 1900 — the budget page's ‹ link walks back that far — made 1900-01
+   * the earliest month, the walk stopped at 1999-12, and every real month fell
+   * off the end: today's budget read Ready to Assign -₹1,000 and every envelope
+   * "Not funded, spent ₹0" for everyone until the row was undone. The cap now
+   * keeps the months nearest the one being asked about, so a stray ancient row
+   * can only drop itself out of the walk, never the present.
+   */
+  const floor = addMonths(through, -(ENGINE_WINDOW_MONTHS - 1));
   const months: MonthKey[] = [];
   let cursor = earliest < through ? earliest : through;
-  // A corrupt or absurd date must not spin here; a household budget will never
-  // legitimately span more than a few decades.
-  for (let guard = 0; cursor <= last && guard < 1200; guard++) {
+  if (cursor < floor) cursor = floor;
+  for (let guard = 0; cursor <= last && guard < ENGINE_WINDOW_MONTHS; guard++) {
     months.push(cursor);
     cursor = addMonths(cursor, 1);
   }
@@ -1068,8 +1081,35 @@ export function envelopeSpendBetween(
   ) ?? 0;
 }
 
-/** The current outstanding on each Credit account, for R6's funding figures. */
-export function creditOutstanding(db: DB): Map<string, Paise> {
+/**
+ * The outstanding on each Credit account, for R6's funding figures.
+ *
+ * WEBUX-2 · Weighed against a month's payment envelope, the debt has to be from
+ * the same moment. Paired with today's debt, September 2023's budget warned
+ * "₹17,840 of your Amazon Pay ICICI balance isn't funded yet" — a card opened in
+ * October 2023, owing today's figure — and January 2024's gave ₹8,912.40, today's
+ * debt less January's envelope, a figure that was never true. So a past month
+ * reads the debt as it stood at its last day; the current month and later ones
+ * read it as it is now, the money you have today (R10).
+ */
+export function creditOutstanding(db: DB, month?: MonthKey): Map<string, Paise> {
+  if (month !== undefined && month < monthOf(todayIST())) {
+    const asOf = lastDayOfMonth(month);
+    const out = new Map<string, Paise>();
+    for (const a of queryAll<{ id: string; balance: number }>(
+      db,
+      `SELECT a.id,
+              CASE WHEN a.opening_date <= ? THEN a.opening_balance ELSE 0 END
+              + COALESCE((SELECT SUM(t.amount) FROM transactions t
+                           WHERE t.account_id = a.id AND t.deleted_at IS NULL
+                             AND t.date <= ?), 0) AS balance
+         FROM accounts a WHERE a.kind = 'credit'`,
+      asOf, asOf,
+    )) {
+      out.set(a.id, a.balance as Paise);
+    }
+    return out;
+  }
   const balances = accountBalances(db);
   const out = new Map<string, Paise>();
   for (const a of queryAll<{ id: string }>(db, `SELECT id FROM accounts WHERE kind = 'credit'`)) {

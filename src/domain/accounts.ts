@@ -9,7 +9,7 @@
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
-import { nowIST, todayIST, type IsoDate } from "../core/dates.ts";
+import { nowIST, todayIST, formatDate, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { Missing, Refusal } from "../core/refusal.ts";
 import { householdBudgetId } from "./budgets.ts";
@@ -861,7 +861,7 @@ export function recordCardStatement(
       entity: "card-statement", entityId: id, action: "record", after: statement,
       summary:
         `Recorded a ${account.name} statement of ${formatPaise(input.amount)}` +
-        `, due ${input.dueDate}`,
+        `, due ${formatDate(input.dueDate)}`,
     });
     return statement;
   });
