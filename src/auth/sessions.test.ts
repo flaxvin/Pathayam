@@ -12,6 +12,8 @@ import {
 } from "./sessions.ts";
 import { parseIdToken, beginOAuth, OAuthError } from "./google.ts";
 import { addDays, todayIST } from "../core/dates.ts";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 const system: Actor = { memberId: null, source: "system" };
 
@@ -144,6 +146,27 @@ describe("sessions", () => {
     execute(db, `UPDATE sessions SET expires_at = ? WHERE id = ?`, addDays(todayIST(), -10), s.session.id);
     assert.equal(pruneExpiredSessions(db), 1);
     db.close();
+  });
+
+  test("SECURITY-OPS-15 · SESSION_DAYS is an absolute lifetime, and the docs say so", () => {
+    // Deliberately not sliding: a cookie someone else is keeping busy must
+    // still expire. Used every day, it is still refused the day after.
+    const db = setup();
+    const { ravi } = seedTwo(db);
+    const { token } = createSession(db, ravi.id, { days: 30 });
+    for (let d = 0; d < 30; d++) {
+      assert.ok(authenticate(db, token, addDays(todayIST(), d)), `refused on day ${d}`);
+    }
+    assert.equal(authenticate(db, token, addDays(todayIST(), 31)), null);
+    db.close();
+
+    // The docs called it an idle timeout, which is the opposite promise.
+    const docs = join(import.meta.dirname, "..", "..", "docs");
+    for (const file of ["security.md", "operations.md"]) {
+      const text = readFileSync(join(docs, file), "utf8");
+      const line = text.split("\n").find((l) => /SESSION_DAYS/.test(l)) ?? "";
+      assert.doesNotMatch(line, /idle/i, `${file} describes SESSION_DAYS as idle expiry`);
+    }
   });
 });
 
