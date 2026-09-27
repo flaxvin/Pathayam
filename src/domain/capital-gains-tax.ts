@@ -34,12 +34,13 @@
  */
 
 import type { DB } from "../db/db.ts";
-import { queryAll } from "../db/db.ts";
+import { queryAll, queryOne } from "../db/db.ts";
 import type { Paise } from "../core/money.ts";
 import type { IsoDate } from "../core/dates.ts";
 import { addDays, fiscalYearOf, fiscalYearRange, heldMoreThanMonths } from "../core/dates.ts";
 import type { AssetClass } from "./assets.ts";
 import type { SpecialRateGains } from "./tax.ts";
+import { valueOf } from "../portfolio/holdings.ts";
 
 /**
  * Months held before a gain becomes long-term, by class. "More than" that
@@ -115,6 +116,46 @@ const EMPTY: GainsBuckets = {
 };
 
 /**
+ * WEALTH-14 · Listed equity bought before 1 February 2018 is grandfathered
+ * (s112A with s55(2)(ac)): its cost is the higher of what was paid and the
+ * lower of its fair market value on 31 January 2018 and the sale proceeds. It
+ * was taxed on the whole gain since purchase — 1,000 shares bought at ₹100,
+ * worth ₹250 on that day and sold at ₹300, were ₹2,00,000 of 112A gain instead
+ * of ₹50,000, inside the exemption.
+ */
+const GRANDFATHERED_BEFORE = "2018-02-01";
+const GRANDFATHERING_DATE = "2018-01-31";
+
+/**
+ * The 31 January 2018 value of `parcelUnits` as they stood when sold, or null
+ * when no price is recorded for that day — the app never guesses one.
+ *
+ * The price history is divided by every later split or bonus ratio (R28.2), so
+ * it is in today's units. A sale's parcel is in the units of its sale date: a
+ * split before the sale already multiplied them, one after did not; a bonus
+ * never changes the original lot's units at all. So the stored price is
+ * multiplied back by each split after the sale and by each bonus since.
+ */
+function grandfatheredValue(db: DB, instrumentId: string, soldOn: IsoDate, parcelUnits: number): Paise | null {
+  const row = queryOne<{ price: number }>(
+    db, `SELECT price FROM prices WHERE instrument_id = ? AND as_of = ?`, instrumentId, GRANDFATHERING_DATE,
+  );
+  if (!row) return null;
+  const events = queryAll<{ date: IsoDate; kind: string; ratio: number }>(
+    db,
+    `SELECT DISTINCT e.date, e.kind, e.ratio
+       FROM holding_events e JOIN holdings h ON h.id = e.holding_id
+      WHERE h.instrument_id = ? AND e.kind IN ('split','bonus') AND e.date > ?`,
+    instrumentId, GRANDFATHERING_DATE,
+  );
+  let factor = 1;
+  for (const e of events) {
+    if (e.kind === "bonus" || e.date > soldOn) factor *= e.ratio;
+  }
+  return valueOf(parcelUnits, Math.round(row.price * factor)) as Paise;
+}
+
+/**
  * Sort one financial year's realised gains into the buckets the Act taxes
  * differently.
  *
@@ -127,12 +168,12 @@ export function gainsBucketsForYear(db: DB, fy: number, memberId: string): Gains
   const { from, to } = fiscalYearRange(fy);
   const sales = queryAll<{
     date: IsoDate; realised_gain: number | null; detail_json: string | null;
-    instrument: string; asset_class: string | null; region: string | null; currency: string;
+    instrument_id: string; instrument: string; asset_class: string | null; region: string | null; currency: string;
     holder: string | null;
   }>(
     db,
     `SELECT e.date, e.realised_gain, e.detail_json,
-            i.name AS instrument, i.asset_class, i.region, i.currency,
+            h.instrument_id, i.name AS instrument, i.asset_class, i.region, i.currency,
             a.holder_member_id AS holder
        FROM holding_events e
        JOIN holdings h ON h.id = e.holding_id
@@ -176,7 +217,9 @@ export function gainsBucketsForYear(db: DB, fy: number, memberId: string): Gains
       continue;
     }
 
-    let parcels: { tradeDate?: IsoDate; cost: number; proceeds: number; holdingPeriodDays: number }[] = [];
+    let parcels: {
+      tradeDate?: IsoDate; units?: number; cost: number; proceeds: number; holdingPeriodDays: number;
+    }[] = [];
     try {
       parcels = sale.detail_json ? (JSON.parse(sale.detail_json).parcels ?? []) : [];
     } catch {
@@ -198,7 +241,7 @@ export function gainsBucketsForYear(db: DB, fy: number, memberId: string): Gains
     }
 
     for (const parcel of parcels) {
-      const gain = (parcel.proceeds - parcel.cost) as Paise;
+      let gain = (parcel.proceeds - parcel.cost) as Paise;
       if (gain === 0) continue;
 
       if (cls === null || cls === "hybrid" || cls === "other") {
@@ -225,7 +268,25 @@ export function gainsBucketsForYear(db: DB, fy: number, memberId: string): Gains
         || (sale.region === null && sale.currency !== "INR");
 
       if (cls === "equity" && !foreign) {
-        if (heldMoreThanMonths(acquiredOn(parcel, sale.date), sale.date, LONG_TERM_MONTHS.equity)) {
+        const acquired = acquiredOn(parcel, sale.date);
+        if (heldMoreThanMonths(acquired, sale.date, LONG_TERM_MONTHS.equity)) {
+          if (acquired < GRANDFATHERED_BEFORE) {
+            const fmv = parcel.units === undefined
+              ? null
+              : grandfatheredValue(db, sale.instrument_id, sale.date, parcel.units);
+            if (fmv === null) {
+              out.unclassified = (out.unclassified + gain) as Paise;
+              out.unclassifiedReasons.push({
+                instrument: sale.instrument, gain,
+                reason: "bought before 1 February 2018, so its cost is the higher of what was paid and the " +
+                  "price on 31 January 2018 — record that price on the holding and it will be placed",
+              });
+              continue;
+            }
+            // s55(2)(ac): the higher of the cost and the lower of FMV and proceeds.
+            const cost = Math.max(parcel.cost, Math.min(fmv, parcel.proceeds));
+            gain = (parcel.proceeds - cost) as Paise;
+          }
           out.equityLong = (out.equityLong + gain) as Paise;
         } else {
           out.equityShort = (out.equityShort + gain) as Paise;

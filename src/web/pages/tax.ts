@@ -270,6 +270,10 @@ export function renderTax(p: TaxPageProps): SafeHtml {
                 `
               : html``}
             <p class="field-hint">
+              Listed equity bought before 1 February 2018 is taxed only on its
+              gain since 31 January 2018, using the price recorded for that day.
+            </p>
+            <p class="field-hint">
               The ₹1,25,000 exemption is annual and applies only to long-held
               listed equity. It does not extend to short-term gains, to gold, or
               to property.
