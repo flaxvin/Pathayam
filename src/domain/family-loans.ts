@@ -34,7 +34,7 @@ import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts"
 import { todayIST, nowIST, daysBetween, formatDate, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { createAccount, getAccount } from "./accounts.ts";
-import { createTransfer, createTransaction, deleteTransaction } from "./transactions.ts";
+import { createTransfer, createTransaction, deleteTransaction, getTransaction } from "./transactions.ts";
 import { accountBalances } from "../engine/repository.ts";
 import { Missing, Refusal } from "../core/refusal.ts";
 
@@ -461,7 +461,7 @@ registerUndoHandler("family-loan", (db, event) => {
          write_off_transaction_id = NULL WHERE id = ?`,
       event.entityId,
     );
-    if (loan?.write_off_transaction_id) {
+    if (loan?.write_off_transaction_id && getTransaction(db, loan.write_off_transaction_id)?.deleted_at === null) {
       deleteTransaction(db, { memberId: null, source: "system" }, loan.write_off_transaction_id);
     }
     return `Reversed the write-off for ${loan?.counterparty ?? "that arrangement"}`;

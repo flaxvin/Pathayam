@@ -514,6 +514,9 @@ export function deleteTransaction(db: DB, actor: Actor, id: string): void {
   transact(db, () => {
     const before = getTransaction(db, id);
     if (!before) throw new Missing("That transaction does not exist.");
+    // MONEY-CORE-14 · Deleting it again logged a second "Deleted" and moved
+    // deleted_at, and so the end of its 30-day restore window.
+    if (before.deleted_at) throw new Refusal("That transaction has already been deleted.");
 
     const ids = before.transfer_pair_id
       ? queryAll<{ id: string }>(
