@@ -18,6 +18,7 @@ import { convertToEmi } from "./card-emi.ts";
 import { ensurePersonalBudget } from "./budgets.ts";
 import {
   createGroup, createCategory, startPersonalBudget, setAssigned, deleteCategory, getCategory,
+  deleteGroup, getAssigned,
 } from "./budget.ts";
 import { commitmentEnvelope } from "./commitments.ts";
 import { freshHousehold, identityProblems, RAVI, PRIYA } from "../engine/identity.test-data.ts";
@@ -233,6 +234,75 @@ describe("D10 · undoing the create of something in use is refused, not a 500", 
     try {
       const res = await app.post(`/activity/${eventFor(db, "payee", payee.id, "create")}/undo`, { force: "1" });
       assert.equal(res.status, 422);
+      assert.deepEqual(app.failures, []);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+/*
+ * BUDGET-9 · "Trip" (₹200 assigned in March, −₹200 in April, so holding ₹0)
+ * was deleted, then its empty group. Undoing the envelope's delete from the log
+ * put its assignments back onto a row the group delete had purged — a foreign
+ * key, a 500 — and with no assignments said `Restored "Trip"` over nothing.
+ */
+describe("BUDGET-9 · undoing an envelope's delete after its group went", () => {
+  function tripGone(withMoney: boolean) {
+    const { db } = bankAndCard();
+    const group = createGroup(db, actor, "Temp").id;
+    const trip = createCategory(db, actor, { groupId: group, name: "Trip" }).id;
+    if (withMoney) {
+      setAssigned(db, actor, "2025-03", trip, 20_000);
+      setAssigned(db, actor, "2025-04", trip, -20_000);
+    }
+    deleteCategory(db, actor, trip, { currentBalance: 0 });
+    const envelopeDelete = eventFor(db, "category", trip, "delete");
+    deleteGroup(db, actor, group);
+    return { db, group, trip, envelopeDelete, groupDelete: eventFor(db, "category-group", group, "delete") };
+  }
+
+  for (const withMoney of [true, false]) {
+    test(`is refused until the group is back, then restores it${withMoney ? ", money and all" : ""}`, () => {
+      const { db, trip, envelopeDelete, groupDelete } = tripGone(withMoney);
+      assert.throws(
+        () => undoEvent(db, envelopeDelete, actor, { force: true }),
+        (e: unknown) => e instanceof Refusal && /Undo the group's delete first/.test((e as Error).message),
+      );
+      assert.equal(getCategory(db, trip), null, "nothing claimed restored");
+
+      assert.equal(undoEvent(db, groupDelete, actor, { force: true }).ok, true);
+      assert.ok(getCategory(db, trip)?.deleted_at, "the tombstone came back with its group");
+      assert.equal(undoEvent(db, envelopeDelete, actor, { force: true }).ok, true);
+      const back = getCategory(db, trip);
+      assert.equal(back?.deleted_at, null);
+      assert.equal(back?.name, "Trip");
+      if (withMoney) {
+        assert.equal(getAssigned(db, "2025-03", trip), 20_000);
+        assert.equal(getAssigned(db, "2025-04", trip), -20_000);
+      }
+      assert.deepEqual(identityProblems(db, "2027-03"), []);
+    });
+  }
+
+  test("a group delete logged before it kept its tombstones says so, not \"Restored\"", () => {
+    const { db, trip, envelopeDelete, groupDelete } = tripGone(true);
+    execute(db, `UPDATE events SET after_json = NULL WHERE id = ?`, groupDelete);
+    assert.equal(undoEvent(db, groupDelete, actor, { force: true }).ok, true);
+    assert.throws(
+      () => undoEvent(db, envelopeDelete, actor, { force: true }),
+      (e: unknown) => e instanceof Refusal && /cleared away/.test((e as Error).message),
+    );
+    assert.equal(getCategory(db, trip), null);
+  });
+
+  test("through the Activity page it is a 422, not a 500", async () => {
+    const { db, envelopeDelete } = tripGone(true);
+    execute(db, `UPDATE household SET setup_completed_at = ? WHERE id = 1`, nowIST());
+    const app = await startTestApp(db, { memberId: RAVI });
+    try {
+      const r = await app.post(`/activity/${envelopeDelete}/undo`, { force: "1" });
+      assert.equal(r.status, 422);
       assert.deepEqual(app.failures, []);
     } finally {
       await app.close();

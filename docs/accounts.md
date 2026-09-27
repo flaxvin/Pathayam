@@ -179,6 +179,12 @@ with it; an envelope must hold no money and have nothing filed to it; a loan's
 account, envelope, disbursements and instalments must be untouched; a payee must
 be named by nothing. Each used to reach the household as a raw foreign-key 500.
 
+Deleting a group takes the tombstones of its deleted envelopes with it, and
+writes them down: undoing the group's delete puts them back, and only then can
+one of those envelopes' own deletes be undone. Undoing it before that is refused
+with a sentence saying so, rather than "Restored" over an envelope that is not
+there.
+
 Undoing a **payee merge** moves back the transactions and aliases the merge
 moved, provided they still sit with the payee they were merged into.
 

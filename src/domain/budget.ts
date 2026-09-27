@@ -155,6 +155,17 @@ export function deleteGroup(db: DB, actor: Actor, id: string): void {
         `first — the group is the last thing saying where it used to go.`,
       );
     }
+    /*
+     * BUDGET-9 · The tombstones are written down before they go. An envelope's
+     * delete stays undoable from the log after its group has gone, and undoing
+     * it then UPDATEd a row that no longer existed — "Restored" over nothing,
+     * or, with its assignments to put back, a foreign key and a 500. Undoing
+     * this delete puts them back with the group, and the envelope's own undo
+     * works again from there.
+     */
+    const purged = queryAll<Record<string, unknown>>(
+      db, `SELECT * FROM categories WHERE group_id = ? AND deleted_at IS NOT NULL`, id,
+    );
     for (const c of tombstones) {
       execute(db, `DELETE FROM categories WHERE id = ?`, c.id);
     }
@@ -162,6 +173,7 @@ export function deleteGroup(db: DB, actor: Actor, id: string): void {
     execute(db, `DELETE FROM category_groups WHERE id = ?`, id);
     appendEvent(db, actor, {
       entity: "category-group", entityId: id, action: "delete", before,
+      after: { tombstones: purged },
       summary: `Deleted the empty group "${before.name}"`,
     });
   });
@@ -1149,6 +1161,22 @@ registerUndoHandler("category", (db, event) => {
     return `Removed the category that was added`;
   }
   /*
+   * BUDGET-9 · Every other undo writes to the row, so the row has to be there.
+   * A deleted envelope's tombstone goes when its group is deleted (deleteGroup),
+   * and without this the UPDATE below touched nothing and said "Restored" — or,
+   * with the delete's assignments to put back, hit a foreign key and was a 500.
+   */
+  if (!queryOne(db, `SELECT 1 FROM categories WHERE id = ?`, event.entityId!)) {
+    const group = queryOne<{ id: string }>(db, `SELECT id FROM category_groups WHERE id = ?`, before.group_id);
+    throw new Refusal(
+      group
+        ? `"${before.name}" was cleared away when its group was deleted, so there is ` +
+          `nothing left to put back.`
+        : `"${before.name}" went with its group when that was deleted. Undo the ` +
+          `group's delete first, then this.`,
+    );
+  }
+  /*
    * BUDGET-8 · A merge is undone only by giving back what it moved. One logged
    * before the merge wrote that down cannot be, and saying "Restored" over an
    * empty envelope was worse than saying so.
@@ -1320,6 +1348,18 @@ registerUndoHandler("category-group", (db, event) => {
       event.entityId!, before.name, before.kind, before.sort,
       nowIST(), before.budget_id ?? null,
     );
+    // BUDGET-9 · And the deleted envelopes that went with it, so their own
+    // deletes can still be undone. Events from before this recorded none.
+    const purged = (event.after as { tombstones?: Record<string, unknown>[] } | undefined)?.tombstones ?? [];
+    for (const row of purged) {
+      if (queryOne(db, `SELECT 1 FROM categories WHERE id = ?`, row.id as string)) continue;
+      const cols = Object.keys(row);
+      execute(
+        db,
+        `INSERT INTO categories (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`,
+        ...cols.map((c) => row[c] as string | number | null),
+      );
+    }
     return `Put the group "${before.name}" back`;
   }
   execute(
