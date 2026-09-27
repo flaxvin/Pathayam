@@ -92,7 +92,8 @@ interface Link {
 /**
  * Extract internal links from a source file. Two shapes:
  *   · HTML attributes — `href="/…"`, `action="/…"`, `formaction="/…"`.
- *   · The command palette's JS objects — `href: "/…"` (always a GET nav).
+ *   · The command palette's JS objects — `href: "/…"` (a GET nav) or
+ *     `action: "/…"` (a command it posts).
  * Query strings and interpolations are left in the raw for the caller to strip.
  */
 function linksIn(file: string, source: string): Link[] {
@@ -102,10 +103,11 @@ function linksIn(file: string, source: string): Link[] {
   while ((m = attr.exec(source)) !== null) {
     out.push({ kind: m[1] === "href" ? "href" : "action", raw: m[2]!, file });
   }
-  // The palette (client.ts) declares navigations as `href: "/path"`.
-  const js = /href:\s*"(\/[^"]*)"/g;
+  // The palette (client.ts) declares navigations as `href: "/path"`, and the
+  // commands that write as `action: "/path"`, which it posts (SECURITY-OPS-3).
+  const js = /(href|action):\s*"(\/[^"]*)"/g;
   while ((m = js.exec(source)) !== null) {
-    out.push({ kind: "href", raw: m[1]!, file });
+    out.push({ kind: m[1] === "href" ? "href" : "action", raw: m[2]!, file });
   }
   return out;
 }

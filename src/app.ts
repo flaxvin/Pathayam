@@ -2772,13 +2772,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // existed, so it 404'd. A quick flip between light and dark (anything not
   // already dark becomes dark), stored against the real member, returning to
   // where the user was.
-  router.get("/settings/theme-toggle", (ctx) => {
-    const a = auth(ctx);
-    const next: Theme = a.viewingAs.theme === "dark" ? "light" : "dark";
-    setTheme(db, actorFor(a), a.member.id, next);
-    const referer = ctx.req.headers.referer;
-    return { redirect: referer && referer.startsWith(config.baseUrl) ? referer : "/" };
-  });
+  //
+  // SECURITY-OPS-3 · It was a GET, the one GET that wrote: a cross-site link
+  // flipped the theme and logged an event (SameSite=Lax sends the cookie on a
+  // top-level navigation), and it returned to any Referer that merely *began*
+  // with BASE_URL — http://127.0.0.1.evil.example passed for http://127.0.0.1.
+  // Now a POST through mutate, so the origin check applies, and it returns only
+  // to a same-site path the palette sends, the way POST /settings/theme does.
+  router.post("/settings/theme-toggle", (ctx) =>
+    mutate(ctx, (a) => {
+      const next: Theme = a.viewingAs.theme === "dark" ? "light" : "dark";
+      setTheme(db, actorFor(a), a.member.id, next);
+      return { redirect: safePath(field(ctx.body, "return_to"), "/") };
+    }),
+  );
 
   router.post("/impersonate/start", (ctx) => {
     if (!config.adminDebug) throw new NotFound();

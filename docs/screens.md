@@ -125,7 +125,7 @@ answer 404 when the viewer may not see the entity
 | Route | Purpose |
 |---|---|
 | `GET /settings` | Household, theme, members, devices, Gmail, statement identity, notifications, API tokens. |
-| `POST /settings/theme`, `GET /settings/theme-toggle` | |
+| `POST /settings/theme`, `POST /settings/theme-toggle` | |
 | `POST /settings/overspend-model`, `/settings/identity`, `/settings/digest`, `/settings/learning` | |
 | `POST /members/invite`, `GET` and `POST /members/:id/remove` | |
 | `POST /budgets/personal` | Start a personal budget. |
