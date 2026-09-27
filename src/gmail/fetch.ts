@@ -26,7 +26,7 @@ import { ingest } from "../import/pipeline.ts";
 import type { RawRecord } from "../import/csv.ts";
 import { accountsByLast4For, cardsByLast4For } from "../domain/accounts.ts";
 import { hiddenAccountSql } from "../domain/member-scope.ts";
-import { ALERT_PROFILES, parseAlert } from "../import/email-alerts.ts";
+import { ALERT_PROFILES, parseAlert, looksLikeUnreadAlert } from "../import/email-alerts.ts";
 import { senderFor, parseStatementPdf, WrongPassword } from "../import/pdf-statements.ts";
 import { passwordCandidates } from "../import/statement-passwords.ts";
 import { getIdentity } from "../import/identity.ts";
@@ -40,7 +40,8 @@ import { Refusal } from "../core/refusal.ts";
 
 export interface FetchResult {
   scanned: number;
-  alerts: { parsed: number; staged: number; unmatched: number };
+  /** `unread`: from an alert sender, read like a transaction, but no profile could read it. */
+  alerts: { parsed: number; staged: number; unmatched: number; unread: number };
   statements: { read: number; staged: number; locked: number };
   notes: string[];
 }
@@ -107,7 +108,7 @@ export async function fetchGmail(
   const client: GmailClientOptions = { accessToken, fetchImpl: deps.fetchImpl };
   const result: FetchResult = {
     scanned: 0,
-    alerts: { parsed: 0, staged: 0, unmatched: 0 },
+    alerts: { parsed: 0, staged: 0, unmatched: 0, unread: 0 },
     statements: { read: 0, staged: 0, locked: 0 },
     notes: [],
   };
@@ -139,7 +140,18 @@ export async function fetchGmail(
     // Otherwise, a transaction alert.
     const body = plainTextBody(message);
     const parsed = parseAlert(sender, subject, body, received);
-    if (!parsed) continue;
+    if (!parsed) {
+      // Not every message from a bank is a transaction, but one that reads
+      // like one and could not be read is said, not silently dropped.
+      if (looksLikeUnreadAlert(sender, body)) {
+        result.alerts.unread++;
+        result.notes.push(
+          `An alert from ${sender}${received ? ` on ${received}` : ""} could not be read, ` +
+          "so nothing was imported from it — add that transaction by hand",
+        );
+      }
+      continue;
+    }
     result.alerts.parsed++;
 
     const routed = routeAlert(db, memberId, parsed.record);
