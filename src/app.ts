@@ -7032,6 +7032,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     requireAssets();
     const query = ctx.query.get("q") ?? "";
     const view = buildBudgetView(db, undefined, undefined, viewer(ctx));
+    // WEALTH-12 · The scheme just chosen from the search, which the purchase
+    // form now carries through to the purchase.
+    const chosenId = ctx.query.get("instrument");
+    const chosen = chosenId ? getInstrument(db, requireVisibleInstrument(ctx, chosenId)) : null;
 
     // The search is a server-side call (P7) and needs no key (§6.2).
     return Promise.resolve(
@@ -7050,6 +7054,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           searchResults: results,
           query,
           today: todayIST(),
+          chosen: chosen
+            ? { id: chosen.id, name: chosen.name, kind: chosen.kind, currency: chosen.currency }
+            : null,
         }),
       ),
     );
@@ -7061,18 +7068,27 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
 
       const schemeCode = field(ctx.body, "scheme_code");
-      const instrument = findOrCreateInstrument(db, actor, {
-        name: requiredField(ctx.body, "name"),
-        kind: (field(ctx.body, "kind") ?? "mutual-fund") as InstrumentKind,
-        symbol: schemeCode ?? field(ctx.body, "symbol") ?? null,
-        currency: field(ctx.body, "currency") || "INR",
-        provider: schemeCode ? "mfapi" : "manual",
-      });
+      /*
+       * WEALTH-12 · A purchase of an instrument already chosen goes to it. The
+       * form after "Choose" was the blank by-hand one, so the purchase made a
+       * second, manual instrument with no scheme code — the chosen AMFI scheme
+       * was left with nothing in it and the holding never got a NAV.
+       */
+      const chosenId = field(ctx.body, "instrument_id");
+      const instrument = chosenId
+        ? getInstrument(db, requireVisibleInstrument(ctx, chosenId))!
+        : findOrCreateInstrument(db, actor, {
+            name: requiredField(ctx.body, "name"),
+            kind: (field(ctx.body, "kind") ?? "mutual-fund") as InstrumentKind,
+            symbol: schemeCode ?? field(ctx.body, "symbol") ?? null,
+            currency: field(ctx.body, "currency") || "INR",
+            provider: schemeCode ? "mfapi" : "manual",
+          });
 
       // Choosing a scheme from the search is step one; the purchase follows.
       if (field(ctx.body, "step") === "details") {
         return {
-          redirect: `/portfolio/add?q=${encodeURIComponent(field(ctx.body, "name") ?? "")}`,
+          redirect: `/portfolio/add?instrument=${encodeURIComponent(instrument.id)}`,
           message: `${instrument.name} is ready — enter the purchase below.`,
         };
       }
