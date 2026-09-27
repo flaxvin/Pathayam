@@ -468,7 +468,7 @@ export interface NetWorthChange {
   from: IsoDate;
   to: IsoDate;
   total: Paise;
-  /** Net cash added — the part that was actually saved. */
+  /** Net cash added, plus what was put into holdings net of what came out — the part that was actually saved. */
   moneySaved: Paise;
   marketMovement: Paise;
   fxMovement: Paise;
@@ -498,14 +498,22 @@ export function netWorthChange(
   const total = end.net_worth - start.net_worth;
   const debtRepaid =
     start.loans + start.credit_cards - (end.loans + end.credit_cards);
-  const moneySaved = end.cash - start.cash;
 
-  // The investment change that is not explained by money moving in or out is
-  // market movement. FX is carried separately by each holding's decomposition
-  // (R34); at the portfolio level it is aggregated from those.
+  /*
+   * WEALTH-26 · The investment change that is not explained by money moving in
+   * or out is market movement — so the money moving in or out has to be taken
+   * out of it. It was not: ₹1,00,000 moved from the bank into a fund whose
+   * price never moved read "−₹1,00,000 saved, ₹1,00,000 from the market", and
+   * every SIP month reported its SIP as market gain and as dis-saving. What was
+   * put in, net of what came out, is saving that happens to be invested.
+   * FX is carried separately by each holding's decomposition (R34); at the
+   * portfolio level it is aggregated from those.
+   */
+  const contributed = netContributions(db, start.as_of, end.as_of);
+  const moneySaved = end.cash - start.cash + contributed;
   const investmentChange = end.investments - start.investments;
   const fxMovement = portfolioFxMovement(db, start.as_of, end.as_of);
-  const marketMovement = investmentChange - fxMovement;
+  const marketMovement = investmentChange - fxMovement - contributed;
 
   return {
     from: start.as_of,
@@ -517,6 +525,57 @@ export function netWorthChange(
     debtRepaid,
     reading: describeChange(total, moneySaved, marketMovement, fxMovement, debtRepaid),
   };
+}
+
+/**
+ * WEALTH-26 · Money put into holdings over (from, to], less money taken out,
+ * over the holdings the snapshots counted.
+ *
+ * What a lot cost when it was bought is its cost now plus what later sales
+ * consumed of it — a partial sale rewrites the surviving lot's cost in place,
+ * a lot sold out is closed (and counted only through the sale), and a sale's
+ * parcels (B88) record what each took, dated by purchase. A
+ * reinvested dividend makes a lot too, but it is return, not new money. What
+ * came out is the sale proceeds. A return of capital, which rewrites lot costs
+ * as well, is not separated: it is rare, and small against the rest.
+ */
+function netContributions(db: DB, from: IsoDate, to: IsoDate): Paise {
+  const hidden = hiddenAccountIds(db, null);
+  const counted = (accountId: string) => !hidden.has(accountId);
+
+  let total = 0;
+  for (const lot of queryAll<{ account_id: string; cost: number }>(
+    db,
+    `SELECT h.account_id, l.cost FROM lots l JOIN holdings h ON h.id = l.holding_id
+      WHERE l.trade_date > ? AND l.trade_date <= ? AND l.closed_at IS NULL`,
+    from, to,
+  )) {
+    if (counted(lot.account_id)) total += lot.cost;
+  }
+  for (const e of queryAll<{ account_id: string; kind: string; date: IsoDate; amount: number | null; detail_json: string | null }>(
+    db,
+    `SELECT h.account_id, e.kind, e.date, e.amount, e.detail_json
+       FROM holding_events e JOIN holdings h ON h.id = e.holding_id
+      WHERE e.kind IN ('sale', 'dividend-reinvested')`,
+  )) {
+    if (!counted(e.account_id)) continue;
+    const inWindow = e.date > from && e.date <= to;
+    if (e.kind === "dividend-reinvested") {
+      if (inWindow) total -= e.amount ?? 0;
+      continue;
+    }
+    if (inWindow) total -= e.amount ?? 0;
+    let parcels: { tradeDate?: IsoDate; cost: number }[] = [];
+    try {
+      parcels = e.detail_json ? (JSON.parse(e.detail_json).parcels ?? []) : [];
+    } catch {
+      parcels = [];
+    }
+    for (const p of parcels) {
+      if (p.tradeDate && p.tradeDate > from && p.tradeDate <= to) total += p.cost;
+    }
+  }
+  return total as Paise;
 }
 
 /** R34.2 · Asset gain and FX gain aggregated separately across foreign holdings. */
