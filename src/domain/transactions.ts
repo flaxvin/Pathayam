@@ -16,6 +16,7 @@ import { formatPaise, type Paise } from "../core/money.ts";
 import { getAccount, DERIVED_VALUE_SUBTYPES, MANAGED_SUBTYPES } from "./accounts.ts";
 import { prepareClaim, prepareTransferClaim } from "./commitments.ts";
 import { dependantsOf } from "./dependants.ts";
+import { hiddenTransactionSql, hiddenAccountSql } from "./member-scope.ts";
 
 export type TransactionSource = "manual" | "csv" | "pdf" | "email" | "sms" | "api" | "schedule";
 
@@ -204,6 +205,7 @@ export function createTransaction(
 
     const payeeId = input.payeeId ?? (input.payeeName ? resolvePayee(db, actor, input.payeeName, input.raw?.payee).id : null);
     const cardId = input.cardId ?? defaultCardFor(db, account.kind, input.accountId);
+    if (input.ownerMemberId) refuseUnknownMember(db, input.ownerMemberId);
     const ownerMemberId =
       input.ownerMemberId ?? cardHolderOf(db, cardId) ?? actor.memberId ?? null;
 
@@ -444,6 +446,7 @@ export function updateTransaction(
     if (patch.payeeId !== undefined) set("payee_id", patch.payeeId);
     if (patch.memo !== undefined) set("memo", patch.memo);
     if (patch.cleared !== undefined) set("cleared", patch.cleared ? 1 : 0);
+    if (patch.ownerMemberId) refuseUnknownMember(db, patch.ownerMemberId);
     if (patch.ownerMemberId !== undefined) set("owner_member_id", patch.ownerMemberId);
     if (patch.cardId !== undefined) set("card_id", patch.cardId);
     if (patch.reimbursable !== undefined) set("reimbursable", patch.reimbursable ? 1 : 0);
@@ -513,12 +516,31 @@ export function deleteTransaction(db: DB, actor: Actor, id: string): void {
   transact(db, () => {
     const before = getTransaction(db, id);
     if (!before) throw new Missing("That transaction does not exist.");
+    // MONEY-CORE-14 · Deleting it again logged a second "Deleted" and moved
+    // deleted_at, and so the end of its 30-day restore window.
+    if (before.deleted_at) throw new Refusal("That transaction has already been deleted.");
 
     const ids = before.transfer_pair_id
       ? queryAll<{ id: string }>(
           db, `SELECT id FROM transactions WHERE transfer_pair_id = ?`, before.transfer_pair_id,
         ).map((r) => r.id)
       : [id];
+
+    /*
+     * MONEY-CORE-8 · The same B65 guard the create-undo runs. Deleting the
+     * bank side of a ₹20,000 instalment gave the bank its money back while
+     * the loan_payments row stayed — the loan still showed ₹15,000 of
+     * principal repaid by money that had come home, and the loan account's
+     * leg stayed live. Delete and undo remove the same rows, so they refuse
+     * the same way.
+     */
+    const dependant = loadBearingDependant(db, ids);
+    if (dependant) {
+      throw new Refusal(
+        `That transaction is recorded as ${dependant}, so deleting it would ` +
+        `leave that wrong. Undo or delete ${dependant} first.`,
+      );
+    }
 
     for (const target of ids) {
       execute(db, `UPDATE transactions SET deleted_at = ? WHERE id = ?`, nowIST(), target);
@@ -692,6 +714,18 @@ export function resolveCategoryLines(total: Paise, lines: CategoryLine[]): Resol
  * Income stays exempt for B99's own reason — its job is to land in Ready to
  * Assign and wait to be given one.
  */
+/**
+ * MONEY-CORE-15 · "Who spent it" has to be somebody in the household. A stale
+ * form after a member was removed, or a crafted post, named one that is not,
+ * and the insert failed on the members foreign key — a 500, logged as a server
+ * fault, for what is an answer the household can act on.
+ */
+function refuseUnknownMember(db: DB, memberId: string): void {
+  if (!queryOne(db, `SELECT 1 FROM members WHERE id = ?`, memberId)) {
+    throw new Refusal("That member is not in this household. Pick who spent it again.");
+  }
+}
+
 export function outgoingLacksEnvelope(total: Paise, filed: ResolvedLines): boolean {
   if (total >= 0) return false;
   return filed.splits
@@ -767,22 +801,21 @@ export function createTransfer(db: DB, actor: Actor, input: TransferInput): [Tra
      * other categorised spend — it shows up in the envelope, in the reports and
      * in the month's spending, which is where somebody would go looking for it.
      */
-    if (fee) {
-      createTransaction(db, actor, {
-        accountId: input.fromAccountId,
-        amount: -fee.amount as Paise,
-        date,
-        categoryId: fee.categoryId,
-        memo: isCardPayment ? `Charge on payment to ${to.name}` : `Charge on transfer to ${to.name}`,
-        cleared: input.cleared,
-      });
-    }
+    const feeRow = !fee ? null : createTransaction(db, actor, {
+      accountId: input.fromAccountId,
+      amount: -fee.amount as Paise,
+      date,
+      categoryId: fee.categoryId,
+      memo: isCardPayment ? `Charge on payment to ${to.name}` : `Charge on transfer to ${to.name}`,
+      cleared: input.cleared,
+    });
 
     appendEvent(db, actor, {
       entity: "transfer", entityId: pairId, action: "create",
       after: {
         from: from.name, to: to.name, amount: input.amount, date,
-        ...(fee ? { fee: fee.amount } : {}),
+        // MONEY-CORE-5 · The fee's id, so undoing the transfer takes it too.
+        ...(fee ? { fee: fee.amount, feeTransactionId: feeRow!.id } : {}),
       },
       summary:
         (isCardPayment
@@ -913,12 +946,36 @@ export function listPayees(db: DB, viewerMemberId?: string | null): Payee[] {
  * A merged payee is as visible as the payee it now resolves to.
  */
 export function visiblePayeeIds(db: DB, viewerMemberId: string | null): Set<string> {
-  const visible = new Set(listPayees(db, viewerMemberId).map((p) => p.id));
-  const merged = queryAll<{ id: string; merged_into_id: string }>(
+  const listed = new Set(listPayees(db, viewerMemberId).map((p) => p.id));
+  const visible = new Set(listed);
+  const mergedInto = new Map(queryAll<{ id: string; merged_into_id: string }>(
     db, `SELECT id, merged_into_id FROM payees WHERE merged_into_id IS NOT NULL`,
-  );
-  for (const m of merged) if (visible.has(m.merged_into_id)) visible.add(m.id);
+  ).map((m) => [m.id, m.merged_into_id]));
+  /*
+   * MONEY-CORE-20 · To the end of the chain, as followMerge does. One level
+   * only, "D-Mart Ltd" merged into "DMart" vanished from Activity — its undo
+   * a 404 — the moment "DMart" was merged into "DMart Ready", because "DMart"
+   * was no longer listed.
+   */
+  for (const id of mergedInto.keys()) {
+    let current = id;
+    for (let i = 0; i < 10 && mergedInto.has(current); i++) current = mergedInto.get(current)!;
+    if (listed.has(current)) visible.add(id);
+  }
   return visible;
+}
+
+/** A payee and every payee it has since been merged into, in order. */
+function mergeChain(db: DB, payeeId: string): string[] {
+  const chain = [payeeId];
+  for (let i = 0; i < 10; i++) {
+    const next = queryOne<{ merged_into_id: string | null }>(
+      db, `SELECT merged_into_id FROM payees WHERE id = ?`, chain[chain.length - 1]!,
+    )?.merged_into_id;
+    if (!next || chain.includes(next)) break;
+    chain.push(next);
+  }
+  return chain;
 }
 
 export function getPayee(db: DB, id: string): Payee | null {
@@ -982,31 +1039,47 @@ export interface PayeeStats {
   usualCategoryId: string | null;
 }
 
-/** F5.3, F5.4: what the entry sheet shows when a payee is chosen. */
-export function payeeStats(db: DB, payeeId: string): PayeeStats {
+/**
+ * F5.3, F5.4: what the entry sheet shows when a payee is chosen.
+ *
+ * MONEY-CORE-21 · Counted over what `viewerMemberId` may see. A payee is a
+ * household-wide name, but its history is not: Ravi's /payees said "2
+ * transactions · ₹45,801 total" for a Zomato he had spent ₹123 at, and his Add
+ * form carried ₹45,678 on 20-09 as the payee's last amount — Priya's spend on
+ * her private account, amount and date. listPayees is filtered so that a
+ * private merchant is not given away; the figures beside a shared one are
+ * filtered the same way (memberScope's rule, envelopes included). Omitted
+ * viewer means every transaction, as for listPayees.
+ */
+export function payeeStats(db: DB, payeeId: string, viewerMemberId?: string | null): PayeeStats {
+  const hidden = viewerMemberId === undefined
+    ? { sql: "0", params: [] as (string | null)[] }
+    : hiddenTransactionSql("t", viewerMemberId);
+  const seen = `t.payee_id = ? AND t.deleted_at IS NULL AND NOT ${hidden.sql}`;
+
   const agg = queryOne<{
     count: number; total: number; first_seen: string | null; last_seen: string | null;
   }>(
     db,
     `SELECT COUNT(*) AS count, COALESCE(SUM(amount),0) AS total,
             MIN(date) AS first_seen, MAX(date) AS last_seen
-       FROM transactions WHERE payee_id = ? AND deleted_at IS NULL`,
-    payeeId,
+       FROM transactions t WHERE ${seen}`,
+    payeeId, ...hidden.params,
   );
 
   const last = queryOne<{ amount: number }>(
     db,
-    `SELECT amount FROM transactions WHERE payee_id = ? AND deleted_at IS NULL
+    `SELECT amount FROM transactions t WHERE ${seen}
       ORDER BY date DESC, created_at DESC LIMIT 1`,
-    payeeId,
+    payeeId, ...hidden.params,
   );
 
   const usual = queryOne<{ category_id: string }>(
     db,
-    `SELECT category_id FROM transactions
-      WHERE payee_id = ? AND deleted_at IS NULL AND category_id IS NOT NULL
+    `SELECT category_id FROM transactions t
+      WHERE ${seen} AND category_id IS NOT NULL
       GROUP BY category_id ORDER BY COUNT(*) DESC LIMIT 1`,
-    payeeId,
+    payeeId, ...hidden.params,
   );
 
   const count = agg?.count ?? 0;
@@ -1020,6 +1093,36 @@ export function payeeStats(db: DB, payeeId: string): PayeeStats {
     lastAmount: last?.amount ?? null,
     usualCategoryId: usual?.category_id ?? null,
   };
+}
+
+/**
+ * MONEY-CORE-21 · The raw bank strings a payee has been matched from, as far as
+ * `viewerMemberId` may see them. An alias is a narration or raw payee off
+ * somebody's statement ("UPI-ZOMATO-PRIYA@OKAXIS"); one seen only on another member's
+ * private account, or only in their imports, is theirs. One nobody's row
+ * carries any more is nobody's secret.
+ */
+export function payeeAliases(
+  db: DB, payeeId: string, viewerMemberId: string | null, limit = 5,
+): string[] {
+  const hiddenTx = hiddenTransactionSql("t", viewerMemberId);
+  const hiddenAcc = hiddenAccountSql("a", viewerMemberId);
+  return queryAll<{ raw: string }>(
+    db,
+    `SELECT pa.raw FROM payee_aliases pa
+      WHERE pa.payee_id = ?
+        AND (
+          EXISTS (SELECT 1 FROM transactions t
+                   WHERE pa.raw IN (t.raw_narration, t.raw_payee) AND NOT ${hiddenTx.sql})
+          OR NOT (
+            EXISTS (SELECT 1 FROM transactions t WHERE pa.raw IN (t.raw_narration, t.raw_payee))
+            OR EXISTS (SELECT 1 FROM staged_transactions st JOIN accounts a ON a.id = st.account_id
+                        WHERE pa.raw IN (st.raw_narration, st.raw_payee) AND ${hiddenAcc.sql})
+          )
+        )
+      ORDER BY pa.created_at LIMIT ?`,
+    payeeId, ...hiddenTx.params, ...hiddenAcc.params, limit,
+  ).map((r) => r.raw);
 }
 
 // ---------------------------------------------------------------------------
@@ -1073,6 +1176,19 @@ const TRANSACTION_DEPENDANTS: { table: string; column: string; describe: string 
   { table: "reconciliations", column: "adjustment_transaction_id", describe: "a reconciliation adjustment" },
   { table: "family_loans", column: "write_off_transaction_id", describe: "a family-loan write-off" },
 ];
+
+/** What the first of `ids` that something derived still points at is recorded as, if any. */
+function loadBearingDependant(db: DB, ids: string[]): string | null {
+  for (const id of ids) {
+    for (const dep of TRANSACTION_DEPENDANTS) {
+      const n = queryOne<{ n: number }>(
+        db, `SELECT COUNT(*) AS n FROM ${dep.table} WHERE ${dep.column} = ?`, id,
+      )?.n ?? 0;
+      if (n > 0) return dep.describe;
+    }
+  }
+  return null;
+}
 
 /** Thrown when an undo is refused for a reason the household can act on. */
 export class UndoRefused extends Error {}
@@ -1139,18 +1255,12 @@ registerUndoHandler("transaction", (db, event) => {
       ).map((r) => r.id)
       : [event.entityId!];
 
-    for (const id of ids) {
-      for (const dep of TRANSACTION_DEPENDANTS) {
-        const n = queryOne<{ n: number }>(
-          db, `SELECT COUNT(*) AS n FROM ${dep.table} WHERE ${dep.column} = ?`, id,
-        )?.n ?? 0;
-        if (n > 0) {
-          throw new UndoRefused(
-            `That transaction is recorded as ${dep.describe}, so removing it would ` +
-            `leave that wrong. Undo or delete ${dep.describe} first.`,
-          );
-        }
-      }
+    const dependant = loadBearingDependant(db, ids);
+    if (dependant) {
+      throw new UndoRefused(
+        `That transaction is recorded as ${dependant}, so removing it would ` +
+        `leave that wrong. Undo or delete ${dependant} first.`,
+      );
     }
 
     for (const id of ids) {
@@ -1220,41 +1330,127 @@ registerUndoHandler("transaction", (db, event) => {
     );
   }
 
+  /*
+   * MONEY-CORE-2 / 19 · Put back what the edit changed, and only that.
+   *
+   * This wrote every column of the snapshot, including two the edit had not
+   * touched and the world since had:
+   *
+   * - `deleted_at`. Edit the memo on one leg of a ₹1,000 transfer, delete the
+   *   transfer, then undo the memo edit: the edited leg came back from the
+   *   snapshot's `deleted_at = NULL` and its partner stayed deleted — ₹1,000
+   *   left one account and arrived nowhere. Deleting and restoring have their
+   *   own events and their own undo above; an edit never changes it.
+   * - `category_id` (and the split lines). Merging Snacks into Food re-points
+   *   the ₹500 spend with no event on the transaction, so undoing an earlier
+   *   memo edit filed it back to the merged-away Snacks — an envelope the
+   *   engine no longer reads — and the ₹500 was in no envelope anywhere.
+   *
+   * An event that recorded no `after` (none do now) falls back to writing
+   * everything it has, as before.
+   */
   const COLUMNS = [
     "account_id", "card_id", "date", "amount", "payee_id", "category_id",
-    "is_split", "memo", "cleared", "owner_member_id", "reimbursable", "deleted_at",
+    "is_split", "memo", "cleared", "owner_member_id", "reimbursable",
   ] as const;
-  const present = COLUMNS.filter((c) => c in snapshot);
-  if (present.length === 0) return `Nothing to restore`;
-  execute(
-    db,
-    `UPDATE transactions SET ${present.map((c) => `${c} = ?`).join(", ")}, updated_at = ? WHERE id = ?`,
-    ...present.map((c) => (snapshot as Record<string, unknown>)[c] as string | number | null),
-    nowIST(), id,
-  );
+  const edited = event.after as Partial<EditSnapshot> | undefined;
+  const changed = (c: keyof EditSnapshot) =>
+    !edited || !(c in edited) || JSON.stringify(edited[c] ?? null) !== JSON.stringify(snapshot[c] ?? null);
+  const present = COLUMNS.filter((c) => c in snapshot && changed(c));
+  let linesBack = Array.isArray(snapshot.splits) && changed("splits");
+  /*
+   * Split lines and the amount they add up to go back together, or neither
+   * does. Flatten a ₹100 split into Food, correct it to ₹200, then undo the
+   * flattening: the ₹60 + ₹40 lines came back onto a ₹200 row — ₹100 of the
+   * spend in no envelope, and a split whose lines do not add up. So whichever
+   * of the two the edit changed, both come back, with the filing they had.
+   */
+  if (
+    Array.isArray(snapshot.splits) &&
+    (linesBack || (present.includes("amount") && (snapshot.is_split === 1 || getTransaction(db, id)?.is_split === 1)))
+  ) {
+    for (const c of ["amount", "is_split", "category_id"] as const) {
+      if (c in snapshot && !present.includes(c)) present.push(c);
+    }
+    linesBack = true;
+  }
 
-  // Split lines, when the event recorded them.
-  if (Array.isArray(snapshot.splits)) {
+  /*
+   * MONEY-CORE-3 / 19 · The envelope it goes back to has to still be one.
+   * Removed since (its creation undone), writing it back was a FOREIGN KEY
+   * failure — a 500; merged away or deleted, it filed the money to an envelope
+   * that no longer counts. Refused before anything is written.
+   */
+  const envelopes = [
+    ...(present.includes("category_id") ? [snapshot.category_id ?? null] : []),
+    ...(linesBack ? snapshot.splits!.map((l) => l.category_id) : []),
+  ].filter((c): c is string => c !== null);
+  for (const categoryId of new Set(envelopes)) {
+    const envelope = queryOne<{ name: string; deleted_at: string | null }>(
+      db, `SELECT name, deleted_at FROM categories WHERE id = ?`, categoryId,
+    );
+    if (!envelope || envelope.deleted_at) {
+      throw new UndoRefused(
+        `${envelope ? `"${envelope.name}"` : "The envelope it was filed to before that edit"} ` +
+        `has since been ${envelope ? "merged away or deleted" : "removed"}, so undoing the edit ` +
+        `would file the money to an envelope that no longer counts. Edit the transaction instead.`,
+      );
+    }
+  }
+  // A payee removed since is the same foreign key; one merged since goes back
+  // as the payee it was merged into, which is what every other row of it shows.
+  let payeeBack = snapshot.payee_id ?? null;
+  if (present.includes("payee_id") && payeeBack !== null) {
+    const payee = getPayee(db, payeeBack);
+    if (!payee) {
+      throw new UndoRefused(
+        "The payee it had before that edit has since been removed, so the edit cannot be " +
+        "undone as it stood. Edit the transaction instead.",
+      );
+    }
+    payeeBack = followMerge(db, payee).id;
+  }
+
+  if (present.length === 0 && !linesBack) return `Nothing to restore`;
+  if (present.length > 0) {
+    execute(
+      db,
+      `UPDATE transactions SET ${present.map((c) => `${c} = ?`).join(", ")}, updated_at = ? WHERE id = ?`,
+      ...present.map((c) =>
+        c === "payee_id" ? payeeBack : (snapshot as Record<string, unknown>)[c] as string | number | null),
+      nowIST(), id,
+    );
+  }
+
+  // Split lines, when the event recorded them and the edit changed them.
+  if (linesBack) {
     execute(db, `DELETE FROM transaction_splits WHERE transaction_id = ?`, id);
-    snapshot.splits.forEach((line, i) => {
+    snapshot.splits!.forEach((line, i) => {
       execute(
         db,
         `INSERT INTO transaction_splits (id,transaction_id,category_id,amount,memo,sort) VALUES (?,?,?,?,?,?)`,
         newId(), id, line.category_id, line.amount, line.memo ?? null, i,
       );
     });
-  } else if (snapshot.is_split === 0) {
+  } else if (!Array.isArray(snapshot.splits) && snapshot.is_split === 0) {
     // An older event, from before lines were recorded. Unsplit is unambiguous.
     execute(db, `DELETE FROM transaction_splits WHERE transaction_id = ?`, id);
   }
 
-  // The other side of a transfer moves back with it.
+  // The other side of a transfer moves back with it — in the same columns and
+  // no others. Writing both from the snapshot broke the pair once the leg
+  // itself took back only what the edit changed: undoing a date edit made
+  // before an amount edit put the partner's old amount back and left this
+  // leg's new one, ₹39.07 in from nowhere (and the amount's undo, the dates).
   if (snapshot.partner) {
-    execute(
-      db,
-      `UPDATE transactions SET amount = ?, date = ?, updated_at = ? WHERE id = ?`,
-      snapshot.partner.amount, snapshot.partner.date, nowIST(), snapshot.partner.id,
-    );
+    const partnerBack = (["amount", "date"] as const).filter((c) => present.includes(c));
+    if (partnerBack.length > 0) {
+      execute(
+        db,
+        `UPDATE transactions SET ${partnerBack.map((c) => `${c} = ?`).join(", ")}, updated_at = ? WHERE id = ?`,
+        ...partnerBack.map((c) => snapshot.partner![c]), nowIST(), snapshot.partner.id,
+      );
+    }
   }
 
   return typeof snapshot.amount === "number"
@@ -1263,8 +1459,39 @@ registerUndoHandler("transaction", (db, event) => {
 });
 
 registerUndoHandler("transfer", (db, event) => {
-  execute(db, `UPDATE transactions SET deleted_at = ? WHERE transfer_pair_id = ?`, nowIST(), event.entityId!);
-  return `Reversed the transfer`;
+  /*
+   * MONEY-CORE-5 · "Moved ₹1,000 from Bank to Bank2, plus ₹5 in charges" undid
+   * as "Reversed the transfer" and left the ₹5 behind, live in Bank and in the
+   * fee's envelope: the fee is a transaction of its own, outside the pair (see
+   * createTransfer), and nothing recorded which one it was. It is recorded now.
+   * An event written before that is matched the way createTransfer wrote it —
+   * the paying account, the day, the amount and the memo, no earlier than the
+   * outgoing leg.
+   */
+  const after = event.after as { fee?: number; feeTransactionId?: string; to?: string } | undefined;
+  let feeId = after?.feeTransactionId ?? null;
+  if (!feeId && after?.fee) {
+    const out = queryOne<{ account_id: string; date: string; created_at: string }>(
+      db, `SELECT account_id, date, created_at FROM transactions WHERE transfer_pair_id = ? AND amount < 0`,
+      event.entityId!,
+    );
+    feeId = out ? queryOne<{ id: string }>(
+      db,
+      `SELECT id FROM transactions
+        WHERE account_id = ? AND date = ? AND amount = ? AND transfer_pair_id IS NULL
+          AND memo IN (?, ?) AND created_at >= ? AND deleted_at IS NULL
+        ORDER BY created_at LIMIT 1`,
+      out.account_id, out.date, -after.fee,
+      `Charge on transfer to ${after.to}`, `Charge on payment to ${after.to}`, out.created_at,
+    )?.id ?? null : null;
+  }
+
+  const now = nowIST();
+  execute(db, `UPDATE transactions SET deleted_at = ? WHERE transfer_pair_id = ?`, now, event.entityId!);
+  if (feeId) {
+    execute(db, `UPDATE transactions SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`, now, feeId);
+  }
+  return feeId ? `Reversed the transfer and its charge` : `Reversed the transfer`;
 });
 
 registerUndoHandler("payee", (db, event) => {
@@ -1273,14 +1500,34 @@ registerUndoHandler("payee", (db, event) => {
     const after = event.after as { id?: string; movedTransactionIds?: string[]; movedAliasIds?: string[] } | undefined;
     // Move back only what the merge moved, and only if it still sits with the
     // winner — anything re-filed since is the household's later decision.
+    // MONEY-CORE-20 · "With the winner" includes wherever the winner was merged
+    // since: after DMart went into DMart Ready, the three rows moved from
+    // D-Mart Ltd sat with DMart Ready, none came back, and the undo still said
+    // it had moved 3. The count is what actually moved.
+    // A loser removed since (its creation undone, from before that was refused
+    // for a merged payee) cannot take its rows back: a FOREIGN KEY 500.
+    if (!getPayee(db, before.id)) {
+      throw new UndoRefused(
+        `"${before.name}" has since been removed, so there is no payee to move its ` +
+        `transactions back to. They stay where the merge put them.`,
+      );
+    }
+    const holders = after?.id ? mergeChain(db, after.id) : [];
+    const within = `(${holders.map(() => "?").join(",") || "NULL"})`;
+    let moved = 0;
     for (const tid of after?.movedTransactionIds ?? []) {
-      execute(db, `UPDATE transactions SET payee_id = ? WHERE id = ? AND payee_id = ?`, before.id, tid, after!.id ?? null);
+      moved += execute(
+        db, `UPDATE transactions SET payee_id = ? WHERE id = ? AND payee_id IN ${within}`,
+        before.id, tid, ...holders,
+      );
     }
     for (const aliasId of after?.movedAliasIds ?? []) {
-      execute(db, `UPDATE payee_aliases SET payee_id = ? WHERE id = ? AND payee_id = ?`, before.id, aliasId, after!.id ?? null);
+      execute(
+        db, `UPDATE payee_aliases SET payee_id = ? WHERE id = ? AND payee_id IN ${within}`,
+        before.id, aliasId, ...holders,
+      );
     }
     execute(db, `UPDATE payees SET merged_into_id = NULL WHERE id = ?`, before.id);
-    const moved = after?.movedTransactionIds?.length ?? 0;
     return moved > 0
       ? `Un-merged "${before.name}" and moved its ${moved} transaction${moved === 1 ? "" : "s"} back`
       : `Un-merged "${before.name}"`;
@@ -1290,6 +1537,19 @@ registerUndoHandler("payee", (db, event) => {
    * transaction, a schedule, a row waiting in review — and deleting it under
    * those hit a foreign key (a 500). Its aliases are its own and go with it.
    */
+  /*
+   * A payee merged into another since is not the empty name it looks: its
+   * merge is recorded against it and its rows sit with the winner. Removing it
+   * left that merge naming nobody — undoing it then moved the rows back onto a
+   * payee that did not exist, a FOREIGN KEY 500. The merge is undone first.
+   */
+  const mergedInto = getPayee(db, event.entityId!)?.merged_into_id;
+  if (mergedInto) {
+    throw new Refusal(
+      `This payee has since been merged into "${getPayee(db, mergedInto)?.name ?? "another payee"}". ` +
+      `Undo that merge first.`,
+    );
+  }
   const dependants = dependantsOf(db, "payees", event.entityId!, {
     own: ["payee_aliases.payee_id"],
     words: {

@@ -17,7 +17,7 @@ import assert from "node:assert/strict";
 import { openDatabase, ensureHousehold, execute, queryAll } from "../db/db.ts";
 import { nowIST } from "../core/dates.ts";
 import { rupees, formatPaise, type Paise } from "../core/money.ts";
-import type { Actor } from "../core/events.ts";
+import { undoEvent, queryEvents, type Actor } from "../core/events.ts";
 import { createAccount } from "./accounts.ts";
 import { createGroup, createCategory, setAssigned } from "./budget.ts";
 import { createTransfer } from "./transactions.ts";
@@ -168,5 +168,36 @@ describe("a transfer with a charge on it", () => {
       }),
       Refusal,
     );
+  });
+});
+
+describe("MONEY-CORE-5 · undoing a transfer that carried a charge", () => {
+  function transferWithFee() {
+    const h = household();
+    const [out] = createTransfer(h.db, actor, {
+      fromAccountId: h.a, toAccountId: h.b, amount: rupees(1_000),
+      date: "2026-08-10", fee: { amount: rupees(5), categoryId: h.charges },
+    });
+    const event = queryEvents(h.db, { entity: "transfer", entityId: out.transfer_pair_id! })[0]!;
+    return { ...h, event };
+  }
+
+  test("takes the charge with it", () => {
+    const { db, a, b, charges, event } = transferWithFee();
+    const result = undoEvent(db, event.id, actor);
+    assert.equal(result.ok, true);
+    assert.equal(balance(db, a), rupees(100_000), "the ₹5 charge stayed behind in HDFC");
+    assert.equal(balance(db, b), 0);
+    assert.equal(state(db).categories.get(charges)!.balance, rupees(500), "and in its envelope");
+    assert.match(result.undoEvent!.summary, /and its charge/);
+  });
+
+  test("an event recorded before the fee's id was kept finds it all the same", () => {
+    const { db, a, event } = transferWithFee();
+    const after = { ...(event.after as Record<string, unknown>) };
+    delete after.feeTransactionId;
+    execute(db, `UPDATE events SET after_json = ? WHERE id = ?`, JSON.stringify(after), event.id);
+    assert.equal(undoEvent(db, event.id, actor).ok, true);
+    assert.equal(balance(db, a), rupees(100_000));
   });
 });

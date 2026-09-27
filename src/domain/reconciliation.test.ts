@@ -2,12 +2,12 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { openDatabase, ensureHousehold, execute, queryOne, type DB } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
-import { queryEvents } from "../core/events.ts";
+import { queryEvents, undoEvent } from "../core/events.ts";
 import { nowIST, addDays, todayIST } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import { createAccount } from "./accounts.ts";
 import { createGroup, createCategory, setAssigned } from "./budget.ts";
-import { createTransaction, updateTransaction, deleteTransaction } from "./transactions.ts";
+import { createTransaction, updateTransaction, deleteTransaction, UndoRefused } from "./transactions.ts";
 import {
   reconcile, previewReconciliation, clearedBalanceAsOf, checkpointsAffectedBy,
   guardHistoricalEdit, editReconciledHistory, reconciliationStatus, brokenCheckpoints,
@@ -341,6 +341,45 @@ describe("F9.4 · status", () => {
     assert.equal(status.lastReconciled, null);
     assert.equal(status.shouldNudge, true);
     void addDays(todayIST(), 0);
+    db.close();
+  });
+});
+
+describe("MONEY-CORE-6 · undoing \"no longer holds\"", () => {
+  function brokenByAnEdit(amount?: number) {
+    const w = setup();
+    const t = createTransaction(w.db, actor, {
+      accountId: w.account.id, amount: rupees(-5_000), date: "2026-08-10",
+      categoryId: w.groceries.id, cleared: true,
+    });
+    // The bank says ₹100 more than the app: a ₹100 adjustment is recorded.
+    const result = reconcile(w.db, actor, {
+      accountId: w.account.id, bankBalance: rupees(95_100), asOf: "2026-08-25", allowAdjustment: true,
+    });
+    assert.equal(result.status, "reconciled");
+    updateTransaction(w.db, actor, t.id, amount === undefined ? { memo: "weekly shop" } : { amount });
+    editReconciledHistory(w.db, actor, {
+      accountId: w.account.id, date: "2026-08-10", confirmed: true, reason: "a transaction was changed",
+    });
+    const brk = queryEvents(w.db, { entity: "reconciliation", action: "break" })[0]!;
+    return { ...w, brk };
+  }
+
+  test("marks the checkpoint intact again, keeping it and its adjustment", () => {
+    const { db, account, brk } = brokenByAnEdit();
+    const result = undoEvent(db, brk.id, actor);
+    assert.equal(result.ok, true);
+    assert.match(result.undoEvent!.summary, /holds again/);
+    assert.equal(reconciliationStatus(db, account.id, "2026-08-26").broken, false);
+    assert.equal(clearedBalanceAsOf(db, account.id, "2026-08-25"), rupees(95_100), "the adjustment stays");
+    db.close();
+  });
+
+  test("is refused while the change that broke it still stands (R7.f)", () => {
+    const { db, account, brk } = brokenByAnEdit(rupees(-6_000));
+    assert.throws(() => undoEvent(db, brk.id, actor), UndoRefused);
+    assert.equal(reconciliationStatus(db, account.id, "2026-08-26").broken, true);
+    assert.equal(clearedBalanceAsOf(db, account.id, "2026-08-25"), rupees(94_100));
     db.close();
   });
 });
