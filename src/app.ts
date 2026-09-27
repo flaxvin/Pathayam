@@ -81,6 +81,7 @@ import {
 import {
   reconcile, reconciliationStatus, listCheckpoints, clearedBalanceAsOf,
   guardHistoricalEdit, breakCheckpoints, CheckpointConfirmationRequired,
+  intactCheckpointBalances, checkpointsMovedSince, type Checkpoint,
 } from "./domain/reconciliation.ts";
 import { parseStatement } from "./import/csv.ts";
 import {
@@ -1631,16 +1632,52 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     );
   });
 
-  router.post("/activity/:id/undo", (ctx) =>
-    mutate(ctx, (a) => {
-      const force = field(ctx.body, "force") === "1";
-      const eventId = requireVisibleEvent(ctx, ctx.params.id!);
+  router.post("/activity/:id/undo", (ctx) => {
+    const force = field(ctx.body, "force") === "1";
+    const eventId = requireVisibleEvent(ctx, ctx.params.id!);
+
+    /*
+     * MONEY-CORE-23 · An undo is a change like any other, and one that reaches a
+     * reconciled period meets the same "Already reconciled" question an edit
+     * does (R7.b), and breaks the checkpoint once answered (R7.c). Undoing a
+     * ₹500 → ₹700 correction after the bank was reconciled at ₹9,300 put ₹500
+     * back with no question, and the checkpoint stayed intact over a cleared
+     * ₹9,500 — nothing reached Review. Which rows an undo writes is its
+     * handler's business, on any account, so the undo is tried first and
+     * rolled back, and the checkpoints whose cleared balance it would move are
+     * the ones asked about.
+     */
+    if (field(ctx.body, "confirm_checkpoint") !== "1") {
+      const moved = checkpointsAnUndoWouldMove(auth(ctx), eventId, force);
+      if (moved.length > 0) {
+        const fields: Record<string, string> = {};
+        for (const [key, value] of Object.entries(ctx.body)) {
+          fields[key] = Array.isArray(value) ? value[0]! : value;
+        }
+        const names = [...new Set(moved.map((c) => {
+          const account = getAccount(db, c.account_id);
+          return account?.nickname || account?.name || "That account";
+        }))];
+        return render(
+          ctx,
+          "Already reconciled",
+          renderCheckpointConfirmation({
+            accountName: names.join(" and "),
+            checkpoints: moved,
+            action: `/activity/${eventId}/undo`,
+            hiddenFields: fields,
+            cancelHref: "/activity",
+          }),
+        );
+      }
+    }
+
+    return mutate(ctx, (a) => {
+      const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+      const intact = intactCheckpointBalances(db);
       let result;
       try {
-        result = undoEvent(
-          db, eventId, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
-          { force },
-        );
+        result = undoEvent(db, eventId, actor, { force });
       } catch (err) {
         // B65 · A handler refuses when the record is load-bearing for something
         // derived. That is an answer, not a fault — 422, so the client shows it
@@ -1655,12 +1692,39 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       if (!result.ok) {
         throw new HttpError(422, result.reason ?? "That change could not be undone.");
       }
+      // MONEY-CORE-23 · Confirmed above (or moved nothing then): R7.c/R7.f.
+      breakCheckpoints(
+        db, actor, checkpointsMovedSince(db, intact),
+        "an undo changed a transaction dated on or before it",
+      );
       return {
         redirect: "/activity",
         message: result.undoEvent?.summary ?? "Undone.",
       };
-    }),
-  );
+    });
+  });
+
+  /**
+   * MONEY-CORE-23 · The intact checkpoints undoing `eventId` would move, found by
+   * undoing it inside a transaction that is always rolled back. An undo that
+   * would be refused moves nothing; the real attempt says why.
+   */
+  function checkpointsAnUndoWouldMove(a: AuthContext, eventId: string, force: boolean): Checkpoint[] {
+    class DryRun extends Error {
+      readonly moved: Checkpoint[];
+      constructor(moved: Checkpoint[]) { super("dry run"); this.moved = moved; }
+    }
+    try {
+      transact(db, () => {
+        const intact = intactCheckpointBalances(db);
+        const result = undoEvent(db, eventId, actorFor(a), { force });
+        throw new DryRun(result.ok ? checkpointsMovedSince(db, intact) : []);
+      });
+    } catch (err) {
+      if (err instanceof DryRun) return err.moved;
+    }
+    return [];
+  }
 
   // Required by Google's OAuth consent screen, and linked from sign-in and
   // Settings so a member can read them without hunting for a URL.

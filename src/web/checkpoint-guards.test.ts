@@ -3,9 +3,10 @@
  * the checkpoint broken (R7.c).
  *
  * The edit route guarded both legs of a transfer; the delete route only the
- * leg it was reached from (MONEY-CORE-7), and adding a cleared entry did not
- * guard at all (MONEY-CORE-17). Either way the checkpoint went on asserting a
- * balance that no longer held, and nothing reached Review.
+ * leg it was reached from (MONEY-CORE-7), and adding a cleared entry or undoing
+ * an earlier change from Activity did not guard at all (MONEY-CORE-17, 23).
+ * Either way the checkpoint went on asserting a balance that no longer held,
+ * and nothing reached Review.
  */
 
 import { test, describe } from "node:test";
@@ -13,7 +14,7 @@ import assert from "node:assert/strict";
 import type { Actor } from "../core/events.ts";
 import { queryOne } from "../db/db.ts";
 import { createAccount } from "../domain/accounts.ts";
-import { createTransfer } from "../domain/transactions.ts";
+import { createTransfer, createTransaction, updateTransaction } from "../domain/transactions.ts";
 import { createGroup, createCategory } from "../domain/budget.ts";
 import { reconcile, clearedBalanceAsOf } from "../domain/reconciliation.ts";
 import { freshHousehold, RAVI } from "../engine/identity.test-data.ts";
@@ -86,6 +87,52 @@ describe("MONEY-CORE-17 · adding a cleared entry inside a reconciled period", (
       const base = { account_id: a, amount: "700", direction: "out", payee: "Shop", split_category_0: food };
       assert.equal((await app.post("/add", { ...base, date: "05-09-2026" })).status, 303);
       assert.equal((await app.post("/add", { ...base, date: "15-09-2026", cleared: "1" })).status, 303);
+      assert.equal(broken(db, a), false);
+    } finally { await app.close(); }
+  });
+});
+
+describe("MONEY-CORE-23 · undoing an earlier change inside a reconciled period", () => {
+  function corrected() {
+    const h = household();
+    const t = createTransaction(h.db, actor, {
+      accountId: h.a, amount: -50_000, date: "2026-09-05", payeeName: "Shop", categoryId: h.food, cleared: true,
+    });
+    updateTransaction(h.db, actor, t.id, { amount: -70_000 });
+    const edit = queryOne<{ id: string }>(
+      h.db, `SELECT id FROM events WHERE entity = 'transaction' AND action = 'update' ORDER BY seq DESC LIMIT 1`,
+    )!.id;
+    reconcile(h.db, actor, { accountId: h.a, bankBalance: 930_000, asOf: "2026-09-10" });
+    return { ...h, t, edit };
+  }
+
+  test("asks first, changes nothing until confirmed, then breaks the checkpoint", async () => {
+    const { db, a, edit } = corrected();
+    const app = await startTestApp(db, { memberId: RAVI });
+    try {
+      const ask = await app.post(`/activity/${edit}/undo`, {});
+      assert.equal(ask.status, 200);
+      assert.match(await ask.text(), /Bank A was reconciled/);
+      assert.equal(clearedBalanceAsOf(db, a, "2026-09-10"), 930_000, "nothing undone before the yes");
+      assert.equal(broken(db, a), false);
+
+      const yes = await app.post(`/activity/${edit}/undo`, { confirm_checkpoint: "1" });
+      assert.equal(yes.status, 303);
+      assert.equal(clearedBalanceAsOf(db, a, "2026-09-10"), 950_000);
+      assert.equal(broken(db, a), true);
+      assert.deepEqual(app.failures, []);
+    } finally { await app.close(); }
+  });
+
+  test("an undo that leaves the reconciled balance alone asks nothing", async () => {
+    const { db, a, t } = corrected();
+    updateTransaction(db, actor, t.id, { memo: "receipt in the drawer" });
+    const memo = queryOne<{ id: string }>(
+      db, `SELECT id FROM events WHERE entity = 'transaction' AND action = 'update' ORDER BY seq DESC LIMIT 1`,
+    )!.id;
+    const app = await startTestApp(db, { memberId: RAVI });
+    try {
+      assert.equal((await app.post(`/activity/${memo}/undo`, {})).status, 303);
       assert.equal(broken(db, a), false);
     } finally { await app.close(); }
   });

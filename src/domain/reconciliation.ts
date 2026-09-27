@@ -384,6 +384,32 @@ export function reconciliationStatus(
   };
 }
 
+/**
+ * MONEY-CORE-23 · Every intact checkpoint, with the cleared balance it rests on
+ * now. Taken before a change whose reach is not known in advance — an undo can
+ * write any transaction, on any account — and compared after it with
+ * `checkpointsMovedSince`.
+ */
+export function intactCheckpointBalances(db: DB): Map<string, Paise> {
+  const balances = new Map<string, Paise>();
+  for (const c of queryAll<Checkpoint>(db, `SELECT * FROM reconciliations WHERE broken_at IS NULL`)) {
+    balances.set(c.id, clearedBalanceAsOf(db, c.account_id, c.as_of));
+  }
+  return balances;
+}
+
+/**
+ * The checkpoints of `before` that are still intact but no longer rest on the
+ * cleared balance they did — the ones a change has quietly falsified.
+ */
+export function checkpointsMovedSince(db: DB, before: Map<string, Paise>): Checkpoint[] {
+  if (before.size === 0) return [];
+  return queryAll<Checkpoint>(
+    db,
+    `SELECT * FROM reconciliations WHERE broken_at IS NULL ORDER BY as_of DESC`,
+  ).filter((c) => before.has(c.id) && clearedBalanceAsOf(db, c.account_id, c.as_of) !== before.get(c.id));
+}
+
 export function listCheckpoints(db: DB, accountId: string, limit = 20): Checkpoint[] {
   return queryAll<Checkpoint>(
     db,
