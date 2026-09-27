@@ -619,7 +619,7 @@ export function deleteCategory(
  */
 export function setTarget(
   db: DB, actor: Actor, categoryId: string,
-  input: { type: "monthly" | "by-date"; amount: Paise; targetDate?: IsoDate | null },
+  input: { type: "monthly" | "refill" | "by-date"; amount: Paise; targetDate?: IsoDate | null },
 ): void {
   transact(db, () => {
     const category = getCategory(db, categoryId);
@@ -643,7 +643,8 @@ export function setTarget(
       before, after: queryOne(db, `SELECT * FROM targets WHERE category_id = ?`, categoryId),
       summary:
         `Set ${category.name}'s target to ${formatPaise(input.amount)}` +
-        (input.type === "by-date" ? ` by ${input.targetDate}` : " a month"),
+        (input.type === "by-date" ? ` by ${input.targetDate}`
+          : input.type === "refill" ? ", refilled up to" : " a month"),
     });
   });
 }

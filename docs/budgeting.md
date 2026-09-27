@@ -95,6 +95,12 @@ applies.
 `underfunded = max(0, needed − assigned)`. The budget screen totals these and
 reports the next scheduled income date alongside.
 
+The Categories page sets three of these by hand: an amount **each month**, a
+level to **refill up to**, or — with a date — **by a date**. It shows which kind
+a target is and sends it back, so a refill target (the starting template gives
+some) saved unchanged stays a refill; a request that names no kind keeps a
+stored refill as a refill.
+
 ## Held for next month
 
 `held_for_next_month(month, budget_id)` removes an amount from that month's
