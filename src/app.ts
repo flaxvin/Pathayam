@@ -843,6 +843,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }
     return id;
   }
+  /**
+   * IMPORTS-SCHEDULES-33 · The saved mappings /import lists. A mapping is named
+   * after its account ("<account> columns"), so listing them all named
+   * another member's private account on Ravi's import page — with a Remove
+   * button that then answered 404. The same rule as the guard below.
+   */
+  function visibleProfiles(ctx: RequestContext) {
+    const scope = memberScope(db, viewer(ctx));
+    return listProfiles(db).filter((p) => !scope.hides(p.account_id));
+  }
+
   function requireVisibleImportProfile(ctx: RequestContext, id: string): string {
     const profile = queryOne<{ account_id: string | null }>(
       db, `SELECT account_id FROM import_profiles WHERE id = ?`, id,
@@ -4333,7 +4344,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     render(ctx, "Import", renderImport({
       accounts: listAccounts(db, { viewerMemberId: viewer(ctx) }),
       batches: listBatches(db, { viewerMemberId: viewer(ctx) }),
-      profiles: listProfiles(db).map((p) => ({
+      profiles: visibleProfiles(ctx).map((p) => ({
         id: p.id, name: p.name, last_used_at: p.last_used_at,
       })),
       casEnabled: config.features.assets,
@@ -4419,7 +4430,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       render(ctx, "Import", renderImport({
         accounts: listAccounts(db, { viewerMemberId: viewer(ctx) }),
         batches: listBatches(db, { viewerMemberId: viewer(ctx) }),
-        profiles: listProfiles(db).map((p) => ({
+        profiles: visibleProfiles(ctx).map((p) => ({
           id: p.id, name: p.name, last_used_at: p.last_used_at,
         })),
         casEnabled: config.features.assets,
