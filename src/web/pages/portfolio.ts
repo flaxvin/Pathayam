@@ -1187,7 +1187,13 @@ export function renderAddHolding(opts: {
   searchResults: { schemeCode: string; schemeName: string }[];
   query: string;
   today: IsoDate;
+  /**
+   * WEALTH-12 · An instrument already chosen — a scheme picked from the
+   * search — which the purchase goes to instead of a new one typed by hand.
+   */
+  chosen?: { id: string; name: string; kind: string; currency: string } | null;
 }): SafeHtml {
+  const chosen = opts.chosen ?? null;
   return html`
     <h1>Add a holding</h1>
 
@@ -1223,25 +1229,35 @@ export function renderAddHolding(opts: {
     `)}
 
     <section class="card">
-      <h2>Or enter it by hand</h2>
+      ${chosen
+        ? html`
+            <h2>Buy ${chosen.name}</h2>
+            <p class="faint">
+              The purchase goes to this instrument.
+              <a href="/portfolio/add">Enter a different one</a>
+            </p>`
+        : html`<h2>Or enter it by hand</h2>`}
       <form method="post" action="/portfolio/add">
         <input type="hidden" name="step" value="create">
-        <div class="grid-2">
-          <div class="field">
-            <label for="name">Instrument</label>
-            <input id="name" name="name" required placeholder="Parag Parikh Flexi Cap - Direct - Growth">
-          </div>
-          <div class="field">
-            <label for="kind">Kind</label>
-            <select id="kind" name="kind">
-              <option value="mutual-fund">Mutual fund</option>
-              <option value="equity">Equity</option>
-              <option value="etf">ETF</option>
-              <option value="commodity">Commodity</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
-        </div>
+        ${chosen
+          ? html`<input type="hidden" name="instrument_id" value="${chosen.id}">`
+          : html`
+              <div class="grid-2">
+                <div class="field">
+                  <label for="name">Instrument</label>
+                  <input id="name" name="name" required placeholder="Parag Parikh Flexi Cap - Direct - Growth">
+                </div>
+                <div class="field">
+                  <label for="kind">Kind</label>
+                  <select id="kind" name="kind">
+                    <option value="mutual-fund">Mutual fund</option>
+                    <option value="equity">Equity</option>
+                    <option value="etf">ETF</option>
+                    <option value="commodity">Commodity</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              </div>`}
 
         <div class="grid-2">
           <div class="field">
@@ -1250,13 +1266,16 @@ export function renderAddHolding(opts: {
               ${opts.assetAccounts.map((a) => html`<option value="${a.id}">${a.name}</option>`)}
             </select>
           </div>
-          <div class="field">
-            <label for="currency">Currency</label>
-            <select id="currency" name="currency">
-              <option value="INR">₹ Indian rupee</option>
-              <option value="USD">$ US dollar</option>
-            </select>
-          </div>
+          ${chosen
+            ? html``
+            : html`
+                <div class="field">
+                  <label for="currency">Currency</label>
+                  <select id="currency" name="currency">
+                    <option value="INR">₹ Indian rupee</option>
+                    <option value="USD">$ US dollar</option>
+                  </select>
+                </div>`}
         </div>
         <div class="field">
           <label for="fx_rate">Exchange rate <span class="faint">(foreign currency only)</span></label>

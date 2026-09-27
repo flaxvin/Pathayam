@@ -496,7 +496,7 @@ only (out of a token's reach).
 |---|---|---|---|
 | GET | `/portfolio` | R | Holdings, XIRR, other assets. |
 | GET | `/portfolio/:id` | R | One instrument. |
-| GET/POST | `/portfolio/add` | R/W | Add a holding. |
+| GET/POST | `/portfolio/add` | R/W | Add a holding. `?instrument=<id>` (where "Choose" on a searched scheme lands) buys that instrument; the POST takes `instrument_id` for it. |
 | GET/POST | `/portfolio/:id/sell` | R/W | Record a sale. |
 | GET/POST | `/portfolio/cas` | R/W | Import a CDSL CAS. |
 | POST | `/portfolio/cas/confirm` | W | Confirm a parsed CAS. |
