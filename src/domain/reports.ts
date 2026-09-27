@@ -81,6 +81,19 @@ function visibilityClause(
   };
 }
 
+/**
+ * The same, for a report over transactions (aliased `t`): memberScope's rule,
+ * the account **and** the envelope. The account half alone counted spending on
+ * a household-visible account in Ravi's own budget, filed to his own envelope —
+ * a row every other screen hides from Priya — so her tag chart named his tag
+ * and her heatmap put its amount on its day.
+ */
+function hiddenClause(viewerMemberId: string | null | undefined): { sql: string; params: (string | null)[] } {
+  if (viewerMemberId === undefined) return { sql: "", params: [] };
+  const hidden = hiddenTransactionSql("t", viewerMemberId);
+  return { sql: ` AND NOT ${hidden.sql}`, params: hidden.params };
+}
+
 export interface QueryRow {
   id: string;
   date: IsoDate;
@@ -303,7 +316,7 @@ export function incomeVsExpense(
   viewerMemberId?: string | null,
 ): TrendPoint[] {
   // 15 · Cash in and out of one budget's accounts, when asked for one.
-  const seen = visibilityClause(viewerMemberId);
+  const seen = hiddenClause(viewerMemberId);
   const rows = queryAll<{ month: string; income: number; spending: number }>(
     db,
     `SELECT substr(t.date,1,7) AS month,
@@ -349,7 +362,7 @@ export function incomeVsExpense(
 export function envelopeSpendByMonth(
   db: DB, from: IsoDate, to: IsoDate, budgetId?: string, viewerMemberId?: string | null,
 ): { month: string; spent: Paise }[] {
-  const seen = visibilityClause(viewerMemberId);
+  const seen = hiddenClause(viewerMemberId);
   // 15 · Spending belongs to the envelope's budget, which is the budget that
   // planned for it — the same rule the engine uses (15 §3A.4).
   return queryAll<{ month: string; spent: number }>(
@@ -385,7 +398,7 @@ export function envelopeSpendByMonth(
 export function spendByTag(
   db: DB, from: IsoDate, to: IsoDate, viewerMemberId?: string | null,
 ): { tag: string; spent: Paise; budget: Paise | null }[] {
-  const seen = visibilityClause(viewerMemberId);
+  const seen = hiddenClause(viewerMemberId);
   return queryAll<{ tag: string; spent: number; budget: number | null }>(
     db,
     `SELECT g.name AS tag,
@@ -406,7 +419,7 @@ export function spendByTag(
 export function spendingCalendar(
   db: DB, from: IsoDate, to: IsoDate, viewerMemberId?: string | null,
 ): { date: IsoDate; value: Paise }[] {
-  const seen = visibilityClause(viewerMemberId);
+  const seen = hiddenClause(viewerMemberId);
   return queryAll<{ date: string; value: number }>(
     db,
     `WITH lines AS (
