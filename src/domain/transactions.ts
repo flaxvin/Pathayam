@@ -936,12 +936,36 @@ export function listPayees(db: DB, viewerMemberId?: string | null): Payee[] {
  * A merged payee is as visible as the payee it now resolves to.
  */
 export function visiblePayeeIds(db: DB, viewerMemberId: string | null): Set<string> {
-  const visible = new Set(listPayees(db, viewerMemberId).map((p) => p.id));
-  const merged = queryAll<{ id: string; merged_into_id: string }>(
+  const listed = new Set(listPayees(db, viewerMemberId).map((p) => p.id));
+  const visible = new Set(listed);
+  const mergedInto = new Map(queryAll<{ id: string; merged_into_id: string }>(
     db, `SELECT id, merged_into_id FROM payees WHERE merged_into_id IS NOT NULL`,
-  );
-  for (const m of merged) if (visible.has(m.merged_into_id)) visible.add(m.id);
+  ).map((m) => [m.id, m.merged_into_id]));
+  /*
+   * MONEY-CORE-20 · To the end of the chain, as followMerge does. One level
+   * only, "D-Mart Ltd" merged into "DMart" vanished from Activity — its undo
+   * a 404 — the moment "DMart" was merged into "DMart Ready", because "DMart"
+   * was no longer listed.
+   */
+  for (const id of mergedInto.keys()) {
+    let current = id;
+    for (let i = 0; i < 10 && mergedInto.has(current); i++) current = mergedInto.get(current)!;
+    if (listed.has(current)) visible.add(id);
+  }
   return visible;
+}
+
+/** A payee and every payee it has since been merged into, in order. */
+function mergeChain(db: DB, payeeId: string): string[] {
+  const chain = [payeeId];
+  for (let i = 0; i < 10; i++) {
+    const next = queryOne<{ merged_into_id: string | null }>(
+      db, `SELECT merged_into_id FROM payees WHERE id = ?`, chain[chain.length - 1]!,
+    )?.merged_into_id;
+    if (!next || chain.includes(next)) break;
+    chain.push(next);
+  }
+  return chain;
 }
 
 export function getPayee(db: DB, id: string): Payee | null {
@@ -1390,14 +1414,26 @@ registerUndoHandler("payee", (db, event) => {
     const after = event.after as { id?: string; movedTransactionIds?: string[]; movedAliasIds?: string[] } | undefined;
     // Move back only what the merge moved, and only if it still sits with the
     // winner — anything re-filed since is the household's later decision.
+    // MONEY-CORE-20 · "With the winner" includes wherever the winner was merged
+    // since: after DMart went into DMart Ready, the three rows moved from
+    // D-Mart Ltd sat with DMart Ready, none came back, and the undo still said
+    // it had moved 3. The count is what actually moved.
+    const holders = after?.id ? mergeChain(db, after.id) : [];
+    const within = `(${holders.map(() => "?").join(",") || "NULL"})`;
+    let moved = 0;
     for (const tid of after?.movedTransactionIds ?? []) {
-      execute(db, `UPDATE transactions SET payee_id = ? WHERE id = ? AND payee_id = ?`, before.id, tid, after!.id ?? null);
+      moved += execute(
+        db, `UPDATE transactions SET payee_id = ? WHERE id = ? AND payee_id IN ${within}`,
+        before.id, tid, ...holders,
+      );
     }
     for (const aliasId of after?.movedAliasIds ?? []) {
-      execute(db, `UPDATE payee_aliases SET payee_id = ? WHERE id = ? AND payee_id = ?`, before.id, aliasId, after!.id ?? null);
+      execute(
+        db, `UPDATE payee_aliases SET payee_id = ? WHERE id = ? AND payee_id IN ${within}`,
+        before.id, aliasId, ...holders,
+      );
     }
     execute(db, `UPDATE payees SET merged_into_id = NULL WHERE id = ?`, before.id);
-    const moved = after?.movedTransactionIds?.length ?? 0;
     return moved > 0
       ? `Un-merged "${before.name}" and moved its ${moved} transaction${moved === 1 ? "" : "s"} back`
       : `Un-merged "${before.name}"`;
