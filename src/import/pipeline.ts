@@ -15,13 +15,13 @@
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
-import { nowIST, type IsoDate } from "../core/dates.ts";
+import { nowIST, addDays, type IsoDate } from "../core/dates.ts";
 import type { Paise } from "../core/money.ts";
 import { createTransaction, createTransfer, resolvePayee, livePayeeId, type TransactionSource } from "../domain/transactions.ts";
 import { findCardByLast4 } from "../domain/accounts.ts";
 import { breakCheckpoints, checkpointsAffectedBy } from "../domain/reconciliation.ts";
 import { hiddenAccountSql } from "../domain/member-scope.ts";
-import { findDuplicate, type Candidate, type DuplicateMatch } from "./dedupe.ts";
+import { findDuplicate, STRONG_WINDOW_DAYS, type Candidate, type DuplicateMatch } from "./dedupe.ts";
 import {
   applyRules, extractNarrationFields, mayAutoApprove,
   type Rule, type RuleSubject,
@@ -134,7 +134,18 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
     );
 
     const rules = loadRules(db);
-    const existing = loadCandidates(db, opts.accountId);
+
+    // How many times each identical row has been seen in this file, so the
+    // second one gets its own identity rather than colliding with the first.
+    const occurrences = new Map<string, number>();
+    const sourceIds = rows.map((record) => {
+      const base = sourceIdFor(opts.adapter, record, 0);
+      const occurrence = occurrences.get(base) ?? 0;
+      occurrences.set(base, occurrence + 1);
+      return sourceIdFor(opts.adapter, record, occurrence);
+    });
+
+    const existing = loadCandidates(db, opts.accountId, rows, sourceIds);
     const pending = loadPendingCandidates(db, opts.accountId);
 
     // I5 requires zero new transactions *and* zero new review items. A row
@@ -163,15 +174,8 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
     let duplicates = 0;
     let skipped = 0;
 
-    // How many times each identical row has been seen in this file, so the
-    // second one gets its own identity rather than colliding with the first.
-    const occurrences = new Map<string, number>();
-
-    for (const record of rows) {
-      const base = sourceIdFor(opts.adapter, record, 0);
-      const occurrence = occurrences.get(base) ?? 0;
-      occurrences.set(base, occurrence + 1);
-      const sourceId = sourceIdFor(opts.adapter, record, occurrence);
+    for (const [i, record] of rows.entries()) {
+      const sourceId = sourceIds[i]!;
 
       if (stagedSourceIds.has(sourceId)) {
         skipped++;
@@ -368,7 +372,25 @@ function upgradeExisting(
   });
 }
 
-function loadCandidates(db: DB, accountId: string): Candidate[] {
+/**
+ * The ledger rows an import can match: those dated near its own rows, and any
+ * carrying one of its source ids.
+ *
+ * IMPORTS-SCHEDULES-7 · This was the account's 2,000 most recent transactions.
+ * Once a busy account passed that, re-importing an older statement found none
+ * of its rows — the exact tier (I5) staged every one of them again, and the
+ * fuzzy tiers were as blind. No tier looks further than STRONG_WINDOW_DAYS
+ * (the manual tier's 5 days is the same), so the file's own date range, that
+ * much wider, is everything any tier can use; the source ids are looked up on
+ * their own because an approved row's date may since have been edited.
+ */
+function loadCandidates(
+  db: DB, accountId: string, rows: RawRecord[], sourceIds: string[],
+): Candidate[] {
+  if (rows.length === 0) return [];
+  const dates = rows.map((r) => r.date).sort();
+  const from = addDays(dates[0]!, -STRONG_WINDOW_DAYS);
+  const to = addDays(dates[dates.length - 1]!, STRONG_WINDOW_DAYS);
   return queryAll<{
     id: string; date: string; amount: number; payee: string | null;
     memo: string | null; source: string; source_id: string | null; raw_narration: string | null;
@@ -376,9 +398,14 @@ function loadCandidates(db: DB, accountId: string): Candidate[] {
     db,
     `SELECT t.id, t.date, t.amount, p.name AS payee, t.memo, t.source, t.source_id, t.raw_narration
        FROM transactions t LEFT JOIN payees p ON p.id = t.payee_id
+      WHERE t.account_id = ? AND t.deleted_at IS NULL AND t.date BETWEEN ? AND ?
+     UNION
+     SELECT t.id, t.date, t.amount, p.name AS payee, t.memo, t.source, t.source_id, t.raw_narration
+       FROM transactions t LEFT JOIN payees p ON p.id = t.payee_id
       WHERE t.account_id = ? AND t.deleted_at IS NULL
-      ORDER BY t.date DESC LIMIT 2000`,
-    accountId,
+        AND t.source_id IN (SELECT value FROM json_each(?))
+      ORDER BY 2 DESC`,
+    accountId, from, to, accountId, JSON.stringify(sourceIds),
   ).map((r) => ({
     id: r.id,
     accountId,
