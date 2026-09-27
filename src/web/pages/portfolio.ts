@@ -177,7 +177,6 @@ export function renderPortfolio(opts: {
                         <span class="chip chip-warning">no value yet</span>
                         · <a href="/portfolio/asset/${a.id}/revalue">Say what it's worth</a>
                         · <a href="/accounts/${a.id}">History</a>
-                        · <a href="/accounts/${a.id}">History</a>
                         · <a href="/portfolio/asset/${a.id}/add">Add to it</a>
                         · <a href="/portfolio/asset/${a.id}/dispose">Sell</a>
                       `}
@@ -570,7 +569,8 @@ export function renderSplitForm(opts: {
     <p class="faint">
       You hold ${opts.units} units. A split or a bonus changes how many units
       you hold and what each one cost — never what the holding is worth. Every lot and the whole price history move together, so the chart stays
-      accurate.
+      accurate. It is recorded once for ${opts.instrumentName}, and applies to
+      every account that holds it.
     </p>
     <form method="post" action="/portfolio/${opts.holdingId}/split" class="card">
       <div class="grid-2">
@@ -681,6 +681,9 @@ export function renderHoldingDetail(opts: {
         </p>
       </div>
       <div class="row">
+        <!-- WEALTH-11 · A second purchase of this, into this account: one
+             holding with two lots, not a second holding of the same name. -->
+        <a class="button" href="/portfolio/add?instrument=${v.instrument.id}&account=${v.holding.account_id}">Buy more</a>
         <a class="button" href="/portfolio/${v.holding.id}/split">Split or bonus</a>
         <a class="button" href="/portfolio/${v.holding.id}/merge">Merger</a>
         <a class="button button-primary" href="/portfolio/${v.holding.id}/sell">Sell units</a>
@@ -827,10 +830,15 @@ export function renderSalePreview(opts: {
   } | null;
   unitsToSell: string;
   priceInput: string;
+  /** R33 · Only asked for a foreign instrument; blank uses the stored rate. */
+  fxInput?: string;
+  /** Why no preview could be made — a missing exchange rate, say. */
+  error?: string | null;
   accounts: { id: string; name: string }[];
   today: IsoDate;
 }): SafeHtml {
   const v = opts.view;
+  const foreign = v.instrument.currency !== "INR";
 
   return html`
     <h1>Sell ${v.instrument.name}</h1>
@@ -849,8 +857,21 @@ export function renderSalePreview(opts: {
                  value="${opts.priceInput}" required>
         </div>
       </div>
+      ${when(foreign, () => html`
+        <div class="field">
+          <label for="fx_rate">Rupees per ${v.instrument.currency} on the sale date</label>
+          <input id="fx_rate" name="fx_rate" type="text" inputmode="decimal"
+                 value="${opts.fxInput ?? ""}" placeholder="the stored rate">
+          <p class="field-hint">
+            The price is in ${v.instrument.currency}; the proceeds reach the bank in rupees.
+            Leave it blank to use the rate recorded for that day.
+          </p>
+        </div>
+      `)}
       <button type="submit">Preview</button>
     </form>
+
+    ${when(opts.error, () => html`<p class="notice notice-warning">${opts.error}</p>`)}
 
     ${when(opts.preview, () => html`
       <div class="card">
@@ -894,6 +915,7 @@ export function renderSalePreview(opts: {
         <form method="post" action="/portfolio/${v.holding.id}/sell" style="margin-top:1rem">
           <input type="hidden" name="units" value="${opts.unitsToSell}">
           <input type="hidden" name="price" value="${opts.priceInput}">
+          ${when(foreign, () => html`<input type="hidden" name="fx_rate" value="${opts.fxInput ?? ""}">`)}
           <div class="grid-2">
             <div class="field">
               <label for="sale_date">Date of sale</label>
@@ -1167,7 +1189,15 @@ export function renderAddHolding(opts: {
   searchResults: { schemeCode: string; schemeName: string }[];
   query: string;
   today: IsoDate;
+  /**
+   * WEALTH-12 · An instrument already chosen — a scheme picked from the
+   * search — which the purchase goes to instead of a new one typed by hand.
+   */
+  chosen?: { id: string; name: string; kind: string; currency: string } | null;
+  /** The account to offer first — the holding's own, from its "Buy more". */
+  accountId?: string | null;
 }): SafeHtml {
+  const chosen = opts.chosen ?? null;
   return html`
     <h1>Add a holding</h1>
 
@@ -1203,40 +1233,64 @@ export function renderAddHolding(opts: {
     `)}
 
     <section class="card">
-      <h2>Or enter it by hand</h2>
+      ${chosen
+        ? html`
+            <h2>Buy ${chosen.name}</h2>
+            <p class="faint">
+              The purchase goes to this instrument.
+              <a href="/portfolio/add">Enter a different one</a>
+            </p>`
+        : html`<h2>Or enter it by hand</h2>`}
       <form method="post" action="/portfolio/add">
         <input type="hidden" name="step" value="create">
-        <div class="grid-2">
-          <div class="field">
-            <label for="name">Instrument</label>
-            <input id="name" name="name" required placeholder="Parag Parikh Flexi Cap - Direct - Growth">
-          </div>
-          <div class="field">
-            <label for="kind">Kind</label>
-            <select id="kind" name="kind">
-              <option value="mutual-fund">Mutual fund</option>
-              <option value="equity">Equity</option>
-              <option value="etf">ETF</option>
-              <option value="commodity">Commodity</option>
-              <option value="other">Other</option>
-            </select>
-          </div>
-        </div>
+        ${chosen
+          ? html`<input type="hidden" name="instrument_id" value="${chosen.id}">`
+          : html`
+              <div class="grid-2">
+                <div class="field">
+                  <label for="name">Instrument</label>
+                  <input id="name" name="name" required placeholder="Parag Parikh Flexi Cap - Direct - Growth">
+                </div>
+                <div class="field">
+                  <label for="kind">Kind</label>
+                  <select id="kind" name="kind">
+                    <option value="mutual-fund">Mutual fund</option>
+                    <option value="equity">Equity</option>
+                    <option value="etf">ETF</option>
+                    <option value="commodity">Commodity</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+              </div>`}
 
         <div class="grid-2">
           <div class="field">
             <label for="account_id">Held in</label>
             <select id="account_id" name="account_id" required>
-              ${opts.assetAccounts.map((a) => html`<option value="${a.id}">${a.name}</option>`)}
+              ${opts.assetAccounts.map((a) => html`
+                <option value="${a.id}" ${a.id === opts.accountId ? "selected" : ""}>${a.name}</option>`)}
             </select>
           </div>
-          <div class="field">
-            <label for="currency">Currency</label>
-            <select id="currency" name="currency">
-              <option value="INR">₹ Indian rupee</option>
-              <option value="USD">$ US dollar</option>
-            </select>
-          </div>
+          ${chosen
+            ? html``
+            : html`
+                <div class="field">
+                  <label for="currency">Currency</label>
+                  <select id="currency" name="currency">
+                    <option value="INR">₹ Indian rupee</option>
+                    <option value="USD">$ US dollar</option>
+                  </select>
+                </div>`}
+        </div>
+        <div class="field">
+          <label for="fx_rate">Exchange rate <span class="faint">(foreign currency only)</span></label>
+          <input id="fx_rate" name="fx_rate" type="text" inputmode="decimal" placeholder="the stored rate">
+          <p class="field-hint">
+            Rupees for one unit of the currency on the day you bought — what the
+            bank charged. The amount and price are in the instrument's currency;
+            this is what turns them into what left your account. Leave it blank to
+            use the rate recorded for that day.
+          </p>
         </div>
 
         <fieldset>

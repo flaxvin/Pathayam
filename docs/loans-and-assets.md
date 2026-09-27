@@ -180,7 +180,12 @@ Money lent to or borrowed from a person, held in a tracking account of subtype
 
 An `instrument` is a tradeable thing: `mutual-fund`, `equity`, `etf`, `bond`,
 `commodity` or `other`, with an optional symbol, ISIN, currency, price provider
-and classification (`asset_class`, `region`).
+and classification (`asset_class`, `region`). An instrument is found again by
+ISIN, then by symbol and provider; one typed by hand (no symbol or ISIN) is
+found again by the same name, ignoring case, with the same kind and currency —
+so a second purchase typed by hand adds a lot to the same holding. A holding's
+**Buy more** and a scheme chosen from the search both carry the instrument to
+the purchase form instead.
 
 A `holding` is one instrument in one asset account. Its units and cost come from
 `lots`, which are FIFO.
@@ -214,6 +219,16 @@ SELECT h.id, e.date AS bonus_date
           AND l.kind IN ('sale','split','bonus') AND l.created_at > e.created_at);
 ```
 
+**Undo.** From the activity log, a purchase can be undone while its lot is
+untouched; the payment it made from a budget account is deleted with it (and
+can be restored like any deleted transaction). Once a sale, split or return of
+capital has changed the lot, the undo is refused. A sale, split,
+bonus, merger, dividend or return of capital is refused with a sentence saying
+what to record instead: none of them keeps the lots as they were before it, so
+there is nothing honest to restore, and the log never marks as undone a change
+that is still in force. Undoing an instrument's classification puts back the
+class it replaced; undoing its creation is refused while anything is held in it.
+
 ### Prices
 
 Mutual funds are priced from a keyless public provider by scheme code; equities
@@ -233,9 +248,17 @@ Hand-valued accounts (gold, retirement balances, property) carry dated entries i
 valuation is converted the same way a holding is; where no rate exists the value
 is carried at 1 and marked stale.
 
+A **trade** in a non-base instrument is different: the purchase cost and the
+sale proceeds are what left and reached the bank, so they are converted at the
+rate given on the form, else the stored rate on or before the trade date. With
+neither, the purchase or sale is refused rather than booked at 1 — a $1,000
+purchase is never ₹1,000.
+
 ### Returns
 
-XIRR is computed from the dated cash flows of a holding or the portfolio.
+XIRR is computed from the dated cash flows of a holding or the portfolio: each
+open lot's cost out, each cash dividend back on its date, and today's value back.
+A reinvested dividend is not new money — its units are return, not a purchase.
 Realised gains are reported by financial year and split by holding period, which
 is what Indian capital gains treatment requires. The holding period is counted in
 calendar months ("more than 12 months"), not days, by the same test the tax
@@ -253,7 +276,8 @@ holdings, which are new, and where units disagree.
 net worth = cash + investments + other assets − credit cards − loans
 ```
 
-- **Cash**: budget accounts at working balance.
+- **Cash**: budget accounts at working balance, and any credit card in credit
+  (overpaid, or refunded after the bill was paid) — it owes you that money.
 - **Investments**: holdings at market value.
 - **Other assets**: hand-valued tracking accounts at their latest valuation.
 - **Credit cards**: outstanding balances.
@@ -262,6 +286,14 @@ net worth = cash + investments + other assets − credit cards − loans
 Every line carries the date of its oldest input, and the statement reports the
 worst of those. Snapshots are written to `net_worth_snapshots` at month close
 and on demand, giving a dated history.
+
+A snapshot for a past date holds that date's figures, not today's: balances
+count transactions dated on or before it, holdings are the lots held on it
+(later purchases left out, later sales put back, in today's split-adjusted
+units at that date's price), loans owe what their draws and payments dated by
+then leave, and an account closed since still counts. Closing June in
+September therefore records June's net worth on 30 June. A merger after the
+date is not unwound.
 
 Totals are computed per viewer: an account a member cannot see is excluded from
 the total shown to them, not merely from the list.

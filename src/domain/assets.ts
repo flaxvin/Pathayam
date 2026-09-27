@@ -30,17 +30,26 @@ import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts"
 import { nowIST, todayIST, formatDate, daysBetween, type IsoDate } from "../core/dates.ts";
 import { allocateByWeight, formatPaise, type Paise } from "../core/money.ts";
 import { SIMPLE_TRACKING_SUBTYPES, createAccount, getAccount } from "./accounts.ts";
-import { createTransaction } from "./transactions.ts";
+import { createTransaction, UndoRefused } from "./transactions.ts";
+import { dependantsOf } from "./dependants.ts";
 import {
   makeLot, previewSale, totalUnits, costBasis, averageCost, averageUnitPrice, marketValue,
   unrealisedGain, absoluteReturn, xirr, holdingCashFlows, decomposeGain,
   applySplit, bonusLot, applyMerger, applyReturnOfCapital, formatUnits, valueOf,
   type Lot, type Holding, type Milliunits, type MicroRupees,
-  type SalePreview, type GainDecomposition,
+  type SalePreview, type GainDecomposition, type CashFlow,
 } from "../portfolio/holdings.ts";
 import { csvCell } from "../core/csv.ts";
 
-export type InstrumentKind = "mutual-fund" | "equity" | "etf" | "bond" | "commodity" | "other";
+export const INSTRUMENT_KINDS = ["mutual-fund", "equity", "etf", "bond", "commodity", "other"] as const;
+export type InstrumentKind = (typeof INSTRUMENT_KINDS)[number];
+
+/**
+ * WEALTH-39 · The dearest a single unit of anything is allowed to be, in
+ * rupees. The costliest listed shares trade in lakhs; a hundred crore a unit is
+ * a slipped key, and 1e30 put a holding worth 1e31 rupees into net worth.
+ */
+export const MAX_UNIT_PRICE_RUPEES = 1_000_000_000;
 
 /** F19.11 · The allocation buckets, in the sense Indian investing uses. */
 export const ASSET_CLASSES = ["equity", "debt", "hybrid", "gold", "cash", "real-estate", "other"] as const;
@@ -437,6 +446,10 @@ export function findOrCreateInstrument(
     currency?: string; provider?: PriceProvider; manualOnly?: boolean;
   },
 ): Instrument {
+  // WEALTH-39 · An unknown kind reached the table's CHECK and answered 500.
+  if (!(INSTRUMENT_KINDS as readonly string[]).includes(input.kind)) {
+    throw new Refusal(`"${input.kind}" is not a kind of holding this knows — pick one from the list.`);
+  }
   return transact(db, () => {
     // R24.6: match on ISIN first — it survives a change of price provider.
     const existing =
@@ -511,12 +524,70 @@ export function classifyInstrument(
   });
 }
 
+/**
+ * WEALTH-11 · An instrument typed by hand before, found again by what was
+ * typed: the same name (ignoring case and surrounding spaces), kind and
+ * currency, with no symbol or ISIN to go by. The by-hand form has neither, so
+ * `findOrCreateInstrument` never matched and a second purchase of "Fictional
+ * Co" became a second instrument and holding — FIFO could not see across the
+ * two and a price entered on one was not seen by the other.
+ *
+ * `hidden` is the viewer's member-scope set: an instrument only another
+ * member's private accounts hold is never matched, so typing its name does
+ * not attach to it (and reveal its prices).
+ */
+export function findManualInstrument(
+  db: DB, input: { name: string; kind: string; currency: string }, hidden: ReadonlySet<string>,
+): Instrument | null {
+  const candidates = queryAll<Instrument>(
+    db,
+    `SELECT * FROM instruments
+      WHERE provider = 'manual' AND symbol IS NULL AND isin IS NULL
+        AND kind = ? AND currency = ? AND lower(trim(name)) = lower(trim(?))
+      ORDER BY created_at, id`,
+    input.kind, input.currency, input.name,
+  );
+  return candidates.find((i) => !hidden.has(i.id)) ?? null;
+}
+
 export function getInstrument(db: DB, id: string): Instrument | null {
   return queryOne<Instrument>(db, `SELECT * FROM instruments WHERE id = ?`, id);
 }
 
 export function listInstruments(db: DB): Instrument[] {
   return queryAll<Instrument>(db, `SELECT * FROM instruments ORDER BY name`);
+}
+
+/**
+ * R33 · The rate a foreign trade converts at: the one the person gave, else the
+ * stored rate for the trade date, else a refusal.
+ *
+ * The forms offered "$ US dollar" and then never asked for a rate, and nothing
+ * looked one up, so a $1,000 purchase went into the books — and out of the bank
+ * — as ₹1,000, and selling half of it credited ₹500. The holding page then
+ * valued the same units at today's rate and reported an ₹82,000 unrealised gain
+ * that never happened. A trade with no rate cannot be booked honestly, so it is
+ * not booked at all rather than being booked at 1.
+ */
+export function tradeFxRate(
+  db: DB, instrumentId: string, date: IsoDate, given?: number | null,
+): number | null {
+  const instrument = getInstrument(db, instrumentId);
+  if (!instrument || instrument.currency === "INR") return given ?? null;
+  if (given !== undefined && given !== null) {
+    if (!(Number.isFinite(given) && given > 0)) {
+      throw new Refusal("The exchange rate has to be a number above zero — rupees for one unit of the currency.");
+    }
+    return given;
+  }
+  const stored = fxRate(db, instrument.currency, "INR", date);
+  if (!stored) {
+    throw new Refusal(
+      `${instrument.name} is priced in ${instrument.currency}, and no ${instrument.currency}→INR rate is ` +
+      `recorded on or before ${formatDate(date)}. Enter the rate you were charged, so the cost is in rupees.`,
+    );
+  }
+  return stored.rate;
 }
 
 /**
@@ -562,7 +633,21 @@ export function recordPurchase(
   if (!(Number.isFinite(input.price) && input.price > 0)) {
     throw new Refusal("The purchase price has to be a number above zero.");
   }
+  /*
+   * WEALTH-39 · Units live in an investment account. A purchase filed into
+   * the bank was accepted and then never seen again: the portfolio, net worth
+   * and allocation read holdings only from tracking asset accounts, so the lot
+   * and what it cost vanished from every total.
+   */
+  const into = getAccount(db, input.accountId);
+  if (!into || into.kind !== "tracking" || !(ASSET_SUBTYPES as readonly string[]).includes(into.subtype)) {
+    throw new Refusal(
+      "Units are held in an investment, retirement, property or commodity account — " +
+        "choose one of those as the account it is held in.",
+    );
+  }
   return transact(db, () => {
+    const fx = tradeFxRate(db, input.instrumentId, input.tradeDate, input.fxRate);
     const holding = findOrCreateHolding(db, actor, input.accountId, input.instrumentId);
     const lot = makeLot({
       id: newId(),
@@ -572,7 +657,7 @@ export function recordPurchase(
       amount: input.amount,
       fees: input.fees,
       capitaliseFees: input.capitaliseFees,
-      fxRate: input.fxRate,
+      fxRate: fx,
     });
 
     let transactionId: string | null = null;
@@ -672,6 +757,13 @@ export function recordPrice(
   db: DB,
   input: { instrumentId: string; price: MicroRupees; asOf: IsoDate; source: string },
 ): void {
+  // WEALTH-39 · A price of −50 was saved, and the holding counted −₹500 in
+  // net worth; one of 1e30 counted 1e31 rupees.
+  if (!Number.isSafeInteger(input.price) || input.price <= 0 || input.price > MAX_UNIT_PRICE_RUPEES * 1_000_000) {
+    throw new Refusal(
+      `A price has to be above zero and no more than ₹${MAX_UNIT_PRICE_RUPEES.toLocaleString("en-IN")} a unit.`,
+    );
+  }
   // R26.5: a later fetch never overwrites a good price for the same date with
   // a worse one — the primary key makes a re-fetch idempotent.
   execute(
@@ -782,6 +874,8 @@ export interface HoldingView {
   absoluteReturn: number;
   /** R27.1 · The default headline for anything with more than one lot. */
   xirr: number | null;
+  /** The dated flows the XIRR is solved from — the portfolio's XIRR pools them. */
+  cashFlows: CashFlow[];
   realisedGain: Paise;
   /** R28 / R27.5 · Tracked separately, never folded into price gains. */
   dividends: Paise;
@@ -806,8 +900,8 @@ export function viewHolding(
   const rate = fx?.rate ?? 1;
   const unitPrice = quote?.price ?? averageCost(holding);
 
-  const events = queryAll<{ kind: string; realised_gain: number | null; amount: number | null }>(
-    db, `SELECT kind, realised_gain, amount FROM holding_events WHERE holding_id = ?`, holdingId,
+  const events = queryAll<{ kind: string; date: IsoDate; realised_gain: number | null; amount: number | null }>(
+    db, `SELECT kind, date, realised_gain, amount FROM holding_events WHERE holding_id = ?`, holdingId,
   );
 
   const realisedGain = events
@@ -816,6 +910,16 @@ export function viewHolding(
   const dividends = events
     .filter((e) => e.kind === "dividend")
     .reduce((sum, e) => sum + (e.amount ?? 0), 0);
+
+  // WEALTH-25 · Dividends are money back (or, reinvested, not money in).
+  const cashFlows = holding.lots.length > 0
+    ? holdingCashFlows(
+        holding, unitPrice, asOf, rate,
+        events
+          .filter((e) => e.kind === "dividend" || e.kind === "dividend-reinvested")
+          .map((e) => ({ date: e.date, amount: e.amount ?? 0, reinvested: e.kind === "dividend-reinvested" })),
+      )
+    : [];
 
   // R34: only meaningful when the instrument is priced in another currency.
   const firstLot = holding.lots[0];
@@ -845,14 +949,89 @@ export function viewHolding(
     marketValue: marketValue(holding, unitPrice, rate),
     unrealisedGain: unrealisedGain(holding, unitPrice, rate),
     absoluteReturn: absoluteReturn(holding, unitPrice, rate),
-    xirr:
-      holding.lots.length > 0
-        ? xirr(holdingCashFlows(holding, unitPrice, asOf, rate))
-        : null,
+    xirr: cashFlows.length > 0 ? xirr(cashFlows) : null,
+    cashFlows,
     realisedGain,
     dividends,
     decomposition,
   };
+}
+
+/**
+ * WEALTH-15 · What a holding was worth at the end of a past day.
+ *
+ * viewHolding prices today's open lots at the date's price, so a snapshot
+ * dated 30 June counted units bought in September and left out units sold in
+ * July. This rebuilds the position as it stood:
+ *
+ *   - lots bought on or before `asOf` that are still open;
+ *   - plus the parcels of every later sale that were bought by then — a sale
+ *     records exactly which parcels it consumed (B88), and a lot it emptied is
+ *     closed rather than deleted, so those units were held on `asOf`.
+ *
+ * Units are counted in today's terms, which is the frame the price history is
+ * in: a split or bonus divides every earlier price by its ratio (R28.2), and a
+ * split multiplies the lots in place. So a later split needs nothing, a later
+ * sale's parcels are scaled by the splits after it, and a later bonus — which
+ * adds a lot instead of multiplying the old ones — scales the whole position.
+ * A later merger is not unwound: its units and price move to the new scheme.
+ *
+ * With no price published by `asOf`, the units are worth what they cost, as
+ * viewHolding does.
+ */
+export function holdingValueOn(
+  db: DB, holdingId: string, asOf: IsoDate, baseCurrency = "INR",
+): { value: Paise; quote: Quote | null; fx: FxQuote | null } | null {
+  const record = queryOne<HoldingRecord>(db, `SELECT * FROM holdings WHERE id = ?`, holdingId);
+  if (!record) return null;
+  const instrument = getInstrument(db, record.instrument_id)!;
+
+  const later = queryAll<{ date: string; kind: string; ratio: number | null; units: number | null; detail_json: string | null }>(
+    db,
+    `SELECT date, kind, ratio, units, detail_json FROM holding_events
+      WHERE holding_id = ? AND date > ? AND kind IN ('sale','split','bonus')`,
+    holdingId, asOf,
+  );
+  const ratioAfter = (kind: string, date: string) => later
+    .filter((e) => e.kind === kind && e.date > date && (e.ratio ?? 0) > 0)
+    .reduce((product, e) => product * e.ratio!, 1);
+
+  const held = queryOne<{ units: number; cost: number }>(
+    db,
+    `SELECT COALESCE(SUM(units),0) AS units, COALESCE(SUM(cost),0) AS cost FROM lots
+      WHERE holding_id = ? AND trade_date <= ? AND closed_at IS NULL`,
+    holdingId, asOf,
+  )!;
+  let units = held.units;
+  let cost = held.cost;
+  for (const sale of later.filter((e) => e.kind === "sale")) {
+    const parcels = (() => {
+      try { return (JSON.parse(sale.detail_json ?? "{}").parcels ?? null) as { tradeDate: string; units: number; cost: number }[] | null; }
+      catch { return null; }
+    })();
+    const scale = ratioAfter("split", sale.date);
+    if (parcels) {
+      for (const p of parcels.filter((p) => p.tradeDate <= asOf)) {
+        units += Math.round(p.units * scale);
+        cost += p.cost;
+      }
+    } else if (sale.units) {
+      // A sale from before parcels were recorded. FIFO sells the oldest units
+      // first, so they were held on `asOf`.
+      units += Math.round(sale.units * scale);
+    }
+  }
+  units = Math.round(units * ratioAfter("bonus", asOf));
+  if (units <= 0) return { value: 0, quote: null, fx: null };
+
+  const quote = latestPrice(db, instrument.id, asOf);
+  const fx = instrument.currency === baseCurrency
+    ? { rate: 1, asOf, source: "identity", stale: false }
+    : fxRate(db, instrument.currency, baseCurrency, asOf);
+  const value = quote
+    ? Math.round(valueOf(units, quote.price) * (fx?.rate ?? 1))
+    : cost;
+  return { value, quote, fx };
 }
 
 // ---------------------------------------------------------------------------
@@ -862,11 +1041,20 @@ export function viewHolding(
 /** S13c · The FIFO preview, before anything is confirmed. */
 export function previewHoldingSale(
   db: DB, holdingId: string, quantity: Milliunits, unitPrice: MicroRupees,
-  opts: { charges?: Paise; saleDate?: IsoDate } = {},
+  opts: { charges?: Paise; saleDate?: IsoDate; fxRate?: number | null } = {},
 ): SalePreview {
   const holding = holdingOf(db, holdingId);
-  assertSaleInput(holding, quantity, unitPrice, opts);
-  return previewSale(holding, quantity, unitPrice, opts);
+  const fx = tradeFxRate(db, instrumentOfHolding(db, holdingId), opts.saleDate ?? todayIST(), opts.fxRate);
+  assertSaleInput(holding, quantity, unitPrice, { ...opts, fxRate: fx });
+  return previewSale(holding, quantity, unitPrice, { ...opts, fxRate: fx });
+}
+
+function instrumentOfHolding(db: DB, holdingId: string): string {
+  const row = queryOne<{ instrument_id: string }>(
+    db, `SELECT instrument_id FROM holdings WHERE id = ?`, holdingId,
+  );
+  if (!row) throw new Missing("That holding does not exist.");
+  return row.instrument_id;
 }
 
 /**
@@ -879,7 +1067,7 @@ export function previewHoldingSale(
  */
 function assertSaleInput(
   holding: Holding, quantity: Milliunits, unitPrice: MicroRupees,
-  opts: { charges?: Paise; saleDate?: IsoDate },
+  opts: { charges?: Paise; saleDate?: IsoDate; fxRate?: number | null },
 ): void {
   if (!Number.isFinite(quantity) || quantity <= 0) {
     throw new Refusal("Say how many units were sold — a number above zero.");
@@ -893,7 +1081,7 @@ function assertSaleInput(
       `Only ${formatUnits(held)} units are held, so ${formatUnits(quantity)} cannot be sold.`,
     );
   }
-  if (opts.charges !== undefined && opts.charges > valueOf(quantity, unitPrice)) {
+  if (opts.charges !== undefined && opts.charges > Math.round(valueOf(quantity, unitPrice) * (opts.fxRate ?? 1))) {
     throw new Refusal("The charges are more than the sale was worth. Check both figures.");
   }
   if (opts.saleDate) {
@@ -930,14 +1118,20 @@ export function recordSale(
     toAccountId?: string | null;
     /** The statement row this came from, if any. See migration 0006. */
     sourceRef?: string | null;
+    /** R33 · For a foreign instrument; the stored sale-date rate otherwise. */
+    fxRate?: number | null;
   },
 ): SalePreview {
   return transact(db, () => {
     const holding = holdingOf(db, input.holdingId);
-    assertSaleInput(holding, input.units, input.price, { charges: input.charges, saleDate: input.date });
+    const fx = tradeFxRate(db, instrumentOfHolding(db, input.holdingId), input.date, input.fxRate);
+    assertSaleInput(holding, input.units, input.price, {
+      charges: input.charges, saleDate: input.date, fxRate: fx,
+    });
     const preview = previewSale(holding, input.units, input.price, {
       charges: input.charges,
       saleDate: input.date,
+      fxRate: fx,
     });
 
     // R25.4: consumed lots are closed and partials rewritten at their original
@@ -1093,6 +1287,33 @@ export function recordDividend(
 }
 
 /**
+ * WEBUX-12 · The widest ratio a real corporate action has.
+ *
+ * The routes checked only that a ratio was a finite number above zero, and
+ * 1e308 is both: units × ratio overflowed to Infinity, which SQLite stores as
+ * NULL, and the holding read "Market value ₹NaN.NaN" with no undo to repair it
+ * (a split is not reversible — WEALTH-2). Nothing listed splits or merges
+ * beyond a thousand to one in either direction; a ratio outside that is a typo.
+ */
+const MAX_CORPORATE_RATIO = 1_000;
+
+function assertCorporateRatio(ratio: number, what: string): void {
+  if (!Number.isFinite(ratio) || ratio < 1 / MAX_CORPORATE_RATIO || ratio > MAX_CORPORATE_RATIO) {
+    throw new Refusal(
+      `A ${what} ratio has to be between 0.001 and ${MAX_CORPORATE_RATIO.toLocaleString("en-IN")} ` +
+        `new units for each one held.`,
+    );
+  }
+}
+
+/** Every lot a corporate action writes must still be a whole, positive count. */
+function assertLotUnits(lots: { units: number }[], what: string): void {
+  if (lots.some((l) => !Number.isSafeInteger(l.units) || l.units <= 0)) {
+    throw new Refusal(`That ${what} would leave a lot with no units, or too many to count. Check the ratio.`);
+  }
+}
+
+/**
  * R28 · A split or bonus.
  *
  * A split re-divides every lot: units multiply, total cost is unchanged, and
@@ -1106,47 +1327,100 @@ export function recordSplit(
   input: { holdingId: string; date: IsoDate; ratio: number; kind?: "split" | "bonus" },
 ): void {
   const kind = input.kind ?? "split";
+  assertCorporateRatio(input.ratio, kind);
   if (kind === "bonus" && !(input.ratio > 1)) {
     throw new Refusal(
       "A bonus issue adds units, so the ratio has to be above 1 — a 1:1 bonus is 2.",
     );
   }
   transact(db, () => {
-    const before = holdingOf(db, input.holdingId);
-    if (kind === "bonus") {
-      const lot = bonusLot(before, input.ratio, input.date, newId());
-      execute(
-        db,
-        `INSERT INTO lots (id,holding_id,trade_date,units,price,fees,cost,fx_rate,created_at)
-         VALUES (?,?,?,?,0,0,0,?,?)`,
-        lot.id, input.holdingId, lot.tradeDate, lot.units, lot.fxRate, nowIST(),
-      );
-    } else {
-      const after = applySplit(before, input.ratio);
-      for (const lot of after.lots) {
-        execute(db, `UPDATE lots SET units = ?, price = ? WHERE id = ?`, lot.units, lot.price, lot.id);
-      }
-    }
-
-    // R28.2: the price history is adjusted too, so a chart does not show a
-    // false crash on the split date.
     const holdingRow = queryOne<{ instrument_id: string }>(
       db, `SELECT instrument_id FROM holdings WHERE id = ?`, input.holdingId,
     );
-    if (holdingRow) {
-      execute(
-        db, `UPDATE prices SET price = CAST(price / ? AS INTEGER)
-              WHERE instrument_id = ? AND as_of < ?`,
-        input.ratio, holdingRow.instrument_id, input.date,
+    if (!holdingRow) throw new Missing("That holding does not exist.");
+
+    /*
+     * WEALTH-4 · A split is something that happens to the instrument, so it
+     * happens to every holding of it at once.
+     *
+     * The lots were adjusted for this holding only while the price history —
+     * which belongs to the instrument — was divided for all of them. With the
+     * same shares in two demats, recording the split on one halved the value of
+     * the other on the spot, and recording it on the second as well divided the
+     * prices a second time: both then showed half their worth. So every open
+     * holding of the instrument is adjusted together, each gets its own event
+     * (a dated valuation reads them per holding), the prices move once, and the
+     * same action recorded again is refused rather than applied twice.
+     */
+    const already = queryOne<{ n: number }>(
+      db,
+      `SELECT COUNT(*) AS n FROM holding_events e JOIN holdings h ON h.id = e.holding_id
+        WHERE h.instrument_id = ? AND e.kind = ? AND e.date = ?`,
+      holdingRow.instrument_id, kind, input.date,
+    )!.n;
+    if (already > 0) {
+      throw new Refusal(
+        `A ${kind} on ${formatDate(input.date)} is already recorded for this instrument, ` +
+          `and it was applied to every holding of it then.`,
+      );
+    }
+    const holdingIds = queryAll<{ id: string }>(
+      db, `SELECT id FROM holdings WHERE instrument_id = ? AND closed_at IS NULL`,
+      holdingRow.instrument_id,
+    ).map((h) => h.id);
+    if (!holdingIds.includes(input.holdingId)) holdingIds.push(input.holdingId);
+
+    /*
+     * WEALTH-5 · Only what was held before the split date splits. A lot bought
+     * on or after it was bought at the post-split price, in post-split units;
+     * multiplying it too made 10 units bought after a 2-for-1 split into 20 at
+     * half the price — phantom units at market. A bonus is sized the same way,
+     * from the units held before its record date.
+     */
+    const heldBefore = (holdingId: string) => ({
+      lots: holdingOf(db, holdingId).lots.filter((l) => l.tradeDate < input.date),
+    });
+    if (heldBefore(input.holdingId).lots.length === 0) {
+      throw new Refusal(
+        `Nothing in this holding was bought before ${formatDate(input.date)}, so a ${kind} ` +
+          `from that date has nothing to change. Check the date.`,
       );
     }
 
+    for (const holdingId of holdingIds) {
+      const before = heldBefore(holdingId);
+      if (before.lots.length === 0) continue;
+      if (kind === "bonus") {
+        const lot = bonusLot(before, input.ratio, input.date, newId());
+        assertLotUnits([lot], kind);
+        execute(
+          db,
+          `INSERT INTO lots (id,holding_id,trade_date,units,price,fees,cost,fx_rate,created_at)
+           VALUES (?,?,?,?,0,0,0,?,?)`,
+          lot.id, holdingId, lot.tradeDate, lot.units, lot.fxRate, nowIST(),
+        );
+      } else {
+        const after = applySplit(before, input.ratio);
+        assertLotUnits(after.lots, kind);
+        for (const lot of after.lots) {
+          execute(db, `UPDATE lots SET units = ?, price = ? WHERE id = ?`, lot.units, lot.price, lot.id);
+        }
+      }
+      execute(
+        db,
+        `INSERT INTO holding_events (id,holding_id,date,kind,ratio,created_at,created_by)
+         VALUES (?,?,?,?,?,?,?)`,
+        newId(), holdingId, input.date, kind,
+        input.ratio, nowIST(), actor.memberId,
+      );
+    }
+
+    // R28.2: the price history is adjusted too, so a chart does not show a
+    // false crash on the split date — once, for the instrument.
     execute(
-      db,
-      `INSERT INTO holding_events (id,holding_id,date,kind,ratio,created_at,created_by)
-       VALUES (?,?,?,?,?,?,?)`,
-      newId(), input.holdingId, input.date, kind,
-      input.ratio, nowIST(), actor.memberId,
+      db, `UPDATE prices SET price = CAST(price / ? AS INTEGER)
+            WHERE instrument_id = ? AND as_of < ?`,
+      input.ratio, holdingRow.instrument_id, input.date,
     );
 
     appendEvent(db, actor, {
@@ -1181,10 +1455,12 @@ export function recordMerger(
   input: { holdingId: string; date: IsoDate; ratio: number; intoInstrumentId?: string | null },
 ): void {
   if (!(input.ratio > 0)) throw new Refusal("A merger ratio has to be a number above zero.");
+  assertCorporateRatio(input.ratio, "merger");
 
   transact(db, () => {
     const before = holdingOf(db, input.holdingId);
     const after = applyMerger(before, input.ratio);
+    assertLotUnits(after.lots, "merger");
     for (const lot of after.lots) {
       execute(db, `UPDATE lots SET units = ?, price = ? WHERE id = ?`, lot.units, lot.price, lot.id);
     }
@@ -1266,11 +1542,73 @@ export function recordReturnOfCapital(
 registerUndoHandler("holding", (db, event) => {
   if (event.action === "purchase") {
     const lot = event.after as Lot;
+    /*
+     * WEALTH-3 · The purchase goes with the money that paid for it, and only
+     * while its lot is still the lot it bought.
+     *
+     * This used to delete the lot and nothing else. The ₹1,000 bank debit the
+     * same call had written stayed, so the bank was ₹1,000 short with nothing
+     * to show for it. And forced past a later sale, it deleted the surviving
+     * units while the sale — and its realised gain — stayed on the books,
+     * recorded against units that no longer existed. A lot a sale has closed
+     * or shrunk, a split has rescaled or a return of capital has re-costed is
+     * no longer this purchase's alone to remove.
+     */
+    const row = queryOne<{ units: number; cost: number; closed_at: string | null; transaction_id: string | null }>(
+      db, `SELECT units, cost, closed_at, transaction_id FROM lots WHERE id = ?`, lot.id,
+    );
+    if (!row) return `That purchase was already removed`;
+    if (row.closed_at !== null || row.units !== lot.units || row.cost !== lot.cost) {
+      throw new UndoRefused(
+        "Units from this purchase have since been sold, split or re-costed, so removing it would leave " +
+        "those records pointing at units that were never bought. Undo the later change first, if it can be.",
+      );
+    }
     execute(db, `DELETE FROM lots WHERE id = ?`, lot.id);
-    return `Removed the purchase of ${formatUnits(lot.units)} units`;
+    if (row.transaction_id) {
+      // Soft, like a delete: it can be restored from the transaction for 30 days.
+      execute(
+        db, `UPDATE transactions SET deleted_at = ?, updated_at = ? WHERE id = ? AND deleted_at IS NULL`,
+        nowIST(), nowIST(), row.transaction_id,
+      );
+    }
+    return `Removed the purchase of ${formatUnits(lot.units)} units` +
+      (row.transaction_id ? `, and the payment for it` : ``);
   }
-  return `Reversed a change to the holding`;
+  /*
+   * WEALTH-2 · Everything else is refused rather than "reversed".
+   *
+   * This handler used to answer "Reversed a change to the holding" for a sale,
+   * split, bonus, merger, dividend or return of capital without touching a
+   * thing: the event was marked undone (so it could never be undone again and
+   * the log showed it reversed) while the lots, the realised gain and the bank
+   * credit all stayed. None of those events records the lots as they were
+   * before it — a sale closes and rewrites lots, a split rescales every one —
+   * so there is nothing honest to restore them from. Saying so is the undo
+   * this handler can actually keep.
+   */
+  throw new UndoRefused(
+    HOLDING_UNDO_REFUSALS[event.action] ??
+      "That change to the holding cannot be undone from here. Record the opposite change on the holding instead.",
+  );
 });
+
+const HOLDING_UNDO_REFUSALS: Record<string, string> = {
+  sale:
+    "A sale cannot be undone: the lots it closed were rewritten, and nothing kept them as they were. " +
+    "If it was recorded by mistake, add the units back as purchases on their original dates.",
+  // A bonus issue is logged as a "split" too; recordSplit tells them apart.
+  split:
+    "A split or bonus issue cannot be undone from here: it rescaled the lots, or added one, " +
+    "and they may have been sold from since.",
+  merger:
+    "A merger cannot be undone from here: the holding it moved into may have changed since.",
+  dividend:
+    "A dividend cannot be undone from here. Delete the credit it made from the account, " +
+    "and for a reinvested dividend, record a sale of the units it bought.",
+  "return-of-capital":
+    "A return of capital cannot be undone from here: the cost it reduced was rewritten on every lot.",
+};
 
 registerUndoHandler("asset-account", (db, event) => {
   if (event.action === "create") {
@@ -1282,7 +1620,41 @@ registerUndoHandler("asset-account", (db, event) => {
 });
 
 registerUndoHandler("instrument", (db, event) => {
-  execute(db, `DELETE FROM instruments WHERE id = ?`, event.entityId!);
+  /*
+   * WEALTH-22 · A classification undoes to the class it replaced; only a
+   * create removes the instrument, and only while nothing is held in it.
+   *
+   * This ran DELETE for every action. Undoing "Classified Fictional Fund A as
+   * Debt" deleted the fund outright, and for a fund that was held it hit the
+   * holdings foreign key and answered 500 — as did undoing the create of an
+   * instrument that had since been bought.
+   */
+  const id = event.entityId!;
+  if (event.action === "classify") {
+    const before = (event.before ?? {}) as { asset_class?: AssetClass | null; region?: Region | null };
+    execute(
+      db, `UPDATE instruments SET asset_class = ?, region = ? WHERE id = ?`,
+      before.asset_class ?? null, before.region ?? null, id,
+    );
+    return `Put back the instrument's previous class`;
+  }
+  if (event.action !== "create") {
+    throw new UndoRefused("That change to the instrument cannot be undone from here.");
+  }
+  const found = dependantsOf(db, "instruments", id, {
+    // Its price history and fetch log are about it alone, and go with it.
+    own: ["prices.instrument_id", "price_fetches.instrument_id"],
+    words: { holdings: "a holding" },
+  });
+  if (found.length > 0) {
+    throw new UndoRefused(
+      `That instrument is still used by ${found.join(", ")}, so it cannot be removed. ` +
+      `Sell or remove what is held in it first.`,
+    );
+  }
+  execute(db, `DELETE FROM prices WHERE instrument_id = ?`, id);
+  execute(db, `DELETE FROM price_fetches WHERE instrument_id = ?`, id);
+  execute(db, `DELETE FROM instruments WHERE id = ?`, id);
   return `Removed the instrument that was added`;
 });
 

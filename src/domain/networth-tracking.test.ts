@@ -12,6 +12,7 @@ import type { Actor } from "../core/events.ts";
 import { nowIST } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import { createAccount } from "./accounts.ts";
+import { createTransaction } from "./transactions.ts";
 import { netWorthStatement } from "./networth.ts";
 
 const actor: Actor = { memberId: "m", source: "ui" };
@@ -56,6 +57,26 @@ describe("B56 · plain tracking accounts count in net worth", () => {
     const nw = netWorthStatement(db, "2026-08-28");
     assert.equal(nw.totalAssets, 0);
     assert.equal(nw.totalLiabilities, 0);
+    db.close();
+  });
+});
+
+describe("WEALTH-28 · a credit card in credit", () => {
+  test("is money the household can spend, not dropped from both sides", () => {
+    const db = setup();
+    createAccount(db, actor, { name: "Bank", kind: "budget", subtype: "savings", openingBalance: rupees(100_000), openingDate: "2026-08-01" });
+    // A refund after the bill was paid: the card owes the household ₹5,000.
+    const card = createAccount(db, actor, { name: "Fictional Card", kind: "credit", subtype: "credit-card", openingBalance: 0, openingDate: "2026-08-01" }).id;
+    createTransaction(db, actor, { accountId: card, amount: rupees(5_000), date: "2026-08-10", memo: "Refund of a returned purchase" });
+    createAccount(db, actor, { name: "Owing Card", kind: "credit", subtype: "credit-card", openingBalance: -rupees(2_000), openingDate: "2026-08-01" });
+
+    const nw = netWorthStatement(db, "2026-08-28");
+    assert.equal(nw.netWorth, rupees(103_000));
+    const cash = nw.assetGroups.find((g) => g.name === "Cash")!;
+    assert.equal(cash.total, rupees(105_000));
+    assert.ok(cash.lines.some((l) => l.label === "Fictional Card (in credit)"));
+    const cards = nw.liabilityGroups.find((g) => g.name === "Credit cards")!;
+    assert.deepEqual(cards.lines.map((l) => [l.label, l.value]), [["Owing Card", rupees(2_000)]]);
     db.close();
   });
 });
