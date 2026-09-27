@@ -15,12 +15,13 @@
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
-import { nowIST, type IsoDate } from "../core/dates.ts";
+import { nowIST, addDays, type IsoDate } from "../core/dates.ts";
 import type { Paise } from "../core/money.ts";
-import { createTransaction, resolvePayee, type TransactionSource } from "../domain/transactions.ts";
+import { createTransaction, createTransfer, resolvePayee, livePayeeId, type TransactionSource } from "../domain/transactions.ts";
 import { findCardByLast4 } from "../domain/accounts.ts";
+import { breakCheckpoints, checkpointsAffectedBy } from "../domain/reconciliation.ts";
 import { hiddenAccountSql } from "../domain/member-scope.ts";
-import { findDuplicate, type Candidate, type DuplicateMatch } from "./dedupe.ts";
+import { findDuplicate, STRONG_WINDOW_DAYS, type Candidate, type DuplicateMatch } from "./dedupe.ts";
 import {
   applyRules, extractNarrationFields, mayAutoApprove,
   type Rule, type RuleSubject,
@@ -133,17 +134,37 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
     );
 
     const rules = loadRules(db);
-    const existing = loadCandidates(db, opts.accountId);
+
+    // How many times each identical row has been seen in this file, so the
+    // second one gets its own identity rather than colliding with the first.
+    const occurrences = new Map<string, number>();
+    const sourceIds = rows.map((record) => {
+      const base = sourceIdFor(opts.adapter, record, 0);
+      const occurrence = occurrences.get(base) ?? 0;
+      occurrences.set(base, occurrence + 1);
+      return sourceIdFor(opts.adapter, record, occurrence);
+    });
+
+    const existing = loadCandidates(db, opts.accountId, rows, sourceIds);
+    const pending = loadPendingCandidates(db, opts.accountId);
 
     // I5 requires zero new transactions *and* zero new review items. A row
     // still waiting in the queue is not in the ledger, so the exact-match tier
     // cannot see it — without this, re-importing a file whose rows have not
     // been approved yet queues every one of them a second time.
+    //
+    // A dismissed row is a decision too. Only pending rows used to count, so a
+    // row dismissed from Review came back on the next import of the same file,
+    // and a dismissed alert on every Gmail fetch in its 14-day window, "Won't
+    // import" meaning nothing. A batch that was undone gives its rows back:
+    // importing that file again is how the undo is meant to be followed up.
     const stagedSourceIds = new Set(
       queryAll<{ source_id: string }>(
         db,
-        `SELECT source_id FROM staged_transactions
-          WHERE account_id = ? AND status = 'pending' AND source_id IS NOT NULL`,
+        `SELECT s.source_id FROM staged_transactions s
+           LEFT JOIN import_batches b ON b.id = s.batch_id
+          WHERE s.account_id = ? AND s.source_id IS NOT NULL
+            AND (s.status = 'pending' OR (s.status = 'rejected' AND b.undone_at IS NULL))`,
         opts.accountId,
       ).map((r) => r.source_id),
     );
@@ -153,15 +174,8 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
     let duplicates = 0;
     let skipped = 0;
 
-    // How many times each identical row has been seen in this file, so the
-    // second one gets its own identity rather than colliding with the first.
-    const occurrences = new Map<string, number>();
-
-    for (const record of rows) {
-      const base = sourceIdFor(opts.adapter, record, 0);
-      const occurrence = occurrences.get(base) ?? 0;
-      occurrences.set(base, occurrence + 1);
-      const sourceId = sourceIdFor(opts.adapter, record, occurrence);
+    for (const [i, record] of rows.entries()) {
+      const sourceId = sourceIds[i]!;
 
       if (stagedSourceIds.has(sourceId)) {
         skipped++;
@@ -183,7 +197,10 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
         categoryId: null,
         cleared: opts.source === "csv" || opts.source === "pdf", // D5
         source: opts.source,
-        cardLast4: null,
+        // The card is known by now (an alert names it, a narration's XX4321
+        // was just resolved); a rule on "the card's last four digits" reads
+        // it here. It was always null, so such a rule never fired.
+        cardLast4: cardId ? cardLast4Of(db, cardId) : null,
         ...extracted,
       };
 
@@ -203,7 +220,8 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
           source: opts.source,
           sourceId,
         },
-        existing,
+        // Ledger rows first, so a transaction wins a tie with a queued row.
+        [...existing, ...pending],
       );
 
       if (duplicate?.action === "skip") {
@@ -212,7 +230,13 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
       }
 
       if (duplicate?.action === "upgrade") {
-        upgradeExisting(db, actor, duplicate, record, extracted.reference);
+        // A strong match on a row still in the queue is the same event too —
+        // the alert waiting for approval when its statement line arrives. The
+        // queued row stands for both; there is no transaction to upgrade yet,
+        // and approving it marks it cleared like any import.
+        if (!duplicate.existing.staged) {
+          upgradeExisting(db, actor, duplicate, record, extracted.reference);
+        }
         duplicates++;
         continue;
       }
@@ -248,7 +272,16 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
         payeeId, outcome.subject.payee, outcome.subject.categoryId, outcome.subject.memo,
         outcome.subject.tags.length ? JSON.stringify(outcome.subject.tags) : null,
         outcome.appliedRuleIds.length ? JSON.stringify(outcome.appliedRuleIds) : null,
-        duplicate?.existing.id ?? null, duplicate?.tier ?? null, duplicate?.reason ?? null,
+        // A pair with a queued row has no transaction to merge into: the tier
+        // and reason are kept so Review says why, and approving or dismissing
+        // the row is the choice.
+        duplicate && !duplicate.existing.staged ? duplicate.existing.id : null,
+        duplicate?.tier ?? null,
+        duplicate
+          ? duplicate.existing.staged
+            ? `${duplicate.reason} The other one is still waiting in this queue.`
+            : duplicate.reason
+          : null,
         nowIST(),
       );
       staged++;
@@ -297,11 +330,16 @@ function resolveCard(db: DB, accountId: string, narration: string): string | nul
   return card && card.account_id === accountId ? card.id : null;
 }
 
+function cardLast4Of(db: DB, cardId: string): string | null {
+  return queryOne<{ last4: string | null }>(db, `SELECT last4 FROM cards WHERE id = ?`, cardId)?.last4 ?? null;
+}
+
 function findExistingPayee(db: DB, name: string | null): string | null {
   if (!name) return null;
-  return (
-    queryOne<{ id: string }>(db, `SELECT id FROM payees WHERE name = ? COLLATE NOCASE`, name)?.id ?? null
-  );
+  const id = queryOne<{ id: string }>(db, `SELECT id FROM payees WHERE name = ? COLLATE NOCASE`, name)?.id;
+  // A merged-away payee keeps its row (and its name) so undo can bring it
+  // back; an import finding it by name files to the payee it became.
+  return id ? livePayeeId(db, id) : null;
 }
 
 /**
@@ -334,7 +372,25 @@ function upgradeExisting(
   });
 }
 
-function loadCandidates(db: DB, accountId: string): Candidate[] {
+/**
+ * The ledger rows an import can match: those dated near its own rows, and any
+ * carrying one of its source ids.
+ *
+ * IMPORTS-SCHEDULES-7 · This was the account's 2,000 most recent transactions.
+ * Once a busy account passed that, re-importing an older statement found none
+ * of its rows — the exact tier (I5) staged every one of them again, and the
+ * fuzzy tiers were as blind. No tier looks further than STRONG_WINDOW_DAYS
+ * (the manual tier's 5 days is the same), so the file's own date range, that
+ * much wider, is everything any tier can use; the source ids are looked up on
+ * their own because an approved row's date may since have been edited.
+ */
+function loadCandidates(
+  db: DB, accountId: string, rows: RawRecord[], sourceIds: string[],
+): Candidate[] {
+  if (rows.length === 0) return [];
+  const dates = rows.map((r) => r.date).sort();
+  const from = addDays(dates[0]!, -STRONG_WINDOW_DAYS);
+  const to = addDays(dates[dates.length - 1]!, STRONG_WINDOW_DAYS);
   return queryAll<{
     id: string; date: string; amount: number; payee: string | null;
     memo: string | null; source: string; source_id: string | null; raw_narration: string | null;
@@ -342,9 +398,14 @@ function loadCandidates(db: DB, accountId: string): Candidate[] {
     db,
     `SELECT t.id, t.date, t.amount, p.name AS payee, t.memo, t.source, t.source_id, t.raw_narration
        FROM transactions t LEFT JOIN payees p ON p.id = t.payee_id
+      WHERE t.account_id = ? AND t.deleted_at IS NULL AND t.date BETWEEN ? AND ?
+     UNION
+     SELECT t.id, t.date, t.amount, p.name AS payee, t.memo, t.source, t.source_id, t.raw_narration
+       FROM transactions t LEFT JOIN payees p ON p.id = t.payee_id
       WHERE t.account_id = ? AND t.deleted_at IS NULL
-      ORDER BY t.date DESC LIMIT 2000`,
-    accountId,
+        AND t.source_id IN (SELECT value FROM json_each(?))
+      ORDER BY 2 DESC`,
+    accountId, from, to, accountId, JSON.stringify(sourceIds),
   ).map((r) => ({
     id: r.id,
     accountId,
@@ -354,6 +415,40 @@ function loadCandidates(db: DB, accountId: string): Candidate[] {
     reference: extractReference(r.memo, r.raw_narration),
     source: r.source,
     sourceId: r.source_id,
+  }));
+}
+
+/**
+ * `04` §4 · Rows already pending in the account, from earlier imports.
+ *
+ * Only the exact tier used to look at the queue. An alert still awaiting
+ * approval when the month's statement arrived was invisible to every other
+ * tier, so the statement's line for the same ₹450 staged beside it unflagged
+ * and approving the queue put the order in the ledger twice. The current
+ * batch's own rows are not here — two identical lines in one file are D2's
+ * two real transactions, not a duplicate.
+ */
+function loadPendingCandidates(db: DB, accountId: string): Candidate[] {
+  return queryAll<{
+    id: string; date: string; amount: number; proposed_payee: string | null;
+    raw_narration: string | null; reference: string | null; source: string; source_id: string | null;
+  }>(
+    db,
+    `SELECT s.id, s.date, s.amount, s.proposed_payee, s.raw_narration, s.reference,
+            b.source, s.source_id
+       FROM staged_transactions s JOIN import_batches b ON b.id = s.batch_id
+      WHERE s.account_id = ? AND s.status = 'pending'`,
+    accountId,
+  ).map((r) => ({
+    id: r.id,
+    accountId,
+    date: r.date,
+    amount: r.amount,
+    payee: r.proposed_payee ?? r.raw_narration,
+    reference: r.reference ?? (r.raw_narration ? extractNarrationFields(r.raw_narration).reference : null),
+    source: r.source,
+    sourceId: r.source_id,
+    staged: true,
   }));
 }
 
@@ -497,7 +592,8 @@ export function approveStaged(
     }
 
     const payeeName = patch.payeeName ?? row.proposed_payee;
-    const payeeId = row.payee_id
+    // Staged before a payee merge, the row still names the merged-away one.
+    const payeeId = (row.payee_id ? livePayeeId(db, row.payee_id) : null)
       ?? (payeeName ? resolvePayee(db, actor, payeeName, row.raw_narration ?? undefined).id : null);
 
     const transaction = createTransaction(db, actor, {
@@ -529,6 +625,7 @@ export function approveStaged(
     if (patch.autoApproved) {
       execute(db, `UPDATE transactions SET auto_approved_at = ? WHERE id = ?`, nowIST(), transaction.id);
     }
+    breakCheckpointsBehind(db, actor, row.account_id, row.date, "an imported transaction dated on or before it was added");
 
     // R-E4: record which rules touched it, for the details pane.
     for (const ruleId of JSON.parse(row.applied_rules_json ?? "[]") as string[]) {
@@ -549,6 +646,85 @@ export function approveStaged(
 
     return transaction.id;
   });
+}
+
+/**
+ * IMPORTS-SCHEDULES-32 · An imported row that is money moved between the
+ * household's own accounts — a card bill paid from the bank, savings swept to
+ * a deposit — recorded as the transfer it is.
+ *
+ * Review offered only spending envelopes for money out and "new money" for
+ * money in, and the card's payment envelope was refused as a target. So the
+ * bank's "CARD BILL PAYMENT −5,000" was filed as ₹5,000 of groceries and the
+ * card's "PAYMENT RECEIVED +5,000" as ₹5,000 of phantom income in Ready to
+ * Assign. This posts the pair (createTransfer, as the transfer form does), the
+ * imported side carrying the row's source identity and raw fields. When the
+ * other account's own statement row is also waiting in Review — the opposite
+ * amount, within three days — it becomes the other leg, rather than staying
+ * behind to be approved as a second, unpaired movement.
+ */
+export function approveStagedAsTransfer(
+  db: DB, actor: Actor, stagedId: string, otherAccountId: string,
+): { transactionId: string; pairedWith: string | null } {
+  return transact(db, () => {
+    const row = pendingStaged(db, stagedId);
+    if (otherAccountId === row.account_id) {
+      throw new Refusal("That is the account this row came from. Pick the other side of the transfer.");
+    }
+    if (row.amount === 0) throw new Refusal("A transfer of nothing is not a transfer.");
+
+    const counterpart = queryOne<StagedRow>(
+      db,
+      `SELECT * FROM staged_transactions
+        WHERE account_id = ? AND status = 'pending' AND amount = ?
+          AND abs(julianday(date) - julianday(?)) <= 3
+        ORDER BY abs(julianday(date) - julianday(?)), created_at LIMIT 1`,
+      otherAccountId, -row.amount, row.date, row.date,
+    );
+
+    const outgoing = row.amount < 0;
+    const [out, back] = createTransfer(db, actor, {
+      fromAccountId: outgoing ? row.account_id : otherAccountId,
+      toAccountId: outgoing ? otherAccountId : row.account_id,
+      amount: Math.abs(row.amount) as Paise,
+      date: row.date,
+      cleared: true,
+    });
+    const mine = outgoing ? out : back;
+    const theirs = outgoing ? back : out;
+
+    stampImportedLeg(db, actor, mine.id, row);
+    if (counterpart) stampImportedLeg(db, actor, theirs.id, counterpart);
+    // Only a leg the other statement vouches for is cleared there.
+    else execute(db, `UPDATE transactions SET cleared = 0 WHERE id = ?`, theirs.id);
+
+    return { transactionId: mine.id, pairedWith: counterpart?.id ?? null };
+  });
+}
+
+/** One leg of a transfer, marked as the ledger copy of an imported row. */
+function stampImportedLeg(db: DB, actor: Actor, transactionId: string, row: StagedRow): void {
+  const source = queryOne<{ source: TransactionSource }>(
+    db, `SELECT source FROM import_batches WHERE id = ?`, row.batch_id,
+  )?.source ?? "csv";
+  // The leg is dated as its own statement dates it: a card credits a payment
+  // a day or two after the bank sends it.
+  execute(
+    db,
+    `UPDATE transactions
+        SET date = ?, card_id = COALESCE(?, card_id), source = ?, source_id = ?, import_batch_id = ?,
+            raw_narration = ?, raw_payee = ?, raw_amount = ?, raw_date = ?, cleared = 1
+      WHERE id = ?`,
+    row.date, row.card_id, source, row.source_id, row.batch_id,
+    row.raw_narration, row.raw_payee, row.raw_amount, row.raw_date, transactionId,
+  );
+  breakCheckpointsBehind(db, actor, row.account_id, row.date, "an imported transfer dated on or before it was added");
+  execute(
+    db,
+    `UPDATE staged_transactions SET status = 'approved', resolved_at = ?, resolved_by = ?, transaction_id = ?
+      WHERE id = ?`,
+    nowIST(), actor.memberId, transactionId, row.id,
+  );
 }
 
 /**
@@ -599,6 +775,11 @@ export function mergeStaged(db: DB, actor: Actor, stagedId: string): void {
     const before = queryOne<Record<string, unknown>>(
       db, `SELECT * FROM transactions WHERE id = ?`, row.duplicate_of_id,
     );
+    // Merging clears it, and a cleared transaction is in the reconciled balance.
+    if (before!.cleared !== 1) {
+      breakCheckpointsBehind(db, actor, before!.account_id as string, before!.date as IsoDate,
+        "a transaction dated on or before it was cleared by merging an imported row into it");
+    }
 
     execute(
       db,
@@ -609,7 +790,8 @@ export function mergeStaged(db: DB, actor: Actor, stagedId: string): void {
               raw_amount = COALESCE(raw_amount, ?),
               raw_date = COALESCE(raw_date, ?)
         WHERE id = ?`,
-      row.payee_id, row.raw_narration, row.raw_amount, row.raw_date, row.duplicate_of_id,
+      row.payee_id ? livePayeeId(db, row.payee_id) : null,
+      row.raw_narration, row.raw_amount, row.raw_date, row.duplicate_of_id,
     );
 
     execute(
@@ -631,6 +813,40 @@ export function mergeStaged(db: DB, actor: Actor, stagedId: string): void {
 // IL2 · Batch undo
 // ---------------------------------------------------------------------------
 
+/**
+ * R7.c · An import that changes reconciled history marks the checkpoint broken.
+ *
+ * Undoing a batch deleted its transactions with a raw UPDATE, and approving a
+ * row posted one straight into the ledger, both dated wherever the bank dated
+ * them — behind a checkpoint as often as not. The cleared balance at 31 Aug
+ * moved from ₹8,800 to ₹10,000 while the checkpoint went on asserting ₹8,800,
+ * unbroken, so Review never said so. A single delete has always broken it.
+ * The routes ask first (R7.b); this is what holds for every other way in —
+ * auto-approval, undo from the activity log.
+ */
+function breakCheckpointsBehind(
+  db: DB, actor: Actor, accountId: string, date: IsoDate, reason: string,
+): void {
+  breakCheckpoints(db, actor, checkpointsAffectedBy(db, accountId, date), reason);
+}
+
+/**
+ * The accounts and dates undoing a batch would remove transactions from — what
+ * the route names in its R7.b confirmation before anything is removed.
+ */
+export function batchUndoDates(db: DB, batchId: string): Map<string, IsoDate[]> {
+  const out = new Map<string, IsoDate[]>();
+  for (const t of queryAll<{ account_id: string; date: IsoDate }>(
+    db,
+    `SELECT account_id, date FROM transactions
+      WHERE import_batch_id = ? AND deleted_at IS NULL AND updated_at = created_at`,
+    batchId,
+  )) {
+    out.set(t.account_id, [...(out.get(t.account_id) ?? []), t.date]);
+  }
+  return out;
+}
+
 export interface UndoBatchResult {
   removed: number;
   /** Records the batch created that have since been edited, and so were left. */
@@ -647,9 +863,11 @@ export function undoBatch(db: DB, actor: Actor, batchId: string): UndoBatchResul
     if (!batch) throw new Missing("That import no longer exists.");
     if (batch.undone_at) throw new Refusal("That import has already been undone.");
 
-    const created = queryAll<{ id: string; created_at: string; updated_at: string }>(
+    const created = queryAll<{
+      id: string; account_id: string; date: IsoDate; created_at: string; updated_at: string;
+    }>(
       db,
-      `SELECT id, created_at, updated_at FROM transactions
+      `SELECT id, account_id, date, created_at, updated_at FROM transactions
         WHERE import_batch_id = ? AND deleted_at IS NULL`,
       batchId,
     );
@@ -665,6 +883,30 @@ export function undoBatch(db: DB, actor: Actor, batchId: string): UndoBatchResul
       }
       execute(db, `UPDATE transactions SET deleted_at = ? WHERE id = ?`, nowIST(), t.id);
       removed++;
+      breakCheckpointsBehind(db, actor, t.account_id, t.date, "an imported transaction dated on or before it was removed by undoing the import");
+
+      /*
+       * Half of a transfer approved from Review. Leaving the other leg would
+       * be money arriving from nowhere, so it goes too — and if that leg was
+       * another import's row, the row goes back to Review to be decided again.
+       */
+      const partner = queryOne<{ id: string; account_id: string; date: IsoDate }>(
+        db,
+        `SELECT p.id, p.account_id, p.date FROM transactions t
+           JOIN transactions p ON p.transfer_pair_id = t.transfer_pair_id AND p.id <> t.id
+          WHERE t.id = ? AND t.transfer_pair_id IS NOT NULL AND p.deleted_at IS NULL`,
+        t.id,
+      );
+      if (partner) {
+        execute(db, `UPDATE transactions SET deleted_at = ? WHERE id = ?`, nowIST(), partner.id);
+        breakCheckpointsBehind(db, actor, partner.account_id, partner.date, "the other half of an imported transfer was removed by undoing the import");
+        execute(
+          db,
+          `UPDATE staged_transactions SET status = 'pending', resolved_at = NULL, resolved_by = NULL, transaction_id = NULL
+            WHERE transaction_id = ? AND batch_id <> ?`,
+          partner.id, batchId,
+        );
+      }
     }
 
     execute(

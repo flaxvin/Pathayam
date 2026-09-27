@@ -11,10 +11,10 @@
 import { memberScope } from "./member-scope.ts";
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
-import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
+import { appendEvent, registerUndoHandler, undoEvent, type Actor } from "../core/events.ts";
 import {
   nowIST, todayIST, addDays, addMonths, monthOf, daysBetween, resolveDayOfMonth,
-  formatDate, nthWeekdayOfMonth, weekdayOf,
+  formatDate, nthWeekdayOfMonth, weekdayOf, isIsoDate,
   WEEKDAY_NAMES, WEEKDAY_ORDINAL_NAMES,
   type IsoDate, type WeekdayOrdinal,
 } from "../core/dates.ts";
@@ -22,7 +22,7 @@ import { formatPaise, type Paise } from "../core/money.ts";
 import { accountBalances } from "../engine/repository.ts";
 import { listLoans, projectLoan } from "./loans.ts";
 import { Refusal, Missing } from "../core/refusal.ts";
-import { createTransaction, refusePaymentCategories } from "./transactions.ts";
+import { createTransaction, refusePaymentCategories, UndoRefused } from "./transactions.ts";
 
 export type Recurrence =
   | "daily" | "weekly" | "fortnightly" | "monthly" | "monthly-nth-weekday"
@@ -121,9 +121,9 @@ function requireEnvelopeForOutgoing(
 ): void {
   if ((amount ?? 0) < 0 && !categoryId && !hasSplits) {
     throw new Refusal(
-      "Which envelope does this come out of? A scheduled payment posts itself " +
-      "every month, so without one it would quietly build a queue of spending " +
-      "with nothing recording where it went. Split it across envelopes instead " +
+      "Which envelope does this come out of? Each time you mark a scheduled " +
+      "payment paid, it records a transaction, so without one it would build up " +
+      "spending with nothing recording where it went. Split it across envelopes instead " +
       "if it is more than one thing. Money coming in does not need any of this.",
     );
   }
@@ -168,6 +168,22 @@ function weekdayFields(
   return { ordinal: ord, weekday: wd };
 }
 
+/**
+ * IMPORTS-SCHEDULES-13 · A weekday rule's first due date is one of its own days.
+ *
+ * next_due was stored as typed, and the new-schedule form defaults it to
+ * today: "the first Sunday of each month" created on Wednesday 7 Oct kept 7 Oct
+ * as its first date, so the calendar showed a payment that day and Mark paid
+ * posted one. The date is now the rule's first day on or after it (1 Nov
+ * there); one already on the rule is left alone.
+ */
+function snapToWeekdayRule(date: IsoDate, pair: { ordinal: number | null; weekday: number | null }): IsoDate {
+  if (pair.ordinal === null || pair.weekday === null) return date;
+  const ordinal = pair.ordinal as WeekdayOrdinal;
+  const thisMonth = nthWeekdayOfMonth(monthOf(date), pair.weekday, ordinal);
+  return thisMonth >= date ? thisMonth : nthWeekdayOfMonth(addMonths(monthOf(date), 1), pair.weekday, ordinal);
+}
+
 export function createSchedule(
   db: DB, actor: Actor,
   input: {
@@ -197,7 +213,10 @@ export function createSchedule(
    * has to take the promise — and the route that makes it wraps both in one
    * transaction, so a refused split takes the schedule with it.
    */
+  requireScheduleFigures(input.amount, input.nextDue);
   requireEnvelopeForOutgoing(input.amount, input.categoryId, input.splitsFollow === true);
+  const pair = weekdayFields(input.recurrence, input.recurrenceOrdinal, input.recurrenceWeekday);
+  input = { ...input, nextDue: snapToWeekdayRule(input.nextDue, pair) };
   return transact(db, () => {
     const id = newId();
     execute(
@@ -209,9 +228,7 @@ export function createSchedule(
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       id, input.name, input.accountId ?? null, input.payeeId ?? null, input.categoryId ?? null,
       input.amount ?? null, input.amountIsEstimate ? 1 : 0, parseRecurrence(input.recurrence),
-      input.nextDue, input.shortMonthPolicy ?? "last-day",
-      weekdayFields(input.recurrence, input.recurrenceOrdinal, input.recurrenceWeekday).ordinal,
-      weekdayFields(input.recurrence, input.recurrenceOrdinal, input.recurrenceWeekday).weekday,
+      input.nextDue, input.shortMonthPolicy ?? "last-day", pair.ordinal, pair.weekday,
       input.isSubscription ? 1 : 0, input.detected ? 1 : 0, input.confidence ?? null,
       nowIST(),
     );
@@ -236,6 +253,24 @@ export function createSchedule(
  * day all meant living with the wrong figure in the cashflow projection — the one
  * screen whose whole job is answering "will I make it to the 30th".
  */
+/**
+ * What a schedule's figures have to be, whoever is asking.
+ *
+ * /schedules/confirm posted its hidden fields straight in: "12.5" stored twelve
+ * and a half paise, which markPaid would post into the ledger; "abc" a NULL
+ * amount; "2026-02-31" verbatim as the next due date; and "someday" reached a
+ * CHECK constraint as a 500. The routes read their fields properly now; this
+ * is the backstop for any that does not.
+ */
+function requireScheduleFigures(amount: number | null | undefined, nextDue: string | null | undefined): void {
+  if (amount !== null && amount !== undefined && !Number.isSafeInteger(amount)) {
+    throw new Refusal("A schedule's amount has to be a whole number of paise.");
+  }
+  if (nextDue !== null && nextDue !== undefined && !isIsoDate(nextDue)) {
+    throw new Refusal(`"${nextDue}" is not a date a schedule can fall due on.`);
+  }
+}
+
 export function updateSchedule(
   db: DB, actor: Actor, id: string,
   patch: Partial<Pick<Schedule,
@@ -257,6 +292,7 @@ export function updateSchedule(
   return transact(db, () => {
     const before = getSchedule(db, id);
     if (!before) throw new Refusal("That schedule does not exist.");
+    requireScheduleFigures(patch.amount, patch.next_due);
     requireEnvelopeForOutgoing(
       patch.amount !== undefined ? patch.amount : before.amount,
       patch.category_id !== undefined ? patch.category_id : before.category_id,
@@ -279,6 +315,20 @@ export function updateSchedule(
         patch.recurrence_weekday ?? before.recurrence_weekday,
       );
       patch = { ...patch, recurrence_ordinal: pair.ordinal, recurrence_weekday: pair.weekday };
+    }
+
+    // A date or rule that changes lands the date on the rule, as on create.
+    const recurrenceAfter = patch.recurrence ?? before.recurrence;
+    const dueAfter = patch.next_due ?? before.next_due;
+    if (recurrenceAfter === "monthly-nth-weekday" && dueAfter && (
+      patch.next_due !== undefined || patch.recurrence !== undefined
+      || patch.recurrence_ordinal !== undefined || patch.recurrence_weekday !== undefined
+    )) {
+      const snapped = snapToWeekdayRule(dueAfter, {
+        ordinal: patch.recurrence_ordinal !== undefined ? patch.recurrence_ordinal : before.recurrence_ordinal,
+        weekday: patch.recurrence_weekday !== undefined ? patch.recurrence_weekday : before.recurrence_weekday,
+      });
+      if (snapped !== dueAfter) patch = { ...patch, next_due: snapped };
     }
 
     // A key present but undefined means "not mentioned", not "set to null" — the
@@ -377,8 +427,12 @@ function refileLines(db: DB, name: string, lines: ScheduleSplit[], amount: Paise
  */
 export function deleteSchedule(db: DB, actor: Actor, id: string): void {
   transact(db, () => {
-    const before = getSchedule(db, id);
-    if (!before) throw new Refusal("That schedule does not exist.");
+    const row = getSchedule(db, id);
+    if (!row) throw new Refusal("That schedule does not exist.");
+    // The split lines go with the row (ON DELETE CASCADE), so they are recorded
+    // with it: undo put back a split schedule with no envelope and no lines,
+    // and its next "Mark paid" posted ₹30,000 out of no envelope at all (B99).
+    const before = { ...row, splits: getScheduleSplits(db, id) };
     execute(db, `DELETE FROM schedules WHERE id = ?`, id);
     appendEvent(db, actor, {
       entity: "schedule", entityId: id, action: "delete", before,
@@ -419,6 +473,15 @@ export function getScheduleSplits(db: DB, scheduleId: string): ScheduleSplit[] {
  */
 export function setScheduleSplits(
   db: DB, actor: Actor, scheduleId: string, lines: { categoryId: string | null; amount: Paise; memo?: string | null }[],
+  /**
+   * The amount the schedule had before the same edit changed it. The edit
+   * form writes the amount (updateSchedule) and then the lines (here) as two
+   * events; recording only the lines, undoing this one put the ₹25,000 /
+   * ₹5,000 lines back under the new ₹32,000 amount, and every Mark paid was
+   * refused after that. With the amount alongside, the lines come back with
+   * the amount they added up to.
+   */
+  opts: { priorAmount?: Paise | null } = {},
 ): void {
   transact(db, () => {
     const schedule = getSchedule(db, scheduleId);
@@ -434,6 +497,7 @@ export function setScheduleSplits(
      * action now, with the lines and envelope as they were.
      */
     const priorState = {
+      amount: opts.priorAmount !== undefined ? opts.priorAmount : schedule.amount,
       category_id: schedule.category_id,
       lines: getScheduleSplits(db, scheduleId).map((l) => ({
         category_id: l.category_id, amount: l.amount, memo: l.memo ?? null,
@@ -462,7 +526,7 @@ export function setScheduleSplits(
       appendEvent(db, actor, {
         entity: "schedule", entityId: scheduleId, action: "split",
         before: priorState,
-        after: { category_id: only.categoryId, lines: [] },
+        after: { amount: schedule.amount, category_id: only.categoryId, lines: [] },
         summary: `${schedule.name} is one envelope again`,
       });
       return;
@@ -476,8 +540,8 @@ export function setScheduleSplits(
      */
     if (kept.length === 0 && (schedule.amount ?? 0) < 0 && !schedule.category_id) {
       throw new Refusal(
-        "Removing the split would leave this schedule with no envelope at all, and it " +
-        "posts itself every month. Either keep the lines, or leave one line for the " +
+        "Removing the split would leave this schedule with no envelope at all, and " +
+        "each time you mark it paid it records a transaction. Either keep the lines, or leave one line for the " +
         "whole amount to make it a single envelope again.",
       );
     }
@@ -511,6 +575,7 @@ export function setScheduleSplits(
       entity: "schedule", entityId: scheduleId, action: "split",
       before: priorState,
       after: {
+        amount: schedule.amount,
         category_id: schedule.category_id,
         lines: kept.map((l) => ({ category_id: l.categoryId, amount: l.amount, memo: l.memo ?? null })),
       },
@@ -596,10 +661,14 @@ export function nextIncome(
      * that arrives every month — `next_due` moves when somebody ticks it off,
      * and a household that does not tick things off would be told nothing at
      * all. So a stale date rolls forward to the occurrence it implies.
+     *
+     * IMPORTS-SCHEDULES-14 · On or after today: nextOccurrence answers strictly
+     * after the date it is given, so a salary on the 26th never ticked off
+     * since August was, on 26 Sep — payday — said to arrive on 26 Oct.
      */
     const date = schedule.next_due! >= today
       ? schedule.next_due!
-      : nextOccurrence(schedule, today);
+      : nextOccurrence(schedule, addDays(today, -1));
     if (!date) continue;
     if (!soonest || date < soonest.date) {
       soonest = { date, label: schedule.name, amount: schedule.amount };
@@ -870,6 +939,16 @@ export function detectSchedules(
   const existing = new Set(
     listSchedules(db, { includeDisabled: true, viewerMemberId }).map((s) => s.payee_id).filter(Boolean),
   );
+  /*
+   * "Not a schedule" is an answer. /schedules/dismiss wrote it down and said
+   * "Won't suggest that again." — and nothing here read it, so the same four
+   * gym payments were suggested again on the very next page load.
+   */
+  for (const r of queryAll<{ ref: string }>(
+    db, `SELECT ref FROM review_dismissals WHERE kind = 'detected-schedule'`,
+  )) {
+    existing.add(r.ref);
+  }
 
   const detected: DetectedSchedule[] = [];
 
@@ -1207,10 +1286,39 @@ export function describeCashflow(cashflow: Cashflow): string {
   );
 }
 
-registerUndoHandler("schedule", (db, event) => {
+registerUndoHandler("schedule", (db, event, actor) => {
+  /*
+   * Marking paid and skipping record only the due date they moved (and, for a
+   * payment, the transaction it posted) — not the whole schedule. They fell
+   * through to the edit branch below, which wrote every column of that
+   * `{ nextDue }` back onto the row: NULL into `name`, a 500 on an Undo the
+   * activity page offered every time, and the ₹25,000 stayed posted.
+   */
+  if (event.action === "mark-paid" || event.action === "skip") {
+    const prior = event.before as { nextDue?: IsoDate | null } | undefined;
+    if (!prior || !("nextDue" in prior)) {
+      throw new Refusal("That change was recorded without what it replaced, so it cannot be undone.");
+    }
+    const schedule = getSchedule(db, event.entityId!);
+    if (!schedule) {
+      throw new Refusal("That schedule has since been removed. Put it back first, then undo this.");
+    }
+    const posted = event.action === "mark-paid"
+      ? (event.after as { transactionId?: string | null } | undefined)?.transactionId ?? null
+      : null;
+    const removed = posted ? removePostedOccurrence(db, actor, schedule.name, posted) : false;
+    execute(db, `UPDATE schedules SET next_due = ? WHERE id = ?`, prior.nextDue ?? null, event.entityId!);
+    if (event.action === "skip") return `Put back the ${schedule.name} occurrence that was skipped`;
+    return removed
+      ? `Removed the ${schedule.name} payment and put its due date back`
+      : `Put the ${schedule.name} due date back`;
+  }
+
   // A split change puts back the lines and the envelope it replaced.
   if (event.action === "split") {
     const prior = event.before as {
+      /** Absent on events from before it was recorded. */
+      amount?: Paise | null;
       category_id: string | null;
       lines: { category_id: string | null; amount: number; memo: string | null }[];
     } | undefined;
@@ -1226,6 +1334,10 @@ registerUndoHandler("schedule", (db, event) => {
       );
     });
     execute(db, `UPDATE schedules SET category_id = ? WHERE id = ?`, prior.category_id, event.entityId!);
+    if (prior.amount !== undefined) {
+      execute(db, `UPDATE schedules SET amount = ? WHERE id = ?`, prior.amount, event.entityId!);
+    }
+    requireLinesAddUp(db, event.entityId!);
     return prior.lines.length > 0 ? `Put the split back` : `Put the single envelope back`;
   }
 
@@ -1264,6 +1376,14 @@ registerUndoHandler("schedule", (db, event) => {
       before.confidence, nowIST(),
     );
     restoreRecurrenceDetail(db, event.entityId!, before);
+    // Events from before the lines were recorded carry none.
+    ((before as Schedule & { splits?: ScheduleSplit[] }).splits ?? []).forEach((line, i) => {
+      execute(
+        db,
+        `INSERT INTO schedule_splits (id, schedule_id, category_id, amount, memo, sort) VALUES (?,?,?,?,?,?)`,
+        line.id, event.entityId!, line.category_id, line.amount, line.memo, i,
+      );
+    });
     return `Put the schedule for ${before.name} back`;
   }
 
@@ -1284,8 +1404,62 @@ registerUndoHandler("schedule", (db, event) => {
   for (const line of lines ?? []) {
     execute(db, `UPDATE schedule_splits SET amount = ? WHERE id = ?`, line.amount, line.id);
   }
+  requireLinesAddUp(db, event.entityId!);
   return `Set the schedule for ${before.name} back`;
 });
+
+/**
+ * IMPORTS-SCHEDULES-24 · An undo may not leave a split schedule whose lines
+ * and amount disagree. The edit form's amount and lines are two entries on
+ * /activity; undoing the older one alone ("Undo anyway") put ₹30,000 back
+ * over lines of ₹32,000, and the schedule could never be marked paid again.
+ * The undo runs in a transaction, so refusing here leaves everything as it was.
+ */
+function requireLinesAddUp(db: DB, scheduleId: string): void {
+  const schedule = getSchedule(db, scheduleId);
+  const lines = getScheduleSplits(db, scheduleId);
+  if (!schedule || lines.length === 0) return;
+  const total = lines.reduce((sum, l) => sum + l.amount, 0);
+  if (schedule.amount === null || total !== schedule.amount) {
+    throw new Refusal(
+      `Undoing this would leave ${schedule.name}'s envelope lines adding up to ` +
+      `${formatPaise(total as Paise)} against an amount of ` +
+      `${schedule.amount === null ? "nothing" : formatPaise(schedule.amount as Paise)}. ` +
+      "Undo the newer change to its lines first.",
+    );
+  }
+}
+
+/**
+ * The transaction a "Mark paid" posted, removed by undoing its own creation, so
+ * the transaction's rules apply — a transfer goes with its pair, and one that a
+ * loan or a claim now records is refused rather than pulled out from under it.
+ * One that has been edited since is somebody's correction, and is refused too;
+ * one already deleted is simply gone. True when a transaction was removed.
+ */
+function removePostedOccurrence(db: DB, actor: Actor, name: string, transactionId: string): boolean {
+  const live = queryOne<{ id: string }>(
+    db, `SELECT id FROM transactions WHERE id = ? AND deleted_at IS NULL`, transactionId,
+  );
+  if (!live) return false;
+  const created = queryOne<{ id: string }>(
+    db,
+    `SELECT id FROM events
+      WHERE entity = 'transaction' AND entity_id = ? AND action = 'create'
+        AND undone_by_event_id IS NULL AND undo_of_event_id IS NULL
+      ORDER BY seq DESC LIMIT 1`,
+    transactionId,
+  );
+  const result = created ? undoEvent(db, created.id, actor) : null;
+  if (!result?.ok) {
+    throw new UndoRefused(
+      `The ${name} transaction it recorded has been changed since, so undoing this would ` +
+      "throw that change away. Delete the transaction from the register instead, or undo " +
+      "the change to it first.",
+    );
+  }
+  return true;
+}
 
 /**
  * The parts of the recurrence the two statements above never named: the

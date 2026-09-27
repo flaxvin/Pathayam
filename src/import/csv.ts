@@ -136,11 +136,21 @@ export interface ColumnMapping {
   /** …or a separate debit and credit pair, which most Indian banks use. */
   debit?: number;
   credit?: number;
+  /**
+   * With a single `amount` column: the column that says which way it went —
+   * "Dr" / "Cr", "Debit" / "Credit" — when the amount itself is unsigned.
+   */
+  direction?: number;
   balance?: number;
   reference?: number;
-  /** Overrides the two-digit-year guess when a bank is ambiguous. */
-  dateFormat?: "dd-mm-yyyy" | "yyyy-mm-dd";
+  /**
+   * Overrides the two-digit-year guess when a bank is ambiguous, and says a
+   * file writes its month first ("09/13/2026") — see `dateOrderOf`.
+   */
+  dateFormat?: DateFormat;
 }
+
+export type DateFormat = "dd-mm-yyyy" | "mm-dd-yyyy" | "yyyy-mm-dd";
 
 export interface ImportProfile {
   name: string;
@@ -190,6 +200,8 @@ export function headerSignature(headers: string[]): string {
 }
 
 const DATE_HINTS = ["date", "txn date", "transaction date", "value date", "tran date", "txndate", "transactiondate", "valuedate", "trandate"];
+const TXN_DATE_HINTS = ["txn date", "transaction date", "tran date", "txndate", "transactiondate", "trandate"];
+const VALUE_DATE_HINTS = ["value date", "valuedate"];
 const NARRATION_HINTS = ["narration", "description", "particulars", "remarks", "details", "transaction remarks"];
 const DEBIT_HINTS = ["withdrawal", "withdrawals", "debit", "debits", "withdrawal amt", "dr", "withdrawalamt"];
 const CREDIT_HINTS = ["deposit", "deposits", "credit", "credits", "deposit amt", "cr", "depositamt"];
@@ -221,7 +233,19 @@ export function guessMapping(rows: string[][]): ColumnMapping | null {
     const find = (hints: string[]): number =>
       cellWords.findIndex((words) => hints.some((h) => words.includes(` ${h} `)));
 
-    const date = find(DATE_HINTS);
+    /*
+     * IMPORTS-SCHEDULES-20 · The transaction date, not the value date. An
+     * ICICI-style "S No.,Value Date,Transaction Date,…" header took whichever
+     * date column came first, so a Swiggy order on 1 Aug valued 31 Jul landed
+     * in July's budget. A column that says transaction/txn/tran wins, then any
+     * other date column, and a value date only when it is the only one.
+     */
+    const isValueDate = (i: number) => VALUE_DATE_HINTS.some((h) => cellWords[i]!.includes(` ${h} `));
+    const dateColumns = cellWords
+      .map((_, i) => i)
+      .filter((i) => DATE_HINTS.some((h) => cellWords[i]!.includes(` ${h} `)));
+    const date = find(TXN_DATE_HINTS) >= 0 ? find(TXN_DATE_HINTS)
+      : dateColumns.find((i) => !isValueDate(i)) ?? dateColumns[0] ?? -1;
     const narration = find(NARRATION_HINTS);
     if (date < 0 || narration < 0) continue;
 
@@ -237,16 +261,67 @@ export function guessMapping(rows: string[][]): ColumnMapping | null {
       mapping.credit = credit;
     } else if (amount >= 0) {
       mapping.amount = amount;
+      /*
+       * One column that matched both the debit and the credit hints — "Dr /
+       * Cr", "Debit / Credit" — is not a pair: it says which way the unsigned
+       * amount beside it went. It used to be dropped, and the amount read as
+       * signed, so every "450.00, DR" imported as ₹450 *in* and the guess was
+       * saved as the bank's profile for every month after.
+       */
+      const direction = directionColumn(rows, r, amount, balance);
+      if (direction !== null) mapping.direction = direction;
     } else {
       continue; // No usable amount column; keep looking.
     }
     if (balance >= 0) mapping.balance = balance;
     if (reference >= 0) mapping.reference = reference;
+    if (dateOrderOf(rows, r, date) === "mm-dd-yyyy") mapping.dateFormat = "mm-dd-yyyy";
 
     return mapping;
   }
 
   return null;
+}
+
+const DIRECTION_WORD = /^(?:dr|cr|debit|credit|d|c)\.?$/i;
+
+/** Which way a Dr / Cr cell says the money went, or null when it does not say. */
+function directionOf(cell: string): "out" | "in" | null {
+  const word = cell.trim().toLowerCase().replace(/\.$/, "");
+  if (word === "dr" || word === "debit" || word === "d") return "out";
+  if (word === "cr" || word === "credit" || word === "c") return "in";
+  return null;
+}
+
+/**
+ * The column saying Dr / Cr for an unsigned amount, found by what it holds
+ * rather than its heading ("Dr / Cr", "Type", "Debit/Credit" all occur): every
+ * filled cell under it is one of those words. A statement that prints one after
+ * the balance too ("Balance, Dr / Cr") has two; that one is the balance's, and
+ * the one nearest after the amount is the amount's.
+ *
+ * Only for an amount column that is unsigned throughout: one that carries its
+ * own minus signs or Dr / Cr suffixes already says which way it went.
+ */
+function directionColumn(
+  rows: string[][], headerRow: number, amount: number, balance: number,
+): number | null {
+  const data = rows.slice(headerRow + 1, headerRow + 41)
+    .filter((row) => row.some((c) => c.trim() !== ""));
+  const signed = data.some((row) => /^[-−(+]|(?:cr|dr)\.?$/i.test((row[amount] ?? "").trim()));
+  if (signed) return null;
+  const width = Math.max(0, ...data.map((row) => row.length));
+  const found: number[] = [];
+  for (let col = 0; col < width; col++) {
+    if (col === amount) continue;
+    if (balance >= 0 && col === balance + 1 && col !== amount + 1) continue;
+    const cells = data.map((row) => (row[col] ?? "").trim()).filter(Boolean);
+    if (cells.length > 0 && cells.every((c) => DIRECTION_WORD.test(c))) found.push(col);
+  }
+  if (found.length === 0) return null;
+  const after = found.filter((col) => col > amount);
+  if (after.length > 0) return after[0]!;
+  return found[found.length - 1]!;
 }
 
 /**
@@ -260,6 +335,7 @@ export function applyMapping(rows: string[][], mapping: ColumnMapping): ParseRes
   const records: RawRecord[] = [];
   const errors: ParseError[] = [];
   let rowsRead = 0;
+  const bare = bareSign(rows, mapping);
 
   for (let r = mapping.headerRow + 1; r < rows.length; r++) {
     const cells = rows[r] ?? [];
@@ -273,14 +349,14 @@ export function applyMapping(rows: string[][], mapping: ColumnMapping): ParseRes
     // skip. See `looksLikeFooter`.
     const date = readDate(rawDate, mapping);
     if (!date) {
-      if (looksLikeFooter(cells, rawDate, readAmount(cells, mapping).amount !== null)) continue;
+      if (looksLikeFooter(cells, rawDate, readAmount(cells, mapping, bare).amount !== null)) continue;
       rowsRead++;
       errors.push({ rowNumber: r + 1, cells, reason: `"${rawDate}" is not a date I can read.` });
       continue;
     }
 
     rowsRead++;
-    const { amount, rawAmount, reason } = readAmount(cells, mapping);
+    const { amount, rawAmount, reason } = readAmount(cells, mapping, bare);
     if (amount === null) {
       errors.push({ rowNumber: r + 1, cells, reason: reason ?? "No amount on this row." });
       continue;
@@ -299,9 +375,42 @@ export function applyMapping(rows: string[][], mapping: ColumnMapping): ParseRes
   return { records, errors, rowsRead };
 }
 
+/** A figure with nothing on it saying which way it went. */
+const BARE_FIGURE = /^(?:Rs\.?|INR|₹)?\s*\d[\d,]*(?:\.\d+)?$/i;
+/** A figure marked as money in: "5,000.00 Cr", "+240.00". */
+const MARKED_IN = /^\+|(?<![a-z])cr\.?$/i;
+/** A figure marked as money out: "450.00 Dr", "-450.00", "(450.00)". */
+const MARKED_OUT = /^[-−(]|(?<![a-z])dr\.?$/i;
+
+/**
+ * Which way a bare figure goes in a single amount column: 1 in, -1 out.
+ *
+ * A card's CSV marks the few payments and refunds ("5,000.00 Cr") and leaves
+ * the purchases bare, the same convention the PDF reader's rule 4 already
+ * follows. Read one figure at a time, every bare purchase was money in — a
+ * ₹1,299 purchase credited to the card, no error row, and the guess saved as
+ * next month's profile. So the file decides: where some figures are marked as
+ * money in and none as money out, the bare ones are the other way. Anything
+ * else — minus signs for debits, Dr suffixes, a mixture — keeps a bare figure
+ * positive, as before.
+ */
+function bareSign(rows: string[][], mapping: ColumnMapping): 1 | -1 {
+  if (mapping.amount === undefined || mapping.direction !== undefined) return 1;
+  if (mapping.debit !== undefined && mapping.credit !== undefined) return 1;
+  let markedIn = false;
+  for (let r = mapping.headerRow + 1; r < rows.length; r++) {
+    const raw = (rows[r]?.[mapping.amount] ?? "").trim();
+    if (raw === "" || BARE_FIGURE.test(raw)) continue;
+    if (MARKED_OUT.test(raw)) return 1;
+    if (MARKED_IN.test(raw)) markedIn = true;
+  }
+  return markedIn ? -1 : 1;
+}
+
 function readAmount(
   cells: string[],
   mapping: ColumnMapping,
+  bare: 1 | -1 = 1,
 ): { amount: Paise | null; rawAmount: string; reason?: string } {
   if (mapping.debit !== undefined && mapping.credit !== undefined) {
     return readDebitCredit(
@@ -319,6 +428,26 @@ function readAmount(
   if (amount === null) {
     return { amount: null, rawAmount: raw, reason: `"${raw}" is not an amount I can read.` };
   }
+  if (mapping.direction !== undefined) {
+    // P4: the figure and the word the bank put beside it, both kept.
+    const flag = (cells[mapping.direction] ?? "").trim();
+    const rawAmount = flag ? `${raw} ${flag}` : raw;
+    const way = directionOf(flag);
+    if (!way) {
+      return {
+        amount: null, rawAmount,
+        reason: `"${flag}" does not say whether this was money out (Dr) or in (Cr).`,
+      };
+    }
+    if (amount < 0 && way === "in") {
+      return {
+        amount: null, rawAmount,
+        reason: `The amount "${raw}" is money out, but the row says ${flag}; I cannot tell which is right.`,
+      };
+    }
+    return { amount: (way === "out" ? -Math.abs(amount) : Math.abs(amount)) as Paise, rawAmount };
+  }
+  if (bare === -1 && BARE_FIGURE.test(raw)) return { amount: -Math.abs(amount) as Paise, rawAmount: raw };
   return { amount, rawAmount: raw };
 }
 
@@ -382,11 +511,44 @@ function readDebitCredit(
  * 26 Aug 2015 to everybody else.
  */
 function readDate(raw: string, mapping: ColumnMapping): IsoDate | null {
+  if (mapping.dateFormat === "mm-dd-yyyy") {
+    // Swapped into day-first and read by the shared reader, time and all.
+    const mdy = NUMERIC_DATE.exec(raw.trim());
+    if (mdy) return parseDate(`${mdy[3]}${mdy[2]}${mdy[1]}${mdy[2]}${mdy[4]}${mdy[5] ?? ""}`);
+  }
   if (mapping.dateFormat === "yyyy-mm-dd") {
     const ymd = /^(\d{4}|\d{2})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(raw.trim());
     if (ymd) return calendarDate(fullYear(ymd[1]!), Number(ymd[2]), Number(ymd[3]));
   }
   return parseDate(raw);
+}
+
+/** `09/13/2026`, `13-09-26 10:32` — two parts of one or two digits, then a year. */
+const NUMERIC_DATE = /^(\d{1,2})([-/.])(\d{1,2})\2(\d{2}|\d{4})(\b.*)?$/;
+
+/**
+ * IMPORTS-SCHEDULES-30 · Which way round a column writes its day and month.
+ *
+ * Every date was read day first, so a US-style export — 09/03, 09/13, 09/21,
+ * 09/05 for September — staged 09/03 as 9 March and 09/05 as 9 May, valid
+ * rows months away, while 09/13 and 09/21 were "not a date I can read". A
+ * first part over 12 proves day first; a second part over 12 proves month
+ * first. Both, and the column is `mixed`; neither, and it cannot tell (null)
+ * — day first, as Indian banks write it, unless the mapping screen says so.
+ */
+export function dateOrderOf(
+  rows: string[][], headerRow: number, column: number,
+): "dd-mm-yyyy" | "mm-dd-yyyy" | "mixed" | null {
+  let dayFirst = false;
+  let monthFirst = false;
+  for (const row of rows.slice(headerRow + 1)) {
+    const m = NUMERIC_DATE.exec((row[column] ?? "").trim());
+    if (!m) continue;
+    if (Number(m[1]) > 12) dayFirst = true;
+    if (Number(m[3]) > 12) monthFirst = true;
+  }
+  if (dayFirst && monthFirst) return "mixed";
+  return dayFirst ? "dd-mm-yyyy" : monthFirst ? "mm-dd-yyyy" : null;
 }
 
 const FOOTER_MARKERS = [

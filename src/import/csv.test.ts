@@ -5,6 +5,7 @@ import {
   headerSignature,
 } from "./csv.ts";
 import { rupees } from "../core/money.ts";
+import { mappingFromSelections } from "./profiles.ts";
 
 describe("parseDelimited", () => {
   test("handles quotes, embedded delimiters and doubled quotes", () => {
@@ -272,6 +273,23 @@ describe("amounts in a statement file", () => {
     assert.deepEqual(result.records.map((r) => r.amount), [rupees(1200), rupees(-1200), rupees(3)]);
   });
 
+  test("where only the money in is marked, a bare figure is money out (IMPORTS-SCHEDULES-28)", () => {
+    // A card's CSV: the payment says Cr, the purchases say nothing.
+    const { result } = parseStatement(
+      "Date,Transaction Details,Amount (in Rs.)\n03/09/2026,ZZ FICTIONAL STORE,\"1,299.00\"\n" +
+      "05/09/2026,PAYMENT RECEIVED,\"5,000.00 Cr\"\n07/09/2026,ZZ CAFE,240.00\n08/09/2026,ZZ REFUND,+99.00",
+    );
+    assert.deepEqual(result.records.map((r) => r.amount),
+      [rupees(-1299), rupees(5000), rupees(-240), rupees(99)]);
+  });
+
+  test("a file that marks its money out too keeps a bare figure as money in", () => {
+    const { result } = parseStatement(
+      "Date,Narration,Amount\n01-08-2026,SALARY,\"1,200.00Cr\"\n02-08-2026,SHOP,-40.00\n03-08-2026,INTEREST,12.00",
+    );
+    assert.deepEqual(result.records.map((r) => r.amount), [rupees(1200), rupees(-40), rupees(12)]);
+  });
+
   test("lakh shorthand in a bank file is an error, not ₹1,20,000", () => {
     const { result } = parseStatement("Date,Narration,Amount\n01-08-2026,ODD,1.2L");
     assert.equal(result.records.length, 0);
@@ -326,5 +344,60 @@ describe("headerSignature", () => {
       headerSignature(["Date", "Narration", "Withdrawal Amt."]),
       headerSignature(["Transaction Date", "Transaction Remarks", "Withdrawal Amount"]),
     );
+  });
+});
+
+describe("an unsigned amount with a Dr / Cr column beside it (IMPORTS-SCHEDULES-19)", () => {
+  test("a Dr / Cr column decides the sign, and the balance's own Dr / Cr is left alone", () => {
+    const { result, mapping } = parseStatement(`Sl. No.,Transaction Date,Value Date,Description,Chq / Ref No.,Amount,Dr / Cr,Balance,Dr / Cr
+1,01-08-2026,01-08-2026,UPI/ZZFOOD/4312,UPI-4312,450.00,DR,99550.00,CR
+2,02-08-2026,02-08-2026,NEFT SALARY ZZCORP,NEFT-1,85000.00,CR,184550.00,CR`);
+    assert.equal(mapping?.direction, 6);
+    assert.deepEqual(result.records.map((r) => r.amount), [-45000, 8500000]);
+    assert.equal(result.records[0]!.raw.amount, "450.00 DR", "the word the bank wrote is kept");
+  });
+
+  test("a card file's Debit / Credit column", () => {
+    const { result } = parseStatement(`Date,Transaction Description,Amount,Debit / Credit
+03/08/2026,ZZ STORE,1299.00,Debit
+05/08/2026,PAYMENT RECEIVED THANK YOU,5000.00,Credit`);
+    assert.deepEqual(result.records.map((r) => r.amount), [-129900, 500000]);
+  });
+
+  test("a row whose Dr / Cr cell says neither is reported, not guessed", () => {
+    const { result } = parseStatement(`Date,Description,Amount,Dr / Cr
+03/08/2026,ZZ STORE,1299.00,Debit
+04/08/2026,ZZ CAFE,240.00,`);
+    assert.equal(result.records.length, 1);
+    assert.equal(result.errors.length, 1);
+    assert.match(result.errors[0]!.reason, /money out \(Dr\) or in \(Cr\)/);
+  });
+
+  test("a signed amount column is left to its own signs", () => {
+    const { result, mapping } = parseStatement(`Date,Narration,Amount,Balance,Dr / Cr
+03-08-2026,ZZ SHOP,-450.00,1000.00,CR
+04-08-2026,ZZ REFUND,120.00,1120.00,CR`);
+    assert.equal(mapping?.direction, undefined);
+    assert.deepEqual(result.records.map((r) => r.amount), [-45000, 12000]);
+  });
+
+  test("the mapping screen can name the column", () => {
+    const mapping = mappingFromSelections({ headerRow: 0, date: 0, narration: 1, amount: 2, direction: 3 });
+    assert.equal(mapping.direction, 3);
+  });
+});
+
+describe("the transaction date over the value date (IMPORTS-SCHEDULES-20)", () => {
+  test("a Value Date column before the Transaction Date column is not the date", () => {
+    const { result, mapping } = parseStatement(`S No.,Value Date,Transaction Date,Cheque Number,Transaction Remarks,Withdrawal Amount (INR ),Deposit Amount (INR ),Balance (INR )
+1,31/07/2026,01/08/2026,-,UPI/ZZFOOD/1234,450.00,0.00,"1,00,000.00"
+2,02/08/2026,02/08/2026,-,NEFT/ZZSAL,0.00,"1,45,000.00","2,45,000.00"`);
+    assert.equal(mapping?.date, 2);
+    assert.equal(result.records[0]!.date, "2026-08-01");
+  });
+
+  test("a plain Date column wins over a value date, and a value date alone still serves", () => {
+    assert.equal(guessMapping([["Value Date", "Date", "Narration", "Amount"]])?.date, 1);
+    assert.equal(guessMapping([["Value Date", "Narration", "Amount"]])?.date, 0);
   });
 });

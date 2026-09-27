@@ -17,6 +17,7 @@ import { nowIST } from "../core/dates.ts";
 import { Missing } from "../core/refusal.ts";
 import type { Rule, RuleStage } from "./rules.ts";
 import { extractNarrationFields, applyRules, type RuleSubject } from "./rules.ts";
+import { refusePaymentCategories } from "../domain/transactions.ts";
 
 export interface Proposal {
   id: string;
@@ -268,12 +269,13 @@ function subjectsFor(db: DB, limit = 2000): (RuleSubject & { id: string; payeeNa
   return queryAll<{
     id: string; narration: string | null; payee: string | null; account_id: string;
     amount: number; date: string; memo: string | null; category_id: string | null;
-    cleared: number; source: string;
+    cleared: number; source: string; card_last4: string | null;
   }>(
     db,
     `SELECT t.id, t.raw_narration AS narration, p.name AS payee, t.account_id, t.amount,
-            t.date, t.memo, t.category_id, t.cleared, t.source
+            t.date, t.memo, t.category_id, t.cleared, t.source, c.last4 AS card_last4
        FROM transactions t LEFT JOIN payees p ON p.id = t.payee_id
+       LEFT JOIN cards c ON c.id = t.card_id
       WHERE t.deleted_at IS NULL AND t.transfer_pair_id IS NULL
       ORDER BY t.date DESC LIMIT ?`,
     limit,
@@ -293,7 +295,7 @@ function subjectsFor(db: DB, limit = 2000): (RuleSubject & { id: string; payeeNa
       categoryId: r.category_id,
       cleared: r.cleared === 1,
       source: r.source,
-      cardLast4: null,
+      cardLast4: r.card_last4,
       ...extractNarrationFields(narration),
     };
   });
@@ -345,6 +347,13 @@ export function applyRetroactive(db: DB, actor: Actor, rule: Rule): number {
 
       const proposed = outcome.subject.categoryId;
       if (!proposed || proposed === subject.categoryId) continue;
+      /*
+       * The same check every other filing path makes. This wrote the rule's
+       * envelope straight into category_id, so a rule naming an envelope since
+       * merged away filed ₹450 into a deleted envelope the engine never reads —
+       * the identity out by that much in every month after.
+       */
+      refusePaymentCategories(db, [proposed]);
 
       const before = queryOne<Record<string, unknown>>(
         db, `SELECT * FROM transactions WHERE id = ?`, subject.id,

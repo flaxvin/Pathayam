@@ -117,8 +117,18 @@ export type Recognition =
  *
  * `unknown` is not a failure. It is the state the mapping UI exists for.
  */
-export function recognise(db: DB, text: string, accountId?: string | null): Recognition {
-  const rows = parseDelimited(text, detectDelimiter(text));
+export function recognise(
+  db: DB, text: string, accountId?: string | null,
+  /**
+   * The delimiter the mapping screen split the file on, posted back with it.
+   * Guessing again read the PDF fallback's tab-separated rows as comma
+   * separated whenever an address or a lakh figure ("1,44,550.00") gave the
+   * first ten lines more commas than tabs — the columns picked on the screen
+   * then named different cells, and nothing imported.
+   */
+  delimiter?: string,
+): Recognition {
+  const rows = parseDelimited(text, delimiter ?? detectDelimiter(text));
 
   // A saved profile knows which row the headers are on, so try it first —
   // some statements carry account details above the table.
@@ -172,6 +182,51 @@ export function columnChoices(rows: string[][], headerRow: number): { index: num
  * Two rows with two columns between them is the least that could be mapped:
  * one header and one row of data.
  */
+/** The delimiters the mapping form can carry, by the name it posts. */
+export const MAPPING_DELIMITERS: Record<string, string> = {
+  comma: ",", tab: "\t", semicolon: ";", pipe: "|",
+};
+
+export function delimiterName(delimiter: string): string {
+  return Object.entries(MAPPING_DELIMITERS).find(([, d]) => d === delimiter)?.[0] ?? "comma";
+}
+
+/**
+ * IMPORTS-SCHEDULES-21 · A PDF's text lines, cut into the columns the header
+ * row lays out.
+ *
+ * The fallback split each line on runs of two or more spaces, which drops an
+ * empty cell: a withdrawal row has nothing under Deposit, so its balance moved
+ * left into the Deposit column and every row read as "both a debit and a
+ * credit". The text keeps horizontal position, so each run of text is put in
+ * the header column it overlaps most (or, overlapping none, the nearest), and
+ * an empty cell stays empty.
+ */
+export function rowsByPosition(lines: string[], headerIndex: number): string[][] {
+  const runs = (line: string) =>
+    [...line.matchAll(/\S+(?: \S+)*/g)].map((m) => ({
+      text: m[0], start: m.index!, end: m.index! + m[0].length,
+    }));
+  const columns = runs(lines[headerIndex] ?? "");
+  if (columns.length < 2) return lines.map((line) => line.split(/\s{2,}/));
+
+  return lines.map((line) => {
+    const cells = columns.map(() => "");
+    for (const run of runs(line)) {
+      let best = -1;
+      let bestScore = -Infinity;
+      columns.forEach((col, i) => {
+        const overlap = Math.min(run.end, col.end) - Math.max(run.start, col.start);
+        const distance = Math.abs((run.start + run.end) - (col.start + col.end)) / 2;
+        const score = overlap > 0 ? overlap : -distance;
+        if (score > bestScore) { bestScore = score; best = i; }
+      });
+      cells[best] = cells[best] ? `${cells[best]} ${run.text}` : run.text;
+    }
+    return cells;
+  });
+}
+
 export function looksMappable(rows: string[][]): boolean {
   const populated = rows.filter((row) => row.some((cell) => cell.trim() !== ""));
   if (populated.length < 2) return false;
@@ -198,8 +253,11 @@ export function mappingFromSelections(input: {
   amount?: number | null;
   debit?: number | null;
   credit?: number | null;
+  direction?: number | null;
   balance?: number | null;
   reference?: number | null;
+  /** How the file writes its dates, when the person said; absent is day first. */
+  dateFormat?: ColumnMapping["dateFormat"] | null;
 }): ColumnMapping {
   const mapping: ColumnMapping = {
     headerRow: input.headerRow,
@@ -214,10 +272,14 @@ export function mappingFromSelections(input: {
     mapping.credit = input.credit;
   } else if (input.amount != null && input.amount >= 0) {
     mapping.amount = input.amount;
+    if (input.direction != null && input.direction >= 0 && input.direction !== input.amount) {
+      mapping.direction = input.direction;
+    }
   }
 
   if (input.balance != null && input.balance >= 0) mapping.balance = input.balance;
   if (input.reference != null && input.reference >= 0) mapping.reference = input.reference;
+  if (input.dateFormat) mapping.dateFormat = input.dateFormat;
 
   return mapping;
 }

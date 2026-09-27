@@ -270,6 +270,18 @@ describe("15 · the places a sweep of plain paths cannot reach", () => {
     assert.equal(row.status, "pending");
   });
 
+  test("another member's import cannot be undone", async () => {
+    // The history hid the batch; the undo button's route took its id anyway.
+    const res = await app.post("/import/undo", { batch_id: "batch-secret" });
+    assert.equal(res.status, 404, "/import/undo undid Ravi's private statement");
+    const batch = app.db.prepare(`SELECT undone_at FROM import_batches WHERE id = 'batch-secret'`)
+      .get() as { undone_at: string | null };
+    assert.equal(batch.undone_at, null);
+    const line = app.db.prepare(`SELECT status FROM staged_transactions WHERE id = 'staged-secret'`)
+      .get() as { status: string };
+    assert.equal(line.status, "pending");
+  });
+
   test("the badge counts what the review page shows the same reader", async () => {
     const mine = reviewCount(app.db, RAVI);
     const hers = reviewCount(app.db, PRIYA);

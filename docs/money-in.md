@@ -33,6 +33,18 @@ empty, `0.00` or a dash. A row with money in both, an unreadable figure in
 either, or zero in both is an error row naming which of those it is — never
 read as whichever column happens to win.
 
+A third layout is an unsigned amount with a column beside it saying `Dr` / `Cr`
+(or `Debit` / `Credit`). The guess finds that column by what it holds — only
+those words — and uses the one nearest after the amount, so a second `Dr / Cr`
+column describing the balance is left alone; an amount column with its own
+signs or markers is never given one. A row whose indicator says neither is an
+error row. The mapping screen can name the column too.
+
+In a single amount column, a bare figure is money in — unless the file marks
+some figures as money in (`Cr`, a leading `+`) and none as money out. That is a
+card's CSV: payments and refunds say `Cr`, purchases are left bare, so there a
+bare figure is a purchase, the same as on a card's PDF.
+
 ### Reading an amount
 
 CSV cells, PDF figures and alert amounts are read by the same rules
@@ -72,6 +84,14 @@ The shapes read are the same everywhere: `15-01-2026`, `15/01/26`,
 `28-08-26, 00:01:28 IST`), which is dropped. A two-digit year-first date
 (`26-08-15`) is read as day-first unless the mapping's `dateFormat` is
 `yyyy-mm-dd`.
+
+A CSV's numeric dates are day first unless the file shows otherwise: when a
+date column's second part passes 12 (`09/13/2026`) and its first never does,
+the mapping's `dateFormat` is `mm-dd-yyyy` and every row is read month first.
+The mapping screen asks how the dates are written — day, month or year first,
+or "work it out from the file" — since a month-first file whose days are all
+12 or under looks day first. A column that proves both orders (`13/09` and
+`09/14`) is refused there, asking the question, rather than read half wrong.
 
 A CSV row whose date cannot be read is an error row, never a silent skip. A
 row is skipped as a footer only when its date cell says so (`Total`,
@@ -124,7 +144,10 @@ that are never transactions.
 Amounts are derived from **balance movement**: the difference between
 consecutive running balances is the amount, sign included. The printed amount
 verifies that movement. Where the two disagree, the row is reported as an error
-rather than guessed.
+rather than guessed. A balance marked `Dr` — or bracketed, or with a leading
+minus — is overdrawn and counts below zero, so an overdraft account's rows keep
+their signs; the opening and closing balances the reconciliation checks are
+read the same way.
 
 Where a statement prints no balance column, amounts are read by column position
 against the table header.
@@ -153,7 +176,10 @@ exposed on `StatementParse.reconciliation` and reported after import.
 
 A PDF with no extractable text is refused with an explanation — it is a scan.
 A PDF whose table cannot be parsed falls through to the manual column mapping
-screen, the same one an unrecognised CSV uses.
+screen, the same one an unrecognised CSV uses. Its lines are cut into cells by
+position under the header row, so an empty Withdrawal or Deposit stays an empty
+cell, and the screen posts back the delimiter it split on rather than guessing
+again. A mapping that reads no transaction at all is not remembered.
 
 ## Gmail
 
@@ -165,6 +191,18 @@ read. Attachments are passed to the PDF path; alert bodies to the email-alert
 parser. The refresh token is stored in `gmail_connections` and excluded from
 every export.
 
+An alert is routed by the last four digits it names, among only the accounts
+and cards the member whose mailbox it came from can see — another member's
+private account ending in the same digits is never a candidate. The ones that
+member holds are preferred; if two still match, the alert is left alone with a
+note rather than guessed. A statement attachment is routed the same way.
+
+A message from an alert sender that reads like a transaction — an amount beside
+"spent", "debited" or "credited" — but that no profile can read is not dropped
+in silence: the fetch's summary counts the alerts it could not read, so they
+can be added by hand. Promotions and one-time passwords from the same senders
+are not counted.
+
 ## Duplicate detection
 
 Every staged row is compared against existing transactions **in the same
@@ -172,11 +210,23 @@ account** and against rows already pending in that account.
 
 | Tier | Test | Handling |
 |---|---|---|
-| `exact` | Same `source_id`. | Skipped. Re-importing a file adds nothing. |
-| `strong` | Same date, amount and narration. | Merged automatically, with a note. |
-| `probable` | Close on date and amount. | Queued for a decision. |
-| `weak` | Weaker match. | Queued for a decision. |
-| `manual-vs-imported` | A typed transaction matching an imported one. | Queued for a decision. |
+| `exact` | Same `source_id` — in the ledger, pending in Review, or dismissed from it. | Skipped. Re-importing a file adds nothing, and a dismissed row stays dismissed. |
+| `strong` | Same amount and the same bank reference, dated within 5 days of each other. | Upgrades the existing transaction automatically, with a note. A reference repeated a month later — a loan or employee number on a standing instruction — is a new transaction, not this. |
+| `manual-vs-imported` | Same amount as a transaction typed by hand, dated within 5 days of it (the counter dates it today; the bank posts it days later). | Queued for a decision, "merge" suggested — the typed side keeps its envelope, the imported side brings the bank's payee and reference. |
+| `probable` | Same amount and the same payee (normalised: `SWIGGY*ORDER123` is Swiggy), dated within 3 days. | Queued for a decision, "merge" suggested. |
+| `weak` | Same amount within 1 day, but a different payee. | Queued at low prominence, "keep both" suggested — two people paying the same bill at one restaurant is a normal Saturday. |
+
+Tiers are checked in that order and the first that fits wins, so a reference
+match is never demoted to a fuzzy one. Same date, amount and narration without
+a bank reference is not `strong`: nothing proves it is the same event rather
+than a second identical payment, so it is queued as `probable`, never merged
+on its own.
+
+A row still pending from an earlier import has no transaction to merge into.
+A strong match with one — an alert awaiting approval when its statement line
+arrives — is folded into the queued row; a weaker match is queued beside it
+with its reason, and approving one and dismissing the other is the decision.
+Rows of the same file are never compared with each other (D2).
 
 `source_id` is `adapter:sha256(date, amount, narration, reference):occurrence`.
 Because it names its adapter, the exact tier compares it alone; approval keeps
@@ -185,6 +235,19 @@ somehow already in the ledger when approved is resolved onto that transaction
 rather than added twice.
 The occurrence counter distinguishes genuinely identical rows within one file.
 Uniqueness is enforced per account.
+
+## Transfers in Review
+
+Money moved between the household's own accounts — a card bill paid from the
+bank, a sweep to a deposit — is neither spending nor new money. A staged row's
+envelope list ends with "Transfer to / from" each of the viewer's other
+accounts (not the derived-value ones). Choosing one posts the transfer pair,
+the imported side carrying the row's source identity and raw fields. If the
+other account's own imported row is also waiting — the opposite amount, within
+three days — it becomes the other leg, dated as its own statement dates it;
+otherwise that leg is posted uncleared, for its statement to merge into later.
+Undoing either side's import removes both legs, and returns the other side's
+row, if it came from another import, to Review.
 
 ## Rules
 
@@ -232,4 +295,5 @@ created and marks the batch `undone_at`.
 
 Importing the same file again after an undo stages its rows afresh, and they
 can be approved: the undone transactions give up their `source_id` (it is
-kept with a `~deleted:<id>` suffix) so the new ones can take it.
+kept with a `~deleted:<id>` suffix) so the new ones can take it. Rows dismissed
+from an undone batch come back with the rest.

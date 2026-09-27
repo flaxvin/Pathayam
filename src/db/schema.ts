@@ -2521,4 +2521,101 @@ DELETE FROM targets
                         WHERE closed_at IS NOT NULL AND payment_category_id IS NOT NULL);
 `,
   },
+  {
+    name: "0056-rules-follow-a-merged-envelope",
+    sql: `
+--------------------------------------------------------------------------------
+-- F6 · Rules left naming an envelope that was merged away
+--------------------------------------------------------------------------------
+-- Merging (or deleting with a remap) moved an envelope's history, schedules
+-- and queued rows to the other envelope and left the rules naming the old one.
+-- /rules hid them, since their envelope was gone, while they went on filing
+-- imports into it, and "Apply to existing" wrote the dead id onto transactions.
+-- The code now moves them with the rest. Here, each rule naming a merged-away
+-- envelope follows the merge - through any later merge of the winner - to the
+-- envelope that is still there; run twice for a rule naming two of them. A
+-- rule still naming a deleted envelope after that has nowhere to file, and is
+-- switched off rather than left firing.
+WITH RECURSIVE merged(loser, winner) AS (
+  SELECT e.entity_id, json_extract(e.after_json, '$.id') FROM events e
+   WHERE e.entity = 'category' AND e.action = 'merge' AND e.undone_by_event_id IS NULL
+     AND json_extract(e.after_json, '$.id') IS NOT NULL
+),
+hop(start, id, depth) AS (
+  SELECT loser, winner, 1 FROM merged
+  UNION ALL
+  SELECT hop.start, merged.winner, hop.depth + 1 FROM hop JOIN merged ON merged.loser = hop.id
+   WHERE hop.depth < 20
+),
+final(loser, winner) AS (
+  SELECT hop.start, hop.id FROM hop JOIN categories c ON c.id = hop.id
+   WHERE c.deleted_at IS NULL
+     AND EXISTS (SELECT 1 FROM categories l WHERE l.id = hop.start AND l.deleted_at IS NOT NULL)
+)
+UPDATE rules
+   SET actions_json = replace(actions_json, '"' || final.loser || '"', '"' || final.winner || '"'),
+       conditions_json = replace(conditions_json, '"' || final.loser || '"', '"' || final.winner || '"')
+  FROM final
+ WHERE instr(rules.actions_json, '"' || final.loser || '"') > 0
+    OR instr(rules.conditions_json, '"' || final.loser || '"') > 0;
+WITH RECURSIVE merged(loser, winner) AS (
+  SELECT e.entity_id, json_extract(e.after_json, '$.id') FROM events e
+   WHERE e.entity = 'category' AND e.action = 'merge' AND e.undone_by_event_id IS NULL
+     AND json_extract(e.after_json, '$.id') IS NOT NULL
+),
+hop(start, id, depth) AS (
+  SELECT loser, winner, 1 FROM merged
+  UNION ALL
+  SELECT hop.start, merged.winner, hop.depth + 1 FROM hop JOIN merged ON merged.loser = hop.id
+   WHERE hop.depth < 20
+),
+final(loser, winner) AS (
+  SELECT hop.start, hop.id FROM hop JOIN categories c ON c.id = hop.id
+   WHERE c.deleted_at IS NULL
+     AND EXISTS (SELECT 1 FROM categories l WHERE l.id = hop.start AND l.deleted_at IS NOT NULL)
+)
+UPDATE rules
+   SET actions_json = replace(actions_json, '"' || final.loser || '"', '"' || final.winner || '"'),
+       conditions_json = replace(conditions_json, '"' || final.loser || '"', '"' || final.winner || '"')
+  FROM final
+ WHERE instr(rules.actions_json, '"' || final.loser || '"') > 0
+    OR instr(rules.conditions_json, '"' || final.loser || '"') > 0;
+UPDATE rules SET enabled = 0
+ WHERE enabled = 1
+   AND EXISTS (SELECT 1 FROM categories c
+                WHERE c.deleted_at IS NOT NULL AND instr(rules.actions_json, '"' || c.id || '"') > 0);
+`,
+  },
+  {
+    name: "0057-rule-amounts-in-paise",
+    sql: `
+--------------------------------------------------------------------------------
+-- Rules on an amount, typed in rupees, compared in paise
+--------------------------------------------------------------------------------
+-- The /rules form stored "the amount is more than 5000" with the 5000 as the
+-- text typed, and the evaluator compared it with paise: a 60-rupee chai is
+-- 6000, and more than 5000. The form now stores paise, as a number. The
+-- conditions it saved before are the text ones on an amount field; each one
+-- that reads as a plain figure becomes that many rupees in paise. Anything
+-- else there - a word, a pattern - is left as it is, and never matched a
+-- number anyway.
+UPDATE rules
+   SET conditions_json = (
+     SELECT json_group_array(
+              CASE
+                WHEN json_extract(c.value, '$.field') IN ('amount', 'absoluteAmount')
+                 AND json_type(c.value, '$.value') = 'text'
+                 AND trim(replace(json_extract(c.value, '$.value'), ',', '')) <> ''
+                 AND trim(replace(json_extract(c.value, '$.value'), ',', '')) NOT GLOB '*[^0-9.]*'
+                THEN json_set(c.value, '$.value',
+                       CAST(round(CAST(trim(replace(json_extract(c.value, '$.value'), ',', '')) AS REAL) * 100) AS INTEGER))
+                ELSE json(c.value)
+              END)
+       FROM json_each(rules.conditions_json) c)
+ WHERE EXISTS (
+   SELECT 1 FROM json_each(rules.conditions_json) c
+    WHERE json_extract(c.value, '$.field') IN ('amount', 'absoluteAmount')
+      AND json_type(c.value, '$.value') = 'text');
+`,
+  },
 ];

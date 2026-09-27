@@ -293,7 +293,7 @@ describe("BUDGET-21 · a group's deleted envelopes and what still names them", (
       name: "Netflix", accountId: bank, categoryId: netflix, amount: -64_900,
       recurrence: "monthly", nextDue: "2025-02-10",
     });
-    assert.throws(() => deleteCategory(db, actor, netflix, { currentBalance: 0 }), refused(/the schedule "Netflix"/));
+    assert.throws(() => deleteCategory(db, actor, netflix, { currentBalance: 0 }), refused(/schedule "Netflix"/i));
     assert.equal(getCategory(db, netflix)?.deleted_at, null);
   });
 

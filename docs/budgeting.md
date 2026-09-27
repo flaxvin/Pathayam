@@ -204,7 +204,10 @@ one into the other and deletes the loser:
   money out of the ledger without taking it out of any account. The identity
   would break by exactly the amount discarded.
 - **History follows**: transactions, splits, staged imports, schedules, a
-  loan's payment envelope, goal membership.
+  loan's payment envelope, goal membership — and the import rules that file
+  into it, which used to keep naming the loser, drop off /rules and go on
+  filing into the deleted envelope. Migration 0056 moves the rules an earlier
+  merge left behind, and switches off any still naming a deleted envelope.
 - **The winner's target stands.** The loser's is inherited only where the
   winner has none — two targets cannot both apply, and the category being kept
   is the one whose intent was meant to survive.
@@ -234,10 +237,14 @@ to Assign while the bank still showed it gone. So delete is refused while any
 transaction or split line — trashed ones included — is filed to the envelope,
 unless a remap target is given; the Categories page points to Merge instead.
 Nothing new can be filed to a deleted envelope either (a schedule or rule saved
-before the delete is refused rather than filed into nothing). Delete is also
-refused, naming the schedule, while a schedule or one of its split lines still
-files to the envelope: point the schedule elsewhere first, or merge, which takes
-schedules with it.
+before the delete is refused rather than filed into nothing — "Apply to
+existing" included). A remap takes the envelope's rules along with its history,
+and undoing the delete takes them back; without a remap, a delete is refused
+while a rule files into the envelope, naming the rule. Schedules and their
+envelope lines are treated the same way, along with imported rows still waiting
+in Review: a remap moves them (a merge does too), and without one the delete is
+refused, naming the schedules — left behind, a schedule's every "Mark paid" was
+refused for naming a deleted envelope.
 
 Deleting a **group** takes the tombstones of its deleted envelopes with it, so
 it is refused, by a sentence, while anything still points at one of them —
@@ -311,8 +318,8 @@ used to be refused as "not a split", which was a dead end.
 
 Clearing the *first* line is how you say "no envelope". On money coming in that
 is ordinary — it lands in Ready to Assign. On an outgoing schedule with nothing
-else to post to it is **refused**: it would post itself every month into
-nothing, which is the queue of unrecorded spending the envelope rule exists to
+else to post to it is **refused**: each time it was marked paid it would record
+a payment into nothing, which is the queue of unrecorded spending the envelope rule exists to
 prevent.
 
 A present-but-empty first select means "clear it", not "no lines were sent". The
@@ -402,6 +409,9 @@ to ₹500 becomes ₹166.67 / ₹333.33. If the other lines alone already use up
 new amount, or are money going the other way, the change is refused with the
 numbers rather than stored — a schedule whose lines no longer add up could never
 be marked paid. Undoing the change puts the lines back with the old amount.
+The edit form records an amount change and its new lines as two entries on the
+activity page; undoing the lines entry restores the amount with them, and an
+undo that would still leave lines and amount disagreeing is refused.
 
 ## When a schedule comes round again
 
@@ -421,6 +431,11 @@ and given a due date again.
 Undoing a change to a schedule's **split** puts back the lines and envelope it
 replaced. It used to delete the schedule, because those events recorded no
 before-state and undo read that as "this was a creation".
+
+Undoing **Mark paid** removes the transaction it recorded and puts the due date
+back; undoing **Skip** puts the skipped occurrence back. If the recorded
+transaction has been edited since, the undo is refused rather than throw the
+edit away — delete it from the register instead.
 
 The short-month policy decides what happens in a month without that day:
 
@@ -445,6 +460,7 @@ as money coming in, a bill as money going out — and a payee seen both ways is
 judged on the way it mostly goes, with the odd refund left out. A monthly
 rhythm is projected in whole months on the day it usually falls, so a salary on
 the 1st is next expected on the 1st, not 30.75 days after the last one.
+"Not a schedule" is remembered for that payee: the suggestion does not return.
 
 ### The cashflow calendar and cards
 
@@ -480,7 +496,7 @@ Most of what older versions stored wrongly is corrected automatically:
 migrations 0050–0052 rebuild held-for-next-month per budget, drop the rollup
 cache so sealed months are recomputed, and bring back (hidden) any envelope that
 was deleted while spending was still filed to it — merge those into the right
-envelope to settle them. Migration 0053 recomputes the income and spending
+envelope to settle them. Migration 0054 recomputes the income and spending
 stored on every closed month from that budget's own transactions; they had
 counted every budget's. At every start, `repairCrossBudgetClaims` opens the
 commitment envelope for any cross-budget card payment that was recorded without
