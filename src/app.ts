@@ -4809,14 +4809,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         });
       }
 
-      const parts = [`${outcome.staged} to review`];
+      // `staged` counts the auto-approved rows too, which are in the ledger,
+      // not Review: "3 to review, 3 auto-approved" left nothing to review.
+      const toReview = outcome.staged - outcome.autoApproved;
+      const parts = [`${toReview} to review`];
       if (outcome.autoApproved) parts.push(`${outcome.autoApproved} auto-approved`);
       if (outcome.duplicates) parts.push(`${outcome.duplicates} possible duplicates`);
       if (outcome.skipped) parts.push(`${outcome.skipped} already present`);
       if (outcome.errors) parts.push(`${outcome.errors} rows I couldn't read`);
 
       return {
-        redirect: outcome.staged > 0 ? "/review" : "/import",
+        redirect: toReview > 0 ? "/review" : "/import",
         message: `Read ${outcome.batch.rows_read} rows — ${parts.join(", ")}.`,
       };
     });
@@ -4953,7 +4956,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     });
 
     const parts: string[] = [];
-    if (outcome.staged > 0) parts.push(`${outcome.staged} to review`);
+    const toReview = outcome.staged - outcome.autoApproved;
+    if (toReview > 0) parts.push(`${toReview} to review`);
     if (outcome.autoApproved > 0) parts.push(`${outcome.autoApproved} auto-approved`);
     if (outcome.duplicates > 0) parts.push(`${outcome.duplicates} suspected duplicates`);
     if (outcome.skipped > 0) parts.push(`${outcome.skipped} already present`);
@@ -4972,7 +4976,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // `mutate` can only redirect — so the notice is built here.
     return {
       redirect: withNotice(
-        outcome.staged > 0 ? "/review" : "/import",
+        toReview > 0 ? "/review" : "/import",
         `Read ${parsed.bank ? `your ${parsed.bank.name} statement` : "the statement"} — ` +
           `${parts.join(", ")}.${opened}${reconciled}`,
       ),
@@ -5049,7 +5053,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       });
 
       return {
-        redirect: outcome.staged > 0 ? "/review" : "/import",
+        redirect: outcome.staged > outcome.autoApproved ? "/review" : "/import",
         message: worked
           ? `Read ${outcome.batch.rows_read} rows, and remembered these columns — ` +
             `the next file like this will import without asking.`

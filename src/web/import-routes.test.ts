@@ -13,7 +13,10 @@ import { test, before, after } from "node:test";
 import assert from "node:assert/strict";
 import type { Actor } from "../core/events.ts";
 import type { DB } from "../db/db.ts";
-import { queryOne } from "../db/db.ts";
+import { queryOne, execute, newId } from "../db/db.ts";
+import { nowIST } from "../core/dates.ts";
+import { createGroup, createCategory } from "../domain/budget.ts";
+import { resolvePayee } from "../domain/transactions.ts";
 import { createAccount } from "../domain/accounts.ts";
 import { STATEMENTS } from "../import/statements.test-data.ts";
 import { startTestApp, seedMember, freshDb, type TestApp } from "./harness.test-data.ts";
@@ -69,4 +72,35 @@ test("another member's private account cannot be imported into", async () => {
   const res = await app.post("/import", { account_id: privateToPriya, csv: CSV });
   assert.equal(res.status, 404);
   assert.equal(batches(), 0);
+});
+
+test("an auto-approved row is reported as added, not as waiting in Review", async () => {
+  const ravi: Actor = { memberId: "m", source: "ui" };
+  const account = createAccount(db, ravi, {
+    name: "Ravi's savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01",
+  });
+  const group = createGroup(db, ravi, "Flexible");
+  const eatingOut = createCategory(db, ravi, { groupId: group.id, name: "Eating Out" }).id;
+  resolvePayee(db, ravi, "Swiggy");
+  execute(
+    db,
+    `INSERT INTO rules (id,name,stage,conditions_json,actions_json,enabled,proposed,created_at)
+     VALUES (?,?,?,?,?,1,0,?)`,
+    newId(), "Swiggy", "default",
+    JSON.stringify([{ field: "merchant", op: "is", value: "Swiggy" }]),
+    JSON.stringify([
+      { type: "setPayee", payee: "Swiggy" }, { type: "setCategory", categoryId: eatingOut },
+      { type: "markAutoApprovable" },
+    ]),
+    nowIST(),
+  );
+
+  // It read "1 to review, 1 auto-approved" and opened an empty Review.
+  const res = await app.post("/import", {
+    account_id: account.id, csv: "Date,Narration,Amount\n02-09-2026,UPI/P2M/SWIGGY*ORDER,-450.00",
+  });
+  assert.equal(res.status, 303);
+  const location = decodeURIComponent(res.headers.get("location") ?? "");
+  assert.match(location, /0 to review, 1 auto-approved/);
+  assert.ok(location.startsWith("/import"), "nothing waits in Review, so it does not send you there");
 });
