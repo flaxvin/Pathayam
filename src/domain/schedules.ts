@@ -661,10 +661,14 @@ export function nextIncome(
      * that arrives every month — `next_due` moves when somebody ticks it off,
      * and a household that does not tick things off would be told nothing at
      * all. So a stale date rolls forward to the occurrence it implies.
+     *
+     * IMPORTS-SCHEDULES-14 · On or after today: nextOccurrence answers strictly
+     * after the date it is given, so a salary on the 26th never ticked off
+     * since August was, on 26 Sep — payday — said to arrive on 26 Oct.
      */
     const date = schedule.next_due! >= today
       ? schedule.next_due!
-      : nextOccurrence(schedule, today);
+      : nextOccurrence(schedule, addDays(today, -1));
     if (!date) continue;
     if (!soonest || date < soonest.date) {
       soonest = { date, label: schedule.name, amount: schedule.amount };
