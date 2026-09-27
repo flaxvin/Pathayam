@@ -14,7 +14,7 @@ import assert from "node:assert/strict";
 import { freshDb, seedMember } from "../web/harness.test-data.ts";
 import { createAccount } from "./accounts.ts";
 import { createGroup, createCategory } from "./budget.ts";
-import { createSchedule, setScheduleSplits, getSchedule, getScheduleSplits } from "./schedules.ts";
+import { createSchedule, setScheduleSplits, getSchedule, getScheduleSplits, deleteSchedule, markPaid } from "./schedules.ts";
 import { undoEvent } from "../core/events.ts";
 import { rupees, type Paise } from "../core/money.ts";
 import { queryOne, type DB } from "../db/db.ts";
@@ -65,5 +65,32 @@ describe("undoing a split change", () => {
     assert.ok(getSchedule(db, id), "the schedule was deleted");
     const lines = getScheduleSplits(db, id).map((l) => [l.category_id, l.amount]);
     assert.deepEqual(lines, [[rent, -rupees(30_000)], [upkeep, -rupees(2_000)]]);
+  });
+});
+
+/*
+ * IMPORTS-SCHEDULES-10 · The lines went with the row (ON DELETE CASCADE) and
+ * the event kept only the row, so undoing a delete put back a split schedule
+ * with no envelope and no lines — and its next "Mark paid" posted the whole
+ * amount out of no envelope at all.
+ */
+describe("undoing the delete of a split schedule", () => {
+  test("brings the lines back, and Mark paid files by them", () => {
+    const { db, rent, upkeep, id } = setup();
+    setScheduleSplits(db, actor, id, [
+      { categoryId: rent, amount: -rupees(30_000) as Paise },
+      { categoryId: upkeep, amount: -rupees(2_000) as Paise },
+    ]);
+    deleteSchedule(db, actor, id);
+    const ev = queryOne<{ id: string }>(db,
+      `SELECT id FROM events WHERE entity = 'schedule' AND action = 'delete'`)!.id;
+    assert.equal(undoEvent(db, ev, actor).ok, true);
+
+    assert.deepEqual(getScheduleSplits(db, id).map((l) => [l.category_id, l.amount]),
+      [[rent, -rupees(30_000)], [upkeep, -rupees(2_000)]]);
+    markPaid(db, actor, id, "2026-10-05" as IsoDate);
+    const tx = queryOne<{ is_split: number; category_id: string | null }>(db,
+      `SELECT is_split, category_id FROM transactions WHERE amount = ?`, -rupees(32_000))!;
+    assert.equal(tx.is_split, 1);
   });
 });

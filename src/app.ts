@@ -69,6 +69,7 @@ import { getIdentity, setIdentity, clearIdentity, maskedIdentity } from "./impor
 import {
   recognise, saveProfile, listProfiles, markProfileUsed, deleteProfile,
   mappingFromSelections, validateMapping, columnChoices, candidateHeaderRows, looksMappable,
+  rowsByPosition, delimiterName, MAPPING_DELIMITERS,
   parseWith,
 } from "./import/profiles.ts";
 import {
@@ -83,9 +84,9 @@ import {
   reconcile, reconciliationStatus, listCheckpoints, clearedBalanceAsOf,
   guardHistoricalEdit, breakCheckpoints, CheckpointConfirmationRequired,
 } from "./domain/reconciliation.ts";
-import { parseStatement } from "./import/csv.ts";
+import { parseStatement, detectDelimiter, dateOrderOf } from "./import/csv.ts";
 import {
-  ingest, listStaged, approveStaged, rejectStaged, mergeStaged, undoBatch, listBatches,
+  ingest, listStaged, approveStaged, approveStagedAsTransfer, rejectStaged, mergeStaged, undoBatch, listBatches, batchUndoDates,
 } from "./import/pipeline.ts";
 import {
   householdBudgetId, budgetsFor, lastBudget, rememberBudget, ensurePersonalBudget, listBudgets, getBudget,
@@ -173,7 +174,7 @@ import {
   LEGACY_GOAL_GROUP, getGoal,
 } from "./domain/goals.ts";
 import {
-  renderMore, renderPayees, renderRules, renderCategories, renderFirstRun,
+  renderMore, renderPayees, renderRules, conditionValueText, renderCategories, renderFirstRun,
   renderTokens,
   type PayeeRow, type RuleRow,
 } from "./web/pages/manage.ts";
@@ -770,6 +771,23 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return id;
   }
 
+  /**
+   * 15 · An import, by the account it was read into. The history hid another
+   * member's private-account batches, but `/import/undo` took any batch id, so
+   * Ravi could post Priya's and remove every transaction her statement had
+   * created — the queue writes beside it were guarded, the undo was not. A
+   * batch with no account (a Gmail fetch that matched nothing) is nobody's.
+   */
+  function requireVisibleBatch(ctx: RequestContext, id: string): string {
+    const row = queryOne<{ account_id: string | null }>(
+      db, `SELECT account_id FROM import_batches WHERE id = ?`, id,
+    );
+    if (!row || memberScope(db, viewer(ctx)).hides(row.account_id)) {
+      throw new NotFound("That import does not exist.");
+    }
+    return id;
+  }
+
   function requireVisibleAttachment(ctx: RequestContext, id: string): string {
     const meta = attachmentMeta(db, id);
     if (!meta) throw new NotFound("That attachment does not exist.");
@@ -837,6 +855,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }
     return id;
   }
+  /**
+   * IMPORTS-SCHEDULES-33 · The saved mappings /import lists. A mapping is named
+   * after its account ("<account> columns"), so listing them all named
+   * another member's private account on Ravi's import page — with a Remove
+   * button that then answered 404. The same rule as the guard below.
+   */
+  function visibleProfiles(ctx: RequestContext) {
+    const scope = memberScope(db, viewer(ctx));
+    return listProfiles(db).filter((p) => !scope.hides(p.account_id));
+  }
+
   function requireVisibleImportProfile(ctx: RequestContext, id: string): string {
     const profile = queryOne<{ account_id: string | null }>(
       db, `SELECT account_id FROM import_profiles WHERE id = ?`, id,
@@ -4038,6 +4067,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   function guardCheckpoints(
     ctx: RequestContext, a: AuthContext, accountId: string, dates: string[],
     confirmed: boolean, action: string, cancelHref: string,
+    /**
+     * False where the domain breaks them itself, inside the change's own
+     * transaction — the import paths — so a change that is then refused does
+     * not leave a checkpoint broken for nothing.
+     */
+    breakHere = true,
   ): Response | null {
     const account = getAccount(db, accountId)!;
     const affected = new Map<string, ReturnType<typeof listCheckpoints>[number]>();
@@ -4069,7 +4104,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     // R7.c/R7.e: mark them broken, with both values in the log. R7.f: they are
     // never repaired — only a fresh reconciliation asserts the balance again.
-    breakCheckpoints(
+    if (breakHere) breakCheckpoints(
       db, actorFor(a), [...affected.values()],
       `a transaction dated on or before it was changed`,
     );
@@ -4330,6 +4365,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       "Review",
       renderReview({
         staged: listStaged(db, { viewerMemberId: viewer(ctx) }),
+        transferAccounts: listAccounts(db, { viewerMemberId: viewer(ctx) })
+          .filter((acc) => !DERIVED_VALUE_SUBTYPES.has(acc.subtype))
+          .map((acc) => ({ id: acc.id, name: acc.name })),
         uncategorised: queryAll<{
           id: string; date: string; amount: number; payee: string | null; account: string;
         }>(
@@ -4419,8 +4457,69 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     );
   });
 
-  router.post("/review/approve", (ctx) =>
-    mutate(ctx, (a) => {
+  /*
+   * R7.b · Approving or merging an imported row dated on or before a
+   * reconciliation changes the balance it confirmed; undoing an import removes
+   * from it. Each asks first, naming the checkpoint, as deleting one
+   * transaction always has. The pipeline marks it broken in the same
+   * transaction as the change.
+   */
+  function confirmImportCheckpoints(
+    ctx: RequestContext, a: AuthContext, dates: Map<string, string[]>, action: string, cancelHref: string,
+  ): Response | null {
+    const confirmed = field(ctx.body, "confirm_checkpoint") === "1";
+    for (const [accountId, list] of dates) {
+      const guard = guardCheckpoints(ctx, a, accountId, list, confirmed, action, cancelHref, false);
+      if (guard) return guard;
+    }
+    return null;
+  }
+
+  function stagedCheckpointDates(stagedId: string, merging: boolean): Map<string, string[]> {
+    const row = queryOne<{ account_id: string; date: string; status: string; duplicate_of_id: string | null }>(
+      db, `SELECT account_id, date, status, duplicate_of_id FROM staged_transactions WHERE id = ?`, stagedId,
+    );
+    if (!row || row.status !== "pending") return new Map();
+    if (!merging) return new Map([[row.account_id, [row.date]]]);
+    // A merge moves nothing but the cleared flag, so only an uncleared target counts.
+    const target = row.duplicate_of_id
+      ? queryOne<{ account_id: string; date: string }>(
+        db, `SELECT account_id, date FROM transactions WHERE id = ? AND cleared = 0 AND deleted_at IS NULL`,
+        row.duplicate_of_id,
+      )
+      : null;
+    return target ? new Map([[target.account_id, [target.date]]]) : new Map();
+  }
+
+  router.post("/review/approve", (ctx) => {
+    const guard = confirmImportCheckpoints(
+      ctx, auth(ctx),
+      stagedCheckpointDates(requireVisibleStaged(ctx, requiredField(ctx.body, "staged_id")), false),
+      "/review/approve", "/review",
+    );
+    if (guard) return guard;
+    return mutate(ctx, (a) => {
+      /*
+       * IMPORTS-SCHEDULES-32 · "Transfer to/from <account>" in the envelope
+       * list: money moved between the household's own accounts, recorded as
+       * the pair it is rather than as spending on one side and new money on
+       * the other.
+       */
+      const choice = field(ctx.body, "category_id") ?? "";
+      if (choice.startsWith("transfer:")) {
+        const other = requireVisibleAccount(ctx, choice.slice("transfer:".length));
+        const result = approveStagedAsTransfer(
+          db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+          requireVisibleStaged(ctx, requiredField(ctx.body, "staged_id")), other.id,
+        );
+        return {
+          redirect: "/review",
+          message: result.pairedWith
+            ? `Recorded as a transfer with ${other.name}, matched with its own imported row.`
+            : `Recorded as a transfer with ${other.name}.`,
+        };
+      }
+
       /*
        * B99 · Approving is what puts a row in the ledger, so it is the same
        * rule as manual entry: an expense names its envelope, income does not
@@ -4445,8 +4544,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             ? ` Spotted a pattern — there ${proposals.length === 1 ? "is a rule" : `are ${proposals.length} rules`} to confirm below.`
             : ""),
       };
-    }),
-  );
+    });
+  });
 
   router.post("/review/reject", (ctx) =>
     mutate(ctx, (a) => {
@@ -4456,13 +4555,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }),
   );
 
-  router.post("/review/merge", (ctx) =>
-    mutate(ctx, (a) => {
+  router.post("/review/merge", (ctx) => {
+    const guard = confirmImportCheckpoints(
+      ctx, auth(ctx),
+      stagedCheckpointDates(requireVisibleStaged(ctx, requiredField(ctx.body, "staged_id")), true),
+      "/review/merge", "/review",
+    );
+    if (guard) return guard;
+    return mutate(ctx, (a) => {
       mergeStaged(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
         requireVisibleStaged(ctx, requiredField(ctx.body, "staged_id")));
       return { redirect: "/review", message: "Merged into the transaction you already had." };
-    }),
-  );
+    });
+  });
 
   // -------------------------------------------------------------------------
   // S10 · Import
@@ -4471,7 +4576,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     render(ctx, "Import", renderImport({
       accounts: listAccounts(db, { viewerMemberId: viewer(ctx) }),
       batches: listBatches(db, { viewerMemberId: viewer(ctx) }),
-      profiles: listProfiles(db).map((p) => ({
+      profiles: visibleProfiles(ctx).map((p) => ({
         id: p.id, name: p.name, last_used_at: p.last_used_at,
       })),
       casEnabled: config.features.assets,
@@ -4499,7 +4604,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       return render(
         ctx, "Which column is which?",
         renderMapping({
-          accountId, fileName, csv: text,
+          accountId, fileName, csv: text, delimiter: delimiterName(detectDelimiter(text)),
           rows: recognition.rows,
           candidateHeaders: candidateHeaderRows(recognition.rows),
           headerRow,
@@ -4557,7 +4662,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       render(ctx, "Import", renderImport({
         accounts: listAccounts(db, { viewerMemberId: viewer(ctx) }),
         batches: listBatches(db, { viewerMemberId: viewer(ctx) }),
-        profiles: listProfiles(db).map((p) => ({
+        profiles: visibleProfiles(ctx).map((p) => ({
           id: p.id, name: p.name, last_used_at: p.last_used_at,
         })),
         casEnabled: config.features.assets,
@@ -4627,12 +4732,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // mapping task, not an error. The extracted rows go to the same screen an
     // unrecognised CSV goes to.
     if (parsed.records.length === 0) {
-      const rows = parsed.text.split("\n").map((line) => line.split(/\s{2,}/));
+      const lines = parsed.text.split("\n");
+      const loose = lines.map((line) => line.split(/\s{2,}/));
 
       // B64 · A mapping task needs columns to map. A scanned statement has
       // none, and the mapping screen would offer "Column 1" for every field
       // above a table of nothing. Say what is actually wrong instead.
-      if (!looksMappable(rows)) {
+      if (!looksMappable(loose)) {
         return importPage(
           "There is no text in that PDF to read — it is almost certainly a scan " +
           "or an image rather than a statement with selectable text. Ask the bank " +
@@ -4641,13 +4747,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         );
       }
 
-      const headerRow = candidateHeaderRows(rows)[0]?.index ?? 0;
+      // The header row is found on the loose split; the cells are then cut
+      // by position under it, so an empty Deposit stays an empty cell.
+      const headerRow = candidateHeaderRows(loose)[0]?.index ?? 0;
+      const rows = rowsByPosition(lines, headerRow);
       return render(
         ctx, "Which column is which?",
         renderMapping({
           accountId,
           fileName: upload.filename,
           csv: rows.map((r) => r.join("\t")).join("\n"),
+          delimiter: "tab",
           rows,
           candidateHeaders: candidateHeaderRows(rows),
           headerRow,
@@ -4714,6 +4824,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         amount: pick("amount"),
         debit: pick("debit"),
         credit: pick("credit"),
+        direction: pick("direction"),
         balance: pick("balance"),
         reference: pick("reference"),
       });
@@ -4721,15 +4832,40 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const problem = validateMapping(mapping);
       if (problem) throw new HttpError(400, problem);
 
-      const recognition = recognise(db, text, accountId);
+      const delimiter = MAPPING_DELIMITERS[field(ctx.body, "delimiter") ?? ""];
+      const recognition = recognise(db, text, accountId, delimiter);
+
+      /*
+       * IMPORTS-SCHEDULES-30 · The order of day and month, as chosen — or,
+       * left to the file, month first only when its dates prove it (a second
+       * part over 12). A column that proves both ways is refused: whichever
+       * reading was taken, some of its rows would land in the wrong month.
+       */
+      const dateFormat = field(ctx.body, "date_format") ?? "auto";
+      if (dateFormat === "dd-mm-yyyy" || dateFormat === "mm-dd-yyyy" || dateFormat === "yyyy-mm-dd") {
+        mapping.dateFormat = dateFormat;
+      } else {
+        const order = dateOrderOf(recognition.rows, mapping.headerRow, mapping.date);
+        if (order === "mixed") {
+          throw new HttpError(400,
+            "Some dates in that column put the day first (13/09) and others the month (09/13), " +
+            "so it is not clear which is which. Choose how the dates are written.");
+        }
+        if (order === "mm-dd-yyyy") mapping.dateFormat = order;
+      }
       const result = parseWith(recognition.rows, mapping);
 
-      saveProfile(db, actorFor(a), {
-        name: requiredField(ctx.body, "profile_name"),
-        accountId,
-        headers: recognition.rows[mapping.headerRow] ?? [],
-        mapping,
-      });
+      // A mapping that read no transaction at all is not one to remember:
+      // the next file like this would import the same nothing without asking.
+      const worked = result.records.length > 0;
+      if (worked) {
+        saveProfile(db, actorFor(a), {
+          name: requiredField(ctx.body, "profile_name"),
+          accountId,
+          headers: recognition.rows[mapping.headerRow] ?? [],
+          mapping,
+        });
+      }
 
       const outcome = ingest(db, actorFor(a, "import"), {
         accountId, source: "csv", adapter: "csv", fileName,
@@ -4738,9 +4874,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
       return {
         redirect: outcome.staged > 0 ? "/review" : "/import",
-        message:
-          `Read ${outcome.batch.rows_read} rows, and remembered these columns — ` +
-          `the next file like this will import without asking.`,
+        message: worked
+          ? `Read ${outcome.batch.rows_read} rows, and remembered these columns — ` +
+            `the next file like this will import without asking.`
+          : `Read ${outcome.batch.rows_read} rows, but none came out as a transaction, ` +
+            `so these columns were not remembered. The import history shows why each row was skipped.`,
       };
     }),
   );
@@ -4752,10 +4890,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }),
   );
 
-  router.post("/import/undo", (ctx) =>
-    mutate(ctx, (a) => {
+  router.post("/import/undo", (ctx) => {
+    const guard = confirmImportCheckpoints(
+      ctx, auth(ctx),
+      batchUndoDates(db, requireVisibleBatch(ctx, requiredField(ctx.body, "batch_id"))),
+      "/import/undo", "/import",
+    );
+    if (guard) return guard;
+    return mutate(ctx, (a) => {
       const result = undoBatch(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
-        requiredField(ctx.body, "batch_id"));
+        requireVisibleBatch(ctx, requiredField(ctx.body, "batch_id")));
       return {
         redirect: "/import",
         message:
@@ -4764,8 +4908,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             ? `. ${result.keptBecauseEdited.length} had been edited since and were left alone.`
             : "."),
       };
-    }),
-  );
+    });
+  });
 
 
   // -------------------------------------------------------------------------
@@ -5737,10 +5881,23 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       listCategories(db, { includeHidden: true, budgetId: scope, viewerMemberId: viewer(ctx) })
         .map((c) => c.id),
     );
+    /*
+     * A tracking account belongs to no budget, and money into it names no
+     * envelope — so a "PPF deposit" schedule matched neither end in any scope:
+     * "Schedule added.", then never listed, with no Paid, Skip, Edit or Remove
+     * anywhere. With no envelope to place it, it shows wherever its account is
+     * visible, the way a schedule with neither end always has.
+     */
+    const unbudgetedAccounts = new Set(
+      listAccounts(db, { viewerMemberId: viewer(ctx) })
+        .filter((a) => a.budget_id === null)
+        .map((a) => a.id),
+    );
     const inScopeSchedule = (s: { account_id: string | null; category_id: string | null }) =>
       (!s.account_id && !s.category_id)
       || (s.account_id !== null && accountsInScope.has(s.account_id))
-      || (s.category_id !== null && categoriesInScope.has(s.category_id));
+      || (s.category_id !== null && categoriesInScope.has(s.category_id))
+      || (s.category_id === null && s.account_id !== null && unbudgetedAccounts.has(s.account_id));
 
     return render(
       ctx, "Schedules",
@@ -5757,12 +5914,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             .map((sch) => [sch.id, getScheduleSplits(db, sch.id)]),
         ),
         // The inline edit form needs the full lists, or saving would blank the
-        // fields it does not show.
+        // fields it does not show — the same accounts /schedules/new offers, or
+        // a schedule on a tracking account saved as "Not set".
         categories: [...view.categories.values()]
           .filter((c) => !c.isPaymentCategory && !c.commitsToBudgetId && !c.hidden)
           .map((c) => ({ id: c.id, name: c.name })),
         accounts: listAccounts(db, { viewerMemberId: viewer(ctx) })
-          .filter((acc) => acc.kind === "budget" || acc.kind === "credit")
           .map((acc) => ({ id: acc.id, name: acc.nickname || acc.name })),
       }),
     );
@@ -5787,6 +5944,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       // F7.6: a detected schedule becomes real only when confirmed, and stops
       // being marked "detected" once it is.
+      /*
+       * The suggestion's figures arrive as hidden fields, and hidden is not
+       * checked. The amount is paise, written by the page itself, so it is a
+       * whole, non-zero number or the form was not ours; the date is read like
+       * any other; the payee is guarded below, as the account and envelope are.
+       */
+      const rawAmount = (field(ctx.body, "amount") ?? "").trim();
+      const amount = /^-?\d+$/.test(rawAmount) ? Number(rawAmount) : NaN;
+      if (!Number.isSafeInteger(amount) || amount === 0) {
+        throw new HttpError(422, `"${rawAmount}" is not an amount this suggestion could have made.`);
+      }
       createSchedule(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         name: requiredField(ctx.body, "name"),
         // The payee too, like the account and envelope beside it
@@ -5795,11 +5963,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         payeeId: guardedField(ctx, "payee_id", requireVisiblePayee),
         accountId: visibleAccountField(ctx, "account_id"),
         categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
-        amount: Number(field(ctx.body, "amount") ?? 0),
+        amount: amount as Paise,
         recurrence: parseRecurrence(field(ctx.body, "recurrence") ?? "monthly"),
         recurrenceOrdinal: weekdayOrdinalField(ctx.body),
         recurrenceWeekday: weekdayField(ctx.body),
-        nextDue: field(ctx.body, "next_due") ?? todayIST(),
+        nextDue: dateField(field(ctx.body, "next_due"), "Next due"),
       });
       return { redirect: "/schedules", message: "Added to your schedules." };
     }),
@@ -5867,13 +6035,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         lineValues,
       );
       /*
-       * B99 for schedules, against the lines. A blank line here posts itself
-       * against nothing every month, for ever — see outgoingLacksEnvelope.
+       * B99 for schedules, against the lines. A blank line here is recorded
+       * against nothing each time it is marked paid — see outgoingLacksEnvelope.
        */
       if ( outgoingLacksEnvelope((direction === "in" ? magnitude : -magnitude) as Paise, filed)) {
         throw new Refusal(
-          "One of those envelope lines is blank, so part of this would post itself " +
-          "every month against nothing. Money coming in can be left unassigned — it " +
+          "One of those envelope lines is blank, so each time you mark it paid, part " +
+          "of it would be recorded against nothing. Money coming in can be left unassigned — it " +
           "waits in Ready to Assign — but money going out has to say where it came from.",
         );
       }
@@ -5929,6 +6097,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const magnitude = amountRaw?.trim() ? Math.abs(amountField(amountRaw, "Amount")) : null;
       const direction = field(ctx.body, "direction") ?? "out";
       const dueRaw = field(ctx.body, "next_due");
+      /*
+       * IMPORTS-SCHEDULES-25 · A date that does not read is refused, as on
+       * /schedules/new. It was dropped: "31/02/2027" or "someday" answered
+       * "Rent updated." and kept the old date, so the change seemed made.
+       * Empty still means "leave it".
+       */
+      const nextDue = dueRaw?.trim() ? dateField(dueRaw, "Next due") : undefined;
 
       /*
        * Envelope lines live on this form now, not a separate one beside it.
@@ -5978,13 +6153,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         : null;
 
       /*
-       * B99 for schedules, against the lines. A blank line here posts itself
-       * against nothing every month, for ever — see outgoingLacksEnvelope.
+       * B99 for schedules, against the lines. A blank line here is recorded
+       * against nothing each time it is marked paid — see outgoingLacksEnvelope.
        */
       if (filed !== null && outgoingLacksEnvelope(signedAmount, filed)) {
         throw new Refusal(
-          "One of those envelope lines is blank, so part of this would post itself " +
-          "every month against nothing. Money coming in can be left unassigned — it " +
+          "One of those envelope lines is blank, so each time you mark it paid, part " +
+          "of it would be recorded against nothing. Money coming in can be left unassigned — it " +
           "waits in Ready to Assign — but money going out has to say where it came from.",
         );
       }
@@ -6002,7 +6177,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             : undefined,
           recurrence_ordinal: weekdayOrdinalField(ctx.body),
           recurrence_weekday: weekdayField(ctx.body),
-          next_due: dueRaw?.trim() ? (parseDate(dueRaw) ?? undefined) : undefined,
+          next_due: nextDue,
           /*
            * Absent is not the same as cleared.
            *
@@ -6027,6 +6202,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         setScheduleSplits(
           db, actorFor(a, "ui"), schedule.id,
           (filed.splits ?? []).map((sp) => ({ categoryId: sp.categoryId, amount: sp.amount })),
+          { priorAmount: existing?.amount ?? null },
         );
       }
 
@@ -6284,6 +6460,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   }
 
   function ruleFromBody(ctx: RequestContext): Rule {
+    const conditionField = requiredField(ctx.body, "field") as Rule["conditions"][number]["field"];
+    /*
+     * An amount is typed in rupees and compared in paise. The typed "5000" was
+     * stored as it stood and compared against 6000 paise, so "is more than
+     * 5000" filed a ₹60 chai into Big spends and "is exactly 649" never met a
+     * ₹649 Netflix (64900). It is read like every other amount field here.
+     */
+    let value: string | number = requiredField(ctx.body, "value");
+    if (conditionField === "amount" || conditionField === "absoluteAmount") {
+      const paise = parseAmount(value);
+      if (paise === null) throw new HttpError(422, `"${value}" isn't an amount I can read.`);
+      value = conditionField === "absoluteAmount" ? Math.abs(paise) : paise;
+    }
     return {
       id: "draft",
       name: requiredField(ctx.body, "name"),
@@ -6291,9 +6480,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       match: "all",
       conditions: [
         {
-          field: requiredField(ctx.body, "field") as Rule["conditions"][number]["field"],
+          field: conditionField,
           op: requiredField(ctx.body, "op") as Rule["conditions"][number]["op"],
-          value: requiredField(ctx.body, "value"),
+          value,
         },
       ],
       actions: [{ type: "setCategory", categoryId: requireVisibleCategory(ctx, requiredField(ctx.body, "category_id"))! }],
@@ -6349,12 +6538,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const subjects: RuleSubject[] = queryAll<{
       narration: string | null; payee: string | null; account_id: string;
       amount: number; date: string; memo: string | null; category_id: string | null;
-      cleared: number; source: string;
+      cleared: number; source: string; card_last4: string | null;
     }>(
       db,
       `SELECT t.raw_narration AS narration, p.name AS payee, t.account_id, t.amount, t.date,
-              t.memo, t.category_id, t.cleared, t.source
+              t.memo, t.category_id, t.cleared, t.source, c.last4 AS card_last4
          FROM transactions t LEFT JOIN payees p ON p.id = t.payee_id
+         LEFT JOIN cards c ON c.id = t.card_id
         WHERE t.deleted_at IS NULL ORDER BY t.date DESC LIMIT 500`,
     ).map((r) => {
       const narration = r.narration ?? r.payee ?? "";
@@ -6362,7 +6552,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         narration, importedPayee: r.payee, payee: r.payee, accountId: r.account_id,
         amount: r.amount, date: r.date, memo: r.memo, tags: [],
         categoryId: r.category_id, cleared: r.cleared === 1, source: r.source,
-        cardLast4: null, ...extractNarrationFields(narration),
+        cardLast4: r.card_last4, ...extractNarrationFields(narration),
       };
     });
 
@@ -6378,7 +6568,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         name: rule.name,
         field: String(rule.conditions[0]!.field),
         op: String(rule.conditions[0]!.op),
-        value: String(rule.conditions[0]!.value),
+        value: conditionValueText(rule.conditions[0]!),
         categoryId: (rule.actions[0] as { categoryId: string }).categoryId,
         stage: rule.stage,
       },
@@ -7056,6 +7246,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (result.alerts.staged) parts.push(`${result.alerts.staged} alerts`);
     if (result.statements.staged) parts.push(`${result.statements.staged} statement rows`);
     if (result.alerts.unmatched) parts.push(`${result.alerts.unmatched} to an unknown account`);
+    // IMPORTS-SCHEDULES-34 · an alert it could not read is said, not dropped.
+    if (result.alerts.unread) {
+      parts.push(`${result.alerts.unread} alert${result.alerts.unread === 1 ? "" : "s"} it could not read — add ${result.alerts.unread === 1 ? "that one" : "those"} by hand`);
+    }
     const summary = parts.length
       ? `Read ${result.scanned} messages — ${parts.join(", ")}, all in Review.`
       : `Read ${result.scanned} messages — nothing new.`;

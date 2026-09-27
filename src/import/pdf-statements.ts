@@ -747,7 +747,7 @@ function parseRow(
   // figure is the amount, not a running total.
   const hasBalance = header?.balance != null && money.length >= 2;
   const balanceFigure = hasBalance ? money[money.length - 1]! : null;
-  const balance = balanceFigure ? value(balanceFigure) : null;
+  const balance = balanceFigure ? balanceOf(balanceFigure.text) : null;
 
   const amountFigure = hasBalance
     ? money[money.length - 2] ?? null
@@ -815,12 +815,31 @@ function parseRow(
   };
 }
 
+/**
+ * A running, opening or closing balance, with its sign.
+ *
+ * `parseStatementAmount` gives the figure; which side of zero it sits on is
+ * the marker's. An overdrawn account prints "5,000.00 Dr" — or brackets, or a
+ * minus — and read as the bare figure, a withdrawal from 5,000 Dr to 6,000 Dr
+ * looked like the balance *rising*: every row of an overdraft or OD account
+ * imported with the wrong sign, and the reconciliation, reading the opening
+ * and closing just as blindly, agreed with it to the paisa.
+ */
+function balanceOf(text: string): number | null {
+  const figure = parseStatementAmount(text)?.value;
+  if (figure === undefined) return null;
+  const t = text.trim();
+  const overdrawn =
+    /(?<![a-z])dr\.?$/i.test(t) || /^\(.*\)$/.test(t) || /^(?:Rs\.?|INR|₹|C)?\s*-/i.test(t);
+  return overdrawn ? -figure : figure;
+}
+
 /** An opening-balance line, which anchors the fallback path's first row. */
 function openingBalanceOf(line: string): number | null {
   if (!/opening\s+balance|b\/?f\b|brought\s+forward/i.test(line)) return null;
   const figures = figuresWithOffsets(line);
   const last = figures[figures.length - 1];
-  return last ? parseStatementAmount(last.text)?.value ?? null : null;
+  return last ? balanceOf(last.text) : null;
 }
 
 // ---------------------------------------------------------------------------
@@ -1160,7 +1179,7 @@ function reconcile(
     if (/closing\s+balance/i.test(line)) {
       const figures = figuresWithOffsets(line).filter((f) => /\.\d{2}\b/.test(f.text));
       const last = figures[figures.length - 1];
-      if (last) closing = parseStatementAmount(last.text)?.value ?? null;
+      if (last) closing = balanceOf(last.text);
     }
   }
 

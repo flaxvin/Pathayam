@@ -274,3 +274,82 @@ describe("04 §3.4 · fetching alerts from Gmail", () => {
     db.close();
   });
 });
+
+/**
+ * IMPORTS-SCHEDULES-26 · An alert is routed among what the fetching member
+ * may see. The last-four lookup took the oldest match household-wide, so
+ * Ravi's alert for XX0000 landed in Priya's private account ending 0000.
+ */
+describe("IMPORTS-SCHEDULES-26 · routing by last four respects privacy", () => {
+  const fetchAxis = (db: DB) => fetchGmail(db, actor, {
+    clientId: "id", clientSecret: "secret",
+    fetchImpl: fakeGoogle({
+      m1: { from: "alerts@axis.bank.in", subject: "INR 600 debited", body: AXIS_ACCOUNT },
+    }),
+  });
+
+  test("another member's private account with the same last four is not a candidate", async () => {
+    const db = setup();
+    createAccount(db, { memberId: PRIYA, source: "ui" }, {
+      name: "ZZ Priya private", kind: "tracking", subtype: "savings", openingDate: "2026-08-01",
+      last4: "0000", holderMemberId: PRIYA, visibility: "private",
+    });
+    const his = createAccount(db, actor, {
+      name: "ZZ Ravi Axis", kind: "budget", subtype: "savings", openingDate: "2026-08-01",
+      last4: "0000", holderMemberId: RAVI,
+    });
+    const result = await fetchAxis(db);
+    assert.equal(result.alerts.staged, 1);
+    const staged = queryAll<{ account_id: string }>(db, `SELECT account_id FROM staged_transactions`);
+    assert.deepEqual(staged.map((s) => s.account_id), [his.id]);
+    db.close();
+  });
+
+  test("his own account is preferred; two of them leave the alert alone, with a note", async () => {
+    const db = setup();
+    createAccount(db, actor, {
+      name: "ZZ Joint", kind: "budget", subtype: "savings", openingDate: "2026-08-01", last4: "0000",
+    });
+    const mine = createAccount(db, actor, {
+      name: "ZZ Ravi Axis", kind: "budget", subtype: "savings", openingDate: "2026-08-01",
+      last4: "0000", holderMemberId: RAVI,
+    });
+    await fetchAxis(db);
+    assert.deepEqual(
+      queryAll<{ account_id: string }>(db, `SELECT account_id FROM staged_transactions`).map((s) => s.account_id),
+      [mine.id],
+    );
+
+    const db2 = setup();
+    for (const name of ["ZZ Axis one", "ZZ Axis two"]) {
+      createAccount(db2, actor, {
+        name, kind: "budget", subtype: "savings", openingDate: "2026-08-01", last4: "0000",
+      });
+    }
+    const result = await fetchAxis(db2);
+    assert.equal(result.alerts.staged, 0);
+    assert.equal(result.alerts.unmatched, 1);
+    assert.ok(result.notes.some((n) => /More than one of your accounts ends in 0000/.test(n)));
+    db.close(); db2.close();
+  });
+});
+
+describe("IMPORTS-SCHEDULES-34 · an alert that cannot be read is counted, not dropped", () => {
+  test("a transaction-shaped message no profile reads is counted; a promotion is not", async () => {
+    const db = setup();
+    const result = await fetchGmail(db, actor, {
+      clientId: "id", clientSecret: "secret",
+      fetchImpl: fakeGoogle({
+        m1: {
+          from: "alerts@yes.bank.in", subject: "Txn alert",
+          body: "INR 70.00 has been spent on your YES BANK Credit Card ending with 8803 at ZZ CAFE today.",
+        },
+        m2: { from: "alerts@yes.bank.in", subject: "Offers", body: "Get 10% back up to INR 500 this festive season!" },
+      }),
+    });
+    assert.equal(result.alerts.parsed, 0);
+    assert.equal(result.alerts.unread, 1);
+    assert.ok(result.notes.some((n) => /alerts@yes\.bank\.in .*could not be read/.test(n)));
+    db.close();
+  });
+});

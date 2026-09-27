@@ -244,6 +244,10 @@ describe("top-down · nothing in the domain went unexercised", () => {
     startBlank: "The other half of applyStartingTemplate: a household picks one.",
     setCategoryHidden: "Exercised — but on a category the scenario later deletes, " +
       "so it is called before the deletion rather than after.",
+    approveStagedAsTransfer: "The scenario's imported statements carry no movement " +
+      "between the household's own accounts — it types its card payments with " +
+      "createTransfer — so the Review choice is covered by import-transfer.test.ts; " +
+      "adding such a line would change the demo household's figures.",
   };
 
   test("every mutating domain function is called by the scenario", () => {

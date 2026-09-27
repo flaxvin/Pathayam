@@ -17,6 +17,8 @@ import { renderProposals, type ProposedRule } from "./manage.ts";
 
 export interface ReviewData {
   staged: StagedRow[];
+  /** IMPORTS-SCHEDULES-32 · The viewer's accounts a staged row can be a transfer with. */
+  transferAccounts?: { id: string; name: string }[];
   uncategorised: {
     id: string; date: IsoDate; amount: Paise; payee: string | null; account: string;
     /** B93 · Where this payee's money usually goes, if it has been seen before. */
@@ -90,7 +92,7 @@ function renderStaged(data: ReviewData): SafeHtml {
     ${when(plain.length > 0, () => html`
       <section class="card">
         <h2>Imported, needs confirmation <span class="chip">${plain.length}</span></h2>
-        ${plain.map((row) => renderStagedRow(row, data.categories))}
+        ${plain.map((row) => renderStagedRow(row, data.categories, data.transferAccounts ?? []))}
       </section>
     `)}
 
@@ -110,7 +112,10 @@ function renderStaged(data: ReviewData): SafeHtml {
   `;
 }
 
-function renderStagedRow(row: StagedRow, categories: CategoryView[]): SafeHtml {
+function renderStagedRow(
+  row: StagedRow, categories: CategoryView[], transferAccounts: { id: string; name: string }[],
+): SafeHtml {
+  const others = transferAccounts.filter((a) => a.id !== row.account_id);
   return html`
     <form method="post" action="/review/approve"
           style="padding:.75rem 0;border-top:1px solid var(--border)">
@@ -124,6 +129,14 @@ function renderStagedRow(row: StagedRow, categories: CategoryView[]): SafeHtml {
           <div class="faint" style="word-break:break-all">${row.raw_narration}</div>
           ${when(row.applied_rules_json, () => html`
             <span class="chip chip-info">set by a rule</span>
+          `)}
+          <!--
+            A match with a row still in this queue: there is no transaction to
+            merge into, so it waits here with its reason, and approving one of
+            the two and dismissing the other is the decision.
+          -->
+          ${when(row.duplicate_reason, () => html`
+            <p class="notice notice-warning" style="margin:.5rem 0 0">${row.duplicate_reason}</p>
           `)}
         </div>
         <strong class="amount ${row.amount < 0 ? "amount-negative" : "amount-positive"}">
@@ -170,6 +183,20 @@ function renderStagedRow(row: StagedRow, categories: CategoryView[]): SafeHtml {
                   ${c.name}
                 </option>
               `)}
+          `)}
+          <!--
+            IMPORTS-SCHEDULES-32 · A card bill paid from the bank is neither
+            spending nor new money: it is a transfer, and the other account's
+            own imported row, if it is waiting here too, becomes its other leg.
+          -->
+          ${when(others.length > 0, () => html`
+            <optgroup label="${row.amount < 0 ? "Or moved to your own account…" : "Or moved from your own account…"}">
+              ${others.map((a) => html`
+                <option value="transfer:${a.id}">
+                  ${row.amount < 0 ? "Transfer to" : "Transfer from"} ${a.name}
+                </option>
+              `)}
+            </optgroup>
           `)}
         </select>
         <button class="button-primary button-small" type="submit">Approve</button>
@@ -443,6 +470,8 @@ export interface MappingPrompt {
   accountId: string;
   fileName: string;
   csv: string;
+  /** How `csv` was split into `rows`, by name; posted back so it is split the same way. */
+  delimiter: string;
   /** The rows exactly as parsed — 04 §3.2 keeps them visible throughout. */
   rows: string[][];
   candidateHeaders: { index: number; cells: string[] }[];
@@ -506,6 +535,7 @@ export function renderMapping(opts: MappingPrompt): SafeHtml {
       <input type="hidden" name="account_id" value="${opts.accountId}">
       <input type="hidden" name="file_name" value="${opts.fileName}">
       <textarea name="csv" hidden>${opts.csv}</textarea>
+      <input type="hidden" name="delimiter" value="${opts.delimiter}">
 
       <div class="field">
         <label for="header_row">Which row holds the column names?</label>
@@ -525,6 +555,20 @@ export function renderMapping(opts: MappingPrompt): SafeHtml {
       </div>
 
       ${column("date", "Date", "The date the transaction happened.", true)}
+      <div class="field">
+        <label for="date_format">How are the dates written?</label>
+        <select id="date_format" name="date_format">
+          <option value="auto">Work it out from the file</option>
+          <option value="dd-mm-yyyy">Day first — 31/08/2026</option>
+          <option value="mm-dd-yyyy">Month first — 08/31/2026</option>
+          <option value="yyyy-mm-dd">Year first — 2026-08-31</option>
+        </select>
+        <p class="field-hint">
+          Indian banks put the day first. A file exported from a US-style
+          system puts the month first; when every day is 12 or under, the file
+          alone cannot say which.
+        </p>
+      </div>
       ${column("narration", "Description", "Whatever the bank calls the other party.", true)}
 
       <fieldset>
@@ -535,7 +579,9 @@ export function renderMapping(opts: MappingPrompt): SafeHtml {
         </p>
         ${column("debit", "Money out", "The withdrawal or debit column.")}
         ${column("credit", "Money in", "The deposit or credit column.")}
-        ${column("amount", "Or one signed column", "Negative for money out.")}
+        ${column("amount", "Or one amount column", "Negative for money out — or pick the Dr / Cr column below.")}
+        ${column("direction", "Its Dr / Cr column",
+          "Only if the amount is unsigned and another column says Dr or Cr (Debit or Credit).")}
       </fieldset>
 
       <fieldset>

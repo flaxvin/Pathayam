@@ -68,7 +68,7 @@ export interface AlertProfile {
 // ---------------------------------------------------------------------------
 
 /**
- * `28-08-26`, `28-08-2026`, `27-08-2026`, `27 Aug 2026`.
+ * `28-08-26`, `28-08-2026`, `27-08-2026`, `27 Aug 2026`, `27-Aug-26`.
  *
  * Checked against the calendar (`calendarDate`), as every date reader is: this
  * one accepted any day up to 31, so an alert dated 31/02/2026 staged a row on
@@ -79,10 +79,13 @@ function parseAlertDate(raw: string): IsoDate | null {
   if (numeric) {
     return calendarDate(fullYear(numeric[3]!), Number(numeric[2]), Number(numeric[1]));
   }
-  const named = /(\d{1,2})[-\s]([A-Za-z]{3})[a-z]*[-\s](\d{4})/.exec(raw);
+  // IMPORTS-SCHEDULES-34 · A two-digit year too, as the statement reader
+  // takes one. YES Bank writes "27-Aug-26"; its profile matched the alert and
+  // then this answered null, and the spend was dropped without a word.
+  const named = /(\d{1,2})[-\s]([A-Za-z]{3})[a-z]*[-\s](\d{4}|\d{2})\b/.exec(raw);
   if (named) {
     const month = monthFromName(named[2]!);
-    if (month !== null) return calendarDate(Number(named[3]), month, Number(named[1]));
+    if (month !== null) return calendarDate(fullYear(named[3]!), month, Number(named[1]));
   }
   return null;
 }
@@ -356,6 +359,20 @@ export function parseAlert(
     }
   }
   return null;
+}
+
+/**
+ * IMPORTS-SCHEDULES-34 · A message from an alert sender that reads like a
+ * transaction — an amount and "spent", "debited", "credited" — but that no
+ * profile could read. Such a message was dropped without a word; the fetch
+ * now says one was left unread. Promotions and OTPs from the same senders
+ * name no such verb beside an amount, and stay quiet.
+ */
+export function looksLikeUnreadAlert(sender: string, body: string): boolean {
+  if (!ALERT_PROFILES.some((p) => p.senders.some((s) => s.test(sender.trim())))) return false;
+  const flat = body.replace(/\s+/g, " ");
+  return /(?:INR|Rs\.?|₹)\s*[\d,]+/i.test(flat)
+    && /\b(?:spent|debited|credited|refunded|withdrawn)\b/i.test(flat);
 }
 
 // ---------------------------------------------------------------------------

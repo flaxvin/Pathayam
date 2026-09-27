@@ -538,3 +538,113 @@ describe("the review queue only acts on items still waiting", () => {
     db.close();
   });
 });
+
+describe("04 §4 · the strong tier is one event, not a standing instruction", () => {
+  test("next month's EMI and salary are not folded into last month's (IMPORTS-SCHEDULES-6)", () => {
+    const { db, account, anyCategory } = setup();
+    // The longest digit run is the loan / employee number, the same every month.
+    importStatement(db, account.id, `Date,Narration,Amount
+05-08-2026,ACH-DR/ZZ FINANCE LOAN 4011223344,-5000.00
+01-08-2026,SALARY EMP 20045678 ZZCORP,85000.00`, "aug.csv");
+    for (const row of listStaged(db)) approveStaged(db, actor, row.id, { categoryId: anyCategory });
+
+    const september = importStatement(db, account.id, `Date,Narration,Amount
+05-09-2026,ACH-DR/ZZ FINANCE LOAN 4011223344,-5000.00
+01-09-2026,SALARY EMP 20045678 ZZCORP,85000.00`, "sep.csv");
+    assert.equal(september.staged, 2, "both of September's rows wait for review");
+    assert.equal(september.duplicates, 0);
+    assert.equal(listStaged(db).length, 2);
+    db.close();
+  });
+
+  test("an alert and its statement line a few days apart still upgrade", () => {
+    const { db, account, anyCategory } = setup();
+    importStatement(db, account.id, `Date,Narration,Chq./Ref.No.,Withdrawal Amt.,Deposit Amt.
+03-08-2026,UPI/P2M/431202847592/SWIGGY*ORDER,431202847592,450.00,`, "alert.csv");
+    for (const row of listStaged(db)) approveStaged(db, actor, row.id, { categoryId: anyCategory });
+    const later = importStatement(db, account.id, `Date,Narration,Chq./Ref.No.,Withdrawal Amt.,Deposit Amt.
+06-08-2026,UPI-SWIGGY-431202847592,431202847592,450.00,`, "statement.csv");
+    assert.equal(later.staged, 0);
+    assert.equal(queryOne<{ n: number }>(db,
+      `SELECT COUNT(*) AS n FROM transactions WHERE deleted_at IS NULL`)!.n, 1);
+    db.close();
+  });
+});
+
+describe("04 §4 · rows still waiting in the queue are candidates too", () => {
+  const alert = {
+    rowNumber: 0, date: "2026-08-03", amount: -45000,
+    narration: "UPI txn to SWIGGY ref 431202847592", reference: "431202847592",
+    raw: { date: "03-08-26", amount: "INR 450.00", narration: "UPI txn to SWIGGY ref 431202847592" },
+  };
+
+  test("a pending alert and the statement line with its reference are one row (IMPORTS-SCHEDULES-4)", () => {
+    const { db, account, anyCategory } = setup();
+    ingest(db, actor, { accountId: account.id, source: "email", adapter: "email:zz", records: [alert] });
+    const statement = importStatement(db, account.id);
+    assert.equal(statement.duplicates, 1, "the Swiggy line is recognised");
+    assert.equal(listStaged(db).length, 3, "the alert, the salary and DMart — not a second ₹450");
+    for (const row of listStaged(db)) approveStaged(db, actor, row.id, { categoryId: anyCategory });
+    assert.equal(queryOne<{ n: number }>(db,
+      `SELECT COUNT(*) AS n FROM transactions WHERE amount = -45000 AND deleted_at IS NULL`)!.n, 1);
+    db.close();
+  });
+
+  test("a fuzzy match with a pending row is flagged, not linked, and both can be kept", () => {
+    const { db, account, anyCategory } = setup();
+    ingest(db, actor, {
+      accountId: account.id, source: "email", adapter: "email:zz",
+      records: [{ ...alert, reference: null, narration: "UPI txn to SWIGGY",
+        raw: { ...alert.raw, narration: "UPI txn to SWIGGY" } }],
+    });
+    const out = importStatement(db, account.id, `Date,Narration,Amount
+04-08-2026,SWIGGY ORDER,-450.00`, "card.csv");
+    assert.equal(out.duplicates, 1);
+    const flagged = listStaged(db).find((r) => r.raw_narration === "SWIGGY ORDER")!;
+    assert.equal(flagged.duplicate_of_id, null, "there is no transaction to merge into");
+    assert.match(flagged.duplicate_reason ?? "", /still waiting in this queue/);
+    for (const row of listStaged(db)) approveStaged(db, actor, row.id, { categoryId: anyCategory });
+    assert.equal(queryOne<{ n: number }>(db,
+      `SELECT COUNT(*) AS n FROM transactions WHERE deleted_at IS NULL`)!.n, 2);
+    db.close();
+  });
+
+  test("two identical rows in one file still do not flag each other (D2)", () => {
+    const { db, account } = setup();
+    const out = importStatement(db, account.id, `Date,Narration,Amount
+04-08-2026,ZZ CAFE,-120.00
+04-08-2026,ZZ CAFE,-120.00`, "twins.csv");
+    assert.equal(out.duplicates, 0);
+    assert.equal(out.staged, 2);
+    db.close();
+  });
+});
+
+/*
+ * IMPORTS-SCHEDULES-3 · Only pending rows counted as already seen, so a row
+ * dismissed from Review came back on the next import of the same file — and a
+ * dismissed alert on every Gmail fetch in its 14-day window.
+ */
+describe("a dismissed row stays dismissed", () => {
+  test("re-importing the file does not bring a dismissed row back", () => {
+    const { db, account } = setup();
+    importStatement(db, account.id);
+    for (const row of listStaged(db)) rejectStaged(db, actor, row.id);
+
+    const again = importStatement(db, account.id);
+    assert.equal(again.staged, 0);
+    assert.equal(again.skipped, 3);
+    assert.equal(listStaged(db).length, 0);
+    db.close();
+  });
+
+  test("but an undone import gives its dismissed rows back", () => {
+    const { db, account } = setup();
+    const first = importStatement(db, account.id);
+    rejectStaged(db, actor, listStaged(db)[0]!.id);
+    undoBatch(db, actor, first.batch.id);
+
+    assert.equal(importStatement(db, account.id).staged, 3);
+    db.close();
+  });
+});

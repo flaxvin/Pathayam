@@ -24,8 +24,9 @@ import { todayIST, type IsoDate } from "../core/dates.ts";
 import type { Paise } from "../core/money.ts";
 import { ingest } from "../import/pipeline.ts";
 import type { RawRecord } from "../import/csv.ts";
-import { findAccountByLast4, findCardByLast4 } from "../domain/accounts.ts";
-import { ALERT_PROFILES, parseAlert } from "../import/email-alerts.ts";
+import { accountsByLast4For, cardsByLast4For } from "../domain/accounts.ts";
+import { hiddenAccountSql } from "../domain/member-scope.ts";
+import { ALERT_PROFILES, parseAlert, looksLikeUnreadAlert } from "../import/email-alerts.ts";
 import { senderFor, parseStatementPdf, WrongPassword } from "../import/pdf-statements.ts";
 import { passwordCandidates } from "../import/statement-passwords.ts";
 import { getIdentity } from "../import/identity.ts";
@@ -39,7 +40,8 @@ import { Refusal } from "../core/refusal.ts";
 
 export interface FetchResult {
   scanned: number;
-  alerts: { parsed: number; staged: number; unmatched: number };
+  /** `unread`: from an alert sender, read like a transaction, but no profile could read it. */
+  alerts: { parsed: number; staged: number; unmatched: number; unread: number };
   statements: { read: number; staged: number; locked: number };
   notes: string[];
 }
@@ -106,7 +108,7 @@ export async function fetchGmail(
   const client: GmailClientOptions = { accessToken, fetchImpl: deps.fetchImpl };
   const result: FetchResult = {
     scanned: 0,
-    alerts: { parsed: 0, staged: 0, unmatched: 0 },
+    alerts: { parsed: 0, staged: 0, unmatched: 0, unread: 0 },
     statements: { read: 0, staged: 0, locked: 0 },
     notes: [],
   };
@@ -138,11 +140,27 @@ export async function fetchGmail(
     // Otherwise, a transaction alert.
     const body = plainTextBody(message);
     const parsed = parseAlert(sender, subject, body, received);
-    if (!parsed) continue;
+    if (!parsed) {
+      // Not every message from a bank is a transaction, but one that reads
+      // like one and could not be read is said, not silently dropped.
+      if (looksLikeUnreadAlert(sender, body)) {
+        result.alerts.unread++;
+        result.notes.push(
+          `An alert from ${sender}${received ? ` on ${received}` : ""} could not be read, ` +
+          "so nothing was imported from it — add that transaction by hand",
+        );
+      }
+      continue;
+    }
     result.alerts.parsed++;
 
-    const routed = routeAlert(db, parsed.record);
+    const routed = routeAlert(db, memberId, parsed.record);
     if (!routed) { result.alerts.unmatched++; result.notes.push(`No account matches ${sender}`); continue; }
+    if ("ambiguous" in routed) {
+      result.alerts.unmatched++;
+      result.notes.push(`More than one of your accounts ends in ${routed.ambiguous}; left an alert from ${sender} alone`);
+      continue;
+    }
 
     const bucket = alertRecords.get(routed.accountId) ?? { records: [], adapter: `email:${parsed.bank}` };
     bucket.records.push(routed.record);
@@ -165,20 +183,28 @@ export async function fetchGmail(
 // ---------------------------------------------------------------------------
 
 function routeAlert(
-  db: DB, record: import("../import/email-alerts.ts").AlertRecord,
-): { accountId: string; record: RawRecord } | null {
+  db: DB, memberId: string, record: import("../import/email-alerts.ts").AlertRecord,
+): { accountId: string; record: RawRecord } | { ambiguous: string } | null {
   // A card last-four resolves to the card and its Credit account; an account
   // last-four to the account. R6.e: the add-on holder is carried through as the
   // proposed owner, defaulted from the greeting.
+  //
+  // Only among what the fetching member may see: the alert came from their
+  // mailbox. Of those, the ones they hold come first, and when that still
+  // leaves two the alert is left alone with a note rather than guessed.
   let accountId: string | null = null;
   let cardId: string | null = null;
 
   if (record.cardLast4) {
-    const card = findCardByLast4(db, record.cardLast4);
+    const card = onlyOne(cardsByLast4For(db, record.cardLast4, memberId),
+      (c) => (c.holder_member_id ?? c.account_holder) === memberId);
+    if (card === AMBIGUOUS) return { ambiguous: record.cardLast4 };
     if (card) { accountId = card.account_id; cardId = card.id; }
   }
   if (!accountId && record.accountLast4) {
-    const account = findAccountByLast4(db, record.accountLast4);
+    const account = onlyOne(accountsByLast4For(db, record.accountLast4, memberId),
+      (a) => a.holder_member_id === memberId);
+    if (account === AMBIGUOUS) return { ambiguous: record.accountLast4 };
     if (account) accountId = account.id;
   }
   if (!accountId) return null;
@@ -205,6 +231,16 @@ function routeAlert(
     cardId,
   };
   return { accountId, record: raw };
+}
+
+const AMBIGUOUS = Symbol("ambiguous");
+
+/** The one row, preferring those `held` picks; AMBIGUOUS when that still leaves more than one. */
+function onlyOne<T>(rows: T[], held: (row: T) => boolean): T | typeof AMBIGUOUS | null {
+  const mine = rows.filter(held);
+  const pool = mine.length > 0 ? mine : rows;
+  if (pool.length > 1) return AMBIGUOUS;
+  return pool[0] ?? null;
 }
 
 // ---------------------------------------------------------------------------
@@ -239,7 +275,7 @@ async function handleStatement(
     // Resolve the account from the statement's own header — the parser does not
     // expose an account number, so fall back to the single account for that
     // bank if there is exactly one. Left to Review otherwise.
-    const accountId = resolveStatementAccount(db, statementSender.bank);
+    const accountId = resolveStatementAccount(db, memberId, statementSender.bank);
     if (!accountId) { result.notes.push(`${pdf.filename}: no matching account`); continue; }
 
     const outcome = ingest(db, actor, {
@@ -252,12 +288,16 @@ async function handleStatement(
 }
 
 function resolveStatementAccount(
-  db: DB, bank: import("../import/pdf-statements.ts").BankId | null,
+  db: DB, memberId: string, bank: import("../import/pdf-statements.ts").BankId | null,
 ): string | null {
   if (!bank) return null;
+  // Among the fetching member's own view, as for alerts: another member's
+  // private account at the same bank is neither a candidate nor a rival.
+  const hidden = hiddenAccountSql("a", memberId);
   const rows = (db.prepare(
-    `SELECT id FROM accounts WHERE closed_at IS NULL AND lower(institution) LIKE ?`,
-  ).all(`%${bank}%`)) as { id: string }[];
+    `SELECT a.id FROM accounts a
+      WHERE a.closed_at IS NULL AND lower(a.institution) LIKE ? AND NOT ${hidden.sql}`,
+  ).all(`%${bank}%`, ...hidden.params)) as { id: string }[];
   return rows.length === 1 ? rows[0]!.id : null;
 }
 
