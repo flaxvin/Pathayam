@@ -168,6 +168,22 @@ function weekdayFields(
   return { ordinal: ord, weekday: wd };
 }
 
+/**
+ * IMPORTS-SCHEDULES-13 · A weekday rule's first due date is one of its own days.
+ *
+ * next_due was stored as typed, and the new-schedule form defaults it to
+ * today: "the first Sunday of each month" created on Wednesday 7 Oct kept 7 Oct
+ * as its first date, so the calendar showed a payment that day and Mark paid
+ * posted one. The date is now the rule's first day on or after it (1 Nov
+ * there); one already on the rule is left alone.
+ */
+function snapToWeekdayRule(date: IsoDate, pair: { ordinal: number | null; weekday: number | null }): IsoDate {
+  if (pair.ordinal === null || pair.weekday === null) return date;
+  const ordinal = pair.ordinal as WeekdayOrdinal;
+  const thisMonth = nthWeekdayOfMonth(monthOf(date), pair.weekday, ordinal);
+  return thisMonth >= date ? thisMonth : nthWeekdayOfMonth(addMonths(monthOf(date), 1), pair.weekday, ordinal);
+}
+
 export function createSchedule(
   db: DB, actor: Actor,
   input: {
@@ -199,6 +215,8 @@ export function createSchedule(
    */
   requireScheduleFigures(input.amount, input.nextDue);
   requireEnvelopeForOutgoing(input.amount, input.categoryId, input.splitsFollow === true);
+  const pair = weekdayFields(input.recurrence, input.recurrenceOrdinal, input.recurrenceWeekday);
+  input = { ...input, nextDue: snapToWeekdayRule(input.nextDue, pair) };
   return transact(db, () => {
     const id = newId();
     execute(
@@ -210,9 +228,7 @@ export function createSchedule(
        VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       id, input.name, input.accountId ?? null, input.payeeId ?? null, input.categoryId ?? null,
       input.amount ?? null, input.amountIsEstimate ? 1 : 0, parseRecurrence(input.recurrence),
-      input.nextDue, input.shortMonthPolicy ?? "last-day",
-      weekdayFields(input.recurrence, input.recurrenceOrdinal, input.recurrenceWeekday).ordinal,
-      weekdayFields(input.recurrence, input.recurrenceOrdinal, input.recurrenceWeekday).weekday,
+      input.nextDue, input.shortMonthPolicy ?? "last-day", pair.ordinal, pair.weekday,
       input.isSubscription ? 1 : 0, input.detected ? 1 : 0, input.confidence ?? null,
       nowIST(),
     );
@@ -299,6 +315,20 @@ export function updateSchedule(
         patch.recurrence_weekday ?? before.recurrence_weekday,
       );
       patch = { ...patch, recurrence_ordinal: pair.ordinal, recurrence_weekday: pair.weekday };
+    }
+
+    // A date or rule that changes lands the date on the rule, as on create.
+    const recurrenceAfter = patch.recurrence ?? before.recurrence;
+    const dueAfter = patch.next_due ?? before.next_due;
+    if (recurrenceAfter === "monthly-nth-weekday" && dueAfter && (
+      patch.next_due !== undefined || patch.recurrence !== undefined
+      || patch.recurrence_ordinal !== undefined || patch.recurrence_weekday !== undefined
+    )) {
+      const snapped = snapToWeekdayRule(dueAfter, {
+        ordinal: patch.recurrence_ordinal !== undefined ? patch.recurrence_ordinal : before.recurrence_ordinal,
+        weekday: patch.recurrence_weekday !== undefined ? patch.recurrence_weekday : before.recurrence_weekday,
+      });
+      if (snapped !== dueAfter) patch = { ...patch, next_due: snapped };
     }
 
     // A key present but undefined means "not mentioned", not "set to null" — the
