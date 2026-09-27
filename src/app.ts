@@ -328,7 +328,7 @@ import {
 import {
   createAssetAccount, listAssetAccounts, listValuableAccounts, findOrCreateInstrument, recordPurchase,
   recordSale, recordPrice, recordSplit, recordMerger, recordValuation, latestValuation, listHoldings, viewHolding,
-  priceHistory, previewHoldingSale, getInstrument, listInstruments,
+  priceHistory, previewHoldingSale, getInstrument, findManualInstrument, listInstruments,
   classifyInstrument, ASSET_CLASSES, ASSET_CLASS_LABELS,
   exportHoldingsCsv, exportLotsCsv, exportPriceHistoryCsv, exportNetWorthCsv,
   type InstrumentKind,
@@ -7057,6 +7057,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           chosen: chosen
             ? { id: chosen.id, name: chosen.name, kind: chosen.kind, currency: chosen.currency }
             : null,
+          accountId: ctx.query.get("account"),
         }),
       ),
     );
@@ -7075,15 +7076,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
        * was left with nothing in it and the holding never got a NAV.
        */
       const chosenId = field(ctx.body, "instrument_id");
+      const typedInstrument = () => {
+        const symbol = schemeCode ?? field(ctx.body, "symbol") ?? null;
+        const typed = {
+          name: requiredField(ctx.body, "name"),
+          kind: (field(ctx.body, "kind") ?? "mutual-fund") as InstrumentKind,
+          currency: field(ctx.body, "currency") || "INR",
+        };
+        // WEALTH-11 · The same name typed again is the same instrument.
+        return (symbol ? null : findManualInstrument(db, typed, memberScope(db, viewer(ctx)).instruments))
+          ?? findOrCreateInstrument(db, actor, { ...typed, symbol, provider: schemeCode ? "mfapi" : "manual" });
+      };
       const instrument = chosenId
         ? getInstrument(db, requireVisibleInstrument(ctx, chosenId))!
-        : findOrCreateInstrument(db, actor, {
-            name: requiredField(ctx.body, "name"),
-            kind: (field(ctx.body, "kind") ?? "mutual-fund") as InstrumentKind,
-            symbol: schemeCode ?? field(ctx.body, "symbol") ?? null,
-            currency: field(ctx.body, "currency") || "INR",
-            provider: schemeCode ? "mfapi" : "manual",
-          });
+        : typedInstrument();
 
       // Choosing a scheme from the search is step one; the purchase follows.
       if (field(ctx.body, "step") === "details") {
