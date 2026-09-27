@@ -289,7 +289,9 @@ function passwordSignInOffered(db: DB, config: Config): boolean {
 
 const LEGAL_UPDATED = "19 September 2026";
 import { loadRules } from "./import/pipeline.ts";
-import { testRule, type Rule, type RuleSubject, extractNarrationFields } from "./import/rules.ts";
+import {
+  testRule, type Rule, type RuleSubject, extractNarrationFields, CONDITION_FIELDS, OPERATORS, LIST_OPERATORS,
+} from "./import/rules.ts";
 import {
   applyStartingTemplate, startBlank,
 } from "./domain/starting-budget.ts";
@@ -6716,6 +6718,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   function ruleFromBody(ctx: RequestContext): Rule {
     const conditionField = requiredField(ctx.body, "field") as Rule["conditions"][number]["field"];
+    const op = requiredField(ctx.body, "op") as Rule["conditions"][number]["op"];
+    /*
+     * EXTRA-2 · The field and the test are checked, not trusted. The form sends
+     * one typed value, and "oneOf" with the text "Zomato" (a crafted post; the
+     * form does not offer it) was saved as it stood, then threw inside every
+     * import after — 500 until the rule was deleted. A test that needs a list
+     * or a pair cannot be written here, and an unknown one never matches.
+     */
+    if (!CONDITION_FIELDS.includes(conditionField)) {
+      throw new HttpError(422, `A rule can't test "${conditionField}".`);
+    }
+    if (!OPERATORS.includes(op)) throw new HttpError(422, `"${op}" isn't a test a rule can make.`);
+    if (LIST_OPERATORS.includes(op)) {
+      throw new HttpError(422, `"${op}" needs a list of values, and this form takes one. Use "is exactly" or "matches a pattern".`);
+    }
     /*
      * An amount is typed in rupees and compared in paise. The typed "5000" was
      * stored as it stood and compared against 6000 paise, so "is more than
@@ -6734,11 +6751,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       stage: "default",
       match: "all",
       conditions: [
-        {
-          field: conditionField,
-          op: requiredField(ctx.body, "op") as Rule["conditions"][number]["op"],
-          value,
-        },
+        { field: conditionField, op, value },
       ],
       actions: [{ type: "setCategory", categoryId: ruleTarget(ctx) }],
       enabled: true,
