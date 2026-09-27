@@ -159,8 +159,8 @@ export async function readBody(req: IncomingMessage): Promise<Record<string, str
   if (contentType.includes("application/json")) {
     try {
       const parsed = JSON.parse(text) as unknown;
-      return typeof parsed === "object" && parsed !== null
-        ? (parsed as Record<string, string | string[]>)
+      return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
+        ? formShaped(parsed as Record<string, unknown>)
         : {};
     } catch {
       throw new BadRequest("That request body was not valid JSON.");
@@ -172,6 +172,34 @@ export async function readBody(req: IncomingMessage): Promise<Record<string, str
   for (const key of new Set(params.keys())) {
     const values = params.getAll(key);
     out[key] = values.length > 1 ? values : values[0]!;
+  }
+  return out;
+}
+
+/**
+ * A JSON body held to the shape a form body has: strings, and lists of them.
+ *
+ * Every handler reads the body as `Record<string, string | string[]>`, and a
+ * JSON body was cast to that unchecked. An object value then reached a query
+ * as a bound parameter, which node:sqlite reads as a set of *named*
+ * parameters — `{"member_id":{"a":1}}` to the public /demo/enter threw, a 500
+ * and a fault row per request for anybody. A number or a boolean is kept as
+ * the text a form would have sent; anything nested has no form spelling and
+ * is dropped, so it reads as absent.
+ */
+function formShaped(parsed: Record<string, unknown>): Record<string, string | string[]> {
+  const scalar = (v: unknown): string | null =>
+    typeof v === "string" ? v
+    : typeof v === "number" || typeof v === "boolean" ? String(v)
+    : null;
+  const out: Record<string, string | string[]> = {};
+  for (const [key, value] of Object.entries(parsed)) {
+    if (Array.isArray(value)) {
+      out[key] = value.map(scalar).filter((v): v is string => v !== null);
+    } else {
+      const text = scalar(value);
+      if (text !== null) out[key] = text;
+    }
   }
   return out;
 }
