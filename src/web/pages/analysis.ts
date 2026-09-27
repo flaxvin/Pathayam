@@ -702,6 +702,23 @@ export function renderSchedules(opts: {
    */
   splits?: Map<string, { category_id: string | null; amount: Paise }[]>;
 }): SafeHtml {
+  /*
+   * IMPORTS-SCHEDULES-17 · A schedule's own envelopes stay on its own form.
+   * The list offered leaves out hidden envelopes, so a schedule filed to one
+   * ("Gym" on "Old gym", hidden since) had no option to keep: its select sent
+   * "" and every save — even a rename — was refused as a blank envelope line.
+   * Its current envelope and each line's are added back, marked hidden.
+   */
+  const ownCategoriesKept = (s: Schedule) => {
+    const list = (opts.categories ?? []).map((c) => ({ id: c.id, name: c.name }));
+    const own = [s.category_id, ...(opts.splits?.get(s.id) ?? []).map((l) => l.category_id)];
+    for (const id of own) {
+      if (id && !list.some((c) => c.id === id)) {
+        list.push({ id, name: `${opts.categoryNames.get(id) ?? "An envelope"} (hidden)` });
+      }
+    }
+    return list;
+  };
   return html`
     <h1>Schedules &amp; cashflow</h1>
 
@@ -807,7 +824,7 @@ export function renderSchedules(opts: {
                     <div class="field" style="margin:0;flex:1 1 100%">
                       ${renderCategoryLines({
                         label: "Envelope",
-                        categories: (opts.categories ?? []).map((c) => ({ id: c.id, name: c.name })),
+                        categories: ownCategoriesKept(s),
                         values: (opts.splits?.get(s.id)?.length ?? 0) > 0
                           ? opts.splits!.get(s.id)!.map((sp) => ({
                               categoryId: sp.category_id, amount: sp.amount,
