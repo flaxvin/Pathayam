@@ -247,7 +247,10 @@ export function periodPresets(today = todayIST()): Period[] {
 
   return [
     { key: "this-month", label: "This month", from: `${month}-01`, to: today },
-    { key: "last-month", label: "Last month", from: `${lastMonth}-01`, to: `${month}-01` },
+    // WEALTH-24 · Every query reads `to` as inclusive, so this ended on the 1st
+    // of this month — whose salary was then in last month's totals and CSV,
+    // and in this month's too.
+    { key: "last-month", label: "Last month", from: `${lastMonth}-01`, to: addDays(`${month}-01`, -1) },
     { key: "last-3", label: "Last 3 months", from: addDays(today, -90), to: today },
     { key: "last-12", label: "Last 12 months", from: addDays(today, -365), to: today },
     // L4: the Indian financial year, alongside the calendar year.
