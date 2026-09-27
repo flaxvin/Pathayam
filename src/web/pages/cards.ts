@@ -89,7 +89,7 @@ export function renderCards(opts: { cards: CardDue[]; month: string }): SafeHtml
     <section class="card">
       <div class="row" style="gap:2rem;flex-wrap:wrap">
         <div>
-          <div class="faint">Owed across ${cards.length} cards</div>
+          <div class="faint">Owed across ${cards.length} ${cards.length === 1 ? "card" : "cards"}</div>
           <strong class="amount amount-negative" style="font-size:1.25rem">${formatPaise(owed)}</strong>
         </div>
         <div>
@@ -149,8 +149,18 @@ function renderCard(card: CardDue, month: string): SafeHtml {
 
       <div class="row" style="gap:2rem;flex-wrap:wrap;margin-top:.75rem">
         <div>
-          <div class="faint">Set aside</div>
-          <span class="amount">${formatPaise(card.funded)}</span>
+          <!-- The payment envelope's balance. Below zero it is not money put by
+               at all (a minus figure under that heading read as savings) but an
+               envelope that has paid out more than it held, so it says that. -->
+          ${card.funded < 0
+            ? html`
+                <div class="faint">Payment envelope overspent</div>
+                <span class="amount amount-negative">${formatPaise(-card.funded as Paise)}</span>
+              `
+            : html`
+                <div class="faint">Set aside</div>
+                <span class="amount">${formatPaise(card.funded)}</span>
+              `}
         </div>
         ${when(card.unfunded > 0, () => html`
           <div>
