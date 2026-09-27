@@ -171,6 +171,26 @@ describe("R40.2 · verified restore", () => {
     });
   });
 
+  test("SECURITY-OPS-23 · catches a backup that has lost an event", () => {
+    withTempDir((dir) => {
+      const { db, accountId } = setup(dir);
+      const backupDir = join(dir, "backups");
+      createBackup(db, backupDir);
+      // Later writes are normal, and must not excuse the hole below.
+      createTransaction(db, actor, { accountId, amount: rupees(-500), date: "2026-08-20" });
+
+      const path = listBackups(backupDir)[0]!.path;
+      const copy = new DatabaseSync(path);
+      copy.exec(`DELETE FROM events WHERE seq = 2`);
+      copy.close();
+
+      const result = verifyRestore(db, backupDir);
+      assert.equal(result.ok, false, result.summary);
+      assert.ok(result.mismatches.some((m) => /event log.*missing/.test(m)), result.summary);
+      db.close();
+    });
+  });
+
   test("tolerates writes made after the snapshot", () => {
     withTempDir((dir) => {
       const { db, accountId } = setup(dir);
