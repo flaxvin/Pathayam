@@ -127,6 +127,9 @@ Editing or deleting one leg acts on both. Specifically:
   does undoing the *creation* of either leg: it removes the whole transfer.
   Deleting from either leg asks about a reconciled period on *both* accounts,
   as an edit does.
+- **A charge on the transfer** is a third, ordinary transaction filed to an
+  envelope, outside the pair. Undoing the transfer from Activity removes it
+  with the legs.
 
 **Between a card and a tracking account** (topping up a wallet from the card,
 an EMI on a loan tracked outside the budget) the card side is treated exactly
