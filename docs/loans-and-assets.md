@@ -14,6 +14,7 @@ equal to the current instalment.
 | `interest_model` | `reducing`, `flat`, `moratorium-serviced` or `moratorium-capitalised`. |
 | `sanctioned`, `sanction_date` | |
 | `tenure_months`, `original_tenure_months` | The original is retained when a rate change alters the tenure. |
+| `emi_pinned`, `emi_pinned_until` | The instalment the borrower chose to keep (a prepayment that reduces the tenure, or a rate change that keeps the instalment), and the day a later rate change that keeps the tenure moves it again. Null lets the instalment follow the tenure. |
 | `first_instalment_date`, `instalment_day` | |
 | `moratorium_months` | Interest-only period before principal repayment begins. |
 | `repayment_account_id` | Where instalments are paid from. |
@@ -38,6 +39,20 @@ instalment (the tenure moves). Keeping the instalment is only accepted once the
 new rate applies — dated today or earlier — because the tenure it needs depends
 on the balance that day, and stretching it early would lower the instalment the
 projection asks for until the date arrives.
+
+Keeping the instalment stores it (`emi_pinned`), and the projection runs a
+reducing-balance loan down at that instalment, with a smaller last one, rather
+than deriving one from the outstanding over the whole months left. A tenure is a
+whole number of months, so the derived figure would drift: ₹1,00,000 at 12% over
+a year is ₹8,884.88 a month, and after ₹20,000 prepaid that instalment clears
+the rest in 9.6 months. Pricing it over 10 months instead would lower it to
+₹8,446.57. Keeping the tenure lets the instalment go: at once when the change
+is dated today or earlier, or on its date when it is dated ahead, so nothing
+moves early. A kept instalment that would no longer cover a month's interest
+is not used; the tenure prices the instalment again. Migration 0058 stored the
+kept instalment for loans that had chosen it before: the last regular
+instalment recorded before that choice, or, with none recorded, the loan's
+first instalment priced from its opening principal, first rate and first tenure.
 
 A `flat` loan runs to its own schedule: interest on the original principal,
 the same every month, and principal in equal parts — EMI = (P + P × rate ×
@@ -85,7 +100,10 @@ is left alone; the drift line on net worth shows it.
 
 The prepayment screen compares the two options a lender must offer — reduce the
 tenure, or reduce the instalment — and prices both, showing the interest saved
-by each. Recording one applies it and recomputes the schedule.
+by each. Recording one applies it and recomputes the schedule. Reducing the
+tenure keeps the instalment exactly as it was (see Schedule) and closes the
+loan early; reducing the instalment keeps the tenure and lets go of any kept
+instalment.
 
 The lump sum comes out of an envelope the household names, moved into the
 loan's payment envelope first so no envelope is quietly overdrawn. That envelope
@@ -136,8 +154,8 @@ reason — none is marked undone without moving anything:
 
 | Undoing | Reverses |
 |---|---|
-| An instalment, prepayment, charge or settlement payment | The payment row and both of its legs (the bank or card debit, the loan-account credit). A prepayment taken as a shorter tenure puts the tenure back. Refused while the loan is closed — undo the close first. |
-| A rate change | The rate period, and the tenure if "keep the instalment" moved it. |
+| An instalment, prepayment, charge or settlement payment | The payment row and both of its legs (the bank or card debit, the loan-account credit). A prepayment puts back the tenure and the kept instalment it had. Refused while the loan is closed — undo the close first. |
+| A rate change | The rate period, and the tenure if "keep the instalment" moved it, and the kept instalment as it was before. |
 | A re-anchor, a lender statement | The row it wrote. |
 | A disbursement | The draw and both of its legs. |
 | A close | Reopens the loan **and** its account, and removes the principal waived at settlement. The settlement payment and any charge are separate entries, undone separately. |
