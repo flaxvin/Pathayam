@@ -206,7 +206,8 @@ Undoing a **payee merge** moves back the transactions and aliases the merge
 moved, provided they still sit with the payee they were merged into — or with
 any payee that one has itself been merged into since — and reports the count it
 actually moved back. A merge stays listed in Activity, and undoable, after its
-winner is merged again.
+winner is merged again. Undoing a payee's creation is refused once it has been
+merged into another: its merge is undone first.
 
 The engine also refuses to be the victim of an inconsistent ledger: split lines
 count only when the transaction says it is split, and a transfer leg whose
