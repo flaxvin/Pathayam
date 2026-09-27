@@ -30,6 +30,7 @@ import {
   findOrCreateInstrument, recordPurchase, recordSale, recordDividend,
   listAssetAccounts, listHoldings, getInstrument, listInstruments,
 } from "../domain/assets.ts";
+import { memberScope } from "../domain/member-scope.ts";
 import type { CasRow, CasScheme, CasStatement } from "./cas.ts";
 import { unitsDisagreement } from "./cas.ts";
 
@@ -109,8 +110,16 @@ export interface CasPlan {
  */
 export function planCasImport(
   db: DB, statement: CasStatement, accountId: string | null,
+  /**
+   * 15 · Who is importing. An existing holding in an account they cannot see
+   * is somebody else's: Ravi's folio of a fund Priya holds privately went into
+   * her account, where he had put lots he could no longer see. Undefined is
+   * the whole household, for the simulation and nothing else.
+   */
+  viewerMemberId?: string | null,
 ): CasPlan {
   const instruments = listInstruments(db);
+  const scope = viewerMemberId === undefined ? null : memberScope(db, viewerMemberId);
   const schemes: PlannedScheme[] = [];
   let totalNew = 0;
   let totalHeld = 0;
@@ -123,9 +132,12 @@ export function planCasImport(
       (scheme.isin ? instruments.find((i) => i.isin === scheme.isin) : undefined) ??
       instruments.find((i) => i.name.toLowerCase() === scheme.name.toLowerCase());
 
-    const holding = instrument
-      ? listHoldings(db).find((h) => h.instrument_id === instrument.id)
-      : undefined;
+    // The destination's own holding first, then one elsewhere the importer
+    // can see.
+    const held = instrument
+      ? listHoldings(db).filter((h) => h.instrument_id === instrument.id && !scope?.hides(h.account_id))
+      : [];
+    const holding = held.find((h) => h.account_id === accountId) ?? held[0];
 
     const known = holding ? recordedRefs(db, holding.id) : new Set<string>();
     const seen = new Map<string, number>();

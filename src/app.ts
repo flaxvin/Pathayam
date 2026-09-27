@@ -7648,7 +7648,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       }));
     }
 
-    const plan = planCasImport(db, statement, accountId);
+    const plan = planCasImport(db, statement, accountId, viewer(ctx));
     const token = newId();
     stashPlan(token, plan, a.member.id);
 
