@@ -215,6 +215,9 @@ import { countRequestFailures, recentRequestFailures } from "./ops/errors.ts";
  */
 const UNCATEGORISED_PAGE = 15;
 
+/** The furthest the Schedules page projects cash: ten years of days. */
+const MAX_CASHFLOW_DAYS = 3650;
+
 // Kept in step with the dates on website/privacy.html and website/terms.html,
 // which are the canonical pages and cover the same ground for the public site.
 /*
@@ -2961,6 +2964,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         accounts,
         defaultFrom: ctx.query.get("from"),
         defaultTo: ctx.query.get("to"),
+        /*
+         * "Pay it off" on the Cards page links here with what the card owes.
+         * The form ignored it, so the button promised an amount and delivered
+         * an empty field. Rupees, parsed the way /move parses its own.
+         */
+        defaultAmount: ctx.query.get("amount")?.trim()
+          ? Math.abs(amountField(ctx.query.get("amount")!, "Amount"))
+          : null,
         today: todayIST(),
         // Only envelopes this viewer can see, and never a card's payment
         // envelope — the domain refuses one, so offering it would be a choice
@@ -6085,7 +6096,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // S8 · Schedules and the cashflow calendar (F7)
   // -------------------------------------------------------------------------
   router.get("/schedules", (ctx) => {
-    const horizon = Number(ctx.query.get("days") ?? 60);
+    /*
+     * The horizon arrives from a URL. Anything that is not a whole number of
+     * days was a 500 ("Invalid time value" from the date arithmetic), a
+     * negative one read "the next -1 days", and a few million overflowed the
+     * chart's stack after five seconds of projecting. Nonsense falls back to
+     * the default, as a nonsense month does; a horizon past ten years is
+     * refused, because nothing scheduled here is planned that far out.
+     */
+    const daysRaw = ctx.query.get("days")?.trim();
+    const daysAsked = daysRaw && /^\d+$/.test(daysRaw) ? Number(daysRaw) : 0;
+    if (daysAsked > MAX_CASHFLOW_DAYS) {
+      throw new Refusal(`The cashflow looks ahead at most ${MAX_CASHFLOW_DAYS} days.`);
+    }
+    const horizon = daysAsked >= 1 ? daysAsked : 60;
     const scope = budgetParam(ctx);
     const cashflow = projectCashflow(db, { days: horizon, budgetId: scope, viewerMemberId: viewer(ctx) });
     const view = buildBudgetView(db, undefined, scope, viewer(ctx));
