@@ -3,7 +3,10 @@ import assert from "node:assert/strict";
 import { openDatabase, ensureHousehold, execute, queryOne, type DB } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { queryEvents, undoEvent } from "../core/events.ts";
-import { nowIST, addDays, todayIST } from "../core/dates.ts";
+import { nowIST, addDays, todayIST, monthOf } from "../core/dates.ts";
+import { loadEngineInput } from "../engine/repository.ts";
+import { computeBudget } from "../engine/engine.ts";
+import { householdBudgetId } from "./budgets.ts";
 import { rupees } from "../core/money.ts";
 import { createAccount } from "./accounts.ts";
 import { createGroup, createCategory, setAssigned } from "./budget.ts";
@@ -380,6 +383,39 @@ describe("MONEY-CORE-6 · undoing \"no longer holds\"", () => {
     assert.throws(() => undoEvent(db, brk.id, actor), UndoRefused);
     assert.equal(reconciliationStatus(db, account.id, "2026-08-26").broken, true);
     assert.equal(clearedBalanceAsOf(db, account.id, "2026-08-25"), rupees(94_100));
+    db.close();
+  });
+});
+
+/*
+ * A tracking account funds nothing (FW1), so reconciling one must not touch a
+ * budget. Its adjustment was filed to the household's Reconciliation envelope:
+ * bringing a fixed deposit up by ₹100 to the bank's figure put ₹100 into that
+ * envelope with no budget account behind it, and Ready to Assign fell by ₹100.
+ */
+describe("F9.2 · reconciling a tracking account", () => {
+  test("the adjustment stays off budget and Ready to Assign does not move", () => {
+    const { db } = setup();
+    const month = monthOf(todayIST());
+    const rta = () => computeBudget(
+      loadEngineInput(db, { through: month, budgetId: householdBudgetId(db) }),
+    ).get(month)!.readyToAssign;
+
+    const fd = createAccount(db, actor, {
+      name: "Fixed deposit", kind: "tracking", subtype: "fixed-deposit",
+      openingBalance: rupees(5_000), openingDate: "2026-08-01",
+    });
+    const before = rta();
+    const result = reconcile(db, actor, {
+      accountId: fd.id, bankBalance: rupees(5_100), asOf: todayIST(), allowAdjustment: true,
+    });
+    assert.equal(result.status, "reconciled");
+    assert.equal(clearedBalanceAsOf(db, fd.id, todayIST()), rupees(5_100));
+    assert.equal(rta(), before);
+    const adjustment = queryOne<{ category_id: string | null }>(
+      db, `SELECT category_id FROM transactions WHERE account_id = ?`, fd.id,
+    );
+    assert.equal(adjustment?.category_id, null);
     db.close();
   });
 });
