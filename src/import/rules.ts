@@ -266,6 +266,36 @@ export function renderTemplate(subject: RuleSubject, template: string): string {
   }).replace(/[ \t]{2,}/g, " ").trim();
 }
 
+/**
+ * The ops a single typed value cannot carry: a list, or a low–high pair.
+ * EXTRA-2 · The rules form sends one value, so these are refused there.
+ */
+export const LIST_OPERATORS: readonly Operator[] = ["oneOf", "notOneOf", "between"];
+
+export const OPERATORS: readonly Operator[] = [
+  "is", "isNot", "contains", "doesNotContain", "startsWith", "endsWith",
+  "matches", "oneOf", "notOneOf", "greaterThan", "lessThan", "between",
+];
+
+export const CONDITION_FIELDS: readonly ConditionField[] = [
+  "narration", "channel", "vpa", "merchant", "reference",
+  "importedPayee", "payee", "account", "amount", "absoluteAmount",
+  "direction", "date", "dayOfMonth", "memo", "tags", "category",
+  "cleared", "source", "cardLast4",
+];
+
+/*
+ * EXTRA-2 · A stored condition is read as it is, whatever wrote it. "oneOf"
+ * with the text "Zomato" rather than a list (a crafted form post) threw
+ * `value.some is not a function` in the middle of an import, and every import
+ * after it answered 500. A lone value is a list of one; anything else in a
+ * list is read as text.
+ */
+function valueList(value: Condition["value"]): string[] {
+  const list: unknown[] = Array.isArray(value) ? value : [value];
+  return list.filter((v) => v !== null && v !== undefined).map((v) => String(v).toLowerCase());
+}
+
 export function evaluateCondition(subject: RuleSubject, condition: Condition): boolean {
   const actual = fieldValue(subject, condition.field);
   const { op, value } = condition;
@@ -277,8 +307,8 @@ export function evaluateCondition(subject: RuleSubject, condition: Condition): b
     switch (op) {
       case "contains": case "is": return list.includes(needle);
       case "doesNotContain": case "isNot": return !list.includes(needle);
-      case "oneOf": return (value as string[]).some((v) => list.includes(v.toLowerCase()));
-      case "notOneOf": return !(value as string[]).some((v) => list.includes(v.toLowerCase()));
+      case "oneOf": return valueList(value).some((v) => list.includes(v));
+      case "notOneOf": return !valueList(value).some((v) => list.includes(v));
       default: return false;
     }
   }
@@ -288,7 +318,9 @@ export function evaluateCondition(subject: RuleSubject, condition: Condition): b
     if (!Number.isFinite(n)) return false;
     if (op === "greaterThan") return n > Number(value);
     if (op === "lessThan") return n < Number(value);
-    const [low, high] = value as [number, number];
+    // EXTRA-2 · A pair, or nothing matches — not a crash on a lone figure.
+    if (!Array.isArray(value) || value.length !== 2) return false;
+    const [low, high] = value.map(Number) as [number, number];
     return n >= low && n <= high;
   }
 
@@ -302,8 +334,8 @@ export function evaluateCondition(subject: RuleSubject, condition: Condition): b
     case "doesNotContain": return !text.includes(needle);
     case "startsWith": return text.startsWith(needle);
     case "endsWith": return text.endsWith(needle);
-    case "oneOf": return (value as string[]).some((v) => v.toLowerCase() === text);
-    case "notOneOf": return !(value as string[]).some((v) => v.toLowerCase() === text);
+    case "oneOf": return valueList(value).some((v) => v === text);
+    case "notOneOf": return !valueList(value).some((v) => v === text);
     case "matches":
       try {
         // A rule is written by a household member, not an attacker, but a
