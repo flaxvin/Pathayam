@@ -30,6 +30,7 @@ import { Refusal } from "../core/refusal.ts";
 import { createAccount, paymentCategoryFor } from "./accounts.ts";
 import { ensurePersonalBudget } from "./budgets.ts";
 import { ensureCommitmentEnvelope } from "./commitments.ts";
+import { callItEven } from "./squaring-up.ts";
 import { createTransaction } from "./transactions.ts";
 import {
   createGroup, createCategory, deleteCategory, mergeCategories, setAssigned, getCategory,
@@ -368,5 +369,65 @@ describe("BUDGET-21 · a group's deleted envelopes and what still names them", (
     } finally {
       await app.close();
     }
+  });
+});
+
+/*
+ * Found by the engine fuzzer: a balance called even is spending, and it lands
+ * in an envelope — "Settled between us" unless the household picks another —
+ * with no transaction to say so. Ravi set ₹1,000 aside for the household in
+ * 2025-03 that it never spent, and it was called even: the household's
+ * "Settled between us" spent ₹1,000 that month and reopened at ₹0 in April. It
+ * held nothing and had nothing filed to it, so the delete went through, the
+ * engine stopped reading the envelope, and the household's identity was out by
+ * −₹1,000 in every month from 2025-03 — the called-even income stayed while the
+ * spending that matched it went.
+ */
+describe("a balance called even is history too", () => {
+  function calledEven() {
+    const db = freshHousehold();
+    const ravi = ensurePersonalBudget(db, RAVI, "Ravi").id;
+    startPersonalBudget(db, actor, ravi);
+    createAccount(db, actor, {
+      name: "RBank", kind: "budget", subtype: "savings", openingDate: "2025-01-01",
+      openingBalance: 1_000_000, budgetId: ravi, holderMemberId: RAVI,
+    });
+    createAccount(db, actor, {
+      name: "Bank", kind: "budget", subtype: "savings", openingDate: "2025-01-01", openingBalance: 1_000_000,
+    });
+    const envelope = ensureCommitmentEnvelope(db, actor, ravi).id;
+    setAssigned(db, actor, "2025-03", envelope, 100_000);
+    const call = callItEven(db, actor, { envelopeId: envelope, amount: 100_000, month: "2025-03" });
+    const group = createGroup(db, actor, "Bills").id;
+    const other = createCategory(db, actor, { groupId: group, name: "Other" }).id;
+    return { db, given: call.giving_category_id, other };
+  }
+  const calls = (db: ReturnType<typeof freshHousehold>, categoryId: string) =>
+    queryOne<{ n: number }>(
+      db, `SELECT COUNT(*) AS n FROM even_calls WHERE giving_category_id = ?`, categoryId,
+    )?.n;
+
+  test("the envelope it was spent from is not deleted without a remap", () => {
+    const s = calledEven();
+    assert.throws(
+      () => deleteCategory(s.db, actor, s.given, { currentBalance: 0 }),
+      (e: unknown) => e instanceof Refusal && /Merge it into another envelope/.test((e as Error).message),
+    );
+    assert.equal(getCategory(s.db, s.given)?.deleted_at, null);
+    assert.deepEqual(identityProblems(s.db, "2027-03"), []);
+  });
+
+  test("a remap carries it, and undoing the delete brings it back", () => {
+    const s = calledEven();
+    deleteCategory(s.db, actor, s.given, { currentBalance: 0, remapTo: s.other });
+    assert.equal(calls(s.db, s.other), 1);
+    assert.deepEqual(identityProblems(s.db, "2027-03"), []);
+
+    const event = queryOne<{ id: string }>(
+      s.db, `SELECT id FROM events WHERE entity = 'category' AND entity_id = ? AND action = 'delete'`, s.given,
+    )!.id;
+    assert.equal(undoEvent(s.db, event, actor, { force: true }).ok, true);
+    assert.equal(calls(s.db, s.given), 1);
+    assert.deepEqual(identityProblems(s.db, "2027-03"), []);
   });
 });
