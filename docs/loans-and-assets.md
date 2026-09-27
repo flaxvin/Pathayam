@@ -216,7 +216,8 @@ holdings, which are new, and where units disagree.
 net worth = cash + investments + other assets − credit cards − loans
 ```
 
-- **Cash**: budget accounts at working balance.
+- **Cash**: budget accounts at working balance, and any credit card in credit
+  (overpaid, or refunded after the bill was paid) — it owes you that money.
 - **Investments**: holdings at market value.
 - **Other assets**: hand-valued tracking accounts at their latest valuation.
 - **Credit cards**: outstanding balances.
