@@ -107,7 +107,24 @@ export function queryTransactions(db: DB, filter: TransactionFilter = {}): Query
   const where: string[] = ["t.deleted_at IS NULL"];
   const params: (string | number | null)[] = [];
 
-  if (!filter.includeTransfers) where.push("t.transfer_pair_id IS NULL");
+  if (!filter.includeTransfers) {
+    where.push("t.transfer_pair_id IS NULL");
+    /*
+     * WEALTH-34 · A loan's own ledger is the other side of a movement already
+     * counted where the money moved. An EMI is −₹8,885 on the bank, filed to
+     * the loan's envelope, and +₹8,885 on the loan account — a managed pair,
+     * not a transfer pair, so the loan's leg passed the test above and every
+     * instalment showed as ₹8,885 "In" (on /query, its CSV, and a month's
+     * income at close). Disbursements and card-EMI conversions did the same.
+     * Asked for by name, the loan account's rows are still there.
+     */
+    const named = filter.accountIds ?? [];
+    where.push(
+      `t.account_id NOT IN (SELECT account_id FROM loans` +
+        (named.length ? ` WHERE account_id NOT IN (${named.map(() => "?").join(",")}))` : `)`),
+    );
+    params.push(...named);
+  }
   if (filter.viewerMemberId !== undefined) {
     // 15 · memberScope's rule: the account the money moved on, and the envelope
     // it was filed to. The account alone let a household-visible account in
