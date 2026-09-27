@@ -16,7 +16,7 @@ import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { Missing, Refusal } from "../core/refusal.ts";
-import { setTarget, moveMoney } from "./budget.ts";
+import { setTarget, clearTarget, moveMoney } from "./budget.ts";
 import { nowIST, todayIST, formatDate, monthOf, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { createAccount, getAccount } from "./accounts.ts";
@@ -1321,8 +1321,22 @@ export function closeLoan(
     execute(db, `UPDATE loans SET closed_at = ? WHERE id = ?`, nowIST(), input.loanId);
     execute(db, `UPDATE accounts SET closed_at = ? WHERE id = ?`, nowIST(), projection.loan.account_id);
 
+    /*
+     * BUDGET-27 · A closed loan has no instalment, so its envelope has no
+     * target. syncLoanPaymentTarget put the EMI there and nothing took it off:
+     * a loan settled in full read "₹4,442.44 underfunded" every month after,
+     * and Auto-assign funded an EMI to a lender who was owed nothing. The
+     * target is kept on the event so reopening the loan puts it back.
+     */
+    const payment = paymentCategoryForLoan(db, input.loanId);
+    const target = payment
+      ? queryOne(db, `SELECT * FROM targets WHERE category_id = ?`, payment.id)
+      : null;
+    if (payment) clearTarget(db, actor, payment.id);
+
     appendEvent(db, actor, {
       entity: "loan", entityId: input.loanId, action: "close",
+      before: target ? { target } : undefined,
       after: projection.metrics,
       summary:
         `Closed the ${projection.loan.lender} loan — ` +
@@ -1396,6 +1410,16 @@ registerUndoHandler("loan", (db, event) => {
   }
   if (event.action === "close") {
     execute(db, `UPDATE loans SET closed_at = NULL WHERE id = ?`, event.entityId!);
+    // BUDGET-27 · The instalment the envelope was asked for, back as it was.
+    const target = (event.before as { target?: Record<string, unknown> } | undefined)?.target;
+    if (target) {
+      execute(
+        db,
+        `INSERT OR REPLACE INTO targets (${Object.keys(target).join(",")})
+         VALUES (${Object.keys(target).map(() => "?").join(",")})`,
+        ...(Object.values(target) as (string | number | null)[]),
+      );
+    }
     return `Reopened the loan`;
   }
   return `Reversed a change to the loan`;
