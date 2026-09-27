@@ -117,7 +117,7 @@ import {
 } from "./domain/budget.ts";
 import {
   createTransaction, createTransfer, updateTransaction, deleteTransaction,
-  getTransaction, getSplits, listPayees, payeeStats, payeeAliases, tagsFor, type Transaction,
+  getTransaction, getSplits, listPayees, payeeStats, payeeAliases, tagsFor, type Transaction, DELETED_TRANSACTION,
   resolveCategoryLines,
   outgoingLacksEnvelope,
 } from "./domain/transactions.ts";
@@ -289,7 +289,9 @@ function passwordSignInOffered(db: DB, config: Config): boolean {
 
 const LEGAL_UPDATED = "19 September 2026";
 import { loadRules } from "./import/pipeline.ts";
-import { testRule, type Rule, type RuleSubject, extractNarrationFields } from "./import/rules.ts";
+import {
+  testRule, type Rule, type RuleSubject, extractNarrationFields, CONDITION_FIELDS, OPERATORS, LIST_OPERATORS,
+} from "./import/rules.ts";
 import {
   applyStartingTemplate, startBlank,
 } from "./domain/starting-budget.ts";
@@ -350,7 +352,7 @@ import {
   units as toUnits, price as toUnitPrice, xirr, formatUnits, parseUnitPrice, type MicroRupees,
 } from "./portfolio/holdings.ts";
 import { searchSchemes } from "./portfolio/providers.ts";
-import { refreshPrices } from "./portfolio/refresh.ts";
+import { refreshPrices, MANUAL_REFRESH } from "./portfolio/refresh.ts";
 
 export interface AppDeps {
   db: DB;
@@ -757,6 +759,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (memberScope(db, viewer(ctx)).transactions.has(transaction.id)) {
       throw new NotFound("That transaction does not exist.");
     }
+    return transaction;
+  }
+
+  /**
+   * EXTRA-3 · A transaction a change can be made to: visible, and not deleted.
+   * The edit, file, settle, attach and convert routes all took a deleted one
+   * and answered 303 over a write to a row that counts for nothing. Viewing
+   * one stays open — Activity links to it.
+   */
+  function requireLiveTransaction(ctx: RequestContext, id: string): Transaction {
+    const transaction = requireVisibleTransaction(ctx, id);
+    if (transaction.deleted_at) throw new HttpError(422, DELETED_TRANSACTION);
     return transaction;
   }
 
@@ -3502,7 +3516,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const feeRaw = field(ctx.body, "processing_fee");
       // 15 · Another member's private card purchase is not there to convert:
       // this created a loan against Ravi's ₹60,000 card spend for Priya.
-      const transactionId = requireVisibleTransaction(ctx, ctx.params.id!).id;
+      const transactionId = requireLiveTransaction(ctx, ctx.params.id!).id;
       const result = convertToEmi(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         transactionId,
         amount: amountRaw?.trim() ? (amountField(amountRaw, "Amount") as Paise) : undefined,
@@ -3875,7 +3889,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/transaction/:id/attach", (ctx) => {
     const a = auth(ctx);
-    const id = requireVisibleTransaction(ctx, ctx.params.id!).id;
+    const id = requireLiveTransaction(ctx, ctx.params.id!).id;
     const upload = fileField(ctx.req, "receipt");
     if (!upload) {
       return { redirect: withNotice(`/transaction/${id}`, "Choose a photo or PDF first.") };
@@ -3936,7 +3950,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/transaction/:id", (ctx) => {
     const a = auth(ctx);
     const id = ctx.params.id!;
-    const transaction = requireVisibleTransaction(ctx, id);
+    const transaction = requireLiveTransaction(ctx, id);
 
     const dateRaw = field(ctx.body, "date");
     /*
@@ -4149,7 +4163,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/transaction/:id/categorise", (ctx) =>
     mutate(ctx, (a) => {
       const id = ctx.params.id!;
-      const transaction = requireVisibleTransaction(ctx, id);
+      const transaction = requireLiveTransaction(ctx, id);
 
       const categoryId = requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null;
       if (categoryId && !getCategory(db, categoryId)) {
@@ -4193,7 +4207,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    */
   router.post("/transaction/:id/settled", (ctx) =>
     mutate(ctx, (a) => {
-      const id = requireVisibleTransaction(ctx, ctx.params.id!).id;
+      const id = requireLiveTransaction(ctx, ctx.params.id!).id;
       updateTransaction(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, {
         reimbursable: false,
       });
@@ -5789,8 +5803,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           mode === "emi"
             ? `Prepaid ${formatPaise(amount)}. The instalment is now ` +
               `${formatPaise(after?.emi ?? 0)} and the closure date is unchanged.`
-            : `Prepaid ${formatPaise(amount)}. The instalment is unchanged and there are ` +
-              `${after?.schedule.months ?? 0} left.`,
+            // EXTRA-1 · Said from the projection, which now keeps it — "unchanged"
+            // was printed beside an instalment that had moved.
+            : `Prepaid ${formatPaise(amount)}. The instalment stays ${formatPaise(after?.emi ?? 0)} ` +
+              `and there are ${after?.schedule.months ?? 0} left.`,
       };
     });
   });
@@ -6714,6 +6730,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   function ruleFromBody(ctx: RequestContext): Rule {
     const conditionField = requiredField(ctx.body, "field") as Rule["conditions"][number]["field"];
+    const op = requiredField(ctx.body, "op") as Rule["conditions"][number]["op"];
+    /*
+     * EXTRA-2 · The field and the test are checked, not trusted. The form sends
+     * one typed value, and "oneOf" with the text "Zomato" (a crafted post; the
+     * form does not offer it) was saved as it stood, then threw inside every
+     * import after — 500 until the rule was deleted. A test that needs a list
+     * or a pair cannot be written here, and an unknown one never matches.
+     */
+    if (!CONDITION_FIELDS.includes(conditionField)) {
+      throw new HttpError(422, `A rule can't test "${conditionField}".`);
+    }
+    if (!OPERATORS.includes(op)) throw new HttpError(422, `"${op}" isn't a test a rule can make.`);
+    if (LIST_OPERATORS.includes(op)) {
+      throw new HttpError(422, `"${op}" needs a list of values, and this form takes one. Use "is exactly" or "matches a pattern".`);
+    }
     /*
      * An amount is typed in rupees and compared in paise. The typed "5000" was
      * stored as it stood and compared against 6000 paise, so "is more than
@@ -6732,11 +6763,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       stage: "default",
       match: "all",
       conditions: [
-        {
-          field: conditionField,
-          op: requiredField(ctx.body, "op") as Rule["conditions"][number]["op"],
-          value,
-        },
+        { field: conditionField, op, value },
       ],
       actions: [{ type: "setCategory", categoryId: ruleTarget(ctx) }],
       enabled: true,
@@ -8156,9 +8183,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     requireAssets();
     const a = auth(ctx);
 
+    // EXTRA-5 · Bounded: a few seconds a provider, twelve in all, and what
+    // was not reached in that time is reported rather than waited for.
     const outcome = await refreshPrices(db, actorFor(a, "ui"), {
       force: true,
       alphaVantageKey: config.alphaVantageKey,
+      fetchImpl: deps.fetchImpl,
+      ...MANUAL_REFRESH,
     });
 
     appendEvent(db, actorFor(a, "ui"), {
@@ -8178,10 +8209,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return {
       redirect: withNotice(
         "/portfolio",
-        (outcome.failed === 0
+        (outcome.failed === 0 && outcome.unfinished === 0
           ? `Refreshed ${outcome.updated} prices.`
-          : `Refreshed ${outcome.updated}. ${outcome.failed} couldn't be fetched — ` +
-            `cached prices are still shown, with their dates.`) +
+          : `Refreshed ${outcome.updated}. ` +
+            (outcome.failed ? `${outcome.failed} couldn't be fetched` : "") +
+            (outcome.failed && outcome.unfinished ? `, and ` : "") +
+            (outcome.unfinished
+              ? `${outcome.unfinished} weren't reached before the providers ran out of time`
+              : "") +
+            ` — cached prices are still shown, with their dates.`) +
         (quota ? ` (${quota})` : ""),
       ),
     };
@@ -8910,6 +8946,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         s80c: money("s80c"),
         s80d: money("s80d"),
         s80dSenior: field(ctx.body, "s80d_senior") === "1",
+        // EXTRA-6 · Parents are a second 80D deduction, with a ceiling of their own.
+        s80dParents: money("s80d_parents"),
+        s80dParentsSenior: field(ctx.body, "s80d_parents_senior") === "1",
+        s80dCheckup: money("s80d_checkup"),
+        s80dParentsCheckup: money("s80d_parents_checkup"),
         other: money("other"),
         hra: (received || rentPaid || basic)
           ? { received, rentPaid, basic, metro: field(ctx.body, "hra_metro") === "1" }

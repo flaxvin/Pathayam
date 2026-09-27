@@ -343,12 +343,24 @@ export interface UpdateTransactionInput {
   tags?: string[];
 }
 
+/** EXTRA-3 · Said wherever a change is aimed at a deleted transaction. */
+export const DELETED_TRANSACTION =
+  "That transaction has been deleted, so it can't be changed. Undo the delete in Activity to bring it back first.";
+
 export function updateTransaction(
   db: DB, actor: Actor, id: string, patch: UpdateTransactionInput,
 ): Transaction {
   return transact(db, () => {
     const before = editSnapshot(db, id);
     if (!before) throw new Missing("That transaction does not exist.");
+    /*
+     * EXTRA-3 · A deleted transaction is not edited. It counts for nothing —
+     * every balance and envelope skips it — so a new amount, date or envelope
+     * written to it changed nothing anyone could see, until the delete was
+     * undone and the row came back as something it never was, with a history
+     * that says it was edited while it was gone.
+     */
+    if (before.deleted_at) throw new Refusal(DELETED_TRANSACTION);
 
     /*
      * A transfer leg is half of one movement, not a transaction of its own.
@@ -544,6 +556,15 @@ export function deleteTransaction(db: DB, actor: Actor, id: string): void {
      * leg stayed live. Delete and undo remove the same rows, so they refuse
      * the same way.
      */
+    /*
+     * EXTRA-4 · A charge converted to EMI is where the plan came from. Deleting
+     * it took the purchase off the card and left the plan, and the credit the
+     * conversion put on the card for it: the card in credit for money never
+     * spent, twelve instalments for a purchase the ledger no longer has.
+     */
+    const plan = convertedPlan(db, ids);
+    if (plan) throw new Refusal(convertedRefusal(plan, "deleting"));
+
     const dependant = loadBearingDependant(db, ids);
     if (dependant) {
       throw new Refusal(
@@ -1252,6 +1273,22 @@ function loadBearingDependant(db: DB, ids: string[]): string | null {
   return null;
 }
 
+/** EXTRA-4 · The EMI plan the first of `ids` was converted to, by its name. */
+function convertedPlan(db: DB, ids: string[]): string | null {
+  for (const id of ids) {
+    const plan = queryOne<{ nickname: string | null; lender: string }>(
+      db, `SELECT nickname, lender FROM loans WHERE converted_from_transaction_id = ? LIMIT 1`, id,
+    );
+    if (plan) return plan.nickname || plan.lender;
+  }
+  return null;
+}
+
+function convertedRefusal(plan: string, doing: "deleting" | "removing"): string {
+  return `That charge was converted to the EMI plan "${plan}", so ${doing} it would leave the plan, ` +
+    `and the credit it put on the card, behind. Undo the conversion first, then this.`;
+}
+
 /** Thrown when an undo is refused for a reason the household can act on. */
 export class UndoRefused extends Error {}
 
@@ -1316,6 +1353,11 @@ registerUndoHandler("transaction", (db, event) => {
         db, `SELECT id FROM transactions WHERE transfer_pair_id = ?`, row.transfer_pair_id,
       ).map((r) => r.id)
       : [event.entityId!];
+
+    // EXTRA-4 · As its delete: undoing its create took it out from under the
+    // plan and failed on the plan's foreign key, a 500 instead of a sentence.
+    const plan = convertedPlan(db, ids);
+    if (plan) throw new UndoRefused(convertedRefusal(plan, "removing"));
 
     const dependant = loadBearingDependant(db, ids);
     if (dependant) {

@@ -266,7 +266,12 @@ A rule has a stage, conditions, and actions.
   0057 converted the plain figures saved before this.
 - **Operators:** `is`, `isNot`, `contains`, `doesNotContain`, `startsWith`,
   `endsWith`, `matches`, `oneOf`, `notOneOf`, `greaterThan`, `lessThan`,
-  `between`. Text comparison is case-insensitive.
+  `between`. Text comparison is case-insensitive. The /rules form takes one
+  value, so it refuses `oneOf`, `notOneOf` and `between` (which need a list or
+  a low–high pair), and any field or operator not in these lists, with a 422.
+  A stored condition that still has one is read tolerantly: a lone value for
+  `oneOf`/`notOneOf` is a list of one, and `between` without a pair matches
+  nothing — an import never fails on it.
 - **Actions:** `setCategory`, `setPayee`, `setMemo` (set, prepend or append),
   `addTag`, `removeTag`, `setOwner`, `setCleared`, `setAccount`, `setDate`,
   `splitFixed`, plus flags to mark for review or ignore.

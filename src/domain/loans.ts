@@ -62,6 +62,17 @@ export interface Loan {
   tenure_months: number;
   /** The tenure it was first scheduled over. R22's baseline; never moves. */
   original_tenure_months: number | null;
+  /**
+   * EXTRA-1 · The instalment the borrower chose to keep — by a prepayment that
+   * reduces the tenure, or a rate change that moves it. Null lets the
+   * instalment follow the tenure, as it does until such a choice is made.
+   */
+  emi_pinned: Paise | null;
+  /**
+   * The day a later rate change, taken by keeping the tenure, moves the
+   * instalment again. The pin holds until then, so nothing moves early.
+   */
+  emi_pinned_until: IsoDate | null;
   moratorium_months: number;
   first_instalment_date: IsoDate | null;
   instalment_day: number | null;
@@ -658,12 +669,18 @@ export function currentRate(db: DB, loanId: string, asOf = todayIST()): number {
 /**
  * Hold the instalment still and let the tenure take the strain.
  *
- * The projection derives the instalment from what is outstanding over what is
- * left of the tenure, so the tenure is the only lever that keeps an instalment
- * where it is. Shorten it and a prepayment buys months instead of a smaller
- * bill; extend it and a rate rise is absorbed without the monthly figure moving.
+ * Shorten the tenure and a prepayment buys months instead of a smaller bill;
+ * extend it and a rate rise is absorbed without the monthly figure moving.
  * Both are choices the borrower is entitled to make, and neither was reachable
  * while the tenure could not move.
+ *
+ * EXTRA-1 · Moving the tenure alone did not keep the instalment. A tenure is a
+ * whole number of months, and the projection priced the instalment from the
+ * outstanding over the months left: ₹80,000 at 12% needs 9.6 months at
+ * ₹8,884.88, the tenure became 10, and ten months asked for ₹8,446.57 — while
+ * the notice said the instalment was unchanged. So the instalment is stored as
+ * well, and the projection runs the loan down at it; the tenure is the count
+ * of instalments that takes, the last of them smaller.
  */
 function keepInstalment(db: DB, actor: Actor, loanId: string, emi: Paise): void {
   const loan = getLoan(db, loanId);
@@ -671,6 +688,11 @@ function keepInstalment(db: DB, actor: Actor, loanId: string, emi: Paise): void 
 
   const outstanding = outstandingPrincipal(db, loanId);
   if (outstanding <= 0 || emi <= 0) return;
+
+  // A rate change still to come that keeps the tenure moves the instalment on
+  // its day; one whose day has passed has done so, and holds nothing back.
+  const until = loan.emi_pinned_until && loan.emi_pinned_until > todayIST() ? loan.emi_pinned_until : null;
+  execute(db, `UPDATE loans SET emi_pinned = ?, emi_pinned_until = ? WHERE id = ?`, emi, until, loanId);
 
   const paid = queryOne<{ n: number }>(
     db,
@@ -689,12 +711,18 @@ function keepInstalment(db: DB, actor: Actor, loanId: string, emi: Paise): void 
   }).months;
 
   const tenure = paid + months;
-  if (tenure === loan.tenure_months) return;
-  execute(db, `UPDATE loans SET tenure_months = ? WHERE id = ?`, tenure, loanId);
+  if (tenure !== loan.tenure_months) {
+    execute(db, `UPDATE loans SET tenure_months = ? WHERE id = ?`, tenure, loanId);
+  }
 
   // The instalment is meant to be unchanged, but the last one rarely is, and
   // the envelope should ask for what the schedule now says.
   syncLoanPaymentTarget(db, actor, loanId);
+}
+
+/** EXTRA-1 · The other choice: the instalment follows the tenure again. */
+function releaseInstalment(db: DB, loanId: string): void {
+  execute(db, `UPDATE loans SET emi_pinned = NULL, emi_pinned_until = NULL WHERE id = ?`, loanId);
 }
 
 /**
@@ -806,7 +834,10 @@ export function recordPrepayment(
     }
 
     if (input.mode === "tenure") keepInstalment(db, actor, input.loanId, emiBefore);
-    else syncLoanPaymentTarget(db, actor, input.loanId);
+    else {
+      releaseInstalment(db, input.loanId);
+      syncLoanPaymentTarget(db, actor, input.loanId);
+    }
   });
 }
 
@@ -863,6 +894,7 @@ export function recordRateChange(
     // point of the option, and a moment later it is not the same number.
     const emiBefore = projectLoan(db, input.loanId)?.emi ?? 0;
     const tenureBefore = getLoan(db, input.loanId)?.tenure_months ?? null;
+    const pinBefore = { emi_pinned: subject.emi_pinned, emi_pinned_until: subject.emi_pinned_until };
 
     const id = newId();
     execute(
@@ -880,6 +912,19 @@ export function recordRateChange(
      * all they can afford did nothing.
      */
     if (input.keep === "emi" && emiBefore > 0) keepInstalment(db, actor, input.loanId, emiBefore);
+    else if (input.keep !== "emi" && subject.emi_pinned !== null) {
+      /*
+       * EXTRA-1 · Keeping the tenure lets the instalment move — from the day
+       * the rate applies. Dated today or earlier, a kept instalment is let go
+       * now; dated ahead, it holds until then, as the lender's would.
+       */
+      if (input.effectiveFrom <= todayIST()) releaseInstalment(db, input.loanId);
+      else {
+        const until = subject.emi_pinned_until && subject.emi_pinned_until < input.effectiveFrom
+          ? subject.emi_pinned_until : input.effectiveFrom;
+        execute(db, `UPDATE loans SET emi_pinned_until = ? WHERE id = ?`, until, input.loanId);
+      }
+    }
 
     // R8 · A rate reset moves the instalment, so the envelope's target moves too.
     syncLoanPaymentTarget(db, actor, input.loanId);
@@ -888,7 +933,7 @@ export function recordRateChange(
       entity: "loan", entityId: input.loanId, action: "rate-change",
       // WEALTH-21 · The period's id and the tenure either side, so an undo can
       // remove exactly this period and put a tenure it moved back.
-      before: { rate: previous, tenure_months: tenureBefore },
+      before: { rate: previous, tenure_months: tenureBefore, ...pinBefore },
       after: { id, rate: input.annualRatePct, tenure_months: getLoan(db, input.loanId)?.tenure_months ?? null },
       summary:
         `Rate moved from ${previous}% to ${input.annualRatePct}% ` +
@@ -1131,7 +1176,11 @@ export function recordInstalment(
       entity: "loan", entityId: input.loanId, action: "instalment", after: payment,
       // WEALTH-21 · A prepayment taken as a shorter tenure moves it straight
       // after this; the tenure it had is what an undo puts back.
-      before: { tenure_months: loan.tenure_months },
+      // EXTRA-1 · …and the instalment it had kept, if any, likewise.
+      before: {
+        tenure_months: loan.tenure_months,
+        emi_pinned: loan.emi_pinned ?? null, emi_pinned_until: loan.emi_pinned_until ?? null,
+      },
       summary:
         `Paid ${formatPaise(input.amount)} on ${formatDate(input.date)} — ` +
         `${formatPaise(principal)} principal, ${formatPaise(interest)} interest` +
@@ -1278,6 +1327,23 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
   const scheduleMonths = moratoriumOutcome ? loan.tenure_months : remainingMonths;
 
   /*
+   * EXTRA-1 · An instalment the borrower chose to keep is the instalment, not
+   * whatever the outstanding over the whole months left works out to. It runs
+   * a reducing-balance loan down from here; the schedule's last month is
+   * whatever remains. It stops holding on the day a rate change taken by
+   * keeping the tenure applies, and it is never allowed to fall below the
+   * month's interest (a rate rise recorded outside those choices), where it
+   * would never clear the loan — then the tenure prices it as before.
+   */
+  const pinned =
+    loan.emi_pinned !== null && loan.emi_pinned > 0 &&
+    (loan.emi_pinned_until === null || todayIST() < loan.emi_pinned_until) &&
+    !flat && !moratoriumOutcome && outstanding > 0 &&
+    loan.emi_pinned > outstanding * (rate / 1200)
+      ? loan.emi_pinned
+      : null;
+
+  /*
    * R16 M2 · A flat-rate loan runs to its own schedule — the same interest on
    * the original principal every month — not a reducing-balance one at the
    * flat rate, which understated both the EMI (₹8,884.88 against ₹9,333.33 on
@@ -1297,6 +1363,7 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
           principal: scheduleprincipal,
           annualRatePct: rate,
           months: scheduleMonths,
+          ...(pinned !== null ? { emi: pinned } : {}),
           firstInstalmentDate: loan.first_instalment_date ?? undefined,
         })
       : emptySchedule();
@@ -1318,7 +1385,7 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
     emi: moratoriumOutcome
       ? moratoriumOutcome.emiAfter
       : outstanding > 0
-        ? (flat ? schedule.finalEmi : emiFor(outstanding, rate, remainingMonths))
+        ? (flat ? schedule.finalEmi : pinned ?? emiFor(outstanding, rate, remainingMonths))
         : 0,
     // During a moratorium the monthly obligation is the servicing (M3) or the
     // drawn-amount pre-EMI (an under-construction loan). Capitalised (M4) pays
@@ -1635,6 +1702,18 @@ function removeLoan(db: DB, id: string, loan: Pick<Loan, "account_id">): void {
   execute(db, `DELETE FROM accounts WHERE id = ?`, loan.account_id);
 }
 
+/**
+ * EXTRA-1 · Put back the instalment a loan was keeping before a prepayment or a
+ * rate change moved it. An event from before the pin existed carries neither
+ * key, and leaves the loan as it stands.
+ */
+function restorePin(db: DB, loanId: string, before: Record<string, unknown>): void {
+  if (!("emi_pinned" in before)) return;
+  const pinned = typeof before.emi_pinned === "number" ? before.emi_pinned : null;
+  const until = typeof before.emi_pinned_until === "string" ? before.emi_pinned_until : null;
+  execute(db, `UPDATE loans SET emi_pinned = ?, emi_pinned_until = ? WHERE id = ?`, pinned, until, loanId);
+}
+
 registerUndoHandler("loan", (db, event, actor) => {
   if (event.action === "create") {
     removeLoan(db, event.entityId!, event.after as Loan);
@@ -1716,6 +1795,8 @@ registerUndoHandler("loan", (db, event, actor) => {
     if (payment.kind === "prepayment" && typeof before.tenure_months === "number") {
       execute(db, `UPDATE loans SET tenure_months = ? WHERE id = ?`, before.tenure_months, id);
     }
+    // EXTRA-1 · …and the instalment it kept, or let go, likewise.
+    if (payment.kind === "prepayment") restorePin(db, id, before);
     syncLoanPaymentTarget(db, actor, id);
     const what = {
       instalment: "instalment", prepayment: "prepayment", extra: "payment", charge: "charge",
@@ -1731,6 +1812,7 @@ registerUndoHandler("loan", (db, event, actor) => {
     if (typeof before.tenure_months === "number" && after.tenure_months !== before.tenure_months) {
       execute(db, `UPDATE loans SET tenure_months = ? WHERE id = ?`, before.tenure_months, id);
     }
+    restorePin(db, id, before);
     syncLoanPaymentTarget(db, actor, id);
     return `Removed the rate change to ${String(after.rate)}%`;
   }
