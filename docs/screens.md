@@ -60,7 +60,7 @@ answer 404 when the viewer may not see the entity
 |---|---|
 | `GET /overview` | Runway, due-soon bills, month at a glance, insights. |
 | `GET /reports` | Income vs spend, category trends, tag spend, spending calendar, Sankey, loan interest by financial year, realised gains by financial year. |
-| `GET /query`, `GET /query.csv` | Filterable, groupable transaction table. Totals cover every matching row. |
+| `GET /query`, `GET /query.csv` | Filterable, groupable transaction table. Totals cover every matching row. Transfers and a loan's own ledger rows are left out, so an EMI is counted once, where the money moved; filter on the loan's account to see its rows. |
 | `GET /search` | Everything from one box. |
 | `GET /net-worth`, `GET /net-worth.csv` | Decomposition and dated history. |
 | `GET /household` | Per-member standing, commitments, squaring up. |
@@ -72,7 +72,7 @@ answer 404 when the viewer may not see the entity
 
 | Route | Purpose |
 |---|---|
-| `GET /schedules`, `GET /schedules/new` | Recurring items and a 60-day cashflow calendar. |
+| `GET /schedules`, `GET /schedules/new` | Recurring items and a cashflow calendar, 60 days ahead unless `?days=` asks for more (up to 3,650; beyond that is refused). |
 | `POST /schedules/new`, `/schedules/:id/edit`, `/schedules/:id/delete`, `/schedules/:id/paid`, `/schedules/:id/skip`, `/schedules/confirm`, `/schedules/dismiss` | |
 | `GET /goals`, `POST /goals/new`, `/goals/:id/edit`, `/goals/:id/complete`, `/goals/:id/delete` | |
 
@@ -140,7 +140,7 @@ answer 404 when the viewer may not see the entity
 |---|---|
 | `GET /health` | Backups, restore verification, schema version, feature flags, stale inputs, error counts. |
 | `GET /healthz` | Machine-readable; the container health check. |
-| `POST /health/backup`, `POST /health/verify` | Run either by hand. |
+| `POST /health/backup`, `POST /health/verify` | Run either by hand. Both refused on the demo. |
 | `POST /net-worth/snapshot` | Take a net-worth snapshot. |
 | `GET /export.json`, `GET /export.csv` | Complete export, excluding secrets. |
 | `GET /signin`, `POST /signout` | |

@@ -31,7 +31,7 @@ harvest, drawn from deliberately through the year.
 - **Schedules that split.** A salary into provident fund, tax and what landed;
   rent into rent and maintenance. The first envelope takes whatever the later
   lines do not claim, so a recurring split cannot be quietly wrong every month,
-  and posting the schedule posts a split transaction.
+  and marking the schedule paid records a split transaction.
 - **Tax estimate.** Income tax under both regimes, side by side, with 80C, 80D
   and the HRA exemption, and capital gains at their own rates rather than at
   slab rates — an estimate on figures you enter, not a return and not advice. Slabs are data keyed by financial year, so a year the app does

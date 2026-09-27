@@ -69,6 +69,7 @@ resolves parameters, calls one or more domain functions, and renders.
 | Thrown | Status | Body |
 |---|---|---|
 | `Refusal` | 422 | The refusal's message, rendered in the page |
+| `Missing` (extends `Refusal`) | 404 | Its message — an id, in the URL or a form field, that names nothing this member can see |
 | `NotFound` | 404 | Not-found page |
 | `HttpError(status, message)` | as given | Message |
 | anything else | 500 | Generic message; the error is logged and recorded in `request_failures` |

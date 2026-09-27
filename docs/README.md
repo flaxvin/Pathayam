@@ -9,7 +9,7 @@ does, not how it came to do it.
 | [data-model.md](data-model.md) | Every table, its columns, and the relationships between them. |
 | [budgeting.md](budgeting.md) | The envelope engine: definitions, rules, formulas, the accounting identity. |
 | [accounts.md](accounts.md) | Account kinds and subtypes, transactions, transfers, splits, reconciliation. |
-| [money-in.md](money-in.md) | CSV import, PDF statements, Gmail, duplicate detection, rules, learning. |
+| [money-in.md](money-in.md) | CSV import, PDF statements, Gmail, duplicate detection, transfers in Review, rules, learning, undoing an import. |
 | [loans-and-assets.md](loans-and-assets.md) | Loans, amortisation, EMI conversion, portfolio, net worth, financial independence. |
 | [privacy.md](privacy.md) | Budgets, visibility, and how access is enforced. |
 | [security.md](security.md) | Authentication, authorisation, transport, input handling. |
@@ -25,7 +25,8 @@ does, not how it came to do it.
 
 - **Money** is integer paise throughout. `Paise` is a branded type; no floating
   point value touches a balance.
-- **Dates** are ISO `YYYY-MM-DD` strings in IST. Months are `YYYY-MM`.
+- **Dates** are ISO `YYYY-MM-DD` strings in IST. Months are `YYYY-MM`. A full
+  date shown on screen reads `DD-MM-YYYY`.
 - **Ids** are UUIDs unless stated otherwise.
 - Code references in this documentation use paths relative to the repository
   root.

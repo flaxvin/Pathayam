@@ -98,7 +98,9 @@ adjustment assumes a resident under 60 — the old regime's ₹3,00,000 and
 **Nothing is derived from the ledger except a starting figure.** Income is
 prefilled from money that arrived in visible budget accounts, which is not
 taxable income — it misses a salary paid elsewhere and includes receipts that
-are not income at all. Deductions are entered, never inferred. The loan
+are not income at all. Deductions are entered, never inferred. The standard
+deduction is set only against the gross income entered, which is the only
+salary the estimate knows, and never exceeds it — gains alone earn none. The loan
 interest report is deliberately not carried in: section 24(b) wants accrued
 interest on a specific property, which is a different number from cash paid
 across every loan.

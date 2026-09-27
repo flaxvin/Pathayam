@@ -62,11 +62,18 @@ viewer may see, then pass the result to the domain:
 | `requireVisibleSchedule`, `requireVisibleGoal`, `requireVisibleHolding`, `requireVisibleInstrument` | schedule, goal, holding, instrument id | `memberScope` — what the thing hangs off |
 | `requireVisibleEvent` | event id (undo) | `eventVisibility` |
 | `requireVisibleRule`, `requireVisibleImportProfile` | rule, profile id | the envelope / account it names |
+| `requireVisibleBatch` | import batch id (undo) | the account it was imported into |
+| `requireVisibleBudget` | budget id (moving an account between budgets) | the household's, or the viewer's own |
+| `requireVisiblePayee` | payee id (merge, confirming a detected schedule) | seen somewhere the viewer can see, or nowhere yet |
+| `requireMember` | member id (who spent it, a holder) | existence only — members are no secret inside the household |
 
 A form field naming an account (`/add`, `/transfer`, `/schedules/new`,
 `/portfolio/add`, a loan's repayment account, a sale's destination) goes
 through `requireVisibleAccount` too, so a private account id and a made-up one
 both answer 404 — a 422 for one and not the other would confirm which exists.
+The same holds for an envelope, group, payee, rule or member named in a form:
+one that does not exist, or is not the viewer's, is a 404, never a database
+error.
 
 `src/domain/member-scope.ts` computes, once per request, every id a member may
 not see: budgets and accounts at the root, and every transaction, schedule,

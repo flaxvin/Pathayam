@@ -94,7 +94,7 @@ docker run -d --name pathayam \
 
 ## Signing in
 
-Two ways, and you need at least one:
+Three ways, and you need at least one:
 
 | | Set | Notes |
 |---|---|---|
@@ -102,7 +102,7 @@ Two ways, and you need at least one:
 | Any OIDC provider | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | Authelia, Authentik, Keycloak, Zitadel. One issuer URL; the endpoints are discovered from it. `OIDC_LABEL` names the button. |
 | Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Below. Needed for Gmail import whether or not it is used for sign-in. |
 
-Both can be on at once, and a member may have both. Passwords are scrypt
+They can be on at once, and a member may have more than one. Passwords are scrypt
 (`node:crypto`, no dependency added), stored in `member_passwords` — which is
 in `NEVER_EXPORTED`, so a hash never travels in an export. Eight wrong guesses
 locks that credential for fifteen minutes; the lock is per credential rather
@@ -114,7 +114,8 @@ ledger.
 
 Change or set your own password at `/settings/password`. Changing an existing
 one requires the current one, so a borrowed session is not a permanent
-takeover.
+takeover, and signs out every other device the member is signed in on; the one
+that made the change stays signed in.
 
 ## Single sign-on
 

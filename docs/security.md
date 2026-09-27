@@ -15,10 +15,16 @@ it is not an adversarial boundary.
 
 ## Authentication
 
-**Google OAuth 2.0** with PKCE. No password is stored.
+**Google OAuth 2.0** or any **OpenID Connect** provider, both with PKCE — or
+a password, described under [Passwords](#passwords).
 
 - The `state` value is 16 random bytes, held in memory, single-use, expiring
-  after ten minutes.
+  after ten minutes. It is also bound to the browser that started sign-in by a
+  short-lived cookie, so a callback link opened in somebody else's browser
+  cannot sign them into the sender's account.
+- A code the provider rejects — forged, replayed or expired — or an ID token
+  that fails its checks is a 400 carrying the provider's reason, recorded in
+  `auth_attempts` as `rejected-code`, not a server fault.
 - The email must already be a member with `allowed = 1`. Others are refused and
   the attempt recorded in `auth_attempts`.
 - The provider must say the address is verified (`email_verified: true` in the
@@ -45,7 +51,9 @@ Sessions can be revoked individually from Settings — your own only. Another me
 **API tokens.** `Authorization: Bearer`. Stored as a hash, compared in constant
 time, checked for revocation and expiry after lookup. Scoped `read` or
 `read-write`, with a deny-list of path prefixes a token may never reach —
-including token management itself. Rate limited per token.
+including token management itself. Rate limited per token. A token belonging to
+a member who has been removed from the allow-list stops working, as their
+sessions do, and a token cannot be minted while viewing as another member.
 
 **Development login** (`DEV_LOGIN`) is absent from the production image: the
 module is compiled then deleted, and the build asserts its absence. The
@@ -114,6 +122,8 @@ interpolated label.
   is reduced to word characters, dots, spaces, parentheses and hyphens.
 - **Untrusted parsers**: the PDF and CSV readers are fuzzed with empty,
   truncated, malformed, all-null, absurd-length and self-referential inputs.
+  A PDF may decompress to at most 32 MB in total, however its streams are
+  nested or repeated, so a small hostile file cannot hold the server.
 - **CSV exports**: imported text (payees, narrations) is chosen by whoever sent
   the statement or alert, so every exported cell that starts with `=`, `+`,
   `-`, `@`, tab or carriage return is prefixed with `'` and opens as text, never

@@ -23,7 +23,9 @@ dated only by the message's received date has no raw date, and stores NULL.
 
 1. The delimiter is detected.
 2. `guessMapping` proposes which column is date, narration, debit, credit,
-   balance and reference, and which row is the header.
+   balance and reference, and which row is the header. Where a file has both a
+   transaction date and a value date, the transaction date is taken; a value
+   date only when it is the only date column.
 3. The mapping is confirmed on `/import/map` and may be saved as a profile.
 4. A saved profile is matched on subsequent imports by header signature.
 
@@ -257,7 +259,11 @@ A rule has a stage, conditions, and actions.
   can be overridden by a later specific one.
 - **Condition fields:** `narration`, `channel`, `vpa`, `merchant`, `reference`,
   `importedPayee`, `payee`, `account`, `amount`, `absoluteAmount`, `direction`,
-  `date`, `dayOfMonth`, `memo`, `tags`, `category`.
+  `date`, `dayOfMonth`, `memo`, `tags`, `category`, `cleared`, `source`, and
+  `cardLast4` — the last four digits of the card the row was charged to.
+- **Amounts** are typed in rupees on `/rules` and stored in paise, like every
+  other amount; an amount that is not a figure is refused (422). Migration
+  0057 converted the plain figures saved before this.
 - **Operators:** `is`, `isNot`, `contains`, `doesNotContain`, `startsWith`,
   `endsWith`, `matches`, `oneOf`, `notOneOf`, `greaterThan`, `lessThan`,
   `between`. Text comparison is case-insensitive.
