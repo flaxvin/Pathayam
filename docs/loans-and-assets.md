@@ -177,6 +177,11 @@ Only a charge converts — not a refund, and not the card side of a payment — 
 only once: a charge partly on a plan offers just the rest, and one wholly on
 plans offers nothing, with links to them instead.
 
+The converted charge is where the plan came from, so it cannot be deleted, nor
+its creation undone, while the plan stands: the refusal names the plan. Undo
+the conversion first (it takes back the plan, the card credit and the fee),
+then the charge.
+
 ## Family lending
 
 Money lent to or borrowed from a person, held in a tracking account of subtype

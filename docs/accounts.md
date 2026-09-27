@@ -94,7 +94,8 @@ Rules enforced on write:
   (422) until its delete is undone.
 - A transaction something else is recorded against — a loan instalment, a
   portfolio lot or transaction, a reconciliation adjustment, a family-loan
-  write-off — cannot be deleted, nor its creation undone. Undo or delete that
+  write-off, a card charge converted to an EMI plan (the refusal names the
+  plan) — cannot be deleted, nor its creation undone. Undo or delete that
   first.
 
 Optional fields: `memo`, `tags`, `owner_member_id` (who spent it),
