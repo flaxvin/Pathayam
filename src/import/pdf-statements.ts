@@ -713,7 +713,10 @@ function parseRow(
   // Narration is what is left of the line after the date, once figures, dates
   // and bare reference numbers are taken out.
   const after = line.slice(found.end);
-  const referenceCell = columns(after).find((c) => /^[A-Z]?\d{6,20}$/.test(c.trim()));
+  // Zeros fill the column on rows the bank gave no reference; taken as one,
+  // every such row of an amount was "the same event" to the strong dedupe tier.
+  const referenceCell = columns(after)
+    .find((c) => /^[A-Z]?\d{6,20}$/.test(c.trim()) && !/^0+$/.test(c.trim()));
   const own = columns(after)
     .filter((c) => parseStatementDate(c) === null)
     .filter((c) => findDate(c, c.length) === null)
