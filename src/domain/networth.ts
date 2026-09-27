@@ -745,6 +745,34 @@ export function assetAllocation(
     );
   }
 
+  /*
+   * WEALTH-36 · Plain tracking accounts, valued as the net worth statement
+   * values them (B56): a stated valuation if there is one, else the balance.
+   * Only the four asset subtypes were read, so ₹10 lakh in a fixed deposit
+   * beside ₹1 lakh in a fund read "Equity 100%" — the page told a cautious
+   * saver they were all-in on shares. A deposit is cash; "other asset" is
+   * other; a liability, or anything worth nothing, is not an allocation.
+   */
+  const balances = asOf < todayIST() ? accountBalancesThrough(db, asOf) : accountBalances(db);
+  for (const account of queryAll<{ id: string; subtype: string; currency: string }>(
+    db,
+    `SELECT id, subtype, currency FROM accounts
+      WHERE kind = 'tracking' AND closed_at IS NULL
+        AND subtype IN (${SIMPLE_TRACKING_SUBTYPES.map(() => "?").join(",")})`,
+    ...SIMPLE_TRACKING_SUBTYPES,
+  )) {
+    if (hidden.has(account.id) || account.subtype === "liability") continue;
+    const stated = valuationInBase(db, account, asOf, baseCurrency);
+    const value = stated ? stated.value : balances.get(account.id)?.working ?? 0;
+    if (value <= 0) continue;
+    addClassified(
+      account.subtype === "asset" ? "other" : "cash",
+      account.currency === baseCurrency ? "domestic" : "international",
+      account.currency,
+      value,
+    );
+  }
+
   const toSlices = (
     m: Map<string, number>, label: (k: string) => string,
   ): AllocationSlice[] =>
