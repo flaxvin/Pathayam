@@ -205,6 +205,7 @@ export function createTransaction(
 
     const payeeId = input.payeeId ?? (input.payeeName ? resolvePayee(db, actor, input.payeeName, input.raw?.payee).id : null);
     const cardId = input.cardId ?? defaultCardFor(db, account.kind, input.accountId);
+    if (input.ownerMemberId) refuseUnknownMember(db, input.ownerMemberId);
     const ownerMemberId =
       input.ownerMemberId ?? cardHolderOf(db, cardId) ?? actor.memberId ?? null;
 
@@ -445,6 +446,7 @@ export function updateTransaction(
     if (patch.payeeId !== undefined) set("payee_id", patch.payeeId);
     if (patch.memo !== undefined) set("memo", patch.memo);
     if (patch.cleared !== undefined) set("cleared", patch.cleared ? 1 : 0);
+    if (patch.ownerMemberId) refuseUnknownMember(db, patch.ownerMemberId);
     if (patch.ownerMemberId !== undefined) set("owner_member_id", patch.ownerMemberId);
     if (patch.cardId !== undefined) set("card_id", patch.cardId);
     if (patch.reimbursable !== undefined) set("reimbursable", patch.reimbursable ? 1 : 0);
@@ -712,6 +714,18 @@ export function resolveCategoryLines(total: Paise, lines: CategoryLine[]): Resol
  * Income stays exempt for B99's own reason — its job is to land in Ready to
  * Assign and wait to be given one.
  */
+/**
+ * MONEY-CORE-15 · "Who spent it" has to be somebody in the household. A stale
+ * form after a member was removed, or a crafted post, named one that is not,
+ * and the insert failed on the members foreign key — a 500, logged as a server
+ * fault, for what is an answer the household can act on.
+ */
+function refuseUnknownMember(db: DB, memberId: string): void {
+  if (!queryOne(db, `SELECT 1 FROM members WHERE id = ?`, memberId)) {
+    throw new Refusal("That member is not in this household. Pick who spent it again.");
+  }
+}
+
 export function outgoingLacksEnvelope(total: Paise, filed: ResolvedLines): boolean {
   if (total >= 0) return false;
   return filed.splits
