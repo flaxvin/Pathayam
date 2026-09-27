@@ -216,6 +216,19 @@ rather than added twice.
 The occurrence counter distinguishes genuinely identical rows within one file.
 Uniqueness is enforced per account.
 
+## Transfers in Review
+
+Money moved between the household's own accounts — a card bill paid from the
+bank, a sweep to a deposit — is neither spending nor new money. A staged row's
+envelope list ends with "Transfer to / from" each of the viewer's other
+accounts (not the derived-value ones). Choosing one posts the transfer pair,
+the imported side carrying the row's source identity and raw fields. If the
+other account's own imported row is also waiting — the opposite amount, within
+three days — it becomes the other leg, dated as its own statement dates it;
+otherwise that leg is posted uncleared, for its statement to merge into later.
+Undoing either side's import removes both legs, and returns the other side's
+row, if it came from another import, to Review.
+
 ## Rules
 
 A rule has a stage, conditions, and actions.

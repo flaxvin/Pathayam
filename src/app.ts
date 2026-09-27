@@ -85,7 +85,7 @@ import {
 } from "./domain/reconciliation.ts";
 import { parseStatement, detectDelimiter } from "./import/csv.ts";
 import {
-  ingest, listStaged, approveStaged, rejectStaged, mergeStaged, undoBatch, listBatches, batchUndoDates,
+  ingest, listStaged, approveStaged, approveStagedAsTransfer, rejectStaged, mergeStaged, undoBatch, listBatches, batchUndoDates,
 } from "./import/pipeline.ts";
 import {
   householdBudgetId, budgetsFor, lastBudget, rememberBudget, ensurePersonalBudget, listBudgets, getBudget,
@@ -4122,6 +4122,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       "Review",
       renderReview({
         staged: listStaged(db, { viewerMemberId: viewer(ctx) }),
+        transferAccounts: listAccounts(db, { viewerMemberId: viewer(ctx) })
+          .filter((acc) => !DERIVED_VALUE_SUBTYPES.has(acc.subtype))
+          .map((acc) => ({ id: acc.id, name: acc.name })),
         uncategorised: queryAll<{
           id: string; date: string; amount: number; payee: string | null; account: string;
         }>(
@@ -4253,6 +4256,27 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     );
     if (guard) return guard;
     return mutate(ctx, (a) => {
+      /*
+       * IMPORTS-SCHEDULES-32 · "Transfer to/from <account>" in the envelope
+       * list: money moved between the household's own accounts, recorded as
+       * the pair it is rather than as spending on one side and new money on
+       * the other.
+       */
+      const choice = field(ctx.body, "category_id") ?? "";
+      if (choice.startsWith("transfer:")) {
+        const other = requireVisibleAccount(ctx, choice.slice("transfer:".length));
+        const result = approveStagedAsTransfer(
+          db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+          requireVisibleStaged(ctx, requiredField(ctx.body, "staged_id")), other.id,
+        );
+        return {
+          redirect: "/review",
+          message: result.pairedWith
+            ? `Recorded as a transfer with ${other.name}, matched with its own imported row.`
+            : `Recorded as a transfer with ${other.name}.`,
+        };
+      }
+
       /*
        * B99 · Approving is what puts a row in the ledger, so it is the same
        * rule as manual entry: an expense names its envelope, income does not
