@@ -513,6 +513,32 @@ export function classifyInstrument(
   });
 }
 
+/**
+ * WEALTH-11 · An instrument typed by hand before, found again by what was
+ * typed: the same name (ignoring case and surrounding spaces), kind and
+ * currency, with no symbol or ISIN to go by. The by-hand form has neither, so
+ * `findOrCreateInstrument` never matched and a second purchase of "Fictional
+ * Co" became a second instrument and holding — FIFO could not see across the
+ * two and a price entered on one was not seen by the other.
+ *
+ * `hidden` is the viewer's member-scope set: an instrument only another
+ * member's private accounts hold is never matched, so typing its name does
+ * not attach to it (and reveal its prices).
+ */
+export function findManualInstrument(
+  db: DB, input: { name: string; kind: string; currency: string }, hidden: ReadonlySet<string>,
+): Instrument | null {
+  const candidates = queryAll<Instrument>(
+    db,
+    `SELECT * FROM instruments
+      WHERE provider = 'manual' AND symbol IS NULL AND isin IS NULL
+        AND kind = ? AND currency = ? AND lower(trim(name)) = lower(trim(?))
+      ORDER BY created_at, id`,
+    input.kind, input.currency, input.name,
+  );
+  return candidates.find((i) => !hidden.has(i.id)) ?? null;
+}
+
 export function getInstrument(db: DB, id: string): Instrument | null {
   return queryOne<Instrument>(db, `SELECT * FROM instruments WHERE id = ?`, id);
 }

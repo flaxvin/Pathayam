@@ -120,7 +120,12 @@ Money lent to or borrowed from a person, held in a tracking account of subtype
 
 An `instrument` is a tradeable thing: `mutual-fund`, `equity`, `etf`, `bond`,
 `commodity` or `other`, with an optional symbol, ISIN, currency, price provider
-and classification (`asset_class`, `region`).
+and classification (`asset_class`, `region`). An instrument is found again by
+ISIN, then by symbol and provider; one typed by hand (no symbol or ISIN) is
+found again by the same name, ignoring case, with the same kind and currency —
+so a second purchase typed by hand adds a lot to the same holding. A holding's
+**Buy more** and a scheme chosen from the search both carry the instrument to
+the purchase form instead.
 
 A `holding` is one instrument in one asset account. Its units and cost come from
 `lots`, which are FIFO.

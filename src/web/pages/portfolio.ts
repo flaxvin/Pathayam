@@ -682,6 +682,9 @@ export function renderHoldingDetail(opts: {
         </p>
       </div>
       <div class="row">
+        <!-- WEALTH-11 · A second purchase of this, into this account: one
+             holding with two lots, not a second holding of the same name. -->
+        <a class="button" href="/portfolio/add?instrument=${v.instrument.id}&account=${v.holding.account_id}">Buy more</a>
         <a class="button" href="/portfolio/${v.holding.id}/split">Split or bonus</a>
         <a class="button" href="/portfolio/${v.holding.id}/merge">Merger</a>
         <a class="button button-primary" href="/portfolio/${v.holding.id}/sell">Sell units</a>
@@ -1192,6 +1195,8 @@ export function renderAddHolding(opts: {
    * search — which the purchase goes to instead of a new one typed by hand.
    */
   chosen?: { id: string; name: string; kind: string; currency: string } | null;
+  /** The account to offer first — the holding's own, from its "Buy more". */
+  accountId?: string | null;
 }): SafeHtml {
   const chosen = opts.chosen ?? null;
   return html`
@@ -1263,7 +1268,8 @@ export function renderAddHolding(opts: {
           <div class="field">
             <label for="account_id">Held in</label>
             <select id="account_id" name="account_id" required>
-              ${opts.assetAccounts.map((a) => html`<option value="${a.id}">${a.name}</option>`)}
+              ${opts.assetAccounts.map((a) => html`
+                <option value="${a.id}" ${a.id === opts.accountId ? "selected" : ""}>${a.name}</option>`)}
             </select>
           </div>
           ${chosen
