@@ -555,6 +555,20 @@ export function renderMapping(opts: MappingPrompt): SafeHtml {
       </div>
 
       ${column("date", "Date", "The date the transaction happened.", true)}
+      <div class="field">
+        <label for="date_format">How are the dates written?</label>
+        <select id="date_format" name="date_format">
+          <option value="auto">Work it out from the file</option>
+          <option value="dd-mm-yyyy">Day first — 31/08/2026</option>
+          <option value="mm-dd-yyyy">Month first — 08/31/2026</option>
+          <option value="yyyy-mm-dd">Year first — 2026-08-31</option>
+        </select>
+        <p class="field-hint">
+          Indian banks put the day first. A file exported from a US-style
+          system puts the month first; when every day is 12 or under, the file
+          alone cannot say which.
+        </p>
+      </div>
       ${column("narration", "Description", "Whatever the bank calls the other party.", true)}
 
       <fieldset>

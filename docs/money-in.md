@@ -85,6 +85,14 @@ The shapes read are the same everywhere: `15-01-2026`, `15/01/26`,
 (`26-08-15`) is read as day-first unless the mapping's `dateFormat` is
 `yyyy-mm-dd`.
 
+A CSV's numeric dates are day first unless the file shows otherwise: when a
+date column's second part passes 12 (`09/13/2026`) and its first never does,
+the mapping's `dateFormat` is `mm-dd-yyyy` and every row is read month first.
+The mapping screen asks how the dates are written — day, month or year first,
+or "work it out from the file" — since a month-first file whose days are all
+12 or under looks day first. A column that proves both orders (`13/09` and
+`09/14`) is refused there, asking the question, rather than read half wrong.
+
 A CSV row whose date cannot be read is an error row, never a silent skip. A
 row is skipped as a footer only when its date cell says so (`Total`,
 `Opening Balance`, `Page 2 of 3`), or its date cell is empty and it carries no

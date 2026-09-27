@@ -256,6 +256,8 @@ export function mappingFromSelections(input: {
   direction?: number | null;
   balance?: number | null;
   reference?: number | null;
+  /** How the file writes its dates, when the person said; absent is day first. */
+  dateFormat?: ColumnMapping["dateFormat"] | null;
 }): ColumnMapping {
   const mapping: ColumnMapping = {
     headerRow: input.headerRow,
@@ -277,6 +279,7 @@ export function mappingFromSelections(input: {
 
   if (input.balance != null && input.balance >= 0) mapping.balance = input.balance;
   if (input.reference != null && input.reference >= 0) mapping.reference = input.reference;
+  if (input.dateFormat) mapping.dateFormat = input.dateFormat;
 
   return mapping;
 }

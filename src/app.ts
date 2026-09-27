@@ -83,7 +83,7 @@ import {
   reconcile, reconciliationStatus, listCheckpoints, clearedBalanceAsOf,
   guardHistoricalEdit, breakCheckpoints, CheckpointConfirmationRequired,
 } from "./domain/reconciliation.ts";
-import { parseStatement, detectDelimiter } from "./import/csv.ts";
+import { parseStatement, detectDelimiter, dateOrderOf } from "./import/csv.ts";
 import {
   ingest, listStaged, approveStaged, approveStagedAsTransfer, rejectStaged, mergeStaged, undoBatch, listBatches, batchUndoDates,
 } from "./import/pipeline.ts";
@@ -4602,6 +4602,25 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
       const delimiter = MAPPING_DELIMITERS[field(ctx.body, "delimiter") ?? ""];
       const recognition = recognise(db, text, accountId, delimiter);
+
+      /*
+       * IMPORTS-SCHEDULES-30 · The order of day and month, as chosen — or,
+       * left to the file, month first only when its dates prove it (a second
+       * part over 12). A column that proves both ways is refused: whichever
+       * reading was taken, some of its rows would land in the wrong month.
+       */
+      const dateFormat = field(ctx.body, "date_format") ?? "auto";
+      if (dateFormat === "dd-mm-yyyy" || dateFormat === "mm-dd-yyyy" || dateFormat === "yyyy-mm-dd") {
+        mapping.dateFormat = dateFormat;
+      } else {
+        const order = dateOrderOf(recognition.rows, mapping.headerRow, mapping.date);
+        if (order === "mixed") {
+          throw new HttpError(400,
+            "Some dates in that column put the day first (13/09) and others the month (09/13), " +
+            "so it is not clear which is which. Choose how the dates are written.");
+        }
+        if (order === "mm-dd-yyyy") mapping.dateFormat = order;
+      }
       const result = parseWith(recognition.rows, mapping);
 
       // A mapping that read no transaction at all is not one to remember:

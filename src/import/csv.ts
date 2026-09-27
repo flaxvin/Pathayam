@@ -143,9 +143,14 @@ export interface ColumnMapping {
   direction?: number;
   balance?: number;
   reference?: number;
-  /** Overrides the two-digit-year guess when a bank is ambiguous. */
-  dateFormat?: "dd-mm-yyyy" | "yyyy-mm-dd";
+  /**
+   * Overrides the two-digit-year guess when a bank is ambiguous, and says a
+   * file writes its month first ("09/13/2026") — see `dateOrderOf`.
+   */
+  dateFormat?: DateFormat;
 }
+
+export type DateFormat = "dd-mm-yyyy" | "mm-dd-yyyy" | "yyyy-mm-dd";
 
 export interface ImportProfile {
   name: string;
@@ -270,6 +275,7 @@ export function guessMapping(rows: string[][]): ColumnMapping | null {
     }
     if (balance >= 0) mapping.balance = balance;
     if (reference >= 0) mapping.reference = reference;
+    if (dateOrderOf(rows, r, date) === "mm-dd-yyyy") mapping.dateFormat = "mm-dd-yyyy";
 
     return mapping;
   }
@@ -505,11 +511,44 @@ function readDebitCredit(
  * 26 Aug 2015 to everybody else.
  */
 function readDate(raw: string, mapping: ColumnMapping): IsoDate | null {
+  if (mapping.dateFormat === "mm-dd-yyyy") {
+    // Swapped into day-first and read by the shared reader, time and all.
+    const mdy = NUMERIC_DATE.exec(raw.trim());
+    if (mdy) return parseDate(`${mdy[3]}${mdy[2]}${mdy[1]}${mdy[2]}${mdy[4]}${mdy[5] ?? ""}`);
+  }
   if (mapping.dateFormat === "yyyy-mm-dd") {
     const ymd = /^(\d{4}|\d{2})[-/.](\d{1,2})[-/.](\d{1,2})$/.exec(raw.trim());
     if (ymd) return calendarDate(fullYear(ymd[1]!), Number(ymd[2]), Number(ymd[3]));
   }
   return parseDate(raw);
+}
+
+/** `09/13/2026`, `13-09-26 10:32` — two parts of one or two digits, then a year. */
+const NUMERIC_DATE = /^(\d{1,2})([-/.])(\d{1,2})\2(\d{2}|\d{4})(\b.*)?$/;
+
+/**
+ * IMPORTS-SCHEDULES-30 · Which way round a column writes its day and month.
+ *
+ * Every date was read day first, so a US-style export — 09/03, 09/13, 09/21,
+ * 09/05 for September — staged 09/03 as 9 March and 09/05 as 9 May, valid
+ * rows months away, while 09/13 and 09/21 were "not a date I can read". A
+ * first part over 12 proves day first; a second part over 12 proves month
+ * first. Both, and the column is `mixed`; neither, and it cannot tell (null)
+ * — day first, as Indian banks write it, unless the mapping screen says so.
+ */
+export function dateOrderOf(
+  rows: string[][], headerRow: number, column: number,
+): "dd-mm-yyyy" | "mm-dd-yyyy" | "mixed" | null {
+  let dayFirst = false;
+  let monthFirst = false;
+  for (const row of rows.slice(headerRow + 1)) {
+    const m = NUMERIC_DATE.exec((row[column] ?? "").trim());
+    if (!m) continue;
+    if (Number(m[1]) > 12) dayFirst = true;
+    if (Number(m[3]) > 12) monthFirst = true;
+  }
+  if (dayFirst && monthFirst) return "mixed";
+  return dayFirst ? "dd-mm-yyyy" : monthFirst ? "mm-dd-yyyy" : null;
 }
 
 const FOOTER_MARKERS = [
