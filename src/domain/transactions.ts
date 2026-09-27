@@ -1441,6 +1441,14 @@ registerUndoHandler("payee", (db, event) => {
     // since: after DMart went into DMart Ready, the three rows moved from
     // D-Mart Ltd sat with DMart Ready, none came back, and the undo still said
     // it had moved 3. The count is what actually moved.
+    // A loser removed since (its creation undone, from before that was refused
+    // for a merged payee) cannot take its rows back: a FOREIGN KEY 500.
+    if (!getPayee(db, before.id)) {
+      throw new UndoRefused(
+        `"${before.name}" has since been removed, so there is no payee to move its ` +
+        `transactions back to. They stay where the merge put them.`,
+      );
+    }
     const holders = after?.id ? mergeChain(db, after.id) : [];
     const within = `(${holders.map(() => "?").join(",") || "NULL"})`;
     let moved = 0;
@@ -1466,6 +1474,19 @@ registerUndoHandler("payee", (db, event) => {
    * transaction, a schedule, a row waiting in review — and deleting it under
    * those hit a foreign key (a 500). Its aliases are its own and go with it.
    */
+  /*
+   * A payee merged into another since is not the empty name it looks: its
+   * merge is recorded against it and its rows sit with the winner. Removing it
+   * left that merge naming nobody — undoing it then moved the rows back onto a
+   * payee that did not exist, a FOREIGN KEY 500. The merge is undone first.
+   */
+  const mergedInto = getPayee(db, event.entityId!)?.merged_into_id;
+  if (mergedInto) {
+    throw new Refusal(
+      `This payee has since been merged into "${getPayee(db, mergedInto)?.name ?? "another payee"}". ` +
+      `Undo that merge first.`,
+    );
+  }
   const dependants = dependantsOf(db, "payees", event.entityId!, {
     own: ["payee_aliases.payee_id"],
     words: {

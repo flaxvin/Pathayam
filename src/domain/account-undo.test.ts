@@ -186,3 +186,25 @@ describe("MONEY-CORE-20 · a payee merge whose winner was merged again", () => {
     } finally { await app.close(); }
   });
 });
+
+describe("MONEY-CORE-20 (follow-up) · undoing the creation of a payee merged away since", () => {
+  test("is refused, and the merge still undoes rather than failing on a missing payee", async () => {
+    const { db, bank, food } = setup();
+    const loser = resolvePayee(db, actor, "Wombat Cabs").id;
+    const created = lastEvent(db, "payee", "create");
+    const winner = resolvePayee(db, actor, "Uber").id;
+    const t = createTransaction(db, actor, { accountId: bank, amount: -rupees(250) as Paise,
+      date: "2026-09-05" as IsoDate, categoryId: food, payeeName: "Wombat Cabs" }).id;
+    mergePayees(db, actor, loser, winner);
+    const merge = lastEvent(db, "payee", "merge");
+
+    const app = await startTestApp(db, { memberId: "m-ravi", config: testConfig({}) });
+    try {
+      await app.post(`/activity/${created}/undo`, { force: "1" });
+      assert.ok(queryOne(db, `SELECT 1 FROM payees WHERE id = ?`, loser), "the merged payee was removed");
+      assert.equal((await app.post(`/activity/${merge}/undo`, { force: "1" })).status, 303);
+      assert.equal(queryOne<{ payee_id: string }>(db, `SELECT payee_id FROM transactions WHERE id = ?`, t)!.payee_id, loser);
+      assert.deepEqual(app.failures, []);
+    } finally { await app.close(); }
+  });
+});
