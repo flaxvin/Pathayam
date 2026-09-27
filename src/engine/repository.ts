@@ -13,7 +13,7 @@ import type { Paise } from "../core/money.ts";
 import type { MonthKey, IsoDate } from "../core/dates.ts";
 import {
   addMonths, monthOf, todayIST, nowIST, addDays, daysBetween,
-  firstDayOfMonth, lastDayOfMonth,
+  firstDayOfMonth, lastDayOfMonth, monthsBetween,
 } from "../core/dates.ts";
 import { computeBudget } from "./engine.ts";
 import { commitmentSources, claimByMonth, claimLinks, claimFor } from "../domain/commitments.ts";
@@ -800,11 +800,14 @@ function loadClaim(
 }
 
 /**
- * The contiguous span the engine must walk: from the earliest month carrying
- * any data through the later of `through` and the last month with an
- * assignment, since a future assignment reduces today's RTA (R2).
+ * The most months one walk covers. A corrupt or absurd date must not spin the
+ * engine, and a household budget will never legitimately span more than a few
+ * decades — a hundred years is room enough.
  */
-export function monthRange(db: DB, through: MonthKey): MonthKey[] {
+export const MONTH_SPAN = 1200;
+
+/** The earliest month carrying any data, and the last month with an assignment. */
+function dataBounds(db: DB): { earliest: MonthKey | null; latestAssignment: MonthKey | null } {
   /*
    * B75 · `MIN(substr(date,1,7))` cannot use an index — SQLite has to read every
    * row to work out the minimum of an expression — so finding the first month
@@ -821,20 +824,55 @@ export function monthRange(db: DB, through: MonthKey): MonthKey[] {
          UNION ALL SELECT MIN(month) FROM assignments
          UNION ALL SELECT substr(MIN(opening_date),1,7) FROM accounts
        )`,
-    ) ?? through;
+    ) ?? null;
+  const latestAssignment = queryValue<string>(db, `SELECT MAX(month) FROM assignments`) ?? null;
+  return { earliest, latestAssignment };
+}
 
-  const latestAssignment = queryValue<string>(db, `SELECT MAX(month) FROM assignments`) ?? through;
-  const last = latestAssignment > through ? latestAssignment : through;
+/**
+ * The contiguous span the engine must walk: from the earliest month carrying
+ * any data through the later of `through` and the last month with an
+ * assignment, since a future assignment reduces today's RTA (R2).
+ */
+export function monthRange(db: DB, through: MonthKey): MonthKey[] {
+  const { earliest: first, latestAssignment } = dataBounds(db);
+  const earliest = first ?? through;
+  const latest = latestAssignment ?? through;
+  const last = latest > through ? latest : through;
 
   const months: MonthKey[] = [];
   let cursor = earliest < through ? earliest : through;
-  // A corrupt or absurd date must not spin here; a household budget will never
-  // legitimately span more than a few decades.
-  for (let guard = 0; cursor <= last && guard < 1200; guard++) {
+  for (let guard = 0; cursor <= last && guard < MONTH_SPAN; guard++) {
     months.push(cursor);
     cursor = addMonths(cursor, 1);
   }
   return months;
+}
+
+/**
+ * BUDGET-13 · Whether the engine's walk reaches `month` — and, for a write,
+ * whether an assignment there still leaves every month within one walk.
+ *
+ * The walk stops after MONTH_SPAN months from the first month with data, so
+ * with an account opened in 2000-01, "June 2150" was never computed: the
+ * budget page showed December 2099's figures under the heading "June 2150",
+ * and ₹600 assigned there said "Assigned ₹600 to Rent." while nothing read the
+ * row — nor, beyond the walk, would today's Ready to Assign ever subtract it.
+ * A month outside the walk is refused by name instead.
+ */
+export function monthInReach(db: DB, month: MonthKey, opts: { writing?: boolean } = {}): boolean {
+  const { earliest, latestAssignment } = dataBounds(db);
+  const first = earliest && earliest < month ? earliest : month;
+  if (monthsBetween(first, month) >= MONTH_SPAN) return false;
+  /*
+   * A write before the first month with data moves where the walk starts, so
+   * the last assignment has to stay within reach of it. Only then: a row left
+   * out of reach before this check existed must not refuse every later write.
+   */
+  if (opts.writing && earliest && month < earliest && latestAssignment) {
+    return monthsBetween(month, latestAssignment) < MONTH_SPAN;
+  }
+  return true;
 }
 
 export function loadCategories(db: DB): CategoryMeta[] {
