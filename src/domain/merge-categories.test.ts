@@ -18,7 +18,7 @@ import assert from "node:assert/strict";
 import { openDatabase, ensureHousehold, execute, queryOne } from "../db/db.ts";
 import { nowIST } from "../core/dates.ts";
 import { rupees, formatPaise } from "../core/money.ts";
-import type { Actor } from "../core/events.ts";
+import { historyFor, undoEvent, type Actor } from "../core/events.ts";
 import { createAccount } from "./accounts.ts";
 import { createGroup, createCategory, setAssigned, mergeCategories, setTarget, getCategory } from "./budget.ts";
 import { createTransaction } from "./transactions.ts";
@@ -185,5 +185,45 @@ describe("what it refuses", () => {
     assert.throws(() => mergeCategories(h.db, actor, h.restaurants, "nope"), Refusal);
     assert.equal(balanceOf(h.db, AUG, h.restaurants), rupees(3_000), "the transaction did not roll back");
     assert.ok(!getCategory(h.db, h.restaurants)?.deleted_at);
+  });
+});
+
+describe("BUDGET-8 · undoing a merge gives back what it moved", () => {
+  test("money, history and target return to the loser; the winner is as it was", () => {
+    const { db, bank, eatingOut, restaurants } = household();
+    setAssigned(db, actor, AUG, eatingOut, rupees(300));
+    setAssigned(db, actor, AUG, restaurants, rupees(500));
+    setTarget(db, actor, eatingOut, { type: "monthly", amount: rupees(300) });
+    const spent = createTransaction(db, actor, {
+      accountId: bank, amount: -rupees(100), date: "2026-08-02", categoryId: eatingOut,
+    });
+
+    mergeCategories(db, actor, eatingOut, restaurants);
+    assert.equal(balanceOf(db, AUG, restaurants), rupees(700));
+
+    const ev = historyFor(db, "category", eatingOut).find((e) => e.action === "merge")!;
+    assert.equal(undoEvent(db, ev.id, actor).ok, true);
+
+    assert.equal(getCategory(db, eatingOut)!.deleted_at, null);
+    assert.equal(balanceOf(db, AUG, eatingOut), rupees(200));
+    assert.equal(balanceOf(db, AUG, restaurants), rupees(500));
+    assert.equal(queryOne<{ category_id: string }>(
+      db, `SELECT category_id FROM transactions WHERE id = ?`, spent.id)!.category_id, eatingOut);
+    assert.equal(queryOne<{ n: number }>(
+      db, `SELECT COUNT(*) AS n FROM targets WHERE category_id = ?`, eatingOut)!.n, 1);
+    assert.equal(queryOne<{ n: number }>(
+      db, `SELECT COUNT(*) AS n FROM targets WHERE category_id = ?`, restaurants)!.n, 0);
+    assertIdentity(db, "after the undo");
+  });
+
+  test("a merge logged without that record is refused, not 'restored' empty", () => {
+    const { db, eatingOut, restaurants } = household();
+    setAssigned(db, actor, AUG, eatingOut, rupees(300));
+    mergeCategories(db, actor, eatingOut, restaurants);
+    const ev = historyFor(db, "category", eatingOut).find((e) => e.action === "merge")!;
+    execute(db, `UPDATE events SET after_json = ? WHERE id = ?`,
+      JSON.stringify(getCategory(db, restaurants)), ev.id);
+    assert.throws(() => undoEvent(db, ev.id, actor), /cannot be taken apart/);
+    assert.equal(getCategory(db, eatingOut)!.deleted_at !== null, true);
   });
 });

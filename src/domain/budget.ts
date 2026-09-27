@@ -422,6 +422,24 @@ function refuseHistoryTarget(db: DB, from: Category, targetId: string): void {
 }
 
 /** D11 · Recorded on a delete event: everything the delete removed or moved. */
+/** BUDGET-8 · What a merge moved from the loser to the winner, by id. */
+interface MergeTaken {
+  assignments: { month: string; amount: number }[];
+  target: Record<string, unknown> | null;
+  /** True when the loser's target became the winner's (the winner had none). */
+  targetMoved: boolean;
+  transactionIds: string[];
+  splitIds: string[];
+  stagedIds: string[];
+  scheduleIds: string[];
+  loanIds: string[];
+  evenCallEnvelopeIds: string[];
+  evenCallGivingIds: string[];
+  goalIds: string[];
+  /** Goals the merge newly linked to the winner. */
+  goalIdsAdded: string[];
+}
+
 interface DeleteTaken {
   remapTo: string | null;
   assignments: { month: string; amount: number }[];
@@ -637,6 +655,35 @@ export function mergeCategories(db: DB, actor: Actor, loserId: string, winnerId:
     }
 
     /*
+     * BUDGET-8 · What the merge moves, written down so undoing it can move it
+     * back. Undo used to reset the loser's row and say "Restored": Eating out
+     * came back empty — no money, no transactions, no target — while
+     * Groceries kept its ₹300 on top of its own ₹500.
+     */
+    const ids = (sql: string) => queryAll<{ id: string }>(db, sql, loserId).map((r) => r.id);
+    const merged: MergeTaken = {
+      assignments: queryAll<{ month: string; amount: number }>(
+        db, `SELECT month, amount FROM assignments WHERE category_id = ?`, loserId,
+      ),
+      target: queryOne<Record<string, unknown>>(db, `SELECT * FROM targets WHERE category_id = ?`, loserId),
+      targetMoved: false,
+      transactionIds: ids(`SELECT id FROM transactions WHERE category_id = ?`),
+      splitIds: ids(`SELECT id FROM transaction_splits WHERE category_id = ?`),
+      stagedIds: ids(`SELECT id FROM staged_transactions WHERE category_id = ?`),
+      scheduleIds: ids(`SELECT id FROM schedules WHERE category_id = ?`),
+      loanIds: ids(`SELECT id FROM loans WHERE payment_category_id = ?`),
+      evenCallEnvelopeIds: ids(`SELECT id FROM even_calls WHERE envelope_id = ?`),
+      evenCallGivingIds: ids(`SELECT id FROM even_calls WHERE giving_category_id = ?`),
+      goalIds: ids(`SELECT goal_id AS id FROM goal_categories WHERE category_id = ?`),
+      goalIdsAdded: queryAll<{ id: string }>(
+        db,
+        `SELECT goal_id AS id FROM goal_categories WHERE category_id = ?
+           AND goal_id NOT IN (SELECT goal_id FROM goal_categories WHERE category_id = ?)`,
+        loserId, winnerId,
+      ).map((r) => r.id),
+    };
+
+    /*
      * Assignments: added, month by month. ON CONFLICT is what keeps the
      * identity — see above.
      */
@@ -677,6 +724,7 @@ export function mergeCategories(db: DB, actor: Actor, loserId: string, winnerId:
      */
     const winnerTarget = queryOne(db, `SELECT category_id FROM targets WHERE category_id = ?`, winnerId);
     if (!winnerTarget) {
+      merged.targetMoved = merged.target !== null;
       execute(db, `UPDATE targets SET category_id = ? WHERE category_id = ?`, winnerId, loserId);
     }
     execute(db, `DELETE FROM targets WHERE category_id = ?`, loserId);
@@ -692,7 +740,7 @@ export function mergeCategories(db: DB, actor: Actor, loserId: string, winnerId:
     execute(db, `UPDATE categories SET deleted_at = ? WHERE id = ?`, nowIST(), loserId);
 
     appendEvent(db, actor, {
-      entity: "category", entityId: loserId, action: "merge", before: loser, after: winner,
+      entity: "category", entityId: loserId, action: "merge", before: loser, after: { ...winner, merged },
       summary: `Merged "${loser.name}" into "${winner.name}"`,
     });
   });
@@ -1100,12 +1148,38 @@ registerUndoHandler("category", (db, event) => {
     removeCategoryRow(db, event.entityId!);
     return `Removed the category that was added`;
   }
+  /*
+   * BUDGET-8 · A merge is undone only by giving back what it moved. One logged
+   * before the merge wrote that down cannot be, and saying "Restored" over an
+   * empty envelope was worse than saying so.
+   */
+  const merged = event.action === "merge"
+    ? (event.after as { id?: string; merged?: MergeTaken } | undefined)
+    : undefined;
+  if (event.action === "merge") {
+    if (!merged?.merged || !merged.id) {
+      throw new Refusal(
+        `This merge was made before the app kept a record of what it moved, so it ` +
+        `cannot be taken apart. Move the money and re-file the history by hand.`,
+      );
+    }
+    const winner = getCategory(db, merged.id);
+    if (!winner || winner.deleted_at) {
+      throw new Refusal(
+        `"${before.name}" was merged into an envelope that has since been deleted, so ` +
+        `there is nothing to take it back from.`,
+      );
+    }
+  }
+
   execute(
     db,
     `UPDATE categories SET name=?, group_id=?, sort=?, hidden_at=?, deleted_at=?, note=? WHERE id=?`,
     before.name, before.group_id, before.sort, before.hidden_at, before.deleted_at, before.note,
     event.entityId!,
   );
+
+  if (merged?.merged && merged.id) undoMerge(db, event.entityId!, merged.id, merged.merged);
 
   // D11 · A delete gives back what it took. Events from before D11 recorded
   // nothing, and restore only the row, as they always did.
@@ -1142,6 +1216,54 @@ registerUndoHandler("category", (db, event) => {
   }
   return `Restored "${before.name}"`;
 });
+
+/**
+ * BUDGET-8 · Move back what a merge moved. Only what still sits where the merge
+ * put it: anything re-filed since is the household's later decision, the rule
+ * the delete's undo keeps.
+ */
+function undoMerge(db: DB, loserId: string, winnerId: string, m: MergeTaken): void {
+  for (const a of m.assignments) {
+    const winnerNow = getAssigned(db, a.month as MonthKey, winnerId);
+    writeAssignment(db, a.month as MonthKey, winnerId, (winnerNow - a.amount) as Paise);
+    writeAssignment(db, a.month as MonthKey, loserId, a.amount as Paise);
+  }
+  const back = (table: string, column: string, idsToMove: string[]) => {
+    for (const id of idsToMove) {
+      execute(db, `UPDATE ${table} SET ${column} = ? WHERE id = ? AND ${column} = ?`, loserId, id, winnerId);
+    }
+  };
+  back("transactions", "category_id", m.transactionIds);
+  back("transaction_splits", "category_id", m.splitIds);
+  back("staged_transactions", "category_id", m.stagedIds);
+  back("schedules", "category_id", m.scheduleIds);
+  back("loans", "payment_category_id", m.loanIds);
+  back("even_calls", "envelope_id", m.evenCallEnvelopeIds);
+  back("even_calls", "giving_category_id", m.evenCallGivingIds);
+
+  for (const goalId of m.goalIds) {
+    execute(db, `INSERT OR IGNORE INTO goal_categories (goal_id, category_id) VALUES (?,?)`, goalId, loserId);
+  }
+  for (const goalId of m.goalIdsAdded) {
+    execute(db, `DELETE FROM goal_categories WHERE goal_id = ? AND category_id = ?`, goalId, winnerId);
+  }
+
+  if (m.target) {
+    if (m.targetMoved) execute(db, `DELETE FROM targets WHERE category_id = ?`, winnerId);
+    if (!queryOne(db, `SELECT 1 FROM targets WHERE category_id = ?`, loserId)) {
+      const cols = Object.keys(m.target);
+      execute(
+        db,
+        `INSERT INTO targets (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`,
+        ...cols.map((c) => m.target![c] as string | number | null),
+      );
+    }
+  }
+
+  // Keyed by category, and wrong for both again — as the merge found it.
+  execute(db, `DELETE FROM month_rollups`);
+  execute(db, `DELETE FROM month_rollup_state`);
+}
 
 interface TargetRow { category_id: string; type: string; amount: number | null; target_date: string | null; created_at: string; updated_at: string }
 registerUndoHandler("target", (db, event) => {
