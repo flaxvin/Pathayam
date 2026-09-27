@@ -2685,4 +2685,22 @@ UPDATE loans
    AND loans.interest_model <> 'flat';
 `,
   },
+  {
+    name: "0059-80d-for-parents-is-its-own-deduction",
+    sql: `
+--------------------------------------------------------------------------------
+-- EXTRA-6 · Section 80D has two ceilings, not one
+--------------------------------------------------------------------------------
+-- Premiums for parents are a deduction of their own, ₹25,000 or ₹50,000 for a
+-- senior parent, on top of the one for yourself and family; and preventive
+-- check-ups count up to ₹5,000 inside them. One figure against one ceiling
+-- allowed ₹50,000 at most where the Act allows up to ₹1,00,000. A declaration
+-- saved before holds its 80D figure as the self-and-family one, which is
+-- what it was capped as; the parents' part is entered again.
+ALTER TABLE tax_declarations ADD COLUMN s80d_parents INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tax_declarations ADD COLUMN s80d_parents_senior INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tax_declarations ADD COLUMN s80d_checkup INTEGER NOT NULL DEFAULT 0;
+ALTER TABLE tax_declarations ADD COLUMN s80d_parents_checkup INTEGER NOT NULL DEFAULT 0;
+`,
+  },
 ];

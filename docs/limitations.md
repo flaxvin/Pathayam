@@ -62,6 +62,16 @@ overstated; tax already deducted at source; losses set off between heads or
 carried forward, and house property loss; clubbing; foreign income and treaty
 relief; presumptive schemes under 44AD and 44ADA.
 
+**Section 80D is modelled as the Act has it** (old regime only): premiums for
+yourself, spouse and children up to ₹25,000 (₹50,000 where one of them is a
+senior citizen), and premiums for parents as a second deduction up to ₹25,000
+(₹50,000 for a senior parent) — so up to ₹1,00,000 in all — with preventive
+check-ups counted up to ₹5,000 across both, inside each group's ceiling. An
+uninsured senior's medical bills are entered in that group's premium figure,
+under the same ceiling. A declaration saved before migration 0059 had one 80D
+figure; it is kept as the self-and-family one, and the parents' part has to be
+entered again.
+
 **Capital gains are computed, with caveats.** Realised gains from the portfolio
 are sorted by asset class and holding period and taxed at their own rates —
 12.5% above ₹1,25,000 on long-held listed equity (112A), 20% on short-held
