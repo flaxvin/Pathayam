@@ -179,7 +179,11 @@ deleted, both legs), not the envelope (one merged away since keeps the spend in
 the envelope it was merged into). When an edit did move the money out of an
 envelope that has since been merged away, deleted or removed, the undo is
 refused with a sentence rather than filing the money where no budget counts it;
-a payee merged since comes back as the payee it was merged into.
+a payee merged since comes back as the payee it was merged into. Two things
+travel as a unit even so: split lines and the amount they add up to come back
+together (with the filing they had), whichever of the two the edit changed; and
+a transfer leg's partner takes back the same columns as the leg — its date for
+a date edit, its amount for an amount edit — and no others.
 
 Undoing an account's **creation** is refused once anything has been recorded
 against it — transactions, schedules, holdings, reconciliations, imports — and

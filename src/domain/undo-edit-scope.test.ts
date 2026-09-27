@@ -137,3 +137,55 @@ describe("MONEY-CORE-3 · undoing an edit whose earlier envelope was removed sin
     assert.throws(() => undoEvent(db, edit, actor, { force: true }), /no longer counts/);
   });
 });
+
+describe("MONEY-CORE-2 (follow-up) · a transfer leg's edits undone out of order", () => {
+  const pair = () => {
+    const { db, bank } = household();
+    const other = createAccount(db, actor, {
+      name: "Bank B", kind: "budget", subtype: "savings", openingDate: "2025-01-01", openingBalance: 0,
+    }).id;
+    const [out] = createTransfer(db, actor, { fromAccountId: bank, toAccountId: other, amount: 100_000, date: "2025-03-10" });
+    updateTransaction(db, actor, out.id, { date: "2025-03-12" });
+    const dateEdit = lastEvent(db, "transaction", "update");
+    updateTransaction(db, actor, out.id, { amount: -103_907 });
+    const amountEdit = lastEvent(db, "transaction", "update");
+    const legs = () => queryAll<{ amount: number; date: string }>(
+      db, `SELECT amount, date FROM transactions WHERE transfer_pair_id = ? ORDER BY amount`, out.transfer_pair_id,
+    ).map((l) => ({ ...l }));
+    return { db, dateEdit, amountEdit, legs };
+  };
+
+  test("undoing the earlier date edit moves both legs' date and neither's amount", () => {
+    const { db, dateEdit, legs } = pair();
+    assert.equal(undoEvent(db, dateEdit, actor, { force: true }).ok, true);
+    assert.deepEqual(legs(), [{ amount: -103_907, date: "2025-03-10" }, { amount: 103_907, date: "2025-03-10" }]);
+    assert.deepEqual(identityProblems(db, "2025-12"), []);
+  });
+
+  test("undoing the amount edit leaves both legs on the edited date", () => {
+    const { db, amountEdit, legs } = pair();
+    assert.equal(undoEvent(db, amountEdit, actor, { force: true }).ok, true);
+    assert.deepEqual(legs(), [{ amount: -100_000, date: "2025-03-12" }, { amount: 100_000, date: "2025-03-12" }]);
+    assert.deepEqual(identityProblems(db, "2025-12"), []);
+  });
+});
+
+describe("MONEY-CORE-2 (follow-up) · split lines come back with the amount they add up to", () => {
+  test("undoing a flattening after a later amount edit leaves no line unaccounted for", () => {
+    const { db, bank, food, snacks } = household();
+    const t = createTransaction(db, actor, {
+      accountId: bank, amount: -10_000, date: "2025-03-10",
+      splits: [{ categoryId: food, amount: -6_000 }, { categoryId: snacks, amount: -4_000 }],
+    });
+    updateTransaction(db, actor, t.id, { categoryId: food });
+    const flatten = lastEvent(db, "transaction", "update");
+    updateTransaction(db, actor, t.id, { amount: -20_000 });
+
+    assert.equal(undoEvent(db, flatten, actor, { force: true }).ok, true);
+    const row = queryOne<{ amount: number; is_split: number }>(db, `SELECT amount, is_split FROM transactions WHERE id = ?`, t.id)!;
+    const lines = queryOne<{ total: number }>(db, `SELECT SUM(amount) AS total FROM transaction_splits WHERE transaction_id = ?`, t.id)!;
+    assert.equal(row.is_split, 1);
+    assert.equal(lines.total, row.amount, "the lines no longer add up to the transaction");
+    assert.deepEqual(identityProblems(db, "2025-12"), []);
+  });
+});

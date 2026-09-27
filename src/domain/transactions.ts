@@ -1294,7 +1294,23 @@ registerUndoHandler("transaction", (db, event) => {
   const changed = (c: keyof EditSnapshot) =>
     !edited || !(c in edited) || JSON.stringify(edited[c] ?? null) !== JSON.stringify(snapshot[c] ?? null);
   const present = COLUMNS.filter((c) => c in snapshot && changed(c));
-  const linesBack = Array.isArray(snapshot.splits) && changed("splits");
+  let linesBack = Array.isArray(snapshot.splits) && changed("splits");
+  /*
+   * Split lines and the amount they add up to go back together, or neither
+   * does. Flatten a ₹100 split into Food, correct it to ₹200, then undo the
+   * flattening: the ₹60 + ₹40 lines came back onto a ₹200 row — ₹100 of the
+   * spend in no envelope, and a split whose lines do not add up. So whichever
+   * of the two the edit changed, both come back, with the filing they had.
+   */
+  if (
+    Array.isArray(snapshot.splits) &&
+    (linesBack || (present.includes("amount") && (snapshot.is_split === 1 || getTransaction(db, id)?.is_split === 1)))
+  ) {
+    for (const c of ["amount", "is_split", "category_id"] as const) {
+      if (c in snapshot && !present.includes(c)) present.push(c);
+    }
+    linesBack = true;
+  }
 
   /*
    * MONEY-CORE-3 / 19 · The envelope it goes back to has to still be one.
@@ -1358,13 +1374,20 @@ registerUndoHandler("transaction", (db, event) => {
     execute(db, `DELETE FROM transaction_splits WHERE transaction_id = ?`, id);
   }
 
-  // The other side of a transfer moves back with it.
-  if (snapshot.partner && (present.includes("amount") || present.includes("date"))) {
-    execute(
-      db,
-      `UPDATE transactions SET amount = ?, date = ?, updated_at = ? WHERE id = ?`,
-      snapshot.partner.amount, snapshot.partner.date, nowIST(), snapshot.partner.id,
-    );
+  // The other side of a transfer moves back with it — in the same columns and
+  // no others. Writing both from the snapshot broke the pair once the leg
+  // itself took back only what the edit changed: undoing a date edit made
+  // before an amount edit put the partner's old amount back and left this
+  // leg's new one, ₹39.07 in from nowhere (and the amount's undo, the dates).
+  if (snapshot.partner) {
+    const partnerBack = (["amount", "date"] as const).filter((c) => present.includes(c));
+    if (partnerBack.length > 0) {
+      execute(
+        db,
+        `UPDATE transactions SET ${partnerBack.map((c) => `${c} = ?`).join(", ")}, updated_at = ? WHERE id = ?`,
+        ...partnerBack.map((c) => snapshot.partner![c]), nowIST(), snapshot.partner.id,
+      );
+    }
   }
 
   return typeof snapshot.amount === "number"
