@@ -18,6 +18,7 @@ import {
   todayIST, addDays, addMonths, monthOf, fiscalYearOf, fiscalYearRange, formatFiscalYear,
   heldMoreThanMonths, type IsoDate, type MonthKey,
 } from "../core/dates.ts";
+import { csvCell } from "../core/csv.ts";
 
 export interface TransactionFilter {
   from?: IsoDate;
@@ -633,16 +634,11 @@ export function capitalGainsByYear(db: DB): GainsYear[] {
 /** F10.5 · Every report exports to CSV. */
 export function rowsToCsv(rows: QueryRow[]): string {
   const headers = ["date", "account", "payee", "category", "memo", "amount", "owner", "cleared", "raw_narration"];
-  const escape = (value: unknown): string => {
-    if (value === null || value === undefined) return "";
-    const text = String(value);
-    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-  };
   return [
     headers.join(","),
     ...rows.map((r) =>
       [r.date, r.account, r.payee, r.category, r.memo, r.amount / 100, r.owner, r.cleared, r.raw_narration]
-        .map(escape).join(","),
+        .map(csvCell).join(","),
     ),
   ].join("\n");
 }

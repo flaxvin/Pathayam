@@ -31,6 +31,7 @@ import { queryAll, queryOne, queryValue, execute } from "../db/db.ts";
 import { nowIST, todayIST } from "../core/dates.ts";
 import type { Paise } from "../core/money.ts";
 import { formatPaise } from "../core/money.ts";
+import { csvCell } from "../core/csv.ts";
 
 /**
  * R40.2 · What is compared. Record counts per entity plus control totals — if
@@ -581,14 +582,8 @@ export function exportTransactionsCsv(db: DB, keep: (transactionId: string) => b
     "source", "raw_payee", "raw_amount", "raw_date", "raw_narration",
   ];
 
-  const escape = (value: unknown): string => {
-    if (value === null || value === undefined) return "";
-    const text = String(value);
-    return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-  };
-
   return [
     headers.join(","),
-    ...rows.map((row) => headers.map((h) => escape(row[h])).join(",")),
+    ...rows.map((row) => headers.map((h) => csvCell(row[h])).join(",")),
   ].join("\n");
 }
