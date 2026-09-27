@@ -18,6 +18,7 @@ import { freshDb, seedMember, startTestApp, type TestApp } from "./harness.test-
 import { createAccount } from "../domain/accounts.ts";
 import { createGroup, createCategory } from "../domain/budget.ts";
 import { queryOne } from "../db/db.ts";
+import { mintToken } from "../auth/tokens.ts";
 import { rupees, type Paise } from "../core/money.ts";
 import { todayIST, monthOf } from "../core/dates.ts";
 import type { Actor } from "../core/events.ts";
@@ -101,5 +102,28 @@ describe("a write has to come from this app", () => {
     // business where it came from, and links from elsewhere have to work.
     const res = await app.get("/", { headers: { Referer: "https://example.com/" } });
     assert.equal(res.status, 200);
+  });
+});
+
+describe("SECURITY-OPS-2 · the bearer exemption", () => {
+  test("an Authorization header does not excuse a cookie-authenticated write", async () => {
+    const before = assigned();
+    const res = await assign({ Origin: "https://evil.example", Authorization: "Bearer nonsense" });
+    assert.equal(res.status, 403);
+    assert.equal(assigned(), before, "the write happened on the cookie's authority");
+  });
+
+  test("a real token with no cookie still writes without an Origin", async () => {
+    const { secret } = mintToken(app.db, ravi, { name: "script", scope: "read-write" });
+    const res = await fetch(app.baseUrl + "/assign", {
+      method: "POST", redirect: "manual",
+      headers: {
+        Authorization: `Bearer ${secret}`,
+        "Content-Type": "application/x-www-form-urlencoded",
+      },
+      body: new URLSearchParams({ month: MONTH, category_id: category, amount: "4321" }).toString(),
+    });
+    assert.equal(res.status, 303);
+    assert.equal(assigned(), rupees(4_321));
   });
 });

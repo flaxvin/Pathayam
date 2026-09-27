@@ -114,12 +114,22 @@ describe("08 F30 · personal API tokens", () => {
       "/members", "/members/invite",
       "/settings/members", "/settings/members/invite",
       "/auth/dev", "/auth/google/callback", "/signout",
+      // SECURITY-OPS-13 · the other ways in that do not need the token.
+      "/settings/password", "/sessions/revoke", "/gmail/connect", "/gmail/disconnect",
     ]) {
       assert.equal(tokenMayReach(path), false, `${path} must be unreachable`);
     }
 
     for (const path of ["/", "/accounts", "/review", "/export.json", "/settings"]) {
       assert.equal(tokenMayReach(path), true, `${path} should be reachable`);
+    }
+  });
+
+  test("SECURITY-OPS-12 · an empty segment does not walk around the deny-list", () => {
+    // The router drops empty segments, so each of these IS /tokens or
+    // /members/invite to it — and must be to the deny-list too.
+    for (const path of ["//tokens", "/tokens/", "///members//invite", "//auth/dev"]) {
+      assert.equal(tokenMayReach(path), false, `${path} must be unreachable`);
     }
   });
 
