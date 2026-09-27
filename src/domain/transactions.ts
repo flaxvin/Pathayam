@@ -575,7 +575,40 @@ export function restoreTransaction(db: DB, actor: Actor, id: string): void {
 /** Hard-delete anything soft-deleted longer than the window (F4.8). */
 export function purgeDeleted(db: DB, olderThanDays = 30, today = todayIST()): number {
   const cutoff = addDays(today, -olderThanDays);
-  return execute(db, `DELETE FROM transactions WHERE deleted_at IS NOT NULL AND deleted_at < ?`, cutoff);
+  /*
+   * One statement used to delete every expired row at once, and the first one
+   * anything still pointed at failed it on a foreign key — so nothing was ever
+   * purged again, and the rest of housekeeping after it never ran. The row
+   * that did it is the most ordinary one there is: an imported line, approved
+   * from Review and then deleted, whose staged row still names it.
+   *
+   * The review queue's pointers are let go, as eraseTransaction does, except
+   * that the staged row keeps its status: the household approved it and then
+   * deleted the result, which is not a reason to offer it for review again.
+   * A row that something derived still leans on (a loan instalment, a lot, a
+   * converted EMI plan) is left soft-deleted rather than orphaning that record.
+   */
+  return transact(db, () => {
+    const expired = queryAll<{ id: string }>(
+      db, `SELECT id FROM transactions WHERE deleted_at IS NOT NULL AND deleted_at < ?`, cutoff,
+    ).map((r) => r.id);
+    const leaning = [
+      ...TRANSACTION_DEPENDANTS,
+      { table: "loans", column: "converted_from_transaction_id", describe: "" },
+    ];
+    let purged = 0;
+    for (const id of expired) {
+      const held = leaning.some((dep) =>
+        (queryOne<{ n: number }>(
+          db, `SELECT COUNT(*) AS n FROM ${dep.table} WHERE ${dep.column} = ?`, id,
+        )?.n ?? 0) > 0);
+      if (held) continue;
+      execute(db, `UPDATE staged_transactions SET transaction_id = NULL WHERE transaction_id = ?`, id);
+      execute(db, `UPDATE staged_transactions SET duplicate_of_id = NULL WHERE duplicate_of_id = ?`, id);
+      purged += execute(db, `DELETE FROM transactions WHERE id = ?`, id);
+    }
+    return purged;
+  });
 }
 
 // ---------------------------------------------------------------------------
