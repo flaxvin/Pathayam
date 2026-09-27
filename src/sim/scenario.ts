@@ -503,6 +503,43 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
     ownerMemberId: extra.owner ?? (rand() < 0.4 ? priya.id : ravi.id),
   }));
 
+  /** An account's balance at the end of a day, as its register would show it. */
+  const balanceOn = (accountId: string, date: IsoDate): number =>
+    (queryOne<{ opening_balance: number }>(
+      db, `SELECT opening_balance FROM accounts WHERE id = ?`, accountId,
+    )?.opening_balance ?? 0) +
+    (queryOne<{ total: number }>(
+      db,
+      `SELECT COALESCE(SUM(amount),0) AS total FROM transactions
+        WHERE account_id = ? AND deleted_at IS NULL AND date <= ?`,
+      accountId, date,
+    )?.total ?? 0);
+  /**
+   * Whether the wallet can pay this without going below zero — on the day, and
+   * on every later day already written, since the month is not written in date
+   * order.
+   */
+  const cashCovers = (amount: number, date: IsoDate): boolean => {
+    const lowest = queryOne<{ lowest: number | null }>(
+      db,
+      `WITH days AS (
+         SELECT DISTINCT date FROM transactions
+          WHERE account_id = ? AND deleted_at IS NULL AND date >= ?
+         UNION SELECT ?
+       )
+       SELECT MIN((SELECT COALESCE(SUM(t.amount),0) FROM transactions t
+                    WHERE t.account_id = ? AND t.deleted_at IS NULL AND t.date <= days.date)) AS lowest
+         FROM days`,
+      acc.cash, date, date, acc.cash,
+    )?.lowest ?? 0;
+    const opening = queryOne<{ opening_balance: number }>(
+      db, `SELECT opening_balance FROM accounts WHERE id = ?`, acc.cash,
+    )?.opening_balance ?? 0;
+    return opening + lowest >= rupees(Math.max(10, amount));
+  };
+  /** A transfer a person would type: whole hundreds of rupees. */
+  const roundedDown = (amount: number): Paise => (Math.floor(amount / rupees(100)) * rupees(100)) as Paise;
+
   months.forEach((month, ix) => {
     const isCurrent = month === thisMonth;
     const cap = isCurrent ? Number(today.slice(-2)) : 28;
@@ -662,10 +699,13 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
         const d = between(1, 28);
         if (!live(d)) continue;
         const onCard = rand() < 0.55;
-        spend(
-          onCard ? pick([acc.hdfcCard, acc.priyaCard, acc.axisCard]) : pick([acc.savings, acc.cash]),
-          cat(category), tidy(typical * (0.5 + rand())), pick(PAYEES[list]), day(month, d),
-        );
+        // Drawn in the same order as always, so the rest of the run is unchanged.
+        const account = onCard ? pick([acc.hdfcCard, acc.priyaCard, acc.axisCard]) : pick([acc.savings, acc.cash]);
+        const amount = tidy(typical * (0.5 + rand()));
+        const payee = pick(PAYEES[list]);
+        // WEBUX-5 · Not enough in the wallet, so it goes on the bank card.
+        const from = account === acc.cash && !cashCovers(amount, day(month, d)) ? acc.savings : account;
+        spend(from, cat(category), amount, payee, day(month, d));
       }
     }
     // Utilities, always on a bank account, always the same week.
@@ -846,17 +886,52 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
     }
 
     // ------------------------------------------------------------ transfers
+    /*
+     * WEBUX-5 · The joint account is where the household's bills are paid
+     * from — the EMIs, the SIPs, the card bills, the utilities, the weekly
+     * cash — about ₹1.1 lakh a month, against ₹12,000 of sub-let rent coming
+     * in. A flat ₹30,000 from Priya was a third of that, so HDFC Savings went
+     * below zero in the third month and ended the run some ₹20 lakh
+     * overdrawn, while her own account piled up the salary that never moved.
+     * A savings account cannot do that, and a public demo that shows it looks
+     * broken rather than lived in. So she tops the joint account up at the
+     * start of each month to what a month of bills needs, from what her own
+     * account can spare, the way a household with one bill-paying account
+     * actually runs it.
+     */
     if (live(2)) {
+      const monthStart = addDays(day(month, 1), -1);
+      const joint = balanceOn(acc.savings, monthStart);
+      const spare = balanceOn(acc.priyaSavings, day(month, 2)) - rupees(20_000);
+      const topUp = Math.min(Math.max(rupees(30_000), rupees(2_00_000) - joint), spare);
+      if (topUp >= rupees(1_000)) {
+        did("createTransfer", () => createTransfer(db, actor, {
+          fromAccountId: acc.priyaSavings, toAccountId: acc.savings,
+          amount: roundedDown(topUp), date: day(month, 2), memo: "To the joint account",
+        }));
+      }
+    }
+    // Meera's pension pays her share of the bills while she lives here: it is
+    // household money, and left where it landed it only piled up in SBI.
+    if (!departed && live(6)) {
       did("createTransfer", () => createTransfer(db, actor, {
-        fromAccountId: acc.priyaSavings, toAccountId: acc.savings,
-        amount: rupees(30_000) as Paise, date: day(month, 2), memo: "To the joint account",
+        fromAccountId: acc.meeraSavings, toAccountId: acc.savings,
+        amount: rupees(15_000) as Paise, date: day(month, 6), memo: "Meera's share",
       }));
     }
-    if (live(24)) {
-      did("createTransfer", () => createTransfer(db, actor, {
-        fromAccountId: acc.savings, toAccountId: acc.cash,
-        amount: rupees(6_000) as Paise, date: day(month, 24), memo: "Cash for the week",
-      }));
+    // The wallet is refilled to a float twice a month rather than by a fixed
+    // sum once, for the same reason: a fixed ₹6,000 against about ₹8,500 of
+    // cash spending a month left Cash a lakh or two below zero, which no
+    // wallet can be.
+    for (const d of [10, 24]) {
+      if (!live(d)) continue;
+      const float = rupees(12_000) - balanceOn(acc.cash, day(month, d));
+      if (float >= rupees(500)) {
+        did("createTransfer", () => createTransfer(db, actor, {
+          fromAccountId: acc.savings, toAccountId: acc.cash,
+          amount: roundedDown(float), date: day(month, d), memo: "Cash for the week",
+        }));
+      }
     }
 
     // --------------------------------------------------------------- cards
@@ -1432,6 +1507,17 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
   if (settleable) {
     const p = projectLoan(db, settleable.id);
     if (p && p.outstanding > 0) {
+      // A lump sum a month's top-up was never meant to cover: the money is
+      // moved over from Priya's account first, as it would be (WEBUX-5).
+      const needed = p.outstanding + rupees(4_000);
+      const spare = balanceOn(acc.priyaSavings, today) - rupees(20_000);
+      const move = Math.min(needed, spare);
+      if (move > 0) {
+        did("createTransfer", () => createTransfer(db, actor, {
+          fromAccountId: acc.priyaSavings, toAccountId: acc.savings,
+          amount: move as Paise, date: today, memo: "For the loan settlement",
+        }));
+      }
       did("closeLoan", () => closeLoan(db, actor, {
         loanId: settleable.id, date: today, settlement: p.outstanding,
         foreclosureCharge: rupees(4_000) as Paise,
