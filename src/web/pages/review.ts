@@ -17,6 +17,8 @@ import { renderProposals, type ProposedRule } from "./manage.ts";
 
 export interface ReviewData {
   staged: StagedRow[];
+  /** IMPORTS-SCHEDULES-32 · The viewer's accounts a staged row can be a transfer with. */
+  transferAccounts?: { id: string; name: string }[];
   uncategorised: {
     id: string; date: IsoDate; amount: Paise; payee: string | null; account: string;
     /** B93 · Where this payee's money usually goes, if it has been seen before. */
@@ -90,7 +92,7 @@ function renderStaged(data: ReviewData): SafeHtml {
     ${when(plain.length > 0, () => html`
       <section class="card">
         <h2>Imported, needs confirmation <span class="chip">${plain.length}</span></h2>
-        ${plain.map((row) => renderStagedRow(row, data.categories))}
+        ${plain.map((row) => renderStagedRow(row, data.categories, data.transferAccounts ?? []))}
       </section>
     `)}
 
@@ -110,7 +112,10 @@ function renderStaged(data: ReviewData): SafeHtml {
   `;
 }
 
-function renderStagedRow(row: StagedRow, categories: CategoryView[]): SafeHtml {
+function renderStagedRow(
+  row: StagedRow, categories: CategoryView[], transferAccounts: { id: string; name: string }[],
+): SafeHtml {
+  const others = transferAccounts.filter((a) => a.id !== row.account_id);
   return html`
     <form method="post" action="/review/approve"
           style="padding:.75rem 0;border-top:1px solid var(--border)">
@@ -178,6 +183,20 @@ function renderStagedRow(row: StagedRow, categories: CategoryView[]): SafeHtml {
                   ${c.name}
                 </option>
               `)}
+          `)}
+          <!--
+            IMPORTS-SCHEDULES-32 · A card bill paid from the bank is neither
+            spending nor new money: it is a transfer, and the other account's
+            own imported row, if it is waiting here too, becomes its other leg.
+          -->
+          ${when(others.length > 0, () => html`
+            <optgroup label="${row.amount < 0 ? "Or moved to your own account…" : "Or moved from your own account…"}">
+              ${others.map((a) => html`
+                <option value="transfer:${a.id}">
+                  ${row.amount < 0 ? "Transfer to" : "Transfer from"} ${a.name}
+                </option>
+              `)}
+            </optgroup>
           `)}
         </select>
         <button class="button-primary button-small" type="submit">Approve</button>

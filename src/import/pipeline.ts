@@ -17,7 +17,7 @@ import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST, type IsoDate } from "../core/dates.ts";
 import type { Paise } from "../core/money.ts";
-import { createTransaction, resolvePayee, livePayeeId, type TransactionSource } from "../domain/transactions.ts";
+import { createTransaction, createTransfer, resolvePayee, livePayeeId, type TransactionSource } from "../domain/transactions.ts";
 import { findCardByLast4 } from "../domain/accounts.ts";
 import { breakCheckpoints, checkpointsAffectedBy } from "../domain/reconciliation.ts";
 import { hiddenAccountSql } from "../domain/member-scope.ts";
@@ -622,6 +622,85 @@ export function approveStaged(
 }
 
 /**
+ * IMPORTS-SCHEDULES-32 · An imported row that is money moved between the
+ * household's own accounts — a card bill paid from the bank, savings swept to
+ * a deposit — recorded as the transfer it is.
+ *
+ * Review offered only spending envelopes for money out and "new money" for
+ * money in, and the card's payment envelope was refused as a target. So the
+ * bank's "CARD BILL PAYMENT −5,000" was filed as ₹5,000 of groceries and the
+ * card's "PAYMENT RECEIVED +5,000" as ₹5,000 of phantom income in Ready to
+ * Assign. This posts the pair (createTransfer, as the transfer form does), the
+ * imported side carrying the row's source identity and raw fields. When the
+ * other account's own statement row is also waiting in Review — the opposite
+ * amount, within three days — it becomes the other leg, rather than staying
+ * behind to be approved as a second, unpaired movement.
+ */
+export function approveStagedAsTransfer(
+  db: DB, actor: Actor, stagedId: string, otherAccountId: string,
+): { transactionId: string; pairedWith: string | null } {
+  return transact(db, () => {
+    const row = pendingStaged(db, stagedId);
+    if (otherAccountId === row.account_id) {
+      throw new Refusal("That is the account this row came from. Pick the other side of the transfer.");
+    }
+    if (row.amount === 0) throw new Refusal("A transfer of nothing is not a transfer.");
+
+    const counterpart = queryOne<StagedRow>(
+      db,
+      `SELECT * FROM staged_transactions
+        WHERE account_id = ? AND status = 'pending' AND amount = ?
+          AND abs(julianday(date) - julianday(?)) <= 3
+        ORDER BY abs(julianday(date) - julianday(?)), created_at LIMIT 1`,
+      otherAccountId, -row.amount, row.date, row.date,
+    );
+
+    const outgoing = row.amount < 0;
+    const [out, back] = createTransfer(db, actor, {
+      fromAccountId: outgoing ? row.account_id : otherAccountId,
+      toAccountId: outgoing ? otherAccountId : row.account_id,
+      amount: Math.abs(row.amount) as Paise,
+      date: row.date,
+      cleared: true,
+    });
+    const mine = outgoing ? out : back;
+    const theirs = outgoing ? back : out;
+
+    stampImportedLeg(db, actor, mine.id, row);
+    if (counterpart) stampImportedLeg(db, actor, theirs.id, counterpart);
+    // Only a leg the other statement vouches for is cleared there.
+    else execute(db, `UPDATE transactions SET cleared = 0 WHERE id = ?`, theirs.id);
+
+    return { transactionId: mine.id, pairedWith: counterpart?.id ?? null };
+  });
+}
+
+/** One leg of a transfer, marked as the ledger copy of an imported row. */
+function stampImportedLeg(db: DB, actor: Actor, transactionId: string, row: StagedRow): void {
+  const source = queryOne<{ source: TransactionSource }>(
+    db, `SELECT source FROM import_batches WHERE id = ?`, row.batch_id,
+  )?.source ?? "csv";
+  // The leg is dated as its own statement dates it: a card credits a payment
+  // a day or two after the bank sends it.
+  execute(
+    db,
+    `UPDATE transactions
+        SET date = ?, card_id = COALESCE(?, card_id), source = ?, source_id = ?, import_batch_id = ?,
+            raw_narration = ?, raw_payee = ?, raw_amount = ?, raw_date = ?, cleared = 1
+      WHERE id = ?`,
+    row.date, row.card_id, source, row.source_id, row.batch_id,
+    row.raw_narration, row.raw_payee, row.raw_amount, row.raw_date, transactionId,
+  );
+  breakCheckpointsBehind(db, actor, row.account_id, row.date, "an imported transfer dated on or before it was added");
+  execute(
+    db,
+    `UPDATE staged_transactions SET status = 'approved', resolved_at = ?, resolved_by = ?, transaction_id = ?
+      WHERE id = ?`,
+    nowIST(), actor.memberId, transactionId, row.id,
+  );
+}
+
+/**
  * The review item, still waiting for a decision.
  *
  * Reject and merge used to act on whatever id they were given. Rejecting a row
@@ -778,6 +857,29 @@ export function undoBatch(db: DB, actor: Actor, batchId: string): UndoBatchResul
       execute(db, `UPDATE transactions SET deleted_at = ? WHERE id = ?`, nowIST(), t.id);
       removed++;
       breakCheckpointsBehind(db, actor, t.account_id, t.date, "an imported transaction dated on or before it was removed by undoing the import");
+
+      /*
+       * Half of a transfer approved from Review. Leaving the other leg would
+       * be money arriving from nowhere, so it goes too — and if that leg was
+       * another import's row, the row goes back to Review to be decided again.
+       */
+      const partner = queryOne<{ id: string; account_id: string; date: IsoDate }>(
+        db,
+        `SELECT p.id, p.account_id, p.date FROM transactions t
+           JOIN transactions p ON p.transfer_pair_id = t.transfer_pair_id AND p.id <> t.id
+          WHERE t.id = ? AND t.transfer_pair_id IS NOT NULL AND p.deleted_at IS NULL`,
+        t.id,
+      );
+      if (partner) {
+        execute(db, `UPDATE transactions SET deleted_at = ? WHERE id = ?`, nowIST(), partner.id);
+        breakCheckpointsBehind(db, actor, partner.account_id, partner.date, "the other half of an imported transfer was removed by undoing the import");
+        execute(
+          db,
+          `UPDATE staged_transactions SET status = 'pending', resolved_at = NULL, resolved_by = NULL, transaction_id = NULL
+            WHERE transaction_id = ? AND batch_id <> ?`,
+          partner.id, batchId,
+        );
+      }
     }
 
     execute(
