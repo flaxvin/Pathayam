@@ -139,22 +139,43 @@ export function deleteGroup(db: DB, actor: Actor, id: string): void {
     const tombstones = queryAll<{ id: string; name: string }>(
       db, `SELECT id, name FROM categories WHERE group_id = ? AND deleted_at IS NOT NULL`, id,
     );
-    const stillUsed = tombstones.filter((c) =>
-      (queryOne<{ n: number }>(
-        db,
-        `SELECT (SELECT COUNT(*) FROM transactions WHERE category_id = ?)
-              + (SELECT COUNT(*) FROM transaction_splits WHERE category_id = ?) AS n`,
-        c.id, c.id,
-      )?.n ?? 0) > 0,
-    );
+
+    /*
+     * BUDGET-21 · Everything that can point at an envelope, not just spending.
+     * Only transactions and split lines were counted, so a tombstone a schedule
+     * or an even-call still named passed the check and the DELETE below hit a
+     * foreign key — "Something went wrong". categoryDependants reads the
+     * schema's own foreign keys, so a table added later is covered too.
+     */
+    const stillUsed = tombstones
+      .map((c) => ({ ...c, by: categoryDependants(db, c.id).filter((w) => w !== STAGED_WORDS) }))
+      .filter((c) => c.by.length > 0);
     if (stillUsed.length > 0) {
+      const by = [...new Set(stillUsed.flatMap((c) => c.by))];
       throw new Refusal(
         `"${before.name}" holds ${stillUsed.length === 1 ? "a deleted envelope" : "deleted envelopes"} ` +
         `(${stillUsed.slice(0, 3).map((c) => c.name).join(", ")}${stillUsed.length > 3 ? "…" : ""}) ` +
-        `that spending is still filed against. Re-file that spending somewhere else ` +
-        `first — the group is the last thing saying where it used to go.`,
+        `that ${by.join(", ")} still point at. Point those somewhere else first — the ` +
+        `group is the last thing saying where they used to go.`,
       );
     }
+
+    /*
+     * BUDGET-21 · An import's proposed envelope is a suggestion (N9), and one
+     * for an envelope that no longer exists suggests nothing. A row stays in
+     * staged_transactions after it is approved or rejected, so without this a
+     * tombstone any import had ever proposed kept its group for good. What is
+     * cleared is written down, and the group's undo puts it back.
+     */
+    const proposals = tombstones.flatMap((c) =>
+      queryAll<{ id: string; category_id: string }>(
+        db, `SELECT id, category_id FROM staged_transactions WHERE category_id = ?`, c.id,
+      ),
+    );
+    for (const p of proposals) {
+      execute(db, `UPDATE staged_transactions SET category_id = NULL WHERE id = ?`, p.id);
+    }
+
     /*
      * BUDGET-9 · The tombstones are written down before they go. An envelope's
      * delete stays undoable from the log after its group has gone, and undoing
@@ -173,7 +194,7 @@ export function deleteGroup(db: DB, actor: Actor, id: string): void {
     execute(db, `DELETE FROM category_groups WHERE id = ?`, id);
     appendEvent(db, actor, {
       entity: "category-group", entityId: id, action: "delete", before,
-      after: { tombstones: purged },
+      after: { tombstones: purged, proposals },
       summary: `Deleted the empty group "${before.name}"`,
     });
   });
@@ -518,6 +539,34 @@ export function deleteCategory(
           `another envelope instead — its history goes with it.`,
         );
       }
+    }
+
+    /*
+     * BUDGET-21 · A schedule is spending that has not happened yet, filed ahead.
+     * Deleting the envelope a schedule files to left the schedule pointing at a
+     * tombstone — every payment it posted afterwards landed in an envelope no
+     * screen shows, and the group holding the tombstone could no longer be
+     * deleted (a foreign key, a 500). Merge moves schedules with the history;
+     * a delete names them instead.
+     */
+    const schedules = queryAll<{ name: string }>(
+      db,
+      `SELECT DISTINCT s.name FROM schedules s
+        WHERE s.category_id = ?
+           OR s.id IN (SELECT schedule_id FROM schedule_splits WHERE category_id = ?)
+        ORDER BY s.name`,
+      id, id,
+    );
+    if (schedules.length > 0) {
+      const names = schedules.slice(0, 3).map((r) => `"${r.name}"`).join(", ") +
+        (schedules.length > 3 ? "…" : "");
+      throw new Refusal(
+        `"${before.name}" is where ${schedules.length === 1 ? "the schedule" : "the schedules"} ` +
+        `${names} ${schedules.length === 1 ? "files its payments" : "file their payments"}, so ` +
+        `deleting it would leave ${schedules.length === 1 ? "that schedule" : "them"} posting to an ` +
+        `envelope that is not there. Point ${schedules.length === 1 ? "it" : "them"} at another ` +
+        `envelope first, or merge this one into another — schedules go with it.`,
+      );
     }
 
     /*
@@ -1116,13 +1165,14 @@ function commitmentCrossings(db: DB, id: string): string[] {
  * points at a category. A ₹0 assignment is what the grid writes when a figure
  * is cleared; it carries no money and goes with the envelope.
  */
+const STAGED_WORDS = "imported rows waiting for review";
 function categoryDependants(db: DB, id: string): string[] {
   const found = dependantsOf(db, "categories", id, {
     own: ["targets.category_id", "assignments.category_id"],
     words: {
       transactions: "transactions", transaction_splits: "split lines",
       schedules: "schedules", schedule_splits: "schedule lines",
-      staged_transactions: "imported rows waiting for review",
+      staged_transactions: STAGED_WORDS,
       even_calls: "a balance called even", loans: "a loan",
     },
   });
@@ -1350,14 +1400,25 @@ registerUndoHandler("category-group", (db, event) => {
     );
     // BUDGET-9 · And the deleted envelopes that went with it, so their own
     // deletes can still be undone. Events from before this recorded none.
-    const purged = (event.after as { tombstones?: Record<string, unknown>[] } | undefined)?.tombstones ?? [];
-    for (const row of purged) {
+    const after = event.after as {
+      tombstones?: Record<string, unknown>[];
+      proposals?: { id: string; category_id: string }[];
+    } | undefined;
+    for (const row of after?.tombstones ?? []) {
       if (queryOne(db, `SELECT 1 FROM categories WHERE id = ?`, row.id as string)) continue;
       const cols = Object.keys(row);
       execute(
         db,
         `INSERT INTO categories (${cols.join(",")}) VALUES (${cols.map(() => "?").join(",")})`,
         ...cols.map((c) => row[c] as string | number | null),
+      );
+    }
+    // BUDGET-21 · An import's proposal the delete cleared, where nothing has
+    // been proposed for that row since.
+    for (const p of after?.proposals ?? []) {
+      execute(
+        db, `UPDATE staged_transactions SET category_id = ? WHERE id = ? AND category_id IS NULL`,
+        p.category_id, p.id,
       );
     }
     return `Put the group "${before.name}" back`;

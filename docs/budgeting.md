@@ -217,7 +217,17 @@ to Assign while the bank still showed it gone. So delete is refused while any
 transaction or split line — trashed ones included — is filed to the envelope,
 unless a remap target is given; the Categories page points to Merge instead.
 Nothing new can be filed to a deleted envelope either (a schedule or rule saved
-before the delete is refused rather than filed into nothing).
+before the delete is refused rather than filed into nothing). Delete is also
+refused, naming the schedule, while a schedule or one of its split lines still
+files to the envelope: point the schedule elsewhere first, or merge, which takes
+schedules with it.
+
+Deleting a **group** takes the tombstones of its deleted envelopes with it, so
+it is refused, by a sentence, while anything still points at one of them —
+transactions, split lines, schedules, a balance called even (the list is read
+from the schema's foreign keys). An import's proposed envelope does not hold the
+group: a proposal for an envelope that no longer exists is cleared, and undoing
+the group's delete puts it back.
 
 A remap target has to be an envelope that counts spending: a live one, in the
 same budget, and neither a card's payment envelope (its activity is derived
