@@ -65,8 +65,14 @@ relief; presumptive schemes under 44AD and 44ADA.
 **Capital gains are computed, with caveats.** Realised gains from the portfolio
 are sorted by asset class and holding period and taxed at their own rates —
 12.5% above ₹1,25,000 on long-held listed equity (112A), 20% on short-held
-(111A), 12.5% on gold and property held over 24 months (112), slab rates on
-debt. "Over 12 (or 24) months" is counted in calendar months, as the Act
+(111A), 12.5% on gold, property and foreign shares held over 24 months (112),
+slab rates on debt and on those three held shorter. A share whose instrument
+is international (or, with no region set, not in rupees) is never 111A/112A,
+which are for equity listed in India. Listed equity bought before 1 February
+2018 is grandfathered — its cost is the higher of what was paid and the lower
+of its price on 31 January 2018 and the sale proceeds — where a price for that
+day is recorded on the instrument; where none is, the parcel is reported as
+unplaced rather than taxed on its whole gain. "Over 12 (or 24) months" is counted in calendar months, as the Act
 words it, not days — bought 2024-02-28 and sold 2025-02-28 is exactly twelve
 months and so short-term, though it is 366 days — and the sale preview, the
 gains report and the estimate all use the same test. What the app cannot
@@ -74,6 +80,10 @@ place, it refuses to place: an instrument with no
 asset class, a hybrid fund (whose treatment turns on an equity ratio not
 tracked here), and a sale with no recorded lots are excluded from the
 computation and reported on the screen instead of being guessed into a bucket.
+A gain is the account holder's: a member's estimate takes sales from the
+accounts they are named holder of, whoever else can see them. A sale in an
+account with no holder is the sole member's in a one-member household and is
+otherwise reported as unplaced until a holder is named.
 Losses are floored at zero per bucket rather than set off between heads, so a
 year with losses is overstated. The gains are measured against the rest of the
 person's income the way the Act does it: the 87A ceiling and the surcharge
@@ -116,7 +126,8 @@ entry for the date requested. Budget accounts, envelopes and Ready to Assign are
 single-currency.
 
 **Missing rate.** Where no rate exists for a pair, the value is carried at 1 and
-marked stale rather than dropped.
+marked stale rather than dropped. A purchase or sale of a foreign instrument is the
+exception: with no rate given and none stored for the trade date, it is refused.
 
 ## Import
 

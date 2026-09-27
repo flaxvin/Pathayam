@@ -185,7 +185,7 @@ import {
 import { beginOidc, exchangeOidcCode } from "./auth/oidc.ts";
 import {
   staleRatesWarning, RATES_VERIFIED_ON, RATES_SOURCE, RULES,
-  estimateTax, advanceTaxSchedule, getDeclaration, saveDeclaration,
+  estimateTax, advanceTaxSchedule, getDeclaration, hasDeclaration, saveDeclaration,
   incomeInFinancialYear, type AdvanceInstalment,
 } from "./domain/tax.ts";
 import { renderTax } from "./web/pages/tax.ts";
@@ -330,7 +330,7 @@ import {
 import {
   createAssetAccount, listAssetAccounts, listValuableAccounts, findOrCreateInstrument, recordPurchase,
   recordSale, recordPrice, recordSplit, recordMerger, recordValuation, latestValuation, listHoldings, viewHolding,
-  priceHistory, previewHoldingSale, getInstrument, listInstruments,
+  priceHistory, previewHoldingSale, getInstrument, findManualInstrument, listInstruments,
   classifyInstrument, ASSET_CLASSES, ASSET_CLASS_LABELS,
   exportHoldingsCsv, exportLotsCsv, exportPriceHistoryCsv, exportNetWorthCsv,
   type InstrumentKind,
@@ -342,7 +342,7 @@ import {
   assetAllocation,
 } from "./domain/networth.ts";
 import {
-  units as toUnits, price as toUnitPrice, xirr, formatUnits,
+  units as toUnits, price as toUnitPrice, xirr, formatUnits, parseUnitPrice, type MicroRupees,
 } from "./portfolio/holdings.ts";
 import { searchSchemes } from "./portfolio/providers.ts";
 import { refreshPrices } from "./portfolio/refresh.ts";
@@ -1042,6 +1042,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const value = evaluateAmountExpression(raw) ?? parseAmount(raw);
     if (value === null) throw new HttpError(400, `"${raw}" isn't an amount I can read.`);
     return value;
+  }
+
+  /**
+   * WEALTH-39 · A per-unit price the user typed, kept to the micro-rupee a NAV
+   * needs (amountField stops at the paisa). `Number("abc")` went straight into
+   * the prices table as NULL and answered 500; now it is a sentence. WEBUX-15:
+   * "1,250.50" and "₹1,250" are read the way every amount field reads them.
+   */
+  function unitPriceField(raw: string | undefined, name = "Price"): MicroRupees {
+    if (raw === undefined || raw.trim() === "") throw new HttpError(400, `${name} is required.`);
+    const value = parseUnitPrice(raw);
+    if (value === null) throw new Refusal(`"${raw}" isn't a price I can read.`);
+    if (value <= 0) throw new Refusal(`${name} has to be above zero.`);
+    return toUnitPrice(value);
   }
 
   /**
@@ -5677,7 +5691,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ctx, "Reports",
       renderReports({
         insights: spendingInsights(db, todayIST(), 6, viewer(ctx)),
-        gains: config.features.assets ? capitalGainsByYear(db) : [],
+        gains: config.features.assets ? capitalGainsByYear(db, viewer(ctx)) : [],
         trend: incomeVsExpense(db, period.from, period.to, scope, viewer(ctx)),
         categorySpend: categorySpend.map((g) => ({ label: g.label, value: g.value })),
         categoryTrends,
@@ -5686,7 +5700,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         sankey: { income: monthIncome, month: bview.month, groups: sankeyGroups },
         period,
         periods: periodPresets(),
-        loanInterest: config.features.loans ? loanInterestByFinancialYear(db) : [],
+        loanInterest: config.features.loans ? loanInterestByFinancialYear(db, viewer(ctx)) : [],
         budgets: budgetsFor(db, viewer(ctx)).map((b) => ({ id: b.id, name: b.name, kind: b.kind })),
         scope: asked ?? "all",
       }),
@@ -7134,11 +7148,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       })
       .filter((r): r is PortfolioRow => r !== null);
 
-    // F19.16 · A portfolio-level XIRR, labelled money-weighted.
-    const flows = rows.flatMap((r) => [
-      ...r.view.lots.map((l) => ({ date: l.tradeDate, amount: -l.cost })),
-      { date: todayIST(), amount: r.view.marketValue },
-    ]);
+    // F19.16 · A portfolio-level XIRR, labelled money-weighted — pooled from
+    // each holding's own flows, dividends included (WEALTH-25).
+    const flows = rows.flatMap((r) => r.view.cashFlows);
 
     /*
      * B101 · An asset with no valuation yet is still an asset.
@@ -7333,6 +7345,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     requireAssets();
     const query = ctx.query.get("q") ?? "";
     const view = buildBudgetView(db, undefined, undefined, viewer(ctx));
+    // WEALTH-12 · The scheme just chosen from the search, which the purchase
+    // form now carries through to the purchase.
+    const chosenId = ctx.query.get("instrument");
+    const chosen = chosenId ? getInstrument(db, requireVisibleInstrument(ctx, chosenId)) : null;
 
     // The search is a server-side call (P7) and needs no key (§6.2).
     return Promise.resolve(
@@ -7351,6 +7367,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           searchResults: results,
           query,
           today: todayIST(),
+          chosen: chosen
+            ? { id: chosen.id, name: chosen.name, kind: chosen.kind, currency: chosen.currency }
+            : null,
+          accountId: ctx.query.get("account"),
         }),
       ),
     );
@@ -7362,37 +7382,52 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
 
       const schemeCode = field(ctx.body, "scheme_code");
-      const instrument = findOrCreateInstrument(db, actor, {
-        name: requiredField(ctx.body, "name"),
-        kind: (field(ctx.body, "kind") ?? "mutual-fund") as InstrumentKind,
-        symbol: schemeCode ?? field(ctx.body, "symbol") ?? null,
-        currency: field(ctx.body, "currency") || "INR",
-        provider: schemeCode ? "mfapi" : "manual",
-      });
+      /*
+       * WEALTH-12 · A purchase of an instrument already chosen goes to it. The
+       * form after "Choose" was the blank by-hand one, so the purchase made a
+       * second, manual instrument with no scheme code — the chosen AMFI scheme
+       * was left with nothing in it and the holding never got a NAV.
+       */
+      const chosenId = field(ctx.body, "instrument_id");
+      const typedInstrument = () => {
+        const symbol = schemeCode ?? field(ctx.body, "symbol") ?? null;
+        const typed = {
+          name: requiredField(ctx.body, "name"),
+          kind: (field(ctx.body, "kind") ?? "mutual-fund") as InstrumentKind,
+          currency: field(ctx.body, "currency") || "INR",
+        };
+        // WEALTH-11 · The same name typed again is the same instrument.
+        return (symbol ? null : findManualInstrument(db, typed, memberScope(db, viewer(ctx)).instruments))
+          ?? findOrCreateInstrument(db, actor, { ...typed, symbol, provider: schemeCode ? "mfapi" : "manual" });
+      };
+      const instrument = chosenId
+        ? getInstrument(db, requireVisibleInstrument(ctx, chosenId))!
+        : typedInstrument();
 
       // Choosing a scheme from the search is step one; the purchase follows.
       if (field(ctx.body, "step") === "details") {
         return {
-          redirect: `/portfolio/add?q=${encodeURIComponent(field(ctx.body, "name") ?? "")}`,
+          redirect: `/portfolio/add?instrument=${encodeURIComponent(instrument.id)}`,
           message: `${instrument.name} is ready — enter the purchase below.`,
         };
       }
 
       const amountRaw = field(ctx.body, "amount");
-      const unitPrice = Number(requiredField(ctx.body, "unit_price"));
-      if (!Number.isFinite(unitPrice) || unitPrice <= 0) {
-        throw new HttpError(400, "That price is not a number I can use.");
-      }
+      const unitPrice = unitPriceField(field(ctx.body, "unit_price"));
 
       const feesRaw = field(ctx.body, "fees");
+      // R33 · Blank means "use the stored rate for the trade date" — the domain
+      // looks it up and refuses when there is none, rather than booking at 1.
+      const fxRaw = field(ctx.body, "fx_rate")?.trim();
       const lot = recordPurchase(db, actor, {
         accountId: requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id,
         instrumentId: instrument.id,
         tradeDate: dateField(field(ctx.body, "trade_date"), "Trade date"),
-        price: toUnitPrice(unitPrice),
+        price: unitPrice,
         amount: amountRaw?.trim() ? amountField(amountRaw) : undefined,
         units: amountRaw?.trim() ? undefined : toUnits(Number(field(ctx.body, "units") ?? 0)),
         fees: feesRaw?.trim() ? amountField(feesRaw) : 0,
+        fxRate: fxRaw ? Number(fxRaw) : null,
         fromAccountId: visibleAccountField(ctx, "from_account_id"),
         categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
       });
@@ -7481,7 +7516,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       if (!view) throw new NotFound("That holding does not exist.");
       recordPrice(db, {
         instrumentId: view.instrument.id,
-        price: toUnitPrice(Number(requiredField(ctx.body, "price"))),
+        price: unitPriceField(field(ctx.body, "price")),
         asOf: dateField(field(ctx.body, "as_of"), "As of"),
         source: "manual",
       });
@@ -7585,15 +7620,24 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     const unitsRaw = ctx.query.get("units") ?? "";
     const priceRaw = ctx.query.get("price") ?? (view.quote ? String(view.quote.price / 1_000_000) : "");
+    const fxRaw = ctx.query.get("fx_rate")?.trim() ?? "";
 
     let preview = null;
+    let error: string | null = null;
     if (unitsRaw && priceRaw) {
       const quantity = toUnits(Number(unitsRaw));
-      const unitPrice = toUnitPrice(Number(priceRaw));
+      const unitPrice = toUnitPrice(parseUnitPrice(priceRaw) ?? NaN);
       if (quantity > 0 && unitPrice > 0 && quantity <= view.units) {
-        preview = previewHoldingSale(db, view.holding.id, quantity, unitPrice, {
-          saleDate: todayIST(),
-        });
+        try {
+          preview = previewHoldingSale(db, view.holding.id, quantity, unitPrice, {
+            saleDate: todayIST(),
+            fxRate: fxRaw ? Number(fxRaw) : null,
+          });
+        } catch (err) {
+          // A foreign holding with no rate for today: say so on the form.
+          if (!(err instanceof Refusal)) throw err;
+          error = err.message;
+        }
       }
     }
 
@@ -7603,6 +7647,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         view, preview,
         unitsToSell: unitsRaw,
         priceInput: priceRaw,
+        fxInput: fxRaw,
+        error,
         accounts: listAccounts(db, { viewerMemberId: viewer(ctx) })
           .filter((a) => a.kind === "budget")
           .map((a) => ({ id: a.id, name: a.nickname || a.name })),
@@ -7616,10 +7662,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       requireAssets();
       const holdingId = requireVisibleHolding(ctx, ctx.params.id!);
       const chargesRaw = field(ctx.body, "charges");
+      const fxRaw = field(ctx.body, "fx_rate")?.trim();
       const preview = recordSale(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         holdingId,
         units: toUnits(Number(requiredField(ctx.body, "units"))),
-        price: toUnitPrice(Number(requiredField(ctx.body, "price"))),
+        price: unitPriceField(field(ctx.body, "price")),
         // R27 · Realised gains are reported by financial year, so a sale
         // recorded late under today's date lands in the wrong year's figure.
         date: dateField(field(ctx.body, "date"), "Date of sale"),
@@ -7627,6 +7674,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           ? (Math.abs(amountField(chargesRaw, "Charges")) as Paise)
           : undefined,
         toAccountId: visibleAccountField(ctx, "to_account_id"),
+        // R33 · Converted at the sale-date rate; blank uses the stored one.
+        fxRate: fxRaw ? Number(fxRaw) : null,
       });
 
       return {
@@ -7857,10 +7906,35 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    * Buying more of a hand-valued asset. The mirror of disposing of one: money
    * leaves, and the stated value changes. Revaluing alone loses the payment.
    */
+  /*
+   * WEALTH-27 · "Add to it" and "Sell" are for what is valued by hand. They
+   * took any visible account: adding ₹10,000 to a fixed deposit stated its
+   * value as ₹10,000, overriding the ₹1,00,000 balance it is worth; "Sell" on
+   * a demat closed it with its shares in it, and on the bank closed the bank.
+   * The same test /revalue makes, plus: an account whose worth is its unit
+   * holdings has no stated value to change.
+   */
+  function requireHandValuedAsset(ctx: RequestContext, id: string) {
+    const account = listValuableAccounts(db, { viewerMemberId: viewer(ctx) }).find((acc) => acc.id === id);
+    if (!account) throw new NotFound("That asset does not exist.");
+    if (!REVALUABLE_SUBTYPES.has(account.subtype)) {
+      throw new Refusal(
+        `${account.name} is worth its balance, so there is no stated value to change. ` +
+        "Record money paid in or taken out as a transfer, and closing it from its account page.",
+      );
+    }
+    if (queryOne(db, `SELECT 1 FROM holdings WHERE account_id = ? AND closed_at IS NULL`, account.id)) {
+      throw new Refusal(
+        `${account.name} is worth its holdings. Buy and sell them from the portfolio instead.`,
+      );
+    }
+    return getAccount(db, account.id)!;
+  }
+
   router.get("/portfolio/asset/:id/add", (ctx) => {
     requireAssets();
     auth(ctx);
-    const account = requireVisibleAccount(ctx, ctx.params.id!)!;
+    const account = requireHandValuedAsset(ctx, ctx.params.id!);
     const valuation = latestValuation(db, account.id);
     return render(ctx, `Add to ${account.name}`, renderAddToAsset({
       account: { id: account.id, name: account.name },
@@ -7879,7 +7953,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/portfolio/asset/:id/add", (ctx) =>
     mutate(ctx, (a) => {
       requireAssets();
-      const account = requireVisibleAccount(ctx, ctx.params.id!)!;
+      const account = requireHandValuedAsset(ctx, ctx.params.id!);
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
       const spent = amountField(requiredField(ctx.body, "spent"), "What you paid");
       if (spent <= 0) throw new Refusal("Enter what you paid, above zero.");
@@ -7918,7 +7992,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/portfolio/asset/:id/dispose", (ctx) => {
     requireAssets();
     auth(ctx);
-    const account = requireVisibleAccount(ctx, ctx.params.id!)!;
+    const account = requireHandValuedAsset(ctx, ctx.params.id!);
     const valuation = latestValuation(db, account.id);
     return render(ctx, `Sell ${account.name}`, renderDisposeAsset({
       account: { id: account.id, name: account.name },
@@ -7934,7 +8008,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/portfolio/asset/:id/dispose", (ctx) =>
     mutate(ctx, (a) => {
       requireAssets();
-      const account = requireVisibleAccount(ctx, ctx.params.id!)!;
+      const account = requireHandValuedAsset(ctx, ctx.params.id!);
       const proceeds = amountField(field(ctx.body, "proceeds"), "Proceeds");
       const on = dateField(field(ctx.body, "on"), "Date");
       const into = field(ctx.body, "into_account");
@@ -8321,16 +8395,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       .filter((acc) => acc.kind === "budget")
       .map((acc) => acc.id);
     const ledgerIncome = incomeInFinancialYear(db, fy, visible);
-    const gross = stored.gross > 0 ? stored.gross : ledgerIncome;
+    // WEALTH-6 · A saved declaration is used as saved, ₹0 included; the
+    // ledger's receipts are only the starting point before anything is saved.
+    const gross = hasDeclaration(db, a.member.id, fy) ? stored.gross : ledgerIncome;
 
     // Capital gains are taxed at their own rates and are scoped to this
-    // member's own holdings — another member's sale is not part of their
-    // assessment.
+    // member's own holdings — the accounts they are named holder of (WEALTH-7).
+    // Another member's sale is not part of their assessment, however visible.
     const gains = capitalGainsTaxFor(db, fy, a.member.id);
 
     let estimate = null;
     let advance: AdvanceInstalment[] = [];
-    if ((gross > 0 || gains.specialRateTax > 0) && !staleRatesWarning(fy)) {
+    // WEALTH-9 · Slab-rated gains are income too: a member whose only income
+    // is a debt-fund gain was told to "enter a gross income" and shown nothing.
+    if ((gross > 0 || gains.addToSlabIncome > 0 || gains.specialRateTax > 0) && !staleRatesWarning(fy)) {
       estimate = estimateTax(fy, gross, stored, gains);
       const liability = estimate.better === "old" ? estimate.old.total : estimate.new.total;
       advance = advanceTaxSchedule(fy, liability);

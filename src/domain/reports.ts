@@ -108,7 +108,24 @@ export function queryTransactions(db: DB, filter: TransactionFilter = {}): Query
   const where: string[] = ["t.deleted_at IS NULL"];
   const params: (string | number | null)[] = [];
 
-  if (!filter.includeTransfers) where.push("t.transfer_pair_id IS NULL");
+  if (!filter.includeTransfers) {
+    where.push("t.transfer_pair_id IS NULL");
+    /*
+     * WEALTH-34 · A loan's own ledger is the other side of a movement already
+     * counted where the money moved. An EMI is −₹8,885 on the bank, filed to
+     * the loan's envelope, and +₹8,885 on the loan account — a managed pair,
+     * not a transfer pair, so the loan's leg passed the test above and every
+     * instalment showed as ₹8,885 "In" (on /query, its CSV, and a month's
+     * income at close). Disbursements and card-EMI conversions did the same.
+     * Asked for by name, the loan account's rows are still there.
+     */
+    const named = filter.accountIds ?? [];
+    where.push(
+      `t.account_id NOT IN (SELECT account_id FROM loans` +
+        (named.length ? ` WHERE account_id NOT IN (${named.map(() => "?").join(",")}))` : `)`),
+    );
+    params.push(...named);
+  }
   if (filter.viewerMemberId !== undefined) {
     // 15 · memberScope's rule: the account the money moved on, and the envelope
     // it was filed to. The account alone let a household-visible account in
@@ -248,7 +265,10 @@ export function periodPresets(today = todayIST()): Period[] {
 
   return [
     { key: "this-month", label: "This month", from: `${month}-01`, to: today },
-    { key: "last-month", label: "Last month", from: `${lastMonth}-01`, to: `${month}-01` },
+    // WEALTH-24 · Every query reads `to` as inclusive, so this ended on the 1st
+    // of this month — whose salary was then in last month's totals and CSV,
+    // and in this month's too.
+    { key: "last-month", label: "Last month", from: `${lastMonth}-01`, to: addDays(`${month}-01`, -1) },
     { key: "last-3", label: "Last 3 months", from: addDays(today, -90), to: today },
     { key: "last-12", label: "Last 12 months", from: addDays(today, -365), to: today },
     // L4: the Indian financial year, alongside the calendar year.
@@ -452,7 +472,7 @@ export function categoryTrend(
  * cash paid across every loan. Q31 reversed L14 and N15, but not into here.
  */
 export function loanInterestByFinancialYear(
-  db: DB,
+  db: DB, viewerMemberId?: string | null,
 ): { fy: number; label: string; interest: Paise; principal: Paise; lender: string }[] {
   /*
    * WEALTH-35 · Only rows that moved money are payments.
@@ -464,12 +484,16 @@ export function loanInterestByFinancialYear(
    * settled for ₹40,000 as ₹50,000 of principal paid — in a section that says
    * it states what was paid.
    */
+  // WEALTH-23 · A private loan's lender and interest are its holder's alone.
+  const seen = visibilityClause(viewerMemberId);
   const rows = queryAll<{ date: string; interest: number; principal: number; lender: string }>(
     db,
     `SELECT p.date, p.interest, p.principal, l.lender
        FROM loan_payments p JOIN loans l ON l.id = p.loan_id
-      WHERE p.amount > 0
+       JOIN accounts a ON a.id = l.account_id
+      WHERE p.amount > 0${seen.sql}
       ORDER BY p.date`,
+    ...seen.params,
   );
 
   const groups = new Map<string, { fy: number; interest: Paise; principal: Paise; lender: string }>();
@@ -577,7 +601,13 @@ export interface GainsYear {
   parcels: GainsParcel[];
 }
 
-export function capitalGainsByYear(db: DB): GainsYear[] {
+/**
+ * WEALTH-23 · Scoped like every other report: `/reports` passes the viewer, so
+ * a private demat's sales — the fund, its cost, its proceeds — are its
+ * holder's alone. Called with no viewer it counts everything.
+ */
+export function capitalGainsByYear(db: DB, viewerMemberId?: string | null): GainsYear[] {
+  const seen = visibilityClause(viewerMemberId);
   const sales = queryAll<{
     date: IsoDate; realised_gain: number | null; amount: number | null;
     detail_json: string | null; instrument: string;
@@ -586,9 +616,11 @@ export function capitalGainsByYear(db: DB): GainsYear[] {
     `SELECT e.date, e.realised_gain, e.amount, e.detail_json, i.name AS instrument
        FROM holding_events e
        JOIN holdings h ON h.id = e.holding_id
+       JOIN accounts a ON a.id = h.account_id
        JOIN instruments i ON i.id = h.instrument_id
-      WHERE e.kind = 'sale'
+      WHERE e.kind = 'sale'${seen.sql}
       ORDER BY e.date`,
+    ...seen.params,
   );
 
   const years = new Map<number, GainsYear>();

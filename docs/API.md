@@ -499,7 +499,7 @@ only (out of a token's reach).
 |---|---|---|---|
 | GET | `/portfolio` | R | Holdings, XIRR, other assets. |
 | GET | `/portfolio/:id` | R | One instrument. |
-| GET/POST | `/portfolio/add` | R/W | Add a holding. |
+| GET/POST | `/portfolio/add` | R/W | Add a holding. `?instrument=<id>` (where "Choose" on a searched scheme lands) buys that instrument; the POST takes `instrument_id` for it. |
 | GET/POST | `/portfolio/:id/sell` | R/W | Record a sale. |
 | GET/POST | `/portfolio/cas` | R/W | Import a CDSL CAS. |
 | POST | `/portfolio/cas/confirm` | W | Confirm a parsed CAS. |
@@ -515,7 +515,7 @@ only (out of a token's reach).
 | GET/POST | `/portfolio/asset/:id/revalue` | R/W | Say what one asset is worth today. |
 | GET/POST | `/portfolio/valuations` | R/W | Update every hand-valued asset in one sitting. |
 | GET/POST | `/portfolio/:id/price` | R/W | Record a price for one instrument. |
-| GET/POST | `/portfolio/:id/split` | R/W | Record a stock split or bonus issue. |
+| GET/POST | `/portfolio/:id/split` | R/W | Record a stock split or bonus issue. It applies to every open holding of the instrument; the same action on the same date is refused a second time. |
 | GET/POST | `/portfolio/:id/merge` | R/W | Record a merger or scheme amalgamation (R28). Cost and purchase dates carry forward, so nothing is realised. |
 | GET | `/portfolio/holdings.csv` · `/portfolio/lots.csv` · `/portfolio/prices.csv` · `/net-worth.csv` | R | CSV exports. |
 

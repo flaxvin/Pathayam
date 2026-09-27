@@ -435,3 +435,55 @@ describe("special-rate gains measured against the rest of the income", () => {
     assert.equal(e.total, rupees(41_600));
   });
 });
+
+describe("WEALTH-8 · the standard deduction is a deduction from salary", () => {
+  const slabOnly = (slab: number) => ({ addToSlabIncome: rupees(slab), specialRateTax: 0 as Paise });
+
+  test("it is not taken from slab-rated gains when there is no salary", () => {
+    // ₹20,00,000 of debt-fund gains, no salary, new regime: 20,000 + 40,000 +
+    // 60,000 + 80,000 = ₹2,00,000, plus 4% cess = ₹2,08,000. Taking ₹75,000
+    // off the gains made it ₹1,92,400.
+    const e = estimateUnder(FY, "new", 0 as Paise, none, slabOnly(2_000_000));
+    assert.equal(e.standardDeduction, 0);
+    assert.equal(e.taxable, rupees(2_000_000));
+    assert.equal(e.total, rupees(208_000));
+  });
+
+  test("it is capped at the salary", () => {
+    // ₹30,000 of salary under the old regime deducts ₹30,000, not ₹50,000:
+    // the other ₹20,000 would have come off the ₹10,00,000 gain.
+    const e = estimateUnder(FY, "old", rupees(30_000), none, slabOnly(1_000_000));
+    assert.equal(e.standardDeduction, rupees(30_000));
+    assert.equal(e.taxable, rupees(1_000_000));
+  });
+
+  test("a salary above it still takes all of it", () => {
+    assert.equal(estimateUnder(FY, "new", rupees(1_300_000), none).standardDeduction, rupees(75_000));
+    assert.equal(estimateUnder(FY, "old", rupees(1_300_000), none).standardDeduction, rupees(50_000));
+  });
+});
+
+describe("WEALTH-10 · the effective rate", () => {
+  test("is over all the income taxed, special-rate gains included", () => {
+    // ₹1,00,000 of salary and a ₹1 crore 111A gain: the total is tax on about
+    // ₹1.01 crore, so the rate is in the twenties, not 2302.3%.
+    const g = taxOnGains(FY, {
+      equityLong: 0 as Paise, equityShort: rupees(10_000_000), otherLong: 0 as Paise,
+      slabRated: 0 as Paise, unclassified: 0 as Paise, unclassifiedReasons: [],
+    });
+    const e = estimateUnder(FY, "new", rupees(100_000), none, g);
+    const expected = Math.round((e.total / rupees(10_100_000)) * 1000) / 10;
+    assert.equal(e.effectiveRatePct, expected);
+    assert.ok(e.effectiveRatePct > 20 && e.effectiveRatePct < 30, `${e.effectiveRatePct}%`);
+  });
+
+  test("is not 0% beside a non-zero total when there is no gross", () => {
+    const g = taxOnGains(FY, {
+      equityLong: 0 as Paise, equityShort: rupees(1_000_000), otherLong: 0 as Paise,
+      slabRated: 0 as Paise, unclassified: 0 as Paise, unclassifiedReasons: [],
+    });
+    const e = estimateUnder(FY, "new", 0 as Paise, none, g);
+    assert.ok(e.total > 0);
+    assert.ok(e.effectiveRatePct > 0);
+  });
+});

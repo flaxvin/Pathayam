@@ -259,7 +259,7 @@ export interface RegimeEstimate {
   surcharge: Paise;
   cess: Paise;
   total: Paise;
-  /** Total as a percentage of gross, to one decimal. */
+  /** Total as a percentage of gross plus every gain, to one decimal. */
   effectiveRatePct: number;
   /** Slab income plus special-rate gains: what 87A and the surcharge test. */
   totalIncome: Paise;
@@ -332,8 +332,18 @@ export function estimateUnder(
    */
   const grossWithGains = (gross + (gains?.addToSlabIncome ?? 0)) as Paise;
 
+  /*
+   * WEALTH-8 · The standard deduction (s16(ia)) is a deduction from salary, up
+   * to the salary. It was taken from gross plus slab-rated gains whatever the
+   * gross, so a retiree with no salary and ₹20,00,000 of debt-fund gains was
+   * taxed on ₹19,25,000 — ₹15,600 understated — and every card printed
+   * "Standard deduction −₹75,000" against a gross of ₹0. The declared gross is
+   * the only salary this knows of, so the deduction is capped at it.
+   */
+  const standardDeduction = Math.min(rules.standardDeduction, Math.max(0, gross)) as Paise;
+
   const taxable = Math.max(
-    0, grossWithGains - rules.standardDeduction - hraExempt - chapterViA,
+    0, grossWithGains - standardDeduction - hraExempt - chapterViA,
   ) as Paise;
 
   const taxBeforeRebate = taxOnSlabs(taxable, rules.slabs);
@@ -427,14 +437,18 @@ export function estimateUnder(
     : 0 as Paise;
   const cess = Math.round(((taxBeforeSurcharge + surcharge) * CESS_BP) / 10_000) as Paise;
   const total = roundPayable((taxBeforeSurcharge + surcharge + cess) as Paise);
+  const incomeTaxed = grossWithGains + gainsIncome;
 
   return {
     regime, gross: grossWithGains,
-    standardDeduction: rules.standardDeduction,
+    standardDeduction,
     hraExempt, chapterViA, taxable,
     taxBeforeRebate, rebate, specialRateTax, surcharge, cess, total,
     totalIncome, basicExemptionAgainstGains: basicExemptionAgainstGains as Paise,
-    effectiveRatePct: grossWithGains > 0 ? Math.round((total / grossWithGains) * 1000) / 10 : 0,
+    // WEALTH-10 · Over all the income the total is tax on, special-rate gains
+    // included. Dividing by gross plus slab-rated gains alone put ₹23,02,300
+    // of tax on a ₹1,00,000 salary and a ₹1 crore 111A gain at "2302.3%".
+    effectiveRatePct: incomeTaxed > 0 ? Math.round((total / incomeTaxed) * 1000) / 10 : 0,
   };
 }
 
@@ -556,6 +570,20 @@ export function getDeclaration(db: DB, memberId: string, fy: number): Declaratio
         }
       : null,
   };
+}
+
+/**
+ * WEALTH-6 · Whether this member has saved anything for the year.
+ *
+ * The page used `gross > 0` to mean "declared", so a gross income declared as
+ * ₹0 — somebody whose only receipt was a gift — fell back to the ledger's
+ * receipts and was taxed on the gift, with no way to correct it. A saved row
+ * is a declaration, whatever its gross.
+ */
+export function hasDeclaration(db: DB, memberId: string, fy: number): boolean {
+  return queryOne(
+    db, `SELECT 1 FROM tax_declarations WHERE member_id = ? AND fy = ?`, memberId, fy,
+  ) !== null;
 }
 
 export function saveDeclaration(db: DB, memberId: string, fy: number, d: Declaration): void {

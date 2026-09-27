@@ -345,6 +345,38 @@ describe("R23 · asset accounts", () => {
     assert.deepEqual(netWorthStatement(db).untrackedAssetWarnings, []);
     db.close();
   });
+
+  test("WEALTH-41 — an asset of the right kind satisfies it, whatever it is called", () => {
+    const { db } = setup();
+    createLoan(db, actor, {
+      lender: "Fictional Housing", loanType: "home", sanctioned: rupees(4_000_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 8.5,
+      tenureMonths: 240, currentOutstanding: rupees(3_500_000),
+    });
+    createLoan(db, actor, {
+      lender: "Fictional LAP Co", loanType: "loan-against-property", sanctioned: rupees(1_000_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 10,
+      tenureMonths: 120, currentOutstanding: rupees(900_000),
+    });
+    createLoan(db, actor, {
+      lender: "Fictional Gold Finance", loanType: "gold", sanctioned: rupees(200_000),
+      sanctionDate: "2026-01-01", interestModel: "reducing", annualRatePct: 9,
+      tenureMonths: 12, currentOutstanding: rupees(200_000),
+    });
+
+    const before = netWorthStatement(db).untrackedAssetWarnings;
+    assert.equal(before.length, 3);
+    // The loan outstanding is not what the missing asset is worth.
+    assert.ok(before.every((w) => !/₹/.test(w)), "no invented figure");
+
+    createAssetAccount(db, actor, {
+      name: "Flat in Fictionville", subtype: "physical", openingValue: rupees(6_000_000), asOf: "2026-01-01",
+    });
+    const after = netWorthStatement(db).untrackedAssetWarnings;
+    assert.equal(after.length, 1, "the home loan and the LAP are both secured by a physical asset");
+    assert.match(after[0]!, /Fictional Gold Finance/);
+    db.close();
+  });
 });
 
 describe("R29 · the net worth statement", () => {

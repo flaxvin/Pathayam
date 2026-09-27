@@ -534,10 +534,13 @@ export function listDisbursements(db: DB, loanId: string): Disbursement[] {
 }
 
 /** Draws recorded *since* the loan was added to the app. */
-export function recordedDisbursements(db: DB, loanId: string): Paise {
+export function recordedDisbursements(db: DB, loanId: string, asOf?: IsoDate): Paise {
   return (
     queryOne<{ total: number }>(
-      db, `SELECT COALESCE(SUM(amount),0) AS total FROM loan_disbursements WHERE loan_id = ?`, loanId,
+      db,
+      `SELECT COALESCE(SUM(amount),0) AS total FROM loan_disbursements
+        WHERE loan_id = ? AND date <= ?`,
+      loanId, asOf ?? "9999-12-31",
     )?.total ?? 0
   );
 }
@@ -1090,17 +1093,27 @@ export function listPayments(db: DB, loanId: string): LoanPayment[] {
 }
 
 /** Disbursed less every principal portion recorded against the loan. */
-export function outstandingPrincipal(db: DB, loanId: string): Paise {
+export function outstandingPrincipal(
+  db: DB, loanId: string,
+  /**
+   * WEALTH-15 · At the end of a past day, for a dated net worth snapshot:
+   * only the draws and payments dated by then. Omitted means everything.
+   */
+  asOf?: IsoDate,
+): Paise {
   const loan = getLoan(db, loanId);
   if (!loan) return 0;
 
   const opening = Math.max(0, -(getAccount(db, loan.account_id)?.opening_balance ?? 0));
   // Only draws made since the loan was added; the opening balance already
   // carries whatever was drawn before that.
-  const disbursed = recordedDisbursements(db, loanId);
+  const disbursed = recordedDisbursements(db, loanId, asOf);
   const repaid =
     queryOne<{ total: number }>(
-      db, `SELECT COALESCE(SUM(principal),0) AS total FROM loan_payments WHERE loan_id = ?`, loanId,
+      db,
+      `SELECT COALESCE(SUM(principal),0) AS total FROM loan_payments
+        WHERE loan_id = ? AND date <= ?`,
+      loanId, asOf ?? "9999-12-31",
     )?.total ?? 0;
 
   return Math.max(0, opening + disbursed - repaid);

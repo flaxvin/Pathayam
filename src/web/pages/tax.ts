@@ -50,12 +50,12 @@ function regimeCard(e: RegimeEstimate, isBetter: boolean): SafeHtml {
       <p class="amount" style="font-size:1.6rem;margin:.25rem 0">
         <strong>${formatPaise(e.total)}</strong>
       </p>
-      <p class="faint">${e.effectiveRatePct}% of gross</p>
+      <p class="faint">${e.effectiveRatePct}% of income, gains included</p>
       <div class="table-scroll">
         <table>
           <tbody>
             ${row("Gross income", e.gross)}
-            ${row("Standard deduction", -e.standardDeduction as Paise, { muted: true })}
+            ${e.standardDeduction > 0 ? row("Standard deduction", -e.standardDeduction as Paise, { muted: true }) : html``}
             ${e.hraExempt > 0 ? row("HRA exempt", -e.hraExempt as Paise, { muted: true }) : html``}
             ${e.chapterViA > 0 ? row("80C, 80D and other", -e.chapterViA as Paise, { muted: true }) : html``}
             ${row("Taxable income", e.taxable, { strong: true })}
@@ -240,13 +240,13 @@ export function renderTax(p: TaxPageProps): SafeHtml {
                     </tr>` : html``}
                   ${p.gains.buckets.otherLong !== 0 ? html`
                     <tr>
-                      <td>Gold or property, over 24 months <span class="faint">· s112, 12.5%</span></td>
+                      <td>Gold, property or foreign shares, over 24 months <span class="faint">· s112, 12.5%</span></td>
                       <td class="amount">${formatPaise(p.gains.buckets.otherLong)}</td>
                       <td class="amount">${formatPaise(p.gains.otherLongTax)}</td>
                     </tr>` : html``}
                   ${p.gains.buckets.slabRated !== 0 ? html`
                     <tr>
-                      <td>Debt, and short-held gold or property <span class="faint">· at your slab rate</span></td>
+                      <td>Debt, and short-held gold, property or foreign shares <span class="faint">· at your slab rate</span></td>
                       <td class="amount">${formatPaise(p.gains.buckets.slabRated)}</td>
                       <td class="amount faint">added to income above</td>
                     </tr>` : html``}
@@ -269,6 +269,10 @@ export function renderTax(p: TaxPageProps): SafeHtml {
                   </div>
                 `
               : html``}
+            <p class="field-hint">
+              Listed equity bought before 1 February 2018 is taxed only on its
+              gain since 31 January 2018, using the price recorded for that day.
+            </p>
             <p class="field-hint">
               The ₹1,25,000 exemption is annual and applies only to long-held
               listed equity. It does not extend to short-term gains, to gold, or
@@ -332,7 +336,7 @@ export function renderTax(p: TaxPageProps): SafeHtml {
         <li><strong>Losses set off between heads.</strong> A long-term loss can only go against a long-term gain, and this nets nothing — each bucket is floored at zero, so a year with losses is overstated.</li>
         <li><strong>Tax already deducted at source.</strong> Nothing here is netted against your Form 16 or 26AS.</li>
         <li><strong>Losses</strong> set off or carried forward, house property loss, and clubbing.</li>
-        <li><strong>Anything foreign</strong> — income, assets, or relief under a treaty.</li>
+        <li><strong>Anything foreign</strong> beyond the gain on a sale — foreign income, dividends, Schedule FA, or relief under a treaty. A foreign share's gain is taxed as the Act taxes an unlisted one: slab rates up to 24 months, s112 after.</li>
         <li><strong>Presumptive schemes</strong> under 44AD or 44ADA.</li>
       </ul>
     </section>
