@@ -333,3 +333,23 @@ describe("IMPORTS-SCHEDULES-26 · routing by last four respects privacy", () => 
     db.close(); db2.close();
   });
 });
+
+describe("IMPORTS-SCHEDULES-34 · an alert that cannot be read is counted, not dropped", () => {
+  test("a transaction-shaped message no profile reads is counted; a promotion is not", async () => {
+    const db = setup();
+    const result = await fetchGmail(db, actor, {
+      clientId: "id", clientSecret: "secret",
+      fetchImpl: fakeGoogle({
+        m1: {
+          from: "alerts@yes.bank.in", subject: "Txn alert",
+          body: "INR 70.00 has been spent on your YES BANK Credit Card ending with 8803 at ZZ CAFE today.",
+        },
+        m2: { from: "alerts@yes.bank.in", subject: "Offers", body: "Get 10% back up to INR 500 this festive season!" },
+      }),
+    });
+    assert.equal(result.alerts.parsed, 0);
+    assert.equal(result.alerts.unread, 1);
+    assert.ok(result.notes.some((n) => /alerts@yes\.bank\.in .*could not be read/.test(n)));
+    db.close();
+  });
+});

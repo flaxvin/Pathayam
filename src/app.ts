@@ -6902,6 +6902,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (result.alerts.staged) parts.push(`${result.alerts.staged} alerts`);
     if (result.statements.staged) parts.push(`${result.statements.staged} statement rows`);
     if (result.alerts.unmatched) parts.push(`${result.alerts.unmatched} to an unknown account`);
+    // IMPORTS-SCHEDULES-34 · an alert it could not read is said, not dropped.
+    if (result.alerts.unread) {
+      parts.push(`${result.alerts.unread} alert${result.alerts.unread === 1 ? "" : "s"} it could not read — add ${result.alerts.unread === 1 ? "that one" : "those"} by hand`);
+    }
     const summary = parts.length
       ? `Read ${result.scanned} messages — ${parts.join(", ")}, all in Review.`
       : `Read ${result.scanned} messages — nothing new.`;

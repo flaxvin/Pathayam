@@ -197,3 +197,14 @@ describe("04 §3.4 · parsing bank transaction alerts", () => {
     assert.equal(parseAlert("alerts@axis.bank.in", "Newsletter", "Read our latest offers!"), null);
   });
 });
+
+describe("IMPORTS-SCHEDULES-34 · a named month with a two-digit year", () => {
+  test("a YES Bank card alert dated 27-Aug-26 is read, not dropped", () => {
+    const r = parseAlert("alerts@yes.bank.in", "Txn alert",
+      "INR 70.00 has been spent on your YES BANK Credit Card ending with 8803 at UPI_ZZ CAFE " +
+      "on 27-Aug-26 at 06:46:36 pm. Avl Bal INR 1,000.00");
+    assert.equal(r?.record.date, "2026-08-27");
+    assert.equal(r?.record.amount, -7000);
+    assert.equal(r?.record.cardLast4, "8803");
+  });
+});

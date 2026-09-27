@@ -189,6 +189,12 @@ private account ending in the same digits is never a candidate. The ones that
 member holds are preferred; if two still match, the alert is left alone with a
 note rather than guessed. A statement attachment is routed the same way.
 
+A message from an alert sender that reads like a transaction — an amount beside
+"spent", "debited" or "credited" — but that no profile can read is not dropped
+in silence: the fetch's summary counts the alerts it could not read, so they
+can be added by hand. Promotions and one-time passwords from the same senders
+are not counted.
+
 ## Duplicate detection
 
 Every staged row is compared against existing transactions **in the same
