@@ -390,6 +390,25 @@ describe("special-rate gains measured against the rest of the income", () => {
     assert.equal(e.total, rupees(10_680_310));
   });
 
+  test("the gains do not lift the rest of the income into the 25% band", () => {
+    /*
+     * The 25% and 37% bands are tested on total income *excluding* 111A, 112A
+     * and 112 gains; income that only crosses ₹2 crore because of them takes
+     * 15% (First Schedule, Part I, Paragraph A, as amended by the Finance Acts
+     * 2020 and 2022).
+     *
+     * New regime, taxable ₹1,50,00,000 plus ₹1,00,00,000 of 111A. Total
+     * ₹2,50,00,000, but ₹1,50,00,000 without the gain: 15% band.
+     *   slabs: 3,00,000 + 1,26,00,000 × 30% = 40,80,000; 111A: 20,00,000
+     *   surcharge 60,80,000 × 15% = 9,12,000
+     *   (60,80,000 + 9,12,000) × 1.04 = ₹72,71,680.
+     * The band chosen on total income was 25% on the slab tax: ₹76,96,000.
+     */
+    const e = estimateUnder(FY, "new", rupees(15_075_000), none, g({ equityShort: rupees(10_000_000) }));
+    assert.equal(e.surcharge, rupees(912_000));
+    assert.equal(e.total, rupees(7_271_680));
+  });
+
   test("the unused basic exemption is set against a 112A gain (new regime)", () => {
     /*
      * A retiree with no salary and a ₹4,00,000 long-term equity gain. The new

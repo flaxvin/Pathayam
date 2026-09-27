@@ -95,6 +95,19 @@ describe("the demo door offers the household", () => {
     assert.equal(session?.member_id, "m-ravi", "it fell back rather than signing in as a ghost");
   });
 
+  test("a JSON body naming an object rather than an id is not a fault", async () => {
+    // The door is public. node:sqlite binds an object as *named* parameters,
+    // so {"member_id":{"a":1}} reached the query as one and threw — a 500 and
+    // a fault row for anybody on the internet, per request.
+    const res = await fetch(app.baseUrl + "/demo/enter", {
+      method: "POST", redirect: "manual",
+      headers: { "Content-Type": "application/json", Origin: app.baseUrl },
+      body: JSON.stringify({ member_id: { a: 1 } }),
+    });
+    assert.equal(res.status, 303);
+    assert.deepEqual(app.failures, []);
+  });
+
   test("asking for somebody who does not exist does the same", async () => {
     const res = await app.post("/demo/enter", { member_id: "nobody-at-all" });
     assert.equal(res.status, 303);

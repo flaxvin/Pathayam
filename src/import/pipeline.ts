@@ -288,13 +288,18 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
       stagedSourceIds.add(sourceId);
 
       if (canAutoApprove) {
-        approveStaged(db, actor, stagedId, { autoApproved: true });
+        const transactionId = approveStaged(db, actor, stagedId, { autoApproved: true });
         autoApproved++;
         // Keep the in-memory candidate list current so two identical rows in
-        // one file still see each other.
+        // one file still see each other. As the transaction, not the review
+        // item: a later row matched to the staged id was staged with it as
+        // `duplicate_of_id` — a foreign key into transactions, so the whole
+        // import failed — or "upgraded" a row that is not in the ledger and
+        // dropped without a trace.
         existing.push({
-          id: stagedId, accountId: opts.accountId, date: record.date, amount: record.amount,
-          payee: outcome.subject.payee, reference: record.reference, source: opts.source, sourceId,
+          id: transactionId, accountId: opts.accountId, date: record.date, amount: record.amount,
+          payee: outcome.subject.payee, reference: record.reference ?? extracted.reference,
+          source: opts.source, sourceId,
         });
       }
     }

@@ -18,6 +18,7 @@ import { createAccount } from "./accounts.ts";
 import { createTransaction } from "./transactions.ts";
 import {
   createAssetAccount, findOrCreateInstrument, recordPurchase, recordPrice, recordSale, recordSplit,
+  recordValuation,
 } from "./assets.ts";
 import { createLoan, recordInstalment } from "./loans.ts";
 import { netWorthStatement, snapshotNetWorth } from "./networth.ts";
@@ -101,6 +102,25 @@ describe("WEALTH-15 · a dated net worth statement", () => {
     assert.equal(
       netWorthStatement(db).liabilityGroups.find((g) => g.name === "Loans")!.total,
       rupees(91_000),
+    );
+    db.close();
+  });
+
+  test("a hand-valued asset is worth what it was valued at by the day, not since", () => {
+    const { db } = setup();
+    const flat = createAssetAccount(db, actor, {
+      name: "Flat", subtype: "physical", openingValue: rupees(50_00_000), asOf: "2025-01-01",
+    });
+    recordValuation(db, actor, { accountId: flat.id, value: rupees(60_00_000), asOf: "2025-09-01" });
+
+    const snap = snapshotNetWorth(db, actor, JUNE_30);
+    assert.equal(snap.other_assets, rupees(50_00_000), "September's revaluation is not June's");
+    // Before the first valuation there is no stated figure at all.
+    assert.equal(snapshotNetWorth(db, actor, "2024-12-31").other_assets, 0);
+    // Today's statement reads the latest.
+    assert.equal(
+      netWorthStatement(db).assetGroups.find((g) => g.name === "Other assets")!.total,
+      rupees(60_00_000),
     );
     db.close();
   });

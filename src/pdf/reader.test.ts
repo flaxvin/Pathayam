@@ -1,5 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
+import { deflateSync } from "node:zlib";
 import { readDocument, expandObjectStreams } from "./objects.ts";
 import { decryptDocument, isEncrypted, WrongPassword } from "./decrypt.ts";
 import { extractText } from "./text.ts";
@@ -69,5 +70,37 @@ describe("the PDF reader · layout survives extraction", () => {
     const folio = lines.findIndex((l) => l.includes("Folio No: 12345678"));
     const icici = lines.findIndex((l) => l.includes("ICICI Prudential Asset"));
     assert.ok(heading >= 0 && folio > heading && icici > folio);
+  });
+});
+
+describe("the PDF reader · a file that decompresses without end", () => {
+  /*
+   * Flate twice over 64 MB of spaces is a few hundred bytes of PDF, and a page
+   * may list the same content stream as many times as it likes. Decoded in
+   * full, this held the (single-threaded) server for minutes and asked for
+   * gigabytes — from an upload, or from an attachment Gmail fetch picked up.
+   */
+  function bomb(megabytes: number, references: number): Uint8Array {
+    const inner = deflateSync(Buffer.alloc(megabytes * 1024 * 1024, 0x20), { level: 9 });
+    const outer = deflateSync(inner, { level: 9 });
+    return new Uint8Array(Buffer.concat([
+      Buffer.from(
+        `%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n` +
+        `2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n` +
+        `3 0 obj << /Type /Page /Parent 2 0 R /Contents [${"4 0 R ".repeat(references)}] >> endobj\n` +
+        `4 0 obj << /Length ${outer.length} /Filter [/FlateDecode /FlateDecode] >>\nstream\n`,
+        "latin1",
+      ),
+      outer,
+      Buffer.from(`\nendstream\nendobj\ntrailer << /Root 1 0 R >>\n%%EOF\n`, "latin1"),
+    ]));
+  }
+
+  test("is read no further than a statement could need", () => {
+    const bytes = bomb(64, 64);
+    assert.ok(bytes.length < 2048, `the bomb is ${bytes.length} bytes`);
+    const started = Date.now();
+    read(bytes, "");
+    assert.ok(Date.now() - started < 5_000, `took ${Date.now() - started} ms`);
   });
 });

@@ -572,3 +572,17 @@ describe("an overdrawn running balance (IMPORTS-SCHEDULES-27)", () => {
     assert.equal(result.reconciliation!.ok, false);
   });
 });
+
+describe("a zero-filled Chq./Ref.No. is no reference", () => {
+  test("it is not read as the bank's identity for the row", () => {
+    // The strong dedupe tier takes a shared reference and amount within five
+    // days as one event, so a statement printing zeros for every ATM or
+    // charge row made two different lines of one amount the same transaction.
+    const text = HDFC
+      .replace("431202847592        03/08/26", "000000000000        03/08/26")
+      .replace("998877665544        11/08/26", "000000000000        11/08/26");
+    const result = parseStatementText(text);
+    assert.deepEqual(result.records.map((r) => r.reference), [null, "N123456789", null]);
+    assert.ok(result.records.every((r) => !r.narration.includes("000000000000")));
+  });
+});

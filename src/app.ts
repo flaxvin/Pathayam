@@ -215,6 +215,9 @@ import { countRequestFailures, recentRequestFailures } from "./ops/errors.ts";
  */
 const UNCATEGORISED_PAGE = 15;
 
+/** The furthest the Schedules page projects cash: ten years of days. */
+const MAX_CASHFLOW_DAYS = 3650;
+
 // Kept in step with the dates on website/privacy.html and website/terms.html,
 // which are the canonical pages and cover the same ground for the public site.
 /*
@@ -526,7 +529,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         }
 
         const member = getMember(db, bearer.token.member_id);
-        if (member) {
+        // The allow-list is authority for a token as it is for a session
+        // (R38.16): removing a member revokes their sessions, and a token
+        // they minted must not outlive them either.
+        if (member && !member.removed_at && member.allowed) {
           // F30.5 · Attributed to the member, naming the token.
           ctx.locals.token = bearer.token;
           auth = {
@@ -1166,6 +1172,35 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   const pendingOAuth = new PendingStates<{ verifier: string; next: string; at: number }>();
   const pendingGmail = new PendingStates<{ verifier: string; memberId: string; at: number }>();
 
+  /*
+   * A sign-in's state, bound to the browser that started it.
+   *
+   * The state was held in server memory alone, so it proved the flow was
+   * started *here* but not *by whom*: anybody could start a sign-in with their
+   * own account, stop at the callback, and send that link on — whoever opened
+   * it was signed in as them (login CSRF), and entered their own spending into
+   * somebody else's ledger. The cookie is set where the flow starts and must
+   * come back with the callback, which a link sent to anyone else cannot do.
+   * Lax, because the callback is the provider's top-level redirect back.
+   */
+  const OAUTH_STATE_COOKIE = "pathayam_oauth";
+  function oauthStateCookie(state: string): string {
+    return [
+      `${OAUTH_STATE_COOKIE}=${state}`, "Path=/auth", "HttpOnly", "SameSite=Lax", "Max-Age=600",
+      config.baseUrl.startsWith("https") ? "Secure" : "",
+    ].filter(Boolean).join("; ");
+  }
+  function takeOAuthState(ctx: RequestContext, source: string) {
+    const state = ctx.query.get("state") ?? "";
+    const pending = pendingOAuth.take(state);
+    const bound = parseCookies(ctx.req.headers.cookie)[OAUTH_STATE_COOKIE];
+    if (!pending || bound !== state) {
+      recordAuthAttempt(db, source, "bad-state");
+      throw new HttpError(400, "That sign-in link has expired. Please try again.");
+    }
+    return pending;
+  }
+
   router.get("/signin", async (ctx) => {
     if (ctx.locals.auth) return { redirect: "/" };
 
@@ -1383,7 +1418,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       at: Date.now(),
     });
 
-    return { redirect: start.url };
+    return { redirect: start.url, headers: { "Set-Cookie": oauthStateCookie(start.state) } };
   });
 
   /*
@@ -1409,7 +1444,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       next: safePath(ctx.query.get("next"), "/"),
       at: Date.now(),
     });
-    return { redirect: start.url };
+    return { redirect: start.url, headers: { "Set-Cookie": oauthStateCookie(start.state) } };
   });
 
   router.get("/auth/oidc/callback", async (ctx) => {
@@ -1419,12 +1454,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }
     if (!oidcConfigured(config)) throw new NotFound();
 
-    const state = ctx.query.get("state") ?? "";
-    const pending = pendingOAuth.take(state);
-    if (!pending) {
-      recordAuthAttempt(db, source, "bad-state");
-      throw new HttpError(400, "That sign-in link has expired. Please try again.");
-    }
+    const pending = takeOAuthState(ctx, source);
 
     const code = ctx.query.get("code");
     if (!code) {
@@ -1492,12 +1522,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       throw new HttpError(429, "Too many sign-in attempts. Try again in a few minutes.");
     }
 
-    const state = ctx.query.get("state") ?? "";
-    const pending = pendingOAuth.take(state);
-    if (!pending) {
-      recordAuthAttempt(db, source, "bad-state");
-      throw new HttpError(400, "That sign-in link has expired. Please try again.");
-    }
+    const pending = takeOAuthState(ctx, source);
 
     const code = ctx.query.get("code");
     if (!code) {
@@ -2902,7 +2927,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         );
       }
 
-      createTransaction(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
+      breakGuardedCheckpoints(ctx, a, () => createTransaction(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         accountId: requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id,
         amount: direction === "in" ? magnitude : -magnitude,
         date: dateField(dateRaw),
@@ -2916,7 +2941,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         // H2 · Who spent it. A card with its own holder still wins — an add-on
         // charge belongs to whoever holds the add-on (R6.e).
         ownerMemberId: guardedField(ctx, "owner_member_id", requireMember) ?? undefined,
-      });
+      }));
 
       return { redirect: "/", message: `Saved ${formatPaise(magnitude)}.` };
     });
@@ -2939,6 +2964,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         accounts,
         defaultFrom: ctx.query.get("from"),
         defaultTo: ctx.query.get("to"),
+        /*
+         * "Pay it off" on the Cards page links here with what the card owes.
+         * The form ignored it, so the button promised an amount and delivered
+         * an empty field. Rupees, parsed the way /move parses its own.
+         */
+        defaultAmount: ctx.query.get("amount")?.trim()
+          ? Math.abs(amountField(ctx.query.get("amount")!, "Amount"))
+          : null,
         today: todayIST(),
         // Only envelopes this viewer can see, and never a card's payment
         // envelope — the domain refuses one, so offering it would be a choice
@@ -3906,7 +3939,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const transaction = requireVisibleTransaction(ctx, id);
 
     const dateRaw = field(ctx.body, "date");
-    const newDate = dateRaw ? parseDate(dateRaw) ?? transaction.date : transaction.date;
+    /*
+     * Blank keeps the date it had; anything else has to read as one. A typo
+     * ("31-02-2026") used to fall back to the old date too, and the page said
+     * "Saved." over an edit that had quietly dropped the change asked for.
+     */
+    const newDate = dateRaw?.trim() ? dateField(dateRaw) : transaction.date;
     const confirmed = field(ctx.body, "confirm_checkpoint") === "1";
 
     /*
@@ -3916,8 +3954,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * updateTransaction for what editing one side alone used to do.
      */
     const partner = transaction.transfer_pair_id
-      ? queryOne<{ account_id: string }>(
-        db, `SELECT account_id FROM transactions WHERE transfer_pair_id = ? AND id <> ?`,
+      ? queryOne<{ account_id: string; date: string }>(
+        db, `SELECT account_id, date FROM transactions WHERE transfer_pair_id = ? AND id <> ?`,
         transaction.transfer_pair_id, id,
       )
       : null;
@@ -3925,10 +3963,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     // R7.b: guard against *both* dates — moving a transaction out of a
     // reconciled period falsifies that period just as much as moving one in.
-    // A transfer's date moves on both accounts, so both are guarded.
-    for (const accountId of [transaction.account_id, ...(partner ? [partner.account_id] : [])]) {
+    // A transfer's date and amount move on both accounts, so when either
+    // changes the other side is guarded too — from its own date, which an
+    // imported transfer's two statements need not share with this leg.
+    const amountRaw = field(ctx.body, "amount");
+    const partnerMoves = partner !== null && (
+      newDate !== transaction.date ||
+      (amountRaw !== undefined && amountRaw.trim() !== "" &&
+        Math.abs(amountField(amountRaw)) !== Math.abs(transaction.amount))
+    );
+    const sides = [
+      { accountId: transaction.account_id, from: transaction.date },
+      ...(partner && partnerMoves ? [{ accountId: partner.account_id, from: partner.date }] : []),
+    ];
+    for (const side of sides) {
       const guard = guardCheckpoints(
-        ctx, a, accountId, [transaction.date, newDate], confirmed,
+        ctx, a, side.accountId, [side.from, newDate], confirmed,
         `/transaction/${id}`, `/transaction/${id}`,
       );
       if (guard) return guard;
@@ -4039,7 +4089,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // Guard the earlier of the two dates: moving a transaction backwards means
       // the ripple starts where it lands, not where it was.
       const rippleFrom = monthOf(newDate < transaction.date ? newDate : transaction.date);
-      const { recompute } = withForwardRecompute(
+      const { recompute } = breakGuardedCheckpoints(ctx, a, () => withForwardRecompute(
           db, actor, { month: rippleFrom, cause: "Edited a transaction" },
           () =>
             updateTransaction(db, actor, id, {
@@ -4062,7 +4112,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               : {}),
             ...(payeeId !== undefined ? { payeeId } : {}),
           }),
-      );
+      ));
 
       // L1 · Cleaning up an imported payee proposes a pre-stage rule mapping the
       // raw string to the clean name, so next month's identical narration
@@ -4181,10 +4231,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // MONEY-CORE-14 · A retry replays the first answer rather than deleting twice.
     return once(ctx, a, () => {
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
-      const { recompute } = withForwardRecompute(
+      const { recompute } = breakGuardedCheckpoints(ctx, a, () => withForwardRecompute(
         db, actor, { month: monthOf(transaction.date), cause: "Deleted a transaction" },
         () => deleteTransaction(db, actor, id),
-      );
+      ));
       return {
         redirect: withNotice(
           `/accounts/${transaction.account_id}`,
@@ -4237,13 +4287,42 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       }
     }
 
-    // R7.c/R7.e: mark them broken, with both values in the log. R7.f: they are
-    // never repaired — only a fresh reconciliation asserts the balance again.
-    if (breakHere) breakCheckpoints(
-      db, actorFor(a), [...affected.values()],
-      `a transaction dated on or before it was changed`,
-    );
+    /*
+     * R7.c/R7.e: mark them broken, with both values in the log. R7.f: they are
+     * never repaired — only a fresh reconciliation asserts the balance again.
+     *
+     * Not here, though: once the change has been made (breakGuardedCheckpoints,
+     * in the change's own transaction). Breaking them on the way past meant a
+     * confirmed edit that was then refused — split lines over the total, a
+     * blank envelope on spending, a load-bearing delete — left the checkpoint
+     * broken over a balance nothing had changed, and Review asking the
+     * household to reconcile again for no reason.
+     */
+    if (breakHere) {
+      const pending = pendingCheckpointBreaks.get(ctx) ?? new Map<string, Checkpoint>();
+      for (const [id, c] of affected) pending.set(id, c);
+      pendingCheckpointBreaks.set(ctx, pending);
+    }
     return null;
+  }
+
+  /** What guardCheckpoints was told to break, per request, until the change lands. */
+  const pendingCheckpointBreaks = new WeakMap<RequestContext, Map<string, Checkpoint>>();
+
+  /**
+   * Make the change and break the checkpoints its guard confirmed, together or
+   * not at all. Call inside the idempotent section, so a replay breaks nothing.
+   */
+  function breakGuardedCheckpoints<T>(ctx: RequestContext, a: AuthContext, change: () => T): T {
+    return transact(db, () => {
+      const result = change();
+      const pending = pendingCheckpointBreaks.get(ctx);
+      pendingCheckpointBreaks.delete(ctx);
+      if (pending?.size) {
+        breakCheckpoints(db, actorFor(a), [...pending.values()], `a transaction dated on or before it was changed`);
+      }
+      return result;
+    });
   }
 
   // -------------------------------------------------------------------------
@@ -4787,14 +4866,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         });
       }
 
-      const parts = [`${outcome.staged} to review`];
+      // `staged` counts the auto-approved rows too, which are in the ledger,
+      // not Review: "3 to review, 3 auto-approved" left nothing to review.
+      const toReview = outcome.staged - outcome.autoApproved;
+      const parts = [`${toReview} to review`];
       if (outcome.autoApproved) parts.push(`${outcome.autoApproved} auto-approved`);
       if (outcome.duplicates) parts.push(`${outcome.duplicates} possible duplicates`);
       if (outcome.skipped) parts.push(`${outcome.skipped} already present`);
       if (outcome.errors) parts.push(`${outcome.errors} rows I couldn't read`);
 
       return {
-        redirect: outcome.staged > 0 ? "/review" : "/import",
+        redirect: toReview > 0 ? "/review" : "/import",
         message: `Read ${outcome.batch.rows_read} rows — ${parts.join(", ")}.`,
       };
     });
@@ -4931,7 +5013,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     });
 
     const parts: string[] = [];
-    if (outcome.staged > 0) parts.push(`${outcome.staged} to review`);
+    const toReview = outcome.staged - outcome.autoApproved;
+    if (toReview > 0) parts.push(`${toReview} to review`);
     if (outcome.autoApproved > 0) parts.push(`${outcome.autoApproved} auto-approved`);
     if (outcome.duplicates > 0) parts.push(`${outcome.duplicates} suspected duplicates`);
     if (outcome.skipped > 0) parts.push(`${outcome.skipped} already present`);
@@ -4950,7 +5033,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // `mutate` can only redirect — so the notice is built here.
     return {
       redirect: withNotice(
-        outcome.staged > 0 ? "/review" : "/import",
+        toReview > 0 ? "/review" : "/import",
         `Read ${parsed.bank ? `your ${parsed.bank.name} statement` : "the statement"} — ` +
           `${parts.join(", ")}.${opened}${reconciled}`,
       ),
@@ -5027,7 +5110,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       });
 
       return {
-        redirect: outcome.staged > 0 ? "/review" : "/import",
+        redirect: outcome.staged > outcome.autoApproved ? "/review" : "/import",
         message: worked
           ? `Read ${outcome.batch.rows_read} rows, and remembered these columns — ` +
             `the next file like this will import without asking.`
@@ -6013,7 +6096,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // S8 · Schedules and the cashflow calendar (F7)
   // -------------------------------------------------------------------------
   router.get("/schedules", (ctx) => {
-    const horizon = Number(ctx.query.get("days") ?? 60);
+    /*
+     * The horizon arrives from a URL. Anything that is not a whole number of
+     * days was a 500 ("Invalid time value" from the date arithmetic), a
+     * negative one read "the next -1 days", and a few million overflowed the
+     * chart's stack after five seconds of projecting. Nonsense falls back to
+     * the default, as a nonsense month does; a horizon past ten years is
+     * refused, because nothing scheduled here is planned that far out.
+     */
+    const daysRaw = ctx.query.get("days")?.trim();
+    const daysAsked = daysRaw && /^\d+$/.test(daysRaw) ? Number(daysRaw) : 0;
+    if (daysAsked > MAX_CASHFLOW_DAYS) {
+      throw new Refusal(`The cashflow looks ahead at most ${MAX_CASHFLOW_DAYS} days.`);
+    }
+    const horizon = daysAsked >= 1 ? daysAsked : 60;
     const scope = budgetParam(ctx);
     const cashflow = projectCashflow(db, { days: horizon, budgetId: scope, viewerMemberId: viewer(ctx) });
     const view = buildBudgetView(db, undefined, scope, viewer(ctx));
@@ -7247,6 +7343,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/tokens", (ctx) => {
     refuseInDemo(config, "Creating API tokens");
     const a = auth(ctx);
+    /*
+     * A token is minted for whoever the actor is, and while viewing as
+     * somebody that is them: the time-boxed, logged view became a credential
+     * of theirs that never expires and that nothing about ending the view
+     * revokes. Impersonation is session-only (R38.12), so this is refused.
+     */
+    if (a.impersonating) {
+      throw new HttpError(403, "API tokens cannot be created while viewing as another member.");
+    }
     const days = field(ctx.body, "expires_in_days");
     const scope = field(ctx.body, "scope") === "read-write" ? "read-write" : "read";
 
@@ -7613,7 +7718,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       }));
     }
 
-    const plan = planCasImport(db, statement, accountId);
+    const plan = planCasImport(db, statement, accountId, viewer(ctx));
     const token = newId();
     stashPlan(token, plan, a.member.id);
 

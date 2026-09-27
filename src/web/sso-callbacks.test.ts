@@ -50,10 +50,21 @@ function tokenFor(claims: Record<string, unknown>): () => Response {
   });
 }
 
-/** Start the flow and read back the state the app handed the provider. */
+/**
+ * Start the flow and read back the state the app handed the provider — and
+ * keep the cookie that binds that state to this browser, which the browser
+ * would send back with the callback.
+ */
+let browser = "";
 async function beginAt(baseUrl: string, path: string): Promise<string> {
   const res = await fetch(baseUrl + path, { redirect: "manual" });
+  browser = (res.headers.get("set-cookie") ?? "").split(";")[0]!;
   return new URL(res.headers.get("location")!).searchParams.get("state")!;
+}
+
+/** The provider sending this browser back, with the state and a code. */
+function callback(url: string): Promise<Response> {
+  return fetch(url, { redirect: "manual", headers: { cookie: browser } });
 }
 
 function household() {
@@ -75,7 +86,7 @@ describe("SSO callbacks", () => {
           iss: ISSUER, aud: "pathayam", sub: "attacker", email, email_verified: verified,
         });
         const state = await beginAt(app.baseUrl, "/auth/oidc");
-        const res = await fetch(`${app.baseUrl}/auth/oidc/callback?state=${state}&code=x`, { redirect: "manual" });
+        const res = await callback(`${app.baseUrl}/auth/oidc/callback?state=${state}&code=x`);
         assert.equal(res.status, 403, `email_verified: ${verified}`);
         assert.equal(res.headers.get("set-cookie"), null);
       }
@@ -87,7 +98,7 @@ describe("SSO callbacks", () => {
       // A verified address still signs in.
       idp.state.answer = tokenFor({ iss: ISSUER, aud: "pathayam", sub: "priya", email, email_verified: true });
       const state = await beginAt(app.baseUrl, "/auth/oidc");
-      const ok = await fetch(`${app.baseUrl}/auth/oidc/callback?state=${state}&code=x`, { redirect: "manual" });
+      const ok = await callback(`${app.baseUrl}/auth/oidc/callback?state=${state}&code=x`);
       assert.equal(ok.status, 303);
       assert.match(ok.headers.get("set-cookie") ?? "", /pathayam_session=/);
       assert.deepEqual(app.failures, []);
@@ -105,7 +116,7 @@ describe("SSO callbacks", () => {
         iss: "https://accounts.google.com", aud: "cid", sub: "attacker", email, email_verified: false,
       });
       const state = await beginAt(app.baseUrl, "/auth/google");
-      const res = await fetch(`${app.baseUrl}/auth/google/callback?state=${state}&code=x`, { redirect: "manual" });
+      const res = await callback(`${app.baseUrl}/auth/google/callback?state=${state}&code=x`);
       assert.equal(res.status, 403);
       assert.equal(res.headers.get("set-cookie"), null);
       assert.equal(
@@ -126,7 +137,7 @@ describe("SSO callbacks", () => {
         iss: ISSUER, aud: "pathayam", sub: "x", email: "someone@example.com", email_verified: false,
       });
       const state = await beginAt(app.baseUrl, "/auth/oidc");
-      const res = await fetch(`${app.baseUrl}/auth/oidc/callback?state=${state}&code=x`, { redirect: "manual" });
+      const res = await callback(`${app.baseUrl}/auth/oidc/callback?state=${state}&code=x`);
       assert.equal(res.status, 403);
       assert.equal(queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM members`)!.n, 0);
     } finally {
@@ -143,7 +154,7 @@ describe("SSO callbacks", () => {
     try {
       for (const flow of ["/auth/google", "/auth/oidc"]) {
         const state = await beginAt(app.baseUrl, flow);
-        const res = await fetch(`${app.baseUrl}${flow}/callback?state=${state}&code=forged`, { redirect: "manual" });
+        const res = await callback(`${app.baseUrl}${flow}/callback?state=${state}&code=forged`);
         assert.equal(res.status, 400, flow);
         assert.equal(res.headers.get("set-cookie"), null);
       }
@@ -167,12 +178,45 @@ describe("SSO callbacks", () => {
       const state = await beginAt(app.baseUrl, "/auth/oidc");
       mock.timers.enable({ apis: ["Date"], now: Date.now() + 60 * 60_000 });
       try {
-        const res = await fetch(`${app.baseUrl}/auth/oidc/callback?state=${state}&code=x`, { redirect: "manual" });
+        const res = await callback(`${app.baseUrl}/auth/oidc/callback?state=${state}&code=x`);
         assert.equal(res.status, 400);
         assert.equal(res.headers.get("set-cookie"), null);
       } finally {
         mock.timers.reset();
       }
+    } finally {
+      await app.close();
+    }
+  });
+  test("a state only signs in the browser that started the flow", async () => {
+    /*
+     * Login CSRF. The state lived only in server memory, so whoever started a
+     * sign-in could finish it anywhere: sign in with your own account, stop at
+     * the callback, and send that link to somebody else — who clicked it and
+     * was signed in as you, entering their spending into your ledger.
+     */
+    const { db, email } = household();
+    const idp = provider();
+    const app = await startTestApp(db, {
+      memberId: null, config: { oidc: OIDC, google: GOOGLE }, fetchImpl: idp.fetchImpl,
+    });
+    try {
+      for (const flow of ["/auth/google", "/auth/oidc"]) {
+        idp.state.answer = flow === "/auth/google"
+          ? tokenFor({ iss: "https://accounts.google.com", aud: "cid", sub: "priya", email, email_verified: true })
+          : tokenFor({ iss: ISSUER, aud: "pathayam", sub: "priya", email, email_verified: true });
+        const state = await beginAt(app.baseUrl, flow);
+        const elsewhere = await fetch(`${app.baseUrl}${flow}/callback?state=${state}&code=x`, { redirect: "manual" });
+        assert.equal(elsewhere.status, 400, flow);
+        assert.equal(elsewhere.headers.get("set-cookie"), null, flow);
+
+        // The browser that started it still finishes it.
+        const again = await beginAt(app.baseUrl, flow);
+        const home = await callback(`${app.baseUrl}${flow}/callback?state=${again}&code=x`);
+        assert.equal(home.status, 303, flow);
+        assert.match(home.headers.get("set-cookie") ?? "", /pathayam_session=/);
+      }
+      assert.deepEqual(app.failures, []);
     } finally {
       await app.close();
     }

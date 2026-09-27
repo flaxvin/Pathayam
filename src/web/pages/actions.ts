@@ -282,6 +282,8 @@ export function renderTransfer(opts: {
   accounts: Account[];
   defaultFrom: string | null;
   defaultTo: string | null;
+  /** Paise, from a link that knows the amount (a card's "Pay it off"). */
+  defaultAmount?: number | null;
   today: string;
   /** Envelopes a bank charge can be filed into, if the bank took one. */
   categories?: { id: string; name: string }[];
@@ -321,7 +323,8 @@ export function renderTransfer(opts: {
       <div class="field">
         <label for="amount">Amount</label>
         <input id="amount" name="amount" class="amount-input" type="text"
-               inputmode="decimal" autocomplete="off" required autofocus placeholder="0.00">
+               inputmode="decimal" autocomplete="off" required autofocus placeholder="0.00"
+               value="${opts.defaultAmount ? (opts.defaultAmount / 100).toFixed(2) : ""}">
       </div>
 
       <div class="grid-2">
