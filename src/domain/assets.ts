@@ -38,6 +38,7 @@ import {
   type Lot, type Holding, type Milliunits, type MicroRupees,
   type SalePreview, type GainDecomposition,
 } from "../portfolio/holdings.ts";
+import { csvCell } from "../core/csv.ts";
 
 export type InstrumentKind = "mutual-fund" | "equity" | "etf" | "bond" | "commodity" | "other";
 
@@ -1279,14 +1280,8 @@ registerUndoHandler("instrument", (db, event) => {
 // F19.13 · CSV export of holdings, lots, price history and the net-worth series
 // ---------------------------------------------------------------------------
 
-function csvField(value: unknown): string {
-  if (value === null || value === undefined) return "";
-  const text = String(value);
-  return /[",\n]/.test(text) ? `"${text.replace(/"/g, '""')}"` : text;
-}
-
 function toCsv(headers: string[], rows: (unknown[])[]): string {
-  return [headers.join(","), ...rows.map((r) => r.map(csvField).join(","))].join("\n");
+  return [headers.join(","), ...rows.map((r) => r.map(csvCell).join(","))].join("\n");
 }
 
 /**

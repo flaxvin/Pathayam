@@ -114,6 +114,10 @@ interpolated label.
   is reduced to word characters, dots, spaces, parentheses and hyphens.
 - **Untrusted parsers**: the PDF and CSV readers are fuzzed with empty,
   truncated, malformed, all-null, absurd-length and self-referential inputs.
+- **CSV exports**: imported text (payees, narrations) is chosen by whoever sent
+  the statement or alert, so every exported cell that starts with `=`, `+`,
+  `-`, `@`, tab or carriage return is prefixed with `'` and opens as text, never
+  as a formula. Plain numbers are left alone so amounts still sum.
 
 ## Transport and headers
 
