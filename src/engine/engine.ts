@@ -506,7 +506,16 @@ export function targetProgress(
       }
       const remaining = Math.max(0, amount - state.opening);
       const monthsLeft = monthsBetween(month, monthOf(target.targetDate)) + 1;
-      if (monthsLeft <= 1) {
+      /*
+       * BUDGET-16 · A one-off date that has passed asks for nothing. Every month
+       * after it counted as "the last month", so a "Goa trip" saved for and
+       * spent read "₹12,000 underfunded" the month after, and Auto-assign
+       * funded it again — every month, for ever. The remainder is spread across
+       * the months *to* the date; the repeating kind is the recurring one.
+       */
+      if (target.type === "by-date" && monthsLeft < 1) {
+        needed = 0;
+      } else if (monthsLeft <= 1) {
         needed = remaining;
       } else {
         // allocate() so the monthly figures sum back to exactly the target.

@@ -88,7 +88,7 @@ applies.
 |---|---|
 | `monthly` | The target amount, every month. |
 | `refill` | `max(0, amount − opening balance)`. |
-| `by-date` | The remainder spread across the months to `target_date`. |
+| `by-date` | The remainder spread across the months to `target_date`; nothing once that month has passed. |
 | `debt-payoff` | The instalment the linked loan requires; kept in step with the loan's schedule. |
 | `spending` | The target pro-rated by day of month. |
 

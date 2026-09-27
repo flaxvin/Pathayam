@@ -821,6 +821,18 @@ describe("R8 · Targets", () => {
     assert.equal(p.needed, rupees(8_000));
   });
 
+  test("BUDGET-16 · savings by date — asks for nothing once its month has passed", () => {
+    // The trip was in June; saved for, and spent. August owes it nothing.
+    const p = targetProgress(
+      { categoryId: "c", type: "by-date", amount: rupees(12_000), targetDate: "2026-06-30", period: null },
+      stateFor(0, 0),
+      AUG,
+      "2026-08-15",
+    );
+    assert.equal(p.needed, 0);
+    assert.equal(p.underfunded, 0);
+  });
+
   test("spending target by period — pro-rates the elapsed period", () => {
     const weekly = {
       categoryId: "c",
