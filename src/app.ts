@@ -117,7 +117,7 @@ import {
 } from "./domain/budget.ts";
 import {
   createTransaction, createTransfer, updateTransaction, deleteTransaction,
-  getTransaction, getSplits, listPayees, payeeStats, payeeAliases, tagsFor, type Transaction,
+  getTransaction, getSplits, listPayees, payeeStats, payeeAliases, tagsFor, type Transaction, DELETED_TRANSACTION,
   resolveCategoryLines,
   outgoingLacksEnvelope,
 } from "./domain/transactions.ts";
@@ -759,6 +759,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (memberScope(db, viewer(ctx)).transactions.has(transaction.id)) {
       throw new NotFound("That transaction does not exist.");
     }
+    return transaction;
+  }
+
+  /**
+   * EXTRA-3 · A transaction a change can be made to: visible, and not deleted.
+   * The edit, file, settle, attach and convert routes all took a deleted one
+   * and answered 303 over a write to a row that counts for nothing. Viewing
+   * one stays open — Activity links to it.
+   */
+  function requireLiveTransaction(ctx: RequestContext, id: string): Transaction {
+    const transaction = requireVisibleTransaction(ctx, id);
+    if (transaction.deleted_at) throw new HttpError(422, DELETED_TRANSACTION);
     return transaction;
   }
 
@@ -3504,7 +3516,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const feeRaw = field(ctx.body, "processing_fee");
       // 15 · Another member's private card purchase is not there to convert:
       // this created a loan against Ravi's ₹60,000 card spend for Priya.
-      const transactionId = requireVisibleTransaction(ctx, ctx.params.id!).id;
+      const transactionId = requireLiveTransaction(ctx, ctx.params.id!).id;
       const result = convertToEmi(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         transactionId,
         amount: amountRaw?.trim() ? (amountField(amountRaw, "Amount") as Paise) : undefined,
@@ -3877,7 +3889,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/transaction/:id/attach", (ctx) => {
     const a = auth(ctx);
-    const id = requireVisibleTransaction(ctx, ctx.params.id!).id;
+    const id = requireLiveTransaction(ctx, ctx.params.id!).id;
     const upload = fileField(ctx.req, "receipt");
     if (!upload) {
       return { redirect: withNotice(`/transaction/${id}`, "Choose a photo or PDF first.") };
@@ -3938,7 +3950,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/transaction/:id", (ctx) => {
     const a = auth(ctx);
     const id = ctx.params.id!;
-    const transaction = requireVisibleTransaction(ctx, id);
+    const transaction = requireLiveTransaction(ctx, id);
 
     const dateRaw = field(ctx.body, "date");
     /*
@@ -4151,7 +4163,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/transaction/:id/categorise", (ctx) =>
     mutate(ctx, (a) => {
       const id = ctx.params.id!;
-      const transaction = requireVisibleTransaction(ctx, id);
+      const transaction = requireLiveTransaction(ctx, id);
 
       const categoryId = requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null;
       if (categoryId && !getCategory(db, categoryId)) {
@@ -4195,7 +4207,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    */
   router.post("/transaction/:id/settled", (ctx) =>
     mutate(ctx, (a) => {
-      const id = requireVisibleTransaction(ctx, ctx.params.id!).id;
+      const id = requireLiveTransaction(ctx, ctx.params.id!).id;
       updateTransaction(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, {
         reimbursable: false,
       });
