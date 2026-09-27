@@ -5801,6 +5801,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const magnitude = amountRaw?.trim() ? Math.abs(amountField(amountRaw, "Amount")) : null;
       const direction = field(ctx.body, "direction") ?? "out";
       const dueRaw = field(ctx.body, "next_due");
+      /*
+       * IMPORTS-SCHEDULES-25 · A date that does not read is refused, as on
+       * /schedules/new. It was dropped: "31/02/2027" or "someday" answered
+       * "Rent updated." and kept the old date, so the change seemed made.
+       * Empty still means "leave it".
+       */
+      const nextDue = dueRaw?.trim() ? dateField(dueRaw, "Next due") : undefined;
 
       /*
        * Envelope lines live on this form now, not a separate one beside it.
@@ -5874,7 +5881,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             : undefined,
           recurrence_ordinal: weekdayOrdinalField(ctx.body),
           recurrence_weekday: weekdayField(ctx.body),
-          next_due: dueRaw?.trim() ? (parseDate(dueRaw) ?? undefined) : undefined,
+          next_due: nextDue,
           /*
            * Absent is not the same as cleared.
            *
