@@ -114,8 +114,11 @@ between your own accounts is not spending.
 Editing or deleting one leg acts on both. Specifically:
 
 - **Amount and date** belong to the pair. Change either on one leg and the other
-  leg takes the same amount, opposite sign, and the same date. A reconciled
-  period on *either* account guards the change.
+  leg takes the same amount, opposite sign, and the same date. An edit that
+  changes neither — a memo, a tag — leaves the other leg's date alone, so an
+  imported pair whose two statements date it a day apart keeps both dates. A
+  reconciled period on *either* account guards the change, each checked
+  against that leg's own date.
 - **Direction** cannot change from a leg — which account the money left is what
   the transfer is. Delete it and record it the other way.
 - **No envelope, ever.** The edit screen offers none for a leg, and the domain
@@ -246,7 +249,10 @@ trip, reported independently of envelopes.
 
 Reconciling an account records a `bank_balance` at an `as_of` date against the
 application's computed balance. If they differ, an adjustment transaction can be
-created to close the gap.
+created to close the gap. On a budget account it is filed to a Reconciliation
+envelope (one per budget, unless another is chosen); on a tracking account it
+stays off budget, so bringing a fixed deposit up to the bank's figure does not
+move Ready to Assign.
 
 A checkpoint **breaks** when a transaction dated on or before `as_of` is later
 added, edited or deleted — after an "Already reconciled" confirmation. A new

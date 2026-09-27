@@ -198,7 +198,7 @@
           <tr><td>Statement PDFs</td><td>Eleven banks plus broker contract notes. Password-protected files are opened in-process: no external tool, no library.</td></tr>
           <tr><td>Password derivation</td><td>Work the password out from your saved name, date of birth, PAN, mobile or card last-four, so nobody types one. Opt-in, never exported, never logged.</td></tr>
           <tr><td>Reconciliation check</td><td>Every parse is verified against the statement's own closing balance. On a real 848-row statement it reconciles to the paisa.</td></tr>
-          <tr><td>CSV import</td><td>Header detection, Indian amount formats, UPI narration extraction, saved per-bank column mappings.</td></tr>
+          <tr><td>CSV import</td><td>Header detection, Indian amount formats, a Dr / Cr column beside an unsigned amount, UPI narration extraction, saved per-bank column mappings. When the dates could be day or month first, it asks how they are written.</td></tr>
           <tr><td>Consolidated statement</td><td>The monthly CAS is the primary way holdings get in. Rows reconcile against existing lots rather than duplicating.</td></tr>
           <tr><td>Five dedupe tiers</td><td>Exact, strong by reference, probable, weak, and manual-versus-imported — so one purchase never lands twice from an alert, an email and a statement.</td></tr>
           <tr><td>Gmail ingestion</td><td>Opt-in, read-only. Reads only the banks' own addresses; an alert becomes a review row in seconds.</td></tr>
@@ -275,7 +275,7 @@
           <tr><td>Prepayment</td><td>Tenure against EMI as the headline comparison, with interest saved and instalments saved. Reducing tenure is the default.</td></tr>
           <tr><td>Rate resets</td><td>Both options a lender must offer, priced at the rate you type against the balance you actually have — and the one you pick is the one applied.</td></tr>
           <tr><td>Foreclosure</td><td>Settling early records the lender's charge against an account and an envelope, so the saving you compare against is the one actually on offer.</td></tr>
-          <tr><td>The EMI is budgeted</td><td>A loan's payment envelope carries a monthly target equal to its EMI from the day the loan exists, and rate changes move it.</td></tr>
+          <tr><td>The EMI is budgeted</td><td>A loan's payment envelope carries a monthly target equal to its EMI from the day the loan exists, rate changes move it, and closing the loan clears it.</td></tr>
           <tr><td>Drift</td><td>The app projects, the lender reconciles. When the two disagree, it says so rather than silently adopting either.</td></tr>
           <tr><td>Family lending</td><td>Lent and borrowed, derived balances, write-off.</td></tr>
           <tr><td>Merging envelopes</td><td>Two categories that turned out to be one. Assignments are added month by month rather than one of them being dropped, so the balance survives and the books still balance &mdash; asserted by a test, not hoped for.</td></tr>
@@ -319,7 +319,7 @@
           <tr><td>Split as you enter it</td><td>One payment across several envelopes, on the entry form rather than only when editing &mdash; a supermarket bill that is half groceries and half household. The first envelope takes whatever the others leave, so the lines cannot disagree with the total.</td></tr>
           <tr><td>Transfers that cost something</td><td>An IMPS fee, a demat charge, a conversion markup. It leaves the sending account on top of the amount so the balance still matches the statement, and it lands in an envelope because it is spending.</td></tr>
           <tr><td>Schedules that split</td><td>A salary into provident fund, tax and what actually landed; rent into rent and maintenance. The remainder is worked out for you, so a recurring split cannot be quietly wrong every month &mdash; and on a salary you can name just the pieces that have a home and let the rest land in Ready to Assign.</td></tr>
-          <tr><td>Capital gains, taxed properly</td><td>Sorted by asset class and holding period, then taxed at their own rates &mdash; 12.5% above the ₹1,25,000 exemption on long-held equity, 20% short, slab rates on debt. Anything it cannot place it refuses to place, and says why.</td></tr>
+          <tr><td>Capital gains, taxed properly</td><td>Sorted by asset class and holding period, then taxed at their own rates &mdash; 12.5% above the ₹1,25,000 exemption on long-held equity listed in India, 20% short, slab rates on debt and foreign shares held under two years. Anything it cannot place it refuses to place, and says why.</td></tr>
           <tr><td>Advance tax dates</td><td>The four instalments under section 211, with what falls due at each. Missing one costs interest under 234B and 234C.</td></tr>
           <tr><td>Financial independence</td><td>A target from a trailing year of real spending, divided by a withdrawal rate you set. Counts only assets that can actually be drawn down &mdash; a home is on the net-worth statement, not here &mdash; and lists what it left out, with the reason.</td></tr>
           <tr><td>The provident-fund bridge</td><td>EPF and NPS cannot be touched before 58&ndash;60. They are counted apart, and the years between stopping and that unlock are reported as a gap the drawable corpus has to cover alone.</td></tr>
@@ -360,9 +360,9 @@
           <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
           <tbody>
           <tr><td>Sign in without anybody else</td><td>A password hashed with scrypt, stored in its own table and never included in an export &mdash; or your own identity provider: Authelia, Authentik, Keycloak, anything speaking OpenID Connect, configured with one issuer URL. Google stays optional. Nothing about running this requires an account with a company.</td></tr>
-          <tr><td>Sign-in</td><td>Google SSO against a closed allow-list, enforced on every request. No password store.</td></tr>
+          <tr><td>Sign-in</td><td>Google SSO against a closed allow-list, enforced on every request. The provider must say it has verified the email, or the sign-in is refused.</td></tr>
           <tr><td>Impersonation</td><td>Read-only &ldquo;view as&rdquo; another member, always logged, writes behind an explicit toggle.</td></tr>
-          <tr><td>API tokens</td><td>Scoped read or read-write, shown once, stored as a hash, and structurally unable to sign in or mint more tokens.</td></tr>
+          <tr><td>API tokens</td><td>Scoped read or read-write, shown once, stored as a hash, and structurally unable to sign in, mint more tokens, set a password, sign out devices or link Gmail.</td></tr>
           <tr><td>Universal undo</td><td>Thirty days, from an append-only log. The undo is itself an entry — nothing is edited or deleted.</td></tr>
           <tr><td>Verified restore</td><td>A scheduled job restores the latest backup into a scratch database and compares control totals. Failure fires a webhook.</td></tr>
           <tr><td>Feature flags</td><td>Loans, assets and multi-currency each disableable. A disabled module vanishes from navigation and reports.</td></tr>

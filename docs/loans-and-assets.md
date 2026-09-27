@@ -204,10 +204,13 @@ A `holding` is one instrument in one asset account. Its units and cost come from
 | purchase | Opens a lot; optionally creates the paying transaction. |
 | sale | Closes lots FIFO, computes realised gain, optionally credits an account. |
 | dividend | Records income. |
-| split | Adjusts every lot's units by ratio, preserving its cost and date. |
-| bonus | Adds one new lot at nil cost, dated on the allotment (section 55(2)(aa)); the lots already held keep their cost and date. A 1:1 bonus is ratio 2. |
+| split | Adjusts the units of every lot bought before its date by ratio, preserving each lot's cost and date. Lots bought after it are already at the new price and are left alone. |
+| bonus | Adds one new lot at nil cost, dated on the allotment (section 55(2)(aa)), sized from the lots bought before the record date; those lots keep their cost and date. A 1:1 bonus is ratio 2. |
 | merger | Replaces holdings in one instrument with another at a ratio. |
 | return of capital | Reduces cost basis. |
+
+A split or bonus dated before anything in the holding was bought is refused as a
+likely wrong date.
 
 **Bonus issues recorded before migration 0044** were stored as splits: every
 lot's units multiplied and price divided, keeping the original date and cost.
@@ -360,7 +363,8 @@ closes the account, anything else keeps it open at that value.
 Only the hand-valued kinds have any of this. A fixed deposit is a tracking
 account worth its balance, so there is nothing to state and revalue is not
 offered on one — selling it is money arriving in another account, recorded
-there.
+there. *Buy more* and *Sell* refuse it too, as they refuse a demat or bank
+account, whose worth is its holdings or its balance.
 
 What you paid and what it is worth are never assumed to be the same number.
 Adding to a pot prefills the new value with the old one and lets you correct it:

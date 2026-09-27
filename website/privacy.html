@@ -61,7 +61,7 @@
         or have it deleted.
       </p>
       <p class="legal-meta">
-        Last updated <time datetime="2026-09-19">19 September 2026</time> ·
+        Last updated <time datetime="2026-09-27">27 September 2026</time> ·
         Applies to <strong>pathayam.app</strong>, <strong>demo.pathayam.app</strong>,
         and the hosted service.
       </p>
@@ -359,10 +359,12 @@
 
       <h2 id="security">Security</h2>
       <p>
-        Traffic is served over HTTPS. Sign-in is Google OAuth with PKCE and no
-        password is stored. Session tokens are held as hashes. Writes require a
+        Traffic is served over HTTPS. Sign-in is a password held only as a
+        scrypt hash, or your own identity provider or Google, both over OAuth
+        with PKCE. Session tokens are held as hashes. Writes require a
         same-origin check. API tokens are scoped, revocable, stored hashed, and
-        cannot reach token management or member administration.
+        cannot reach token management, member administration, passwords,
+        sessions or the Gmail connection.
       </p>
       <p>
         The database is not encrypted at rest beyond the disk encryption our

@@ -60,7 +60,8 @@ member and open **Settings → API tokens** (`/tokens`):
 1. Give the token a name (e.g. `nightly-export`) — this is what appears in the
    event log next to everything it does.
 2. Choose a scope: **read** or **read-write**.
-3. Optionally set an expiry in days.
+3. Choose an expiry: 90 days, a year, or never. (The server takes a whole
+   number of days from 1 to 3650, or none; anything else is refused with 422.)
 
 The secret is shown **exactly once**, at creation, and is never retrievable
 again — only a SHA-256 hash is stored, so the database cannot give it back even
@@ -87,7 +88,9 @@ curl -sS https://pathayam.example.com/export.json \
 ```
 
 Revoked and expired tokens are rejected exactly like wrong ones — the server
-never tells you *which* it was. Each accepted request updates the token's
+never tells you *which* it was. A token also stops working when its member is
+removed from the household, as their sessions do, and none can be minted while
+viewing as another member. Each accepted request updates the token's
 `last_used_at`, which is how a household spots a token they forgot about
 (visible back in Settings → API tokens).
 
@@ -232,22 +235,23 @@ route explicitly emits JSON. The endpoints under
 [Machine-readable endpoints](#machine-readable-endpoints) are the ones designed
 to be consumed as data.
 
-**Errors** — two shapes, by where the error is raised:
+**Errors** — in JSON mode every error is `{ "error": "…" }` with the right
+status code (without `Accept: application/json` the same message comes back as
+an HTML page):
 
-| Origin | Body |
+| Origin | Status |
 |---|---|
-| The auth / token layer (401, 403, 429) | JSON: `{ "error": "…" }` |
-| A handler validation error (e.g. 400, 404, 409) thrown as an `HttpError` | The message as **plain text** with the right status code |
-| An unexpected server fault | `500` plain text `Something went wrong on the server.` (details go to the structured log, never the response) |
+| The auth / token layer | `401`, `403`, `429` |
+| A handler's answer | `400` malformed input · `404` an id, in the URL or a form field, that does not exist or is not yours · `409` idempotency conflict · `422` the app refuses what was asked, and says why |
+| An unexpected server fault | `500`, `Something went wrong on the server. Nothing you typed has been lost.` (details go to the structured log, never the response) |
 
-So a script should branch on the **status code**, and read `.error` from the
-body only for `401/403/429`. A financial value is never placed in a log line or
-an error body (S7).
+So a script should branch on the **status code** and show `.error` to a
+person. A financial value is never placed in a log line or an error body (S7).
 
 Common statuses: `200` OK · `204` No Content · `303` See Other (HTML redirect) ·
 `400` bad input · `401` not authenticated · `403` forbidden / read-only / out of
 a token's reach · `404` not found · `405` method not allowed · `409`
-idempotency conflict · `429` rate-limited · `500` server fault · `503` health
+idempotency conflict · `422` refused, with the reason · `429` rate-limited · `500` server fault · `503` health
 check failing (from `/healthz`).
 
 ---

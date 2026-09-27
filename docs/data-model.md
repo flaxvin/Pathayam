@@ -64,7 +64,7 @@ A unique index on `transactions(account_id, source, source_id)` where
 |---|---|---|
 | `loans` | `id`, `account_id`, `lender`, `loan_type`, `sanctioned`, `sanction_date`, `interest_model`, `benchmark`, `tenure_months`, `original_tenure_months`, `first_instalment_date`, `instalment_day`, `repayment_account_id`, `payment_category_id`, `moratorium_months`, `card_id`, `converted_from_transaction_id`, `closed_at` | |
 | `loan_rates` | `id`, `loan_id`, `effective_from`, `annual_rate_pct` | Rate history; the schedule is recomputed from it. |
-| `loan_payments` | `id`, `loan_id`, `date`, `amount`, `principal`, `interest`, `estimated`, `kind`, `transaction_id` | `kind` distinguishes instalments from prepayments. |
+| `loan_payments` | `id`, `loan_id`, `date`, `amount`, `principal`, `interest`, `estimated`, `kind`, `transaction_id`, `loan_transaction_id` | `kind` distinguishes instalments from prepayments. `transaction_id` is the payment from the paying account; `loan_transaction_id` is the credit it wrote on the loan's own account (the principal only). |
 | `loan_disbursements` | `id`, `loan_id`, `date`, `amount`, `destination`, `destination_account_id` | For tranche-drawn loans. |
 | `loan_statements` | `id`, `loan_id`, `as_of`, `lender_outstanding`, `interest_paid_ytd`, `instalments_remaining`, `app_outstanding`, `resolved` | Records drift between the lender's figure and the app's. |
 | `family_loans` | `id`, `account_id`, `counterparty`, `direction`, `agreed_total`, `written_off_at`, `write_off_transaction_id`, `closed_at` | Balance is derived from transactions, not stored. |

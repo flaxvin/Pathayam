@@ -1,6 +1,6 @@
 # Testing
 
-1,119 tests in 92 files, using `node:test`. No test framework, no mocking
+2,117 tests in 237 files, using `node:test`. No test framework, no mocking
 library, no fixture database.
 
 ```bash

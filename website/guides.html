@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Guides</title>
-<meta name="description" content="36 guides covering every screen in Pathayam: budgeting, separate budgets, statements, credit cards, loans, investments, backups and troubleshooting.">
+<meta name="description" content="39 guides covering every screen in Pathayam: budgeting, separate budgets, statements, credit cards, loans, investments, backups and troubleshooting.">
 <link rel="stylesheet" href="fonts.css">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon.png" sizes="32x32" type="image/png">
@@ -55,7 +55,7 @@
       <p class="eyebrow">Guides</p>
       <h1 style="font-size:var(--step-5);max-width:18ch;margin-inline:auto">How to actually use it</h1>
       <p class="lede" style="font-size:var(--step-2);max-width:56ch">
-        36 guides covering every screen in the app, in the order you will need
+        39 guides covering every screen in the app, in the order you will need
         them. Start at the top if it is your first day, or jump to whatever you are
         stuck on.
       </p>
@@ -142,11 +142,11 @@ from nothing to a budget you can click around.</p>
 </ol>
 <div class="note"><b>The purple banner</b> means the development login bypass is on.
 It exists only in the development image, and the app refuses to start if it finds
-it anywhere production-shaped — a public hostname, real Google credentials, or
-<code>NODE_ENV=production</code>. You will never see it on a real deployment.</div>
+it anywhere production-shaped — a public hostname, real Google or OpenID Connect
+credentials, password sign-in (<code>LOCAL_LOGIN</code>), or <code>NODE_ENV=production</code>. You will never see it on a real deployment.</div>
 <h3>Going live</h3>
-<p>You need a domain, a Google OAuth client for sign-in, and somewhere to run one
-container. Set <code>BASE_URL</code> to your exact public origin — sign-in
+<p>You need a domain, a way to sign in — Google, any OpenID Connect provider, or
+passwords with <code>LOCAL_LOGIN</code> — and somewhere to run one container. Set <code>BASE_URL</code> to your exact public origin — sign-in
 redirects and cookie scoping both depend on it being right — then
 <code>docker compose up -d</code>. Start from an empty budget rather than the seed.</p>
 <p>The first person to sign in becomes a member. Everyone else has to be invited
@@ -200,7 +200,8 @@ for payments, and one per savings goal. They carry no manual controls and are ma
 <em>managed by the app</em>, so it is obvious why you cannot rename them.</p>
 <h3>Hiding and deleting</h3>
 <p>Hide a category you have stopped using and its history stays intact. Delete one
-only if it never had anything in it.</p>
+only if it never had anything in it. One with history is merged into another instead,
+which carries its balance, transactions, rules and schedules across.</p>
             <div class="shots ">
               <figure class="frame">
                 <picture>
@@ -262,12 +263,14 @@ budgeted. Ready to Assign falls.</p>
 <p>Moves money between two categories. <strong>Ready to Assign does not
 change</strong> — the total assigned is the same, it is just sitting somewhere else.
 This is how you cover an overspend, and it is not cheating. Eating out came out of
-the holiday fund, and now you know that.</p>
+the holiday fund, and now you know that. Both envelopes have to be in the same budget:
+money between two budgets is a transfer between their accounts, not a move.</p>
 <h3>Hold</h3>
 <p>Takes money out of this month's Ready to Assign and places it at the top of next
 month's. This is how you get a month ahead. See its own guide.</p>
-<div class="note"><b>Copy last month</b> repeats the previous month's assignments in
-one step, which makes a routine month about thirty seconds of work.</div>
+<div class="note"><b>Fill from last month</b> gives every empty category in the budget on
+screen what it was assigned last month, in one step, which makes a routine month about
+thirty seconds of work.</div>
             <div class="shots ">
               <figure class="frame">
                 <picture>
@@ -283,6 +286,10 @@ one step, which makes a routine month about thirty seconds of work.</div>
 <p>A target says what a category <em>needs</em>, so the app can tell you whether it
 has it. Rent needs ₹45,000 a month. An annual insurance premium needs ₹8,000 set
 aside each month so that in March it is simply there.</p>
+<p>Three kinds are set on Categories: an amount <strong>each month</strong>, a level to
+<strong>refill up to</strong> — only the gap is asked for — or an amount <strong>by a
+date</strong>, spread over the months until then and asking nothing once that month has
+passed.</p>
 <p>Each category shows its progress against the target as a chip — funded, partly
 funded, or not funded — so a glance down the grid tells you where the month stands.</p>
 <h3>Fund every target</h3>
@@ -325,7 +332,9 @@ transaction should take about five seconds.</p>
   <li><strong>Owner</strong> records who spent it, which matters on a shared budget
     and on add-on cards.</li>
   <li><strong>Cleared</strong> means the bank has confirmed it. Leave it unticked
-    until you have actually seen it on their record.</li>
+    until you have actually seen it on their record. A cleared entry dated inside a
+    period you have already reconciled asks first, because saving it breaks that
+    reconciliation.</li>
 </ul>
 <h3>Receipts</h3>
 <p>Attach a photo or a PDF to any transaction. It is stored in the database rather
@@ -350,7 +359,8 @@ one, as a single undoable step. Figures will change, which is correct — they w
 always the answer to a different question.</div>
 <h3>Converting a purchase to EMI</h3>
 <p>When the bank offers to split a big charge into instalments, open the
-transaction and say yes there. The converted amount comes off the card's balance
+transaction and say yes there. Only a charge converts — not a refund or a payment —
+and only once: a charge partly on a plan offers just the rest. The converted amount comes off the card's balance
 and becomes a loan with its own schedule and its own envelope — so you are not
 asked to clear it on the card <em>and</em> pay it monthly, which is the mistake
 worth avoiding. The processing fee and its GST are charged to the card like any
@@ -388,7 +398,7 @@ shows an unfunded amount until you deal with it.</p>
             <h2>Close the month</h2>
 <p>Ten minutes, once a month. Nothing is locked and a closed month can be reopened,
 so this is a ritual rather than a gate.</p>
-<p>It shows you four things:</p>
+<p>It shows you four things, for the budget you are looking at and its money only:</p>
 <ul>
   <li><strong>What the month did</strong> — earned, spent, saved, the savings rate,
     and the biggest categories.</li>
@@ -529,7 +539,7 @@ stands. There are three ways to settle it, and they are genuinely different.</p>
   <li><strong>I'll pick it up.</strong> The other of you commits the amount on top of
     what they already had, so it is funded from their budget instead.</li>
   <li><strong>Call it even.</strong> Nobody funds it. This is the only one that lets
-    something go.</li>
+    something go, so it is offered only to whoever is giving it up.</li>
 </ul>
 <div class="note"><b>Calling it even still costs something, and the app shows where.</b>
 It becomes spending on the side that gave it up — it needs an envelope, like
@@ -583,11 +593,15 @@ balance. If the two disagree the app says so rather than quietly importing somet
 wrong. On a real 848-row statement it reconciles to the paisa.</div>
 <h3>CSV</h3>
 <p>Paste it in. Headers are detected, Indian number formats are understood, and once
-you map a bank's columns the mapping is saved and offered next time.</p>
+you map a bank's columns the mapping is saved and used on its own next time. A file
+with separate Dr / Cr markers, or one that marks only its credits, is signed from
+them. Dates are read day first unless the file proves month first; when every day in
+it is 12 or under and it cannot, the mapping screen asks <em>How are the dates
+written?</em></p>
 <h3>Undoing an import</h3>
 <p>Any import can be reversed in one step from the import log, taking every row it
-created with it. Worth knowing before your first attempt, because it makes
-experimenting safe.</p>
+created with it — except rows you have edited since, which are left alone and counted.
+Worth knowing before your first attempt, because it makes experimenting safe.</p>
             <div class="shots ">
               <figure class="frame">
                 <picture>
@@ -612,11 +626,15 @@ of it.</p>
     how confident the app is; you merge or keep both.</li>
   <li><strong>Overspent categories and unfunded cards</strong> — the two things most
     worth acting on, so they are here rather than only on the budget screen.</li>
+  <li><strong>Own transfers and card payments</strong> — an imported row that is money
+    moving between your own accounts is filed as a transfer to or from the other
+    account, not as spending. If that account's side is also waiting, it becomes the
+    other leg.</li>
   <li><strong>Proposed rules</strong> — see the next guide.</li>
   <li><strong>Money you are owed</strong> — anything marked reimbursable stays listed
     until it comes back.</li>
 </ul>
-<div class="note">Income never appears here. In an envelope budget, income's job is to
+<div class="note">Uncategorised income never appears here. In an envelope budget, income's job is to
 arrive in Ready to Assign and wait to be given one, which the app has already done
 correctly — asking you to categorise it would be asking you to answer a question it
 already answered.</div>
@@ -635,11 +653,15 @@ already answered.</div>
 <p>File the same payee twice and the app proposes a rule, stating exactly what it
 inferred and from which transactions. It never applies one on its own.</p>
 <p>Confirm a rule and you are offered the chance to apply it to your existing
-history, with a preview of every transaction that would change before anything does.</p>
+history, with a preview of every transaction that would change before anything does.
+It only touches rows you can see and could file by hand — split rows, transfers and
+anything in another member's private envelopes are left as they are — and the whole
+apply undoes as one step.</p>
 <h3>Writing one yourself</h3>
-<p>Rules match on the payee, the narration, the amount, the account, or a combination,
-and can set a category, rename the payee, add tags or flag for review. There is a
-tester: paste in a narration and see what would fire.</p>
+<p>A rule matches one thing — the merchant, the bank's whole description, the UPI
+address, the channel, the imported payee, the amount in rupees, or the card's last
+four digits — and files what it matches into an envelope. <em>Try it on my history</em>
+shows what it would change among the transactions you can see, before you save it.</p>
 <h3>Why it learns from filing rather than importing</h3>
 <p>Filing counts wherever it happens — from the review queue, from the transaction
 screen, from anywhere. That matters more than it sounds: an app that only learned
@@ -657,16 +679,20 @@ thirty times and never once offer to help.</p>
           </article>
           <article class="guide" id="gmail">
             <h2>Bank alerts by email</h2>
-<p>Optional, read-only, and off until you turn it on. Once connected, a bank alert
-becomes a queued row within seconds of arriving, which is as close to live as a
-budget gets without a bank integration.</p>
+<p>Optional, read-only, and off until you turn it on. Once connected, <strong>Fetch
+now</strong> in Settings turns every new bank alert into a queued row, which is as close
+to live as a budget gets without a bank integration.</p>
 <ul>
   <li>It reads <strong>only the banks' own sending addresses</strong>, never the rest
     of your mail.</li>
   <li>Access is <strong>read-only</strong>. Nothing is sent, labelled, or deleted.</li>
   <li>You connect your own Google project, so the credentials and the consent are
     yours rather than a third party's.</li>
-  <li>Disconnecting revokes the token and stops the fetching immediately.</li>
+  <li>Disconnecting revokes the token and deletes the stored access.</li>
+  <li>An alert is filed to the account or card whose last four digits it names, among
+    only the ones the member whose mailbox it came from can see. If two still match it
+    is left for you rather than guessed, and an alert that reads like a transaction but
+    cannot be parsed is counted in the fetch's summary, so you can add it by hand.</li>
 </ul>
 <h3>Statement emails too</h3>
 <p>When a bank sends the monthly statement as an attachment, it is fetched,
@@ -710,8 +736,9 @@ top: total owed, total not funded, and how many fall due within a week.</p>
   <li><div><strong>Fund it</strong> from another envelope, using the same cover flow
     as an overspend.</div></li>
   <li><div><strong>Record the payment</strong> as a transfer from a bank account to
-    the card. The payment envelope empties, the balance clears, and no category is
-    involved — the categories were charged when you spent.</div></li>
+    the card — <em>Pay it off</em> opens one with what the card owes filled in. The
+    payment envelope empties, the balance clears, and no category is involved — the
+    categories were charged when you spent.</div></li>
 </ol>
 <div class="note"><b>Record a statement</b> — amount, date, due date, minimum — and
 the card starts showing real due dates instead of &ldquo;whatever the bank says&rdquo;.</div>
@@ -740,7 +767,8 @@ close to double the quoted number. Personal and gold loans are frequently quoted
 way.</div>
 <h3>Instalments</h3>
 <p>Record each instalment with the lender's own principal and interest split rather
-than the app's projection. Where the two disagree, that is <strong>drift</strong>, and
+than the app's projection — give one half and the other is whatever is left of the
+payment. Where the two disagree, that is <strong>drift</strong>, and
 it is surfaced rather than silently absorbed — the app projects, the lender reconciles,
 and when they differ you want to know.</p>
 <p>Pay it from the account the lender actually debits. A bank EMI leaves a bank
@@ -751,11 +779,11 @@ loan balance falls by the principal. Anything else would have the money leaving 
 <h3>Its envelope funds itself</h3>
 <p>Every loan gets a payment envelope, and its monthly target is set to the EMI the
 moment the loan exists — you do not have to remember to set one, and a rate change or a
-fresh disbursement moves the target with it. The EMI is the least negotiable number in
+fresh disbursement moves the target with it, and closing the loan releases it. The EMI is the least negotiable number in
 your month; it should not be the one you forgot to budget for.</p>
 <h3>Settling early</h3>
-<p>When the loan is paid off, the page says so and offers to close it. You can also
-settle before term: enter what you are paying and the <strong>foreclosure charge</strong>
+<p>When the loan is paid off, the page says so and offers to close it; a loan that
+still owes money is settled rather than closed. You can also settle before term: enter what you are paying and the <strong>foreclosure charge</strong>
 the lender wants for the privilege, along with the account it comes out of and the
 envelope it spends from. Most lenders charge to be repaid early — a percentage on a
 personal loan, a flat fee on a card plan — and a prepayment decision taken without it
@@ -768,7 +796,7 @@ the figure rather than asking you to take that on faith.</p>
 <p><strong>Pick the column, and that is what happens.</strong> Choosing to reduce the
 tenure holds your instalment where it is and shortens the loan; choosing to reduce the
 EMI keeps the closure date and lowers the monthly bill. Say which envelope the lump sum
-comes out of, too — a prepayment is the largest single thing most households will ever
+comes out of, too, from the budget the loan is paid from — a prepayment is the largest single thing most households will ever
 pay, and it has to leave a named envelope like everything else rather than being
 conjured.</p>
 <h3>When the rate resets</h3>
@@ -778,7 +806,8 @@ ways to take it: <strong>keep the instalment</strong> and let the tenure move, o
 <em>work out what it does</em>, and the app prices both against your actual balance —
 the new instalment, and how many months you would add or save. Then choose one, and it
 is applied: the loan's envelope is re-targeted either way, so next month's budget asks
-for the right figure without you rewriting it.</p>
+for the right figure without you rewriting it. For a rate change dated ahead, keeping the
+instalment is refused until the new rate applies — record it then, or keep the tenure.</p>
 <div class="note"><b>A rate rise you absorb in the tenure is not free.</b> The instalment
 stays comfortable and the loan runs longer, which costs more interest in total. Both
 figures are on the screen before you pick, which is the point of the screen.</div>
@@ -841,9 +870,11 @@ without pretending it is a bank loan.</p>
     which is almost always the case.</li>
   <li><strong>Write-off</strong> exists, because sometimes that is what happened, and
     an app that cannot record it makes you lie to it.</li>
+  <li><strong>Closing</strong> needs a nil balance. While money is owed either way,
+    record the repayment or write it off first.</li>
 </ul>
-<p>Outstanding amounts appear in the review queue so they do not quietly become
-gifts.</p>
+<p>Outstanding amounts stay on the lending screen and in net worth so they do not
+quietly become gifts.</p>
           </article>
           <h2 class="guide-part" id="part-making-sense-of-it">Making sense of it</h2>
           <article class="guide" id="overview">
@@ -913,19 +944,25 @@ app offers all three rather than picking one. A transaction that crosses budgets
 your money paying for something shared — counts under both, because which one
 somebody means depends on what they asked.</p>
 <p>One filterable, groupable table that every other screen drills into. Filter by
-date, category, account, payee or tag; group by category, payee, month or account.</p>
+period, category, account or whose money, and search the text; group by category,
+payee, account, owner, month or tag.</p>
 <div class="note note--good"><b>The totals cover every row that matched</b>, not the
 rows rendered on screen. The table shows a page and says how many matched, and the CSV
 export carries the same uncapped figures. A total that silently described only the
 visible page would be worse than no total at all.</div>
 <h3>Search</h3>
-<p>Search runs across both the cleaned payee name and the <em>raw</em> imported
-narration. When you half-remember a transaction as &ldquo;something with ZEPTO in
+<p>Search runs across the cleaned payee name, the memo, the envelope, tags and the
+<em>raw</em> imported narration. When you half-remember a transaction as &ldquo;something with ZEPTO in
 it&rdquo;, the raw string is what finds it.</p>
 <h3>Getting everything out</h3>
 <p>The full export is one file in an open format containing every account,
-transaction, assignment, lot, loan and event. Deliberately excluded, and asserted
-absent by tests: your statement identity and any connected mail token.</p>
+transaction, assignment, lot, loan and event you can see — another member's private
+accounts and envelopes stay out of yours. Deliberately excluded, and asserted absent by
+tests: your statement identity and any connected mail token.</p>
+<p>Every CSV the app writes marks a text cell that starts with <code>=</code>,
+<code>+</code>, <code>-</code> or <code>@</code> with a leading apostrophe, so a
+narration a stranger wrote opens in a spreadsheet as text rather than running as a
+formula. Plain numbers are left alone, so amounts still add up.</p>
             <div class="shots ">
               <figure class="frame">
                 <picture>
@@ -939,7 +976,8 @@ absent by tests: your statement identity and any connected mail token.</p>
           <article class="guide" id="schedules">
             <h2>Schedules and cashflow</h2>
 <p>Recurring things — rent, EMIs, subscriptions, a transfer on the 25th — recorded
-once and then expected.</p>
+once and then expected. One can fall on a weekday rather than a date, such as the
+second Saturday or the last Friday of the month.</p>
 <ul>
   <li><strong>Detection.</strong> The app notices something arriving monthly and
     offers to make it a schedule rather than waiting for you to think of it.</li>
@@ -957,19 +995,21 @@ once and then expected.</p>
 <p>You cannot save a payment that spends from nowhere. A schedule is a promise about
 money leaving, and a promise with no envelope behind it is the thing zero-based
 budgeting exists to prevent — so the app asks which envelope before it will take it.
-Incoming schedules have no envelope, because money arriving is assigned when it
+Incoming schedules need no envelope, because money arriving is assigned when it
 arrives, not before.</p>
 <h3>Arrived, paid, skipped</h3>
 <p>When a scheduled thing happens, mark it. <strong>Paid</strong> and
-<strong>Arrived</strong> post the transaction for you — the right amount, the right
-account, the right envelope — and roll the schedule to its next date.
-<strong>Skip</strong> rolls it forward without posting anything, for the month the gym
+<strong>Arrived</strong> record the transaction for you — the right amount, the right
+account, the right envelope — and roll the schedule to its next date. Nothing is
+recorded until you mark it. <strong>Skip</strong> rolls it forward without recording
+anything, for the month the gym
 was closed or the tenant paid late. The projection redraws immediately either way.</p>
 <h3>Changing one</h3>
 <p>Schedules can be edited and deleted. The rent went up, the subscription moved to
 annual, the standing instruction was cancelled — open it, change it, and the calendar
 reflects it the moment you save. Deleting a schedule leaves every transaction it
-already posted alone; it only stops the app expecting more.</p>
+already recorded alone; it only stops the app expecting more. Merging away the envelope
+a schedule spends from takes the schedule along to the one that remains.</p>
             <div class="shots cols2">
               <figure class="frame">
                 <picture>
@@ -1000,6 +1040,10 @@ does not clutter the screen you look at every week.</p>
 <p>Each goal has a target amount and optionally a date. The app works out what that
 means per month, shows progress as a ring, and tells you whether you are on track or
 what you would have to raise it to.</p>
+<p>When a goal is reached, completing it offers three endings: <strong>Spend it</strong>
+leaves the money in the envelope for the thing you saved for, <strong>Back to Ready to
+Assign</strong> returns the balance to be given another job, and <strong>Roll into a
+new goal</strong> starts the next one on the same envelope with what is already there.</p>
 <div class="note">Each goal gets its own envelope, created and retired by the app.
 Money in it is really assigned — a goal is not a wish, it is money you have already
 set aside and can see.</div>
@@ -1028,14 +1072,20 @@ balance. That is what makes cost basis, the realised-versus-unrealised split and
 real return figure possible at all.</p>
 <ul>
   <li><strong>XIRR is the headline return</strong>, not a naive percentage — it
-    accounts for money going in at different times, which is how anyone actually
-    invests.</li>
+    accounts for money going in at different times, and dividends coming back, which
+    is how anyone actually invests.</li>
+  <li><strong>Buying more joins the holding you have.</strong> A second purchase of
+    the same instrument — from <em>Buy more</em>, the search, or typed by the same
+    name — adds a lot to it rather than starting another.</li>
+  <li><strong>Foreign holdings</strong> are bought and sold at that day's exchange
+    rate, so what left the bank is what the cost says.</li>
   <li><strong>Every price carries its date</strong>, so a stale figure is visible as
     stale rather than passing as current.</li>
   <li><strong>Selling shows a preview</strong> naming the exact lots it will consume
     before you confirm.</li>
-  <li><strong>Splits and bonus issues</strong> are recorded as events, so the unit
-    count changes without the history becoming wrong.</li>
+  <li><strong>Splits and bonus issues</strong> are recorded as events, once for the
+    instrument, so every holding of it changes together — only the lots bought before
+    the date — without the history becoming wrong.</li>
 </ul>
 <h3>Getting holdings in</h3>
 <p>The monthly consolidated statement is the primary route: it already covers every
@@ -1076,7 +1126,8 @@ ago cannot quietly hold up your net worth.</p>
           <article class="guide" id="allocation">
             <h2>Allocation</h2>
 <p>Where your money actually sits, by asset class, by geography and by currency —
-three donut charts, drawn on the server.</p>
+three donut charts, drawn on the server. Deposits and hand-valued assets count
+alongside what the portfolio holds.</p>
 <p>Instruments are classified once and remembered. The point of the screen is the
 gap between what you believe your allocation is and what it is, which is usually
 larger than expected and always more equity than people think.</p>
@@ -1166,9 +1217,8 @@ which is the least of three figures and the one people most often get wrong
 ignores all of them, which is exactly the trade the comparison is showing you.</p>
 <div class="note"><b>An estimate, not a return, and not advice.</b> It is arithmetic
 on figures you enter. It files nothing and it is not a substitute for an
-accountant. The screen lists what it leaves out &mdash; marginal relief, capital
-gains, tax already deducted at source, losses, foreign income, presumptive
-schemes &mdash; because an estimate that hides what it ignores is one that gets
+accountant. The screen lists what it leaves out &mdash; marginal relief, tax
+already deducted at source, losses, foreign income, presumptive schemes &mdash; because an estimate that hides what it ignores is one that gets
 trusted too far.</div>
 <p>Slabs are carried as data for each financial year, not baked into the code. A
 year the app does not have rates for is <b>refused</b> rather than computed with
@@ -1177,12 +1227,17 @@ a confident wrong answer. The health page tells you when the rates have fallen
 behind the current year.</p>
 <p><b>Capital gains are included</b>, at the rates that actually apply to them
 rather than at your slab rate: 12.5% above the ₹1,25,000 annual exemption on
-listed equity held over a year, 20% on equity held less, 12.5% on gold or
-property held over two years, and slab rates on debt. The holding period that
+listed equity held over a year, 20% on listed equity held less, 12.5% on gold,
+property or foreign shares held over two years, and slab rates on debt and on
+those held less. Listed equity bought before 1 February 2018 is costed at its
+31 January 2018 price where that is higher, as the Act allows. A gain counts only
+in the estimate of the member whose account it is in. The holding period that
 divides long from short is twelve months for equity and twenty-four for most
 else, which is why they are separated rather than totalled.</p>
 <div class="note"><b>It will not guess a rate.</b> A fund with no asset class set, a
-hybrid fund, or a sale whose lots were never recorded are left out of the
+hybrid fund, a sale whose lots were never recorded, listed equity from before
+February 2018 with no price for 31 January 2018, or an account that names no holder
+in a household of more than one are left out of the
 computation and listed on the screen for you to resolve &mdash; because putting a
 gain in the wrong column means taxing it at the wrong rate.</div>
 <p>It also shows the four <b>advance tax</b> instalments under section 211 and
@@ -1223,13 +1278,18 @@ reverse it.</p>
   <li><strong>Where a later change touched the same record</strong>, the undo tells you
     what it would discard before it does anything.</li>
   <li><strong>Where the record is load-bearing</strong> — a loan instalment, a
-    portfolio lot, a reconciliation — it refuses outright and says what depends on it.</li>
-  <li><strong>Imports undo as a batch</strong>, taking every row they created.</li>
+    portfolio lot — it refuses outright and says what depends on it.</li>
+  <li><strong>Where it would move a reconciled balance</strong>, it asks first, and
+    undoing breaks that reconciliation.</li>
+  <li><strong>Imports undo as a batch</strong>, taking every row they created except
+    ones edited since.</li>
 </ul>
 <h3>Explain this number</h3>
-<p>Ready to Assign and every category balance carry an explain link listing the
-events that produced them, in order. When a figure is not what you expected, this is
-the fastest route to why.</p>
+<p>Ready to Assign and every category balance carry an explain link. Ready to
+Assign's breaks the figure into income received, what is assigned this month and
+earlier and in future months, what is held, and cash overspending carried in; a
+category's lists this month's assignments and transactions in it, in order. When a
+figure is not what you expected, this is the fastest route to why.</p>
             <div class="shots ">
               <figure class="frame">
                 <picture>
@@ -1273,7 +1333,10 @@ replaced, and reads the restored copy back before claiming success.</p>
 <p>Everything that configures the household rather than the month.</p>
 <ul>
   <li><strong>Members</strong> — the allow-list. Invite by email address; they sign in
-    with that Google account. Removing someone keeps their historical attributions.</li>
+    with that address, through Google, your OpenID Connect provider or a password.
+    Removing someone keeps their historical attributions and stops their API tokens.</li>
+  <li><strong>Password</strong> — set or change your own. Changing one asks for the
+    current password and signs your other devices out.</li>
   <li><strong>Overspend model</strong> — the choice described in the overspend guide.
     Changing it re-derives your history.</li>
   <li><strong>Statement identity</strong> — name, PAN, date of birth, mobile, used to
@@ -1283,9 +1346,12 @@ replaced, and reads the restored copy back before claiming success.</p>
     individually, per member.</li>
   <li><strong>Theme</strong> — light, dark, or follow the system, stored server-side
     so the first paint is already correct.</li>
-  <li><strong>Devices</strong> — every signed-in session, revocable one at a time.</li>
+  <li><strong>Devices</strong> — every signed-in session, revocable one at a time. A
+    session lasts <code>SESSION_DAYS</code> (30 by default) from sign-in, however much
+    it is used.</li>
   <li><strong>API tokens</strong> — scoped read or read-write, shown once, and unable
-    to sign in or mint more tokens. See the API reference.</li>
+    to sign in, mint more tokens, set a password, sign devices out or link a mailbox.
+    None can be minted while viewing as another member. See the API reference.</li>
   <li><strong>Feature flags</strong> — turn off loans, assets or multi-currency
     entirely and they vanish from navigation and reports rather than sitting greyed
     out.</li>
@@ -1324,8 +1390,8 @@ plus the household one. Rename or delete any of them; they are ordinary.</p>
           <article class="guide" id="troubleshoot">
             <h2>When something looks wrong</h2>
 <h3>A number is not what I expected</h3>
-<p>Use the explain link beside it. It lists the events that produced the figure, in
-order, which resolves nearly all of these in under a minute.</p>
+<p>Use the explain link beside it. It breaks the figure down, or lists what changed
+it in order, which resolves nearly all of these in under a minute.</p>
 <h3>A past month reads lower than it did at the time</h3>
 <p>Known, and written down rather than hidden. Opening July in December subtracts
 assignments made since. The budget is a live document rather than a series of monthly
@@ -1335,8 +1401,9 @@ photographs, and this is the price of that.</p>
 still sitting unfiled in the review queue, or a genuine overspend. Filing it or
 covering it clears the warning.</p>
 <h3>An import brought in the wrong things</h3>
-<p>Undo the batch from the import log; every row it created goes with it. Then check
-the column mapping and try again.</p>
+<p>Undo the batch from the import log; every row it created goes with it, except any
+you have edited since. Then check the column mapping — and, for a CSV, how the dates
+are written — and try again.</p>
 <h3>The same purchase is in there twice</h3>
 <p>The review queue's duplicate tier should have caught it. If one was entered by
 hand and the other imported, merge them from the queue — the merged row keeps the raw
@@ -1347,7 +1414,10 @@ limits, and the app deliberately stops asking rather than burning through them.<
 <h3>I am locked out</h3>
 <p>Sign-in depends on <code>BASE_URL</code> exactly matching your public origin,
 because the OAuth redirect and the cookie scope are both derived from it. A mismatch
-after moving domains is the usual cause.</p>
+after moving domains is the usual cause. Being asked to sign in again after
+<code>SESSION_DAYS</code> is expected — a session's lifetime runs from sign-in, not
+from the last click — and eight wrong passwords lock that sign-in for fifteen
+minutes.</p>
           </article>
         </div>
       </div>
