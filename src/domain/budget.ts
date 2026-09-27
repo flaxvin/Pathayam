@@ -1199,8 +1199,28 @@ export function setHeld(
 // Undo handlers
 // ---------------------------------------------------------------------------
 
+/*
+ * An assignment's undo writes to the envelope it names. Once that envelope has
+ * been merged away or deleted, writing there puts money in a row the engine
+ * never reads: assign ₹300 then ₹500, merge the envelope into another, undo the
+ * ₹500, and ₹300 sat in the dead envelope — the household's accounts and its
+ * envelopes out by that much in every month after. Refused instead, by name.
+ */
+function refuseGoneEnvelope(db: DB, categoryId: string): void {
+  const gone = queryOne<{ name: string }>(
+    db, `SELECT name FROM categories WHERE id = ? AND deleted_at IS NOT NULL`, categoryId,
+  );
+  if (gone) {
+    throw new Refusal(
+      `"${gone.name}" has been merged or deleted since, so there is nowhere to put this back. ` +
+      `Undo that first, or assign the money by hand.`,
+    );
+  }
+}
+
 registerUndoHandler("assignment", (db, event) => {
   const [month, categoryId] = (event.entityId ?? "").split(":") as [MonthKey, string];
+  refuseGoneEnvelope(db, categoryId);
 
   if (event.action === "move") {
     const before = event.before as { from: Paise; to: Paise; fromCategoryId?: string };
@@ -1233,6 +1253,7 @@ registerUndoHandler("assignment", (db, event) => {
       }
       fromId = candidates[0]!.category_id;
     }
+    refuseGoneEnvelope(db, fromId);
     writeAssignment(db, month, categoryId, before.to);
     writeAssignment(db, month, fromId, before.from);
     return `Reversed the move of ${formatPaise(moved)}`;
