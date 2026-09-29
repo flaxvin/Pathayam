@@ -27,9 +27,18 @@ import { startTestApp, seedMember, freshDb, type TestApp } from "./harness.test-
 const actor: Actor = { memberId: "m", source: "ui" };
 const ISO = /\b\d{4}-\d{2}-\d{2}\b/;
 
-/** What a person reads: no scripts, styles or attributes. */
+/**
+ * What a person reads: no scripts, styles or attributes.
+ *
+ * A regex tag strip is not a security boundary here — the input is this
+ * test's own fetch of the app's server-rendered response, from fixed
+ * templates the suite controls, not markup an attacker supplies for display.
+ * The worst a malformed match does is confuse a test assertion, so it does
+ * not need to survive adversarial nesting the way a real sanitizer would.
+ */
 function visibleText(html: string): string {
   return html
+    // codeql[js/bad-tag-filter] Test-only, over this suite's own rendered output — see the comment above.
     .replace(/<script[\s\S]*?<\/script>/g, " ")
     .replace(/<style[\s\S]*?<\/style>/g, " ")
     .replace(/<[^>]+>/g, " ")

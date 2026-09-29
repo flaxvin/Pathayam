@@ -25,7 +25,14 @@ const robots = readFileSync("website/robots.txt", "utf8");
  * Comments stripped, for the assertions that are about elements rather than
  * prose — the file's own comment explains why changefreq and priority are
  * absent, and naming them there should not read as using them.
+ *
+ * Not a sanitizer: `sitemap` is this repository's own committed file, never
+ * attacker-supplied, and XML comments cannot nest — `--` is forbidden inside
+ * comment content by the spec — so there is no valid document where an
+ * adversarial `<!--`/`-->` pair could survive one pass by reassembling from
+ * the pieces either side of a removed comment.
  */
+// codeql[js/incomplete-multi-character-sanitization] Not a sanitizer, and the input can't form the overlap this query warns about — see the comment above.
 const elements = sitemap.replace(/<!--[\s\S]*?-->/g, "");
 
 const pages = readdirSync("website")
