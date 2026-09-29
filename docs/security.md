@@ -236,3 +236,27 @@ Each site carries a `codeql[js/insufficient-password-hash]` comment and the
 reason. The alerts are dismissed as false positives rather than left open,
 because a security tab with three permanent known-good entries is a security tab
 nobody reads.
+
+### Regexes that look like sanitizers, and are not
+
+Two more alerts flag regex `.replace()` calls shaped like an HTML or XML
+sanitizer — "bad HTML filtering regexp" and "incomplete multi-character
+sanitization" — in test files, not in anything that touches a browser.
+
+`src/web/iso-dates.test.ts`'s `visibleText()` strips tags from a test's own
+fetch of this app's server-rendered response, so it can search what a person
+reads for a raw ISO date (WEBUX-1). The input is fixed templates this suite
+controls, not markup an attacker supplies for display; a malformed match
+confuses an assertion, at most, not a browser.
+
+`src/web/sitemap.test.ts` strips XML comments from `website/sitemap.xml`
+before checking its `<loc>` elements. That file is committed to this
+repository, never attacker-supplied, and XML comments cannot nest — `--` is
+forbidden inside comment content by the spec — so there is no valid document
+where the overlap the query warns about (a delimiter pair reassembling from
+the pieces either side of a removed match) can arise.
+
+Neither result feeds a decision this app makes, let alone one about
+untrusted content, so neither is the thing these queries exist to catch. Each
+site carries its `codeql[...]` comment and the reason, for the same reason as
+above.
