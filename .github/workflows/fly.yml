@@ -104,7 +104,10 @@ jobs:
           fi
           echo "fly.toml carries the demo target and the proxy setting."
 
-      - uses: superfly/flyctl-actions/setup-flyctl@master
+      # Pinned to a commit, not to `master`: this step runs with FLY_API_TOKEN in
+      # reach, so a branch that can move is a way for someone else's push to run
+      # here with that token. This is master as of 2026-10-05; move it deliberately.
+      - uses: superfly/flyctl-actions/setup-flyctl@ed8efb33836e8b2096c7fd3ba1c8afe303ebbff1
 
       # --ha=false keeps this at one machine. Fly's default is to create a
       # spare for high availability, which would be wrong here: the demo
