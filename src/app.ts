@@ -4237,15 +4237,24 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * unreconciled side take ₹3,000 out of the other account's reconciled
      * period with no confirmation and the checkpoint left intact.
      */
+    /*
+     * Each side from its own date: an imported transfer's legs are dated by
+     * their own statements, so the other leg can sit inside its account's
+     * reconciled period while this one falls after it.
+     */
     const partner = transaction.transfer_pair_id
-      ? queryOne<{ account_id: string }>(
-        db, `SELECT account_id FROM transactions WHERE transfer_pair_id = ? AND id <> ? AND deleted_at IS NULL`,
+      ? queryOne<{ account_id: string; date: string }>(
+        db, `SELECT account_id, date FROM transactions WHERE transfer_pair_id = ? AND id <> ? AND deleted_at IS NULL`,
         transaction.transfer_pair_id, id,
       )
       : null;
-    for (const accountId of [transaction.account_id, ...(partner ? [partner.account_id] : [])]) {
+    const sides = [
+      { accountId: transaction.account_id, date: transaction.date },
+      ...(partner ? [{ accountId: partner.account_id, date: partner.date }] : []),
+    ];
+    for (const { accountId, date } of sides) {
       const guard = guardCheckpoints(
-        ctx, a, accountId, [transaction.date], confirmed,
+        ctx, a, accountId, [date], confirmed,
         `/transaction/${id}/delete`, `/transaction/${id}`,
       );
       if (guard) return guard;
