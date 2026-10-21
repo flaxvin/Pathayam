@@ -15,7 +15,7 @@ container restart or usage limit loses at most the work since the last push.
 ## Areas (one sub-agent each, own worktree, own port)
 | # | Area file | Scope | Port | Status |
 |---|---|---|---|---|
-| 1 | transactions.md | transactions, transfers, splits, tags, attachments, undo/activity | 8201 | launched |
+| 1 | transactions.md | transactions, transfers, splits, tags, attachments, undo/activity | 8201 | done, integrated |
 | 2 | accounts.md | accounts, cards, reconciliation, loans, family loans, assets/portfolio, net worth, tax/FI | 8202 | done, integrated |
 | 3 | imports.md | CSV/PDF/CAS/Gmail imports, dedupe, review queue, rules, payees | 8203 | launched |
 | 4 | security.md | authn/authz, sessions, tokens, OIDC, impersonation (ADMIN_DEBUG), CSRF, XSS, injection, DoS, headers | 8204 | done, integrated |
@@ -25,6 +25,7 @@ container restart or usage limit loses at most the work since the last push.
 | 8 | ui-quality.md | real Chromium: mobile viewport, PWA/service worker/offline, console errors, a11y, visual breakage | 8208 | launched |
 
 ## Integrated (commits on this branch)
+- transactions: TX-1 delete asks about other leg's checkpoint from its own date, TX-2 leg-create undo takes the fee, TX-3 no undo offered on receipt removal, TX-4 edit without direction keeps sign
 - security: SECURITY-RESCAN-1 removal revokes tokens, -2 no Gmail while impersonating, -3 body read after auth, -4 sign-out during read-only view
 - accounts: ACCOUNTS-1 flat-loan kept instalment, ACCOUNTS-2 interest-only payment, ACCOUNTS-3 close only at nil
 
@@ -33,3 +34,4 @@ container restart or usage limit loses at most the work since the last push.
 - Re-added member's old password still works (recommend clearing on removal).
 - `?notice=` lets any link put text on a page (recommend server-issued notices only).
 - CSRF trusts Host; DNS rebinding could hit /auth/first-run on a fresh LAN install (recommend checking Host against BASE_URL).
+- Partial API edits on POST /transaction/:id clear memo and cleared flag (needs a 'field sent' marker for checkboxes).
