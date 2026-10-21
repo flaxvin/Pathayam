@@ -1,0 +1,217 @@
+From 7a778a7ac2905a4828d5e29232ef7b6477062dea Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 21 Oct 2026 16:23:15 +0000
+Subject: [PATCH] UIQ-1: an explain link opened directly is a page, not raw
+ markup
+
+The fragment began with a newline, went out as text/plain, and a new tab
+printed the tags. Navigations now get the app page with one h1; the dialog
+asks for the fragment with X-Fragment. Empty when/who lines lose their stray dot.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016zXWwzys3K4XksLh3rrcKu
+---
+ src/app.ts                   | 49 ++++++++++++++----------
+ src/web/client.ts            |  3 +-
+ src/web/explain-page.test.ts | 72 ++++++++++++++++++++++++++++++++++++
+ src/web/pages/actions.ts     |  8 +++-
+ 4 files changed, 110 insertions(+), 22 deletions(-)
+ create mode 100644 src/web/explain-page.test.ts
+
+diff --git a/src/app.ts b/src/app.ts
+index ef62ae0..d985fc9 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -2404,6 +2404,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
+   // -------------------------------------------------------------------------
+   // F25.10 · Explain this number
+   // -------------------------------------------------------------------------
++
++  /**
++   * UIQ-1 · The dialog fetches a fragment; anything else navigated here — a
++   * long-press "open in new tab", a middle click, a page whose script did not
++   * load — and is owed a page. The fragment used to go to both, began with a
++   * newline, went out as text/plain, and the browser printed the raw tags.
++   */
++  function explainResponse(ctx: RequestContext, opts: Parameters<typeof renderExplain>[0]): Response {
++    const fetched =
++      ctx.req.headers["x-fragment"] === "1" || ctx.req.headers["sec-fetch-dest"] === "empty";
++    const vary = { Vary: "X-Fragment, Sec-Fetch-Dest" };
++    if (fetched) return { body: renderExplain(opts), headers: { "Content-Type": "text/html; charset=utf-8", ...vary } };
++    const page = render(ctx, opts.title, html`<div class="card">${renderExplain({ ...opts, headingLevel: 1 })}</div>`);
++    return { ...page, headers: { ...page.headers, ...vary } };
++  }
+   router.get("/explain/ready-to-assign", (ctx) => {
+     const month = monthParam(ctx);
+     // BUDGET-2 · The figure being explained is one budget's; so is the answer.
+@@ -2418,14 +2433,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
+       { when: "", who: "", what: `Less cash overspending carried in: ${formatPaise(-b.cashOverspendCarried)}` },
+     ];
+ 
+-    return {
+-      body: renderExplain({
+-        title: "Ready to Assign",
+-        figure: b.total,
+-        summary: `Every rupee in a budget account that hasn't been given a job yet.`,
+-        lines,
+-      }),
+-    };
++    return explainResponse(ctx, {
++      title: "Ready to Assign",
++      figure: b.total,
++      summary: `Every rupee in a budget account that hasn't been given a job yet.`,
++      lines,
++    });
+   });
+ 
+   router.get("/explain/category/:id", (ctx) => {
+@@ -2466,17 +2479,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
+       ...transactionIds.flatMap((id) => historyFor(db, "transaction", id)),
+     ].sort((a, b) => a.seq - b.seq);
+ 
+-    return {
+-      body: renderExplain({
+-        title: category.name,
+-        figure: category.state.balance,
+-        summary:
+-          `Opened at ${formatPaise(category.state.opening)}, ` +
+-          `${formatPaise(category.state.assigned)} assigned, ` +
+-          `${formatPaise(-category.state.activity)} spent.`,
+-        lines: events.map((e) => explainLineFor(e, memberName)),
+-      }),
+-    };
++    return explainResponse(ctx, {
++      title: category.name,
++      figure: category.state.balance,
++      summary:
++        `Opened at ${formatPaise(category.state.opening)}, ` +
++        `${formatPaise(category.state.assigned)} assigned, ` +
++        `${formatPaise(-category.state.activity)} spent.`,
++      lines: events.map((e) => explainLineFor(e, memberName)),
++    });
+   });
+ 
+   // -------------------------------------------------------------------------
+diff --git a/src/web/client.ts b/src/web/client.ts
+index 06b22fe..5755d3c 100644
+--- a/src/web/client.ts
++++ b/src/web/client.ts
+@@ -893,7 +893,8 @@ export const CLIENT_SCRIPT = String.raw`
+     dialog.showModal();
+ 
+     fetch(link.getAttribute("href"), {
+-      headers: { Accept: "text/html" },
++      // UIQ-1: ask for the fragment; a navigation to the same URL gets a page.
++      headers: { Accept: "text/html", "X-Fragment": "1" },
+       credentials: "same-origin",
+     })
+       .then(function (r) {
+diff --git a/src/web/explain-page.test.ts b/src/web/explain-page.test.ts
+new file mode 100644
+index 0000000..7158981
+--- /dev/null
++++ b/src/web/explain-page.test.ts
+@@ -0,0 +1,72 @@
++/**
++ * UIQ-1 · "How is this worked out?" opened on its own is a page, not markup.
++ *
++ * The explain links open a dialog: the client fetches the URL and drops the
++ * answer in. But they are ordinary links, and a phone's long-press "Open in new
++ * tab", a middle click, or a script that failed to load all navigate to them
++ * instead. The answer was a fragment beginning with a newline, which the
++ * response writer does not recognise as HTML, so it went out as text/plain and
++ * the browser printed the raw tags — `<h2>Ready to Assign</h2>` on screen.
++ *
++ * A navigation now gets the explanation inside the app's own page, with its one
++ * h1; the dialog's fetch still gets the bare fragment. And a line with no date
++ * or author no longer prints a lone " · " under it.
++ */
++
++import { test, describe, before, after } from "node:test";
++import assert from "node:assert/strict";
++import { execute } from "../db/db.ts";
++import { nowIST, todayIST, monthOf } from "../core/dates.ts";
++import { freshHousehold, RAVI } from "../engine/identity.test-data.ts";
++import { createGroup, createCategory } from "../domain/budget.ts";
++import { startTestApp, type TestApp } from "./harness.test-data.ts";
++import type { Actor } from "../core/events.ts";
++
++const ravi: Actor = { memberId: RAVI, source: "ui" };
++const NOW = monthOf(todayIST());
++
++describe("UIQ-1 · explain pages", () => {
++  let app: TestApp;
++  let categoryId: string;
++  before(async () => {
++    const db = freshHousehold();
++    const group = createGroup(db, ravi, "Living");
++    categoryId = createCategory(db, ravi, { groupId: group.id, name: "Groceries" }).id;
++    execute(db, `UPDATE household SET setup_completed_at = ? WHERE id = 1`, nowIST());
++    app = await startTestApp(db, { memberId: RAVI });
++  });
++  after(() => app.close());
++
++  const paths = () => [
++    `/explain/ready-to-assign?month=${NOW}`,
++    `/explain/category/${categoryId}?month=${NOW}`,
++  ];
++
++  test("navigated to directly, it is an HTML page with the app around it", async () => {
++    for (const path of paths()) {
++      const res = await app.get(path, { headers: { "Sec-Fetch-Mode": "navigate", "Sec-Fetch-Dest": "document" } });
++      assert.equal(res.status, 200, path);
++      assert.match(res.headers.get("content-type") ?? "", /^text\/html/, path);
++      const body = await res.text();
++      assert.match(body, /^<!doctype html>/i, `${path} is a whole page`);
++      assert.match(body, /<meta name="viewport"/, `${path} fits a phone`);
++      assert.equal((body.match(/<h1[\s>]/g) ?? []).length, 1, `${path} has one h1`);
++    }
++  });
++
++  test("fetched by the dialog, it is still the bare fragment", async () => {
++    for (const path of paths()) {
++      const res = await app.get(path, { headers: { "Sec-Fetch-Mode": "cors", "Sec-Fetch-Dest": "empty", "X-Fragment": "1" } });
++      assert.equal(res.status, 200, path);
++      assert.match(res.headers.get("content-type") ?? "", /^text\/html/, path);
++      const body = await res.text();
++      assert.doesNotMatch(body, /<!doctype/i, `${path} is a fragment`);
++      assert.match(body, /<h2>/, path);
++    }
++  });
++
++  test("a line with no date and no author carries no stray separator", async () => {
++    const body = await (await app.get(paths()[0]!, { headers: { "X-Fragment": "1" } })).text();
++    assert.doesNotMatch(body, /class="explain-when">\s*·\s*</);
++  });
++});
+diff --git a/src/web/pages/actions.ts b/src/web/pages/actions.ts
+index 2c4fab5..098d62e 100644
+--- a/src/web/pages/actions.ts
++++ b/src/web/pages/actions.ts
+@@ -628,9 +628,12 @@ export function renderExplain(opts: {
+   figure: Paise;
+   summary: string;
+   lines: ExplainLine[];
++  /** 2 inside the dialog; 1 when the explanation is the page (UIQ-1). */
++  headingLevel?: 1 | 2;
+ }): SafeHtml {
++  const heading = opts.headingLevel === 1 ? html`<h1>${opts.title}</h1>` : html`<h2>${opts.title}</h2>`;
+   return html`
+-    <h2>${opts.title}</h2>
++    ${heading}
+     <p class="amount" style="font-size:1.5rem;font-weight:700">${formatPaise(opts.figure)}</p>
+     <p class="muted">${opts.summary}</p>
+     ${opts.lines.length === 0
+@@ -641,7 +644,8 @@ export function renderExplain(opts: {
+               (line) => html`
+                 <li>
+                   <div>${line.what}</div>
+-                  <div class="explain-when">${line.when} · ${line.who}</div>
++                  ${when(Boolean(line.when || line.who), () => html`
++                    <div class="explain-when">${[line.when, line.who].filter(Boolean).join(" · ")}</div>`)}
+                 </li>
+               `,
+             )}
+-- 
+2.43.0
+

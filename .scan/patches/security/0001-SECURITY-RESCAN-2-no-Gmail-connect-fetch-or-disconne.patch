@@ -1,0 +1,174 @@
+From 1b05db4db35a565497b914d771ac164f9ceb34d4 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 21 Oct 2026 16:23:31 +0000
+Subject: [PATCH] SECURITY-RESCAN-2: no Gmail connect, fetch or disconnect
+ while viewing as someone
+
+The Gmail routes mixed the real and the viewed identity. Connect and
+callback are GETs, so even a read-only view replaced the viewed member's
+stored Gmail access with the viewer's own mailbox; with writes on, fetch
+used the viewed member's refresh token and disconnect deleted their link
+while revoking the viewer's at Google. A mailbox link is a credential,
+like an API token, so all four are refused during impersonation.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016zXWwzys3K4XksLh3rrcKu
+---
+ src/app.ts                          | 20 +++++++
+ src/web/impersonation-gmail.test.ts | 89 +++++++++++++++++++++++++++++
+ 2 files changed, 109 insertions(+)
+ create mode 100644 src/web/impersonation-gmail.test.ts
+
+diff --git a/src/app.ts b/src/app.ts
+index ef62ae0..f8e2b2a 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -7469,9 +7469,26 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
+   // `04` §3.4 · Gmail ingestion — a separate, opt-in connection.
+   // -------------------------------------------------------------------------
+ 
++  /*
++   * A mailbox link is a credential, like an API token, and it belongs to the
++   * person at the keyboard. While viewing as somebody, these routes mixed the
++   * two identities: connect and callback are GETs, so even a read-only view
++   * replaced the viewed member's stored Gmail access with the viewer's own
++   * mailbox (under the viewed member's id); with writes on, fetch read the
++   * viewed member's mailbox with their refresh token, and disconnect deleted
++   * their link while revoking the viewer's at Google. Impersonation is
++   * session-only (R38.12), so none of them is offered during a view.
++   */
++  function refuseGmailWhileViewingAs(a: AuthContext): void {
++    if (a.impersonating) {
++      throw new HttpError(403, "Gmail cannot be connected, fetched or disconnected while viewing as another member.");
++    }
++  }
++
+   router.get("/gmail/connect", (ctx) => {
+     refuseInDemo(config, "Connecting a mailbox");
+     const a = auth(ctx);
++    refuseGmailWhileViewingAs(a);
+     // Not configured is a deployment state, not a fault — the same 503 as
+     // /auth/google. A 500 here told the person the app had broken.
+     if (!config.google.clientId) {
+@@ -7487,6 +7504,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
+ 
+   router.get("/gmail/callback", async (ctx) => {
+     const a = auth(ctx);
++    refuseGmailWhileViewingAs(a);
+     const state = ctx.query.get("state") ?? "";
+     const pending = pendingGmail.take(state);
+     if (!pending || pending.memberId !== a.member.id) {
+@@ -7510,6 +7528,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
+ 
+   router.post("/gmail/disconnect", (ctx) =>
+     mutate(ctx, (a) => {
++      refuseGmailWhileViewingAs(a);
+       const connection = getConnection(db, a.member.id);
+       if (connection) {
+         // Best-effort remote revoke; the local token is deleted regardless.
+@@ -7522,6 +7541,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
+ 
+   router.post("/gmail/fetch", async (ctx) => {
+     const a = auth(ctx);
++    refuseGmailWhileViewingAs(a);
+     if (!getConnection(db, a.member.id)) throw new HttpError(400, "Gmail is not connected.");
+ 
+     const result = await fetchGmail(db, actorFor(a, "import"), {
+diff --git a/src/web/impersonation-gmail.test.ts b/src/web/impersonation-gmail.test.ts
+new file mode 100644
+index 0000000..fd12ff3
+--- /dev/null
++++ b/src/web/impersonation-gmail.test.ts
+@@ -0,0 +1,89 @@
++/**
++ * Viewing as another member (ADMIN_DEBUG) and the Gmail connection.
++ *
++ * A mailbox link is a credential, like an API token: it is the real person's,
++ * and a time-boxed, logged view of somebody else must not make, replace, use
++ * or delete theirs.
++ */
++
++import { test, describe } from "node:test";
++import assert from "node:assert/strict";
++import { freshDb, seedMember, startTestApp } from "./harness.test-data.ts";
++import { queryOne } from "../db/db.ts";
++import { saveConnection } from "../gmail/connection.ts";
++
++const system = { memberId: null, realMemberId: null, source: "system" as const, idempotencyKey: null };
++
++describe("Gmail while viewing as another member", () => {
++  const google = { clientId: "cid", clientSecret: "secret" };
++  const fakeGoogle: typeof fetch = async () =>
++    new Response(JSON.stringify({ refresh_token: "ravi-refresh", access_token: "a", scope: "s" }), {
++      status: 200, headers: { "Content-Type": "application/json" },
++    });
++
++  test("a read-only view cannot overwrite the viewed member's mailbox connection", async () => {
++    const db = freshDb();
++    seedMember(db, "m-ravi", "Ravi");
++    seedMember(db, "m-priya", "Priya");
++    saveConnection(db, { ...system, memberId: "m-priya", source: "ui" }, {
++      email: "priya@example.com", refreshToken: "priya-refresh", scope: "s",
++    });
++
++    const app = await startTestApp(db, {
++      memberId: "m-ravi", config: { adminDebug: true, google }, fetchImpl: fakeGoogle,
++    });
++    try {
++      assert.equal((await app.post("/impersonate/start", { member_id: "m-priya" })).status, 303);
++
++      // Both legs are GETs, so read-only mode did not stop them.
++      const connect = await app.get("/gmail/connect");
++      const state = connect.status === 303
++        ? new URL(connect.headers.get("location")!).searchParams.get("state")
++        : null;
++      if (state) await app.get(`/gmail/callback?state=${state}&code=c`);
++
++      const row = queryOne<{ refresh_token: string; email: string }>(
++        db, `SELECT refresh_token, email FROM gmail_connections WHERE member_id = 'm-priya'`,
++      );
++      assert.equal(row?.refresh_token, "priya-refresh");
++      assert.equal(row?.email, "priya@example.com");
++      assert.deepEqual(app.failures, []);
++    } finally {
++      await app.close();
++    }
++  });
++
++  test("writes enabled still do not use or delete the viewed member's mailbox", async () => {
++    const db = freshDb();
++    seedMember(db, "m-ravi", "Ravi");
++    seedMember(db, "m-priya", "Priya");
++    for (const id of ["m-ravi", "m-priya"]) {
++      saveConnection(db, { ...system, memberId: id, source: "ui" }, {
++        email: `${id}@example.com`, refreshToken: `${id}-refresh`, scope: "s",
++      });
++    }
++    const used: string[] = [];
++    const recording: typeof fetch = async (_url, init) => {
++      const m = /refresh_token=([^&]+)/.exec(String(init?.body ?? ""));
++      if (m) used.push(decodeURIComponent(m[1]!));
++      return new Response(JSON.stringify({ error: "invalid_grant" }), { status: 400 });
++    };
++
++    const app = await startTestApp(db, {
++      memberId: "m-ravi", config: { adminDebug: true, google }, fetchImpl: recording,
++    });
++    try {
++      await app.post("/impersonate/start", { member_id: "m-priya" });
++      await app.post("/impersonate/writes", { allow: "1" });
++
++      await app.post("/gmail/fetch", {});
++      assert.ok(!used.includes("m-priya-refresh"), `used ${used.join(",")}`);
++
++      await app.post("/gmail/disconnect", {});
++      assert.ok(queryOne(db, `SELECT 1 FROM gmail_connections WHERE member_id = 'm-priya'`));
++      assert.deepEqual(app.failures, []);
++    } finally {
++      await app.close();
++    }
++  });
++});
+-- 
+2.43.0
+

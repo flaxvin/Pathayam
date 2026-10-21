@@ -1,0 +1,82 @@
+From c8430677de8f90d0ea600302e9d0abd34fbe2814 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 21 Oct 2026 16:23:18 +0000
+Subject: [PATCH] IMPORTS-2: a CAS row dated 31/02 is unparsed, not a lot on
+ 2026-02-31
+
+parseCasDate built the ISO string without checking the calendar, so an
+impossible date became a lot's date (and a period ending in month 13 a
+period). It now reads through calendarDate; the row is listed unparsed.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016zXWwzys3K4XksLh3rrcKu
+---
+ src/import/cas.test.ts | 15 +++++++++++++++
+ src/import/cas.ts      | 12 +++++++-----
+ 2 files changed, 22 insertions(+), 5 deletions(-)
+
+diff --git a/src/import/cas.test.ts b/src/import/cas.test.ts
+index 931ca33..b293048 100644
+--- a/src/import/cas.test.ts
++++ b/src/import/cas.test.ts
+@@ -123,6 +123,21 @@ ISIN: INF846K01131
+     assert.equal(cas.schemes[0]!.rows[0]!.units, 7_000);
+   });
+ 
++  test("an impossible date is reported as unparsed, not dated 2026-02-31", () => {
++    const cas = parseCasText(`
++Statement Period: 01/04/2026 To 31/13/2026
++Folio No: 4444
++Some Fund - Growth
++ISIN: INF846K01131
++31/02/2026  Purchase  10,000.00  200.000  50.0000  200.000
++30-Feb-2026  Purchase  5,000.00  100.000  50.0000  300.000
++01/05/2026  Purchase  1,000.00  20.000  50.0000  320.000
++`);
++    assert.deepEqual(cas.schemes[0]!.rows.map((r) => r.date), ["2026-05-01"]);
++    assert.equal(cas.unparsed.length, 2, "IL3: the unreadable rows are shown, not dropped");
++    assert.equal(cas.period, null, "a period ending in month 13 is no period");
++  });
++
+   test("a missed row shows up as a disagreement rather than a wrong holding", () => {
+     const cas = parseCasText(`
+ Folio No: 3333
+diff --git a/src/import/cas.ts b/src/import/cas.ts
+index 314d8e3..c1ac4e8 100644
+--- a/src/import/cas.ts
++++ b/src/import/cas.ts
+@@ -28,7 +28,7 @@
+ import { readDocument, expandObjectStreams } from "../pdf/objects.ts";
+ import { decryptDocument, isEncrypted, WrongPassword } from "../pdf/decrypt.ts";
+ import { extractText } from "../pdf/text.ts";
+-import type { IsoDate } from "../core/dates.ts";
++import { calendarDate, type IsoDate } from "../core/dates.ts";
+ import type { Paise } from "../core/money.ts";
+ 
+ export { WrongPassword };
+@@ -74,16 +74,18 @@ const MONTHS: Record<string, string> = {
+ };
+ 
+ /** `05-Apr-2026` and `05/04/2026` both appear, depending on the registrar. */
++/**
++ * Through `calendarDate`, so "31/02/2026" and "05/13/2026" are no date (and the
++ * row is reported unparsed) rather than a lot dated 2026-02-31.
++ */
+ function parseCasDate(raw: string): IsoDate | null {
+   const named = /^(\d{1,2})[-/\s]([A-Za-z]{3})[a-z]*[-/\s](\d{4})$/.exec(raw.trim());
+   if (named) {
+     const month = MONTHS[named[2]!.toLowerCase()];
+-    if (month) return `${named[3]}-${month}-${named[1]!.padStart(2, "0")}` as IsoDate;
++    if (month) return calendarDate(Number(named[3]), Number(month), Number(named[1]));
+   }
+   const numeric = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/.exec(raw.trim());
+-  if (numeric) {
+-    return `${numeric[3]}-${numeric[2]!.padStart(2, "0")}-${numeric[1]!.padStart(2, "0")}` as IsoDate;
+-  }
++  if (numeric) return calendarDate(Number(numeric[3]), Number(numeric[2]), Number(numeric[1]));
+   return null;
+ }
+ 
+-- 
+2.43.0
+

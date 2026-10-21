@@ -1,7 +1,7 @@
 ## RESUME
 - Branch: worktree-agent-ab203305b0f30857a (worktree .claude/worktrees/agent-ab203305b0f30857a)
-- Status: 3 fixes in working tree (loans.ts x2, accounts.ts+sim+docs), full test run 2 in progress (scratchpad full2.log).
-- Next: commit ACC-1 (hunk at keepInstalment) and ACC-2 separately, format-patch; then probe card statements, reconciliation, portfolio, family loans.
+- Status: DONE. Commits 0036657 (ACC-1), 60f4cb8 (ACC-2), 66e851c (ACC-3); patches in .scan/patches/accounts/. Full suite 2145/2145 pass, typecheck clean. Final report sent.
+- Next: none (stopped on time). Possible follow-ups: M4 capitalisation decision, recordReturnOfCapital validation.
 
 ## Exercised
 - amortisation.ts read in full (EMI, flat, moratorium, comparePrepayment, rate reset) - clean by reading.

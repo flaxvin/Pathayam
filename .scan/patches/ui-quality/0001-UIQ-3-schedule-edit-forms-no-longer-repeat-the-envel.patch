@@ -1,0 +1,117 @@
+From c75cd4facbf4b81bee45a8756ac401a7e6547104 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 21 Oct 2026 16:23:16 +0000
+Subject: [PATCH] UIQ-3: schedule edit forms no longer repeat the envelope-line
+ ids
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016zXWwzys3K4XksLh3rrcKu
+---
+ src/web/pages/analysis.ts       |  1 +
+ src/web/pages/category-lines.ts | 18 ++++++++++++------
+ src/web/routes.test.ts          | 24 ++++++++++++++++++++++++
+ 3 files changed, 37 insertions(+), 6 deletions(-)
+
+diff --git a/src/web/pages/analysis.ts b/src/web/pages/analysis.ts
+index 0915acb..f478cab 100644
+--- a/src/web/pages/analysis.ts
++++ b/src/web/pages/analysis.ts
+@@ -833,6 +833,7 @@ export function renderSchedules(opts: {
+                     <div class="field" style="margin:0;flex:1 1 100%">
+                       ${renderCategoryLines({
+                         label: "Envelope",
++                        idPrefix: `sc-${s.id}-`,
+                         categories: ownCategoriesKept(s),
+                         values: (opts.splits?.get(s.id)?.length ?? 0) > 0
+                           ? opts.splits!.get(s.id)!.map((sp) => ({
+diff --git a/src/web/pages/category-lines.ts b/src/web/pages/category-lines.ts
+index 559db7c..2942798 100644
+--- a/src/web/pages/category-lines.ts
++++ b/src/web/pages/category-lines.ts
+@@ -54,7 +54,13 @@ export function renderCategoryLines(opts: {
+   required?: boolean;
+   /** Marks the first select for the client's money-in/out rule. */
+   requiresCategory?: boolean;
++  /**
++   * UIQ-3 · Prefixes the element ids (never the field names), for a page that
++   * renders several of these forms — one per schedule — where bare ids repeat.
++   */
++  idPrefix?: string;
+ }): SafeHtml {
++  const p = opts.idPrefix ?? "";
+   const values = opts.values ?? [];
+   const extras = opts.extraLines ?? 3;
+   const split = values.length > 1;
+@@ -70,8 +76,8 @@ export function renderCategoryLines(opts: {
+ 
+   return html`
+     <div class="field">
+-      <label for="split_category_0">${opts.label ?? "Envelope"}</label>
+-      <select id="split_category_0" name="split_category_0"
++      <label for="${p}split_category_0">${opts.label ?? "Envelope"}</label>
++      <select id="${p}split_category_0" name="split_category_0"
+               ${raw(opts.required ? "required" : "")}
+               ${raw(opts.requiresCategory ? "data-requires-category" : "")}>
+         ${options(values[0]?.categoryId ?? null)}
+@@ -90,12 +96,12 @@ export function renderCategoryLines(opts: {
+         const line = values[i + 1];
+         return html`
+           <div class="row" style="gap:.4rem;margin-bottom:.35rem">
+-            <label class="sr-only" for="split_category_${i + 1}">Envelope ${i + 2}</label>
+-            <select id="split_category_${i + 1}" name="split_category_${i + 1}" style="max-width:13rem">
++            <label class="sr-only" for="${p}split_category_${i + 1}">Envelope ${i + 2}</label>
++            <select id="${p}split_category_${i + 1}" name="split_category_${i + 1}" style="max-width:13rem">
+               ${options(line?.categoryId ?? null)}
+             </select>
+-            <label class="sr-only" for="split_amount_${i + 1}">Amount ${i + 2}</label>
+-            <input id="split_amount_${i + 1}" name="split_amount_${i + 1}"
++            <label class="sr-only" for="${p}split_amount_${i + 1}">Amount ${i + 2}</label>
++            <input id="${p}split_amount_${i + 1}" name="split_amount_${i + 1}"
+                    class="amount-input" inputmode="decimal" style="max-width:8rem"
+                    placeholder="0.00"
+                    value="${line?.amount != null ? (Math.abs(line.amount) / 100).toFixed(2) : ""}">
+diff --git a/src/web/routes.test.ts b/src/web/routes.test.ts
+index 2f37df6..3079c4f 100644
+--- a/src/web/routes.test.ts
++++ b/src/web/routes.test.ts
+@@ -86,6 +86,11 @@ function household(): Fixture {
+     name: "Rent", amount: rupees(-41000), recurrence: "monthly",
+     nextDue: "2026-10-01", accountId: bank.id, categoryId: rent,
+   });
++  // UIQ-3 · A second, so a screen that lists schedules renders each form twice.
++  createSchedule(db, actor, {
++    name: "Milk", amount: rupees(-1800), recurrence: "monthly",
++    nextDue: "2026-10-03", accountId: bank.id, categoryId: groceries,
++  });
+ 
+   // FL · Lending in the family, so /family/:id has something to open.
+   const family = createFamilyLoan(db, actor, {
+@@ -196,6 +201,25 @@ describe("B68 · every GET route renders", () => {
+     assert.deepEqual(broken, [], "these routes did not render cleanly");
+   });
+ 
++  /*
++   * UIQ-3 · An id names one element. Two forms on one page carrying the same
++   * ids — every schedule's edit form and the new-schedule form all said
++   * `split_category_0` — send a click on one form's label to another form's
++   * field, and a screen reader announces the wrong control.
++   */
++  test("no GET route repeats an element id", async () => {
++    const repeated: string[] = [];
++    for (const path of getRoutes(fixture.ids)) {
++      const res = await app.get(path);
++      if (res.status !== 200) continue;
++      const body = (await res.text()).replace(/<!--[\s\S]*?-->/g, "").replace(/<template[\s\S]*?<\/template>/g, "");
++      const seen = new Map<string, number>();
++      for (const m of body.matchAll(/<[a-zA-Z][^>]*?\sid="([^"]+)"/g)) seen.set(m[1]!, (seen.get(m[1]!) ?? 0) + 1);
++      for (const [id, n] of seen) if (n > 1) repeated.push(`${path}: #${id} ×${n}`);
++    }
++    assert.deepEqual(repeated, [], "these pages repeat an id");
++  });
++
+   test("nothing raised an unexpected 500", () => {
+     assert.deepEqual(app.failures, []);
+   });
+-- 
+2.43.0
+

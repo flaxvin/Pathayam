@@ -1,0 +1,226 @@
+From 5c37c9de68da463f2cc9a1a9c27516ced8b629a9 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 21 Oct 2026 16:23:42 +0000
+Subject: [PATCH] SECURITY-RESCAN-3: read a request body only after
+ authentication
+
+The server buffered every POST body, up to 12 MB, before the middleware
+that decides who is asking had run, so anonymous connections each
+declaring 12 MB could hold a small box's memory without being anybody.
+The body is now read after the middleware; a declared Content-Length
+over the cap is refused before any of it is held; and the public sign-in
+doors read at most 64 KB.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016zXWwzys3K4XksLh3rrcKu
+---
+ src/app.ts                       |   9 ++-
+ src/http/router.ts               |  11 +++-
+ src/http/server.ts               |  18 ++++--
+ src/web/body-before-auth.test.ts | 103 +++++++++++++++++++++++++++++++
+ 4 files changed, 134 insertions(+), 7 deletions(-)
+ create mode 100644 src/web/body-before-auth.test.ts
+
+diff --git a/src/app.ts b/src/app.ts
+index f8e2b2a..8e8d2a5 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -378,6 +378,8 @@ const PUBLIC_PATHS = new Set([
+   "/demo/enter",
+ ]);
+ const STATIC_PREFIX = "/assets/";
++/** The largest body a public route (a sign-in door) will read. */
++const PUBLIC_BODY_BYTES = 64 * 1024;
+ 
+ /**
+  * R38 · Things a public demonstration must not do. Each is refused with an
+@@ -556,7 +558,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
+ 
+       ctx.locals.auth = auth;
+ 
+-      if (PUBLIC_PATHS.has(path)) return;
++      if (PUBLIC_PATHS.has(path)) {
++        // Every door is a short form — an email and a password at most. The
++        // 12 MB an attachment needs is not offered to somebody not yet in.
++        ctx.locals.bodyLimit = PUBLIC_BODY_BYTES;
++        return;
++      }
+       if (!auth) {
+         if (wantsJson(ctx)) return { status: 401, json: { error: "Your session has expired." } };
+         return { redirect: `/signin?next=${encodeURIComponent(path)}` };
+diff --git a/src/http/router.ts b/src/http/router.ts
+index 0f8d6a2..6e8adce 100644
+--- a/src/http/router.ts
++++ b/src/http/router.ts
+@@ -134,14 +134,21 @@ export function fileField(req: IncomingMessage, name: string): UploadedFile | nu
+   return uploads.get(req)?.get(name) ?? null;
+ }
+ 
+-export async function readBody(req: IncomingMessage): Promise<Record<string, string | string[]>> {
++export async function readBody(
++  req: IncomingMessage, maxBytes: number = MAX_BODY_BYTES,
++): Promise<Record<string, string | string[]>> {
+   const contentType = req.headers["content-type"] ?? "";
+   const chunks: Buffer[] = [];
+   let size = 0;
+ 
++  // A body that says up front it is too large is refused before any of it is
++  // held, rather than after the cap's worth has been buffered.
++  const declared = Number(req.headers["content-length"] ?? NaN);
++  if (Number.isFinite(declared) && declared > maxBytes) throw new PayloadTooLarge();
++
+   for await (const chunk of req) {
+     size += (chunk as Buffer).length;
+-    if (size > MAX_BODY_BYTES) throw new PayloadTooLarge();
++    if (size > maxBytes) throw new PayloadTooLarge();
+     chunks.push(chunk as Buffer);
+   }
+ 
+diff --git a/src/http/server.ts b/src/http/server.ts
+index fce4f16..36f1ed5 100644
+--- a/src/http/server.ts
++++ b/src/http/server.ts
+@@ -131,10 +131,6 @@ export function createHttpServer(options: ServerOptions): Server {
+     }
+ 
+     try {
+-      if (ctx.method === "POST" || ctx.method === "PUT" || ctx.method === "DELETE") {
+-        ctx.body = await readBody(req);
+-      }
+-
+       let response: Response | void = undefined;
+ 
+       for (const fn of middleware) {
+@@ -142,6 +138,20 @@ export function createHttpServer(options: ServerOptions): Server {
+         if (response) break;
+       }
+ 
++      /*
++       * The body is read after the middleware, not before. It was buffered
++       * first — up to 12 MB — so every anonymous POST cost that much memory
++       * before anything had asked who was sending it, and a handful of
++       * connections each declaring 12 MB could exhaust a small box without
++       * being anybody. The middleware decides who is asking and may answer
++       * first; it may also set `ctx.locals.bodyLimit` to hold a route that
++       * needs only a form (a sign-in door) to a smaller cap.
++       */
++      if (!response && (ctx.method === "POST" || ctx.method === "PUT" || ctx.method === "DELETE")) {
++        const limit = typeof ctx.locals.bodyLimit === "number" ? ctx.locals.bodyLimit : undefined;
++        ctx.body = await readBody(req, limit);
++      }
++
+       if (!response) {
+         const match = router.match(ctx.method, url.pathname);
+         if (!match) {
+diff --git a/src/web/body-before-auth.test.ts b/src/web/body-before-auth.test.ts
+new file mode 100644
+index 0000000..2809d93
+--- /dev/null
++++ b/src/web/body-before-auth.test.ts
+@@ -0,0 +1,103 @@
++/**
++ * A request body is read for somebody the app has let in, not for anybody.
++ *
++ * The server buffered every POST body — up to 12 MB — before the middleware
++ * that decides whether the sender is signed in had run. Twenty anonymous
++ * connections each declaring 12 MB held a quarter of a gigabyte of a small
++ * box's memory, and none of them had to be anybody.
++ */
++
++import { test, describe } from "node:test";
++import assert from "node:assert/strict";
++import { connect } from "node:net";
++import { freshDb, seedMember, startTestApp } from "./harness.test-data.ts";
++
++/**
++ * Send the headers and a little of a body that claims to be much larger, and
++ * report the status line if one arrives within `ms` — or null if the server
++ * sat waiting for the rest.
++ */
++function partialPost(
++  baseUrl: string, path: string, declared: number, sent: number, ms = 1500,
++  extra: Record<string, string> = {},
++): Promise<number | null> {
++  const { hostname, port } = new URL(baseUrl);
++  return new Promise((resolve) => {
++    const socket = connect(Number(port), hostname);
++    let buffer = "";
++    const timer = setTimeout(() => { socket.destroy(); resolve(null); }, ms);
++    socket.on("data", (chunk) => {
++      buffer += chunk.toString("latin1");
++      const m = /^HTTP\/1\.1 (\d{3})/.exec(buffer);
++      if (m) { clearTimeout(timer); socket.destroy(); resolve(Number(m[1])); }
++    });
++    socket.on("error", () => { clearTimeout(timer); resolve(null); });
++    const headers = {
++      Host: `${hostname}:${port}`,
++      "Content-Type": "application/x-www-form-urlencoded",
++      "Content-Length": String(declared),
++      Origin: baseUrl,
++      ...extra,
++    };
++    socket.write(
++      `POST ${path} HTTP/1.1\r\n` +
++      Object.entries(headers).map(([k, v]) => `${k}: ${v}\r\n`).join("") +
++      "\r\n" + "a=".padEnd(sent, "x"),
++    );
++  });
++}
++
++describe("request bodies and authentication", () => {
++  test("an anonymous write is answered without waiting for its body", async () => {
++    const db = freshDb();
++    seedMember(db, "m-ravi", "Ravi");
++    const app = await startTestApp(db, { memberId: null });
++    try {
++      const status = await partialPost(app.baseUrl, "/transactions", 12 * 1024 * 1024 - 1, 1024);
++      assert.notEqual(status, null, "the server waited for 12 MB from somebody not signed in");
++      assert.ok(status === 303 || status === 401, `status ${status}`);
++    } finally {
++      await app.close();
++    }
++  });
++
++  test("a sign-in form is not a 12 MB upload", async () => {
++    const db = freshDb();
++    seedMember(db, "m-ravi", "Ravi");
++    const app = await startTestApp(db, { memberId: null, config: { localLogin: true } });
++    try {
++      const status = await partialPost(app.baseUrl, "/auth/password", 4 * 1024 * 1024, 1024 * 1024, 3000);
++      assert.equal(status, 413);
++    } finally {
++      await app.close();
++    }
++  });
++
++  test("a signed-in member's ordinary form post still works", async () => {
++    const db = freshDb();
++    seedMember(db, "m-ravi", "Ravi");
++    const app = await startTestApp(db, { memberId: "m-ravi" });
++    try {
++      const res = await app.post("/settings/theme", { theme: "dark", return_to: "/settings" });
++      assert.equal(res.status, 303);
++      assert.deepEqual(app.failures, []);
++    } finally {
++      await app.close();
++    }
++  });
++
++  test("password sign-in still reads its form", async () => {
++    const db = freshDb();
++    seedMember(db, "m-ravi", "Ravi");
++    const app = await startTestApp(db, { memberId: null, config: { localLogin: true } });
++    try {
++      const res = await app.post("/auth/password", { email: "m-ravi@example.com", password: "wrong wrong wrong" });
++      // Refused for the password, not for an unread body.
++      assert.notEqual(res.status, 413);
++      assert.notEqual(res.status, 500);
++      assert.match(await res.text(), /password|email/i);
++    } finally {
++      await app.close();
++    }
++  });
++});
+-- 
+2.43.0
+

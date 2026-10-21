@@ -1,0 +1,76 @@
+From 604516d17035c646c4c4066f1834df8ad42c4e8c Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 21 Oct 2026 16:23:20 +0000
+Subject: [PATCH 3/3] Activity no longer offers to undo removing a receipt
+
+The attachment undo handler accepted a delete event, answered "cannot be
+restored" as a successful undo, and marked the removal undone while the
+receipt stayed gone. Only "add" is registered as undoable now, so Activity
+says it cannot be undone instead of offering a button that does nothing.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016zXWwzys3K4XksLh3rrcKu
+---
+ src/domain/attachments.test.ts | 15 ++++++++++++++-
+ src/domain/attachments.ts      | 14 +++++++-------
+ 2 files changed, 21 insertions(+), 8 deletions(-)
+
+diff --git a/src/domain/attachments.test.ts b/src/domain/attachments.test.ts
+index 873f3e1..2b36d9a 100644
+--- a/src/domain/attachments.test.ts
++++ b/src/domain/attachments.test.ts
+@@ -4,7 +4,7 @@ import { openDatabase, ensureHousehold, execute, type DB } from "../db/db.ts";
+ import type { Actor } from "../core/events.ts";
+ import { nowIST } from "../core/dates.ts";
+ import { rupees } from "../core/money.ts";
+-import { historyFor, undoEvent } from "../core/events.ts";
++import { historyFor, undoEvent, checkUndo } from "../core/events.ts";
+ import { createAccount } from "./accounts.ts";
+ import { createTransaction } from "./transactions.ts";
+ import {
+@@ -103,6 +103,19 @@ describe("Q10 · receipt attachments", () => {
+     db.close();
+   });
+ 
++  test("a removal is not offered as undoable — the bytes went with it", () => {
++    const { db, txnId } = setup();
++    const meta = addAttachment(db, actor, { transactionId: txnId, filename: "r.jpg", bytes: PHOTO });
++    deleteAttachment(db, actor, meta.id);
++    const removal = historyFor(db, "attachment", meta.id).find((e) => e.action === "delete")!;
++    assert.equal(checkUndo(db, removal.id).ok, false, "Activity offered an Undo that restores nothing");
++    const result = undoEvent(db, removal.id, actor);
++    assert.equal(result.ok, false);
++    assert.equal(historyFor(db, "attachment", meta.id).find((e) => e.id === removal.id)!.undoneByEventId, null,
++      "the removal was marked undone while the receipt stayed gone");
++    db.close();
++  });
++
+   test("deleting the transaction cascades its attachments", () => {
+     const { db, txnId } = setup();
+     addAttachment(db, actor, { transactionId: txnId, filename: "r.jpg", bytes: PHOTO });
+diff --git a/src/domain/attachments.ts b/src/domain/attachments.ts
+index 86c2c40..26de538 100644
+--- a/src/domain/attachments.ts
++++ b/src/domain/attachments.ts
+@@ -147,11 +147,11 @@ export function deleteAttachment(db: DB, actor: Actor, id: string): string | nul
+ 
+ // R37 · Undoing an *add* removes the attachment — the common "I attached the
+ // wrong photo" case. A *delete* cannot be undone, because the bytes are gone
+-// with the row; the event log keeps the record that it happened.
++// with the row; the event log keeps the record that it happened. Only "add" is
++// registered: the handler used to accept a delete too, answer "cannot be
++// restored" as a successful undo, and mark the removal undone over a receipt
++// that stayed gone — Activity offering a button that did nothing.
+ registerUndoHandler("attachment", (db, event) => {
+-  if (event.action === "add") {
+-    execute(db, `DELETE FROM attachments WHERE id = ?`, event.entityId);
+-    return "Removed the attachment.";
+-  }
+-  return "That receipt's file was deleted and cannot be restored.";
+-});
++  execute(db, `DELETE FROM attachments WHERE id = ?`, event.entityId);
++  return "Removed the attachment.";
++}, ["add"]);
+-- 
+2.43.0
+
