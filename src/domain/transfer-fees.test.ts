@@ -200,4 +200,21 @@ describe("MONEY-CORE-5 · undoing a transfer that carried a charge", () => {
     assert.equal(undoEvent(db, event.id, actor).ok, true);
     assert.equal(balance(db, a), rupees(100_000));
   });
+
+  test("undoing either leg's own creation takes the charge too", () => {
+    for (const leg of ["out", "in"] as const) {
+      const { db, a, b, charges, event } = transferWithFee();
+      const pairId = event.entityId!;
+      const legId = queryAll<{ id: string }>(
+        db, `SELECT id FROM transactions WHERE transfer_pair_id = ? AND amount ${leg === "out" ? "<" : ">"} 0`, pairId,
+      )[0]!.id;
+      const create = queryEvents(db, { entity: "transaction", entityId: legId })
+        .find((e) => e.action === "create")!;
+      const result = undoEvent(db, create.id, actor);
+      assert.equal(result.ok, true);
+      assert.equal(balance(db, b), 0);
+      assert.equal(balance(db, a), rupees(100_000), `undoing the ${leg} leg left the ₹5 charge behind in HDFC`);
+      assert.equal(state(db).categories.get(charges)!.balance, rupees(500), "and in its envelope");
+    }
+  });
 });

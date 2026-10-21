@@ -1367,6 +1367,25 @@ registerUndoHandler("transaction", (db, event) => {
       );
     }
 
+    /*
+     * The charge a transfer carried is outside the pair (see createTransfer),
+     * so it went nowhere when a leg's own create was undone: "Removed the
+     * transfer that was added, both sides", and the ₹5 stayed spent from the
+     * bank and the charges envelope. It goes the way the transfer's own undo
+     * takes it — found before the legs, which the old-event match reads, go.
+     */
+    const transferEvent = row?.transfer_pair_id
+      ? queryOne<{ after_json: string | null }>(
+        db,
+        `SELECT after_json FROM events
+          WHERE entity = 'transfer' AND entity_id = ? AND action = 'create' AND undone_by_event_id IS NULL`,
+        row.transfer_pair_id,
+      )
+      : null;
+    const feeId = transferEvent
+      ? transferFeeId(db, row!.transfer_pair_id!, transferEvent.after_json ? JSON.parse(transferEvent.after_json) : undefined)
+      : null;
+
     for (const id of ids) {
       // An imported row that was approved into this transaction goes back to
       // waiting in the review queue: the ledger entry is gone, so the import is
@@ -1385,8 +1404,11 @@ registerUndoHandler("transaction", (db, event) => {
       execute(db, `DELETE FROM transaction_tags WHERE transaction_id = ?`, id);
       execute(db, `DELETE FROM transactions WHERE id = ?`, id);
     }
+    if (feeId) {
+      execute(db, `UPDATE transactions SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`, nowIST(), feeId);
+    }
     return ids.length > 1
-      ? `Removed the transfer that was added, both sides`
+      ? `Removed the transfer that was added, both sides${feeId ? ", and its charge" : ""}`
       : `Removed the transaction that was added`;
   }
   const id = event.entityId!;
@@ -1562,6 +1584,31 @@ registerUndoHandler("transaction", (db, event) => {
     : `Restored the transaction`;
 });
 
+/**
+ * MONEY-CORE-5 · The charge createTransfer wrote beside the pair, from the
+ * transfer's create event. An event written before the fee's id was kept is
+ * matched the way createTransfer wrote it — the paying account, the day, the
+ * amount and the memo, no earlier than the outgoing leg.
+ */
+function transferFeeId(db: DB, pairId: string, eventAfter: unknown): string | null {
+  const after = eventAfter as { fee?: number; feeTransactionId?: string; to?: string } | undefined;
+  if (after?.feeTransactionId) return after.feeTransactionId;
+  if (!after?.fee) return null;
+  const out = queryOne<{ account_id: string; date: string; created_at: string }>(
+    db, `SELECT account_id, date, created_at FROM transactions WHERE transfer_pair_id = ? AND amount < 0`,
+    pairId,
+  );
+  return out ? queryOne<{ id: string }>(
+    db,
+    `SELECT id FROM transactions
+      WHERE account_id = ? AND date = ? AND amount = ? AND transfer_pair_id IS NULL
+        AND memo IN (?, ?) AND created_at >= ? AND deleted_at IS NULL
+      ORDER BY created_at LIMIT 1`,
+    out.account_id, out.date, -after.fee,
+    `Charge on transfer to ${after.to}`, `Charge on payment to ${after.to}`, out.created_at,
+  )?.id ?? null : null;
+}
+
 registerUndoHandler("transfer", (db, event) => {
   /*
    * MONEY-CORE-5 · "Moved ₹1,000 from Bank to Bank2, plus ₹5 in charges" undid
@@ -1572,23 +1619,7 @@ registerUndoHandler("transfer", (db, event) => {
    * the paying account, the day, the amount and the memo, no earlier than the
    * outgoing leg.
    */
-  const after = event.after as { fee?: number; feeTransactionId?: string; to?: string } | undefined;
-  let feeId = after?.feeTransactionId ?? null;
-  if (!feeId && after?.fee) {
-    const out = queryOne<{ account_id: string; date: string; created_at: string }>(
-      db, `SELECT account_id, date, created_at FROM transactions WHERE transfer_pair_id = ? AND amount < 0`,
-      event.entityId!,
-    );
-    feeId = out ? queryOne<{ id: string }>(
-      db,
-      `SELECT id FROM transactions
-        WHERE account_id = ? AND date = ? AND amount = ? AND transfer_pair_id IS NULL
-          AND memo IN (?, ?) AND created_at >= ? AND deleted_at IS NULL
-        ORDER BY created_at LIMIT 1`,
-      out.account_id, out.date, -after.fee,
-      `Charge on transfer to ${after.to}`, `Charge on payment to ${after.to}`, out.created_at,
-    )?.id ?? null : null;
-  }
+  const feeId = transferFeeId(db, event.entityId!, event.after);
 
   const now = nowIST();
   execute(db, `UPDATE transactions SET deleted_at = ? WHERE transfer_pair_id = ?`, now, event.entityId!);
