@@ -130,6 +130,11 @@ export const SIMPLE_TRACKING_SUBTYPES = [
   "asset", "liability", "fixed-deposit", "recurring-deposit",
 ] as const;
 
+/** A tracking account whose worth is its ledger balance: a plain one, or a family loan. */
+function ledgerValuedTracking(subtype: string): boolean {
+  return (SIMPLE_TRACKING_SUBTYPES as readonly string[]).includes(subtype) || subtype === "family-loan";
+}
+
 export const SUBTYPE_LABELS: Record<string, string> = {
   savings: "Savings account",
   current: "Current account",
@@ -541,6 +546,33 @@ export function closeAccount(db: DB, actor: Actor, id: string): void {
   transact(db, () => {
     const before = getAccount(db, id);
     if (!before) throw new Refusal("That account does not exist.");
+    /*
+     * Net worth counts open accounts only, while the budget counts them all,
+     * so closing one with money in it took that money off the statement and
+     * left it in Ready to Assign: ₹50,000 in the bank and ₹20,000 on the card
+     * was a net worth of ₹30,000, and ₹0 once both were closed. A balance
+     * kept in the ledger — cash, a card, a family loan, a plain tracking
+     * account — has to reach nil first, as a family loan's own close already
+     * insists (WEALTH-30). Accounts valued otherwise (holdings, loans,
+     * hand-valued assets) have their own ways out.
+     */
+    if (before.kind !== "tracking" || ledgerValuedTracking(before.subtype)) {
+      const balance = before.opening_balance + (queryOne<{ total: number }>(
+        db,
+        `SELECT COALESCE(SUM(amount), 0) AS total FROM transactions
+          WHERE account_id = ? AND deleted_at IS NULL`,
+        id,
+      )?.total ?? 0);
+      if (balance !== 0) {
+        throw new Refusal(
+          balance > 0
+            ? `${before.name} still holds ${formatPaise(balance as Paise)}. Move it to another ` +
+              `account first, so it is not lost from net worth — then close this one.`
+            : `${before.name} still owes ${formatPaise(-balance as Paise)}. Pay it off first, ` +
+              `so the debt is not lost from net worth — then close this one.`,
+        );
+      }
+    }
     execute(db, `UPDATE accounts SET closed_at = ? WHERE id = ?`, nowIST(), id);
     appendEvent(db, actor, {
       entity: "account",

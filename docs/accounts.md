@@ -290,7 +290,9 @@ a mistyped statement is undone from Activity.
 
 - **Closing** an account keeps its history and removes it from pickers. Closed
   accounts can be reopened.
-- An account with a non-zero balance warns before closing.
+- An account whose balance is kept in the ledger (cash, a card, a family loan,
+  a plain tracking account) closes only at nil: closing it with money in it, or
+  owed on it, would drop that from net worth while the budget kept it.
 - **Opening balances** are set at creation with an opening date, and are treated
   as income to Ready to Assign in that month for budget accounts, and as
   starting debt for credit accounts.

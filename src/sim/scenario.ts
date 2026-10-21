@@ -1318,8 +1318,15 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
       did("updateAccount", () => updateAccount(db, actor, acc.current, { nickname: "Business current" }));
     }
     if (ix === 21) {
-      did("closeAccount", () => closeAccount(db, actor, acc.meeraSavings));
-      did("reopenAccount", () => reopenAccount(db, actor, acc.meeraSavings));
+      // An account with money in it does not close (net worth would lose it),
+      // so the lifecycle is exercised on one at nil: Meera's old wallet.
+      const wallet = did("createAccount", () => createAccount(db, actor, {
+        name: "Old wallet", kind: "budget", subtype: "cash",
+        openingBalance: 0 as Paise, openingDate: day(month, 1), holderMemberId: meera.id,
+      })).id;
+      did("closeAccount", () => closeAccount(db, actor, wallet));
+      did("reopenAccount", () => reopenAccount(db, actor, wallet));
+      did("closeAccount", () => closeAccount(db, actor, wallet));
     }
     if (ix === 24) {
       did("closeCard", () => closeCard(db, actor, acc.addOn));
