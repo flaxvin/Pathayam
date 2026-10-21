@@ -17,7 +17,7 @@ container restart or usage limit loses at most the work since the last push.
 |---|---|---|---|---|
 | 1 | transactions.md | transactions, transfers, splits, tags, attachments, undo/activity | 8201 | done, integrated |
 | 2 | accounts.md | accounts, cards, reconciliation, loans, family loans, assets/portfolio, net worth, tax/FI | 8202 | done, integrated |
-| 3 | imports.md | CSV/PDF/CAS/Gmail imports, dedupe, review queue, rules, payees | 8203 | launched |
+| 3 | imports.md | CSV/PDF/CAS/Gmail imports, dedupe, review queue, rules, payees | 8203 | done, integrated |
 | 4 | security.md | authn/authz, sessions, tokens, OIDC, impersonation (ADMIN_DEBUG), CSRF, XSS, injection, DoS, headers | 8204 | done, integrated |
 | 5 | budget.md | engine, envelopes, RTA, schedules, goals, commitments, departure, month close, reports; randomized fuzzer | 8205 | launched |
 | 6 | routes.md | every route x method with fuzzed input; 500s, broken rendering | 8206 | done, integrated |
@@ -25,6 +25,7 @@ container restart or usage limit loses at most the work since the last push.
 | 8 | ui-quality.md | real Chromium: mobile viewport, PWA/service worker/offline, console errors, a11y, visual breakage | 8208 | launched |
 
 ## Integrated (commits on this branch)
+- imports: IMPORTS-1 TSV with lakh figures, -2 impossible CAS dates, -3 transfer approval retires deleted twin (500), -4 Gmail notice, -5 VPA/payee parsing, -6 undoing a merge reverses it
 - routes: ROUTES-1 /move from Ready to Assign works again (was 404), ROUTES-2 unreachable OIDC provider is 503 not 500
 - transactions: TX-1 delete asks about other leg's checkpoint from its own date, TX-2 leg-create undo takes the fee, TX-3 no undo offered on receipt removal, TX-4 edit without direction keeps sign
 - security: SECURITY-RESCAN-1 removal revokes tokens, -2 no Gmail while impersonating, -3 body read after auth, -4 sign-out during read-only view
@@ -37,3 +38,5 @@ container restart or usage limit loses at most the work since the last push.
 - CSRF trusts Host; DNS rebinding could hit /auth/first-run on a fresh LAN install (recommend checking Host against BASE_URL).
 - Partial API edits on POST /transaction/:id clear memo and cleared flag (needs a 'field sent' marker for checkboxes).
 - /transfer opens with the same account as From and To (form refused as drawn); /auth/oidc discovery has no own timeout.
+- Batch undo does not reverse the automatic statement-after-alert upgrade (needs batch id on its event).
+- Unverified: Gmail statement PDFs for SBI Card/Canara/HSBC likely never open (password candidates lack card digits).
