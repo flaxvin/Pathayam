@@ -42,7 +42,9 @@ export interface FetchResult {
   scanned: number;
   /** `unread`: from an alert sender, read like a transaction, but no profile could read it. */
   alerts: { parsed: number; staged: number; unmatched: number; unread: number };
-  statements: { read: number; staged: number; locked: number };
+  statements: { read: number; staged: number; locked: number; unmatched: number };
+  /** Of the staged rows, those a rule approved straight into the ledger, so not in Review. */
+  autoApproved: number;
   notes: string[];
 }
 
@@ -109,7 +111,8 @@ export async function fetchGmail(
   const result: FetchResult = {
     scanned: 0,
     alerts: { parsed: 0, staged: 0, unmatched: 0, unread: 0 },
-    statements: { read: 0, staged: 0, locked: 0 },
+    statements: { read: 0, staged: 0, locked: 0, unmatched: 0 },
+    autoApproved: 0,
     notes: [],
   };
 
@@ -172,6 +175,7 @@ export async function fetchGmail(
       accountId, source: "email", adapter: bucket.adapter, records: bucket.records,
     });
     result.alerts.staged += outcome.staged;
+    result.autoApproved += outcome.autoApproved;
   }
 
   markFetched(db, memberId, latestHistoryId(connection));
@@ -276,7 +280,7 @@ async function handleStatement(
     // expose an account number, so fall back to the single account for that
     // bank if there is exactly one. Left to Review otherwise.
     const accountId = resolveStatementAccount(db, memberId, statementSender.bank);
-    if (!accountId) { result.notes.push(`${pdf.filename}: no matching account`); continue; }
+    if (!accountId) { result.statements.unmatched++; result.notes.push(`${pdf.filename}: no matching account`); continue; }
 
     const outcome = ingest(db, actor, {
       accountId, source: "pdf", adapter: parsed.bank?.id ?? "pdf",
@@ -284,6 +288,7 @@ async function handleStatement(
       rowsRead: parsed.rowsRead,
     });
     result.statements.staged += outcome.staged;
+    result.autoApproved += outcome.autoApproved;
   }
 }
 

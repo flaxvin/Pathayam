@@ -7592,19 +7592,42 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       fetchImpl: deps.fetchImpl,
     });
 
+    /*
+     * Each count says where it went. Every count used to end "all in Review":
+     * alerts no account matched were "to an unknown account, all in Review"
+     * though nothing was staged for them, rows a rule auto-approved were
+     * counted as waiting, and a statement no password opened, or no account
+     * matched, was not mentioned at all.
+     */
+    const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+    const toReview = result.alerts.staged + result.statements.staged - result.autoApproved;
+    const imported = [
+      ...(result.alerts.staged ? [plural(result.alerts.staged, "alert")] : []),
+      ...(result.statements.staged ? [plural(result.statements.staged, "statement row")] : []),
+    ];
     const parts: string[] = [];
-    if (result.alerts.staged) parts.push(`${result.alerts.staged} alerts`);
-    if (result.statements.staged) parts.push(`${result.statements.staged} statement rows`);
-    if (result.alerts.unmatched) parts.push(`${result.alerts.unmatched} to an unknown account`);
+    if (imported.length) {
+      parts.push(`${imported.join(" and ")} ${result.autoApproved
+        ? `(${toReview} in Review, ${result.autoApproved} auto-approved)` : "in Review"}`);
+    }
+    if (result.alerts.unmatched) {
+      parts.push(`${plural(result.alerts.unmatched, "alert")} for no account of yours I could pick out, not imported`);
+    }
     // IMPORTS-SCHEDULES-34 · an alert it could not read is said, not dropped.
     if (result.alerts.unread) {
-      parts.push(`${result.alerts.unread} alert${result.alerts.unread === 1 ? "" : "s"} it could not read — add ${result.alerts.unread === 1 ? "that one" : "those"} by hand`);
+      parts.push(`${plural(result.alerts.unread, "alert")} it could not read — add ${result.alerts.unread === 1 ? "that one" : "those"} by hand`);
+    }
+    if (result.statements.locked) {
+      parts.push(`${plural(result.statements.locked, "statement")} I could not open — check the statement details in Settings`);
+    }
+    if (result.statements.unmatched) {
+      parts.push(`${plural(result.statements.unmatched, "statement")} for no single account of yours, not imported`);
     }
     const summary = parts.length
-      ? `Read ${result.scanned} messages — ${parts.join(", ")}, all in Review.`
+      ? `Read ${result.scanned} messages — ${parts.join(", ")}.`
       : `Read ${result.scanned} messages — nothing new.`;
 
-    return { redirect: withNotice(result.alerts.staged || result.statements.staged ? "/review" : "/settings#gmail", summary) };
+    return { redirect: withNotice(toReview > 0 ? "/review" : "/settings#gmail", summary) };
   });
 
   /** `10` §3.6 · What statement passwords are worked out from. */
