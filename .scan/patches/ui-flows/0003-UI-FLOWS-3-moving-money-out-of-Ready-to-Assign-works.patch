@@ -1,0 +1,97 @@
+From 7022bd98a66713b271f4b6f694ac24709b1834c7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 21 Oct 2026 16:44:00 +0000
+Subject: [PATCH 3/6] UI-FLOWS-3: moving money out of Ready to Assign works
+ again
+
+Every move from Ready to Assign, the Move screen's default source and the
+first suggestion under Cover, answered 404 "That envelope does not
+exist.": 6efbf04 ran from_category_id through the envelope visibility
+guard, and "rta" is not an envelope. It is now let through; the
+destination is still checked.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016zXWwzys3K4XksLh3rrcKu
+---
+ src/app.ts                    |  5 +++-
+ src/web/move-from-rta.test.ts | 52 +++++++++++++++++++++++++++++++++++
+ 2 files changed, 56 insertions(+), 1 deletion(-)
+ create mode 100644 src/web/move-from-rta.test.ts
+
+diff --git a/src/app.ts b/src/app.ts
+index ef62ae0..0c4c2cf 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -2248,7 +2248,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
+     mutate(ctx, (a) => {
+       const month = monthParam(ctx);
+       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
+-      const from = requireVisibleCategory(ctx, requiredField(ctx.body, "from_category_id"))!;
++      // "rta" names Ready to Assign, not an envelope, so it has no visibility
++      // to check; asking the guard about it refused every move out of it.
++      const fromRaw = requiredField(ctx.body, "from_category_id");
++      const from = fromRaw === "rta" ? "rta" : requireVisibleCategory(ctx, fromRaw)!;
+       const to = requireVisibleCategory(ctx, requiredField(ctx.body, "to_category_id"))!;
+       const amount = amountField(field(ctx.body, "amount"));
+ 
+diff --git a/src/web/move-from-rta.test.ts b/src/web/move-from-rta.test.ts
+new file mode 100644
+index 0000000..6a05726
+--- /dev/null
++++ b/src/web/move-from-rta.test.ts
+@@ -0,0 +1,52 @@
++/**
++ * "Ready to Assign" is a source on the Move screen, and the one it selects by
++ * default. It is not an envelope, so the visibility guard on envelope ids
++ * (6efbf04) must not be asked about it: when it was, every move from Ready to
++ * Assign — the "Cover" button's first suggestion included — answered 404 "That
++ * envelope does not exist." Found by clicking Cover on an overspent envelope
++ * and then "Ready to Assign" in a real browser.
++ */
++
++import { test, describe, before, after } from "node:test";
++import assert from "node:assert/strict";
++import { freshDb, seedMember, startTestApp, testConfig, type TestApp } from "./harness.test-data.ts";
++import { createAccount } from "../domain/accounts.ts";
++import { createGroup, createCategory, getAssigned } from "../domain/budget.ts";
++import { rupees } from "../core/money.ts";
++import { todayIST, monthOf } from "../core/dates.ts";
++
++const actor = { memberId: "m-ravi", source: "ui" as const };
++let app: TestApp;
++let db: ReturnType<typeof freshDb>;
++let help = "";
++const month = monthOf(todayIST());
++
++before(async () => {
++  db = freshDb();
++  seedMember(db, "m-ravi", "Ravi");
++  createAccount(db, actor, {
++    name: "HDFC", kind: "budget", subtype: "savings",
++    openingDate: todayIST(), openingBalance: rupees(50_000),
++  });
++  const g = createGroup(db, actor, "Fixed");
++  help = createCategory(db, actor, { groupId: g.id, name: "Domestic help" }).id;
++  app = await startTestApp(db, { memberId: "m-ravi", config: testConfig({}) });
++});
++after(async () => { await app.close(); });
++
++describe("moving money out of Ready to Assign", () => {
++  test("is accepted, and assigns to the envelope", async () => {
++    const res = await app.post("/move", {
++      month, from_category_id: "rta", to_category_id: help, amount: "3860",
++    });
++    assert.equal(res.status < 400, true, `answered ${res.status}`);
++    assert.equal(getAssigned(db, month, help), rupees(3_860));
++  });
++
++  test("an envelope the viewer cannot see is still refused as the destination", async () => {
++    const res = await app.post("/move", {
++      month, from_category_id: "rta", to_category_id: "no-such-envelope", amount: "10",
++    });
++    assert.equal(res.status, 404);
++  });
++});
+-- 
+2.43.0
+

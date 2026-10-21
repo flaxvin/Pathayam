@@ -2,8 +2,9 @@
 - Worktree: /home/user/Pathayam/.claude/worktrees/agent-a004523ed47003c7f, branch worktree-agent-a004523ed47003c7f (base cebdd0b)
 - Driver: worktree .scratch/driver/*.mjs (copied to .scan/ui-flows-driver/). playwright-core in .scratch/node_modules. Server: demo db .scratch/demo.sqlite on 8207 (background; died once during npm test — restart if /healthz fails).
 - Bash guard: heredocs/python refused; write files with Write tool, edit with Edit. Notes edited in .scratch/ui-flows.md then cp'd to .scan.
-- Status: UF-1..UF-4 fixed in working tree, tests written; full suite running (.scratch/test.log). When green: commit each separately (files listed per finding), format-patch each.
-- Next journeys (time left ~35 min): review queue, schedules, goals, loans; Priya/Anil privacy spot-checks; settings.
+- Status: FINAL. UF-1..UF-6 committed (typecheck clean, full suite 2150/2150 pass). Commits: d1fde2c UF-1, 2c299e3 UF-5 (client submitter), 7022bd9 UF-2 (rta move), 499868c UF-3 (cards due soon), 5ce7cf7 UF-4 (double undo), 26ed1ca UF-6 (svg height). Patches in .scan/patches/ui-flows/0001-0006. Not pushed.
+- Not covered (unverified): CSV import + mapping + undo, rules create/test/apply, split transaction entry, reconcile, add/close account, portfolio, tax, reports/query export, prepay/rate change, tokens/sessions/password, ADMIN_DEBUG impersonation (needs DEV_LOGIN instance), departure/return.
+- Env note: the demo server on 8207 died twice while `npm test` ran (exit 144) — something in the suite signals other node processes or the port; restart after tests.
 
 ## Journeys done
 - Ravi: sign in (demo); read budget; add expense (Saved ₹123.45 → /); payee usual-envelope fill; cross-budget note; inline assign (RTA −1000, notice correct); move Water→Broadband (correct); Cover overspend (UF-2); hold ₹2,000/₹5,000/release (Oct RTA correct; Nov unchanged by design since unheld RTA carries anyway); Cards "Pay it off" → /transfer prefilled, Transfer recorded, card ₹0 "Paid"; Activity undo of transfer, then of its legs (UF-4).

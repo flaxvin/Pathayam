@@ -1,0 +1,93 @@
+From 26ed1ca3e884a709ea03324b41127d9b2c88f40a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 21 Oct 2026 16:44:01 +0000
+Subject: [PATCH 6/6] UI-FLOWS-6: charts stop logging an invalid SVG height
+
+height="auto" is not an SVG length; every chart logged a console error
+on Schedules and Reports. Width and viewBox already size it.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016zXWwzys3K4XksLh3rrcKu
+---
+ src/web/charts.test.ts |  9 +++++++++
+ src/web/charts.ts      | 12 ++++++------
+ 2 files changed, 15 insertions(+), 6 deletions(-)
+
+diff --git a/src/web/charts.test.ts b/src/web/charts.test.ts
+index 5b676a1..ca0d8c6 100644
+--- a/src/web/charts.test.ts
++++ b/src/web/charts.test.ts
+@@ -184,3 +184,12 @@ describe("S15 · charts", () => {
+     assert.notEqual(seriesColor(0), seriesColor(1));
+   });
+ });
++
++test("no chart sets an SVG height the browser rejects", async () => {
++  // `height="auto"` is not a valid SVG length: every chart logged
++  // "Error: <svg> attribute height: Expected length" to the console on
++  // Schedules and Reports. The width and viewBox already size it.
++  const { readFile } = await import("node:fs/promises");
++  const source = await readFile(new URL("./charts.ts", import.meta.url), "utf8");
++  assert.doesNotMatch(source, /height="auto"/);
++});
+diff --git a/src/web/charts.ts b/src/web/charts.ts
+index d4e5e47..20d3ca8 100644
+--- a/src/web/charts.ts
++++ b/src/web/charts.ts
+@@ -185,7 +185,7 @@ export function groupedBarChart(opts: {
+   });
+ 
+   const svg =
+-    `<svg viewBox="0 0 ${W} ${H}" width="100%" height="auto" role="img" ` +
++    `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" ` +
+     `aria-label="${escape(opts.title)}" preserveAspectRatio="none" style="max-width:100%">` +
+     `<title>${escape(opts.title)}</title>` +
+     `<line x1="${padL}" y1="${y0}" x2="${W - padR}" y2="${y0}" stroke="var(--border)" stroke-width="1"/>` +
+@@ -297,7 +297,7 @@ export function lineChart(opts: {
+   );
+ 
+   const svg =
+-    `<svg viewBox="0 0 ${W} ${H}" width="100%" height="auto" role="img" ` +
++    `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" ` +
+     `aria-label="${escape(opts.title)}" style="max-width:100%">` +
+     `<title>${escape(opts.title)}</title>${parts.join("")}${labels.join("")}</svg>`;
+ 
+@@ -492,7 +492,7 @@ export function waterfall(opts: {
+   });
+ 
+   const svg =
+-    `<svg viewBox="0 0 ${W} ${H}" width="100%" height="auto" role="img" ` +
++    `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" ` +
+     `aria-label="${escape(opts.title)}" style="max-width:100%"><title>${escape(opts.title)}</title>` +
+     parts.join("") + `</svg>`;
+   return html`<div class="chart-wide">${raw(svg)}</div>`;
+@@ -539,7 +539,7 @@ export function heatmapCalendar(opts: {
+   const w = (maxCol + 1) * step - gap;
+   const h = 7 * step - gap;
+   const svg =
+-    `<svg viewBox="0 0 ${w} ${h}" width="100%" height="auto" role="img" ` +
++    `<svg viewBox="0 0 ${w} ${h}" width="100%" role="img" ` +
+     `aria-label="${escape(opts.title)}" style="max-width:${w}px" preserveAspectRatio="xMinYMid meet">` +
+     `<title>${escape(opts.title)}</title>${cells.join("")}</svg>`;
+   return html`<div class="chart-wide" style="overflow-x:auto">${raw(svg)}</div>`;
+@@ -615,7 +615,7 @@ export function treemap(opts: {
+     );
+   });
+   const svg =
+-    `<svg viewBox="0 0 ${W} ${H}" width="100%" height="auto" role="img" ` +
++    `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" ` +
+     `aria-label="${escape(opts.title)}" style="max-width:100%"><title>${escape(opts.title)}</title>${rects.join("")}</svg>`;
+   return html`<div class="chart-wide">${raw(svg)}</div>`;
+ }
+@@ -694,7 +694,7 @@ export function sankeyBudget(opts: {
+   });
+ 
+   const svg =
+-    `<svg viewBox="0 0 ${W} ${H}" width="100%" height="auto" role="img" ` +
++    `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" ` +
+     `aria-label="${escape(opts.title)}" style="max-width:100%"><title>${escape(opts.title)}</title>${parts.join("")}</svg>`;
+   return html`<div class="chart-wide">${raw(svg)}</div>`;
+ }
+-- 
+2.43.0
+
