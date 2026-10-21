@@ -1348,6 +1348,15 @@ registerUndoHandler("transaction", (db, event) => {
      * already acts on both legs; this was the one that did not.
      */
     const row = getTransaction(db, event.entityId!);
+    // Already gone — by the transfer's own undo, a delete, or the partner
+    // leg's undo. Removing it "again" would report a change that is not made.
+    if (!row || row.deleted_at) {
+      throw new UndoRefused(
+        row?.transfer_pair_id
+          ? "That transfer has already been removed."
+          : "That transaction has already been removed.",
+      );
+    }
     const ids = row?.transfer_pair_id
       ? queryAll<{ id: string }>(
         db, `SELECT id FROM transactions WHERE transfer_pair_id = ?`, row.transfer_pair_id,
@@ -1644,6 +1653,12 @@ registerUndoHandler("transfer", (db, event) => {
    * outgoing leg.
    */
   const feeId = transferFeeId(db, event.entityId!, event.after);
+
+  const live = queryOne<{ n: number }>(
+    db, `SELECT COUNT(*) AS n FROM transactions WHERE transfer_pair_id = ? AND deleted_at IS NULL`,
+    event.entityId!,
+  )!.n;
+  if (live === 0) throw new UndoRefused("That transfer has already been removed.");
 
   const now = nowIST();
   execute(db, `UPDATE transactions SET deleted_at = ? WHERE transfer_pair_id = ?`, now, event.entityId!);

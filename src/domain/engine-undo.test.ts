@@ -82,6 +82,43 @@ describe("D13 · undoing one leg's create removes the transfer", () => {
 });
 
 /*
+ * A transfer logs three undoable entries: the transfer and a create per leg.
+ * Undoing the transfer and then a leg (both still offered on Activity) said
+ * "Removed the transfer that was added, both sides" and logged an undo for a
+ * transfer that was already gone; the other order said "Reversed the
+ * transfer". Neither changed a balance — each claimed a change that did not
+ * happen. Found on Activity in the browser after paying a card off.
+ */
+describe("a transfer already reversed is not reversed again by its other entries", () => {
+  test("undoing the transfer, then a leg's create, refuses the second", () => {
+    const { db, bank, card } = bankAndCard();
+    const [out, back] = createTransfer(db, actor, {
+      fromAccountId: bank, toAccountId: card, amount: 519_000, date: "2026-03-28",
+    });
+    assert.equal(undoEvent(db, eventFor(db, "transfer", out.transfer_pair_id!, "create"), actor).ok, true);
+    assert.throws(
+      () => undoEvent(db, eventFor(db, "transaction", back.id, "create"), actor),
+      /already/,
+    );
+    // Nothing was logged for the refused undo.
+    const undos = queryAll(db, `SELECT id FROM events WHERE action = 'undo'`);
+    assert.equal(undos.length, 1);
+  });
+
+  test("undoing a leg's create, then the transfer, refuses the second", () => {
+    const { db, bank, card } = bankAndCard();
+    const [out] = createTransfer(db, actor, {
+      fromAccountId: bank, toAccountId: card, amount: 519_000, date: "2026-03-28",
+    });
+    assert.equal(undoEvent(db, eventFor(db, "transaction", out.id, "create"), actor).ok, true);
+    assert.throws(
+      () => undoEvent(db, eventFor(db, "transfer", out.transfer_pair_id!, "create"), actor),
+      /already/,
+    );
+  });
+});
+
+/*
  * D12 · Priya's ₹500.03 filed to a household envelope opened her commitment
  * envelope automatically. Undoing that "opened" event hard-deleted it while the
  * filing still needed it: no link was left between the two budgets, and the
