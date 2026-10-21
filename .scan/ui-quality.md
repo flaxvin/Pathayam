@@ -1,12 +1,18 @@
 # ui-quality audit notes
 ## RESUME
 - Worktree: /home/user/Pathayam/.claude/worktrees/agent-ac27d537fa661e002 (branch worktree-agent-ac27d537fa661e002, base cebdd0b)
-- Server: DEMO_MODE=1 DATABASE_PATH=<wt>/.scratch/demo.sqlite PORT=8208 node dist/main.js (rebuild dist after src edits: npm run build)
-- Driver: .scan/ui-quality-driver/audit.mjs (crawler, `node audit.mjs <Member> out.json [max]`, COMBOS env), summarize.mjs, probe.mjs; playwright-core in <wt>/.scratch/node_modules
-- Done: Ravi 375 light crawl. UIQ-1 7a778a7, UIQ-2 db20ef0, UIQ-3 c75cd4f committed+patched (full suite 2145 pass).
-- Next: commit UIQ-1..3 separately + format-patch; crawl Ravi dark/desktop, Priya, Anil; tap-target decision; PWA/manifest/cache checks; theme toggle in system mode.
+- Server: DEMO_MODE=1 DATABASE_PATH=<wt>/.scratch/demo.sqlite PORT=8208 node dist/main.js (npm run build after src edits). Reset themes after flows: UPDATE members SET theme='system'.
+- Driver: .scan/ui-quality-driver/ audit.mjs (crawler; COMBOS env), summarize.mjs, probe.mjs, flows.mjs (theme toggle, signout/back, member switch, offline). playwright-core in <wt>/.scratch/node_modules.
+- Coverage done: Ravi 4 combos (556 page-visits, ~139 templates each), Priya 375 dark + 1400 light (192), Anil 375 light + 1400 dark (278). All page templates reached from nav crawl.
+- Commits: UIQ-1 7a778a7, UIQ-2 db20ef0, UIQ-3 c75cd4f, UIQ-4 56ee789 (all patched). UIQ-5 written+targeted tests pass; full suite running, then commit.
+- Next: commit UIQ-5, browser re-verify, final report.
 ## Findings
-- UIQ-1 (medium) /explain/ready-to-assign and /explain/category/:id opened directly (new tab/long-press/no JS) render raw HTML tags as text: fragment starts with "\n", server.ts isHtml check fails -> text/plain. Also lone " · " lines. Fix: navigation gets full page with h1, dialog fetch sends X-Fragment:1. Screenshot screens/ui-quality/explain-375-light.png. Status: fixed+committed.
-- UIQ-2 (low) charts.ts emits svg height="auto" -> console error on /overview, /reports, /schedules, /net-worth etc. Fix: style height:auto. Status: fixed+committed.
-- UIQ-3 (low/a11y) /schedules: every schedule's edit form repeats ids split_category_0.. (label for= hits wrong form). Fix: idPrefix in renderCategoryLines. Status: fixed+committed.
-- Candidates to verify: button-small 34px tap targets on phone (docs claim 44px) -> systemic; header theme toggle 33x34, member link 54x34, scope pills x34; checkboxes 13x13 on / and /add; nameless buttons on /review,/schedules,/goals,/accounts/:id; net-worth nameless account links; chip-warning contrast 3.32 in register (light); /tax h1->h3; brand link nameless 24x24.
+- UIQ-1 (medium) /explain/* opened directly rendered raw HTML as text/plain (fragment starts "\n", server isHtml fails). Fixed: page for navigations, fragment for X-Fragment/Sec-Fetch-Dest empty. Screenshot screens/ui-quality/explain-375-light.png. COMMITTED.
+- UIQ-2 (low) charts svg height="auto" -> console error on /overview,/reports,/schedules,/net-worth. COMMITTED.
+- UIQ-3 (low a11y) /schedules edit forms repeat ids split_category_0.. COMMITTED (+generic dup-id check in routes.test sweep).
+- UIQ-4 (medium) theme "system" + OS dark: header toggle said "Switch to dark theme"; first press stored dark, nothing changed (palette toggle same). COMMITTED. Verified in browser: first press now -> light, persists across nav.
+- UIQ-5 (low a11y) brand link nameless <=480px; /tax h1->h3; uncleared register rows opacity .75 -> warning chip 3.32:1 (light). Fix in progress.
+- Verified OK: pages Cache-Control no-store; back after signout -> /signin (no private page); member switch on one device shows new member; no service worker (by design R35/F21.2) so offline = browser error page; manifest valid w/ 192/512/maskable icons served; no page >1s server (max ~500ms /months/:m/close); dates DD-MM-YYYY, ₹ Indian grouping everywhere crawled; no overflow at 375 (skip-link offscreen is intentional).
+- Decision for owner: .button-small is 34px min-height (header theme toggle 33x34, member link, scope pills, Skip/Use it/No thanks/Remove) though docs/screens.md says tap targets >=44px. Recommend @media (pointer: coarse){.button-small{min-height:var(--tap)}} or correct the doc.
+- Decision for owner: /assets/app.js|css served public max-age=3600 with no version in URL -> after a deploy, up to 1h of new HTML with old script/CSS. Recommend content-hash query string.
+- Unverified: register shows "Uncategorised" chip on budget->card "Card payment" transfers (Ravi's account 906766c4) — maybe intended; belongs to budget auditors.

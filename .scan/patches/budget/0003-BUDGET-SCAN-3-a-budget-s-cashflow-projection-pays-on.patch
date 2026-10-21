@@ -1,0 +1,76 @@
+From a5b309a9237be303a08408a201b8d4f293aaed6b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 21 Oct 2026 16:33:26 +0000
+Subject: [PATCH] BUDGET-SCAN-3: a budget's cashflow projection pays only its
+ own loans
+
+Every visible loan's instalment was charged to whichever budget was being
+projected, so a personal projection (and its digest shortfall) paid the
+household's home loan out of personal cash.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016zXWwzys3K4XksLh3rrcKu
+---
+ src/domain/schedules.ts               |  9 +++++++++
+ src/web/budget-scoped-screens.test.ts | 18 ++++++++++++++++++
+ 2 files changed, 27 insertions(+)
+
+diff --git a/src/domain/schedules.ts b/src/domain/schedules.ts
+index 433e498..5b2d9a8 100644
+--- a/src/domain/schedules.ts
++++ b/src/domain/schedules.ts
+@@ -1176,6 +1176,15 @@ export function projectCashflow(
+    * its instalment would show as an outflow with no explanation attached to it.
+    */
+   for (const loan of listLoans(db, { viewerMemberId: opts.viewerMemberId })) {
++    /*
++     * And only out of this budget's cash, by the schedules' rule: the account it
++     * is repaid from must be in scope. Every visible loan was charged to every
++     * budget, so his own projection paid the household's home loan out of his
++     * savings. A loan with no repayment account is taken as cash, as a schedule
++     * with none is.
++     */
++    const repaidFrom = loan.repayment_account_id;
++    if (opts.budgetId && repaidFrom && !inScope.has(repaidFrom) && !cards.has(repaidFrom)) continue;
+     const projection = projectLoan(db, loan.id);
+     if (!projection) continue;
+     for (const instalment of projection.schedule.instalments) {
+diff --git a/src/web/budget-scoped-screens.test.ts b/src/web/budget-scoped-screens.test.ts
+index 734d82d..961a6c3 100644
+--- a/src/web/budget-scoped-screens.test.ts
++++ b/src/web/budget-scoped-screens.test.ts
+@@ -28,6 +28,7 @@ import { queryTransactions, envelopeSpendByMonth, incomeVsExpense } from "../dom
+ import { buildBudgetView } from "./viewmodel.ts";
+ import { householdBudgetId, ensurePersonalBudget } from "../domain/budgets.ts";
+ import { ensureCommitmentEnvelope } from "../domain/commitments.ts";
++import { createLoan } from "../domain/loans.ts";
+ 
+ const RAVI = "m-ravi";
+ const actor: Actor = { memberId: RAVI, source: "ui" };
+@@ -111,6 +112,23 @@ describe("B109 · screens follow the budget being looked at", () => {
+     db.close();
+   });
+ 
++  test("a loan's instalment leaves the projection of the budget it is repaid from, and no other", () => {
++    const { db, household, mine, joint } = twoBudgets();
++    createLoan(db, actor, {
++      lender: "Housing Lender", loanType: "home", sanctioned: rupees(10_00_000),
++      sanctionDate: addMonths(MONTH, -12) + "-01", interestModel: "reducing", annualRatePct: 9,
++      tenureMonths: 120, currentOutstanding: rupees(9_00_000), repaymentAccountId: joint.id,
++      firstInstalmentDate: addMonths(MONTH, -11) + "-05", instalmentDay: 5,
++    });
++    const instalments = (flow: ReturnType<typeof projectCashflow>) =>
++      flow.days.flatMap((d) => d.outflows).filter((o) => o.label.includes("Housing Lender"));
++    assert.ok(instalments(projectCashflow(db, { days: 40, budgetId: household })).length > 0,
++      "the household pays it from the joint account");
++    assert.deepEqual(instalments(projectCashflow(db, { days: 40, budgetId: mine })), [],
++      "his own cash does not pay the household's home loan");
++    db.close();
++  });
++
+   test("a card belongs to the budget that owns its account (15 §3A.5)", () => {
+     const { db, household, mine, hisCard } = twoBudgets();
+     const inHousehold = buildBudgetView(db, MONTH, household);
+-- 
+2.43.0
+

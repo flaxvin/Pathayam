@@ -445,6 +445,48 @@ if (PHASE === "post" && existsSync(".scratch/forms.json")) {
   }
   writeFileSync(".scratch/forms.json", JSON.stringify([...formsSeen.entries()]));
 }
+if (PHASE === "misc") {
+  const { mintToken } = await import("../src/auth/tokens.ts");
+  for (const cfg of [{}, { localLogin: true }, { devLogin: true }, { demoMode: true }, { adminDebug: true }, { google: { clientId: "c", clientSecret: "s" }, oidc: { issuer: "https://idp.invalid", clientId: "c", clientSecret: "s", label: "SSO" } }] as Partial<Config>[]) {
+    for (const who of [null, sim.members.ravi.id, sim.members.anil.id]) {
+      const db = freshCopy(); const I = ids(db);
+      const { app, cookie } = await boot(db, who, cfg);
+      const label = `${who ? "m" : "anon"}-${JSON.stringify(cfg).slice(0, 30)}`;
+      const H: Record<string, string> = cookie ? { Cookie: cookie } : {};
+      for (const r of ROUTES) {
+        const [m, p] = r.split(" ") as [string, string];
+        if (!/^\/(auth|gmail|signout|sessions|demo|impersonate|health|settings\/password|signin)/.test(p)) continue;
+        for (const path of fills(p, I).slice(0, 4)) {
+          if (m === "GET") {
+            for (const q of ["", "?code=x&state=y", "?state=%3Cx-fuzz%3E&next=//evil.example", "?error=access_denied", "?next=https://evil.example"]) await timed(app, "GET", path + q, { headers: H }, label, ["x-fuzz"]);
+          } else {
+            for (const body of [{}, { email: "<x-fuzz>@x", password: "x", member_id: I.member[0]!, next: "//evil.example", name: "<x-fuzz>", token: "x" }, { member_id: "nope", email: "a".repeat(5000), password: "" }]) {
+              const res = await timed(app, "POST", path, { headers: { ...H, Origin: app.baseUrl, "Content-Type": "application/x-www-form-urlencoded" }, body: new URLSearchParams(body as any).toString() }, label, ["x-fuzz"]);
+              if (res.loc && /evil\.example/.test(res.loc)) finding("open-redirect", "POST", path, res.status, res.loc, label);
+            }
+          }
+        }
+      }
+      await app.close();
+    }
+  }
+  // bearer tokens, JSON accept, every route
+  for (const scope of ["read", "read-write"] as const) {
+    const db = freshCopy(); const I = ids(db);
+    const minted = mintToken(db, { memberId: sim.members.ravi.id, source: "ui" } as any, { name: "drv", scope, expiresInDays: null });
+    const { app } = await boot(db, null);
+    const H = { Authorization: `Bearer ${minted.secret}`, Accept: "application/json" };
+    for (const r of ROUTES) {
+      const [m, p] = r.split(" ") as [string, string];
+      if (/^\/(auth|gmail|demo)\//.test(p) || /signout|restore|health\/backup/.test(p)) continue;
+      for (const path of fills(p, I).slice(0, 3)) {
+        if (m === "GET") await timed(app, "GET", path, { headers: H }, `bearer-${scope}`);
+        else for (const body of [{}, { amount: "abc", month: "2026-13", name: "x" }]) await timed(app, "POST", path, { headers: { ...H, "Content-Type": "application/json" }, body: JSON.stringify(body) }, `bearer-${scope}`);
+      }
+    }
+    await app.close();
+  }
+}
 if (PHASE === "qfuzz") { await queryFuzz("ravi"); await queryFuzz("anil"); }
 if (PHASE === "post" || PHASE === "all") await postPhase(true);
 console.log(`DONE phase=${PHASE} requests=${requests} secs=${Math.round((Date.now() - t0) / 1000)} rejections=${rejections.length}`);

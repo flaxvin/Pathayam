@@ -1,0 +1,26 @@
+// Journey: Cards -> "Pay it off" on a card, submit, read back card + accounts; then transfer between banks
+import { open } from './lib.mjs';
+const member = process.argv[2] || 'Ravi';
+const card = process.argv[3] || 'Amazon Pay ICICI';
+const s = await open(member);
+const { page } = s;
+const settle = async () => { await page.waitForTimeout(300); await page.waitForLoadState('networkidle'); await page.waitForTimeout(1200); };
+const notices = async () => (await page.$$eval('main [role=status], main .notice', es => es.map(e => e.textContent.trim().replace(/\s+/g, ' ')).filter(Boolean).filter(t => !t.includes('funded yet'))));
+await s.go('/cards');
+const section = page.locator('section', { hasText: card }).last();
+const before = (await section.innerText()).replace(/\s+/g, ' ');
+console.log('BEFORE', before.slice(0, 250));
+await section.locator('text=Pay it off').click();
+await settle();
+console.log('pay url', page.url());
+console.log((await s.txt()).slice(0, 1200));
+const fs = await page.$$eval('main form', fs => fs.map(f => f.action + ' :: ' + [...f.elements].filter(e => e.name).map(e => e.name + '=' + (e.tagName === 'SELECT' ? e.options[e.selectedIndex]?.textContent.trim() : e.value)).join(' | ')));
+console.log(fs.join('\n'));
+const form = page.locator('main form').filter({ has: page.locator('button[type=submit], button:not([type])') }).last();
+await form.locator('button[type=submit], button:not([type])').last().click();
+await settle();
+console.log('after submit url', page.url(), '| notices', await notices());
+await s.go('/cards');
+console.log('AFTER', (await page.locator('section', { hasText: card }).last().innerText()).replace(/\s+/g, ' ').slice(0, 250));
+console.log('PROBLEMS', s.problems);
+await s.browser.close();

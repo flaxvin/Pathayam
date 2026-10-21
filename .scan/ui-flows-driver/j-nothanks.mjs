@@ -1,0 +1,20 @@
+// Journey: Review → Proposed rules → "No thanks" on the first proposal; what did the server do?
+import { open } from './lib.mjs';
+const member = process.argv[2] || 'Priya';
+const s = await open(member);
+const { page } = s;
+const posts = [];
+page.on('request', r => { if (r.method() === 'POST') posts.push(r.url()); });
+await s.go('/review');
+const item = page.locator('main form[action="/rules/confirm"]').first();
+const label = (await item.innerText()).replace(/\s+/g, ' ');
+console.log('proposal:', label);
+await item.locator('button:has-text("No thanks")').click();
+await page.waitForTimeout(300); await page.waitForLoadState('networkidle'); await page.waitForTimeout(1200);
+console.log('POSTed to', posts);
+console.log('notices', await page.$$eval('main [role=status]', es => es.map(e => e.textContent.trim())));
+await page.screenshot({ path: '/home/user/Pathayam/.scan/screens/ui-flows/review-no-thanks-confirms.png', clip: { x: 220, y: 90, width: 1060, height: 400 } });
+await s.go('/rules');
+console.log((await s.txt()).slice(0, 900));
+console.log('PROBLEMS', s.problems);
+await s.browser.close();

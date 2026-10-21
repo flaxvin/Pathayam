@@ -5,7 +5,8 @@
 - Fuzz done: seeds 1-8x100, 10-13x200, 100-140x300 (~13k steps): identity + rollup-vs-live (RTA and every category balance) clean, no crashes.
 - BUDGET-SCAN-1 committed f1e0d8e, patch 0001 in .scan/patches/budget/. Full npm test 2143 pass.
 - Fuzz also: seeds 200-205x200, 300-330x250 with semantic checks (departure ends even + envelope 0 in all later months; family-loan makes one loan; markPaid posts schedule amount & split sums; autoAssign RTA arithmetic). Departure: release 25, family-loan 15, call-it-even 8 — all clean.
-- Next: semantic checks (departure family-loan, auto-assign, markPaid, reports totals), more seeds.
+- Fuzzer now also checks RTA explain lines sum to RTA (clean).
+- Next: commit SCAN-3 after full test; then wrap up and final report.
 
 ## Findings
 ### BUDGET-SCAN-1 (medium) digest reads the household, not the budget on screen
@@ -15,7 +16,11 @@
 
 ### BUDGET-SCAN-2 (low-medium) daily spending heatmap counts transfers and tracking rows
 - spendingCalendar (reports.ts) summed every negative row: a card bill payment counted the charges twice; savings->FD transfer showed as spending.
-- Test src/domain/spending-calendar.test.ts. Fix: exclude transfer legs and tracking accounts. Status: fixed, awaiting full test then commit.
+- Test src/domain/spending-calendar.test.ts. Fix: exclude transfer legs and tracking accounts. Status: fixed c369b01, patch 0002.
+
+### BUDGET-SCAN-3 (low-medium) cashflow projection charges every loan's instalment to every budget
+- projectCashflow scoped accounts/schedules/cards by budget but listed every visible loan: Ravi's personal projection (and digest shortfall) paid the household home loan out of his cash.
+- Test added in src/web/budget-scoped-screens.test.ts. Fix: skip a loan whose repayment account is neither in scope nor an in-scope card. Status: fixed, awaiting full test then commit.
 
 ## Notes (not fixed / outside)
 - Departure family-loan ending: household RTA rises by the debt while the debt sits in an off-budget tracking account (by design per departure.ts comment). Not reported as a bug.

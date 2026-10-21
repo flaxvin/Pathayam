@@ -271,7 +271,12 @@ export function run(seed: number, steps: number, verbose = false): { crashes: st
     model: () => { setOverspendModel(db, A(), pick(["reduce-rta", "carry-negative"] as const)); },
     undo: () => {
       const ev = queryOne<{ id: string }>(db, `SELECT id FROM events WHERE action <> 'undo' AND undone_by_event_id IS NULL ORDER BY random() LIMIT 1`);
-      if (ev) undoEvent(db, ev.id, A(), { force: r() < 0.5 });
+      if (!ev) return;
+      const force = r() < 0.5;
+      try { undoEvent(db, ev.id, A(), { force }); } catch (e) {
+        if (process.env.V === "1") console.error("UNDO", force, JSON.stringify(queryOne(db, `SELECT * FROM events WHERE id = ?`, ev.id)), queryAll(db, `SELECT entity, action, summary FROM events WHERE rowid > (SELECT rowid FROM events WHERE id = ?)`, ev.id));
+        throw e;
+      }
     },
     digest: () => { for (const m of [null, RAVI, PRIYA]) digestFor(db, m as never); },
     query: () => {

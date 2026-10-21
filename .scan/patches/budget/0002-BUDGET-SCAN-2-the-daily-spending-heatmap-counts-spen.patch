@@ -1,0 +1,110 @@
+From c369b012b68a7c3204754dc867fc29c0ed83ea84 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 21 Oct 2026 16:33:11 +0000
+Subject: [PATCH] BUDGET-SCAN-2: the daily spending heatmap counts spending,
+ not transfers
+
+Paying the card bill counted its charges a second time, and moving savings
+into a deposit showed as the hottest day on the calendar.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016zXWwzys3K4XksLh3rrcKu
+---
+ src/domain/reports.ts                | 12 +++++--
+ src/domain/spending-calendar.test.ts | 52 ++++++++++++++++++++++++++++
+ 2 files changed, 62 insertions(+), 2 deletions(-)
+ create mode 100644 src/domain/spending-calendar.test.ts
+
+diff --git a/src/domain/reports.ts b/src/domain/reports.ts
+index 26a7747..d4171e2 100644
+--- a/src/domain/reports.ts
++++ b/src/domain/reports.ts
+@@ -420,17 +420,25 @@ export function spendingCalendar(
+   db: DB, from: IsoDate, to: IsoDate, viewerMemberId?: string | null,
+ ): { date: IsoDate; value: Paise }[] {
+   const seen = hiddenClause(viewerMemberId);
++  /*
++   * Spending, not movement. A transfer is not spending: paying the card bill
++   * counted its charges a second time on the day it was paid, and moving
++   * savings into a deposit lit up the hottest square on the calendar. A
++   * tracking account (a loan's ledger, a deposit) is outside the budget and
++   * spends nothing of it.
++   */
++  const spend = ` AND t.transfer_pair_id IS NULL AND a.kind <> 'tracking'`;
+   return queryAll<{ date: string; value: number }>(
+     db,
+     `WITH lines AS (
+        SELECT t.date AS date, t.amount AS amount
+          FROM transactions t JOIN accounts a ON a.id = t.account_id
+-        WHERE t.is_split = 0 AND t.deleted_at IS NULL${seen.sql}
++        WHERE t.is_split = 0 AND t.deleted_at IS NULL${spend}${seen.sql}
+        UNION ALL
+        SELECT t.date, s.amount FROM transaction_splits s
+          JOIN transactions t ON t.id = s.transaction_id
+          JOIN accounts a ON a.id = t.account_id
+-        WHERE t.deleted_at IS NULL${seen.sql}
++        WHERE t.deleted_at IS NULL${spend}${seen.sql}
+      )
+      SELECT substr(date,1,10) AS date, COALESCE(SUM(-amount),0) AS value
+        FROM lines WHERE amount < 0 AND date >= ? AND date <= ?
+diff --git a/src/domain/spending-calendar.test.ts b/src/domain/spending-calendar.test.ts
+new file mode 100644
+index 0000000..a295f24
+--- /dev/null
++++ b/src/domain/spending-calendar.test.ts
+@@ -0,0 +1,52 @@
++/**
++ * S15 · The daily spending heatmap counts spending, not every rupee that moved.
++ *
++ * It summed every negative row: paying the card bill showed as a second
++ * ₹20,000 of spending on the day it was paid (the charges had already counted
++ * on their own days), and moving ₹1,00,000 from savings into a deposit lit up
++ * the hottest square on the calendar.
++ */
++
++import { test } from "node:test";
++import assert from "node:assert/strict";
++import type { Actor } from "../core/events.ts";
++import { todayIST, addDays } from "../core/dates.ts";
++import { rupees } from "../core/money.ts";
++import { createAccount } from "./accounts.ts";
++import { createGroup, createCategory } from "./budget.ts";
++import { createTransaction, createTransfer } from "./transactions.ts";
++import { householdBudgetId } from "./budgets.ts";
++import { spendingCalendar } from "./reports.ts";
++import { freshHousehold, PRIYA } from "../engine/identity.test-data.ts";
++
++const priya: Actor = { memberId: PRIYA, source: "ui" };
++
++test("a card charge counts once, on its own day; paying the card and saving do not count", () => {
++  const db = freshHousehold();
++  const today = todayIST();
++  const household = householdBudgetId(db);
++  const bank = createAccount(db, priya, {
++    name: "Bank", kind: "budget", subtype: "savings", budgetId: household,
++    openingBalance: rupees(5_00_000), openingDate: addDays(today, -30),
++  });
++  const card = createAccount(db, priya, {
++    name: "Card", kind: "credit", subtype: "credit-card", budgetId: household,
++    openingBalance: 0, openingDate: addDays(today, -30),
++  });
++  const deposit = createAccount(db, priya, {
++    name: "FD", kind: "tracking", subtype: "fixed-deposit",
++    openingBalance: 0, openingDate: addDays(today, -30),
++  });
++  const group = createGroup(db, priya, "Living", "normal", household);
++  const food = createCategory(db, priya, { groupId: group.id, name: "Food" });
++
++  createTransaction(db, priya, {
++    accountId: card.id, amount: -rupees(20_000), date: addDays(today, -10), categoryId: food.id,
++  });
++  createTransfer(db, priya, { fromAccountId: bank.id, toAccountId: card.id, amount: rupees(20_000), date: addDays(today, -2) });
++  createTransfer(db, priya, { fromAccountId: bank.id, toAccountId: deposit.id, amount: rupees(1_00_000), date: addDays(today, -1) });
++
++  const days = spendingCalendar(db, addDays(today, -30), today);
++  assert.deepEqual(days, [{ date: addDays(today, -10), value: rupees(20_000) }]);
++  db.close();
++});
+-- 
+2.43.0
+

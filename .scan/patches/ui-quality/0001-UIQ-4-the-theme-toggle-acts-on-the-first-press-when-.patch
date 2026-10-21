@@ -1,0 +1,161 @@
+From 56ee789c8c0e0a2b3944b73b3c30bfa848f7ba9f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 21 Oct 2026 16:34:10 +0000
+Subject: [PATCH] UIQ-4: the theme toggle acts on the first press when the
+ device is in dark mode
+
+On "system" the header always offered dark, so a phone already dark stored
+dark and changed nothing. The client reads the device preference into the
+header control and tells the palette toggle what is on screen.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016zXWwzys3K4XksLh3rrcKu
+---
+ src/app.ts                          |  7 +++-
+ src/web/client.ts                   | 31 +++++++++++++++
+ src/web/theme-toggle-system.test.ts | 59 +++++++++++++++++++++++++++++
+ 3 files changed, 96 insertions(+), 1 deletion(-)
+ create mode 100644 src/web/theme-toggle-system.test.ts
+
+diff --git a/src/app.ts b/src/app.ts
+index d985fc9..f2bf9cf 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -3062,7 +3062,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
+   // to a same-site path the palette sends, the way POST /settings/theme does.
+   router.post("/settings/theme-toggle", (ctx) =>
+     mutate(ctx, (a) => {
+-      const next: Theme = a.viewingAs.theme === "dark" ? "light" : "dark";
++      /*
++       * UIQ-4 · On "system" the server cannot see what the device shows, so
++       * the client says (`seen`); without it, dark is the old guess.
++       */
++      const current = a.viewingAs.theme === "system" ? field(ctx.body, "seen") : a.viewingAs.theme;
++      const next: Theme = current === "dark" ? "light" : "dark";
+       setTheme(db, actorFor(a), a.member.id, next);
+       return { redirect: safePath(field(ctx.body, "return_to"), "/") };
+     }),
+diff --git a/src/web/client.ts b/src/web/client.ts
+index 5755d3c..ddab11c 100644
+--- a/src/web/client.ts
++++ b/src/web/client.ts
+@@ -211,6 +211,7 @@ export const CLIENT_SCRIPT = String.raw`
+           var currentNav = document.querySelector(selector);
+           if (freshNav && currentNav) currentNav.innerHTML = freshNav.innerHTML;
+         });
++        syncThemeToggle();
+ 
+         if (doc.title) document.title = doc.title;
+         // Keep the address bar truthful even when the scroll is held: a month
+@@ -355,6 +356,31 @@ export const CLIENT_SCRIPT = String.raw`
+     submitWithRetry(form);
+   });
+ 
++  /*
++   * UIQ-4 · On "system" the page carries no data-theme and the server, which
++   * cannot see the device, offers dark. On a phone already in dark mode that
++   * press stored "dark" and changed nothing. The device knows; ask it.
++   */
++  function deviceShowsDark() {
++    var forced = document.documentElement.getAttribute("data-theme");
++    if (forced) return forced === "dark";
++    return Boolean(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
++  }
++  function syncThemeToggle() {
++    if (document.documentElement.getAttribute("data-theme")) return;
++    var form = document.querySelector("form[action='/settings/theme']");
++    if (!form || !deviceShowsDark()) return;
++    var input = form.querySelector("input[name='theme']");
++    var button = form.querySelector("button");
++    if (input) input.value = "light";
++    if (button) {
++      button.setAttribute("aria-label", "Switch to light theme");
++      button.setAttribute("title", "Switch to light theme");
++      button.textContent = "\u2600";
++    }
++  }
++  syncThemeToggle();
++
+   // Carry the current URL into the theme toggle so it returns you here (R39.5).
+   document.querySelectorAll('input[name="return_to"]').forEach(function (input) {
+     if (!input.value) input.value = window.location.pathname + window.location.search;
+@@ -734,6 +760,11 @@ export const CLIENT_SCRIPT = String.raw`
+     back.name = "return_to";
+     back.value = window.location.pathname + window.location.search;
+     form.appendChild(back);
++    var seen = document.createElement("input");
++    seen.type = "hidden";
++    seen.name = "seen";
++    seen.value = deviceShowsDark() ? "dark" : "light";
++    form.appendChild(seen);
+     document.body.appendChild(form);
+     form.submit();
+   }
+diff --git a/src/web/theme-toggle-system.test.ts b/src/web/theme-toggle-system.test.ts
+new file mode 100644
+index 0000000..10ab0d8
+--- /dev/null
++++ b/src/web/theme-toggle-system.test.ts
+@@ -0,0 +1,59 @@
++/**
++ * UIQ-4 · The theme toggle does something on the first press, whatever the
++ * phone is set to.
++ *
++ * A member's theme starts as "system". The server cannot see the device's
++ * preference, so the header offered "Switch to dark theme" (☾) to everybody on
++ * "system" — and on a phone already in dark mode, pressing it stored "dark" and
++ * changed nothing on screen. The palette's "Toggle theme" did the same. The
++ * client now reads the device's preference into the header control, and tells
++ * the palette's toggle what is actually on screen.
++ */
++
++import { test, describe, before, after } from "node:test";
++import assert from "node:assert/strict";
++import { execute, queryOne } from "../db/db.ts";
++import { nowIST } from "../core/dates.ts";
++import { freshHousehold, RAVI } from "../engine/identity.test-data.ts";
++import { startTestApp, type TestApp } from "./harness.test-data.ts";
++import { CLIENT_SCRIPT } from "./client.ts";
++
++const theme = (app: TestApp) =>
++  queryOne<{ theme: string }>(app.db, `SELECT theme FROM members WHERE id = ?`, RAVI)!.theme;
++
++describe("UIQ-4 · toggling away from 'system'", () => {
++  let app: TestApp;
++  before(async () => {
++    const db = freshHousehold();
++    execute(db, `UPDATE household SET setup_completed_at = ? WHERE id = 1`, nowIST());
++    app = await startTestApp(db, { memberId: RAVI });
++  });
++  after(() => app.close());
++
++  const reset = () => execute(app.db, `UPDATE members SET theme = 'system' WHERE id = ?`, RAVI);
++
++  test("a device showing dark asks the palette toggle for light", async () => {
++    reset();
++    const res = await app.post("/settings/theme-toggle", { return_to: "/", seen: "dark" });
++    assert.equal(res.status, 303);
++    assert.equal(theme(app), "light");
++  });
++
++  test("a device showing light gets dark", async () => {
++    reset();
++    await app.post("/settings/theme-toggle", { return_to: "/", seen: "light" });
++    assert.equal(theme(app), "dark");
++  });
++
++  test("a stored theme still flips as before, whatever is claimed", async () => {
++    execute(app.db, `UPDATE members SET theme = 'dark' WHERE id = ?`, RAVI);
++    await app.post("/settings/theme-toggle", { return_to: "/", seen: "dark" });
++    assert.equal(theme(app), "light");
++  });
++
++  test("the client reads the device preference into the header toggle, on load and after a swap", () => {
++    assert.match(CLIENT_SCRIPT, /matchMedia\("\(prefers-color-scheme: dark\)"\)/);
++    assert.ok((CLIENT_SCRIPT.match(/syncThemeToggle\(\)/g) ?? []).length >= 2, "called on load and after the header is swapped");
++    assert.match(CLIENT_SCRIPT, /name = "seen"/, "the palette's toggle says what is on screen");
++  });
++});
+-- 
+2.43.0
+

@@ -1,0 +1,20 @@
+// Journey: Cover an overspend using a suggested source (RTA, then a named envelope); check which source paid
+import { open } from './lib.mjs';
+const [member = 'Ravi', cat = 'Electricity', source = 'Ready to Assign'] = process.argv.slice(2);
+const s = await open(member);
+const { page } = s;
+const settle = async () => { await page.waitForTimeout(300); await page.waitForLoadState('networkidle'); await page.waitForTimeout(1200); };
+const rta = async () => (await s.txt()).match(/Ready to Assign\n(-?₹[\d,.]+)/)?.[1];
+const row = async (name) => page.$eval(`.category-row[data-category-name="${name}"]`, e => e.innerText.replace(/\s+/g, ' ')).catch(() => 'no row ' + name);
+await s.go('/');
+const srcName = source.split(' — ')[0];
+console.log('BEFORE RTA', await rta(), '|', await row(cat), '|', await row(srcName));
+await page.locator(`.category-row[data-category-name="${cat}"] >> text=/Cover/`).first().click();
+await settle();
+await page.locator('main button[name=from_category_id]', { hasText: source }).first().click();
+await settle();
+console.log('url', page.url(), 'notices', await page.$$eval('main [role=status]', es => es.map(e => e.textContent.trim()).filter(t => !t.includes('funded yet'))));
+await s.go('/');
+console.log('AFTER RTA', await rta(), '|', await row(cat), '|', await row(srcName));
+console.log('PROBLEMS', s.problems);
+await s.browser.close();
