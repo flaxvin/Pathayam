@@ -112,7 +112,14 @@ export function extractNarrationFields(narration: string): {
 
   const channel = CHANNELS.find((c) => new RegExp(`(^|[^A-Z])${c}([^A-Z]|$)`).test(upper)) ?? null;
 
-  const vpaMatch = /([a-z0-9._-]+@[a-z][a-z0-9.-]*)/i.exec(narration);
+  /*
+   * A VPA's handle is letters and digits ("okaxis", "ybl", "icici"), and its
+   * local part has no hyphen. Allowing hyphens on both sides read HDFC's
+   * "UPI-SWIGGY-swiggy@icici-ICIC0DC0099-123456789012-Payment" as one VPA
+   * from "UPI" to "Payment", and IndusInd's "/-12345678@ptyb" as a VPA whose
+   * local part was not all digits, so the payee became "12345678".
+   */
+  const vpaMatch = /([a-z0-9._]+@[a-z][a-z0-9]*)(?![a-z0-9.@])/i.exec(narration);
   const vpa = vpaMatch ? vpaMatch[1]!.toLowerCase() : null;
 
   // The UPI RRN is 12 digits; bank references run longer. Take the longest
@@ -120,12 +127,14 @@ export function extractNarrationFields(narration: string): {
   const numbers = narration.match(/\d{6,}/g) ?? [];
   const reference = numbers.length > 0 ? numbers.reduce((a, b) => (b.length >= a.length ? b : a)) : null;
 
-  const merchant = extractMerchant(narration, vpa, reference);
+  const merchant = extractMerchant(narration, vpa, reference, vpaMatch?.[1] ?? null);
 
   return { channel, vpa, merchant, reference };
 }
 
-function extractMerchant(narration: string, vpa: string | null, reference: string | null): string | null {
+function extractMerchant(
+  narration: string, vpa: string | null, reference: string | null, rawVpa: string | null,
+): string | null {
   // A VPA's local part is usually the merchant, and is the most reliable
   // signal when present.
   if (vpa) {
@@ -138,10 +147,21 @@ function extractMerchant(narration: string, vpa: string | null, reference: strin
   // A leading channel token is a rail, not a merchant: "NEFT-ACT FIBERNET"
   // should read "Act Fibernet". Only stripped at the start and only when a
   // separator follows, so a hyphen inside a real name survives.
-  const withoutRail = narration.replace(
+  let withoutRail = narration.replace(
     new RegExp(`^\\s*(?:${CHANNELS.join("|")})\\s*[-/: ]\\s*`, "i"),
     "",
   );
+
+  // A VPA that names nobody (a phone number) is not a name either, and in
+  // HDFC's dash-separated line everything after it — IFSC, RRN, note — is
+  // bank detail: the name is what came before it.
+  if (rawVpa) {
+    const at = withoutRail.indexOf(rawVpa);
+    if (at >= 0) {
+      const end = withoutRail.indexOf("/", at);
+      withoutRail = withoutRail.slice(0, at).replace(/-$/, "") + (end >= 0 ? withoutRail.slice(end) : "");
+    }
+  }
 
   const parts = withoutRail
     .split(/[/|]/)
@@ -150,6 +170,8 @@ function extractMerchant(narration: string, vpa: string | null, reference: strin
     .filter((p) => !CHANNELS.includes(p.toUpperCase()))
     .filter((p) => p !== reference)
     .filter((p) => !/^(P2M|P2A|DR|CR|PAYMENT|TXN|REF)$/i.test(p))
+    // An IFSC ("YESB0PTMUPI", "HDFC0000001") is the payee's bank branch.
+    .filter((p) => !/^[A-Z]{4}0[A-Z0-9]{6}$/.test(p))
     .filter((p) => !/^\d+$/.test(p));
 
   if (parts.length === 0) return null;

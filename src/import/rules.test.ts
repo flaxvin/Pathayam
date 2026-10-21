@@ -468,6 +468,33 @@ describe("B63 · the separator that introduced a reference goes with it", () => 
   });
 });
 
+describe("a VPA is only the VPA, and a numeric one names nobody", () => {
+  test("HDFC's dash-separated UPI line: the VPA stops at its handle", () => {
+    // UPI-<name>-<vpa>-<IFSC>-<RRN>-<note>. The VPA ran from "UPI" through the
+    // RRN — "upi-swiggy-swiggy@icici-icic0dc0099-…" — so a rule on "vpa is
+    // swiggy@icici" never matched and the payee read "Upi Swiggy Swiggy".
+    const f = extractNarrationFields("UPI-SWIGGY-swiggy@icici-ICIC0DC0099-123456789012-Payment");
+    assert.equal(f.vpa, "swiggy@icici");
+    assert.equal(f.merchant, "Swiggy");
+    assert.equal(f.reference, "123456789012");
+  });
+
+  test("a phone-number VPA leaves the name beside it as the merchant", () => {
+    // The IndusInd alert's own narration became the payee "12345678".
+    assert.equal(
+      extractNarrationFields("UPI/400111222333/DR/Moj/YESB0PTMUPI/-12345678@ptyb").merchant, "Moj",
+    );
+    assert.equal(
+      extractNarrationFields("UPI/DR/400111222666/FICTIONAL STORE/HDFC/9876543210@paytm/NA").merchant,
+      "Fictional Store",
+    );
+    assert.equal(
+      extractNarrationFields("UPI-FICTIONAL CAFE-9876543210@ybl-YESB0000001-400111222555-PAYMENT").merchant,
+      "Fictional Cafe",
+    );
+  });
+});
+
 describe("a reference is not part of a name", () => {
   test("a bracketed reference at the end is dropped", () => {
     // Axis writes "UPI TRANSFER TO ANITA RAO (500100000001)", and the number
