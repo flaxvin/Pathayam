@@ -342,3 +342,27 @@ describe("an edit with a date that is not a date", () => {
     assert.deepEqual([row.amount, row.date], [-rupees(700), "2026-09-05"]);
   });
 });
+
+describe("an edit that does not say which way the money went", () => {
+  test("keeps the direction it had, rather than turning income into spending", async () => {
+    // An API caller moving a salary credit's date posts the amount and the date.
+    const salary = createTransaction(db, actor, {
+      accountId: bank, amount: rupees(50000), date: "2026-09-01",
+    });
+    const res = await app.post(`/transaction/${salary.id}`, { amount: "50000", date: "02-09-2026" });
+    assert.equal(res.status, 303);
+    const row = getTransaction(db, salary.id)!;
+    assert.deepEqual([row.amount, row.date], [rupees(50000), "2026-09-02"]);
+  });
+
+  test("an explicit direction still turns it round", async () => {
+    const t = createTransaction(db, actor, {
+      accountId: bank, amount: rupees(300), date: "2026-09-01",
+    });
+    const res = await app.post(`/transaction/${t.id}`, {
+      amount: "300", direction: "out", date: "01-09-2026", split_category_0: groceries,
+    });
+    assert.equal(res.status, 303);
+    assert.equal(getTransaction(db, t.id)!.amount, -rupees(300));
+  });
+});

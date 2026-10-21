@@ -4011,9 +4011,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return once(ctx, a, () => {
       const magnitude = Math.abs(amountField(field(ctx.body, "amount")));
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
-      const signed = isTransferLeg
+      /*
+       * A post that does not say which way the money went keeps the way it
+       * went. Reading silence as "out" — /add's default — turned a ₹50,000
+       * salary credit into ₹50,000 of spending, with no envelope, under
+       * "Saved.", when an API caller only moved its date. Silence about tags
+       * and envelopes already leaves those alone.
+       */
+      const direction = field(ctx.body, "direction");
+      const signed = isTransferLeg || (direction !== "in" && direction !== "out")
         ? (transaction.amount < 0 ? -magnitude : magnitude)
-        : field(ctx.body, "direction") === "in" ? magnitude : -magnitude;
+        : direction === "in" ? magnitude : -magnitude;
 
       // L1 · A renamed payee is the signal. Resolved here so the rename and the
       // rest of the edit land in one update, and so the *old* name is still
