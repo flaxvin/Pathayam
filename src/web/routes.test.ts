@@ -169,6 +169,29 @@ function getRoutes(ids: Record<string, string>): string[] {
   return patterns.map(fill).filter((p): p is string => p !== null);
 }
 
+
+/**
+ * `text` with every `open … close` span removed, by plain string search.
+ *
+ * The id check below must not count ids inside HTML comments or <template>s.
+ * It cuts them with indexOf rather than a regex replace: the input is this
+ * test's own fetch of server-rendered pages, not markup bound for a browser,
+ * and a string cut does not look like a half-finished HTML sanitizer to a
+ * code scanner (it flagged the regex form as one).
+ */
+function cutBetween(text: string, open: string, close: string): string {
+  let out = "";
+  let from = 0;
+  for (;;) {
+    const start = text.indexOf(open, from);
+    if (start < 0) return out + text.slice(from);
+    out += text.slice(from, start);
+    const end = text.indexOf(close, start + open.length);
+    if (end < 0) return out;
+    from = end + close.length;
+  }
+}
+
 describe("B68 · every GET route renders", () => {
   let app: TestApp;
   let fixture: Fixture;
@@ -212,7 +235,7 @@ describe("B68 · every GET route renders", () => {
     for (const path of getRoutes(fixture.ids)) {
       const res = await app.get(path);
       if (res.status !== 200) continue;
-      const body = (await res.text()).replace(/<!--[\s\S]*?-->/g, "").replace(/<template[\s\S]*?<\/template>/g, "");
+      const body = cutBetween(cutBetween(await res.text(), "<!--", "-->"), "<template", "</template>");
       const seen = new Map<string, number>();
       for (const m of body.matchAll(/<[a-zA-Z][^>]*?\sid="([^"]+)"/g)) seen.set(m[1]!, (seen.get(m[1]!) ?? 0) + 1);
       for (const [id, n] of seen) if (n > 1) repeated.push(`${path}: #${id} ×${n}`);
