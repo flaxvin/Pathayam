@@ -76,7 +76,9 @@ export function renderCards(opts: { cards: CardDue[]; month: string }): SafeHtml
 
   const owed = cards.reduce((sum, c) => sum + c.owed, 0) as Paise;
   const unfunded = cards.reduce((sum, c) => sum + c.unfunded, 0) as Paise;
-  const dueSoon = cards.filter((c) => c.daysToDue !== null && c.daysToDue <= 7);
+  // A statement already paid is not due, however recently it fell due (B127).
+  const dueSoon = cards.filter((c) =>
+    c.daysToDue !== null && c.daysToDue <= 7 && urgency(c)?.label !== "Paid");
 
   return html`
     <h1>Cards</h1>
