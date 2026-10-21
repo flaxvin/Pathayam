@@ -185,11 +185,17 @@ describe("S15 · charts", () => {
   });
 });
 
-test("no chart sets an SVG height the browser rejects", async () => {
-  // `height="auto"` is not a valid SVG length: every chart logged
-  // "Error: <svg> attribute height: Expected length" to the console on
-  // Schedules and Reports. The width and viewBox already size it.
-  const { readFile } = await import("node:fs/promises");
-  const source = await readFile(new URL("./charts.ts", import.meta.url), "utf8");
-  assert.doesNotMatch(source, /height="auto"/);
+/**
+ * UIQ-2 · `height="auto"` is not an SVG length. Chrome logged
+ * `<svg> attribute height: Expected length, "auto"` for every chart on the
+ * overview, reports and net-worth screens — console noise that hides real
+ * errors, and a value other engines are free to read as zero. The height is
+ * CSS's to decide, so it is said in CSS.
+ */
+describe("UIQ-2 · chart markup carries only valid SVG lengths", () => {
+  test("no chart writes height=\"auto\" as an attribute", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync(new URL("./charts.ts", import.meta.url), "utf8");
+    assert.doesNotMatch(source, /height="auto"/);
+  });
 });
