@@ -2257,7 +2257,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       const month = monthParam(ctx);
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
-      const from = requireVisibleCategory(ctx, requiredField(ctx.body, "from_category_id"))!;
+      // "rta" is the screen's own first source and is not an envelope, so it
+      // is not checked as one (ROUTES-1: it answered 404 "does not exist").
+      const fromField = requiredField(ctx.body, "from_category_id");
+      const from = fromField === "rta" ? "rta" : requireVisibleCategory(ctx, fromField)!;
       const to = requireVisibleCategory(ctx, requiredField(ctx.body, "to_category_id"))!;
       const amount = amountField(field(ctx.body, "amount"));
 
