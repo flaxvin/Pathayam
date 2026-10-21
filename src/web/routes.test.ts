@@ -86,6 +86,11 @@ function household(): Fixture {
     name: "Rent", amount: rupees(-41000), recurrence: "monthly",
     nextDue: "2026-10-01", accountId: bank.id, categoryId: rent,
   });
+  // UIQ-3 · A second, so a screen that lists schedules renders each form twice.
+  createSchedule(db, actor, {
+    name: "Milk", amount: rupees(-1800), recurrence: "monthly",
+    nextDue: "2026-10-03", accountId: bank.id, categoryId: groceries,
+  });
 
   // FL · Lending in the family, so /family/:id has something to open.
   const family = createFamilyLoan(db, actor, {
@@ -194,6 +199,25 @@ describe("B68 · every GET route renders", () => {
       }
     }
     assert.deepEqual(broken, [], "these routes did not render cleanly");
+  });
+
+  /*
+   * UIQ-3 · An id names one element. Two forms on one page carrying the same
+   * ids — every schedule's edit form and the new-schedule form all said
+   * `split_category_0` — send a click on one form's label to another form's
+   * field, and a screen reader announces the wrong control.
+   */
+  test("no GET route repeats an element id", async () => {
+    const repeated: string[] = [];
+    for (const path of getRoutes(fixture.ids)) {
+      const res = await app.get(path);
+      if (res.status !== 200) continue;
+      const body = (await res.text()).replace(/<!--[\s\S]*?-->/g, "").replace(/<template[\s\S]*?<\/template>/g, "");
+      const seen = new Map<string, number>();
+      for (const m of body.matchAll(/<[a-zA-Z][^>]*?\sid="([^"]+)"/g)) seen.set(m[1]!, (seen.get(m[1]!) ?? 0) + 1);
+      for (const [id, n] of seen) if (n > 1) repeated.push(`${path}: #${id} ×${n}`);
+    }
+    assert.deepEqual(repeated, [], "these pages repeat an id");
   });
 
   test("nothing raised an unexpected 500", () => {

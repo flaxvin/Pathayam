@@ -62,7 +62,13 @@ export function renderCategoryLines(opts: {
   required?: boolean;
   /** Marks the first select for the client's money-in/out rule. */
   requiresCategory?: boolean;
+  /**
+   * UIQ-3 · Prefixes the element ids (never the field names), for a page that
+   * renders several of these forms — one per schedule — where bare ids repeat.
+   */
+  idPrefix?: string;
 }): SafeHtml {
+  const p = opts.idPrefix ?? "";
   const values = opts.values ?? [];
   const extras = opts.extraLines ?? 3;
   const split = values.length > 1;
@@ -87,8 +93,8 @@ export function renderCategoryLines(opts: {
 
   return html`
     <div class="field">
-      <label for="split_category_0">${opts.label ?? "Envelope"}</label>
-      <select id="split_category_0" name="split_category_0"
+      <label for="${p}split_category_0">${opts.label ?? "Envelope"}</label>
+      <select id="${p}split_category_0" name="split_category_0"
               ${raw(opts.required ? "required" : "")}
               ${raw(opts.requiresCategory ? "data-requires-category" : "")}>
         ${options(values[0]?.categoryId ?? null)}
@@ -107,12 +113,12 @@ export function renderCategoryLines(opts: {
         const line = values[i + 1];
         return html`
           <div class="row" style="gap:.4rem;margin-bottom:.35rem">
-            <label class="sr-only" for="split_category_${i + 1}">Envelope ${i + 2}</label>
-            <select id="split_category_${i + 1}" name="split_category_${i + 1}" style="max-width:13rem">
+            <label class="sr-only" for="${p}split_category_${i + 1}">Envelope ${i + 2}</label>
+            <select id="${p}split_category_${i + 1}" name="split_category_${i + 1}" style="max-width:13rem">
               ${options(line?.categoryId ?? null)}
             </select>
-            <label class="sr-only" for="split_amount_${i + 1}">Amount ${i + 2}</label>
-            <input id="split_amount_${i + 1}" name="split_amount_${i + 1}"
+            <label class="sr-only" for="${p}split_amount_${i + 1}">Amount ${i + 2}</label>
+            <input id="${p}split_amount_${i + 1}" name="split_amount_${i + 1}"
                    class="amount-input" inputmode="decimal" style="max-width:8rem"
                    placeholder="0.00"
                    value="${line?.amount != null ? (Math.abs(line.amount) / 100).toFixed(2) : ""}">

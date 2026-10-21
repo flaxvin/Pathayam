@@ -833,6 +833,7 @@ export function renderSchedules(opts: {
                     <div class="field" style="margin:0;flex:1 1 100%">
                       ${renderCategoryLines({
                         label: "Envelope",
+                        idPrefix: `sc-${s.id}-`,
                         categories: ownCategoriesKept(s),
                         values: (opts.splits?.get(s.id)?.length ?? 0) > 0
                           ? opts.splits!.get(s.id)!.map((sp) => ({
