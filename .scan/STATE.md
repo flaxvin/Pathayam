@@ -16,7 +16,7 @@ container restart or usage limit loses at most the work since the last push.
 | # | Area file | Scope | Port | Status |
 |---|---|---|---|---|
 | 1 | transactions.md | transactions, transfers, splits, tags, attachments, undo/activity | 8201 | launched |
-| 2 | accounts.md | accounts, cards, reconciliation, loans, family loans, assets/portfolio, net worth, tax/FI | 8202 | launched |
+| 2 | accounts.md | accounts, cards, reconciliation, loans, family loans, assets/portfolio, net worth, tax/FI | 8202 | done, integrated |
 | 3 | imports.md | CSV/PDF/CAS/Gmail imports, dedupe, review queue, rules, payees | 8203 | launched |
 | 4 | security.md | authn/authz, sessions, tokens, OIDC, impersonation (ADMIN_DEBUG), CSRF, XSS, injection, DoS, headers | 8204 | launched |
 | 5 | budget.md | engine, envelopes, RTA, schedules, goals, commitments, departure, month close, reports; randomized fuzzer | 8205 | launched |
@@ -25,7 +25,7 @@ container restart or usage limit loses at most the work since the last push.
 | 8 | ui-quality.md | real Chromium: mobile viewport, PWA/service worker/offline, console errors, a11y, visual breakage | 8208 | launched |
 
 ## Integrated (commits on this branch)
-(none yet)
+- accounts: ACCOUNTS-1 flat-loan kept instalment, ACCOUNTS-2 interest-only payment, ACCOUNTS-3 close only at nil
 
 ## Decisions pending for the owner
-(none yet)
+- Capitalised moratorium interest is never added to the outstanding (~₹1.05L disappears from net worth after the first EMI on a ₹10L loan). Recommendation: first principal-repaying instalment records a dated capitalisation row, like re-anchoring.
