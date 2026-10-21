@@ -43,10 +43,10 @@ function row(label: string, value: Paise, opts: { muted?: boolean; strong?: bool
 function regimeCard(e: RegimeEstimate, isBetter: boolean): SafeHtml {
   return html`
     <div class="card" style="${isBetter ? "border-color:var(--good)" : ""}">
-      <h3>
+      <h2>
         ${e.regime === "new" ? "New regime" : "Old regime"}
         ${isBetter ? html`<span class="pill pill-good">Lower</span>` : html``}
-      </h3>
+      </h2>
       <p class="amount" style="font-size:1.6rem;margin:.25rem 0">
         <strong>${formatPaise(e.total)}</strong>
       </p>

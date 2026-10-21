@@ -548,6 +548,9 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 }
 .chip-positive { background: var(--positive-bg); color: var(--positive); }
 .chip-warning  { background: var(--warning-bg);  color: var(--warning); }
+/* UIQ-5 · An uncleared register row is quieter in its own text, not by opacity,
+   which took every chip and amount in the row below AA with it. */
+.row-uncleared > td { color: var(--text-muted); }
 .chip-danger   { background: var(--danger-bg);   color: var(--danger); }
 .chip-info     { background: var(--info-bg);     color: var(--accent); }
 
