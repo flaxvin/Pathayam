@@ -378,6 +378,8 @@ const PUBLIC_PATHS = new Set([
   "/demo/enter",
 ]);
 const STATIC_PREFIX = "/assets/";
+/** The largest body a public route (a sign-in door) will read. */
+const PUBLIC_BODY_BYTES = 64 * 1024;
 
 /**
  * R38 · Things a public demonstration must not do. Each is refused with an
@@ -556,7 +558,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
       ctx.locals.auth = auth;
 
-      if (PUBLIC_PATHS.has(path)) return;
+      if (PUBLIC_PATHS.has(path)) {
+        // Every door is a short form — an email and a password at most. The
+        // 12 MB an attachment needs is not offered to somebody not yet in.
+        ctx.locals.bodyLimit = PUBLIC_BODY_BYTES;
+        return;
+      }
       if (!auth) {
         if (wantsJson(ctx)) return { status: 401, json: { error: "Your session has expired." } };
         return { redirect: `/signin?next=${encodeURIComponent(path)}` };

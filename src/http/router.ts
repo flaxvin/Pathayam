@@ -134,14 +134,21 @@ export function fileField(req: IncomingMessage, name: string): UploadedFile | nu
   return uploads.get(req)?.get(name) ?? null;
 }
 
-export async function readBody(req: IncomingMessage): Promise<Record<string, string | string[]>> {
+export async function readBody(
+  req: IncomingMessage, maxBytes: number = MAX_BODY_BYTES,
+): Promise<Record<string, string | string[]>> {
   const contentType = req.headers["content-type"] ?? "";
   const chunks: Buffer[] = [];
   let size = 0;
 
+  // A body that says up front it is too large is refused before any of it is
+  // held, rather than after the cap's worth has been buffered.
+  const declared = Number(req.headers["content-length"] ?? NaN);
+  if (Number.isFinite(declared) && declared > maxBytes) throw new PayloadTooLarge();
+
   for await (const chunk of req) {
     size += (chunk as Buffer).length;
-    if (size > MAX_BODY_BYTES) throw new PayloadTooLarge();
+    if (size > maxBytes) throw new PayloadTooLarge();
     chunks.push(chunk as Buffer);
   }
 
