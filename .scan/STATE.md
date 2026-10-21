@@ -19,12 +19,14 @@ container restart or usage limit loses at most the work since the last push.
 | 2 | accounts.md | accounts, cards, reconciliation, loans, family loans, assets/portfolio, net worth, tax/FI | 8202 | done, integrated |
 | 3 | imports.md | CSV/PDF/CAS/Gmail imports, dedupe, review queue, rules, payees | 8203 | done, integrated |
 | 4 | security.md | authn/authz, sessions, tokens, OIDC, impersonation (ADMIN_DEBUG), CSRF, XSS, injection, DoS, headers | 8204 | done, integrated |
-| 5 | budget.md | engine, envelopes, RTA, schedules, goals, commitments, departure, month close, reports; randomized fuzzer | 8205 | launched |
+| 5 | budget.md | engine, envelopes, RTA, schedules, goals, commitments, departure, month close, reports; randomized fuzzer | 8205 | stopped at limit during final fuzz batch; resumed 21:2x UTC |
 | 6 | routes.md | every route x method with fuzzed input; 500s, broken rendering | 8206 | done, integrated |
-| 7 | ui-flows.md | real Chromium, signed in as each member: every user journey by clicking; in-app impersonation | 8207 | launched |
-| 8 | ui-quality.md | real Chromium: mobile viewport, PWA/service worker/offline, console errors, a11y, visual breakage | 8208 | launched |
+| 7 | ui-flows.md | real Chromium, signed in as each member: every user journey by clicking; in-app impersonation | 8207 | done, integrated |
+| 8 | ui-quality.md | real Chromium: mobile viewport, PWA/service worker/offline, console errors, a11y, visual breakage | 8208 | done, integrated |
 
 ## Integrated (commits on this branch)
+- ui-flows: UI-FLOWS-1 add form fills usual envelope, -2 pressed button decides form action ("No thanks" confirmed rules), -3 (dup of ROUTES-1, kept its destination test), -4 paid card not due, -5 no double undo of removed transfer, -6 (superseded by UIQ-2)
+- ui-quality: UIQ-1 explain links as pages, -2 SVG height in CSS, -3 duplicate ids, -4 theme toggle in dark mode, -5 logo name/heading order/contrast
 - imports: IMPORTS-1 TSV with lakh figures, -2 impossible CAS dates, -3 transfer approval retires deleted twin (500), -4 Gmail notice, -5 VPA/payee parsing, -6 undoing a merge reverses it
 - routes: ROUTES-1 /move from Ready to Assign works again (was 404), ROUTES-2 unreachable OIDC provider is 503 not 500
 - transactions: TX-1 delete asks about other leg's checkpoint from its own date, TX-2 leg-create undo takes the fee, TX-3 no undo offered on receipt removal, TX-4 edit without direction keeps sign
@@ -40,3 +42,7 @@ container restart or usage limit loses at most the work since the last push.
 - /transfer opens with the same account as From and To (form refused as drawn); /auth/oidc discovery has no own timeout.
 - Batch undo does not reverse the automatic statement-after-alert upgrade (needs batch id on its event).
 - Unverified: Gmail statement PDFs for SBI Card/Canara/HSBC likely never open (password candidates lack card digits).
+- Small buttons are 34px, docs promise 44px tap targets (recommend coarse-pointer min-height).
+- app.js/app.css cached 1h with no version in URL (recommend content-hash query).
+- Envelope wording: 'Over-funded ₹700 of ₹700' with ₹1,000 assigned; income schedule 'Arrived' says 'Marked paid'; Pay it off fills whole balance not statement amount; Undo buttons still shown on halves of an undone transfer.
+- Net worth shows account name, other screens the nickname.
