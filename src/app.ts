@@ -3087,7 +3087,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // to a same-site path the palette sends, the way POST /settings/theme does.
   router.post("/settings/theme-toggle", (ctx) =>
     mutate(ctx, (a) => {
-      const next: Theme = a.viewingAs.theme === "dark" ? "light" : "dark";
+      /*
+       * UIQ-4 · On "system" the server cannot see what the device shows, so
+       * the client says (`seen`); without it, dark is the old guess.
+       */
+      const current = a.viewingAs.theme === "system" ? field(ctx.body, "seen") : a.viewingAs.theme;
+      const next: Theme = current === "dark" ? "light" : "dark";
       setTheme(db, actorFor(a), a.member.id, next);
       return { redirect: safePath(field(ctx.body, "return_to"), "/") };
     }),

@@ -211,6 +211,7 @@ export const CLIENT_SCRIPT = String.raw`
           var currentNav = document.querySelector(selector);
           if (freshNav && currentNav) currentNav.innerHTML = freshNav.innerHTML;
         });
+        syncThemeToggle();
 
         if (doc.title) document.title = doc.title;
         // Keep the address bar truthful even when the scroll is held: a month
@@ -367,6 +368,31 @@ export const CLIENT_SCRIPT = String.raw`
     event.preventDefault();
     submitWithRetry(form, event.submitter);
   });
+
+  /*
+   * UIQ-4 · On "system" the page carries no data-theme and the server, which
+   * cannot see the device, offers dark. On a phone already in dark mode that
+   * press stored "dark" and changed nothing. The device knows; ask it.
+   */
+  function deviceShowsDark() {
+    var forced = document.documentElement.getAttribute("data-theme");
+    if (forced) return forced === "dark";
+    return Boolean(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  }
+  function syncThemeToggle() {
+    if (document.documentElement.getAttribute("data-theme")) return;
+    var form = document.querySelector("form[action='/settings/theme']");
+    if (!form || !deviceShowsDark()) return;
+    var input = form.querySelector("input[name='theme']");
+    var button = form.querySelector("button");
+    if (input) input.value = "light";
+    if (button) {
+      button.setAttribute("aria-label", "Switch to light theme");
+      button.setAttribute("title", "Switch to light theme");
+      button.textContent = "\u2600";
+    }
+  }
+  syncThemeToggle();
 
   // Carry the current URL into the theme toggle so it returns you here (R39.5).
   document.querySelectorAll('input[name="return_to"]').forEach(function (input) {
@@ -748,6 +774,11 @@ export const CLIENT_SCRIPT = String.raw`
     back.name = "return_to";
     back.value = window.location.pathname + window.location.search;
     form.appendChild(back);
+    var seen = document.createElement("input");
+    seen.type = "hidden";
+    seen.name = "seen";
+    seen.value = deviceShowsDark() ? "dark" : "light";
+    form.appendChild(seen);
     document.body.appendChild(form);
     form.submit();
   }
