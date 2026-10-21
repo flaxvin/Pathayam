@@ -420,17 +420,25 @@ export function spendingCalendar(
   db: DB, from: IsoDate, to: IsoDate, viewerMemberId?: string | null,
 ): { date: IsoDate; value: Paise }[] {
   const seen = hiddenClause(viewerMemberId);
+  /*
+   * Spending, not movement. A transfer is not spending: paying the card bill
+   * counted its charges a second time on the day it was paid, and moving
+   * savings into a deposit lit up the hottest square on the calendar. A
+   * tracking account (a loan's ledger, a deposit) is outside the budget and
+   * spends nothing of it.
+   */
+  const spend = ` AND t.transfer_pair_id IS NULL AND a.kind <> 'tracking'`;
   return queryAll<{ date: string; value: number }>(
     db,
     `WITH lines AS (
        SELECT t.date AS date, t.amount AS amount
          FROM transactions t JOIN accounts a ON a.id = t.account_id
-        WHERE t.is_split = 0 AND t.deleted_at IS NULL${seen.sql}
+        WHERE t.is_split = 0 AND t.deleted_at IS NULL${spend}${seen.sql}
        UNION ALL
        SELECT t.date, s.amount FROM transaction_splits s
          JOIN transactions t ON t.id = s.transaction_id
          JOIN accounts a ON a.id = t.account_id
-        WHERE t.deleted_at IS NULL${seen.sql}
+        WHERE t.deleted_at IS NULL${spend}${seen.sql}
      )
      SELECT substr(date,1,10) AS date, COALESCE(SUM(-amount),0) AS value
        FROM lines WHERE amount < 0 AND date >= ? AND date <= ?
