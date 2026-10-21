@@ -1453,15 +1453,28 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    */
   router.get("/auth/oidc", async (ctx) => {
     if (!oidcConfigured(config)) throw new NotFound();
-    const start = await beginOidc(
-      {
-        issuer: config.oidc.issuer!,
-        clientId: config.oidc.clientId!,
-        clientSecret: config.oidc.clientSecret!,
-      },
-      `${config.baseUrl}/auth/oidc/callback`,
-      deps.fetchImpl,
-    );
+    /*
+     * ROUTES-2 · Discovery failing — the provider down, or answering something
+     * that is not a discovery document — is the provider's state, not this
+     * server breaking. Uncaught, OAuthError was a 500 and a request_failures
+     * row on a public, unauthenticated URL: the hole SECURITY-OPS-18 closed on
+     * the callback, still open on the way in.
+     */
+    let start: Awaited<ReturnType<typeof beginOidc>>;
+    try {
+      start = await beginOidc(
+        {
+          issuer: config.oidc.issuer!,
+          clientId: config.oidc.clientId!,
+          clientSecret: config.oidc.clientSecret!,
+        },
+        `${config.baseUrl}/auth/oidc/callback`,
+        deps.fetchImpl,
+      );
+    } catch (error) {
+      if (!(error instanceof OAuthError)) throw error;
+      throw new HttpError(503, `${config.oidc.label} is not answering right now. Please try again later.`);
+    }
     pendingOAuth.set(start.state, {
       verifier: start.codeVerifier,
       next: safePath(ctx.query.get("next"), "/"),
