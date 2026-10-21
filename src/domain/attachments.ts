@@ -147,11 +147,11 @@ export function deleteAttachment(db: DB, actor: Actor, id: string): string | nul
 
 // R37 · Undoing an *add* removes the attachment — the common "I attached the
 // wrong photo" case. A *delete* cannot be undone, because the bytes are gone
-// with the row; the event log keeps the record that it happened.
+// with the row; the event log keeps the record that it happened. Only "add" is
+// registered: the handler used to accept a delete too, answer "cannot be
+// restored" as a successful undo, and mark the removal undone over a receipt
+// that stayed gone — Activity offering a button that did nothing.
 registerUndoHandler("attachment", (db, event) => {
-  if (event.action === "add") {
-    execute(db, `DELETE FROM attachments WHERE id = ?`, event.entityId);
-    return "Removed the attachment.";
-  }
-  return "That receipt's file was deleted and cannot be restored.";
-});
+  execute(db, `DELETE FROM attachments WHERE id = ?`, event.entityId);
+  return "Removed the attachment.";
+}, ["add"]);
