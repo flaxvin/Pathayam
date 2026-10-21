@@ -630,9 +630,12 @@ export function renderExplain(opts: {
   figure: Paise;
   summary: string;
   lines: ExplainLine[];
+  /** 2 inside the dialog; 1 when the explanation is the page (UIQ-1). */
+  headingLevel?: 1 | 2;
 }): SafeHtml {
+  const heading = opts.headingLevel === 1 ? html`<h1>${opts.title}</h1>` : html`<h2>${opts.title}</h2>`;
   return html`
-    <h2>${opts.title}</h2>
+    ${heading}
     <p class="amount" style="font-size:1.5rem;font-weight:700">${formatPaise(opts.figure)}</p>
     <p class="muted">${opts.summary}</p>
     ${opts.lines.length === 0
@@ -643,7 +646,8 @@ export function renderExplain(opts: {
               (line) => html`
                 <li>
                   <div>${line.what}</div>
-                  <div class="explain-when">${line.when} · ${line.who}</div>
+                  ${when(Boolean(line.when || line.who), () => html`
+                    <div class="explain-when">${[line.when, line.who].filter(Boolean).join(" · ")}</div>`)}
                 </li>
               `,
             )}

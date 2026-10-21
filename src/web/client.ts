@@ -907,7 +907,8 @@ export const CLIENT_SCRIPT = String.raw`
     dialog.showModal();
 
     fetch(link.getAttribute("href"), {
-      headers: { Accept: "text/html" },
+      // UIQ-1: ask for the fragment; a navigation to the same URL gets a page.
+      headers: { Accept: "text/html", "X-Fragment": "1" },
       credentials: "same-origin",
     })
       .then(function (r) {

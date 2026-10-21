@@ -2429,6 +2429,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
   // F25.10 · Explain this number
   // -------------------------------------------------------------------------
+
+  /**
+   * UIQ-1 · The dialog fetches a fragment; anything else navigated here — a
+   * long-press "open in new tab", a middle click, a page whose script did not
+   * load — and is owed a page. The fragment used to go to both, began with a
+   * newline, went out as text/plain, and the browser printed the raw tags.
+   */
+  function explainResponse(ctx: RequestContext, opts: Parameters<typeof renderExplain>[0]): Response {
+    const fetched =
+      ctx.req.headers["x-fragment"] === "1" || ctx.req.headers["sec-fetch-dest"] === "empty";
+    const vary = { Vary: "X-Fragment, Sec-Fetch-Dest" };
+    if (fetched) return { body: renderExplain(opts), headers: { "Content-Type": "text/html; charset=utf-8", ...vary } };
+    const page = render(ctx, opts.title, html`<div class="card">${renderExplain({ ...opts, headingLevel: 1 })}</div>`);
+    return { ...page, headers: { ...page.headers, ...vary } };
+  }
   router.get("/explain/ready-to-assign", (ctx) => {
     const month = monthParam(ctx);
     // BUDGET-2 · The figure being explained is one budget's; so is the answer.
@@ -2443,14 +2458,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       { when: "", who: "", what: `Less cash overspending carried in: ${formatPaise(-b.cashOverspendCarried)}` },
     ];
 
-    return {
-      body: renderExplain({
-        title: "Ready to Assign",
-        figure: b.total,
-        summary: `Every rupee in a budget account that hasn't been given a job yet.`,
-        lines,
-      }),
-    };
+    return explainResponse(ctx, {
+      title: "Ready to Assign",
+      figure: b.total,
+      summary: `Every rupee in a budget account that hasn't been given a job yet.`,
+      lines,
+    });
   });
 
   router.get("/explain/category/:id", (ctx) => {
@@ -2491,17 +2504,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ...transactionIds.flatMap((id) => historyFor(db, "transaction", id)),
     ].sort((a, b) => a.seq - b.seq);
 
-    return {
-      body: renderExplain({
-        title: category.name,
-        figure: category.state.balance,
-        summary:
-          `Opened at ${formatPaise(category.state.opening)}, ` +
-          `${formatPaise(category.state.assigned)} assigned, ` +
-          `${formatPaise(-category.state.activity)} spent.`,
-        lines: events.map((e) => explainLineFor(e, memberName)),
-      }),
-    };
+    return explainResponse(ctx, {
+      title: category.name,
+      figure: category.state.balance,
+      summary:
+        `Opened at ${formatPaise(category.state.opening)}, ` +
+        `${formatPaise(category.state.assigned)} assigned, ` +
+        `${formatPaise(-category.state.activity)} spent.`,
+      lines: events.map((e) => explainLineFor(e, memberName)),
+    });
   });
 
   // -------------------------------------------------------------------------
