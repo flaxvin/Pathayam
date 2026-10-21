@@ -15,6 +15,7 @@ import assert from "node:assert/strict";
 import { queryAll, queryOne, type DB } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { createAccount } from "../domain/accounts.ts";
+import { deleteTransaction, restoreTransaction } from "../domain/transactions.ts";
 import { createGroup, createCategory } from "../domain/budget.ts";
 import { listStaged, undoBatch } from "./pipeline.ts";
 import { freshDb, seedMember, startTestApp } from "../web/harness.test-data.ts";
@@ -105,6 +106,35 @@ describe("IMPORTS-SCHEDULES-32 · imported transfers", () => {
       assert.equal(queryOne<{ n: number }>(db,
         `SELECT COUNT(*) AS n FROM transactions WHERE deleted_at IS NULL AND transfer_pair_id IS NOT NULL`)!.n, 0);
       assert.deepEqual(listStaged(db).map((r) => r.account_id), [card]);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("recording a re-imported row as a transfer retires a deleted twin's identity, as approving it would", async () => {
+    // Approve, delete, re-import, record as a transfer, then restore the
+    // deleted one: the transfer leg took the identity without the deleted
+    // twin giving it up, so the restore hit the unique index — a 500.
+    const { db, bank, card } = setup();
+    const app = await startTestApp(db, { memberId: "m-ravi" });
+    try {
+      const csv = "Date,Narration,Amount\n10-09-2026,ZZ CARD BILL PAYMENT,-5000.00";
+      await app.post("/import", { account_id: bank, file_name: "bank.csv", csv });
+      const first = listStaged(db)[0]!;
+      const cat = queryOne<{ id: string }>(db, `SELECT id FROM categories WHERE name = 'ZZ Groceries'`)!.id;
+      assert.equal((await app.post("/review/approve", { staged_id: first.id, category_id: cat })).status, 303);
+      const filed = queryOne<{ id: string }>(db, `SELECT id FROM transactions WHERE source_id = ?`, first.source_id)!.id;
+      deleteTransaction(db, actor, filed);
+
+      await app.post("/import", { account_id: bank, file_name: "bank.csv", csv });
+      const again = listStaged(db)[0]!;
+      assert.equal(again.source_id, first.source_id);
+      assert.equal((await app.post("/review/approve", { staged_id: again.id, category_id: `transfer:${card}` })).status, 303);
+
+      assert.doesNotThrow(() => restoreTransaction(db, actor, filed));
+      assert.equal(queryOne<{ n: number }>(db,
+        `SELECT COUNT(*) AS n FROM transactions WHERE deleted_at IS NULL AND source_id = ?`, first.source_id)!.n, 1,
+        "only the transfer leg holds the identity");
     } finally {
       await app.close();
     }

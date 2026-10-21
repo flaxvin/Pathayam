@@ -588,12 +588,7 @@ export function approveStaged(
        * identity up, keeping it recognisable with a suffix; a partial index
        * `WHERE deleted_at IS NULL` would make this unnecessary.
        */
-      execute(
-        db,
-        `UPDATE transactions SET source_id = source_id || '~deleted:' || id
-          WHERE account_id = ? AND source = ? AND source_id = ? AND deleted_at IS NOT NULL`,
-        row.account_id, source, row.source_id,
-      );
+      retireDeletedTwin(db, row.account_id, source, row.source_id);
     }
 
     const payeeName = patch.payeeName ?? row.proposed_payee;
@@ -707,11 +702,27 @@ export function approveStagedAsTransfer(
   });
 }
 
+/**
+ * A deleted transaction gives up an imported identity a new one is taking,
+ * keeping it recognisable with a `~deleted:<id>` suffix.
+ */
+function retireDeletedTwin(db: DB, accountId: string, source: string, sourceId: string): void {
+  execute(
+    db,
+    `UPDATE transactions SET source_id = source_id || '~deleted:' || id
+      WHERE account_id = ? AND source = ? AND source_id = ? AND deleted_at IS NOT NULL`,
+    accountId, source, sourceId,
+  );
+}
+
 /** One leg of a transfer, marked as the ledger copy of an imported row. */
 function stampImportedLeg(db: DB, actor: Actor, transactionId: string, row: StagedRow): void {
   const source = queryOne<{ source: TransactionSource }>(
     db, `SELECT source FROM import_batches WHERE id = ?`, row.batch_id,
   )?.source ?? "csv";
+  // As approveStaged does: a deleted transaction holding this identity gives
+  // it up, or restoring it would collide with this leg on the unique index.
+  if (row.source_id) retireDeletedTwin(db, row.account_id, source, row.source_id);
   // The leg is dated as its own statement dates it: a card credits a payment
   // a day or two after the bank sends it.
   execute(
