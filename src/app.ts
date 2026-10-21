@@ -574,7 +574,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // B51: `/impersonate/writes` must pass even in read-only mode — it *is*
       // the toggle. Blocking it (as this did) made read-only impersonation a
       // one-way door, contradicting the error's own "Enable writes first".
-      const IMPERSONATION_CONTROLS = new Set(["/impersonate/exit", "/impersonate/writes"]);
+      // Signing out is the same kind of door: refusing it left a read-only
+      // viewer unable to end their own session on a shared device.
+      const IMPERSONATION_CONTROLS = new Set(["/impersonate/exit", "/impersonate/writes", "/signout"]);
       if (ctx.method !== "GET" && !auth.canWrite && !IMPERSONATION_CONTROLS.has(path)) {
         throw new HttpError(
           403,
