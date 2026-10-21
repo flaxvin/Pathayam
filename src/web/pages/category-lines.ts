@@ -23,7 +23,7 @@
  * used to have to get right, and the refusal when they did not, stop existing.
  */
 
-import { html, raw, when, type SafeHtml } from "../../http/html.ts";
+import { html, raw, when, escape, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, type Paise } from "../../core/money.ts";
 
 export interface CategoryChoice {
@@ -31,6 +31,14 @@ export interface CategoryChoice {
   name: string;
   /** Shown beside the name where the screen knows it, as `— ₹1,200 left`. */
   balance?: Paise;
+  /**
+   * The budget it belongs to, and that budget's name as the household reads
+   * it. Given on a screen that offers envelopes from more than one budget: the
+   * list is then grouped by budget, and each option says which, so the client
+   * can explain a filing across budgets before it is made (15 §3.4).
+   */
+  budgetId?: string | null;
+  budgetLabel?: string;
 }
 
 export interface CategoryLineValue {
@@ -59,13 +67,22 @@ export function renderCategoryLines(opts: {
   const extras = opts.extraLines ?? 3;
   const split = values.length > 1;
 
+  const option = (c: CategoryChoice, selected: string | null) => html`
+    <option value="${c.id}"${raw(c.budgetId !== undefined ? ` data-budget="${escape(c.budgetId ?? "")}"` : "")} ${raw(c.id === selected ? "selected" : "")}>
+      ${c.name}${c.balance !== undefined ? ` — ${formatPaise(c.balance)} left` : ""}
+    </option>
+  `;
+  // Grouped only when the choices really span budgets; one group is noise.
+  const groups = [...new Set(opts.categories.map((c) => c.budgetLabel).filter((l): l is string => !!l))];
   const options = (selected: string | null) => html`
     <option value="">—</option>
-    ${opts.categories.map((c) => html`
-      <option value="${c.id}" ${raw(c.id === selected ? "selected" : "")}>
-        ${c.name}${c.balance !== undefined ? ` — ${formatPaise(c.balance)} left` : ""}
-      </option>
-    `)}
+    ${groups.length > 1
+      ? groups.map((label) => html`
+          <optgroup label="${label}">
+            ${opts.categories.filter((c) => c.budgetLabel === label).map((c) => option(c, selected))}
+          </optgroup>
+        `)
+      : opts.categories.map((c) => option(c, selected))}
   `;
 
   return html`
@@ -76,7 +93,7 @@ export function renderCategoryLines(opts: {
               ${raw(opts.requiresCategory ? "data-requires-category" : "")}>
         ${options(values[0]?.categoryId ?? null)}
       </select>
-      ${when(opts.hint, () => html`<p class="field-hint">${opts.hint}</p>`)}
+      ${when(opts.hint, () => html`<p class="field-hint" data-category-hint>${opts.hint}</p>`)}
     </div>
 
     <details class="field" ${raw(split ? "open" : "")}>

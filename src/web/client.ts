@@ -575,7 +575,8 @@ export const CLIENT_SCRIPT = String.raw`
   // ---------------------------------------------------------------------------
   function applyUsualCategory() {
     var payee = document.getElementById("payee");
-    var category = document.getElementById("category_id");
+    // The envelope is the first of the split lines; category_id is its old name.
+    var category = document.getElementById("category_id") || document.getElementById("split_category_0");
     if (!payee || !category || category.value !== "") return;
 
     var list = document.getElementById("payee-options");
@@ -787,7 +788,7 @@ export const CLIENT_SCRIPT = String.raw`
    */
   (function explainCrossBudgetFiling() {
     var account = document.getElementById("account_id");
-    var category = document.getElementById("category_id");
+    var category = document.getElementById("category_id") || document.getElementById("split_category_0");
     var note = document.querySelector("[data-cross-budget]");
     if (!account || !category || !note) return;
 

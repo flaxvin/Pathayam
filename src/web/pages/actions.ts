@@ -151,6 +151,8 @@ export function renderAddTransaction(opts: {
         requiresCategory: true,
         categories: spendable.map((c) => ({
           id: c.id, name: c.name, balance: c.state.balance,
+          budgetId: c.budgetId ?? null,
+          budgetLabel: grouped.length > 1 ? budgetLabel(c.budgetId ?? null) : undefined,
         })),
         hint: html`
           Each envelope shows what it holds, so you can see the consequence while
