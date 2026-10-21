@@ -21,11 +21,11 @@ for (const scheme of ["dark", "light"]) {
   const page = await ctx.newPage();
   await signIn(page, "Anil");
   log(`[theme ${scheme} OS] before`, await themeState(page));
-  await Promise.all([page.waitForNavigation(), page.click("form[action='/settings/theme'] button")]);
+  await page.click("form[action='/settings/theme'] button"); await page.waitForTimeout(1200);
   log(`[theme ${scheme} OS] after 1 click`, await themeState(page));
   await page.goto(BASE + "/accounts");
   log(`[theme ${scheme} OS] after nav`, await themeState(page));
-  await Promise.all([page.waitForNavigation(), page.click("form[action='/settings/theme'] button")]);
+  await page.click("form[action='/settings/theme'] button"); await page.waitForTimeout(1200);
   log(`[theme ${scheme} OS] after 2 clicks`, await themeState(page));
   // reset to system
   await page.goto(BASE + "/settings");

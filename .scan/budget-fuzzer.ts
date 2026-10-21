@@ -54,6 +54,9 @@ function problems(db: DB, through: MonthKey): string[] {
     for (const [month, st] of live) {
       const r = identityResidual(st);
       if (r !== 0) out.push(`${scope ?? "all"} ${month} live residual ${r}`);
+      const b = st.rtaBreakdown;
+      const sum = b.incomeToDate - b.assignedThisMonthAndEarlier - b.assignedInFutureMonths - b.heldForNextMonth - b.cashOverspendCarried;
+      if (sum !== b.total || b.total !== st.readyToAssign) out.push(`${scope ?? "all"} ${month} explain lines sum ${sum} total ${b.total} rta ${st.readyToAssign}`);
       const o = rolled.get(month);
       if (!o) { out.push(`${scope} ${month} missing rollup`); continue; }
       if (identityResidual(o) !== 0) out.push(`${scope ?? "all"} ${month} rollup residual ${identityResidual(o)}`);
