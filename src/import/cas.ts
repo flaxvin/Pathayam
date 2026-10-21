@@ -28,7 +28,7 @@
 import { readDocument, expandObjectStreams } from "../pdf/objects.ts";
 import { decryptDocument, isEncrypted, WrongPassword } from "../pdf/decrypt.ts";
 import { extractText } from "../pdf/text.ts";
-import type { IsoDate } from "../core/dates.ts";
+import { calendarDate, type IsoDate } from "../core/dates.ts";
 import type { Paise } from "../core/money.ts";
 
 export { WrongPassword };
@@ -74,16 +74,18 @@ const MONTHS: Record<string, string> = {
 };
 
 /** `05-Apr-2026` and `05/04/2026` both appear, depending on the registrar. */
+/**
+ * Through `calendarDate`, so "31/02/2026" and "05/13/2026" are no date (and the
+ * row is reported unparsed) rather than a lot dated 2026-02-31.
+ */
 function parseCasDate(raw: string): IsoDate | null {
   const named = /^(\d{1,2})[-/\s]([A-Za-z]{3})[a-z]*[-/\s](\d{4})$/.exec(raw.trim());
   if (named) {
     const month = MONTHS[named[2]!.toLowerCase()];
-    if (month) return `${named[3]}-${month}-${named[1]!.padStart(2, "0")}` as IsoDate;
+    if (month) return calendarDate(Number(named[3]), Number(month), Number(named[1]));
   }
   const numeric = /^(\d{1,2})[-/](\d{1,2})[-/](\d{4})$/.exec(raw.trim());
-  if (numeric) {
-    return `${numeric[3]}-${numeric[2]!.padStart(2, "0")}-${numeric[1]!.padStart(2, "0")}` as IsoDate;
-  }
+  if (numeric) return calendarDate(Number(numeric[3]), Number(numeric[2]), Number(numeric[1]));
   return null;
 }
 

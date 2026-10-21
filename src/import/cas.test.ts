@@ -123,6 +123,21 @@ ISIN: INF846K01131
     assert.equal(cas.schemes[0]!.rows[0]!.units, 7_000);
   });
 
+  test("an impossible date is reported as unparsed, not dated 2026-02-31", () => {
+    const cas = parseCasText(`
+Statement Period: 01/04/2026 To 31/13/2026
+Folio No: 4444
+Some Fund - Growth
+ISIN: INF846K01131
+31/02/2026  Purchase  10,000.00  200.000  50.0000  200.000
+30-Feb-2026  Purchase  5,000.00  100.000  50.0000  300.000
+01/05/2026  Purchase  1,000.00  20.000  50.0000  320.000
+`);
+    assert.deepEqual(cas.schemes[0]!.rows.map((r) => r.date), ["2026-05-01"]);
+    assert.equal(cas.unparsed.length, 2, "IL3: the unreadable rows are shown, not dropped");
+    assert.equal(cas.period, null, "a period ending in month 13 is no period");
+  });
+
   test("a missed row shows up as a disagreement rather than a wrong holding", () => {
     const cas = parseCasText(`
 Folio No: 3333
