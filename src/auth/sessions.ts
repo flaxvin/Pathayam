@@ -122,6 +122,14 @@ export function removeMember(db: DB, actor: Actor, id: string): void {
     }
     execute(db, `UPDATE members SET removed_at = ?, allowed = 0 WHERE id = ?`, nowIST(), id);
     execute(db, `UPDATE sessions SET revoked_at = ? WHERE member_id = ? AND revoked_at IS NULL`, nowIST(), id);
+    /*
+     * Their API tokens end with their access too. The request path already
+     * refused a removed member's token, but only by reading the allow-list —
+     * so reinstating them brought every token they had minted back to life,
+     * scripts and all, though their sessions stayed signed out. Reinstating
+     * restores a member, not the credentials they held before.
+     */
+    execute(db, `UPDATE api_tokens SET revoked_at = ? WHERE member_id = ? AND revoked_at IS NULL`, nowIST(), id);
     appendEvent(db, actor, {
       entity: "member", entityId: id, action: "remove", before, after: getMember(db, id),
       summary: `Removed ${before.name} from the household`,
