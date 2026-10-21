@@ -184,3 +184,12 @@ describe("S15 · charts", () => {
     assert.notEqual(seriesColor(0), seriesColor(1));
   });
 });
+
+test("no chart sets an SVG height the browser rejects", async () => {
+  // `height="auto"` is not a valid SVG length: every chart logged
+  // "Error: <svg> attribute height: Expected length" to the console on
+  // Schedules and Reports. The width and viewBox already size it.
+  const { readFile } = await import("node:fs/promises");
+  const source = await readFile(new URL("./charts.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(source, /height="auto"/);
+});
