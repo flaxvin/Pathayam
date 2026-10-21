@@ -1,12 +1,9 @@
 # budget area scan
 ## RESUME
-- Started 2026-10-21. Worktree: /home/user/Pathayam/.claude/worktrees/agent-a9b56b8dd4709738f, branch worktree-agent-a9b56b8dd4709738f (base cebdd0b).
-- Fuzzer: .scan/budget-fuzzer.ts (copy into <worktree>/.scratch/, run `node --experimental-strip-types .scratch/budget-fuzzer.ts FROM TO STEPS`, R=1 for refusal stats).
-- Fuzz done: seeds 1-8x100, 10-13x200, 100-140x300 (~13k steps): identity + rollup-vs-live (RTA and every category balance) clean, no crashes.
-- BUDGET-SCAN-1 committed f1e0d8e, patch 0001 in .scan/patches/budget/. Full npm test 2143 pass.
-- Fuzz also: seeds 200-205x200, 300-330x250 with semantic checks (departure ends even + envelope 0 in all later months; family-loan makes one loan; markPaid posts schedule amount & split sums; autoAssign RTA arithmetic). Departure: release 25, family-loan 15, call-it-even 8 — all clean.
-- Fuzzer now also checks RTA explain lines sum to RTA (clean).
-- Next: commit SCAN-3 after full test; then wrap up and final report.
+- STATUS: DONE (2026-10-21). Branch worktree-agent-a9b56b8dd4709738f: f1e0d8e SCAN-1, c369b01 SCAN-2, a5b309a SCAN-3 (1-3 integrated by coordinator), 16b3bdf SCAN-4 (patch 0004, not yet integrated).
+- Full npm test after SCAN-4: 2148/2148 pass; typecheck clean.
+- Fuzzer: .scan/budget-fuzzer.ts (copy to <worktree>/.scratch/, `node --experimental-strip-types .scratch/budget-fuzzer.ts FROM TO STEPS`; R=1 refusal stats, V=1 verbose). Note: uses SQLite random() for picks, so a seed is not fully reproducible.
+- Fuzz total ~30k steps: seeds 1-8x100, 10-13x200, 100-140x300, 200-205x200, 300-330x250, 400-425x250 (x2). Checks per step: identity in every scope/month, live vs rollup RTA and every category balance, RTA explain lines sum to RTA; semantic: departure ends even with later months zeroed (release/family-loan/call-it-even all exercised), family-loan creates one loan, markPaid posts schedule amount and split sums, auto-assign RTA arithmetic. Only defect found: SCAN-4.
 
 ## Findings
 ### BUDGET-SCAN-1 (medium) digest reads the household, not the budget on screen
@@ -24,7 +21,7 @@
 
 ### BUDGET-SCAN-4 (medium) undoing a schedule split change restores lines on merged/deleted envelopes
 - Found by fuzz seed 411 (FOREIGN KEY constraint failed on undo). Repro: split schedule [A,B] -> [A,C]; merge or delete B; undo the second split (force) -> lines [A,B(gone)] restored; next Mark paid refused. Row hard-gone -> FK error (500).
-- Test src/domain/schedule-split-undo-gone.test.ts. Fix: split undo handler refuses when any restored envelope is missing/deleted. Status: fixed, awaiting full test then commit.
+- Test src/domain/schedule-split-undo-gone.test.ts. Fix: split undo handler refuses when any restored envelope is missing/deleted. Status: fixed 16b3bdf, patch 0004.
 
 ## Notes (not fixed / outside)
 - Departure family-loan ending: household RTA rises by the debt while the debt sits in an off-budget tracking account (by design per departure.ts comment). Not reported as a bug.
