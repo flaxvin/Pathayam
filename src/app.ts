@@ -7469,9 +7469,26 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // `04` §3.4 · Gmail ingestion — a separate, opt-in connection.
   // -------------------------------------------------------------------------
 
+  /*
+   * A mailbox link is a credential, like an API token, and it belongs to the
+   * person at the keyboard. While viewing as somebody, these routes mixed the
+   * two identities: connect and callback are GETs, so even a read-only view
+   * replaced the viewed member's stored Gmail access with the viewer's own
+   * mailbox (under the viewed member's id); with writes on, fetch read the
+   * viewed member's mailbox with their refresh token, and disconnect deleted
+   * their link while revoking the viewer's at Google. Impersonation is
+   * session-only (R38.12), so none of them is offered during a view.
+   */
+  function refuseGmailWhileViewingAs(a: AuthContext): void {
+    if (a.impersonating) {
+      throw new HttpError(403, "Gmail cannot be connected, fetched or disconnected while viewing as another member.");
+    }
+  }
+
   router.get("/gmail/connect", (ctx) => {
     refuseInDemo(config, "Connecting a mailbox");
     const a = auth(ctx);
+    refuseGmailWhileViewingAs(a);
     // Not configured is a deployment state, not a fault — the same 503 as
     // /auth/google. A 500 here told the person the app had broken.
     if (!config.google.clientId) {
@@ -7487,6 +7504,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/gmail/callback", async (ctx) => {
     const a = auth(ctx);
+    refuseGmailWhileViewingAs(a);
     const state = ctx.query.get("state") ?? "";
     const pending = pendingGmail.take(state);
     if (!pending || pending.memberId !== a.member.id) {
@@ -7510,6 +7528,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/gmail/disconnect", (ctx) =>
     mutate(ctx, (a) => {
+      refuseGmailWhileViewingAs(a);
       const connection = getConnection(db, a.member.id);
       if (connection) {
         // Best-effort remote revoke; the local token is deleted regardless.
@@ -7522,6 +7541,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/gmail/fetch", async (ctx) => {
     const a = auth(ctx);
+    refuseGmailWhileViewingAs(a);
     if (!getConnection(db, a.member.id)) throw new HttpError(400, "Gmail is not connected.");
 
     const result = await fetchGmail(db, actorFor(a, "import"), {
