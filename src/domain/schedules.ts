@@ -1176,6 +1176,15 @@ export function projectCashflow(
    * its instalment would show as an outflow with no explanation attached to it.
    */
   for (const loan of listLoans(db, { viewerMemberId: opts.viewerMemberId })) {
+    /*
+     * And only out of this budget's cash, by the schedules' rule: the account it
+     * is repaid from must be in scope. Every visible loan was charged to every
+     * budget, so his own projection paid the household's home loan out of his
+     * savings. A loan with no repayment account is taken as cash, as a schedule
+     * with none is.
+     */
+    const repaidFrom = loan.repayment_account_id;
+    if (opts.budgetId && repaidFrom && !inScope.has(repaidFrom) && !cards.has(repaidFrom)) continue;
     const projection = projectLoan(db, loan.id);
     if (!projection) continue;
     for (const instalment of projection.schedule.instalments) {

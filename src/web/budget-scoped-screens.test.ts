@@ -28,6 +28,7 @@ import { queryTransactions, envelopeSpendByMonth, incomeVsExpense } from "../dom
 import { buildBudgetView } from "./viewmodel.ts";
 import { householdBudgetId, ensurePersonalBudget } from "../domain/budgets.ts";
 import { ensureCommitmentEnvelope } from "../domain/commitments.ts";
+import { createLoan } from "../domain/loans.ts";
 
 const RAVI = "m-ravi";
 const actor: Actor = { memberId: RAVI, source: "ui" };
@@ -108,6 +109,23 @@ describe("B109 · screens follow the budget being looked at", () => {
     assert.notEqual(hh.openingBalance, his.openingBalance);
     assert.ok(hh.openingBalance > his.openingBalance, "the joint account holds more");
     assert.ok(joint.id && hisOwn.id);
+    db.close();
+  });
+
+  test("a loan's instalment leaves the projection of the budget it is repaid from, and no other", () => {
+    const { db, household, mine, joint } = twoBudgets();
+    createLoan(db, actor, {
+      lender: "Housing Lender", loanType: "home", sanctioned: rupees(10_00_000),
+      sanctionDate: addMonths(MONTH, -12) + "-01", interestModel: "reducing", annualRatePct: 9,
+      tenureMonths: 120, currentOutstanding: rupees(9_00_000), repaymentAccountId: joint.id,
+      firstInstalmentDate: addMonths(MONTH, -11) + "-05", instalmentDay: 5,
+    });
+    const instalments = (flow: ReturnType<typeof projectCashflow>) =>
+      flow.days.flatMap((d) => d.outflows).filter((o) => o.label.includes("Housing Lender"));
+    assert.ok(instalments(projectCashflow(db, { days: 40, budgetId: household })).length > 0,
+      "the household pays it from the joint account");
+    assert.deepEqual(instalments(projectCashflow(db, { days: 40, budgetId: mine })), [],
+      "his own cash does not pay the household's home loan");
     db.close();
   });
 
