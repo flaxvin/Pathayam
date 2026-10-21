@@ -44,6 +44,14 @@
 - Priya: /accounts + /add account list (no Ravi-private IDFC Savings — privacy OK); Review proposed rules (UF-5).
 - Anil: /accounts list (privacy OK); Schedules: Arrived (RTA +₹12,000, next due → 20-12) and Skip (→ 20-01-2027), correct.
 
+### UF-7 nit — Net worth names an account by its legal name ("ICICI Current"), everywhere else by its nickname ("Business current") (NOT FIXED)
+- Steps: Priya → /accounts shows "Business current ····6612 ₹24,000"; /net-worth lists "ICICI Current ₹24,000". Net worth code never reads nickname.
+
+## More journeys done
+- Ravi: Loans → Education loan → Record an instalment (defaults) → "Instalment recorded.", outstanding ₹8,11,994.29 → ₹8,05,216.33 (= − ₹6,777.96 principal), 84 → 83 left. Correct.
+- Priya: double-click Save on /add → exactly one transaction (search). Goals page reads. Net worth (privacy note present; balances agree with /accounts).
+- Anil: theme toggle from /cards: dark → light, stays on /cards, survives reload.
+
 ## Decisions for owner
 - Budget row "Over-funded ₹700 of ₹700" when ₹1,000 assigned against a ₹700 target: the "of" pair caps at target; recommend "₹1,000 of ₹700".
 - Budget top: "Worth knowing" repeats the three unfunded-card notices that follow immediately as banners.

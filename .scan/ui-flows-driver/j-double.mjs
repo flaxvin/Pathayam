@@ -1,0 +1,20 @@
+// Journey: double-click Save on /add; count resulting transactions for the payee via /search
+import { open } from './lib.mjs';
+const member = process.argv[2] || 'Priya';
+const s = await open(member);
+const { page } = s;
+const payee = 'Double Click Test ' + Date.now() % 100000;
+await s.go('/add');
+await page.fill('#amount', '77.70');
+await page.fill('#payee', payee);
+await page.selectOption('#split_category_0', { index: 5 });
+const btn = page.locator('main form[action="/add"] button[type=submit]');
+await btn.dblclick();
+await page.keyboard.press('Enter').catch(() => {});
+await page.waitForTimeout(2500);
+await s.go('/search?q=' + encodeURIComponent(payee));
+const t = await s.txt();
+console.log('matches for payee:', (t.match(new RegExp(payee, 'g')) || []).length);
+console.log(t.slice(0, 600));
+console.log('PROBLEMS', s.problems);
+await s.browser.close();

@@ -274,7 +274,7 @@ export function run(seed: number, steps: number, verbose = false): { crashes: st
       if (!ev) return;
       const force = r() < 0.5;
       try { undoEvent(db, ev.id, A(), { force }); } catch (e) {
-        if (process.env.V === "1") console.error("UNDO", force, JSON.stringify(queryOne(db, `SELECT * FROM events WHERE id = ?`, ev.id)), queryAll(db, `SELECT entity, action, summary FROM events WHERE rowid > (SELECT rowid FROM events WHERE id = ?)`, ev.id));
+        if (process.env.V === "1" && !(e instanceof Refusal) && !/Refus/.test((e as Error).constructor.name)) console.error("UNDO", (e as Error).message, force, JSON.stringify(queryOne(db, `SELECT * FROM events WHERE id = ?`, ev.id)), queryAll(db, `SELECT entity, action, summary FROM events WHERE rowid > (SELECT rowid FROM events WHERE id = ?)`, ev.id));
         throw e;
       }
     },
