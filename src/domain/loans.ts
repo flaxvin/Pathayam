@@ -696,7 +696,7 @@ function keepInstalment(db: DB, actor: Actor, loanId: string, emi: Paise): void 
 
   const paid = queryOne<{ n: number }>(
     db,
-    `SELECT COUNT(*) AS n FROM loan_payments WHERE loan_id = ? AND kind = 'instalment'`,
+    `SELECT COUNT(*) AS n FROM loan_payments WHERE loan_id = ? AND kind = 'instalment' AND principal > 0`,
     loanId,
   )?.n ?? 0;
 
@@ -1296,7 +1296,8 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
   const paidPrincipal = payments.reduce((sum, p) => sum + p.principal, 0);
   const charges = payments.filter((p) => p.kind === "charge").reduce((sum, p) => sum + p.amount, 0);
 
-  const remainingMonths = Math.max(1, loan.tenure_months - payments.filter((p) => p.kind === "instalment").length);
+  const instalmentsPaid = payments.filter(repaysAnInstalment).length;
+  const remainingMonths = Math.max(1, loan.tenure_months - instalmentsPaid);
 
   const baseline =
     principalBase > 0 && flat
@@ -1326,7 +1327,7 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
     (loan.interest_model === "moratorium-serviced" ||
       loan.interest_model === "moratorium-capitalised") &&
     loan.moratorium_months > 0 &&
-    payments.filter((pay) => pay.kind === "instalment").length === 0;
+    instalmentsPaid === 0;
 
   const moratoriumOutcome = inMoratorium && outstanding > 0
     ? moratorium({
@@ -1432,7 +1433,7 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
       // a fresh 20-year loan). `baseline.months` is 0 for an undrawn loan, so
       // the two agree and the phantom saving disappears.
       baselineMonths: baseline.months,
-      projectedMonths: payments.filter((p) => p.kind === "instalment").length + schedule.months,
+      projectedMonths: instalmentsPaid + schedule.months,
       fees: charges,
       fromDate: loan.history_from,
     }),
@@ -1445,6 +1446,17 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
             .equivalentReducingRatePct
         : null,
   };
+}
+
+/**
+ * One of the tenure's instalments: a payment of kind "instalment" that repays
+ * some principal. Interest alone — serviced through a moratorium, or pre-EMI on
+ * a loan still being drawn — uses up no month of the tenure and does not begin
+ * repayment; counted as one, the first serviced month ended the moratorium and
+ * each after it took a month off a repayment the lender had not started.
+ */
+function repaysAnInstalment(p: Pick<LoanPayment, "kind" | "principal">): boolean {
+  return p.kind === "instalment" && p.principal > 0;
 }
 
 /**
