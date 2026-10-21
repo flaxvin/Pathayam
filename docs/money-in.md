@@ -311,7 +311,11 @@ suppression so the same suggestion is not made again.
 ## Undoing an import
 
 An entire batch can be undone from `/import`, which removes the transactions it
-created and marks the batch `undone_at`.
+created and marks the batch `undone_at`. A row of it that was merged into a
+transaction already in the ledger has that merge reversed (cleared, payee and
+raw fields as they were), unless the transaction changed since, when it is
+left and listed with the edited records. Undoing a merge on its own, from
+Activity, returns its imported row to Review.
 
 Importing the same file again after an undo stages its rows afresh, and they
 can be approved: the undone transactions give up their `source_id` (it is

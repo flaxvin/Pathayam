@@ -14,7 +14,7 @@
 
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
-import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
+import { appendEvent, historyFor, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST, addDays, type IsoDate } from "../core/dates.ts";
 import type { Paise } from "../core/money.ts";
 import { createTransaction, createTransfer, resolvePayee, livePayeeId, type TransactionSource } from "../domain/transactions.ts";
@@ -923,6 +923,46 @@ export function undoBatch(db: DB, actor: Actor, batchId: string): UndoBatchResul
           partner.id, batchId,
         );
       }
+    }
+
+    /*
+     * A row merged into a transaction already in the ledger created nothing,
+     * but it cleared that transaction and wrote the bank's narration onto it.
+     * Undoing the import left both, so the undone statement went on vouching
+     * for it. The merge is reversed as its own undo would reverse it — the
+     * columns it set, from its event — unless the transaction changed since,
+     * in which case it is left and listed like any edited record (IL2).
+     */
+    for (const row of queryAll<{ id: string; transaction_id: string }>(
+      db,
+      `SELECT id, transaction_id FROM staged_transactions
+        WHERE batch_id = ? AND status = 'merged' AND transaction_id IS NOT NULL`,
+      batchId,
+    )) {
+      const history = historyFor(db, "transaction", row.transaction_id);
+      const last = history[history.length - 1];
+      const before = last?.before as Record<string, unknown> | undefined;
+      if (!last || last.action !== "merge" || last.undoneByEventId || !before) {
+        keptBecauseEdited.push(row.transaction_id);
+        continue;
+      }
+      execute(
+        db,
+        `UPDATE transactions SET cleared = ?, payee_id = ?, raw_narration = ?, raw_amount = ?, raw_date = ?
+          WHERE id = ?`,
+        before.cleared as number, (before.payee_id as string | null) ?? null,
+        (before.raw_narration as string | null) ?? null, (before.raw_amount as string | null) ?? null,
+        (before.raw_date as string | null) ?? null, row.transaction_id,
+      );
+      if (before.cleared !== 1) {
+        breakCheckpointsBehind(db, actor, before.account_id as string, before.date as IsoDate,
+          "a transaction dated on or before it was un-cleared by undoing the import merged into it");
+      }
+      execute(
+        db,
+        `UPDATE staged_transactions SET status = 'rejected', resolved_at = ?, transaction_id = NULL WHERE id = ?`,
+        nowIST(), row.id,
+      );
     }
 
     execute(

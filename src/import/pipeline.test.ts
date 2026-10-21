@@ -1,7 +1,8 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { openDatabase, ensureHousehold, execute, queryOne, queryAll, newId, type DB } from "../db/db.ts";
-import type { Actor } from "../core/events.ts";
+import { historyFor, undoEvent, type Actor } from "../core/events.ts";
+import "../domain/transactions.ts";
 import { nowIST } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import { createAccount } from "../domain/accounts.ts";
@@ -158,6 +159,48 @@ describe("04 §4 · duplicates through the pipeline", () => {
     assert.ok(flagged.duplicate_reason, "the match reason is stated, never just 'duplicate'");
     // N3 / I4: surfaced for a decision, not silently dropped.
     assert.equal(flagged.status, "pending");
+    db.close();
+  });
+
+  test("undoing a merge from Activity returns the imported row to Review", () => {
+    // The transaction went back to what it was, but the review item stayed
+    // 'merged' into it — the bank's row was in neither the ledger nor Review.
+    const { db, account, group } = setup();
+    const eatingOut = createCategory(db, actor, { groupId: group.id, name: "Eating Out" });
+    const manual = createTransaction(db, actor, {
+      accountId: account.id, amount: rupees(-450), date: "2026-08-03", categoryId: eatingOut.id,
+    });
+    importStatement(db, account.id);
+    const flagged = listStaged(db).find((r) => r.duplicate_of_id !== null)!;
+    mergeStaged(db, actor, flagged.id);
+    const merge = historyFor(db, "transaction", manual.id).find((e) => e.action === "merge")!;
+    assert.equal(undoEvent(db, merge.id, actor, { force: true }).ok, true);
+
+    const back = listStaged(db).find((r) => r.id === flagged.id);
+    assert.ok(back, "the imported row is waiting in Review again");
+    assert.equal(back!.transaction_id, null);
+    db.close();
+  });
+
+  test("undoing an import puts back what merging its row changed", () => {
+    const { db, account, group } = setup();
+    const eatingOut = createCategory(db, actor, { groupId: group.id, name: "Eating Out" });
+    const manual = createTransaction(db, actor, {
+      accountId: account.id, amount: rupees(-450), date: "2026-08-03", categoryId: eatingOut.id,
+    });
+    const outcome = importStatement(db, account.id);
+    const flagged = listStaged(db).find((r) => r.duplicate_of_id !== null)!;
+    mergeStaged(db, actor, flagged.id);
+
+    undoBatch(db, actor, outcome.batch.id);
+    const tx = queryOne<{ cleared: number; raw_narration: string | null }>(
+      db, `SELECT cleared, raw_narration FROM transactions WHERE id = ?`, manual.id,
+    )!;
+    assert.equal(tx.cleared, 0, "the undone statement no longer vouches for it");
+    assert.equal(tx.raw_narration, null, "nor does its narration stay behind");
+    assert.equal(queryOne<{ status: string }>(db,
+      `SELECT status FROM staged_transactions WHERE id = ?`, flagged.id)!.status, "rejected");
+    assertIdentity(db, "after undoing a merged import");
     db.close();
   });
 

@@ -1415,6 +1415,30 @@ registerUndoHandler("transaction", (db, event) => {
   const snapshot = before as Partial<EditSnapshot>;
 
   /*
+   * Undoing a Review merge puts the transaction back as it was; the imported
+   * row merged into it goes back to Review, as an undone approval's does.
+   * It stayed 'merged' into a transaction that no longer carried it — the
+   * bank's row in neither the ledger nor the queue.
+   */
+  if (event.action === "merge") {
+    const merged = queryOne<{ id: string }>(
+      db,
+      `SELECT id FROM staged_transactions WHERE transaction_id = ? AND status = 'merged'
+        ORDER BY resolved_at DESC LIMIT 1`,
+      id,
+    );
+    if (merged) {
+      execute(
+        db,
+        `UPDATE staged_transactions
+            SET status = 'pending', transaction_id = NULL, resolved_at = NULL, resolved_by = NULL
+          WHERE id = ?`,
+        merged.id,
+      );
+    }
+  }
+
+  /*
    * Undo used to be one statement for every kind of event: write every column
    * of `before` back onto the row. Three different things went wrong with it.
    *
