@@ -243,8 +243,16 @@ export const CLIENT_SCRIPT = String.raw`
     window.location.reload();
   });
 
-  function submitWithRetry(form) {
-    var submitButton = form.querySelector('button[type="submit"], button:not([type])');
+  function submitWithRetry(form, submitter) {
+    /*
+     * The pressed button decides where the form goes and what it adds: Review's
+     * "No thanks" carries formaction="/rules/dismiss", and the Move screen's
+     * suggestions each name their source. Posting form.action with only the
+     * form's own fields confirmed a rule the household had just declined.
+     */
+    if (submitter && submitter.form !== form) submitter = null;
+    var action = submitter && submitter.hasAttribute("formaction") ? submitter.formAction : form.action;
+    var submitButton = submitter || form.querySelector('button[type="submit"], button:not([type])');
     var originalLabel = submitButton ? submitButton.textContent : null;
     var key = form.dataset.idempotencyKey || newKey();
     form.dataset.idempotencyKey = key;
@@ -266,9 +274,14 @@ export const CLIENT_SCRIPT = String.raw`
       }
       setStatus(form, attempt === 0 ? "Saving…" : "Still trying…", null);
 
-      var body = new URLSearchParams(new FormData(form));
+      var formData = new FormData(form);
+      // Set by hand rather than FormData(form, submitter), which older Safari
+      // does not take. Set, not appended: a suggestion button shares its name
+      // with the select below it, and the button pressed is the answer.
+      if (submitter && submitter.name) formData.set(submitter.name, submitter.value);
+      var body = new URLSearchParams(formData);
 
-      fetch(form.action, {
+      fetch(action, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -352,7 +365,7 @@ export const CLIENT_SCRIPT = String.raw`
       return;
     }
     event.preventDefault();
-    submitWithRetry(form);
+    submitWithRetry(form, event.submitter);
   });
 
   // Carry the current URL into the theme toggle so it returns you here (R39.5).
