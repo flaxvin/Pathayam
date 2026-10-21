@@ -20,11 +20,12 @@ container restart or usage limit loses at most the work since the last push.
 | 3 | imports.md | CSV/PDF/CAS/Gmail imports, dedupe, review queue, rules, payees | 8203 | launched |
 | 4 | security.md | authn/authz, sessions, tokens, OIDC, impersonation (ADMIN_DEBUG), CSRF, XSS, injection, DoS, headers | 8204 | done, integrated |
 | 5 | budget.md | engine, envelopes, RTA, schedules, goals, commitments, departure, month close, reports; randomized fuzzer | 8205 | launched |
-| 6 | routes.md | every route x method with fuzzed input; 500s, broken rendering | 8206 | launched |
+| 6 | routes.md | every route x method with fuzzed input; 500s, broken rendering | 8206 | done, integrated |
 | 7 | ui-flows.md | real Chromium, signed in as each member: every user journey by clicking; in-app impersonation | 8207 | launched |
 | 8 | ui-quality.md | real Chromium: mobile viewport, PWA/service worker/offline, console errors, a11y, visual breakage | 8208 | launched |
 
 ## Integrated (commits on this branch)
+- routes: ROUTES-1 /move from Ready to Assign works again (was 404), ROUTES-2 unreachable OIDC provider is 503 not 500
 - transactions: TX-1 delete asks about other leg's checkpoint from its own date, TX-2 leg-create undo takes the fee, TX-3 no undo offered on receipt removal, TX-4 edit without direction keeps sign
 - security: SECURITY-RESCAN-1 removal revokes tokens, -2 no Gmail while impersonating, -3 body read after auth, -4 sign-out during read-only view
 - accounts: ACCOUNTS-1 flat-loan kept instalment, ACCOUNTS-2 interest-only payment, ACCOUNTS-3 close only at nil
@@ -35,3 +36,4 @@ container restart or usage limit loses at most the work since the last push.
 - `?notice=` lets any link put text on a page (recommend server-issued notices only).
 - CSRF trusts Host; DNS rebinding could hit /auth/first-run on a fresh LAN install (recommend checking Host against BASE_URL).
 - Partial API edits on POST /transaction/:id clear memo and cleared flag (needs a 'field sent' marker for checkboxes).
+- /transfer opens with the same account as From and To (form refused as drawn); /auth/oidc discovery has no own timeout.
