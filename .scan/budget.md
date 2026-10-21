@@ -20,7 +20,11 @@
 
 ### BUDGET-SCAN-3 (low-medium) cashflow projection charges every loan's instalment to every budget
 - projectCashflow scoped accounts/schedules/cards by budget but listed every visible loan: Ravi's personal projection (and digest shortfall) paid the household home loan out of his cash.
-- Test added in src/web/budget-scoped-screens.test.ts. Fix: skip a loan whose repayment account is neither in scope nor an in-scope card. Status: fixed, awaiting full test then commit.
+- Test added in src/web/budget-scoped-screens.test.ts. Fix: skip a loan whose repayment account is neither in scope nor an in-scope card. Status: fixed a5b309a, patch 0003 (integrated by coordinator).
+
+### BUDGET-SCAN-4 (medium) undoing a schedule split change restores lines on merged/deleted envelopes
+- Found by fuzz seed 411 (FOREIGN KEY constraint failed on undo). Repro: split schedule [A,B] -> [A,C]; merge or delete B; undo the second split (force) -> lines [A,B(gone)] restored; next Mark paid refused. Row hard-gone -> FK error (500).
+- Test src/domain/schedule-split-undo-gone.test.ts. Fix: split undo handler refuses when any restored envelope is missing/deleted. Status: fixed, awaiting full test then commit.
 
 ## Notes (not fixed / outside)
 - Departure family-loan ending: household RTA rises by the debt while the debt sits in an off-budget tracking account (by design per departure.ts comment). Not reported as a bug.
