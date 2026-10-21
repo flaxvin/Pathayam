@@ -703,12 +703,27 @@ function keepInstalment(db: DB, actor: Actor, loanId: string, emi: Paise): void 
   // buildSchedule runs until the balance is actually cleared, so with the
   // instalment pinned it answers how many months that takes — which is the
   // number being asked for.
-  const months = buildSchedule({
-    principal: outstanding,
-    annualRatePct: currentRate(db, loanId),
-    months: Math.max(1, loan.tenure_months - paid),
-    emi,
-  }).months;
+  //
+  // A flat-rate loan is not run down as a reducing balance: every instalment
+  // carries the same interest on the original principal, so what is left of
+  // the instalment is the principal, and the months are the outstanding over
+  // that, rounded up so no instalment exceeds the one kept. Priced as reducing
+  // balance it needed fewer months, and the flat schedule then spread the
+  // outstanding over them at a higher instalment than the one kept.
+  const rate = currentRate(db, loanId);
+  const flatPrincipalPart = loan.interest_model === "flat"
+    ? emi - flatMonthlyInterest(principalBaseOf(db, loan) || outstanding, rate)
+    : null;
+  const months = flatPrincipalPart !== null
+    ? flatPrincipalPart > 0
+      ? Math.ceil(outstanding / flatPrincipalPart)
+      : Math.max(1, loan.tenure_months - paid)
+    : buildSchedule({
+        principal: outstanding,
+        annualRatePct: rate,
+        months: Math.max(1, loan.tenure_months - paid),
+        emi,
+      }).months;
 
   const tenure = paid + months;
   if (tenure !== loan.tenure_months) {
