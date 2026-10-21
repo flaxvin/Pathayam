@@ -1334,6 +1334,24 @@ registerUndoHandler("schedule", (db, event, actor) => {
     if (!prior) {
       throw new Refusal("That change was recorded without what it replaced, so it cannot be undone.");
     }
+    /*
+     * An envelope merged or deleted since is nowhere to put a line back. It was
+     * restored anyway, so the next Mark paid was refused for the deleted
+     * envelope — and where the row was gone altogether, the insert failed on
+     * its foreign key. Refused by name, as an assignment's undo is.
+     */
+    for (const id of [prior.category_id, ...prior.lines.map((l) => l.category_id)]) {
+      if (!id) continue;
+      const row = queryOne<{ name: string; deleted_at: string | null }>(
+        db, `SELECT name, deleted_at FROM categories WHERE id = ?`, id,
+      );
+      if (!row || row.deleted_at) {
+        throw new Refusal(
+          `${row ? `"${row.name}"` : "An envelope it used"} has been merged or deleted since, so ` +
+          `there is nowhere to put the split back. Set the lines again by hand.`,
+        );
+      }
+    }
     execute(db, `DELETE FROM schedule_splits WHERE schedule_id = ?`, event.entityId!);
     prior.lines.forEach((line, i) => {
       execute(
