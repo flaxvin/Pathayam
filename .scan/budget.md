@@ -1,8 +1,18 @@
 # budget area scan
 ## RESUME
-- Started 2026-10-21. Worktree branch: worktree-agent-a9b56b8dd4709738f (base cebdd0b).
-- Status: reading code, building fuzzer.
-- Next: write .scan/budget-fuzzer.ts, run seeds.
+- Started 2026-10-21. Worktree: /home/user/Pathayam/.claude/worktrees/agent-a9b56b8dd4709738f, branch worktree-agent-a9b56b8dd4709738f (base cebdd0b).
+- Fuzzer: .scan/budget-fuzzer.ts (copy into <worktree>/.scratch/, run `node --experimental-strip-types .scratch/budget-fuzzer.ts FROM TO STEPS`, R=1 for refusal stats).
+- Fuzz done: seeds 1-8x100, 10-13x200, 100-140x300 (~13k steps): identity + rollup-vs-live (RTA and every category balance) clean, no crashes.
+- In progress: BUDGET-SCAN-1 (digest scoping) fix written, test src/domain/digest-budget.test.ts; awaiting full npm test then commit.
+- Next: semantic checks (departure family-loan, auto-assign, markPaid, reports totals), more seeds.
 
 ## Findings
-(none yet)
+### BUDGET-SCAN-1 (medium) digest reads the household, not the budget on screen
+- monthAwaitingClose(db, today) in digest.ts had no budgetId: Priya's page nagged "September is over" after she closed hers; and stayed silent about hers once the household closed.
+- hold-surplus divided one budget's RTA by every visible budget's spending (averageDailySpend without budgetIds) — BUDGET-20 fixed the buffer, not the digest.
+- Fix: pass `budget` to both. Status: fixed, uncommitted (waiting on full test).
+
+## Notes (not fixed / outside)
+- by-date-repeating and schedule-linked target types exist in engine/schema but no code path creates them (setTarget accepts monthly/refill/by-date only; loadTargets never fills scheduleAmount/scheduleDue). Dead code; a by-date-repeating past its date asks the whole remaining amount every month (no roll-forward). Unreachable from UI.
+- monthAwaitingClose's "used" check counts transactions in every budget, so a personal budget with no activity last month is still nudged if the household had any. Low.
+- POST /auto-assign does not wrap in withForwardRecompute (past-month ripple not logged). Low.
