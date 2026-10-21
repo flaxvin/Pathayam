@@ -13,7 +13,12 @@
 - hold-surplus divided one budget's RTA by every visible budget's spending (averageDailySpend without budgetIds) — BUDGET-20 fixed the buffer, not the digest.
 - Fix: pass `budget` to both. Status: fixed f1e0d8e.
 
+### BUDGET-SCAN-2 (low-medium) daily spending heatmap counts transfers and tracking rows
+- spendingCalendar (reports.ts) summed every negative row: a card bill payment counted the charges twice; savings->FD transfer showed as spending.
+- Test src/domain/spending-calendar.test.ts. Fix: exclude transfer legs and tracking accounts. Status: fixed, awaiting full test then commit.
+
 ## Notes (not fixed / outside)
+- Departure family-loan ending: household RTA rises by the debt while the debt sits in an off-budget tracking account (by design per departure.ts comment). Not reported as a bug.
 - by-date-repeating and schedule-linked target types exist in engine/schema but no code path creates them (setTarget accepts monthly/refill/by-date only; loadTargets never fills scheduleAmount/scheduleDue). Dead code; a by-date-repeating past its date asks the whole remaining amount every month (no roll-forward). Unreachable from UI.
 - monthAwaitingClose's "used" check counts transactions in every budget, so a personal budget with no activity last month is still nudged if the household had any. Low.
 - POST /auto-assign does not wrap in withForwardRecompute (past-month ripple not logged). Low.
