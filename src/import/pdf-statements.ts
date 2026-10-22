@@ -46,7 +46,7 @@ export { WrongPassword };
 
 export type BankId =
   | "hdfc" | "icici" | "axis" | "sbi"
-  | "union" | "canara" | "yes" | "indusind" | "kotak" | "rbl" | "hsbc"
+  | "union" | "canara" | "yes" | "indusind" | "kotak" | "rbl" | "hsbc" | "sc"
   /** Contract notes and funds statements from a broker, not a bank. */
   | "broker";
 
@@ -173,6 +173,16 @@ BANKS.push(
       "Usually your date of birth as DDMMYYYY, or the password you set for " +
       "e-statements.",
     signatures: [/\bHSBC\b/i, /hsbc\.co\.in/i, /\bIFSC\b[^\n]{0,24}?\bHSBC\d/i],
+  },
+  {
+    id: "sc",
+    name: "Standard Chartered",
+    // Quoted: "first 4 letters of your name as embossed on your credit card,
+    // followed by your date of birth … DDMMYY … entered in uppercase".
+    passwordHint:
+      "The first four letters of your name as embossed on the card, in " +
+      "capitals, then your date of birth as DDMMYY.",
+    signatures: [/Standard\s*Chartered/i, /\bsc\.com\b/i, /\bIFSC\b[^\n]{0,24}?\bSCBL\d/i],
   },
   {
     id: "broker",
@@ -521,10 +531,17 @@ function figuresWithOffsets(line: string): { text: string; start: number; end: n
    * like one amount once the spaces are out, or the strict pattern reads the
    * span instead and the tolerance costs nothing.
    */
+  /*
+   * Both start with `(?=\S)`. Without it a match can begin anywhere inside a
+   * run of padding, and every start scans the rest of the run before failing:
+   * quadratic in the run's length. A page laid out ten thousand columns wide
+   * (Standard Chartered's card statement) never finished. The leading spaces
+   * were trimmed off every match anyway, so nothing read changes.
+   */
   const span =
-    /(?:Rs\.?|INR|₹|C)?\s*\(?\s*[-+]?\s*\d(?:[\d,.]| (?=[\d,.]))*\s*\)?(?:\s*(?:Cr|Dr)\.?)?/gi;
+    /(?=\S)(?:Rs\.?|INR|₹|C)?\s*\(?\s*[-+]?\s*\d(?:[\d,.]| (?=[\d,.]))*\s*\)?(?:\s*(?:Cr|Dr)\.?)?/gi;
   const strict =
-    /(?:Rs\.?|INR|₹|C)?\s*\(?\s*[-+]?\s*\d[\d,]*\.?\d*\s*\)?(?:\s*(?:Cr|Dr)\.?)?/gi;
+    /(?=\S)(?:Rs\.?|INR|₹|C)?\s*\(?\s*[-+]?\s*\d[\d,]*\.?\d*\s*\)?(?:\s*(?:Cr|Dr)\.?)?/gi;
 
   const emit = (text: string, start: number, end: number) => {
     // A reference or account number is not a figure: it is a long digit run
@@ -879,6 +896,7 @@ const LAYOUTS: Partial<Record<BankId, { separateColumns: boolean; skip: RegExp[]
   // The GST line is the statement's tax summary — dated, zero, and not a row.
   rbl: { separateColumns: false, skip: [/^date\b/i, /account summary/i, /goods\s*&\s*service\s*tax/i] },
   hsbc: { separateColumns: false, skip: [/^date\b/i, /^description/i] },
+  sc: { separateColumns: false, skip: [/^date\b/i, /^description/i] },
   broker: { separateColumns: true, skip: [/^date\b/i, /contract note/i] },
 };
 

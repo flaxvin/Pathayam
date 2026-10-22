@@ -188,6 +188,10 @@ const dobFull: Rule = (i) => {
   const d = parts(i.dob);
   return d ? d.dd + d.mm + d.yyyy : null;
 };
+const nameUpperDdmmyy: Rule = (i) => {
+  const d = parts(i.dob);
+  return d ? nameKey(i.name).toUpperCase() + d.dd + d.mm + d.yyyy.slice(2) : null;
+};
 const panLower: Rule = (i) => i.pan?.toLowerCase() ?? null;
 
 /**
@@ -208,6 +212,7 @@ const PREFERENCES: Partial<Record<BankId, Rule[]>> = {
   indusind: [dobFull, nameUpperDdmm],
   kotak: [nameLowerDdmm, dobFull],
   broker: [panLower],
+  sc: [nameUpperDdmmyy],
 };
 
 /**
