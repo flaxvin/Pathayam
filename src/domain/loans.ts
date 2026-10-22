@@ -610,7 +610,8 @@ export function recordLoanStatement(
   },
 ): LoanStatement {
   return transact(db, () => {
-    const appOutstanding = outstandingPrincipal(db, input.loanId);
+    // DEBUG-LOANS-2 · The lender's figure is as of its date; so is ours.
+    const appOutstanding = outstandingPrincipal(db, input.loanId, input.asOf);
     const id = newId();
     execute(
       db,
@@ -1388,8 +1389,14 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
   const fullyDrawn = disbursed >= loan.sanctioned || disbursed === 0;
 
   const statement = latestStatement(db, loanId);
+  /*
+   * DEBUG-LOANS-2 · Measured on the statement's own date. Today's outstanding
+   * against a balance from months ago reported every instalment paid since as
+   * drift — a statement that matched to the paisa read "the app is lower by
+   * ₹5,167" after the next EMI, and more each month after.
+   */
   const driftResult = statement
-    ? drift(outstanding, statement.lender_outstanding)
+    ? drift(outstandingPrincipal(db, loanId, statement.as_of), statement.lender_outstanding)
     : null;
 
   return {
