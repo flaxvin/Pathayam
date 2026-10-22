@@ -35,6 +35,7 @@ import { buildBudgetView } from "../web/viewmodel.ts";
 import { householdBudgetId } from "./budgets.ts";
 import { buildHouseholdView } from "./household-view.ts";
 import { queryTransactions } from "./reports.ts";
+import { UndoRefused } from "./transactions.ts";
 import { snapshotNetWorth, netWorthChange, type NetWorthChange } from "./networth.ts";
 
 export interface MonthOutcome {
@@ -265,6 +266,8 @@ export function closeMonth(
   return transact(db, () => {
     const budget = budgetId ?? householdBudgetId(db);
     const view = monthCloseView(db, month, todayIST(), budget);
+    // DEBUG-ENGINE-12 · A close already recorded, so undoing this one restores it.
+    const previous = closeRecord(db, month, budget);
 
     let snapshotTaken = false;
     try {
@@ -295,6 +298,7 @@ export function closeMonth(
       // The month stays the id, so the history of a month is still one lookup.
       // Which budget was closed goes in the payload, where undo reads it.
       entity: "month-close", entityId: month, action: "close",
+      before: previous ?? undefined,
       after: { income: view.outcome.income, spending: view.outcome.spending, budgetId: budget },
       summary:
         `Closed ${formatMonth(month)} — ${formatPaise(view.outcome.income)} in, ` +
@@ -309,15 +313,33 @@ export function closeMonth(
 /** Reopen a closed month. Nothing was locked; this only clears the record. */
 export function reopenMonth(db: DB, actor: Actor, month: MonthKey, budgetId?: string): void {
   transact(db, () => {
-    execute(
-      db, `DELETE FROM month_closes WHERE month = ? AND budget_id = ?`,
-      month, budgetId ?? householdBudgetId(db),
-    );
+    const budget = budgetId ?? householdBudgetId(db);
+    // DEBUG-ENGINE-12 · Kept on the event, so undoing the reopen closes it again.
+    const record = closeRecord(db, month, budget);
+    execute(db, `DELETE FROM month_closes WHERE month = ? AND budget_id = ?`, month, budget);
     appendEvent(db, actor, {
       entity: "month-close", entityId: month, action: "reopen",
+      before: record ?? undefined, after: { budgetId: budget },
       summary: `Reopened ${formatMonth(month)}`,
     });
   });
+}
+
+type CloseRecord = Record<string, string | number | null>;
+
+function closeRecord(db: DB, month: MonthKey, budget: string): CloseRecord | null {
+  return queryOne<CloseRecord>(
+    db, `SELECT * FROM month_closes WHERE month = ? AND budget_id = ?`, month, budget,
+  ) ?? null;
+}
+
+function putBack(db: DB, record: CloseRecord): void {
+  const columns = Object.keys(record).filter((c) => /^[a-z_]+$/.test(c));
+  execute(
+    db,
+    `INSERT OR REPLACE INTO month_closes (${columns.join(", ")}) VALUES (${columns.map(() => "?").join(", ")})`,
+    ...columns.map((c) => record[c] ?? null),
+  );
 }
 
 export interface ClosedMonth {
@@ -353,7 +375,30 @@ registerUndoHandler("month-close", (db, event) => {
       db, `DELETE FROM month_closes WHERE month = ? AND budget_id = ?`,
       event.entityId, budget,
     );
+    /*
+     * DEBUG-ENGINE-12 · A second close of a closed month only refreshed the
+     * record; undoing it puts the first close back rather than reopening.
+     */
+    const previous = event.before as CloseRecord | undefined;
+    if (previous && previous.month) {
+      putBack(db, previous);
+      return `Put back the earlier close of ${formatMonth(event.entityId as MonthKey)}`;
+    }
     return `Reopened ${formatMonth(event.entityId as MonthKey)}`;
+  }
+  if (event.action === "reopen") {
+    /*
+     * DEBUG-ENGINE-12 · This answered "Nothing to undo." and the event was
+     * marked undone, while the month stayed open with its record gone.
+     */
+    const record = event.before as CloseRecord | undefined;
+    if (!record || !record.month) {
+      throw new UndoRefused(
+        "That reopen was recorded without the close it removed, so it cannot be put back. Close the month again instead.",
+      );
+    }
+    putBack(db, record);
+    return `Closed ${formatMonth(event.entityId as MonthKey)} again`;
   }
   return "Nothing to undo.";
 });
