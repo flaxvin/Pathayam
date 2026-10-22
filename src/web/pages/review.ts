@@ -116,6 +116,19 @@ function renderStagedRow(
   row: StagedRow, categories: CategoryView[], transferAccounts: { id: string; name: string }[],
 ): SafeHtml {
   const others = transferAccounts.filter((a) => a.id !== row.account_id);
+  /*
+   * IMPORT-1 · What a budgeting app's export already said: a transfer to one
+   * of the household's accounts is chosen in the list, and a split is shown
+   * line by line. Approving keeps the split; an envelope chosen fills the
+   * lines that came without one.
+   */
+  const transferTo = others.some((a) => a.id === row.transfer_account_id) ? row.transfer_account_id : null;
+  const splits = row.splits_json
+    ? (JSON.parse(row.splits_json) as { categoryId: string | null; amount: Paise; memo: string | null }[])
+    : null;
+  const names = new Map(categories.map((c) => [c.id, c.name]));
+  const splitNeedsEnvelope = splits?.some((l) => l.amount < 0 && !(l.categoryId && names.has(l.categoryId))) ?? false;
+  const required = transferTo === null && row.amount < 0 && (!splits || splitNeedsEnvelope);
   return html`
     <form method="post" action="/review/approve"
           style="padding:.75rem 0;border-top:1px solid var(--border)">
@@ -138,6 +151,17 @@ function renderStagedRow(
           ${when(row.duplicate_reason, () => html`
             <p class="notice notice-warning" style="margin:.5rem 0 0">${row.duplicate_reason}</p>
           `)}
+          ${when(transferTo, () => html`
+            <span class="chip chip-info">a transfer in the file it came from</span>
+          `)}
+          ${when(splits, () => html`
+            <ul class="faint" style="margin:.4rem 0 0;padding-left:1.1rem">
+              ${splits!.map((l) => html`
+                <li>${l.categoryId && names.has(l.categoryId) ? names.get(l.categoryId)! : "No envelope yet"}
+                  · ${formatPaise(l.amount)}${l.memo ? ` · ${l.memo}` : ""}</li>
+              `)}
+            </ul>
+          `)}
         </div>
         <strong class="amount ${row.amount < 0 ? "amount-negative" : "amount-positive"}">
           ${formatPaise(row.amount)}
@@ -152,7 +176,7 @@ function renderStagedRow(
           requirement follows the sign rather than being asked of everything.
         -->
         <select id="cat-${row.id}" name="category_id" style="flex:1;min-width:12rem"
-                ${raw(row.amount < 0 ? "required" : "")}>
+                ${raw(required ? "required" : "")}>
           <!--
             Money in with an envelope is a refund: it goes back where it was
             spent. Money in without one is new money for Ready to Assign. Both
@@ -162,7 +186,9 @@ function renderStagedRow(
             and quietly reads as un-spending.
           -->
           <option value="">
-            ${row.amount < 0 ? "Choose where it came from…" : "Ready to Assign — new money"}
+            ${splits
+              ? splitNeedsEnvelope ? "Choose an envelope for the parts without one…" : "Keep the split as it is"
+              : row.amount < 0 ? "Choose where it came from…" : "Ready to Assign — new money"}
           </option>
           ${when(row.amount >= 0, () => html`
             <optgroup label="Or put it back — a refund into…">
@@ -192,7 +218,7 @@ function renderStagedRow(
           ${when(others.length > 0, () => html`
             <optgroup label="${row.amount < 0 ? "Or moved to your own account…" : "Or moved from your own account…"}">
               ${others.map((a) => html`
-                <option value="transfer:${a.id}">
+                <option value="transfer:${a.id}" ${raw(a.id === transferTo ? "selected" : "")}>
                   ${row.amount < 0 ? "Transfer to" : "Transfer from"} ${a.name}
                 </option>
               `)}
@@ -601,6 +627,105 @@ export function renderMapping(opts: MappingPrompt): SafeHtml {
   `;
 }
 
+/** IMPORT-1 · What the account step needs to ask. */
+export interface BudgetAppPrompt {
+  appName: string;
+  fileName: string;
+  csv: string;
+  /** Each account the file names, with how many rows it has and a likely match. */
+  sources: { name: string; rows: number; suggestedAccountId: string | null }[];
+  accounts: { id: string; name: string }[];
+  /** Every date in the file reads both ways, so the person is asked. */
+  needsDateOrder: boolean;
+  dateSamples: string[];
+  startingBalances: number;
+  error?: string | null;
+}
+
+/**
+ * IMPORT-1 · The step between reading a YNAB or Actual Budget export and
+ * importing it: which Pathayam account each of its accounts is. An account is
+ * never created here — one with no counterpart yet is left out until it is
+ * added, and the file imported again (re-importing adds nothing twice).
+ */
+export function renderBudgetAppMapping(opts: BudgetAppPrompt): SafeHtml {
+  return html`
+    <h1>Import from ${opts.appName}</h1>
+    <p class="muted">
+      This is an export from ${opts.appName}. Its transactions come across into
+      Review, where they are checked for duplicates and against your rules,
+      like any statement.
+    </p>
+    ${when(opts.error, () => html`<p class="notice notice-error">${opts.error}</p>`)}
+
+    <section class="card">
+      <h2>Budget assignments are not imported</h2>
+      <p>
+        Only transactions come across. What ${opts.appName} had assigned to each
+        category was worked out against its own balances and months; copied
+        into your envelopes it would count the same money twice and overwrite
+        the plan you have made here. Once the transactions are in, assign from
+        Ready to Assign as usual.
+      </p>
+      ${when(opts.startingBalances > 0, () => html`
+        <p class="faint">
+          ${opts.startingBalances === 1 ? "One starting-balance row is" : `${opts.startingBalances} starting-balance rows are`}
+          left out too: each Pathayam account already has its own opening balance.
+        </p>
+      `)}
+    </section>
+
+    <form method="post" action="/import/budget-app" class="card">
+      <input type="hidden" name="file_name" value="${opts.fileName}">
+      <textarea name="csv" hidden>${opts.csv}</textarea>
+
+      <h2>Which account is which?</h2>
+      <p class="field-hint" style="margin-top:-.25rem">
+        Pick the Pathayam account for each of ${opts.appName}'s, or leave one
+        out. A transfer between two accounts you bring across becomes a
+        transfer here, not an expense on each side. No account is created for
+        you: add a missing one first, then import the file again.
+      </p>
+      ${opts.sources.map((source, i) => html`
+        <div class="field">
+          <label for="account_${i}">${source.name}
+            <span class="faint">· ${source.rows} ${source.rows === 1 ? "row" : "rows"}</span></label>
+          <select id="account_${i}" name="account_${i}" required>
+            <option value="" ${raw(source.suggestedAccountId ? "" : "selected")} disabled>Choose…</option>
+            <option value="skip">Leave this account out</option>
+            ${opts.accounts.map((a) => html`
+              <option value="${a.id}" ${raw(a.id === source.suggestedAccountId ? "selected" : "")}>${a.name}</option>
+            `)}
+          </select>
+        </div>
+      `)}
+
+      ${when(opts.needsDateOrder, () => html`
+        <fieldset>
+          <legend>How are the dates written?</legend>
+          <p class="field-hint" style="margin-top:0">
+            Every date in this file has a day of 12 or under
+            (${opts.dateSamples.join(", ")}), so it reads either way round and
+            the file alone cannot say which. ${opts.appName} writes dates in
+            the format chosen in its settings.
+          </p>
+          <label><input type="radio" name="date_order" value="dd-mm-yyyy" required>
+            Day first — 31/08/2026</label>
+          <label><input type="radio" name="date_order" value="mm-dd-yyyy" required>
+            Month first — 08/31/2026</label>
+        </fieldset>
+      `)}
+
+      <p class="field-hint">
+        Categories are matched to envelopes by name — "Group: Category" first,
+        then the category alone when only one envelope has it. Anything
+        unmatched waits in Review for you to choose.
+      </p>
+      <button class="button-primary" type="submit">Import the transactions</button>
+    </form>
+  `;
+}
+
 export function renderImport(opts: {
   accounts: Account[];
   batches: ImportBatch[];
@@ -682,6 +807,12 @@ export function renderImport(opts: {
           The columns are worked out from the header row, wherever it happens to be.
           Separate debit and credit columns, a single signed column, Indian grouping and
           Cr/Dr suffixes are all understood.
+        </p>
+        <p class="field-hint">
+          Moving from YNAB or Actual Budget? Paste its transaction export here.
+          It is recognised by its columns, and the next step asks which of your
+          accounts each of its accounts is. Transactions only — budget
+          assignments are not imported.
         </p>
       </div>
 

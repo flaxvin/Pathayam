@@ -72,6 +72,8 @@ export interface BudgetAppParse {
   app: BudgetApp;
   /** Every source account named in the file, in the order first seen. */
   accounts: string[];
+  /** How many rows each source account has in the file. */
+  accountRows: Record<string, number>;
   transactions: SourceTransaction[];
   errors: (ParseError & { account: string | null })[];
   /** Rows that carried a transaction, read or not. */
@@ -316,13 +318,16 @@ export function parseBudgetApp(
     .filter(({ cells }) => cells.some((x) => x.trim() !== ""));
 
   const accounts: string[] = [];
+  const accountRows: Record<string, number> = {};
   for (const { cells } of data) {
     const name = cell(cells, c.account);
-    if (name && !accounts.includes(name)) accounts.push(name);
+    if (!name) continue;
+    if (!accounts.includes(name)) accounts.push(name);
+    accountRows[name] = (accountRows[name] ?? 0) + 1;
   }
 
   const result: BudgetAppParse = {
-    app, accounts, transactions: [], errors: [], rowsRead: data.length, startingBalances: 0,
+    app, accounts, accountRows, transactions: [], errors: [], rowsRead: data.length, startingBalances: 0,
     dateOrder: null, needsDateOrder: false, dateProblem: null,
   };
 
