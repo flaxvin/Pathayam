@@ -719,4 +719,161 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
 .overview-items { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .overview-list .amount { white-space: nowrap; }
 .scope-tabs { display: flex; flex-wrap: wrap; gap: .4rem; }
+
+/* ---------------------------------------------------------------------------
+   PRINT-1 · Paper
+
+   Browser print and save-as-PDF, for the screens people take to an accountant,
+   a lender or a drawer: the tax estimate, the reports, the month close, the net
+   worth statement, a loan's schedule. Every screen gets the same treatment; the
+   printable ones also offer a button.
+
+   What prints is the document, not the app. The navigation, the header, the
+   banners, every control and every message about something just done are
+   screen furniture, and on paper they are noise at best — a "Saved" toast on a
+   tax estimate reads as a claim about the estimate.
+
+   Black on white whatever the theme: a dark theme printed as it stands is a
+   page of toner, and a browser that drops backgrounds prints light text on
+   nothing. Charts are the exception to black: two series in black are one
+   series, so they keep the light theme's colours, which were chosen to hold AA
+   against white, and are told to print them.
+   --------------------------------------------------------------------------- */
+.print-footer { display: none; }
+.print-bar { float: right; margin: 0 0 .5rem .75rem; }
+.print-button[hidden] { display: none; }
+
+@page {
+  margin: 14mm 12mm 16mm;
+  @bottom-right {
+    content: "Page " counter(page) " of " counter(pages);
+    font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+    font-size: 8pt; color: #444;
+  }
+}
+
+@media print {
+  :root, :root[data-theme], :root:not([data-theme]) {
+    color-scheme: light;
+    --bg:            #ffffff;
+    --surface:       #ffffff;
+    --surface-2:     #f1f1f1;
+    --border:        #b8b8b8;
+    --border-strong: #808080;
+    --text:          #000000;
+    --text-muted:    #2b2b2b;
+    --text-faint:    #4a4a4a;
+    --accent:        #1d5b9e;
+    --accent-text:   #ffffff;
+    --accent-soft:   #ffffff;
+    --positive:      #1a6b3c;
+    --positive-bg:   #ffffff;
+    --warning:       #855600;
+    --warning-bg:    #ffffff;
+    --danger:        #a82424;
+    --danger-bg:     #ffffff;
+    --info-bg:       #ffffff;
+    --chart-1: #2f6db0;
+    --chart-2: #2f9e6f;
+    --chart-3: #c9700f;
+    --chart-4: #9b3fb5;
+    --chart-5: #c0324c;
+    --chart-6: #0f8b8d;
+    --chart-7: #8a6d1f;
+    --chart-8: #5a6b7a;
+    --chart-grid: #dddddd;
+    --chrome:        #ffffff;
+    --chrome-border: #b8b8b8;
+    --shadow:        none;
+  }
+
+  html, body { background: #fff !important; color: #000; }
+  body { font-size: 10.5pt; line-height: 1.4; padding: 0; }
+
+  /* Screen furniture. The digest and the banners included: a demo banner is
+     true of the screen, and the footer below says where the sheet came from. */
+  .banner, .app-header, .sidebar, .bottom-nav, .skip-link, .no-print, .digest,
+  dialog, main > .notice[role="status"], [data-status], .explain-link,
+  button, .button, form:not(.print-keep), details:has(form:not(.print-keep)),
+  .budget-switch, .scope-switch a:not([aria-current="true"]) {
+    display: none !important;
+  }
+
+  /* Which scope the figures are for is part of the document, so the selected
+     pill stays, as words. */
+  .scope-tabs .button.button-primary, .scope-switch a[aria-current="true"] {
+    display: inline !important; border: 0; background: none; color: #000;
+    padding: 0; min-height: 0; font-weight: 600;
+  }
+  .scope-tabs .button.button-primary::before { content: "Showing: "; font-weight: 400; }
+
+  .with-sidebar { display: block; max-width: none; margin: 0; }
+  main, .with-sidebar main { padding: 0 !important; margin: 0; max-width: none; }
+
+  a { color: inherit; text-decoration: none; }
+  /* Only links that leave the app: an internal path means nothing on paper,
+     and printing one after every row would bury the figures. */
+  main a[href^="http"]::after {
+    content: " (" attr(href) ")"; font-size: 8.5pt; color: #2b2b2b; word-break: break-all;
+  }
+
+  .card {
+    background: #fff; border: 1px solid #b8b8b8; box-shadow: none;
+    padding: .6rem .75rem; margin-bottom: .6rem;
+  }
+  /* A card short enough to keep whole is kept whole. One holding a table may
+     run on — a 240-row schedule cannot fit a page — and breaks between rows;
+     the tax inputs run on too, between fields, rather than leave most of the
+     first sheet blank. */
+  .card:not(:has(table)):not(.print-keep), .notice, .chart-donut, .chart-wide, svg,
+  tr, li, .row-between, .field, .print-footer {
+    break-inside: avoid; page-break-inside: avoid;
+  }
+  h1, h2, h3, summary { break-after: avoid; page-break-after: avoid; }
+  thead { display: table-header-group; }
+  tfoot { display: table-footer-group; }
+
+  .table-scroll { overflow: visible !important; max-height: none !important; background: none; }
+  table { font-size: 9.5pt; }
+  th { color: #000; }
+  /* Figures line up on the right, the way an accountant reads a column. */
+  td.amount, th.amount, td.numeric, th.numeric { text-align: right; font-variant-numeric: tabular-nums; }
+
+  /* The two regimes side by side, as on a wide screen: one sheet compares them. */
+  .cards-2 { display: grid; grid-template-columns: 1fr 1fr; gap: .6rem; }
+  .cards-2 > .card { margin-bottom: 0; }
+  .pill { border: 1px solid #000; border-radius: 999px; padding: 0 .4rem; font-size: 8.5pt; margin-left: .3rem; }
+  th, td { padding: .3rem .45rem; }
+
+  .notice { background: #fff !important; color: #000 !important; border: 1px solid #000; }
+  .chip { background: #fff !important; color: #000 !important; border: 1px solid #808080; }
+  .rta-bar { position: static; box-shadow: none; }
+
+  svg { max-width: 100%; }
+  .chart-wide > svg { height: auto; }
+  svg, .chart-swatch, .chart-hbar-track, .chart-hbar-fill, .target-bar, .target-bar > span {
+    -webkit-print-color-adjust: exact; print-color-adjust: exact;
+  }
+
+  /* Disclosures print open (the client script opens them on beforeprint), and
+     their summary is a heading rather than a control. */
+  details > summary { list-style: none; cursor: auto; }
+  .linkish { color: #000; text-decoration: none; font-weight: 600; }
+  details > summary::-webkit-details-marker { display: none; }
+
+  /* The tax estimate's inputs are the figures it is arithmetic on: on paper
+     they read as values, not empty-looking boxes. */
+  .print-keep input:not([type="checkbox"]):not([type="radio"]), .print-keep select {
+    border: 0; border-bottom: 1px dotted #808080; border-radius: 0; background: none;
+    padding: 0; min-height: 0; width: auto; font-weight: 600; color: #000;
+  }
+  .print-keep .field { margin-bottom: .5rem; }
+
+  .print-footer {
+    display: block; margin-top: 1.25rem; padding-top: .4rem;
+    border-top: 1px solid #000; font-size: 8.5pt; color: #2b2b2b;
+  }
+  .print-footer p { margin: 0; }
+  .print-footer .print-caveat { color: #000; font-weight: 600; margin-top: .15rem; }
+}
 `;

@@ -140,7 +140,46 @@ export const CLIENT_SCRIPT = String.raw`
       if (!input.value) input.value = window.location.pathname + window.location.search;
     });
     root.querySelectorAll("[data-reveal]").forEach(applyReveal);
+    revealPrintButtons(root);
   }
+
+  // ---------------------------------------------------------------------------
+  // PRINT-1 · The Print button
+  //
+  // Rendered hidden, so a page without this script has no button that does
+  // nothing. Revealed here on load and after every swap (the swap brings a
+  // fresh, hidden one), and handled by one delegated listener, because the
+  // CSP allows no inline handler.
+  // ---------------------------------------------------------------------------
+  function revealPrintButtons(root) {
+    root.querySelectorAll("[data-print]").forEach(function (button) {
+      button.hidden = false;
+    });
+  }
+
+  document.addEventListener("click", function (event) {
+    var button = event.target.closest ? event.target.closest("[data-print]") : null;
+    if (!button) return;
+    event.preventDefault();
+    window.print();
+  });
+
+  // A collapsed disclosure prints as its summary alone — the net worth lines
+  // and the parcels sold vanish from the sheet. Open the ones that hold a
+  // reading for the length of the print and put them back after; one that
+  // holds a form is an action, and the stylesheet leaves it off the page.
+  var openedForPrint = [];
+  window.addEventListener("beforeprint", function () {
+    document.querySelectorAll("main details:not([open])").forEach(function (el) {
+      if (el.querySelector("form")) return;
+      el.open = true;
+      openedForPrint.push(el);
+    });
+  });
+  window.addEventListener("afterprint", function () {
+    openedForPrint.forEach(function (el) { el.open = false; });
+    openedForPrint = [];
+  });
 
   function showPageNotice(message, kind) {
     var main = document.getElementById("main");
@@ -426,6 +465,7 @@ export const CLIENT_SCRIPT = String.raw`
     applyReveal(event.target);
   });
   document.querySelectorAll("[data-reveal]").forEach(applyReveal);
+  revealPrintButtons(document);
 
   document.addEventListener("focusin", function (event) {
     var input = event.target;

@@ -75,13 +75,25 @@ function regimeCard(e: RegimeEstimate, isBetter: boolean): SafeHtml {
   `;
 }
 
+/** The page's own caveat, in words the printed footer repeats on paper (PRINT-1). */
+const TAX_CAVEAT = "An estimate, not a return, and not advice.";
+
+/**
+ * PRINT-1 · The line the printed footer carries. The notice at the top of the
+ * screen is on the first sheet only, and the second sheet of a printed estimate
+ * — the capital gains, the advance tax — is the one most likely to be handed to
+ * somebody on its own.
+ */
+export const TAX_PRINT_CAVEAT =
+  `${TAX_CAVEAT} Arithmetic on the figures shown, not a computation of what is owed; check anything that matters with the Income Tax Department or an accountant.`;
+
 export function renderTax(p: TaxPageProps): SafeHtml {
   const d = p.deductions;
   return html`
     <h1>Tax estimate · ${formatFiscalYear(p.fy)}</h1>
 
     <div class="notice notice-warning">
-      <strong>An estimate, not a return, and not advice.</strong>
+      <strong>${TAX_CAVEAT}</strong>
       This is arithmetic on the figures below, under the slabs as last checked on
       ${formatDate(p.ratesVerifiedOn)}. It is not a computation of what you owe, it does not
       file anything, and it is not a substitute for an accountant. Check anything
@@ -125,7 +137,12 @@ export function renderTax(p: TaxPageProps): SafeHtml {
         `
       : html`<p class="muted">Enter a gross income to see an estimate.</p>`}
 
-    <form class="card" method="post" action="/tax">
+    <!--
+      PRINT-1 · The one form that prints. Its inputs are the figures the
+      estimate is arithmetic on, and a printed estimate without them is a total
+      with nothing to check it against; on paper they read as values, not boxes.
+    -->
+    <form class="card print-keep" method="post" action="/tax">
       <h2>What it is working from</h2>
       <input type="hidden" name="fy" value="${p.fy}">
 

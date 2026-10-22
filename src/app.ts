@@ -190,7 +190,7 @@ import {
   estimateTax, advanceTaxSchedule, getDeclaration, hasDeclaration, saveDeclaration,
   incomeInFinancialYear, type AdvanceInstalment,
 } from "./domain/tax.ts";
-import { renderTax } from "./web/pages/tax.ts";
+import { renderTax, TAX_PRINT_CAVEAT } from "./web/pages/tax.ts";
 import { renderCategoryLines } from "./web/pages/category-lines.ts";
 import { renderDisposeAsset, renderAddToAsset } from "./web/pages/portfolio.ts";
 import { capitalGainsTaxFor } from "./domain/capital-gains-tax.ts";
@@ -601,12 +601,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return value;
   }
 
-  function render(ctx: RequestContext, title: string, content: ReturnType<typeof html>, opts: { bare?: boolean; notice?: Parameters<typeof page>[0]["notice"] } = {}): Response {
+  function render(ctx: RequestContext, title: string, content: ReturnType<typeof html>, opts: { bare?: boolean; notice?: Parameters<typeof page>[0]["notice"]; print?: Parameters<typeof page>[0]["print"] } = {}): Response {
     const a = ctx.locals.auth as AuthContext | null;
     return {
       body: page(
         {
           title,
+          // PRINT-1 · The printable screens say so; the footer names the household.
+          print: opts.print ?? null,
+          householdName: a ? householdSettings(db)?.name ?? null : null,
           theme: (a?.viewingAs.theme ?? "system") as Theme,
           memberName: a?.member.name ?? null,
           impersonating: a?.impersonating
@@ -5423,6 +5426,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         categories: listCategories(db, { viewerMemberId: viewer(ctx) })
           .map((c) => ({ id: c.id, name: c.name })),
       }),
+      // PRINT-1 · The schedule is the page a lender or an accountant asks for.
+      { print: {} },
     );
   });
 
@@ -6185,6 +6190,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         budgets: budgetsFor(db, viewer(ctx)).map((b) => ({ id: b.id, name: b.name, kind: b.kind })),
         scope: asked ?? "all",
       }),
+      // PRINT-1 · Interest and realised gains by year go to whoever files.
+      { print: {} },
     );
   });
 
@@ -7500,7 +7507,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return render(ctx, "Month closes", renderClosedMonths({
       months: closedMonths(db, 24, budgetId),
       awaiting: monthAwaitingClose(db, todayIST(), budgetId),
-    }));
+    }), { print: {} });
   });
 
   router.get("/months/:month/close", (ctx) => {
@@ -7512,6 +7519,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return render(
       ctx, `Closing ${formatMonth(month)}`,
       renderMonthClose(monthCloseView(db, month, todayIST(), budgetId, viewer(ctx))),
+      { print: {} },
     );
   });
 
@@ -8364,6 +8372,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         change: previous ? netWorthChange(db, previous.as_of, todayIST()) : null,
         history,
       }),
+      { print: {} },
     );
   });
 
@@ -9047,7 +9056,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/tax", (ctx) => {
     const a = auth(ctx);
-    return render(ctx, "Tax estimate", renderTax(taxPageProps(ctx, a)));
+    // PRINT-1 · On paper the caveat travels with every sheet, not only the
+    // first: the page's own notice is at the top, and a second page has none.
+    return render(ctx, "Tax estimate", renderTax(taxPageProps(ctx, a)), {
+      print: { caveat: TAX_PRINT_CAVEAT },
+    });
   });
 
   router.post("/tax", (ctx) =>

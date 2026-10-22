@@ -167,3 +167,28 @@ the budget switcher moves into the header.
   background.
 - Wide tables scroll within their own container.
 - Three themes: light, dark, system. The theme is applied in the first response.
+
+## Printing
+
+Browser print and save-as-PDF give a document rather than a screenshot of the
+app, on every screen; the ones people take to paper also carry a **Print**
+button: `GET /tax`, `GET /reports` (loan interest and realised gains by
+financial year), `GET /months` and `GET /months/:month/close`,
+`GET /net-worth`, and `GET /loans/:id` (the schedule in full).
+
+- Black on white whatever the theme. Charts keep the light theme's colours so
+  their series stay distinguishable.
+- Navigation, header, banners, the digest, toasts, buttons and forms are left
+  off. The exception is the tax estimate's inputs, which print as values,
+  because the estimate is arithmetic on them.
+- Short cards and table rows are not split across pages; table headers repeat
+  on each page; collapsed sections print open.
+- Only links that leave the app print their address.
+- A footer line names the household, the screen and the generated date
+  (DD-MM-YYYY, IST). On the tax estimate it repeats "An estimate, not a return,
+  and not advice."
+- The button is progressive enhancement: rendered hidden and revealed by the
+  client script, so without JavaScript there is no button that does nothing.
+  The browser's own Print menu gives the same result.
+
+![The tax estimate in print preview](screenshots/print-tax.png)

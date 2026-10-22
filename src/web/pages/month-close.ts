@@ -329,7 +329,7 @@ export function renderDigest(items: DigestItem[]): SafeHtml {
   if (items.length === 0) return html``;
 
   return html`
-    <section class="card">
+    <section class="card digest">
       <h2>Worth knowing <span class="chip">${items.length}</span></h2>
       ${items.map(
         (item) => html`

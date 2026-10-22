@@ -544,7 +544,8 @@ export function renderReports(opts: {
       </section>
     `)}
 
-    <section class="card">
+    <!-- PRINT-1 · Five links and nothing else; on paper, an empty heading. -->
+    <section class="card no-print">
       <h2>Where the money goes</h2>
       <div class="row" style="flex-wrap:wrap">
         <a class="button" href="/query?group_by=category&period=${opts.period.key}">By category</a>
