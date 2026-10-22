@@ -152,6 +152,16 @@ describe("R16 M2 · flat rate, and what it really costs", () => {
     assert.ok(Math.abs(recovered - 8.5) < 0.01, `got ${recovered}`);
   });
 
+  test("DEBUG-TAX · a steep flat rate is not capped at 100% reducing", () => {
+    // ₹1,00,000 at 80% flat over 12 months is ~125% reducing; the search used
+    // to stop at 100% and report exactly that.
+    const loan = flatRateLoan(rupees(1_00_000), 80, 12);
+    assert.ok(loan.equivalentReducingRatePct > 120, `got ${loan.equivalentReducingRatePct}`);
+    const emi = emiFor(rupees(1_00_000), 150, 12);
+    const recovered = equivalentReducingRate(rupees(1_00_000), emi, 12);
+    assert.ok(Math.abs(recovered - 150) < 0.01, `got ${recovered}`);
+  });
+
   test("reports zero when the payments never exceed the principal", () => {
     assert.equal(equivalentReducingRate(rupees(1_00_000), rupees(1_000), 60), 0);
   });

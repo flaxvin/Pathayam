@@ -75,8 +75,10 @@ entered again.
 **Capital gains are computed, with caveats.** Realised gains from the portfolio
 are sorted by asset class and holding period and taxed at their own rates —
 12.5% above ₹1,25,000 on long-held listed equity (112A), 20% on short-held
-(111A), 12.5% on gold, property and foreign shares held over 24 months (112),
-slab rates on debt and on those three held shorter. A share whose instrument
+(111A), 12.5% on gold, property and foreign shares held over 24 months (112)
+— 12 months for a gold or international ETF listed in India, as for any listed
+unit — and on debt-fund units bought before 1 April 2023 and held as long,
+slab rates on other debt (s50AA) and on those held shorter. A share whose instrument
 is international (or, with no region set, not in rupees) is never 111A/112A,
 which are for equity listed in India. Listed equity bought before 1 February
 2018 is grandfathered — its cost is the higher of what was paid and the lower
