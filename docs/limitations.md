@@ -174,9 +174,32 @@ addresses. It cannot be tested automatically because it requires a live grant.
 
 ## Offline and sync
 
-**No offline mode.** The application is server-rendered and requires the server.
-There is no local replica and no sync protocol. Installing it as a PWA gives it
-an icon and a standalone window, not offline operation.
+**No offline mode — except entering a spend.** The application is
+server-rendered and requires the server for everything it shows. There is no
+local replica, no read cache, no service worker and no sync protocol. Installing
+it as a PWA gives it an icon and a standalone window, not offline operation.
+
+**The Add form can be used without signal** (`10` §3.7). An entry that cannot
+reach the server is kept on the device with its idempotency key and sent when
+the connection is back; a count shows on every page until it has gone. Its
+limits:
+
+- Only the Add form, and only with JavaScript. Transfers, edits, assigning and
+  every other write still need the server.
+- The page has to be open: there is no service worker, so nothing is sent in
+  the background. It sends on the next page load, when the browser reports the
+  connection is back, every thirty seconds while a page is visible, or on
+  "Send now".
+- The page itself has to have loaded once. With no signal at all, a fresh tab
+  shows the browser's own offline page, not the form.
+- The entry is checked when it arrives, against the budget as it is then. A
+  refusal is kept with the server's message to correct or discard.
+- An entry kept for more than six days is no longer sent automatically, because
+  the server forgets idempotency keys after seven; the person is asked to check
+  it was not already recorded.
+- It is stored unencrypted in the browser, readable by anyone with the unlocked
+  device until it is sent. Signing out clears it, and another member signing in
+  discards it unsent.
 
 ## Scale
 

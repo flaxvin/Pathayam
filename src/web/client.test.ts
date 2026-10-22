@@ -24,9 +24,38 @@ describe("S15 · the client script", () => {
   });
 
   test("R35 · stores nothing on the device", () => {
-    for (const banned of ["localStorage", "sessionStorage", "indexedDB", "caches.open", "serviceWorker"]) {
+    for (const banned of ["sessionStorage", "indexedDB", "caches.open", "serviceWorker", "document.cookie"]) {
       assert.equal(CLIENT_SCRIPT.includes(banned), false, `${banned} is forbidden by R35`);
     }
+  });
+
+  /*
+   * OFFLINE-1 amends R35 for exactly one thing: the Add form's write-only
+   * queue (10 §3.7). localStorage may be touched in one place, under one key,
+   * and nowhere else — a second use would be a read cache arriving by the
+   * back door, which is what S10 forbids.
+   */
+  test("R35 as amended · localStorage is reached once, for the queue's one key", () => {
+    assert.equal(
+      (CLIENT_SCRIPT.match(/localStorage/g) ?? []).length, 1,
+      "only outboxStore may reach localStorage",
+    );
+    assert.match(CLIENT_SCRIPT, /var store = window\.localStorage;/);
+    const calls = CLIENT_SCRIPT.match(/(getItem|setItem|removeItem)\([^)]*\)/g) ?? [];
+    assert.ok(calls.length > 0);
+    for (const call of calls) {
+      assert.match(call, /\(OUTBOX_STORAGE_KEY[,)]/, `${call} must use the queue's key`);
+    }
+    assert.match(CLIENT_SCRIPT, /var OUTBOX_STORAGE_KEY = "pathayam\.outbox\.v1";/);
+  });
+
+  test("R35.5 as amended · submitting sign-out purges the queue", () => {
+    assert.match(CLIENT_SCRIPT, /pathname === "\/signout"\) outboxPurge\(\)/);
+  });
+
+  test("OFFLINE-1 · only a form that asks for it is queued, and only when unreachable", () => {
+    assert.match(CLIENT_SCRIPT, /unreachable && form\.hasAttribute\("data-outbox"\)/);
+    assert.match(CLIENT_SCRIPT, /addEventListener\("online"/);
   });
 
   test("B59 · a multipart form is left to submit natively so file bytes survive", () => {

@@ -147,6 +147,34 @@ Cache-Control: no-store
 
 No third-party script, style, font or image is loaded.
 
+## What the browser keeps
+
+Nothing the server sends is stored on the device (`08` R35). The one exception
+is the Add form's **write-only queue** (`10` §3.7, R35.7): an entry that could
+not reach the server is kept in `localStorage` under `pathayam.outbox.v1` —
+the fields as typed, the idempotency key, when it was kept, and the member id
+from the page's `data-member` attribute — until the server confirms it.
+
+- It is **not encrypted**. A key held by the same script on the same device
+  would stop nobody who can already read the browser's storage (the reasoning
+  of `08` S9). Anyone with the unlocked device and browser profile can read an
+  unsent entry; nothing else is there to read.
+- Every entry is rendered with `textContent`, never as markup: it is what
+  somebody typed, and a refusal message is what the server said.
+- A replay is an ordinary same-origin `POST` with the session cookie and the
+  original `Idempotency-Key`, so it meets the same origin check, the same
+  authorisation and the same R36.2 replay protection as the first attempt. A key
+  is scoped to the member (R36.4), and an entry tagged with another member is
+  discarded rather than sent.
+- Signing out purges it twice: the script clears it on submit, and the sign-out
+  response carries `Clear-Site-Data: "storage"` for a page whose script never
+  ran. "Sign out every device" cannot reach another device's storage; an entry
+  left there is sent if the same member signs in again and discarded if anyone
+  else does.
+- `client.test.ts` asserts that `localStorage` is reached in exactly one place,
+  with that one key, and that `sessionStorage`, IndexedDB, the Cache API, a
+  service worker and script-written cookies appear nowhere.
+
 ## Secrets
 
 - `statement_identity` and `gmail_connections` are listed in `NEVER_EXPORTED`

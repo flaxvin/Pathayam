@@ -87,7 +87,12 @@ export function renderAddTransaction(opts: {
     <h1>Add a transaction</h1>
     ${when(opts.error, () => html`<p class="notice notice-error">${opts.error}</p>`)}
 
-    <form method="post" action="/add" class="card">
+    <!--
+      OFFLINE-1 · data-outbox lets the client keep this entry on the device
+      when there is no signal, and send it later with the same key. Without
+      JavaScript it is an ordinary form post, as it always was.
+    -->
+    <form method="post" action="/add" class="card" data-outbox>
       <div class="field">
         <label for="amount">Amount</label>
         <!-- A7: numeric keypad with a decimal. F4.10: expressions are accepted. -->

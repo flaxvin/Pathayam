@@ -104,6 +104,18 @@ totals recomputed over what is in the file. The **operator's backup**
 private budget included — and runs only on the server, never through a
 member's browser.
 
+### On the device
+
+The write-only queue (`10` §3.7) keeps an Add-form entry in the browser until
+the server has it. Each entry is tagged with the id of the member whose page it
+was — the only identifier the page exposes, as `data-member` on the body. When
+somebody else signs in on the same browser, entries tagged with anyone else are
+discarded unsent, and the page says so: sending them would file one person's
+spend as another's, and showing them would show one person's spend to another.
+While impersonating, the attribute is absent, so nothing is queued, sent or
+claimed. An unsent entry is readable by whoever holds the unlocked device; that
+is the trade `10` §3.7 accepts.
+
 ### Event visibility
 
 `eventVisibility(db, viewerMemberId)` returns a predicate over logged events.

@@ -42,6 +42,13 @@ export interface LayoutOptions {
   /** The member's stored preference (R39.2). */
   theme: Theme;
   memberName?: string | null;
+  /**
+   * OFFLINE-1 · Who this page belongs to, for the client's write-only queue:
+   * it tags what it keeps with this, and drops entries tagged with anybody
+   * else. An opaque id and nothing more. Left out while impersonating and on
+   * the bare screens, where the queue is neither sent nor claimed.
+   */
+  memberId?: string | null;
   /** R38.7: shown on every screen while active, and not dismissible. */
   impersonating?: { name: string; readOnly: boolean } | null;
   /** R38.4: distinct from impersonation, impossible to confuse with production. */
@@ -88,7 +95,7 @@ const PRIMARY_NAV: NavItem[] = [
 export function page(options: LayoutOptions, content: SafeHtml): string {
   const {
     title, theme, path = "/", impersonating, devMode, demoMode, notice, bare,
-    reviewCount = 0, memberName, features = { loans: true, assets: true },
+    reviewCount = 0, memberName, memberId, features = { loans: true, assets: true },
     budgets = [], currentBudgetId = null,
   } = options;
 
@@ -119,7 +126,7 @@ export function page(options: LayoutOptions, content: SafeHtml): string {
 <meta name="apple-mobile-web-app-title" content="Pathayam">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 </head>
-<body data-features="${[features.loans ? "loans" : "", features.assets ? "assets" : ""].filter(Boolean).join(" ")}">
+<body data-features="${[features.loans ? "loans" : "", features.assets ? "assets" : ""].filter(Boolean).join(" ")}"${memberId && !bare ? ` data-member="${escape(memberId)}"` : ""}>
 ${String(renderBanners(impersonating, devMode, demoMode, path))}
 ${bare ? "" : String(renderHeader(theme, memberName, budgets, currentBudgetId, path))}
 <a class="skip-link" href="#main">Skip to content</a>
