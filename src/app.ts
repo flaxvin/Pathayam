@@ -5440,7 +5440,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
         holderMemberId: getAccount(db, projection.loan.account_id)?.holder_member_id ?? null,
         isPrivate: getAccount(db, projection.loan.account_id)?.visibility === "private",
+        // UI-PASS-3 · Never a card's payment envelope or a commitment: the
+        // charge is refused against either, so offering them is a dead end.
         categories: listCategories(db, { viewerMemberId: viewer(ctx) })
+          .filter((c) => !c.payment_account_id && !c.commits_to_budget_id)
           .map((c) => ({ id: c.id, name: c.name })),
       }),
     );
