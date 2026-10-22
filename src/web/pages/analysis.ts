@@ -861,7 +861,7 @@ export function renderSchedules(opts: {
                     <button class="button-small" type="submit">Save</button>
                   </form>
                   <form method="post" action="/schedules/${s.id}/delete" style="margin-top:.4rem"
-                        onsubmit="return confirm('Remove this schedule? Anything it already recorded stays.')">
+                        data-confirm="Remove this schedule? Anything it already recorded stays.">
                     <button class="button-small button-danger" type="submit">Remove</button>
                   </form>
                 </details>
