@@ -1040,6 +1040,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   function mutate<T>(
     ctx: RequestContext,
     fn: (a: AuthContext) => { redirect?: string; message?: string; body?: T },
+    /**
+     * False only for work SQLite cannot do inside a transaction — a backup's
+     * `VACUUM INTO`. Everything else runs as one unit (DEBUG-WEB-6).
+     */
+    opts: { atomic?: boolean } = {},
   ): Response {
     const a = auth(ctx);
     const key = (ctx.req.headers["idempotency-key"] as string | undefined) ?? null;
@@ -1054,7 +1059,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           path: ctx.url.pathname,
           payload: ctx.body,
         },
-        () => ({ statusCode: 200, body: fn(a) }),
+        // DEBUG-WEB-6 · One request, one transaction: a refusal on a later
+        // write takes the earlier ones back with it.
+        () => ({ statusCode: 200, body: opts.atomic === false ? fn(a) : transact(db, () => fn(a)) }),
       );
 
       const result = outcome.body as { redirect?: string; message?: string };
@@ -1090,7 +1097,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           path: ctx.url.pathname,
           payload: ctx.body,
         },
-        () => ({ statusCode: 200, body: fn() }),
+        () => ({ statusCode: 200, body: transact(db, fn) }),
       ).body;
     } catch (err) {
       if (err instanceof IdempotencyConflict) throw new HttpError(err.statusCode, err.message);
@@ -8943,7 +8950,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         summary: `Backed up to ${backup.path}`,
       });
       return { redirect: "/health", message: `Backed up ${backup.bytes} bytes.` };
-    }),
+    }, { atomic: false }),
   );
 
   router.post("/health/verify", (ctx) =>

@@ -99,6 +99,8 @@ export function migrate(db: DB, verbose = true, upTo = MIGRATIONS.length): void 
   }
 }
 
+let savepointDepth = 0;
+
 /**
  * Run `fn` inside a transaction, rolling back if it throws.
  *
@@ -107,7 +109,32 @@ export function migrate(db: DB, verbose = true, upTo = MIGRATIONS.length): void 
  * standalone or as part of a larger unit of work without knowing which.
  */
 export function transact<T>(db: DB, fn: () => T): T {
-  if (db.isTransaction) return fn();
+  /*
+   * DEBUG-WEB-6 · Nested, it is a savepoint. A request handler now runs as one
+   * unit of work, so a domain call inside it is always nested — and a handler
+   * that catches a refusal and carries on must not keep the half of that call
+   * which ran before it refused. Uncaught, the outer unit still rolls back the
+   * lot.
+   */
+  if (db.isTransaction) {
+    const name = `nested_${++savepointDepth}`;
+    db.exec(`SAVEPOINT ${name}`);
+    try {
+      const result = fn();
+      db.exec(`RELEASE ${name}`);
+      return result;
+    } catch (err) {
+      try {
+        db.exec(`ROLLBACK TO ${name}`);
+        db.exec(`RELEASE ${name}`);
+      } catch {
+        // The outer transaction is already gone; the original error is what matters.
+      }
+      throw err;
+    } finally {
+      savepointDepth--;
+    }
+  }
   db.exec("BEGIN");
   try {
     const result = fn();
