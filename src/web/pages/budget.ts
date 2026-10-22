@@ -285,7 +285,7 @@ function renderCategoryRow(
 
       <div class="category-meta">
         <span class="chip">${category.stateLabel}</span>
-        ${when(progress, () => renderTargetBar(progress!))}
+        ${when(progress, () => renderTargetBar(progress!, state.assigned))}
         ${when(category.isPaymentCategory, () => html`
           <span class="faint">Settles this card's balance</span>
         `)}
@@ -343,8 +343,19 @@ function renderCategoryRow(
   `;
 }
 
-function renderTargetBar(progress: { needed: Paise; underfunded: Paise; state: string }): SafeHtml {
-  const assigned = progress.needed - progress.underfunded;
+function renderTargetBar(
+  progress: { needed: Paise; underfunded: Paise; state: string },
+  assignedThisMonth: Paise,
+): SafeHtml {
+  /*
+   * D8a · Up to the target, what is covered is needed − underfunded. Past it,
+   * that sum stops at the target, so ₹1,000 assigned against ₹700 read
+   * "Over-funded ₹700 of ₹700" — the label and the figure disagreeing. Past the
+   * target the figure is what was actually assigned; the bar still stops full.
+   */
+  const assigned = progress.state === "over-funded"
+    ? assignedThisMonth
+    : progress.needed - progress.underfunded;
   const percent = progress.needed > 0 ? Math.min(100, Math.round((assigned / progress.needed) * 100)) : 100;
   const className =
     progress.state === "unfunded" ? "unfunded" : progress.state === "partial" ? "partial" : "";
