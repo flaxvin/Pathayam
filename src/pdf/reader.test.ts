@@ -104,3 +104,53 @@ describe("the PDF reader · a file that decompresses without end", () => {
     assert.ok(Date.now() - started < 5_000, `took ${Date.now() - started} ms`);
   });
 });
+
+/** A hand-written PDF from numbered object bodies, object 1 being the catalog. */
+function pdf(objects: string[]): Uint8Array {
+  const body = objects.map((o, i) => `${i + 1} 0 obj ${o} endobj\n`).join("");
+  return new Uint8Array(Buffer.from(`%PDF-1.4\n${body}trailer << /Root 1 0 R >>\n%%EOF\n`, "latin1"));
+}
+
+function stream(dict: string, content: string): string {
+  return `<< ${dict} /Length ${content.length} >>\nstream\n${content}\nendstream`;
+}
+
+describe("the PDF reader · text drawn inside a form XObject", () => {
+  /*
+   * CDSL's CAS draws each page as one form XObject and puts no fonts on the
+   * page itself. Reading only the page's own content stream gave the footer
+   * and nothing else, so every CDSL statement imported as "no folios found".
+   */
+  test("reads the form's text with the form's own fonts, placed where the page puts it", () => {
+    const bytes = pdf([
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+      "<< /Type /Page /Parent 2 0 R /Resources << /XObject << /I0 5 0 R >> /Font << /F1 6 0 R >> >> /Contents 4 0 R >>",
+      stream("", "BT /F1 10 Tf 20 760 Td (Statement header) Tj ET q 1 0 0 1 0 -100 cm /I0 Do Q BT /F1 10 Tf 20 600 Td (Page 1 of 1) Tj ET"),
+      stream(
+        "/Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources << /Font << /F9 6 0 R >> >>",
+        "BT /F9 10 Tf 20 800 Td (INE000A01011) Tj ET",
+      ),
+      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]);
+    const lines = read(bytes, "").split("\n").map((l) => l.trim());
+    // The form's line sits at 800 - 100 = 700: between the header and the footer.
+    assert.deepEqual(lines, ["Statement header", "INE000A01011", "Page 1 of 1"]);
+  });
+
+  test("a form that draws itself is read a bounded number of times", () => {
+    const bytes = pdf([
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+      "<< /Type /Page /Parent 2 0 R /Resources 6 0 R /Contents 4 0 R >>",
+      stream("", "/I0 Do"),
+      stream("/Type /XObject /Subtype /Form /BBox [0 0 612 792] /Resources 6 0 R", "BT /F1 10 Tf 20 700 Td (loop) Tj ET /I0 Do /I0 Do"),
+      "<< /XObject << /I0 5 0 R >> /Font << /F1 7 0 R >> >>",
+      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+    ]);
+    const started = Date.now();
+    const text = read(bytes, "");
+    assert.ok(Date.now() - started < 2_000);
+    assert.match(text, /loop/);
+  });
+});

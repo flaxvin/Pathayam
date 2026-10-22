@@ -37,10 +37,11 @@ export function extractPages(doc: PdfDocument): string[] {
   const pages: string[] = [];
   for (const page of findPages(doc)) {
     const resources = dictGet(doc, page, "Resources");
-    const fonts = isDict(resources) ? dictGet(doc, resources, "Font") : null;
     const content = contentBytes(doc, page);
     if (content.length === 0) continue;
-    pages.push(layout(extractPieces(doc, content, isDict(fonts) ? fonts : new Map())));
+    const pieces: Piece[] = [];
+    extractPieces(doc, content, isDict(resources) ? resources : new Map(), IDENTITY, pieces, { forms: 0 });
+    pages.push(layout(pieces));
   }
   return pages;
 }
@@ -216,8 +217,31 @@ function decode(raw: Uint8Array, encoding: Encoding): string {
 // The content stream
 // ---------------------------------------------------------------------------
 
-function extractPieces(doc: PdfDocument, content: Uint8Array, fonts: PdfDict): Piece[] {
-  const pieces: Piece[] = [];
+const IDENTITY = [1, 0, 0, 1, 0, 0];
+
+/**
+ * How many form XObjects one page may draw, nested or repeated. CDSL's CAS
+ * draws each whole page as a single form; a page referencing the same form
+ * thousands of times is a decompression bomb by another route.
+ */
+const MAX_FORMS_PER_PAGE = 64;
+const MAX_FORM_DEPTH = 8;
+
+/**
+ * Collect positioned text from one content stream into `pieces`.
+ *
+ * `ctm` is the transform in force when this stream starts: identity for a
+ * page, the caller's matrix times the form's /Matrix for a form XObject. Text
+ * inside a form (`/Name Do`) is read with the form's own /Resources, because
+ * that is where its fonts live — a CDSL CAS has no fonts on the page at all.
+ */
+function extractPieces(
+  doc: PdfDocument, content: Uint8Array, resources: PdfDict, ctm: number[],
+  pieces: Piece[], budget: { forms: number }, depth = 0,
+): void {
+  const fontsValue = dictGet(doc, resources, "Font");
+  const fonts: PdfDict = isDict(fontsValue) ? fontsValue : new Map();
+  const ctmStack: number[][] = [];
   const lexer = new Lexer(content);
   const stack: PdfValue[] = [];
 
@@ -250,11 +274,33 @@ function extractPieces(doc: PdfDocument, content: Uint8Array, fonts: PdfDict): P
       (text.length * fontSize * 0.5 + text.length * charSpacing +
         (text.split(" ").length - 1) * wordSpacing) * horizontalScale;
 
-    pieces.push({ x: tm[4]!, y: tm[5]!, text, width: advance });
+    // Into the page's space, so text drawn inside a form lines up with text
+    // drawn directly on the page.
+    const x = tm[4]! * ctm[0]! + tm[5]! * ctm[2]! + ctm[4]!;
+    const y = tm[4]! * ctm[1]! + tm[5]! * ctm[3]! + ctm[5]!;
+    pieces.push({ x, y, text, width: advance * Math.abs(ctm[0]!) });
     tm = multiply([1, 0, 0, 1, advance, 0], tm);
   };
 
   const num = (v: PdfValue | undefined): number => (typeof v === "number" ? v : 0);
+
+  const drawForm = (name: string): void => {
+    if (depth >= MAX_FORM_DEPTH || budget.forms >= MAX_FORMS_PER_PAGE) return;
+    const xobjects = dictGet(doc, resources, "XObject");
+    if (!isDict(xobjects)) return;
+    const form = resolve(doc, xobjects.get(name) ?? null);
+    if (!isStream(form)) return;
+    const subtype = dictGet(doc, form.dict, "Subtype");
+    if (!isName(subtype) || subtype.name !== "Form") return; // an image has no text
+    budget.forms++;
+    const matrix = dictGet(doc, form.dict, "Matrix");
+    const formMatrix = Array.isArray(matrix) && matrix.length === 6 ? matrix.map((v) => num(resolve(doc, v))) : IDENTITY;
+    const own = dictGet(doc, form.dict, "Resources");
+    extractPieces(
+      doc, decodeStream(doc, form), isDict(own) ? own : resources,
+      multiply(formMatrix, ctm), pieces, budget, depth + 1,
+    );
+  };
 
   for (;;) {
     lexer.skipSpace();
@@ -275,6 +321,18 @@ function extractPieces(doc: PdfDocument, content: Uint8Array, fonts: PdfDict): P
     if (op === "") { lexer.pos++; continue; }
 
     switch (op) {
+      case "q": ctmStack.push(ctm); break;
+      case "Q": ctm = ctmStack.pop() ?? ctm; break;
+      case "cm": {
+        const m = stack.slice(-6).map(num);
+        if (m.length === 6) ctm = multiply(m, ctm);
+        break;
+      }
+      case "Do": {
+        const name = stack[stack.length - 1];
+        if (isName(name)) drawForm(name.name);
+        break;
+      }
       case "BT":
         tm = [1, 0, 0, 1, 0, 0];
         tlm = tm;
@@ -343,8 +401,6 @@ function extractPieces(doc: PdfDocument, content: Uint8Array, fonts: PdfDict): P
     }
     stack.length = 0;
   }
-
-  return pieces;
 }
 
 /**
