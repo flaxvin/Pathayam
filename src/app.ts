@@ -6026,7 +6026,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const scope = budgetParam(ctx);
     const view = buildBudgetView(db, undefined, scope, viewer(ctx));
     const month = view.month;
-    const cashflow = projectCashflow(db, { days: 60, viewerMemberId: viewer(ctx) });
+    // DEBUG-ENGINE-9 · The budget on screen, as the Schedules page asks it.
+    const cashflow = projectCashflow(db, { days: 60, budgetId: scope, viewerMemberId: viewer(ctx) });
     const outstanding = creditOutstanding(db);
     const unfundedCards = [...view.categories.values()]
       .filter((c) => c.paymentAccountId)
