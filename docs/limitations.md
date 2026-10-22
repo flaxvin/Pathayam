@@ -162,6 +162,17 @@ statement password: SBI account statements need the registered mobile; SBI Card
 and Canara need the card's last four digits; HSBC needs its last six. Without
 them the file cannot be opened, and the interface says which is missing.
 
+**Importing from YNAB or Actual Budget brings transactions only.** Budget
+assignments, goals and targets are not read: they were worked out against the
+other app's own balances and months, and copied into envelopes they would
+count the same money twice. Amounts are taken as written, in whatever currency
+the other budget used — nothing is converted. "Starting Balance" rows are left
+out, since a Pathayam account has its own opening balance. Actual Budget's
+column names are from memory of its export code, not checked against a file
+it produced, so its columns are found by name and most are optional
+[unverified]. An account is never created by an import: one without a
+counterpart is left out until it is added, and the file imported again.
+
 **No bank API connections.** There is no consumer open-banking surface in India
 usable by a self-hosted application, and the application does not automate bank
 logins.

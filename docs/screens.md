@@ -47,6 +47,7 @@ answer 404 when the viewer may not see the entity
 | `POST /review/approve`, `/review/merge`, `/review/reject` | Act on one staged row. |
 | `GET /import` | CSV paste, PDF upload, saved profiles, batch history. |
 | `POST /import`, `POST /import/pdf`, `POST /import/map` | |
+| `POST /import/budget-app` | A YNAB or Actual Budget export, after `POST /import` recognised it and asked which account each of its accounts is (and, when every date reads both ways, which comes first). Transactions only: budget assignments are not imported, and the screen says why. |
 | `POST /import/undo` | Undo an entire batch. |
 | `POST /import/profiles/:id/delete` | |
 | `GET /rules` | Rules, proposals and a tester. |

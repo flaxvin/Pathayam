@@ -453,6 +453,7 @@ only (out of a token's reach).
 | GET/POST | `/import` | R/W | CSV paste import. |
 | POST | `/import/pdf` | W | Statement-PDF upload. |
 | POST | `/import/map` | W | Save a column mapping. |
+| POST | `/import/budget-app` | W | Import a YNAB or Actual Budget export: `csv`, `account_<n>` (an account id or `skip`, one per account in the file, in order), and `date_order` when every date reads both ways. Transactions only. |
 | POST | `/import/undo` | W | Undo an import batch. |
 | POST | `/import/profiles/:id/delete` | W | Delete a saved mapping. |
 | GET | `/rules` | R | Rules list. |

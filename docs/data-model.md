@@ -52,7 +52,7 @@ A unique index on `transactions(account_id, source, source_id)` where
 | Table | Key columns | Notes |
 |---|---|---|
 | `import_batches` | `id`, `source`, `adapter`, `account_id`, `file_name`, `rows_read`, `created_count`, `duplicate_count`, `auto_approved_count`, `error_count`, `errors_json`, `undone_at` | A batch can be undone as a unit. |
-| `staged_transactions` | `id`, `batch_id`, `account_id`, `row_number`, `date`, `amount`, `raw_*`, `source_id`, `proposed_payee`, `category_id`, `applied_rules_json`, `duplicate_of_id`, `duplicate_tier`, `duplicate_reason`, `status`, `transaction_id` | `status` ∈ `pending`, `approved`, `merged`, `rejected`. |
+| `staged_transactions` | `id`, `batch_id`, `account_id`, `row_number`, `date`, `amount`, `raw_*`, `source_id`, `proposed_payee`, `category_id`, `applied_rules_json`, `duplicate_of_id`, `duplicate_tier`, `duplicate_reason`, `transfer_account_id`, `splits_json`, `status`, `transaction_id` | `status` ∈ `pending`, `approved`, `merged`, `rejected`. `transfer_account_id` and `splits_json` (0064) are what a YNAB or Actual Budget export proposed: the account on the other side of a transfer, and split lines `[{categoryId, amount, memo}]` summing to `amount`. |
 | `import_profiles` | `id`, `name`, `account_id`, `header_signature`, `mapping_json`, `last_used_at` | Column mapping recognised by header signature. |
 | `rules` | `id`, `name`, `stage`, `conditions_json`, `actions_json`, `enabled`, `proposed`, `dismissed_at`, `times_applied`, `because`, `strength` | `proposed = 1` is a suggestion awaiting confirmation. |
 | `rule_applications` | `transaction_id`, `rule_id`, `at` | |
