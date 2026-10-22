@@ -199,6 +199,13 @@ private account ending in the same digits is never a candidate. The ones that
 member holds are preferred; if two still match, the alert is left alone with a
 note rather than guessed. A statement attachment is routed the same way.
 
+A statement attachment's password is derived as for an upload, and gets the
+card digits too: the last four of the one account at the sender's bank it
+routes to, and of that account's cards. When the route is unknown — no account
+at that bank, or several — the digits of every account and card the member can
+see are tried instead, so a statement that opens but has nowhere to go is
+reported as unmatched rather than as one that would not open.
+
 A message from an alert sender that reads like a transaction — an amount beside
 "spent", "debited" or "credited" — but that no profile can read is not dropped
 in silence: the fetch's summary counts the alerts it could not read, so they
