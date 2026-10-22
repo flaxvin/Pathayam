@@ -8965,14 +8965,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // Fired without awaiting: a slow monitor must not hold up the page, and
       // a ping that never arrives is itself the alert (R40.8.2).
       if (result.ok && config.heartbeatUrl) {
-        void pingHeartbeat(config.heartbeatUrl).then((beat) =>
+        // DEBUG-WEB-8 · Through the app's fetch, and the record is best-effort:
+        // a write that fails after the response (database closed at shutdown)
+        // was an unhandled rejection, which ends the process.
+        void pingHeartbeat(config.heartbeatUrl, deps.fetchImpl).then((beat) =>
           recordJobRun(
             db, "heartbeat", beat.ok ? "ok" : "failed",
             beat.ok
               ? "Acknowledged by the external monitor."
               : "The monitor could not be reached. It will alert on the missing ping.",
           ),
-        );
+        ).catch(() => {
+          // The ping itself went out or did not; the monitor judges that.
+        });
       }
 
       return { redirect: "/health", message: result.summary };
