@@ -235,6 +235,12 @@ function isLocalHostname(host: string): boolean {
   if (host === "localhost" || host === "127.0.0.1" || host === "::1" || host === "0.0.0.0") return true;
   if (host.endsWith(".localhost") || host.endsWith(".local") || host.endsWith(".test")) return true;
   // RFC1918 ranges, so a homelab machine on a LAN still counts as development.
+  /*
+   * A private range only when the whole name is an address: "10.example.com"
+   * and "192.168.example.com" are ordinary public names that merely begin
+   * like one, and matching the prefix let the bypass start on them.
+   */
+  if (!/^\d{1,3}(\.\d{1,3}){3}$/.test(host)) return false;
   if (/^10\./.test(host) || /^192\.168\./.test(host)) return true;
   if (/^172\.(1[6-9]|2\d|3[01])\./.test(host)) return true;
   return false;

@@ -87,6 +87,21 @@ describe("R38.3 · the dev login bypass refuses to start near production", () =>
     const config = loadConfig({ ...base, DEV_LOGIN: "true", BASE_URL: "http://[::1]:8080" });
     assert.deepEqual(productionIndicators(config), []);
   });
+  test("DEBUG-WEB-2 · a public name that merely begins like a LAN address is public", () => {
+    for (const url of [
+      "https://10.example.com", "https://192.168.example.com", "https://172.16.pathayam.example",
+    ]) {
+      assert.throws(
+        () => loadConfig({ ...base, DEV_LOGIN: "true", BASE_URL: url }),
+        (err: unknown) => err instanceof UnsafeConfiguration && /public hostname/.test(err.message),
+        url,
+      );
+    }
+    // The real addresses are still local.
+    for (const url of ["http://10.0.0.5:8080", "http://172.20.1.2", "http://192.168.0.1"]) {
+      assert.deepEqual(productionIndicators(loadConfig({ ...base, DEV_LOGIN: "true", BASE_URL: url })), [], url);
+    }
+  });
   test("is off by default (R38.2)", () => {
     assert.equal(loadConfig(base).devLogin, false);
   });
