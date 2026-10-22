@@ -2703,4 +2703,18 @@ ALTER TABLE tax_declarations ADD COLUMN s80d_checkup INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE tax_declarations ADD COLUMN s80d_parents_checkup INTEGER NOT NULL DEFAULT 0;
 `,
   },
+  {
+    name: "0060-statement-identity-customer-ids",
+    sql: `
+--------------------------------------------------------------------------------
+-- IMPORT-SND-12 · Axis's account statement opens with the first four letters
+-- of the name in capitals and the 9-digit customer ID; HDFC's SmartStatement
+-- with the customer ID alone. Neither can be worked out from name, PAN, date
+-- of birth or mobile, so the IDs are kept here, per bank, as JSON
+-- {"axis":"…","hdfc":"…"} — under the same never-exported, never-logged rule
+-- as every other column in this table (PR5.3).
+--------------------------------------------------------------------------------
+ALTER TABLE statement_identity ADD COLUMN customer_ids TEXT;
+`,
+  },
 ];

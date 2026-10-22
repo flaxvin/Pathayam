@@ -7,7 +7,10 @@
  *
  *   · **Union Bank** — first four characters of your name in UPPERCASE, then
  *     DDMM. Stated verbatim in their own statement email.
- *   · **Axis** — the same, in lowercase.
+ *   · **Axis card** — the same, in lowercase. **Axis account** — the first
+ *     four in UPPERCASE, then the 9-digit customer ID.
+ *   · **HDFC account** — the customer ID alone.
+ *   · **ESAF** — the first three letters in UPPERCASE, then the mobile's last four.
  *   · **ICICI** — the same, lowercase, "no special characters, spaces or
  *     salutation".
  *   · **Upstox, INDmoney, most brokers** — the PAN, lowercase.
@@ -49,10 +52,17 @@ export interface StatementIdentity {
   dob: string | null;
   /**
    * The registered mobile number, digits only. SBI's account statement uses
-   * its last five; nothing else here needs it, so it stays optional.
+   * its last five, ESAF its last four; it stays optional.
    */
   mobile?: string | null;
+  /** Per bank, the customer ID that bank's account statement is locked with. */
+  customerIds?: CustomerIds | null;
 }
+
+/** The banks whose account statements are locked with the customer ID. */
+export const CUSTOMER_ID_BANKS = ["axis", "hdfc"] as const;
+export type CustomerIdBank = (typeof CUSTOMER_ID_BANKS)[number];
+export type CustomerIds = Partial<Record<CustomerIdBank, string>>;
 
 /** The first four characters of a name, ignoring spaces and punctuation. */
 export function nameKey(name: string): string {
@@ -146,7 +156,27 @@ export function passwordCandidates(
       add(ddmmyy + four);
     }
     for (const six of lastN(6)) add(ddmmyy + six);                         // HSBC
-  } else {
+  }
+
+  /*
+   * IMPORT-SND-12 · Rules that need neither the date of birth nor a card,
+   * each quoted from the institution's own statement email:
+   *
+   *   · Axis account — "first 4 letters of your name, in upper case … and the
+   *       9 digits of your customer ID": C. K. AJAY KUMAR, 123456789 ->
+   *       CKAJ123456789. The DDMM rule this file used to prefer is the card's.
+   *   · HDFC account (SmartStatement) — "Enter your Customer ID as the password".
+   *   · ESAF — "first three letters of your name in CAPITAL … and the last 4
+   *       digits of your Registered Mobile Number": RAVI, …5867 59 -> RAV6759.
+   */
+  for (const id of Object.values(identity.customerIds ?? {})) {
+    if (!id) continue;
+    add(key.toUpperCase() + id);                                           // Axis account
+    add(id);                                                               // HDFC account
+  }
+  if (mobile && mobile.length >= 4) add(key.slice(0, 3).toUpperCase() + mobile.slice(-4)); // ESAF
+
+  if (!d) {
     // Canara needs only the card, so it works even with no date of birth.
     for (const four of lastN(4)) add(four);
   }
@@ -189,19 +219,26 @@ const dobFull: Rule = (i) => {
   return d ? d.dd + d.mm + d.yyyy : null;
 };
 const panLower: Rule = (i) => i.pan?.toLowerCase() ?? null;
+const axisCustomer: Rule = (i) => {
+  const id = i.customerIds?.axis;
+  return id ? nameKey(i.name).toUpperCase() + id : null;
+};
+const hdfcCustomer: Rule = (i) => i.customerIds?.hdfc ?? null;
 
 /**
  * What each bank says in its own statement email, tried first.
  *
  * Sourced from the emails themselves rather than from documentation, which is
- * why Union Bank's is uppercase and Axis's is lowercase — both are quoted
- * word-for-word in `BANKS[].passwordHint`.
+ * why Union Bank's is uppercase and Axis's card statement is lowercase — both
+ * are quoted word-for-word in `BANKS[].passwordHint`. Axis's and HDFC's
+ * account statements use the customer ID instead, so that goes first when it
+ * is saved: one wasted attempt on a card statement, against none at all.
  */
 const PREFERENCES: Partial<Record<BankId, Rule[]>> = {
-  axis: [nameLowerDdmm, nameUpperDdmm],
+  axis: [axisCustomer, nameLowerDdmm, nameUpperDdmm],
   icici: [nameLowerDdmm, nameUpperDdmm],
   union: [nameUpperDdmm, nameLowerDdmm],
-  hdfc: [nameUpperDdmm, dobFull],
+  hdfc: [hdfcCustomer, nameUpperDdmm, dobFull],
   sbi: [dobFull, nameUpperDdmm],
   canara: [dobFull, nameUpperDdmm],
   yes: [nameUpperDdmm, dobFull],
@@ -268,6 +305,19 @@ export function missingDetailFor(
           + (longest.length > 0 ? "only the last four." : "no card number recorded.")
           + " Add the fuller number on the account."
         : null;
+    // IMPORT-SND-12 · Account statements locked with the customer ID. A card
+    // statement from either bank opens with the name and date of birth, so a
+    // locked one with the ID missing is the account statement.
+    case "axis":
+      return identity.customerIds?.axis
+        ? null
+        : "Axis account statements use the first four letters of your name in capitals and "
+          + "your 9-digit customer ID, which is not saved yet. Add it in Settings.";
+    case "hdfc":
+      return identity.customerIds?.hdfc
+        ? null
+        : "HDFC account statements open with your customer ID alone, which is not saved yet. "
+          + "Add it in Settings.";
     default:
       return null;
   }
@@ -280,7 +330,14 @@ export function describeCandidate(
   if (identity.pan && candidate.toLowerCase() === identity.pan.toLowerCase()) {
     return "your PAN";
   }
+  for (const id of Object.values(identity.customerIds ?? {})) {
+    if (id && candidate.toLowerCase().endsWith(id.toLowerCase())) return "your customer ID";
+  }
+  const mobile = identity.mobile?.replace(/\D/g, "") ?? "";
   const key = nameKey(identity.name);
+  if (mobile.length >= 4 && candidate === key.slice(0, 3).toUpperCase() + mobile.slice(-4)) {
+    return "your name and mobile number";
+  }
   if (key && candidate.toLowerCase().startsWith(key.toLowerCase())) {
     return "your name and date of birth";
   }

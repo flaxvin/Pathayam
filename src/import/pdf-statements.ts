@@ -86,8 +86,9 @@ export const BANKS: BankProfile[] = [
     id: "axis",
     name: "Axis Bank",
     passwordHint:
-      "The first four letters of your name in lower case, followed by your " +
-      "date and month of birth as DDMM. No spaces or special characters.",
+      "Account statement: the first four letters of your name in capitals, " +
+      "followed by your 9-digit customer ID. Credit card statement: the first " +
+      "four letters in lower case, followed by your date and month of birth as DDMM.",
     signatures: [
       /AXIS\s*BANK/i, /axisbank\.com/i,
       // UTIB is Axis's IFSC prefix, from the days it was UTI Bank.

@@ -7709,6 +7709,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         pan: field(ctx.body, "pan") || null,
         dob: field(ctx.body, "dob") || null,
         mobile: field(ctx.body, "mobile") || null,
+        // Shown masked and never sent back, so a blank box keeps the saved ID.
+        customerIds: Object.fromEntries(
+          (["axis", "hdfc"] as const)
+            .map((bank) => [bank, field(ctx.body, `customer_id_${bank}`)] as const)
+            .filter(([, value]) => Boolean(value)),
+        ),
       });
       return {
         redirect: "/settings#statements",
