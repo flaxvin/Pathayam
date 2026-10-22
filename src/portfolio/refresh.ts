@@ -164,6 +164,18 @@ export async function refreshPrices(
     usedToday.set(row.provider as ProviderName, row.n);
   }
 
+  /*
+   * Whether a class is due, as the run found it. Asked again per instrument,
+   * the first fund's fetch was already in the log as "ran today" and every
+   * fund after it was skipped — one NAV a night, the rest left stale.
+   */
+  const due = new Map<PriceClass, boolean>();
+  const dueAtStart = (cls: PriceClass): boolean => {
+    if (!due.has(cls)) due.set(cls, isDue(cls, lastRunFor(db, cls), now));
+    return due.get(cls)!;
+  };
+  dueAtStart("fx");
+
   for (const instrument of instruments) {
     // R26.6 · An instrument pinned to manual is never fetched, and neither is
     // one whose refresh is set to never.
@@ -176,7 +188,7 @@ export async function refreshPrices(
       ? "equity"
       : "mutual-fund";
 
-    if (!opts.force && !isDue(cls, lastRunFor(db, cls), now)) {
+    if (!opts.force && !dueAtStart(cls)) {
       outcome.skipped++;
       continue;
     }
@@ -249,7 +261,7 @@ export async function refreshPrices(
 
   // FX, if anything needs it. Q18 means this household has no foreign account,
   // but USD card charges still need a rate (R33.1).
-  if (opts.force || isDue("fx", lastRunFor(db, "fx"), now)) {
+  if (opts.force || dueAtStart("fx")) {
     await refreshFx(db, actor, opts, outcome, budget);
   }
 
