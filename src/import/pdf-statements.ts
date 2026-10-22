@@ -1002,9 +1002,12 @@ export function parseStatementText(
      * it parses as a ₹3,00,000 debit unless the range is recognised for what
      * it is.
      */
+    // Anchored: the range has to be what the line opens with. ICICI's interest
+    // credit reads "30-09-2026  …:Int.Pd:30-06-2026 to 29-09-2026  4.00", a
+    // real row whose narration merely mentions a period.
     const isPeriod =
       found !== null &&
-      /\d{1,2}[-\s/][\w]{2,9}[-\s/]\d{2,4}\s*(?:to|through|–|—)\s*\d{1,2}[-\s/][\w]{2,9}[-\s/]\d{2,4}/i
+      /^\d{1,2}[-\s/][\w]{2,9}[-\s/]\d{2,4}\s*(?:to|through|–|—)\s*\d{1,2}[-\s/][\w]{2,9}[-\s/]\d{2,4}/i
         .test(bare);
 
     if (found && !ended && !isPeriod) {
@@ -1179,7 +1182,9 @@ function reconcile(
     const open = openingBalanceOf(line);
     if (open !== null && opening === null) opening = open;
 
-    if (/closing\s+balance/i.test(line)) {
+    // ICICI's TDS summary below the table has its own "Closing Balance
+    // (Cumulative) 704.00 0.00" — interest to date, not the account balance.
+    if (/closing\s+balance/i.test(line) && !/cumulative/i.test(line)) {
       const figures = figuresWithOffsets(line).filter((f) => /\.\d{2}\b/.test(f.text));
       const last = figures[figures.length - 1];
       if (last) closing = balanceOf(last.text);
