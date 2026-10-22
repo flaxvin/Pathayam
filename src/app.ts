@@ -8,6 +8,7 @@
  * - an idempotency key on every mutation (R36.1, N20)
  */
 
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { DB } from "./db/db.ts";
 import { queryAll, queryOne, execute, newId , transact } from "./db/db.ts";
 import { devLoginModulePresent, type Config } from "./config.ts";
@@ -660,11 +661,31 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     };
   }
 
+  /*
+   * SECURITY-D4 · Only the server writes in the notice banner.
+   *
+   * A success message rides the redirect as `?notice=<text>`, and was shown
+   * on whatever page the link opened — so any link to this household's own
+   * instance could put its words ("your account is locked, call ...") in the
+   * app's own banner. Escaped, so never a script, but phishing with the app's
+   * authority. Every notice the server issues now carries an HMAC of its text
+   * (`ns`), keyed by a secret that never leaves this process, and a notice
+   * without a matching one is not shown. The key is per process: a restart
+   * between a redirect and its page drops that one notice, and nothing else.
+   * `kind` was never set by any redirect, so it is no longer read at all.
+   */
+  const noticeKey = randomBytes(32);
+  function noticeSignature(message: string): string {
+    return createHmac("sha256", noticeKey).update(message).digest("base64url").slice(0, 22);
+  }
+
   function noticeFrom(ctx: RequestContext): Parameters<typeof page>[0]["notice"] {
     const message = ctx.query.get("notice");
     if (!message) return null;
-    const kind = (ctx.query.get("kind") ?? "success") as "error" | "success" | "info" | "warning";
-    return { kind, message };
+    const given = Buffer.from(ctx.query.get("ns") ?? "");
+    const expected = Buffer.from(noticeSignature(message));
+    if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
+    return { kind: "success", message };
   }
 
   /**
@@ -1150,7 +1171,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   function withNotice(path: string, message?: string): string {
     if (!message) return path;
     const separator = path.includes("?") ? "&" : "?";
-    return `${path}${separator}notice=${encodeURIComponent(message)}`;
+    return `${path}${separator}notice=${encodeURIComponent(message)}&ns=${noticeSignature(message)}`;
   }
 
   function monthParam(ctx: RequestContext): MonthKey {
@@ -7885,7 +7906,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     auth(ctx);
     return render(ctx, "Import a CAS", renderCasUpload({
       accounts: casDestinations(db, viewer(ctx)),
-      error: ctx.query.get("error"),
+      error: ctx.query.get("error") === "expired"
+        ? "That statement is no longer open — read it again and confirm within half an hour."
+        : null,
     }));
   });
 
@@ -7973,9 +7996,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const plan = takePlan(requiredField(ctx.body, "token"), a.member.id);
       if (!plan) {
         return {
-          redirect: "/portfolio/cas?error=" + encodeURIComponent(
-            "That statement is no longer open — read it again and confirm within half an hour.",
-          ),
+          // A fixed key, not the text: the page shows only errors it knows
+          // (SECURITY-D4), so a link cannot put its own words there.
+          redirect: "/portfolio/cas?error=expired",
         };
       }
 

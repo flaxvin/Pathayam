@@ -112,6 +112,15 @@ browsers resolve as another origin), and rejects control characters. Applied to
 the sign-in return, the theme toggle, the review queue and the impersonation
 banner.
 
+## Notices
+
+The banner a redirect lands on is carried in the URL (`?notice=`), so a link
+could put its own words there — escaped, never a script, but in the app's own
+success banner. Every notice the server issues is signed (`ns`, an HMAC of the
+text keyed by a random per-process secret) and an unsigned or mismatched one is
+not shown. A restart between a redirect and its page drops that one notice.
+The CAS import page's error is a fixed key (`?error=expired`), not text.
+
 ## Output encoding
 
 `src/http/html.ts` escapes `& < > " '` on every interpolation, covering both
