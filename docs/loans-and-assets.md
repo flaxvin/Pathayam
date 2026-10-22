@@ -147,6 +147,23 @@ SELECT lp.loan_id, l.lender, lp.date, lp.amount
  WHERE lp.kind = 'foreclosure' AND lp.amount > 0 AND lp.transaction_id IS NULL;
 ```
 
+### Home loan interest and the tax estimate
+
+A loan can be marked as for a house that is lived in or let out (TAX-1), on its
+own page. A lived-in house's interest goes into its holder's tax estimate as
+a section 24(b) line, old regime only, capped at ₹2,00,000 across every such
+house; a let-out house's is shown and not deducted, because the rent it is
+set against is not modelled. The figure is **interest accrued** in the
+financial year, not interest paid in it: each instalment's interest is spread
+evenly over the days it pays for — from the previous instalment, or a month
+before its own date — so an EMI on 5 April gives 26 of its 31 days to the
+year that ended on 31 March. Interest in a prepayment or settlement counts on
+its day; charges are not interest. Instalments not yet recorded come from the
+projected schedule. The figure is marked *estimated* wherever any of it is
+not the lender's own split — an estimated split, or the projection — and
+where instalments in the year are missing. The lender's interest certificate
+is the figure for a return, and the tax screen takes it as an override.
+
 ### Undo
 
 Every loan change in the activity log undoes for real or is refused with a

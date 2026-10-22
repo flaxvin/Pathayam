@@ -62,12 +62,19 @@ A unique index on `transactions(account_id, source, source_id)` where
 
 | Table | Key columns | Notes |
 |---|---|---|
-| `loans` | `id`, `account_id`, `lender`, `loan_type`, `sanctioned`, `sanction_date`, `interest_model`, `benchmark`, `tenure_months`, `original_tenure_months`, `first_instalment_date`, `instalment_day`, `repayment_account_id`, `payment_category_id`, `moratorium_months`, `card_id`, `converted_from_transaction_id`, `closed_at` | |
+| `loans` | `id`, `account_id`, `lender`, `loan_type`, `sanctioned`, `sanction_date`, `interest_model`, `benchmark`, `tenure_months`, `original_tenure_months`, `first_instalment_date`, `instalment_day`, `repayment_account_id`, `payment_category_id`, `moratorium_months`, `card_id`, `converted_from_transaction_id`, `property_use`, `closed_at` | `property_use` (0061) is `self-occupied`, `let-out` or null: whether the loan's interest goes into its holder's tax estimate under 24(b). |
 | `loan_rates` | `id`, `loan_id`, `effective_from`, `annual_rate_pct` | Rate history; the schedule is recomputed from it. |
 | `loan_payments` | `id`, `loan_id`, `date`, `amount`, `principal`, `interest`, `estimated`, `kind`, `transaction_id`, `loan_transaction_id` | `kind` distinguishes instalments from prepayments. `transaction_id` is the payment from the paying account; `loan_transaction_id` is the credit it wrote on the loan's own account (the principal only). |
 | `loan_disbursements` | `id`, `loan_id`, `date`, `amount`, `destination`, `destination_account_id` | For tranche-drawn loans. |
 | `loan_statements` | `id`, `loan_id`, `as_of`, `lender_outstanding`, `interest_paid_ytd`, `instalments_remaining`, `app_outstanding`, `resolved` | Records drift between the lender's figure and the app's. |
 | `family_loans` | `id`, `account_id`, `counterparty`, `direction`, `agreed_total`, `written_off_at`, `write_off_transaction_id`, `closed_at` | Balance is derived from transactions, not stored. |
+
+## Tax
+
+| Table | Key columns | Notes |
+|---|---|---|
+| `tax_declarations` | `member_id`, `fy`, `gross`, `s80c`, `s80d`, `s80d_senior`, `s80d_parents`, `s80d_parents_senior`, `s80d_checkup`, `s80d_parents_checkup`, `other`, `hra_*`, `s24b_override`, `tds` | One per member per financial year. `s24b_override` null uses the interest accrued on the member's self-occupied home loans; `tds` is the year's total from Form 16 or 26AS. |
+| `tax_payments` | `id`, `member_id`, `fy`, `kind`, `date`, `amount`, `note` | Advance (`advance`) or self-assessment (`self-assessment`) tax paid, one row a challan (0061). A member's own; no event is written, as for a declaration. |
 
 ## Assets
 

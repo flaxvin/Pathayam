@@ -88,6 +88,7 @@ answer 404 when the viewer may not see the entity
 | `GET /loans/:id/statement`, `POST` | Record the lender's figure and resolve drift. |
 | `GET /loans/:id/schedule.csv` | |
 | `POST /loans/:id/disburse`, `/loans/:id/close`, `/loans/:id/settle`, `/loans/:id/holder` | |
+| `POST /loans/:id/property` | Whether the house the loan paid for is lived in or let out, for the tax estimate (TAX-1). |
 | `GET /family`, `GET /family/:id` | Lending to and from people. |
 | `POST /family/new`, `/family/:id/advance`, `/family/:id/repayment`, `/family/:id/write-off`, `/family/:id/close` | |
 
@@ -112,7 +113,8 @@ answer 404 when the viewer may not see the entity
 
 | Route | Purpose |
 |---|---|
-| `GET`/`POST /tax` | Income tax estimate for the signed-in member, per financial year (`fy`). Both regimes side by side, 80C/80D/HRA, and the advance-tax instalment dates. Refuses a year whose rates the app does not carry. |
+| `GET`/`POST /tax` | Income tax estimate for the signed-in member, per financial year (`fy`). Both regimes side by side, 80C/80D/HRA, home loan interest under 24(b) carried from loans marked as for a house lived in (with an override), TDS, the balance to pay or refund under each regime, and the advance-tax instalments with what has been paid against each. Refuses a year whose rates the app does not carry. |
+| `POST /tax/payments`, `/tax/payments/:id/delete` | Record or remove an advance or self-assessment tax payment of the member's own. |
 
 ## Financial independence
 

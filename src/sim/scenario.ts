@@ -55,7 +55,7 @@ import { reconcile } from "../domain/reconciliation.ts";
 import { addAttachment, deleteAttachment } from "../domain/attachments.ts";
 import {
   createLoan, recordInstalment, recordDisbursement, recordLoanStatement, recordRateChange,
-  recordPrepayment, closeLoan, listLoans, projectLoan, paymentCategoryForLoan,
+  recordPrepayment, closeLoan, listLoans, projectLoan, paymentCategoryForLoan, setLoanPropertyUse,
 } from "../domain/loans.ts";
 import { convertToEmi } from "../domain/card-emi.ts";
 import {
@@ -984,6 +984,8 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
         loanId: eduLoan.id, lenderOutstanding: rupees(9_60_000) as Paise,
         asOf: day(month, 20),
       }));
+      // TAX-1 · The family lives in the house the home loan bought.
+      did("setLoanPropertyUse", () => setLoanPropertyUse(db, actor, homeLoan.id, "self-occupied"));
     }
     if (ix === 18 && !ratesChanged) {
       ratesChanged = true;

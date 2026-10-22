@@ -150,6 +150,7 @@ import {
 import {
   createLoan, listLoans, getLoan, projectLoan, recordInstalment, listPayments, closeLoan,
   recordDisbursement, recordLoanStatement, recordRateChange, recordPrepayment, canSeeLoan, checkAnnualRate, loanPaymentBudgetId,
+  setLoanPropertyUse,
   listDisbursements, listRatePeriods, debtOverview, type LoanType,
 } from "./domain/loans.ts";
 import { comparePrepayment, rateResetOptions, NegativeAmortisation } from "./loans/amortisation.ts";
@@ -186,10 +187,12 @@ import {
 } from "./auth/passwords.ts";
 import { beginOidc, exchangeOidcCode } from "./auth/oidc.ts";
 import {
-  staleRatesWarning, RATES_VERIFIED_ON, RATES_SOURCE, RULES,
+  staleRatesWarning, RATES_VERIFIED_ON, RATES_SOURCE, RULES, ADVANCE_TAX_RULES,
   estimateTax, advanceTaxSchedule, getDeclaration, hasDeclaration, saveDeclaration,
-  incomeInFinancialYear, type AdvanceInstalment,
+  incomeInFinancialYear, settle, taxPaid, listTaxPayments, addTaxPayment, deleteTaxPayment,
+  type AdvanceInstalment, type TaxPaymentKind,
 } from "./domain/tax.ts";
+import { homeLoanInterestFor } from "./domain/home-loan-interest.ts";
 import { renderTax } from "./web/pages/tax.ts";
 import { renderCategoryLines } from "./web/pages/category-lines.ts";
 import { renderDisposeAsset, renderAddToAsset } from "./web/pages/portfolio.ts";
@@ -5434,6 +5437,24 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }),
   );
 
+  /*
+   * TAX-1 · What the house is used for, which decides whether its interest
+   * goes into the tax estimate. Anyone who can see the loan can say; whose
+   * estimate it reaches follows the holder.
+   */
+  router.post("/loans/:id/property", (ctx) =>
+    mutate(ctx, (a) => {
+      requireLoanVisible(ctx);
+      const loan = getLoan(db, ctx.params.id!);
+      if (!loan) throw new NotFound("That loan does not exist.");
+      const raw = field(ctx.body, "property_use") ?? "";
+      const use = raw === "self-occupied" || raw === "let-out" ? raw : raw === "" ? null : undefined;
+      if (use === undefined) throw new Refusal("Choose lived in, let out, or neither.");
+      setLoanPropertyUse(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), loan.id, use);
+      return { redirect: `/loans/${loan.id}`, message: "Saved. The tax estimate follows it." };
+    }),
+  );
+
   router.post("/loans/:id/disburse", (ctx) =>
     mutate(ctx, (a) => {
       requireLoanVisible(ctx);
@@ -8903,18 +8924,34 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // Another member's sale is not part of their assessment, however visible.
     const gains = capitalGainsTaxFor(db, fy, a.member.id);
 
+    // TAX-1 · Interest on loans this member holds for a house they live in,
+    // accrued in the year from the loan's ledger — unless they gave their own.
+    const homeLoan = homeLoanInterestFor(db, fy, a.member.id);
+    const s24b = (stored.s24bOverride ?? homeLoan.selfOccupied) as Paise;
+
+    // TAX-2 · What has been paid already.
+    const payments = listTaxPayments(db, a.member.id, fy);
+    const paid = taxPaid(db, a.member.id, fy);
+
     let estimate = null;
     let advance: AdvanceInstalment[] = [];
+    let settlement = null;
     // WEALTH-9 · Slab-rated gains are income too: a member whose only income
     // is a debt-fund gain was told to "enter a gross income" and shown nothing.
     if ((gross > 0 || gains.addToSlabIncome > 0 || gains.specialRateTax > 0) && !staleRatesWarning(fy)) {
-      estimate = estimateTax(fy, gross, stored, gains);
-      const liability = estimate.better === "old" ? estimate.old.total : estimate.new.total;
-      advance = advanceTaxSchedule(fy, liability);
+      estimate = estimateTax(fy, gross, { ...stored, s24b }, gains);
+      settlement = { old: settle(estimate.old, paid), new: settle(estimate.new, paid) };
+      // TAX-3 · Section 208 tests the year's tax after TDS, not before.
+      const liability = Math.max(
+        0, (estimate.better === "old" ? estimate.old.total : estimate.new.total) - paid.tds,
+      ) as Paise;
+      advance = advanceTaxSchedule(fy, liability, payments.filter((p) => p.kind === "advance"));
     }
 
     return {
       fy, gross, ledgerIncome, deductions: stored, estimate, advance, gains,
+      homeLoan, s24bOverride: stored.s24bOverride ?? null, payments, paid, settlement,
+      advanceThreshold: (ADVANCE_TAX_RULES[fy] ?? ADVANCE_TAX_RULES[2025]!).threshold,
       staleWarning: staleRatesWarning(fy),
       ratesVerifiedOn: RATES_VERIFIED_ON,
       ratesSource: RATES_SOURCE,
@@ -8955,9 +8992,39 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         hra: (received || rentPaid || basic)
           ? { received, rentPaid, basic, metro: field(ctx.body, "hra_metro") === "1" }
           : null,
+        // TAX-1 · Blank uses what the ledger accrued; a figure, even 0, is theirs.
+        s24bOverride: String(field(ctx.body, "s24b") ?? "").trim() ? money("s24b") : null,
+        tds: money("tds"),
       });
 
       return { redirect: `/tax?fy=${fy}`, message: "Saved. The estimate is recalculated." };
+    }),
+  );
+
+  /*
+   * TAX-2 · Advance and self-assessment tax paid, a challan at a time. The
+   * member's own: written against the viewer, and a delete names one of the
+   * viewer's rows or finds nothing.
+   */
+  router.post("/tax/payments", (ctx) =>
+    mutate(ctx, (a) => {
+      const fy = Number(field(ctx.body, "fy"));
+      if (!Number.isInteger(fy)) throw new Refusal("Pick a financial year.");
+      const kind = field(ctx.body, "kind") as TaxPaymentKind;
+      addTaxPayment(db, a.member.id, {
+        fy, kind,
+        date: dateField(field(ctx.body, "date")),
+        amount: amountField(String(field(ctx.body, "amount") ?? ""), "Amount"),
+        note: field(ctx.body, "note") ?? null,
+      });
+      return { redirect: `/tax?fy=${fy}`, message: "Recorded. The balance is recalculated." };
+    }),
+  );
+
+  router.post("/tax/payments/:id/delete", (ctx) =>
+    mutate(ctx, (a) => {
+      const removed = deleteTaxPayment(db, a.member.id, ctx.params.id!);
+      return { redirect: `/tax?fy=${removed.fy}`, message: "Removed." };
     }),
   );
 

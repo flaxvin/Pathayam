@@ -467,7 +467,8 @@ only (out of a token's reach).
 | GET | `/categories` | R | Categories, for the budget being viewed (`?budget=`). |
 | POST | `/groups/new` · `/groups/:id/rename` · `/groups/:id/delete` | W | Add, rename or remove a category group. A group must be empty to be deleted. |
 | POST | `/categories/new` · `/categories/:id/rename` · `/categories/:id/hide` · `/categories/:id/delete` | W | Manage categories. |
-| GET/POST | `/tax` | W | Income tax estimate for the signed-in member and one financial year (`fy`). POST saves gross income and deductions. Refuses a year whose rates the app does not have. |
+| GET/POST | `/tax` | W | Income tax estimate for the signed-in member and one financial year (`fy`). POST saves gross income, deductions, TDS (`tds`) and an optional own figure for home loan interest under section 24(b) (`s24b`; blank uses the interest accrued on loans marked as for a self-occupied house). Refuses a year whose rates the app does not have. |
+| POST | `/tax/payments` · `/tax/payments/:id/delete` | W | Record (`fy`, `kind` = `advance` or `self-assessment`, `date`, `amount`, `note`) or remove a tax payment of the signed-in member's own. Advance tax must be dated inside its financial year. Another member's payment is not found. |
 | POST | `/categories/:id/merge` | W | Merge this category into `winner_id`: assignments are summed month by month, history and targets move across, and this one is deleted. Refuses a payment category and a merge across budgets. |
 | POST | `/categories/:id/target` | W | Set or clear a category's target: `amount`, `kind` (`monthly` or `refill`; omitted keeps a stored refill) and optional `target_date` (makes it by-date). |
 | POST | `/categories/:id/reorder` · `/groups/:id/reorder` | W | Move a category or group up or down. |
@@ -489,6 +490,7 @@ only (out of a token's reach).
 | GET/POST | `/loans/:id/prepay` | R/W | Record a prepayment. |
 | GET/POST | `/loans/:id/rate` | R/W | Record a rate reset. |
 | POST | `/loans/:id/holder` | W | Change whose loan it is and whether it is private (H2, H2.2). |
+| POST | `/loans/:id/property` | W | Say what the house the loan paid for is used for (`property_use` = `self-occupied`, `let-out`, or empty for neither). A self-occupied house's accrued interest is carried into its holder's tax estimate (TAX-1). Undoable from the activity log. |
 | POST | `/loans/:id/close` | W | File away a paid-off loan (R21). |
 | POST | `/loans/:id/settle` | W | Settle a loan early, recording the lender's foreclosure charge (R19.5). |
 | POST | `/transaction/:id/convert-to-emi` | W | Convert a card purchase to an instalment plan (`06` §7.4, F8.5). |

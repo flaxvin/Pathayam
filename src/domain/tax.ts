@@ -37,7 +37,7 @@
  */
 
 import type { Paise } from "../core/money.ts";
-import { Refusal } from "../core/refusal.ts";
+import { Missing, Refusal } from "../core/refusal.ts";
 
 export type Regime = "old" | "new";
 
@@ -66,6 +66,15 @@ export interface RegimeRules {
   allowsDeductions: boolean;
   /** Surcharge bands, highest first. */
   surcharge: { above: Paise; rateBp: number }[];
+  /**
+   * TAX-1 · Section 24(b): the most interest on a loan for a self-occupied
+   * house that may be set against other income, across every such house the
+   * person has. Null where the regime allows none of it.
+   *
+   * Keyed by year with the slabs because it is the Act's number, not ours: it
+   * was ₹1,50,000 until FY 2013-14 and could move again.
+   */
+  s24bSelfOccupiedCap: Paise | null;
 }
 
 const RUPEE = 100;
@@ -135,6 +144,15 @@ export const RULES: Record<number, Record<Regime, RegimeRules>> = {
       rebateCap: R(12_500),
       allowsDeductions: true,
       surcharge: [{ above: L(500), rateBp: 3700 }, ...OLD_SURCHARGE],
+      /*
+       * TAX-1 · ₹2,00,000 for a self-occupied house (s24(b), second proviso;
+       * carried into the Income-tax Act, 2025 as the cap in its house-property
+       * section, in force from 1 April 2026). Retrieved 22-10-2026 by web
+       * search — taxguru.in/?p=1026138, angelone.in "Section 24(b) of Income
+       * Tax", taxheal.com on clause 22 of the Bill — the department's own site
+       * was not reachable to check against; RATES_SOURCE is where to.
+       */
+      s24bSelfOccupiedCap: L(2),
     },
     new: {
       slabs: [
@@ -152,6 +170,13 @@ export const RULES: Record<number, Record<Regime, RegimeRules>> = {
       allowsDeductions: false,
       // The new regime's surcharge stops at 25%; there is no 37% band.
       surcharge: OLD_SURCHARGE,
+      /*
+       * TAX-1 · None. Section 115BAC(2) takes away the interest on a
+       * self-occupied house under the new regime, and a let-out house's loss
+       * may not be set against other heads either. Same sources and date as
+       * the old regime's cap above.
+       */
+      s24bSelfOccupiedCap: null,
     },
   },
 };
@@ -259,6 +284,13 @@ export interface Deductions {
   /** Anything else under Chapter VI-A, entered as one figure. */
   other: Paise;
   hra: HraInput | null;
+  /**
+   * TAX-1 · Interest on loans for a self-occupied house, for the year, before
+   * the cap: what the ledger accrued, or the person's own figure. Not Chapter
+   * VI-A — it is a loss under "house property" set against other income — so
+   * it is its own field and its own line.
+   */
+  s24b?: Paise;
 }
 
 export interface HraInput {
@@ -289,6 +321,8 @@ export interface RegimeEstimate {
   gross: Paise;
   standardDeduction: Paise;
   hraExempt: Paise;
+  /** TAX-1 · Section 24(b), after the cap; zero where the regime allows none. */
+  homeLoanInterest: Paise;
   chapterViA: Paise;
   taxable: Paise;
   taxBeforeRebate: Paise;
@@ -365,6 +399,14 @@ export function estimateUnder(
     : 0 as Paise;
 
   /*
+   * TAX-1 · Interest on a self-occupied house, capped as the Act caps it. The
+   * cap is across every such house, so it applies to the total, not per loan.
+   */
+  const homeLoanInterest = rules.s24bSelfOccupiedCap === null
+    ? 0 as Paise
+    : Math.min(Math.max(0, deductions.s24b ?? 0), rules.s24bSelfOccupiedCap) as Paise;
+
+  /*
    * Slab-rated gains — debt, short-term property — are ordinary income and go
    * in before the deductions, because Chapter VI-A reduces gross total income
    * and that includes them.
@@ -382,7 +424,7 @@ export function estimateUnder(
   const standardDeduction = Math.min(rules.standardDeduction, Math.max(0, gross)) as Paise;
 
   const taxable = Math.max(
-    0, grossWithGains - standardDeduction - hraExempt - chapterViA,
+    0, grossWithGains - standardDeduction - hraExempt - homeLoanInterest - chapterViA,
   ) as Paise;
 
   const taxBeforeRebate = taxOnSlabs(taxable, rules.slabs);
@@ -489,7 +531,7 @@ export function estimateUnder(
   return {
     regime, gross: grossWithGains,
     standardDeduction,
-    hraExempt, chapterViA, taxable,
+    hraExempt, homeLoanInterest, chapterViA, taxable,
     taxBeforeRebate, rebate, specialRateTax, surcharge, cess, total,
     totalIncome, basicExemptionAgainstGains: basicExemptionAgainstGains as Paise,
     // WEALTH-10 · Over all the income the total is tax on, special-rate gains
@@ -527,17 +569,50 @@ export function estimateTax(
 // Advance tax
 // ---------------------------------------------------------------------------
 
+export interface AdvanceTaxRules {
+  /** Advance tax is due only where the year's tax, less TDS, is this or more. */
+  threshold: Paise;
+  /** The instalments, as cumulative percentages of that tax. */
+  instalments: readonly { due: string; cumulativePct: number; label: string }[];
+}
+
 /**
- * The four instalments under section 211, as cumulative percentages of the
- * year's liability. Missing one costs interest under 234B and 234C, which is
- * the whole reason to show the dates.
+ * TAX-3 · The four instalments and the ₹10,000 threshold, keyed by year like
+ * the slabs.
+ *
+ * Section 208 (1961 Act) asks for advance tax where the tax payable for the
+ * year, after tax deducted or collected at source, is ₹10,000 or more; section
+ * 211 sets 15%, 45%, 75% and 100% by 15 June, 15 September, 15 December and
+ * 15 March. The Income-tax Act, 2025, in force from 1 April 2026, carries the
+ * same threshold and dates in its advance-tax sections (403 to 408), so FY
+ * 2026-27 is the same table. Retrieved 22-10-2026 by web search: the
+ * department's "Payment of Advance Tax" tax-calendar page and tutorial,
+ * taxguru.in/?p=1077501 and taxtmi.com on the 2025 Act. The department's site
+ * itself was not reachable to read directly.
+ *
+ * Not modelled: a resident senior citizen with no business income owes no
+ * advance tax at all (s207), and presumptive income under 44AD/44ADA is paid
+ * in one instalment by 15 March. Interest for paying late or short — 234B on
+ * paying under 90% by the year's end, 234C on each instalment — is named on
+ * the screen and never computed.
  */
-export const ADVANCE_TAX_INSTALMENTS = [
-  { due: "06-15", cumulativePct: 15, label: "15 June" },
-  { due: "09-15", cumulativePct: 45, label: "15 September" },
-  { due: "12-15", cumulativePct: 75, label: "15 December" },
-  { due: "03-15", cumulativePct: 100, label: "15 March" },
-] as const;
+const ADVANCE_2025: AdvanceTaxRules = {
+  threshold: R(10_000),
+  instalments: [
+    { due: "06-15", cumulativePct: 15, label: "15 June" },
+    { due: "09-15", cumulativePct: 45, label: "15 September" },
+    { due: "12-15", cumulativePct: 75, label: "15 December" },
+    { due: "03-15", cumulativePct: 100, label: "15 March" },
+  ],
+};
+export const ADVANCE_TAX_RULES: Record<number, AdvanceTaxRules> = {
+  2025: ADVANCE_2025,
+  2026: ADVANCE_2025,
+};
+
+/** The current years' figures, for callers that do not name one. */
+export const ADVANCE_TAX_INSTALMENTS = ADVANCE_2025.instalments;
+export const ADVANCE_TAX_THRESHOLD = ADVANCE_2025.threshold;
 
 export interface AdvanceInstalment {
   label: string;
@@ -546,31 +621,71 @@ export interface AdvanceInstalment {
   cumulativeAmount: Paise;
   /** Payable at this instalment, net of the earlier ones. */
   instalmentAmount: Paise;
+  /** TAX-3 · Advance tax paid on or before this date, as entered. */
+  paidByThen: Paise;
+  /** How far `paidByThen` falls short of `cumulativeAmount`; zero when it does not. */
+  shortBy: Paise;
 }
 
 /**
- * Advance tax is not due at all where the year's liability is under ₹10,000,
- * so a household below that gets an empty list rather than four rows of zero.
+ * The instalments on `liability`, which is the year's tax less TDS — the
+ * figure section 208 tests. Empty below the threshold, rather than four rows
+ * of zero. `payments` are the advance tax paid, dated, so each row can say
+ * what has been paid against it.
  */
-export const ADVANCE_TAX_THRESHOLD = R(10_000);
-
-export function advanceTaxSchedule(fy: number, liability: Paise): AdvanceInstalment[] {
-  if (liability < ADVANCE_TAX_THRESHOLD) return [];
-  let paidSoFar = 0;
-  return ADVANCE_TAX_INSTALMENTS.map((i) => {
+export function advanceTaxSchedule(
+  fy: number, liability: Paise, payments: readonly { date: string; amount: Paise }[] = [],
+): AdvanceInstalment[] {
+  assertKnownYear(fy);
+  const rules = ADVANCE_TAX_RULES[fy]!;
+  if (liability < rules.threshold) return [];
+  let dueSoFar = 0;
+  return rules.instalments.map((i) => {
     const cumulative = Math.round((liability * i.cumulativePct) / 100);
-    const instalment = cumulative - paidSoFar;
-    paidSoFar = cumulative;
+    const instalment = cumulative - dueSoFar;
+    dueSoFar = cumulative;
     // The March instalment falls in the calendar year after the FY starts.
     const year = i.due.startsWith("03") ? fy + 1 : fy;
+    const date = `${year}-${i.due}`;
+    const paidByThen = payments.filter((p) => p.date <= date).reduce((t, p) => t + p.amount, 0);
     return {
       label: i.label,
-      date: `${year}-${i.due}`,
+      date,
       cumulativePct: i.cumulativePct,
       cumulativeAmount: cumulative as Paise,
       instalmentAmount: instalment as Paise,
+      paidByThen: paidByThen as Paise,
+      shortBy: Math.max(0, cumulative - paidByThen) as Paise,
     };
   });
+}
+
+// ---------------------------------------------------------------------------
+// TAX-2 · What has been paid already, and what is left
+// ---------------------------------------------------------------------------
+
+export interface TaxPaid {
+  /** Deducted at source, from Form 16 or 26AS, entered as one figure. */
+  tds: Paise;
+  advance: Paise;
+  selfAssessment: Paise;
+}
+
+export interface Settlement {
+  regime: Regime;
+  total: Paise;
+  paid: Paise;
+  /** Positive is still to pay; negative is a refund due. */
+  balance: Paise;
+}
+
+/**
+ * The estimate less everything already paid, under one regime. Signed, so a
+ * refund reads as one: ₹1,00,000 of tax against ₹1,20,000 deducted is −₹20,000.
+ */
+export function settle(e: RegimeEstimate, paid: TaxPaid): Settlement {
+  const total = paid.tds + paid.advance + paid.selfAssessment;
+  return { regime: e.regime, total: e.total, paid: total as Paise, balance: (e.total - total) as Paise };
 }
 
 // ---------------------------------------------------------------------------
@@ -578,17 +693,25 @@ export function advanceTaxSchedule(fy: number, liability: Paise): AdvanceInstalm
 // ---------------------------------------------------------------------------
 
 import type { DB } from "../db/db.ts";
-import { execute, queryOne } from "../db/db.ts";
-import { nowIST, fiscalYearRange, formatDate } from "../core/dates.ts";
+import { execute, queryAll, queryOne, newId } from "../db/db.ts";
+import { nowIST, fiscalYearRange, formatDate, isIsoDate, type IsoDate } from "../core/dates.ts";
 
 export interface Declaration extends Deductions {
   gross: Paise;
+  /**
+   * TAX-1 · The person's own figure for 24(b) interest on a self-occupied
+   * house, before the cap. Null uses what the ledger accrued.
+   */
+  s24bOverride?: Paise | null;
+  /** TAX-2 · Tax deducted at source for the year, from Form 16 or 26AS. */
+  tds?: Paise;
 }
 
 const EMPTY: Declaration = {
   gross: 0 as Paise, s80c: 0 as Paise, s80d: 0 as Paise,
   s80dSenior: false, s80dParents: 0 as Paise, s80dParentsSenior: false,
   s80dCheckup: 0 as Paise, s80dParentsCheckup: 0 as Paise, other: 0 as Paise, hra: null,
+  s24bOverride: null, tds: 0 as Paise,
 };
 
 export function getDeclaration(db: DB, memberId: string, fy: number): Declaration {
@@ -596,11 +719,12 @@ export function getDeclaration(db: DB, memberId: string, fy: number): Declaratio
     gross: number; s80c: number; s80d: number; s80d_senior: number; other: number;
     s80d_parents: number; s80d_parents_senior: number; s80d_checkup: number; s80d_parents_checkup: number;
     hra_received: number; hra_rent_paid: number; hra_basic: number; hra_metro: number;
+    s24b_override: number | null; tds: number;
   }>(
     db,
     `SELECT gross, s80c, s80d, s80d_senior, other,
             s80d_parents, s80d_parents_senior, s80d_checkup, s80d_parents_checkup,
-            hra_received, hra_rent_paid, hra_basic, hra_metro
+            hra_received, hra_rent_paid, hra_basic, hra_metro, s24b_override, tds
        FROM tax_declarations WHERE member_id = ? AND fy = ?`,
     memberId, fy,
   );
@@ -615,6 +739,8 @@ export function getDeclaration(db: DB, memberId: string, fy: number): Declaratio
     s80dCheckup: row.s80d_checkup as Paise,
     s80dParentsCheckup: row.s80d_parents_checkup as Paise,
     other: row.other as Paise,
+    s24bOverride: row.s24b_override as Paise | null,
+    tds: row.tds as Paise,
     hra: (row.hra_received || row.hra_rent_paid || row.hra_basic)
       ? {
           received: row.hra_received as Paise,
@@ -647,6 +773,7 @@ export function saveDeclaration(db: DB, memberId: string, fy: number, d: Declara
     ["Section 80D for parents", d.s80dParents ?? 0], ["A preventive check-up", d.s80dCheckup ?? 0],
     ["A parents' preventive check-up", d.s80dParentsCheckup ?? 0],
     ["Other deductions", d.other],
+    ["Home loan interest", d.s24bOverride ?? 0], ["Tax deducted at source", d.tds ?? 0],
   ] as const) {
     if (value < 0) throw new Refusal(`${label} cannot be negative.`);
   }
@@ -655,8 +782,8 @@ export function saveDeclaration(db: DB, memberId: string, fy: number, d: Declara
     `INSERT INTO tax_declarations
        (member_id, fy, gross, s80c, s80d, s80d_senior, other,
         s80d_parents, s80d_parents_senior, s80d_checkup, s80d_parents_checkup,
-        hra_received, hra_rent_paid, hra_basic, hra_metro, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        hra_received, hra_rent_paid, hra_basic, hra_metro, s24b_override, tds, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(member_id, fy) DO UPDATE SET
          gross = excluded.gross, s80c = excluded.s80c, s80d = excluded.s80d,
          s80d_senior = excluded.s80d_senior, other = excluded.other,
@@ -664,10 +791,12 @@ export function saveDeclaration(db: DB, memberId: string, fy: number, d: Declara
          s80d_checkup = excluded.s80d_checkup, s80d_parents_checkup = excluded.s80d_parents_checkup,
          hra_received = excluded.hra_received, hra_rent_paid = excluded.hra_rent_paid,
          hra_basic = excluded.hra_basic, hra_metro = excluded.hra_metro,
+         s24b_override = excluded.s24b_override, tds = excluded.tds,
          updated_at = excluded.updated_at`,
     memberId, fy, d.gross, d.s80c, d.s80d, d.s80dSenior ? 1 : 0, d.other,
     d.s80dParents ?? 0, d.s80dParentsSenior ? 1 : 0, d.s80dCheckup ?? 0, d.s80dParentsCheckup ?? 0,
     d.hra?.received ?? 0, d.hra?.rentPaid ?? 0, d.hra?.basic ?? 0, d.hra?.metro ? 1 : 0,
+    d.s24bOverride ?? null, d.tds ?? 0,
     nowIST(),
   );
 }
@@ -701,3 +830,106 @@ export function incomeInFinancialYear(db: DB, fy: number, visibleAccountIds: str
   );
   return (row?.total ?? 0) as Paise;
 }
+
+// ---------------------------------------------------------------------------
+// TAX-2 · Advance and self-assessment tax paid
+// ---------------------------------------------------------------------------
+
+/*
+ * Dated, one row a challan, because advance tax is measured against dates:
+ * what was paid by 15 September is what the September instalment is checked
+ * against. TDS is one figure on the declaration instead — Form 16 and 26AS
+ * give it as a total, and nothing here turns on when it was deducted.
+ *
+ * No event is written, the same as a declaration: the activity log is read by
+ * the household, and what one member paid in tax is theirs. Every read and
+ * every delete is by member, so another member's id finds nothing.
+ */
+
+export type TaxPaymentKind = "advance" | "self-assessment";
+
+export interface TaxPayment {
+  id: string;
+  member_id: string;
+  fy: number;
+  kind: TaxPaymentKind;
+  date: IsoDate;
+  amount: Paise;
+  note: string | null;
+}
+
+export function listTaxPayments(db: DB, memberId: string, fy: number): TaxPayment[] {
+  return queryAll<TaxPayment>(
+    db,
+    `SELECT id, member_id, fy, kind, date, amount, note FROM tax_payments
+      WHERE member_id = ? AND fy = ? ORDER BY date, created_at`,
+    memberId, fy,
+  );
+}
+
+export function addTaxPayment(
+  db: DB, memberId: string,
+  input: { fy: number; kind: TaxPaymentKind; date: IsoDate; amount: Paise; note?: string | null },
+): TaxPayment {
+  assertKnownYear(input.fy);
+  if (input.kind !== "advance" && input.kind !== "self-assessment") {
+    throw new Refusal("Say whether it was advance tax or self-assessment tax.");
+  }
+  if (!isIsoDate(input.date)) throw new Refusal("A tax payment needs the date on its challan.");
+  if (!(input.amount > 0)) throw new Refusal("A tax payment needs an amount above zero.");
+  const { from, to } = fiscalYearRange(input.fy);
+  /*
+   * Advance tax for a year is paid inside it — that is what makes it advance.
+   * Self-assessment tax is paid once the year's income is known, so any time
+   * from its start; most of it in the July after.
+   */
+  if (input.kind === "advance" && (input.date < from || input.date > to)) {
+    throw new Refusal(
+      `Advance tax for ${formatFiscalYearShort(input.fy)} is paid between ${formatDate(from)} and ${formatDate(to)}. ` +
+      "Paid after that, it is self-assessment tax.",
+    );
+  }
+  if (input.date < from) {
+    throw new Refusal(`Tax for ${formatFiscalYearShort(input.fy)} cannot be paid before the year began.`);
+  }
+  const row: TaxPayment = {
+    id: newId(), member_id: memberId, fy: input.fy, kind: input.kind,
+    date: input.date, amount: input.amount, note: input.note?.trim() || null,
+  };
+  execute(
+    db,
+    `INSERT INTO tax_payments (id, member_id, fy, kind, date, amount, note, created_at)
+     VALUES (?,?,?,?,?,?,?,?)`,
+    row.id, row.member_id, row.fy, row.kind, row.date, row.amount, row.note, nowIST(),
+  );
+  return row;
+}
+
+/** Removes one of this member's payments; another member's id is refused as missing. */
+export function deleteTaxPayment(db: DB, memberId: string, id: string): TaxPayment {
+  const row = queryOne<TaxPayment>(
+    db,
+    `SELECT id, member_id, fy, kind, date, amount, note FROM tax_payments WHERE id = ? AND member_id = ?`,
+    id, memberId,
+  );
+  if (!row) throw new Missing("That tax payment does not exist.");
+  execute(db, `DELETE FROM tax_payments WHERE id = ?`, id);
+  return row;
+}
+
+/** TDS, advance and self-assessment tax, for the year. */
+export function taxPaid(db: DB, memberId: string, fy: number): TaxPaid {
+  const payments = listTaxPayments(db, memberId, fy);
+  const sum = (kind: TaxPaymentKind) =>
+    payments.filter((p) => p.kind === kind).reduce((t, p) => t + p.amount, 0) as Paise;
+  return {
+    tds: (getDeclaration(db, memberId, fy).tds ?? 0) as Paise,
+    advance: sum("advance"),
+    selfAssessment: sum("self-assessment"),
+  };
+}
+
+function formatFiscalYearShort(fy: number): string {
+  return `${fy}-${String((fy + 1) % 100).padStart(2, "0")}`;
+}
+

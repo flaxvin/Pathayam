@@ -2703,4 +2703,40 @@ ALTER TABLE tax_declarations ADD COLUMN s80d_checkup INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE tax_declarations ADD COLUMN s80d_parents_checkup INTEGER NOT NULL DEFAULT 0;
 `,
   },
+  {
+    name: "0061-the-tax-estimate-uses-what-the-ledger-knows",
+    sql: `
+--------------------------------------------------------------------------------
+-- TAX-1..3 · Home loan interest carried in, and tax already paid
+--------------------------------------------------------------------------------
+-- What a home loan is for, as section 24(b) sees it: a house the borrower
+-- lives in, one that is let out, or neither (NULL, the default — a loan says
+-- nothing about a house until somebody says so). Only a self-occupied house's
+-- interest is carried into the estimate; a let-out one is shown and not
+-- deducted, because the rent it is set against is not modelled.
+ALTER TABLE loans ADD COLUMN property_use TEXT
+  CHECK (property_use IS NULL OR property_use IN ('self-occupied', 'let-out'));
+
+-- The person's own 24(b) figure, before the cap: NULL uses what the ledger
+-- accrued. And TDS for the year, from Form 16 or 26AS, as one figure.
+ALTER TABLE tax_declarations ADD COLUMN s24b_override INTEGER
+  CHECK (s24b_override IS NULL OR s24b_override >= 0);
+ALTER TABLE tax_declarations ADD COLUMN tds INTEGER NOT NULL DEFAULT 0 CHECK (tds >= 0);
+
+-- Advance and self-assessment tax, a row a challan. Dated, because advance tax
+-- is measured against the four instalment dates. A member's own, like the
+-- declaration: gone with the member.
+CREATE TABLE tax_payments (
+  id         TEXT PRIMARY KEY,
+  member_id  TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  fy         INTEGER NOT NULL,
+  kind       TEXT NOT NULL CHECK (kind IN ('advance', 'self-assessment')),
+  date       TEXT NOT NULL,
+  amount     INTEGER NOT NULL CHECK (amount > 0),
+  note       TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX tax_payments_member_fy ON tax_payments (member_id, fy);
+`,
+  },
 ];

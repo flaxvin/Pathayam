@@ -58,9 +58,39 @@ not a substitute for an accountant.
 
 **What it does not model**, each of which changes the answer: marginal relief
 on surcharge and on the 87A cliff, so a figure just over a threshold is
-overstated; tax already deducted at source; losses set off between heads or
-carried forward, and house property loss; clubbing; foreign income and treaty
-relief; presumptive schemes under 44AD and 44ADA.
+overstated; losses set off between heads or carried forward, and a let-out
+house's loss and rent; clubbing; foreign income and treaty relief; presumptive
+schemes under 44AD and 44ADA; interest under 234A, 234B and 234C, which the
+screen names and does not compute; and the resident senior citizen's exemption
+from advance tax (s207).
+
+**Home loan interest under 24(b) is carried from the ledger (TAX-1).** A loan
+marked as for a house its owner lives in contributes the interest accrued in
+the financial year — each instalment's interest spread over the days it pays
+for, with instalments not yet recorded taken from the projected schedule — to
+its holder's estimate, old regime only (s115BAC allows none under the new),
+capped at ₹2,00,000 across every such house. The cap is keyed by year with the
+slabs. A let-out house's interest is shown and not deducted. Not modelled:
+interest before construction is finished (claimed in five parts from the year
+it is; a loan typed "under construction" is not carried), the ₹30,000 limit on
+a loan taken before April 1999 or for repairs, and a joint loan's split between
+co-borrowers — the whole loan is carried to its holder, and each borrower's
+share is entered as an override. Where any of the figure is not the lender's
+own split it is marked estimated; the lender's certificate is the number to
+use, entered in the same box. Figures as retrieved on 22-10-2026 from secondary
+sources (the department's site was not reachable to check against).
+
+**Tax already paid is netted (TAX-2).** TDS for the year is entered as one figure
+from Form 16 or 26AS — nothing is read from either — and advance and
+self-assessment tax are entered a challan at a time. Each regime's estimate,
+less all three, is shown as a balance to pay or a refund.
+
+**Advance tax is measured against what was paid (TAX-3).** Where the year's
+tax under the lower regime, less TDS, is ₹10,000 or more, the four instalments
+(15%, 45%, 75% and 100% by 15 June, 15 September, 15 December and 15 March)
+are shown with what was paid by each date and any shortfall. The threshold and
+dates are keyed by year; they are unchanged under the Income-tax Act, 2025.
+Nothing is scheduled or reminded.
 
 **Section 80D is modelled as the Act has it** (old regime only): premiums for
 yourself, spouse and children up to ₹25,000 (₹50,000 where one of them is a
@@ -111,9 +141,8 @@ taxable income — it misses a salary paid elsewhere and includes receipts that
 are not income at all. Deductions are entered, never inferred. The standard
 deduction is set only against the gross income entered, which is the only
 salary the estimate knows, and never exceeds it — gains alone earn none. The loan
-interest report is deliberately not carried in: section 24(b) wants accrued
-interest on a specific property, which is a different number from cash paid
-across every loan.
+interest report is still not carried in: it is cash paid across every loan. What
+is carried is the accrued interest of loans marked as for a house, above.
 
 **Charges are not interest.** A prepayment penalty or a foreclosure charge is a
 cost of closing early, not interest on borrowed capital, and the interest report
