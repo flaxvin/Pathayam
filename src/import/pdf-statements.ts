@@ -521,10 +521,16 @@ function figuresWithOffsets(line: string): { text: string; start: number; end: n
    * like one amount once the spaces are out, or the strict pattern reads the
    * span instead and the tolerance costs nothing.
    */
+  /*
+   * Spaces are allowed only *after* a mark that is present. Three optional
+   * marks each followed by `\s*` let a run of spaces with no figure at its end
+   * be divided among them every possible way, from every position in it: one
+   * 500-space gap took half a minute.
+   */
   const span =
-    /(?:Rs\.?|INR|₹|C)?\s*\(?\s*[-+]?\s*\d(?:[\d,.]| (?=[\d,.]))*\s*\)?(?:\s*(?:Cr|Dr)\.?)?/gi;
+    /(?:(?:Rs\.?|INR|₹|C)\s*)?(?:\(\s*)?(?:[-+]\s*)?\d(?:[\d,.]| (?=[\d,.]))*(?:\s*\))?(?:\s*(?:Cr|Dr)\.?)?/gi;
   const strict =
-    /(?:Rs\.?|INR|₹|C)?\s*\(?\s*[-+]?\s*\d[\d,]*\.?\d*\s*\)?(?:\s*(?:Cr|Dr)\.?)?/gi;
+    /(?:(?:Rs\.?|INR|₹|C)\s*)?(?:\(\s*)?(?:[-+]\s*)?\d[\d,]*\.?\d*(?:\s*\))?(?:\s*(?:Cr|Dr)\.?)?/gi;
 
   const emit = (text: string, start: number, end: number) => {
     // A reference or account number is not a figure: it is a long digit run
