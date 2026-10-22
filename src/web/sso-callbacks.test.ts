@@ -145,6 +145,32 @@ describe("SSO callbacks", () => {
     }
   });
 
+  test("DEBUG-WEB-5 · a token endpoint that is down or answers garbage is a failed sign-in, not a fault", async () => {
+    const { db } = household();
+    const idp = provider();
+    const app = await startTestApp(db, {
+      memberId: null, config: { oidc: OIDC, google: GOOGLE }, fetchImpl: idp.fetchImpl,
+    });
+    try {
+      const answers: [string, () => Response][] = [
+        ["unreachable", () => { throw new TypeError("fetch failed"); }],
+        ["not JSON", () => new Response("<html>gateway</html>", { status: 200 })],
+        ["JSON null", () => new Response("null", { status: 200 })],
+      ];
+      for (const [label, answer] of answers) {
+        idp.state.answer = answer;
+        for (const flow of ["/auth/google", "/auth/oidc"]) {
+          const state = await beginAt(app.baseUrl, flow);
+          const res = await callback(`${app.baseUrl}${flow}/callback?state=${state}&code=x`);
+          assert.equal(res.status, 400, `${flow}, ${label}`);
+        }
+      }
+      assert.deepEqual(app.failures, [], "recorded as a server fault");
+    } finally {
+      await app.close();
+    }
+  });
+
   test("SECURITY-OPS-18 · a code the provider rejects is a 400 and an auth attempt, not a fault", async () => {
     const { db } = household();
     const idp = provider(); // answers every token exchange with a 400
