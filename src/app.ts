@@ -18,7 +18,7 @@ import {
 } from "./http/router.ts";
 import { clientIp, wantsJson } from "./http/server.ts";
 import { html, raw, when } from "./http/html.ts";
-import { page, MANIFEST, type Theme } from "./web/layout.ts";
+import { page, MANIFEST, ASSET_VERSION, type Theme } from "./web/layout.ts";
 import { STYLESHEET } from "./web/styles.ts";
 import { CLIENT_SCRIPT } from "./web/client.ts";
 import { APP_ICON_SVG, APP_ICON_SMALL_SVG } from "./web/icon.ts";
@@ -403,11 +403,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   const middleware = [
     function staticAssets(ctx: RequestContext): Response | void {
       const path = ctx.url.pathname;
+      /*
+       * D6 · Every page names these by a hash of their content (layout.ts), so
+       * a request carrying the current hash is for exactly this content and
+       * may be cached for good: the next deploy that changes it changes the
+       * URL. Without the hash, or with an old one, it keeps the short cache —
+       * the content served is not the content that URL named.
+       */
       if (path === "/assets/app.css") {
-        return asset(STYLESHEET, "text/css");
+        return asset(STYLESHEET, "text/css", ctx.url.searchParams.get("v") === ASSET_VERSION.css);
       }
       if (path === "/assets/app.js") {
-        return asset(CLIENT_SCRIPT, "text/javascript");
+        return asset(CLIENT_SCRIPT, "text/javascript", ctx.url.searchParams.get("v") === ASSET_VERSION.js);
       }
       if (path === "/assets/icon.svg") {
         return asset(APP_ICON_SVG, "image/svg+xml");
@@ -9233,14 +9240,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   return { router, middleware };
 
-  function asset(body: string, type: string): Response {
+  function asset(body: string, type: string, versioned = false): Response {
     return {
       body,
       headers: {
         "Content-Type": `${type}; charset=utf-8`,
         // Static assets are code, not data — ordinary HTTP caching is
         // explicitly permitted by R35.
-        "Cache-Control": "public, max-age=3600",
+        "Cache-Control": versioned ? "public, max-age=31536000, immutable" : "public, max-age=3600",
       },
     };
   }
