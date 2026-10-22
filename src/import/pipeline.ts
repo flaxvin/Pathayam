@@ -26,7 +26,7 @@ import {
   applyRules, extractNarrationFields, mayAutoApprove,
   type Rule, type RuleSubject,
 } from "./rules.ts";
-import type { RawRecord, ParseError } from "./csv.ts";
+import type { RawRecord, ParseError, ProposedSplit } from "./csv.ts";
 import { createHash } from "node:crypto";
 import { Missing, Refusal } from "../core/refusal.ts";
 
@@ -90,6 +90,10 @@ export interface StagedRow {
   status: string;
   transaction_id: string | null;
   applied_rules_json: string | null;
+  /** IMPORT-1 · The other account, when the source said this was a transfer. */
+  transfer_account_id: string | null;
+  /** IMPORT-1 · The source's split, as `ProposedSplit[]` JSON. */
+  splits_json: string | null;
 }
 
 export interface IngestOptions {
@@ -184,17 +188,21 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
 
       const extracted = extractNarrationFields(record.narration);
       const cardId = record.cardId ?? resolveCard(db, opts.accountId, record.narration);
+      // IMPORT-1 · A budgeting app names its payee outright; a bank narration
+      // has to have one dug out of it.
+      const proposed = record.proposed;
+      const importedPayee = proposed ? proposed.payee : extracted.merchant;
 
       const subject: RuleSubject = {
         narration: record.narration,
-        importedPayee: extracted.merchant,
-        payee: extracted.merchant,
+        importedPayee,
+        payee: importedPayee,
         accountId: opts.accountId,
         amount: record.amount,
         date: record.date,
-        memo: null,
+        memo: proposed?.memo ?? null,
         tags: [],
-        categoryId: null,
+        categoryId: proposed?.categoryId ?? null,
         cleared: opts.source === "csv" || opts.source === "pdf", // D5
         source: opts.source,
         // The card is known by now (an alert names it, a narration's XX4321
@@ -202,6 +210,7 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
         // it here. It was always null, so such a rule never fired.
         cardLast4: cardId ? cardLast4Of(db, cardId) : null,
         ...extracted,
+        merchant: proposed ? importedPayee : extracted.merchant,
       };
 
       const outcome = applyRules(subject, rules);
@@ -245,12 +254,19 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
 
       // A payee is resolved only when a rule named one; a first-time merchant
       // string is a *proposal*, never an auto-created payee (`04` §3.6).
-      const namedByRule = outcome.appliedRuleIds.length > 0 && outcome.subject.payee !== extracted.merchant;
+      const namedByRule = outcome.appliedRuleIds.length > 0 && outcome.subject.payee !== importedPayee;
       const payeeId = namedByRule && outcome.subject.payee
         ? resolvePayee(db, actor, outcome.subject.payee, record.narration).id
         : findExistingPayee(db, outcome.subject.payee);
 
-      const canAutoApprove = mayAutoApprove(outcome, {
+      /*
+       * IMPORT-1 · A transfer or a split the source proposed is never filed on
+       * its own: an auto-approve rule names one envelope, and approving such a
+       * row would post the transfer as spending, or the split as one line.
+       */
+      const transferAccountId = proposed?.transferAccountId ?? null;
+      const splits = proposed?.splits?.length ? proposed.splits : null;
+      const canAutoApprove = transferAccountId === null && splits === null && mayAutoApprove(outcome, {
         payeeExists: payeeId !== null,
         duplicateSuspected: duplicate !== null,
       });
@@ -261,13 +277,14 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
         `INSERT INTO staged_transactions
            (id,batch_id,account_id,card_id,row_number,date,amount,raw_narration,raw_payee,raw_amount,
             raw_date,source_id,reference,payee_id,proposed_payee,category_id,memo,tags_json,
-            applied_rules_json,duplicate_of_id,duplicate_tier,duplicate_reason,status,created_at)
-         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?)`,
+            applied_rules_json,duplicate_of_id,duplicate_tier,duplicate_reason,
+            transfer_account_id,splits_json,status,created_at)
+         VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,'pending',?)`,
         stagedId, batchId, opts.accountId, cardId, record.rowNumber, record.date, record.amount,
         // An adapter with no source text for a field (an alert dated from the
         // message's own received date) leaves it empty; stored, that is NULL,
         // not an empty string posing as what the bank wrote.
-        record.raw.narration, extracted.merchant, record.raw.amount || null, record.raw.date || null,
+        record.raw.narration, importedPayee, record.raw.amount || null, record.raw.date || null,
         sourceId, record.reference ?? extracted.reference,
         payeeId, outcome.subject.payee, outcome.subject.categoryId, outcome.subject.memo,
         outcome.subject.tags.length ? JSON.stringify(outcome.subject.tags) : null,
@@ -282,6 +299,8 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
             ? `${duplicate.reason} The other one is still waiting in this queue.`
             : duplicate.reason
           : null,
+        transferAccountId,
+        splits ? JSON.stringify(splits) : null,
         nowIST(),
       );
       staged++;
@@ -513,12 +532,41 @@ export class StagedNeedsCategory extends Refusal {}
 
 export function approveStaged(
   db: DB, actor: Actor, stagedId: string,
-  patch: { categoryId?: string | null; payeeName?: string | null; memo?: string | null; autoApproved?: boolean } = {},
+  patch: {
+    categoryId?: string | null; payeeName?: string | null; memo?: string | null; autoApproved?: boolean;
+    /**
+     * IMPORT-1 · Whether the person approving may file into this envelope. A
+     * split's lines were matched against the envelopes of whoever imported
+     * it; one this person cannot see is treated as a line with none.
+     */
+    mayUseCategory?: (categoryId: string) => boolean;
+  } = {},
 ): string {
   return transact(db, () => {
     const row = queryOne<StagedRow>(db, `SELECT * FROM staged_transactions WHERE id = ?`, stagedId);
     if (!row) throw new Missing("That review item no longer exists.");
     if (row.status !== "pending") throw new Refusal("That review item has already been dealt with.");
+
+    /*
+     * IMPORT-1 · A split the source proposed. The envelope chosen in Review,
+     * if any, fills the lines that came without one; a line that still has
+     * none and is money out is refused, for the same reason B99 refuses a
+     * whole row below.
+     */
+    const proposedSplits = row.splits_json ? JSON.parse(row.splits_json) as ProposedSplit[] : null;
+    const filler = patch.categoryId ?? row.category_id ?? null;
+    const splits = proposedSplits?.map((line) => ({
+      amount: line.amount,
+      memo: line.memo,
+      categoryId: line.categoryId && (patch.mayUseCategory?.(line.categoryId) ?? true)
+        ? line.categoryId : filler,
+    })) ?? null;
+    if (splits?.some((line) => line.amount < 0 && !line.categoryId)) {
+      throw new StagedNeedsCategory(
+        "Part of this split has no envelope yet. Choose one and it fills every part that came without one — " +
+        "you can change the parts afterwards on the transaction.",
+      );
+    }
 
     /*
      * B99 · An expense names the envelope it came out of.
@@ -534,7 +582,7 @@ export function approveStaged(
      * would only mean losing the row.
      */
     const categoryId = patch.categoryId ?? row.category_id ?? null;
-    if (row.amount < 0 && !categoryId) {
+    if (row.amount < 0 && !categoryId && !splits) {
       throw new StagedNeedsCategory(
         "Choose an envelope for this one before adding it — money out has to come from somewhere. Money in doesn't need one.",
       );
@@ -607,7 +655,8 @@ export function approveStaged(
       amount: row.amount,
       date: row.date,
       payeeId,
-      categoryId: patch.categoryId !== undefined ? patch.categoryId : row.category_id,
+      categoryId: splits ? null : patch.categoryId !== undefined ? patch.categoryId : row.category_id,
+      splits: splits ?? undefined,
       memo: patch.memo ?? row.memo,
       cleared: true,
       source,
