@@ -214,7 +214,15 @@ upgrade is restoring a backup.
 **No native mobile application.** The web interface is responsive and
 installable.
 
-**No printing stylesheet.** Exports are CSV and JSON.
+**Printing is the browser's, not a generated PDF.** The tax estimate, reports,
+month close, net worth statement and a loan's schedule print cleanly (black on
+white, no navigation or controls, page numbers, a footer naming the household
+and the date) through browser print or save-as-PDF; see
+[screens](screens.md#printing). There is no server-side PDF, no letterhead, and
+page breaks are the browser's best effort: a card taller than a page still
+splits, between table rows. Page numbers need a browser that supports `@page`
+margin boxes (current Chromium does); others print without them. Exports for
+other software are CSV and JSON.
 
 **English only.** Indian number formatting (lakh, crore) is used throughout for
 figures.

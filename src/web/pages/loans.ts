@@ -553,7 +553,8 @@ export function renderLoanDetail(opts: {
     `)}
 
     ${when(p.undrawn > 0, () => html`
-      <section class="card">
+      <!-- PRINT-1 · A form with a heading; the undrawn figure is printed above. -->
+      <section class="card no-print">
         <h2>Record a disbursement</h2>
         <p class="faint" style="margin-top:-.25rem">
           ${formatPaise(p.undrawn)} of the sanction is still undrawn. A tranche
