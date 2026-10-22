@@ -1492,7 +1492,9 @@ export function reanchorToLenderBalance(
   input: { loanId: string; lenderOutstanding: Paise; asOf: IsoDate },
 ): void {
   transact(db, () => {
-    const projected = outstandingPrincipal(db, input.loanId);
+    // DEBUG-LOANS-3 · The correction is the gap on the lender's date. Today's
+    // balance put back every principal repaid since that date.
+    const projected = outstandingPrincipal(db, input.loanId, input.asOf);
     const difference = projected - input.lenderOutstanding;
     if (difference === 0) return;
 

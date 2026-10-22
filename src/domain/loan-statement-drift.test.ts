@@ -10,7 +10,9 @@ import type { Actor } from "../core/events.ts";
 import { nowIST } from "../core/dates.ts";
 import { rupees, type Paise } from "../core/money.ts";
 import { createAccount } from "./accounts.ts";
-import { createLoan, projectLoan, recordInstalment, recordLoanStatement } from "./loans.ts";
+import {
+  createLoan, projectLoan, recordInstalment, recordLoanStatement, reanchorToLenderBalance, outstandingPrincipal,
+} from "./loans.ts";
 
 const RAVI = "m-ravi";
 const actor: Actor = { memberId: RAVI, source: "ui" };
@@ -63,5 +65,19 @@ describe("DEBUG-LOANS-2 · drift against a lender statement", () => {
     });
     assert.equal(s.app_outstanding, rupees(10_00_000), "the app's figure on 28 Feb, not today's");
     assert.equal(projectLoan(db, loanId)!.driftMaterial, false);
+  });
+
+  test("re-anchoring to an older statement does not undo the payments made since", () => {
+    const { db, bankId, loanId } = setup();
+    recordInstalment(db, actor, {
+      loanId, date: "2026-03-05", amount: rupees(12_667) as Paise,
+      principal: rupees(5_167) as Paise, interest: rupees(7_500) as Paise, fromAccountId: bankId,
+    });
+    // The lender agrees with the app on 28 Feb, so there is nothing to correct.
+    reanchorToLenderBalance(db, actor, { loanId, asOf: "2026-02-28", lenderOutstanding: rupees(10_00_000) as Paise });
+    assert.equal(
+      outstandingPrincipal(db, loanId), rupees(10_00_000 - 5_167),
+      "the March instalment was added back onto the debt",
+    );
   });
 });
