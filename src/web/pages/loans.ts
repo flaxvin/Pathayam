@@ -181,8 +181,7 @@ function renderLoanCard(
         ${figure("Monthly", p.preEmi ?? p.emi)}
         ${figure("Interest paid so far", p.metrics.interestPaid, "actual")}
         ${figure("Interest still to pay", p.schedule.totalInterest, "projected")}
-        ${when(p.metrics.interestSaved !== 0, () =>
-          figure("Interest saved", p.metrics.interestSaved, "projected"))}
+        ${when(p.metrics.interestSaved !== 0, () => interestSavedFigure(p))}
       </div>
 
       ${moratoriumNotice(p)}
@@ -225,6 +224,17 @@ function driftNotice(p: LoanProjection, opts: { confirmMatch?: boolean } = {}): 
       <a href="/loans/${p.loan.id}/statement">Resolve it</a>
     </p>
   `;
+}
+
+/**
+ * UI-PASS-7 · Against the original schedule a loan can cost more, not less — a
+ * rate rise, a moratorium, a part-drawn home loan's pre-EMI. "Interest saved
+ * −₹41,725.94" asked the reader to undo a double negative; say it plainly.
+ */
+function interestSavedFigure(p: LoanProjection): SafeHtml {
+  return p.metrics.interestSaved < 0
+    ? figure("Extra interest", Math.abs(p.metrics.interestSaved) as Paise, "projected")
+    : figure("Interest saved", p.metrics.interestSaved, "projected");
 }
 
 function moratoriumNotice(p: LoanProjection): SafeHtml {
@@ -529,7 +539,7 @@ export function renderLoanDetail(opts: {
         ${figure("Interest paid", p.metrics.interestPaid, "actual")}
         ${figure("Interest projected", p.metrics.interestProjected, "projected")}
         ${figure("If nothing had changed", p.metrics.baselineInterest, "projected")}
-        ${figure("Interest saved", p.metrics.interestSaved, "projected")}
+        ${interestSavedFigure(p)}
       </div>
       ${when(p.metrics.savedByRateMovement !== 0, () => html`
         <p class="field-hint">

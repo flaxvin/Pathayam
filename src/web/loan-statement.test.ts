@@ -10,7 +10,7 @@ import assert from "node:assert/strict";
 import { queryOne } from "../db/db.ts";
 import { freshDb, seedMember, startTestApp } from "./harness.test-data.ts";
 import { createAccount } from "../domain/accounts.ts";
-import { createLoan } from "../domain/loans.ts";
+import { createLoan, recordRateChange } from "../domain/loans.ts";
 import { rupees, type Paise } from "../core/money.ts";
 import type { Actor } from "../core/events.ts";
 
@@ -65,7 +65,21 @@ describe("UI-PASS-4 · a lender statement holds only figures a statement can sho
   });
 });
 
-describe("UI-PASS-5 · the loan's own page says what the statement found", () => {
+describe("UI-PASS-7 · a loan that costs more than planned says 'Extra interest'", () => {
+  test("a rate rise is not shown as a negative saving", async () => {
+    const { db, app, loan } = await setup();
+    try {
+      recordRateChange(db, ravi, { loanId: loan.id, effectiveFrom: "2025-03-01", annualRatePct: 15 });
+      const body = await (await app.get(`/loans/${loan.id}`)).text();
+      assert.match(body, /Extra interest/);
+      assert.doesNotMatch(body, /Interest saved/);
+      const list = await (await app.get(`/loans`)).text();
+      assert.match(list, /Extra interest/);
+    } finally { await app.close(); }
+  });
+});
+
+describe("UI-PASS-5 ·the loan's own page says what the statement found", () => {
   test("a difference is shown where 'Statement recorded.' lands", async () => {
     const { app, loan } = await setup();
     try {
