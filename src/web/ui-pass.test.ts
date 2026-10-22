@@ -6,6 +6,19 @@ import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync, readdirSync } from "node:fs";
 import { CLIENT_SCRIPT } from "./client.ts";
+import { STYLESHEET } from "./styles.ts";
+
+describe("UI-PASS-6 · one long name does not push the page sideways", () => {
+  test("the desktop column may be narrower than its widest table", () => {
+    // `1fr` is `minmax(auto, 1fr)`: the column grew to the min-content of a
+    // table that should have scrolled inside its own container.
+    assert.match(STYLESHEET, /\.with-sidebar \{[^}]*grid-template-columns: 220px minmax\(0, 1fr\)/);
+  });
+  test("text wraps when nothing else fits, and a select is no wider than its box", () => {
+    assert.match(STYLESHEET, /main \{ overflow-wrap: break-word; \}/);
+    assert.match(STYLESHEET, /select \{ min-width: 0; max-width: 100%;/);
+  });
+});
 
 describe("UI-PASS-1 · a destructive form asks first, under the CSP", () => {
   test("no template carries an inline event handler the CSP would refuse", () => {
