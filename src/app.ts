@@ -1170,8 +1170,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   function withNotice(path: string, message?: string): string {
     if (!message) return path;
-    const separator = path.includes("?") ? "&" : "?";
-    return `${path}${separator}notice=${encodeURIComponent(message)}&ns=${noticeSignature(message)}`;
+    // The query goes before any #fragment: after it, the browser never sends it.
+    const hashAt = path.indexOf("#");
+    const base = hashAt < 0 ? path : path.slice(0, hashAt);
+    const fragment = hashAt < 0 ? "" : path.slice(hashAt);
+    const separator = base.includes("?") ? "&" : "?";
+    return `${base}${separator}notice=${encodeURIComponent(message)}&ns=${noticeSignature(message)}${fragment}`;
   }
 
   function monthParam(ctx: RequestContext): MonthKey {
