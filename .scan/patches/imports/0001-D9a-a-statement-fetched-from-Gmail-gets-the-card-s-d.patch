@@ -1,0 +1,350 @@
+From e19a874c8da2137aa5f748e8c7441573b662818a Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 22 Oct 2026 19:06:01 +0000
+Subject: [PATCH] D9a: a statement fetched from Gmail gets the card's digits,
+ as an upload does
+
+SBI Card, Canara and HSBC lock their statements with the card number.
+POST /import/pdf hands passwordCandidates the destination account's last
+four; the Gmail statement path called it with none, so the same file that
+opened when uploaded was counted "could not open" when it arrived by mail.
+Verified first: a fictional SBI Card statement locked with DOB + card 4321
+opened through /import/pdf and failed through /gmail/fetch.
+
+The Gmail path now offers the last four of the one account at the sender's
+bank it routes to and of that account's cards; when the route is unknown
+(no account at that bank, or several) it offers every visible account's
+and card's digits, so a statement that opens but has nowhere to go is
+reported as unmatched rather than locked. Other members' private accounts
+are not offered. Nothing is logged or stored: the digits are only tried.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016zXWwzys3K4XksLh3rrcKu
+---
+ docs/money-in.md                       |   7 ++
+ src/gmail/fetch-statement-card.test.ts | 153 +++++++++++++++++++++++++
+ src/gmail/fetch.ts                     |  57 ++++++++-
+ src/import/statements.test-data.ts     |  42 +++++++
+ 4 files changed, 255 insertions(+), 4 deletions(-)
+ create mode 100644 src/gmail/fetch-statement-card.test.ts
+
+diff --git a/docs/money-in.md b/docs/money-in.md
+index 20548fe..baae064 100644
+--- a/docs/money-in.md
++++ b/docs/money-in.md
+@@ -199,6 +199,13 @@ private account ending in the same digits is never a candidate. The ones that
+ member holds are preferred; if two still match, the alert is left alone with a
+ note rather than guessed. A statement attachment is routed the same way.
+ 
++A statement attachment's password is derived as for an upload, and gets the
++card digits too: the last four of the one account at the sender's bank it
++routes to, and of that account's cards. When the route is unknown — no account
++at that bank, or several — the digits of every account and card the member can
++see are tried instead, so a statement that opens but has nowhere to go is
++reported as unmatched rather than as one that would not open.
++
+ A message from an alert sender that reads like a transaction — an amount beside
+ "spent", "debited" or "credited" — but that no profile can read is not dropped
+ in silence: the fetch's summary counts the alerts it could not read, so they
+diff --git a/src/gmail/fetch-statement-card.test.ts b/src/gmail/fetch-statement-card.test.ts
+new file mode 100644
+index 0000000..7741d11
+--- /dev/null
++++ b/src/gmail/fetch-statement-card.test.ts
+@@ -0,0 +1,153 @@
++/**
++ * D9a · A statement fetched from Gmail gets the card digits the upload gets.
++ *
++ * SBI Card, Canara and HSBC derive their statement passwords from the card
++ * number (`statement-passwords.ts`). `POST /import/pdf` hands the destination
++ * account's last four to `passwordCandidates`; the Gmail statement path called
++ * it with no card digits at all, so the very same file that opened when
++ * uploaded was counted "could not open" when it arrived by mail — for every
++ * statement those three institutions send.
++ *
++ * The fixture is a fictional SBI statement locked with DOB 01/01/1970 + card
++ * 4321; nothing in the name/PAN/DOB triple opens it.
++ */
++
++import { test, describe } from "node:test";
++import assert from "node:assert/strict";
++import type { Actor } from "../core/events.ts";
++import type { DB } from "../db/db.ts";
++import { queryOne } from "../db/db.ts";
++import { createAccount, createCard } from "../domain/accounts.ts";
++import { setIdentity } from "../import/identity.ts";
++import { STATEMENTS, STATEMENT_IDENTITY, SBI_CARD_LAST4 } from "../import/statements.test-data.ts";
++import { saveConnection } from "./connection.ts";
++import { freshDb, seedMember, startTestApp } from "../web/harness.test-data.ts";
++
++const actor: Actor = { memberId: "m-ravi", source: "ui" };
++
++function b64(s: string): string {
++  return Buffer.from(s, "utf8").toString("base64url");
++}
++
++/** A fake Google holding one SBI Card statement email with the locked PDF. */
++function fakeGoogle(): typeof fetch {
++  return (async (input: string | URL | Request) => {
++    const url = String(input);
++    const json = (body: unknown) => new Response(JSON.stringify(body), { status: 200 });
++    if (url.includes("oauth2.googleapis.com/token")) return json({ access_token: "at", expires_in: 3600 });
++    if (url.includes("/messages?")) return json({ messages: [{ id: "s1" }] });
++    if (url.includes("/attachments/")) {
++      return json({ data: Buffer.from(STATEMENTS.sbiCardEncrypted).toString("base64url") });
++    }
++    if (/\/messages\/s1\?/.test(url)) {
++      return json({
++        id: "s1", internalDate: "1787855489000",
++        payload: {
++          mimeType: "multipart/mixed",
++          headers: [
++            { name: "From", value: "SBI Card <statements@sbicard.com>" },
++            { name: "Subject", value: "Your SBI Card statement" },
++          ],
++          parts: [
++            { mimeType: "text/plain", body: { data: b64("Your statement is attached.") } },
++            { mimeType: "application/pdf", filename: "sbicard.pdf", body: { attachmentId: "a1" } },
++          ],
++        },
++      });
++    }
++    return new Response("{}", { status: 404 });
++  }) as unknown as typeof fetch;
++}
++
++function setup(): DB {
++  const db = freshDb();
++  seedMember(db, "m-ravi", "Ravi");
++  setIdentity(db, actor, STATEMENT_IDENTITY);
++  saveConnection(db, actor, { email: "ravi@example.com", refreshToken: "rt", scope: "gmail.readonly" });
++  return db;
++}
++
++function sbiCard(db: DB, name: string, last4: string | null): string {
++  return createAccount(db, actor, {
++    name, kind: "credit", subtype: "credit-card", openingDate: "2026-08-01",
++    institution: "SBI Card", ...(last4 ? { last4 } : {}),
++  }).id;
++}
++
++function pdfBatches(db: DB): number {
++  return queryOne<{ n: number }>(db, "SELECT count(*) AS n FROM import_batches WHERE source = 'pdf'")!.n;
++}
++
++async function fetchFromGmail(db: DB): Promise<string> {
++  const app = await startTestApp(db, {
++    memberId: "m-ravi", fetchImpl: fakeGoogle(),
++    config: { google: { clientId: "id", clientSecret: "secret" } },
++  });
++  try {
++    const res = await app.post("/gmail/fetch", {});
++    assert.equal(res.status, 303);
++    const location = res.headers.get("location")!;
++    // Read from the raw location: when nothing went to Review the redirect is
++    // "/settings#gmail?notice=…", where URL puts the notice in the hash.
++    const notice = /[?&]notice=([^&]*)/.exec(location);
++    assert.ok(notice, location);
++    return decodeURIComponent(notice[1]!);
++  } finally {
++    await app.close();
++  }
++}
++
++describe("D9a · statement passwords that need the card's digits", () => {
++  test("the manual upload opens it, because it knows the account's last four", async () => {
++    const db = setup();
++    const accountId = sbiCard(db, "SBI Card", SBI_CARD_LAST4);
++    const app = await startTestApp(db, { memberId: "m-ravi" });
++    try {
++      const form = new FormData();
++      form.set("account_id", accountId);
++      form.set("statement", new Blob([STATEMENTS.sbiCardEncrypted], { type: "application/pdf" }), "sbicard.pdf");
++      const res = await app.get("/import/pdf", { method: "POST", body: form, headers: { Origin: app.baseUrl } });
++      const body = await res.text();
++      assert.doesNotMatch(body, /passwords worked|needs a password|last four digits/i);
++      assert.equal(pdfBatches(db), 1);
++    } finally {
++      await app.close();
++    }
++  });
++
++  test("Gmail opens it too, with the last four of the account it routes to", async () => {
++    const db = setup();
++    sbiCard(db, "SBI Card", SBI_CARD_LAST4);
++    const notice = await fetchFromGmail(db);
++    assert.doesNotMatch(notice, /could not open/, notice);
++    assert.match(notice, /statement row/, notice);
++    assert.equal(pdfBatches(db), 1);
++  });
++
++  test("…or with a card's last four when the account itself has none recorded", async () => {
++    const db = setup();
++    const accountId = sbiCard(db, "SBI Card", null);
++    createCard(db, actor, { accountId, label: "Primary", last4: SBI_CARD_LAST4 });
++    const notice = await fetchFromGmail(db);
++    assert.doesNotMatch(notice, /could not open/, notice);
++    assert.equal(pdfBatches(db), 1);
++  });
++
++  test("when routing is ambiguous, every visible card's digits are tried — it opens, then waits for an account", async () => {
++    const db = setup();
++    sbiCard(db, "SBI Card · Ravi", SBI_CARD_LAST4);
++    sbiCard(db, "SBI Card · spare", "8765");
++    const notice = await fetchFromGmail(db);
++    // Opened (so not "could not open"), but there is no single account to file it under.
++    assert.doesNotMatch(notice, /could not open/, notice);
++    assert.match(notice, /for no single account of yours/, notice);
++    assert.equal(pdfBatches(db), 0);
++  });
++
++  test("with no card digits anywhere it still says it could not open — nothing is invented", async () => {
++    const db = setup();
++    sbiCard(db, "SBI Card", null);
++    const notice = await fetchFromGmail(db);
++    assert.match(notice, /could not open/, notice);
++  });
++});
+diff --git a/src/gmail/fetch.ts b/src/gmail/fetch.ts
+index e009e4b..276f577 100644
+--- a/src/gmail/fetch.ts
++++ b/src/gmail/fetch.ts
+@@ -267,7 +267,17 @@ async function handleStatement(
+     // A statement account cannot be known without a last-four to match; a CAS
+     // is handled by the portfolio importer, not here. So this path covers the
+     // bank statements whose destination account the app can resolve.
+-    const candidates = identity ? passwordCandidates(identity, statementSender.bank) : [""];
++    //
++    // D9a · SBI Card, Canara and HSBC lock statements with the card's digits.
++    // The upload path hands passwordCandidates the account's last four; this
++    // path handed it nothing, so the same file that opened when uploaded was
++    // "could not open" when mailed. The digits are only ever candidates tried
++    // in memory, never logged or stored.
++    const candidates = identity
++      ? passwordCandidates(identity, statementSender.bank, {
++        cardDigits: statementCardDigits(db, memberId, statementSender.bank),
++      })
++      : [""];
+     let parsed;
+     for (const candidate of candidates) {
+       try { parsed = parseStatementPdf(bytes, candidate); break; }
+@@ -295,15 +305,54 @@ async function handleStatement(
+ function resolveStatementAccount(
+   db: DB, memberId: string, bank: import("../import/pdf-statements.ts").BankId | null,
+ ): string | null {
+-  if (!bank) return null;
++  const rows = statementAccounts(db, memberId, bank);
++  return rows.length === 1 ? rows[0]!.id : null;
++}
++
++/** Open accounts at `bank` the fetching member can see. */
++function statementAccounts(
++  db: DB, memberId: string, bank: import("../import/pdf-statements.ts").BankId | null,
++): { id: string }[] {
++  if (!bank) return [];
+   // Among the fetching member's own view, as for alerts: another member's
+   // private account at the same bank is neither a candidate nor a rival.
+   const hidden = hiddenAccountSql("a", memberId);
+-  const rows = (db.prepare(
++  return (db.prepare(
+     `SELECT a.id FROM accounts a
+       WHERE a.closed_at IS NULL AND lower(a.institution) LIKE ? AND NOT ${hidden.sql}`,
+   ).all(`%${bank}%`, ...hidden.params)) as { id: string }[];
+-  return rows.length === 1 ? rows[0]!.id : null;
++}
++
++/**
++ * D9a · The card/account digits a mailed statement's password might use.
++ *
++ * The statement routes to the one account at its bank when there is exactly
++ * one, so that account's last four and its cards' are the digits — what the
++ * upload path uses, plus the add-on cards a household records on the card
++ * rather than the account. When the route is unknown (no account at that
++ * bank, or several), every visible account's and card's digits are offered:
++ * trying a handful of extra candidates against a local file costs nothing,
++ * and a statement that opens but has nowhere to go is then said as such
++ * rather than as "could not open". Another member's private accounts are not
++ * offered, as for routing.
++ */
++function statementCardDigits(
++  db: DB, memberId: string, bank: import("../import/pdf-statements.ts").BankId | null,
++): string[] {
++  const atBank = statementAccounts(db, memberId, bank);
++  const hidden = hiddenAccountSql("a", memberId);
++  const scope = atBank.length === 1
++    ? { sql: "a.id = ?", params: [atBank[0]!.id] as string[] }
++    : { sql: "1 = 1", params: [] as string[] };
++  const rows = db.prepare(
++    `SELECT a.last4 AS digits FROM accounts a
++      WHERE a.closed_at IS NULL AND a.last4 IS NOT NULL AND ${scope.sql} AND NOT ${hidden.sql}
++     UNION
++     SELECT c.last4 AS digits FROM cards c JOIN accounts a ON a.id = c.account_id
++      WHERE c.closed_at IS NULL AND a.closed_at IS NULL AND c.last4 IS NOT NULL
++        AND ${scope.sql} AND NOT ${hidden.sql}`,
++  ).all(...scope.params, ...hidden.params, ...scope.params, ...hidden.params) as { digits: string }[];
++  return rows.map((r) => r.digits);
+ }
+ 
+ // ---------------------------------------------------------------------------
+diff --git a/src/import/statements.test-data.ts b/src/import/statements.test-data.ts
+index 6dd131c..4ac3b43 100644
+--- a/src/import/statements.test-data.ts
++++ b/src/import/statements.test-data.ts
+@@ -176,12 +176,54 @@ const HDFC_ENCRYPTED_B64 =
+   "IDIgMCBSIC9Sb290IDEgMCBSIC9TaXplIDEwIC9JRCBbPGJiNDcyMTNjMTU5YjdmZTE0NzI4NmVmNzNhYmU3MGUyPjxmNGM3" +
+   "NzhkNjg3MTE2ZWU0N2U4ODkyZWU3ZmVhNTFlND5dIC9FbmNyeXB0IDkgMCBSID4+CnN0YXJ0eHJlZgoxNzkwCiUlRU9GCg==";
+ 
++/**
++ * The SBI statement above, locked the way SBI Card locks its statements: the
++ * date of birth as DDMMYYYY, then the card's last four. The identity is the
++ * synthetic one above (born 01/01/1970) and the card number is invented, so
++ * the password is 01011970 + 4321. Nothing in the name/PAN/DOB triple opens
++ * it — only a card's digits do, which is the point (D9a).
++ *
++ * Encrypted once with a short RC4-128 (V2, R3) script rather than qpdf, which
++ * was not to hand; the decryptor's own correctness is proven against qpdf's
++ * output in `src/pdf/reader.test.ts`, so this fixture only needs to carry a
++ * password, not to vouch for the cipher.
++ */
++export const SBI_CARD_LAST4 = "4321";
++export const SBI_CARD_PASSWORD = "01011970" + SBI_CARD_LAST4;
++
++const SBI_CARD_ENCRYPTED_B64 =
++  "JVBERi0xLjQKJeLjz9MKMSAwIG9iago8PAovRjEgMiAwIFIgL0YyIDMgMCBSCj4+CmVuZG9iagoyIDAgb2JqCjw8Ci9CYXNl" +
++  "Rm9udCAvSGVsdmV0aWNhIC9FbmNvZGluZyAvV2luQW5zaUVuY29kaW5nIC9OYW1lIC9GMSAvU3VidHlwZSAvVHlwZTEgL1R5" +
++  "cGUgL0ZvbnQKPj4KZW5kb2JqCjMgMCBvYmoKPDwKL0Jhc2VGb250IC9IZWx2ZXRpY2EtQm9sZCAvRW5jb2RpbmcgL1dpbkFu" +
++  "c2lFbmNvZGluZyAvTmFtZSAvRjIgL1N1YnR5cGUgL1R5cGUxIC9UeXBlIC9Gb250Cj4+CmVuZG9iago0IDAgb2JqCjw8Ci9D" +
++  "b250ZW50cyA4IDAgUiAvTWVkaWFCb3ggWyAwIDAgNTk1LjI3NTYgODQxLjg4OTggXSAvUGFyZW50IDcgMCBSIC9SZXNvdXJj" +
++  "ZXMgPDwKL0ZvbnQgMSAwIFIgL1Byb2NTZXQgWyAvUERGIC9UZXh0IC9JbWFnZUIgL0ltYWdlQyAvSW1hZ2VJIF0KPj4gL1Jv" +
++  "dGF0ZSAwIC9UcmFucyA8PAoKPj4gCiAgL1R5cGUgL1BhZ2UKPj4KZW5kb2JqCjUgMCBvYmoKPDwKL1BhZ2VNb2RlIC9Vc2VO" +
++  "b25lIC9QYWdlcyA3IDAgUiAvVHlwZSAvQ2F0YWxvZwo+PgplbmRvYmoKNiAwIG9iago8PCA+PgplbmRvYmoKNyAwIG9iago8" +
++  "PAovQ291bnQgMSAvS2lkcyBbIDQgMCBSIF0gL1R5cGUgL1BhZ2VzCj4+CmVuZG9iago4IDAgb2JqCjw8Ci9GaWx0ZXIgWyAv" +
++  "QVNDSUk4NURlY29kZSAvRmxhdGVEZWNvZGUgXSAvTGVuZ3RoIDQzOQo+PgpzdHJlYW0KfbzKhA+IJTWC5j4HoEVemnFNs/2y" +
++  "cn+gKPA6Q+cIXrpr5q2UCpAisqXl64R/kAaOebglHbEwu7RLjwRwq/pkJvZTJTXx5l4tMW7/GRP8lB86FfBPj4ijeh+MTfZN" +
++  "pV9B8vIwb6f5lGOgqM3ak1kr1iIW7jY+YgTWum/h2NfM/LMjxZtmtzpI7kbiXPgegJRYjsg9gI0eWEDD8LFA4kSq0z7i7rYa" +
++  "M4ztVqOETFsonvc/4F46EmMxsZBMuXu+C7ZpEmqCtA42Tw5Gu05re0Erd/sOtl7xw6W95oUy6EsaEhcdJPz5r+ZjyZzidlQc" +
++  "d/kaSKnVOth5d2lV7hgYxQNBPi7wff7EfoWzbJcqaxuK7WYkdFaWbwdJl0G/eL7nyW8I1nuNZtEbA3LbAZJRHSGB3X4Qn/y9" +
++  "0B8qfH8ebQryZ5KuJYfWgCwiAgR1bJJNKEuyYOFuaxYSbzyMYBuwpTZWi44Yes4ytoIu0HZUj2rOjsoRii2II3vvSeoy34tK" +
++  "ZPXvJloe5CeKAerZxCwQlGJ6N3vdypg1Eer8XXYdc6dyiX7GXLZxK2hsCNLbL2dscP4299WyoIlTIwplbmRzdHJlYW0KZW5k" +
++  "b2JqCjkgMCBvYmoKPDwgL0ZpbHRlciAvU3RhbmRhcmQgL1YgMiAvUiAzIC9MZW5ndGggMTI4IC9QIC00IC9PIDxlZTk1Mzdj" +
++  "ZTBkN2YyYzc1YjFiNTNkMGZmMDAzZTY1MGExY2FmZjg5ZjI5MTExYTRiMzRkOTkxN2VlZDEzZTBmPiAvVSA8ODBmMDQ3NmZl" +
++  "ODA1YzJiNmFlMTAyNGRjZDhjODA5MGQwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMD4gPj4KZW5kb2JqCnhyZWYK" +
++  "MCAxMAowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMTUgMDAwMDAgbiAKMDAwMDAwMDA1NiAwMDAwMCBuIAowMDAwMDAw" +
++  "MTYzIDAwMDAwIG4gCjAwMDAwMDAyNzUgMDAwMDAgbiAKMDAwMDAwMDQ3OCAwMDAwMCBuIAowMDAwMDAwNTQ2IDAwMDAwIG4g" +
++  "CjAwMDAwMDA1NjcgMDAwMDAgbiAKMDAwMDAwMDYyNiAwMDAwMCBuIAowMDAwMDAxMTU2IDAwMDAwIG4gCnRyYWlsZXIKPDwg" +
++  "L1NpemUgMTAgL1Jvb3QgNSAwIFIgL0VuY3J5cHQgOSAwIFIgL0lEIFs8ZTZmMGIwMGJjYTdkYmZiYjNlYjMzYTRlZTkzYjg3" +
++  "OTc+PGU2ZjBiMDBiY2E3ZGJmYmIzZWIzM2E0ZWU5M2I4Nzk3Pl0gPj4Kc3RhcnR4cmVmCjEzNjMKJSVFT0YK";
++
+ export const STATEMENTS = {
+   hdfc: bytes(HDFC_B64),
+   icici: bytes(ICICI_B64),
+   axis: bytes(AXIS_B64),
+   sbi: bytes(SBI_B64),
+   hdfcEncrypted: bytes(HDFC_ENCRYPTED_B64),
++  sbiCardEncrypted: bytes(SBI_CARD_ENCRYPTED_B64),
+ };
+ 
+ function bytes(b64: string): Uint8Array {
+-- 
+2.43.0
+
