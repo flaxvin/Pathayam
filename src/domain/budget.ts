@@ -993,6 +993,12 @@ export function setAssigned(
     // non-zero amount is held to the horizon.
     if (amount !== 0) refuseBeyondHorizon(month);
     /*
+     * DEBUG-ENGINE-3 · The engine reads every envelope's assignments but walks
+     * only the live ones, so money assigned to a deleted envelope left Ready to
+     * Assign and arrived nowhere — the books out by it in every month after.
+     */
+    if (amount !== 0) refuseGoneEnvelope(db, categoryId);
+    /*
      * BUDGET-13 · Money assigned where the engine's walk does not reach is money
      * nothing reads: "Assigned ₹600 to Rent." for June 2150, and the page as it
      * was. Clearing such a row is always allowed — it is how one written before
@@ -1082,6 +1088,9 @@ export function moveMoney(
     const to = getCategory(db, toCategoryId);
     if (!from || !to) throw new Missing("That category does not exist.");
     refuseBeyondHorizon(month);
+    // DEBUG-ENGINE-3 · Neither end may be an envelope the engine no longer reads.
+    refuseGoneEnvelope(db, fromCategoryId);
+    refuseGoneEnvelope(db, toCategoryId);
     /*
      * BUDGET-5 · Within one budget only. Two envelopes in two budgets are two
      * Ready to Assigns: moving ₹400 from the household's Groceries to Ravi's

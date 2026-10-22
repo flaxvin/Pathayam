@@ -239,14 +239,22 @@ export async function exchangeOidcCode(opts: {
     code_verifier: opts.codeVerifier,
   });
 
-  const response = await fetchImpl(discovery.token_endpoint, {
-    method: "POST",
-    headers: {
-      "content-type": "application/x-www-form-urlencoded",
-      accept: "application/json",
-    },
-    body: body.toString(),
-  });
+  // Unreachable is a failed sign-in, as it is for discovery above — not a 500.
+  let response: Response;
+  try {
+    response = await fetchImpl(discovery.token_endpoint, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        accept: "application/json",
+      },
+      body: body.toString(),
+    });
+  } catch (error) {
+    throw new OAuthError(
+      `Could not reach the identity provider's token endpoint. ${(error as Error).message}`,
+    );
+  }
 
   if (!response.ok) {
     /*
@@ -265,8 +273,13 @@ export async function exchangeOidcCode(opts: {
     );
   }
 
-  const tokens = await response.json() as { id_token?: string; access_token?: string };
-  if (!tokens.id_token) {
+  let tokens: { id_token?: string; access_token?: string } | null;
+  try {
+    tokens = await response.json() as { id_token?: string; access_token?: string } | null;
+  } catch {
+    tokens = null;
+  }
+  if (!tokens?.id_token) {
     throw new OAuthError("The identity provider returned no id_token.");
   }
 

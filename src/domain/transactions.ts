@@ -159,6 +159,18 @@ export function createTransaction(
        */
     if (!account) throw new Refusal("That account does not exist.");
 
+    /*
+     * DEBUG-ENGINE-2 · An account closes only at nil, because net worth counts
+     * open accounts while the budget counts all of them. Money posted after the
+     * close — a schedule still naming the old bank, a stale form — sat in Ready
+     * to Assign and nowhere in net worth, the gap closing at nil exists to stop.
+     */
+    if (account.closed_at) {
+      throw new Refusal(
+        `${account.nickname || account.name} is closed. Reopen it first, or pick another account.`,
+      );
+    }
+
     // F4.3: splits must sum to the total, or the ledger stops adding up.
     if (input.splits && input.splits.length > 0) {
       const total = input.splits.reduce((sum, s) => sum + s.amount, 0);

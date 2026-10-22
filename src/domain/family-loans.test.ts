@@ -432,3 +432,25 @@ describe("WEALTH-30 · an arrangement closes only when nothing is owed", () => {
     db.close();
   });
 });
+
+describe("DEBUG-LOANS-4 · a closed arrangement takes no more money", () => {
+  test("an advance on a closed arrangement is refused, not dropped out of net worth", () => {
+    const { db, bank } = setup();
+    const loan = createFamilyLoan(db, actor, { counterparty: "Cousin", startedAt: "2026-08-01" });
+    recordAdvance(db, actor, { loanId: loan.id, amount: rupees(1_000), date: "2026-08-02", fromAccountId: bank.id });
+    recordRepayment(db, actor, { loanId: loan.id, amount: rupees(1_000), date: "2026-08-03", accountId: bank.id });
+    closeFamilyLoan(db, actor, loan.id);
+    const before = netWorthStatement(db).netWorth;
+
+    assert.throws(
+      () => recordAdvance(db, actor, { loanId: loan.id, amount: rupees(5_000), date: "2026-08-04", fromAccountId: bank.id }),
+      /closed/,
+    );
+    assert.throws(
+      () => recordRepayment(db, actor, { loanId: loan.id, amount: rupees(5_000), date: "2026-08-04", accountId: bank.id }),
+      /closed/,
+    );
+    assert.equal(netWorthStatement(db).netWorth, before, "₹5,000 lent left the bank and reached no line of net worth");
+    db.close();
+  });
+});
