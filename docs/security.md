@@ -193,6 +193,11 @@ successful sign-in.
   a scrypt verification on a decoy hash so it takes as long to refuse.
 - Changing a password requires the current one, and signs out every other
   session the member has; the device that made the change stays signed in.
+- Removing a member deletes their password, as it revokes their sessions and
+  API tokens. Adding the address back restores the member and everything they
+  entered, not the credentials they held: they set a new password, and the
+  person re-adding them is told so. Otherwise re-adding somebody silently
+  reopened a password known to whoever learned it while they were away.
 
 ### Errors the household is allowed to see
 

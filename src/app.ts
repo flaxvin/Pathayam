@@ -3607,8 +3607,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/members/invite", (ctx) => {
     refuseInDemo(config, "Inviting members");
     return mutate(ctx, (a) => {
-      const member = inviteMember(db, actorFor(a), { email: requiredField(ctx.body, "email") });
-      return { redirect: "/settings", message: `${member.email} can now sign in.` };
+      const email = String(requiredField(ctx.body, "email"));
+      const returning = !!findMemberByEmail(db, email)?.removed_at;
+      const member = inviteMember(db, actorFor(a), { email });
+      /*
+       * Somebody added back had their password cleared when they were removed
+       * (removeMember). "Can now sign in" would tell the person re-adding them
+       * that the old one still works, which it deliberately does not.
+       */
+      return {
+        redirect: "/settings",
+        message: returning
+          ? `${member.name} is back in the household. Their old password was ` +
+            `cleared when they were removed, so they will need a new one.`
+          : `${member.email} can now sign in.`,
+      };
     });
   });
 
