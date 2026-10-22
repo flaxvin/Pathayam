@@ -1988,7 +1988,23 @@ export function debtOverview(db: DB, viewerMemberId?: string | null): DebtRow[] 
    * Neither has a rate or a monthly obligation, so those columns stay empty
    * rather than being filled with a zero that would read as "nothing to pay".
    */
+  /*
+   * DEBUG-LOANS-1 · …and a private family arrangement likewise. Loans, cards
+   * and the tracking accounts below were filtered; these were not, so Ravi's
+   * private ₹75,000 owed to a cousin sat in Priya's table with its amount.
+   */
+  const hiddenFamily = new Set(
+    viewerMemberId === undefined
+      ? []
+      : queryAll<{ id: string }>(
+          db,
+          `SELECT id FROM accounts
+            WHERE subtype = 'family-loan' AND visibility = 'private' AND holder_member_id IS NOT ?`,
+          viewerMemberId,
+        ).map((r) => r.id),
+  );
   for (const owed of familyLoanNetWorth(db).borrowed) {
+    if (hiddenFamily.has(owed.accountId)) continue;
     rows.push({
       name: owed.label, kind: "other", balance: owed.value,
       ratePct: null, monthlyObligation: 0, monthsRemaining: null,
