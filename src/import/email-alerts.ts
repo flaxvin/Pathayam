@@ -60,8 +60,21 @@ export interface AlertProfile {
   bank: string;
   /** Sender addresses this profile reads. */
   senders: RegExp[];
+  /**
+   * The same senders as the Gmail search names them. Spelled out rather than
+   * derived from `senders`, because a pattern covering two domains has no
+   * single address to strip it down to.
+   */
+  query: string[];
   parse: (subject: string, body: string) => AlertRecord | null;
 }
+
+/**
+ * IMPORT-SND-3 · Axis moved its alerts from alerts@axisbank.com to
+ * alerts@axis.bank.in in 2025; a year of the older ones were never read.
+ */
+const AXIS_ALERTS = [/^alerts@axis(\.bank\.in|bank\.com)$/i];
+const AXIS_QUERY = ["alerts@axis.bank.in", "alerts@axisbank.com"];
 
 // ---------------------------------------------------------------------------
 // Shared field readers
@@ -148,7 +161,8 @@ function labelled(body: string, label: RegExp): string | null {
 
 const axisAccount: AlertProfile = {
   bank: "axis",
-  senders: [/^alerts@axis\.bank\.in$/i],
+  senders: AXIS_ALERTS,
+  query: AXIS_QUERY,
   parse(subject, body) {
     // Distinguish the account alert from the card alert by its labels.
     const amountText = labelled(body, /Amount (Debited|Credited)/i);
@@ -178,7 +192,8 @@ const axisAccount: AlertProfile = {
 
 const axisCard: AlertProfile = {
   bank: "axis",
-  senders: [/^alerts@axis\.bank\.in$/i],
+  senders: AXIS_ALERTS,
+  query: AXIS_QUERY,
   parse(subject, body) {
     const amountText = labelled(body, /Transaction Amount/i);
     if (!amountText) return null; // it is an account alert, not a card one
@@ -207,7 +222,8 @@ const axisCard: AlertProfile = {
 
 const yesCard: AlertProfile = {
   bank: "yes",
-  senders: [/^alerts@yes\.bank\.in$/i],
+  senders: [/^alerts@yes(\.bank\.in|bank\.in)$/i],
+  query: ["alerts@yes.bank.in", "alerts@yesbank.in"],
   parse(_subject, body) {
     // "INR 70.00 has been spent on your YES BANK Credit Card ending with 8803
     //  at UPI_DESI BITES FAST FO on 27-08-2026 at 06:46:36 pm. Avl Bal INR …"
@@ -238,6 +254,7 @@ const yesCard: AlertProfile = {
 const indusind: AlertProfile = {
   bank: "indusind",
   senders: [/@indusind\.com$/i],
+  query: ["@indusind.com"],
   parse(subject, body) {
     // "Account No. 15XXXXXX6620 has been Debited for INR 1.00 towards
     //  UPI/400111222333/DR/Moj/YESB0PTMUPI/-12345678@ptyb"
@@ -272,7 +289,8 @@ const indusind: AlertProfile = {
 
 const axisSentence: AlertProfile = {
   bank: "axis",
-  senders: [/^alerts@axis\.bank\.in$/i],
+  senders: AXIS_ALERTS,
+  query: AXIS_QUERY,
   parse(_subject, body) {
     // NEFT and IMPS come as one sentence, not the label/value summary:
     //   "We wish to inform you that your A/c no. XX8457 has been debited with
@@ -307,6 +325,7 @@ const axisSentence: AlertProfile = {
 const sbiCard: AlertProfile = {
   bank: "sbicard",
   senders: [/@sbicard\.com$/i],
+  query: ["@sbicard.com"],
   parse(_subject, body) {
     // "Rs.591.00 spent on your SBI Credit Card ending 6779 at
     //  MSPRETAILPRIVATELIMITE on 05/09/26."
@@ -337,9 +356,349 @@ const sbiCard: AlertProfile = {
   },
 };
 
+/**
+ * IMPORT-SND-4 · HDFC credit card. Three wordings in three years, all one
+ * sentence, all from alerts@hdfcbank.net and then alerts@hdfcbank.bank.in:
+ *
+ *   "… using your HDFC Bank Credit Card ending 1111 for Rs 459.00 at SWIGGY
+ *    on 01-12-2024 12:48:20."                                     (2024)
+ *   "Rs.232.00 is debited from your HDFC Bank Credit Card ending 1111
+ *    towards PayU*Swiggy Limited on 31 Aug, 2025 at 18:57:59."    (2025)
+ *   "Rs. 203.00 has been debited from your HDFC Bank Credit Card ending 1111
+ *    towards RAZ*Swiggy on 31 May, 2026 at 16:22:53."             (2026)
+ */
+const hdfcCard: AlertProfile = {
+  bank: "hdfc",
+  senders: [/^alerts@hdfcbank\.(bank\.in|net)$/i],
+  query: ["alerts@hdfcbank.bank.in", "alerts@hdfcbank.net"],
+  parse(_subject, body) {
+    const flat = body.replace(/\s+/g, " ");
+    const DATE = String.raw`(\d{1,2}[-/]\d{1,2}[-/]\d{2,4}|\d{1,2} [A-Za-z]{3,9},? \d{4})`;
+    const TIME = String.raw`(?:\s+(?:at\s+)?(\d{1,2}:\d{2}(?::\d{2})?))?`;
+    const older = new RegExp(
+      String.raw`Credit Card ending\s+(\d{4})\s+for\s+(Rs\.?\s*[\d,]+(?:\.\d{1,2})?)\s+at\s+(.+?)\s+on\s+` + DATE + TIME, "i",
+    ).exec(flat);
+    const newer = older ? null : new RegExp(
+      String.raw`(Rs\.?\s*[\d,]+(?:\.\d{1,2})?)\s+(?:is|has been)\s+(debited|credited)\s+(?:from|to)\s+your HDFC Bank Credit Card ending\s+(\d{4})\s+(?:towards|from|by)\s+(.+?)\s+on\s+` + DATE + TIME, "i",
+    ).exec(flat);
+    if (!older && !newer) return null;
+
+    const [rawAmount, card, merchant, dateText, time, sign] = older
+      ? [older[2]!, older[1]!, older[3]!, older[4]!, older[5], -1]
+      : [newer![1]!, newer![3]!, newer![4]!, newer![5]!, newer![6], /credited/i.test(newer![2]!) ? 1 : -1];
+    const amount = parseAlertAmount(rawAmount);
+    const date = parseAlertDate(dateText.replace(",", ""));
+    if (amount === null || !date) return null;
+
+    return {
+      amount: (sign * amount) as Paise,
+      date, when: time ? `${dateText} ${time}` : dateText, rawAmount,
+      accountLast4: null,
+      cardLast4: card,
+      narration: merchant.trim(),
+      reference: null,
+      cardholderName: greetedName(body),
+      balance: null,
+    };
+  },
+};
+
+/**
+ * IMPORT-SND-5 · ICICI credit card, from credit_cards@icicibank.com and then
+ * cards@icici.bank.in. A spend names the date month-first:
+ *
+ *   "Your ICICI Bank Credit Card XX1111 has been used for a transaction of
+ *    INR 1,528.00 on Apr 10, 2026 at 06:36:10. Info: FLIPKART INTERNET PVT."
+ *
+ * and a standing instruction that has gone through says so after the fact:
+ *
+ *   "We have successfully processed your payment of INR 1499.00 towards
+ *    Amazon, with Standing Instruction Y00000, on 19/10/2026, through your
+ *    ICICI Bank Credit Card 1111."
+ *
+ * The *upcoming* standing-instruction notice is not a transaction and is left
+ * alone — see `NOT_YET_A_TRANSACTION`.
+ */
+const iciciCard: AlertProfile = {
+  bank: "icici",
+  senders: [/^(credit_)?cards@icici(\.bank\.in|bank\.com)$/i],
+  query: ["cards@icici.bank.in", "credit_cards@icici.bank.in", "credit_cards@icicibank.com"],
+  parse(_subject, body) {
+    const flat = body.replace(/\s+/g, " ");
+    const spend =
+      /Credit Card\s+[xX*]*(\d{4})\s+has been used for a transaction of\s+(INR\s*[\d,]+(?:\.\d{1,2})?)\s+on\s+([A-Za-z]{3,9})\s+(\d{1,2}),\s*(\d{4})(?:\s+at\s+([\d:]+))?\.?\s*(?:Info:\s*(.+?)\.(?:\s|$))?/i
+        .exec(flat);
+    if (spend) {
+      const amount = parseAlertAmount(spend[2]!);
+      const month = monthFromName(spend[3]!.slice(0, 3));
+      const date = month === null ? null : calendarDate(Number(spend[5]), month, Number(spend[4]));
+      if (amount === null || !date) return null;
+      const when = `${spend[3]} ${spend[4]}, ${spend[5]}${spend[6] ? ` ${spend[6]}` : ""}`;
+      return {
+        amount: (-amount) as Paise,
+        date, when, rawAmount: spend[2]!,
+        accountLast4: null,
+        cardLast4: spend[1]!,
+        narration: (spend[7] ?? "ICICI Bank Credit Card").trim(),
+        reference: null,
+        cardholderName: greetedName(body),
+        balance: null,
+      };
+    }
+
+    const standing =
+      /successfully processed your payment of\s+(INR\s*[\d,]+(?:\.\d{1,2})?)\s+towards\s+(.+?),\s*with Standing Instruction\s+(\S+?),\s*on\s+(\d{1,2}\/\d{1,2}\/\d{2,4}),\s*through your ICICI Bank Credit Card\s+[xX*]*(\d{4})/i
+        .exec(flat);
+    if (!standing) return null;
+    const amount = parseAlertAmount(standing[1]!);
+    const date = parseAlertDate(standing[4]!.replace(/\//g, "-"));
+    if (amount === null || !date) return null;
+    return {
+      amount: (-amount) as Paise,
+      date, when: standing[4]!, rawAmount: standing[1]!,
+      accountLast4: null,
+      cardLast4: standing[5]!,
+      narration: standing[2]!.trim(),
+      reference: standing[3]!,
+      cardholderName: null,
+      balance: null,
+    };
+  },
+};
+
+/**
+ * IMPORT-SND-6 · Axis credit card before the label/value layout (to 2025):
+ *
+ *   "Thank you for using your credit card no. XX1111 for INR 649 at FZ Gifts
+ *    Pv on 31-12-2024 15:21:26 IST."
+ */
+const axisCardSentence: AlertProfile = {
+  bank: "axis",
+  senders: AXIS_ALERTS,
+  query: AXIS_QUERY,
+  parse(_subject, body) {
+    const flat = body.replace(/\s+/g, " ");
+    const m =
+      /using your credit card no\.?\s*[xX*]*(\d{4})\s+for\s+(INR\s*[\d,]+(?:\.\d{1,2})?)\s+at\s+(.+?)\s+on\s+(\d{1,2}-\d{1,2}-\d{2,4}(?:\s+[\d:]+)?(?:\s*IST)?)/i
+        .exec(flat);
+    if (!m) return null;
+    const amount = parseAlertAmount(m[2]!);
+    const date = parseAlertDate(m[4]!);
+    if (amount === null || !date) return null;
+    const limit = /available limit is now\s*(INR\s*[\d,]+(?:\.\d{1,2})?)/i.exec(flat);
+    return {
+      amount: (-amount) as Paise,
+      date, when: m[4]!, rawAmount: m[2]!,
+      accountLast4: null,
+      cardLast4: m[1]!,
+      narration: m[3]!.trim(),
+      reference: null,
+      cardholderName: greetedName(body),
+      balance: limit ? (parseAlertAmount(limit[1]!) as Paise) : null,
+    };
+  },
+};
+
+/**
+ * IMPORT-SND-7 · IndusInd credit card, from transactionalert@indusind.com —
+ * the account profile above reads only the account sentence:
+ *
+ *   "The transaction on your IndusInd Bank Credit Card ending 1111 for
+ *    INR 226.80 on 12-04-2025 09:49:46 pm at Zomato Ltd is Approved."
+ */
+const indusindCard: AlertProfile = {
+  bank: "indusind",
+  senders: [/@indusind\.com$/i],
+  query: ["@indusind.com"],
+  parse(_subject, body) {
+    const flat = body.replace(/\s+/g, " ");
+    const m =
+      /transaction on your IndusInd Bank Credit Card ending\s+(\d{4})\s+for\s+(INR\s*[\d,]+(?:\.\d{1,2})?)\s+on\s+(\d{1,2}-\d{1,2}-\d{2,4}(?:\s+[\d:]+(?:\s*[ap]m)?)?)\s+at\s+(.+?)\s+is\s+(Approved|Declined)/i
+        .exec(flat);
+    if (!m || /declined/i.test(m[5]!)) return null; // a declined card moved no money
+    const amount = parseAlertAmount(m[2]!);
+    const date = parseAlertDate(m[3]!);
+    if (amount === null || !date) return null;
+    return {
+      amount: (-amount) as Paise,
+      date, when: m[3]!, rawAmount: m[2]!,
+      accountLast4: null,
+      cardLast4: m[1]!,
+      narration: m[4]!.trim(),
+      reference: null,
+      cardholderName: null,
+      balance: null,
+    };
+  },
+};
+
+/**
+ * IMPORT-SND-8 · Standard Chartered card, from alerts.in@sc.com. The one
+ * transaction shape seen is a payment received, dated in the alert's header:
+ *
+ *   "Email Alerts August 06 2025, 05:08 PM … We have received your payment of
+ *    INR 270.00 towards your credit card number ending 1111."
+ */
+const scCard: AlertProfile = {
+  bank: "sc",
+  senders: [/^alerts\.in@sc\.com$/i],
+  query: ["alerts.in@sc.com"],
+  parse(_subject, body) {
+    const flat = body.replace(/\s+/g, " ");
+    const m =
+      /received your payment of\s+(INR\s*[\d,]+(?:\.\d{1,2})?)\s+towards your credit card number ending\s+(\d{4})/i
+        .exec(flat);
+    if (!m) return null;
+    const amount = parseAlertAmount(m[1]!);
+    const head = /Email Alerts\s+([A-Za-z]{3,9})\s+(\d{1,2}),?\s+(\d{4})(?:,\s*([\d:]+\s*[AP]M))?/i.exec(flat);
+    const month = head ? monthFromName(head[1]!.slice(0, 3)) : null;
+    const date = head && month !== null ? calendarDate(Number(head[3]), month, Number(head[2])) : null;
+    if (amount === null) return null;
+    return {
+      amount: amount as Paise, // a payment towards the card is a credit to it
+      date: date ?? ("" as IsoDate),
+      when: head ? head[0].replace(/^Email Alerts\s+/i, "") : "",
+      rawAmount: m[1]!,
+      accountLast4: null,
+      cardLast4: m[2]!,
+      narration: "Payment received",
+      reference: null,
+      cardholderName: null,
+      balance: null,
+    };
+  },
+};
+
+/**
+ * IMPORT-SND-9 · RBL credit card, from RBLAlerts@rbl.bank.in. Its statements
+ * were fetched from that domain already, but its alerts had no profile:
+ *
+ *   "INR338.00 spent at PYU*SWIGGY FOOD on RBL Bank credit card (1111) on
+ *    21-04-2026.AVL limit- INR67,662.00."
+ *
+ * A payment names only the card's last two digits, too few to place it on an
+ * account, so it is read without a card and left for Review to place.
+ */
+const rblCard: AlertProfile = {
+  bank: "rbl",
+  senders: [/^rblalerts@rbl\.bank\.in$/i],
+  query: ["rblalerts@rbl.bank.in"],
+  parse(_subject, body) {
+    const flat = body.replace(/\s+/g, " ");
+    const spend =
+      /(INR\s*[\d,]+(?:\.\d{1,2})?)\s+spent at\s+(.+?)\s+on RBL Bank credit card\s*\((\d{4})\)\s+on\s+(\d{1,2}-\d{1,2}-\d{4})/i
+        .exec(flat);
+    const paid = spend ? null :
+      /payment of\s+(Rs\.?\s*[\d,]+(?:\.\d{1,2})?)\s+has been received towards your RBL Bank Credit Card[^.]*?\s+on\s+(\d{1,2}-\d{1,2}-\d{4})/i
+        .exec(flat);
+    if (!spend && !paid) return null;
+
+    const rawAmount = spend ? spend[1]! : paid![1]!;
+    const when = spend ? spend[4]! : paid![2]!;
+    const amount = parseAlertAmount(rawAmount);
+    const date = parseAlertDate(when);
+    if (amount === null || !date) return null;
+    return {
+      amount: (spend ? -amount : amount) as Paise,
+      date, when, rawAmount,
+      accountLast4: null,
+      cardLast4: spend ? spend[3]! : null,
+      narration: spend ? spend[2]!.trim() : "Payment received",
+      reference: null,
+      cardholderName: spend ? null : greetedName(body),
+      balance: null,
+    };
+  },
+};
+
+/**
+ * IMPORT-SND-10 · HSBC credit card, from hsbc@mail.hsbc.co.in, unchanged
+ * 2024-26:
+ *
+ *   "your Credit card no ending with 1111,has been used for INR 3992.00 for
+ *    payment to Yatra Online Private Limi on 22 Jul 2024 at 14:01."
+ */
+const hsbcCard: AlertProfile = {
+  bank: "hsbc",
+  senders: [/^hsbc@mail\.hsbc\.co\.in$/i],
+  query: ["hsbc@mail.hsbc.co.in"],
+  parse(_subject, body) {
+    const flat = body.replace(/\s+/g, " ");
+    const m =
+      /Credit card no ending with\s+(\d{4})\s*,\s*has been used for\s+(INR\s*[\d,]+(?:\.\d{1,2})?)\s+for payment to\s+(.+?)\s+on\s+(\d{1,2} [A-Za-z]{3,9} \d{4})(?:\s+at\s+([\d:]+))?/i
+        .exec(flat);
+    if (!m) return null;
+    const amount = parseAlertAmount(m[2]!);
+    const date = parseAlertDate(m[4]!);
+    if (amount === null || !date) return null;
+    return {
+      amount: (-amount) as Paise,
+      date, when: m[5] ? `${m[4]} ${m[5]}` : m[4]!, rawAmount: m[2]!,
+      accountLast4: null,
+      cardLast4: m[1]!,
+      narration: m[3]!.trim(),
+      reference: null,
+      cardholderName: null,
+      balance: null,
+    };
+  },
+};
+
+/**
+ * IMPORT-SND-11 · Canara credit card, from noreply@canarabank.com:
+ *
+ *   "INR 2,074.60 spent on CanaraBank CreditCard XX1111: KATTAZHIKOM FUELS on
+ *    31-AUG-26 17:51:42.Ref.001989 ."                              (2026)
+ *   "Rs 1,988.08 spent on your Canara card ************1111 at AMAZON PAY
+ *    INDIA PRIVA on 08-NOV-25 at 14:52:27."                        (2025)
+ */
+const canaraCard: AlertProfile = {
+  bank: "canara",
+  senders: [/^noreply@canarabank\.com$/i],
+  query: ["noreply@canarabank.com"],
+  parse(_subject, body) {
+    const flat = body.replace(/\s+/g, " ");
+    const m =
+      /((?:INR|Rs\.?)\s*[\d,]+(?:\.\d{1,2})?)\s+spent on (?:CanaraBank CreditCard|your Canara card)\s+[xX*]*(\d{4})\s*(?::|\s+at)\s*(.+?)\s+on\s+(\d{1,2}-[A-Za-z]{3}-\d{2,4})(?:\s+(?:at\s+)?([\d:]+))?(?:\.?\s*Ref\.?\s*(\w+))?/i
+        .exec(flat);
+    if (!m) return null;
+    const amount = parseAlertAmount(m[1]!);
+    const date = parseAlertDate(m[4]!);
+    if (amount === null || !date) return null;
+    return {
+      amount: (-amount) as Paise,
+      date, when: m[5] ? `${m[4]} ${m[5]}` : m[4]!, rawAmount: m[1]!,
+      accountLast4: null,
+      cardLast4: m[2]!,
+      narration: m[3]!.trim(),
+      reference: m[6] ?? null,
+      cardholderName: null,
+      balance: null,
+    };
+  },
+};
+
 export const ALERT_PROFILES: AlertProfile[] = [
-  axisCard, axisAccount, axisSentence, yesCard, sbiCard, indusind,
+  axisCard, axisAccount, axisSentence, axisCardSentence, yesCard, sbiCard, indusind, indusindCard,
+  hdfcCard, iciciCard, scCard, rblCard, hsbcCard, canaraCard,
 ];
+
+/**
+ * A notice that names an amount and "debited" but has not happened yet —
+ * ICICI's "will be debited from your … Credit Card" before a standing
+ * instruction runs. It is not a transaction, and it is not an alert that could
+ * not be read either.
+ */
+const NOT_YET_A_TRANSACTION = /\bwill be (?:debited|charged|deducted)\b|\bis due on\b/i;
+
+/**
+ * Some alerts reach us with the space between "INR" and the amount as a
+ * non-breaking space in a charset the message did not declare, which decodes
+ * to U+FFFD: Axis's card alert reads "INR�385". Both are a space here.
+ */
+function normaliseSpaces(text: string): string {
+  return text.replace(/[ �]/g, " ");
+}
 
 /**
  * Parse an alert, trying each profile whose sender matches.
@@ -350,9 +709,10 @@ export const ALERT_PROFILES: AlertProfile[] = [
 export function parseAlert(
   sender: string, subject: string, body: string, receivedDate?: IsoDate,
 ): { record: AlertRecord; bank: string } | null {
+  const text = normaliseSpaces(body);
   for (const profile of ALERT_PROFILES) {
     if (!profile.senders.some((s) => s.test(sender.trim()))) continue;
-    const record = profile.parse(subject, body);
+    const record = profile.parse(subject, text);
     if (record) {
       if (!record.date && receivedDate) record.date = receivedDate;
       if (record.date) return { record, bank: profile.bank };
@@ -370,7 +730,8 @@ export function parseAlert(
  */
 export function looksLikeUnreadAlert(sender: string, body: string): boolean {
   if (!ALERT_PROFILES.some((p) => p.senders.some((s) => s.test(sender.trim())))) return false;
-  const flat = body.replace(/\s+/g, " ");
+  const flat = normaliseSpaces(body).replace(/\s+/g, " ");
+  if (NOT_YET_A_TRANSACTION.test(flat)) return false;
   return /(?:INR|Rs\.?|₹)\s*[\d,]+/i.test(flat)
     && /\b(?:spent|debited|credited|refunded|withdrawn)\b/i.test(flat);
 }
@@ -384,7 +745,7 @@ function greetedName(body: string): string | null {
   // A word of the name may be a bare initial — "Kavya R Pillai".
   const m = /Dear\s+([A-Z][A-Za-z]*\.?(?:\s+[A-Z][A-Za-z]*\.?){0,3})\s*,/.exec(body);
   const name = m?.[1]?.trim();
-  return name && !/^(customer|cardholder|sir|madam|user)$/i.test(name) ? name : null;
+  return name && !/^(customer|card ?holder|card member|sir|madam|user)$/i.test(name) ? name : null;
 }
 
 function extractReference(narration: string): string | null {

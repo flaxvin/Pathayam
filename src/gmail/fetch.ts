@@ -69,17 +69,12 @@ export function buildQuery(sinceDays: number): string {
   // recognises is one the fetch asks for. A hand-kept copy here had drifted.
   for (const s of STATEMENT_SENDERS) for (const a of s.query) senders.add(a);
   // Alert senders come from the profiles themselves, kept in one place.
-  for (const p of ALERT_PROFILES) {
-    for (const s of p.senders) senders.add(sourceToAddress(s));
-  }
+  // Spelled out per profile: a pattern covering an old and a new domain has
+  // no single address to strip it down to.
+  for (const p of ALERT_PROFILES) for (const a of p.query) senders.add(a);
 
   const from = [...senders].map((s) => (s.startsWith("@") ? s.slice(1) : s)).join(" OR ");
   return `from:(${from}) newer_than:${sinceDays}d`;
-}
-
-/** Pull a plain address out of an anchored sender regex for the query. */
-function sourceToAddress(re: RegExp): string {
-  return re.source.replace(/[\\^$]/g, "").replace(/\\\./g, ".").replace(/\.\*/g, "");
 }
 
 /**

@@ -1,6 +1,6 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { parseAlert } from "./email-alerts.ts";
+import { parseAlert, looksLikeUnreadAlert } from "./email-alerts.ts";
 
 /**
  * The bodies below are the real formats from this household's inbox, with the
@@ -206,5 +206,121 @@ describe("IMPORTS-SCHEDULES-34 · a named month with a two-digit year", () => {
     assert.equal(r?.record.date, "2026-08-27");
     assert.equal(r?.record.amount, -7000);
     assert.equal(r?.record.cardLast4, "8803");
+  });
+});
+
+/*
+ * IMPORT-SND-3..11 · Alert wordings from a real mailbox, 2024-26, with the
+ * card and account digits, amounts and merchants replaced by test values.
+ */
+describe("IMPORT-SND · alert senders and wordings that were not read", () => {
+  test("IMPORT-SND-3: Axis's pre-2025 sender alerts@axisbank.com is read", () => {
+    const r = parseAlert("alerts@axisbank.com", "INR 600.00 was debited", AXIS_ACCOUNT);
+    assert.equal(r?.bank, "axis");
+    assert.equal(r?.record.accountLast4, "0000");
+  });
+
+  test("IMPORT-SND-3: a non-breaking space that decoded to U+FFFD does not hide the amount", () => {
+    const r = parseAlert("alerts@axis.bank.in", "Card spend",
+      AXIS_CARD_ADDON.replace("INR 198", "INR�198"));
+    assert.equal(r?.record.amount, -19800);
+  });
+
+  test("IMPORT-SND-4: all three HDFC card wordings", () => {
+    const cases: [string, string, number][] = [
+      ["Dear Card Member, Thank you for using your HDFC Bank Credit Card ending 1111 for Rs 459.00 at ZZ FOODS on 01-12-2024 12:48:20. Authorization code:- 000000",
+        "2024-12-01", -45900],
+      ["Dear Customer, Greetings from HDFC Bank! Rs.232.00 is debited from your HDFC Bank Credit Card ending 1111 towards PayU*ZZ Foods Limited on 31 Aug, 2025 at 18:57:59. If you did not",
+        "2025-08-31", -23200],
+      ["Dear Customer, Greetings from HDFC Bank. We would like to inform you that Rs. 203.00 has been debited from your HDFC Bank Credit Card ending 1111 towards RAZ*ZZ Foods on 31 May, 2026 at 16:22:53. To check",
+        "2026-05-31", -20300],
+    ];
+    for (const [body, date, amount] of cases) {
+      const r = parseAlert("alerts@hdfcbank.net", "Alert", body);
+      assert.equal(r?.record.date, date, body);
+      assert.equal(r?.record.amount, amount);
+      assert.equal(r?.record.cardLast4, "1111");
+      assert.equal(r?.record.cardholderName, null);
+    }
+    assert.ok(parseAlert("alerts@hdfcbank.bank.in", "Alert", cases[2]![0]));
+  });
+
+  test("IMPORT-SND-5: an ICICI card spend dated month-first, and a standing instruction that ran", () => {
+    const spend = parseAlert("credit_cards@icicibank.com", "Transaction alert",
+      "Dear Customer, Your ICICI Bank Credit Card XX2222 has been used for a transaction of INR 1,528.00 on Apr 10, 2026 at 06:36:10. Info: ZZ INTERNET PVT. The Available Credit Limit on your card is INR 4,000.00");
+    assert.equal(spend?.record.date, "2026-04-10");
+    assert.equal(spend?.record.amount, -152800);
+    assert.equal(spend?.record.narration, "ZZ INTERNET PVT");
+    const ran = parseAlert("cards@icici.bank.in", "Transaction Success",
+      "We have successfully processed your payment of INR 1499.00 towards ZZShop, with Standing Instruction Y00000, on 19/10/2026, through your ICICI Bank Credit Card 2222. Click here");
+    assert.equal(ran?.record.date, "2026-10-19");
+    assert.equal(ran?.record.amount, -149900);
+    assert.equal(ran?.record.cardLast4, "2222");
+  });
+
+  test("IMPORT-SND-5: an upcoming standing instruction is neither a spend nor an unread alert", () => {
+    const body = "Dear Customer, Your payment of INR 125.40 towards ZZShop through Standing Instruction Y00000 is due on 01/08/2026 and will be debited from your ICICI Bank Credit Card 2222.";
+    assert.equal(parseAlert("cards@icici.bank.in", "Upcoming payment notification", body), null);
+    assert.equal(looksLikeUnreadAlert("cards@icici.bank.in", body), false);
+  });
+
+  test("IMPORT-SND-6: Axis's older one-sentence card alert", () => {
+    const r = parseAlert("alerts@axisbank.com", "Transaction alert",
+      "31-12-2024 Dear Ravi Kumar, Thank you for using your credit card no. XX1111 for INR 649 at ZZ Gifts Pv on 31-12-2024 15:21:26 IST. The total credit limit across all your cards is INR 1000 while the available limit is now INR 351.00.");
+    assert.equal(r?.record.date, "2024-12-31");
+    assert.equal(r?.record.amount, -64900);
+    assert.equal(r?.record.cardLast4, "1111");
+    assert.equal(r?.record.cardholderName, "Ravi Kumar");
+  });
+
+  test("IMPORT-SND-7: an IndusInd card alert; a declined one moved no money", () => {
+    const body = "The transaction on your IndusInd Bank Credit Card ending 3333 for INR 226.80 on 12-04-2025 09:49:46 pm at ZZ Foods Ltd is Approved. Available Limit: INR 1,000.00.";
+    const r = parseAlert("transactionalert@indusind.com", "Transaction Alert", body);
+    assert.equal(r?.record.date, "2025-04-12");
+    assert.equal(r?.record.amount, -22680);
+    assert.equal(r?.record.cardLast4, "3333");
+    assert.equal(parseAlert("transactionalert@indusind.com", "Transaction Alert",
+      body.replace("is Approved", "is Declined")), null);
+  });
+
+  test("IMPORT-SND-8: a Standard Chartered payment received is a credit, not a spend", () => {
+    const r = parseAlert("alerts.in@sc.com", "Card Payment Received",
+      "Alerts CASA | Email Alerts August 06 2025, 05:08 PM | Dear Customer, | We have received your payment of INR 270.00 towards your credit card number ending 4444. Thank you");
+    assert.equal(r?.record.amount, 27000);
+    assert.equal(r?.record.date, "2025-08-06");
+    assert.equal(r?.record.cardLast4, "4444");
+  });
+
+  test("IMPORT-SND-9: an RBL card spend, and a payment as a credit", () => {
+    const spend = parseAlert("RBLAlerts@rbl.bank.in", "Card swiped",
+      "Card swipe | INR338.00 spent at PYU*ZZ FOOD on RBL Bank credit card (5555) on 21-04-2026.AVL limit- INR67,662.00.");
+    assert.equal(spend?.record.amount, -33800);
+    assert.equal(spend?.record.cardLast4, "5555");
+    assert.equal(spend?.record.date, "2026-04-21");
+    const paid = parseAlert("RBLAlerts@rbl.bank.in", "Payment",
+      "Dear RAVI KUMAR, A payment of Rs.338.00 has been received towards your RBL Bank Credit Card ending with 55 on 31-05-2026 through BBPS.");
+    assert.equal(paid?.record.amount, 33800);
+    assert.equal(paid?.record.cardLast4, null);
+  });
+
+  test("IMPORT-SND-10: an HSBC card alert", () => {
+    const r = parseAlert("hsbc@mail.hsbc.co.in", "You have used your HSBC Credit Card",
+      "Dear Customer, We write to confirm that your Credit card no ending with 6666,has been used for INR 3992.00 for payment to ZZ Online Private Limi on 22 Jul 2024 at 14:01. If you want");
+    assert.equal(r?.record.date, "2024-07-22");
+    assert.equal(r?.record.amount, -399200);
+    assert.equal(r?.record.cardLast4, "6666");
+  });
+
+  test("IMPORT-SND-11: both Canara card wordings", () => {
+    const newer = parseAlert("noreply@canarabank.com", "Credit Card Transaction Alert",
+      "Dear Customer, Thank you for using Canara Credit Card. INR 2,074.60 spent on CanaraBank CreditCard XX7777: ZZ FUELS on 31-AUG-26 17:51:42.Ref.000001 . Avl limit INR 1,000.00.");
+    assert.equal(newer?.record.date, "2026-08-31");
+    assert.equal(newer?.record.amount, -207460);
+    assert.equal(newer?.record.narration, "ZZ FUELS");
+    const older = parseAlert("noreply@canarabank.com", "Credit Card Transaction Alert",
+      "Dear Customer, Thank you for using Canara Credit Card. Rs 1,988.08 spent on your Canara card ************7777 at ZZ PAY INDIA PRIVA on 08-NOV-25 at 14:52:27. Available limit Rs 1,000.00");
+    assert.equal(older?.record.date, "2025-11-08");
+    assert.equal(older?.record.amount, -198808);
+    assert.equal(older?.record.cardLast4, "7777");
   });
 });
