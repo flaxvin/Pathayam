@@ -578,7 +578,8 @@ export function renderReports(opts: {
               ${opts.loanInterest.map(
                 (r) => html`
                   <tr>
-                    <td>${r.label}</td>
+                    <!-- UI-PASS-9 · "FY 2025-26" broke at its hyphen on a phone. -->
+                    <td style="white-space:nowrap">${r.label}</td>
                     <td>${r.loan}</td>
                     <td class="num amount">${formatPaise(r.interest)}</td>
                     <td class="num amount">${formatPaise(r.principal)}</td>
@@ -614,7 +615,7 @@ export function renderReports(opts: {
               ${opts.gains.map(
                 (y) => html`
                   <tr>
-                    <td>${y.label}</td>
+                    <td style="white-space:nowrap">${y.label}</td>
                     <td class="num amount ${y.shortTerm < 0 ? "amount-negative" : ""}">
                       ${formatPaise(y.shortTerm)}
                     </td>
