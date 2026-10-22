@@ -618,6 +618,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           householdName: a ? householdSettings(db)?.name ?? null : null,
           theme: (a?.viewingAs.theme ?? "system") as Theme,
           memberName: a?.member.name ?? null,
+          // OFFLINE-1 · Not while viewing as somebody else: an entry kept then
+          // would be replayed later under whichever person the session is.
+          memberId: a && !a.impersonating ? a.member.id : null,
           impersonating: a?.impersonating
             ? { name: a.viewingAs.name, readOnly: !a.canWrite }
             : null,
@@ -2039,7 +2042,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     revokeSession(db, actorFor(a), a.session.id);
     return {
       redirect: "/signin",
-      headers: { "Set-Cookie": clearedSessionCookie(config.baseUrl.startsWith("https")) },
+      headers: {
+        "Set-Cookie": clearedSessionCookie(config.baseUrl.startsWith("https")),
+        /*
+         * OFFLINE-1 · R35.5 as amended. The client script purges its queue
+         * when the sign-out form is submitted; this is the same promise kept
+         * by the browser, for a script that never ran or a tab that had an
+         * old one. "storage" is localStorage and friends — the session
+         * cookie is cleared by the line above, not here.
+         */
+        "Clear-Site-Data": '"storage"',
+      },
     };
   });
 

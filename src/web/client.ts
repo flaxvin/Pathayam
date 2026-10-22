@@ -1,14 +1,21 @@
 /**
  * The entire client-side script, served as one static asset.
  *
- * R35 governs everything here: **no user data touches the device**. There is
- * no localStorage, no sessionStorage, no IndexedDB, no Cache API, and no
- * service worker. State lives in module scope and dies with the tab, which is
- * resilience, not persistence (`08` §3.3).
+ * R35 governs everything here: **no user data touches the device**, with one
+ * written exception. There is no sessionStorage, no IndexedDB, no Cache API,
+ * and no service worker (R35.1 stands). State lives in module scope and dies
+ * with the tab, which is resilience, not persistence (`08` §3.3).
+ *
+ * The exception is OFFLINE-1's write-only queue (`10` §3.7): an Add-form entry
+ * that could not reach the server is kept in localStorage, under one key, until
+ * the server confirms it. Nothing the server sends is ever stored, so there is
+ * still no read cache to be stale (R35.2). Its decisions live in `outbox.ts`.
  *
  * What it does provide is R36's retry contract — the reason the server-only
  * policy is survivable on a phone with two bars.
  */
+
+import { OUTBOX_LOGIC } from "./outbox.ts";
 
 export const CLIENT_SCRIPT = String.raw`
 (function () {
@@ -278,6 +285,316 @@ export const CLIENT_SCRIPT = String.raw`
       });
   }
 
+  // ---------------------------------------------------------------------------
+  // OFFLINE-1 · The write-only queue (10 §3.7)
+  //
+  // Only the Add form, and only when the network cannot be reached at all. A
+  // server that answers — even with a 500 — is not "no signal", and R36's
+  // retry above handles it as before.
+  //
+  // The member id on the body is who this page belongs to. Without it (the
+  // sign-in screen, impersonation) the queue is left exactly as it is: not
+  // sent, not shown, not claimed.
+  // ---------------------------------------------------------------------------
+  ${OUTBOX_LOGIC}
+
+  function outboxMember() {
+    return document.body ? document.body.getAttribute("data-member") || "" : "";
+  }
+
+  // Every read and write is guarded: private windows, blocked site data and
+  // full quotas all throw, and the page has to work regardless. A null store
+  // means "no queue on this device", and the form falls back to saying the
+  // entry is still on screen, as it always did.
+  function outboxStore() {
+    try {
+      var store = window.localStorage;
+      if (!store) return null;
+      store.getItem(OUTBOX_STORAGE_KEY);
+      return store;
+    } catch (e) {
+      return null;
+    }
+  }
+
+  function outboxLoad() {
+    var store = outboxStore();
+    if (!store) return [];
+    try {
+      return outboxParse(store.getItem(OUTBOX_STORAGE_KEY));
+    } catch (e) {
+      return [];
+    }
+  }
+
+  function outboxSave(entries) {
+    var store = outboxStore();
+    if (!store) return false;
+    try {
+      if (entries.length === 0) store.removeItem(OUTBOX_STORAGE_KEY);
+      else store.setItem(OUTBOX_STORAGE_KEY, outboxSerialise(entries));
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // R35.5 as amended: signing out leaves nothing behind.
+  function outboxPurge() {
+    var store = outboxStore();
+    if (!store) return;
+    try { store.removeItem(OUTBOX_STORAGE_KEY); } catch (e) { /* nothing to purge */ }
+  }
+
+  function outboxPairs(form) {
+    var pairs = [];
+    new FormData(form).forEach(function (value, name) {
+      if (typeof value === "string") pairs.push([name, value]);
+    });
+    return pairs;
+  }
+
+  // Keep a submit that could not reach the server. Returns false when there
+  // is nowhere to keep it, so the caller can fall back to the old message.
+  function outboxKeep(form, key) {
+    var member = outboxMember();
+    if (!member || !outboxStore()) return false;
+    var entry = outboxEntry({
+      id: form.dataset.outboxId || key,
+      key: key,
+      member: member,
+      fields: outboxPairs(form),
+      now: Date.now(),
+    });
+    return outboxSave(outboxPut(outboxLoad(), entry));
+  }
+
+  var outboxBusy = false;
+  var outboxNote = "";
+
+  // The banner sits outside main, so the in-place swap never removes it.
+  function outboxBanner() {
+    var banner = document.getElementById("outbox-banner");
+    if (banner) return banner;
+    banner = document.createElement("section");
+    banner.id = "outbox-banner";
+    banner.className = "notice notice-warning outbox-banner";
+    banner.setAttribute("role", "status");
+    banner.setAttribute("aria-live", "polite");
+    banner.setAttribute("aria-label", "Entries waiting on this device");
+    var anchor = document.querySelector(".with-sidebar") || document.getElementById("main");
+    if (anchor && anchor.parentNode) anchor.parentNode.insertBefore(banner, anchor);
+    else document.body.insertBefore(banner, document.body.firstChild);
+    return banner;
+  }
+
+  function outboxButton(label, onClick, quiet) {
+    var button = document.createElement("button");
+    button.type = "button";
+    button.className = quiet ? "button-quiet" : "button-primary";
+    button.textContent = label;
+    button.addEventListener("click", onClick);
+    return button;
+  }
+
+  // Everything goes in through textContent: an entry is what somebody typed
+  // and a refusal is what the server said, and neither is markup.
+  function outboxRender() {
+    if (!outboxMember()) return;
+    var entries = outboxLoad();
+    var existing = document.getElementById("outbox-banner");
+    if (entries.length === 0) {
+      if (existing) existing.parentNode.removeChild(existing);
+      outboxNote = "";
+      return;
+    }
+    var summary = outboxSummary(entries);
+    var banner = outboxBanner();
+    banner.textContent = "";
+
+    var lead = document.createElement("p");
+    lead.textContent = summary.text +
+      (summary.waiting ? " They go when the connection is back." : "");
+    banner.appendChild(lead);
+
+    if (outboxNote) {
+      var note = document.createElement("p");
+      note.textContent = outboxNote;
+      banner.appendChild(note);
+    }
+
+    if (summary.waiting) {
+      var send = outboxButton(outboxBusy ? "Sending…" : "Send now", function () {
+        outboxReplay(true);
+      });
+      send.disabled = outboxBusy;
+      send.setAttribute("data-outbox-send", "");
+      banner.appendChild(send);
+    }
+
+    var list = document.createElement("ul");
+    list.className = "outbox-list";
+    entries.forEach(function (entry) {
+      var item = document.createElement("li");
+      var what = document.createElement("strong");
+      what.textContent = outboxDescribe(entry);
+      item.appendChild(what);
+      if (entry.state === "refused") {
+        var why = document.createElement("span");
+        why.textContent = " — " + entry.message;
+        item.appendChild(why);
+        var actions = document.createElement("span");
+        actions.className = "outbox-actions";
+        var open = document.createElement("a");
+        open.href = "/add#outbox=" + encodeURIComponent(entry.id);
+        open.textContent = "Open in the Add form";
+        actions.appendChild(open);
+        actions.appendChild(outboxButton("Discard", function () {
+          if (!window.confirm("Discard this entry? It has not been saved anywhere else.")) return;
+          outboxSave(outboxRemove(outboxLoad(), entry.id));
+          outboxRender();
+        }, true));
+        item.appendChild(actions);
+      } else {
+        var waiting = document.createElement("span");
+        waiting.className = "faint";
+        waiting.textContent = " — waiting";
+        item.appendChild(waiting);
+      }
+      list.appendChild(item);
+    });
+    banner.appendChild(list);
+  }
+
+  // Send what is waiting, one at a time, oldest first, each with the key it
+  // was first sent with. One round at a time per tab; two tabs racing is
+  // harmless, because the server answers the second with the first's result.
+  function outboxReplay(asked) {
+    if (outboxBusy || !outboxMember() || !window.fetch) return;
+    var queue = outboxSendable(outboxLoad());
+    if (queue.length === 0) return;
+    outboxBusy = true;
+    outboxNote = asked ? "" : outboxNote;
+    outboxRender();
+    var sent = 0;
+
+    function done(note) {
+      outboxBusy = false;
+      outboxNote = note;
+      outboxRender();
+      if (sent > 0) {
+        showPageNotice(
+          sent === 1
+            ? "The entry that was waiting on this device has been saved."
+            : sent + " entries that were waiting on this device have been saved.",
+          "success",
+        );
+      }
+    }
+
+    function next(i) {
+      if (i >= queue.length) return done("");
+      var entry = queue[i];
+      fetch(entry.path, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/x-www-form-urlencoded",
+          "Idempotency-Key": entry.key,
+          "Accept": "application/json",
+        },
+        body: new URLSearchParams(entry.fields),
+        credentials: "same-origin",
+      })
+        .then(function (response) {
+          var isJson = (response.headers.get("Content-Type") || "").indexOf("application/json") >= 0;
+          var read = isJson ? response.json().catch(function () { return {}; }) : Promise.resolve(null);
+          return read.then(function (payload) {
+            var result = outboxAfterResponse(outboxLoad(), entry.id, {
+              status: response.status,
+              json: isJson,
+              error: payload && payload.error,
+            });
+            outboxSave(result.entries);
+            if (result.outcome === "sent") sent++;
+            if (result.outcome === "signin") {
+              return done("Your session has ended. Sign in again and they will be sent.");
+            }
+            if (result.outcome === "later") {
+              return done("The server didn't take them just now. They will be tried again.");
+            }
+            next(i + 1);
+          });
+        })
+        .catch(function () {
+          done(asked ? "Still no connection. They are safe on this device." : "");
+        });
+    }
+
+    next(0);
+  }
+
+  function outboxStart() {
+    var member = outboxMember();
+    if (!member || !outboxStore()) return;
+    var claim = outboxClaim(outboxLoad(), member);
+    var entries = outboxAge(claim.entries, Date.now());
+    outboxSave(entries);
+    if (claim.dropped > 0) {
+      showPageNotice(
+        (claim.dropped === 1 ? "An entry" : claim.dropped + " entries") +
+          " left unsent on this device by someone else " +
+          (claim.dropped === 1 ? "was" : "were") +
+          " discarded when you signed in. Nothing of theirs was saved.",
+        "warning",
+      );
+    }
+    outboxOpenFromHash();
+    outboxRender();
+    outboxReplay(false);
+    // A connection can come back without the browser ever saying it was gone.
+    // Only on a page that belongs to somebody, and only while it is visible.
+    window.setInterval(function () {
+      if (!document.hidden) outboxReplay(false);
+    }, 30000);
+  }
+
+  // "Open in the Add form": put a kept entry back into the form it came from.
+  // It stays in the queue until this form saves it, so leaving the page
+  // without saving loses nothing.
+  function outboxOpenFromHash() {
+    var match = /^#outbox=(.+)$/.exec(window.location.hash || "");
+    if (!match) return;
+    var form = document.querySelector("form[data-outbox]");
+    if (!form) return;
+    var id = decodeURIComponent(match[1]);
+    var entry = outboxLoad().filter(function (e) { return e.id === id; })[0];
+    if (!entry) return;
+    form.reset();
+    entry.fields.forEach(function (pair) {
+      var control = form.elements.namedItem(pair[0]);
+      if (!control) return;
+      if (control.type === "checkbox") control.checked = control.value === pair[1];
+      else control.value = pair[1];
+      var details = control.closest ? control.closest("details") : null;
+      if (details && pair[1] !== "" && control.type !== "hidden") details.open = true;
+    });
+    syncCategoryRequirement();
+    form.dataset.outboxId = entry.id;
+    // A fresh key: the server has refused or never seen this one, and what is
+    // about to be sent may differ from what that key was first used for.
+    form.dataset.idempotencyKey = "";
+    setStatus(
+      form,
+      "This is the entry that was waiting on this device" +
+        (entry.message ? ": " + entry.message : ".") +
+        " Correct it and save, or go back to leave it where it was.",
+      "warning",
+    );
+  }
+
+  window.addEventListener("online", function () { outboxReplay(false); });
+  window.addEventListener("hashchange", outboxOpenFromHash);
+
   // The swapped-in URL is a real history entry, so Back has to fetch it again.
   window.addEventListener("popstate", function () {
     window.location.reload();
@@ -353,6 +670,12 @@ export const CLIENT_SCRIPT = String.raw`
                 return;
               }
               form.dataset.idempotencyKey = "";
+              // A kept entry reopened here has now really been saved.
+              if (form.dataset.outboxId) {
+                outboxSave(outboxRemove(outboxLoad(), form.dataset.outboxId));
+                form.dataset.outboxId = "";
+                outboxRender();
+              }
               if (payload.redirect) {
                 // Clear the form's own status first — the message is about to
                 // be shown against the refreshed page instead.
@@ -366,7 +689,28 @@ export const CLIENT_SCRIPT = String.raw`
               }
             });
         })
-        .catch(function () {
+        .catch(function (err) {
+          /*
+           * OFFLINE-1 · fetch itself rejected, so nothing answered at all — no
+           * signal, not a broken server. On the Add form that is the moment to
+           * keep the entry on the device rather than spin for twenty seconds
+           * at a shop counter. The key goes with it, so if this attempt did in
+           * fact land, the replay is answered with it instead of repeating it.
+           */
+          var unreachable = !(err && err.message === "retryable");
+          if (unreachable && form.hasAttribute("data-outbox") && outboxKeep(form, key)) {
+            form.dataset.idempotencyKey = "";
+            form.dataset.outboxId = "";
+            form.reset();
+            syncCategoryRequirement();
+            finish(
+              "No connection, so this is saved on this device for now. It will be sent " +
+                "when the connection is back — you can carry on entering.",
+              "warning"
+            );
+            outboxRender();
+            return;
+          }
           attempt++;
           if (attempt <= RETRY_DELAYS.length) {
             setStatus(form, "Still trying… (attempt " + (attempt + 1) + ")", null);
@@ -391,6 +735,9 @@ export const CLIENT_SCRIPT = String.raw`
     var form = event.target;
     if (!(form instanceof HTMLFormElement)) return;
     if (form.method.toLowerCase() !== "post") return;
+    // R35.5 as amended: signing out leaves no queued entry behind, whether or
+    // not the sign-out itself goes through the retry below.
+    if (resolve(form.action).pathname === "/signout") outboxPurge();
     if (form.dataset.noRetry === "true") return;
     if (!window.fetch) return; // Plain form post still works without JS.
     // A file upload cannot be sent as URL-encoded — serialising a FormData with
@@ -996,5 +1343,8 @@ export const CLIENT_SCRIPT = String.raw`
           '<form method="dialog"><button type="submit">Close</button></form>';
       });
   });
+
+  // Last, so everything it calls is defined: claim, show and send the queue.
+  outboxStart();
 })();
 `;

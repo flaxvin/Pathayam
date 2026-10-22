@@ -628,6 +628,13 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 .notice-info    { background: var(--info-bg); border-color: var(--accent); color: var(--text); }
 .notice-warning { background: var(--warning-bg); color: var(--warning); border-color: var(--warning); }
 
+/* OFFLINE-1 · What is waiting on this device, above every page while any is. */
+.outbox-banner { margin: .75rem 1rem; color: var(--text); }
+.outbox-banner p { margin: 0 0 .5rem; }
+.outbox-list { margin: .5rem 0 0; padding-left: 1.1rem; }
+.outbox-list li { margin-bottom: .35rem; overflow-wrap: anywhere; }
+.outbox-actions { display: inline-flex; flex-wrap: wrap; gap: .5rem; align-items: center; margin-left: .5rem; }
+
 .empty-state { text-align: center; padding: 2.5rem 1rem; color: var(--text-muted); }
 .empty-state h2 { color: var(--text); }
 .empty-state .empty-icon { font-size: 2.5rem; margin-bottom: .5rem; }

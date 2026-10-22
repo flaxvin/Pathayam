@@ -41,6 +41,8 @@ Each row names the stale text, the correcting text that now governs, and the clo
 | E14 | `09` R6.n | "Say who is **ahead** or **behind**" | **Superseded by R6.n.1.** Those words describe a *person*, so one balance read "₹36,640 ahead" in a table and "the household is ₹36,640 behind with Ravi" two inches below — one fact from two subjects, which reads as a bug. Every sentence now takes **the commitment** as its subject and uses the budget screen's own words: **underfunded** and **overfunded**. R6.n's ban on the language of debt, and its three endings, stand unchanged. | Built, then used |
 | E15 | `15` §4A.5 | "*Gifts and treats* is the obvious default and the household can pick another." | **Superseded by R6.s.** Agreeing to leave a lopsided month is usually not a present, and naming it one attributes a generosity neither person claimed. The default is **Settled between us**, and the giving budget's other envelopes are offered at the moment of the act rather than afterwards. | Built, then read aloud |
 | E16 | `14` §4.3 | "**Total** 12–20 weeks" for per-individual budgets | **Superseded twice.** `15`'s design found the engine's arithmetic does not change at all, moving it to 12–17 weeks; `16` planned it at 17 and it is now built (P0–P6). The note in `14` §4.3 already says the estimate predates the design; this records where it landed. | `15`, `16` |
+| E17 | `08` R35 §3.1, R35.2, R35.5; §3.2 first bullet; F21.4 | "No user data may be persisted on the client device, in any form" · "Offline transaction entry and the write queue" MUST NOT be built · "Logging out, and session expiry, MUST leave nothing recoverable" | **Amended by §3.7 (R35.7).** One exception: Add-form entries that could not reach the server, held in `localStorage` until the server confirms them. R35.1 (no service worker), R35.2 (every read from the server), R35.3 and R35.4 stand unchanged. R35.5 reads: "Signing out MUST leave nothing recoverable on the device; session expiry MAY leave unsent entries, which are dropped when anyone else signs in." F21.4's test asserts the one key and nothing else. | Q32 |
+| E18 | `08` §3.3 "documented escape hatch" | "outbound entries only, **encrypted**, purged on successful sync … Do not reach for it pre-emptively." | **Taken, 22-10-2026, unencrypted.** See §3.7 for why encryption was not built. The rest of the sentence is what was built. | Q32 |
 
 **E12 was found by `verify_docs.py`** (§3.4), on its first run, in a line ten manual passes had missed. That is the argument for building it.
 
@@ -217,6 +219,64 @@ model already assumes that box is trusted; this makes the consequence of it
 being wrong slightly worse. That is the trade, it is opt-in, and the settings
 screen states it in those terms rather than reassuring terms.
 
+
+### 3.7 R35.7 — the write-only queue *(amends `08` R35, §3.3; extends R36)*
+
+*Decided 22-10-2026 (`09` Q32).* The owner took `08` §3.3's escape hatch:
+entering a spend at a counter with no signal mattered more than the purity of
+"nothing on the device". This section is the whole of the exception. Anything
+not written here is still forbidden by R35.
+
+- R35.7.1 **Only the Add form** (`/add`) MAY keep an entry on the device, and
+  only when the request could not reach the server at all (the fetch itself
+  failed). A server that answers — even with a 5xx — is handled by R36.5 as
+  before and is not queued.
+- R35.7.2 The entry MUST be held in `localStorage` under the single key
+  `pathayam.outbox.v1`: the form's fields as typed, the **idempotency key the
+  first attempt was sent with**, the time it was kept, and the id of the member
+  whose page it was. Nothing the server sent is ever stored — there is still no
+  read cache (R35.2, S10).
+- R35.7.3 The page MUST say plainly that the entry is saved on this device and
+  will be sent when the connection is back, and every signed-in page MUST show
+  how many entries are waiting while any are.
+- R35.7.4 Entries MUST be sent again on page load, on the browser's `online`
+  event, periodically while the page is visible, and on a "Send now" control —
+  always with their original key, so a first attempt that did land is answered
+  with its original result rather than repeated (R36.2). An entry MUST be
+  removed only once the server confirms it.
+- R35.7.5 A refusal (a 4xx other than 401, 408, 409, 429) MUST NOT be dropped:
+  the entry is kept with the server's message, and the person can open it in
+  the Add form, prefilled, or discard it. A 401 keeps everything until the
+  person signs in again.
+- R35.7.6 An entry older than six days MUST NOT be sent automatically, because
+  R36.3 retains keys for only seven: past that, a replay could become a second
+  transaction. It is held, with a message asking the person to check it is not
+  already recorded.
+- R35.7.7 Signing out MUST purge the queue — by the client script on submit,
+  and by a `Clear-Site-Data: "storage"` header on the sign-out response. When a
+  different member signs in on the device, entries tagged with anybody else
+  MUST be discarded and the page MUST say so. While impersonating, the queue is
+  neither sent nor claimed.
+- R35.7.8 Without JavaScript the Add form MUST still post normally. There is
+  still **no service worker** (R35.1): the queue lives in the page script, so
+  it only moves while a page of the app is open.
+
+**Why not encrypted, as §3.3 said.** The key would have to live on the same
+device, readable by the same script, so it protects against nobody who can
+already read the browser's storage — the same reasoning `08` S9 used to decline
+database encryption at rest, for the same small benefit and a new way to lose an
+entry (a lost key). The containment is instead the boundaries above: write-only,
+Add form only, purged on confirmation and on sign-out, dropped for another
+member. An unsent entry is therefore readable by anyone with the unlocked
+device and browser profile until it is sent; `docs/privacy.md` and
+`docs/limitations.md` say so.
+
+**What this does not restore.** Nothing can be *read* offline: no budget, no
+balances, no payees. The envelope picker on the Add form is whatever the page
+last loaded, and a queued entry is filed against the server's state when it
+arrives, not when it was typed — which is why a refusal is kept rather than
+dropped.
+
 ---
 
 ## 4. Precedence, restated
@@ -224,7 +284,7 @@ screen states it in those terms rather than reassuring terms.
 Where documents disagree, the order of authority is:
 
 1. `09-decisions-log.md` — decisions
-2. **This document** — corrections and the three additions above
+2. **This document** — corrections and the additions above
 3. `08` over `02` §9 (as already stated in `00`)
 4. Everything else, newest section wins
 

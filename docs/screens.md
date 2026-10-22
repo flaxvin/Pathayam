@@ -31,7 +31,7 @@ answer 404 when the viewer may not see the entity
 | `GET /accounts/:id/reconcile`, `POST` | Reconcile against a bank balance. |
 | `GET /accounts/:id/cards`, `POST`, `POST /accounts/:id/cards/:cardId/close` | Physical cards on a credit account. |
 | `GET /accounts/:id/statement`, `POST` | Record a card statement. |
-| `GET /add`, `POST /add` | Money in, money out. |
+| `GET /add`, `POST /add` | Money in, money out. With no signal, the entry is kept on the device and sent later (`10` §3.7). |
 | `GET /transfer`, `POST /transfer` | Between accounts. |
 | `GET /transaction/:id`, `POST` | Edit, splits, tags, owner, raw values, history. |
 | `POST /transaction/:id/categorise`, `/settled`, `/delete`, `/attach` | |
@@ -169,6 +169,9 @@ the budget switcher moves into the header.
   background.
 - Wide tables scroll within their own container.
 - Three themes: light, dark, system. The theme is applied in the first response.
+- Entries waiting on the device (the Add form's write-only queue) show as a
+  banner above every page with **Send now**; a refused one offers **Open in the
+  Add form** and **Discard**. Nothing read is ever shown from the device.
 
 ## Printing
 
