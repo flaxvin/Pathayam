@@ -460,6 +460,14 @@ function requireOpen(db: DB, id: string): FamilyLoan {
   const loan = getFamilyLoan(db, id);
   if (!loan) throw new Missing("That does not exist.");
   if (loan.written_off_at) throw new Refusal("That has been written off.");
+  /*
+   * DEBUG-LOANS-4 · A closed arrangement is out of net worth and the lists, so
+   * money moved through it reached no line: ₹5,000 lent to a cousin after
+   * closing left the bank and the net worth total fell by it. Reopen it first.
+   */
+  if (loan.closed_at) {
+    throw new Refusal(`The arrangement with ${loan.counterparty} is closed. Reopen it to record more.`);
+  }
   if (!getAccount(db, loan.account_id)) throw new Refusal("Its account is missing.");
   return loan;
 }
