@@ -361,6 +361,20 @@ function createLoanPaymentCategory(db: DB, actor: Actor, loanId: string, name: s
   return id;
 }
 
+/**
+ * DEBUG-LOANS-5 · A closed loan is out of every list and total, so a draw,
+ * payment, rate or second settlement recorded on it moved money no screen
+ * accounted for: ₹40,000 drawn on a settled loan reached the bank and no
+ * liability; settling twice paid the whole settlement again, as interest.
+ */
+function refuseIfClosed(loan: Pick<Loan, "closed_at" | "lender" | "nickname">): void {
+  if (loan.closed_at) {
+    throw new Refusal(
+      `${loan.nickname || loan.lender} is closed. Reopen it from the activity log to record more against it.`,
+    );
+  }
+}
+
 export function getLoan(db: DB, id: string): Loan | null {
   return queryOne<Loan>(db, `SELECT * FROM loans WHERE id = ?`, id);
 }
@@ -496,6 +510,7 @@ export function recordDisbursement(
   return transact(db, () => {
     const loan = getLoan(db, input.loanId);
     if (!loan) throw new Missing("That loan does not exist.");
+    refuseIfClosed(loan);
 
     const disbursed = totalDisbursed(db, input.loanId);
     if (disbursed + input.amount > loan.sanctioned) {
@@ -891,6 +906,7 @@ export function recordRateChange(
     checkAnnualRate(input.annualRatePct);
     const subject = getLoan(db, input.loanId);
     if (!subject) throw new Missing("That loan does not exist.");
+    refuseIfClosed(subject);
     if (input.effectiveFrom < subject.sanction_date) {
       throw new Refusal(
         `The loan was sanctioned on ${formatDate(subject.sanction_date)}, so a rate change ` +
@@ -994,6 +1010,7 @@ export function recordInstalment(
   return transact(db, () => {
     const loan = getLoan(db, input.loanId);
     if (!loan) throw new Missing("That loan does not exist.");
+    refuseIfClosed(loan);
 
     let principal = input.principal ?? null;
     let interest = input.interest ?? null;
@@ -1550,6 +1567,7 @@ export function closeLoan(
   return transact(db, () => {
     const projection = projectLoan(db, input.loanId);
     if (!projection) throw new Missing("That loan does not exist.");
+    refuseIfClosed(projection.loan);
 
     if (input.foreclosureCharge && input.foreclosureCharge > 0) {
       if (!input.chargeAccountId) {
