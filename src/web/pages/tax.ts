@@ -262,7 +262,7 @@ export function renderTax(p: TaxPageProps): SafeHtml {
                     </tr>` : html``}
                   ${p.gains.buckets.otherLong !== 0 ? html`
                     <tr>
-                      <td>Gold, property or foreign shares, over 24 months <span class="faint">· s112, 12.5%</span></td>
+                      <td>Gold, property, foreign shares and older debt funds, held long <span class="faint">· s112, 12.5%</span></td>
                       <td class="amount">${formatPaise(p.gains.buckets.otherLong)}</td>
                       <td class="amount">${formatPaise(p.gains.otherLongTax)}</td>
                     </tr>` : html``}

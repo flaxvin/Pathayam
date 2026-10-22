@@ -15,7 +15,9 @@
  *   listed equity, held ≤ 12 months  →  20%                      (s111A)
  *   property, gold or foreign shares, held > 24 months → 12.5%   (s112)
  *   property, gold or foreign shares, held ≤ 24 months → slab rates
+ *   a gold or international ETF listed in India: as above, but 12 months
  *   debt, bought after 1 April 2023  →  slab rates always        (s50AA)
+ *   a debt fund bought before then   →  as gold (24 months; ETF 12)
  *
  * So the holding-period threshold is not one number — it is 12 months for
  * listed equity and 24 for most else — and `reports.ts` splits at twelve
@@ -50,11 +52,16 @@ import { valueOf } from "../portfolio/holdings.ts";
  * twelve months, so short-term.
  */
 export const LONG_TERM_MONTHS: Record<"equity" | "other", number> = {
-  /** Listed equity and equity-oriented funds: 12 months. */
+  /** Listed securities, units included — shares, equity funds, ETFs: 12 months. */
   equity: 12,
-  /** Property, gold, unlisted and foreign shares: 24 months. */
+  /** Property, physical gold, unlisted funds, unlisted and foreign shares: 24 months. */
   other: 24,
 };
+
+/** s50AA: specified mutual fund units acquired on or after this date are slab-rated. */
+const SPECIFIED_FUND_FROM = "2023-04-01";
+/** Finance (No. 2) Act 2024: from AY 2026-27 only funds over 65% in debt are "specified". */
+const SPECIFIED_FUND_NARROWED_ON = "2025-04-01";
 
 /**
  * The purchase date of a stored parcel. Parcels carry it (B88); if an older
@@ -169,11 +176,11 @@ export function gainsBucketsForYear(db: DB, fy: number, memberId: string): Gains
   const sales = queryAll<{
     date: IsoDate; realised_gain: number | null; detail_json: string | null;
     instrument_id: string; instrument: string; asset_class: string | null; region: string | null; currency: string;
-    holder: string | null;
+    kind: string; holder: string | null;
   }>(
     db,
     `SELECT e.date, e.realised_gain, e.detail_json,
-            h.instrument_id, i.name AS instrument, i.asset_class, i.region, i.currency,
+            h.instrument_id, i.name AS instrument, i.asset_class, i.region, i.currency, i.kind,
             a.holder_member_id AS holder
        FROM holding_events e
        JOIN holdings h ON h.id = e.holding_id
@@ -294,16 +301,53 @@ export function gainsBucketsForYear(db: DB, fy: number, memberId: string): Gains
         continue;
       }
 
+      /*
+       * DEBUG-TAX-3 · An ETF priced in rupees is a unit listed in India, and
+       * since 23 July 2024 every listed security, units included, is long-term
+       * after 12 months (s2(42A)). Gold and international ETFs were filed with
+       * physical gold at 24 months — a gold ETF held 18 months and sold in
+       * 2025-26 was slab-rated instead of 12.5% under s112.
+       */
+      const acquired = acquiredOn(parcel, sale.date);
+      const listedUnit = sale.kind === "etf" && sale.currency === "INR";
+      const fundUnit = sale.kind === "mutual-fund" || listedUnit;
+      const longAfter = listedUnit ? LONG_TERM_MONTHS.equity : LONG_TERM_MONTHS.other;
+
       if (cls === "debt" || cls === "cash") {
-        // s50AA: units bought on or after 1 April 2023 are always slab-rated,
-        // and this app holds no acquisition-date rule fine enough to separate
-        // the older ones — so the conservative placement is slab.
+        /*
+         * s50AA: specified mutual fund units bought on or after 1 April 2023,
+         * and unlisted bonds and debentures, are always slab-rated. A bond's
+         * listing is not recorded, so a bond stays slab-rated here.
+         *
+         * DEBUG-TAX-3 · Fund units bought before 1 April 2023 are outside
+         * s50AA: long-term after 24 months (12 for a listed ETF), then s112.
+         * Every debt sale used to be slab-rated, which taxed a 2021 debt fund
+         * sold in 2025-26 at up to 30% instead of 12.5%. Parcels carry their
+         * trade date, so the split is known.
+         */
+        if (cls === "debt" && fundUnit && acquired < SPECIFIED_FUND_FROM
+            && heldMoreThanMonths(acquired, sale.date, longAfter)) {
+          out.otherLong = (out.otherLong + gain) as Paise;
+        } else {
+          out.slabRated = (out.slabRated + gain) as Paise;
+        }
+        continue;
+      }
+
+      /*
+       * Before AY 2026-27 a "specified mutual fund" was any fund with no more
+       * than 35% in Indian equity — gold and international ETFs and funds
+       * included — so units of one bought from 1 April 2023 and sold before
+       * 1 April 2025 were slab-rated however long they were held. Finance
+       * (No. 2) Act 2024 narrowed it to funds over 65% in debt.
+       */
+      if (fundUnit && acquired >= SPECIFIED_FUND_FROM && sale.date < SPECIFIED_FUND_NARROWED_ON) {
         out.slabRated = (out.slabRated + gain) as Paise;
         continue;
       }
 
-      // gold, real-estate, foreign equity: 24 months, then 12.5%.
-      if (heldMoreThanMonths(acquiredOn(parcel, sale.date), sale.date, LONG_TERM_MONTHS.other)) {
+      // gold, real-estate, foreign equity: 24 months (12 for a listed unit), then 12.5%.
+      if (heldMoreThanMonths(acquired, sale.date, longAfter)) {
         out.otherLong = (out.otherLong + gain) as Paise;
       } else {
         out.slabRated = (out.slabRated + gain) as Paise;
