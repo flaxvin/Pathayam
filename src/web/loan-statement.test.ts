@@ -64,3 +64,14 @@ describe("UI-PASS-4 · a lender statement holds only figures a statement can sho
     } finally { await app.close(); }
   });
 });
+
+describe("UI-PASS-5 · the loan's own page says what the statement found", () => {
+  test("a difference is shown where 'Statement recorded.' lands", async () => {
+    const { app, loan } = await setup();
+    try {
+      await app.post(`/loans/${loan.id}/statement`, { as_of: "2025-06-01", lender_outstanding: "50000" });
+      const body = await (await app.get(`/loans/${loan.id}`)).text();
+      assert.match(body, /The lender's statement of 01-06-2025 differs from this app by/);
+    } finally { await app.close(); }
+  });
+});
