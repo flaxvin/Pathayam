@@ -21,6 +21,7 @@ import {
 import { formatPaise, type Paise } from "../core/money.ts";
 import { accountBalances } from "../engine/repository.ts";
 import { listLoans, projectLoan } from "./loans.ts";
+import { listMaturities } from "./deposits.ts";
 import { Refusal, Missing } from "../core/refusal.ts";
 import { createTransaction, refusePaymentCategories, UndoRefused } from "./transactions.ts";
 
@@ -1049,6 +1050,12 @@ export interface CalendarDay {
   date: IsoDate;
   inflows: { label: string; amount: Paise; confirmed: boolean }[];
   outflows: { label: string; amount: Paise; confirmed: boolean }[];
+  /**
+   * DEPOSITS · Deposits maturing that day, and what they pay. Shown, not
+   * counted: the money lands in the deposit, not in a budget account, and
+   * nothing is posted until somebody records where it went.
+   */
+  maturing?: { label: string; amount: Paise; accountId: string }[];
   /** Projected Budget-account balance at the end of this day. */
   projectedBalance: Paise;
   /** F7.7: flagged when the projection dips below the configured floor. */
@@ -1186,6 +1193,11 @@ export function projectCashflow(
         confirmed: true,
       });
     }
+  }
+
+  // DEPOSITS · Maturities, beside the balance rather than in it.
+  for (const m of listMaturities(db, { from: today, to: end, viewerMemberId: opts.viewerMemberId })) {
+    (dayFor(m.date).maturing ??= []).push({ label: `${m.name} matures`, amount: m.amount, accountId: m.accountId });
   }
 
   // What each card owes today, paid once, at its next due date (S5).

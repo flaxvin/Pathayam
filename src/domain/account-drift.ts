@@ -101,6 +101,13 @@ export function accountDrifts(
     ...SIMPLE_TRACKING_SUBTYPES, ...params,
   );
   for (const account of tracking) {
+    /*
+     * DEPOSITS · An account with deposit terms is not drifting: its figure is
+     * computed, an FD or RD from its terms alone, a PPF or EPF from its terms
+     * and the register — and a contribution after a hand valuation hands the
+     * account back to the computed figure, which counts it.
+     */
+    if (queryOne(db, `SELECT 1 FROM deposit_terms WHERE account_id = ?`, account.id)) continue;
     const valuation = queryOne<{ as_of: string }>(
       db,
       `SELECT as_of FROM asset_valuations WHERE account_id = ?

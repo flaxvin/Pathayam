@@ -96,6 +96,8 @@ export const COUNTED_TABLES = [
   "attachments",
   "tax_declarations",
   "schedule_splits",
+  // DEPOSITS · A deposit's terms; its value is computed from them.
+  "deposit_terms",
 ];
 
 /**

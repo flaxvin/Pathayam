@@ -80,6 +80,7 @@ A unique index on `transactions(account_id, source, source_id)` where
 | `prices`, `price_fetches` | `instrument_id`, `as_of`, `price`, `source`; fetch outcomes | |
 | `fx_rates` | `base`, `quote`, `as_of`, `rate`, `source` | |
 | `asset_valuations` | `id`, `account_id`, `as_of`, `value`, `note` | Hand-valued accounts. Dated history, not a mutable number. |
+| `deposit_terms` | `account_id`, `kind`, `principal`, `instalment`, `rate_bp`, `compounding`, `start_date`, `maturity_date`, `payout`, `basis_date` | One row per deposit account (0060). `kind` ∈ `fd`, `rd`, `ppf`, `epf`, `other`; `rate_bp` is the annual rate in basis points; `basis_date` is the day the terms were last saved. The account's value is computed from it, not stored. |
 | `net_worth_snapshots` | `as_of`, `cash`, `investments`, `other_assets`, `credit_cards`, `loans`, `net_worth`, `worst_price_date` | |
 
 ## Scheduling and operations

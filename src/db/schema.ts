@@ -2703,4 +2703,34 @@ ALTER TABLE tax_declarations ADD COLUMN s80d_checkup INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE tax_declarations ADD COLUMN s80d_parents_checkup INTEGER NOT NULL DEFAULT 0;
 `,
   },
+  {
+    name: "0060-a-deposit-values-itself",
+    sql: `
+--------------------------------------------------------------------------------
+-- DEPOSITS · A deposit's terms, so it is worth what they say
+--------------------------------------------------------------------------------
+-- A fixed or recurring deposit, a PPF or an EPF was worth its register or a
+-- figure retyped by hand. With terms it is computed (src/deposits/accrual.ts)
+-- on whatever day is asked about. One row per account; the account is a
+-- tracking one. basis_date is the day the terms were last saved: a hand
+-- valuation dated on or after the latest of it, the start date and (for the
+-- kinds that read the register) the last contribution wins over the figure.
+CREATE TABLE deposit_terms (
+  account_id    TEXT PRIMARY KEY REFERENCES accounts(id),
+  kind          TEXT NOT NULL CHECK (kind IN ('fd','rd','ppf','epf','other')),
+  principal     INTEGER NOT NULL DEFAULT 0 CHECK (principal >= 0),
+  instalment    INTEGER CHECK (instalment IS NULL OR instalment > 0),
+  rate_bp       INTEGER NOT NULL CHECK (rate_bp BETWEEN 0 AND 10000),
+  compounding   TEXT NOT NULL
+                CHECK (compounding IN ('simple','monthly','quarterly','half-yearly','yearly')),
+  start_date    TEXT NOT NULL,
+  maturity_date TEXT,
+  payout        TEXT NOT NULL DEFAULT 'cumulative' CHECK (payout IN ('cumulative','periodic')),
+  basis_date    TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  created_by    TEXT REFERENCES members(id),
+  updated_at    TEXT NOT NULL
+);
+`,
+  },
 ];

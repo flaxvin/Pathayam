@@ -275,7 +275,7 @@ function derivedWorth(
     return { value: total as Paise, label: "Open the portfolio", href: "/portfolio" };
   }
 
-  const valuation = latestValuation(db, account.id);
+  const valuation = standingValuation(db, account.id);
   return {
     value: (valuation?.value ?? 0) as Paise,
     label: "Open the portfolio",
@@ -343,7 +343,13 @@ import {
   type InstrumentKind,
   signedValuation,
   assetHistory,
+  standingValuation,
 } from "./domain/assets.ts";
+import {
+  getDepositTerms, setDepositTerms, removeDepositTerms, computedDepositValue, listMaturities,
+  describeTerms, DEPOSIT_SUBTYPES, type DepositTermsInput,
+} from "./domain/deposits.ts";
+import { checkTerms } from "./deposits/accrual.ts";
 import {
   netWorthStatement, snapshotNetWorth, netWorthChange, netWorthHistory,
   assetAllocation,
@@ -1146,6 +1152,36 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const parsed = parseDate(raw);
     if (parsed === null) throw new HttpError(400, `"${raw}" isn't a date I can read — DD-MM-YYYY works.`);
     return parsed;
+  }
+
+  /**
+   * DEPOSITS · A deposit's terms as the form sends them, or null when the form
+   * names no kind (the new-account form, where terms are optional). The rate
+   * is a percentage to two places — "7.1" is 710 basis points — and anything
+   * else is a sentence, not a guess. The domain checks the rest.
+   */
+  function depositTermsField(body: Record<string, string | string[]>): DepositTermsInput | null {
+    const kind = field(body, "deposit_kind")?.trim();
+    if (!kind) return null;
+    const rateRaw = (field(body, "deposit_rate") ?? "").trim().replace(/%$/, "").trim();
+    if (!/^\d{1,3}(\.\d{1,2})?$/.test(rateRaw)) {
+      throw new Refusal("The rate is a yearly percentage to two decimal places, like 7.1 or 7.25.");
+    }
+    const optionalAmount = (name: string, label: string) => {
+      const raw = field(body, name);
+      return raw?.trim() ? amountField(raw, label) : null;
+    };
+    const maturityRaw = field(body, "deposit_maturity_date");
+    return {
+      kind,
+      principal: optionalAmount("deposit_principal", "Principal"),
+      instalment: optionalAmount("deposit_instalment", "Monthly instalment"),
+      rateBp: Math.round(Number(rateRaw) * 100),
+      compounding: field(body, "deposit_compounding") || null,
+      startDate: dateField(field(body, "deposit_start_date"), "Started on"),
+      maturityDate: maturityRaw?.trim() ? dateField(maturityRaw, "Matures on") : null,
+      payout: field(body, "deposit_payout") || null,
+    };
   }
 
   /*
@@ -2510,6 +2546,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         holderName: account.holder_member_id ? memberNames.get(account.holder_member_id) ?? null : null,
         balances: balances.get(account.id)!,
         derived: derivedWorth(db, account, viewer(ctx)),
+        // DEPOSITS · A deposit with terms is worth what they say, as on net worth.
+        deposit: getDepositTerms(db, account.id)
+          ? (() => {
+              const v = standingValuation(db, account.id);
+              return v ? { value: v.value, source: v.source } : null;
+            })()
+          : null,
         unclearedCount:
           queryOne<{ n: number }>(
             db,
@@ -2645,6 +2688,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       }
 
       let opening = openingRaw?.trim() ? amountField(openingRaw, "Current balance") : 0;
+      // DEPOSITS · Terms are optional, and read before anything is created so
+      // terms that cannot be priced leave no account behind.
+      const terms = DEPOSIT_SUBTYPES.has(subtype) && kind === "tracking" ? depositTermsField(ctx.body) : null;
+      if (terms) checkTerms(terms);
 
       // F2.6: a credit card's balance is what you owe. Entering it as a
       // positive figure is the obvious slip, so take it as intended rather
@@ -2668,8 +2715,46 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         budgetId: guardedField(ctx, "budget_id", requireVisibleBudget) ?? undefined,
         visibility: field(ctx.body, "visibility") === "private" ? "private" : undefined,
       });
+      if (terms) {
+        setDepositTerms(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), account.id, terms);
+      }
 
-      return { redirect: `/accounts/${account.id}`, message: `Added ${account.name}.` };
+      return {
+        redirect: `/accounts/${account.id}`,
+        message: terms ? `Added ${account.name}, valued from its terms.` : `Added ${account.name}.`,
+      };
+    }),
+  );
+
+  /*
+   * DEPOSITS · Set, change or take off a deposit's terms. Each is one event,
+   * undone from Activity like any other change. The account is resolved
+   * through the visibility guard first, so a private deposit's terms are its
+   * holder's alone.
+   */
+  router.post("/accounts/:id/deposit", (ctx) =>
+    mutate(ctx, (a) => {
+      const account = requireVisibleAccount(ctx, ctx.params.id!);
+      const terms = depositTermsField(ctx.body);
+      if (!terms) throw new Refusal("Pick what kind of deposit this is.");
+      const saved = setDepositTerms(
+        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), account.id, terms,
+      );
+      return {
+        redirect: `/accounts/${account.id}#terms`,
+        message: `${account.nickname || account.name} is now valued from its terms: ${describeTerms(saved)}.`,
+      };
+    }),
+  );
+
+  router.post("/accounts/:id/deposit/remove", (ctx) =>
+    mutate(ctx, (a) => {
+      const account = requireVisibleAccount(ctx, ctx.params.id!);
+      removeDepositTerms(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), account.id);
+      return {
+        redirect: `/accounts/${account.id}`,
+        message: `Took the terms off ${account.nickname || account.name}. Undo it from Activity if that was a slip.`,
+      };
     }),
   );
 
@@ -2783,6 +2868,23 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         })(),
         lastReconciled: recon?.as_of ?? null,
         checkpointBroken: Boolean(recon?.broken_at),
+        deposit: account.kind === "tracking" && DEPOSIT_SUBTYPES.has(account.subtype)
+          ? (() => {
+              const computed = computedDepositValue(db, account.id);
+              const standing = standingValuation(db, account.id);
+              return {
+                terms: computed?.terms ?? null,
+                description: computed ? describeTerms(computed.terms) : null,
+                computed: computed?.value ?? null,
+                basisDate: computed?.basisDate ?? null,
+                maturity: computed?.maturity ?? null,
+                standing: standing && computed
+                  ? { value: standing.value, asOf: standing.asOf, source: standing.source }
+                  : null,
+                today: todayIST(),
+              };
+            })()
+          : null,
       }),
     );
   });
@@ -6012,6 +6114,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         cash: cash as Paise,
         runwayMonths,
         dueSoon,
+        // DEPOSITS · Maturities in the same fortnight, from accounts this
+        // member can see. Shown, never posted.
+        maturing: listMaturities(db, { from: todayIST(), to: soon, viewerMemberId: viewer(ctx) })
+          .map((m) => ({ accountId: m.accountId, name: m.name, amount: m.amount, date: m.date })),
       }),
     );
   });
@@ -7662,7 +7768,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       .filter((a) => a.subtype !== "liability")
       .filter((a) => listHoldings(db, a.id).length === 0)
       .map((a) => {
-        const valuation = latestValuation(db, a.id);
+        // DEPOSITS · Computed from terms where it has them (standingValuation).
+        const valuation = standingValuation(db, a.id);
         /*
          * A deposit is worth its balance unless somebody has said otherwise
          * (B56), and that is the whole reason it is a tracking account: the
@@ -8330,17 +8437,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ctx, "Update valuations",
       renderValuations({
         assets: listValuableAccounts(db, { viewerMemberId: viewer(ctx) })
-          // Only the kinds you state by hand. A deposit is worth its balance.
-          .filter((a) => REVALUABLE_SUBTYPES.has(a.subtype))
+          // Only the kinds you state by hand, and deposits with terms — whose
+          // computed figure a passbook can correct. A deposit without terms is
+          // worth its balance.
+          .filter((a) => statable(a))
           .filter((a) => listHoldings(db, a.id).length === 0)
           .map((a) => {
-            const valuation = latestValuation(db, a.id);
+            const valuation = standingValuation(db, a.id);
             return {
               id: a.id, name: a.name, subtype: a.subtype, currency: a.currency,
               value: valuation?.value ?? (0 as Paise),
               asOf: valuation?.asOf ?? null,
               stale: valuation?.stale ?? false,
               valued: valuation !== null,
+              source: valuation?.source ?? null,
             };
           }),
         today: todayIST(),
@@ -8353,7 +8463,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       requireAssets();
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
       const assets = listValuableAccounts(db, { viewerMemberId: viewer(ctx) })
-        .filter((x) => REVALUABLE_SUBTYPES.has(x.subtype))
+        .filter((x) => statable(x))
         .filter((x) => listHoldings(db, x.id).length === 0);
 
       let saved = 0;
@@ -8405,6 +8515,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    * The same test /revalue makes, plus: an account whose worth is its unit
    * holdings has no stated value to change.
    */
+  /**
+   * DEPOSITS · Whose worth can be stated by hand: the hand-valued kinds, and a
+   * deposit with terms, where a passbook figure dated on or after the computed
+   * one's basis date wins over it (standingValuation).
+   */
+  function statable(account: { id: string; subtype: string }): boolean {
+    return REVALUABLE_SUBTYPES.has(account.subtype) || getDepositTerms(db, account.id) !== null;
+  }
+
   function requireHandValuedAsset(ctx: RequestContext, id: string) {
     const account = listValuableAccounts(db, { viewerMemberId: viewer(ctx) }).find((acc) => acc.id === id);
     if (!account) throw new NotFound("That asset does not exist.");
@@ -8560,7 +8679,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     auth(ctx);
     const account = listValuableAccounts(db, { viewerMemberId: viewer(ctx) }).find((acc) => acc.id === ctx.params.id);
     if (!account) throw new NotFound("That asset does not exist.");
-    const valuation = latestValuation(db, account.id);
+    const valuation = standingValuation(db, account.id);
     return render(
       ctx, `Revalue ${account.name}`,
       renderRevalueAsset({
@@ -8578,7 +8697,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       requireAssets();
       const account = listValuableAccounts(db, { viewerMemberId: viewer(ctx) }).find((acc) => acc.id === ctx.params.id);
       if (!account) throw new NotFound("That asset does not exist.");
-      if (!REVALUABLE_SUBTYPES.has(account.subtype)) {
+      if (!statable(account)) {
         throw new Refusal(
           `${account.name} is worth its balance, so there is nothing to state. ` +
           "Record what happened to it — interest credited, money paid in — as a transaction.",
