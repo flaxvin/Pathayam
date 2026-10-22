@@ -183,6 +183,10 @@ two price providers. User-supplied values reach only path segments and query
 values, through `encodeURIComponent`. `BACKUP_WEBHOOK_URL` and `HEARTBEAT_URL`
 are operator-configured.
 
+OpenID Connect discovery (`{OIDC_ISSUER}/.well-known/openid-configuration`)
+is bounded at ten seconds, like the price providers' fetches; a provider that
+does not answer in time makes `/auth/oidc` answer 503, not hang.
+
 ## Dependencies
 
 None at runtime.
