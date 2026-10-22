@@ -1255,25 +1255,97 @@ export function openStatement(
  * address that sends a statement is the address that will send an alert — and
  * because the Gmail adapter does not exist yet.
  */
-export const STATEMENT_SENDERS: { pattern: RegExp; bank: BankId | null; what: string }[] = [
-  { pattern: /@hdfcbank\.bank\.in$/i, bank: "hdfc", what: "HDFC credit card statement" },
-  { pattern: /^estatement@icici\.bank\.in$/i, bank: "icici", what: "ICICI account statement" },
-  { pattern: /^credit_cards@icici\.bank\.in$/i, bank: "icici", what: "ICICI credit card statement" },
-  { pattern: /^(statements|alerts|cc\.statements)@axis\.bank\.in$/i, bank: "axis", what: "Axis statement" },
-  { pattern: /@alerts\.sbi\.bank\.in$/i, bank: "sbi", what: "SBI account statement" },
-  { pattern: /^statements@sbicard\.com$/i, bank: "sbi", what: "SBI Card statement" },
-  { pattern: /@ubi\.bank\.in$/i, bank: "union", what: "Union Bank account statement" },
-  { pattern: /^estatement@yes\.bank\.in$/i, bank: "yes", what: "YES Bank credit card statement" },
-  { pattern: /@canarabank\.com$/i, bank: "canara", what: "Canara Bank credit card statement" },
-  { pattern: /@rbl\.bank\.in$/i, bank: "rbl", what: "RBL Bank credit card statement" },
-  { pattern: /@mail\.hsbc\.co\.in$/i, bank: "hsbc", what: "HSBC statement" },
-  { pattern: /@indusind\.com$/i, bank: "indusind", what: "IndusInd statement" },
-  { pattern: /@transactions\.upstox\.com$/i, bank: "broker", what: "Upstox funds or demat statement" },
-  { pattern: /@transactions\.indmoney\.com$/i, bank: "broker", what: "INDmoney statement" },
-  { pattern: /^eCAS@cdslstatement\.com$/i, bank: null, what: "CDSL CAS — goes to the portfolio importer" },
-  { pattern: /@camsonline\.com$/i, bank: null, what: "CAMS mutual fund statement" },
+export interface StatementSender {
+  pattern: RegExp;
+  bank: BankId | null;
+  what: string;
+  /**
+   * What the Gmail search names for this sender: a full address, or `@domain`
+   * for a whole domain. Kept beside the pattern so a sender recognised here is
+   * also one the fetch asks Gmail for; the two lists used to drift apart.
+   */
+  query: string[];
+}
+
+/*
+ * IMPORT-SND-1 · Banks moved to `.bank.in` during 2025-26, and for years
+ * before that the same statements came from `hdfcbank.net`, `icicibank.com`,
+ * `axisbank.com`, `alerts.sbi.co.in` and `unionbankofindia.com` — Union Bank's
+ * quarterly statement still does. Only the new domains were listed, so every
+ * older statement in a mailbox was neither recognised nor fetched.
+ */
+export const STATEMENT_SENDERS: StatementSender[] = [
+  {
+    pattern: /^hdfcbanksmartstatement@hdfcbank\.(bank\.in|net)$/i, bank: "hdfc",
+    what: "HDFC account statement",
+    query: ["hdfcbanksmartstatement@hdfcbank.bank.in", "hdfcbanksmartstatement@hdfcbank.net"],
+  },
+  {
+    pattern: /@hdfcbank\.(bank\.in|net)$/i, bank: "hdfc", what: "HDFC credit card statement",
+    query: ["@hdfcbank.bank.in", "emailstatements.cards@hdfcbank.net"],
+  },
+  {
+    pattern: /^estatement@icici(\.bank\.in|bank\.com)$/i, bank: "icici", what: "ICICI account statement",
+    query: ["estatement@icici.bank.in", "estatement@icicibank.com"],
+  },
+  {
+    pattern: /^credit_cards@icici(\.bank\.in|bank\.com)$/i, bank: "icici",
+    what: "ICICI credit card statement",
+    query: ["credit_cards@icici.bank.in", "credit_cards@icicibank.com"],
+  },
+  {
+    pattern: /^(statements|alerts|cc\.statements)@axis(\.bank\.in|bank\.com)$/i, bank: "axis",
+    what: "Axis statement",
+    query: ["@axis.bank.in", "statements@axisbank.com", "cc.statements@axisbank.com"],
+  },
+  {
+    pattern: /@alerts\.sbi\.(bank\.in|co\.in)$/i, bank: "sbi", what: "SBI account statement",
+    query: ["@alerts.sbi.bank.in", "cbssbi.cas@alerts.sbi.co.in"],
+  },
+  { pattern: /^statements@sbicard\.com$/i, bank: "sbi", what: "SBI Card statement", query: ["statements@sbicard.com"] },
+  {
+    pattern: /(@ubi\.bank\.in|^noreplyunionbank@unionbankofindia\.com)$/i, bank: "union",
+    what: "Union Bank account statement",
+    query: ["@ubi.bank.in", "noreplyunionbank@unionbankofindia.com"],
+  },
+  {
+    pattern: /^estatement@yes(\.bank\.in|bank\.in)$/i, bank: "yes", what: "YES Bank credit card statement",
+    query: ["estatement@yes.bank.in", "estatement@yesbank.in"],
+  },
+  { pattern: /@canarabank\.com$/i, bank: "canara", what: "Canara Bank credit card statement", query: ["@canarabank.com"] },
+  { pattern: /@rbl\.bank\.in$/i, bank: "rbl", what: "RBL Bank credit card statement", query: ["@rbl.bank.in"] },
+  { pattern: /@mail\.hsbc\.co\.in$/i, bank: "hsbc", what: "HSBC statement", query: ["@mail.hsbc.co.in"] },
+  { pattern: /@indusind\.com$/i, bank: "indusind", what: "IndusInd statement", query: ["@indusind.com"] },
+  // IMPORT-SND-2 · Statement senders in a real mailbox that had no entry at
+  // all. None has a bank profile yet, so each is recognised and named but, like
+  // a CAS, resolves to no account on its own.
+  {
+    pattern: /^global\.e-statement-in@sc\.com$/i, bank: null, what: "Standard Chartered credit card statement",
+    query: ["global.e-statement-in@sc.com"],
+  },
+  { pattern: /^alerts@esafbank\.com$/i, bank: null, what: "ESAF Bank account statement", query: ["alerts@esafbank.com"] },
+  { pattern: /^estatements@safegold\.in$/i, bank: null, what: "SafeGold statement", query: ["estatements@safegold.in"] },
+  {
+    pattern: /@mailer\.proteantech\.in$/i, bank: null, what: "NPS transaction statement",
+    query: ["@mailer.proteantech.in"],
+  },
+  {
+    pattern: /@transactions\.upstox\.com$/i, bank: "broker", what: "Upstox funds or demat statement",
+    query: ["@transactions.upstox.com"],
+  },
+  {
+    pattern: /@transactions\.indmoney\.com$/i, bank: "broker", what: "INDmoney statement",
+    query: ["@transactions.indmoney.com"],
+  },
+  {
+    pattern: /^eCAS@cdslstatement\.com$/i, bank: null, what: "CDSL CAS — goes to the portfolio importer",
+    query: ["eCAS@cdslstatement.com"],
+  },
+  { pattern: /@camsonline\.com$/i, bank: null, what: "CAMS mutual fund statement", query: ["@camsonline.com"] },
+  { pattern: /@kfintech\.com$/i, bank: null, what: "KFintech mutual fund statement", query: ["@kfintech.com"] },
 ];
 
 export function senderFor(address: string): { bank: BankId | null; what: string } | null {
-  return STATEMENT_SENDERS.find((s) => s.pattern.test(address.trim())) ?? null;
+  const hit = STATEMENT_SENDERS.find((s) => s.pattern.test(address.trim()));
+  return hit ? { bank: hit.bank, what: hit.what } : null;
 }
