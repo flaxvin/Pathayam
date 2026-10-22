@@ -104,3 +104,32 @@ describe("the PDF reader · a file that decompresses without end", () => {
     assert.ok(Date.now() - started < 5_000, `took ${Date.now() - started} ms`);
   });
 });
+
+describe("the PDF reader · streams that never end", () => {
+  /*
+   * Each `stream` with no `endstream` after it searched the rest of the file
+   * for one, so a file of nothing but unterminated streams was read in time
+   * proportional to the square of its size: under half a megabyte of them held
+   * the server for over a minute.
+   */
+  test("are read in time proportional to the file, not its square", () => {
+    const bytes = new Uint8Array(Buffer.from("1 0 obj << >>\nstream\n".repeat(20_000), "latin1"));
+    const started = Date.now();
+    const doc = readDocument(bytes);
+    assert.ok(Date.now() - started < 3_000, `took ${Date.now() - started} ms`);
+    assert.equal(doc.objects.size, 1);
+  });
+
+  test("a stream with a wrong /Length still ends at its own endstream", () => {
+    const bytes = new Uint8Array(Buffer.from(
+      "1 0 obj << /Length 999 >>\nstream\nfirst\nendstream\nendobj\n" +
+      "2 0 obj << /Length 1 >>\nstream\nsecond\nendstream\nendobj\n",
+      "latin1",
+    ));
+    const doc = readDocument(bytes);
+    const one = doc.objects.get(1) as { raw: Uint8Array };
+    const two = doc.objects.get(2) as { raw: Uint8Array };
+    assert.equal(Buffer.from(one.raw).toString("latin1"), "first");
+    assert.equal(Buffer.from(two.raw).toString("latin1"), "second");
+  });
+});
