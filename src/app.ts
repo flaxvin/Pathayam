@@ -16,7 +16,7 @@ import {
   type RequestContext, type Response,
 } from "./http/router.ts";
 import { clientIp, wantsJson } from "./http/server.ts";
-import { html, raw, when } from "./http/html.ts";
+import { html, raw, when, type SafeHtml } from "./http/html.ts";
 import { page, MANIFEST, type Theme } from "./web/layout.ts";
 import { STYLESHEET } from "./web/styles.ts";
 import { CLIENT_SCRIPT } from "./web/client.ts";
@@ -57,7 +57,7 @@ import {
   renderAddTransaction, renderTransfer, renderMoveMoney, renderAutoAssignPreview, renderHold,
   renderExplain, explainLineFor, renderNotFound,
 } from "./web/pages/actions.ts";
-import { renderReview, renderImport, renderMapping } from "./web/pages/review.ts";
+import { renderReview, renderImport, renderMapping, renderBudgetAppMapping } from "./web/pages/review.ts";
 import {
   parseStatementPdf, openStatement, BANKS, bankForInstitution,
   WrongPassword as StatementWrongPassword,
@@ -85,7 +85,9 @@ import {
   guardHistoricalEdit, breakCheckpoints, CheckpointConfirmationRequired,
   intactCheckpointBalances, checkpointsMovedSince, previewReconciliation, type Checkpoint,
 } from "./domain/reconciliation.ts";
-import { parseStatement, detectDelimiter, dateOrderOf } from "./import/csv.ts";
+import { parseStatement, detectDelimiter, dateOrderOf, parseDelimited } from "./import/csv.ts";
+import { parseBudgetApp, BUDGET_APP_NAMES, type BudgetAppParse } from "./import/budget-apps.ts";
+import { importBudgetApp } from "./import/budget-app-import.ts";
 import {
   ingest, listStaged, approveStaged, approveStagedAsTransfer, rejectStaged, mergeStaged, undoBatch, listBatches, batchUndoDates,
 } from "./import/pipeline.ts";
@@ -4889,7 +4891,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
        */
       approveStaged(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
         requireVisibleStaged(ctx, requiredField(ctx.body, "staged_id")),
-        { categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null },
+        {
+          categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
+          // IMPORT-1 · A proposed split's lines, only into envelopes this person may see.
+          mayUseCategory: (id) =>
+            listCategories(db, { includeHidden: true, viewerMemberId: viewer(ctx) }).some((c) => c.id === id),
+        },
       );
 
       // L2 · Categorising the same payee a second time proposes a rule. The
@@ -4954,6 +4961,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // are the same question: can this viewer see the account?
     auth(ctx);
     requireVisibleAccount(ctx, accountId);
+
+    /*
+     * IMPORT-1 · An export from YNAB or Actual Budget, recognised by its
+     * header. It covers every account the household had there, so the
+     * account chosen on this form does not apply: the next step asks which
+     * account each of the file's accounts is. Nothing is written yet.
+     */
+    const fromApp = parseBudgetApp(text);
+    if (fromApp) return render(ctx, `Import from ${BUDGET_APP_NAMES[fromApp.app]}`, budgetAppPrompt(ctx, fromApp, text, fileName));
 
     // 04 §3.2 · A saved profile first, then a guess, then the mapping UI.
     // Checked before the mutation, because an unrecognised file is a *task*
@@ -5247,6 +5263,87 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       };
     }),
   );
+
+  /** IMPORT-1 · The account step for a budgeting app's export. */
+  function budgetAppPrompt(
+    ctx: RequestContext, parse: BudgetAppParse, csv: string, fileName: string, error: string | null = null,
+  ): SafeHtml {
+    const accounts = listAccounts(db, { viewerMemberId: viewer(ctx) })
+      .filter((acc) => !DERIVED_VALUE_SUBTYPES.has(acc.subtype));
+    const fold = (s: string) => s.trim().toLowerCase();
+    const rows = parseDelimited(csv, detectDelimiter(csv));
+    const dateColumn = (rows[0] ?? []).findIndex((h) => fold(h) === "date");
+    return renderBudgetAppMapping({
+      appName: BUDGET_APP_NAMES[parse.app],
+      fileName, csv,
+      sources: parse.accounts.map((name) => ({
+        name,
+        rows: parse.accountRows[name] ?? 0,
+        // Only an exact name: anything looser is the person's call.
+        suggestedAccountId: accounts.find((acc) =>
+          fold(acc.name) === fold(name) || (acc.nickname && fold(acc.nickname) === fold(name)))?.id ?? null,
+      })),
+      accounts: accounts.map((acc) => ({ id: acc.id, name: acc.nickname || acc.name })),
+      needsDateOrder: parse.needsDateOrder,
+      dateSamples: rows.slice(1, 4).map((r) => (r[dateColumn] ?? "").trim()).filter(Boolean),
+      startingBalances: parse.startingBalances,
+      error: error ?? parse.dateProblem,
+    });
+  }
+
+  /**
+   * IMPORT-1 · A YNAB or Actual Budget export, with the account each of its
+   * accounts goes to. Every chosen account's rows go through `ingest()` as a
+   * batch of their own, so each can be undone from the import log.
+   */
+  router.post("/import/budget-app", (ctx) => {
+    const text = requiredField(ctx.body, "csv");
+    const fileName = field(ctx.body, "file_name") || "budget-export.csv";
+    const order = field(ctx.body, "date_order");
+    const parse = parseBudgetApp(text, {
+      dateOrder: order === "dd-mm-yyyy" || order === "mm-dd-yyyy" ? order : null,
+    });
+    if (!parse) throw new HttpError(400, "That is not an export from YNAB or Actual Budget.");
+    if (parse.dateProblem) throw new HttpError(400, parse.dateProblem);
+    if (parse.needsDateOrder) {
+      throw new HttpError(400, "Every date in this file reads both ways round. Choose whether the day or the month comes first.");
+    }
+
+    const accounts = new Map<string, string>();
+    parse.accounts.forEach((name, i) => {
+      const choice = field(ctx.body, `account_${i}`) ?? "";
+      if (choice === "") {
+        throw new HttpError(400, `Choose an account for "${name}", or leave it out.`);
+      }
+      if (choice === "skip") return;
+      accounts.set(name, requireVisibleAccount(ctx, choice).id);
+    });
+    if (accounts.size === 0) {
+      return render(ctx, `Import from ${BUDGET_APP_NAMES[parse.app]}`,
+        budgetAppPrompt(ctx, parse, text, fileName, "Every account was left out, so there was nothing to import."));
+    }
+
+    return mutate(ctx, (a) => {
+      const { plan, outcomes } = importBudgetApp(
+        db, actorFor(a, "import", ctx.req.headers["idempotency-key"] as string),
+        { parse, accounts, viewerMemberId: viewer(ctx), fileName },
+      );
+      const sum = (pick: (o: (typeof outcomes)[number]) => number) => outcomes.reduce((s, o) => s + pick(o), 0);
+      const toReview = sum((o) => o.staged - o.autoApproved);
+      const parts = [`${toReview} to review`];
+      if (plan.transfers) parts.push(`${plan.transfers} marked as transfers`);
+      if (plan.splits) parts.push(`${plan.splits} splits`);
+      if (plan.unmatched) parts.push(`${plan.unmatched} needing an envelope`);
+      if (sum((o) => o.duplicates)) parts.push(`${sum((o) => o.duplicates)} possible duplicates`);
+      if (sum((o) => o.skipped)) parts.push(`${sum((o) => o.skipped)} already present`);
+      if (sum((o) => o.errors)) parts.push(`${sum((o) => o.errors)} rows I couldn't read`);
+      return {
+        redirect: toReview > 0 ? "/review" : "/import",
+        message: `Read ${sum((o) => o.batch.rows_read)} rows from ${BUDGET_APP_NAMES[parse.app]} — ${parts.join(", ")}. ` +
+          "Budget assignments were not imported.",
+      };
+    });
+  });
 
   router.post("/import/profiles/:id/delete", (ctx) =>
     mutate(ctx, (a) => {

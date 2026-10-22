@@ -2762,4 +2762,23 @@ CREATE TABLE insurance_policies (
 CREATE INDEX idx_insurance_policies_holder ON insurance_policies(holder_member_id);
 `,
   },
+  {
+    name: "0061-an-imported-row-remembers-its-transfer-and-split",
+    sql: `
+--------------------------------------------------------------------------------
+-- IMPORT-1 · What the app a household is leaving had already decided
+--------------------------------------------------------------------------------
+-- A YNAB or Actual Budget export says that a row was money moved to another of
+-- the household's accounts, or split across several categories. The review
+-- queue held one envelope per row and nothing else, so a transfer would have
+-- waited there as an expense and a split as one line. Both are proposals, the
+-- same as category_id: Review shows them, the person approves or changes them.
+--
+-- transfer_account_id: the Pathayam account on the other side.
+-- splits_json: [{ "categoryId": id or null, "amount": paise, "memo": text or null }],
+-- summing to the row's amount.
+ALTER TABLE staged_transactions ADD COLUMN transfer_account_id TEXT REFERENCES accounts(id);
+ALTER TABLE staged_transactions ADD COLUMN splits_json TEXT;
+`,
+  },
 ];
