@@ -169,6 +169,39 @@ describe("SSO callbacks", () => {
     }
   });
 
+  test("DEBUG-WEB-3 · a Google account whose address changed can sign in as the member for the new address", async () => {
+    /*
+     * Priya signed in with Google once, so her row holds that account's
+     * subject. Her address changed; the household removed the old member and
+     * added the new address. Google sends the same subject with the new,
+     * verified address — and writing it onto the new row hit the UNIQUE index
+     * still held by the old one: a 500 on every attempt, locked out for good.
+     */
+    const { db, email } = household();
+    db.prepare(`UPDATE members SET google_sub = 'priya-sub', removed_at = '2026-01-01', allowed = 0 WHERE id = 'm-priya'`).run();
+    seedMember(db, "m-priya2", "Priya");
+    const newEmail = queryOne<{ email: string }>(db, `SELECT email FROM members WHERE id = 'm-priya2'`)!.email;
+    assert.notEqual(newEmail, email);
+    const idp = provider();
+    idp.state.answer = tokenFor({
+      iss: "https://accounts.google.com", aud: "cid", sub: "priya-sub", email: newEmail, email_verified: true,
+    });
+    const app = await startTestApp(db, { memberId: null, config: { google: GOOGLE }, fetchImpl: idp.fetchImpl });
+    try {
+      const state = await beginAt(app.baseUrl, "/auth/google");
+      const res = await callback(`${app.baseUrl}/auth/google/callback?state=${state}&code=x`);
+      assert.equal(res.status, 303);
+      assert.match(res.headers.get("set-cookie") ?? "", /pathayam_session=/);
+      assert.deepEqual(app.failures, []);
+      assert.equal(
+        queryOne<{ google_sub: string | null }>(db, `SELECT google_sub FROM members WHERE id = 'm-priya2'`)!.google_sub,
+        "priya-sub",
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
   test("SECURITY-OPS-19 · an OIDC state used an hour later is expired, with no Google to prune it", async () => {
     const { db, email } = household();
     const idp = provider();

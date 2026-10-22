@@ -1592,8 +1592,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       throw new HttpError(403, "That account isn't on this household's allow-list.");
     }
 
-    db.prepare(`UPDATE members SET google_sub = ?, avatar_url = ?, name = COALESCE(NULLIF(name,''), ?) WHERE id = ?`)
-      .run(profile.sub, profile.picture, profile.name, member.id);
+    /*
+     * The Google account is the subject; the address it carries can change.
+     * When it does, and the household adds the new address, the subject is
+     * still on the old member's row, and google_sub is UNIQUE — so writing it
+     * here failed on every attempt, a 500 that locked the person out. The
+     * provider has just vouched that this subject owns this allowed address,
+     * so the link moves to the member signing in.
+     */
+    transact(db, () => {
+      db.prepare(`UPDATE members SET google_sub = NULL WHERE google_sub = ? AND id != ?`)
+        .run(profile.sub, member.id);
+      db.prepare(`UPDATE members SET google_sub = ?, avatar_url = ?, name = COALESCE(NULLIF(name,''), ?) WHERE id = ?`)
+        .run(profile.sub, profile.picture, profile.name, member.id);
+    });
 
     const { token } = createSession(db, member.id, {
       userAgent: ctx.req.headers["user-agent"] ?? null,
