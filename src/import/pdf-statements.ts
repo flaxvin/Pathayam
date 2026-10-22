@@ -92,6 +92,10 @@ export const BANKS: BankProfile[] = [
       /AXIS\s*BANK/i, /axisbank\.com/i,
       // UTIB is Axis's IFSC prefix, from the days it was UTI Bank.
       /\bIFSC\b[^\n]{0,24}?\bUTIB\d/i, /Statement\s+of\s+Axis\s+Account/i,
+      // The monthly "Relationship Statement" names the bank nowhere above its
+      // table: only its reward-points heading, and the IFSC printed as a cell
+      // under an "IFSC Code" heading on the line above.
+      /Axis\s*eDGE/i, /(?:^|\s{2})UTIB0[A-Z0-9]{6}(?=\s{2}|$)/m,
     ],
   },
   {
@@ -216,7 +220,29 @@ export function bankForInstitution(institution: string | null | undefined): Bank
   return null;
 }
 
+/**
+ * Documents that arrive from a statement sender but are not a bank's.
+ *
+ * A mutual-fund statement prints the payout bank ("Bank Name : AXIS BANK",
+ * an Axis IFSC), so detection took it for an Axis account and the parser read
+ * a unit purchase as a payment. These belong to the portfolio importer, and an
+ * exchange's funds-and-securities balance belongs nowhere: neither has a row
+ * that is a movement of money in a bank account.
+ */
+const NOT_A_BANK: { pattern: RegExp; what: string }[] = [
+  { pattern: /\bFolio\s*(?:No|Number)\b/i, what: "a mutual fund statement" },
+  { pattern: /\bAdvisor\s*\/\s*Distributor\b|\bARN\s*Code\b|\bEUIN\b/i, what: "a mutual fund statement" },
+  { pattern: /Consolidated\s+Account\s+Statement/i, what: "a consolidated account statement (CAS)" },
+  { pattern: /funds\s+and\s+securities\s+balances?\b|\bNSE\/INSP\//i, what: "an exchange's funds and securities balance" },
+];
+
+export function nonBankDocument(text: string): string | null {
+  const head = text.split("\n").filter((line) => findDate(line) === null).slice(0, 40).join("\n");
+  return NOT_A_BANK.find((n) => n.pattern.test(head))?.what ?? null;
+}
+
 export function detectBank(text: string): BankProfile | null {
+  if (nonBankDocument(text) !== null) return null;
   /*
    * Everything above the first transaction row decides.
    *
@@ -854,6 +880,22 @@ function balanceOf(text: string): number | null {
   return overdrawn ? -figure : figure;
 }
 
+/**
+ * A balance line with its Dr/Cr marker, when the marker wrapped.
+ *
+ * Union Bank's summary prints "Opening Balance : 17,63,499.00" with "Dr" alone
+ * on the line below. Read without it, a loan's opening balance was positive and
+ * every row after it was out by twice the debt.
+ */
+function withWrappedMarker(lines: string[], i: number): string {
+  const line = lines[i]!;
+  const next = lines.slice(i + 1).find((l) => l.trim() !== "");
+  if (next && /^(?:Dr|Cr)\.?$/i.test(next.trim()) && /\d\.\d{2}\s*$/.test(line)) {
+    return line.trimEnd() + " " + next.trim();
+  }
+  return line;
+}
+
 /** An opening-balance line, which anchors the fallback path's first row. */
 function openingBalanceOf(line: string): number | null {
   if (!/opening\s+balance|b\/?f\b|brought\s+forward/i.test(line)) return null;
@@ -919,6 +961,9 @@ const UNIVERSAL_SKIP = [
    * a payee called "BF Traders" keeps its transactions.
    */
   /opening\s+balance|brought\s+forward|carried\s+forward|\bb\/f\b|\bc\/f\b/i,
+  // Its other end. IndusInd dates it ("30-Sep-2025  Closing Balance  269.00"),
+  // and a dated line with one figure read as a ₹269 payment out.
+  /closing\s+balance/i,
 ];
 
 export interface StatementParse extends ParseResult {
@@ -945,6 +990,11 @@ export interface StatementParse extends ParseResult {
     difference: Paise;
     ok: boolean;
   } | null;
+  /**
+   * What the file is, when it is not a bank statement at all — a mutual fund
+   * statement, a CAS, an exchange's balance report. Nothing is read from it.
+   */
+  notAStatement?: string | null;
 }
 
 /**
@@ -956,6 +1006,10 @@ export interface StatementParse extends ParseResult {
 export function parseStatementText(
   text: string, bankId?: BankId, opts: { alreadySliced?: boolean } = {},
 ): StatementParse {
+  const notAStatement = bankId ? null : nonBankDocument(text);
+  if (notAStatement !== null) {
+    return { records: [], errors: [], rowsRead: 0, bank: null, text, reconciliation: null, notAStatement };
+  }
   const bank = bankId ? BANKS.find((b) => b.id === bankId) ?? null : detectBank(text);
   const layout = bank ? LAYOUTS[bank.id] : null;
   const records: RawRecord[] = [];
@@ -969,8 +1023,8 @@ export function parseStatementText(
   // in a summary block below the table — so it is found in a pass of its own
   // rather than picked up on the way past.
   let previousBalance: number | null = null;
-  for (const line of all) {
-    const open = openingBalanceOf(line);
+  for (const [i] of all.entries()) {
+    const open = openingBalanceOf(withWrappedMarker(all, i));
     if (open !== null) { previousBalance = open; break; }
   }
 
@@ -1020,12 +1074,28 @@ export function parseStatementText(
      * it parses as a ₹3,00,000 debit unless the range is recognised for what
      * it is.
      */
+    /*
+     * Anchored at the row's own date. Tested anywhere on the line, IndusInd's
+     * interest row ("30-Sep-2025  …:Int.Pd:01-07-2025 to 30-09-2025  2.00")
+     * was a period too, and the statement read nothing.
+     */
     const isPeriod =
       found !== null &&
-      /\d{1,2}[-\s/][\w]{2,9}[-\s/]\d{2,4}\s*(?:to|through|–|—)\s*\d{1,2}[-\s/][\w]{2,9}[-\s/]\d{2,4}/i
-        .test(bare);
+      /^\d{1,2}[-\s/][\w]{2,9}[-\s/]\d{2,4}\s*(?:to|through|–|—)\s*\d{1,2}[-\s/][\w]{2,9}[-\s/]\d{2,4}/i
+        .test(raw.slice(found.start));
 
-    if (found && !ended && !isPeriod) {
+    /*
+     * A date that is the whole line, or that opens a sentence ("12-02-26. For
+     * details, visit …"), is the tail of wrapped prose — Union Bank wraps the
+     * end of an interest period onto its own line. With no figure it could
+     * never be read, and each one was reported as a broken row.
+     */
+    const isProse =
+      found !== null &&
+      figuresWithOffsets(raw).length === 0 &&
+      /^\s*(?:[.,;:]\s.*)?$/.test(raw.slice(found.end));
+
+    if (found && !ended && !isPeriod && !isProse) {
       classified.push({ raw, kind: "row", date: found.date });
       continue;
     }
@@ -1193,7 +1263,8 @@ function reconcile(
   let opening: number | null = null;
   let closing: number | null = null;
 
-  for (const line of lines) {
+  for (const [i] of lines.entries()) {
+    const line = withWrappedMarker(lines, i);
     const open = openingBalanceOf(line);
     if (open !== null && opening === null) opening = open;
 
