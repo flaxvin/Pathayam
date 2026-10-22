@@ -361,6 +361,8 @@ function extractPieces(doc: PdfDocument, content: Uint8Array, fonts: PdfDict): P
  * unless the surviving figure is still sitting under its own heading — see
  * `readHeader` in `import/pdf-statements.ts`, which is what reads them.
  */
+const MAX_COLUMN = 1000;
+
 function layout(pieces: Piece[]): string {
   if (pieces.length === 0) return "";
 
@@ -373,7 +375,9 @@ function layout(pieces: Piece[]): string {
     .sort((a, b) => a - b);
   const charWidth = widths.length > 0 ? widths[Math.floor(widths.length / 2)]! : 5;
 
-  const left = Math.min(...pieces.map((p) => p.x));
+  // A loop, not Math.min(...): spread over a long page overflows the stack.
+  let left = Infinity;
+  for (const p of pieces) if (p.x < left) left = p.x;
 
   const lines: Piece[][] = [];
   for (const piece of [...pieces].sort((a, b) => b.y - a.y || a.x - b.x)) {
@@ -386,13 +390,21 @@ function layout(pieces: Piece[]): string {
     .map((line) => {
       line.sort((a, b) => a.x - b.x);
       let out = "";
+      let endsInSpace = false;
       for (const piece of line) {
-        const column = Math.max(0, Math.round((piece.x - left) / charWidth));
+        // No real page is wider than MAX_COLUMN characters. A piece placed
+        // millions of units out would otherwise be padded with that many
+        // spaces — gigabytes of string from a few bytes of PDF.
+        const column = Math.min(MAX_COLUMN, Math.max(0, Math.round((piece.x - left) / charWidth)));
         // Never let padding swallow a piece: two adjacent words keep one space
         // between them even if their computed columns collide.
+        // The last character is remembered, not read back: reading a string
+        // still being built copies all of it, once per piece.
         if (column > out.length) out += " ".repeat(column - out.length);
-        else if (out.length > 0 && !out.endsWith(" ")) out += " ";
+        else if (out.length > 0 && !endsInSpace) out += " ";
         out += piece.text;
+        // A piece is never empty: `show` drops those.
+        endsInSpace = piece.text.endsWith(" ");
       }
       return out.replace(/[ \t]+$/, "");
     })

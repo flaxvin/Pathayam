@@ -105,6 +105,48 @@ describe("the PDF reader · a file that decompresses without end", () => {
   });
 });
 
+/** A one-page PDF whose page content is `content`, Flate-compressed. */
+function onePage(content: string): Uint8Array {
+  const c = deflateSync(Buffer.from(content, "latin1"));
+  return new Uint8Array(Buffer.concat([
+    Buffer.from(
+      `%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n` +
+      `2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n` +
+      `3 0 obj << /Type /Page /Parent 2 0 R /Contents 4 0 R >> endobj\n` +
+      `4 0 obj << /Length ${c.length} /Filter /FlateDecode >>\nstream\n`,
+      "latin1",
+    ),
+    c,
+    Buffer.from(`\nendstream\nendobj\ntrailer << /Root 1 0 R >>\n%%EOF\n`, "latin1"),
+  ]));
+}
+
+describe("the PDF reader · text placed absurdly far apart", () => {
+  /*
+   * Layout pads each piece out to the column its position implies. A piece
+   * placed fifty million units to the right was padded with a hundred million
+   * spaces, on every line that did it: a few hundred bytes of PDF asked for
+   * gigabytes of string and never came back.
+   */
+  test("is padded no further than a page could be wide", () => {
+    let content = "";
+    for (let i = 0; i < 20; i++) {
+      content += `BT /F1 1 Tf 1 0 0 1 0 ${i * 10} Tm (a) Tj 1 0 0 1 50000000 ${i * 10} Tm (b) Tj ET\n`;
+    }
+    const started = Date.now();
+    const text = read(onePage(content), "");
+    assert.ok(Date.now() - started < 3_000, `took ${Date.now() - started} ms`);
+    assert.ok(text.length < 100_000, `${text.length} characters`);
+    assert.match(text.split("\n")[0]!, /^a +b$/);
+  });
+
+  test("a page of very many pieces is read, not refused", () => {
+    // Math.min over every piece at once overflowed the call stack.
+    const text = read(onePage(`BT /F1 1 Tf ${"(a) Tj ".repeat(300_000)}ET`), "");
+    assert.ok(text.length >= 300_000);
+  });
+});
+
 describe("the PDF reader · streams that never end", () => {
   /*
    * Each `stream` with no `endstream` after it searched the rest of the file
