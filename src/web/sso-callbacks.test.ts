@@ -145,6 +145,32 @@ describe("SSO callbacks", () => {
     }
   });
 
+  test("DEBUG-WEB-5 · a token endpoint that is down or answers garbage is a failed sign-in, not a fault", async () => {
+    const { db } = household();
+    const idp = provider();
+    const app = await startTestApp(db, {
+      memberId: null, config: { oidc: OIDC, google: GOOGLE }, fetchImpl: idp.fetchImpl,
+    });
+    try {
+      const answers: [string, () => Response][] = [
+        ["unreachable", () => { throw new TypeError("fetch failed"); }],
+        ["not JSON", () => new Response("<html>gateway</html>", { status: 200 })],
+        ["JSON null", () => new Response("null", { status: 200 })],
+      ];
+      for (const [label, answer] of answers) {
+        idp.state.answer = answer;
+        for (const flow of ["/auth/google", "/auth/oidc"]) {
+          const state = await beginAt(app.baseUrl, flow);
+          const res = await callback(`${app.baseUrl}${flow}/callback?state=${state}&code=x`);
+          assert.equal(res.status, 400, `${flow}, ${label}`);
+        }
+      }
+      assert.deepEqual(app.failures, [], "recorded as a server fault");
+    } finally {
+      await app.close();
+    }
+  });
+
   test("SECURITY-OPS-18 · a code the provider rejects is a 400 and an auth attempt, not a fault", async () => {
     const { db } = household();
     const idp = provider(); // answers every token exchange with a 400
@@ -163,6 +189,39 @@ describe("SSO callbacks", () => {
       assert.equal(
         queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM auth_attempts WHERE outcome = 'rejected-code'`)!.n,
         2,
+      );
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("DEBUG-WEB-3 · a Google account whose address changed can sign in as the member for the new address", async () => {
+    /*
+     * Priya signed in with Google once, so her row holds that account's
+     * subject. Her address changed; the household removed the old member and
+     * added the new address. Google sends the same subject with the new,
+     * verified address — and writing it onto the new row hit the UNIQUE index
+     * still held by the old one: a 500 on every attempt, locked out for good.
+     */
+    const { db, email } = household();
+    db.prepare(`UPDATE members SET google_sub = 'priya-sub', removed_at = '2026-01-01', allowed = 0 WHERE id = 'm-priya'`).run();
+    seedMember(db, "m-priya2", "Priya");
+    const newEmail = queryOne<{ email: string }>(db, `SELECT email FROM members WHERE id = 'm-priya2'`)!.email;
+    assert.notEqual(newEmail, email);
+    const idp = provider();
+    idp.state.answer = tokenFor({
+      iss: "https://accounts.google.com", aud: "cid", sub: "priya-sub", email: newEmail, email_verified: true,
+    });
+    const app = await startTestApp(db, { memberId: null, config: { google: GOOGLE }, fetchImpl: idp.fetchImpl });
+    try {
+      const state = await beginAt(app.baseUrl, "/auth/google");
+      const res = await callback(`${app.baseUrl}/auth/google/callback?state=${state}&code=x`);
+      assert.equal(res.status, 303);
+      assert.match(res.headers.get("set-cookie") ?? "", /pathayam_session=/);
+      assert.deepEqual(app.failures, []);
+      assert.equal(
+        queryOne<{ google_sub: string | null }>(db, `SELECT google_sub FROM members WHERE id = 'm-priya2'`)!.google_sub,
+        "priya-sub",
       );
     } finally {
       await app.close();

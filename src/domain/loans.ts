@@ -361,6 +361,20 @@ function createLoanPaymentCategory(db: DB, actor: Actor, loanId: string, name: s
   return id;
 }
 
+/**
+ * DEBUG-LOANS-5 · A closed loan is out of every list and total, so a draw,
+ * payment, rate or second settlement recorded on it moved money no screen
+ * accounted for: ₹40,000 drawn on a settled loan reached the bank and no
+ * liability; settling twice paid the whole settlement again, as interest.
+ */
+function refuseIfClosed(loan: Pick<Loan, "closed_at" | "lender" | "nickname">): void {
+  if (loan.closed_at) {
+    throw new Refusal(
+      `${loan.nickname || loan.lender} is closed. Reopen it from the activity log to record more against it.`,
+    );
+  }
+}
+
 export function getLoan(db: DB, id: string): Loan | null {
   return queryOne<Loan>(db, `SELECT * FROM loans WHERE id = ?`, id);
 }
@@ -496,6 +510,7 @@ export function recordDisbursement(
   return transact(db, () => {
     const loan = getLoan(db, input.loanId);
     if (!loan) throw new Missing("That loan does not exist.");
+    refuseIfClosed(loan);
 
     const disbursed = totalDisbursed(db, input.loanId);
     if (disbursed + input.amount > loan.sanctioned) {
@@ -610,7 +625,8 @@ export function recordLoanStatement(
   },
 ): LoanStatement {
   return transact(db, () => {
-    const appOutstanding = outstandingPrincipal(db, input.loanId);
+    // DEBUG-LOANS-2 · The lender's figure is as of its date; so is ours.
+    const appOutstanding = outstandingPrincipal(db, input.loanId, input.asOf);
     const id = newId();
     execute(
       db,
@@ -890,6 +906,7 @@ export function recordRateChange(
     checkAnnualRate(input.annualRatePct);
     const subject = getLoan(db, input.loanId);
     if (!subject) throw new Missing("That loan does not exist.");
+    refuseIfClosed(subject);
     if (input.effectiveFrom < subject.sanction_date) {
       throw new Refusal(
         `The loan was sanctioned on ${formatDate(subject.sanction_date)}, so a rate change ` +
@@ -993,6 +1010,7 @@ export function recordInstalment(
   return transact(db, () => {
     const loan = getLoan(db, input.loanId);
     if (!loan) throw new Missing("That loan does not exist.");
+    refuseIfClosed(loan);
 
     let principal = input.principal ?? null;
     let interest = input.interest ?? null;
@@ -1388,8 +1406,14 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
   const fullyDrawn = disbursed >= loan.sanctioned || disbursed === 0;
 
   const statement = latestStatement(db, loanId);
+  /*
+   * DEBUG-LOANS-2 · Measured on the statement's own date. Today's outstanding
+   * against a balance from months ago reported every instalment paid since as
+   * drift — a statement that matched to the paisa read "the app is lower by
+   * ₹5,167" after the next EMI, and more each month after.
+   */
   const driftResult = statement
-    ? drift(outstanding, statement.lender_outstanding)
+    ? drift(outstandingPrincipal(db, loanId, statement.as_of), statement.lender_outstanding)
     : null;
 
   return {
@@ -1485,7 +1509,9 @@ export function reanchorToLenderBalance(
   input: { loanId: string; lenderOutstanding: Paise; asOf: IsoDate },
 ): void {
   transact(db, () => {
-    const projected = outstandingPrincipal(db, input.loanId);
+    // DEBUG-LOANS-3 · The correction is the gap on the lender's date. Today's
+    // balance put back every principal repaid since that date.
+    const projected = outstandingPrincipal(db, input.loanId, input.asOf);
     const difference = projected - input.lenderOutstanding;
     if (difference === 0) return;
 
@@ -1541,6 +1567,7 @@ export function closeLoan(
   return transact(db, () => {
     const projection = projectLoan(db, input.loanId);
     if (!projection) throw new Missing("That loan does not exist.");
+    refuseIfClosed(projection.loan);
 
     if (input.foreclosureCharge && input.foreclosureCharge > 0) {
       if (!input.chargeAccountId) {
@@ -1988,7 +2015,23 @@ export function debtOverview(db: DB, viewerMemberId?: string | null): DebtRow[] 
    * Neither has a rate or a monthly obligation, so those columns stay empty
    * rather than being filled with a zero that would read as "nothing to pay".
    */
+  /*
+   * DEBUG-LOANS-1 · …and a private family arrangement likewise. Loans, cards
+   * and the tracking accounts below were filtered; these were not, so Ravi's
+   * private ₹75,000 owed to a cousin sat in Priya's table with its amount.
+   */
+  const hiddenFamily = new Set(
+    viewerMemberId === undefined
+      ? []
+      : queryAll<{ id: string }>(
+          db,
+          `SELECT id FROM accounts
+            WHERE subtype = 'family-loan' AND visibility = 'private' AND holder_member_id IS NOT ?`,
+          viewerMemberId,
+        ).map((r) => r.id),
+  );
   for (const owed of familyLoanNetWorth(db).borrowed) {
+    if (hiddenFamily.has(owed.accountId)) continue;
     rows.push({
       name: owed.label, kind: "other", balance: owed.value,
       ratePct: null, monthlyObligation: 0, monthsRemaining: null,
