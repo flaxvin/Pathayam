@@ -1,6 +1,6 @@
 ## RESUME
 Worktree /home/user/Pathayam/.claude/worktrees/agent-a67f65fe14224e3b4 (branch worktree-agent-a67f65fe14224e3b4), base b9a17a3.
-Done: D5, D6, D8a, D8b, D8c (patches 0001-0005). Next: D8d (test in .scratch/pending -> src/web). Pending tests parked in .scratch/pending. Tests already written (uncommitted, failing): pay-it-off-statement.test.ts (D8c), networth-nickname.test.ts (D8e), transfer-defaults.test.ts (D8f). D8d test not yet written.
+Done: D5, D6, D8a-c (patches 0001-0005). D8d implemented (events.ts precheck, transactions.ts, engine-undo.test.ts expectation updated: throws -> ok:false), suite running; then D8e (.scratch/d8e.py), D8f (.scratch/d8f.py); pending tests in .scratch/pending.
 Checks: sh .scratch/check.sh (bg) -> .scratch/check.out. Avoid the word "git" in compound bash commands (isolation guard). Notes are edited in .scratch/ui.md and copied here.
 
 ## Log
