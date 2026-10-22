@@ -60,3 +60,19 @@ test("undoing a second close keeps the first", () => {
   assert.equal(note(db), "first look");
   db.close();
 });
+
+/*
+ * DEBUG-ENGINE-14 · "September is over and not closed yet" is about this
+ * budget's September. It counted every budget's transactions, so Ravi's own
+ * budget — nothing in it all month — was nagged to close a month the
+ * household had used, and a close he did made a record of ₹0 in, ₹0 out.
+ */
+test("only nudges a budget about a month that budget used", async () => {
+  const db = setup();
+  const { ensurePersonalBudget, householdBudgetId } = await import("./budgets.ts");
+  const { monthAwaitingClose } = await import("./month-close.ts");
+  const his = ensurePersonalBudget(db, "m", "Ravi");
+  assert.equal(monthAwaitingClose(db, "2026-08-10", householdBudgetId(db)), "2026-07");
+  assert.equal(monthAwaitingClose(db, "2026-08-10", his.id), null);
+  db.close();
+});

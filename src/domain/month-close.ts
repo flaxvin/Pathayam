@@ -89,13 +89,13 @@ export function monthAwaitingClose(
 
   // Only nudge about a month the household actually used. A fresh install
   // should not open on "you have not closed March".
-  const used = queryOne<{ n: number }>(
-    db,
-    `SELECT COUNT(*) AS n FROM transactions
-      WHERE deleted_at IS NULL AND date >= ? AND date <= ?`,
-    firstDayOfMonth(lastComplete), lastDayOfMonth(lastComplete),
-  );
-  return (used?.n ?? 0) > 0 ? lastComplete : null;
+  // DEBUG-ENGINE-14 · Used by *this* budget — its accounts or its envelopes,
+  // the same rule the close itself counts by.
+  const used = queryTransactions(db, {
+    from: firstDayOfMonth(lastComplete), to: lastDayOfMonth(lastComplete),
+    budgetId: budgetId ?? householdBudgetId(db), limit: 1,
+  });
+  return used.length > 0 ? lastComplete : null;
 }
 
 export function isClosed(db: DB, month: MonthKey, budgetId?: string): boolean {
