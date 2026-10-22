@@ -1,9 +1,10 @@
 ## RESUME
 Worktree /home/user/Pathayam/.claude/worktrees/agent-a67f65fe14224e3b4 (branch worktree-agent-a67f65fe14224e3b4), base b9a17a3.
-Done: D5. Next: D6 (test written: src/web/asset-version.test.ts, uncommitted; ASSET_VERSION already hashes both css+js in layout.ts — need export + immutable cache in app.ts asset()).
+Done: D5, D6, D8a, D8b (patches 0001-0004). Next: D8c. Tests already written (uncommitted, failing): pay-it-off-statement.test.ts (D8c), networth-nickname.test.ts (D8e), transfer-defaults.test.ts (D8f). D8d test not yet written.
 Checks: sh .scratch/check.sh (bg) -> .scratch/check.out. Avoid the word "git" in compound bash commands (isolation guard). Notes are edited in .scratch/ui.md and copied here.
 
 ## Log
+- D6 committed (export ASSET_VERSION; immutable cache when ?v matches). D8a committed (budget.ts target bar, viewmodel label). D8b committed (app.ts paid message). Suites green.
 - D5 committed (coarse-pointer block in styles.ts; .summary-small; tests in mobile-layout.test.ts). Suite 2208/2208.
 
 ## Plan notes

@@ -1,0 +1,104 @@
+From 60fa0bd590057270a0ff5a9bd95b2c16902979b4 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 22 Oct 2026 23:32:15 +0000
+Subject: [PATCH] D8b: marking income Arrived says "Marked arrived."
+
+The schedules list labels the button "Arrived" on an income schedule and
+"Paid" on a bill (money in is income), but both answered "Marked paid.",
+so a salary was confirmed in the words of a bill. The reply now follows
+the same rule as the button.
+
+Test: schedule-arrived.test.ts posts both and reads the notice.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016zXWwzys3K4XksLh3rrcKu
+---
+ src/app.ts                       |  8 +++--
+ src/web/schedule-arrived.test.ts | 56 ++++++++++++++++++++++++++++++++
+ 2 files changed, 62 insertions(+), 2 deletions(-)
+ create mode 100644 src/web/schedule-arrived.test.ts
+
+diff --git a/src/app.ts b/src/app.ts
+index 0ff9437..791fa20 100644
+--- a/src/app.ts
++++ b/src/app.ts
+@@ -6558,8 +6558,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
+ 
+   router.post("/schedules/:id/paid", (ctx) =>
+     mutate(ctx, (a) => {
+-      markPaid(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), requireVisibleSchedule(ctx, ctx.params.id!));
+-      return { redirect: "/schedules", message: "Marked paid." };
++      const id = requireVisibleSchedule(ctx, ctx.params.id!);
++      // D8b · The list calls this button "Arrived" on income and "Paid" on a
++      // bill (the same rule: money in is income), so the reply does too.
++      const income = (getSchedule(db, id)?.amount ?? 0) > 0;
++      markPaid(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id);
++      return { redirect: "/schedules", message: income ? "Marked arrived." : "Marked paid." };
+     }),
+   );
+ 
+diff --git a/src/web/schedule-arrived.test.ts b/src/web/schedule-arrived.test.ts
+new file mode 100644
+index 0000000..0830c8d
+--- /dev/null
++++ b/src/web/schedule-arrived.test.ts
+@@ -0,0 +1,56 @@
++/**
++ * D8b · Income arrives; it is not paid.
++ *
++ * The schedules list offers an income schedule an "Arrived" button and a bill
++ * a "Paid" one — but both answered "Marked paid.", so pressing Arrived on a
++ * salary was confirmed in the words of a bill.
++ */
++
++import { test, describe } from "node:test";
++import assert from "node:assert/strict";
++import { freshDb, seedMember, startTestApp } from "./harness.test-data.ts";
++import { createAccount } from "../domain/accounts.ts";
++import { createCategory, createGroup } from "../domain/budget.ts";
++import { createSchedule } from "../domain/schedules.ts";
++import { todayIST } from "../core/dates.ts";
++import type { Paise } from "../core/money.ts";
++
++const RAVI = "m-ravi";
++const actor = { memberId: RAVI, source: "ui" as const };
++
++function notice(res: Response): string {
++  const location = res.headers.get("location") ?? "";
++  return new URL(location, "http://x").searchParams.get("notice") ?? "";
++}
++
++describe("D8b · the confirmation matches the button", () => {
++  test("income marked arrived says arrived; a bill marked paid says paid", async () => {
++    const db = freshDb();
++    seedMember(db, RAVI, "Ravi");
++    const bank = createAccount(db, actor, {
++      name: "Bank", kind: "budget", subtype: "savings", openingDate: "2026-01-01", openingBalance: 1_000_000,
++    }).id;
++    const rent = createCategory(db, actor, { groupId: createGroup(db, actor, "Bills").id, name: "Rent" }).id;
++    const salary = createSchedule(db, actor, {
++      name: "Salary", accountId: bank, amount: 5_000_000 as Paise, recurrence: "monthly", nextDue: todayIST(),
++    });
++    const bill = createSchedule(db, actor, {
++      name: "Flat", accountId: bank, categoryId: rent, amount: -2_000_000 as Paise,
++      recurrence: "monthly", nextDue: todayIST(),
++    });
++
++    const app = await startTestApp(db, { memberId: RAVI });
++    try {
++      const arrived = await app.post(`/schedules/${salary.id}/paid`, {});
++      assert.equal(arrived.status, 303);
++      assert.equal(notice(arrived), "Marked arrived.");
++
++      const paid = await app.post(`/schedules/${bill.id}/paid`, {});
++      assert.equal(paid.status, 303);
++      assert.equal(notice(paid), "Marked paid.");
++      assert.deepEqual(app.failures, []);
++    } finally {
++      await app.close();
++    }
++  });
++});
+-- 
+2.43.0
+

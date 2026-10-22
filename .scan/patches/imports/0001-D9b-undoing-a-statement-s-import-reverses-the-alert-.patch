@@ -1,0 +1,263 @@
+From e4ce608a557941d39f752f645701a3ee93141db4 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 22 Oct 2026 19:13:39 +0000
+Subject: [PATCH] D9b: undoing a statement's import reverses the alert upgrades
+ it made
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+A statement row that matched an alert's transaction by bank reference
+upgraded it in place (D4): cleared it, filled its memo with the reference
+and its raw fields. That created nothing, so undoBatch — which removes what
+a batch created and reverses what it merged (IMPORTS-6) — never saw it, and
+the undone statement went on vouching for the transaction.
+
+The upgrade's event now names its batch (upgraded_by_batch_id in the after
+state; the row keeps its own import_batch_id). undoBatch finds those events
+and puts the before-state's cleared, memo and raw fields back, breaking any
+checkpoint behind a transaction it un-clears. A transaction changed since
+the upgrade — a later event, or the upgraded columns differing — is left
+and listed with the edited records, as an edited merge is. Upgrades made
+before this change carry no batch id and are not reversed.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016zXWwzys3K4XksLh3rrcKu
+---
+ docs/money-in.md                |   8 ++-
+ src/import/pipeline.ts          |  60 ++++++++++++++++-
+ src/import/undo-upgrade.test.ts | 111 ++++++++++++++++++++++++++++++++
+ 3 files changed, 174 insertions(+), 5 deletions(-)
+ create mode 100644 src/import/undo-upgrade.test.ts
+
+diff --git a/docs/money-in.md b/docs/money-in.md
+index baae064..ba2f39b 100644
+--- a/docs/money-in.md
++++ b/docs/money-in.md
+@@ -321,8 +321,12 @@ An entire batch can be undone from `/import`, which removes the transactions it
+ created and marks the batch `undone_at`. A row of it that was merged into a
+ transaction already in the ledger has that merge reversed (cleared, payee and
+ raw fields as they were), unless the transaction changed since, when it is
+-left and listed with the edited records. Undoing a merge on its own, from
+-Activity, returns its imported row to Review.
++left and listed with the edited records. A row that upgraded an earlier
++transaction automatically (the `strong` tier — a statement line arriving after
++its alert) is reversed the same way: the upgrade's event names the batch, and
++the transaction's cleared flag, memo and raw fields go back to what they were
++before it, unless the transaction changed since, when it is left and listed.
++Undoing a merge on its own, from Activity, returns its imported row to Review.
+ 
+ Importing the same file again after an undo stages its rows afresh, and they
+ can be approved: the undone transactions give up their `source_id` (it is
+diff --git a/src/import/pipeline.ts b/src/import/pipeline.ts
+index 47bf177..c3c3fa8 100644
+--- a/src/import/pipeline.ts
++++ b/src/import/pipeline.ts
+@@ -235,7 +235,7 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult
+         // queued row stands for both; there is no transaction to upgrade yet,
+         // and approving it marks it cleared like any import.
+         if (!duplicate.existing.staged) {
+-          upgradeExisting(db, actor, duplicate, record, extracted.reference);
++          upgradeExisting(db, actor, batchId, duplicate, record, extracted.reference);
+         }
+         duplicates++;
+         continue;
+@@ -352,7 +352,8 @@ function findExistingPayee(db: DB, name: string | null): string | null {
+  * with richer fields rather than duplicating it. Logged, not queued.
+  */
+ function upgradeExisting(
+-  db: DB, actor: Actor, duplicate: DuplicateMatch, record: RawRecord, reference: string | null,
++  db: DB, actor: Actor, batchId: string, duplicate: DuplicateMatch, record: RawRecord,
++  reference: string | null,
+ ): void {
+   const before = queryOne<Record<string, unknown>>(
+     db, `SELECT * FROM transactions WHERE id = ?`, duplicate.existing.id,
+@@ -372,7 +373,13 @@ function upgradeExisting(
+   );
+   appendEvent(db, actor, {
+     entity: "transaction", entityId: duplicate.existing.id, action: "upgrade",
+-    before, after: queryOne(db, `SELECT * FROM transactions WHERE id = ?`, duplicate.existing.id),
++    before,
++    // D9b · The batch is named so undoing it can find, and reverse, this upgrade.
++    // It is not a column of the row (the row keeps its own import_batch_id).
++    after: {
++      ...queryOne<Record<string, unknown>>(db, `SELECT * FROM transactions WHERE id = ?`, duplicate.existing.id),
++      upgraded_by_batch_id: batchId,
++    },
+     summary: `Matched to a statement row and marked cleared — ${duplicate.reason}`,
+   });
+ }
+@@ -965,6 +972,53 @@ export function undoBatch(db: DB, actor: Actor, batchId: string): UndoBatchResul
+       );
+     }
+ 
++    /*
++     * D9b · A statement row that matched an alert's transaction by reference
++     * upgraded it in place (D4) — cleared it, and filled its memo and raw
++     * fields — and created nothing, so the loops above never saw it: the
++     * undone statement went on vouching for the transaction. The upgrade's
++     * event names the batch; its before-state is put back, unless the
++     * transaction changed since, when it is left and listed (IL2), as an
++     * edited merge is.
++     */
++    for (const upgrade of queryAll<{ entity_id: string; seq: number }>(
++      db,
++      `SELECT entity_id, seq FROM events
++        WHERE entity = 'transaction' AND action = 'upgrade' AND undone_by_event_id IS NULL
++          AND json_extract(after_json, '$.upgraded_by_batch_id') = ?
++        ORDER BY seq`,
++      batchId,
++    )) {
++      const history = historyFor(db, "transaction", upgrade.entity_id);
++      const last = history[history.length - 1];
++      const before = last?.before as Record<string, unknown> | undefined;
++      const after = last?.after as Record<string, unknown> | undefined;
++      const current = queryOne<Record<string, unknown>>(
++        db, `SELECT * FROM transactions WHERE id = ?`, upgrade.entity_id,
++      );
++      const UPGRADED = ["cleared", "memo", "raw_narration", "raw_amount", "raw_date"] as const;
++      const untouched = Boolean(
++        last && last.seq === upgrade.seq && before && after && current && !current.deleted_at &&
++        UPGRADED.every((c) => (current[c] ?? null) === (after[c] ?? null)),
++      );
++      if (!untouched) {
++        if (current && !current.deleted_at) keptBecauseEdited.push(upgrade.entity_id);
++        continue;
++      }
++      execute(
++        db,
++        `UPDATE transactions SET cleared = ?, memo = ?, raw_narration = ?, raw_amount = ?, raw_date = ?
++          WHERE id = ?`,
++        before!.cleared as number, (before!.memo as string | null) ?? null,
++        (before!.raw_narration as string | null) ?? null, (before!.raw_amount as string | null) ?? null,
++        (before!.raw_date as string | null) ?? null, upgrade.entity_id,
++      );
++      if (before!.cleared !== 1) {
++        breakCheckpointsBehind(db, actor, before!.account_id as string, before!.date as IsoDate,
++          "a transaction dated on or before it was un-cleared by undoing the statement that had cleared it");
++      }
++    }
++
+     execute(
+       db,
+       `UPDATE staged_transactions SET status = 'rejected', resolved_at = ?
+diff --git a/src/import/undo-upgrade.test.ts b/src/import/undo-upgrade.test.ts
+new file mode 100644
+index 0000000..4281d5c
+--- /dev/null
++++ b/src/import/undo-upgrade.test.ts
+@@ -0,0 +1,111 @@
++/**
++ * D9b · Undoing a statement's import reverses the alert upgrades it made.
++ *
++ * A statement row that matches an earlier alert-sourced transaction by bank
++ * reference upgrades it in place (D4): marks it cleared and fills its memo and
++ * raw fields. That created nothing, so `undoBatch` — which removed what the
++ * batch created and reversed what it merged (IMPORTS-6) — did not see it: the
++ * undone statement went on vouching for the transaction, cleared, with the
++ * statement's reference in its memo.
++ *
++ * Fictional accounts and references throughout.
++ */
++
++import { test, describe } from "node:test";
++import assert from "node:assert/strict";
++import { openDatabase, ensureHousehold, execute, queryOne, type DB } from "../db/db.ts";
++import type { Actor } from "../core/events.ts";
++import "../domain/transactions.ts";
++import { nowIST } from "../core/dates.ts";
++import { createAccount } from "../domain/accounts.ts";
++import { createGroup, createCategory } from "../domain/budget.ts";
++import { updateTransaction } from "../domain/transactions.ts";
++import { parseStatement } from "./csv.ts";
++import { ingest, listStaged, approveStaged, undoBatch } from "./pipeline.ts";
++
++const actor: Actor = { memberId: "m-ravi", source: "ui" };
++
++const ALERT = {
++  rowNumber: 0, date: "2026-08-03", amount: -45000,
++  narration: "UPI txn to ZZ CAFE ref 400111222333", reference: "400111222333",
++  raw: { date: "03-08-26", amount: "INR 450.00", narration: "UPI txn to ZZ CAFE ref 400111222333" },
++};
++
++const STATEMENT = `Date,Narration,Chq./Ref.No.,Withdrawal Amt.,Deposit Amt.
++05-08-2026,UPI-ZZ CAFE-400111222333,400111222333,450.00,`;
++
++function setup(): { db: DB; accountId: string; txId: string } {
++  const db = openDatabase({ path: ":memory:", verbose: false });
++  ensureHousehold(db);
++  execute(db, `INSERT INTO members (id,email,name,created_at) VALUES (?,?,?,?)`,
++    "m-ravi", "ravi@example.com", "Ravi", nowIST());
++  const accountId = createAccount(db, actor, {
++    name: "ZZ Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01",
++  }).id;
++  const group = createGroup(db, actor, "Flexible");
++  const categoryId = createCategory(db, actor, { groupId: group.id, name: "Eating Out" }).id;
++
++  ingest(db, actor, { accountId, source: "email", adapter: "email:zz", records: [ALERT] });
++  const [row] = listStaged(db);
++  const txId = approveStaged(db, actor, row!.id, { categoryId });
++  return { db, accountId, txId };
++}
++
++function importStatement(db: DB, accountId: string) {
++  const { result } = parseStatement(STATEMENT);
++  return ingest(db, actor, {
++    accountId, source: "csv", adapter: "csv", fileName: "zz-aug.csv",
++    records: result.records, errors: result.errors, rowsRead: result.rowsRead,
++  });
++}
++
++type Row = { cleared: number; memo: string | null; raw_narration: string | null; deleted_at: string | null };
++const row = (db: DB, id: string) =>
++  queryOne<Row>(db, `SELECT cleared, memo, raw_narration, deleted_at FROM transactions WHERE id = ?`, id)!;
++
++describe("D9b · batch undo and the statement-after-alert upgrade", () => {
++  test("undoing the statement puts the alert's transaction back as the alert left it", () => {
++    const { db, accountId, txId } = setup();
++    // Not yet on a statement, so the household left it uncleared.
++    updateTransaction(db, actor, txId, { cleared: false });
++    const before = row(db, txId);
++    assert.equal(before.cleared, 0);
++    assert.equal(before.memo, null);
++
++    const statement = importStatement(db, accountId);
++    assert.equal(statement.staged, 0);
++    assert.equal(statement.duplicates, 1);
++    const upgraded = row(db, txId);
++    assert.equal(upgraded.cleared, 1, "the statement row upgraded it");
++    assert.match(upgraded.memo ?? "", /400111222333/);
++
++    const result = undoBatch(db, actor, statement.batch.id);
++    assert.deepEqual(result.keptBecauseEdited, []);
++    assert.deepEqual(row(db, txId), before, "cleared, memo and raw fields as the alert left them");
++    db.close();
++  });
++
++  test("a transaction edited since the upgrade is left and listed, as an edited merge is", () => {
++    const { db, accountId, txId } = setup();
++    const statement = importStatement(db, accountId);
++    updateTransaction(db, actor, txId, { memo: "Team lunch" });
++
++    const result = undoBatch(db, actor, statement.batch.id);
++    assert.deepEqual(result.keptBecauseEdited, [txId]);
++    const now = row(db, txId);
++    assert.equal(now.cleared, 1, "left as it is");
++    assert.equal(now.memo, "Team lunch");
++    db.close();
++  });
++
++  test("after the undo, importing the statement again upgrades it again", () => {
++    const { db, accountId, txId } = setup();
++    const statement = importStatement(db, accountId);
++    undoBatch(db, actor, statement.batch.id);
++    // The statement can be imported again and upgrades again.
++    const again = importStatement(db, accountId);
++    assert.equal(again.duplicates, 1);
++    assert.equal(row(db, txId).cleared, 1);
++    db.close();
++  });
++});
+-- 
+2.43.0
+

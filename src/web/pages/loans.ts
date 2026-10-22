@@ -10,7 +10,7 @@ import { html, raw, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, formatCompact, type Paise } from "../../core/money.ts";
 import { formatDate, type IsoDate } from "../../core/dates.ts";
 import type { LoanProjection, Loan, LoanPayment, Disbursement, DebtRow } from "../../domain/loans.ts";
-import { LOAN_TYPE_LABELS } from "../../domain/loans.ts";
+import { LOAN_TYPE_LABELS, isMoratoriumCapitalisation } from "../../domain/loans.ts";
 import type { PrepaymentComparison, Schedule, RateResetOptions } from "../../loans/amortisation.ts";
 import { lineChart, horizontalBars } from "../charts.ts";
 import { renderHolderFields } from "./portfolio.ts";
@@ -636,7 +636,7 @@ export function renderLoanDetail(opts: {
                           `)}
                         </td>
                         <td class="num amount">${formatPaise(payment.interest)}</td>
-                        <td>${payment.kind}</td>
+                        <td>${isMoratoriumCapitalisation(payment) ? "moratorium interest added" : payment.kind}</td>
                       </tr>
                     `,
                   )}
