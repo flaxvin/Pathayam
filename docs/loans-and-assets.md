@@ -245,6 +245,35 @@ Money lent to or borrowed from a person, held in a tracking account of subtype
   start of an arrangement removes it only while nothing has been recorded
   against it and it did not open with a balance.
 
+## Insurance
+
+`/insurance` is a register of policies — term and other life, health, vehicle,
+home — each with its insurer, sum assured, premium and frequency, next due
+date, start and end, nominee, who it covers, the 80C / 80D group its premium
+counts toward (with a senior flag for 80D), and optionally the envelope it is
+usually paid from.
+
+- **Only the last four characters of a policy number are stored.** They tell
+  two policies apart and match a premium notice; the whole number, with a name
+  and a date of birth, is what an insurer asks for to change a nominee or start
+  a claim, and the database is not encrypted field by field and its export
+  travels.
+- A policy is the household's or one member's, and can be private to its
+  holder, by the same rule as an account (see [privacy](privacy.md)). A shared
+  policy may name only a household envelope.
+- Premiums and renewals due within Overview's fortnight appear in **Due soon**
+  for the budget they belong to (the envelope's budget; otherwise a private
+  policy's holder's, otherwise the household's). **Paid** moves the due date on
+  by the frequency (monthly, quarterly, half-yearly, yearly; a single premium
+  leaves nothing due) and posts nothing — the payment belongs in the register,
+  and the policy page links to the Add form for it. A schedule for the same
+  premium is a separate thing and lists separately.
+- A lapsed or ended policy is kept and listed apart, with the day it stopped.
+  One whose end date has passed is listed apart without being told.
+- Every change is an event and undoes from Activity, a delete included.
+- The tax page shows the premiums of a member's own policies for the year
+  beside the 80C and 80D inputs; see [limitations](limitations.md#tax).
+
 ## Portfolio
 
 ### Instruments and holdings

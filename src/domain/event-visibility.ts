@@ -57,6 +57,7 @@ const TABLES: Record<string, string> = {
   loan: "loans", "family-loan": "family_loans", attachment: "attachments",
   "import-batch": "import_batches", "import-profile": "import_profiles",
   "staged-transaction": "staged_transactions", "even-call": "even_calls",
+  "insurance-policy": "insurance_policies",
 };
 
 export function eventVisibility(db: DB, viewerMemberId: string | null): EventVisibility {

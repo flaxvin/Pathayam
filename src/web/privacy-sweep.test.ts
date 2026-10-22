@@ -35,6 +35,7 @@ import { createGroup, createCategory, setAssigned } from "../domain/budget.ts";
 import { createTransaction } from "../domain/transactions.ts";
 import { createLoan } from "../domain/loans.ts";
 import { createFamilyLoan, recordAdvance } from "../domain/family-loans.ts";
+import { createPolicy } from "../domain/insurance.ts";
 import { ensurePersonalBudget } from "../domain/budgets.ts";
 import { monthOf } from "../core/dates.ts";
 import { reviewCount } from "./viewmodel.ts";
@@ -57,6 +58,7 @@ const SECRETS = {
   unfiled: "Okapi Unfiled Payee",
   statementLine: "Narwhal Statement Narration",
   statementFile: "Axolotl-statement.pdf",
+  policy: "Gryphon Private Assurance",
 } as const;
 
 let app: TestApp;
@@ -111,6 +113,13 @@ before(async () => {
   recordAdvance(db, ravi, {
     loanId: arrangement.id, amount: rupees(5_000) as Paise, date: todayIST(),
     fromAccountId: secretAccount.id,
+  });
+
+  // INSURANCE-1 · A private policy, due today so Overview and the tax page would name it.
+  createPolicy(db, ravi, {
+    insurer: SECRETS.policy, kind: "health", premium: rupees(31_000) as Paise, frequency: "yearly",
+    nextDue: todayIST(), taxGroup: "80d-self", holderMemberId: RAVI, visibility: "private",
+    categoryId: secretEnvelope.id,
   });
 
   /*
@@ -309,6 +318,10 @@ describe("15 · and the holder still sees their own", () => {
     createFamilyLoan(db, ravi, {
       counterparty: SECRETS.arrangement, holderMemberId: RAVI, visibility: "private",
     });
+    createPolicy(db, ravi, {
+      insurer: SECRETS.policy, kind: "health", premium: rupees(31_000) as Paise, frequency: "yearly",
+      holderMemberId: RAVI, visibility: "private",
+    });
 
     const mine = await startTestApp(db, { memberId: RAVI });
     try {
@@ -316,6 +329,7 @@ describe("15 · and the holder still sees their own", () => {
         [SECRETS.account, `/accounts?budget=${encodeURIComponent(his.id)}`],
         [SECRETS.loan, "/loans"],
         [SECRETS.arrangement, "/family"],
+        [SECRETS.policy, "/insurance"],
       ] as const;
       for (const [secret, path] of seen) {
         const body = await (await mine.get(path)).text();

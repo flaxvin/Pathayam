@@ -502,6 +502,16 @@ only (out of a token's reach).
 | GET | `/family` · `/family/:id` | R | Lent/borrowed and one arrangement. |
 | POST | `/family/new` · `/family/:id/advance` · `/family/:id/repayment` · `/family/:id/write-off` · `/family/:id/close` | W | Manage family loans. |
 
+### Insurance
+
+| Method | Path | Token | Purpose |
+|---|---|---|---|
+| GET | `/insurance` · `/insurance/:id` | R | The policy register, and one policy. A private policy answers 404 to anyone but its holder. |
+| POST | `/insurance/new` · `/insurance/:id/edit` | W | Record or change a policy. `policy_number` keeps only its last four characters. |
+| POST | `/insurance/:id/paid` | W | Move the next due date on by the premium frequency. Posts no transaction. Optional `back` (a path) to return to. |
+| POST | `/insurance/:id/status` | W | `status` = `lapsed`, `ended` or `active`. A lapsed or ended policy is kept. |
+| POST | `/insurance/:id/delete` | W | Remove a policy recorded by mistake (undoable from Activity). |
+
 ### Portfolio, assets & net worth
 
 | Method | Path | Token | Purpose |

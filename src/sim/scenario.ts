@@ -94,6 +94,9 @@ import type { RuleStage } from "../import/rules.ts";
 import { planCasImport, applyCasPlan } from "../import/cas-plan.ts";
 import { setIdentity, clearIdentity } from "../import/identity.ts";
 import { loadEngineInput } from "../engine/repository.ts";
+import {
+  createPolicy, updatePolicy, markPremiumPaid, setPolicyStatus, deletePolicy,
+} from "../domain/insurance.ts";
 import { computeBudget } from "../engine/engine.ts";
 import { units as toUnits, price as toPrice } from "../portfolio/holdings.ts";
 
@@ -483,6 +486,35 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
   const neighbour = did("createFamilyLoan", () => createFamilyLoan(db, actor, {
     counterparty: "Neighbour Suresh", holderMemberId: priya.id, visibility: "private",
   }));
+
+  // ------------------------------------------------------------ insurance
+  // INSURANCE-1 · The register posts nothing, so none of this moves a figure.
+  const familyHealth = did("createPolicy", () => createPolicy(db, actor, {
+    insurer: "Star Health", kind: "health", premium: rupees(24_000) as Paise, frequency: "yearly",
+    sumAssured: rupees(10_00_000) as Paise, nextDue: `${addMonths(thisMonth, 1)}-15`,
+    covered: "Ravi, Priya, Anu", taxGroup: "80d-self", holderMemberId: ravi.id,
+  }));
+  const ravisTerm = did("createPolicy", () => createPolicy(db, actor, {
+    insurer: "HDFC Life", kind: "term-life", premium: rupees(1_450) as Paise, frequency: "monthly",
+    sumAssured: rupees(1_00_00_000) as Paise, nextDue: `${addMonths(thisMonth, 1)}-05`,
+    policyNumber: "TL-00991234", nominee: "Priya", taxGroup: "80c",
+    holderMemberId: ravi.id, visibility: "private",
+  }));
+  const car = did("createPolicy", () => createPolicy(db, actor, {
+    insurer: "ICICI Lombard", kind: "vehicle", premium: rupees(11_200) as Paise, frequency: "yearly",
+    nextDue: `${addMonths(thisMonth, 3)}-20`,
+  }));
+  const mistaken = did("createPolicy", () => createPolicy(db, actor, {
+    insurer: "Duplicate entry", kind: "other", premium: rupees(100) as Paise, frequency: "single",
+  }));
+  did("updatePolicy", () => updatePolicy(db, actor, familyHealth.id, {
+    insurer: "Star Health", kind: "health", premium: rupees(26_500) as Paise, frequency: "yearly",
+    sumAssured: rupees(15_00_000) as Paise, nextDue: `${addMonths(thisMonth, 1)}-15`,
+    covered: "Ravi, Priya, Anu", taxGroup: "80d-self", holderMemberId: ravi.id,
+  }));
+  did("markPremiumPaid", () => markPremiumPaid(db, actor, ravisTerm.id));
+  did("setPolicyStatus", () => setPolicyStatus(db, actor, car.id, "lapsed"));
+  did("deletePolicy", () => deletePolicy(db, actor, mistaken.id));
 
   did("setMutedKinds", () => setMutedKinds(db, actor, ["subscription-due"]));
 

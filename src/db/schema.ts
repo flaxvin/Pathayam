@@ -2703,4 +2703,63 @@ ALTER TABLE tax_declarations ADD COLUMN s80d_checkup INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE tax_declarations ADD COLUMN s80d_parents_checkup INTEGER NOT NULL DEFAULT 0;
 `,
   },
+  {
+    name: "0062-an-insurance-policy-register",
+    sql: `
+--------------------------------------------------------------------------------
+-- INSURANCE-1 · The household's insurance policies
+--------------------------------------------------------------------------------
+-- Insurance was a starter envelope and two typed figures on the tax page. A
+-- policy is a thing of its own: who insures it, what it covers, what it costs
+-- and when, and which deduction its premium counts toward. Nothing here moves
+-- money; a premium is paid like any bill, through the register.
+--
+-- The policy number is not kept, only its last four characters
+-- (policy_last4). Four are enough to tell two policies from the same insurer
+-- apart and to match a premium notice; the whole number, with a name and a
+-- date of birth, is what an insurer asks for to change a nominee or start a
+-- claim, and this database is not encrypted field by field (08 S9) and its
+-- export travels.
+--
+-- holder_member_id and visibility are the accounts rule: null is the
+-- household's, and a private policy is its holder's alone (docs/privacy.md).
+--
+-- category_id names the envelope the premium is usually paid from. It is not a
+-- foreign key: an envelope deleted later leaves a policy that once named it,
+-- which should not stop the envelope going.
+--
+-- Nothing is deleted outright. deleted_at keeps the row, so a deleted private
+-- policy stays private in the activity log and an undo has it to restore.
+CREATE TABLE insurance_policies (
+  id               TEXT PRIMARY KEY,
+  insurer          TEXT NOT NULL,
+  kind             TEXT NOT NULL
+                   CHECK (kind IN ('term-life','life','health','vehicle','home','other')),
+  policy_last4     TEXT,
+  sum_assured      INTEGER,
+  premium          INTEGER NOT NULL CHECK (premium > 0),
+  frequency        TEXT NOT NULL
+                   CHECK (frequency IN ('monthly','quarterly','half-yearly','yearly','single')),
+  next_due         TEXT,
+  start_date       TEXT,
+  end_date         TEXT,
+  nominee          TEXT,
+  covered          TEXT,
+  tax_group        TEXT NOT NULL DEFAULT 'none'
+                   CHECK (tax_group IN ('none','80c','80d-self','80d-parents')),
+  senior           INTEGER NOT NULL DEFAULT 0,
+  category_id      TEXT,
+  holder_member_id TEXT REFERENCES members(id),
+  visibility       TEXT NOT NULL DEFAULT 'household' CHECK (visibility IN ('household','private')),
+  status           TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','lapsed','ended')),
+  closed_on        TEXT,
+  note             TEXT,
+  created_at       TEXT NOT NULL,
+  created_by       TEXT,
+  updated_at       TEXT NOT NULL,
+  deleted_at       TEXT
+);
+CREATE INDEX idx_insurance_policies_holder ON insurance_policies(holder_member_id);
+`,
+  },
 ];

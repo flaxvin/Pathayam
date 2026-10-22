@@ -316,6 +316,12 @@ import {
 } from "./domain/family-loans.ts";
 import { renderFamilyLoans, renderFamilyLoan } from "./web/pages/family-loans.ts";
 import {
+  createPolicy, updatePolicy, markPremiumPaid, setPolicyStatus, deletePolicy, getPolicy,
+  listPolicies, canSeePolicy, policiesDueBy, policyTaxSuggestion, applyPolicySuggestion,
+  type PolicyInput,
+} from "./domain/insurance.ts";
+import { renderInsurance, renderPolicy } from "./web/pages/insurance.ts";
+import {
   digestFor, mutedKinds, setMutedKinds, DIGEST_KINDS, type DigestKind,
 } from "./domain/digest.ts";
 import { cameWithTheCard } from "./domain/card-shortfall.ts";
@@ -6082,8 +6088,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         || (s.account_id !== null && budgetAccounts.has(s.account_id))
         || (s.category_id !== null && budgetCategories.has(s.category_id)))
       .sort((x, y) => (x.next_due ?? "").localeCompare(y.next_due ?? ""))
-      .slice(0, 6)
-      .map((s) => ({ id: s.id, name: s.name, amount: Math.abs(s.amount ?? 0) as Paise, nextDue: s.next_due! }));
+      .map((s) => ({ id: s.id, name: s.name, amount: Math.abs(s.amount ?? 0) as Paise, nextDue: s.next_due! }))
+      // INSURANCE-1 · Premiums and renewals, in the same fortnight.
+      .concat(policiesDueBy(db, { viewerMemberId: viewer(ctx), until: soon, budgetId: scope })
+        .map((p) => ({ ...p, policy: true })))
+      .sort((x, y) => x.nextDue.localeCompare(y.nextDue))
+      .slice(0, 6);
 
     return render(
       ctx, "Overview",
@@ -7451,6 +7461,132 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       requireFamilyLoanVisible(ctx);
       closeFamilyLoan(db, actorFor(a), ctx.params.id!);
       return { redirect: "/family", message: "Closed, with the history kept." };
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // INSURANCE-1 · The policy register.
+  // -------------------------------------------------------------------------
+
+  /** A policy named in a URL, if this viewer may see it; 404 otherwise. */
+  function requireVisiblePolicy(ctx: RequestContext): string {
+    const id = ctx.params.id!;
+    if (!canSeePolicy(db, id, viewer(ctx))) throw new NotFound("That policy does not exist.");
+    return id;
+  }
+
+  /** Envelopes a premium can be paid from: the viewer's, less cards and commitments. */
+  function policyEnvelopes(ctx: RequestContext) {
+    return listCategories(db, { includeHidden: true, viewerMemberId: viewer(ctx) })
+      .filter((c) => !c.payment_account_id && !c.commits_to_budget_id)
+      .map((c) => ({ id: c.id, name: c.name }));
+  }
+
+  function policyInput(ctx: RequestContext): PolicyInput {
+    const money = (name: string, label: string): number | null => {
+      const raw = field(ctx.body, name);
+      return raw && raw.trim() ? Math.abs(amountField(raw, label)) : null;
+    };
+    const date = (name: string, label: string): string | null => {
+      const raw = field(ctx.body, name);
+      return raw && raw.trim() ? dateField(raw, label) : null;
+    };
+    return {
+      insurer: requiredField(ctx.body, "insurer"),
+      kind: field(ctx.body, "kind") ?? "",
+      policyNumber: field(ctx.body, "policy_number") || null,
+      sumAssured: money("sum_assured", "Sum assured"),
+      premium: money("premium", "Premium") ?? 0,
+      frequency: field(ctx.body, "frequency") ?? "",
+      nextDue: date("next_due", "Next due"),
+      startDate: date("start_date", "Start date"),
+      endDate: date("end_date", "End date"),
+      nominee: field(ctx.body, "nominee") || null,
+      covered: field(ctx.body, "covered") || null,
+      taxGroup: field(ctx.body, "tax_group") || "none",
+      senior: field(ctx.body, "senior") === "1",
+      categoryId: guardedField(ctx, "category_id", requireVisibleCategory),
+      holderMemberId: guardedField(ctx, "holder_member_id", requireMember),
+      visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
+      note: field(ctx.body, "note") || null,
+    };
+  }
+
+  router.get("/insurance", (ctx) => {
+    auth(ctx);
+    // A private policy is its holder's alone, the same as an account (docs/privacy.md).
+    return render(ctx, "Insurance", renderInsurance({
+      policies: listPolicies(db, { viewerMemberId: viewer(ctx) }),
+      members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
+      envelopes: policyEnvelopes(ctx),
+      today: todayIST(),
+    }));
+  });
+
+  router.post("/insurance/new", (ctx) =>
+    mutate(ctx, (a) => {
+      const policy = createPolicy(
+        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), policyInput(ctx),
+      );
+      return { redirect: `/insurance/${policy.id}`, message: "Added." };
+    }),
+  );
+
+  router.get("/insurance/:id", (ctx) => {
+    const id = requireVisiblePolicy(ctx);
+    auth(ctx);
+    const policy = getPolicy(db, id);
+    if (!policy) throw new NotFound("That policy does not exist.");
+    return render(ctx, policy.insurer, renderPolicy({
+      policy,
+      members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
+      envelopes: policyEnvelopes(ctx),
+      today: todayIST(),
+    }));
+  });
+
+  router.post("/insurance/:id/edit", (ctx) =>
+    mutate(ctx, (a) => {
+      const id = requireVisiblePolicy(ctx);
+      updatePolicy(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, policyInput(ctx));
+      return { redirect: `/insurance/${id}`, message: "Saved." };
+    }),
+  );
+
+  router.post("/insurance/:id/paid", (ctx) =>
+    mutate(ctx, (a) => {
+      const id = requireVisiblePolicy(ctx);
+      const next = markPremiumPaid(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id);
+      return {
+        // Overview's "Due soon" posts here too, and goes back to where it was.
+        redirect: safePath(field(ctx.body, "back"), `/insurance/${id}`),
+        message: next
+          ? `Marked paid; next due ${formatDate(next)}. Nothing was posted — record the payment if it is not in the register.`
+          : "Marked paid; nothing more falls due. Nothing was posted.",
+      };
+    }),
+  );
+
+  router.post("/insurance/:id/status", (ctx) =>
+    mutate(ctx, (a) => {
+      const id = requireVisiblePolicy(ctx);
+      const status = field(ctx.body, "status");
+      if (status !== "active" && status !== "lapsed" && status !== "ended") {
+        throw new Refusal("That is not a policy status.");
+      }
+      setPolicyStatus(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, status);
+      return {
+        redirect: `/insurance/${id}`,
+        message: status === "active" ? "Reinstated." : "Kept, and listed with the lapsed and ended.",
+      };
+    }),
+  );
+
+  router.post("/insurance/:id/delete", (ctx) =>
+    mutate(ctx, (a) => {
+      const id = requireVisiblePolicy(ctx);
+      deletePolicy(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id);
+      return { redirect: "/insurance", message: "Deleted. Activity can undo it." };
     }),
   );
 
@@ -9050,6 +9186,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const fy = Number.isInteger(fyParam) && fyParam > 2000 ? fyParam : fiscalYearOf(todayIST());
 
     const stored = getDeclaration(db, a.member.id, fy);
+    // INSURANCE-1 · What the member's policies come to; filled in only when asked.
+    const fromPolicies = policyTaxSuggestion(db, a.member.id, fy);
+    const applyPolicies = ctx.query.get("from") === "policies" && fromPolicies.lines.length > 0;
     const visible = listAccounts(db, { viewerMemberId: a.member.id })
       .filter((acc) => acc.kind === "budget")
       .map((acc) => acc.id);
@@ -9074,7 +9213,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }
 
     return {
-      fy, gross, ledgerIncome, deductions: stored, estimate, advance, gains,
+      fy, gross, ledgerIncome, estimate, advance, gains, fromPolicies, applyPolicies,
+      deductions: applyPolicies ? applyPolicySuggestion(stored, fromPolicies) : stored,
       staleWarning: staleRatesWarning(fy),
       ratesVerifiedOn: RATES_VERIFIED_ON,
       ratesSource: RATES_SOURCE,
