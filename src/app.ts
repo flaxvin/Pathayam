@@ -43,6 +43,7 @@ import {
   saveConnection, deleteConnection, connectionView, getConnection,
 } from "./gmail/connection.ts";
 import { fetchGmail } from "./gmail/fetch.ts";
+import { GoogleUnreachable } from "./gmail/client.ts";
 import { withIdempotency, IdempotencyConflict } from "./core/idempotency.ts";
 import { parseAmount, evaluateAmountExpression, formatPaise, type Paise } from "./core/money.ts";
 import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, formatDate, lastDayOfMonth, daysBetween, fiscalYearOf, formatFiscalYear, statementPeriodOf, type MonthKey, type IsoDate, type WeekdayOrdinal } from "./core/dates.ts";
@@ -7596,6 +7597,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       return await call();
     } catch (error) {
       if (error instanceof GmailAuthError) throw new HttpError(400, error.message);
+      // DEBUG-WEB-7 · Google down or unreachable: a bad gateway, not a fault here.
+      if (error instanceof GoogleUnreachable) throw new HttpError(502, error.message);
       throw error;
     }
   }
