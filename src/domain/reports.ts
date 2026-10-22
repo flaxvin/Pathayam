@@ -501,7 +501,7 @@ export function categoryTrend(
  */
 export function loanInterestByFinancialYear(
   db: DB, viewerMemberId?: string | null,
-): { fy: number; label: string; interest: Paise; principal: Paise; lender: string }[] {
+): { fy: number; label: string; interest: Paise; principal: Paise; lender: string; loan: string }[] {
   /*
    * WEALTH-35 · Only rows that moved money are payments.
    *
@@ -514,9 +514,12 @@ export function loanInterestByFinancialYear(
    */
   // WEALTH-23 · A private loan's lender and interest are its holder's alone.
   const seen = visibilityClause(viewerMemberId);
-  const rows = queryAll<{ date: string; interest: number; principal: number; lender: string }>(
+  const rows = queryAll<{
+    date: string; interest: number; principal: number; lender: string; loan_id: string; loan: string;
+  }>(
     db,
-    `SELECT p.date, p.interest, p.principal, l.lender
+    `SELECT p.date, p.interest, p.principal, l.lender, l.id AS loan_id,
+            COALESCE(NULLIF(a.nickname, ''), a.name) AS loan
        FROM loan_payments p JOIN loans l ON l.id = p.loan_id
        JOIN accounts a ON a.id = l.account_id
       WHERE p.amount > 0${seen.sql}
@@ -524,11 +527,19 @@ export function loanInterestByFinancialYear(
     ...seen.params,
   );
 
-  const groups = new Map<string, { fy: number; interest: Paise; principal: Paise; lender: string }>();
+  /*
+   * DEBUG-ENGINE-8 · Per loan, not per lender's name. A home loan and a car loan
+   * from the same bank were one line, so the home loan's §24(b) figure carried
+   * the car loan's interest as well.
+   */
+  const groups = new Map<string, {
+    fy: number; interest: Paise; principal: Paise; lender: string; loan: string;
+  }>();
   for (const row of rows) {
     const fy = fiscalYearOf(row.date);
-    const key = `${fy}:${row.lender}`;
-    const existing = groups.get(key) ?? { fy, interest: 0, principal: 0, lender: row.lender };
+    const key = `${fy}:${row.loan_id}`;
+    const existing = groups.get(key) ??
+      { fy, interest: 0, principal: 0, lender: row.lender, loan: row.loan };
     existing.interest += row.interest;
     existing.principal += row.principal;
     groups.set(key, existing);
@@ -539,7 +550,7 @@ export function loanInterestByFinancialYear(
       ...g,
       label: `FY ${g.fy}-${String((g.fy + 1) % 100).padStart(2, "0")}`,
     }))
-    .sort((a, b) => b.fy - a.fy || a.lender.localeCompare(b.lender));
+    .sort((a, b) => b.fy - a.fy || a.lender.localeCompare(b.lender) || a.loan.localeCompare(b.loan));
 }
 
 /**
