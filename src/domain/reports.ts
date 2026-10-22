@@ -61,6 +61,7 @@ export interface TransactionFilter {
    * month close want. Screens pass the authenticated member.
    */
   viewerMemberId?: string | null;
+  /** Rows to return at most. Omitted means every match: totals are built on this. */
   limit?: number;
 }
 
@@ -198,7 +199,13 @@ export function queryTransactions(db: DB, filter: TransactionFilter = {}): Query
     params.push(...filter.tagNames);
   }
 
-  params.push(filter.limit ?? 500);
+  /*
+   * DEBUG-ENGINE-4 · No cap unless one is asked for. The default was 500, a
+   * page of HTML, and the month close and the reports' spending by envelope
+   * totalled what came back — so a busy month, or a year, summed only its
+   * newest 500 lines. SQLite reads a negative LIMIT as none.
+   */
+  params.push(filter.limit ?? -1);
 
   return queryAll<QueryRow>(
     db,
