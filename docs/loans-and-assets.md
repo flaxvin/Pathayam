@@ -96,6 +96,49 @@ B124 — a transfer, whose two legs must stay equal — adds one correcting debi
 for the interest instead. A leg edited or deleted since no longer matches and
 is left alone; the drift line on net worth shows it.
 
+### A capitalised moratorium
+
+While a `moratorium-capitalised` loan is in its moratorium nothing is paid, and
+the projection shows the balance repayment will start from: the outstanding
+grown by the monthly rate for each month of moratorium, and the EMI on that over
+the full tenure. ₹10,00,000 at 10% with 12 months capitalised and a 120-month
+tenure is 10,00,000 × (1 + 0.10/12)^12 = ₹11,04,713.07 at repayment start
+(₹1,04,713.07 of interest), repaid at ₹14,598.86.
+
+The **first instalment that repays principal** adds that interest to the loan.
+It writes a dated row beside the instalment, before it: a zero-amount `charge`
+whose principal is minus the interest (the shape a re-anchor writes), with a
+loan-account leg for the same amount, so the outstanding, the loan account,
+net worth, the EMI projection and the loan's payments all carry it. The figure
+is the one the projection was showing just before. The instalment's estimated
+split is then taken on the grown balance — ₹9,205.94 interest and ₹5,392.92
+principal on that first ₹14,598.86, leaving ₹10,99,320.15 owed and the EMI
+unchanged over the 119 months left. Before this, the interest was never added:
+after the first EMI the loan read ₹9,93,734.47 owed with a new EMI of
+₹13,196.70, and about ₹1.05 lakh of debt was missing from net worth.
+
+The interest is added once. Not on an interest-only payment (it begins no
+repayment), not on a serviced moratorium or a loan without one, not when
+repayment had already begun, and not when the loan was re-anchored to the
+lender's balance on or before that instalment — a lender's figure taken during
+the moratorium already holds the interest accrued to it. The row is told apart
+from a re-anchor by its loan-account leg, which a re-anchor does not post.
+Undoing that instalment removes the row and its leg with it, so recording the
+instalment again adds the interest once. That undo is refused while a later
+instalment, or a later re-anchor, was recorded on the grown balance: undo those
+first.
+
+**Loans already past their first EMI are not backfilled.** No database this
+change could see holds a capitalised-moratorium loan (every backup has only
+reducing and flat loans, none with a moratorium; the seed and the simulator
+create none), and a backfill could not be made safe: instalments after the
+first were split on the understated balance, a loan added mid-life may have been
+entered with its capitalised balance already in the outstanding, and one
+reconciled since through a lender statement or re-anchor already has the
+interest in it — adding it again would put debt into net worth that is not
+owed. A loan in that state shows the gap as drift once a lender statement is
+recorded against it (see Drift).
+
 ### Prepayment
 
 The prepayment screen compares the two options a lender must offer — reduce the
@@ -154,7 +197,7 @@ reason — none is marked undone without moving anything:
 
 | Undoing | Reverses |
 |---|---|
-| An instalment, prepayment, charge or settlement payment | The payment row and both of its legs (the bank or card debit, the loan-account credit). A prepayment puts back the tenure and the kept instalment it had. Refused while the loan is closed — undo the close first. |
+| An instalment, prepayment, charge or settlement payment | The payment row and both of its legs (the bank or card debit, the loan-account credit). A prepayment puts back the tenure and the kept instalment it had. The first instalment of a capitalised moratorium takes the moratorium interest it added with it, and is refused while a later instalment or re-anchor stands on that balance. Refused while the loan is closed — undo the close first. |
 | A rate change | The rate period, and the tenure if "keep the instalment" moved it, and the kept instalment as it was before. |
 | A re-anchor, a lender statement | The row it wrote. |
 | A disbursement | The draw and both of its legs. |
