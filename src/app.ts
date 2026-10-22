@@ -37,7 +37,7 @@ import {
 import { beginOAuth, exchangeCode, OAuthError } from "./auth/google.ts";
 import { PendingStates } from "./auth/pending.ts";
 import {
-  beginGmailConnect, exchangeGmailCode, revokeToken as revokeGmailToken,
+  beginGmailConnect, exchangeGmailCode, revokeToken as revokeGmailToken, GmailAuthError,
 } from "./gmail/oauth.ts";
 import {
   saveConnection, deleteConnection, connectionView, getConnection,
@@ -7543,6 +7543,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }
   }
 
+  /*
+   * Google declining — a revoked grant, an expired refresh token, a code it
+   * will not exchange — is the household's to fix by reconnecting, and
+   * GmailAuthError already says so. Uncaught it was a plain Error: the
+   * generic 500 page, and a fault on the health page for a mailbox somebody
+   * disconnected at Google.
+   */
+  async function googleSaidNo<T>(call: () => Promise<T>): Promise<T> {
+    try {
+      return await call();
+    } catch (error) {
+      if (error instanceof GmailAuthError) throw new HttpError(400, error.message);
+      throw error;
+    }
+  }
+
   router.get("/gmail/connect", (ctx) => {
     refuseInDemo(config, "Connecting a mailbox");
     const a = auth(ctx);
@@ -7571,12 +7587,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const code = ctx.query.get("code");
     if (!code) return { redirect: "/settings#gmail" };
 
-    const tokens = await exchangeGmailCode({
+    const tokens = await googleSaidNo(() => exchangeGmailCode({
       clientId: config.google.clientId!,
       clientSecret: config.google.clientSecret!,
       redirectUri: `${config.baseUrl}/gmail/callback`,
       code, codeVerifier: pending.verifier, fetchImpl: deps.fetchImpl,
-    });
+    }));
 
     saveConnection(db, actorFor(a), {
       email: a.member.email, refreshToken: tokens.refreshToken, scope: tokens.scope,
@@ -7602,11 +7618,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     refuseGmailWhileViewingAs(a);
     if (!getConnection(db, a.member.id)) throw new HttpError(400, "Gmail is not connected.");
 
-    const result = await fetchGmail(db, actorFor(a, "import"), {
+    const result = await googleSaidNo(() => fetchGmail(db, actorFor(a, "import"), {
       clientId: config.google.clientId!,
       clientSecret: config.google.clientSecret!,
       fetchImpl: deps.fetchImpl,
-    });
+    }));
 
     /*
      * Each count says where it went. Every count used to end "all in Review":
