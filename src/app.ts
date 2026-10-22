@@ -6667,8 +6667,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/schedules/:id/paid", (ctx) =>
     mutate(ctx, (a) => {
-      markPaid(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), requireVisibleSchedule(ctx, ctx.params.id!));
-      return { redirect: "/schedules", message: "Marked paid." };
+      const id = requireVisibleSchedule(ctx, ctx.params.id!);
+      // D8b · The list calls this button "Arrived" on income and "Paid" on a
+      // bill (the same rule: money in is income), so the reply does too.
+      const income = (getSchedule(db, id)?.amount ?? 0) > 0;
+      markPaid(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id);
+      return { redirect: "/schedules", message: income ? "Marked arrived." : "Marked paid." };
     }),
   );
 
