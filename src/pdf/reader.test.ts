@@ -147,6 +147,48 @@ describe("the PDF reader · text placed absurdly far apart", () => {
   });
 });
 
+describe("the PDF reader · a font's character map", () => {
+  /** A page whose one font maps codes through `cmap`, selected `selects` times. */
+  function withCMap(cmap: string, selects: number): Uint8Array {
+    const content = deflateSync(Buffer.from(`BT ${"/F1 1 Tf ".repeat(selects)}<0041> Tj ET`, "latin1"));
+    const map = deflateSync(Buffer.from(cmap, "latin1"));
+    return new Uint8Array(Buffer.concat([
+      Buffer.from(
+        `%PDF-1.4\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\n` +
+        `2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\n` +
+        `3 0 obj << /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >> endobj\n` +
+        `5 0 obj << /Type /Font /Subtype /Type0 /ToUnicode 6 0 R >> endobj\n` +
+        `4 0 obj << /Length ${content.length} /Filter /FlateDecode >>\nstream\n`,
+        "latin1",
+      ),
+      content,
+      Buffer.from(`\nendstream\nendobj\n6 0 obj << /Length ${map.length} /Filter /FlateDecode >>\nstream\n`, "latin1"),
+      map,
+      Buffer.from(`\nendstream\nendobj\ntrailer << /Root 1 0 R >>\n%%EOF\n`, "latin1"),
+    ]));
+  }
+
+  /*
+   * Every `Tf` read the font's /ToUnicode map again, and one `<0000> <FFFF>`
+   * range is 65,536 entries: a page selecting that font a few thousand times
+   * — a few bytes each — held the server for many seconds per thousand.
+   */
+  test("is read once per font, however often the page selects it", () => {
+    const bytes = withCMap("beginbfrange\n<0000><FFFF><0000>\nendbfrange\n", 5_000);
+    const started = Date.now();
+    const text = read(bytes, "");
+    assert.ok(Date.now() - started < 3_000, `took ${Date.now() - started} ms`);
+    assert.equal(text, "A");
+  });
+
+  test("a map of endless full ranges is read only so far", () => {
+    const bytes = withCMap(`beginbfrange\n${"<0000><FFFF><0000>\n".repeat(5_000)}endbfrange\n`, 1);
+    const started = Date.now();
+    read(bytes, "");
+    assert.ok(Date.now() - started < 3_000, `took ${Date.now() - started} ms`);
+  });
+});
+
 describe("the PDF reader · streams that never end", () => {
   /*
    * Each `stream` with no `endstream` after it searched the rest of the file
