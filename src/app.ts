@@ -7541,7 +7541,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const month = ctx.params.month!;
       if (!isMonthKey(month)) throw new NotFound("That is not a month.");
 
-      const budgetId = budgetParam(ctx);
+      const budgetId = postedBudget(ctx);
       const result = closeMonth(
         db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
         month, field(ctx.body, "note") || null, budgetId,
@@ -7561,7 +7561,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       const month = ctx.params.month!;
       if (!isMonthKey(month)) throw new NotFound("That is not a month.");
-      reopenMonth(db, actorFor(a), month, budgetParam(ctx));
+      reopenMonth(db, actorFor(a), month, postedBudget(ctx));
       return { redirect: "/months", message: `${formatMonth(month)} is open again.` };
     }),
   );

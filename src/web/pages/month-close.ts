@@ -83,6 +83,7 @@ export function renderMonthClose(view: MonthCloseView): SafeHtml {
         </span>
         <!-- B51: reopenMonth shipped, but nothing rendered a control for it. -->
         <form method="post" action="/months/${view.month}/reopen" style="display:inline">
+          <input type="hidden" name="budget" value="${view.budgetId}">
           <button class="button-small" type="submit">Reopen</button>
         </form>
       </div>
@@ -242,6 +243,8 @@ export function renderMonthClose(view: MonthCloseView): SafeHtml {
     </section>
 
     <form method="post" action="/months/${view.month}/close" class="card">
+      <!-- DEBUG-ENGINE-11 · The budget on screen, not whichever was opened last. -->
+      <input type="hidden" name="budget" value="${view.budgetId}">
       <div class="field">
         <label for="close-note">Anything worth remembering about this month?</label>
         <input id="close-note" name="note" placeholder="Optional — Diwali, the car repair, the bonus">
