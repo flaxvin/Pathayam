@@ -83,6 +83,11 @@ export function inviteMember(
 ): Member {
   return transact(db, () => {
     const email = input.email.trim().toLowerCase();
+    // Somebody has to be able to sign in with it: "   " and "priya" became
+    // members with an address no sign-in could ever match.
+    if (!/^[^\s@]+@[^\s@]+$/.test(email)) {
+      throw new Refusal(`"${input.email.trim()}" is not an email address.`);
+    }
     const existing = findMemberByEmail(db, email);
     if (existing) {
       if (existing.removed_at) {
