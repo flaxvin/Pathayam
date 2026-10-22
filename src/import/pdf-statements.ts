@@ -1048,12 +1048,18 @@ export function parseStatementText(
   const rowIndexes = classified.flatMap((l, i) => (l.kind === "row" ? [i] : []));
   const extra = new Map<number, string[]>();
 
+  // The first row at or after the line, walked forward with it: only that row
+  // and the one before it can be nearest. Every row was compared with every
+  // fragment, and a crafted file of forty thousand of each took minutes.
+  let next = 0;
   for (const [i, line] of classified.entries()) {
+    while (next < rowIndexes.length && rowIndexes[next]! < i) next++;
     if (line.kind !== "fragment") continue;
 
     let nearest = -1;
     let best = Infinity;
-    for (const r of rowIndexes) {
+    for (const r of [rowIndexes[next - 1], rowIndexes[next]]) {
+      if (r === undefined) continue;
       // Ties go above, and a fragment more than three lines from any row is
       // page furniture rather than a wrapped cell.
       const distance = Math.abs(r - i) + (r < i ? 0 : 0.5);

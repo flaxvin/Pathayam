@@ -605,3 +605,17 @@ describe("a line with a wide gap in it", () => {
     assert.equal(result.records.length, before);
   });
 });
+
+describe("a statement of very many wrapped rows", () => {
+  test("gives each fragment to its row in time proportional to the file", () => {
+    // Every fragment was measured against every row: forty thousand of each,
+    // two megabytes of text, took the server most of a minute.
+    const lines = ["Date  Narration  Amount"];
+    for (let i = 0; i < 60_000; i++) lines.push("01/08/2026  SWIGGY  450.00", "            ORDER");
+    const started = Date.now();
+    const result = parseStatementText(lines.join("\n"));
+    assert.ok(Date.now() - started < 10_000, `took ${Date.now() - started} ms`);
+    assert.equal(result.records.length, 60_000);
+    assert.ok(result.records.every((r) => r.narration === "ORDER SWIGGY"));
+  });
+});
