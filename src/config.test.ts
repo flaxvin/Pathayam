@@ -123,6 +123,28 @@ describe("SECURITY-OPS-27 · LOG_LEVEL is read, not cast", () => {
   });
 });
 
+/*
+ * DEBUG-WEB-9 · SESSION_DAYS=3000000 put the expiry past year 9999, where the
+ * date string sorts before today and every new session expired on arrival;
+ * 99999999 threw on the first sign-in. Ten years is the most it takes.
+ */
+describe("DEBUG-WEB-9 · SESSION_DAYS is bounded at startup", () => {
+  test("up to ten years is taken as given", () => {
+    assert.equal(loadConfig({ ...base, SESSION_DAYS: "3650" }).sessionDays, 3650);
+    assert.equal(loadConfig({ ...base, SESSION_DAYS: " 7 " }).sessionDays, 7);
+    assert.equal(loadConfig({ ...base, SESSION_DAYS: "" }).sessionDays, 30);
+  });
+
+  for (const value of ["3000000", "99999999", "3651", "0", "-5", "1.5", "a month"]) {
+    test(`'${value}' stops the process and says what it takes`, () => {
+      assert.throws(
+        () => loadConfig({ ...base, SESSION_DAYS: value }),
+        (err: unknown) => err instanceof InvalidConfiguration && /SESSION_DAYS/.test(err.message) && /3650/.test(err.message),
+      );
+    });
+  }
+});
+
 describe("defaults", () => {
   test("carry the documented decisions", () => {
     const config = loadConfig(base);
