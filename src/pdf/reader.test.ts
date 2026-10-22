@@ -154,3 +154,42 @@ describe("the PDF reader · text drawn inside a form XObject", () => {
     assert.match(text, /loop/);
   });
 });
+
+describe("the PDF reader · glyphs placed one at a time", () => {
+  /*
+   * CAMS positions every glyph of a row separately. With a half-em guess at
+   * each glyph's width, a 0.6-em capital looked like a gap and the row read
+   * "1 0 - A u g - 2 0 2 6 R e d e m p t i o n" — no date, so no row.
+   */
+  const font = "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /FirstChar 32 /LastChar 122 /Widths 7 0 R >>";
+  // Helvetica-ish: everything 600 wide except the space, which is 278.
+  const widths = `[278 ${Array.from({ length: 90 }, () => "600").join(" ")}]`;
+  const page = (content: string): Uint8Array => pdf([
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+    stream("", content),
+    font,
+    "<< >>",
+    widths,
+  ]);
+
+  test("a word drawn glyph by glyph comes out as one word", () => {
+    // Each glyph advances by its own 600/1000 × 10 = 6 units.
+    const glyphs = [..."10-Aug-2026"].map((c, i) => `1 0 0 1 ${20 + i * 6} 700 Tm (${c}) Tj`).join(" ");
+    const after = `1 0 0 1 ${20 + 11 * 6 + 30} 700 Tm (Redemption) Tj`;
+    const text = read(page(`BT /F1 10 Tf ${glyphs} ${after} ET`), "");
+    assert.equal(text.trim().replace(/\s+/g, " "), "10-Aug-2026 Redemption");
+  });
+
+  test("a kerned word is not split where the kerning is", () => {
+    const text = read(page("BT /F1 10 Tf 20 700 Td [(MO) -12 (TILAL) 4 (OSWAL)] TJ ET"), "");
+    assert.equal(text.trim(), "MOTILALOSWAL");
+  });
+
+  test("text set at an angle is left out rather than read a letter per line", () => {
+    const vertical = "0 1 -1 0 590 300 Tm (WATERMARK) Tj";
+    const text = read(page(`BT /F1 10 Tf 20 700 Td (Folio 123) Tj ET BT /F1 10 Tf ${vertical} ET`), "");
+    assert.equal(text.trim(), "Folio 123");
+  });
+});
