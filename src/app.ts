@@ -1130,6 +1130,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   }
 
   /** Amount fields accept an expression (F4.10) before falling back to a plain parse. */
+  /**
+   * UI-PASS-8 · The card or account number's last four, as printed beside the
+   * name everywhere ("····6604"). The form says maxlength=4, but the server
+   * took "abcdefgh" and showed it as the number. Spaces and dashes are let go;
+   * anything else is refused. Undefined when the field was not sent.
+   */
+  function last4Field(raw: string | undefined): string | null | undefined {
+    if (raw === undefined) return undefined;
+    const digits = raw.replace(/[\s-]/g, "");
+    if (digits === "") return null;
+    if (!/^\d{4}$/.test(digits)) {
+      throw new Refusal(`"${raw.trim()}" is not the last four digits — enter four numbers, like 6604, or leave it empty.`);
+    }
+    return digits;
+  }
+
   function amountField(raw: string | undefined, name = "Amount"): number {
     if (raw === undefined || raw.trim() === "") {
       throw new HttpError(400, `${name} is required.`);
@@ -2635,7 +2651,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         name: requiredField(ctx.body, "name"),
         nickname: text("nickname"),
         institution: text("institution"),
-        last4: text("last4"),
+        last4: last4Field(field(ctx.body, "last4")),
         holder_member_id: text("holder_member_id") && requireMember(ctx, text("holder_member_id")!),
         statement_day: numberOrNull(field(ctx.body, "statement_day")),
         due_day: numberOrNull(field(ctx.body, "due_day")),
@@ -2712,7 +2728,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         kind,
         subtype,
         institution: field(ctx.body, "institution") || null,
-        last4: field(ctx.body, "last4") || null,
+        last4: last4Field(field(ctx.body, "last4")) ?? null,
         openingBalance: opening,
         openingDate: dateField(openingDateRaw, "Opening date"),
         statementDay: numberOrNull(field(ctx.body, "statement_day")),
@@ -4528,7 +4544,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/accounts/:id/cards", (ctx) =>
     mutate(ctx, (a) => {
       const account = requireVisibleAccount(ctx, ctx.params.id!);
-      const last4 = (field(ctx.body, "last4") ?? "").replace(/\D/g, "") || null;
+      const last4 = last4Field(field(ctx.body, "last4")) ?? null;
       createCard(db, actorFor(a), {
         accountId: account.id,
         label: requiredField(ctx.body, "label"),
