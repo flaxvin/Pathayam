@@ -3837,14 +3837,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             </div>
           `)}
 
+          <!-- Each marker tells the handler its checkbox was on the form, since
+               an unchecked box sends nothing at all — and a post that sends
+               neither (an API caller moving a date) leaves the flag alone. -->
           <div class="field">
             <label>
+              <input type="hidden" name="cleared_present" value="1">
               <input type="checkbox" name="cleared" value="1"
                      ${raw(transaction.cleared ? "checked" : "")}> Cleared the bank
             </label>
             <label>
-              <!-- The marker tells the handler the checkbox was on the form,
-                   since an unchecked box sends nothing at all. -->
               <input type="hidden" name="reimbursable_present" value="1">
               <input type="checkbox" name="reimbursable" value="1"
                      ${raw(transaction.reimbursable ? "checked" : "")}> Someone owes this back
@@ -4041,7 +4043,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     // MONEY-CORE-14 · Past the guards, a retry replays rather than re-saves.
     return once(ctx, a, () => {
-      const magnitude = Math.abs(amountField(field(ctx.body, "amount")));
+      // D7 · No amount field at all keeps the amount; a blank box is still refused.
+      const magnitude = amountRaw === undefined
+        ? Math.abs(transaction.amount)
+        : Math.abs(amountField(amountRaw));
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
       /*
        * A post that does not say which way the money went keeps the way it
@@ -4149,6 +4154,25 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const ownerRaw = field(ctx.body, "owner_member_id");
       if (ownerRaw) requireMember(ctx, ownerRaw);
 
+      /*
+       * D7 · A field the post does not carry keeps what it had. Reading a
+       * missing memo as "emptied" and a missing `cleared` as "unticked" meant
+       * an API caller that only moved a date wiped the memo and un-cleared the
+       * entry, under "Saved.". The form always sends the memo box (an empty
+       * one still clears it), and a `<name>_present` marker beside each
+       * checkbox, because an unticked box sends nothing — so the marker is
+       * what turns silence into "unticked". A caller that sends the field
+       * itself ("1" or anything else) is heard without the marker.
+       */
+      const memoRaw = field(ctx.body, "memo");
+      const checkbox = (name: string): boolean | undefined => {
+        const value = field(ctx.body, name);
+        if (value !== undefined) return value === "1";
+        return field(ctx.body, `${name}_present`) === "1" ? false : undefined;
+      };
+      const cleared = checkbox("cleared");
+      const reimbursable = checkbox("reimbursable");
+
       // Guard the earlier of the two dates: moving a transaction backwards means
       // the ripple starts where it lands, not where it was.
       const rippleFrom = monthOf(newDate < transaction.date ? newDate : transaction.date);
@@ -4164,15 +4188,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 ? { splits: filed!.splits }
                 // One line: it stops being a split and becomes that envelope.
                 : { splits: null, categoryId: filed!.categoryId }),
-            memo: field(ctx.body, "memo") || null,
-            cleared: field(ctx.body, "cleared") === "1",
+            ...(memoRaw !== undefined ? { memo: memoRaw || null } : {}),
+            ...(cleared !== undefined ? { cleared } : {}),
             ...(tagsRaw !== undefined
               ? { tags: tagsRaw.split(",").map((t) => t.trim()).filter(Boolean) }
               : {}),
             ...(ownerRaw !== undefined ? { ownerMemberId: ownerRaw || null } : {}),
-            ...(field(ctx.body, "reimbursable_present") === "1"
-              ? { reimbursable: field(ctx.body, "reimbursable") === "1" }
-              : {}),
+            ...(reimbursable !== undefined ? { reimbursable } : {}),
             ...(payeeId !== undefined ? { payeeId } : {}),
           }),
       ));

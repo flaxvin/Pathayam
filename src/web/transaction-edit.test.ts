@@ -366,3 +366,93 @@ describe("an edit that does not say which way the money went", () => {
     assert.equal(getTransaction(db, t.id)!.amount, -rupees(300));
   });
 });
+
+/*
+ * D7 · An edit that does not mention a field keeps it.
+ *
+ * A browser sends nothing for an unticked checkbox, so the route read a missing
+ * `cleared` as "unticked" and a missing `memo` as "emptied" — and an API caller
+ * that only moved a date wiped the memo and marked the entry uncleared under
+ * "Saved.". The form now says which checkboxes it showed (`cleared_present`,
+ * `reimbursable_present`), and a field nobody sent is left as it was.
+ */
+describe("D7 · a partial edit keeps what it does not mention", () => {
+  function annotated(): string {
+    const id = createTransaction(db, actor, {
+      accountId: bank, amount: -rupees(800), date: "2026-09-05",
+      categoryId: groceries, payeeName: "DMart", memo: "weekly shop",
+    }).id;
+    updateTransaction(db, actor, id, {
+      cleared: true, reimbursable: true, tags: ["keep-me"], ownerMemberId: "m2",
+    });
+    return id;
+  }
+
+  test("an API caller moving only the date changes only the date", async () => {
+    const id = annotated();
+    const before = getTransaction(db, id)!;
+    const res = await app.post(`/transaction/${id}`, { date: "07-09-2026" });
+    assert.equal(res.status, 303);
+    const row = getTransaction(db, id)!;
+    assert.equal(row.date, "2026-09-07");
+    assert.equal(row.amount, -rupees(800));
+    assert.equal(row.memo, "weekly shop");
+    assert.equal(row.cleared, 1);
+    assert.equal(row.reimbursable, 1);
+    assert.equal(row.owner_member_id, "m2");
+    assert.equal(row.category_id, groceries);
+    assert.equal(row.payee_id, before.payee_id);
+    assert.deepEqual(tagsFor(db, id), ["keep-me"]);
+  });
+
+  test("an API caller can still set the checkboxes without the form's markers", async () => {
+    const id = annotated();
+    const off = await app.post(`/transaction/${id}`, { cleared: "0" });
+    assert.equal(off.status, 303);
+    assert.equal(getTransaction(db, id)!.cleared, 0);
+    const on = await app.post(`/transaction/${id}`, { cleared: "1" });
+    assert.equal(on.status, 303);
+    assert.equal(getTransaction(db, id)!.cleared, 1);
+    const repaid = await app.post(`/transaction/${id}`, { reimbursable: "0" });
+    assert.equal(repaid.status, 303);
+    const row = getTransaction(db, id)!;
+    assert.equal(row.reimbursable, 0);
+    assert.equal(row.memo, "weekly shop");
+    assert.equal(row.cleared, 1);
+  });
+
+  test("the form carries a marker for each checkbox", async () => {
+    const id = annotated();
+    const body = await (await app.get(`/transaction/${id}`)).text();
+    assert.match(body, /type="hidden" name="cleared_present" value="1"/);
+    assert.match(body, /type="hidden" name="reimbursable_present" value="1"/);
+  });
+
+  // What a browser posts for this transaction: every box, both markers.
+  const fromForm = {
+    amount: "800", direction: "out", date: "05-09-2026", payee: "DMart",
+    memo: "weekly shop", tags: "keep-me", owner_member_id: "m2",
+    cleared_present: "1", reimbursable_present: "1", reimbursable: "1",
+  };
+
+  test("unticking Cleared in the form still uncleares it", async () => {
+    const id = annotated();
+    const res = await app.post(`/transaction/${id}`, { ...fromForm, split_category_0: groceries });
+    assert.equal(res.status, 303);
+    const row = getTransaction(db, id)!;
+    assert.equal(row.cleared, 0);
+    assert.equal(row.memo, "weekly shop");
+    assert.equal(row.reimbursable, 1);
+  });
+
+  test("emptying the memo box in the form still clears the memo", async () => {
+    const id = annotated();
+    const res = await app.post(`/transaction/${id}`, {
+      ...fromForm, split_category_0: groceries, cleared: "1", memo: "",
+    });
+    assert.equal(res.status, 303);
+    const row = getTransaction(db, id)!;
+    assert.equal(row.memo, null);
+    assert.equal(row.cleared, 1);
+  });
+});
