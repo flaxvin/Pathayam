@@ -5658,12 +5658,29 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const loanId = ctx.params.id!;
       const ytdRaw = field(ctx.body, "interest_paid_ytd");
       const remainingRaw = field(ctx.body, "instalments_remaining");
+      /*
+       * UI-PASS-4 · "abc" instalments remaining was stored as nothing and a
+       * lender outstanding of −₹500 as a drift of the whole loan plus ₹500, both
+       * with "Statement recorded." A statement never shows either.
+       */
+      const lenderOutstanding = amountField(requiredField(ctx.body, "lender_outstanding"), "Lender's outstanding");
+      if (lenderOutstanding < 0) {
+        throw new Refusal("The lender's outstanding is what you still owe — enter it without a minus sign.");
+      }
+      const interestPaidYtd = ytdRaw?.trim() ? amountField(ytdRaw, "Interest paid") : null;
+      if (interestPaidYtd !== null && interestPaidYtd < 0) {
+        throw new Refusal("Interest paid this year cannot be below zero.");
+      }
+      const instalmentsRemaining = remainingRaw?.trim() ? Number(remainingRaw.trim()) : null;
+      if (instalmentsRemaining !== null && !(Number.isInteger(instalmentsRemaining) && instalmentsRemaining >= 0)) {
+        throw new Refusal(`"${remainingRaw!.trim()}" is not a number of instalments. Enter a whole number, or leave it empty.`);
+      }
       recordLoanStatement(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         loanId,
         asOf: dateField(field(ctx.body, "as_of"), "As of"),
-        lenderOutstanding: amountField(requiredField(ctx.body, "lender_outstanding")),
-        interestPaidYtd: ytdRaw?.trim() ? amountField(ytdRaw) : null,
-        instalmentsRemaining: remainingRaw?.trim() ? Number(remainingRaw) : null,
+        lenderOutstanding,
+        interestPaidYtd,
+        instalmentsRemaining,
       });
       return { redirect: `/loans/${loanId}`, message: "Statement recorded." };
     }),
