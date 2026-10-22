@@ -77,7 +77,7 @@ can return data for a person, and 404 rather than 403.
 
 ## Cross-site request forgery
 
-Two independent controls:
+Two independent controls, and a third that keeps the second honest:
 
 1. The session cookie is `SameSite=Lax`, and no `GET` handler in the router
    mutates state — verified by a test that walks every handler for write calls.
@@ -85,6 +85,17 @@ Two independent controls:
    `Referer` from it when `Origin` is absent. `Referrer-Policy: same-origin`
    guarantees a same-origin request carries a `Referer` and a cross-origin one
    does not. Failure returns 403.
+3. Before either is compared, the host the request was addressed to (`Host`,
+   or the right-most `X-Forwarded-Host` entry behind `TRUST_PROXY`) must be
+   `BASE_URL`'s hostname — with `BASE_URL`'s port, or none — or a name no DNS
+   answer is involved in: an IP literal or `localhost`. Anything else is 403
+   on an unsafe method. Without this, DNS rebinding defeated (2): a page on
+   `evil.example` re-points its own name at this machine and posts to it, so
+   its Origin and the Host agree, and on a fresh LAN install with
+   `LOCAL_LOGIN` it could create the first member through `/auth/first-run`.
+   An IP literal or `localhost` cannot be rebound, so the LAN address a
+   household types keeps working; any other name it uses must be the one in
+   `BASE_URL`.
 
 Bearer-authenticated requests are exempt from (2) because they carry no cookie —
 and only when they carry no session cookie: a request with one is held to (2)

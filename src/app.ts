@@ -475,6 +475,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ) return;
 
       /*
+       * SECURITY-D3 · DNS rebinding. The Host is the attacker's to choose: a
+       * page on evil.example re-points its own name at this machine and posts
+       * to it, and then its Origin and the Host agree — so trusting the Host
+       * as "here" let a rebound page create the first member through
+       * /auth/first-run on a fresh LAN install. The Host must first be one
+       * this app answers to: BASE_URL's, or a name no DNS answer is involved
+       * in (an IP literal, localhost), which is therefore not reboundable.
+       */
+      if (!addressedHere(ctx)) {
+        throw new HttpError(403, "That request was addressed to a different host than BASE_URL.");
+      }
+
+      /*
        * Where this request believes it arrived. The configured base URL is one
        * answer, and the Host it was actually addressed by is the other — a
        * self-hosted app is reached on its LAN address as readily as its name,
@@ -1000,12 +1013,48 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    * the browser resolves to another host. A backslash does the same thing in
    * some browsers. Both are rejected here.
    */
+  /**
+   * The host this request was addressed by: X-Forwarded-Host behind a trusted
+   * proxy — its right-most entry, the one that proxy wrote, as for
+   * X-Forwarded-For — and the Host header otherwise.
+   */
+  function requestHost(ctx: RequestContext): string {
+    const forwarded = config.trustProxy ? ctx.req.headers["x-forwarded-host"] : undefined;
+    if (forwarded !== undefined) {
+      return String(forwarded).split(",").pop()!.trim();
+    }
+    return String(ctx.req.headers.host ?? "");
+  }
+
+  /**
+   * Whether the request's host is one this app answers to (SECURITY-D3):
+   * BASE_URL's hostname with its port (or none), or a name that involves no
+   * DNS answer — an IPv4 or IPv6 literal, or localhost — since only a DNS
+   * name can be rebound to this machine by somebody else's page. A request
+   * with no Host at all is not from a browser and is left to the Origin check.
+   */
+  function addressedHere(ctx: RequestContext): boolean {
+    const host = requestHost(ctx);
+    if (host === "") return true;
+    // host[:port] and nothing else — no path, credentials or whitespace to
+    // make the URL parser below read a different host than the header says.
+    if (/[\/\\@?#\s]/.test(host)) return false;
+    let addressed: URL;
+    let base: URL;
+    try {
+      addressed = new URL(`http://${host}`);
+      base = new URL(config.baseUrl);
+    } catch {
+      return false;
+    }
+    const name = addressed.hostname;
+    if (name === "localhost" || name.startsWith("[") || /^\d{1,3}(\.\d{1,3}){3}$/.test(name)) return true;
+    return name === base.hostname && (addressed.port === "" || addressed.port === base.port);
+  }
+
   /** The origin this request was addressed by, from its own Host header. */
   function hostOrigin(ctx: RequestContext): string {
-    const host = String(
-      (config.trustProxy ? ctx.req.headers["x-forwarded-host"] : null)
-      ?? ctx.req.headers.host ?? "",
-    );
+    const host = requestHost(ctx);
     if (host === "") return "";
     const scheme = config.trustProxy && ctx.req.headers["x-forwarded-proto"]
       ? String(ctx.req.headers["x-forwarded-proto"]).split(",")[0]!.trim()
