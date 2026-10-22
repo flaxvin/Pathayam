@@ -13,6 +13,8 @@ import { formatPaise, type Paise } from "../../core/money.ts";
 import { formatFiscalYear, formatDate } from "../../core/dates.ts";
 import type { TaxEstimate, RegimeEstimate, Deductions, AdvanceInstalment } from "../../domain/tax.ts";
 import type { GainsTax } from "../../domain/capital-gains-tax.ts";
+import type { PolicyTaxSuggestion } from "../../domain/insurance.ts";
+import { renderPolicySuggestion } from "./insurance.ts";
 
 export interface TaxPageProps {
   fy: number;
@@ -27,6 +29,10 @@ export interface TaxPageProps {
   ratesVerifiedOn: string;
   ratesSource: string;
   availableYears: number[];
+  /** INSURANCE-1 · What the member's policies put toward 80C and 80D this year. */
+  fromPolicies?: PolicyTaxSuggestion;
+  /** Whether the figures below were filled in from them (not yet saved). */
+  applyPolicies?: boolean;
 }
 
 function row(label: string, value: Paise, opts: { muted?: boolean; strong?: boolean } = {}): SafeHtml {
@@ -147,6 +153,8 @@ export function renderTax(p: TaxPageProps): SafeHtml {
         These apply under the old regime only. The new regime ignores them, which
         is the trade the comparison above is showing you.
       </p>
+
+      ${p.fromPolicies ? renderPolicySuggestion({ fy: p.fy, suggestion: p.fromPolicies, applied: p.applyPolicies ?? false }) : html``}
 
       <div class="field">
         <label for="s80c">Section 80C</label>

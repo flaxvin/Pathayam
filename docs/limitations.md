@@ -123,6 +123,15 @@ no interest was reported as ₹2,000 of interest for the year — and counted tw
 in the total cost of borrowing, once as interest and once as a fee. Fixed, with
 migration 0042 correcting rows already written that way.
 
+**Policies suggest; they do not declare.** The tax page offers what the
+premiums of a member's own policies (those they are named holder of) come to
+in the year, per 80C / 80D group — every premium falling due in the year,
+paid or not. It does not spread a multi-year health premium across the years
+it covers, cannot tell a premium paid in cash (which 80D excludes), and knows
+nothing of 80C's other items. Applying it raises each figure to the policies'
+and never lowers one; nothing is saved until the form is. A household policy
+with no holder is nobody's deduction until one is named.
+
 **Rates go stale.** Slabs change with each Finance Act. A year the app does not
 have is refused rather than computed with the previous year's, and the health
 page reports when the current financial year is newer than the rates carried.

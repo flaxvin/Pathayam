@@ -96,6 +96,8 @@ export const COUNTED_TABLES = [
   "attachments",
   "tax_declarations",
   "schedule_splits",
+  // INSURANCE-1 · The policy register.
+  "insurance_policies",
 ];
 
 /**

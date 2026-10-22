@@ -68,6 +68,7 @@ A unique index on `transactions(account_id, source, source_id)` where
 | `loan_disbursements` | `id`, `loan_id`, `date`, `amount`, `destination`, `destination_account_id` | For tranche-drawn loans. |
 | `loan_statements` | `id`, `loan_id`, `as_of`, `lender_outstanding`, `interest_paid_ytd`, `instalments_remaining`, `app_outstanding`, `resolved` | Records drift between the lender's figure and the app's. |
 | `family_loans` | `id`, `account_id`, `counterparty`, `direction`, `agreed_total`, `written_off_at`, `write_off_transaction_id`, `closed_at` | Balance is derived from transactions, not stored. |
+| `insurance_policies` | `id`, `insurer`, `kind`, `policy_last4`, `sum_assured`, `premium`, `frequency`, `next_due`, `start_date`, `end_date`, `nominee`, `covered`, `tax_group`, `senior`, `category_id`, `holder_member_id`, `visibility`, `status`, `closed_on`, `deleted_at` | Only the last four characters of a policy number are stored. `holder_member_id`/`visibility` follow the accounts rule. `category_id` is not a foreign key. Deleted rows are kept (`deleted_at`) so a private policy's events stay private. |
 
 ## Assets
 

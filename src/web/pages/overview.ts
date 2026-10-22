@@ -28,7 +28,8 @@ export function renderOverview(opts: {
   monthSpend: Paise;
   cash: Paise;
   runwayMonths: number | null;
-  dueSoon: { id: string; name: string; amount: Paise; nextDue: IsoDate }[];
+  /** Schedules, and (INSURANCE-1) policy premiums — `policy` set — which post nothing when paid. */
+  dueSoon: { id: string; name: string; amount: Paise; nextDue: IsoDate; policy?: boolean }[];
 }): SafeHtml {
   const chrono = [...opts.netWorthHistory].sort((a, b) => a.as_of.localeCompare(b.as_of));
   const distinctMonths = new Set(chrono.map((h) => h.as_of.slice(0, 7))).size;
@@ -110,9 +111,18 @@ export function renderOverview(opts: {
                     <span class="overview-date">${formatDate(s.nextDue).slice(0, 5)}</span>
                     <span class="overview-items">${s.name}</span>
                     <span class="amount amount-negative">${formatCompact(s.amount)}</span>
-                    <form method="post" action="/schedules/${s.id}/paid" style="display:inline">
-                      <button class="button-small" type="submit">Paid</button>
-                    </form>
+                    ${s.policy
+                      ? html`
+                          <form method="post" action="/insurance/${s.id}/paid" style="display:inline">
+                            <input type="hidden" name="back" value="/overview">
+                            <button class="button-small" type="submit" title="Moves the due date on; posts nothing">Paid</button>
+                          </form>
+                        `
+                      : html`
+                          <form method="post" action="/schedules/${s.id}/paid" style="display:inline">
+                            <button class="button-small" type="submit">Paid</button>
+                          </form>
+                        `}
                   </li>
                 `)}
               </ul>

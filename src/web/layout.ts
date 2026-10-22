@@ -329,6 +329,7 @@ function renderSidebar(
     { href: "/query", label: "Query", icon: "⌗" },
     { href: "/schedules", label: "Schedules", icon: "◷" },
     { href: "/goals", label: "Goals", icon: "◎" },
+    { href: "/insurance", label: "Insurance", icon: "☂" },
     ...(features.loans ? [{ href: "/loans", label: "Loans", icon: "▽" }] : []),
     ...(features.assets
       ? [

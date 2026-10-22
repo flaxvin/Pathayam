@@ -90,6 +90,8 @@ answer 404 when the viewer may not see the entity
 | `POST /loans/:id/disburse`, `/loans/:id/close`, `/loans/:id/settle`, `/loans/:id/holder` | |
 | `GET /family`, `GET /family/:id` | Lending to and from people. |
 | `POST /family/new`, `/family/:id/advance`, `/family/:id/repayment`, `/family/:id/write-off`, `/family/:id/close` | |
+| `GET /insurance`, `GET /insurance/:id` | The policy register: in force, then lapsed and ended. |
+| `POST /insurance/new`, `/insurance/:id/edit`, `/insurance/:id/paid`, `/insurance/:id/status`, `/insurance/:id/delete` | Paid moves the due date on and posts nothing. |
 
 ## Portfolio
 
