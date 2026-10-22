@@ -2704,7 +2704,7 @@ ALTER TABLE tax_declarations ADD COLUMN s80d_parents_checkup INTEGER NOT NULL DE
 `,
   },
   {
-    name: "0062-an-insurance-policy-register",
+    name: "0060-an-insurance-policy-register",
     sql: `
 --------------------------------------------------------------------------------
 -- INSURANCE-1 · The household's insurance policies
