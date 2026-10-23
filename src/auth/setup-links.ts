@@ -28,7 +28,7 @@
  * ## Who may make one, and why it is narrower than "any member"
  *
  * Every member is a peer (P5) and may already add anybody to the household, so
- * any member may make a link for another — with three exceptions, each of
+ * any member may make a link for another — with four exceptions, each of
  * which would otherwise turn a link into a way to become somebody else:
  *
  *   · Not for yourself. You have a session; /settings/password is the door.
@@ -36,6 +36,9 @@
  *     without asking for the old one, so it would be a reset — and a reset
  *     you can perform on another member is a takeover. They change their own
  *     in Settings; a forgotten one is the server command's job.
+ *   · Not for somebody who has ever signed in. A member who uses Google or
+ *     OIDC has no password, but a link would still add a way in behind their
+ *     back. Only somebody who has never been in is a newcomer.
  *   · Not for somebody holding records the issuer cannot see. Whoever makes
  *     the link can use it themselves instead of handing it over, set the
  *     password, sign in as that member and read everything private to them —
@@ -45,7 +48,7 @@
  *     button. For such a member the link comes from whoever runs the server
  *     (`npm run password-link`), who could read the database file anyway.
  *
- * The last two are checked again when the link is used, not only when it is
+ * The last three are checked again when the link is used, not only when it is
  * made: a link made for a newcomer who has since opened a private account, or
  * set a password some other way, is worth no more than one made today would be.
  */
@@ -181,6 +184,20 @@ export function setupLinkBlocker(db: DB, issuerId: string | null, memberId: stri
       `${serverCommandFor(member.email)} --reset.`
     );
   }
+  if (issuerId !== null && (member.last_seen_at !== null || member.google_sub !== null)) {
+    /*
+     * No password is not the same as new. Somebody who signs in with Google or
+     * OIDC has no password either, and a link another member makes for them
+     * adds a second way in that they never asked for and do not know about —
+     * a takeover, the same as a reset. Every sign-in sets last_seen_at, so a
+     * member who has ever been in gets their link from the server instead.
+     */
+    return (
+      `${member.name} has signed in before, so a password for them cannot come from another ` +
+      `member. They can set one themselves in Settings → Password, or whoever runs the server ` +
+      `can make a link: ${serverCommandFor(member.email)}`
+    );
+  }
   if (issuerId !== null && privateRecordsHeldBy(db, memberId, issuerId).length > 0) {
     /*
      * Says that there is something, never what. The member's own name and
@@ -277,6 +294,8 @@ export function usableSetupLink(db: DB, token: string): { member: Member; expire
     const issuer = getMember(db, row.created_by_member_id);
     if (!issuer || issuer.removed_at || !issuer.allowed) return null;
     if (privateRecordsHeldBy(db, member.id, issuer.id).length > 0) return null;
+    // Signed in since, by Google or OIDC: no longer a newcomer.
+    if (member.last_seen_at !== null || member.google_sub !== null) return null;
   }
   return { member, expiresAt: row.expires_at };
 }

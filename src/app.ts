@@ -4108,7 +4108,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               <p class="notice notice-warning">
                 <strong>Copy it now.</strong> Only a hash of it is kept, so this
                 page is the only time it is shown. If it is lost, make another —
-                that one replaces this.
+                that one replaces this. Reloading this page makes another too, and
+                stops this one working.
               </p>
               <pre class="raw-block" style="user-select:all;white-space:pre-wrap;word-break:break-all">${url}</pre>
               <p>

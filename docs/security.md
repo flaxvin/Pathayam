@@ -286,7 +286,7 @@ that way. Code: `src/auth/setup-links.ts`.
 **Who may make one.** Any signed-in member, for another member — all members
 are peers, and any of them can already add people to the household. Not on the
 demo, and not while viewing as somebody else. The target must be in the
-household, allowed in, and have no password. Three refusals carry the weight:
+household, allowed in, and have no password. Four refusals carry the weight:
 
 1. **Not for yourself.** You have a session; set your own password in
    Settings.
@@ -294,7 +294,13 @@ household, allowed in, and have no password. Three refusals carry the weight:
    without asking for the old one — a reset. A reset another member can
    perform is a takeover, so they change their own in Settings, and a
    forgotten one is reset by whoever runs the server.
-3. **Not for somebody who holds records the issuer cannot see**: a private
+3. **Not for somebody who has ever signed in.** A member who signs in with
+   Google or OIDC has no password either, and a link made for them would add
+   a second way in that they never asked for — a takeover by another route.
+   Every sign-in sets `last_seen_at`, so only somebody who has never been in
+   counts as a newcomer; anyone else sets their own password in Settings or
+   gets a link from whoever runs the server.
+4. **Not for somebody who holds records the issuer cannot see**: a private
    account or insurance policy, a personal budget with anything in it, saved
    statement-password details (PAN, date of birth), a connected mailbox, or
    tax figures. Whoever makes a link can use it instead of passing it on — set
@@ -303,9 +309,9 @@ household, allowed in, and have no password. Three refusals carry the weight:
    pressed a button. The refusal says only *that* there is something private,
    never what, and names the server command.
 
-The second and third rules are checked again when the link is used, against
+The last three rules are checked again when the link is used, against
 the member who made it: a link made for a newcomer who has since opened a
-private account, or who has since set a password some other way, does not
+private account, signed in some other way, or set a password, does not
 work — and nor does one made by a member who has since been removed.
 
 **The server command** (`npm run password-link`, in

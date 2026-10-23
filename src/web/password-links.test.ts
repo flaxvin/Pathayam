@@ -235,6 +235,32 @@ describe("who may press the button", () => {
     } finally { await app.close(); }
   });
 
+  test("not for somebody who already signs in with Google — a second way in behind their back", async () => {
+    const db = household();
+    execute(db, `UPDATE members SET google_sub = ?, last_seen_at = ? WHERE id = ?`, "g-priya", nowIST(), "m-priya");
+    const app = await ravisApp(db);
+    try {
+      const { res, page, token } = await makeLink(app);
+      assert.equal(res.status, 422);
+      assert.equal(token, "");
+      assert.match(page, /npm run password-link/);
+      assert.equal(hasPassword(db, "m-priya"), false);
+    } finally { await app.close(); }
+  });
+
+  test("a link made for a newcomer stops working once they have signed in some other way", async () => {
+    const db = household();
+    const app = await ravisApp(db);
+    try {
+      const { token } = await makeLink(app);
+      assert.ok(token);
+      execute(db, `UPDATE members SET last_seen_at = ? WHERE id = ?`, nowIST(), "m-priya");
+      const res = await setupWith(app, token);
+      assert.equal(res.status, 410);
+      assert.equal(hasPassword(db, "m-priya"), false);
+    } finally { await app.close(); }
+  });
+
   test("not for somebody holding private records — the server command is named instead", async () => {
     const db = household();
     createAccount(db, { memberId: "m-priya", source: "ui" }, {
