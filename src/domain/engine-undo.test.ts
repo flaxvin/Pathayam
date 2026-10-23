@@ -96,10 +96,11 @@ describe("a transfer already reversed is not reversed again by its other entries
       fromAccountId: bank, toAccountId: card, amount: 519_000, date: "2026-03-28",
     });
     assert.equal(undoEvent(db, eventFor(db, "transfer", out.transfer_pair_id!, "create"), actor).ok, true);
-    assert.throws(
-      () => undoEvent(db, eventFor(db, "transaction", back.id, "create"), actor),
-      /already/,
-    );
+    // D8d · Refused by checkUndo now — the same check Activity reads, so the
+    // button is not offered — rather than thrown from inside the handler.
+    const second = undoEvent(db, eventFor(db, "transaction", back.id, "create"), actor);
+    assert.equal(second.ok, false);
+    assert.match(second.reason ?? "", /already/);
     // Nothing was logged for the refused undo.
     const undos = queryAll(db, `SELECT id FROM events WHERE action = 'undo'`);
     assert.equal(undos.length, 1);
@@ -111,10 +112,10 @@ describe("a transfer already reversed is not reversed again by its other entries
       fromAccountId: bank, toAccountId: card, amount: 519_000, date: "2026-03-28",
     });
     assert.equal(undoEvent(db, eventFor(db, "transaction", out.id, "create"), actor).ok, true);
-    assert.throws(
-      () => undoEvent(db, eventFor(db, "transfer", out.transfer_pair_id!, "create"), actor),
-      /already/,
-    );
+    const second = undoEvent(db, eventFor(db, "transfer", out.transfer_pair_id!, "create"), actor);
+    assert.equal(second.ok, false);
+    assert.match(second.reason ?? "", /already/);
+    assert.equal(queryAll(db, `SELECT id FROM events WHERE action = 'undo'`).length, 1);
   });
 });
 

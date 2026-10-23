@@ -9,7 +9,7 @@
 
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
-import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
+import { appendEvent, registerUndoHandler, type Actor, type LoggedEvent } from "../core/events.ts";
 import { nowIST, todayIST, formatDate, addDays, type IsoDate } from "../core/dates.ts";
 import { Missing, Refusal } from "../core/refusal.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
@@ -1379,6 +1379,29 @@ export function eraseTransaction(db: DB, id: string | null | undefined): void {
   execute(db, `DELETE FROM transactions WHERE id = ?`, id);
 }
 
+/**
+ * Already gone — by the transfer's own undo, a delete, or the partner leg's
+ * undo. Removing it "again" would report a change that is not made. Shared by
+ * the handler and its precheck (D8d), so Activity offers no Undo the handler
+ * would answer with this sentence.
+ */
+function createdRowGone(db: DB, event: LoggedEvent): string | null {
+  if (event.before) return null;
+  const row = getTransaction(db, event.entityId!);
+  if (row && !row.deleted_at) return null;
+  return row?.transfer_pair_id
+    ? "That transfer has already been removed."
+    : "That transaction has already been removed.";
+}
+
+function transferGone(db: DB, event: LoggedEvent): string | null {
+  const live = queryOne<{ n: number }>(
+    db, `SELECT COUNT(*) AS n FROM transactions WHERE transfer_pair_id = ? AND deleted_at IS NULL`,
+    event.entityId!,
+  )!.n;
+  return live === 0 ? "That transfer has already been removed." : null;
+}
+
 registerUndoHandler("transaction", (db, event) => {
   const before = event.before as Transaction | undefined;
   if (!before) {
@@ -1395,15 +1418,8 @@ registerUndoHandler("transaction", (db, event) => {
      * already acts on both legs; this was the one that did not.
      */
     const row = getTransaction(db, event.entityId!);
-    // Already gone — by the transfer's own undo, a delete, or the partner
-    // leg's undo. Removing it "again" would report a change that is not made.
-    if (!row || row.deleted_at) {
-      throw new UndoRefused(
-        row?.transfer_pair_id
-          ? "That transfer has already been removed."
-          : "That transaction has already been removed.",
-      );
-    }
+    const gone = createdRowGone(db, event);
+    if (gone || !row) throw new UndoRefused(gone ?? "That transaction has already been removed.");
     const ids = row?.transfer_pair_id
       ? queryAll<{ id: string }>(
         db, `SELECT id FROM transactions WHERE transfer_pair_id = ?`, row.transfer_pair_id,
@@ -1667,7 +1683,7 @@ registerUndoHandler("transaction", (db, event) => {
   return typeof snapshot.amount === "number"
     ? `Restored the transaction of ${formatPaise(Math.abs(snapshot.amount) as Paise)}`
     : `Restored the transaction`;
-});
+}, undefined, createdRowGone);
 
 /**
  * MONEY-CORE-5 · The charge createTransfer wrote beside the pair, from the
@@ -1706,11 +1722,8 @@ registerUndoHandler("transfer", (db, event) => {
    */
   const feeId = transferFeeId(db, event.entityId!, event.after);
 
-  const live = queryOne<{ n: number }>(
-    db, `SELECT COUNT(*) AS n FROM transactions WHERE transfer_pair_id = ? AND deleted_at IS NULL`,
-    event.entityId!,
-  )!.n;
-  if (live === 0) throw new UndoRefused("That transfer has already been removed.");
+  const gone = transferGone(db, event);
+  if (gone) throw new UndoRefused(gone);
   refuseClosedAccounts(db, withPair(db, "", event.entityId!), UndoRefused);
 
   const now = nowIST();
@@ -1719,7 +1732,7 @@ registerUndoHandler("transfer", (db, event) => {
     execute(db, `UPDATE transactions SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`, now, feeId);
   }
   return feeId ? `Reversed the transfer and its charge` : `Reversed the transfer`;
-});
+}, undefined, transferGone);
 
 registerUndoHandler("payee", (db, event) => {
   const before = event.before as Payee | undefined;
