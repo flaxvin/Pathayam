@@ -250,6 +250,71 @@ successful sign-in.
   entered, not the credentials they held: they set a new password, and the
   person re-adding them is told so. Otherwise re-adding somebody silently
   reopened a password known to whoever learned it while they were away.
+  Removal also deletes any password link made for them and not yet used.
+
+### Password links
+
+A household with no Google or OIDC sign-in needs some way to give a newly
+invited (or re-added) member their first password: `/settings/password` needs a
+session, and `/auth/first-run` closes once anybody is in. A password link is
+that way. Code: `src/auth/setup-links.ts`.
+
+- **The token** is 32 random bytes, base64url. Only its SHA-256 is stored, in
+  `password_setup_links`, so a copy of the database, a backup or an export
+  holds no working link. The raw token is shown once — rendered on the page
+  that made it (never in a redirect, a notice or a query string), or printed by
+  the server command — and is kept out of the event log (which records that a
+  link was made and used, by whom and for whom, never the token or its hash)
+  and out of logged paths (`redactedPath` in `src/http/server.ts`, used for log
+  lines and `request_failures`).
+- **Expiry and single use.** A link lasts 72 hours and sets a password once.
+  Making another for the same member deletes their earlier unused ones, so at
+  most one works. A link that is unknown, used, expired, or no longer suitable
+  (below) answers in one set of words with 410, so a holder of a stale link
+  learns nothing about which it is.
+- **The page.** `/auth/setup/<token>` works signed out. It is sent with
+  `Cache-Control: no-store` and `Referrer-Policy: strict-origin`, so the path —
+  which is the credential — is never sent as a Referer, not even to this app's
+  own stylesheet. Not `no-referrer`: under that policy browsers send
+  `Origin: null` on the form's POST, which the same-origin write check refuses;
+  `strict-origin` gives the same guarantee for the token and leaves that check
+  untouched. The POST is rate limited per source address like
+  `/auth/password`, and a link that does not work counts as a failed attempt.
+  A password is set in one transaction with the link being spent; one the
+  rules refuse leaves the link usable.
+
+**Who may make one.** Any signed-in member, for another member — all members
+are peers, and any of them can already add people to the household. Not on the
+demo, and not while viewing as somebody else. The target must be in the
+household, allowed in, and have no password. Three refusals carry the weight:
+
+1. **Not for yourself.** You have a session; set your own password in
+   Settings.
+2. **Not for somebody who already has a password.** A link sets a password
+   without asking for the old one — a reset. A reset another member can
+   perform is a takeover, so they change their own in Settings, and a
+   forgotten one is reset by whoever runs the server.
+3. **Not for somebody who holds records the issuer cannot see**: a private
+   account or insurance policy, a personal budget with anything in it, saved
+   statement-password details (PAN, date of birth), a connected mailbox, or
+   tax figures. Whoever makes a link can use it instead of passing it on — set
+   the password, sign in as that member and read everything private to them.
+   Per-member privacy (`docs/privacy.md`) would hold only until somebody
+   pressed a button. The refusal says only *that* there is something private,
+   never what, and names the server command.
+
+The second and third rules are checked again when the link is used, against
+the member who made it: a link made for a newcomer who has since opened a
+private account, or who has since set a password some other way, does not
+work — and nor does one made by a member who has since been removed.
+
+**The server command** (`npm run password-link`, in
+[operations](operations.md#password-links)) is how the refused cases are
+handled. It is held only to the rules about the target — in the household,
+and no password unless `--reset` is given — because whoever runs the server can
+already read the database file (out of scope above), so a link from there
+discloses nothing new. `--reset` clears an existing password and signs the
+member out everywhere before the link is made.
 
 ### Errors the household is allowed to see
 

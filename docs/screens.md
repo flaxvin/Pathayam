@@ -134,6 +134,7 @@ answer 404 when the viewer may not see the entity
 | `POST /settings/theme`, `POST /settings/theme-toggle` | |
 | `POST /settings/overspend-model`, `/settings/identity`, `/settings/digest`, `/settings/learning` | |
 | `POST /members/invite`, `GET` and `POST /members/:id/remove` | |
+| `POST /members/:id/password-link` | A one-time link that sets another member's first password, shown once on the page it returns. |
 | `POST /budgets/personal` | Start a personal budget. |
 | `GET` and `POST /tokens`, `POST /tokens/:id/revoke` | |
 | `POST /sessions/revoke` | |
@@ -150,6 +151,7 @@ answer 404 when the viewer may not see the entity
 | `POST /net-worth/snapshot` | Take a net-worth snapshot. |
 | `GET /export.json`, `GET /export.csv` | Complete export, excluding secrets. |
 | `GET /signin`, `POST /signout` | |
+| `GET` and `POST /auth/setup/:token` | A password link, opened signed out: choose a password, and be signed in. Works once, for 72 hours. |
 | `GET /auth/google`, `GET /auth/google/callback` | |
 | `POST /demo/enter` | Only when `DEMO_MODE` is set. |
 | `GET /terms`, `GET /privacy` | Public; required by Google's consent screen. |
