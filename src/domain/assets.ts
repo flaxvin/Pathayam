@@ -896,12 +896,21 @@ export interface HoldingView {
 
 export function viewHolding(
   db: DB, holdingId: string, asOf = todayIST(), baseCurrency = "INR",
+  /**
+   * DEBUG-ASSETS-6 · Only the open lots bought by `asOf`. A change between
+   * two dates must not price a lot bought in between as though it was held
+   * at the start.
+   */
+  opts: { boughtBy?: boolean } = {},
 ): HoldingView | null {
   const record = queryOne<HoldingRecord>(db, `SELECT * FROM holdings WHERE id = ?`, holdingId);
   if (!record) return null;
 
   const instrument = getInstrument(db, record.instrument_id)!;
-  const holding = holdingOf(db, holdingId);
+  const open = holdingOf(db, holdingId);
+  const holding = opts.boughtBy
+    ? { lots: open.lots.filter((lot) => lot.tradeDate <= asOf) }
+    : open;
   const quote = latestPrice(db, instrument.id, asOf);
   const fx =
     instrument.currency === baseCurrency
