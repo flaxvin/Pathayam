@@ -910,6 +910,23 @@ describe("R12 · Buffer and the fully-funded month", () => {
     assert.equal(buffer.reading, "You have 47 days of typical spending already assigned.");
   });
 
+  test("UI-PASS-10 · a buffer of years is said in years, not 69398 days", () => {
+    const state = computeBudget(
+      new Scenario()
+        .category("savings")
+        .income(AUG, 30_00_000)
+        .assign(AUG, "savings", 30_00_000)
+        .build(),
+    ).get(AUG)!;
+    const buffer = computeBuffer(
+      state.categories,
+      [{ id: "savings", name: "Savings", groupId: "g", hidden: false, paymentAccountId: null }],
+      rupees(100),
+    );
+    assert.equal(buffer.days, 30_000);
+    assert.equal(buffer.reading, "You have more than 82 years of typical spending already assigned.");
+  });
+
   test("excludes credit-card payment categories, which are committed to past debt", () => {
     const input = new Scenario()
       .category("groceries")

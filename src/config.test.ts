@@ -87,6 +87,21 @@ describe("R38.3 · the dev login bypass refuses to start near production", () =>
     const config = loadConfig({ ...base, DEV_LOGIN: "true", BASE_URL: "http://[::1]:8080" });
     assert.deepEqual(productionIndicators(config), []);
   });
+  test("DEBUG-WEB-2 · a public name that merely begins like a LAN address is public", () => {
+    for (const url of [
+      "https://10.example.com", "https://192.168.example.com", "https://172.16.pathayam.example",
+    ]) {
+      assert.throws(
+        () => loadConfig({ ...base, DEV_LOGIN: "true", BASE_URL: url }),
+        (err: unknown) => err instanceof UnsafeConfiguration && /public hostname/.test(err.message),
+        url,
+      );
+    }
+    // The real addresses are still local.
+    for (const url of ["http://10.0.0.5:8080", "http://172.20.1.2", "http://192.168.0.1"]) {
+      assert.deepEqual(productionIndicators(loadConfig({ ...base, DEV_LOGIN: "true", BASE_URL: url })), [], url);
+    }
+  });
   test("is off by default (R38.2)", () => {
     assert.equal(loadConfig(base).devLogin, false);
   });
@@ -106,6 +121,28 @@ describe("SECURITY-OPS-27 · LOG_LEVEL is read, not cast", () => {
       (err: unknown) => err instanceof InvalidConfiguration && /debug, info, warn, error/.test(err.message),
     );
   });
+});
+
+/*
+ * DEBUG-WEB-9 · SESSION_DAYS=3000000 put the expiry past year 9999, where the
+ * date string sorts before today and every new session expired on arrival;
+ * 99999999 threw on the first sign-in. Ten years is the most it takes.
+ */
+describe("DEBUG-WEB-9 · SESSION_DAYS is bounded at startup", () => {
+  test("up to ten years is taken as given", () => {
+    assert.equal(loadConfig({ ...base, SESSION_DAYS: "3650" }).sessionDays, 3650);
+    assert.equal(loadConfig({ ...base, SESSION_DAYS: " 7 " }).sessionDays, 7);
+    assert.equal(loadConfig({ ...base, SESSION_DAYS: "" }).sessionDays, 30);
+  });
+
+  for (const value of ["3000000", "99999999", "3651", "0", "-5", "1.5", "a month"]) {
+    test(`'${value}' stops the process and says what it takes`, () => {
+      assert.throws(
+        () => loadConfig({ ...base, SESSION_DAYS: value }),
+        (err: unknown) => err instanceof InvalidConfiguration && /SESSION_DAYS/.test(err.message) && /3650/.test(err.message),
+      );
+    });
+  }
 });
 
 describe("defaults", () => {

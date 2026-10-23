@@ -288,8 +288,17 @@ h3 { font-size: 1rem; }
 .app-header .spacer { flex: 1; }
 
 main { padding: 1rem; max-width: 1200px; margin: 0 auto; }
+/*
+ * UI-PASS-6 · A name is whatever the household typed. One long unbroken one —
+ * a pasted reference, an email address — pushed the page sideways on every
+ * screen that showed it, and a select sized itself to its longest option.
+ * break-word wraps it only where nothing else fits; it does not change how
+ * anything that already fits is laid out.
+ */
+main { overflow-wrap: break-word; }
+select { min-width: 0; max-width: 100%; text-overflow: ellipsis; }
 @media (min-width: 900px) {
-  .with-sidebar { display: grid; grid-template-columns: 220px 1fr; gap: 1.5rem; max-width: 1400px; margin: 0 auto; }
+  .with-sidebar { display: grid; grid-template-columns: 220px minmax(0, 1fr); gap: 1.5rem; max-width: 1400px; margin: 0 auto; }
   /* B62: the auto margin above centres the single-column layout, but on a grid
      item an auto margin also makes the item shrink to its max-content width and
      sit centred in its track. That left the budget grid 836px wide inside a
@@ -548,6 +557,9 @@ td.num, th.num { text-align: right; font-variant-numeric: tabular-nums; }
 }
 .chip-positive { background: var(--positive-bg); color: var(--positive); }
 .chip-warning  { background: var(--warning-bg);  color: var(--warning); }
+/* UIQ-5 · An uncleared register row is quieter in its own text, not by opacity,
+   which took every chip and amount in the row below AA with it. */
+.row-uncleared > td { color: var(--text-muted); }
 .chip-danger   { background: var(--danger-bg);   color: var(--danger); }
 .chip-info     { background: var(--info-bg);     color: var(--accent); }
 
@@ -716,4 +728,27 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
 .overview-items { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .overview-list .amount { white-space: nowrap; }
 .scope-tabs { display: flex; flex-wrap: wrap; gap: .4rem; }
+/* A quiet disclosure under a card ("Edit or remove"): compact under a mouse. */
+.summary-small {
+  min-height: 36px; display: flex; align-items: center; cursor: pointer;
+  color: var(--text-muted); font-size: .9rem;
+}
+
+/*
+ * D5 · A finger gets the full tap target; a mouse keeps the compact rows.
+ *
+ * The small controls above are 34px (38px for an assign box) because on a
+ * desktop a row of 44px buttons is a row of slabs. Under a thumb that is a miss
+ * waiting to happen, and docs/screens.md promises 44px. So whenever the primary
+ * pointer is coarse, everything that set a smaller min-height is lifted to
+ * --tap. Last in the sheet, so it outranks those rules at equal specificity.
+ */
+@media (pointer: coarse) {
+  .button-small,
+  .scope-switch a,
+  .assign-cell input,
+  .summary-small {
+    min-height: var(--tap);
+  }
+}
 `;

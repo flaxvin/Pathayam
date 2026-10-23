@@ -4,7 +4,7 @@ import { openDatabase, ensureHousehold, execute, type DB } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { nowIST } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
-import { historyFor, undoEvent } from "../core/events.ts";
+import { historyFor, undoEvent, checkUndo } from "../core/events.ts";
 import { createAccount } from "./accounts.ts";
 import { createTransaction } from "./transactions.ts";
 import {
@@ -100,6 +100,19 @@ describe("Q10 · receipt attachments", () => {
     const meta = addAttachment(db, actor, { transactionId: txnId, filename: "r.jpg", bytes: PHOTO });
     assert.equal(deleteAttachment(db, actor, meta.id), txnId);
     assert.equal(listAttachments(db, txnId).length, 0);
+    db.close();
+  });
+
+  test("a removal is not offered as undoable — the bytes went with it", () => {
+    const { db, txnId } = setup();
+    const meta = addAttachment(db, actor, { transactionId: txnId, filename: "r.jpg", bytes: PHOTO });
+    deleteAttachment(db, actor, meta.id);
+    const removal = historyFor(db, "attachment", meta.id).find((e) => e.action === "delete")!;
+    assert.equal(checkUndo(db, removal.id).ok, false, "Activity offered an Undo that restores nothing");
+    const result = undoEvent(db, removal.id, actor);
+    assert.equal(result.ok, false);
+    assert.equal(historyFor(db, "attachment", meta.id).find((e) => e.id === removal.id)!.undoneByEventId, null,
+      "the removal was marked undone while the receipt stayed gone");
     db.close();
   });
 

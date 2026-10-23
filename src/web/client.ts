@@ -211,6 +211,7 @@ export const CLIENT_SCRIPT = String.raw`
           var currentNav = document.querySelector(selector);
           if (freshNav && currentNav) currentNav.innerHTML = freshNav.innerHTML;
         });
+        syncThemeToggle();
 
         if (doc.title) document.title = doc.title;
         // Keep the address bar truthful even when the scroll is held: a month
@@ -243,8 +244,16 @@ export const CLIENT_SCRIPT = String.raw`
     window.location.reload();
   });
 
-  function submitWithRetry(form) {
-    var submitButton = form.querySelector('button[type="submit"], button:not([type])');
+  function submitWithRetry(form, submitter) {
+    /*
+     * The pressed button decides where the form goes and what it adds: Review's
+     * "No thanks" carries formaction="/rules/dismiss", and the Move screen's
+     * suggestions each name their source. Posting form.action with only the
+     * form's own fields confirmed a rule the household had just declined.
+     */
+    if (submitter && submitter.form !== form) submitter = null;
+    var action = submitter && submitter.hasAttribute("formaction") ? submitter.formAction : form.action;
+    var submitButton = submitter || form.querySelector('button[type="submit"], button:not([type])');
     var originalLabel = submitButton ? submitButton.textContent : null;
     var key = form.dataset.idempotencyKey || newKey();
     form.dataset.idempotencyKey = key;
@@ -266,9 +275,14 @@ export const CLIENT_SCRIPT = String.raw`
       }
       setStatus(form, attempt === 0 ? "Saving…" : "Still trying…", null);
 
-      var body = new URLSearchParams(new FormData(form));
+      var formData = new FormData(form);
+      // Set by hand rather than FormData(form, submitter), which older Safari
+      // does not take. Set, not appended: a suggestion button shares its name
+      // with the select below it, and the button pressed is the answer.
+      if (submitter && submitter.name) formData.set(submitter.name, submitter.value);
+      var body = new URLSearchParams(formData);
 
-      fetch(form.action, {
+      fetch(action, {
         method: "POST",
         headers: {
           "Content-Type": "application/x-www-form-urlencoded",
@@ -337,6 +351,13 @@ export const CLIENT_SCRIPT = String.raw`
   document.addEventListener("submit", function (event) {
     var form = event.target;
     if (!(form instanceof HTMLFormElement)) return;
+    // UI-PASS · A form that asks first says so in data-confirm. The CSP refuses
+    // inline handlers, so the old onsubmit="return confirm(...)" never ran and
+    // Delete and Merge went through without asking.
+    if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) {
+      event.preventDefault();
+      return;
+    }
     if (form.method.toLowerCase() !== "post") return;
     if (form.dataset.noRetry === "true") return;
     if (!window.fetch) return; // Plain form post still works without JS.
@@ -352,8 +373,33 @@ export const CLIENT_SCRIPT = String.raw`
       return;
     }
     event.preventDefault();
-    submitWithRetry(form);
+    submitWithRetry(form, event.submitter);
   });
+
+  /*
+   * UIQ-4 · On "system" the page carries no data-theme and the server, which
+   * cannot see the device, offers dark. On a phone already in dark mode that
+   * press stored "dark" and changed nothing. The device knows; ask it.
+   */
+  function deviceShowsDark() {
+    var forced = document.documentElement.getAttribute("data-theme");
+    if (forced) return forced === "dark";
+    return Boolean(window.matchMedia && window.matchMedia("(prefers-color-scheme: dark)").matches);
+  }
+  function syncThemeToggle() {
+    if (document.documentElement.getAttribute("data-theme")) return;
+    var form = document.querySelector("form[action='/settings/theme']");
+    if (!form || !deviceShowsDark()) return;
+    var input = form.querySelector("input[name='theme']");
+    var button = form.querySelector("button");
+    if (input) input.value = "light";
+    if (button) {
+      button.setAttribute("aria-label", "Switch to light theme");
+      button.setAttribute("title", "Switch to light theme");
+      button.textContent = "\u2600";
+    }
+  }
+  syncThemeToggle();
 
   // Carry the current URL into the theme toggle so it returns you here (R39.5).
   document.querySelectorAll('input[name="return_to"]').forEach(function (input) {
@@ -575,7 +621,8 @@ export const CLIENT_SCRIPT = String.raw`
   // ---------------------------------------------------------------------------
   function applyUsualCategory() {
     var payee = document.getElementById("payee");
-    var category = document.getElementById("category_id");
+    // The envelope is the first of the split lines; category_id is its old name.
+    var category = document.getElementById("category_id") || document.getElementById("split_category_0");
     if (!payee || !category || category.value !== "") return;
 
     var list = document.getElementById("payee-options");
@@ -734,6 +781,11 @@ export const CLIENT_SCRIPT = String.raw`
     back.name = "return_to";
     back.value = window.location.pathname + window.location.search;
     form.appendChild(back);
+    var seen = document.createElement("input");
+    seen.type = "hidden";
+    seen.name = "seen";
+    seen.value = deviceShowsDark() ? "dark" : "light";
+    form.appendChild(seen);
     document.body.appendChild(form);
     form.submit();
   }
@@ -787,7 +839,7 @@ export const CLIENT_SCRIPT = String.raw`
    */
   (function explainCrossBudgetFiling() {
     var account = document.getElementById("account_id");
-    var category = document.getElementById("category_id");
+    var category = document.getElementById("category_id") || document.getElementById("split_category_0");
     var note = document.querySelector("[data-cross-budget]");
     if (!account || !category || !note) return;
 
@@ -893,7 +945,8 @@ export const CLIENT_SCRIPT = String.raw`
     dialog.showModal();
 
     fetch(link.getAttribute("href"), {
-      headers: { Accept: "text/html" },
+      // UIQ-1: ask for the fragment; a navigation to the same URL gets a page.
+      headers: { Accept: "text/html", "X-Fragment": "1" },
       credentials: "same-origin",
     })
       .then(function (r) {

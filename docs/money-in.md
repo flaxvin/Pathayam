@@ -199,6 +199,13 @@ private account ending in the same digits is never a candidate. The ones that
 member holds are preferred; if two still match, the alert is left alone with a
 note rather than guessed. A statement attachment is routed the same way.
 
+A statement attachment's password is derived as for an upload, and gets the
+card digits too: the last four of the one account at the sender's bank it
+routes to, and of that account's cards. When the route is unknown — no account
+at that bank, or several — the digits of every account and card the member can
+see are tried instead, so a statement that opens but has nowhere to go is
+reported as unmatched rather than as one that would not open.
+
 A message from an alert sender that reads like a transaction — an amount beside
 "spent", "debited" or "credited" — but that no profile can read is not dropped
 in silence: the fetch's summary counts the alerts it could not read, so they
@@ -311,7 +318,15 @@ suppression so the same suggestion is not made again.
 ## Undoing an import
 
 An entire batch can be undone from `/import`, which removes the transactions it
-created and marks the batch `undone_at`.
+created and marks the batch `undone_at`. A row of it that was merged into a
+transaction already in the ledger has that merge reversed (cleared, payee and
+raw fields as they were), unless the transaction changed since, when it is
+left and listed with the edited records. A row that upgraded an earlier
+transaction automatically (the `strong` tier — a statement line arriving after
+its alert) is reversed the same way: the upgrade's event names the batch, and
+the transaction's cleared flag, memo and raw fields go back to what they were
+before it, unless the transaction changed since, when it is left and listed.
+Undoing a merge on its own, from Activity, returns its imported row to Review.
 
 Importing the same file again after an undo stages its rows afresh, and they
 can be approved: the undone transactions give up their `source_id` (it is

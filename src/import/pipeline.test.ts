@@ -1,7 +1,8 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { openDatabase, ensureHousehold, execute, queryOne, queryAll, newId, type DB } from "../db/db.ts";
-import type { Actor } from "../core/events.ts";
+import { historyFor, undoEvent, type Actor } from "../core/events.ts";
+import "../domain/transactions.ts";
 import { nowIST } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import { createAccount } from "../domain/accounts.ts";
@@ -158,6 +159,48 @@ describe("04 §4 · duplicates through the pipeline", () => {
     assert.ok(flagged.duplicate_reason, "the match reason is stated, never just 'duplicate'");
     // N3 / I4: surfaced for a decision, not silently dropped.
     assert.equal(flagged.status, "pending");
+    db.close();
+  });
+
+  test("undoing a merge from Activity returns the imported row to Review", () => {
+    // The transaction went back to what it was, but the review item stayed
+    // 'merged' into it — the bank's row was in neither the ledger nor Review.
+    const { db, account, group } = setup();
+    const eatingOut = createCategory(db, actor, { groupId: group.id, name: "Eating Out" });
+    const manual = createTransaction(db, actor, {
+      accountId: account.id, amount: rupees(-450), date: "2026-08-03", categoryId: eatingOut.id,
+    });
+    importStatement(db, account.id);
+    const flagged = listStaged(db).find((r) => r.duplicate_of_id !== null)!;
+    mergeStaged(db, actor, flagged.id);
+    const merge = historyFor(db, "transaction", manual.id).find((e) => e.action === "merge")!;
+    assert.equal(undoEvent(db, merge.id, actor, { force: true }).ok, true);
+
+    const back = listStaged(db).find((r) => r.id === flagged.id);
+    assert.ok(back, "the imported row is waiting in Review again");
+    assert.equal(back!.transaction_id, null);
+    db.close();
+  });
+
+  test("undoing an import puts back what merging its row changed", () => {
+    const { db, account, group } = setup();
+    const eatingOut = createCategory(db, actor, { groupId: group.id, name: "Eating Out" });
+    const manual = createTransaction(db, actor, {
+      accountId: account.id, amount: rupees(-450), date: "2026-08-03", categoryId: eatingOut.id,
+    });
+    const outcome = importStatement(db, account.id);
+    const flagged = listStaged(db).find((r) => r.duplicate_of_id !== null)!;
+    mergeStaged(db, actor, flagged.id);
+
+    undoBatch(db, actor, outcome.batch.id);
+    const tx = queryOne<{ cleared: number; raw_narration: string | null }>(
+      db, `SELECT cleared, raw_narration FROM transactions WHERE id = ?`, manual.id,
+    )!;
+    assert.equal(tx.cleared, 0, "the undone statement no longer vouches for it");
+    assert.equal(tx.raw_narration, null, "nor does its narration stay behind");
+    assert.equal(queryOne<{ status: string }>(db,
+      `SELECT status FROM staged_transactions WHERE id = ?`, flagged.id)!.status, "rejected");
+    assertIdentity(db, "after undoing a merged import");
     db.close();
   });
 
@@ -613,6 +656,34 @@ describe("04 §4 · the strong tier is one event, not a standing instruction", (
     const later = importStatement(db, account.id, `Date,Narration,Chq./Ref.No.,Withdrawal Amt.,Deposit Amt.
 06-08-2026,UPI-SWIGGY-431202847592,431202847592,450.00,`, "statement.csv");
     assert.equal(later.staged, 0);
+    assert.equal(queryOne<{ n: number }>(db,
+      `SELECT COUNT(*) AS n FROM transactions WHERE deleted_at IS NULL`)!.n, 1);
+    db.close();
+  });
+
+  /*
+   * DEBUG-IMPORT-14 · HDFC's Chq./Ref.No. column prints a UPI reference padded
+   * to sixteen digits ("0000431202847592"); the alert and the narration carry
+   * the twelve-digit RRN. Compared as text they differed, so the statement
+   * line two days after its alert matched no tier and the ₹450 was staged a
+   * second time with no flag at all.
+   */
+  test("a reference padded with zeros is the same reference", () => {
+    const { db, account, anyCategory } = setup();
+    ingest(db, actor, {
+      accountId: account.id, source: "email", adapter: "email:zz",
+      records: [{
+        rowNumber: 0, date: "2026-08-03", amount: -45000,
+        narration: "UPI/P2M/431202847592/SWIGGY", reference: "431202847592",
+        raw: { date: "03-08-26", amount: "INR 450.00", narration: "UPI/P2M/431202847592/SWIGGY" },
+      }],
+    });
+    for (const row of listStaged(db)) approveStaged(db, actor, row.id, { categoryId: anyCategory });
+
+    const later = importStatement(db, account.id, `Date,Narration,Chq./Ref.No.,Withdrawal Amt.,Deposit Amt.
+05-08-2026,UPI-BUNDL TECHNOLOGIES-bundl@icici-ICIC0DC0099-431202847592-Payment,0000431202847592,450.00,`, "statement.csv");
+    assert.equal(later.staged, 0, "the statement line upgrades the alert's transaction");
+    assert.equal(later.duplicates, 1);
     assert.equal(queryOne<{ n: number }>(db,
       `SELECT COUNT(*) AS n FROM transactions WHERE deleted_at IS NULL`)!.n, 1);
     db.close();

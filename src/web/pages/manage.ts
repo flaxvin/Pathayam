@@ -535,7 +535,7 @@ export function renderCategories(
               -->
               ${when(g.kind === "normal", () => html`
                 <form method="post" action="/groups/${g.id}/delete"
-                      onsubmit="return confirm('Delete this empty group?')">
+                      data-confirm="Delete this empty group?">
                   <button class="button-small button-danger" type="submit"
                           ${raw(g.categories.length > 0
                             ? 'disabled title="Move or delete its envelopes first"'
@@ -598,7 +598,7 @@ export function renderCategories(
                       <button class="button-small button-quiet" type="submit">${c.hidden ? "Unhide" : "Hide"}</button>
                     </form>
                     <form method="post" action="/categories/${c.id}/merge" class="row" style="gap:.4rem"
-                          onsubmit="return confirm('Merge this category into the one chosen? Its balance, history and target move across, and this one goes away.')">
+                          data-confirm="Merge this category into the one chosen? Its balance, history and target move across, and this one goes away.">
                       <label class="sr-only" for="merge-${c.id}">Merge into</label>
                       <select id="merge-${c.id}" name="winner_id" required style="max-width:11rem">
                         <option value="">Merge into…</option>
@@ -607,7 +607,7 @@ export function renderCategories(
                       <button class="button-small button-quiet" type="submit">Merge</button>
                     </form>
                     <form method="post" action="/categories/${c.id}/delete"
-                          onsubmit="return confirm('Delete this category? It must be empty and have no spending filed to it — merge it into another otherwise.')">
+                          data-confirm="Delete this category? It must be empty and have no spending filed to it — merge it into another otherwise.">
                       <button class="button-small button-danger" type="submit"
                               ${raw(c.balance !== 0 ? "disabled title=\"Move its balance out first\"" : "")}>Delete</button>
                     </form>

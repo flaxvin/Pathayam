@@ -268,8 +268,18 @@ export interface HraInput {
   rentPaid: Paise;
   /** Basic salary plus dearness allowance, for the year. */
   basic: Paise;
-  /** Delhi, Mumbai, Kolkata or Chennai. */
+  /** Rented in one of `hraFiftyPercentCities(fy)`. */
   metro: boolean;
+}
+
+/**
+ * The cities whose HRA share is half of basic rather than 40%. Income-tax
+ * Rules 2026 (CBDT Notification 22/2026, in force 1 April 2026) added
+ * Bengaluru, Hyderabad, Pune and Ahmedabad; years before keep the four.
+ */
+export function hraFiftyPercentCities(fy: number): string[] {
+  const four = ["Delhi", "Mumbai", "Kolkata", "Chennai"];
+  return fy >= 2026 ? [...four, "Bengaluru", "Hyderabad", "Pune", "Ahmedabad"] : four;
 }
 
 /**

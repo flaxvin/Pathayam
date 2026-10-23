@@ -23,7 +23,7 @@ import { renderScopeSwitch, scopeName } from "./scope-switch.ts";
  * page in the last hour — a stale app.js is exactly how a client-side bug
  * "survives" a deploy. The hash makes the fresh HTML request the new file.
  */
-const ASSET_VERSION = {
+export const ASSET_VERSION = {
   js: createHash("sha256").update(CLIENT_SCRIPT).digest("hex").slice(0, 10),
   css: createHash("sha256").update(STYLESHEET).digest("hex").slice(0, 10),
 };
@@ -201,7 +201,8 @@ function renderHeader(
         and an image cannot inherit one: it is the logo taking the page's colour,
         not a tile pasted into the header.
       -->
-      <a class="brand" href="/">
+      <!-- UIQ-5 · Named, because below 480px the wordmark is hidden and the mark is aria-hidden. -->
+      <a class="brand" href="/" aria-label="Pathayam, the budget">
         ${raw(APP_LOGO_SVG.replace("<svg", '<svg class="brand-mark" width="24" height="24"'))}
         <!--
           The wordmark steps aside on a narrow screen. The header carries the

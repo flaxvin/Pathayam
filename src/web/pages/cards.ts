@@ -36,6 +36,21 @@ export interface CardDue {
   paymentCategoryId: string | null;
 }
 
+/**
+ * D8c · What "Pay it off" fills in.
+ *
+ * The whole balance offered to pay spending the bank has not billed yet. With
+ * a statement recorded it is what is left of that statement (never more than
+ * the card owes now); with none, or one already settled, the balance.
+ */
+function payItOffAmount(card: CardDue): Paise {
+  if (card.statement) {
+    const left = card.statement.amount - card.paidSinceStatement;
+    if (left > 0) return Math.min(left, card.owed) as Paise;
+  }
+  return card.owed;
+}
+
 function urgency(card: CardDue): { label: string; chip: string } | null {
   if (card.daysToDue === null) return null;
   /*
@@ -76,7 +91,9 @@ export function renderCards(opts: { cards: CardDue[]; month: string }): SafeHtml
 
   const owed = cards.reduce((sum, c) => sum + c.owed, 0) as Paise;
   const unfunded = cards.reduce((sum, c) => sum + c.unfunded, 0) as Paise;
-  const dueSoon = cards.filter((c) => c.daysToDue !== null && c.daysToDue <= 7);
+  // A statement already paid is not due, however recently it fell due (B127).
+  const dueSoon = cards.filter((c) =>
+    c.daysToDue !== null && c.daysToDue <= 7 && urgency(c)?.label !== "Paid");
 
   return html`
     <h1>Cards</h1>
@@ -186,7 +203,7 @@ function renderCard(card: CardDue, month: string): SafeHtml {
       <div class="row" style="gap:.5rem;margin-top:.75rem;flex-wrap:wrap">
         ${when(card.owed > 0, () => html`
           <a class="button button-small button-primary"
-             href="/transfer?to=${card.accountId}&amount=${(card.owed / 100).toFixed(2)}">Pay it off</a>
+             href="/transfer?to=${card.accountId}&amount=${(payItOffAmount(card) / 100).toFixed(2)}">Pay it off</a>
         `)}
         <a class="button button-small" href="/accounts/${card.accountId}/statement">Record a statement</a>
         <a class="button button-small button-quiet" href="/accounts/${card.accountId}">Register</a>

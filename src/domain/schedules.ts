@@ -1100,8 +1100,18 @@ export function projectCashflow(
         ${opts.budgetId ? "AND budget_id = ?" : ""}`,
     ...(opts.budgetId ? [opts.budgetId] : []),
   );
-  const inScope = new Set(budgetAccounts.map((a) => a.id));
-  let balance = budgetAccounts.reduce((sum, a) => sum + (balances.get(a.id)?.working ?? 0), 0);
+  /*
+   * DEBUG-ENGINE-1 · Only cash the viewer may see. Asked with no budget, as the
+   * Overview asks, this summed every open account in every budget — another
+   * member's private account in their own budget included — and listed their
+   * private card, by name, as a "due" outflow.
+   */
+  const hiddenAccounts = opts.viewerMemberId === undefined
+    ? new Set<string>()
+    : memberScope(db, opts.viewerMemberId).accounts;
+  const visibleBudgetAccounts = budgetAccounts.filter((a) => !hiddenAccounts.has(a.id));
+  const inScope = new Set(visibleBudgetAccounts.map((a) => a.id));
+  let balance = visibleBudgetAccounts.reduce((sum, a) => sum + (balances.get(a.id)?.working ?? 0), 0);
 
   const opening = balance;
   const byDate = new Map<IsoDate, CalendarDay>();
@@ -1134,7 +1144,7 @@ export function projectCashflow(
         WHERE kind = 'credit' AND closed_at IS NULL
           ${opts.budgetId ? "AND budget_id = ?" : ""}`,
       ...(opts.budgetId ? [opts.budgetId] : []),
-    ).map((card) => [card.id, card]),
+    ).filter((card) => !hiddenAccounts.has(card.id)).map((card) => [card.id, card]),
   );
 
   // Confirmed and detected schedules, distinguished (F7.8).
@@ -1153,6 +1163,14 @@ export function projectCashflow(
     const card = schedule.account_id ? cards.get(schedule.account_id) : undefined;
     if (schedule.account_id && !inScope.has(schedule.account_id) && !card) continue;
     let due: IsoDate | null = schedule.next_due;
+    /*
+     * DEBUG-ENGINE-15 · Catch a long-overdue schedule up along its own series
+     * before walking, or the 400-step guard ran out in the past: a daily bill
+     * 400 days behind projected nothing at all. A card charge is paid up to two
+     * statements later, so its walk starts that much earlier.
+     */
+    const catchUpFrom = card ? addDays(today, -70) : today;
+    if (due < catchUpFrom) due = nextOccurrence(schedule, addDays(catchUpFrom, -1));
     for (let guard = 0; due && due <= end && guard < 400; guard++) {
       const leaves = card ? cardPaymentDate(card, due) : due;
       if (leaves >= today && leaves <= end) {
@@ -1176,6 +1194,15 @@ export function projectCashflow(
    * its instalment would show as an outflow with no explanation attached to it.
    */
   for (const loan of listLoans(db, { viewerMemberId: opts.viewerMemberId })) {
+    /*
+     * And only out of this budget's cash, by the schedules' rule: the account it
+     * is repaid from must be in scope. Every visible loan was charged to every
+     * budget, so his own projection paid the household's home loan out of his
+     * savings. A loan with no repayment account is taken as cash, as a schedule
+     * with none is.
+     */
+    const repaidFrom = loan.repayment_account_id;
+    if (opts.budgetId && repaidFrom && !inScope.has(repaidFrom) && !cards.has(repaidFrom)) continue;
     const projection = projectLoan(db, loan.id);
     if (!projection) continue;
     for (const instalment of projection.schedule.instalments) {
@@ -1324,6 +1351,24 @@ registerUndoHandler("schedule", (db, event, actor) => {
     } | undefined;
     if (!prior) {
       throw new Refusal("That change was recorded without what it replaced, so it cannot be undone.");
+    }
+    /*
+     * An envelope merged or deleted since is nowhere to put a line back. It was
+     * restored anyway, so the next Mark paid was refused for the deleted
+     * envelope — and where the row was gone altogether, the insert failed on
+     * its foreign key. Refused by name, as an assignment's undo is.
+     */
+    for (const id of [prior.category_id, ...prior.lines.map((l) => l.category_id)]) {
+      if (!id) continue;
+      const row = queryOne<{ name: string; deleted_at: string | null }>(
+        db, `SELECT name, deleted_at FROM categories WHERE id = ?`, id,
+      );
+      if (!row || row.deleted_at) {
+        throw new Refusal(
+          `${row ? `"${row.name}"` : "An envelope it used"} has been merged or deleted since, so ` +
+          `there is nowhere to put the split back. Set the lines again by hand.`,
+        );
+      }
     }
     execute(db, `DELETE FROM schedule_splits WHERE schedule_id = ?`, event.entityId!);
     prior.lines.forEach((line, i) => {

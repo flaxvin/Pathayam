@@ -112,6 +112,31 @@ describe("discovery", () => {
     );
   });
 
+  test("a provider that never answers is given up on, not waited for", async () => {
+    /*
+     * A provider that accepts the connection and then says nothing held
+     * /auth/oidc open for as long as the socket lived, and every retry the
+     * person made held another. The wait is bounded like the other outbound
+     * fetches, and the give-up is an OAuthError, which the route answers 503.
+     */
+    let signalled = false;
+    const impl = ((_url: string, init?: RequestInit) => new Promise<Response>((_ok, fail) => {
+      const signal = init?.signal;
+      // Without a signal the real provider would hang for ever; fail plainly
+      // instead, so the test reports the missing timeout rather than stalling.
+      if (!signal) return fail(new Error("no signal given"));
+      signalled = true;
+      signal.addEventListener("abort", () => fail(signal.reason));
+    })) as unknown as typeof fetch;
+    const started = Date.now();
+    await assert.rejects(
+      () => discover(ISSUER, impl, { timeoutMs: 50 }),
+      (e: Error) => e instanceof OAuthError && /did not answer within/.test(e.message),
+    );
+    assert.ok(signalled, "the fetch was given no way to be cancelled");
+    assert.ok(Date.now() - started < 5_000, "the timeout did not apply");
+  });
+
   test("a 404 points at the setting to check", async () => {
     const { impl } = stubFetch({}, 404);
     await assert.rejects(() => discover(ISSUER, impl), (e: Error) => /OIDC_ISSUER/.test(e.message));

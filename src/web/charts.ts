@@ -185,8 +185,8 @@ export function groupedBarChart(opts: {
   });
 
   const svg =
-    `<svg viewBox="0 0 ${W} ${H}" width="100%" height="auto" role="img" ` +
-    `aria-label="${escape(opts.title)}" preserveAspectRatio="none" style="max-width:100%">` +
+    `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" ` +
+    `aria-label="${escape(opts.title)}" preserveAspectRatio="none" style="max-width:100%;height:auto">` +
     `<title>${escape(opts.title)}</title>` +
     `<line x1="${padL}" y1="${y0}" x2="${W - padR}" y2="${y0}" stroke="var(--border)" stroke-width="1"/>` +
     bars.join("") + labels.join("") +
@@ -297,8 +297,8 @@ export function lineChart(opts: {
   );
 
   const svg =
-    `<svg viewBox="0 0 ${W} ${H}" width="100%" height="auto" role="img" ` +
-    `aria-label="${escape(opts.title)}" style="max-width:100%">` +
+    `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" ` +
+    `aria-label="${escape(opts.title)}" style="max-width:100%;height:auto">` +
     `<title>${escape(opts.title)}</title>${parts.join("")}${labels.join("")}</svg>`;
 
   const showLegend = opts.series.length > 1;
@@ -492,8 +492,8 @@ export function waterfall(opts: {
   });
 
   const svg =
-    `<svg viewBox="0 0 ${W} ${H}" width="100%" height="auto" role="img" ` +
-    `aria-label="${escape(opts.title)}" style="max-width:100%"><title>${escape(opts.title)}</title>` +
+    `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" ` +
+    `aria-label="${escape(opts.title)}" style="max-width:100%;height:auto"><title>${escape(opts.title)}</title>` +
     parts.join("") + `</svg>`;
   return html`<div class="chart-wide">${raw(svg)}</div>`;
 }
@@ -539,7 +539,7 @@ export function heatmapCalendar(opts: {
   const w = (maxCol + 1) * step - gap;
   const h = 7 * step - gap;
   const svg =
-    `<svg viewBox="0 0 ${w} ${h}" width="100%" height="auto" role="img" ` +
+    `<svg viewBox="0 0 ${w} ${h}" width="100%" role="img" ` +
     `aria-label="${escape(opts.title)}" style="max-width:${w}px" preserveAspectRatio="xMinYMid meet">` +
     `<title>${escape(opts.title)}</title>${cells.join("")}</svg>`;
   return html`<div class="chart-wide" style="overflow-x:auto">${raw(svg)}</div>`;
@@ -615,8 +615,8 @@ export function treemap(opts: {
     );
   });
   const svg =
-    `<svg viewBox="0 0 ${W} ${H}" width="100%" height="auto" role="img" ` +
-    `aria-label="${escape(opts.title)}" style="max-width:100%"><title>${escape(opts.title)}</title>${rects.join("")}</svg>`;
+    `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" ` +
+    `aria-label="${escape(opts.title)}" style="max-width:100%;height:auto"><title>${escape(opts.title)}</title>${rects.join("")}</svg>`;
   return html`<div class="chart-wide">${raw(svg)}</div>`;
 }
 
@@ -694,8 +694,8 @@ export function sankeyBudget(opts: {
   });
 
   const svg =
-    `<svg viewBox="0 0 ${W} ${H}" width="100%" height="auto" role="img" ` +
-    `aria-label="${escape(opts.title)}" style="max-width:100%"><title>${escape(opts.title)}</title>${parts.join("")}</svg>`;
+    `<svg viewBox="0 0 ${W} ${H}" width="100%" role="img" ` +
+    `aria-label="${escape(opts.title)}" style="max-width:100%;height:auto"><title>${escape(opts.title)}</title>${parts.join("")}</svg>`;
   return html`<div class="chart-wide">${raw(svg)}</div>`;
 }
 

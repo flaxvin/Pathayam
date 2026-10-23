@@ -115,16 +115,44 @@ function contentBytes(doc: PdfDocument, page: PdfDict): Uint8Array {
 // Fonts
 // ---------------------------------------------------------------------------
 
+/**
+ * Each font's encoding, read once per document. Every `Tf` used to read the
+ * font's /ToUnicode map again, and a page may select a font as often as it
+ * likes: one full `<0000> <FFFF>` range selected a few thousand times, a few
+ * bytes each, held the server for most of a minute.
+ */
+const encodings = new WeakMap<PdfDocument, Map<PdfDict, Encoding>>();
+
+/**
+ * How many entries `bfrange`s may expand to, across one document. A real
+ * font's map is a few hundred; 65,536 is a whole two-byte font. Thousands of
+ * full ranges are only ever an attack, and past this they are left unread.
+ */
+const MAX_CMAP_RANGE_ENTRIES = 1 << 20;
+const cmapBudget = new WeakMap<PdfDocument, { left: number }>();
+
 function encodingFor(doc: PdfDocument, font: PdfValue): Encoding {
+  if (!isDict(font)) return { map: new Map(), twoByte: false };
+  let cache = encodings.get(doc);
+  if (!cache) encodings.set(doc, cache = new Map());
+  const known = cache.get(font);
+  if (known) return known;
+  const encoding = readEncoding(doc, font);
+  cache.set(font, encoding);
+  return encoding;
+}
+
+function readEncoding(doc: PdfDocument, font: PdfDict): Encoding {
   const map = new Map<number, string>();
-  if (!isDict(font)) return { map, twoByte: false };
 
   const subtype = dictGet(doc, font, "Subtype");
   const composite = isName(subtype) && subtype.name === "Type0";
 
   const toUnicode = dictGet(doc, font, "ToUnicode");
   if (isStream(toUnicode)) {
-    parseCMap(latin1(decodeStream(doc, toUnicode)), map);
+    let budget = cmapBudget.get(doc);
+    if (!budget) cmapBudget.set(doc, budget = { left: MAX_CMAP_RANGE_ENTRIES });
+    parseCMap(latin1(decodeStream(doc, toUnicode)), map, budget);
   }
 
   // A simple font's /Differences array names glyphs; the useful ones are the
@@ -161,7 +189,7 @@ function glyphToChar(name: string): string | null {
 }
 
 /** The `beginbfchar` / `beginbfrange` sections of a /ToUnicode CMap. */
-function parseCMap(text: string, into: Map<number, string>): void {
+function parseCMap(text: string, into: Map<number, string>, budget: { left: number }): void {
   const hexToString = (hex: string): string => {
     let out = "";
     for (let i = 0; i + 3 < hex.length + 1; i += 4) {
@@ -183,7 +211,7 @@ function parseCMap(text: string, into: Map<number, string>): void {
       const from = parseInt(r[1]!, 16);
       const to = parseInt(r[2]!, 16);
       const start = parseInt(r[3]!, 16);
-      for (let c = from; c <= to && c - from < 65536; c++) {
+      for (let c = from; c <= to && c - from < 65536 && budget.left > 0; c++, budget.left--) {
         into.set(c, String.fromCharCode(start + (c - from)));
       }
     }
@@ -361,6 +389,8 @@ function extractPieces(doc: PdfDocument, content: Uint8Array, fonts: PdfDict): P
  * unless the surviving figure is still sitting under its own heading — see
  * `readHeader` in `import/pdf-statements.ts`, which is what reads them.
  */
+const MAX_COLUMN = 1000;
+
 function layout(pieces: Piece[]): string {
   if (pieces.length === 0) return "";
 
@@ -373,7 +403,9 @@ function layout(pieces: Piece[]): string {
     .sort((a, b) => a - b);
   const charWidth = widths.length > 0 ? widths[Math.floor(widths.length / 2)]! : 5;
 
-  const left = Math.min(...pieces.map((p) => p.x));
+  // A loop, not Math.min(...): spread over a long page overflows the stack.
+  let left = Infinity;
+  for (const p of pieces) if (p.x < left) left = p.x;
 
   const lines: Piece[][] = [];
   for (const piece of [...pieces].sort((a, b) => b.y - a.y || a.x - b.x)) {
@@ -386,13 +418,21 @@ function layout(pieces: Piece[]): string {
     .map((line) => {
       line.sort((a, b) => a.x - b.x);
       let out = "";
+      let endsInSpace = false;
       for (const piece of line) {
-        const column = Math.max(0, Math.round((piece.x - left) / charWidth));
+        // No real page is wider than MAX_COLUMN characters. A piece placed
+        // millions of units out would otherwise be padded with that many
+        // spaces — gigabytes of string from a few bytes of PDF.
+        const column = Math.min(MAX_COLUMN, Math.max(0, Math.round((piece.x - left) / charWidth)));
         // Never let padding swallow a piece: two adjacent words keep one space
         // between them even if their computed columns collide.
+        // The last character is remembered, not read back: reading a string
+        // still being built copies all of it, once per piece.
         if (column > out.length) out += " ".repeat(column - out.length);
-        else if (out.length > 0 && !out.endsWith(" ")) out += " ";
+        else if (out.length > 0 && !endsInSpace) out += " ";
         out += piece.text;
+        // A piece is never empty: `show` drops those.
+        endsInSpace = piece.text.endsWith(" ");
       }
       return out.replace(/[ \t]+$/, "");
     })

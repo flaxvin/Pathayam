@@ -112,14 +112,34 @@ function parseDelimitedOnce(
   return { rows, unclosedQuoteAt: null };
 }
 
-/** Guess the delimiter from the first few lines. Some banks emit TSV or `;`. */
+/**
+ * Guess the delimiter from the first few lines. Some banks emit TSV or `;`.
+ *
+ * Judged by which delimiter cuts the lines into a steady number of columns,
+ * not by which character is most frequent. Counting characters chose the
+ * comma for a tab-separated statement whenever lakh figures ("1,23,456.78")
+ * and narrations ("CAFE, KOCHI, KL") put more commas than tabs in the first
+ * ten lines: the header became one cell, nothing could be guessed, and the
+ * mapping screen offered comma-split columns it gives no way to change.
+ */
 export function detectDelimiter(text: string): string {
-  const sample = text.split("\n").slice(0, 10).join("\n");
-  const counts = [",", "\t", ";", "|"].map(
-    (d) => [d, sample.split(d).length - 1] as const,
-  );
-  counts.sort((a, b) => b[1] - a[1]);
-  return counts[0]![1] > 0 ? counts[0]![0] : ",";
+  const sample = text.split("\n").slice(0, 10).filter((l) => l.trim() !== "").join("\n");
+  let best = { delimiter: ",", rows: 0, width: 1 };
+  for (const d of [",", "\t", ";", "|"]) {
+    if (!sample.includes(d)) continue;
+    const widths = new Map<number, number>();
+    for (const row of parseDelimited(sample, d)) {
+      if (row.length < 2) continue;
+      widths.set(row.length, (widths.get(row.length) ?? 0) + 1);
+    }
+    // The most common width, and how many lines share it; wider wins a tie.
+    for (const [width, rows] of widths) {
+      if (rows > best.rows || (rows === best.rows && width > best.width)) {
+        best = { delimiter: d, rows, width };
+      }
+    }
+  }
+  return best.delimiter;
 }
 
 // ---------------------------------------------------------------------------

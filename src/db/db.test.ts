@@ -152,6 +152,23 @@ describe("transact", () => {
     db.close();
   });
 
+  test("an inner failure the outer work catches takes back only the inner writes", () => {
+    const db = open();
+    ensureHousehold(db);
+    transact(db, () => {
+      db.prepare("UPDATE household SET name = ? WHERE id = 1").run("Outer");
+      try {
+        transact(db, () => {
+          db.prepare("UPDATE household SET name = ? WHERE id = 1").run("Inner, half done");
+          throw new Error("refused");
+        });
+      } catch { /* carried on */ }
+    });
+    const { name } = db.prepare("SELECT name FROM household WHERE id = 1").get() as { name: string };
+    assert.equal(name, "Outer");
+    db.close();
+  });
+
   test("an inner failure rolls back the whole outer unit of work", () => {
     const db = open();
     ensureHousehold(db);

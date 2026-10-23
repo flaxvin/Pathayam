@@ -32,6 +32,28 @@ describe("parseDelimited", () => {
     assert.equal(detectDelimiter("a\tb\tc\n1\t2\t3"), "\t");
     assert.equal(detectDelimiter("a;b;c\n1;2;3"), ";");
   });
+
+  test("a tab-separated file whose figures and narrations carry more commas than tabs is still tab-separated", () => {
+    // Lakh grouping and comma-laden narrations gave the first lines more
+    // commas than tabs, so the file split on commas, the header became one
+    // cell, and nothing could be mapped (the screen cannot change delimiter).
+    const text = "Txn Date\tNarration\tDebit\tCredit\tBalance\n" +
+      "01/08/2026\tUPI/FICTIONAL CAFE, KOCHI, KL, IN\t1,250.00\t\t1,23,456.78\n" +
+      "02/08/2026\tNEFT/EXAMPLE TRADERS, PVT, LTD\t\t1,50,000.00\t2,73,456.78\n";
+    assert.equal(detectDelimiter(text), "\t");
+    const { mapping, result } = parseStatement(text);
+    assert.ok(mapping);
+    assert.equal(result.records.length, 2);
+    assert.equal(result.records[0]!.amount, -rupees(1250));
+  });
+
+  test("a CSV with quoted commas and a preamble stays comma-separated", () => {
+    const text = "Account Name:,FICTIONAL PERSON\n" +
+      "Date,Narration,Amount\n" +
+      '01-08-2026,"SHOP, ONE",100.00\n' +
+      '02-08-2026,"SHOP; TWO; THREE",200.00\n';
+    assert.equal(detectDelimiter(text), ",");
+  });
 });
 
 describe("guessMapping", () => {

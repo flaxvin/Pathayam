@@ -131,15 +131,25 @@ export function createHttpServer(options: ServerOptions): Server {
     }
 
     try {
-      if (ctx.method === "POST" || ctx.method === "PUT" || ctx.method === "DELETE") {
-        ctx.body = await readBody(req);
-      }
-
       let response: Response | void = undefined;
 
       for (const fn of middleware) {
         response = await fn(ctx);
         if (response) break;
+      }
+
+      /*
+       * The body is read after the middleware, not before. It was buffered
+       * first — up to 12 MB — so every anonymous POST cost that much memory
+       * before anything had asked who was sending it, and a handful of
+       * connections each declaring 12 MB could exhaust a small box without
+       * being anybody. The middleware decides who is asking and may answer
+       * first; it may also set `ctx.locals.bodyLimit` to hold a route that
+       * needs only a form (a sign-in door) to a smaller cap.
+       */
+      if (!response && (ctx.method === "POST" || ctx.method === "PUT" || ctx.method === "DELETE")) {
+        const limit = typeof ctx.locals.bodyLimit === "number" ? ctx.locals.bodyLimit : undefined;
+        ctx.body = await readBody(req, limit);
       }
 
       if (!response) {

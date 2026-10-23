@@ -342,8 +342,14 @@ export function equivalentReducingRate(
 ): number {
   if (emi * months <= principal) return 0;
 
+  /*
+   * The upper bound grows until it brackets the answer. A fixed 100% capped
+   * every flat quote above about 60% (over a year) at "100% reducing" — 80%
+   * flat is really about 125% — so the steepest loans read cheapest.
+   */
   let low = 0;
   let high = 100;
+  while (exactEmi(principal, high, months) < emi && high < 1e6) high *= 2;
   for (let i = 0; i < 200; i++) {
     const mid = (low + high) / 2;
     if (exactEmi(principal, mid, months) < emi) low = mid;

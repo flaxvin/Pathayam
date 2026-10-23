@@ -164,6 +164,18 @@ export async function refreshPrices(
     usedToday.set(row.provider as ProviderName, row.n);
   }
 
+  /*
+   * Whether a class is due, as the run found it. Asked again per instrument,
+   * the first fund's fetch was already in the log as "ran today" and every
+   * fund after it was skipped — one NAV a night, the rest left stale.
+   */
+  const due = new Map<PriceClass, boolean>();
+  const dueAtStart = (cls: PriceClass): boolean => {
+    if (!due.has(cls)) due.set(cls, isDue(cls, lastRunFor(db, cls), now));
+    return due.get(cls)!;
+  };
+  dueAtStart("fx");
+
   for (const instrument of instruments) {
     // R26.6 · An instrument pinned to manual is never fetched, and neither is
     // one whose refresh is set to never.
@@ -176,7 +188,7 @@ export async function refreshPrices(
       ? "equity"
       : "mutual-fund";
 
-    if (!opts.force && !isDue(cls, lastRunFor(db, cls), now)) {
+    if (!opts.force && !dueAtStart(cls)) {
       outcome.skipped++;
       continue;
     }
@@ -220,8 +232,12 @@ export async function refreshPrices(
     outcome.attempted++;
     usedToday.set(provider.name, used + 1);
 
-    const result = await attempt(db, provider, symbol, opts, budget);
-    logFetch(db, instrument.id, provider.name, result);
+    // Every call is logged and counted against the provider that answered
+    // it: a fallback is MFAPI's failure and AMFI's price, not MFAPI's price.
+    const result = await attempt(db, provider, symbol, opts, budget, (name, call) => {
+      logFetch(db, instrument.id, name, call);
+      if (name !== provider.name) usedToday.set(name, (usedToday.get(name) ?? 0) + 1);
+    }, (name) => !quotaFor(PROVIDERS[name]!, usedToday.get(name) ?? 0).exhausted);
 
     if (result.ok) {
       try {
@@ -249,7 +265,7 @@ export async function refreshPrices(
 
   // FX, if anything needs it. Q18 means this household has no foreign account,
   // but USD card charges still need a rate (R33.1).
-  if (opts.force || isDue("fx", lastRunFor(db, "fx"), now)) {
+  if (opts.force || dueAtStart("fx")) {
     await refreshFx(db, actor, opts, outcome, budget);
   }
 
@@ -277,6 +293,8 @@ export async function refreshPrices(
  */
 async function attempt(
   db: DB, provider: Provider, symbol: string, opts: RefreshOptions, budget: Budget,
+  called: (provider: ProviderName, result: PriceOutcome) => void,
+  mayCall: (provider: ProviderName) => boolean,
 ): Promise<PriceOutcome> {
   const fetchOpts = () => ({
     fetchImpl: opts.fetchImpl,
@@ -285,10 +303,11 @@ async function attempt(
   });
 
   let result = await provider.fetchPrice(symbol, fetchOpts());
+  called(provider.name, result);
 
   // EXTRA-5 · The fallback is a second wait; only if the backoff leaves time for it.
   if (!result.ok && result.reason === "unavailable" && provider.name === "mfapi" &&
-      budget.left() > backoffMs(1)) {
+      mayCall("amfi") && budget.left() > backoffMs(1)) {
     const instrument = queryOne<{ isin: string | null }>(
       db, `SELECT isin FROM instruments WHERE symbol = ? AND provider = 'mfapi'`, symbol,
     );
@@ -296,6 +315,7 @@ async function attempt(
       // P5 · Back off before the second try, so an outage is not hammered.
       await (opts.sleep ?? defaultSleep)(backoffMs(1));
       const fallback = await PROVIDERS.amfi!.fetchPrice(instrument.isin, fetchOpts());
+      called("amfi", fallback);
       if (fallback.ok) result = fallback;
     }
   }

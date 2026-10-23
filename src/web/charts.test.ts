@@ -184,3 +184,18 @@ describe("S15 · charts", () => {
     assert.notEqual(seriesColor(0), seriesColor(1));
   });
 });
+
+/**
+ * UIQ-2 · `height="auto"` is not an SVG length. Chrome logged
+ * `<svg> attribute height: Expected length, "auto"` for every chart on the
+ * overview, reports and net-worth screens — console noise that hides real
+ * errors, and a value other engines are free to read as zero. The height is
+ * CSS's to decide, so it is said in CSS.
+ */
+describe("UIQ-2 · chart markup carries only valid SVG lengths", () => {
+  test("no chart writes height=\"auto\" as an attribute", async () => {
+    const { readFileSync } = await import("node:fs");
+    const source = readFileSync(new URL("./charts.ts", import.meta.url), "utf8");
+    assert.doesNotMatch(source, /height="auto"/);
+  });
+});

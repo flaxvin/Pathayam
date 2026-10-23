@@ -8,6 +8,7 @@
  * - an idempotency key on every mutation (R36.1, N20)
  */
 
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { DB } from "./db/db.ts";
 import { queryAll, queryOne, execute, newId , transact } from "./db/db.ts";
 import { devLoginModulePresent, type Config } from "./config.ts";
@@ -17,7 +18,7 @@ import {
 } from "./http/router.ts";
 import { clientIp, wantsJson } from "./http/server.ts";
 import { html, raw, when } from "./http/html.ts";
-import { page, MANIFEST, type Theme } from "./web/layout.ts";
+import { page, MANIFEST, ASSET_VERSION, type Theme } from "./web/layout.ts";
 import { STYLESHEET } from "./web/styles.ts";
 import { CLIENT_SCRIPT } from "./web/client.ts";
 import { APP_ICON_SVG, APP_ICON_SMALL_SVG } from "./web/icon.ts";
@@ -37,12 +38,13 @@ import {
 import { beginOAuth, exchangeCode, OAuthError } from "./auth/google.ts";
 import { PendingStates } from "./auth/pending.ts";
 import {
-  beginGmailConnect, exchangeGmailCode, revokeToken as revokeGmailToken,
+  beginGmailConnect, exchangeGmailCode, revokeToken as revokeGmailToken, GmailAuthError,
 } from "./gmail/oauth.ts";
 import {
   saveConnection, deleteConnection, connectionView, getConnection,
 } from "./gmail/connection.ts";
 import { fetchGmail } from "./gmail/fetch.ts";
+import { GoogleUnreachable } from "./gmail/client.ts";
 import { withIdempotency, IdempotencyConflict } from "./core/idempotency.ts";
 import { parseAmount, evaluateAmountExpression, formatPaise, type Paise } from "./core/money.ts";
 import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, formatDate, lastDayOfMonth, daysBetween, fiscalYearOf, formatFiscalYear, statementPeriodOf, type MonthKey, type IsoDate, type WeekdayOrdinal } from "./core/dates.ts";
@@ -378,6 +380,8 @@ const PUBLIC_PATHS = new Set([
   "/demo/enter",
 ]);
 const STATIC_PREFIX = "/assets/";
+/** The largest body a public route (a sign-in door) will read. */
+const PUBLIC_BODY_BYTES = 64 * 1024;
 
 /**
  * R38 · Things a public demonstration must not do. Each is refused with an
@@ -400,11 +404,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   const middleware = [
     function staticAssets(ctx: RequestContext): Response | void {
       const path = ctx.url.pathname;
+      /*
+       * D6 · Every page names these by a hash of their content (layout.ts), so
+       * a request carrying the current hash is for exactly this content and
+       * may be cached for good: the next deploy that changes it changes the
+       * URL. Without the hash, or with an old one, it keeps the short cache —
+       * the content served is not the content that URL named.
+       */
       if (path === "/assets/app.css") {
-        return asset(STYLESHEET, "text/css");
+        return asset(STYLESHEET, "text/css", ctx.url.searchParams.get("v") === ASSET_VERSION.css);
       }
       if (path === "/assets/app.js") {
-        return asset(CLIENT_SCRIPT, "text/javascript");
+        return asset(CLIENT_SCRIPT, "text/javascript", ctx.url.searchParams.get("v") === ASSET_VERSION.js);
       }
       if (path === "/assets/icon.svg") {
         return asset(APP_ICON_SVG, "image/svg+xml");
@@ -471,6 +482,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         /^Bearer\s/i.test(String(ctx.req.headers.authorization ?? ""))
         && parseCookies(ctx.req.headers.cookie)[SESSION_COOKIE] === undefined
       ) return;
+
+      /*
+       * SECURITY-D3 · DNS rebinding. The Host is the attacker's to choose: a
+       * page on evil.example re-points its own name at this machine and posts
+       * to it, and then its Origin and the Host agree — so trusting the Host
+       * as "here" let a rebound page create the first member through
+       * /auth/first-run on a fresh LAN install. The Host must first be one
+       * this app answers to: BASE_URL's, or a name no DNS answer is involved
+       * in (an IP literal, localhost), which is therefore not reboundable.
+       */
+      if (!addressedHere(ctx)) {
+        throw new HttpError(403, "That request was addressed to a different host than BASE_URL.");
+      }
 
       /*
        * Where this request believes it arrived. The configured base URL is one
@@ -556,7 +580,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
       ctx.locals.auth = auth;
 
-      if (PUBLIC_PATHS.has(path)) return;
+      if (PUBLIC_PATHS.has(path)) {
+        // Every door is a short form — an email and a password at most. The
+        // 12 MB an attachment needs is not offered to somebody not yet in.
+        ctx.locals.bodyLimit = PUBLIC_BODY_BYTES;
+        return;
+      }
       if (!auth) {
         if (wantsJson(ctx)) return { status: 401, json: { error: "Your session has expired." } };
         return { redirect: `/signin?next=${encodeURIComponent(path)}` };
@@ -567,7 +596,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // B51: `/impersonate/writes` must pass even in read-only mode — it *is*
       // the toggle. Blocking it (as this did) made read-only impersonation a
       // one-way door, contradicting the error's own "Enable writes first".
-      const IMPERSONATION_CONTROLS = new Set(["/impersonate/exit", "/impersonate/writes"]);
+      // Signing out is the same kind of door: refusing it left a read-only
+      // viewer unable to end their own session on a shared device.
+      const IMPERSONATION_CONTROLS = new Set(["/impersonate/exit", "/impersonate/writes", "/signout"]);
       if (ctx.method !== "GET" && !auth.canWrite && !IMPERSONATION_CONTROLS.has(path)) {
         throw new HttpError(
           403,
@@ -638,11 +669,31 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     };
   }
 
+  /*
+   * SECURITY-D4 · Only the server writes in the notice banner.
+   *
+   * A success message rides the redirect as `?notice=<text>`, and was shown
+   * on whatever page the link opened — so any link to this household's own
+   * instance could put its words ("your account is locked, call ...") in the
+   * app's own banner. Escaped, so never a script, but phishing with the app's
+   * authority. Every notice the server issues now carries an HMAC of its text
+   * (`ns`), keyed by a secret that never leaves this process, and a notice
+   * without a matching one is not shown. The key is per process: a restart
+   * between a redirect and its page drops that one notice, and nothing else.
+   * `kind` was never set by any redirect, so it is no longer read at all.
+   */
+  const noticeKey = randomBytes(32);
+  function noticeSignature(message: string): string {
+    return createHmac("sha256", noticeKey).update(message).digest("base64url").slice(0, 22);
+  }
+
   function noticeFrom(ctx: RequestContext): Parameters<typeof page>[0]["notice"] {
     const message = ctx.query.get("notice");
     if (!message) return null;
-    const kind = (ctx.query.get("kind") ?? "success") as "error" | "success" | "info" | "warning";
-    return { kind, message };
+    const given = Buffer.from(ctx.query.get("ns") ?? "");
+    const expected = Buffer.from(noticeSignature(message));
+    if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
+    return { kind: "success", message };
   }
 
   /**
@@ -991,12 +1042,48 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    * the browser resolves to another host. A backslash does the same thing in
    * some browsers. Both are rejected here.
    */
+  /**
+   * The host this request was addressed by: X-Forwarded-Host behind a trusted
+   * proxy — its right-most entry, the one that proxy wrote, as for
+   * X-Forwarded-For — and the Host header otherwise.
+   */
+  function requestHost(ctx: RequestContext): string {
+    const forwarded = config.trustProxy ? ctx.req.headers["x-forwarded-host"] : undefined;
+    if (forwarded !== undefined) {
+      return String(forwarded).split(",").pop()!.trim();
+    }
+    return String(ctx.req.headers.host ?? "");
+  }
+
+  /**
+   * Whether the request's host is one this app answers to (SECURITY-D3):
+   * BASE_URL's hostname with its port (or none), or a name that involves no
+   * DNS answer — an IPv4 or IPv6 literal, or localhost — since only a DNS
+   * name can be rebound to this machine by somebody else's page. A request
+   * with no Host at all is not from a browser and is left to the Origin check.
+   */
+  function addressedHere(ctx: RequestContext): boolean {
+    const host = requestHost(ctx);
+    if (host === "") return true;
+    // host[:port] and nothing else — no path, credentials or whitespace to
+    // make the URL parser below read a different host than the header says.
+    if (/[\/\\@?#\s]/.test(host)) return false;
+    let addressed: URL;
+    let base: URL;
+    try {
+      addressed = new URL(`http://${host}`);
+      base = new URL(config.baseUrl);
+    } catch {
+      return false;
+    }
+    const name = addressed.hostname;
+    if (name === "localhost" || name.startsWith("[") || /^\d{1,3}(\.\d{1,3}){3}$/.test(name)) return true;
+    return name === base.hostname && (addressed.port === "" || addressed.port === base.port);
+  }
+
   /** The origin this request was addressed by, from its own Host header. */
   function hostOrigin(ctx: RequestContext): string {
-    const host = String(
-      (config.trustProxy ? ctx.req.headers["x-forwarded-host"] : null)
-      ?? ctx.req.headers.host ?? "",
-    );
+    const host = requestHost(ctx);
     if (host === "") return "";
     const scheme = config.trustProxy && ctx.req.headers["x-forwarded-proto"]
       ? String(ctx.req.headers["x-forwarded-proto"]).split(",")[0]!.trim()
@@ -1031,6 +1118,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   function mutate<T>(
     ctx: RequestContext,
     fn: (a: AuthContext) => { redirect?: string; message?: string; body?: T },
+    /**
+     * False only for work SQLite cannot do inside a transaction — a backup's
+     * `VACUUM INTO`. Everything else runs as one unit (DEBUG-WEB-6).
+     */
+    opts: { atomic?: boolean } = {},
   ): Response {
     const a = auth(ctx);
     const key = (ctx.req.headers["idempotency-key"] as string | undefined) ?? null;
@@ -1045,7 +1137,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           path: ctx.url.pathname,
           payload: ctx.body,
         },
-        () => ({ statusCode: 200, body: fn(a) }),
+        // DEBUG-WEB-6 · One request, one transaction: a refusal on a later
+        // write takes the earlier ones back with it.
+        () => ({ statusCode: 200, body: opts.atomic === false ? fn(a) : transact(db, () => fn(a)) }),
       );
 
       const result = outcome.body as { redirect?: string; message?: string };
@@ -1081,7 +1175,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           path: ctx.url.pathname,
           payload: ctx.body,
         },
-        () => ({ statusCode: 200, body: fn() }),
+        () => ({ statusCode: 200, body: transact(db, fn) }),
       ).body;
     } catch (err) {
       if (err instanceof IdempotencyConflict) throw new HttpError(err.statusCode, err.message);
@@ -1091,8 +1185,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   function withNotice(path: string, message?: string): string {
     if (!message) return path;
-    const separator = path.includes("?") ? "&" : "?";
-    return `${path}${separator}notice=${encodeURIComponent(message)}`;
+    // The query goes before any #fragment: after it, the browser never sends it.
+    const hashAt = path.indexOf("#");
+    const base = hashAt < 0 ? path : path.slice(0, hashAt);
+    const fragment = hashAt < 0 ? "" : path.slice(hashAt);
+    const separator = base.includes("?") ? "&" : "?";
+    return `${base}${separator}notice=${encodeURIComponent(message)}&ns=${noticeSignature(message)}${fragment}`;
   }
 
   function monthParam(ctx: RequestContext): MonthKey {
@@ -1113,6 +1211,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   }
 
   /** Amount fields accept an expression (F4.10) before falling back to a plain parse. */
+  /**
+   * UI-PASS-8 · The card or account number's last four, as printed beside the
+   * name everywhere ("····6604"). The form says maxlength=4, but the server
+   * took "abcdefgh" and showed it as the number. Spaces and dashes are let go;
+   * anything else is refused. Undefined when the field was not sent.
+   */
+  function last4Field(raw: string | undefined): string | null | undefined {
+    if (raw === undefined) return undefined;
+    const digits = raw.replace(/[\s-]/g, "");
+    if (digits === "") return null;
+    if (!/^\d{4}$/.test(digits)) {
+      throw new Refusal(`"${raw.trim()}" is not the last four digits — enter four numbers, like 6604, or leave it empty.`);
+    }
+    return digits;
+  }
+
   function amountField(raw: string | undefined, name = "Amount"): number {
     if (raw === undefined || raw.trim() === "") {
       throw new HttpError(400, `${name} is required.`);
@@ -1444,15 +1558,28 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    */
   router.get("/auth/oidc", async (ctx) => {
     if (!oidcConfigured(config)) throw new NotFound();
-    const start = await beginOidc(
-      {
-        issuer: config.oidc.issuer!,
-        clientId: config.oidc.clientId!,
-        clientSecret: config.oidc.clientSecret!,
-      },
-      `${config.baseUrl}/auth/oidc/callback`,
-      deps.fetchImpl,
-    );
+    /*
+     * ROUTES-2 · Discovery failing — the provider down, or answering something
+     * that is not a discovery document — is the provider's state, not this
+     * server breaking. Uncaught, OAuthError was a 500 and a request_failures
+     * row on a public, unauthenticated URL: the hole SECURITY-OPS-18 closed on
+     * the callback, still open on the way in.
+     */
+    let start: Awaited<ReturnType<typeof beginOidc>>;
+    try {
+      start = await beginOidc(
+        {
+          issuer: config.oidc.issuer!,
+          clientId: config.oidc.clientId!,
+          clientSecret: config.oidc.clientSecret!,
+        },
+        `${config.baseUrl}/auth/oidc/callback`,
+        deps.fetchImpl,
+      );
+    } catch (error) {
+      if (!(error instanceof OAuthError)) throw error;
+      throw new HttpError(503, `${config.oidc.label} is not answering right now. Please try again later.`);
+    }
     pendingOAuth.set(start.state, {
       verifier: start.codeVerifier,
       next: safePath(ctx.query.get("next"), "/"),
@@ -1570,8 +1697,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       throw new HttpError(403, "That account isn't on this household's allow-list.");
     }
 
-    db.prepare(`UPDATE members SET google_sub = ?, avatar_url = ?, name = COALESCE(NULLIF(name,''), ?) WHERE id = ?`)
-      .run(profile.sub, profile.picture, profile.name, member.id);
+    /*
+     * The Google account is the subject; the address it carries can change.
+     * When it does, and the household adds the new address, the subject is
+     * still on the old member's row, and google_sub is UNIQUE — so writing it
+     * here failed on every attempt, a 500 that locked the person out. The
+     * provider has just vouched that this subject owns this allowed address,
+     * so the link moves to the member signing in.
+     */
+    transact(db, () => {
+      db.prepare(`UPDATE members SET google_sub = NULL WHERE google_sub = ? AND id != ?`)
+        .run(profile.sub, member.id);
+      db.prepare(`UPDATE members SET google_sub = ?, avatar_url = ?, name = COALESCE(NULLIF(name,''), ?) WHERE id = ?`)
+        .run(profile.sub, profile.picture, profile.name, member.id);
+    });
 
     const { token } = createSession(db, member.id, {
       userAgent: ctx.req.headers["user-agent"] ?? null,
@@ -2248,7 +2387,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       const month = monthParam(ctx);
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
-      const from = requireVisibleCategory(ctx, requiredField(ctx.body, "from_category_id"))!;
+      // "rta" is the screen's own first source and is not an envelope, so it
+      // is not checked as one (ROUTES-1: it answered 404 "does not exist").
+      const fromField = requiredField(ctx.body, "from_category_id");
+      const from = fromField === "rta" ? "rta" : requireVisibleCategory(ctx, fromField)!;
       const to = requireVisibleCategory(ctx, requiredField(ctx.body, "to_category_id"))!;
       const amount = amountField(field(ctx.body, "amount"));
 
@@ -2404,6 +2546,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
   // F25.10 · Explain this number
   // -------------------------------------------------------------------------
+
+  /**
+   * UIQ-1 · The dialog fetches a fragment; anything else navigated here — a
+   * long-press "open in new tab", a middle click, a page whose script did not
+   * load — and is owed a page. The fragment used to go to both, began with a
+   * newline, went out as text/plain, and the browser printed the raw tags.
+   */
+  function explainResponse(ctx: RequestContext, opts: Parameters<typeof renderExplain>[0]): Response {
+    const fetched =
+      ctx.req.headers["x-fragment"] === "1" || ctx.req.headers["sec-fetch-dest"] === "empty";
+    const vary = { Vary: "X-Fragment, Sec-Fetch-Dest" };
+    if (fetched) return { body: renderExplain(opts), headers: { "Content-Type": "text/html; charset=utf-8", ...vary } };
+    const page = render(ctx, opts.title, html`<div class="card">${renderExplain({ ...opts, headingLevel: 1 })}</div>`);
+    return { ...page, headers: { ...page.headers, ...vary } };
+  }
   router.get("/explain/ready-to-assign", (ctx) => {
     const month = monthParam(ctx);
     // BUDGET-2 · The figure being explained is one budget's; so is the answer.
@@ -2418,14 +2575,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       { when: "", who: "", what: `Less cash overspending carried in: ${formatPaise(-b.cashOverspendCarried)}` },
     ];
 
-    return {
-      body: renderExplain({
-        title: "Ready to Assign",
-        figure: b.total,
-        summary: `Every rupee in a budget account that hasn't been given a job yet.`,
-        lines,
-      }),
-    };
+    return explainResponse(ctx, {
+      title: "Ready to Assign",
+      figure: b.total,
+      summary: `Every rupee in a budget account that hasn't been given a job yet.`,
+      lines,
+    });
   });
 
   router.get("/explain/category/:id", (ctx) => {
@@ -2466,17 +2621,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ...transactionIds.flatMap((id) => historyFor(db, "transaction", id)),
     ].sort((a, b) => a.seq - b.seq);
 
-    return {
-      body: renderExplain({
-        title: category.name,
-        figure: category.state.balance,
-        summary:
-          `Opened at ${formatPaise(category.state.opening)}, ` +
-          `${formatPaise(category.state.assigned)} assigned, ` +
-          `${formatPaise(-category.state.activity)} spent.`,
-        lines: events.map((e) => explainLineFor(e, memberName)),
-      }),
-    };
+    return explainResponse(ctx, {
+      title: category.name,
+      figure: category.state.balance,
+      summary:
+        `Opened at ${formatPaise(category.state.opening)}, ` +
+        `${formatPaise(category.state.assigned)} assigned, ` +
+        `${formatPaise(-category.state.activity)} spent.`,
+      lines: events.map((e) => explainLineFor(e, memberName)),
+    });
   });
 
   // -------------------------------------------------------------------------
@@ -2579,7 +2732,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         name: requiredField(ctx.body, "name"),
         nickname: text("nickname"),
         institution: text("institution"),
-        last4: text("last4"),
+        last4: last4Field(field(ctx.body, "last4")),
         holder_member_id: text("holder_member_id") && requireMember(ctx, text("holder_member_id")!),
         statement_day: numberOrNull(field(ctx.body, "statement_day")),
         due_day: numberOrNull(field(ctx.body, "due_day")),
@@ -2656,7 +2809,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         kind,
         subtype,
         institution: field(ctx.body, "institution") || null,
-        last4: field(ctx.body, "last4") || null,
+        last4: last4Field(field(ctx.body, "last4")) ?? null,
         openingBalance: opening,
         openingDate: dateField(openingDateRaw, "Opening date"),
         statementDay: numberOrNull(field(ctx.body, "statement_day")),
@@ -3051,7 +3204,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // to a same-site path the palette sends, the way POST /settings/theme does.
   router.post("/settings/theme-toggle", (ctx) =>
     mutate(ctx, (a) => {
-      const next: Theme = a.viewingAs.theme === "dark" ? "light" : "dark";
+      /*
+       * UIQ-4 · On "system" the server cannot see what the device shows, so
+       * the client says (`seen`); without it, dark is the old guess.
+       */
+      const current = a.viewingAs.theme === "system" ? field(ctx.body, "seen") : a.viewingAs.theme;
+      const next: Theme = current === "dark" ? "light" : "dark";
       setTheme(db, actorFor(a), a.member.id, next);
       return { redirect: safePath(field(ctx.body, "return_to"), "/") };
     }),
@@ -3566,8 +3724,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/members/invite", (ctx) => {
     refuseInDemo(config, "Inviting members");
     return mutate(ctx, (a) => {
-      const member = inviteMember(db, actorFor(a), { email: requiredField(ctx.body, "email") });
-      return { redirect: "/settings", message: `${member.email} can now sign in.` };
+      const email = String(requiredField(ctx.body, "email"));
+      const returning = !!findMemberByEmail(db, email)?.removed_at;
+      const member = inviteMember(db, actorFor(a), { email });
+      /*
+       * Somebody added back had their password cleared when they were removed
+       * (removeMember). "Can now sign in" would tell the person re-adding them
+       * that the old one still works, which it deliberately does not.
+       */
+      return {
+        redirect: "/settings",
+        message: returning
+          ? `${member.name} is back in the household. Their old password was ` +
+            `cleared when they were removed, so they will need a new one.`
+          : `${member.email} can now sign in.`,
+      };
     });
   });
 
@@ -3796,14 +3967,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             </div>
           `)}
 
+          <!-- Each marker tells the handler its checkbox was on the form, since
+               an unchecked box sends nothing at all — and a post that sends
+               neither (an API caller moving a date) leaves the flag alone. -->
           <div class="field">
             <label>
+              <input type="hidden" name="cleared_present" value="1">
               <input type="checkbox" name="cleared" value="1"
                      ${raw(transaction.cleared ? "checked" : "")}> Cleared the bank
             </label>
             <label>
-              <!-- The marker tells the handler the checkbox was on the form,
-                   since an unchecked box sends nothing at all. -->
               <input type="hidden" name="reimbursable_present" value="1">
               <input type="checkbox" name="reimbursable" value="1"
                      ${raw(transaction.reimbursable ? "checked" : "")}> Someone owes this back
@@ -4000,11 +4173,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
     // MONEY-CORE-14 · Past the guards, a retry replays rather than re-saves.
     return once(ctx, a, () => {
-      const magnitude = Math.abs(amountField(field(ctx.body, "amount")));
+      // D7 · No amount field at all keeps the amount; a blank box is still refused.
+      const magnitude = amountRaw === undefined
+        ? Math.abs(transaction.amount)
+        : Math.abs(amountField(amountRaw));
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
-      const signed = isTransferLeg
+      /*
+       * A post that does not say which way the money went keeps the way it
+       * went. Reading silence as "out" — /add's default — turned a ₹50,000
+       * salary credit into ₹50,000 of spending, with no envelope, under
+       * "Saved.", when an API caller only moved its date. Silence about tags
+       * and envelopes already leaves those alone.
+       */
+      const direction = field(ctx.body, "direction");
+      const signed = isTransferLeg || (direction !== "in" && direction !== "out")
         ? (transaction.amount < 0 ? -magnitude : magnitude)
-        : field(ctx.body, "direction") === "in" ? magnitude : -magnitude;
+        : direction === "in" ? magnitude : -magnitude;
 
       // L1 · A renamed payee is the signal. Resolved here so the rename and the
       // rest of the edit land in one update, and so the *old* name is still
@@ -4100,6 +4284,25 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const ownerRaw = field(ctx.body, "owner_member_id");
       if (ownerRaw) requireMember(ctx, ownerRaw);
 
+      /*
+       * D7 · A field the post does not carry keeps what it had. Reading a
+       * missing memo as "emptied" and a missing `cleared` as "unticked" meant
+       * an API caller that only moved a date wiped the memo and un-cleared the
+       * entry, under "Saved.". The form always sends the memo box (an empty
+       * one still clears it), and a `<name>_present` marker beside each
+       * checkbox, because an unticked box sends nothing — so the marker is
+       * what turns silence into "unticked". A caller that sends the field
+       * itself ("1" or anything else) is heard without the marker.
+       */
+      const memoRaw = field(ctx.body, "memo");
+      const checkbox = (name: string): boolean | undefined => {
+        const value = field(ctx.body, name);
+        if (value !== undefined) return value === "1";
+        return field(ctx.body, `${name}_present`) === "1" ? false : undefined;
+      };
+      const cleared = checkbox("cleared");
+      const reimbursable = checkbox("reimbursable");
+
       // Guard the earlier of the two dates: moving a transaction backwards means
       // the ripple starts where it lands, not where it was.
       const rippleFrom = monthOf(newDate < transaction.date ? newDate : transaction.date);
@@ -4115,15 +4318,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 ? { splits: filed!.splits }
                 // One line: it stops being a split and becomes that envelope.
                 : { splits: null, categoryId: filed!.categoryId }),
-            memo: field(ctx.body, "memo") || null,
-            cleared: field(ctx.body, "cleared") === "1",
+            ...(memoRaw !== undefined ? { memo: memoRaw || null } : {}),
+            ...(cleared !== undefined ? { cleared } : {}),
             ...(tagsRaw !== undefined
               ? { tags: tagsRaw.split(",").map((t) => t.trim()).filter(Boolean) }
               : {}),
             ...(ownerRaw !== undefined ? { ownerMemberId: ownerRaw || null } : {}),
-            ...(field(ctx.body, "reimbursable_present") === "1"
-              ? { reimbursable: field(ctx.body, "reimbursable") === "1" }
-              : {}),
+            ...(reimbursable !== undefined ? { reimbursable } : {}),
             ...(payeeId !== undefined ? { payeeId } : {}),
           }),
       ));
@@ -4228,15 +4429,24 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * unreconciled side take ₹3,000 out of the other account's reconciled
      * period with no confirmation and the checkpoint left intact.
      */
+    /*
+     * Each side from its own date: an imported transfer's legs are dated by
+     * their own statements, so the other leg can sit inside its account's
+     * reconciled period while this one falls after it.
+     */
     const partner = transaction.transfer_pair_id
-      ? queryOne<{ account_id: string }>(
-        db, `SELECT account_id FROM transactions WHERE transfer_pair_id = ? AND id <> ? AND deleted_at IS NULL`,
+      ? queryOne<{ account_id: string; date: string }>(
+        db, `SELECT account_id, date FROM transactions WHERE transfer_pair_id = ? AND id <> ? AND deleted_at IS NULL`,
         transaction.transfer_pair_id, id,
       )
       : null;
-    for (const accountId of [transaction.account_id, ...(partner ? [partner.account_id] : [])]) {
+    const sides = [
+      { accountId: transaction.account_id, date: transaction.date },
+      ...(partner ? [{ accountId: partner.account_id, date: partner.date }] : []),
+    ];
+    for (const { accountId, date } of sides) {
       const guard = guardCheckpoints(
-        ctx, a, accountId, [transaction.date], confirmed,
+        ctx, a, accountId, [date], confirmed,
         `/transaction/${id}/delete`, `/transaction/${id}`,
       );
       if (guard) return guard;
@@ -4428,7 +4638,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/accounts/:id/cards", (ctx) =>
     mutate(ctx, (a) => {
       const account = requireVisibleAccount(ctx, ctx.params.id!);
-      const last4 = (field(ctx.body, "last4") ?? "").replace(/\D/g, "") || null;
+      const last4 = last4Field(field(ctx.body, "last4")) ?? null;
       createCard(db, actorFor(a), {
         accountId: account.id,
         label: requiredField(ctx.body, "label"),
@@ -5284,13 +5494,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    */
   router.get("/loans/what-if", (ctx) => {
     requireLoans();
+    const calculator = {
+      principal: rupeesFromQuery(ctx, "principal", 50_00_000) as Paise,
+      rate: Number(ctx.query.get("rate") ?? 8.5),
+      months: Number(ctx.query.get("months") ?? 240),
+    };
     return render(
       ctx, "Prepayment calculator",
       renderPrepaymentComparison({
         comparison: comparePrepayment({
-          principal: rupeesFromQuery(ctx, "principal", 50_00_000),
-          annualRatePct: Number(ctx.query.get("rate") ?? 8.5),
-          months: Number(ctx.query.get("months") ?? 240),
+          principal: calculator.principal,
+          annualRatePct: calculator.rate,
+          months: calculator.months,
           prepayment: rupeesFromQuery(ctx, "amount", 5_00_000),
           atMonth: Number(ctx.query.get("at_month") ?? 24),
         }),
@@ -5298,6 +5513,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         amount: rupeesFromQuery(ctx, "amount", 5_00_000),
         atMonth: Number(ctx.query.get("at_month") ?? 24),
         action: "/loans/what-if",
+        calculator,
       }),
     );
   });
@@ -5305,19 +5521,51 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/loans/what-if", (ctx) => {
     requireLoans();
     auth(ctx);
-    const principal = amountField(field(ctx.body, "principal"), "Loan amount");
-    const months = Number(requiredField(ctx.body, "months"));
-    const rate = Number(requiredField(ctx.body, "rate"));
-    const amount = amountField(field(ctx.body, "amount"), "Prepayment");
-    const atMonth = Number(field(ctx.body, "at_month") ?? 12);
-
-    return render(
-      ctx, "Prepayment calculator",
-      renderPrepaymentComparison({
-        comparison: comparePrepayment({ principal, annualRatePct: rate, months, prepayment: amount, atMonth }),
-        loan: null, amount, atMonth, action: "/loans/what-if",
-      }),
-    );
+    /*
+     * UI-PASS-12 · The form posts natively, so a refusal here used to replace
+     * the page with "Something went wrong" and every figure typed was gone.
+     * It is said beside the form instead, with the figures as typed.
+     */
+    const typed = {
+      principal: field(ctx.body, "principal") ?? "",
+      rate: field(ctx.body, "rate") ?? "",
+      months: field(ctx.body, "months") ?? "",
+      amount: field(ctx.body, "amount") ?? "",
+      at_month: field(ctx.body, "at_month") ?? "",
+    };
+    try {
+      const principal = amountField(typed.principal, "Loan amount");
+      const months = Number(requiredField(ctx.body, "months"));
+      const rate = Number(requiredField(ctx.body, "rate"));
+      const amount = amountField(typed.amount, "Prepayment");
+      const atMonth = Number(typed.at_month || 12);
+      if (!Number.isInteger(months) || months < 1) {
+        throw new Refusal("The tenure is a whole number of months, 1 or more.");
+      }
+      if (!Number.isFinite(rate) || rate < 0) {
+        throw new Refusal(`"${typed.rate}" isn't a rate I can read. Enter it as a percentage, like 8.5.`);
+      }
+      return render(
+        ctx, "Prepayment calculator",
+        renderPrepaymentComparison({
+          comparison: comparePrepayment({ principal, annualRatePct: rate, months, prepayment: amount, atMonth }),
+          loan: null, amount: amount as Paise, atMonth, action: "/loans/what-if",
+          calculator: { principal: principal as Paise, rate, months },
+        }),
+      );
+    } catch (err) {
+      if (!(err instanceof Refusal || err instanceof HttpError)) throw err;
+      return {
+        ...render(
+          ctx, "Prepayment calculator",
+          renderPrepaymentComparison({
+            comparison: null, loan: null, amount: 0 as Paise, atMonth: 0,
+            action: "/loans/what-if", typed, error: err.message,
+          }),
+        ),
+        status: err.status,
+      };
+    }
   });
 
   router.get("/loans/:id", (ctx) => {
@@ -5340,7 +5588,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
         holderMemberId: getAccount(db, projection.loan.account_id)?.holder_member_id ?? null,
         isPrivate: getAccount(db, projection.loan.account_id)?.visibility === "private",
+        // UI-PASS-3 · Never a card's payment envelope or a commitment: the
+        // charge is refused against either, so offering them is a dead end.
         categories: listCategories(db, { viewerMemberId: viewer(ctx) })
+          .filter((c) => !c.payment_account_id && !c.commits_to_budget_id)
           .map((c) => ({ id: c.id, name: c.name })),
       }),
     );
@@ -5555,12 +5806,29 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const loanId = ctx.params.id!;
       const ytdRaw = field(ctx.body, "interest_paid_ytd");
       const remainingRaw = field(ctx.body, "instalments_remaining");
+      /*
+       * UI-PASS-4 · "abc" instalments remaining was stored as nothing and a
+       * lender outstanding of −₹500 as a drift of the whole loan plus ₹500, both
+       * with "Statement recorded." A statement never shows either.
+       */
+      const lenderOutstanding = amountField(requiredField(ctx.body, "lender_outstanding"), "Lender's outstanding");
+      if (lenderOutstanding < 0) {
+        throw new Refusal("The lender's outstanding is what you still owe — enter it without a minus sign.");
+      }
+      const interestPaidYtd = ytdRaw?.trim() ? amountField(ytdRaw, "Interest paid") : null;
+      if (interestPaidYtd !== null && interestPaidYtd < 0) {
+        throw new Refusal("Interest paid this year cannot be below zero.");
+      }
+      const instalmentsRemaining = remainingRaw?.trim() ? Number(remainingRaw.trim()) : null;
+      if (instalmentsRemaining !== null && !(Number.isInteger(instalmentsRemaining) && instalmentsRemaining >= 0)) {
+        throw new Refusal(`"${remainingRaw!.trim()}" is not a number of instalments. Enter a whole number, or leave it empty.`);
+      }
       recordLoanStatement(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         loanId,
         asOf: dateField(field(ctx.body, "as_of"), "As of"),
-        lenderOutstanding: amountField(requiredField(ctx.body, "lender_outstanding")),
-        interestPaidYtd: ytdRaw?.trim() ? amountField(ytdRaw) : null,
-        instalmentsRemaining: remainingRaw?.trim() ? Number(remainingRaw) : null,
+        lenderOutstanding,
+        interestPaidYtd,
+        instalmentsRemaining,
       });
       return { redirect: `/loans/${loanId}`, message: "Statement recorded." };
     }),
@@ -5926,7 +6194,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const scope = budgetParam(ctx);
     const view = buildBudgetView(db, undefined, scope, viewer(ctx));
     const month = view.month;
-    const cashflow = projectCashflow(db, { days: 60, viewerMemberId: viewer(ctx) });
+    // DEBUG-ENGINE-9 · The budget on screen, as the Schedules page asks it.
+    const cashflow = projectCashflow(db, { days: 60, budgetId: scope, viewerMemberId: viewer(ctx) });
     const outstanding = creditOutstanding(db);
     const unfundedCards = [...view.categories.values()]
       .filter((c) => c.paymentAccountId)
@@ -6493,8 +6762,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/schedules/:id/paid", (ctx) =>
     mutate(ctx, (a) => {
-      markPaid(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), requireVisibleSchedule(ctx, ctx.params.id!));
-      return { redirect: "/schedules", message: "Marked paid." };
+      const id = requireVisibleSchedule(ctx, ctx.params.id!);
+      // D8b · The list calls this button "Arrived" on income and "Paid" on a
+      // bill (the same rule: money in is income), so the reply does too.
+      const income = (getSchedule(db, id)?.amount ?? 0) > 0;
+      markPaid(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id);
+      return { redirect: "/schedules", message: income ? "Marked arrived." : "Marked paid." };
     }),
   );
 
@@ -7440,7 +7713,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const month = ctx.params.month!;
       if (!isMonthKey(month)) throw new NotFound("That is not a month.");
 
-      const budgetId = budgetParam(ctx);
+      const budgetId = postedBudget(ctx);
       const result = closeMonth(
         db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
         month, field(ctx.body, "note") || null, budgetId,
@@ -7460,7 +7733,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       const month = ctx.params.month!;
       if (!isMonthKey(month)) throw new NotFound("That is not a month.");
-      reopenMonth(db, actorFor(a), month, budgetParam(ctx));
+      reopenMonth(db, actorFor(a), month, postedBudget(ctx));
       return { redirect: "/months", message: `${formatMonth(month)} is open again.` };
     }),
   );
@@ -7469,9 +7742,44 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // `04` §3.4 · Gmail ingestion — a separate, opt-in connection.
   // -------------------------------------------------------------------------
 
+  /*
+   * A mailbox link is a credential, like an API token, and it belongs to the
+   * person at the keyboard. While viewing as somebody, these routes mixed the
+   * two identities: connect and callback are GETs, so even a read-only view
+   * replaced the viewed member's stored Gmail access with the viewer's own
+   * mailbox (under the viewed member's id); with writes on, fetch read the
+   * viewed member's mailbox with their refresh token, and disconnect deleted
+   * their link while revoking the viewer's at Google. Impersonation is
+   * session-only (R38.12), so none of them is offered during a view.
+   */
+  function refuseGmailWhileViewingAs(a: AuthContext): void {
+    if (a.impersonating) {
+      throw new HttpError(403, "Gmail cannot be connected, fetched or disconnected while viewing as another member.");
+    }
+  }
+
+  /*
+   * Google declining — a revoked grant, an expired refresh token, a code it
+   * will not exchange — is the household's to fix by reconnecting, and
+   * GmailAuthError already says so. Uncaught it was a plain Error: the
+   * generic 500 page, and a fault on the health page for a mailbox somebody
+   * disconnected at Google.
+   */
+  async function googleSaidNo<T>(call: () => Promise<T>): Promise<T> {
+    try {
+      return await call();
+    } catch (error) {
+      if (error instanceof GmailAuthError) throw new HttpError(400, error.message);
+      // DEBUG-WEB-7 · Google down or unreachable: a bad gateway, not a fault here.
+      if (error instanceof GoogleUnreachable) throw new HttpError(502, error.message);
+      throw error;
+    }
+  }
+
   router.get("/gmail/connect", (ctx) => {
     refuseInDemo(config, "Connecting a mailbox");
     const a = auth(ctx);
+    refuseGmailWhileViewingAs(a);
     // Not configured is a deployment state, not a fault — the same 503 as
     // /auth/google. A 500 here told the person the app had broken.
     if (!config.google.clientId) {
@@ -7487,6 +7795,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/gmail/callback", async (ctx) => {
     const a = auth(ctx);
+    refuseGmailWhileViewingAs(a);
     const state = ctx.query.get("state") ?? "";
     const pending = pendingGmail.take(state);
     if (!pending || pending.memberId !== a.member.id) {
@@ -7495,12 +7804,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const code = ctx.query.get("code");
     if (!code) return { redirect: "/settings#gmail" };
 
-    const tokens = await exchangeGmailCode({
+    const tokens = await googleSaidNo(() => exchangeGmailCode({
       clientId: config.google.clientId!,
       clientSecret: config.google.clientSecret!,
       redirectUri: `${config.baseUrl}/gmail/callback`,
       code, codeVerifier: pending.verifier, fetchImpl: deps.fetchImpl,
-    });
+    }));
 
     saveConnection(db, actorFor(a), {
       email: a.member.email, refreshToken: tokens.refreshToken, scope: tokens.scope,
@@ -7510,6 +7819,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/gmail/disconnect", (ctx) =>
     mutate(ctx, (a) => {
+      refuseGmailWhileViewingAs(a);
       const connection = getConnection(db, a.member.id);
       if (connection) {
         // Best-effort remote revoke; the local token is deleted regardless.
@@ -7522,27 +7832,51 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/gmail/fetch", async (ctx) => {
     const a = auth(ctx);
+    refuseGmailWhileViewingAs(a);
     if (!getConnection(db, a.member.id)) throw new HttpError(400, "Gmail is not connected.");
 
-    const result = await fetchGmail(db, actorFor(a, "import"), {
+    const result = await googleSaidNo(() => fetchGmail(db, actorFor(a, "import"), {
       clientId: config.google.clientId!,
       clientSecret: config.google.clientSecret!,
       fetchImpl: deps.fetchImpl,
-    });
+    }));
 
+    /*
+     * Each count says where it went. Every count used to end "all in Review":
+     * alerts no account matched were "to an unknown account, all in Review"
+     * though nothing was staged for them, rows a rule auto-approved were
+     * counted as waiting, and a statement no password opened, or no account
+     * matched, was not mentioned at all.
+     */
+    const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+    const toReview = result.alerts.staged + result.statements.staged - result.autoApproved;
+    const imported = [
+      ...(result.alerts.staged ? [plural(result.alerts.staged, "alert")] : []),
+      ...(result.statements.staged ? [plural(result.statements.staged, "statement row")] : []),
+    ];
     const parts: string[] = [];
-    if (result.alerts.staged) parts.push(`${result.alerts.staged} alerts`);
-    if (result.statements.staged) parts.push(`${result.statements.staged} statement rows`);
-    if (result.alerts.unmatched) parts.push(`${result.alerts.unmatched} to an unknown account`);
+    if (imported.length) {
+      parts.push(`${imported.join(" and ")} ${result.autoApproved
+        ? `(${toReview} in Review, ${result.autoApproved} auto-approved)` : "in Review"}`);
+    }
+    if (result.alerts.unmatched) {
+      parts.push(`${plural(result.alerts.unmatched, "alert")} for no account of yours I could pick out, not imported`);
+    }
     // IMPORTS-SCHEDULES-34 · an alert it could not read is said, not dropped.
     if (result.alerts.unread) {
-      parts.push(`${result.alerts.unread} alert${result.alerts.unread === 1 ? "" : "s"} it could not read — add ${result.alerts.unread === 1 ? "that one" : "those"} by hand`);
+      parts.push(`${plural(result.alerts.unread, "alert")} it could not read — add ${result.alerts.unread === 1 ? "that one" : "those"} by hand`);
+    }
+    if (result.statements.locked) {
+      parts.push(`${plural(result.statements.locked, "statement")} I could not open — check the statement details in Settings`);
+    }
+    if (result.statements.unmatched) {
+      parts.push(`${plural(result.statements.unmatched, "statement")} for no single account of yours, not imported`);
     }
     const summary = parts.length
-      ? `Read ${result.scanned} messages — ${parts.join(", ")}, all in Review.`
+      ? `Read ${result.scanned} messages — ${parts.join(", ")}.`
       : `Read ${result.scanned} messages — nothing new.`;
 
-    return { redirect: withNotice(result.alerts.staged || result.statements.staged ? "/review" : "/settings#gmail", summary) };
+    return { redirect: withNotice(toReview > 0 ? "/review" : "/settings#gmail", summary) };
   });
 
   /** `10` §3.6 · What statement passwords are worked out from. */
@@ -7700,7 +8034,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     auth(ctx);
     return render(ctx, "Import a CAS", renderCasUpload({
       accounts: casDestinations(db, viewer(ctx)),
-      error: ctx.query.get("error"),
+      error: ctx.query.get("error") === "expired"
+        ? "That statement is no longer open — read it again and confirm within half an hour."
+        : null,
     }));
   });
 
@@ -7788,9 +8124,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const plan = takePlan(requiredField(ctx.body, "token"), a.member.id);
       if (!plan) {
         return {
-          redirect: "/portfolio/cas?error=" + encodeURIComponent(
-            "That statement is no longer open — read it again and confirm within half an hour.",
-          ),
+          // A fixed key, not the text: the page shows only errors it knows
+          // (SECURITY-D4), so a link cannot put its own words there.
+          redirect: "/portfolio/cas?error=expired",
         };
       }
 
@@ -8792,7 +9128,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         summary: `Backed up to ${backup.path}`,
       });
       return { redirect: "/health", message: `Backed up ${backup.bytes} bytes.` };
-    }),
+    }, { atomic: false }),
   );
 
   router.post("/health/verify", (ctx) =>
@@ -8804,14 +9140,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // Fired without awaiting: a slow monitor must not hold up the page, and
       // a ping that never arrives is itself the alert (R40.8.2).
       if (result.ok && config.heartbeatUrl) {
-        void pingHeartbeat(config.heartbeatUrl).then((beat) =>
+        // DEBUG-WEB-8 · Through the app's fetch, and the record is best-effort:
+        // a write that fails after the response (database closed at shutdown)
+        // was an unhandled rejection, which ends the process.
+        void pingHeartbeat(config.heartbeatUrl, deps.fetchImpl).then((beat) =>
           recordJobRun(
             db, "heartbeat", beat.ok ? "ok" : "failed",
             beat.ok
               ? "Acknowledged by the external monitor."
               : "The monitor could not be reached. It will alert on the missing ping.",
           ),
-        );
+        ).catch(() => {
+          // The ping itself went out or did not; the monitor judges that.
+        });
       }
 
       return { redirect: "/health", message: result.summary };
@@ -9021,14 +9362,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   return { router, middleware };
 
-  function asset(body: string, type: string): Response {
+  function asset(body: string, type: string, versioned = false): Response {
     return {
       body,
       headers: {
         "Content-Type": `${type}; charset=utf-8`,
         // Static assets are code, not data — ordinary HTTP caching is
         // explicitly permitted by R35.
-        "Cache-Control": "public, max-age=3600",
+        "Cache-Control": versioned ? "public, max-age=31536000, immutable" : "public, max-age=3600",
       },
     };
   }

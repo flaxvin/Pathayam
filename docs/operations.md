@@ -155,7 +155,7 @@ Everything the app reads, and nothing it does not:
 
 | Variable | Default | Notes |
 |---|---|---|
-| `BASE_URL` | `http://localhost:$PORT` | The public origin, exactly. OAuth redirects, cookie scoping and the same-origin write check all depend on it. |
+| `BASE_URL` | `http://localhost:$PORT` | The public origin, exactly. OAuth redirects, cookie scoping and the same-origin write check all depend on it. A write addressed to any other hostname (or this hostname on another port) is refused with 403 — only an IP address or `localhost` is accepted besides — so a reverse proxy must pass the original `Host` through, or set `X-Forwarded-Host` with `TRUST_PROXY`. |
 | `GOOGLE_CLIENT_ID` | — | Required for Google sign-in. |
 | `GOOGLE_CLIENT_SECRET` | — | |
 | `PORT` | `8080` | |
@@ -164,7 +164,7 @@ Everything the app reads, and nothing it does not:
 | `DATABASE_PATH` | `$DATA_DIR/pathayam.sqlite` | |
 | `BACKUP_DIR` | `$DATA_DIR/backups` | |
 | `ATTACHMENT_DIR` | `$DATA_DIR/attachments` | |
-| `SESSION_DAYS` | `30` | How long a session lasts from sign-in (absolute, not extended by use). |
+| `SESSION_DAYS` | `30` | How long a session lasts from sign-in (absolute, not extended by use). 1 to 3650; anything else stops startup. |
 | `LOG_LEVEL` | `info` in production | `debug`, `info`, `warn` or `error` (any case); anything else refuses to start. No financial value is ever logged. |
 | `TRUST_PROXY` | `false` | Read the client IP and forwarded host from proxy headers. Set it behind a tunnel. The IP is the right-most `X-Forwarded-For` entry, so exactly one proxy hop is assumed (see security.md). |
 | `HEARTBEAT_URL` | — | **Set this.** Pinged on a *successful* verified restore. |

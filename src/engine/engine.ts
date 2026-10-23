@@ -174,15 +174,13 @@ export function computeBudget(input: EngineInput): BudgetState {
           const totalOutflow = outflows.reduce((sum, [, amount]) => sum + amount, 0);
 
           if (totalOutflow > 0) {
-            let distributed = 0;
-            outflows.forEach(([accountId, amount], index) => {
-              const share =
-                index === outflows.length - 1
-                  ? creditOverspend - distributed
-                  : Math.round((creditOverspend * amount) / totalOutflow);
-              distributed += share;
+            // DEBUG-ENGINE-6 · Rounded down and the rest to the last, so no share
+            // is negative: rounding each to nearest could hand out more than the
+            // whole and leave the last card at −1 paisa.
+            const shares = allocateByWeight(creditOverspend, outflows.map(([, amount]) => amount));
+            outflows.forEach(([accountId], index) => {
               overspendByAccountThisMonth[accountId] =
-                (overspendByAccountThisMonth[accountId] ?? 0) + share;
+                (overspendByAccountThisMonth[accountId] ?? 0) + shares[index]!;
             });
           }
         }
@@ -726,11 +724,19 @@ export function computeBuffer(
   }
 
   const days = Math.floor(assignedTotal / averageDailySpend);
+  /*
+   * UI-PASS-10 · A personal budget holding savings against a little spending
+   * read "You have 69398 days of typical spending already assigned" — an
+   * unformatted count nobody can picture. Past two years it is said in years.
+   */
+  const span = days >= 730
+    ? `more than ${Math.floor(days / 365).toLocaleString("en-IN")} years`
+    : `${days} ${days === 1 ? "day" : "days"}`;
   return {
     days,
     assignedTotal,
     averageDailySpend,
-    reading: `You have ${days} days of typical spending already assigned.`,
+    reading: `You have ${span} of typical spending already assigned.`,
   };
 }
 

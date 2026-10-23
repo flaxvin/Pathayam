@@ -14,7 +14,7 @@
 
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
-import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
+import { appendEvent, historyFor, registerUndoHandler, type Actor } from "../core/events.ts";
 import { nowIST, addDays, type IsoDate } from "../core/dates.ts";
 import type { Paise } from "../core/money.ts";
 import { createTransaction, createTransfer, resolvePayee, livePayeeId, type TransactionSource } from "../domain/transactions.ts";
@@ -235,7 +235,7 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
         // queued row stands for both; there is no transaction to upgrade yet,
         // and approving it marks it cleared like any import.
         if (!duplicate.existing.staged) {
-          upgradeExisting(db, actor, duplicate, record, extracted.reference);
+          upgradeExisting(db, actor, batchId, duplicate, record, extracted.reference);
         }
         duplicates++;
         continue;
@@ -352,7 +352,8 @@ function findExistingPayee(db: DB, name: string | null): string | null {
  * with richer fields rather than duplicating it. Logged, not queued.
  */
 function upgradeExisting(
-  db: DB, actor: Actor, duplicate: DuplicateMatch, record: RawRecord, reference: string | null,
+  db: DB, actor: Actor, batchId: string, duplicate: DuplicateMatch, record: RawRecord,
+  reference: string | null,
 ): void {
   const before = queryOne<Record<string, unknown>>(
     db, `SELECT * FROM transactions WHERE id = ?`, duplicate.existing.id,
@@ -372,7 +373,13 @@ function upgradeExisting(
   );
   appendEvent(db, actor, {
     entity: "transaction", entityId: duplicate.existing.id, action: "upgrade",
-    before, after: queryOne(db, `SELECT * FROM transactions WHERE id = ?`, duplicate.existing.id),
+    before,
+    // D9b · The batch is named so undoing it can find, and reverse, this upgrade.
+    // It is not a column of the row (the row keeps its own import_batch_id).
+    after: {
+      ...queryOne<Record<string, unknown>>(db, `SELECT * FROM transactions WHERE id = ?`, duplicate.existing.id),
+      upgraded_by_batch_id: batchId,
+    },
     summary: `Matched to a statement row and marked cleared — ${duplicate.reason}`,
   });
 }
@@ -588,12 +595,7 @@ export function approveStaged(
        * identity up, keeping it recognisable with a suffix; a partial index
        * `WHERE deleted_at IS NULL` would make this unnecessary.
        */
-      execute(
-        db,
-        `UPDATE transactions SET source_id = source_id || '~deleted:' || id
-          WHERE account_id = ? AND source = ? AND source_id = ? AND deleted_at IS NOT NULL`,
-        row.account_id, source, row.source_id,
-      );
+      retireDeletedTwin(db, row.account_id, source, row.source_id);
     }
 
     const payeeName = patch.payeeName ?? row.proposed_payee;
@@ -707,11 +709,27 @@ export function approveStagedAsTransfer(
   });
 }
 
+/**
+ * A deleted transaction gives up an imported identity a new one is taking,
+ * keeping it recognisable with a `~deleted:<id>` suffix.
+ */
+function retireDeletedTwin(db: DB, accountId: string, source: string, sourceId: string): void {
+  execute(
+    db,
+    `UPDATE transactions SET source_id = source_id || '~deleted:' || id
+      WHERE account_id = ? AND source = ? AND source_id = ? AND deleted_at IS NOT NULL`,
+    accountId, source, sourceId,
+  );
+}
+
 /** One leg of a transfer, marked as the ledger copy of an imported row. */
 function stampImportedLeg(db: DB, actor: Actor, transactionId: string, row: StagedRow): void {
   const source = queryOne<{ source: TransactionSource }>(
     db, `SELECT source FROM import_batches WHERE id = ?`, row.batch_id,
   )?.source ?? "csv";
+  // As approveStaged does: a deleted transaction holding this identity gives
+  // it up, or restoring it would collide with this leg on the unique index.
+  if (row.source_id) retireDeletedTwin(db, row.account_id, source, row.source_id);
   // The leg is dated as its own statement dates it: a card credits a payment
   // a day or two after the bank sends it.
   execute(
@@ -911,6 +929,93 @@ export function undoBatch(db: DB, actor: Actor, batchId: string): UndoBatchResul
             WHERE transaction_id = ? AND batch_id <> ?`,
           partner.id, batchId,
         );
+      }
+    }
+
+    /*
+     * A row merged into a transaction already in the ledger created nothing,
+     * but it cleared that transaction and wrote the bank's narration onto it.
+     * Undoing the import left both, so the undone statement went on vouching
+     * for it. The merge is reversed as its own undo would reverse it — the
+     * columns it set, from its event — unless the transaction changed since,
+     * in which case it is left and listed like any edited record (IL2).
+     */
+    for (const row of queryAll<{ id: string; transaction_id: string }>(
+      db,
+      `SELECT id, transaction_id FROM staged_transactions
+        WHERE batch_id = ? AND status = 'merged' AND transaction_id IS NOT NULL`,
+      batchId,
+    )) {
+      const history = historyFor(db, "transaction", row.transaction_id);
+      const last = history[history.length - 1];
+      const before = last?.before as Record<string, unknown> | undefined;
+      if (!last || last.action !== "merge" || last.undoneByEventId || !before) {
+        keptBecauseEdited.push(row.transaction_id);
+        continue;
+      }
+      execute(
+        db,
+        `UPDATE transactions SET cleared = ?, payee_id = ?, raw_narration = ?, raw_amount = ?, raw_date = ?
+          WHERE id = ?`,
+        before.cleared as number, (before.payee_id as string | null) ?? null,
+        (before.raw_narration as string | null) ?? null, (before.raw_amount as string | null) ?? null,
+        (before.raw_date as string | null) ?? null, row.transaction_id,
+      );
+      if (before.cleared !== 1) {
+        breakCheckpointsBehind(db, actor, before.account_id as string, before.date as IsoDate,
+          "a transaction dated on or before it was un-cleared by undoing the import merged into it");
+      }
+      execute(
+        db,
+        `UPDATE staged_transactions SET status = 'rejected', resolved_at = ?, transaction_id = NULL WHERE id = ?`,
+        nowIST(), row.id,
+      );
+    }
+
+    /*
+     * D9b · A statement row that matched an alert's transaction by reference
+     * upgraded it in place (D4) — cleared it, and filled its memo and raw
+     * fields — and created nothing, so the loops above never saw it: the
+     * undone statement went on vouching for the transaction. The upgrade's
+     * event names the batch; its before-state is put back, unless the
+     * transaction changed since, when it is left and listed (IL2), as an
+     * edited merge is.
+     */
+    for (const upgrade of queryAll<{ entity_id: string; seq: number }>(
+      db,
+      `SELECT entity_id, seq FROM events
+        WHERE entity = 'transaction' AND action = 'upgrade' AND undone_by_event_id IS NULL
+          AND json_extract(after_json, '$.upgraded_by_batch_id') = ?
+        ORDER BY seq`,
+      batchId,
+    )) {
+      const history = historyFor(db, "transaction", upgrade.entity_id);
+      const last = history[history.length - 1];
+      const before = last?.before as Record<string, unknown> | undefined;
+      const after = last?.after as Record<string, unknown> | undefined;
+      const current = queryOne<Record<string, unknown>>(
+        db, `SELECT * FROM transactions WHERE id = ?`, upgrade.entity_id,
+      );
+      const UPGRADED = ["cleared", "memo", "raw_narration", "raw_amount", "raw_date"] as const;
+      const untouched = Boolean(
+        last && last.seq === upgrade.seq && before && after && current && !current.deleted_at &&
+        UPGRADED.every((c) => (current[c] ?? null) === (after[c] ?? null)),
+      );
+      if (!untouched) {
+        if (current && !current.deleted_at) keptBecauseEdited.push(upgrade.entity_id);
+        continue;
+      }
+      execute(
+        db,
+        `UPDATE transactions SET cleared = ?, memo = ?, raw_narration = ?, raw_amount = ?, raw_date = ?
+          WHERE id = ?`,
+        before!.cleared as number, (before!.memo as string | null) ?? null,
+        (before!.raw_narration as string | null) ?? null, (before!.raw_amount as string | null) ?? null,
+        (before!.raw_date as string | null) ?? null, upgrade.entity_id,
+      );
+      if (before!.cleared !== 1) {
+        breakCheckpointsBehind(db, actor, before!.account_id as string, before!.date as IsoDate,
+          "a transaction dated on or before it was un-cleared by undoing the statement that had cleared it");
       }
     }
 

@@ -319,7 +319,7 @@ export function renderReports(opts: {
   sankey: { income: Paise; month: MonthKey; groups: { name: string; categories: { name: string; value: Paise }[] }[] };
   period: Period;
   periods: Period[];
-  loanInterest: { fy: number; label: string; interest: Paise; principal: Paise; lender: string }[];
+  loanInterest: { fy: number; label: string; interest: Paise; principal: Paise; lender: string; loan: string }[];
   /** B88 · Realised gains per FY, split by holding period. */
   gains: GainsYear[];
   /** 15 / 16 · Reports offer every scope rather than picking one. */
@@ -569,7 +569,7 @@ export function renderReports(opts: {
             <thead>
               <tr>
                 <th scope="col">Year</th>
-                <th scope="col">Lender</th>
+                <th scope="col">Loan</th>
                 <th scope="col" class="num">Interest</th>
                 <th scope="col" class="num">Principal</th>
               </tr>
@@ -578,8 +578,9 @@ export function renderReports(opts: {
               ${opts.loanInterest.map(
                 (r) => html`
                   <tr>
-                    <td>${r.label}</td>
-                    <td>${r.lender}</td>
+                    <!-- UI-PASS-9 · "FY 2025-26" broke at its hyphen on a phone. -->
+                    <td style="white-space:nowrap">${r.label}</td>
+                    <td>${r.loan}</td>
                     <td class="num amount">${formatPaise(r.interest)}</td>
                     <td class="num amount">${formatPaise(r.principal)}</td>
                   </tr>
@@ -614,7 +615,7 @@ export function renderReports(opts: {
               ${opts.gains.map(
                 (y) => html`
                   <tr>
-                    <td>${y.label}</td>
+                    <td style="white-space:nowrap">${y.label}</td>
                     <td class="num amount ${y.shortTerm < 0 ? "amount-negative" : ""}">
                       ${formatPaise(y.shortTerm)}
                     </td>
@@ -833,6 +834,7 @@ export function renderSchedules(opts: {
                     <div class="field" style="margin:0;flex:1 1 100%">
                       ${renderCategoryLines({
                         label: "Envelope",
+                        idPrefix: `sc-${s.id}-`,
                         categories: ownCategoriesKept(s),
                         values: (opts.splits?.get(s.id)?.length ?? 0) > 0
                           ? opts.splits!.get(s.id)!.map((sp) => ({
@@ -860,7 +862,7 @@ export function renderSchedules(opts: {
                     <button class="button-small" type="submit">Save</button>
                   </form>
                   <form method="post" action="/schedules/${s.id}/delete" style="margin-top:.4rem"
-                        onsubmit="return confirm('Remove this schedule? Anything it already recorded stays.')">
+                        data-confirm="Remove this schedule? Anything it already recorded stays.">
                     <button class="button-small button-danger" type="submit">Remove</button>
                   </form>
                 </details>
@@ -1198,7 +1200,7 @@ function renderGoalCard(g: GoalProgress): SafeHtml {
         </form>
         <!-- BUDGET-14 · Rolling over needs the goal it rolls into. -->
         <details style="margin-top:.5rem">
-          <summary style="min-height:36px;display:flex;align-items:center;cursor:pointer;color:var(--text-muted);font-size:.9rem">
+          <summary class="summary-small">
             Roll into a new goal
           </summary>
           <form method="post" action="/goals/${g.goal.id}/complete" style="margin-top:.5rem">
@@ -1226,7 +1228,7 @@ function renderGoalCard(g: GoalProgress): SafeHtml {
 
       <!-- F11 · Edit and delete. -->
       <details style="margin-top:.75rem">
-        <summary style="min-height:36px;display:flex;align-items:center;cursor:pointer;color:var(--text-muted);font-size:.9rem">
+        <summary class="summary-small">
           Edit or remove
         </summary>
         <form method="post" action="/goals/${g.goal.id}/edit" style="margin-top:.5rem">

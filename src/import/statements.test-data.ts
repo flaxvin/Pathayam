@@ -176,12 +176,54 @@ const HDFC_ENCRYPTED_B64 =
   "IDIgMCBSIC9Sb290IDEgMCBSIC9TaXplIDEwIC9JRCBbPGJiNDcyMTNjMTU5YjdmZTE0NzI4NmVmNzNhYmU3MGUyPjxmNGM3" +
   "NzhkNjg3MTE2ZWU0N2U4ODkyZWU3ZmVhNTFlND5dIC9FbmNyeXB0IDkgMCBSID4+CnN0YXJ0eHJlZgoxNzkwCiUlRU9GCg==";
 
+/**
+ * The SBI statement above, locked the way SBI Card locks its statements: the
+ * date of birth as DDMMYYYY, then the card's last four. The identity is the
+ * synthetic one above (born 01/01/1970) and the card number is invented, so
+ * the password is 01011970 + 4321. Nothing in the name/PAN/DOB triple opens
+ * it — only a card's digits do, which is the point (D9a).
+ *
+ * Encrypted once with a short RC4-128 (V2, R3) script rather than qpdf, which
+ * was not to hand; the decryptor's own correctness is proven against qpdf's
+ * output in `src/pdf/reader.test.ts`, so this fixture only needs to carry a
+ * password, not to vouch for the cipher.
+ */
+export const SBI_CARD_LAST4 = "4321";
+export const SBI_CARD_PASSWORD = "01011970" + SBI_CARD_LAST4;
+
+const SBI_CARD_ENCRYPTED_B64 =
+  "JVBERi0xLjQKJeLjz9MKMSAwIG9iago8PAovRjEgMiAwIFIgL0YyIDMgMCBSCj4+CmVuZG9iagoyIDAgb2JqCjw8Ci9CYXNl" +
+  "Rm9udCAvSGVsdmV0aWNhIC9FbmNvZGluZyAvV2luQW5zaUVuY29kaW5nIC9OYW1lIC9GMSAvU3VidHlwZSAvVHlwZTEgL1R5" +
+  "cGUgL0ZvbnQKPj4KZW5kb2JqCjMgMCBvYmoKPDwKL0Jhc2VGb250IC9IZWx2ZXRpY2EtQm9sZCAvRW5jb2RpbmcgL1dpbkFu" +
+  "c2lFbmNvZGluZyAvTmFtZSAvRjIgL1N1YnR5cGUgL1R5cGUxIC9UeXBlIC9Gb250Cj4+CmVuZG9iago0IDAgb2JqCjw8Ci9D" +
+  "b250ZW50cyA4IDAgUiAvTWVkaWFCb3ggWyAwIDAgNTk1LjI3NTYgODQxLjg4OTggXSAvUGFyZW50IDcgMCBSIC9SZXNvdXJj" +
+  "ZXMgPDwKL0ZvbnQgMSAwIFIgL1Byb2NTZXQgWyAvUERGIC9UZXh0IC9JbWFnZUIgL0ltYWdlQyAvSW1hZ2VJIF0KPj4gL1Jv" +
+  "dGF0ZSAwIC9UcmFucyA8PAoKPj4gCiAgL1R5cGUgL1BhZ2UKPj4KZW5kb2JqCjUgMCBvYmoKPDwKL1BhZ2VNb2RlIC9Vc2VO" +
+  "b25lIC9QYWdlcyA3IDAgUiAvVHlwZSAvQ2F0YWxvZwo+PgplbmRvYmoKNiAwIG9iago8PCA+PgplbmRvYmoKNyAwIG9iago8" +
+  "PAovQ291bnQgMSAvS2lkcyBbIDQgMCBSIF0gL1R5cGUgL1BhZ2VzCj4+CmVuZG9iago4IDAgb2JqCjw8Ci9GaWx0ZXIgWyAv" +
+  "QVNDSUk4NURlY29kZSAvRmxhdGVEZWNvZGUgXSAvTGVuZ3RoIDQzOQo+PgpzdHJlYW0KfbzKhA+IJTWC5j4HoEVemnFNs/2y" +
+  "cn+gKPA6Q+cIXrpr5q2UCpAisqXl64R/kAaOebglHbEwu7RLjwRwq/pkJvZTJTXx5l4tMW7/GRP8lB86FfBPj4ijeh+MTfZN" +
+  "pV9B8vIwb6f5lGOgqM3ak1kr1iIW7jY+YgTWum/h2NfM/LMjxZtmtzpI7kbiXPgegJRYjsg9gI0eWEDD8LFA4kSq0z7i7rYa" +
+  "M4ztVqOETFsonvc/4F46EmMxsZBMuXu+C7ZpEmqCtA42Tw5Gu05re0Erd/sOtl7xw6W95oUy6EsaEhcdJPz5r+ZjyZzidlQc" +
+  "d/kaSKnVOth5d2lV7hgYxQNBPi7wff7EfoWzbJcqaxuK7WYkdFaWbwdJl0G/eL7nyW8I1nuNZtEbA3LbAZJRHSGB3X4Qn/y9" +
+  "0B8qfH8ebQryZ5KuJYfWgCwiAgR1bJJNKEuyYOFuaxYSbzyMYBuwpTZWi44Yes4ytoIu0HZUj2rOjsoRii2II3vvSeoy34tK" +
+  "ZPXvJloe5CeKAerZxCwQlGJ6N3vdypg1Eer8XXYdc6dyiX7GXLZxK2hsCNLbL2dscP4299WyoIlTIwplbmRzdHJlYW0KZW5k" +
+  "b2JqCjkgMCBvYmoKPDwgL0ZpbHRlciAvU3RhbmRhcmQgL1YgMiAvUiAzIC9MZW5ndGggMTI4IC9QIC00IC9PIDxlZTk1Mzdj" +
+  "ZTBkN2YyYzc1YjFiNTNkMGZmMDAzZTY1MGExY2FmZjg5ZjI5MTExYTRiMzRkOTkxN2VlZDEzZTBmPiAvVSA8ODBmMDQ3NmZl" +
+  "ODA1YzJiNmFlMTAyNGRjZDhjODA5MGQwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMDAwMD4gPj4KZW5kb2JqCnhyZWYK" +
+  "MCAxMAowMDAwMDAwMDAwIDY1NTM1IGYgCjAwMDAwMDAwMTUgMDAwMDAgbiAKMDAwMDAwMDA1NiAwMDAwMCBuIAowMDAwMDAw" +
+  "MTYzIDAwMDAwIG4gCjAwMDAwMDAyNzUgMDAwMDAgbiAKMDAwMDAwMDQ3OCAwMDAwMCBuIAowMDAwMDAwNTQ2IDAwMDAwIG4g" +
+  "CjAwMDAwMDA1NjcgMDAwMDAgbiAKMDAwMDAwMDYyNiAwMDAwMCBuIAowMDAwMDAxMTU2IDAwMDAwIG4gCnRyYWlsZXIKPDwg" +
+  "L1NpemUgMTAgL1Jvb3QgNSAwIFIgL0VuY3J5cHQgOSAwIFIgL0lEIFs8ZTZmMGIwMGJjYTdkYmZiYjNlYjMzYTRlZTkzYjg3" +
+  "OTc+PGU2ZjBiMDBiY2E3ZGJmYmIzZWIzM2E0ZWU5M2I4Nzk3Pl0gPj4Kc3RhcnR4cmVmCjEzNjMKJSVFT0YK";
+
 export const STATEMENTS = {
   hdfc: bytes(HDFC_B64),
   icici: bytes(ICICI_B64),
   axis: bytes(AXIS_B64),
   sbi: bytes(SBI_B64),
   hdfcEncrypted: bytes(HDFC_ENCRYPTED_B64),
+  sbiCardEncrypted: bytes(SBI_CARD_ENCRYPTED_B64),
 };
 
 function bytes(b64: string): Uint8Array {

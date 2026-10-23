@@ -9,7 +9,7 @@
 
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
-import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
+import { appendEvent, registerUndoHandler, type Actor, type LoggedEvent } from "../core/events.ts";
 import { nowIST, todayIST, formatDate, addDays, type IsoDate } from "../core/dates.ts";
 import { Missing, Refusal } from "../core/refusal.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
@@ -158,6 +158,18 @@ export function createTransaction(
        * to take the whole instance out of rotation.
        */
     if (!account) throw new Refusal("That account does not exist.");
+
+    /*
+     * DEBUG-ENGINE-2 · An account closes only at nil, because net worth counts
+     * open accounts while the budget counts all of them. Money posted after the
+     * close — a schedule still naming the old bank, a stale form — sat in Ready
+     * to Assign and nowhere in net worth, the gap closing at nil exists to stop.
+     */
+    if (account.closed_at) {
+      throw new Refusal(
+        `${account.nickname || account.name} is closed. Reopen it first, or pick another account.`,
+      );
+    }
 
     // F4.3: splits must sum to the total, or the ledger stops adding up.
     if (input.splits && input.splits.length > 0) {
@@ -343,6 +355,36 @@ export interface UpdateTransactionInput {
   tags?: string[];
 }
 
+/**
+ * DEBUG-ENGINE-10 · A closed account closed at nil and has to stay there.
+ * DEBUG-ENGINE-2 refused new money; this refuses moving the money already on
+ * it — an edited amount, a delete, a restore or an undo of one — which left
+ * the closed account holding a balance counted in Ready to Assign and nowhere
+ * in net worth. `ids` are the rows whose amount would start or stop counting.
+ */
+function refuseClosedAccounts(db: DB, ids: string[], Err: new (m: string) => Error = Refusal): void {
+  if (ids.length === 0) return;
+  const closed = queryOne<{ name: string; nickname: string | null }>(
+    db,
+    `SELECT a.name, a.nickname FROM transactions t JOIN accounts a ON a.id = t.account_id
+      WHERE t.id IN (${ids.map(() => "?").join(",")}) AND a.closed_at IS NOT NULL LIMIT 1`,
+    ...ids,
+  );
+  if (closed) {
+    throw new Err(
+      `${closed.nickname || closed.name} is closed, so its balance has to stay at nil. ` +
+      `Reopen it first, then change this.`,
+    );
+  }
+}
+
+/** The row and, for a transfer, its other side. */
+function withPair(db: DB, id: string, pairId: string | null | undefined): string[] {
+  return pairId
+    ? queryAll<{ id: string }>(db, `SELECT id FROM transactions WHERE transfer_pair_id = ?`, pairId).map((r) => r.id)
+    : [id];
+}
+
 /** EXTRA-3 · Said wherever a change is aimed at a deleted transaction. */
 export const DELETED_TRANSACTION =
   "That transaction has been deleted, so it can't be changed. Undo the delete in Activity to bring it back first.";
@@ -361,6 +403,9 @@ export function updateTransaction(
      * that says it was edited while it was gone.
      */
     if (before.deleted_at) throw new Refusal(DELETED_TRANSACTION);
+    if (patch.amount !== undefined && patch.amount !== before.amount) {
+      refuseClosedAccounts(db, withPair(db, id, before.transfer_pair_id));
+    }
 
     /*
      * A transfer leg is half of one movement, not a transaction of its own.
@@ -547,6 +592,7 @@ export function deleteTransaction(db: DB, actor: Actor, id: string): void {
           db, `SELECT id FROM transactions WHERE transfer_pair_id = ?`, before.transfer_pair_id,
         ).map((r) => r.id)
       : [id];
+    refuseClosedAccounts(db, ids);
 
     /*
      * MONEY-CORE-8 · The same B65 guard the create-undo runs. Deleting the
@@ -588,6 +634,7 @@ export function restoreTransaction(db: DB, actor: Actor, id: string): void {
   transact(db, () => {
     const before = getTransaction(db, id);
     if (!before) throw new Missing("That transaction does not exist.");
+    if (before.deleted_at) refuseClosedAccounts(db, withPair(db, id, before.transfer_pair_id));
     execute(db, `UPDATE transactions SET deleted_at = NULL WHERE id = ?`, id);
     if (before.transfer_pair_id) {
       execute(
@@ -1332,6 +1379,29 @@ export function eraseTransaction(db: DB, id: string | null | undefined): void {
   execute(db, `DELETE FROM transactions WHERE id = ?`, id);
 }
 
+/**
+ * Already gone — by the transfer's own undo, a delete, or the partner leg's
+ * undo. Removing it "again" would report a change that is not made. Shared by
+ * the handler and its precheck (D8d), so Activity offers no Undo the handler
+ * would answer with this sentence.
+ */
+function createdRowGone(db: DB, event: LoggedEvent): string | null {
+  if (event.before) return null;
+  const row = getTransaction(db, event.entityId!);
+  if (row && !row.deleted_at) return null;
+  return row?.transfer_pair_id
+    ? "That transfer has already been removed."
+    : "That transaction has already been removed.";
+}
+
+function transferGone(db: DB, event: LoggedEvent): string | null {
+  const live = queryOne<{ n: number }>(
+    db, `SELECT COUNT(*) AS n FROM transactions WHERE transfer_pair_id = ? AND deleted_at IS NULL`,
+    event.entityId!,
+  )!.n;
+  return live === 0 ? "That transfer has already been removed." : null;
+}
+
 registerUndoHandler("transaction", (db, event) => {
   const before = event.before as Transaction | undefined;
   if (!before) {
@@ -1348,11 +1418,14 @@ registerUndoHandler("transaction", (db, event) => {
      * already acts on both legs; this was the one that did not.
      */
     const row = getTransaction(db, event.entityId!);
+    const gone = createdRowGone(db, event);
+    if (gone || !row) throw new UndoRefused(gone ?? "That transaction has already been removed.");
     const ids = row?.transfer_pair_id
       ? queryAll<{ id: string }>(
         db, `SELECT id FROM transactions WHERE transfer_pair_id = ?`, row.transfer_pair_id,
       ).map((r) => r.id)
       : [event.entityId!];
+    refuseClosedAccounts(db, ids, UndoRefused);
 
     // EXTRA-4 · As its delete: undoing its create took it out from under the
     // plan and failed on the plan's foreign key, a 500 instead of a sentence.
@@ -1366,6 +1439,25 @@ registerUndoHandler("transaction", (db, event) => {
         `leave that wrong. Undo or delete ${dependant} first.`,
       );
     }
+
+    /*
+     * The charge a transfer carried is outside the pair (see createTransfer),
+     * so it went nowhere when a leg's own create was undone: "Removed the
+     * transfer that was added, both sides", and the ₹5 stayed spent from the
+     * bank and the charges envelope. It goes the way the transfer's own undo
+     * takes it — found before the legs, which the old-event match reads, go.
+     */
+    const transferEvent = row?.transfer_pair_id
+      ? queryOne<{ after_json: string | null }>(
+        db,
+        `SELECT after_json FROM events
+          WHERE entity = 'transfer' AND entity_id = ? AND action = 'create' AND undone_by_event_id IS NULL`,
+        row.transfer_pair_id,
+      )
+      : null;
+    const feeId = transferEvent
+      ? transferFeeId(db, row!.transfer_pair_id!, transferEvent.after_json ? JSON.parse(transferEvent.after_json) : undefined)
+      : null;
 
     for (const id of ids) {
       // An imported row that was approved into this transaction goes back to
@@ -1385,12 +1477,39 @@ registerUndoHandler("transaction", (db, event) => {
       execute(db, `DELETE FROM transaction_tags WHERE transaction_id = ?`, id);
       execute(db, `DELETE FROM transactions WHERE id = ?`, id);
     }
+    if (feeId) {
+      execute(db, `UPDATE transactions SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`, nowIST(), feeId);
+    }
     return ids.length > 1
-      ? `Removed the transfer that was added, both sides`
+      ? `Removed the transfer that was added, both sides${feeId ? ", and its charge" : ""}`
       : `Removed the transaction that was added`;
   }
   const id = event.entityId!;
   const snapshot = before as Partial<EditSnapshot>;
+
+  /*
+   * Undoing a Review merge puts the transaction back as it was; the imported
+   * row merged into it goes back to Review, as an undone approval's does.
+   * It stayed 'merged' into a transaction that no longer carried it — the
+   * bank's row in neither the ledger nor the queue.
+   */
+  if (event.action === "merge") {
+    const merged = queryOne<{ id: string }>(
+      db,
+      `SELECT id FROM staged_transactions WHERE transaction_id = ? AND status = 'merged'
+        ORDER BY resolved_at DESC LIMIT 1`,
+      id,
+    );
+    if (merged) {
+      execute(
+        db,
+        `UPDATE staged_transactions
+            SET status = 'pending', transaction_id = NULL, resolved_at = NULL, resolved_by = NULL
+          WHERE id = ?`,
+        merged.id,
+      );
+    }
+  }
 
   /*
    * Undo used to be one statement for every kind of event: write every column
@@ -1414,6 +1533,7 @@ registerUndoHandler("transaction", (db, event) => {
   if (event.action === "delete" || event.action === "restore") {
     // Put deleted_at back as it was, on the row and — for a transfer — its pair.
     const pairId = snapshot.transfer_pair_id ?? null;
+    refuseClosedAccounts(db, withPair(db, id, pairId), UndoRefused);
     execute(
       db,
       `UPDATE transactions SET deleted_at = ?, updated_at = ?
@@ -1516,6 +1636,9 @@ registerUndoHandler("transaction", (db, event) => {
   }
 
   if (present.length === 0 && !linesBack) return `Nothing to restore`;
+  if (present.includes("amount") && getTransaction(db, id)?.amount !== snapshot.amount) {
+    refuseClosedAccounts(db, withPair(db, id, getTransaction(db, id)?.transfer_pair_id), UndoRefused);
+  }
   if (present.length > 0) {
     execute(
       db,
@@ -1560,7 +1683,32 @@ registerUndoHandler("transaction", (db, event) => {
   return typeof snapshot.amount === "number"
     ? `Restored the transaction of ${formatPaise(Math.abs(snapshot.amount) as Paise)}`
     : `Restored the transaction`;
-});
+}, undefined, createdRowGone);
+
+/**
+ * MONEY-CORE-5 · The charge createTransfer wrote beside the pair, from the
+ * transfer's create event. An event written before the fee's id was kept is
+ * matched the way createTransfer wrote it — the paying account, the day, the
+ * amount and the memo, no earlier than the outgoing leg.
+ */
+function transferFeeId(db: DB, pairId: string, eventAfter: unknown): string | null {
+  const after = eventAfter as { fee?: number; feeTransactionId?: string; to?: string } | undefined;
+  if (after?.feeTransactionId) return after.feeTransactionId;
+  if (!after?.fee) return null;
+  const out = queryOne<{ account_id: string; date: string; created_at: string }>(
+    db, `SELECT account_id, date, created_at FROM transactions WHERE transfer_pair_id = ? AND amount < 0`,
+    pairId,
+  );
+  return out ? queryOne<{ id: string }>(
+    db,
+    `SELECT id FROM transactions
+      WHERE account_id = ? AND date = ? AND amount = ? AND transfer_pair_id IS NULL
+        AND memo IN (?, ?) AND created_at >= ? AND deleted_at IS NULL
+      ORDER BY created_at LIMIT 1`,
+    out.account_id, out.date, -after.fee,
+    `Charge on transfer to ${after.to}`, `Charge on payment to ${after.to}`, out.created_at,
+  )?.id ?? null : null;
+}
 
 registerUndoHandler("transfer", (db, event) => {
   /*
@@ -1572,23 +1720,11 @@ registerUndoHandler("transfer", (db, event) => {
    * the paying account, the day, the amount and the memo, no earlier than the
    * outgoing leg.
    */
-  const after = event.after as { fee?: number; feeTransactionId?: string; to?: string } | undefined;
-  let feeId = after?.feeTransactionId ?? null;
-  if (!feeId && after?.fee) {
-    const out = queryOne<{ account_id: string; date: string; created_at: string }>(
-      db, `SELECT account_id, date, created_at FROM transactions WHERE transfer_pair_id = ? AND amount < 0`,
-      event.entityId!,
-    );
-    feeId = out ? queryOne<{ id: string }>(
-      db,
-      `SELECT id FROM transactions
-        WHERE account_id = ? AND date = ? AND amount = ? AND transfer_pair_id IS NULL
-          AND memo IN (?, ?) AND created_at >= ? AND deleted_at IS NULL
-        ORDER BY created_at LIMIT 1`,
-      out.account_id, out.date, -after.fee,
-      `Charge on transfer to ${after.to}`, `Charge on payment to ${after.to}`, out.created_at,
-    )?.id ?? null : null;
-  }
+  const feeId = transferFeeId(db, event.entityId!, event.after);
+
+  const gone = transferGone(db, event);
+  if (gone) throw new UndoRefused(gone);
+  refuseClosedAccounts(db, withPair(db, "", event.entityId!), UndoRefused);
 
   const now = nowIST();
   execute(db, `UPDATE transactions SET deleted_at = ? WHERE transfer_pair_id = ?`, now, event.entityId!);
@@ -1596,7 +1732,7 @@ registerUndoHandler("transfer", (db, event) => {
     execute(db, `UPDATE transactions SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`, now, feeId);
   }
   return feeId ? `Reversed the transfer and its charge` : `Reversed the transfer`;
-});
+}, undefined, transferGone);
 
 registerUndoHandler("payee", (db, event) => {
   const before = event.before as Payee | undefined;

@@ -65,7 +65,10 @@ export function proposeCategoryRules(db: DB, actor: Actor): Proposal[] {
       `%"${candidate.payee}"%`, `%"${candidate.category_id}"%`,
     );
     if (already) continue;
-    if (isSuppressed(db, "learned-rule", `${candidate.payee_id}:${candidate.category_id}`)) continue;
+    // A payee merged into this one brings its refusals with it: it is the
+    // same merchant. The name-keyed form is what dismissals recorded before.
+    const refusedAs = [...mergedInto(db, candidate.payee_id), candidate.payee];
+    if (refusedAs.some((p) => isSuppressed(db, "learned-rule", `${p}:${candidate.category_id}`))) continue;
 
     const proposal: Proposal = {
       id: newId(),
@@ -192,12 +195,20 @@ export function dismissRule(
     if (rule) {
       const condition = rule.conditions[0];
       const action = rule.actions[0] as { categoryId?: string; payee?: string } | undefined;
-      suppress(
-        db,
-        action?.categoryId ? "learned-rule" : "learned-payee",
-        `${String(condition?.value ?? "")}:${action?.categoryId ?? action?.payee ?? ""}`,
-        actor.memberId,
-      );
+      const value = String(condition?.value ?? "");
+      if (action?.categoryId) {
+        // proposeCategoryRules checks `payeeId:categoryId`. Keyed by the name,
+        // as this was, the record never matched, and a merge or a new name
+        // brought the refused suggestion back.
+        const payee = queryOne<{ id: string }>(
+          db,
+          `SELECT id FROM payees WHERE name = ? ORDER BY merged_into_id IS NOT NULL LIMIT 1`,
+          value,
+        );
+        suppress(db, "learned-rule", `${payee?.id ?? value}:${action.categoryId}`, actor.memberId);
+      } else {
+        suppress(db, "learned-payee", `${value}:${action?.payee ?? ""}`, actor.memberId);
+      }
     }
 
     appendEvent(db, actor, {
@@ -213,6 +224,17 @@ export function suppress(db: DB, kind: string, ref: string, memberId: string | n
     `INSERT OR REPLACE INTO review_dismissals (kind, ref, at, member_id) VALUES (?,?,?,?)`,
     kind, ref, nowIST(), memberId,
   );
+}
+
+/** A payee's id and those of every payee merged into it, however deep. */
+function mergedInto(db: DB, payeeId: string): string[] {
+  return queryAll<{ id: string }>(
+    db,
+    `WITH RECURSIVE m(id) AS (
+       SELECT ? UNION SELECT p.id FROM payees p JOIN m ON p.merged_into_id = m.id
+     ) SELECT id FROM m`,
+    payeeId,
+  ).map((r) => r.id);
 }
 
 function isSuppressed(db: DB, kind: string, ref: string): boolean {

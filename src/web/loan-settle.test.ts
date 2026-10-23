@@ -93,3 +93,23 @@ describe("WEALTH-19 · a settlement is paid from an account the member can see",
     } finally { await app.close(); }
   });
 });
+
+describe("UI-PASS-3 · the settle form offers only envelopes the charge can go to", () => {
+  test("no card's payment envelope in 'Budget the charge from'", async () => {
+    const { db, app, loan } = await setup();
+    try {
+      const card = createAccount(db, ravi, {
+        name: "Fictional Card", kind: "credit", subtype: "credit-card",
+        openingDate: "2025-01-01", openingBalance: 0 as Paise,
+      }).id;
+      const payment = queryOne<{ id: string }>(
+        db, `SELECT id FROM categories WHERE payment_account_id = ?`, card,
+      );
+      assert.ok(payment, "a card account has a payment envelope");
+      const body = await (await app.get(`/loans/${loan.id}`)).text();
+      const select = /<select id="settle-category"[\s\S]*?<\/select>/.exec(body)?.[0] ?? "";
+      assert.ok(select.includes("<option"), "the settle form has its envelope list");
+      assert.equal(select.includes(payment.id), false, "the card's payment envelope is offered");
+    } finally { await app.close(); }
+  });
+});

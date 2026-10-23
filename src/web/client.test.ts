@@ -34,6 +34,16 @@ describe("S15 · the client script", () => {
     assert.match(CLIENT_SCRIPT, /input\[type="file"\]/);
   });
 
+  test("the button that was pressed decides where the form goes and what it says", () => {
+    // Review's "No thanks" carries formaction="/rules/dismiss" and the Move
+    // screen's suggestions carry name/value pairs. Posting form.action with
+    // FormData(form) dropped both: "No thanks" confirmed the rule, and a
+    // suggestion sent the select's default source instead of its own.
+    assert.match(CLIENT_SCRIPT, /submitWithRetry\(form, event\.submitter\)/);
+    assert.match(CLIENT_SCRIPT, /formData\.set\(submitter\.name, submitter\.value\)/);
+    assert.match(CLIENT_SCRIPT, /submitter\.hasAttribute\("formaction"\)/);
+  });
+
   test("B60 · a successful mutation updates in place rather than navigating", () => {
     // The two calls that threw away the scroll position, and the message.
     assert.equal(

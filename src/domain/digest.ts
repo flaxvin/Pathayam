@@ -245,7 +245,10 @@ export function digestFor(
    * against a round number, because a large Ready to Assign means nothing until
    * you know what a month takes.
    */
-  const monthlySpend = averageDailySpend(db, today, 90, viewerMemberId) * 30;
+  // One budget's Ready to Assign against that budget's spending, as the buffer
+  // has measured it since BUDGET-20: every budget's spending in the denominator
+  // read Priya's ₹92,000 as a fortnight and never suggested holding any of it.
+  const monthlySpend = averageDailySpend(db, today, 90, viewerMemberId, [budget]) * 30;
   const rta = view.monthState.readyToAssign;
   if (monthlySpend > 0 && rta > monthlySpend * (HOLD_SUGGESTION_MONTHS + 1)) {
     /*
@@ -291,7 +294,8 @@ export function digestFor(
   }
 
   // `08` S5 · Last month is over and nobody has closed it.
-  const awaiting = monthAwaitingClose(db, today);
+  // Each budget closes on its own (15 §6.1); this is the one on screen.
+  const awaiting = monthAwaitingClose(db, today, budget);
   if (awaiting) {
     add({
       kind: "month-close",

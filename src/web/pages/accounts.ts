@@ -525,7 +525,7 @@ export function renderAccountDetail(opts: {
                 <tbody>
                   ${rows.map(
                     (r) => html`
-                      <tr style="${r.cleared ? "" : "opacity:.75"}">
+                      <tr class="${r.cleared ? "" : "row-uncleared"}">
                         <td>${formatDate(r.date)}</td>
                         <td>
                           <a href="/transaction/${r.id}">${r.payee ?? (r.isTransfer ? "Transfer" : "—")}</a>

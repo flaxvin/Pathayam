@@ -16,6 +16,7 @@ import type { Actor } from "../core/events.ts";
 import { createAccount } from "./accounts.ts";
 import { createTransaction } from "./transactions.ts";
 import { debtOverview } from "./loans.ts";
+import { createFamilyLoan } from "./family-loans.ts";
 
 const actor: Actor = { memberId: "m", source: "ui" };
 
@@ -87,5 +88,26 @@ describe("debts with no schedule", () => {
       accountId: id, amount: rupees(20_000), date: "2026-09-01", categoryId: null,
     });
     assert.equal(debtOverview(db).find((r) => r.name === "Owed")!.balance, rupees(40_000));
+  });
+});
+
+describe("DEBUG-LOANS-1 · a private family debt stays its holder's", () => {
+  test("another member's private borrowing is not in their table", () => {
+    const db = household();
+    execute(db, `INSERT INTO members (id,email,name,created_at) VALUES (?,?,?,?)`,
+      "p", "p@e.com", "Priya", nowIST());
+    createFamilyLoan(db, actor, {
+      counterparty: "Cousin", holderMemberId: "m", visibility: "private",
+      openingBalance: -rupees(75_000) as Paise, startedAt: "2026-04-01",
+    });
+
+    assert.ok(
+      debtOverview(db, "m").some((r) => r.name === "You owe Cousin"),
+      "the holder sees their own debt",
+    );
+    assert.equal(
+      debtOverview(db, "p").find((r) => r.name === "You owe Cousin"), undefined,
+      "Ravi's private borrowing was listed, with its amount, in Priya's \"Everything you owe\"",
+    );
   });
 });

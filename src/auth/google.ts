@@ -69,25 +69,41 @@ export async function exchangeCode(opts: {
 }): Promise<GoogleProfile> {
   const doFetch = opts.fetchImpl ?? fetch;
 
-  const response = await doFetch(TOKEN_ENDPOINT, {
-    method: "POST",
-    headers: { "Content-Type": "application/x-www-form-urlencoded" },
-    body: new URLSearchParams({
-      client_id: opts.clientId,
-      client_secret: opts.clientSecret,
-      redirect_uri: opts.redirectUri,
-      grant_type: "authorization_code",
-      code: opts.code,
-      code_verifier: opts.codeVerifier,
-    }),
-  });
+  /*
+   * Google unreachable, or answering something that is not the token JSON (a
+   * proxy's error page, an empty body), is a sign-in that failed, not this
+   * server breaking — the same OAuthError a refused code is. Uncaught it was
+   * a 500 and a fault row on the health page.
+   */
+  let response: Response;
+  try {
+    response = await doFetch(TOKEN_ENDPOINT, {
+      method: "POST",
+      headers: { "Content-Type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        client_id: opts.clientId,
+        client_secret: opts.clientSecret,
+        redirect_uri: opts.redirectUri,
+        grant_type: "authorization_code",
+        code: opts.code,
+        code_verifier: opts.codeVerifier,
+      }),
+    });
+  } catch (error) {
+    throw new OAuthError(`Google could not be reached. ${(error as Error).message}`);
+  }
 
   if (!response.ok) {
     throw new OAuthError(`Google rejected the sign-in (HTTP ${response.status}).`);
   }
 
-  const payload = (await response.json()) as { id_token?: string };
-  if (!payload.id_token) throw new OAuthError("Google did not return an identity token.");
+  let payload: { id_token?: string } | null;
+  try {
+    payload = (await response.json()) as { id_token?: string } | null;
+  } catch {
+    payload = null;
+  }
+  if (!payload?.id_token) throw new OAuthError("Google did not return an identity token.");
 
   return parseIdToken(payload.id_token, opts.clientId);
 }

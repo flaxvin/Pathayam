@@ -119,6 +119,23 @@ export interface LoanPayment {
   note: string | null;
 }
 
+/*
+ * LOANS-1 · Two rows record a change in what is owed that nobody paid, both a
+ * zero-amount charge: a re-anchor to the lender's balance, which writes no
+ * loan-account leg, and a capitalised moratorium's interest, which does. The
+ * leg is what tells them apart — no column was added for it, so no migration.
+ * A re-anchor that one day posts a leg must change these two together.
+ */
+const IS_CAPITALISATION_SQL = `(kind = 'charge' AND amount = 0 AND loan_transaction_id IS NOT NULL)`;
+const IS_REANCHOR_SQL = `(kind = 'charge' AND amount = 0 AND loan_transaction_id IS NULL)`;
+
+/** LOANS-1 · The row that added a capitalised moratorium's interest to the loan. */
+export function isMoratoriumCapitalisation(
+  p: Pick<LoanPayment, "kind" | "amount" | "loan_transaction_id">,
+): boolean {
+  return p.kind === "charge" && p.amount === 0 && p.loan_transaction_id !== null;
+}
+
 // ---------------------------------------------------------------------------
 // R14 · Creating a loan
 // ---------------------------------------------------------------------------
@@ -361,6 +378,20 @@ function createLoanPaymentCategory(db: DB, actor: Actor, loanId: string, name: s
   return id;
 }
 
+/**
+ * DEBUG-LOANS-5 · A closed loan is out of every list and total, so a draw,
+ * payment, rate or second settlement recorded on it moved money no screen
+ * accounted for: ₹40,000 drawn on a settled loan reached the bank and no
+ * liability; settling twice paid the whole settlement again, as interest.
+ */
+function refuseIfClosed(loan: Pick<Loan, "closed_at" | "lender" | "nickname">): void {
+  if (loan.closed_at) {
+    throw new Refusal(
+      `${loan.nickname || loan.lender} is closed. Reopen it from the activity log to record more against it.`,
+    );
+  }
+}
+
 export function getLoan(db: DB, id: string): Loan | null {
   return queryOne<Loan>(db, `SELECT * FROM loans WHERE id = ?`, id);
 }
@@ -496,6 +527,7 @@ export function recordDisbursement(
   return transact(db, () => {
     const loan = getLoan(db, input.loanId);
     if (!loan) throw new Missing("That loan does not exist.");
+    refuseIfClosed(loan);
 
     const disbursed = totalDisbursed(db, input.loanId);
     if (disbursed + input.amount > loan.sanctioned) {
@@ -610,7 +642,8 @@ export function recordLoanStatement(
   },
 ): LoanStatement {
   return transact(db, () => {
-    const appOutstanding = outstandingPrincipal(db, input.loanId);
+    // DEBUG-LOANS-2 · The lender's figure is as of its date; so is ours.
+    const appOutstanding = outstandingPrincipal(db, input.loanId, input.asOf);
     const id = newId();
     execute(
       db,
@@ -696,19 +729,34 @@ function keepInstalment(db: DB, actor: Actor, loanId: string, emi: Paise): void 
 
   const paid = queryOne<{ n: number }>(
     db,
-    `SELECT COUNT(*) AS n FROM loan_payments WHERE loan_id = ? AND kind = 'instalment'`,
+    `SELECT COUNT(*) AS n FROM loan_payments WHERE loan_id = ? AND kind = 'instalment' AND principal > 0`,
     loanId,
   )?.n ?? 0;
 
   // buildSchedule runs until the balance is actually cleared, so with the
   // instalment pinned it answers how many months that takes — which is the
   // number being asked for.
-  const months = buildSchedule({
-    principal: outstanding,
-    annualRatePct: currentRate(db, loanId),
-    months: Math.max(1, loan.tenure_months - paid),
-    emi,
-  }).months;
+  //
+  // A flat-rate loan is not run down as a reducing balance: every instalment
+  // carries the same interest on the original principal, so what is left of
+  // the instalment is the principal, and the months are the outstanding over
+  // that, rounded up so no instalment exceeds the one kept. Priced as reducing
+  // balance it needed fewer months, and the flat schedule then spread the
+  // outstanding over them at a higher instalment than the one kept.
+  const rate = currentRate(db, loanId);
+  const flatPrincipalPart = loan.interest_model === "flat"
+    ? emi - flatMonthlyInterest(principalBaseOf(db, loan) || outstanding, rate)
+    : null;
+  const months = flatPrincipalPart !== null
+    ? flatPrincipalPart > 0
+      ? Math.ceil(outstanding / flatPrincipalPart)
+      : Math.max(1, loan.tenure_months - paid)
+    : buildSchedule({
+        principal: outstanding,
+        annualRatePct: rate,
+        months: Math.max(1, loan.tenure_months - paid),
+        emi,
+      }).months;
 
   const tenure = paid + months;
   if (tenure !== loan.tenure_months) {
@@ -875,6 +923,7 @@ export function recordRateChange(
     checkAnnualRate(input.annualRatePct);
     const subject = getLoan(db, input.loanId);
     if (!subject) throw new Missing("That loan does not exist.");
+    refuseIfClosed(subject);
     if (input.effectiveFrom < subject.sanction_date) {
       throw new Refusal(
         `The loan was sanctioned on ${formatDate(subject.sanction_date)}, so a rate change ` +
@@ -978,10 +1027,20 @@ export function recordInstalment(
   return transact(db, () => {
     const loan = getLoan(db, input.loanId);
     if (!loan) throw new Missing("That loan does not exist.");
+    refuseIfClosed(loan);
 
     let principal = input.principal ?? null;
     let interest = input.interest ?? null;
     let estimated = 0;
+
+    /*
+     * LOANS-1 · The first instalment of a capitalised moratorium repays a
+     * balance that includes the moratorium's interest, so that interest is
+     * owed from here — split against, and recorded on the loan, below.
+     */
+    const capitalising = (input.kind ?? "instalment") === "instalment"
+      ? moratoriumInterestToCapitalise(db, loan, input.date)
+      : 0;
 
     /*
      * WEALTH-32 · One side of the lender's split is still the lender's.
@@ -1007,7 +1066,7 @@ export function recordInstalment(
 
     if (principal === null || interest === null) {
       // R18.2: fall back to the projected split, and mark it.
-      const outstanding = outstandingPrincipal(db, input.loanId);
+      const outstanding = outstandingPrincipal(db, input.loanId) + capitalising;
       const rate = currentRate(db, input.loanId, input.date);
       // A flat-rate loan charges the same interest every month, on what was
       // first borrowed; splitting by the reducing balance repaid its principal
@@ -1052,7 +1111,7 @@ export function recordInstalment(
       if (principal < 0 || interest < 0) {
         throw new Refusal("Neither the principal nor the interest of a payment can be negative.");
       }
-      const owed = outstandingPrincipal(db, input.loanId);
+      const owed = outstandingPrincipal(db, input.loanId) + capitalising;
       if (principal > owed) {
         throw new Refusal(
           `That repays ${formatPaise(principal)} of principal, more than the ${formatPaise(owed)} ` +
@@ -1060,6 +1119,11 @@ export function recordInstalment(
         );
       }
     }
+
+    // Interest alone begins no repayment (repaysAnInstalment), so it adds nothing.
+    const capitalisationId = capitalising > 0 && input.kind !== "charge" && principal > 0
+      ? capitaliseMoratoriumInterest(db, actor, loan, input.date, capitalising as Paise)
+      : null;
 
     let transactionId: string | null = null;
     let loanTransactionId: string | null = null;
@@ -1173,7 +1237,9 @@ export function recordInstalment(
 
     const payment = queryOne<LoanPayment>(db, `SELECT * FROM loan_payments WHERE id = ?`, id)!;
     appendEvent(db, actor, {
-      entity: "loan", entityId: input.loanId, action: "instalment", after: payment,
+      entity: "loan", entityId: input.loanId, action: "instalment",
+      // LOANS-1 · The capitalisation goes with the instalment that began repayment.
+      after: capitalisationId ? { ...payment, capitalisationId, capitalised: capitalising } : payment,
       // WEALTH-21 · A prepayment taken as a shorter tenure moves it straight
       // after this; the tenure it had is what an undo puts back.
       // EXTRA-1 · …and the instalment it had kept, if any, likewise.
@@ -1184,10 +1250,78 @@ export function recordInstalment(
       summary:
         `Paid ${formatPaise(input.amount)} on ${formatDate(input.date)} — ` +
         `${formatPaise(principal)} principal, ${formatPaise(interest)} interest` +
-        (estimated ? " (split estimated, not yet confirmed by the lender)" : ""),
+        (estimated ? " (split estimated, not yet confirmed by the lender)" : "") +
+        (capitalisationId
+          ? ` — and ${formatPaise(capitalising as Paise)} of moratorium interest added to the loan`
+          : ""),
     });
     return payment;
   });
+}
+
+/**
+ * LOANS-1 · The moratorium interest a capitalised loan's first instalment adds
+ * to what is owed, or 0 when there is none to add.
+ *
+ * The projection showed the grown balance — ₹11,04,713.07 on ₹10 lakh at 10%
+ * after twelve months — and priced the EMI on it, but nothing ever added the
+ * interest to the outstanding. The first EMI ended the moratorium view, the
+ * live outstanding took over, and about ₹1.05 lakh of debt left net worth.
+ *
+ * The figure is the projection's own, the one the loan page showed until this
+ * instalment. It is added once: not when repayment has already begun (an
+ * existing loan past its first EMI is not touched), not twice, and not when
+ * the projection was re-anchored to the lender's balance on or before the
+ * instalment — a lender's figure taken during the moratorium already carries
+ * the interest accrued to that day.
+ */
+function moratoriumInterestToCapitalise(db: DB, loan: Loan, date: IsoDate): number {
+  if (loan.interest_model !== "moratorium-capitalised" || loan.moratorium_months <= 0) return 0;
+  const already = queryOne<{ n: number }>(
+    db,
+    `SELECT COUNT(*) AS n FROM loan_payments
+      WHERE loan_id = ?
+        AND ((kind = 'instalment' AND principal > 0)
+          OR ${IS_CAPITALISATION_SQL}
+          OR (${IS_REANCHOR_SQL} AND date <= ?))`,
+    loan.id, date,
+  )?.n ?? 0;
+  if (already > 0) return 0;
+  return projectLoan(db, loan.id)?.moratorium?.capitalisedInterest ?? 0;
+}
+
+/**
+ * LOANS-1 · Add the moratorium's interest to the loan, dated the first EMI.
+ *
+ * The row a re-anchor writes — nothing paid, a negative principal that raises
+ * the outstanding, no interest paid. Unlike a re-anchor it carries a
+ * loan-account leg, as a waiver does, so the account's balance, net worth and
+ * the outstanding agree; that leg is also what marks it (IS_CAPITALISATION_SQL).
+ * It is written before the instalment, so the loan's ledger reads in the order
+ * the lender's does.
+ */
+function capitaliseMoratoriumInterest(
+  db: DB, actor: Actor, loan: Loan, date: IsoDate, amount: Paise,
+): string {
+  const leg = createTransaction(db, actor, {
+    accountId: loan.account_id,
+    amount: -amount as Paise,
+    date,
+    memo: `${loan.nickname || loan.lender} — moratorium interest capitalised`,
+    cleared: true,
+  });
+  const id = newId();
+  execute(
+    db,
+    `INSERT INTO loan_payments
+       (id,loan_id,date,amount,principal,interest,estimated,kind,transaction_id,loan_transaction_id,
+        note,created_at,created_by)
+     VALUES (?,?,?,0,?,0,0,'charge',NULL,?,?,?,?)`,
+    id, loan.id, date, -amount, leg.id,
+    `Moratorium interest of ${formatPaise(amount)} added to the principal (${loan.moratorium_months} months, capitalised)`,
+    nowIST(), actor.memberId,
+  );
+  return id;
 }
 
 export function listPayments(db: DB, loanId: string): LoanPayment[] {
@@ -1278,10 +1412,14 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
 
   const payments = listPayments(db, loanId);
   const paidInterest = payments.reduce((sum, p) => sum + p.interest, 0);
-  const paidPrincipal = payments.reduce((sum, p) => sum + p.principal, 0);
+  // LOANS-1 · Interest added to the principal is owed, not repaid.
+  const paidPrincipal = payments
+    .filter((p) => !isMoratoriumCapitalisation(p))
+    .reduce((sum, p) => sum + p.principal, 0);
   const charges = payments.filter((p) => p.kind === "charge").reduce((sum, p) => sum + p.amount, 0);
 
-  const remainingMonths = Math.max(1, loan.tenure_months - payments.filter((p) => p.kind === "instalment").length);
+  const instalmentsPaid = payments.filter(repaysAnInstalment).length;
+  const remainingMonths = Math.max(1, loan.tenure_months - instalmentsPaid);
 
   const baseline =
     principalBase > 0 && flat
@@ -1311,7 +1449,7 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
     (loan.interest_model === "moratorium-serviced" ||
       loan.interest_model === "moratorium-capitalised") &&
     loan.moratorium_months > 0 &&
-    payments.filter((pay) => pay.kind === "instalment").length === 0;
+    instalmentsPaid === 0;
 
   const moratoriumOutcome = inMoratorium && outstanding > 0
     ? moratorium({
@@ -1372,8 +1510,14 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
   const fullyDrawn = disbursed >= loan.sanctioned || disbursed === 0;
 
   const statement = latestStatement(db, loanId);
+  /*
+   * DEBUG-LOANS-2 · Measured on the statement's own date. Today's outstanding
+   * against a balance from months ago reported every instalment paid since as
+   * drift — a statement that matched to the paisa read "the app is lower by
+   * ₹5,167" after the next EMI, and more each month after.
+   */
   const driftResult = statement
-    ? drift(outstanding, statement.lender_outstanding)
+    ? drift(outstandingPrincipal(db, loanId, statement.as_of), statement.lender_outstanding)
     : null;
 
   return {
@@ -1417,7 +1561,7 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
       // a fresh 20-year loan). `baseline.months` is 0 for an undrawn loan, so
       // the two agree and the phantom saving disappears.
       baselineMonths: baseline.months,
-      projectedMonths: payments.filter((p) => p.kind === "instalment").length + schedule.months,
+      projectedMonths: instalmentsPaid + schedule.months,
       fees: charges,
       fromDate: loan.history_from,
     }),
@@ -1430,6 +1574,17 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
             .equivalentReducingRatePct
         : null,
   };
+}
+
+/**
+ * One of the tenure's instalments: a payment of kind "instalment" that repays
+ * some principal. Interest alone — serviced through a moratorium, or pre-EMI on
+ * a loan still being drawn — uses up no month of the tenure and does not begin
+ * repayment; counted as one, the first serviced month ended the moratorium and
+ * each after it took a month off a repayment the lender had not started.
+ */
+function repaysAnInstalment(p: Pick<LoanPayment, "kind" | "principal">): boolean {
+  return p.kind === "instalment" && p.principal > 0;
 }
 
 /**
@@ -1458,7 +1613,9 @@ export function reanchorToLenderBalance(
   input: { loanId: string; lenderOutstanding: Paise; asOf: IsoDate },
 ): void {
   transact(db, () => {
-    const projected = outstandingPrincipal(db, input.loanId);
+    // DEBUG-LOANS-3 · The correction is the gap on the lender's date. Today's
+    // balance put back every principal repaid since that date.
+    const projected = outstandingPrincipal(db, input.loanId, input.asOf);
     const difference = projected - input.lenderOutstanding;
     if (difference === 0) return;
 
@@ -1514,6 +1671,7 @@ export function closeLoan(
   return transact(db, () => {
     const projection = projectLoan(db, input.loanId);
     if (!projection) throw new Missing("That loan does not exist.");
+    refuseIfClosed(projection.loan);
 
     if (input.foreclosureCharge && input.foreclosureCharge > 0) {
       if (!input.chargeAccountId) {
@@ -1788,6 +1946,42 @@ registerUndoHandler("loan", (db, event, actor) => {
     if (payment.transaction_id && payment.principal > 0 && !payment.loan_transaction_id) {
       throw tooOld("payment");
     }
+    /*
+     * LOANS-1 · The first EMI of a capitalised moratorium added the interest to
+     * the loan; taking the EMI back takes that with it, so recording it again
+     * adds it once. Two things built on the grown balance since stop that: a
+     * later instalment (it would then be the first, and nothing would add the
+     * interest back) and a re-anchor (its correction was measured against the
+     * balance with the interest in). Those are undone first.
+     */
+    const capitalisation = typeof after.capitalisationId === "string"
+      ? queryOne<{ rowid: number; loan_transaction_id: string | null }>(
+          db, `SELECT rowid, loan_transaction_id FROM loan_payments WHERE id = ?`, after.capitalisationId,
+        )
+      : null;
+    if (capitalisation) {
+      const since = queryOne<{ repaid: number; reanchored: number }>(
+        db,
+        `SELECT COALESCE(SUM(kind = 'instalment' AND principal > 0 AND id <> ?), 0) AS repaid,
+                COALESCE(SUM(${IS_REANCHOR_SQL}), 0) AS reanchored
+           FROM loan_payments WHERE loan_id = ? AND rowid > ?`,
+        payment.id, id, capitalisation.rowid,
+      )!;
+      if (since.reanchored > 0) {
+        throw new UndoRefused(
+          "The loan was re-anchored to the lender's balance after this instalment, and that balance " +
+          "included the moratorium interest it added. Undo the re-anchor first, then this instalment.",
+        );
+      }
+      if (since.repaid > 0) {
+        throw new UndoRefused(
+          "This instalment began repayment and added the moratorium interest to the loan, and later " +
+          "instalments were recorded on that balance. Undo those first, then this one.",
+        );
+      }
+      execute(db, `DELETE FROM loan_payments WHERE id = ?`, after.capitalisationId as string);
+      eraseTransaction(db, capitalisation.loan_transaction_id);
+    }
     execute(db, `DELETE FROM loan_payments WHERE id = ?`, payment.id);
     eraseTransaction(db, payment.transaction_id);
     eraseTransaction(db, payment.loan_transaction_id);
@@ -1961,7 +2155,23 @@ export function debtOverview(db: DB, viewerMemberId?: string | null): DebtRow[] 
    * Neither has a rate or a monthly obligation, so those columns stay empty
    * rather than being filled with a zero that would read as "nothing to pay".
    */
+  /*
+   * DEBUG-LOANS-1 · …and a private family arrangement likewise. Loans, cards
+   * and the tracking accounts below were filtered; these were not, so Ravi's
+   * private ₹75,000 owed to a cousin sat in Priya's table with its amount.
+   */
+  const hiddenFamily = new Set(
+    viewerMemberId === undefined
+      ? []
+      : queryAll<{ id: string }>(
+          db,
+          `SELECT id FROM accounts
+            WHERE subtype = 'family-loan' AND visibility = 'private' AND holder_member_id IS NOT ?`,
+          viewerMemberId,
+        ).map((r) => r.id),
+  );
   for (const owed of familyLoanNetWorth(db).borrowed) {
+    if (hiddenFamily.has(owed.accountId)) continue;
     rows.push({
       name: owed.label, kind: "other", balance: owed.value,
       ratePct: null, monthlyObligation: 0, monthsRemaining: null,

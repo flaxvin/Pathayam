@@ -202,6 +202,24 @@ describe("an imported transfer whose two statements date it differently", () => 
       assert.equal(broken(db, a), true);
     } finally { await app.close(); }
   });
+  test("deleting the card's side asks about the bank's checkpoint from the bank leg's own date", async () => {
+    // The card leg is dated the 7th, after the bank's checkpoint on the 5th; the
+    // bank leg it takes with it is dated the 5th, inside it.
+    const { db, a, bankLeg, cardLeg } = paidCard();
+    const app = await startTestApp(db, { memberId: RAVI });
+    try {
+      const ask = await app.post(`/transaction/${cardLeg.id}/delete`, {});
+      assert.equal(ask.status, 200);
+      assert.match(await ask.text(), /Bank A was reconciled/);
+      assert.equal(getTransaction(db, bankLeg.id)!.deleted_at, null, "nothing deleted before the yes");
+
+      const yes = await app.post(`/transaction/${cardLeg.id}/delete`, { confirm_checkpoint: "1" });
+      assert.equal(yes.status, 303);
+      assert.equal(clearedBalanceAsOf(db, a, "2026-09-05"), 1_000_000);
+      assert.equal(broken(db, a), true);
+      assert.deepEqual(app.failures, []);
+    } finally { await app.close(); }
+  });
 });
 
 describe("a confirmed change that is then refused", () => {

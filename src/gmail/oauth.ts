@@ -16,6 +16,7 @@
  */
 
 import { randomBytes, createHash } from "node:crypto";
+import { reachGoogle, GoogleUnreachable } from "./client.ts";
 
 const AUTH_ENDPOINT = "https://accounts.google.com/o/oauth2/v2/auth";
 const TOKEN_ENDPOINT = "https://oauth2.googleapis.com/token";
@@ -145,13 +146,12 @@ interface TokenResponse {
 async function postToken(
   doFetch: typeof fetch, params: Record<string, string>,
 ): Promise<TokenResponse> {
-  const response = await doFetch(TOKEN_ENDPOINT, {
+  const body = await reachGoogle(doFetch, TOKEN_ENDPOINT, {
     method: "POST",
     headers: { "Content-Type": "application/x-www-form-urlencoded" },
     body: new URLSearchParams(params),
-  });
-  if (!response.ok) {
-    throw new GmailAuthError(`Google rejected the request (HTTP ${response.status}).`);
-  }
-  return (await response.json()) as TokenResponse;
+  }, (response) => new GmailAuthError(`Google rejected the request (HTTP ${response.status}).`));
+  // `null` or a bare string is not a token answer either.
+  if (typeof body !== "object" || body === null) throw new GoogleUnreachable();
+  return body as TokenResponse;
 }

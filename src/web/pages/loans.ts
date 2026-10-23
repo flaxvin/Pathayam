@@ -10,7 +10,7 @@ import { html, raw, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, formatCompact, type Paise } from "../../core/money.ts";
 import { formatDate, type IsoDate } from "../../core/dates.ts";
 import type { LoanProjection, Loan, LoanPayment, Disbursement, DebtRow } from "../../domain/loans.ts";
-import { LOAN_TYPE_LABELS } from "../../domain/loans.ts";
+import { LOAN_TYPE_LABELS, isMoratoriumCapitalisation } from "../../domain/loans.ts";
 import type { PrepaymentComparison, Schedule, RateResetOptions } from "../../loans/amortisation.ts";
 import { lineChart, horizontalBars } from "../charts.ts";
 import { renderHolderFields } from "./portfolio.ts";
@@ -175,32 +175,24 @@ function renderLoanCard(
         </p>
       `)}
 
-      ${when(p.driftMaterial && p.driftAmount !== null, () => html`
-        <p class="notice notice-warning">
-          The lender's statement of ${formatDate(p.driftAsOf!)} differs from this app by
-          ${formatPaise(Math.abs(p.driftAmount!))} — the app is
-          ${p.driftAmount! > 0 ? "higher" : "lower"}.
-          Common and legitimate causes: a mid-cycle rate reset, value-date versus
-          due-date differences, part-month interest on the first instalment,
-          rounding conventions, or fees added to principal.
-          <a href="/loans/${p.loan.id}/statement">Resolve it</a>
-        </p>
-      `)}
+      ${driftNotice(p)}
 
       <div class="row" style="gap:2rem;flex-wrap:wrap;margin-top:.5rem">
         ${figure("Monthly", p.preEmi ?? p.emi)}
         ${figure("Interest paid so far", p.metrics.interestPaid, "actual")}
         ${figure("Interest still to pay", p.schedule.totalInterest, "projected")}
-        ${when(p.metrics.interestSaved !== 0, () =>
-          figure("Interest saved", p.metrics.interestSaved, "projected"))}
+        ${when(p.metrics.interestSaved !== 0, () => interestSavedFigure(p))}
       </div>
 
       ${moratoriumNotice(p)}
 
       <div class="row" style="flex-wrap:wrap;margin-top:.75rem">
         <a class="button button-small" href="/loans/${loan.id}">Schedule</a>
-        <a class="button button-small" href="/loans/${loan.id}/pay">Record an instalment</a>
-        <a class="button button-small button-primary" href="/loans/${loan.id}/prepay">Prepay</a>
+        <!-- UI-PASS-13 · A closed loan refuses all three; it offers none. -->
+        ${when(!loan.closed_at, () => html`
+          <a class="button button-small" href="/loans/${loan.id}/pay">Record an instalment</a>
+          <a class="button button-small button-primary" href="/loans/${loan.id}/prepay">Prepay</a>
+        `)}
       </div>
     </section>
   `;
@@ -212,6 +204,42 @@ function renderLoanCard(
  * household goes to read about the loan, showed neither the moratorium state
  * nor the capitalisation warning that makes M4 expensive.
  */
+/**
+ * The lender's latest statement against the app's figure. UI-PASS-5: it was on
+ * the loans list only, so "Statement recorded." landed on the loan's own page
+ * with no sign of what the statement had found.
+ */
+function driftNotice(p: LoanProjection, opts: { confirmMatch?: boolean } = {}): SafeHtml {
+  if (p.driftAmount === null || p.driftAsOf === null) return html``;
+  if (!p.driftMaterial) {
+    return opts.confirmMatch
+      ? html`<p class="notice notice-success">The lender's statement of ${formatDate(p.driftAsOf)} matches this app.</p>`
+      : html``;
+  }
+  return html`
+    <p class="notice notice-warning">
+      The lender's statement of ${formatDate(p.driftAsOf)} differs from this app by
+      ${formatPaise(Math.abs(p.driftAmount))} — the app is
+      ${p.driftAmount > 0 ? "higher" : "lower"}.
+      Common and legitimate causes: a mid-cycle rate reset, value-date versus
+      due-date differences, part-month interest on the first instalment,
+      rounding conventions, or fees added to principal.
+      <a href="/loans/${p.loan.id}/statement">Resolve it</a>
+    </p>
+  `;
+}
+
+/**
+ * UI-PASS-7 · Against the original schedule a loan can cost more, not less — a
+ * rate rise, a moratorium, a part-drawn home loan's pre-EMI. "Interest saved
+ * −₹41,725.94" asked the reader to undo a double negative; say it plainly.
+ */
+function interestSavedFigure(p: LoanProjection): SafeHtml {
+  return p.metrics.interestSaved < 0
+    ? figure("Extra interest", Math.abs(p.metrics.interestSaved) as Paise, "projected")
+    : figure("Interest saved", p.metrics.interestSaved, "projected");
+}
+
 function moratoriumNotice(p: LoanProjection): SafeHtml {
   return when(p.moratorium !== null, () => html`
     <p class="notice ${p.moratorium!.capitalised ? "notice-warning" : "notice-info"}"
@@ -376,9 +404,11 @@ export function renderLoanDetail(opts: {
         ${when((opts.members ?? []).length > 1, () => html`
           <a class="button" href="#edit">Whose it is</a>
         `)}
-        <a class="button" href="/loans/${loan.id}/pay">Record an instalment</a>
-        <a class="button" href="/loans/${loan.id}/rate">Rate change</a>
-        <a class="button button-primary" href="/loans/${loan.id}/prepay">Prepay</a>
+        ${when(!loan.closed_at, () => html`
+          <a class="button" href="/loans/${loan.id}/pay">Record an instalment</a>
+          <a class="button" href="/loans/${loan.id}/rate">Rate change</a>
+          <a class="button button-primary" href="/loans/${loan.id}/prepay">Prepay</a>
+        `)}
       </div>
     </div>
 
@@ -502,6 +532,7 @@ export function renderLoanDetail(opts: {
         </p>
       `)}
       ${moratoriumNotice(p)}
+      ${driftNotice(p, { confirmMatch: true })}
     </section>
 
     ${loanBalanceSection(p)}
@@ -513,7 +544,7 @@ export function renderLoanDetail(opts: {
         ${figure("Interest paid", p.metrics.interestPaid, "actual")}
         ${figure("Interest projected", p.metrics.interestProjected, "projected")}
         ${figure("If nothing had changed", p.metrics.baselineInterest, "projected")}
-        ${figure("Interest saved", p.metrics.interestSaved, "projected")}
+        ${interestSavedFigure(p)}
       </div>
       ${when(p.metrics.savedByRateMovement !== 0, () => html`
         <p class="field-hint">
@@ -552,7 +583,7 @@ export function renderLoanDetail(opts: {
       </section>
     `)}
 
-    ${when(p.undrawn > 0, () => html`
+    ${when(p.undrawn > 0 && !loan.closed_at, () => html`
       <section class="card">
         <h2>Record a disbursement</h2>
         <p class="faint" style="margin-top:-.25rem">
@@ -635,7 +666,7 @@ export function renderLoanDetail(opts: {
                           `)}
                         </td>
                         <td class="num amount">${formatPaise(payment.interest)}</td>
-                        <td>${payment.kind}</td>
+                        <td>${isMoratoriumCapitalisation(payment) ? "moratorium interest added" : payment.kind}</td>
                       </tr>
                     `,
                   )}
@@ -701,11 +732,22 @@ function renderSchedule(schedule: Schedule, loanId: string): SafeHtml {
 // ---------------------------------------------------------------------------
 
 export function renderPrepaymentComparison(opts: {
-  comparison: PrepaymentComparison;
+  /** Null when what was typed could not be priced; `error` says why. */
+  comparison: PrepaymentComparison | null;
   loan?: Loan | null;
   amount: Paise;
   atMonth: number;
   action: string;
+  /**
+   * UI-PASS-12 · The calculator's own loan, as shown in the table. The three
+   * fields were left empty and required while the table priced ₹50,00,000 at
+   * 8.5% over 240 months, so changing only the prepayment was refused by the
+   * browser — and a refusal from the server was a bare error page that threw
+   * every typed figure away. `typed` echoes what was entered, as entered.
+   */
+  calculator?: { principal: Paise; rate: number; months: number };
+  typed?: Partial<Record<"amount" | "at_month" | "principal" | "rate" | "months", string>>;
+  error?: string | null;
   /** R19.4: a lump sum cannot silently drain envelopes. */
   fundingSources?: { id: string; name: string; balance: Paise }[];
   emergencyFundWarning?: string | null;
@@ -722,32 +764,46 @@ export function renderPrepaymentComparison(opts: {
           <div class="field">
             <label for="amount">Prepayment</label>
             <input id="amount" name="amount" class="amount-input" type="text" inputmode="decimal"
-                   value="${(opts.amount / 100).toFixed(2)}">
+                   value="${opts.typed?.amount ?? (opts.amount / 100).toFixed(2)}">
           </div>
           <div class="field">
             <label for="at_month">At instalment number</label>
-            <input id="at_month" name="at_month" type="number" min="1" value="${opts.atMonth}">
+            <input id="at_month" name="at_month" type="number" min="1"
+                   value="${opts.typed?.at_month ?? String(opts.atMonth)}">
           </div>
         </div>
         ${when(!opts.loan, () => html`
           <div class="grid-2">
             <div class="field">
               <label for="principal">Loan amount</label>
-              <input id="principal" name="principal" class="amount-input" type="text" inputmode="decimal" required>
+              <input id="principal" name="principal" class="amount-input" type="text" inputmode="decimal" required
+                     value="${opts.typed?.principal ?? (opts.calculator ? (opts.calculator.principal / 100).toFixed(2) : "")}">
             </div>
             <div class="field">
               <label for="rate">Rate (% per year)</label>
-              <input id="rate" name="rate" type="text" inputmode="decimal" required>
+              <input id="rate" name="rate" type="text" inputmode="decimal" required
+                     value="${opts.typed?.rate ?? (opts.calculator ? String(opts.calculator.rate) : "")}">
             </div>
           </div>
           <div class="field">
             <label for="months">Tenure in months</label>
-            <input id="months" name="months" type="number" min="1" required>
+            <input id="months" name="months" type="number" min="1" required
+                   value="${opts.typed?.months ?? (opts.calculator ? String(opts.calculator.months) : "")}">
           </div>
         `)}
+        ${when(opts.error, () => html`<p class="notice notice-error" role="alert">${opts.error}</p>`)}
         <button type="submit">Recalculate</button>
       </form>
     </div>
+    ${when(c, () => comparisonBody(opts, c!))}
+  `;
+}
+
+function comparisonBody(
+  opts: Parameters<typeof renderPrepaymentComparison>[0],
+  c: PrepaymentComparison,
+): SafeHtml {
+  return html`
 
     <!-- R19.2: both outcomes side by side, before anything is committed. -->
     <div class="card">

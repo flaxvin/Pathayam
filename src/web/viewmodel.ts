@@ -245,7 +245,13 @@ export function buildBudgetView(
         budgetId !== undefined ? [budgetId] : visibleBudgets ? [...visibleBudgets] : undefined,
       ),
     ),
-    fullyFunded: isFullyFunded(progressList, monthState.readyToAssign),
+    /*
+     * UI-PASS-11 · "Fully funded — every target met" sat above "Books and
+     * courses is over by ₹2,300": an envelope without a target that has gone
+     * below zero is not funded either.
+     */
+    fullyFunded: isFullyFunded(progressList, monthState.readyToAssign)
+      && ![...categories.values()].some((c) => c.state.balance < 0),
     cards,
     futureCaveat: futureMonthCaveat(target, currentMonth),
     overspentCategories: [...categories.values()].filter((c) => c.state.balance < 0),
@@ -294,7 +300,16 @@ function describeState(
   switch (progress.state) {
     case "unfunded": return { stateLabel: "Not funded", stateClass: "", needsCover: false };
     case "partial": return { stateLabel: "Partly funded", stateClass: "", needsCover: false };
-    case "over-funded": return { stateLabel: "Over-funded", stateClass: "", needsCover: false };
+    /*
+     * D8a · More assigned than the target asked for is only "over-funded"
+     * while some of it is still there. An overspend covered back to ₹0 had
+     * more assigned than the target because the extra went to the spending,
+     * and nothing is spare in an envelope at zero.
+     */
+    case "over-funded":
+      return state.balance > 0
+        ? { stateLabel: "Over-funded", stateClass: "", needsCover: false }
+        : { stateLabel: "Funded", stateClass: "", needsCover: false };
     default: return { stateLabel: "Funded", stateClass: "", needsCover: false };
   }
 }
