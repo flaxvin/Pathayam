@@ -8,7 +8,7 @@ runtime dependencies.
 harvest, drawn from deliberately through the year.
 
 ```
-2161 tests · 0 runtime dependencies · 60 migrations · 216 routes
+2407 tests · 0 runtime dependencies · 63 migrations · 221 routes
 ```
 
 ![The budget screen: the month grid, Ready to Assign, credit-card payment envelopes, and the in-app digest](docs/screenshots/budget.png)
