@@ -940,6 +940,15 @@ export function viewHolding(
 
   // R34: only meaningful when the instrument is priced in another currency.
   const firstLot = holding.lots[0];
+  /*
+   * DEBUG-ASSETS-5 · The rate the units were bought at, weighted by what each
+   * lot cost in its own currency — not the first lot's for all of them, which
+   * priced ten shares bought at ₹90 to the dollar as though bought at ₹70.
+   */
+  const paidForeign = holding.lots.reduce((sum, lot) => sum + lot.units * lot.price, 0);
+  const fxAtPurchase = paidForeign > 0
+    ? holding.lots.reduce((sum, lot) => sum + lot.units * lot.price * (lot.fxRate ?? rate), 0) / paidForeign
+    : firstLot?.fxRate ?? rate;
   const decomposition =
     instrument.currency !== baseCurrency && firstLot && quote
       ? decomposeGain({
@@ -948,7 +957,7 @@ export function viewHolding(
           // in base, and feeding that in would count the FX move twice.
           priceAtPurchase: averageUnitPrice(holding),
           priceNow: quote.price,
-          fxAtPurchase: firstLot.fxRate ?? rate,
+          fxAtPurchase,
           fxNow: rate,
         })
       : null;
