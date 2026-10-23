@@ -57,10 +57,30 @@ function isRegular(b: number): boolean {
   return !SPACE.has(b) && !DELIM.has(b);
 }
 
+/**
+ * How deep arrays and dictionaries may nest. A statement's deepest structure —
+ * a page tree's kids inside a resource dictionary — is a handful of levels; the
+ * limit is there so a hostile file of nothing but `[` is refused by name rather
+ * than overflowing the stack.
+ */
+export const MAX_NESTING = 256;
+
+/** A file nested past `MAX_NESTING`. Its message is fit to show. */
+export class PdfTooDeep extends Error {
+  constructor() {
+    super(
+      `It nests its structure more than ${MAX_NESTING} levels deep, ` +
+      "which no statement does, so it was not read.",
+    );
+    this.name = "PdfTooDeep";
+  }
+}
+
 /** A cursor over the file's bytes. One instance per parse; not reentrant. */
 export class Lexer {
   readonly bytes: Uint8Array;
   pos = 0;
+  private depth = 0;
 
   constructor(bytes: Uint8Array, pos = 0) {
     this.bytes = bytes;
@@ -109,9 +129,11 @@ export class Lexer {
 
     if (b === 0x2f) return this.parseName();
     if (b === 0x28) return this.parseLiteralString();
-    if (b === 0x5b) return this.parseArray();
+    if (b === 0x5b) return this.nested(() => this.parseArray());
     if (b === 0x3c) {
-      return this.at(1) === 0x3c ? this.parseDictOrStream() : this.parseHexString();
+      return this.at(1) === 0x3c
+        ? this.nested(() => this.parseDictOrStream())
+        : this.parseHexString();
     }
     if (b === 0x5d || b === 0x3e) {
       // A stray closer: let the caller's loop see it.
@@ -125,6 +147,16 @@ export class Lexer {
     if (word === "") { this.pos++; return null; }
 
     return this.parseNumberOrRef();
+  }
+
+  private nested<T>(read: () => T): T {
+    if (this.depth >= MAX_NESTING) throw new PdfTooDeep();
+    this.depth++;
+    try {
+      return read();
+    } finally {
+      this.depth--;
+    }
   }
 
   private parseName(): PdfName {

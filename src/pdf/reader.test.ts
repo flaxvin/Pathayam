@@ -217,3 +217,41 @@ describe("the PDF reader · streams that never end", () => {
     assert.equal(Buffer.from(two.raw).toString("latin1"), "second");
   });
 });
+
+describe("the PDF reader · nesting deeper than any statement", () => {
+  /*
+   * DEBUG-IMPORT-10 · Arrays and dictionaries were read by recursion with no
+   * limit, so a trailer of a few hundred thousand `[` overflowed the stack and
+   * the upload page said "Maximum call stack size exceeded". It is refused by
+   * name instead, at a depth no generator comes near.
+   */
+  test("a trailer nested past the limit is refused with a plain reason", () => {
+    const bytes = new Uint8Array(Buffer.from("trailer\n" + "[".repeat(200_000), "latin1"));
+    assert.throws(() => readDocument(bytes), (error: Error) => {
+      assert.ok(!(error instanceof RangeError), "not a stack overflow");
+      assert.match(error.message, /nests its structure/);
+      return true;
+    });
+  });
+
+  test("an object nested past the limit is skipped, the rest still read", () => {
+    const bytes = new Uint8Array(Buffer.from(
+      "1 0 obj " + "<< /A ".repeat(100_000) + "\nendobj\n2 0 obj [1 [2 [3]]] endobj\n",
+      "latin1",
+    ));
+    const doc = readDocument(bytes);
+    assert.equal(doc.objects.has(1), false);
+    assert.deepEqual(doc.objects.get(2), [1, [2, [3]]]);
+  });
+
+  test("ordinary nesting is read as before", () => {
+    const bytes = new Uint8Array(Buffer.from(
+      "trailer\n<< /A " + "[".repeat(50) + "1" + "]".repeat(50) + " >>",
+      "latin1",
+    ));
+    const doc = readDocument(bytes);
+    let v = doc.trailer.get("A");
+    for (let i = 0; i < 50; i++) v = (v as unknown[])[0] as typeof v;
+    assert.equal(v, 1);
+  });
+});
