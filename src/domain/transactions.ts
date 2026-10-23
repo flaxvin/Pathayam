@@ -355,6 +355,36 @@ export interface UpdateTransactionInput {
   tags?: string[];
 }
 
+/**
+ * DEBUG-ENGINE-10 · A closed account closed at nil and has to stay there.
+ * DEBUG-ENGINE-2 refused new money; this refuses moving the money already on
+ * it — an edited amount, a delete, a restore or an undo of one — which left
+ * the closed account holding a balance counted in Ready to Assign and nowhere
+ * in net worth. `ids` are the rows whose amount would start or stop counting.
+ */
+function refuseClosedAccounts(db: DB, ids: string[], Err: new (m: string) => Error = Refusal): void {
+  if (ids.length === 0) return;
+  const closed = queryOne<{ name: string; nickname: string | null }>(
+    db,
+    `SELECT a.name, a.nickname FROM transactions t JOIN accounts a ON a.id = t.account_id
+      WHERE t.id IN (${ids.map(() => "?").join(",")}) AND a.closed_at IS NOT NULL LIMIT 1`,
+    ...ids,
+  );
+  if (closed) {
+    throw new Err(
+      `${closed.nickname || closed.name} is closed, so its balance has to stay at nil. ` +
+      `Reopen it first, then change this.`,
+    );
+  }
+}
+
+/** The row and, for a transfer, its other side. */
+function withPair(db: DB, id: string, pairId: string | null | undefined): string[] {
+  return pairId
+    ? queryAll<{ id: string }>(db, `SELECT id FROM transactions WHERE transfer_pair_id = ?`, pairId).map((r) => r.id)
+    : [id];
+}
+
 /** EXTRA-3 · Said wherever a change is aimed at a deleted transaction. */
 export const DELETED_TRANSACTION =
   "That transaction has been deleted, so it can't be changed. Undo the delete in Activity to bring it back first.";
@@ -373,6 +403,9 @@ export function updateTransaction(
      * that says it was edited while it was gone.
      */
     if (before.deleted_at) throw new Refusal(DELETED_TRANSACTION);
+    if (patch.amount !== undefined && patch.amount !== before.amount) {
+      refuseClosedAccounts(db, withPair(db, id, before.transfer_pair_id));
+    }
 
     /*
      * A transfer leg is half of one movement, not a transaction of its own.
@@ -559,6 +592,7 @@ export function deleteTransaction(db: DB, actor: Actor, id: string): void {
           db, `SELECT id FROM transactions WHERE transfer_pair_id = ?`, before.transfer_pair_id,
         ).map((r) => r.id)
       : [id];
+    refuseClosedAccounts(db, ids);
 
     /*
      * MONEY-CORE-8 · The same B65 guard the create-undo runs. Deleting the
@@ -600,6 +634,7 @@ export function restoreTransaction(db: DB, actor: Actor, id: string): void {
   transact(db, () => {
     const before = getTransaction(db, id);
     if (!before) throw new Missing("That transaction does not exist.");
+    if (before.deleted_at) refuseClosedAccounts(db, withPair(db, id, before.transfer_pair_id));
     execute(db, `UPDATE transactions SET deleted_at = NULL WHERE id = ?`, id);
     if (before.transfer_pair_id) {
       execute(
@@ -1390,6 +1425,7 @@ registerUndoHandler("transaction", (db, event) => {
         db, `SELECT id FROM transactions WHERE transfer_pair_id = ?`, row.transfer_pair_id,
       ).map((r) => r.id)
       : [event.entityId!];
+    refuseClosedAccounts(db, ids, UndoRefused);
 
     // EXTRA-4 · As its delete: undoing its create took it out from under the
     // plan and failed on the plan's foreign key, a 500 instead of a sentence.
@@ -1497,6 +1533,7 @@ registerUndoHandler("transaction", (db, event) => {
   if (event.action === "delete" || event.action === "restore") {
     // Put deleted_at back as it was, on the row and — for a transfer — its pair.
     const pairId = snapshot.transfer_pair_id ?? null;
+    refuseClosedAccounts(db, withPair(db, id, pairId), UndoRefused);
     execute(
       db,
       `UPDATE transactions SET deleted_at = ?, updated_at = ?
@@ -1599,6 +1636,9 @@ registerUndoHandler("transaction", (db, event) => {
   }
 
   if (present.length === 0 && !linesBack) return `Nothing to restore`;
+  if (present.includes("amount") && getTransaction(db, id)?.amount !== snapshot.amount) {
+    refuseClosedAccounts(db, withPair(db, id, getTransaction(db, id)?.transfer_pair_id), UndoRefused);
+  }
   if (present.length > 0) {
     execute(
       db,
@@ -1684,6 +1724,7 @@ registerUndoHandler("transfer", (db, event) => {
 
   const gone = transferGone(db, event);
   if (gone) throw new UndoRefused(gone);
+  refuseClosedAccounts(db, withPair(db, "", event.entityId!), UndoRefused);
 
   const now = nowIST();
   execute(db, `UPDATE transactions SET deleted_at = ? WHERE transfer_pair_id = ?`, now, event.entityId!);

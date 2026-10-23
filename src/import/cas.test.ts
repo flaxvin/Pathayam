@@ -138,6 +138,31 @@ ISIN: INF846K01131
     assert.equal(cas.period, null, "a period ending in month 13 is no period");
   });
 
+  test("a reversed purchase is not read as a second purchase", () => {
+    /*
+     * A SIP whose payment bounced is printed, then reversed with bracketed
+     * figures. "Purchase" in the reversal's description made it a purchase,
+     * and a purchase's units were forced positive — so the plan offered two
+     * lots for one bounced instalment, and the brackets meant nothing.
+     */
+    const cas = parseCasText(`
+Folio No: 5555
+Some Fund - Growth
+ISIN: INF846K01131
+05/05/2026  Systematic Investment Purchase  5,000.00  100.000  50.0000  100.000
+08/05/2026  Purchase Reversal - Payment Rejected  (5,000.00)  (100.000)  50.0000  0.000
+Closing Unit Balance: 0.000
+`);
+    const [scheme] = cas.schemes;
+    assert.deepEqual(scheme!.rows.map((r) => [r.kind, r.units]), [["purchase", 100_000], ["other", -100_000]]);
+    assert.equal(unitsDisagreement(scheme!), null, "the statement's own arithmetic still holds");
+
+    const { db, account } = setup();
+    const plan = planCasImport(db, cas, account.id);
+    assert.deepEqual(plan.schemes[0]!.rows.map((r) => r.status), ["new", "skipped"]);
+    db.close();
+  });
+
   test("a missed row shows up as a disagreement rather than a wrong holding", () => {
     const cas = parseCasText(`
 Folio No: 3333
@@ -183,6 +208,42 @@ describe("09 §6.2 · a CAS reconciles rather than duplicating", () => {
     const holdings = listHoldings(db);
     assert.equal(holdings.length, 2);
     assert.equal(listInstruments(db).length, 2);
+    db.close();
+  });
+
+  test("a redemption of units bought before the statement is refused by name, not a server error", () => {
+    /*
+     * A CAS for April–July of a fund held since last year redeems units its
+     * own rows never bought. With a smaller purchase in the period, the sale
+     * threw a RangeError from the FIFO engine — "Something went wrong", and
+     * the plan was gone; with none, the redemption was dropped without a word
+     * though the review screen had listed it as new.
+     */
+    const { db, account } = setup();
+    const cas = parseCasText(`
+Folio No: 6666
+Some Fund - Growth
+ISIN: INF846K01131
+05/05/2026  Purchase  1,000.00  10.000  100.0000  110.000
+20/06/2026  Redemption  5,000.00  50.000  100.0000  60.000
+Closing Unit Balance: 60.000
+`);
+    assert.throws(
+      () => applyCasPlan(db, actor, planCasImport(db, cas, account.id), [0]),
+      (err: Error) => err.name === "Refusal" && /50\.000 units/.test(err.message) && /10\.000/.test(err.message),
+    );
+    assert.equal(listHoldings(db).length, 0, "nothing was half-written");
+
+    const onlySale = parseCasText(`
+Folio No: 6666
+Some Fund - Growth
+ISIN: INF846K01131
+20/06/2026  Redemption  5,000.00  50.000  100.0000  60.000
+`);
+    assert.throws(
+      () => applyCasPlan(db, actor, planCasImport(db, onlySale, account.id), [0]),
+      (err: Error) => err.name === "Refusal" && /50\.000 units/.test(err.message),
+    );
     db.close();
   });
 

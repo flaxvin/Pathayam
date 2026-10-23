@@ -734,6 +734,13 @@ export const CLIENT_SCRIPT = String.raw`
   document.addEventListener("submit", function (event) {
     var form = event.target;
     if (!(form instanceof HTMLFormElement)) return;
+    // UI-PASS · A form that asks first says so in data-confirm. The CSP refuses
+    // inline handlers, so the old onsubmit="return confirm(...)" never ran and
+    // Delete and Merge went through without asking.
+    if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) {
+      event.preventDefault();
+      return;
+    }
     if (form.method.toLowerCase() !== "post") return;
     // R35.5 as amended: signing out leaves no queued entry behind, whether or
     // not the sign-out itself goes through the retry below.

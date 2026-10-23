@@ -542,6 +542,31 @@ export function updateAccount(
 }
 
 /** F2.7: closeable without deletion. History and balances are retained. */
+/**
+ * An account closes only at nil (see closeAccount). DEBUG-ENGINE-13 · Undo
+ * closes one too — undoing a reopen, or an edit made while it was closed — and
+ * is held to the same rule.
+ */
+function refuseUnlessNil(db: DB, account: Account): void {
+  if (account.kind !== "tracking" || ledgerValuedTracking(account.subtype)) {
+    const balance = account.opening_balance + (queryOne<{ total: number }>(
+      db,
+      `SELECT COALESCE(SUM(amount), 0) AS total FROM transactions
+        WHERE account_id = ? AND deleted_at IS NULL`,
+      account.id,
+    )?.total ?? 0);
+    if (balance !== 0) {
+      throw new Refusal(
+        balance > 0
+          ? `${account.name} still holds ${formatPaise(balance as Paise)}. Move it to another ` +
+            `account first, so it is not lost from net worth — then close this one.`
+          : `${account.name} still owes ${formatPaise(-balance as Paise)}. Pay it off first, ` +
+            `so the debt is not lost from net worth — then close this one.`,
+      );
+    }
+  }
+}
+
 export function closeAccount(db: DB, actor: Actor, id: string): void {
   transact(db, () => {
     const before = getAccount(db, id);
@@ -556,23 +581,7 @@ export function closeAccount(db: DB, actor: Actor, id: string): void {
      * insists (WEALTH-30). Accounts valued otherwise (holdings, loans,
      * hand-valued assets) have their own ways out.
      */
-    if (before.kind !== "tracking" || ledgerValuedTracking(before.subtype)) {
-      const balance = before.opening_balance + (queryOne<{ total: number }>(
-        db,
-        `SELECT COALESCE(SUM(amount), 0) AS total FROM transactions
-          WHERE account_id = ? AND deleted_at IS NULL`,
-        id,
-      )?.total ?? 0);
-      if (balance !== 0) {
-        throw new Refusal(
-          balance > 0
-            ? `${before.name} still holds ${formatPaise(balance as Paise)}. Move it to another ` +
-              `account first, so it is not lost from net worth — then close this one.`
-            : `${before.name} still owes ${formatPaise(-balance as Paise)}. Pay it off first, ` +
-              `so the debt is not lost from net worth — then close this one.`,
-        );
-      }
-    }
+    refuseUnlessNil(db, before);
     execute(db, `UPDATE accounts SET closed_at = ? WHERE id = ?`, nowIST(), id);
     appendEvent(db, actor, {
       entity: "account",
@@ -889,7 +898,18 @@ registerUndoHandler("account", (db, event) => {
     execute(db, `DELETE FROM accounts WHERE id = ?`, id);
     return `Removed the account that was added`;
   }
-  const present = RESTORABLE_ACCOUNT_COLUMNS.filter((c) => c in before);
+  /*
+   * DEBUG-ENGINE-13 · An edit's undo puts back what the edit changed, and only
+   * that. Writing every column back reopened an account closed since, or
+   * closed one reopened since, around whatever it held by then.
+   */
+  const edited = event.action === "update" ? event.after as Partial<Account> | undefined : undefined;
+  const present = RESTORABLE_ACCOUNT_COLUMNS.filter((c) =>
+    c in before && (!edited || !(c in edited) || (edited as Record<string, unknown>)[c] !== (before as Record<string, unknown>)[c]));
+  const current = getAccount(db, id);
+  if (current && present.includes("closed_at") && before.closed_at && !current.closed_at) {
+    refuseUnlessNil(db, current);
+  }
   const movedBack = "budget_id" in before && getAccount(db, id)?.budget_id !== before.budget_id;
   if (present.length > 0) {
     execute(

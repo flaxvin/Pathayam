@@ -1170,6 +1170,14 @@ export function projectCashflow(
     const card = schedule.account_id ? cards.get(schedule.account_id) : undefined;
     if (schedule.account_id && !inScope.has(schedule.account_id) && !card) continue;
     let due: IsoDate | null = schedule.next_due;
+    /*
+     * DEBUG-ENGINE-15 · Catch a long-overdue schedule up along its own series
+     * before walking, or the 400-step guard ran out in the past: a daily bill
+     * 400 days behind projected nothing at all. A card charge is paid up to two
+     * statements later, so its walk starts that much earlier.
+     */
+    const catchUpFrom = card ? addDays(today, -70) : today;
+    if (due < catchUpFrom) due = nextOccurrence(schedule, addDays(catchUpFrom, -1));
     for (let guard = 0; due && due <= end && guard < 400; guard++) {
       const leaves = card ? cardPaymentDate(card, due) : due;
       if (leaves >= today && leaves <= end) {

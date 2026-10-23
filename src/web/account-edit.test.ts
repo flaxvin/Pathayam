@@ -72,4 +72,32 @@ describe("editing an account", () => {
       await app.close();
     }
   });
+
+  test("UI-PASS-8 · last four digits are four digits, or nothing", async () => {
+    const db = freshDb();
+    seedMember(db, RAVI, "Ravi");
+    const card = createAccount(db, ravi, {
+      name: "Card", kind: "credit", subtype: "credit-card", statementDay: 5, dueDay: 25,
+    });
+    const app = await startTestApp(db, { memberId: RAVI });
+    try {
+      for (const last4 of ["abcdefgh", "12", "123456", "66O4"]) {
+        const res = await app.post(`/accounts/${card.id}/edit`, { name: "Card", last4 });
+        assert.equal(res.status, 422, last4);
+        assert.equal(getAccount(db, card.id)!.last4, null, `${last4} was stored`);
+      }
+      const ok = await app.post(`/accounts/${card.id}/edit`, { name: "Card", last4: " 6604 " });
+      assert.equal(ok.status, 303);
+      assert.equal(getAccount(db, card.id)!.last4, "6604");
+
+      const fresh = await app.post("/accounts/new", {
+        name: "Other card", subtype: "credit:credit-card", last4: "abcd",
+      });
+      assert.equal(fresh.status, 422);
+      const cards = await app.post(`/accounts/${card.id}/cards`, { label: "Add-on", last4: "xyz" });
+      assert.equal(cards.status, 422);
+    } finally {
+      await app.close();
+    }
+  });
 });

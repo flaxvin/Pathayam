@@ -579,7 +579,8 @@ export function renderReports(opts: {
               ${opts.loanInterest.map(
                 (r) => html`
                   <tr>
-                    <td>${r.label}</td>
+                    <!-- UI-PASS-9 · "FY 2025-26" broke at its hyphen on a phone. -->
+                    <td style="white-space:nowrap">${r.label}</td>
                     <td>${r.loan}</td>
                     <td class="num amount">${formatPaise(r.interest)}</td>
                     <td class="num amount">${formatPaise(r.principal)}</td>
@@ -615,7 +616,7 @@ export function renderReports(opts: {
               ${opts.gains.map(
                 (y) => html`
                   <tr>
-                    <td>${y.label}</td>
+                    <td style="white-space:nowrap">${y.label}</td>
                     <td class="num amount ${y.shortTerm < 0 ? "amount-negative" : ""}">
                       ${formatPaise(y.shortTerm)}
                     </td>
@@ -862,7 +863,7 @@ export function renderSchedules(opts: {
                     <button class="button-small" type="submit">Save</button>
                   </form>
                   <form method="post" action="/schedules/${s.id}/delete" style="margin-top:.4rem"
-                        onsubmit="return confirm('Remove this schedule? Anything it already recorded stays.')">
+                        data-confirm="Remove this schedule? Anything it already recorded stays.">
                     <button class="button-small button-danger" type="submit">Remove</button>
                   </form>
                 </details>

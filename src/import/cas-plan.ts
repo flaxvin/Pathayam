@@ -28,8 +28,10 @@ import type { IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import {
   findOrCreateInstrument, recordPurchase, recordSale, recordDividend,
-  listAssetAccounts, listHoldings, getInstrument, listInstruments,
+  listAssetAccounts, listHoldings, getInstrument, listInstruments, holdingOf,
 } from "../domain/assets.ts";
+import { totalUnits, formatUnits } from "../portfolio/holdings.ts";
+import { Refusal } from "../core/refusal.ts";
 import { memberScope } from "../domain/member-scope.ts";
 import type { CasRow, CasScheme, CasStatement } from "./cas.ts";
 import { unitsDisagreement } from "./cas.ts";
@@ -266,6 +268,23 @@ export function applyCasPlan(
 
         const holding = listHoldings(db, planned.accountId)
           .find((h) => h.instrument_id === instrumentId);
+
+        if (row.kind === "redemption") {
+          /*
+           * Units sold that this ledger never bought — held from before the
+           * statement's period. FIFO refused them with a RangeError (a server
+           * error, the plan lost), or with no holding the sale was dropped
+           * unsaid. Refused here, by name, before anything is kept.
+           */
+          const held = holding ? totalUnits(holdingOf(db, holding.id)) : 0;
+          if (Math.abs(row.units) > held) {
+            throw new Refusal(
+              `${planned.instrumentName}: the statement redeems ${formatUnits(Math.abs(row.units))} units ` +
+              `on ${row.date}, but only ${formatUnits(held)} are recorded here. Record the earlier ` +
+              `purchases first, or leave this scheme unticked.`,
+            );
+          }
+        }
         if (!holding) continue;
 
         if (row.kind === "redemption") {

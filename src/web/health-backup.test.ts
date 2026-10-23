@@ -13,7 +13,7 @@ import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { freshDb, seedMember, startTestApp, testConfig } from "./harness.test-data.ts";
-import { listBackups } from "../ops/backup.ts";
+import { listBackups, createBackup, lastJobRun } from "../ops/backup.ts";
 
 describe("SECURITY-OPS-24 · manual backups", () => {
   test("the demo refuses them, and verification, and writes nothing", async () => {
@@ -56,5 +56,57 @@ describe("SECURITY-OPS-24 · manual backups", () => {
       await app.close();
       rmSync(dir, { recursive: true, force: true });
     }
+  });
+});
+
+/*
+ * DEBUG-WEB-8 · The heartbeat a verify sends. It went out through the global
+ * fetch rather than the app's own, and its result was written with no catch:
+ * a write that failed — the database closed under a shutdown, a locked file —
+ * was an unhandled rejection, which ends a Node 24 process.
+ */
+describe("DEBUG-WEB-8 · the heartbeat after a manual verify", () => {
+  async function verifyWith(fetchImpl: typeof fetch) {
+    const dir = mkdtempSync(join(tmpdir(), "budget-health-"));
+    const db = freshDb();
+    seedMember(db, "m-ravi", "Ravi");
+    createBackup(db, dir);
+    const app = await startTestApp(db, {
+      memberId: "m-ravi", fetchImpl,
+      config: testConfig({ backupDir: dir, heartbeatUrl: "https://monitor.example/ping" }),
+    });
+    const res = await app.post("/health/verify", {});
+    return { db, app, res, done: () => rmSync(dir, { recursive: true, force: true }) };
+  }
+
+  test("goes out through the app's fetch and is recorded", async () => {
+    const calls: string[] = [];
+    const { db, app, res, done } = await verifyWith(
+      (async (url: string | URL | Request) => { calls.push(String(url)); return new Response("ok"); }) as typeof fetch,
+    );
+    try {
+      assert.equal(res.status, 303);
+      await new Promise((ok) => setTimeout(ok, 20));
+      assert.deepEqual(calls, ["https://monitor.example/ping"]);
+      assert.equal(lastJobRun(db, "heartbeat").status, "ok");
+      assert.deepEqual(app.failures, []);
+    } finally { await app.close(); done(); }
+  });
+
+  test("a record that cannot be written is not an unhandled rejection", async () => {
+    let answer!: (r: Response) => void;
+    const pending = new Promise<Response>((ok) => { answer = ok; });
+    const rejections: unknown[] = [];
+    const listen = (reason: unknown) => { rejections.push(reason); };
+    process.on("unhandledRejection", listen);
+    const { db, app, res, done } = await verifyWith((async () => pending) as typeof fetch);
+    try {
+      assert.equal(res.status, 303);
+      await app.close();
+      db.close();
+      answer(new Response("ok"));
+      await new Promise((ok) => setTimeout(ok, 20));
+      assert.deepEqual(rejections, []);
+    } finally { process.off("unhandledRejection", listen); done(); }
   });
 });

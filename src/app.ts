@@ -44,6 +44,7 @@ import {
   saveConnection, deleteConnection, connectionView, getConnection,
 } from "./gmail/connection.ts";
 import { fetchGmail } from "./gmail/fetch.ts";
+import { GoogleUnreachable } from "./gmail/client.ts";
 import { withIdempotency, IdempotencyConflict } from "./core/idempotency.ts";
 import { parseAmount, evaluateAmountExpression, formatPaise, type Paise } from "./core/money.ts";
 import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, formatDate, lastDayOfMonth, daysBetween, fiscalYearOf, formatFiscalYear, statementPeriodOf, type MonthKey, type IsoDate, type WeekdayOrdinal } from "./core/dates.ts";
@@ -1140,6 +1141,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   function mutate<T>(
     ctx: RequestContext,
     fn: (a: AuthContext) => { redirect?: string; message?: string; body?: T },
+    /**
+     * False only for work SQLite cannot do inside a transaction — a backup's
+     * `VACUUM INTO`. Everything else runs as one unit (DEBUG-WEB-6).
+     */
+    opts: { atomic?: boolean } = {},
   ): Response {
     const a = auth(ctx);
     const key = (ctx.req.headers["idempotency-key"] as string | undefined) ?? null;
@@ -1154,7 +1160,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           path: ctx.url.pathname,
           payload: ctx.body,
         },
-        () => ({ statusCode: 200, body: fn(a) }),
+        // DEBUG-WEB-6 · One request, one transaction: a refusal on a later
+        // write takes the earlier ones back with it.
+        () => ({ statusCode: 200, body: opts.atomic === false ? fn(a) : transact(db, () => fn(a)) }),
       );
 
       const result = outcome.body as { redirect?: string; message?: string };
@@ -1190,7 +1198,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           path: ctx.url.pathname,
           payload: ctx.body,
         },
-        () => ({ statusCode: 200, body: fn() }),
+        () => ({ statusCode: 200, body: transact(db, fn) }),
       ).body;
     } catch (err) {
       if (err instanceof IdempotencyConflict) throw new HttpError(err.statusCode, err.message);
@@ -1226,6 +1234,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   }
 
   /** Amount fields accept an expression (F4.10) before falling back to a plain parse. */
+  /**
+   * UI-PASS-8 · The card or account number's last four, as printed beside the
+   * name everywhere ("····6604"). The form says maxlength=4, but the server
+   * took "abcdefgh" and showed it as the number. Spaces and dashes are let go;
+   * anything else is refused. Undefined when the field was not sent.
+   */
+  function last4Field(raw: string | undefined): string | null | undefined {
+    if (raw === undefined) return undefined;
+    const digits = raw.replace(/[\s-]/g, "");
+    if (digits === "") return null;
+    if (!/^\d{4}$/.test(digits)) {
+      throw new Refusal(`"${raw.trim()}" is not the last four digits — enter four numbers, like 6604, or leave it empty.`);
+    }
+    return digits;
+  }
+
   function amountField(raw: string | undefined, name = "Amount"): number {
     if (raw === undefined || raw.trim() === "") {
       throw new HttpError(400, `${name} is required.`);
@@ -2778,7 +2802,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         name: requiredField(ctx.body, "name"),
         nickname: text("nickname"),
         institution: text("institution"),
-        last4: text("last4"),
+        last4: last4Field(field(ctx.body, "last4")),
         holder_member_id: text("holder_member_id") && requireMember(ctx, text("holder_member_id")!),
         statement_day: numberOrNull(field(ctx.body, "statement_day")),
         due_day: numberOrNull(field(ctx.body, "due_day")),
@@ -2859,7 +2883,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         kind,
         subtype,
         institution: field(ctx.body, "institution") || null,
-        last4: field(ctx.body, "last4") || null,
+        last4: last4Field(field(ctx.body, "last4")) ?? null,
         openingBalance: opening,
         openingDate: dateField(openingDateRaw, "Opening date"),
         statementDay: numberOrNull(field(ctx.body, "statement_day")),
@@ -4743,7 +4767,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/accounts/:id/cards", (ctx) =>
     mutate(ctx, (a) => {
       const account = requireVisibleAccount(ctx, ctx.params.id!);
-      const last4 = (field(ctx.body, "last4") ?? "").replace(/\D/g, "") || null;
+      const last4 = last4Field(field(ctx.body, "last4")) ?? null;
       createCard(db, actorFor(a), {
         accountId: account.id,
         label: requiredField(ctx.body, "label"),
@@ -5750,7 +5774,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
         holderMemberId: getAccount(db, projection.loan.account_id)?.holder_member_id ?? null,
         isPrivate: getAccount(db, projection.loan.account_id)?.visibility === "private",
+        // UI-PASS-3 · Never a card's payment envelope or a commitment: the
+        // charge is refused against either, so offering them is a dead end.
         categories: listCategories(db, { viewerMemberId: viewer(ctx) })
+          .filter((c) => !c.payment_account_id && !c.commits_to_budget_id)
           .map((c) => ({ id: c.id, name: c.name })),
       }),
       // PRINT-1 · The schedule is the page a lender or an accountant asks for.
@@ -5985,12 +6012,29 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const loanId = ctx.params.id!;
       const ytdRaw = field(ctx.body, "interest_paid_ytd");
       const remainingRaw = field(ctx.body, "instalments_remaining");
+      /*
+       * UI-PASS-4 · "abc" instalments remaining was stored as nothing and a
+       * lender outstanding of −₹500 as a drift of the whole loan plus ₹500, both
+       * with "Statement recorded." A statement never shows either.
+       */
+      const lenderOutstanding = amountField(requiredField(ctx.body, "lender_outstanding"), "Lender's outstanding");
+      if (lenderOutstanding < 0) {
+        throw new Refusal("The lender's outstanding is what you still owe — enter it without a minus sign.");
+      }
+      const interestPaidYtd = ytdRaw?.trim() ? amountField(ytdRaw, "Interest paid") : null;
+      if (interestPaidYtd !== null && interestPaidYtd < 0) {
+        throw new Refusal("Interest paid this year cannot be below zero.");
+      }
+      const instalmentsRemaining = remainingRaw?.trim() ? Number(remainingRaw.trim()) : null;
+      if (instalmentsRemaining !== null && !(Number.isInteger(instalmentsRemaining) && instalmentsRemaining >= 0)) {
+        throw new Refusal(`"${remainingRaw!.trim()}" is not a number of instalments. Enter a whole number, or leave it empty.`);
+      }
       recordLoanStatement(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         loanId,
         asOf: dateField(field(ctx.body, "as_of"), "As of"),
-        lenderOutstanding: amountField(requiredField(ctx.body, "lender_outstanding")),
-        interestPaidYtd: ytdRaw?.trim() ? amountField(ytdRaw) : null,
-        instalmentsRemaining: remainingRaw?.trim() ? Number(remainingRaw) : null,
+        lenderOutstanding,
+        interestPaidYtd,
+        instalmentsRemaining,
       });
       return { redirect: `/loans/${loanId}`, message: "Statement recorded." };
     }),
@@ -6356,7 +6400,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const scope = budgetParam(ctx);
     const view = buildBudgetView(db, undefined, scope, viewer(ctx));
     const month = view.month;
-    const cashflow = projectCashflow(db, { days: 60, viewerMemberId: viewer(ctx) });
+    // DEBUG-ENGINE-9 · The budget on screen, as the Schedules page asks it.
+    const cashflow = projectCashflow(db, { days: 60, budgetId: scope, viewerMemberId: viewer(ctx) });
     const outstanding = creditOutstanding(db);
     const unfundedCards = [...view.categories.values()]
       .filter((c) => c.paymentAccountId)
@@ -8011,7 +8056,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const month = ctx.params.month!;
       if (!isMonthKey(month)) throw new NotFound("That is not a month.");
 
-      const budgetId = budgetParam(ctx);
+      const budgetId = postedBudget(ctx);
       const result = closeMonth(
         db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
         month, field(ctx.body, "note") || null, budgetId,
@@ -8031,7 +8076,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       const month = ctx.params.month!;
       if (!isMonthKey(month)) throw new NotFound("That is not a month.");
-      reopenMonth(db, actorFor(a), month, budgetParam(ctx));
+      reopenMonth(db, actorFor(a), month, postedBudget(ctx));
       return { redirect: "/months", message: `${formatMonth(month)} is open again.` };
     }),
   );
@@ -8068,6 +8113,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       return await call();
     } catch (error) {
       if (error instanceof GmailAuthError) throw new HttpError(400, error.message);
+      // DEBUG-WEB-7 · Google down or unreachable: a bad gateway, not a fault here.
+      if (error instanceof GoogleUnreachable) throw new HttpError(502, error.message);
       throw error;
     }
   }
@@ -9438,7 +9485,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         summary: `Backed up to ${backup.path}`,
       });
       return { redirect: "/health", message: `Backed up ${backup.bytes} bytes.` };
-    }),
+    }, { atomic: false }),
   );
 
   router.post("/health/verify", (ctx) =>
@@ -9450,14 +9497,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // Fired without awaiting: a slow monitor must not hold up the page, and
       // a ping that never arrives is itself the alert (R40.8.2).
       if (result.ok && config.heartbeatUrl) {
-        void pingHeartbeat(config.heartbeatUrl).then((beat) =>
+        // DEBUG-WEB-8 · Through the app's fetch, and the record is best-effort:
+        // a write that fails after the response (database closed at shutdown)
+        // was an unhandled rejection, which ends the process.
+        void pingHeartbeat(config.heartbeatUrl, deps.fetchImpl).then((beat) =>
           recordJobRun(
             db, "heartbeat", beat.ok ? "ok" : "failed",
             beat.ok
               ? "Acknowledged by the external monitor."
               : "The monitor could not be reached. It will alert on the missing ping.",
           ),
-        );
+        ).catch(() => {
+          // The ping itself went out or did not; the monitor judges that.
+        });
       }
 
       return { redirect: "/health", message: result.summary };
