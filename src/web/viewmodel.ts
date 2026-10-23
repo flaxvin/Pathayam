@@ -245,7 +245,13 @@ export function buildBudgetView(
         budgetId !== undefined ? [budgetId] : visibleBudgets ? [...visibleBudgets] : undefined,
       ),
     ),
-    fullyFunded: isFullyFunded(progressList, monthState.readyToAssign),
+    /*
+     * UI-PASS-11 · "Fully funded — every target met" sat above "Books and
+     * courses is over by ₹2,300": an envelope without a target that has gone
+     * below zero is not funded either.
+     */
+    fullyFunded: isFullyFunded(progressList, monthState.readyToAssign)
+      && ![...categories.values()].some((c) => c.state.balance < 0),
     cards,
     futureCaveat: futureMonthCaveat(target, currentMonth),
     overspentCategories: [...categories.values()].filter((c) => c.state.balance < 0),
