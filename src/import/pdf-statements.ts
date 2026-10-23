@@ -1410,7 +1410,7 @@ export const STATEMENT_SENDERS: StatementSender[] = [
   // all. None has a bank profile yet, so each is recognised and named but, like
   // a CAS, resolves to no account on its own.
   {
-    pattern: /^global\.e-statement-in@sc\.com$/i, bank: null, what: "Standard Chartered credit card statement",
+    pattern: /^global\.e-statement-in@sc\.com$/i, bank: "sc", what: "Standard Chartered credit card statement",
     query: ["global.e-statement-in@sc.com"],
   },
   { pattern: /^alerts@esafbank\.com$/i, bank: null, what: "ESAF Bank account statement", query: ["alerts@esafbank.com"] },

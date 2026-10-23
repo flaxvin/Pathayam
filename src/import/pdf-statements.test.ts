@@ -316,7 +316,7 @@ describe("04 §3.4 · which sender means which institution", () => {
     ]) {
       const s = senderFor(address);
       assert.ok(s, address);
-      assert.equal(s.bank, null);
+      assert.equal(s.bank, address.endsWith("@sc.com") ? "sc" : null);
     }
   });
 
