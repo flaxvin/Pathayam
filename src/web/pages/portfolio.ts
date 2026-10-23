@@ -1088,14 +1088,17 @@ export function renderNetWorth(opts: {
   `;
 }
 
-/** R29.4 · Four numbers that mean four different things. */
+/**
+ * R29.4 · Numbers that mean different things.
+ *
+ * NW-1 · Every part of the change, not four of them: other assets, money owed
+ * to family and other liabilities were left out, so the steps did not reach
+ * the net change they claimed to explain. `parts` always sums to the total.
+ */
 function renderWaterfall(change: NetWorthChange): SafeHtml {
-  const parts: [string, Paise, string][] = [
-    ["Money saved", change.moneySaved, "What you actually put aside"],
-    ["Market movement", change.marketMovement, "Prices moving, not your doing"],
-    ["Exchange rate", change.fxMovement, "The rupee moving, not your doing"],
-    ["Debt repaid", change.debtRepaid, "Principal cleared"],
-  ].filter(([, value]) => value !== 0) as [string, Paise, string][];
+  const parts: [string, Paise, string][] = change.parts
+    .filter((p) => p.value !== 0)
+    .map((p) => [p.label, p.value, p.blurb]);
 
   return html`
     <section class="card">

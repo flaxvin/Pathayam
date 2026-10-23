@@ -2875,4 +2875,20 @@ CREATE INDEX tax_payments_member_fy ON tax_payments (member_id, fy);
 ALTER TABLE instruments ADD COLUMN listed INTEGER CHECK (listed IS NULL OR listed IN (0, 1));
 `,
   },
+  {
+    name: "0066-a-snapshot-keeps-every-part-of-net-worth",
+    sql: `
+--------------------------------------------------------------------------------
+-- NW-1 · The rest of the net worth statement, on each snapshot
+--------------------------------------------------------------------------------
+-- A snapshot kept cash, investments, other assets, credit cards and loans, but
+-- not the statement's other two liability groups — money owed to family and
+-- other liabilities — so the change between two snapshots could not say how
+-- much of it was those, and its parts did not add up to it. Named after the
+-- statement's groups, like the columns beside them. NULL on a row written
+-- before this: what it was then is not known, and is not guessed.
+ALTER TABLE net_worth_snapshots ADD COLUMN owed_to_family INTEGER;
+ALTER TABLE net_worth_snapshots ADD COLUMN other_liabilities INTEGER;
+`,
+  },
 ];
