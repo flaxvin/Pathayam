@@ -50,7 +50,28 @@ of the spending the target is built on, even when paid from an envelope. An
 investment made any other way — a transfer to a tracking account filed to an
 envelope, say — still counts as spending.
 
-## Tax
+## Deposits
+
+**One rate for a deposit's whole life.** A PPF's or EPF's rate is reset by the
+government each quarter or year; a deposit's terms carry one rate, and changing
+it re-prices every past day too. Net worth snapshots already written keep the
+figure they were taken with.
+
+**No interest after maturity, and no renewal.** A matured deposit is held at
+its maturity value until somebody records what happened to the money. A bank
+pays a savings rate on an overdue deposit and may renew it automatically;
+neither is assumed. Nothing is posted at maturity.
+
+**Interest paid out is not projected.** A deposit paying its interest out is
+worth its principal; the payouts do not appear on the cashflow calendar unless
+they are entered as a schedule.
+
+**A retirement balance created in Portfolio cannot take terms.** Its register
+cannot hold contributions. Track a PPF or EPF whose value should be computed as
+an "Other asset" tracking account instead.
+
+**Tax deducted at source is not modelled.** The computed value is gross.
+
 
 **It is an estimate, not a return.** Arithmetic on figures the person enters,
 under the slabs the app carries. It files nothing, it is not advice, and it is

@@ -32,6 +32,7 @@ import { allocateByWeight, formatPaise, type Paise } from "../core/money.ts";
 import { SIMPLE_TRACKING_SUBTYPES, createAccount, getAccount } from "./accounts.ts";
 import { createTransaction, UndoRefused } from "./transactions.ts";
 import { dependantsOf } from "./dependants.ts";
+import { computedDepositValue } from "./deposits.ts";
 import {
   makeLot, previewSale, totalUnits, costBasis, averageCost, averageUnitPrice, marketValue,
   unrealisedGain, absoluteReturn, xirr, holdingCashFlows, decomposeGain,
@@ -387,8 +388,8 @@ export function valuationInBase(
   account: { id: string; currency: string },
   asOf = todayIST(),
   baseCurrency = "INR",
-): (Valuation & { fx: FxQuote | null }) | null {
-  const valuation = latestValuation(db, account.id, asOf);
+): (StandingValuation & { fx: FxQuote | null }) | null {
+  const valuation = standingValuation(db, account.id, asOf);
   if (!valuation) return null;
   if (account.currency === baseCurrency) return { ...valuation, fx: null };
 
@@ -413,6 +414,32 @@ export interface Valuation {
   /** R23.3 · Flagged after the configured interval, never silently trusted. */
   stale: boolean;
   ageDays: number;
+}
+
+/** A valuation, and whether it was typed by hand or computed from deposit terms. */
+export interface StandingValuation extends Valuation {
+  source: "hand" | "terms";
+}
+
+/**
+ * DEPOSITS · What an account is worth on `asOf`, by whichever figure stands.
+ *
+ * Without deposit terms, the latest hand valuation, as it always was. With
+ * them, the figure the terms compute for that day — unless a hand valuation is
+ * dated on or after the computed figure's basis date (the latest of the day
+ * the terms were saved, the start date and, for a kind that reads the
+ * register, the last contribution). That valuation is newer information than
+ * the arithmetic, so it wins; an older one has been superseded by the terms.
+ * See `deposits.ts`.
+ */
+export function standingValuation(
+  db: DB, accountId: string, asOf = todayIST(),
+): StandingValuation | null {
+  const hand = latestValuation(db, accountId, asOf);
+  const computed = computedDepositValue(db, accountId, asOf);
+  if (!computed) return hand ? { ...hand, source: "hand" } : null;
+  if (hand && hand.asOf >= computed.basisDate) return { ...hand, source: "hand" };
+  return { value: computed.value, asOf, stale: false, ageDays: 0, source: "terms" };
 }
 
 export function latestValuation(

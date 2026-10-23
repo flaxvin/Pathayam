@@ -28,6 +28,7 @@ answer 404 when the viewer may not see the entity
 | `GET /accounts`, `GET /accounts/new` | List with cleared / uncleared / working balances. |
 | `GET /accounts/:id` | Register with running balance. |
 | `POST /accounts/:id/edit`, `/close`, `/reopen` | |
+| `POST /accounts/:id/deposit`, `POST /accounts/:id/deposit/remove` | A deposit's terms, on its account page: what they make it worth today ("computed from terms" or "valued by hand"), its maturity, and forms to change or remove them. |
 | `GET /accounts/:id/reconcile`, `POST` | Reconcile against a bank balance. |
 | `GET /accounts/:id/cards`, `POST`, `POST /accounts/:id/cards/:cardId/close` | Physical cards on a credit account. |
 | `GET /accounts/:id/statement`, `POST` | Record a card statement. |

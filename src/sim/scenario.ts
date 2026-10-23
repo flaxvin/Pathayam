@@ -72,6 +72,7 @@ import {
   recordDividend, recordSplit, recordMerger, recordReturnOfCapital, recordValuation,
   recordPrice, recordFxRate, listHoldings,
 } from "../domain/assets.ts";
+import { setDepositTerms, removeDepositTerms } from "../domain/deposits.ts";
 import { snapshotNetWorth } from "../domain/networth.ts";
 import { closeMonth, reopenMonth } from "../domain/month-close.ts";
 import { householdBudgetId, ensurePersonalBudget, listBudgets } from "../domain/budgets.ts";
@@ -1135,6 +1136,24 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
         accountId: overseas.id, value: rupees(Math.round(overseasValue)) as Paise,
         asOf: day(month, 26),
       }));
+    }
+
+    // ------------------------------------------------- a deposit that values itself
+    // DEPOSITS · A one-year FD opened with its terms, the terms entered wrong
+    // and taken off, then entered again. Its value is computed from then on,
+    // and its maturity reaches the calendar and the overview a year later.
+    if (ix === 5 && live(6)) {
+      const fd = did("createAccount", () => createAccount(db, actor, {
+        name: "SBI FD", kind: "tracking", subtype: "fixed-deposit", institution: "SBI",
+        openingBalance: rupees(2_00_000), openingDate: day(month, 6),
+      })).id;
+      const terms = {
+        kind: "fd", principal: rupees(2_00_000) as Paise, rateBp: 690,
+        startDate: day(month, 6), maturityDate: day(addMonths(month, 12), 6),
+      };
+      did("setDepositTerms", () => setDepositTerms(db, actor, fd, { ...terms, rateBp: 960 }, day(month, 6)));
+      did("removeDepositTerms", () => removeDepositTerms(db, actor, fd));
+      did("setDepositTerms", () => setDepositTerms(db, actor, fd, terms, day(month, 6)));
     }
 
     // ------------------------------------------------------ lending in the family

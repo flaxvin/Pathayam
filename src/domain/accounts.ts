@@ -834,6 +834,7 @@ function accountDependants(db: DB, id: string): string[] {
     import_profiles: "saved import settings", holdings: "holdings", loans: "a loan",
     loan_disbursements: "a loan disbursement", asset_valuations: "valuations",
     family_loans: "a family loan", card_statements: "card statements", payees: "payees",
+    deposit_terms: "deposit terms",
   };
   const found: string[] = [];
   const tables = queryAll<{ name: string }>(db, `SELECT name FROM sqlite_master WHERE type = 'table'`);

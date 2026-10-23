@@ -428,6 +428,8 @@ only (out of a token's reach).
 | GET/POST | `/accounts/new` | R/W | Create an account. |
 | GET | `/accounts/:id` | R | One account's register. |
 | POST | `/accounts/:id/edit` · `/accounts/:id/close` · `/accounts/:id/reopen` | W | Rename, close (never delete) and reopen an account. |
+| POST | `/accounts/:id/deposit` | W | Set or change a deposit's terms (`deposit_kind` `fd`/`rd`/`ppf`/`epf`/`other`, `deposit_principal`, `deposit_instalment`, `deposit_rate` as a percentage, `deposit_compounding`, `deposit_start_date`, `deposit_maturity_date`, `deposit_payout` `cumulative`/`periodic`). A fixed deposit, recurring deposit or other-asset tracking account only. `/accounts/new` takes the same fields. |
+| POST | `/accounts/:id/deposit/remove` | W | Take a deposit's terms off; it is worth its balance again. |
 | GET/POST | `/accounts/:id/statement` | R/W | Record a card statement: amount, date, due date, minimum. |
 | GET | `/accounts/:id/cards` | R | Cards on one account, including add-ons. |
 | POST | `/accounts/:id/cards/:cardId/close` | W | Close an add-on card. |

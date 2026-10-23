@@ -98,6 +98,8 @@ export const COUNTED_TABLES = [
   "schedule_splits",
   // INSURANCE-1 · The policy register.
   "insurance_policies",
+  // DEPOSITS · A deposit's terms; its value is computed from them.
+  "deposit_terms",
 ];
 
 /**

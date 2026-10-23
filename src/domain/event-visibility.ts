@@ -50,7 +50,7 @@ const JUDGED_BY_ID = new Set(["assignment", "target", "transfer"]);
 
 /** The table behind each kind of event that is about one row. */
 const TABLES: Record<string, string> = {
-  account: "accounts", "asset-account": "accounts", category: "categories",
+  account: "accounts", "asset-account": "accounts", "deposit-terms": "accounts", category: "categories",
   "category-group": "category_groups", transaction: "transactions", schedule: "schedules",
   goal: "goals", holding: "holdings", asset: "holdings", instrument: "instruments",
   card: "cards", "card-statement": "card_statements", reconciliation: "reconciliations",

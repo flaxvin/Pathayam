@@ -27,6 +27,7 @@ import { listLoans, projectLoan, outstandingPrincipal } from "./loans.ts";
 import { accountDrifts, type AccountDrift } from "./account-drift.ts";
 import { familyLoanNetWorth, listFamilyLoans } from "./family-loans.ts";
 import { SIMPLE_TRACKING_SUBTYPES, hiddenAccountIds, type HolderScope } from "./accounts.ts";
+import { getDepositTerms } from "./deposits.ts";
 import {
   listAssetAccounts, listHoldings, viewHolding, holdingValueOn, valuationInBase, ASSET_LABELS,
   ASSET_CLASS_LABELS,
@@ -345,7 +346,9 @@ export function netWorthStatement(
     const value = stated ? stated.value : working;
     const lineAsOf = stated ? stated.asOf : asOf;
     const lineStale = stated ? stated.stale : false;
-    const href = stated
+    // DEPOSITS · A figure computed from a deposit's terms is changed where the
+    // terms are, on the account; a hand valuation where it was typed.
+    const href = stated && stated.source === "hand"
       ? `/portfolio/asset/${account.id}/revalue`
       : `/accounts/${account.id}`;
     if (stated) noteDate(stated.asOf, stated.stale);
@@ -794,8 +797,13 @@ export function assetAllocation(
     const stated = valuationInBase(db, account, asOf, baseCurrency);
     const value = stated ? stated.value : balances.get(account.id)?.working ?? 0;
     if (value <= 0) continue;
+    // DEPOSITS · A deposit's terms say what it is: a PPF or EPF on an "other
+    // asset" account is debt, an FD or RD cash, whatever subtype holds it.
+    const kind = getDepositTerms(db, account.id)?.kind;
     addClassified(
-      account.subtype === "asset" ? "other" : "cash",
+      kind === "ppf" || kind === "epf" ? "debt"
+        : kind === "fd" || kind === "rd" ? "cash"
+        : account.subtype === "asset" ? "other" : "cash",
       account.currency === baseCurrency ? "domestic" : "international",
       account.currency,
       value,
