@@ -10,7 +10,7 @@ import { html, raw, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, formatCompact, type Paise } from "../../core/money.ts";
 import { formatDate, type IsoDate } from "../../core/dates.ts";
 import type { LoanProjection, Loan, LoanPayment, Disbursement, DebtRow } from "../../domain/loans.ts";
-import { LOAN_TYPE_LABELS, isMoratoriumCapitalisation } from "../../domain/loans.ts";
+import { LOAN_TYPE_LABELS, GST_PCT, gstOnInterest, isMoratoriumCapitalisation } from "../../domain/loans.ts";
 import type { PrepaymentComparison, Schedule, RateResetOptions } from "../../loans/amortisation.ts";
 import { lineChart, horizontalBars } from "../charts.ts";
 import { renderHolderFields } from "./portfolio.ts";
@@ -186,6 +186,8 @@ function renderLoanCard(
         ${figure("Monthly", p.preEmi ?? p.emi)}
         ${figure("Interest paid so far", p.metrics.interestPaid, "actual")}
         ${figure("Interest still to pay", p.schedule.totalInterest, "projected")}
+        ${when(p.interestGst !== null, () =>
+          figure(`${GST_PCT}% GST on that interest`, p.interestGst!.remaining, "projected"))}
         ${when(p.metrics.interestSaved !== 0, () => interestSavedFigure(p))}
       </div>
 
@@ -550,6 +552,8 @@ export function renderLoanDetail(opts: {
         ${figure("Undrawn", p.undrawn)}
         ${figure("Outstanding", p.outstanding, "actual")}
         ${figure("Monthly", p.preEmi ?? p.emi)}
+        ${when(p.interestGst !== null, () =>
+          figure(`Plus ${GST_PCT}% GST on its interest`, p.interestGst!.next, "projected"))}
       </div>
       <p class="field-hint">
         Only what has been disbursed is a liability. The undrawn balance is neither
@@ -578,6 +582,17 @@ export function renderLoanDetail(opts: {
         ${figure("If nothing had changed", p.metrics.baselineInterest, "projected")}
         ${interestSavedFigure(p)}
       </div>
+      ${when(p.interestGst !== null, () => html`
+        <!--
+          EMI-GST-1 · A card EMI's interest carries ${GST_PCT}% GST, charged beside
+          each instalment. What is already charged is in the charges; what the
+          schedule has still to charge is below, and both are in the total.
+        -->
+        <div class="row" style="gap:2rem;flex-wrap:wrap;margin-top:.75rem">
+          ${figure(`${GST_PCT}% GST on interest still to come`, p.interestGst!.remaining, "projected")}
+          ${figure("Total cost of borrowing", p.metrics.totalCostOfBorrowing, "projected")}
+        </div>
+      `)}
       ${when(p.metrics.savedByRateMovement !== 0, () => html`
         <p class="field-hint">
           <!-- R22.4: a rate cut is not the household's achievement. -->
@@ -709,13 +724,23 @@ export function renderLoanDetail(opts: {
           `}
     </section>
 
-    ${renderSchedule(p.schedule, loan.id)}
+    ${renderSchedule(p.schedule, loan.id, { gst: p.interestGst })}
   `;
 }
 
-/** R17.2 · The schedule viewable in full, not just summarised, and exportable. */
-function renderSchedule(schedule: Schedule, loanId: string): SafeHtml {
+/**
+ * R17.2 · The schedule viewable in full, not just summarised, and exportable.
+ *
+ * EMI-GST-1 · For a card EMI, each row also shows the GST charged on its
+ * interest — a line of its own on the statement, not part of the instalment,
+ * so the amortisation columns are the bank's as they were.
+ */
+function renderSchedule(
+  schedule: Schedule, loanId: string,
+  opts: { gst?: LoanProjection["interestGst"] } = {},
+): SafeHtml {
   if (schedule.instalments.length === 0) return raw("");
+  const gst = opts.gst ?? null;
   return html`
     <section class="card">
       <div class="row-between">
@@ -724,7 +749,8 @@ function renderSchedule(schedule: Schedule, loanId: string): SafeHtml {
       </div>
       <p class="faint" style="margin-top:-.25rem">
         ${schedule.months} instalments to closure, ${formatCompact(schedule.totalInterest)} of
-        interest still to pay. Every row is projected until the lender confirms it.
+        interest still to pay${when(gst, () => html`, and ${formatCompact(gst!.remaining)} of ${GST_PCT}% GST
+        on it, charged beside each instalment`)}. Every row is projected until the lender confirms it.
       </p>
       <div class="table-scroll" style="max-height:24rem;overflow-y:auto">
         <table>
@@ -736,6 +762,7 @@ function renderSchedule(schedule: Schedule, loanId: string): SafeHtml {
               <th scope="col" class="num">Instalment</th>
               <th scope="col" class="num">Principal</th>
               <th scope="col" class="num">Interest</th>
+              ${when(gst !== null, () => html`<th scope="col" class="num">GST ${GST_PCT}%</th>`)}
               <th scope="col" class="num">Closing</th>
             </tr>
           </thead>
@@ -749,6 +776,9 @@ function renderSchedule(schedule: Schedule, loanId: string): SafeHtml {
                   <td class="num amount">${formatPaise(i.payment)}</td>
                   <td class="num amount">${formatPaise(i.principal)}</td>
                   <td class="num amount">${formatPaise(i.interest)}</td>
+                  ${when(gst !== null, () => html`
+                    <td class="num amount">${formatPaise(gstOnInterest(i.interest))}</td>
+                  `)}
                   <td class="num amount">${formatPaise(i.closing)}</td>
                 </tr>
               `,
@@ -1249,6 +1279,11 @@ export function renderRecordInstalment(opts: {
         ${formatPaise(next!.principal)} principal and ${formatPaise(next!.interest)} interest.
         Enter the lender's own split if you have it; otherwise this one is used and
         marked estimated until confirmed.
+        ${when(p.interestGst !== null, () => html`
+          The bank also charges ${GST_PCT}% GST on the interest —
+          ${formatPaise(gstOnInterest(next!.interest))} on this one — and it is recorded
+          as its own line beside the instalment.
+        `)}
       </p>
     `)}
 

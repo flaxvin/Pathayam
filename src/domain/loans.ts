@@ -48,6 +48,32 @@ export const LOAN_TYPE_LABELS: Record<LoanType, string> = {
   other: "Other loan",
 };
 
+/**
+ * EMI-GST-1 · The GST an Indian card issuer charges on a card EMI: on the
+ * processing fee, and on the interest in every instalment.
+ *
+ * Interest on a loan is exempt from GST, but Notification 9/2017-IT(Rate)
+ * Sr.28 carves "interest involved in credit card services" out of that
+ * exemption, and the Calcutta HC upheld it (Ramesh Kumar Patodia v Citi Bank,
+ * 24-06-2022). So every card-EMI statement carries a second line beside the
+ * instalment — 18% of that month's interest — which the plan's cost left out.
+ */
+export const GST_PCT = 18;
+
+/**
+ * GST on one instalment's interest, to the paisa. The issuer rounds each
+ * statement line, so twelve rounded lines are the cost, not 18% of the total:
+ * ₹897.46 on §7.4's ₹4,985.98 of interest, where one rounding gives ₹897.48.
+ */
+export function gstOnInterest(interest: number): Paise {
+  return Math.round((interest * GST_PCT) / 100) as Paise;
+}
+
+/** The GST still to come on a card EMI's projected instalments, line by line. */
+export function scheduleGst(schedule: Pick<Schedule, "instalments">): Paise {
+  return schedule.instalments.reduce((sum, i) => sum + gstOnInterest(i.interest), 0) as Paise;
+}
+
 export interface Loan {
   id: string;
   account_id: string;
@@ -499,7 +525,9 @@ export function syncLoanPaymentTarget(db: DB, actor: Actor, loanId: string): voi
   const projection = projectLoan(db, loanId);
   // During a moratorium the obligation is the pre-EMI, which is what the
   // household actually has to find each month (R16).
-  const due = projection?.preEmi ?? projection?.emi ?? 0;
+  // EMI-GST-1 · A card EMI's envelope also pays the GST on the next
+  // instalment's interest, which is charged from it beside the instalment.
+  const due = (projection?.preEmi ?? projection?.emi ?? 0) + (projection?.interestGst?.next ?? 0);
   if (due <= 0) return;
 
   setTarget(db, actor, payment.id, { type: "monthly", amount: due as Paise });
@@ -1240,11 +1268,53 @@ export function recordInstalment(
       nowIST(), actor.memberId,
     );
 
+    /*
+     * EMI-GST-1 · A card EMI's interest carries 18% GST, charged as its own
+     * line on the same statement (GST_PCT). It is a cost, not a repayment, so it
+     * is recorded as the loan's charge — no principal, no interest, counted in
+     * the total cost of borrowing as fees are — and taken from the same account
+     * and envelope as the instalment. The schedule is untouched: the bank
+     * amortises the plan without it.
+     */
+    const gst = loan.loan_type === "credit-card-emi" && input.kind !== "charge" && interest > 0
+      ? gstOnInterest(interest)
+      : 0;
+    let gstPaymentId: string | null = null;
+    if (gst > 0) {
+      const memo = `GST ${GST_PCT}% on EMI interest`;
+      const gstTransactionId = input.fromAccountId
+        ? createTransaction(db, actor, {
+            accountId: input.fromAccountId,
+            amount: -gst as Paise,
+            date: input.date,
+            categoryId: paymentCategoryForLoan(db, input.loanId)?.id ?? null,
+            payeeName: loan.lender,
+            memo: `${loan.nickname || loan.lender} — ${memo}`,
+            cleared: true,
+          }).id
+        : null;
+      gstPaymentId = newId();
+      execute(
+        db,
+        `INSERT INTO loan_payments
+           (id,loan_id,date,amount,principal,interest,estimated,kind,transaction_id,loan_transaction_id,
+            note,created_at,created_by)
+         VALUES (?,?,?,?,0,0,?,'charge',?,NULL,?,?,?)`,
+        gstPaymentId, input.loanId, input.date, gst, estimated, gstTransactionId,
+        `${memo} of ${formatPaise(interest as Paise)}`, nowIST(), actor.memberId,
+      );
+    }
+
     const payment = queryOne<LoanPayment>(db, `SELECT * FROM loan_payments WHERE id = ?`, id)!;
     appendEvent(db, actor, {
       entity: "loan", entityId: input.loanId, action: "instalment",
       // LOANS-1 · The capitalisation goes with the instalment that began repayment.
-      after: capitalisationId ? { ...payment, capitalisationId, capitalised: capitalising } : payment,
+      // EMI-GST-1 · …and the GST line with the instalment whose interest it is on.
+      after: {
+        ...payment,
+        ...(capitalisationId ? { capitalisationId, capitalised: capitalising } : {}),
+        ...(gstPaymentId ? { gstPaymentId, gst } : {}),
+      },
       // WEALTH-21 · A prepayment taken as a shorter tenure moves it straight
       // after this; the tenure it had is what an undo puts back.
       // EXTRA-1 · …and the instalment it had kept, if any, likewise.
@@ -1258,7 +1328,8 @@ export function recordInstalment(
         (estimated ? " (split estimated, not yet confirmed by the lender)" : "") +
         (capitalisationId
           ? ` — and ${formatPaise(capitalising as Paise)} of moratorium interest added to the loan`
-          : ""),
+          : "") +
+        (gst > 0 ? `, plus ${formatPaise(gst)} GST on the interest` : ""),
     });
     return payment;
   });
@@ -1403,6 +1474,12 @@ export interface LoanProjection {
   driftAsOf: IsoDate | null;
   /** M2 only — the rate a flat quote really is. */
   equivalentReducingRatePct: number | null;
+  /**
+   * EMI-GST-1 · Card EMIs only: the GST on the interest of the next projected
+   * instalment, and on all of the remaining ones, each rounded to the paisa as
+   * the issuer posts it. Null for any other loan, whose interest carries none.
+   */
+  interestGst: { next: Paise; remaining: Paise } | null;
 }
 
 export function projectLoan(db: DB, loanId: string): LoanProjection | null {
@@ -1525,6 +1602,10 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
     ? drift(outstandingPrincipal(db, loanId, statement.as_of), statement.lender_outstanding)
     : null;
 
+  const interestGst = loan.loan_type === "credit-card-emi"
+    ? { next: gstOnInterest(schedule.instalments[0]?.interest ?? 0), remaining: scheduleGst(schedule) }
+    : null;
+
   return {
     loan,
     outstanding,
@@ -1567,7 +1648,9 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
       // the two agree and the phantom saving disappears.
       baselineMonths: baseline.months,
       projectedMonths: instalmentsPaid + schedule.months,
-      fees: charges,
+      // EMI-GST-1 · GST already charged is among the charges; what is still to
+      // come on the schedule is a cost of borrowing as much as the interest is.
+      fees: charges + (interestGst?.remaining ?? 0),
       fromDate: loan.history_from,
     }),
     driftAmount: driftResult?.amount ?? null,
@@ -1578,6 +1661,7 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
         ? flatRateLoan(principalBase, rate, loan.original_tenure_months ?? loan.tenure_months)
             .equivalentReducingRatePct
         : null,
+    interestGst,
   };
 }
 
@@ -2020,6 +2104,16 @@ registerUndoHandler("loan", (db, event, actor) => {
       execute(db, `DELETE FROM loan_payments WHERE id = ?`, after.capitalisationId as string);
       eraseTransaction(db, capitalisation.loan_transaction_id);
     }
+    // EMI-GST-1 · The GST charged on its interest goes with it.
+    if (typeof after.gstPaymentId === "string") {
+      const gst = queryOne<{ transaction_id: string | null }>(
+        db, `SELECT transaction_id FROM loan_payments WHERE id = ?`, after.gstPaymentId,
+      );
+      if (gst) {
+        execute(db, `DELETE FROM loan_payments WHERE id = ?`, after.gstPaymentId);
+        eraseTransaction(db, gst.transaction_id);
+      }
+    }
     execute(db, `DELETE FROM loan_payments WHERE id = ?`, payment.id);
     eraseTransaction(db, payment.transaction_id);
     eraseTransaction(db, payment.loan_transaction_id);
@@ -2034,8 +2128,9 @@ registerUndoHandler("loan", (db, event, actor) => {
       instalment: "instalment", prepayment: "prepayment", extra: "payment", charge: "charge",
       foreclosure: "settlement payment",
     }[payment.kind];
-    return `Removed the ${formatPaise(payment.amount)} ${what} of ${formatDate(payment.date)}, ` +
-      `and the money it moved`;
+    return `Removed the ${formatPaise(payment.amount)} ${what} of ${formatDate(payment.date)}` +
+      (typeof after.gstPaymentId === "string" ? ` and the GST on its interest` : "") +
+      `, and the money it moved`;
   }
 
   if (event.action === "rate-change") {
@@ -2160,7 +2255,8 @@ export function debtOverview(db: DB, viewerMemberId?: string | null): DebtRow[] 
       kind: "loan",
       balance: projection.outstanding,
       ratePct: projection.ratePct,
-      monthlyObligation: projection.preEmi ?? projection.emi,
+      // EMI-GST-1 · A card EMI's month also costs the GST on its interest.
+      monthlyObligation: ((projection.preEmi ?? projection.emi) + (projection.interestGst?.next ?? 0)) as Paise,
       monthsRemaining: projection.schedule.months || null,
       holderName: holders.get(loan.account_id) ?? null,
     });

@@ -106,7 +106,7 @@ import { memberScope, hiddenTransactionSql, hiddenAccountSql } from "./domain/me
 import { exportForMember, exportTransactionsCsvForMember } from "./ops/member-export.ts";
 import { callItEven } from "./domain/squaring-up.ts";
 import { describeDeparture, settleDeparture, type DepartureResolution } from "./domain/departure.ts";
-import { convertToEmi, convertedFrom } from "./domain/card-emi.ts";
+import { convertToEmi, convertedFrom, GST_PCT } from "./domain/card-emi.ts";
 import { renderDeparture } from "./web/pages/departure.ts";
 import { renderHousehold } from "./web/pages/household.ts";
 import {
@@ -154,7 +154,7 @@ import {
 import {
   createLoan, listLoans, getLoan, projectLoan, recordInstalment, listPayments, closeLoan,
   recordDisbursement, recordLoanStatement, recordRateChange, recordPrepayment, canSeeLoan, checkAnnualRate, loanPaymentBudgetId,
-  setLoanPropertyUse,
+  setLoanPropertyUse, gstOnInterest,
   listDisbursements, listRatePeriods, debtOverview, type LoanType,
 } from "./domain/loans.ts";
 import { comparePrepayment, rateResetOptions, NegativeAmortisation } from "./loans/amortisation.ts";
@@ -3817,7 +3817,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         redirect: `/loans/${result.loan.id}`,
         message:
           `Converted. ${formatPaise(result.emi)} a month, costing ` +
-          `${formatPaise(result.totalCostOfBorrowing)} in interest and fees.`,
+          `${formatPaise(result.totalCostOfBorrowing)} in interest, GST and fees.`,
       };
     }),
   );
@@ -3951,7 +3951,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               The converted amount comes off this card's balance and becomes a loan
               with its own instalments — so you are not asked to clear it here
               <em>and</em> pay it monthly. The processing fee is charged to the card
-              like any purchase, so give it an envelope.
+              like any purchase, so give it an envelope. Each instalment also carries
+              ${GST_PCT}% GST on its interest, which the plan's envelope pays.
             </p>
             <form method="post" action="/transaction/${transaction.id}/convert-to-emi">
               <div class="grid-2">
@@ -5969,13 +5970,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     auth(ctx);
     const projection = projectLoan(db, ctx.params.id!);
     if (!projection) throw new NotFound("That loan does not exist.");
+    const gst = projection.interestGst !== null;
 
     const rows = [
-      "number,due_date,opening,instalment,principal,interest,closing,cumulative_interest",
+      "number,due_date,opening,instalment,principal,interest,closing,cumulative_interest" +
+        // EMI-GST-1 · A card EMI's GST on interest, the line beside each instalment.
+        (gst ? ",gst_on_interest" : ""),
       ...projection.schedule.instalments.map((i) =>
         [
           i.number, i.dueDate ?? "", i.opening / 100, i.payment / 100,
           i.principal / 100, i.interest / 100, i.closing / 100, i.cumulativeInterest / 100,
+          ...(gst ? [gstOnInterest(i.interest) / 100] : []),
         ].join(","),
       ),
     ].join("\n");
