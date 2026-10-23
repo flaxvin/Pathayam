@@ -1269,7 +1269,9 @@ function reconcile(
     const open = openingBalanceOf(line);
     if (open !== null && opening === null) opening = open;
 
-    if (/closing\s+balance/i.test(line)) {
+    // ICICI's TDS summary below the table has its own "Closing Balance
+    // (Cumulative) 704.00 0.00" — interest to date, not the account balance.
+    if (/closing\s+balance/i.test(line) && !/cumulative/i.test(line)) {
       const figures = figuresWithOffsets(line).filter((f) => /\.\d{2}\b/.test(f.text));
       const last = figures[figures.length - 1];
       if (last) closing = balanceOf(last.text);
