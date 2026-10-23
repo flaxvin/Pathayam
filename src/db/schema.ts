@@ -2861,4 +2861,18 @@ CREATE TABLE tax_payments (
 CREATE INDEX tax_payments_member_fy ON tax_payments (member_id, fy);
 `,
   },
+  {
+    name: "0065-a-bond-says-whether-it-is-listed",
+    sql: `
+--------------------------------------------------------------------------------
+-- BONDS-1 · Whether a bond is listed on an exchange
+--------------------------------------------------------------------------------
+-- A listed bond held over 12 months is long-term under s112, at 12.5% without
+-- indexation. An unlisted bond or debenture is slab-rated under s50AA however
+-- long it is held. Nothing recorded which a bond was, so every bond gain was
+-- slab-rated. 1 is listed, 0 is not, NULL is not known — which is taxed as
+-- unlisted, because that is the rate that cannot understate the tax.
+ALTER TABLE instruments ADD COLUMN listed INTEGER CHECK (listed IS NULL OR listed IN (0, 1));
+`,
+  },
 ];

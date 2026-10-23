@@ -81,7 +81,7 @@ A unique index on `transactions(account_id, source, source_id)` where
 
 | Table | Key columns | Notes |
 |---|---|---|
-| `instruments` | `id`, `name`, `kind`, `symbol`, `isin`, `currency`, `provider`, `manual_only`, `asset_class`, `region` | `kind` ∈ `mutual-fund`, `equity`, `etf`, `bond`, `commodity`, `other`. |
+| `instruments` | `id`, `name`, `kind`, `symbol`, `isin`, `currency`, `provider`, `manual_only`, `asset_class`, `region`, `listed` | `kind` ∈ `mutual-fund`, `equity`, `etf`, `bond`, `commodity`, `other`. `listed` (0065) is a bond's listing on an exchange: 1, 0, or NULL when unknown, which is taxed as unlisted. |
 | `holdings` | `id`, `account_id`, `instrument_id`, `closed_at` | One instrument in one account. |
 | `lots` | `id`, `holding_id`, `trade_date`, `units`, `price`, `fees`, `cost`, `fx_rate`, `transaction_id`, `closed_at` | FIFO lots. |
 | `holding_events` | `id`, `holding_id`, `date`, `kind`, `units`, `price`, `amount`, `realised_gain`, `ratio`, `detail_json` | Purchases, sales, dividends, splits, mergers, returns of capital. |

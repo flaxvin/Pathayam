@@ -17,6 +17,8 @@
  *   property, gold or foreign shares, held ≤ 24 months → slab rates
  *   a gold or international ETF listed in India: as above, but 12 months
  *   debt, bought after 1 April 2023  →  slab rates always        (s50AA)
+ *   a listed bond, held > 12 months  →  12.5%, no indexation     (s112)
+ *   an unlisted bond, or one not known to be listed → slab rates (s50AA)
  *   a debt fund bought before then   →  as gold (24 months; ETF 12)
  *
  * So the holding-period threshold is not one number — it is 12 months for
@@ -176,11 +178,11 @@ export function gainsBucketsForYear(db: DB, fy: number, memberId: string): Gains
   const sales = queryAll<{
     date: IsoDate; realised_gain: number | null; detail_json: string | null;
     instrument_id: string; instrument: string; asset_class: string | null; region: string | null; currency: string;
-    kind: string; holder: string | null;
+    kind: string; listed: number | null; holder: string | null;
   }>(
     db,
     `SELECT e.date, e.realised_gain, e.detail_json,
-            h.instrument_id, i.name AS instrument, i.asset_class, i.region, i.currency, i.kind,
+            h.instrument_id, i.name AS instrument, i.asset_class, i.region, i.currency, i.kind, i.listed,
             a.holder_member_id AS holder
        FROM holding_events e
        JOIN holdings h ON h.id = e.holding_id
@@ -313,11 +315,27 @@ export function gainsBucketsForYear(db: DB, fy: number, memberId: string): Gains
       const fundUnit = sale.kind === "mutual-fund" || listedUnit;
       const longAfter = listedUnit ? LONG_TERM_MONTHS.equity : LONG_TERM_MONTHS.other;
 
+      /*
+       * BONDS-1 · A bond listed on an exchange is a listed security: long-term
+       * after 12 months (s2(42A)), then s112 at 12.5% with no indexation, and
+       * slab-rated before that. Since 23 July 2024 s50AA catches unlisted bonds
+       * and debentures whatever the holding period, so an unlisted one is
+       * slab-rated always — and so is one whose listing nobody has recorded,
+       * because guessing "listed" would understate the tax.
+       */
+      if (sale.kind === "bond" && (cls === "debt" || cls === "cash")) {
+        if (sale.listed === 1 && heldMoreThanMonths(acquired, sale.date, LONG_TERM_MONTHS.equity)) {
+          out.otherLong = (out.otherLong + gain) as Paise;
+        } else {
+          out.slabRated = (out.slabRated + gain) as Paise;
+        }
+        continue;
+      }
+
       if (cls === "debt" || cls === "cash") {
         /*
-         * s50AA: specified mutual fund units bought on or after 1 April 2023,
-         * and unlisted bonds and debentures, are always slab-rated. A bond's
-         * listing is not recorded, so a bond stays slab-rated here.
+         * s50AA: specified mutual fund units bought on or after 1 April 2023
+         * are always slab-rated (a bond is decided above).
          *
          * DEBUG-TAX-3 · Fund units bought before 1 April 2023 are outside
          * s50AA: long-term after 24 months (12 for a listed ETF), then s112.

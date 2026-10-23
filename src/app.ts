@@ -348,7 +348,7 @@ import {
   planCasImport, applyCasPlan, casDestinations, stashPlan, takePlan,
 } from "./import/cas-plan.ts";
 import {
-  createAssetAccount, listAssetAccounts, listValuableAccounts, findOrCreateInstrument, recordPurchase,
+  createAssetAccount, listAssetAccounts, listValuableAccounts, findOrCreateInstrument, setInstrumentListed, recordPurchase,
   recordSale, recordPrice, recordSplit, recordMerger, recordValuation, latestValuation, listHoldings, viewHolding,
   priceHistory, previewHoldingSale, getInstrument, findManualInstrument, listInstruments,
   classifyInstrument, ASSET_CLASSES, ASSET_CLASS_LABELS,
@@ -8611,9 +8611,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           kind: (field(ctx.body, "kind") ?? "mutual-fund") as InstrumentKind,
           currency: field(ctx.body, "currency") || "INR",
         };
+        // BONDS-1 · The by-hand form asks whether a bond is listed; a tick is
+        // a yes and no tick a no. Any other kind leaves it unrecorded.
+        const listed = typed.kind === "bond" ? field(ctx.body, "listed") === "1" : null;
         // WEALTH-11 · The same name typed again is the same instrument.
-        return (symbol ? null : findManualInstrument(db, typed, memberScope(db, viewer(ctx)).instruments))
-          ?? findOrCreateInstrument(db, actor, { ...typed, symbol, provider: schemeCode ? "mfapi" : "manual" });
+        const found = symbol ? null : findManualInstrument(db, typed, memberScope(db, viewer(ctx)).instruments);
+        if (found) {
+          if (listed !== null) setInstrumentListed(db, actor, found.id, listed);
+          return getInstrument(db, found.id)!;
+        }
+        return findOrCreateInstrument(db, actor, { ...typed, symbol, listed, provider: schemeCode ? "mfapi" : "manual" });
       };
       const instrument = chosenId
         ? getInstrument(db, requireVisibleInstrument(ctx, chosenId))!
@@ -8686,6 +8693,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         : null;
       classifyInstrument(db, actorFor(a), requireVisibleInstrument(ctx, ctx.params.id!), { assetClass });
       return { redirect: "/portfolio/allocation", message: assetClass ? "Classified." : "Cleared." };
+    }),
+  );
+
+  // BONDS-1 · Whether a bond is listed, from its holding page.
+  router.post("/portfolio/instrument/:id/listed", (ctx) =>
+    mutate(ctx, (a) => {
+      requireAssets();
+      const id = requireVisibleInstrument(ctx, ctx.params.id!);
+      setInstrumentListed(db, actorFor(a), id, field(ctx.body, "listed") === "1");
+      const holdingId = field(ctx.body, "holding_id");
+      return {
+        redirect: holdingId ? `/portfolio/${encodeURIComponent(requireVisibleHolding(ctx, holdingId))}` : "/portfolio",
+        message: "Saved.",
+      };
     }),
   );
 
