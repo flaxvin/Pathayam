@@ -26,6 +26,8 @@ export function renderDeparture(departure: Departure, month: MonthKey): SafeHtml
       <h2>What removing them does</h2>
       <ul class="plain">
         <li>They can no longer sign in, and their devices are signed out.</li>
+        <li>Their password and API tokens are cleared. Adding them back does not
+            bring those back: they set a new password.</li>
         <li>Their name stays on everything they entered (F1.6).</li>
         <li>They stop appearing when you add a transaction.</li>
       </ul>

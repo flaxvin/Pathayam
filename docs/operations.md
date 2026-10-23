@@ -155,7 +155,7 @@ Everything the app reads, and nothing it does not:
 
 | Variable | Default | Notes |
 |---|---|---|
-| `BASE_URL` | `http://localhost:$PORT` | The public origin, exactly. OAuth redirects, cookie scoping and the same-origin write check all depend on it. |
+| `BASE_URL` | `http://localhost:$PORT` | The public origin, exactly. OAuth redirects, cookie scoping and the same-origin write check all depend on it. A write addressed to any other hostname (or this hostname on another port) is refused with 403 — only an IP address or `localhost` is accepted besides — so a reverse proxy must pass the original `Host` through, or set `X-Forwarded-Host` with `TRUST_PROXY`. |
 | `GOOGLE_CLIENT_ID` | — | Required for Google sign-in. |
 | `GOOGLE_CLIENT_SECRET` | — | |
 | `PORT` | `8080` | |

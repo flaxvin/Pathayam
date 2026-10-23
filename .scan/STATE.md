@@ -12,11 +12,15 @@ This directory is the durable record; the branch is pushed after every update.
 ## Areas
 | # | Notes file | Decisions | Status |
 |---|---|---|---|
-| A | loans.md | D1 capitalised moratorium interest added to the outstanding on the first principal-repaying instalment (dated row, like re-anchor) | launched |
-| B | security.md | D2 clear password on member removal; D3 check Host against BASE_URL before trusting it (CSRF / first-run); D4 show only server-issued notices (no free-text ?notice=); OIDC discovery fetch gets its own timeout | launched |
+| A | loans.md | D1 capitalised moratorium interest added to the outstanding on the first principal-repaying instalment (dated row, like re-anchor) | done |
+| B | security.md | D2 clear password on member removal; D3 check Host against BASE_URL before trusting it (CSRF / first-run); D4 show only server-issued notices (no free-text ?notice=); OIDC discovery fetch gets its own timeout | done |
 | C | ui.md | D5 44px tap targets on coarse pointers; D6 content-hash URLs for app.js/app.css; D8 wording: over-funded shows assigned of target, income "Arrived" message, Pay it off fills statement amount, no Undo on halves of an undone transfer, net worth uses nickname, /transfer defaults To different from From | launched |
 | D | transactions.md | D7 partial edits on POST /transaction/:id keep memo and cleared when not sent (form marker for checkbox) | done |
-| E | imports.md | D9a Gmail statement PDFs try card-digit passwords (SBI Card, Canara, HSBC) if confirmed; D9b batch undo reverses the statement-after-alert upgrade (batch id on its event) | launched |
+| E | imports.md | D9a Gmail statement PDFs try card-digit passwords (SBI Card, Canara, HSBC) if confirmed; D9b batch undo reverses the statement-after-alert upgrade (batch id on its event) | done |
 
 ## Integrated
 - D7 → a9c753c
+- D1 → bca51d5
+- D9a → 14a1be4, D9b → 38ea7a8
+- D2,D3,D4,OIDC → a641b5d eafef60 9cff013 c73440c
+- withNotice fragment fix → c346d14

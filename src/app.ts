@@ -8,6 +8,7 @@
  * - an idempotency key on every mutation (R36.1, N20)
  */
 
+import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { DB } from "./db/db.ts";
 import { queryAll, queryOne, execute, newId , transact } from "./db/db.ts";
 import { devLoginModulePresent, type Config } from "./config.ts";
@@ -475,6 +476,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ) return;
 
       /*
+       * SECURITY-D3 · DNS rebinding. The Host is the attacker's to choose: a
+       * page on evil.example re-points its own name at this machine and posts
+       * to it, and then its Origin and the Host agree — so trusting the Host
+       * as "here" let a rebound page create the first member through
+       * /auth/first-run on a fresh LAN install. The Host must first be one
+       * this app answers to: BASE_URL's, or a name no DNS answer is involved
+       * in (an IP literal, localhost), which is therefore not reboundable.
+       */
+      if (!addressedHere(ctx)) {
+        throw new HttpError(403, "That request was addressed to a different host than BASE_URL.");
+      }
+
+      /*
        * Where this request believes it arrived. The configured base URL is one
        * answer, and the Host it was actually addressed by is the other — a
        * self-hosted app is reached on its LAN address as readily as its name,
@@ -647,11 +661,31 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     };
   }
 
+  /*
+   * SECURITY-D4 · Only the server writes in the notice banner.
+   *
+   * A success message rides the redirect as `?notice=<text>`, and was shown
+   * on whatever page the link opened — so any link to this household's own
+   * instance could put its words ("your account is locked, call ...") in the
+   * app's own banner. Escaped, so never a script, but phishing with the app's
+   * authority. Every notice the server issues now carries an HMAC of its text
+   * (`ns`), keyed by a secret that never leaves this process, and a notice
+   * without a matching one is not shown. The key is per process: a restart
+   * between a redirect and its page drops that one notice, and nothing else.
+   * `kind` was never set by any redirect, so it is no longer read at all.
+   */
+  const noticeKey = randomBytes(32);
+  function noticeSignature(message: string): string {
+    return createHmac("sha256", noticeKey).update(message).digest("base64url").slice(0, 22);
+  }
+
   function noticeFrom(ctx: RequestContext): Parameters<typeof page>[0]["notice"] {
     const message = ctx.query.get("notice");
     if (!message) return null;
-    const kind = (ctx.query.get("kind") ?? "success") as "error" | "success" | "info" | "warning";
-    return { kind, message };
+    const given = Buffer.from(ctx.query.get("ns") ?? "");
+    const expected = Buffer.from(noticeSignature(message));
+    if (given.length !== expected.length || !timingSafeEqual(given, expected)) return null;
+    return { kind: "success", message };
   }
 
   /**
@@ -1000,12 +1034,48 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    * the browser resolves to another host. A backslash does the same thing in
    * some browsers. Both are rejected here.
    */
+  /**
+   * The host this request was addressed by: X-Forwarded-Host behind a trusted
+   * proxy — its right-most entry, the one that proxy wrote, as for
+   * X-Forwarded-For — and the Host header otherwise.
+   */
+  function requestHost(ctx: RequestContext): string {
+    const forwarded = config.trustProxy ? ctx.req.headers["x-forwarded-host"] : undefined;
+    if (forwarded !== undefined) {
+      return String(forwarded).split(",").pop()!.trim();
+    }
+    return String(ctx.req.headers.host ?? "");
+  }
+
+  /**
+   * Whether the request's host is one this app answers to (SECURITY-D3):
+   * BASE_URL's hostname with its port (or none), or a name that involves no
+   * DNS answer — an IPv4 or IPv6 literal, or localhost — since only a DNS
+   * name can be rebound to this machine by somebody else's page. A request
+   * with no Host at all is not from a browser and is left to the Origin check.
+   */
+  function addressedHere(ctx: RequestContext): boolean {
+    const host = requestHost(ctx);
+    if (host === "") return true;
+    // host[:port] and nothing else — no path, credentials or whitespace to
+    // make the URL parser below read a different host than the header says.
+    if (/[\/\\@?#\s]/.test(host)) return false;
+    let addressed: URL;
+    let base: URL;
+    try {
+      addressed = new URL(`http://${host}`);
+      base = new URL(config.baseUrl);
+    } catch {
+      return false;
+    }
+    const name = addressed.hostname;
+    if (name === "localhost" || name.startsWith("[") || /^\d{1,3}(\.\d{1,3}){3}$/.test(name)) return true;
+    return name === base.hostname && (addressed.port === "" || addressed.port === base.port);
+  }
+
   /** The origin this request was addressed by, from its own Host header. */
   function hostOrigin(ctx: RequestContext): string {
-    const host = String(
-      (config.trustProxy ? ctx.req.headers["x-forwarded-host"] : null)
-      ?? ctx.req.headers.host ?? "",
-    );
+    const host = requestHost(ctx);
     if (host === "") return "";
     const scheme = config.trustProxy && ctx.req.headers["x-forwarded-proto"]
       ? String(ctx.req.headers["x-forwarded-proto"]).split(",")[0]!.trim()
@@ -1100,8 +1170,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   function withNotice(path: string, message?: string): string {
     if (!message) return path;
-    const separator = path.includes("?") ? "&" : "?";
-    return `${path}${separator}notice=${encodeURIComponent(message)}`;
+    // The query goes before any #fragment: after it, the browser never sends it.
+    const hashAt = path.indexOf("#");
+    const base = hashAt < 0 ? path : path.slice(0, hashAt);
+    const fragment = hashAt < 0 ? "" : path.slice(hashAt);
+    const separator = base.includes("?") ? "&" : "?";
+    return `${base}${separator}notice=${encodeURIComponent(message)}&ns=${noticeSignature(message)}${fragment}`;
   }
 
   function monthParam(ctx: RequestContext): MonthKey {
@@ -3619,8 +3693,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/members/invite", (ctx) => {
     refuseInDemo(config, "Inviting members");
     return mutate(ctx, (a) => {
-      const member = inviteMember(db, actorFor(a), { email: requiredField(ctx.body, "email") });
-      return { redirect: "/settings", message: `${member.email} can now sign in.` };
+      const email = String(requiredField(ctx.body, "email"));
+      const returning = !!findMemberByEmail(db, email)?.removed_at;
+      const member = inviteMember(db, actorFor(a), { email });
+      /*
+       * Somebody added back had their password cleared when they were removed
+       * (removeMember). "Can now sign in" would tell the person re-adding them
+       * that the old one still works, which it deliberately does not.
+       */
+      return {
+        redirect: "/settings",
+        message: returning
+          ? `${member.name} is back in the household. Their old password was ` +
+            `cleared when they were removed, so they will need a new one.`
+          : `${member.email} can now sign in.`,
+      };
     });
   });
 
@@ -7866,7 +7953,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     auth(ctx);
     return render(ctx, "Import a CAS", renderCasUpload({
       accounts: casDestinations(db, viewer(ctx)),
-      error: ctx.query.get("error"),
+      error: ctx.query.get("error") === "expired"
+        ? "That statement is no longer open — read it again and confirm within half an hour."
+        : null,
     }));
   });
 
@@ -7954,9 +8043,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const plan = takePlan(requiredField(ctx.body, "token"), a.member.id);
       if (!plan) {
         return {
-          redirect: "/portfolio/cas?error=" + encodeURIComponent(
-            "That statement is no longer open — read it again and confirm within half an hour.",
-          ),
+          // A fixed key, not the text: the page shows only errors it knows
+          // (SECURITY-D4), so a link cannot put its own words there.
+          redirect: "/portfolio/cas?error=expired",
         };
       }
 

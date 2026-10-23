@@ -1,0 +1,144 @@
+From 44749b874dbcac2653ce928ec22cac6da2c18899 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 22 Oct 2026 23:35:11 +0000
+Subject: [PATCH] D8c: Pay it off fills the statement, not the whole balance
+
+"Pay it off" on /cards filled the card's entire balance, offering to pay
+spending the bank has not billed yet. With a statement recorded it now
+fills what is left of the latest statement (statement amount less what
+has come off the card since, never more than is owed now). With no
+statement, or one already settled, it fills the balance as before. The
+link still carries rupees, as /transfer reads them.
+
+Test: pay-it-off-statement.test.ts covers no statement, a statement,
+part-paid and settled; the existing no-crash test (no statement) holds.
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016zXWwzys3K4XksLh3rrcKu
+---
+ src/web/pages/cards.ts               | 17 +++++-
+ src/web/pay-it-off-statement.test.ts | 77 ++++++++++++++++++++++++++++
+ 2 files changed, 93 insertions(+), 1 deletion(-)
+ create mode 100644 src/web/pay-it-off-statement.test.ts
+
+diff --git a/src/web/pages/cards.ts b/src/web/pages/cards.ts
+index 45b67b1..31a5357 100644
+--- a/src/web/pages/cards.ts
++++ b/src/web/pages/cards.ts
+@@ -36,6 +36,21 @@ export interface CardDue {
+   paymentCategoryId: string | null;
+ }
+ 
++/**
++ * D8c · What "Pay it off" fills in.
++ *
++ * The whole balance offered to pay spending the bank has not billed yet. With
++ * a statement recorded it is what is left of that statement (never more than
++ * the card owes now); with none, or one already settled, the balance.
++ */
++function payItOffAmount(card: CardDue): Paise {
++  if (card.statement) {
++    const left = card.statement.amount - card.paidSinceStatement;
++    if (left > 0) return Math.min(left, card.owed) as Paise;
++  }
++  return card.owed;
++}
++
+ function urgency(card: CardDue): { label: string; chip: string } | null {
+   if (card.daysToDue === null) return null;
+   /*
+@@ -188,7 +203,7 @@ function renderCard(card: CardDue, month: string): SafeHtml {
+       <div class="row" style="gap:.5rem;margin-top:.75rem;flex-wrap:wrap">
+         ${when(card.owed > 0, () => html`
+           <a class="button button-small button-primary"
+-             href="/transfer?to=${card.accountId}&amount=${(card.owed / 100).toFixed(2)}">Pay it off</a>
++             href="/transfer?to=${card.accountId}&amount=${(payItOffAmount(card) / 100).toFixed(2)}">Pay it off</a>
+         `)}
+         <a class="button button-small" href="/accounts/${card.accountId}/statement">Record a statement</a>
+         <a class="button button-small button-quiet" href="/accounts/${card.accountId}">Register</a>
+diff --git a/src/web/pay-it-off-statement.test.ts b/src/web/pay-it-off-statement.test.ts
+new file mode 100644
+index 0000000..dd2bdb3
+--- /dev/null
++++ b/src/web/pay-it-off-statement.test.ts
+@@ -0,0 +1,77 @@
++/**
++ * D8c · "Pay it off" fills what the statement asks for.
++ *
++ * The button filled the card's whole balance, so a card with a ₹3,000
++ * statement and ₹2,000 of fresh spending since offered to pay ₹5,000 — money
++ * the bank has not billed yet, out of an account that may need it before the
++ * next statement. With a statement recorded it now fills what is left of that
++ * statement; with none, or one already paid, the balance as before.
++ */
++
++import { test, describe } from "node:test";
++import assert from "node:assert/strict";
++import { freshDb, seedMember, startTestApp } from "./harness.test-data.ts";
++import { createAccount, recordCardStatement } from "../domain/accounts.ts";
++import { createTransfer } from "../domain/transactions.ts";
++import { rupees, type Paise } from "../core/money.ts";
++
++const actor = { memberId: "m-ravi", source: "ui" as const };
++
++function setup() {
++  const db = freshDb();
++  seedMember(db, "m-ravi", "Ravi");
++  const bank = createAccount(db, actor, {
++    name: "HDFC", kind: "budget", subtype: "savings",
++    openingDate: "2026-08-01", openingBalance: rupees(100_000),
++  }).id;
++  const card = createAccount(db, actor, {
++    name: "Card", kind: "credit", subtype: "credit-card",
++    openingDate: "2026-08-01", openingBalance: -rupees(5_000),
++    statementDay: 18, dueDay: 8,
++  }).id;
++  return { db, bank, card };
++}
++
++async function payItOffAmount(db: ReturnType<typeof freshDb>): Promise<string | undefined> {
++  const app = await startTestApp(db, { memberId: "m-ravi" });
++  try {
++    const cards = await (await app.get("/cards")).text();
++    assert.deepEqual(app.failures, []);
++    return /href="\/transfer\?to=[^"]*amount=([0-9.]+)"[^>]*>\s*Pay it off/.exec(cards)?.[1];
++  } finally {
++    await app.close();
++  }
++}
++
++describe("D8c · Pay it off", () => {
++  test("with no statement, it fills the balance", async () => {
++    const { db } = setup();
++    assert.equal(await payItOffAmount(db), "5000.00");
++  });
++
++  test("with a statement, it fills the statement", async () => {
++    const { db, card } = setup();
++    recordCardStatement(db, actor, {
++      accountId: card, statementDate: "2026-10-18", dueDate: "2026-11-08", amount: rupees(3_000) as Paise,
++    });
++    assert.equal(await payItOffAmount(db), "3000.00");
++  });
++
++  test("part-paid, it fills what is left of the statement", async () => {
++    const { db, bank, card } = setup();
++    recordCardStatement(db, actor, {
++      accountId: card, statementDate: "2026-10-18", dueDate: "2026-11-08", amount: rupees(3_000) as Paise,
++    });
++    createTransfer(db, actor, { fromAccountId: bank, toAccountId: card, amount: rupees(1_000) as Paise, date: "2026-10-20" });
++    assert.equal(await payItOffAmount(db), "2000.00");
++  });
++
++  test("with the statement paid, it falls back to the balance", async () => {
++    const { db, bank, card } = setup();
++    recordCardStatement(db, actor, {
++      accountId: card, statementDate: "2026-10-18", dueDate: "2026-11-08", amount: rupees(3_000) as Paise,
++    });
++    createTransfer(db, actor, { fromAccountId: bank, toAccountId: card, amount: rupees(3_000) as Paise, date: "2026-10-20" });
++    assert.equal(await payItOffAmount(db), "2000.00");
++  });
++});
+-- 
+2.43.0
+
