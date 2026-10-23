@@ -1,6 +1,6 @@
 # Testing
 
-2,140 tests in 244 files, using `node:test`. No test framework, no mocking
+2,683 tests in 331 files, using `node:test`. No test framework, no mocking
 library, no fixture database.
 
 ```bash
@@ -85,11 +85,13 @@ Tests that constrain the code rather than its behaviour.
 | `web/privacy-by-url.test.ts` | Private loans and arrangements are unreachable by URL and absent from totals. |
 | `web/redirect-safety.test.ts` | No request-supplied redirect target reaches a response unfiltered. |
 | `web/cross-site-writes.test.ts` | A write without a same-origin `Origin` or `Referer` is refused and changes nothing. |
+| `web/dns-rebinding.test.ts` | A write addressed to a host other than `BASE_URL`'s (or an IP literal or `localhost`) is refused, so a rebound page cannot post to the app. |
 | `web/api-docs.test.ts` | `docs/API.md` documents every route, and documents no route that does not exist. |
 | `web/link-coverage.test.ts`, `route-reachability.test.ts` | Every route is reachable by a link. |
 | `web/mobile-reachability.test.ts`, `mobile-layout.test.ts` | Everything reachable on desktop is reachable below 900px. |
 | `web/budget-scoped-screens.test.ts` | Screens that mean "one budget's money" honour the switcher. |
 | `web/concurrent-writers.test.ts` | Interleaved writes from two members lose nothing and leave the cache correct. |
+| `web/print-layout.test.ts` | The print rules stay in the stylesheet, and the screens taken to paper carry a Print button. |
 | `web/templates.test.ts`, `client.test.ts` | No backtick inside a template literal's own comments; the client script parses. |
 | `ops/coverage.test.ts` | Every durable table is included in backup verification. |
 
@@ -98,17 +100,20 @@ Tests that constrain the code rather than its behaviour.
 | Area | Files |
 |---|---|
 | Engine | `engine.test.ts`, `identity.test.ts`, `rollover.test.ts`, `targets.test.ts`, `rollup.test.ts` |
-| Domain | one per module: accounts, budget, transactions, loans, assets, goals, schedules, reconciliation, month-close, departure, commitments, family-loans, insights, networth |
+| Domain | one per module: accounts, budget, transactions, loans, assets, goals, schedules, reconciliation, month-close, departure, commitments, family-loans, insights, networth, deposits, insurance, home-loan-interest, tax-paid; capital gains in `capital-gains-*.test.ts` (tax, FY 2024-25 split, bonds, listed units, foreign, grandfathering, owner) |
+| Deposits | `deposits/accrual.test.ts` |
 | Import | `csv.test.ts`, `pdf-statements.test.ts`, `pieced-statement.test.ts`, `statement-passwords.test.ts`, `dedupe.test.ts`, `rules.test.ts`, `learning.test.ts`, `pipeline.test.ts`, `cas.test.ts`, `email-alerts.test.ts`, `cross-account-identity.test.ts`, `missing-detail.test.ts` |
 | PDF | `reader.test.ts`, `rc4.test.ts` |
 | Auth | `sessions.test.ts`, `tokens.test.ts`, `google.test.ts` |
 | Ops | `backup.test.ts`, `restore.test.ts` |
-| Web | page rendering, charts, routes, accessibility, demo sign-in, installability |
+| Web | page rendering, charts, routes, accessibility, demo sign-in, installability; the offline Add queue in `offline-queue.test.ts` and `outbox.test.ts` |
+| Gmail | `fetch.test.ts` and its siblings: the fetch loop against a stubbed Gmail and token endpoint |
 
 ## Not covered automatically
 
-- **Gmail fetching.** Requires a live OAuth grant. The message parser has
-  fixtures; the fetch loop does not.
+- **Gmail against Google itself.** The fetch loop is tested against stubs
+  standing in for Gmail and the token endpoint; talking to the real service
+  needs a live OAuth grant and is not automated.
 - **Real bank statements.** Exercised manually against a corpus that cannot be
   committed. Automated coverage uses generated fixtures plus a synthetic
   statement reproducing the split-figure layout.

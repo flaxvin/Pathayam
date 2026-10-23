@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Guides</title>
-<meta name="description" content="39 guides covering every screen in Pathayam: budgeting, separate budgets, statements, credit cards, loans, investments, backups and troubleshooting.">
+<meta name="description" content="42 guides covering every screen in Pathayam: budgeting, separate budgets, statements, credit cards, loans, deposits, insurance, tax, investments, backups and troubleshooting.">
 <link rel="stylesheet" href="fonts.css">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon.png" sizes="32x32" type="image/png">
@@ -55,7 +55,7 @@
       <p class="eyebrow">Guides</p>
       <h1 style="font-size:var(--step-5);max-width:18ch;margin-inline:auto">How to actually use it</h1>
       <p class="lede" style="font-size:var(--step-2);max-width:56ch">
-        39 guides covering every screen in the app, in the order you will need
+        42 guides covering every screen in the app, in the order you will need
         them. Start at the top if it is your first day, or jump to whatever you are
         stuck on.
       </p>
@@ -103,6 +103,7 @@
             <li><a href="#overview">Overview and runway</a></li>
             <li><a href="#reports">Reports</a></li>
             <li><a href="#query">Query and export</a></li>
+            <li><a href="#print">Print a report</a></li>
             <li><a href="#schedules">Schedules and cashflow</a></li>
             <li><a href="#goals">Savings goals</a></li>
           <li class="rail-part">Investments and net worth</li>
@@ -112,7 +113,9 @@
             <li><a href="#networth">Net worth</a></li>
             <li><a href="#fire">Financial independence</a></li>
             <li><a href="#tax">Tax estimate</a></li>
-            <li><a href="#assets-life">Hand-valued assets</a></li>
+            <li><a href="#insurance">Keep an insurance register</a></li>
+            <li><a href="#assets-life">Gold, property and the like</a></li>
+            <li><a href="#deposits">Give a deposit its terms</a></li>
           <li class="rail-part">Running it</li>
             <li><a href="#activity">Activity and undo</a></li>
             <li><a href="#health">Backups and health</a></li>
@@ -149,6 +152,15 @@ credentials, password sign-in (<code>LOCAL_LOGIN</code>), or <code>NODE_ENV=prod
 passwords with <code>LOCAL_LOGIN</code> — and somewhere to run one container. Set <code>BASE_URL</code> to your exact public origin — sign-in
 redirects and cookie scoping both depend on it being right — then
 <code>docker compose up -d</code>. Start from an empty budget rather than the seed.</p>
+<p>It also decides which writes are accepted. A save, a delete or any other change
+addressed to a host other than <code>BASE_URL</code>'s — another name, or the same
+name on another port — is refused with a 403, so a page somewhere else cannot point
+its own name at your machine and post to it. An IP address or
+<code>localhost</code> is accepted as well, so the app still works from its LAN
+address. Behind a reverse proxy, have the proxy pass the original
+<code>Host</code> header through, or send <code>X-Forwarded-Host</code> and set
+<code>TRUST_PROXY</code>; otherwise reading works and every save fails. Calls
+made with an API token are not affected.</p>
 <p>The first person to sign in becomes a member. Everyone else has to be invited
 from Settings, and the allow-list is checked on every request rather than only at
 sign-in.</p>
@@ -162,8 +174,10 @@ anything else you will do on this screen.</p>
     envelopes. The total across them is what you are allowed to budget.</li>
   <li><strong>Credit accounts</strong> — credit cards. Spending creates a debt
     <em>and</em> reserves the cash to clear it. See the cards guide.</li>
-  <li><strong>Tracking accounts</strong> — a PPF, an EPF, anything you want on the
-    net-worth figure but never want to budget from.</li>
+  <li><strong>Tracking accounts</strong> — a PPF, an EPF, a fixed deposit, anything
+    you want on the net-worth figure but never want to budget from. A fixed or
+    recurring deposit, a PPF or an EPF can also be given its terms, and then it
+    values itself — see <a href="#deposits">Give a deposit its terms</a>.</li>
 </ul>
 <p>Give each one its balance as of today. That balance becomes an opening
 transaction, so the arithmetic starts from a real number rather than zero.</p>
@@ -175,7 +189,7 @@ pick accounts and stays in the places you read history.</p>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/accounts-mobile.webp" width="840" height="1800">
-                  <img src="img/accounts.webp" width="2800" height="3686" loading="lazy" alt="Accounts, grouped into budget, credit and tracking.">
+                  <img src="img/accounts.webp" width="2800" height="3978" loading="lazy" alt="Accounts, grouped into budget, credit and tracking.">
                 </picture>
                 <figcaption>Accounts, grouped into budget, credit and tracking.</figcaption>
               </figure>
@@ -240,14 +254,14 @@ when you are standing in a shop.</p>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/budget-mobile.webp" width="840" height="1800">
-                  <img src="img/budget.webp" width="2800" height="11336" loading="lazy" alt="The month grid: assigned, activity and available.">
+                  <img src="img/budget.webp" width="2800" height="11600" loading="lazy" alt="The month grid: assigned, activity and available.">
                 </picture>
                 <figcaption>The month grid: assigned, activity and available.</figcaption>
               </figure>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/convert-to-emi-mobile.webp" width="840" height="1800">
-                  <img src="img/convert-to-emi.webp" width="2800" height="2158" loading="lazy" alt="A card charge, with the form that converts it into an instalment plan.">
+                  <img src="img/convert-to-emi.webp" width="2800" height="2534" loading="lazy" alt="A card charge, with the form that converts it into an instalment plan.">
                 </picture>
                 <figcaption>Converting a charge to EMI, from the transaction itself.</figcaption>
               </figure>
@@ -275,7 +289,7 @@ thirty seconds of work.</div>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/budget-mobile.webp" width="840" height="1800">
-                  <img src="img/budget.webp" width="2800" height="11336" loading="lazy" alt="The month grid: assigned, activity and available.">
+                  <img src="img/budget.webp" width="2800" height="11600" loading="lazy" alt="The month grid: assigned, activity and available.">
                 </picture>
                 <figcaption>The month grid: assigned, activity and available.</figcaption>
               </figure>
@@ -336,6 +350,26 @@ transaction should take about five seconds.</p>
     period you have already reconciled asks first, because saving it breaks that
     reconciliation.</li>
 </ul>
+<h3>With no signal</h3>
+<p>If there is no connection at all when you press Save, the Add form keeps the
+entry on this device rather than losing it, empties itself so you can carry on, and
+sends what it kept once the connection is back. While anything is waiting, a count
+shows at the top of every page, with <strong>Send now</strong> beside it.</p>
+<ul>
+  <li><strong>Only the Add form</strong>, and only when the server cannot be reached.
+    A server that answers with an error is not &ldquo;no signal&rdquo;, and the save
+    is retried as before.</li>
+  <li><strong>The app has to be open</strong> for it to send. There is no background
+    worker; it tries again when a page loads, when the connection returns, and every
+    thirty seconds while a page is on screen.</li>
+  <li><strong>An entry that has waited almost a week</strong> is no longer sent on its
+    own. Check it is not already in your transactions, then open it in the Add form to
+    save it, or discard it.</li>
+  <li><strong>Until it is sent it sits in the browser's storage, unencrypted</strong>,
+    so anyone holding the unlocked phone could read it. Signing out clears it, and if
+    somebody else signs in on that browser, anything left by another member is
+    discarded unsent and the page says so.</li>
+</ul>
 <h3>Receipts</h3>
 <p>Attach a photo or a PDF to any transaction. It is stored in the database rather
 than on a disk somewhere, and served so that no device caches a copy.</p>
@@ -364,8 +398,10 @@ and only once: a charge partly on a plan offers just the rest. The converted amo
 and becomes a loan with its own schedule and its own envelope — so you are not
 asked to clear it on the card <em>and</em> pay it monthly, which is the mistake
 worth avoiding. The processing fee and its GST are charged to the card like any
-purchase, so they need an envelope, and the loan screen shows what the plan
-actually costs in interest and fees.</p>
+purchase, so they need an envelope. Each instalment also posts 18% GST on that
+instalment's interest as its own card charge, the way the statement shows it, and
+the plan's envelope asks for it each month. The loan screen shows what the plan
+actually costs in interest, GST and fees.</p>
 <p>Two details make the plans livable. <strong>Name it</strong> — the conversion form
 offers the payee as a suffix, so you get &ldquo;HDFC EMI — Croma TV&rdquo; rather than a
 column of identically-titled plans you have to open one by one. And whatever the card's
@@ -388,7 +424,7 @@ shows an unfunded amount until you deal with it.</p>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/budget-mobile.webp" width="840" height="1800">
-                  <img src="img/budget.webp" width="2800" height="11336" loading="lazy" alt="The month grid: assigned, activity and available.">
+                  <img src="img/budget.webp" width="2800" height="11600" loading="lazy" alt="The month grid: assigned, activity and available.">
                 </picture>
                 <figcaption>The month grid: assigned, activity and available.</figcaption>
               </figure>
@@ -403,8 +439,9 @@ so this is a ritual rather than a gate.</p>
   <li><strong>What the month did</strong> — earned, spent, saved, the savings rate,
     and the biggest categories.</li>
   <li><strong>How your net worth moved</strong>, split into money saved, market
-    movement, currency movement and debt repaid. Four different reasons a number
-    changed, separated.</li>
+    movement, exchange rates and debt repaid — and, in a month they moved, other
+    assets, money owed to family and other liabilities. Different reasons a number
+    changed, separated, and they add up to the change.</li>
   <li><strong>A dated snapshot</strong>, so the history is something recorded rather
     than recalculated later from whatever the prices are now.</li>
   <li><strong>Whether next month is funded.</strong></li>
@@ -416,7 +453,7 @@ reminder.</div>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/overview-mobile.webp" width="840" height="1800">
-                  <img src="img/overview.webp" width="2800" height="3828" loading="lazy" alt="Overview — runway, what is due, the month so far.">
+                  <img src="img/overview.webp" width="2800" height="3816" loading="lazy" alt="Overview — runway, what is due, the month so far.">
                 </picture>
                 <figcaption>Overview — runway, what is due, the month so far.</figcaption>
               </figure>
@@ -445,7 +482,7 @@ not by subtracting one number from another.</p>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/household-mobile.webp" width="840" height="1800">
-                  <img src="img/household.webp" width="2800" height="2786" loading="lazy" alt="The household page: what each of you put in, and where it stands.">
+                  <img src="img/household.webp" width="2800" height="2790" loading="lazy" alt="The household page: what each of you put in, and where it stands.">
                 </picture>
                 <figcaption>What each of you put in, and where it stands.</figcaption>
               </figure>
@@ -582,12 +619,16 @@ with nobody attached to it.</div>
 <p>Typing everything in by hand is how budgeting apps get abandoned. Three ways in,
 and all three land in the same queue rather than posting themselves.</p>
 <h3>Statement PDFs</h3>
-<p>Drop the file on the Import screen. Eleven banks are recognised from their own
-layouts — HDFC, ICICI, Axis, SBI, Union, Canara, YES, IndusInd, Kotak, RBL and HSBC —
+<p>Drop the file on the Import screen. Twelve banks are recognised from their own
+layouts — HDFC, ICICI, Axis, SBI, Union, Canara, YES, IndusInd, Kotak, RBL, HSBC and Standard Chartered —
 plus broker contract notes.</p>
 <p>Most Indian statements are password-protected, and each bank has its own rule.
 The screen shows you that bank's hint. If you save your statement identity in
-Settings, the app derives the password itself and you never type one.</p>
+Settings, the app derives the password itself and you never type one. A few banks
+need something more than name, date of birth, PAN and mobile: Axis and HDFC account
+statements use your customer ID, and HSBC the last six digits of the card, so those
+have their own boxes there. When a statement will not open because one of these is
+missing, the message says which detail and where to add it.</p>
 <div class="note"><b>Every parse is verified</b> against the statement's own closing
 balance. If the two disagree the app says so rather than quietly importing something
 wrong. On a real 848-row statement it reconciles to the paisa.</div>
@@ -598,6 +639,14 @@ with separate Dr / Cr markers, or one that marks only its credits, is signed fro
 them. Dates are read day first unless the file proves month first; when every day in
 it is 12 or under and it cannot, the mapping screen asks <em>How are the dates
 written?</em></p>
+<h3>Coming from YNAB or Actual Budget</h3>
+<p>Paste the transaction export from either app on the same CSV screen and it is
+recognised from its header row. One file covers every account you had there, so the
+next screen asks which of your accounts each one is, or to leave it out. The rows
+land in Review like any import: transfers between two accounts you brought across
+arrive as transfers, splits stay split, and envelopes are matched by name where one
+exists. Only transactions come across — the other app's budget assignments were
+worked out against its own balances and months, and are never imported.</p>
 <h3>Undoing an import</h3>
 <p>Any import can be reversed in one step from the import log, taking every row it
 created with it — except rows you have edited since, which are left alone and counted.
@@ -606,7 +655,7 @@ Worth knowing before your first attempt, because it makes experimenting safe.</p
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/import-mobile.webp" width="840" height="1800">
-                  <img src="img/import.webp" width="2800" height="4078" loading="lazy" alt="Import — paste a CSV or drop a statement PDF.">
+                  <img src="img/import.webp" width="2800" height="4230" loading="lazy" alt="Import — paste a CSV or drop a statement PDF.">
                 </picture>
                 <figcaption>Import — paste a CSV or drop a statement PDF.</figcaption>
               </figure>
@@ -642,7 +691,7 @@ already answered.</div>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/review-mobile.webp" width="840" height="1800">
-                  <img src="img/review.webp" width="2800" height="2608" loading="lazy" alt="The review queue, with the raw imported text kept.">
+                  <img src="img/review.webp" width="2800" height="3468" loading="lazy" alt="The review queue, with the raw imported text kept.">
                 </picture>
                 <figcaption>The review queue, with the raw imported text kept.</figcaption>
               </figure>
@@ -671,7 +720,7 @@ thirty times and never once offer to help.</p>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/review-mobile.webp" width="840" height="1800">
-                  <img src="img/review.webp" width="2800" height="2608" loading="lazy" alt="The review queue, with the raw imported text kept.">
+                  <img src="img/review.webp" width="2800" height="3468" loading="lazy" alt="The review queue, with the raw imported text kept.">
                 </picture>
                 <figcaption>The review queue, with the raw imported text kept.</figcaption>
               </figure>
@@ -697,7 +746,9 @@ to live as a budget gets without a bank integration.</p>
 <h3>Statement emails too</h3>
 <p>When a bank sends the monthly statement as an attachment, it is fetched,
 decrypted using your saved identity, parsed and queued — the whole chain, without you
-opening the mail.</p>
+opening the mail. A statement it cannot open because your identity is missing a
+detail is named in the fetch's summary, with what it needs — an Axis or HDFC customer
+ID, a card's last four, an HSBC card's last six — so the fix is one box in Settings.</p>
 <div class="note"><b>Add-on card alerts</b> arrive in the primary holder's inbox but
 greet the cardholder by name. The parser carries that name through so the transaction
 can be attributed to the right person rather than the account holder.</div>
@@ -705,7 +756,7 @@ can be attributed to the right person rather than the account holder.</div>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/settings-mobile.webp" width="840" height="1800">
-                  <img src="img/settings.webp" width="2800" height="4688" loading="lazy" alt="Settings — members, identity, connections, tokens.">
+                  <img src="img/settings.webp" width="2800" height="4748" loading="lazy" alt="Settings — members, identity, connections, tokens.">
                 </picture>
                 <figcaption>Settings — members, identity, connections, tokens.</figcaption>
               </figure>
@@ -750,7 +801,7 @@ own, and every transaction still records which card it was and whose.</p>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/cards-mobile.webp" width="840" height="1800">
-                  <img src="img/cards.webp" width="2800" height="2484" loading="lazy" alt="Cards, in the order they fall due.">
+                  <img src="img/cards.webp" width="2800" height="2748" loading="lazy" alt="Cards, in the order they fall due.">
                 </picture>
                 <figcaption>Cards, in the order they fall due.</figcaption>
               </figure>
@@ -775,7 +826,9 @@ and when they differ you want to know.</p>
 account. A <strong>card EMI is a charge on the card</strong>, not a transfer out of
 savings — so recording one against a credit account posts a categorised charge the way
 the statement will show it, and the card balance rises by the instalment before the
-loan balance falls by the principal. Anything else would have the money leaving twice.</p>
+loan balance falls by the principal. Anything else would have the money leaving twice.
+The 18% GST on the instalment's interest is posted with it as a separate card charge,
+because the issuer bills it separately.</p>
 <h3>Its envelope funds itself</h3>
 <p>Every loan gets a payment envelope, and its monthly target is set to the EMI the
 moment the loan exists — you do not have to remember to set one, and a rate change or a
@@ -825,35 +878,35 @@ loan landing in your savings arrives as money you can assign.</p>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/loans-mobile.webp" width="840" height="1800">
-                  <img src="img/loans.webp" width="2800" height="3348" loading="lazy" alt="Loans — real cost, schedule and drift.">
+                  <img src="img/loans.webp" width="2800" height="3366" loading="lazy" alt="Loans — real cost, schedule and drift.">
                 </picture>
                 <figcaption>Loans — real cost, schedule and drift.</figcaption>
               </figure>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/loan-mobile.webp" width="840" height="1800">
-                  <img src="img/loan.webp" width="2800" height="7220" loading="lazy" alt="One loan: where it stands, how it pays down, every instalment recorded.">
+                  <img src="img/loan.webp" width="2800" height="7472" loading="lazy" alt="One loan: where it stands, how it pays down, every instalment recorded.">
                 </picture>
                 <figcaption>One loan — where it stands, and every instalment against the lender's own split.</figcaption>
               </figure>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/loan-rate-mobile.webp" width="840" height="1800">
-                  <img src="img/loan-rate.webp" width="2800" height="2158" loading="lazy" alt="A rate change, with both options the lender must offer priced side by side.">
+                  <img src="img/loan-rate.webp" width="2800" height="2422" loading="lazy" alt="A rate change, with both options the lender must offer priced side by side.">
                 </picture>
                 <figcaption>A rate reset: keep the instalment, or keep the tenure. Pick one and it is applied.</figcaption>
               </figure>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/loan-prepay-mobile.webp" width="840" height="1800">
-                  <img src="img/loan-prepay.webp" width="2800" height="2456" loading="lazy" alt="The prepayment comparison: reduce the tenure against reduce the EMI.">
+                  <img src="img/loan-prepay.webp" width="2800" height="2460" loading="lazy" alt="The prepayment comparison: reduce the tenure against reduce the EMI.">
                 </picture>
                 <figcaption>What a prepayment buys, before you commit a rupee.</figcaption>
               </figure>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/charts_loan-mobile.webp" width="48" height="48">
-                  <img src="img/charts_loan.webp" width="48" height="48" loading="lazy" alt="A loan's balance falling to zero over its schedule.">
+                  <img src="img/charts_loan.webp" width="2148" height="804" loading="lazy" alt="A loan's balance falling to zero over its schedule.">
                 </picture>
                 <figcaption>A loan's balance falling to zero over its schedule.</figcaption>
               </figure>
@@ -896,7 +949,7 @@ only bank accounts can understate a card-heavy household by twenty times.</div>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/overview-mobile.webp" width="840" height="1800">
-                  <img src="img/overview.webp" width="2800" height="3828" loading="lazy" alt="Overview — runway, what is due, the month so far.">
+                  <img src="img/overview.webp" width="2800" height="3816" loading="lazy" alt="Overview — runway, what is due, the month so far.">
                 </picture>
                 <figcaption>Overview — runway, what is due, the month so far.</figcaption>
               </figure>
@@ -911,8 +964,10 @@ nothing about your figures leaves the machine to be drawn.</p>
     you can see whether the gap is widening or you just had one good month.</li>
   <li><strong>Category trends</strong> over time — the report that catches groceries
     drifting up ₹500 a month for a year.</li>
-  <li><strong>Loan interest by financial year</strong>, April to March, which is the
-    figure you need at tax time.</li>
+  <li><strong>Loan interest by financial year</strong>, April to March: the interest
+    actually paid, across every loan. The tax estimate does not use it. Its home-loan
+    figure is the interest <em>accrued</em> in the year on loans marked as for a house,
+    which is what section 24(b) allows, so the two can differ.</li>
   <li><strong>Realised gains by financial year</strong>, split by how long each parcel
     was held. It reports the holding period and names no tax category, because which
     threshold applies depends on the asset and that year's rules — a judgement that
@@ -922,14 +977,14 @@ nothing about your figures leaves the machine to be drawn.</p>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/reports-mobile.webp" width="840" height="1800">
-                  <img src="img/reports.webp" width="2800" height="10994" loading="lazy" alt="Reports — income against spending, by month.">
+                  <img src="img/reports.webp" width="2800" height="10786" loading="lazy" alt="Reports — income against spending, by month.">
                 </picture>
                 <figcaption>Reports — income against spending, by month.</figcaption>
               </figure>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/charts_reports-mobile.webp" width="48" height="48">
-                  <img src="img/charts_reports.webp" width="48" height="48" loading="lazy" alt="Grouped bars with a net-saved line.">
+                  <img src="img/charts_reports.webp" width="2148" height="864" loading="lazy" alt="Grouped bars with a net-saved line.">
                 </picture>
                 <figcaption>Grouped bars with a net-saved line.</figcaption>
               </figure>
@@ -967,11 +1022,32 @@ formula. Plain numbers are left alone, so amounts still add up.</p>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/query-mobile.webp" width="840" height="1800">
-                  <img src="img/query.webp" width="2800" height="6040" loading="lazy" alt="Query — filter, group, and export what matched.">
+                  <img src="img/query.webp" width="2800" height="6608" loading="lazy" alt="Query — filter, group, and export what matched.">
                 </picture>
                 <figcaption>Query — filter, group, and export what matched.</figcaption>
               </figure>
             </div>
+          </article>
+          <article class="guide" id="print">
+            <h2>Print a report</h2>
+<p>Some pages are meant for paper, or for a PDF you send to whoever does your taxes.
+The tax estimate, Reports, the month close, net worth and a loan's page (its whole
+schedule) carry a <strong>Print</strong> button. It opens the browser's own print
+dialog, so <em>Save as PDF</em> is there too, and the browser's Print menu does the
+same thing on any page.</p>
+<ul>
+  <li><strong>It prints as a document</strong>, not a screenshot of the app: black on
+    white whatever your theme, with navigation, buttons and forms left off. The tax
+    estimate is the exception — its inputs print as values, because the estimate is
+    arithmetic on them.</li>
+  <li><strong>Tables keep their headings</strong> on every page, short cards and rows
+    are not split across pages, and collapsed sections print open.</li>
+  <li><strong>A footer names the household, the screen and the date</strong>, and on
+    the tax estimate repeats that it is an estimate, not a return, and not advice.</li>
+</ul>
+<div class="note">There is no generated PDF and no letterhead. Page breaks are the
+browser's best effort, and page numbers need a browser that supports them; current
+Chrome and Edge do.</div>
           </article>
           <article class="guide" id="schedules">
             <h2>Schedules and cashflow</h2>
@@ -1014,14 +1090,14 @@ a schedule spends from takes the schedule along to the one that remains.</p>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/schedules-mobile.webp" width="840" height="1800">
-                  <img src="img/schedules.webp" width="2800" height="5616" loading="lazy" alt="Schedules and the forward cashflow calendar.">
+                  <img src="img/schedules.webp" width="2800" height="5650" loading="lazy" alt="Schedules and the forward cashflow calendar.">
                 </picture>
                 <figcaption>Schedules and the forward cashflow calendar.</figcaption>
               </figure>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/charts_cashflow-mobile.webp" width="48" height="48">
-                  <img src="img/charts_cashflow.webp" width="48" height="48" loading="lazy" alt="Sixty days of projected balance.">
+                  <img src="img/charts_cashflow.webp" width="2148" height="804" loading="lazy" alt="Sixty days of projected balance.">
                 </picture>
                 <figcaption>Sixty days of projected balance.</figcaption>
               </figure>
@@ -1051,7 +1127,7 @@ set aside and can see.</div>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/goals-mobile.webp" width="840" height="1800">
-                  <img src="img/goals.webp" width="2800" height="2484" loading="lazy" alt="Goals, drawn as progress rings.">
+                  <img src="img/goals.webp" width="2800" height="2748" loading="lazy" alt="Goals, drawn as progress rings.">
                 </picture>
                 <figcaption>Goals, drawn as progress rings.</figcaption>
               </figure>
@@ -1095,7 +1171,7 @@ than duplicating them. Prices for funds and currencies refresh on their own.</p>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/portfolio-mobile.webp" width="840" height="1800">
-                  <img src="img/portfolio.webp" width="2800" height="2612" loading="lazy" alt="Holdings as units, with XIRR.">
+                  <img src="img/portfolio.webp" width="2800" height="3004" loading="lazy" alt="Holdings as units, with XIRR.">
                 </picture>
                 <figcaption>Holdings as units, with XIRR.</figcaption>
               </figure>
@@ -1113,11 +1189,16 @@ yet</em> with a prompt to say what it is worth. An asset that vanished until you
 valued it would disappear at exactly the moment it most needed the reminder.</div>
 <p>Anything not valued recently is flagged, so a gold holding last priced eight months
 ago cannot quietly hold up your net worth.</p>
+<p>A deposit with its terms is listed too, but you do not have to value it: it is
+marked <em>computed from terms</em> and its figure is worked out for today. Type a
+passbook figure and it is marked <em>valued by hand</em> instead, and that figure
+stands until the next contribution or a change to the terms hands it back to the
+arithmetic. See <a href="#deposits">Give a deposit its terms</a>.</p>
             <div class="shots ">
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/valuations-mobile.webp" width="840" height="1800">
-                  <img src="img/valuations.webp" width="2800" height="2158" loading="lazy" alt="Every hand-valued pot, in one sitting.">
+                  <img src="img/valuations.webp" width="2800" height="2422" loading="lazy" alt="Every hand-valued pot, in one sitting.">
                 </picture>
                 <figcaption>Every hand-valued pot, in one sitting.</figcaption>
               </figure>
@@ -1135,14 +1216,14 @@ larger than expected and always more equity than people think.</p>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/allocation-mobile.webp" width="840" height="1800">
-                  <img src="img/allocation.webp" width="2800" height="2714" loading="lazy" alt="Allocation by class, region and currency.">
+                  <img src="img/allocation.webp" width="2800" height="2422" loading="lazy" alt="Allocation by class, region and currency.">
                 </picture>
                 <figcaption>Allocation by class, region and currency.</figcaption>
               </figure>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/charts_allocation-mobile.webp" width="48" height="48">
-                  <img src="img/charts_allocation.webp" width="48" height="48" loading="lazy" alt="The three allocation donuts.">
+                  <img src="img/charts_allocation.webp" width="2148" height="400" loading="lazy" alt="The three allocation donuts.">
                 </picture>
                 <figcaption>The three allocation donuts.</figcaption>
               </figure>
@@ -1151,15 +1232,25 @@ larger than expected and always more equity than people think.</p>
           <article class="guide" id="networth">
             <h2>Net worth</h2>
 <p>The figure, with the date it is as of, and a history you can see the shape of.</p>
-<p>The change over any period is split four ways, which is the part that makes it
-useful rather than merely satisfying:</p>
+<p>The change over any period is broken into its parts, which is what makes it
+useful rather than merely satisfying. The parts add up to the change, so nothing is
+left unexplained:</p>
 <ul>
   <li><strong>Money saved</strong> — what you actually put aside</li>
   <li><strong>Market movement</strong> — what prices did</li>
-  <li><strong>Currency movement</strong> — what the rupee did, kept separate from the
+  <li><strong>Exchange rate</strong> — what the rupee did, kept separate from the
     asset's own gain</li>
-  <li><strong>Debt repaid</strong> — the quiet one, and often the biggest</li>
+  <li><strong>Debt repaid</strong> — principal cleared on cards and loans; the quiet
+    one, and often the biggest</li>
+  <li><strong>Other assets</strong> — hand-valued assets revalued, deposits grown,
+    money lent</li>
+  <li><strong>Owed to family repaid</strong> and <strong>other liabilities
+    repaid</strong> — less owed on each</li>
 </ul>
+<p>A part that did not move is left out. Snapshots taken before money owed to family
+and other liabilities were recorded did not keep them, so a period that starts that
+far back shows one more line, <em>Other (not recorded before</em> the date<em>)</em>,
+for the difference — rather than a total its parts do not reach.</p>
 <div class="note note--good"><b>None of this appears on the budget screen</b>, in any
 form, by design. A good month in the market is not income and must never be
 assignable. That rule is enforced by a test rather than by good intentions.</div>
@@ -1167,9 +1258,9 @@ assignable. That rule is enforced by a test rather than by good intentions.</div
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/net-worth-mobile.webp" width="840" height="1800">
-                  <img src="img/net-worth.webp" width="2800" height="7376" loading="lazy" alt="Net worth, decomposed four ways.">
+                  <img src="img/net-worth.webp" width="2800" height="7412" loading="lazy" alt="Net worth, with the change over the period broken into its parts.">
                 </picture>
-                <figcaption>Net worth, decomposed four ways.</figcaption>
+                <figcaption>Net worth, and every part of the change.</figcaption>
               </figure>
             </div>
           </article>
@@ -1206,6 +1297,15 @@ higher and retiring early asks the money to last longer, so the cautious number
 is the default and the 4% answer is shown beside it rather than hidden. It is a
 projection on assumptions you set, not advice, and it cannot know what markets
 will do.</div>
+            <div class="shots ">
+              <figure class="frame">
+                <picture>
+                  <source media="(max-width: 44rem)" srcset="img/fire-mobile.webp" width="840" height="1800">
+                  <img src="img/fire.webp" width="2800" height="4238" loading="lazy" alt="Financial independence: what you would need, what you hold, and how far away it is.">
+                </picture>
+                <figcaption>What you would need, what you hold, and how long the rest takes.</figcaption>
+              </figure>
+            </div>
           </article>
           <article class="guide" id="tax">
             <h2>Tax estimate</h2>
@@ -1215,11 +1315,36 @@ number rather than a guess.</p>
 which is the least of three figures and the one people most often get wrong
 (paying no rent exempts nothing, however much HRA was received). The new regime
 ignores all of them, which is exactly the trade the comparison is showing you.</p>
+<p>If you keep an <a href="#insurance">insurance register</a>, the page offers what
+the premiums of your own policies come to for the year under 80C and 80D.
+<em>Use these figures</em> raises each box to the policies' figure, never lowers
+one, and saves nothing until you press Save.</p>
+<h3>Home loan interest, section 24(b)</h3>
+<p>On a home loan's page, say what the house is: <em>lived in by its owner</em> or
+<em>let out</em>. For a house you live in, the interest accrued in the financial
+year — each instalment's interest spread over the days it pays for, with
+instalments not yet recorded taken from the schedule — goes into the holder's old
+regime estimate, capped at ₹2,00,000 across every such house. The new regime allows
+none. A let-out house's interest is shown and not deducted, because the rent it is
+set against is not something the app knows. The lender's interest certificate is
+the number for the return; type it in <em>Your own figure, if different</em> and it
+is used instead.</p>
+<h3>Tax already paid</h3>
+<p>Enter the year's TDS as one figure, from Form 16 or 26AS — nothing is read from
+either — and each advance or self-assessment tax challan with its date. Each
+regime's estimate, less all three, is shown as a balance to pay or a refund.</p>
+<p>Where the year's tax under the lower regime, less TDS, is ₹10,000 or more, the
+four <b>advance tax</b> instalments are shown — 15%, 45%, 75% and 100% of it by
+15 June, 15 September, 15 December and 15 March — with what you had paid by each
+date and any shortfall. Paying late or short costs interest under 234B and 234C;
+the screen names them and does not work them out. Nothing is scheduled or
+reminded.</p>
 <div class="note"><b>An estimate, not a return, and not advice.</b> It is arithmetic
 on figures you enter. It files nothing and it is not a substitute for an
-accountant. The screen lists what it leaves out &mdash; marginal relief, tax
-already deducted at source, losses, foreign income, presumptive schemes &mdash; because an estimate that hides what it ignores is one that gets
-trusted too far.</div>
+accountant. The screen lists what it leaves out &mdash; marginal relief, losses
+set off or carried forward, interest under 234A, 234B and 234C, TDS line by line,
+foreign income, presumptive schemes &mdash; because an estimate that hides what it
+ignores is one that gets trusted too far.</div>
 <p>Slabs are carried as data for each financial year, not baked into the code. A
 year the app does not have rates for is <b>refused</b> rather than computed with
 the previous year's, since applying last February's rules to this year produces
@@ -1228,21 +1353,70 @@ behind the current year.</p>
 <p><b>Capital gains are included</b>, at the rates that actually apply to them
 rather than at your slab rate: 12.5% above the ₹1,25,000 annual exemption on
 listed equity held over a year, 20% on listed equity held less, 12.5% on gold,
-property or foreign shares held over two years, and slab rates on debt and on
-those held less. Listed equity bought before 1 February 2018 is costed at its
+property or foreign shares held over two years, 12.5% on a listed bond held over
+a year, and slab rates on debt, on an unlisted bond (or one not marked listed),
+and on those held less. Listed equity bought before 1 February 2018 is costed at its
 31 January 2018 price where that is higher, as the Act allows. A gain counts only
 in the estimate of the member whose account it is in. The holding period that
 divides long from short is twelve months for equity and twenty-four for most
 else, which is why they are separated rather than totalled.</p>
+<p><b>FY 2024-25 is split at 23-07-2024</b>, the day the rates changed: a sale before
+it is taxed at the old rates (15%, 10%, and 20% with indexation), one from it at
+the new. A long-held gain before the date that would need indexation is reported as
+<em>not computed</em>, because the app does not carry the cost inflation index and
+will not invent one.</p>
 <div class="note"><b>It will not guess a rate.</b> A fund with no asset class set, a
 hybrid fund, a sale whose lots were never recorded, listed equity from before
 February 2018 with no price for 31 January 2018, or an account that names no holder
 in a household of more than one are left out of the
 computation and listed on the screen for you to resolve &mdash; because putting a
 gain in the wrong column means taxing it at the wrong rate.</div>
-<p>It also shows the four <b>advance tax</b> instalments under section 211 and
-what falls due at each, because missing one costs interest under 234B and
-234C.</p>
+            <div class="shots ">
+              <figure class="frame">
+                <picture>
+                  <source media="(max-width: 44rem)" srcset="img/tax-mobile.webp" width="840" height="1800">
+                  <img src="img/tax.webp" width="2800" height="9104" loading="lazy" alt="The tax estimate: both regimes side by side, with the working for each.">
+                </picture>
+                <figcaption>Both regimes side by side, with the working.</figcaption>
+              </figure>
+            </div>
+          </article>
+          <article class="guide" id="insurance">
+            <h2>Keep an insurance register</h2>
+<p><strong>Insurance</strong> is one list of what the household is insured for, what
+it costs and when it is next due. Record a policy with its insurer, kind, premium
+and how often it is paid, and optionally the cover, the dates, who it covers, the
+nominee and the envelope it is usually paid from.</p>
+<ul>
+  <li><strong>Due dates come to you.</strong> A premium or renewal falling due shows
+    on the Overview's <em>Due soon</em>, and the register heads the list with what the
+    policies in force cost a year in regular premiums.</li>
+  <li><strong>Paid moves the date on</strong> by the policy's frequency and posts
+    nothing. The payment is recorded where all money is, from the Add form, so it is
+    never counted twice.</li>
+  <li><strong>Lapsed and ended policies are kept</strong>, listed apart with nothing due
+    on them, because a term policy that lapsed is worth remembering.</li>
+  <li><strong>80C and 80D.</strong> Mark a policy as counting toward 80C, or 80D for
+    yourself and family or for parents, and whether it covers a senior citizen. The
+    tax estimate then suggests what your own policies' premiums come to for the
+    year.</li>
+  <li><strong>A policy can be private</strong>, like an account, and is then seen only
+    by its holder.</li>
+</ul>
+<div class="note"><b>Only the last four characters of the policy number are
+kept.</b> They are enough to tell two policies apart and to match a premium
+notice. The whole number is what an insurer asks for to change a nominee or make a
+claim, and it is safer on the policy document than in a database whose export
+travels.</div>
+            <div class="shots ">
+              <figure class="frame">
+                <picture>
+                  <source media="(max-width: 44rem)" srcset="img/insurance-mobile.webp" width="840" height="1800">
+                  <img src="img/insurance.webp" width="2800" height="3596" loading="lazy" alt="The insurance register: policies in force with their next due dates, and a lapsed one listed apart.">
+                </picture>
+                <figcaption>Policies in force, and the lapsed ones kept apart.</figcaption>
+              </figure>
+            </div>
           </article>
           <article class="guide" id="assets-life">
             <h2>Gold, property, and anything valued by hand</h2>
@@ -1261,11 +1435,59 @@ account has no transactions and never will &mdash; its worth is stated, not coun
 &mdash; so where a register would be, you get every valuation it has ever had, with
 the change between each: <i>Added &#8377;50,000</i>, <i>Revalued</i>, <i>Sold part for
 &#8377;80,000</i>. Nothing is overwritten. A correction is another entry.</div>
-<p>A <b>fixed or recurring deposit is different</b>, and deliberately so. It is
-worth its balance, so interest credited to it is a transaction like any other
-and the balance moves with it. That is why revaluing is not offered on one: a
-stated figure would override the balance and silently stop the interest
-counting.</p>
+<p>A <b>fixed or recurring deposit without terms is different</b>, and deliberately
+so. It is worth its balance, so interest credited to it is a transaction like any
+other and the balance moves with it. That is why revaluing is not offered on one: a
+stated figure would override the balance and silently stop the interest counting.
+Give it its terms instead and it values itself, and then Revalue is offered — see
+the next guide.</p>
+          </article>
+          <article class="guide" id="deposits">
+            <h2>Give a deposit its terms</h2>
+<p>A fixed or recurring deposit, a PPF or an EPF does not need a figure typed in
+every few months. Give it its terms and it is worth what they make it on any day —
+net worth, allocation, FIRE, the portfolio and the valuations screen all read that
+figure.</p>
+<ol class="steps">
+  <li><div><strong>Open the account.</strong> It has to be a tracking account — a
+    fixed deposit, recurring deposit or other asset. You can also give the terms when
+    creating one, under <em>A deposit? Give its terms</em> on the accounts form.</div></li>
+  <li><div><strong>Fill in the terms</strong> under <em>Deposit terms</em>: the kind,
+    the principal (or an RD's monthly instalment), the annual rate, how it compounds,
+    the start date, the maturity date if it has one, and whether the interest stays
+    in or is paid out.</div></li>
+  <li><div><strong>Value it from these terms.</strong> The card then shows what it is
+    worth today, marked <em>computed from terms</em>. ₹1,00,000 at 7% compounded
+    quarterly is ₹1,07,185.90 a year later.</div></li>
+</ol>
+<p>A PPF or EPF also reads its register: every transaction from the start date is a
+contribution, and interest is credited each 31 March as the scheme does it. Interest
+that is paid out leaves a deposit worth its principal.</p>
+<h3>When you know better</h3>
+<p>A passbook or an interest certificate beats the arithmetic. Revalue the account,
+or fill it in on the valuations screen, and a figure dated on or after the
+computed one's basis — the last time the terms were saved, the start, or the last
+contribution — wins, marked <em>valued by hand</em>. The next contribution or a
+change to the terms hands it back.</p>
+<h3>Maturity</h3>
+<p>The maturity date and amount show on the account page, on the cashflow calendar on
+Schedules (beside the projected balance, not in it — the money is in the deposit
+until it is moved), and on the Overview's <em>Due soon</em> in its last two weeks.
+Nothing is posted for you: record the money where it lands, then close the account,
+or set new terms if it was renewed. No interest is assumed after maturity.</p>
+<div class="note">Each change to the terms is one entry in Activity and undoes from
+there. A private deposit's terms and maturity are seen only by its holder. A
+retirement balance created in Portfolio cannot take terms; track a PPF or EPF you
+want computed as an <em>Other asset</em> tracking account instead.</div>
+            <div class="shots ">
+              <figure class="frame">
+                <picture>
+                  <source media="(max-width: 44rem)" srcset="img/deposit-mobile.webp" width="840" height="1800">
+                  <img src="img/deposit.webp" width="2800" height="2748" loading="lazy" alt="A fixed deposit's account page: its terms, what they make it worth today, and its maturity.">
+                </picture>
+                <figcaption>A fixed deposit valued from its terms, with its maturity.</figcaption>
+              </figure>
+            </div>
           </article>
           <h2 class="guide-part" id="part-running-it">Running it</h2>
           <article class="guide" id="activity">
@@ -1322,7 +1544,7 @@ replaced, and reads the restored copy back before claiming success.</p>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/health-mobile.webp" width="840" height="1800">
-                  <img src="img/health.webp" width="2800" height="3224" loading="lazy" alt="Health — backups, restore verification, feeds.">
+                  <img src="img/health.webp" width="2800" height="3354" loading="lazy" alt="Health — backups, restore verification, feeds.">
                 </picture>
                 <figcaption>Health — backups, restore verification, feeds.</figcaption>
               </figure>
@@ -1339,16 +1561,18 @@ replaced, and reads the restored copy back before claiming success.</p>
     current password and signs your other devices out.</li>
   <li><strong>Overspend model</strong> — the choice described in the overspend guide.
     Changing it re-derives your history.</li>
-  <li><strong>Statement identity</strong> — name, PAN, date of birth, mobile, used to
-    derive statement passwords. Never exported, never logged, and asserted absent from
-    exports by tests.</li>
+  <li><strong>Statement identity</strong> — name, PAN, date of birth, mobile, and
+    where your banks need them an Axis or HDFC customer ID and an HSBC card's last six
+    digits, used to derive statement passwords. Customer IDs are shown masked. Never
+    exported, never logged, and asserted absent from exports by tests.</li>
   <li><strong>Notifications</strong> — each kind of digest item can be muted
     individually, per member.</li>
   <li><strong>Theme</strong> — light, dark, or follow the system, stored server-side
     so the first paint is already correct.</li>
   <li><strong>Devices</strong> — every signed-in session, revocable one at a time. A
     session lasts <code>SESSION_DAYS</code> (30 by default) from sign-in, however much
-    it is used.</li>
+    it is used. It must be a whole number from 1 to 3650; anything else stops the app
+    at startup with a message saying so.</li>
   <li><strong>API tokens</strong> — scoped read or read-write, shown once, and unable
     to sign in, mint more tokens, set a password, sign devices out or link a mailbox.
     None can be minted while viewing as another member. See the API reference.</li>
@@ -1363,7 +1587,7 @@ it is active. Writes require an explicit toggle within the session.</p>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/settings-mobile.webp" width="840" height="1800">
-                  <img src="img/settings.webp" width="2800" height="4688" loading="lazy" alt="Settings — members, identity, connections, tokens.">
+                  <img src="img/settings.webp" width="2800" height="4748" loading="lazy" alt="Settings — members, identity, connections, tokens.">
                 </picture>
                 <figcaption>Settings — members, identity, connections, tokens.</figcaption>
               </figure>
@@ -1417,7 +1641,14 @@ because the OAuth redirect and the cookie scope are both derived from it. A mism
 after moving domains is the usual cause. Being asked to sign in again after
 <code>SESSION_DAYS</code> is expected — a session's lifetime runs from sign-in, not
 from the last click — and eight wrong passwords lock that sign-in for fifteen
-minutes.</p>
+minutes. If the app will not start at all, check that <code>SESSION_DAYS</code> is
+a whole number from 1 to 3650.</p>
+<h3>Pages load but nothing saves</h3>
+<p>Every save answering <em>That request was addressed to a different host than
+BASE_URL</em> (a 403) means the app is being reached by a name or port that is not
+<code>BASE_URL</code>'s. Use the address in <code>BASE_URL</code>, or its IP address.
+Behind a reverse proxy, pass the original <code>Host</code> header through, or send
+<code>X-Forwarded-Host</code> and set <code>TRUST_PROXY</code>.</p>
           </article>
         </div>
       </div>

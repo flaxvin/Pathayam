@@ -106,14 +106,27 @@ Scope is fixed at mint time. To change it, revoke and re-mint.
 ### Writes and the same-origin check
 
 Every unsafe method (`POST`, and anything else that is not a read) must either
-carry a **bearer token** or come from this app's own pages, proved by an
-`Origin` header — otherwise it is refused with `403`. It is what stops another
-site making a browser submit a form on somebody's behalf with their cookie
-attached.
+carry a **bearer token** or come from this app's own pages — otherwise it is
+refused with `403`. It is what stops another site making a browser submit a
+form on somebody's behalf with their cookie attached. Two checks apply, in
+order:
 
-**A token-authenticated call is exempt**, which is the case that matters here:
-your scripts send `Authorization: Bearer …` and no cookie, so there is no
-session for anybody to ride. Nothing extra to set.
+1. **The host.** The request must be addressed to `BASE_URL`'s host and port,
+   or to an IP literal or `localhost`. A DNS name is held to `BASE_URL`
+   because another site can re-point its own name at this machine (DNS
+   rebinding) and then its `Origin` and the `Host` agree. Behind a reverse
+   proxy, either pass the original `Host` through, or set `TRUST_PROXY` and
+   send `X-Forwarded-Host` (its right-most entry is used). Failure:
+   `403 That request was addressed to a different host than BASE_URL.`
+2. **The origin.** An `Origin` header belonging to the deployment (`BASE_URL`,
+   or the host the request was addressed by). With no `Origin`, a `Referer`
+   from the deployment is accepted instead; with neither, the request is
+   refused.
+
+**A token-authenticated call is exempt from both**, which is the case that
+matters here: your scripts send `Authorization: Bearer …` and no cookie, so
+there is no session for anybody to ride. Nothing extra to set. A request that
+also carries a session cookie is held to both checks whatever else it carries.
 
 A browser-side script using the session cookie instead does need to send an
 `Origin` belonging to the deployment — which `fetch` from a page of the app does
@@ -127,7 +140,7 @@ enforced as a deny-list in [`tokenMayReach`](../src/auth/tokens.ts)):
 | Prefix | Why it's blocked |
 |---|---|
 | `/tokens` | A token must not mint or revoke tokens — including itself. |
-| `/members` | The household allow-list — `/members/invite` today. A token must not change who is allowed in. A settings sub-page for the same thing is denied alongside it, so it is covered before it exists. |
+| `/members` | The household allow-list — `/members/invite`, and `/members/:id/remove`. A token must not change who is allowed in. A settings sub-page for the same thing is denied alongside it, so it is covered before it exists. |
 | `/impersonate` | Impersonation is a session-only, logged human action (R38.12). |
 | `/auth` | Sign-in, SSO, and the dev-bypass state. |
 | `/signout` | Nothing for a token to sign out of. |
@@ -347,6 +360,14 @@ curl -sS https://pathayam.example.com/net-worth.csv \
 Each download's filename carries the current IST date, e.g.
 `holdings-2026-08-28.csv`.
 
+**Cells that would run as a formula are escaped** in `/export.csv`,
+`/query.csv`, the portfolio CSVs and `/net-worth.csv` (one cell function,
+`src/core/csv.ts`). A payee or narration comes from whoever sent the statement
+or alert, so a cell starting with `=`, `+`, `-`, `@`, tab or carriage return is
+prefixed with `'` and opens as text. A plain number such as `-1250.5` is left
+alone so amounts still sum. A script reading these files should strip that
+leading `'` if it wants the original text.
+
 ---
 
 ## Worked examples
@@ -399,7 +420,8 @@ Amounts are **integer paise** (`-45000` = −₹450.00). See
 Every route below is served by [`src/app.ts`](../src/app.ts). "Token" shows
 whether a **read** token (R), a **read-write** token (W), or **no token** (—,
 session-only, because the path is in the forbidden list) can reach it. All
-routes require authentication except `/signin`, `/auth/*`, and `/healthz`.
+routes require authentication except `/signin`, `/auth/*`, `/healthz`,
+`/privacy`, `/terms` and `/demo/enter`.
 
 Legend: **R** = any token · **W** = read-write token only · **—** = session
 only (out of a token's reach).
@@ -432,10 +454,12 @@ only (out of a token's reach).
 | POST | `/accounts/:id/deposit/remove` | W | Take a deposit's terms off; it is worth its balance again. |
 | GET/POST | `/accounts/:id/statement` | R/W | Record a card statement: amount, date, due date, minimum. |
 | GET | `/accounts/:id/cards` | R | Cards on one account, including add-ons. |
+| POST | `/accounts/:id/cards` | W | Add a card to the account (`label`, optional `last4` and `holder_member_id`). |
 | POST | `/accounts/:id/cards/:cardId/close` | W | Close an add-on card. |
 | GET | `/cards` | R | Every credit card in due-date order, with what is unfunded. |
 | GET/POST | `/accounts/:id/reconcile` | R/W | Reconcile to a statement balance. |
 | GET/POST | `/add` | R/W | Create a transaction, with its envelope lines (`split_category_N` / `split_amount_N`; the first carries no amount and takes the remainder). |
+| GET | `/transfer` | R | The transfer form. Accounts whose value is derived (loans, family loans) are not offered. |
 | POST | `/transfer` | W | Transfer between accounts. |
 | GET | `/transaction/:id` | R | Transaction detail, splits, history. |
 | POST | `/transaction/:id` | W | Edit a transaction, including its envelope lines (same fields as `/add`). A legacy `category_id` is still read when no lines are sent; an *empty* one on an already-split transaction means "not mentioned", not "file it nowhere". **Partial edits:** a field you do not send keeps its stored value — `amount`, `direction`, `date`, `payee`, `memo`, `tags`, `owner_member_id`, the envelope lines, `cleared` and `reimbursable` — so `date=07-09-2026` alone moves only the date. A field you *do* send is applied: an empty `memo` clears it, an empty `payee` removes it, an empty `tags` removes them all, an empty `owner_member_id` makes it the household's; a blank `amount` is refused and a blank `date` keeps the old one. For the two flags, `cleared=1` / `reimbursable=1` sets and any other value (e.g. `0`) unsets. The web form also sends `cleared_present=1` and `reimbursable_present=1`, because an unticked checkbox sends nothing: a marker with no flag means "unticked", no marker and no flag means "not mentioned". |
@@ -463,14 +487,15 @@ only (out of a token's reach).
 | GET | `/payees` | R | Payees. |
 | POST | `/payees/merge` | W | Merge two payees. |
 | GET | `/household` | R | What each member has committed to the shared budget this month. |
-| GET | `/members/:id/remove` | R | What removing a member does, and how the balance between you can end. |
-| POST | `/members/:id/remove` | W | Remove a member, settling what is outstanding first (`15` §6A). |
+| GET | `/members/:id/remove` | — | What removing a member does, and how the balance between you can end. Session only. |
+| POST | `/members/:id/remove` | — | Remove a member, settling what is outstanding first (`15` §6A). Session only. |
+| POST | `/members/:id/password-link` | — | A one-time link that sets another member's first password, shown once on the page it returns. Refused (422) for yourself, a member with a password, one who has signed in before, or one holding records you cannot see — `npm run password-link` on the server makes those. Session only. |
 | POST | `/household/pick-up` | W | Commit more, taking on what the household is behind by. |
 | POST | `/household/call-it-even` | W | Close part of a balance by agreement; it becomes spending on the giving side. |
 | GET | `/categories` | R | Categories, for the budget being viewed (`?budget=`). |
 | POST | `/groups/new` · `/groups/:id/rename` · `/groups/:id/delete` | W | Add, rename or remove a category group. A group must be empty to be deleted. |
 | POST | `/categories/new` · `/categories/:id/rename` · `/categories/:id/hide` · `/categories/:id/delete` | W | Manage categories. |
-| GET/POST | `/tax` | W | Income tax estimate for the signed-in member and one financial year (`fy`). POST saves gross income, deductions, TDS (`tds`) and an optional own figure for home loan interest under section 24(b) (`s24b`; blank uses the interest accrued on loans marked as for a self-occupied house). Refuses a year whose rates the app does not have. |
+| GET/POST | `/tax` | R/W | Income tax estimate for the signed-in member and one financial year (`fy`). POST saves gross income, deductions, TDS (`tds`) and an optional own figure for home loan interest under section 24(b) (`s24b`; blank uses the interest accrued on loans marked as for a self-occupied house). Refuses a year whose rates the app does not have. |
 | POST | `/tax/payments` · `/tax/payments/:id/delete` | W | Record (`fy`, `kind` = `advance` or `self-assessment`, `date`, `amount`, `note`) or remove a tax payment of the signed-in member's own. Advance tax must be dated inside its financial year. Another member's payment is not found. |
 | POST | `/categories/:id/merge` | W | Merge this category into `winner_id`: assignments are summed month by month, history and targets move across, and this one is deleted. Refuses a payment category and a merge across budgets. |
 | POST | `/categories/:id/target` | W | Set or clear a category's target: `amount`, `kind` (`monthly` or `refill`; omitted keeps a stored refill) and optional `target_date` (makes it by-date). |
@@ -481,6 +506,7 @@ only (out of a token's reach).
 | Method | Path | Token | Purpose |
 |---|---|---|---|
 | GET | `/schedules` | R | Recurring items & cashflow calendar. |
+| GET | `/schedules/new` | R | The form for a new schedule. |
 | POST | `/schedules/new` · `/schedules/confirm` · `/schedules/dismiss` · `/schedules/:id/paid` · `/schedules/:id/skip` | W | Manage schedules. A schedule may be money in or money out; `/schedules/new` takes envelope lines like `/add`. `recurrence` must be one of the eight the app knows — an unrecognised value is refused rather than silently treated as monthly. With `monthly-nth-weekday`, `recurrence_ordinal` (1–4, or −1 for last) and `recurrence_weekday` (0 = Sunday) say which one, and `next_due` is moved to the first such day on or after it. |
 | POST | `/schedules/:id/edit` · `/schedules/:id/delete` | W | Change or remove a schedule, including its envelope lines (`split_category_N` / `split_amount_N`; the first carries no amount and takes the remainder). A new amount with no line fields re-files the stored lines the same way, or is refused when the other lines leave nothing for the first. Removing leaves everything it already recorded. |
 | GET | `/goals` | R | Savings goals. |
@@ -497,7 +523,8 @@ only (out of a token's reach).
 | POST | `/loans/:id/close` | W | File away a paid-off loan (R21). |
 | POST | `/loans/:id/settle` | W | Settle a loan early, recording the lender's foreclosure charge (R19.5). |
 | POST | `/transaction/:id/convert-to-emi` | W | Convert a card purchase to an instalment plan (`06` §7.4, F8.5). |
-| GET | `/loans/:id/statement` | R | One loan's statement view. |
+| GET | `/loans/:id/statement` | R | The form for recording a lender's statement against one loan. |
+| POST | `/loans/:id/statement` | W | Record a lender's statement: `lender_outstanding` (required, not negative), and optionally `interest_paid_ytd` and `instalments_remaining`. The difference from the app's own figure is reported as drift. |
 | GET | `/loans/:id/schedule.csv` | R | Amortisation schedule as CSV. |
 
 ### Family lending
@@ -559,12 +586,13 @@ only (out of a token's reach).
 | Method | Path | Token | Purpose |
 |---|---|---|---|
 | GET | `/settings` | R | Household settings. |
-| POST | `/settings/theme` · `/settings/learning` · `/settings/overspend-model` · `/settings/identity` · `/settings/digest` · `/settings/password` | W | Change settings. |
+| POST | `/settings/theme` · `/settings/learning` · `/settings/overspend-model` · `/settings/identity` · `/settings/digest` | W | Change settings. |
+| POST | `/settings/theme-toggle` | W | Flip between light and dark (`seen` says what a "system" theme shows; `return_to` a path to go back to). The no-JavaScript fallback for the header control. |
 | GET | `/activity` | R | Every change ever made, with its undo. |
 | POST | `/activity/:id/undo` | W | Undo one recorded event (30 days, R37.8). |
 | GET | `/health` | R | Health dashboard (HTML). |
 | POST | `/health/backup` · `/health/verify` | W | Run a backup / verify a restore. |
-| POST | `/gmail/disconnect` · `/gmail/fetch` | W | Manage Gmail ingestion. |
+| POST | `/gmail/fetch` | W | Fetch from the connected mailbox now. (`/gmail/disconnect` is session only.) |
 | GET | `/export.json` · `/export.csv` | R | Full data exports. |
 | GET | `/healthz` | R (public) | Machine health probe. |
 
@@ -574,15 +602,33 @@ These return `403` to any token — use a browser session.
 
 | Method | Path | Why |
 |---|---|---|
-| GET/POST | `/tokens`, `/tokens/:id/revoke` | Minting/revoking tokens (F30.6). |
+| GET/POST | `/tokens` | Listing and minting tokens (F30.6). |
+| POST | `/tokens/:id/revoke` | Revoking a token (F30.6). |
 | POST | `/members/invite` | The household allow-list. |
+| GET/POST | `/members/:id/remove` | Removing a member changes who is allowed in. |
+| POST | `/members/:id/password-link` | A link that sets somebody's password is a way in. |
+| POST | `/gmail/disconnect` | Unlinking a mailbox. |
 | POST | `/impersonate/start` · `/impersonate/writes` · `/impersonate/exit` | Impersonation (R38.12). |
 | POST | `/sessions/revoke` | Session management. |
 | GET | `/auth/google` · `/auth/google/callback` · `/auth/oidc` · `/auth/oidc/callback` · `/gmail/connect` · `/gmail/callback` | OAuth and OIDC flows (interactive). |
 | POST | `/auth/dev` · `/signout` | Sign-in / sign-out. |
-| GET/POST | `/auth/first-run` | The first password on a household with no members. 404 once any member exists. |
+| GET/POST | `/auth/first-run` | The first password on a household with no members. 404 unless `LOCAL_LOGIN` is set, and 404 once any member exists. |
+| GET/POST | `/auth/setup/:token` | A one-time password link, opened signed out: set a first password and be signed in. Works once, for 72 hours; every unusable link answers the same 410. Rate limited. |
 | POST | `/auth/password` | Password sign-in (F1.6). 404 unless `LOCAL_LOGIN` is set or a password already exists. |
 | GET/POST | `/settings/password` | Set or change your own password. Changing one requires the current password. |
+
+### Public and first-run pages
+
+Not API endpoints, listed so the reference is complete. The first four need no
+session.
+
+| Method | Path | Purpose |
+|---|---|---|
+| GET | `/signin` | The sign-in page. |
+| GET | `/privacy` · `/terms` | The privacy policy and terms of service. |
+| POST | `/demo/enter` | Sign in to the demo household, as `member_id` or its oldest member. 404 unless `DEMO_MODE` is set. |
+| GET/POST | `/setup` | First run for a signed-in member: a starting set of categories from monthly income and a few yes/no questions. |
+| POST | `/setup/blank` | First run with no starting categories. |
 
 > This table is a snapshot; the authoritative list is the router in
 > [`src/app.ts`](../src/app.ts) and the deny-list in

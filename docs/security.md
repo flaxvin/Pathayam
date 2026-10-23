@@ -206,10 +206,11 @@ from the page's `data-member` attribute — until the server confirms it.
 
 ## Outbound requests
 
-Every outbound host is fixed in source: Google's OAuth and Gmail endpoints, and
-two price providers. User-supplied values reach only path segments and query
-values, through `encodeURIComponent`. `BACKUP_WEBHOOK_URL` and `HEARTBEAT_URL`
-are operator-configured.
+Every outbound host is fixed in source — Google's OAuth and Gmail endpoints,
+and two price providers — or set by the operator: `OIDC_ISSUER` (and the
+endpoints its discovery document names), `BACKUP_WEBHOOK_URL` and
+`HEARTBEAT_URL`. User-supplied values reach only path segments and query
+values, through `encodeURIComponent`.
 
 OpenID Connect discovery (`{OIDC_ISSUER}/.well-known/openid-configuration`)
 is bounded at ten seconds, like the price providers' fetches; a provider that

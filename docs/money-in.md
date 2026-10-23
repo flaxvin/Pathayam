@@ -165,7 +165,8 @@ preserves column layout.
 ### Password derivation
 
 With a statement identity saved (Settings → statement identity: name, date of
-birth, PAN, registered mobile), candidates are derived and tried in order. The
+birth, PAN, registered mobile, the Axis and HDFC customer IDs, and an HSBC
+card's last six digits), candidates are derived and tried in order. The
 bank is taken from the destination account's institution, so its own rule is
 tried first.
 
@@ -179,19 +180,24 @@ tried first.
 | Last five of the mobile + DDMMYY | SBI account |
 | DDMMYYYY + last four of the card | SBI Card |
 | Last four of the card alone | Canara |
-| DDMMYY + last six of the card | HSBC |
+| DDMMYY + last six of the card (the account's number, or the six saved in Settings) | HSBC |
+| First four of the name in capitals + the 9-digit customer ID | Axis account |
+| The customer ID alone | HDFC account |
+| First three of the name in capitals + last four of the mobile | ESAF |
 
 The interface reports which candidate opened the file, described rather than
-quoted. The password itself is never stored or logged.
+quoted. The password itself is never stored or logged. Customer IDs and the
+HSBC six are shown masked, and like the rest of the identity are never
+exported or logged.
 
 When no candidate works and the bank's rule needs a detail the household has not
 saved, the message names that detail.
 
 ### Bank layouts
 
-Eleven banks are recognised by signature: HDFC, ICICI, Axis, SBI, Union Bank,
-Canara, YES, IndusInd, Kotak, RBL, HSBC. A twelfth profile covers broker
-contract notes.
+Twelve banks are recognised by signature: HDFC, ICICI, Axis, SBI, Union Bank,
+Canara, YES, IndusInd, Kotak, RBL, HSBC, Standard Chartered. A further profile
+covers broker contract notes.
 
 Each profile carries its signatures, a password hint, and a skip list of lines
 that are never transactions.
@@ -259,7 +265,11 @@ card digits too: the last four of the one account at the sender's bank it
 routes to, and of that account's cards. When the route is unknown — no account
 at that bank, or several — the digits of every account and card the member can
 see are tried instead, so a statement that opens but has nowhere to go is
-reported as unmatched rather than as one that would not open.
+reported as unmatched rather than as one that would not open. A statement that
+still will not open is reported with the detail it needs where the bank's rule
+names one the household has not saved — SBI's mobile, a card's last four,
+HSBC's last six, an Axis or HDFC customer ID — so the fix is one field in
+Settings or on the account.
 
 A message from an alert sender that reads like a transaction — an amount beside
 "spent", "debited" or "credited" — but that no profile can read is not dropped

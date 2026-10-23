@@ -9,17 +9,17 @@ does, not how it came to do it.
 | [data-model.md](data-model.md) | Every table, its columns, and the relationships between them. |
 | [budgeting.md](budgeting.md) | The envelope engine: definitions, rules, formulas, the accounting identity. |
 | [accounts.md](accounts.md) | Account kinds and subtypes, transactions, transfers, splits, reconciliation. |
-| [money-in.md](money-in.md) | CSV import, PDF statements, Gmail, duplicate detection, transfers in Review, rules, learning, undoing an import. |
-| [loans-and-assets.md](loans-and-assets.md) | Loans, amortisation, EMI conversion, portfolio, net worth, financial independence. |
+| [money-in.md](money-in.md) | CSV import, YNAB and Actual Budget exports, PDF statements, Gmail, duplicate detection, transfers in Review, rules, learning, undoing an import. |
+| [loans-and-assets.md](loans-and-assets.md) | Loans, amortisation, EMI conversion, home loan interest for the tax estimate, family lending, insurance, deposits that value themselves, portfolio, net worth, financial independence. |
 | [privacy.md](privacy.md) | Budgets, visibility, and how access is enforced. |
 | [security.md](security.md) | Authentication, authorisation, transport, input handling. |
-| [screens.md](screens.md) | Every route the application serves. |
+| [screens.md](screens.md) | Every route the application serves, and what prints. |
 | [operations.md](operations.md) | Deployment, configuration, backup, restore, health. |
 | [testing.md](testing.md) | Running the suite; what is covered and what is not. |
 | [limitations.md](limitations.md) | Known constraints and unsupported cases. |
 | [API.md](API.md) | HTTP API and personal access tokens. |
 | [dev/01-engine-derivation.md](dev/01-engine-derivation.md) | Derivation of the accounting identity. Cited from the engine source. |
-| [dev/02-proposed-features.md](dev/02-proposed-features.md) | Seven requested features, sized against the code. Assessment only — nothing here is built. |
+| [dev/02-proposed-features.md](dev/02-proposed-features.md) | Seven requested features, sized against the code. An assessment; one of them (richer recurrence rules, §3) has since been built. |
 
 ## Conventions
 
@@ -34,7 +34,7 @@ does, not how it came to do it.
 ## Archive
 
 [`archive/`](archive/) contains the design specification the application was
-built from: twenty numbered documents and three verification scripts. Source
+built from: fifteen numbered documents and three verification scripts. Source
 comments cite it by requirement identifier (`R6`, `F3.6`, `B124`, `H2.2`); 323
 such identifiers appear across `src/`. The numbering is fixed for that reason.
 

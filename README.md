@@ -21,10 +21,18 @@ harvest, drawn from deliberately through the year.
 - **Credit cards.** Spending on a card moves cash into that card's payment
   envelope. The interface reports how much of a card balance no envelope is
   funding, and what clears it.
-- **Indian banking.** Statement PDFs from eleven banks, with passwords derived
-  from name, date of birth, PAN and mobile. UPI narration parsing. Reducing-
-  balance and flat loans, rate changes, prepayment comparison, EMI conversion.
-  CAS portfolio import. Realised gains by financial year.
+- **Indian banking.** Statement PDFs from twelve banks, with passwords derived
+  from name, date of birth, PAN, mobile and customer ID. UPI narration
+  parsing. Reducing-balance and flat loans, rate changes, prepayment
+  comparison, EMI conversion (with the 18% GST on each instalment's interest charged as its own card
+  line). CAS portfolio import. Realised gains by financial year.
+- **Deposits that value themselves.** An FD, RD, PPF or EPF account given its
+  terms — principal or instalment, rate, compounding, start, maturity — is
+  valued from them to maturity, and the maturity shows on the account, the
+  cashflow calendar and the overview. A newer value entered by hand still wins.
+- **Coming from another app.** YNAB and Actual Budget CSV exports are
+  recognised on the import screen and land in Review with their transfers and
+  splits intact.
 - **Per-member privacy.** A shared household budget plus an optional personal
   budget per member, excluded from the other members' lists, reports, exports,
   activity log and totals.
@@ -34,12 +42,20 @@ harvest, drawn from deliberately through the year.
   and marking the schedule paid records a split transaction.
 - **Tax estimate.** Income tax under both regimes, side by side, with 80C, 80D
   and the HRA exemption, and capital gains at their own rates rather than at
-  slab rates — an estimate on figures you enter, not a return and not advice. Slabs are data keyed by financial year, so a year the app does
-  not have rates for is refused rather than computed with last year's.
+  slab rates — an estimate on figures you enter, not a return and not advice.
+  Home-loan interest under 24(b) comes from the loan ledger; TDS, advance tax
+  and self-assessment payments are netted to a balance due or a refund; each
+  advance-tax instalment is checked against what was paid by its date. FY
+  2024-25 gains are split at 23-07-2024, and listed bonds held over a year
+  are taxed at 12.5%. Slabs are data keyed by financial year, so a year the
+  app does not have rates for is refused rather than computed with last year's.
 - **Financial independence.** A target drawn from what the household actually
   spent, against the assets that could actually fund it — a home is on the net
   worth statement, not here. Assumes no further earnings, and reports the years
   a locked provident fund leaves uncovered.
+- **Insurance and paper.** A policy register with premiums due, renewals and
+  the 80C / 80D they suggest for the tax estimate. The tax estimate, reports,
+  month close, net worth and a loan's schedule print as documents.
 - **Ownership.** One SQLite file in an open format, complete export, no
   telemetry, no third-party service holding the data — and no third-party
   service needed to sign in, either. Password sign-in is built in, any OpenID
@@ -76,11 +92,11 @@ Configuration, sign-in (password, OpenID Connect or Google), backups and restore
 | [docs/data-model.md](docs/data-model.md) | Every table and its columns. |
 | [docs/budgeting.md](docs/budgeting.md) | Engine definitions, formulas, overspend models, targets. |
 | [docs/accounts.md](docs/accounts.md) | Account kinds, transactions, transfers, splits, reconciliation. |
-| [docs/money-in.md](docs/money-in.md) | CSV, PDF statements, Gmail, duplicates, rules. |
-| [docs/loans-and-assets.md](docs/loans-and-assets.md) | Loans, lending, portfolio, net worth. |
+| [docs/money-in.md](docs/money-in.md) | CSV, YNAB and Actual Budget, PDF statements, Gmail, duplicates, rules. |
+| [docs/loans-and-assets.md](docs/loans-and-assets.md) | Loans, lending, deposits, insurance, portfolio, net worth, tax, financial independence. |
 | [docs/privacy.md](docs/privacy.md) | Visibility model and enforcement. |
 | [docs/security.md](docs/security.md) | Authentication, authorisation, headers, input handling. |
-| [docs/screens.md](docs/screens.md) | Every route. |
+| [docs/screens.md](docs/screens.md) | Every route, and what prints. |
 | [docs/operations.md](docs/operations.md) | Deployment, configuration, backup, restore. |
 | [docs/testing.md](docs/testing.md) | Running and reading the suite. |
 | [docs/limitations.md](docs/limitations.md) | Known constraints. |
@@ -125,7 +141,7 @@ function and asserts (1) and (2) after each month. Details:
 | **Move money** | `/move` | Move between envelopes, with a note explaining that this never changes Ready to Assign. |
 | **Hold** | `/hold` | Keep part of this month’s Ready to Assign for next month — how you get to spending last month’s income. |
 | **Review** | `/review` | Everything awaiting a decision: imports, suspected duplicates, uncategorised (filed inline), overspent, unfunded cards, proposed rules, and money you're owed. |
-| **Import** | `/import` | CSV paste / statement-PDF upload with password hints; saved mappings. |
+| **Import** | `/import` | CSV paste / statement-PDF upload with password hints; saved mappings; YNAB and Actual Budget exports. |
 | **Reports** | `/reports` | Income vs. spend, category trends, loan interest by FY, realised gains by FY split by holding period. |
 | **Overview** | `/overview` | Runway, due-soon bills, the month at a glance. |
 | **Query** | `/query` | The filterable, groupable table; CSV export. Totals are summed over every matching row, not the page you can see. |
@@ -134,10 +150,12 @@ function and asserts (1) and (2) after each month. Details:
 | **Goals** | `/goals` | Long-horizon savings with progress rings. |
 | **Loans** | `/loans`, `/loans/:id` | Each loan's real cost, schedule, drift, prepayment calculator, disbursements. |
 | **Family lending** | `/family` | Lent / borrowed, derived balances, write-off. |
-| **Insurance** | `/insurance` | Policies, premiums and renewals due, 80C / 80D from your policies. |
+| **Tax** | `/tax` | Both regimes side by side, capital gains at their own rates, 24(b) from the loan ledger, tax paid netted, and the advance-tax instalment check. |
+| **Financial independence** | `/fire` | A target from what the household spent, against the assets that could fund it, and the years a locked provident fund leaves uncovered. |
+| **Insurance** | Policies, premiums and renewals due, 80C / 80D from your policies. |
 | **Portfolio** | `/portfolio` | Holdings as units, XIRR, allocation, CAS import, CSV export. |
 | **Valuations** | `/portfolio/valuations` | Every hand-valued pot — gold, retirement, anything outside CAS — updated in one sitting, each showing what it was last worth and when. |
-| **Net worth** | `/net-worth` | The four-way decomposition and dated history. |
+| **Net worth** | `/net-worth` | Statement groups, what changed since the last snapshot (in seven parts that add up to the total), and dated history. |
 | **Month close** | `/months` | The monthly ritual and closed-month history. |
 | **Payees** | `/payees` | Every payee, what it is usually filed as, and merge. |
 | **Rules** | `/rules` | Automatic categorisation: what fires, what the app has proposed from your own filing, and a tester. |
@@ -153,7 +171,7 @@ Captured from a running instance with the 36-month demo household, dark theme.
 
 | Portfolio | Net worth |
 |---|---|
-| [![Portfolio — holdings as units, XIRR, other assets](docs/screenshots/portfolio.png)](docs/screenshots/portfolio.png) | [![Net worth — the four-way decomposition and dated history](docs/screenshots/net-worth.png)](docs/screenshots/net-worth.png) |
+| [![Portfolio — holdings as units, XIRR, other assets](docs/screenshots/portfolio.png)](docs/screenshots/portfolio.png) | [![Net worth — statement groups, the change breakdown, and dated history](docs/screenshots/net-worth.png)](docs/screenshots/net-worth.png) |
 | **Allocation** | **Loans** |
 | [![Allocation — by class, region and currency](docs/screenshots/allocation.png)](docs/screenshots/allocation.png) | [![Loans — real cost, schedule, drift, prepayment](docs/screenshots/loans.png)](docs/screenshots/loans.png) |
 
@@ -178,6 +196,8 @@ Captured from a running instance with the 36-month demo household, dark theme.
 | [![Activity — every change, with its undo and the reason when it has none](docs/screenshots/activity.png)](docs/screenshots/activity.png) | [![Cards — every card in the order it falls due, with what is unfunded](docs/screenshots/cards.png)](docs/screenshots/cards.png) |
 | **Query** | **Valuations** |
 | [![Query — the filterable, groupable table, with totals over every matching row](docs/screenshots/query.png)](docs/screenshots/query.png) | [![Valuations — every hand-valued pot updated in one sitting](docs/screenshots/valuations.png)](docs/screenshots/valuations.png) |
+| **Tax** | **Insurance** |
+| [![Tax — both regimes side by side, capital gains, tax paid and the advance-tax instalments](docs/screenshots/tax.png)](docs/screenshots/tax.png) | [![Insurance — policies, premiums due and the 80C / 80D they suggest](docs/screenshots/insurance.png)](docs/screenshots/insurance.png) |
 
 Every figure, name and account number is generated. No real financial data
 appears in this repository.
@@ -229,7 +249,8 @@ Fully listed in [docs/limitations.md](docs/limitations.md). The principal ones:
 - Past months are recomputed from current data rather than frozen; closed months
   record their figures.
 - No bank API connections and no SMS parsing.
-- No offline mode; the application requires its server.
+- No offline mode beyond the Add form, which keeps an entry on the device until
+  the signal returns; everything else requires the server.
 - Payee names extracted from some statement PDFs contain spaces inside words.
 - The database is not encrypted at rest.
 

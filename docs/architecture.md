@@ -4,21 +4,23 @@
 
 A single Node process serving HTTP, with one SQLite database file. No
 background workers, no message queue, no cache server, no external service
-except Google OAuth and two price feeds.
+except Google (sign-in and Gmail), an OpenID Connect provider when one is
+configured, and two price feeds.
 
 - **Runtime:** Node 24 or later.
 - **Language:** TypeScript. Development runs the sources directly with type
   stripping; production runs `dist/`, compiled by `tsc`.
 - **Runtime dependencies:** none. `package.json` declares `typescript` and
   `@types/node` as development dependencies only.
-- **Size:** ~49,000 lines of TypeScript, 92 test files, 1,119 tests.
+- **Size:** ~74,000 lines of TypeScript, plus ~51,000 lines of tests in 331
+  test files; 2,683 tests.
 
 ## Module layout
 
 ```
 src/
   main.ts          entry point: config, database, server
-  app.ts           route table (162 paths, 193 handlers) and middleware
+  app.ts           route table (188 paths, 225 handlers) and middleware
   config.ts        environment parsing and startup safety checks
   restore.ts       backup restore CLI
 
@@ -26,12 +28,14 @@ src/
   db/              connection, migrations, schema, query helpers
   engine/          envelope arithmetic — pure, no I/O
   domain/          entity rules that need storage
-  web/             pages, layout, stylesheet, client script, charts
+  web/             pages, layout, stylesheet, client script, charts, the
+                   offline outbox for the Add form
   http/            server, router, HTML templating, multipart parsing
   import/          CSV, PDF statements, dedupe, rules, learning, pipeline
   pdf/             PDF object parser, decryption, text extraction
   portfolio/       holdings, lots, price providers
   loans/           amortisation
+  deposits/        a deposit's value from its terms — pure, no I/O
   gmail/           OAuth grant and message fetching
   auth/            sessions, passwords, OpenID Connect, Google sign-in, API tokens, dev login
   ops/             backup, restore, error recording
@@ -54,15 +58,21 @@ resolves parameters, calls one or more domain functions, and renders.
 
 1. **Static assets.** `/assets/*`, `/manifest.webmanifest` are served from
    memory before routing.
-2. **Same-origin check.** Any method other than `GET`, `HEAD` or `OPTIONS` must
-   carry an `Origin` header matching the deployment, or a `Referer` from it.
-   Requests bearing `Authorization: Bearer` are exempt. Failure: `403`.
-3. **Authentication.** Session cookie or bearer token resolved to a member.
+2. **Host check.** Any method other than `GET`, `HEAD` or `OPTIONS` must be
+   addressed to `BASE_URL`'s host and port, or to an IP literal or
+   `localhost`, which no DNS answer is involved in and so cannot be rebound.
+   Behind a proxy with `TRUST_PROXY` set, the right-most `X-Forwarded-Host`
+   is taken as the host; otherwise the `Host` header. Failure: `403`.
+3. **Same-origin check.** The same requests must carry an `Origin` header
+   matching the deployment, or a `Referer` from it. Requests bearing
+   `Authorization: Bearer` and no session cookie are exempt from both checks.
+   Failure: `403`.
+4. **Authentication.** Session cookie or bearer token resolved to a member.
    Unauthenticated requests to protected paths redirect to `/signin`.
-4. **Routing.** Exact paths first, then parameterised patterns.
-5. **Handler.** Resolves ids through visibility guards, calls the domain,
+5. **Routing.** Exact paths first, then parameterised patterns.
+6. **Handler.** Resolves ids through visibility guards, calls the domain,
    renders or redirects.
-6. **Response.** Security headers applied to every response.
+7. **Response.** Security headers applied to every response.
 
 ### Error handling
 
@@ -79,7 +89,7 @@ resolves parameters, calls one or more domain functions, and renders.
 One SQLite file, default `$DATA_DIR/pathayam.sqlite`, opened via `node:sqlite`.
 
 - **Migrations** are an ordered array in `src/db/schema.ts`, applied at startup
-  inside transactions, each recorded as applied. 37 exist.
+  inside transactions, each recorded as applied. 67 exist.
 - The application **refuses to start** if the database reports a schema version
   higher than the build knows.
 - Migrations flagged `rebuildsTable` run with `PRAGMA foreign_keys = OFF`
@@ -126,8 +136,10 @@ Server-rendered HTML. No client-side framework, no build step for the frontend.
 - Charts are inline SVG generated server-side (`src/web/charts.ts`).
 - The stylesheet and client script are single modules served from memory with a
   content hash in the URL.
-- The client script adds keyboard shortcuts, a command palette, and inline form
-  submission. Every feature works without it.
+- The client script adds keyboard shortcuts, a command palette, inline form
+  submission, and the Add form's offline queue (`src/web/outbox.ts`: an entry
+  kept in the browser's storage and sent when the connection is back; no
+  service worker). Every feature but that queue works without it.
 - A web app manifest, icons, and a theme colour in the first response make the
   app installable.
 
