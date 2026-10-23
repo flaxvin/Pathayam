@@ -1003,11 +1003,24 @@ export function holdingValueOn(
   if (!record) return null;
   const instrument = getInstrument(db, record.instrument_id)!;
 
+  /*
+   * DEBUG-ASSETS-2 · A split or bonus is the instrument's, and divided its
+   * price history for every holding — but recordSplit writes an event only on
+   * the holdings that still had lots. One already sold out got none, so its
+   * sale parcels were left in pre-split units against post-split prices. So
+   * the corporate actions are read across the instrument (once per date, as
+   * recordSplit allows), as well as this holding's own.
+   */
   const later = queryAll<{ date: string; kind: string; ratio: number | null; units: number | null; detail_json: string | null }>(
     db,
     `SELECT date, kind, ratio, units, detail_json FROM holding_events
-      WHERE holding_id = ? AND date > ? AND kind IN ('sale','split','bonus')`,
-    holdingId, asOf,
+      WHERE holding_id = ? AND date > ? AND kind = 'sale'
+     UNION ALL
+     SELECT date, kind, MAX(ratio), NULL, NULL FROM holding_events
+      WHERE date > ? AND kind IN ('split','bonus')
+        AND (holding_id = ? OR holding_id IN (SELECT id FROM holdings WHERE instrument_id = ?))
+      GROUP BY kind, date`,
+    holdingId, asOf, asOf, holdingId, record.instrument_id,
   );
   const ratioAfter = (kind: string, date: string) => later
     .filter((e) => e.kind === kind && e.date > date && (e.ratio ?? 0) > 0)
