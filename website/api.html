@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>API Reference</title>
-<meta name="description" content="Pathayam's HTTP API: authentication, idempotency, and every endpoint with its parameters, responses and a working example.">
+<meta name="description" content="Pathayam's HTTP API: authentication, scopes, idempotency, the same-origin rule for writes, and every route the app serves — the core ones with parameters, responses and a working example.">
 <link rel="stylesheet" href="fonts.css">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon.png" sizes="32x32" type="image/png">
@@ -97,10 +97,21 @@
           <h2>Endpoints</h2>
           <ol>
           <li><a href="#budget">Budget &amp; money</a></li>
-          <li><a href="#txn">Accounts &amp; transactions</a></li>
-          <li><a href="#import">Import &amp; review</a></li>
-          <li><a href="#data">Query, activity &amp; export</a></li>
-            <li><a href="#refused">What a token cannot reach</a></li>
+          <li><a href="#accounts">Accounts &amp; cards</a></li>
+          <li><a href="#txn">Transactions</a></li>
+          <li><a href="#import">Import, review &amp; rules</a></li>
+          <li><a href="#household">Household &amp; categories</a></li>
+          <li><a href="#schedules">Schedules, goals &amp; loans</a></li>
+          <li><a href="#family">Family lending</a></li>
+          <li><a href="#portfolio">Portfolio &amp; net worth</a></li>
+          <li><a href="#insurance">Insurance</a></li>
+          <li><a href="#tax">Tax</a></li>
+          <li><a href="#months">Months, reports &amp; query</a></li>
+          <li><a href="#settings">Settings, activity &amp; health</a></li>
+          <li><a href="#data">Exports</a></li>
+          <li><a href="#session">Session only</a></li>
+          <li><a href="#writes">Writes and the same-origin check</a></li>
+          <li><a href="#refused">What a token cannot reach</a></li>
           </ol>
         </nav>
         <div>
@@ -347,10 +358,28 @@
             </div>
           </div>
         </details>
+        <h3 class="sr-only">More budget &amp; money routes</h3>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
+            <tbody>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/move</code></td><td><span class="pill pill--r">read</span></td><td><code>month</code>, <code>to</code>, <code>amount</code></td><td>The move form, with the destination and amount filled in when given.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/hold</code></td><td><span class="pill pill--r">read</span></td><td><code>month</code></td><td>The hold form.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/copy-last-month</code></td><td><span class="pill pill--w">read-write</span></td><td><code>month</code></td><td>Copy last month's assignments into this one.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/explain/category/:id</code></td><td><span class="pill pill--r">read</span></td><td><code>month</code></td><td>How one category's available figure is made up.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/overview</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Runway, bills due soon and the month at a glance.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/budgets/personal</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Create your own personal budget if you do not have one, with its household envelope and a few starting envelopes.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/more</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The hub of everything not in the main navigation.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/setup</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The first-run screen: start from a template or blank.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/setup</code></td><td><span class="pill pill--w">read-write</span></td><td><code>monthly_income</code>, <code>has_emis</code>, <code>has_school_fees</code>, <code>has_domestic_help</code> (each <code>1</code> for yes)</td><td>Create starting categories from a template. Then to <code>/accounts/new</code>.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/setup/blank</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Start with no categories. Then to <code>/accounts/new</code>.</td></tr>
+            </tbody>
+          </table>
+        </div>
       </section>
-      <section class="api-group" id="txn">
-        <h2>Accounts &amp; transactions</h2>
-        <p>Where money actually arrives and leaves.</p>
+      <section class="api-group" id="accounts">
+        <h2>Accounts &amp; cards</h2>
+        <p>The accounts money sits in, and the cards drawn on them. An account is closed, never deleted.</p>
         <details class="ep">
           <summary>
             <span class="verb verb--get">GET</span>
@@ -376,6 +405,57 @@
             </div>
           </div>
         </details>
+        <details class="ep">
+          <summary>
+            <span class="verb verb--get">GET</span>
+            <span class="ep__path">/cards</span>
+            <span class="ep__sum">Cards by due date</span>
+          </summary>
+          <div class="ep__body">
+            <p>Every credit account in the budget being viewed, ordered by what falls due next, with what is owed, what the payment envelope holds, and anything unfunded.</p>
+            <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher</p></div>
+
+          <div>
+            <h3>Responses</h3>
+            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+              <li><span class="status status--ok"><b>200</b></span> — The rendered screen, as HTML.</li>
+              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>429</b></span> — Rate limit exceeded. Retry after the interval in the response.</li>
+            </ul>
+          </div>
+            <div>
+              <h3>Example</h3>
+<pre><code>curl -sS https://pathayam.yourdomain.com/cards \
+  -H <span class="tok-s">"Authorization: Bearer bgt_…"</span></code></pre>
+            </div>
+          </div>
+        </details>
+        <h3 class="sr-only">More accounts &amp; cards routes</h3>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
+            <tbody>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/accounts/new</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The new-account form.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/new</code></td><td><span class="pill pill--w">read-write</span></td><td><code>name</code>, <code>subtype</code> (required); <code>kind</code>, <code>institution</code>, <code>last4</code>, <code>opening_balance</code>, <code>opening_date</code>, <code>statement_day</code>, <code>due_day</code>, <code>budget_id</code>, <code>visibility</code>; deposit terms as below</td><td>Create an account.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/accounts/:id</code></td><td><span class="pill pill--r">read</span></td><td><code>card</code> (one card's spending)</td><td>One account's register.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/:id/edit</code></td><td><span class="pill pill--w">read-write</span></td><td><code>name</code> (required); <code>last4</code>, <code>statement_day</code>, <code>due_day</code>, <code>visibility</code></td><td>Rename an account or change its details.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/:id/close</code><br><code>/accounts/:id/reopen</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Close an account (its history is untouched) or reopen it.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/:id/deposit</code></td><td><span class="pill pill--w">read-write</span></td><td><code>deposit_kind</code> (<code>fd</code>, <code>rd</code>, <code>ppf</code>, <code>epf</code>, <code>other</code>), <code>deposit_principal</code>, <code>deposit_instalment</code>, <code>deposit_rate</code> (a percentage), <code>deposit_compounding</code>, <code>deposit_start_date</code>, <code>deposit_maturity_date</code>, <code>deposit_payout</code> (<code>cumulative</code> or <code>periodic</code>)</td><td>Set or change a deposit's terms, so it values itself. A fixed deposit, recurring deposit or other-asset tracking account only; refused (422) otherwise. A hand value dated on or after the basis still wins.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/:id/deposit/remove</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Take a deposit's terms off; it is worth its balance again.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/accounts/:id/statement</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The card-statement form.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/:id/statement</code></td><td><span class="pill pill--w">read-write</span></td><td><code>amount</code>, <code>due_date</code> (required); <code>statement_date</code>, <code>minimum_due</code></td><td>Record a credit-card statement, so funding advice uses the real bill.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/accounts/:id/reconcile</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The reconcile screen.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/:id/reconcile</code></td><td><span class="pill pill--w">read-write</span></td><td><code>bank_balance</code>, <code>as_of</code>, <code>clear</code> (transaction ids, repeated), <code>allow_adjustment</code></td><td>Reconcile to a statement balance, clearing the transactions named. A difference is never guessed: it is shown, and booked as an adjustment only with <code>allow_adjustment=1</code>.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/accounts/:id/cards</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Cards on one account, including add-ons.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/:id/cards</code></td><td><span class="pill pill--w">read-write</span></td><td><code>label</code> (required); <code>last4</code>, <code>holder_member_id</code></td><td>Add an add-on card to an account.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/accounts/:id/cards/:cardId/close</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Close an add-on card. 404 unless the card is visible and on that account.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="api-group" id="txn">
+        <h2>Transactions</h2>
+        <p>Where money actually arrives and leaves. Every change here is an event you can undo from Activity.</p>
         <details class="ep">
           <summary>
             <span class="verb verb--post">POST</span>
@@ -478,31 +558,6 @@
         </details>
         <details class="ep">
           <summary>
-            <span class="verb verb--get">GET</span>
-            <span class="ep__path">/cards</span>
-            <span class="ep__sum">Cards by due date</span>
-          </summary>
-          <div class="ep__body">
-            <p>Every credit account in the budget being viewed, ordered by what falls due next, with what is owed, what the payment envelope holds, and anything unfunded.</p>
-            <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher</p></div>
-
-          <div>
-            <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--ok"><b>200</b></span> — The rendered screen, as HTML.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
-              <li><span class="status status--err"><b>429</b></span> — Rate limit exceeded. Retry after the interval in the response.</li>
-            </ul>
-          </div>
-            <div>
-              <h3>Example</h3>
-<pre><code>curl -sS https://pathayam.yourdomain.com/cards \
-  -H <span class="tok-s">"Authorization: Bearer bgt_…"</span></code></pre>
-            </div>
-          </div>
-        </details>
-        <details class="ep">
-          <summary>
             <span class="verb verb--post">POST</span>
             <span class="ep__path">/transaction/:id/categorise</span>
             <span class="ep__sum">File one transaction</span>
@@ -585,10 +640,27 @@
             </div>
           </div>
         </details>
+        <h3 class="sr-only">More transactions routes</h3>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
+            <tbody>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/add</code></td><td><span class="pill pill--r">read</span></td><td><code>account</code></td><td>The Add form, with an account chosen when given.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/transfer</code></td><td><span class="pill pill--r">read</span></td><td><code>from</code>, <code>to</code>, <code>amount</code></td><td>The transfer form, filled in when given.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/transaction/:id</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>One transaction: its envelope lines, receipts and history.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/transaction/:id</code></td><td><span class="pill pill--w">read-write</span></td><td>the <code>/add</code> fields, <code>cleared_present</code>, <code>reimbursable_present</code>, <code>confirm_checkpoint</code></td><td>Edit a transaction. A field you do not send keeps its stored value, so <code>date=07-09-2026</code> alone moves only the date. An empty <code>memo</code> clears it, empty <code>tags</code> removes them, an empty <code>owner_member_id</code> makes it the household's; a blank <code>amount</code> is refused. <code>cleared=1</code> / <code>reimbursable=1</code> set a flag and any other value unsets it. Inside a reconciled period it asks first (200).</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/transaction/:id/settled</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Mark a reimbursable transaction as repaid.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/transaction/:id/attach</code></td><td><span class="pill pill--w">read-write</span></td><td><code>receipt</code> (a multipart file)</td><td>Attach a photo or PDF receipt.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/attachment/:id</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>A receipt's bytes, with its own content type.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/attachment/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Remove a receipt.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/transaction/:id/convert-to-emi</code></td><td><span class="pill pill--w">read-write</span></td><td><code>tenure_months</code>, <code>annual_rate</code> (required); <code>amount</code>, <code>processing_fee</code>, <code>fee_category_id</code>, <code>name_suffix</code></td><td>Convert a card purchase into an instalment plan. Each instalment's interest carries 18% GST as its own card charge.</td></tr>
+            </tbody>
+          </table>
+        </div>
       </section>
       <section class="api-group" id="import">
-        <h2>Import &amp; review</h2>
-        <p>Nothing posts itself. Everything arrives here first.</p>
+        <h2>Import, review &amp; rules</h2>
+        <p>Nothing posts itself. Everything arrives in Review first, and rules decide where it goes.</p>
         <details class="ep">
           <summary>
             <span class="verb verb--get">GET</span>
@@ -622,6 +694,7 @@
           </summary>
           <div class="ep__body">
             <p>Paste statement rows as CSV. A saved column mapping whose headers match the file is used on its own; otherwise the columns are guessed, and a guess that works is saved for next time. A file matching neither answers with the “Which column is which?” screen, whose answers go to <code>/import/map</code>. Rows land staged, never posted.</p>
+            <p>An export from YNAB or Actual Budget is recognised by its header. It covers every account it had there, so the <code>account_id</code> sent here does not apply to it: the answer is the “Which account is which?” screen, as HTML, and that screen posts to <code>/import/budget-app</code>. Nothing is written until then.</p>
             <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
             <h3>Parameters</h3>
@@ -629,7 +702,7 @@
               <table>
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
-                <tr><td><code>account_id</code></td><td class="m">string</td><td><span class='req'>required</span></td><td>Which account these rows belong to.</td></tr>
+                <tr><td><code>account_id</code></td><td class="m">string</td><td><span class='req'>required</span></td><td>Which account these rows belong to. Required, and checked, even for a YNAB or Actual Budget file.</td></tr>
                 <tr><td><code>csv</code></td><td class="m">string</td><td><span class='req'>required</span></td><td>The raw CSV text.</td></tr>
                 <tr><td><code>file_name</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Shown in the import log. Defaults to <code>pasted.csv</code>.</td></tr>
                 </tbody>
@@ -641,6 +714,7 @@
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
               <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
               <li><span class="status status--ok"><b>200</b></span> — The column-mapping screen, as HTML, when the file matches nothing known. Nothing was imported.</li>
+              <li><span class="status status--ok"><b>200</b></span> — The account-matching screen, as HTML, for a YNAB or Actual Budget export. Nothing was imported.</li>
               <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
               <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
               <li><span class="status status--err"><b>403</b></span> — A read-only token.</li>
@@ -655,6 +729,52 @@
   -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
   -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span> \
   --data-urlencode <span class="tok-s">"csv@statement.csv"</span> -d <span class="tok-s">"account_id=acc_hdfc"</span></code></pre>
+            </div>
+          </div>
+        </details>
+        <details class="ep">
+          <summary>
+            <span class="verb verb--post">POST</span>
+            <span class="ep__path">/import/budget-app</span>
+            <span class="ep__sum">Import from YNAB or Actual Budget</span>
+          </summary>
+          <div class="ep__body">
+            <p>The second step of a YNAB or Actual Budget import, the one the account-matching screen from <code>/import</code> posts. Each account in the file is matched to one of yours, or left out. Rows land in Review like any other import, with transfers marked as transfers and split transactions kept split. Transactions only: budget assignments are not imported, and the message says so.</p>
+            <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
+          <div>
+            <h3>Parameters</h3>
+            <div class="table-scroll">
+              <table>
+                <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
+                <tbody>
+                <tr><td><code>csv</code></td><td class="m">string</td><td><span class='req'>required</span></td><td>The export, as raw CSV text.</td></tr>
+                <tr><td><code>account_0</code>, <code>account_1</code>, …</td><td class="m">string</td><td><span class='req'>required</span></td><td>One per account in the file, in the order the screen lists them: an account id, or <code>skip</code> to leave it out.</td></tr>
+                <tr><td><code>date_order</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td><code>dd-mm-yyyy</code> or <code>mm-dd-yyyy</code>. Needed only when every date in the file reads both ways round.</td></tr>
+                <tr><td><code>file_name</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Shown in the import log. Defaults to <code>budget-export.csv</code>.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div>
+            <h3>Responses</h3>
+            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+              <li><span class="status status--redir"><b>303</b></span> — Imported. To <code>/review</code> when anything waits there, otherwise <code>/import</code>.</li>
+              <li><span class="status status--ok"><b>200</b></span> — The account-matching screen again, as HTML, when every account was left out. Nothing was imported.</li>
+              <li><span class="status status--err"><b>400</b></span> — Not a YNAB or Actual Budget export, a date that cannot be read, a missing <code>date_order</code>, or an account with no choice; the message says which.</li>
+              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>403</b></span> — A read-only token.</li>
+              <li><span class="status status--err"><b>404</b></span> — An account id that does not exist, or names something you cannot see.</li>
+              <li><span class="status status--err"><b>409</b></span> — The first request with this <code>Idempotency-Key</code> is still being processed.</li>
+              <li><span class="status status--err"><b>422</b></span> — Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
+            </ul>
+          </div>
+            <div>
+              <h3>Example</h3>
+<pre><code>curl -sS -X POST https://pathayam.yourdomain.com/import/budget-app \
+  -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
+  -H <span class="tok-s">"Idempotency-Key: $(uuidgen)"</span> \
+  --data-urlencode <span class="tok-s">"csv@ynab-register.csv"</span> \
+  -d <span class="tok-s">"account_0=acc_hdfc&amp;account_1=acc_card&amp;account_2=skip"</span></code></pre>
             </div>
           </div>
         </details>
@@ -793,10 +913,180 @@
             </div>
           </div>
         </details>
+        <h3 class="sr-only">More import, review &amp; rules routes</h3>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
+            <tbody>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/review/approve</code></td><td><span class="pill pill--w">read-write</span></td><td><code>staged_id</code> (required); <code>category_id</code>, <code>confirm_checkpoint</code></td><td>Post a staged row, filed into the envelope given. Inside a reconciled period it asks first (200).</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/review/merge</code></td><td><span class="pill pill--w">read-write</span></td><td><code>staged_id</code> (required); <code>confirm_checkpoint</code></td><td>Merge a staged row into the transaction you already had. Inside a reconciled period it asks first (200).</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/review/reject</code></td><td><span class="pill pill--w">read-write</span></td><td><code>staged_id</code> (required)</td><td>Dismiss a staged row.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/import</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The import screen: paste, upload, saved mappings and the import log.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/import/profiles/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Forget a saved column mapping.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/rules</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Rules, and rules the app proposes from what you file.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/rules/test</code></td><td><span class="pill pill--w">read-write</span></td><td><code>name</code>, <code>field</code>, <code>op</code>, <code>value</code>, <code>category_id</code></td><td>Show what a draft rule would match among recent transactions. Saves nothing. An unknown field or test is 422.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/rules/new</code></td><td><span class="pill pill--w">read-write</span></td><td>the same as <code>/rules/test</code></td><td>Save a rule. It applies to anything imported from then on.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/rules/:id/apply</code></td><td><span class="pill pill--w">read-write</span></td><td><code>confirm</code></td><td>Without <code>confirm=1</code>, a preview (200) of what it would change in your history; with it, apply it.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/rules/confirm</code><br><code>/rules/dismiss</code></td><td><span class="pill pill--w">read-write</span></td><td><code>rule_id</code> (required)</td><td>Accept or dismiss a proposed rule.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/rules/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Delete a rule.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/payees</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Payees, with how often and how much.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/payees/merge</code></td><td><span class="pill pill--w">read-write</span></td><td><code>loser_id</code>, <code>winner_id</code> (required)</td><td>Merge one payee into another; every raw string comes across.</td></tr>
+            </tbody>
+          </table>
+        </div>
       </section>
-      <section class="api-group" id="data">
-        <h2>Query, activity &amp; export</h2>
-        <p>Reading everything back out, including all of it at once.</p>
+      <section class="api-group" id="household">
+        <h2>Household &amp; categories</h2>
+        <p>Who has put what toward the shared money, and the envelopes themselves.</p>
+        <h3 class="sr-only">More household &amp; categories routes</h3>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
+            <tbody>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/household</code></td><td><span class="pill pill--r">read</span></td><td><code>month</code></td><td>What each member has committed to the shared budget this month.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/household/pick-up</code></td><td><span class="pill pill--w">read-write</span></td><td><code>envelope_id</code>, <code>amount</code> (required); <code>month</code></td><td>Commit more from your own household envelope. Another budget's envelope is 403; a non-positive amount is 422.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/household/call-it-even</code></td><td><span class="pill pill--w">read-write</span></td><td><code>envelope_id</code>, <code>amount</code> (required); <code>giving_category_id</code>, <code>note</code>, <code>month</code></td><td>Close part of a balance by agreement; it becomes spending on the giving side.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/categories</code></td><td><span class="pill pill--r">read</span></td><td><code>budget</code></td><td>Categories and groups for the budget being viewed.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/groups/new</code></td><td><span class="pill pill--w">read-write</span></td><td><code>name</code> (required)</td><td>Add a category group to the budget being viewed.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/groups/:id/rename</code><br><code>/groups/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td><code>name</code> (rename)</td><td>Rename a group, or remove it. A group must be empty to be deleted.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/categories/new</code></td><td><span class="pill pill--w">read-write</span></td><td><code>group_id</code>, <code>name</code> (required)</td><td>Add a category. A group the app manages is refused.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/categories/:id/rename</code></td><td><span class="pill pill--w">read-write</span></td><td><code>name</code> (required)</td><td>Rename a category.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/categories/:id/hide</code></td><td><span class="pill pill--w">read-write</span></td><td><code>hidden</code></td><td><code>hidden=1</code> hides it, keeping its balance and history; anything else unhides it.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/categories/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td><code>remap_to</code></td><td>Delete a category, moving its history to <code>remap_to</code>.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/categories/:id/merge</code></td><td><span class="pill pill--w">read-write</span></td><td><code>winner_id</code> (required)</td><td>Merge into another category: assignments summed month by month, history and targets moved across. Refuses a payment category and a merge across budgets.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/categories/:id/target</code></td><td><span class="pill pill--w">read-write</span></td><td><code>amount</code>, <code>kind</code> (<code>monthly</code> or <code>refill</code>), <code>target_date</code></td><td>Set or clear a category's target. A date makes it a by-date target; an empty amount removes it.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/categories/:id/reorder</code><br><code>/groups/:id/reorder</code></td><td><span class="pill pill--w">read-write</span></td><td><code>direction</code></td><td>Move a category or group up or down.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="api-group" id="schedules">
+        <h2>Schedules, goals &amp; loans</h2>
+        <p>What is coming, what you are saving toward, and what you owe a lender. The loan routes answer 404 when <code>FEATURE_LOANS</code> is off, and a private loan answers 404 to anyone but its holder.</p>
+        <h3 class="sr-only">More schedules, goals &amp; loans routes</h3>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
+            <tbody>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/schedules</code></td><td><span class="pill pill--r">read</span></td><td><code>days</code> (1 to 3650; default 60), <code>budget</code></td><td>Recurring items and the cashflow calendar. More than 3650 days is 422.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/schedules/new</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The new-schedule form.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/schedules/new</code></td><td><span class="pill pill--w">read-write</span></td><td><code>name</code> (required); <code>amount</code>, <code>direction</code>, <code>account_id</code>, <code>category_id</code> or envelope lines, <code>recurrence</code>, <code>recurrence_ordinal</code>, <code>recurrence_weekday</code>, <code>next_due</code>, <code>is_subscription</code></td><td>Add a schedule, money in or out. An unknown <code>recurrence</code> is refused, not read as monthly. With <code>monthly-nth-weekday</code>, the ordinal (1 to 4, or −1 for last) and weekday (0 = Sunday) say which day.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/schedules/confirm</code></td><td><span class="pill pill--w">read-write</span></td><td><code>name</code> (required); <code>amount</code> (paise), <code>payee_id</code>, <code>account_id</code>, <code>category_id</code>, <code>recurrence</code>, <code>next_due</code></td><td>Turn a detected schedule into a real one. An amount the suggestion could not have made is 422.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/schedules/dismiss</code></td><td><span class="pill pill--w">read-write</span></td><td><code>payee_id</code> (required)</td><td>Stop suggesting that schedule.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/schedules/:id/edit</code></td><td><span class="pill pill--w">read-write</span></td><td>the <code>/schedules/new</code> fields</td><td>Change a schedule, including its envelope lines.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/schedules/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Remove a schedule. Everything it already recorded stays.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/schedules/:id/paid</code><br><code>/schedules/:id/skip</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Mark this occurrence paid (or arrived), or skip it.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/goals</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Savings goals.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/goals/new</code></td><td><span class="pill pill--w">read-write</span></td><td><code>name</code> (required); <code>target_amount</code>, <code>target_date</code>, <code>budget_id</code></td><td>Add a goal.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/goals/:id/edit</code></td><td><span class="pill pill--w">read-write</span></td><td><code>name</code> (required); <code>target_amount</code>, <code>target_date</code></td><td>Change a goal.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/goals/:id/complete</code></td><td><span class="pill pill--w">read-write</span></td><td><code>resolution</code> (<code>spend</code>, <code>roll</code> or <code>release</code>); with <code>roll</code>: <code>name</code>, <code>target_amount</code>, <code>target_date</code></td><td>Complete a goal, saying what happens to its money.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/goals/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Delete a goal.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/loans</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Loans.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/loans/:id</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>One loan: schedule, payments, interest.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/loans/new</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>lender</code>, <code>loan_type</code>, <code>annual_rate</code>, <code>tenure_months</code> (required); <code>sanctioned</code>, <code>sanction_date</code>, <code>current_outstanding</code>, <code>history_from</code>, <code>first_instalment_date</code>, <code>interest_model</code>, <code>moratorium_months</code>, <code>nickname</code>, <code>holder_member_id</code>, <code>visibility</code>, <code>disbursement_destination</code>, <code>disbursement_account_id</code>, <code>repayment_account_id</code></td><td>The form, and creating a loan.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/loans/what-if</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>rate</code>, <code>months</code> (required on POST); <code>principal</code>, <code>amount</code>, <code>at_month</code></td><td>Prepayment and rate what-if. Records nothing.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/loans/:id/disburse</code></td><td><span class="pill pill--w">read-write</span></td><td><code>amount</code> (required); <code>date</code>, <code>destination</code>, <code>destination_account_id</code></td><td>Record a tranche drawn down.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/loans/:id/pay</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>amount</code>, <code>principal</code>, <code>interest</code>, <code>date</code>, <code>from_account_id</code></td><td>Record an instalment.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/loans/:id/prepay</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>amount</code>, <code>at_month</code>, <code>mode</code>, <code>charge</code>, <code>funding_category_id</code>, <code>preview</code></td><td>Preview or record a prepayment.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/loans/:id/rate</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>effective_from</code>, <code>annual_rate_pct</code> (required on POST); <code>keep</code>, <code>note</code></td><td>Preview both options a rate reset allows, then record one.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/loans/:id/statement</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>lender_outstanding</code> (required); <code>as_of</code>, <code>interest_paid_ytd</code>, <code>instalments_remaining</code></td><td>Record what the lender's statement says, to check the schedule against. A negative figure is 422.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/loans/:id/holder</code></td><td><span class="pill pill--w">read-write</span></td><td><code>holder_member_id</code>, <code>visibility</code></td><td>Change whose loan it is and whether it is private.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/loans/:id/property</code></td><td><span class="pill pill--w">read-write</span></td><td><code>property_use</code> (<code>self-occupied</code>, <code>let-out</code>, or empty)</td><td>What the house the loan paid for is used for. A self-occupied house's accrued interest goes into its holder's tax estimate under 24(b); let-out is shown, not deducted.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/loans/:id/settle</code></td><td><span class="pill pill--w">read-write</span></td><td><code>settlement</code>, <code>settlement_account_id</code>, <code>charge</code>, <code>charge_account_id</code>, <code>charge_category_id</code></td><td>Settle a loan early, recording the lender's foreclosure charge.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/loans/:id/close</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>File away a paid-off loan.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/loans/:id/schedule.csv</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The amortisation schedule, as CSV.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="api-group" id="family">
+        <h2>Family lending</h2>
+        <p>Money lent to, or borrowed from, family — kept apart from the budget's envelopes. A private arrangement answers 404 to anyone but its holder.</p>
+        <h3 class="sr-only">More family lending routes</h3>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
+            <tbody>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/family</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Everything lent and borrowed.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/family/:id</code></td><td><span class="pill pill--r">read</span></td><td><code>confirm</code> (<code>write-off</code> shows the write-off question)</td><td>One arrangement and its history.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/family/new</code></td><td><span class="pill pill--w">read-write</span></td><td><code>counterparty</code> (required); <code>agreed_total</code>, <code>note</code>, <code>holder_member_id</code>, <code>visibility</code></td><td>Start an arrangement.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/family/:id/advance</code><br><code>/family/:id/repayment</code></td><td><span class="pill pill--w">read-write</span></td><td><code>amount</code>, <code>account_id</code> (required); <code>date</code></td><td>Record money going out, or coming back.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/family/:id/write-off</code></td><td><span class="pill pill--w">read-write</span></td><td><code>category_id</code> (required); <code>confirm</code></td><td>Write off what is left, as spending from an envelope. Asks first without <code>confirm=1</code>.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/family/:id/close</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Close it, keeping the history.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="api-group" id="portfolio">
+        <h2>Portfolio &amp; net worth</h2>
+        <p>Holdings, hand-valued assets and the net-worth history. Every route here answers 404 when <code>FEATURE_ASSETS</code> is off.</p>
+        <h3 class="sr-only">More portfolio &amp; net worth routes</h3>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
+            <tbody>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/portfolio</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Holdings, XIRR and other assets.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/portfolio/:id</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>One instrument: lots, prices and gains.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/add</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td>GET: <code>q</code>, <code>instrument</code>, <code>account</code>. POST: <code>name</code>, <code>account_id</code> (required); <code>instrument_id</code>, <code>scheme_code</code>, <code>symbol</code>, <code>kind</code>, <code>currency</code>, <code>listed</code>, <code>units</code>, <code>unit_price</code>, <code>amount</code>, <code>fees</code>, <code>fx_rate</code>, <code>trade_date</code>, <code>from_account_id</code>, <code>category_id</code></td><td>Search for an instrument and buy it.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/:id/sell</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>units</code> (required); <code>price</code>, <code>charges</code>, <code>fx_rate</code>, <code>date</code>, <code>to_account_id</code></td><td>Record a sale, realised first in, first out.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/cas</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>statement</code> (multipart PDF), <code>account_id</code> (required); <code>password</code></td><td>Read a CDSL consolidated account statement and show what it found.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/portfolio/cas/confirm</code></td><td><span class="pill pill--w">read-write</span></td><td><code>token</code> (required); <code>scheme</code></td><td>Import the holdings from a parsed CAS.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/portfolio/allocation</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Allocation by class, region and currency.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/portfolio/instrument/:id/classify</code></td><td><span class="pill pill--w">read-write</span></td><td><code>asset_class</code></td><td>Set an instrument's asset class.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/portfolio/instrument/:id/listed</code></td><td><span class="pill pill--w">read-write</span></td><td><code>listed</code>, <code>holding_id</code></td><td>Say whether a bond is listed. Listed and held over 12 months is taxed at 12.5%; unlisted or unknown at the slab rate.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/:id/price</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>price</code>, <code>as_of</code></td><td>Record a price for one instrument.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/:id/split</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>ratio</code> (required); <code>kind</code>, <code>date</code></td><td>Record a split or bonus issue, for every open holding. The same action on the same date is refused a second time.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/:id/merge</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>ratio</code> (required); <code>into_instrument_id</code>, <code>date</code></td><td>Record a merger or scheme amalgamation. Cost and purchase dates carry forward.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/portfolio/refresh</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Fetch fresh prices.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/asset/new</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>name</code>, <code>subtype</code> (required); <code>value</code>, <code>as_of</code>, <code>holder_member_id</code>, <code>visibility</code>, <code>paid_from</code>, <code>paid_category</code></td><td>Add a hand-valued asset.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/asset/:id/add</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>spent</code> (required); <code>on</code>, <code>paid_from</code>, <code>paid_category</code>, <code>new_value</code></td><td>Buy more of a hand-valued asset: the payment leaving an account and the new value.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/asset/:id/dispose</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>proceeds</code>, <code>on</code>, <code>into_account</code>, <code>remaining</code></td><td>Record that an asset is gone, and any money arriving. Values it at zero and closes the account; the history stays.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/asset/:id/revalue</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>value</code> (required); <code>as_of</code></td><td>Say what one asset is worth.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/valuations</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>value-&lt;id&gt;</code>, <code>asof-&lt;id&gt;</code> per asset</td><td>Update every hand-valued asset in one sitting. Blank ones are left alone.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/net-worth</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Net worth by group — owed to family and other liabilities included — with a change breakdown that adds up to the total.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/net-worth/snapshot</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Take a dated snapshot.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/fire</code></td><td><span class="pill pill--r">read</span></td><td><code>age</code>, <code>swr</code>, <code>ret</code>, <code>locked</code>, <code>whose</code></td><td>Financial-independence projection from trailing spending.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="api-group" id="insurance">
+        <h2>Insurance</h2>
+        <p>The policy register: premiums due, paid, lapsed or ended. Only the last four characters of a policy number are kept. A private policy answers 404 to anyone but its holder.</p>
+        <h3 class="sr-only">More insurance routes</h3>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
+            <tbody>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/insurance</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The register.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/insurance/:id</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>One policy.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/insurance/new</code><br><code>/insurance/:id/edit</code></td><td><span class="pill pill--w">read-write</span></td><td><code>insurer</code> (required); <code>kind</code>, <code>policy_number</code>, <code>sum_assured</code>, <code>premium</code>, <code>frequency</code>, <code>next_due</code>, <code>start_date</code>, <code>end_date</code>, <code>nominee</code>, <code>covered</code>, <code>tax_group</code>, <code>senior</code>, <code>category_id</code>, <code>holder_member_id</code>, <code>visibility</code>, <code>note</code></td><td>Record or change a policy.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/insurance/:id/paid</code></td><td><span class="pill pill--w">read-write</span></td><td><code>back</code></td><td>Move the next due date on by the premium frequency. Posts no transaction.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/insurance/:id/status</code></td><td><span class="pill pill--w">read-write</span></td><td><code>status</code> (<code>lapsed</code>, <code>ended</code> or <code>active</code>)</td><td>Change a policy's status. A lapsed or ended policy is kept.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/insurance/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Remove a policy recorded by mistake (undoable from Activity).</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="api-group" id="tax">
+        <h2>Tax</h2>
+        <p>An income-tax estimate for the signed-in member and one financial year — always your own, never another member's.</p>
+        <h3 class="sr-only">More tax routes</h3>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
+            <tbody>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/tax</code></td><td><span class="pill pill--r">read</span></td><td><code>fy</code> (the year it starts, e.g. <code>2026</code>), <code>from</code> (<code>policies</code> fills 80C/80D from the insurance register)</td><td>The estimate: slab tax, capital gains, 24(b) home-loan interest, TDS and challans netted to a balance or refund, and advance-tax instalments checked against what was paid by each date.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tax</code></td><td><span class="pill pill--w">read-write</span></td><td><code>fy</code> (required); <code>gross</code>, <code>s80c</code>, <code>s80d</code>, <code>s80d_senior</code>, <code>s80d_parents</code>, <code>s80d_parents_senior</code>, <code>s80d_checkup</code>, <code>s80d_parents_checkup</code>, <code>other</code>, <code>hra_received</code>, <code>hra_rent</code>, <code>hra_basic</code>, <code>hra_metro</code>, <code>s24b</code>, <code>tds</code></td><td>Save the declaration. A blank <code>s24b</code> uses the interest accrued on loans marked self-occupied; a figure, even 0, is yours. A year whose rates the app does not have is refused.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tax/payments</code></td><td><span class="pill pill--w">read-write</span></td><td><code>fy</code>, <code>kind</code> (<code>advance</code> or <code>self-assessment</code>), <code>date</code>, <code>amount</code>, <code>note</code></td><td>Record a tax payment of your own. Advance tax must be dated inside its year.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tax/payments/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Remove one. Another member's payment is not found.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="api-group" id="months">
+        <h2>Months, reports &amp; query</h2>
+        <p>Closing a month, and reading the past back.</p>
         <details class="ep">
           <summary>
             <span class="verb verb--get">GET</span>
@@ -871,6 +1161,24 @@
             </div>
           </div>
         </details>
+        <h3 class="sr-only">More months, reports &amp; query routes</h3>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
+            <tbody>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/search</code></td><td><span class="pill pill--r">read</span></td><td>the <code>/query</code> parameters</td><td>The same table, titled Search.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/months</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Month-close history.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/months/:month/close</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The close ritual for one month.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/months/:month/close</code></td><td><span class="pill pill--w">read-write</span></td><td><code>note</code>, <code>budget</code></td><td>Close a month. Not a month is 404.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/months/:month/reopen</code></td><td><span class="pill pill--w">read-write</span></td><td><code>budget</code></td><td>Reopen a closed month.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/reports</code></td><td><span class="pill pill--r">read</span></td><td><code>period</code> (default <code>last-12</code>), <code>scope</code></td><td>Income against spending, trends and loan interest.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="api-group" id="settings">
+        <h2>Settings, activity &amp; health</h2>
+        <p>Preferences, the change log and the instance's own health.</p>
         <details class="ep">
           <summary>
             <span class="verb verb--get">GET</span>
@@ -948,29 +1256,6 @@
         <details class="ep">
           <summary>
             <span class="verb verb--get">GET</span>
-            <span class="ep__path">/export.json</span>
-            <span class="ep__sum">Export everything</span>
-          </summary>
-          <div class="ep__body">
-            <p>The complete dataset you can see, in an open format: accounts, transactions, assignments, lots, loans and events. Not a summary — but another member's private accounts and envelopes, and what is recorded in them, are left out. The statement identity and any Gmail refresh token are excluded, and a test asserts their absence.</p>
-            <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher</p></div>
-
-          <div>
-            <h3>Responses</h3>
-            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--ok"><b>200</b></span> — <code>application/json</code>, sent as a download.</li>
-            </ul>
-          </div>
-            <div>
-              <h3>Example</h3>
-<pre><code>curl -sS https://pathayam.yourdomain.com/export.json \
-  -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> -o pathayam-backup.json</code></pre>
-            </div>
-          </div>
-        </details>
-        <details class="ep">
-          <summary>
-            <span class="verb verb--get">GET</span>
             <span class="ep__path">/healthz</span>
             <span class="ep__sum">Health probe</span>
           </summary>
@@ -991,32 +1276,135 @@
             </div>
           </div>
         </details>
+        <h3 class="sr-only">More settings, activity &amp; health routes</h3>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
+            <tbody>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/settings</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Household and personal settings.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/settings/theme</code></td><td><span class="pill pill--w">read-write</span></td><td><code>theme</code> (<code>light</code>, <code>dark</code>, <code>system</code>), <code>return_to</code></td><td>Set your theme. Anything else is 400.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/settings/theme-toggle</code></td><td><span class="pill pill--w">read-write</span></td><td><code>seen</code>, <code>return_to</code></td><td>Flip between light and dark, returning to a same-site path.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/settings/learning</code></td><td><span class="pill pill--w">read-write</span></td><td><code>enabled</code></td><td><code>enabled=1</code> suggests rules from what you file; anything else stops new suggestions. Confirmed rules keep working.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/settings/overspend-model</code></td><td><span class="pill pill--w">read-write</span></td><td><code>model</code> (<code>reduce-rta</code> or <code>carry-negative</code>)</td><td>How cash overspending carries into the next month. Recomputes the history; anything else is 400.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/settings/identity</code></td><td><span class="pill pill--w">read-write</span></td><td><code>name</code> (required); <code>pan</code>, <code>dob</code>, <code>mobile</code>, <code>customer_id_axis</code>, <code>customer_id_hdfc</code>, <code>hsbc_card_last6</code>; or <code>clear=1</code></td><td>Save or clear the details statement passwords are derived from. Never exported or logged. Refused on the demo.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/settings/digest</code></td><td><span class="pill pill--w">read-write</span></td><td><code>kind</code> (repeated)</td><td>Which digest notices you want; the rest are muted.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/health</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The health dashboard, as HTML.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/health/backup</code><br><code>/health/verify</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Run a backup now, or verify that the latest restores.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/gmail/fetch</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Fetch statements from the linked Gmail now. 403 while viewing as another member; 400 or 502 when Google refuses or cannot be reached.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/privacy</code><br><code>/terms</code></td><td><span class="pill">public</span></td><td>—</td><td>The privacy policy and terms of this instance.</td></tr>
+            </tbody>
+          </table>
+        </div>
       </section>
+      <section class="api-group" id="data">
+        <h2>Exports</h2>
+        <p>Everything back out, in open formats. In every CSV here a text cell that starts with <code>=</code>, <code>+</code>, <code>-</code>, <code>@</code>, a tab or a carriage return is prefixed with <code>'</code>, so a spreadsheet opens it as text; plain numbers are left alone.</p>
+        <details class="ep">
+          <summary>
+            <span class="verb verb--get">GET</span>
+            <span class="ep__path">/export.json</span>
+            <span class="ep__sum">Export everything</span>
+          </summary>
+          <div class="ep__body">
+            <p>The complete dataset you can see, in an open format: accounts, transactions, assignments, lots, loans and events. Not a summary — but another member's private accounts and envelopes, and what is recorded in them, are left out. The statement identity and any Gmail refresh token are excluded, and a test asserts their absence.</p>
+            <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher</p></div>
 
-          <section class="api-group" id="refused">
-            <h2>What a token cannot reach</h2>
-            <p>
-              A deny-list of path prefixes rather than a note in a review checklist.
-              A token that could mint tokens turns one leak into permanent access,
-              and a token that could change the allow-list turns it into somebody
-              else's household.
-            </p>
-            <div class="table-scroll">
-              <table>
-                <thead><tr><th>Prefix</th><th>Why it is blocked</th></tr></thead>
-                <tbody>
-                  <tr><td><code>/members</code>, <code>/settings/members</code></td><td>The household allow-list. A token must not change who is allowed in.</td></tr>
-                  <tr><td><code>/tokens</code></td><td>A token must not mint or revoke tokens, including itself.</td></tr>
-                  <tr><td><code>/impersonate</code></td><td>Impersonation is a session-only, logged, human action.</td></tr>
-                  <tr><td><code>/auth</code></td><td>Sign-in, SSO, and the development bypass state.</td></tr>
-                  <tr><td><code>/signout</code></td><td>There is nothing for a token to sign out of.</td></tr>
-                  <tr><td><code>/settings/password</code></td><td>A password is a way in that does not need the token, and would outlive revoking it.</td></tr>
-                  <tr><td><code>/sessions</code></td><td>Signing the member's devices out is a human decision.</td></tr>
-                  <tr><td><code>/gmail/connect</code>, <code>/gmail/callback</code>, <code>/gmail/disconnect</code></td><td>Linking a mailbox changes what can reach the household. <code>/gmail/fetch</code> stays reachable.</td></tr>
-                </tbody>
-              </table>
+          <div>
+            <h3>Responses</h3>
+            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+              <li><span class="status status--ok"><b>200</b></span> — <code>application/json</code>, sent as a download.</li>
+            </ul>
+          </div>
+            <div>
+              <h3>Example</h3>
+<pre><code>curl -sS https://pathayam.yourdomain.com/export.json \
+  -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> -o pathayam-backup.json</code></pre>
             </div>
-          </section>
+          </div>
+        </details>
+        <h3 class="sr-only">More exports routes</h3>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
+            <tbody>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/export.csv</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Every transaction you can see, as CSV.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/portfolio/holdings.csv</code><br><code>/portfolio/lots.csv</code><br><code>/portfolio/prices.csv</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Holdings, first-in-first-out lots, and price history. 404 when <code>FEATURE_ASSETS</code> is off.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/net-worth.csv</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The dated net-worth history.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="api-group" id="session">
+        <h2>Session only</h2>
+        <p>These answer <code>403</code> to any token, because their path is on the deny-list below. Use them from a browser.</p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
+            <tbody>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/signin</code></td><td><span class="pill">public</span></td><td><code>next</code></td><td>The sign-in page. Signed in, it redirects to <code>/</code>.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/auth/google</code><br><code>/auth/google/callback</code><br><code>/auth/oidc</code><br><code>/auth/oidc/callback</code></td><td><span class="pill">public</span></td><td><code>next</code>; <code>code</code> on callbacks</td><td>Google and OpenID Connect sign-in. 503 when not configured; 429 after too many attempts.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/auth/password</code></td><td><span class="pill">public</span></td><td><code>email</code>, <code>password</code>, <code>next</code></td><td>Password sign-in. 404 unless <code>LOCAL_LOGIN</code> is set or a password already exists; 401 on a wrong one; 429 after too many attempts.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/auth/first-run</code></td><td><span class="pill">public</span></td><td><code>name</code>, <code>email</code>, <code>password</code></td><td>The first member of an empty household. 404 unless <code>LOCAL_LOGIN</code> is set and no member exists.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/auth/dev</code></td><td><span class="pill">public</span></td><td><code>member_id</code> (required)</td><td>Development sign-in. 404 unless <code>DEV_LOGIN</code> is set.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/demo/enter</code></td><td><span class="pill">public</span></td><td><code>member_id</code></td><td>Sign in to the demo as a fictional member, for one day. 404 unless <code>DEMO_MODE</code> is set.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/signout</code></td><td><span class="pill">session</span></td><td>—</td><td>Sign out.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/settings/password</code></td><td><span class="pill">session</span></td><td>—</td><td>The password form.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/settings/password</code></td><td><span class="pill">session</span></td><td><code>password</code>, <code>confirm</code> (required); <code>current</code></td><td>Set or change your own password. Changing one needs the current password.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/sessions/revoke</code></td><td><span class="pill">session</span></td><td><code>session_id</code> (required)</td><td>Sign one of your devices out.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/tokens</code></td><td><span class="pill">session</span></td><td>—</td><td>Your API tokens.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tokens</code></td><td><span class="pill">session</span></td><td><code>name</code> (required); <code>scope</code>, <code>expires_in_days</code> (1 to 3650, or empty for never)</td><td>Mint a token, shown once. 403 while viewing as another member.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tokens/:id/revoke</code></td><td><span class="pill">session</span></td><td>—</td><td>Revoke a token. It stops working at once.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/members/invite</code></td><td><span class="pill">session</span></td><td><code>email</code> (required)</td><td>Let someone in. Refused on the demo.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/members/:id/remove</code></td><td><span class="pill">session</span></td><td>—</td><td>What removing a member does, and how the balance between you can end.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/members/:id/remove</code></td><td><span class="pill">session</span></td><td><code>resolution</code></td><td>Remove a member. With a balance outstanding, 400 until <code>resolution</code> says how it ends. Clears their password. Refused on the demo.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/impersonate/start</code><br><code>/impersonate/writes</code><br><code>/impersonate/exit</code></td><td><span class="pill">session</span></td><td><code>member_id</code>; <code>allow</code>, <code>return_to</code></td><td>View as another member, read-only unless writes are allowed. 404 unless <code>ADMIN_DEBUG</code> is set.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/gmail/connect</code><br><code>/gmail/callback</code></td><td><span class="pill">session</span></td><td><code>state</code>, <code>code</code> on the callback</td><td>Link a Gmail mailbox.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/gmail/disconnect</code></td><td><span class="pill">session</span></td><td>—</td><td>Unlink it.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
+      <section class="api-group" id="writes">
+        <h2>Writes and the same-origin check</h2>
+        <p>Every write — any method that is not <code>GET</code>, <code>HEAD</code> or <code>OPTIONS</code> — passes one check before it reaches a route, so it covers routes added tomorrow too.</p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Rule</th><th>What it means</th></tr></thead>
+            <tbody>
+              <tr><td>Bearer exemption</td><td>A request with <code>Authorization: Bearer …</code> and <b>no session cookie</b> skips the whole check. A browser cannot be tricked into sending one on somebody's behalf, so your scripts need nothing extra. A request that also carries a session cookie is held to the rules below, whatever it says in <code>Authorization</code>.</td></tr>
+              <tr><td>The host</td><td>The host the request was addressed to must be <code>BASE_URL</code>'s hostname, with <code>BASE_URL</code>'s port or none — or an IP address or <code>localhost</code>, which no DNS answer can re-point. Anything else is <code>403</code>: <em>That request was addressed to a different host than BASE_URL.</em> This is what stops DNS rebinding.</td></tr>
+              <tr><td>Behind a proxy</td><td>The host is the <code>Host</code> header, or the right-most <code>X-Forwarded-Host</code> entry when <code>TRUST_PROXY</code> is set. A reverse proxy must pass one of them through, or every write from a browser is refused.</td></tr>
+              <tr><td><code>Origin</code></td><td>When present it must be <code>BASE_URL</code>'s origin or the origin the request was addressed by. Anything else is <code>403</code>: <em>That request came from somewhere else.</em></td></tr>
+              <tr><td><code>Referer</code></td><td>With no <code>Origin</code>, a <code>Referer</code> from one of the same origins will do. <code>Referrer-Policy: same-origin</code> means a same-origin form carries one and a cross-site one does not. With neither header, <code>403</code>.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin-top:1rem">A script in a page of the app that uses the session cookie needs no work either: <code>fetch</code> from that page sends a matching <code>Origin</code> on its own.</p>
+      </section>
+      <section class="api-group" id="refused">
+        <h2>What a token cannot reach</h2>
+        <p>
+          A deny-list of path prefixes rather than a note in a review checklist.
+          A token that could mint tokens turns one leak into permanent access,
+          and a token that could change the allow-list turns it into somebody
+          else's household.
+        </p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Prefix</th><th>Why it is blocked</th></tr></thead>
+            <tbody>
+              <tr><td><code>/members</code>, <code>/settings/members</code></td><td>The household allow-list: <code>/members/invite</code> and <code>/members/:id/remove</code>. A token must not change who is allowed in.</td></tr>
+              <tr><td><code>/tokens</code></td><td>A token must not mint or revoke tokens, including itself.</td></tr>
+              <tr><td><code>/impersonate</code></td><td>Impersonation is a session-only, logged, human action.</td></tr>
+              <tr><td><code>/auth</code></td><td>Sign-in, SSO, and the development bypass state.</td></tr>
+              <tr><td><code>/signout</code></td><td>There is nothing for a token to sign out of.</td></tr>
+              <tr><td><code>/settings/password</code></td><td>A password is a way in that does not need the token, and would outlive revoking it.</td></tr>
+              <tr><td><code>/sessions</code></td><td>Signing the member's devices out is a human decision.</td></tr>
+              <tr><td><code>/gmail/connect</code>, <code>/gmail/callback</code>, <code>/gmail/disconnect</code></td><td>Linking a mailbox changes what can reach the household. <code>/gmail/fetch</code> stays reachable.</td></tr>
+            </tbody>
+          </table>
+        </div>
+      </section>
         </div>
       </div>
     </div>

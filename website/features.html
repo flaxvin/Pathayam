@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Features</title>
-<meta name="description" content="Everything Pathayam does: the envelope engine, Indian bank ingestion, reports, loans, assets and the platform underneath.">
+<meta name="description" content="Everything Pathayam does: the envelope engine, Indian bank ingestion, reports, loans, assets, tax and insurance, and the platform underneath.">
 <link rel="stylesheet" href="fonts.css">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon.png" sizes="32x32" type="image/png">
@@ -74,7 +74,7 @@
       <figure class="frame">
         <picture>
           <source media="(max-width: 44rem)" srcset="img/budget-mobile.webp" width="840" height="1800">
-          <img src="img/budget.webp" width="2800" height="11336" loading="lazy" alt="The month grid, with Ready to Assign at the top.">
+          <img src="img/budget.webp" width="2800" height="11600" loading="lazy" alt="The month grid, with Ready to Assign at the top.">
         </picture>
         <figcaption>The month grid, with Ready to Assign at the top.</figcaption>
       </figure>
@@ -108,13 +108,14 @@
           <li>A shortfall is never reported larger than the card owes</li>
           <li>Every charge tagged with the statement cycle it bills in</li>
           <li>Convert a purchase to EMI, name it after what you bought, and the card stops asking for it twice</li>
+          <li>Each instalment's interest carries the 18% GST the issuer adds, as its own card charge</li>
         </ul>
         <p class="guide-link"><span>Guides</span><a href="guides.html#cards">Credit cards</a></p>
       </div>
       <figure class="frame">
         <picture>
           <source media="(max-width: 44rem)" srcset="img/cards-mobile.webp" width="840" height="1800">
-          <img src="img/cards.webp" width="2800" height="2484" loading="lazy" alt="Cards, in the order they fall due.">
+          <img src="img/cards.webp" width="2800" height="2748" loading="lazy" alt="Cards, in the order they fall due.">
         </picture>
         <figcaption>Cards, in the order they fall due.</figcaption>
       </figure>
@@ -142,7 +143,7 @@
       <figure class="frame">
         <picture>
           <source media="(max-width: 44rem)" srcset="img/household-mobile.webp" width="840" height="1800">
-          <img src="img/household.webp" width="2800" height="2786" loading="lazy" alt="The household page: what each of you put in, and where it stands.">
+          <img src="img/household.webp" width="2800" height="2790" loading="lazy" alt="The household page: what each of you put in, and where it stands.">
         </picture>
         <figcaption>What each of you put in, and where it stands.</figcaption>
       </figure>
@@ -162,7 +163,7 @@
       <figure class="frame">
         <picture>
           <source media="(max-width: 44rem)" srcset="img/budget-mobile.webp" width="840" height="1800">
-          <img src="img/budget.webp" width="2800" height="11336" loading="lazy" alt="The budget screen, with the household commitment as an envelope like any other.">
+          <img src="img/budget.webp" width="2800" height="11600" loading="lazy" alt="The budget screen, with the household commitment as an envelope like any other.">
         </picture>
         <figcaption>A commitment is an envelope like any other.</figcaption>
       </figure>
@@ -177,7 +178,7 @@
         <h2>Money gets itself in</h2>
         <p class="lede">Drop in a statement and it is parsed, checked against its own closing balance, and queued for you. Nothing posts itself — but nothing needs retyping either.</p>
         <ul class="checks" style="margin-top:1.5rem">
-          <li>Eleven Indian banks, password-protected PDFs included</li>
+          <li>Twelve Indian banks, password-protected PDFs included</li>
           <li>Bank alerts become review rows within seconds</li>
           <li>File a payee twice and a rule is proposed, never applied silently</li>
         </ul>
@@ -186,7 +187,7 @@
       <figure class="frame">
         <picture>
           <source media="(max-width: 44rem)" srcset="img/review-mobile.webp" width="840" height="1800">
-          <img src="img/review.webp" width="2800" height="2608" loading="lazy" alt="Nothing posts itself. Everything waits for a person.">
+          <img src="img/review.webp" width="2800" height="3468" loading="lazy" alt="Nothing posts itself. Everything waits for a person.">
         </picture>
         <figcaption>Nothing posts itself. Everything waits for a person.</figcaption>
       </figure>
@@ -195,13 +196,14 @@
         <table>
           <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
           <tbody>
-          <tr><td>Statement PDFs</td><td>Eleven banks plus broker contract notes. Password-protected files are opened in-process: no external tool, no library.</td></tr>
-          <tr><td>Password derivation</td><td>Work the password out from your saved name, date of birth, PAN, mobile or card last-four, so nobody types one. Opt-in, never exported, never logged.</td></tr>
+          <tr><td>Statement PDFs</td><td>Twelve banks plus broker contract notes. Password-protected files are opened in-process: no external tool, no library.</td></tr>
+          <tr><td>Password derivation</td><td>Work the password out from your saved name, date of birth, PAN, mobile or card digits, so nobody types one. Axis and HDFC account statements open with the customer ID you save in Settings, and HSBC card statements with the card&rsquo;s last six. Opt-in, shown masked, never exported, never logged.</td></tr>
           <tr><td>Reconciliation check</td><td>Every parse is verified against the statement's own closing balance. On a real 848-row statement it reconciles to the paisa.</td></tr>
           <tr><td>CSV import</td><td>Header detection, Indian amount formats, a Dr / Cr column beside an unsigned amount, UPI narration extraction, saved per-bank column mappings. When the dates could be day or month first, it asks how they are written.</td></tr>
+          <tr><td>Coming from YNAB or Actual</td><td>Their CSV exports are recognised on the Import screen. Match their accounts to yours once, and the history lands in Review with transfers and splits intact. Transactions only: budgets and targets are set up here.</td></tr>
           <tr><td>Consolidated statement</td><td>The monthly CAS is the primary way holdings get in. Rows reconcile against existing lots rather than duplicating.</td></tr>
           <tr><td>Five dedupe tiers</td><td>Exact, strong by reference, probable, weak, and manual-versus-imported — so one purchase never lands twice from an alert, an email and a statement.</td></tr>
-          <tr><td>Gmail ingestion</td><td>Opt-in, read-only. Reads only the banks' own addresses; an alert becomes a review row in seconds.</td></tr>
+          <tr><td>Gmail ingestion</td><td>Opt-in, read-only. Reads only the banks' own addresses; an alert becomes a review row in seconds. When a statement arrives locked and the bank wants card digits you have not saved, it names which ones.</td></tr>
           <tr><td>Receipts</td><td>A photo or PDF per transaction, stored in the database and served so no device caches it.</td></tr>
           </tbody>
         </table>
@@ -225,7 +227,7 @@
       <figure class="frame">
         <picture>
           <source media="(max-width: 44rem)" srcset="img/query-mobile.webp" width="840" height="1800">
-          <img src="img/query.webp" width="2800" height="6040" loading="lazy" alt="Query — totals over every matching row.">
+          <img src="img/query.webp" width="2800" height="6608" loading="lazy" alt="Query — totals over every matching row.">
         </picture>
         <figcaption>Query — totals over every matching row.</figcaption>
       </figure>
@@ -237,8 +239,9 @@
           <tr><td>Query</td><td>One filterable, groupable table everything else drills into. Totals sum every matching row — the page you see is a page, and says so.</td></tr>
           <tr><td>Reports</td><td>Income against spending, category trends, loan interest by financial year, realised gains split by holding period.</td></tr>
           <tr><td>Schedules and cashflow</td><td>Recurring items and money coming in, with detection, editable and deletable; marking one paid or arrived posts the transaction. A forward projection answers whether the balance holds to the 30th.</td></tr>
-          <tr><td>Month close</td><td>What the month did, the four-way net-worth change, a dated snapshot, and whether next month is funded. Locks nothing.</td></tr>
+          <tr><td>Month close</td><td>What the month did, where the change in net worth came from, a dated snapshot, and whether next month is funded. Prints as a document. Locks nothing.</td></tr>
           <tr><td>Search</td><td>Across cleaned and raw imported text, from anywhere.</td></tr>
+          <tr><td>Printing</td><td>The tax estimate, reports, month close, net worth and a loan&rsquo;s schedule print as documents: no navigation or buttons, light colours whatever the theme, numbered pages, and a footer saying whose figures they are and when they were made.</td></tr>
           </tbody>
         </table>
       </div>
@@ -261,7 +264,7 @@
       <figure class="frame">
         <picture>
           <source media="(max-width: 44rem)" srcset="img/loans-mobile.webp" width="840" height="1800">
-          <img src="img/loans.webp" width="2800" height="3348" loading="lazy" alt="Each loan's real cost, schedule and drift.">
+          <img src="img/loans.webp" width="2800" height="3366" loading="lazy" alt="Each loan's real cost, schedule and drift.">
         </picture>
         <figcaption>Each loan's real cost, schedule and drift.</figcaption>
       </figure>
@@ -277,6 +280,7 @@
           <tr><td>Foreclosure</td><td>Settling early records the lender's charge against an account and an envelope, so the saving you compare against is the one actually on offer.</td></tr>
           <tr><td>The EMI is budgeted</td><td>A loan's payment envelope carries a monthly target equal to its EMI from the day the loan exists, rate changes move it, and closing the loan clears it.</td></tr>
           <tr><td>Drift</td><td>The app projects, the lender reconciles. When the two disagree, it says so rather than silently adopting either.</td></tr>
+          <tr><td>Card EMIs</td><td>A purchase turned into instalments becomes its own loan on the card, with the processing fee and its GST charged up front and 18% GST on each instalment&rsquo;s interest posted as a separate card charge, as the statement shows it.</td></tr>
           <tr><td>Family lending</td><td>Lent and borrowed, derived balances, write-off.</td></tr>
           <tr><td>Merging envelopes</td><td>Two categories that turned out to be one. Assignments are added month by month rather than one of them being dropped, so the balance survives and the books still balance &mdash; asserted by a test, not hoped for.</td></tr>
           </tbody>
@@ -290,7 +294,7 @@
     <div class="row2 row2--flip">
       <div class="row2__text">
         <h2>The whole picture, without polluting the budget</h2>
-        <p class="lede">Holdings as units with real lots, net worth decomposed into what you saved and what the market did — and none of it allowed anywhere near the budget screen.</p>
+        <p class="lede">Holdings as units with real lots, and net worth split into what you saved, what the market did and what you paid off &mdash; parts that add up to the change. None of it is allowed anywhere near the budget screen.</p>
         <ul class="checks" style="margin-top:1.5rem">
           <li>XIRR as the headline return, not a naive percentage</li>
           <li>Selling shows the exact lots it will consume before you confirm</li>
@@ -302,16 +306,58 @@
       <figure class="frame">
         <picture>
           <source media="(max-width: 44rem)" srcset="img/net-worth-mobile.webp" width="840" height="1800">
-          <img src="img/net-worth.webp" width="2800" height="7376" loading="lazy" alt="Net worth, and where the change came from.">
+          <img src="img/net-worth.webp" width="2800" height="7412" loading="lazy" alt="Net worth, and where the change came from.">
         </picture>
         <figcaption>Net worth, and where the change came from.</figcaption>
+      </figure>
+    </div>
+
+    <div class="row2" style="margin-top:3rem" id="deposits">
+      <div class="row2__text">
+        <h2>Deposits that value themselves</h2>
+        <p class="lede">Give a fixed deposit, a recurring deposit, a PPF or an EPF its terms once, and it is worth what the arithmetic says on any day you ask &mdash; no passbook figure to retype every quarter.</p>
+        <ul class="checks" style="margin-top:1.5rem">
+          <li>Principal or monthly instalment, rate, compounding, start, maturity and payout</li>
+          <li>PPF and EPF interest worked out month by month and credited each 31 March</li>
+          <li>The maturity shows on the account page, the cashflow calendar and the Overview</li>
+          <li>A passbook figure dated on or after the terms still wins, until the next contribution</li>
+          <li>Nothing is posted at maturity: you record the money where it lands</li>
+        </ul>
+        <p class="guide-link"><span>Guides</span><a href="guides.html#valuations">Hand-valued assets</a> · <a href="guides.html#assets-life">An asset&rsquo;s life</a></p>
+      </div>
+      <figure class="frame">
+        <picture>
+          <source media="(max-width: 44rem)" srcset="img/deposit-mobile.webp" width="840" height="1800">
+          <img src="img/deposit.webp" width="2800" height="2748" loading="lazy" alt="A fixed deposit's account page: its terms, what it is worth today, and what it paid at maturity.">
+        </picture>
+        <figcaption>A fixed deposit, valued from its terms.</figcaption>
+      </figure>
+    </div>
+
+    <div class="row2 row2--flip" style="margin-top:3rem">
+      <div class="row2__text">
+        <h2>When could you stop?</h2>
+        <p class="lede">A target from what the household actually spent over the last year, against only the assets that could pay for it.</p>
+        <ul class="checks" style="margin-top:1.5rem">
+          <li>Spending is money leaving your envelopes, not a figure you guess</li>
+          <li>A home counts towards net worth, not here</li>
+          <li>Provident funds locked until 58&ndash;60 are counted apart, with the gap they leave</li>
+          <li>Everything it left out is listed, with the reason</li>
+        </ul>
+        <p class="guide-link"><span>Guides</span><a href="guides.html#fire">Independence</a></p>
+      </div>
+      <figure class="frame">
+        <picture>
+          <source media="(max-width: 44rem)" srcset="img/fire-mobile.webp" width="840" height="1800">
+          <img src="img/fire.webp" width="2800" height="4238" loading="lazy" alt="The financial independence page: the target, what is held towards it, and where the number comes from.">
+        </picture>
+        <figcaption>The target, and where the number comes from.</figcaption>
       </figure>
     </div>
       <div class="table-scroll" style="margin-top:2rem">
         <table>
           <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
           <tbody>
-          <tr><td>Tax estimate</td><td>Both regimes side by side for one financial year, with 80C, 80D and the HRA exemption &mdash; and a plain list of what it does not model. An estimate on figures you enter, not a return and not advice.</td></tr>
           <tr><td>An asset's history, readable</td><td>Gold bought, added to, revalued and half sold shows as a register on its own account page &mdash; date, what happened, the change, what it is worth. Nothing is overwritten, so what you thought it was worth in March is still there in December.</td></tr>
           <tr><td>Hand-valued assets, over their whole life</td><td>Buy gold, buy more of it, revalue it, sell some or all of it &mdash; each recording both halves, the value and the money. Selling part keeps the account open at what is left, which is what selling a few grams actually is. Buying asks where the cash came from, so net worth never rises out of nothing.</td></tr>
           <tr><td>It tells you when it disagrees with itself</td><td>A demat account, a loan and a hand-valued asset show a figure derived rather than counted, so a transaction entered against one used to vanish. Those accounts are no longer offered when adding a transaction, and any gap already there is reported next to the total.</td></tr>
@@ -319,15 +365,74 @@
           <tr><td>Split as you enter it</td><td>One payment across several envelopes, on the entry form rather than only when editing &mdash; a supermarket bill that is half groceries and half household. The first envelope takes whatever the others leave, so the lines cannot disagree with the total.</td></tr>
           <tr><td>Transfers that cost something</td><td>An IMPS fee, a demat charge, a conversion markup. It leaves the sending account on top of the amount so the balance still matches the statement, and it lands in an envelope because it is spending.</td></tr>
           <tr><td>Schedules that split</td><td>A salary into provident fund, tax and what actually landed; rent into rent and maintenance. The remainder is worked out for you, so a recurring split cannot be quietly wrong every month &mdash; and on a salary you can name just the pieces that have a home and let the rest land in Ready to Assign.</td></tr>
-          <tr><td>Capital gains, taxed properly</td><td>Sorted by asset class and holding period, then taxed at their own rates &mdash; 12.5% above the ₹1,25,000 exemption on long-held equity listed in India, 20% short, slab rates on debt and foreign shares held under two years. Anything it cannot place it refuses to place, and says why.</td></tr>
-          <tr><td>Advance tax dates</td><td>The four instalments under section 211, with what falls due at each. Missing one costs interest under 234B and 234C.</td></tr>
           <tr><td>Financial independence</td><td>A target from a trailing year of real spending, divided by a withdrawal rate you set. Counts only assets that can actually be drawn down &mdash; a home is on the net-worth statement, not here &mdash; and lists what it left out, with the reason.</td></tr>
           <tr><td>The provident-fund bridge</td><td>EPF and NPS cannot be touched before 58&ndash;60. They are counted apart, and the years between stopping and that unlock are reported as a gap the drawable corpus has to cover alone.</td></tr>
           <tr><td>Units and lots</td><td>Holdings as units with FIFO lots, so cost basis, the realised split and XIRR are derived rather than estimated.</td></tr>
           <tr><td>Price feeds</td><td>Mutual funds and currency refresh from keyless public APIs; equities use a free-tier key. Every price carries its date.</td></tr>
-          <tr><td>Hand-valued pots</td><td>Gold, retirement, anything outside the consolidated statement — all updated in one sitting.</td></tr>
-          <tr><td>Net worth</td><td>The figure with its as-of date, history, and the change decomposed into saved, market, currency and debt repaid.</td></tr>
+          <tr><td>Hand-valued pots</td><td>Gold, retirement, anything outside the consolidated statement &mdash; all updated in one sitting. A deposit given its terms values itself: the same screen shows its computed figure, and a figure typed there still wins until the next contribution.</td></tr>
+          <tr><td>Net worth</td><td>The figure with its as-of date and history, counting money owed to family and other liabilities beside loans and cards. The change is split into money saved, market movement, exchange rate, debt repaid, other assets, and what was repaid to family and on other liabilities &mdash; and the parts add up to the total. Snapshots taken before the last two were recorded say so, rather than hiding the difference.</td></tr>
           <tr><td>The firewall</td><td>Portfolio value never appears on the budget screen, in any form. Growth is not income, and that is an acceptance test.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="tax">
+    <div class="wrap">
+    <div class="row2">
+      <div class="row2__text">
+        <h2>Tax, from what is already in the books</h2>
+        <p class="lede">Both regimes side by side for one financial year, drawing on what the books already hold: home-loan interest, capital gains, the tax you have paid and your insurance premiums. An estimate, not a return and not advice.</p>
+        <ul class="checks" style="margin-top:1.5rem">
+          <li>Home-loan interest under 24(b) from the loans you mark lived in</li>
+          <li>TDS, advance and self-assessment tax netted to a balance due or a refund</li>
+          <li>Each advance-tax instalment checked against what was paid by its date</li>
+          <li>Capital gains at their own rates, in the period they were sold in</li>
+          <li>Prints as a document, caveat included</li>
+        </ul>
+        <p class="guide-link"><span>Guides</span><a href="guides.html#tax">Tax</a></p>
+      </div>
+      <figure class="frame">
+        <picture>
+          <source media="(max-width: 44rem)" srcset="img/tax-mobile.webp" width="840" height="1800">
+          <img src="img/tax.webp" width="2800" height="9104" loading="lazy" alt="The tax estimate for one financial year: the caveat, the year, and the old regime's working.">
+        </picture>
+        <figcaption>Both regimes, worked through line by line.</figcaption>
+      </figure>
+    </div>
+
+    <div class="row2 row2--flip" style="margin-top:3rem" id="insurance">
+      <div class="row2__text">
+        <h2>Every policy, and when it is next due</h2>
+        <p class="lede">Term, health, vehicle and home cover in one register: what each costs, what it covers, and when the next premium falls due.</p>
+        <ul class="checks" style="margin-top:1.5rem">
+          <li>Renewals show in the Overview&rsquo;s &ldquo;Due soon&rdquo;</li>
+          <li>Marking a premium paid moves the date on and posts nothing &mdash; the payment is already in the bank&rsquo;s record</li>
+          <li>Lapsed and ended policies kept apart from those in force</li>
+          <li>Only the last four characters of a policy number are kept</li>
+          <li>Premiums grouped under 80C and 80D are offered to the tax estimate</li>
+        </ul>
+      </div>
+      <figure class="frame">
+        <picture>
+          <source media="(max-width: 44rem)" srcset="img/insurance-mobile.webp" width="840" height="1800">
+          <img src="img/insurance.webp" width="2800" height="3596" loading="lazy" alt="The insurance register: policies in force with their premiums and due dates, and a lapsed one below.">
+        </picture>
+        <figcaption>Policies in force, and the one that lapsed.</figcaption>
+      </figure>
+    </div>
+      <div class="table-scroll" style="margin-top:2rem">
+        <table>
+          <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
+          <tbody>
+          <tr><td>Tax estimate</td><td>Both regimes side by side for one financial year, with 80C, 80D and the HRA exemption &mdash; and a plain list of what it does not model. An estimate on figures you enter and figures the ledger holds, not a return and not advice.</td></tr>
+          <tr><td>Home-loan interest</td><td>Mark a loan&rsquo;s house as lived in or let out. A lived-in house&rsquo;s interest for the year is deducted under 24(b) in the old regime, up to ₹2,00,000; a let-out house is shown and not deducted. The figure can be overridden.</td></tr>
+          <tr><td>Tax already paid</td><td>TDS from Form 16 and 26AS, and each advance or self-assessment payment with its date, are taken off the year&rsquo;s tax to show what is left to pay or what comes back.</td></tr>
+          <tr><td>Advance tax dates</td><td>The four instalments &mdash; 15%, 45%, 75% and 100% by 15 June, September, December and March &mdash; when the year&rsquo;s tax after TDS is ₹10,000 or more. Each is checked against what was paid by its date, with the shortfall. Interest under 234B and 234C is named, not worked out.</td></tr>
+          <tr><td>Capital gains, taxed properly</td><td>Sorted by asset class and holding period, then taxed at their own rates &mdash; 12.5% above the ₹1,25,000 exemption on long-held equity listed in India, 20% short, 12.5% on a listed bond held over a year, slab rates on debt and foreign shares held under two years. 2024-25 is split at 23-07-2024: a sale before it is taxed at the old rates. A year it has no rates for is refused, and anything it cannot place it refuses to place, and says why.</td></tr>
+          <tr><td>80C and 80D from your policies</td><td>The premiums falling due in the year, grouped as 80C, 80D for the family and 80D for parents, are shown beside the figures you typed. Applying them fills the form; it is yours to save.</td></tr>
+          <tr><td>Insurance register</td><td>Each policy&rsquo;s insurer, kind, cover, premium and frequency, who it belongs to, and whether it is in force, lapsed or ended. A private policy is its holder&rsquo;s alone.</td></tr>
           </tbody>
         </table>
       </div>
@@ -361,6 +466,7 @@
           <tbody>
           <tr><td>Sign in without anybody else</td><td>A password hashed with scrypt, stored in its own table and never included in an export &mdash; or your own identity provider: Authelia, Authentik, Keycloak, anything speaking OpenID Connect, configured with one issuer URL. Google stays optional. Nothing about running this requires an account with a company.</td></tr>
           <tr><td>Sign-in</td><td>Google SSO against a closed allow-list, enforced on every request. The provider must say it has verified the email, or the sign-in is refused.</td></tr>
+          <tr><td>Writes stay at home</td><td>A change sent from a signed-in browser must be addressed to the host in <code>BASE_URL</code>, or to an IP address or localhost; anything else gets a 403. That stops a page elsewhere re-pointing its own name at your server and writing to it.</td></tr>
           <tr><td>Impersonation</td><td>Read-only &ldquo;view as&rdquo; another member, always logged, writes behind an explicit toggle.</td></tr>
           <tr><td>API tokens</td><td>Scoped read or read-write, shown once, stored as a hash, and structurally unable to sign in, mint more tokens, set a password, sign out devices or link Gmail.</td></tr>
           <tr><td>Universal undo</td><td>Thirty days, from an append-only log. The undo is itself an entry — nothing is edited or deleted.</td></tr>
@@ -368,7 +474,7 @@
           <tr><td>Feature flags</td><td>Loans, assets and multi-currency each disableable. A disabled module vanishes from navigation and reports.</td></tr>
           <tr><td>Goals</td><td>Long-horizon savings with their own envelopes, a target amount and an optional date, shown as progress against both.</td></tr>
           <tr><td>Schedules</td><td>Recurring bills and income, with a sixty-day cashflow calendar showing what lands when and where the balance dips.</td></tr>
-          <tr><td>Month close</td><td>A monthly ritual that records income, spending and what was assigned, takes a net-worth snapshot, and can be reopened.</td></tr>
+          <tr><td>Month close</td><td>A monthly ritual that records income, spending and what was assigned, takes a net-worth snapshot, prints, and can be reopened.</td></tr>
           <tr><td>Reconciliation</td><td>Check an account against the bank&rsquo;s balance on a date. The checkpoint breaks if anything before it changes later, and says so.</td></tr>
           <tr><td>Receipts</td><td>Photos or PDFs attached to a transaction, stored in the database rather than on disk, and downloaded rather than rendered.</td></tr>
           <tr><td>Tags</td><td>Free labels on transactions, and a tag can carry its own budget over a date range &mdash; useful for a trip or a project.</td></tr>
@@ -376,7 +482,7 @@
           <tr><td>Reports</td><td>Income against spending, category trends, a spending calendar, where the month&rsquo;s money went, loan interest and realised gains by financial year.</td></tr>
           <tr><td>Privacy</td><td>Private accounts, envelopes and loans stay out of other members&rsquo; lists, reports, exports, activity log and totals. Three automated checks hold it.</td></tr>
           <tr><td>Themes</td><td>Light, dark or follow the system, applied in the first response so the wrong one never flashes.</td></tr>
-          <tr><td>Installable</td><td>Add it to a phone&rsquo;s home screen or a desktop dock. It needs the server; there is no offline mode.</td></tr>
+          <tr><td>Installable</td><td>Add it to a phone&rsquo;s home screen or a desktop dock. It needs the server for everything but the Add form: with no signal, an entry is kept on the device and sent when the connection is back, with a count on every page and a Send now button. The entry sits unencrypted on the device until it is sent, and signing out clears it. Nothing else works offline.</td></tr>
           </tbody>
         </table>
       </div>

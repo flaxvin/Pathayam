@@ -61,7 +61,7 @@
         or have it deleted.
       </p>
       <p class="legal-meta">
-        Last updated <time datetime="2026-09-27">27 September 2026</time> ·
+        Last updated <time datetime="2026-10-23">23 October 2026</time> ·
         Applies to <strong>pathayam.app</strong>, <strong>demo.pathayam.app</strong>,
         and the hosted service.
       </p>
@@ -200,17 +200,17 @@
             </tr>
             <tr>
               <td>Household financial data</td>
-              <td>Everything you enter or import: accounts, balances, transactions, payees, envelopes, loans, holdings, attachments such as receipts.</td>
+              <td>Everything you enter or import: accounts, balances, transactions, payees, envelopes, loans, holdings, a deposit's terms (rate, dates, principal), insurance policies, attachments such as receipts. Of a policy number, only the last four characters are kept.</td>
               <td>It is the product. We process it to show it back to you.</td>
             </tr>
             <tr>
               <td>Statement identity</td>
-              <td>Optional. Name, date of birth, PAN, mobile or card last-four, used to derive the password a bank sets on a statement PDF.</td>
+              <td>Optional. Name, date of birth, PAN, mobile or card last-four, and where your banks need them an Axis or HDFC customer ID and the last six digits of an HSBC card, used to derive the password a bank sets on a statement PDF. Customer IDs are shown back to you masked.</td>
               <td>So a statement opens without you typing a password every month.</td>
             </tr>
             <tr>
               <td>Tax figures</td>
-              <td>Optional, and entered by you on the tax screen: gross income for a financial year, and the deductions you claim &mdash; 80C, 80D, rent paid, HRA received, basic salary. Capital gains are read from sales already recorded in your portfolio; nothing is fetched from anywhere.</td>
+              <td>Optional, and entered by you on the tax screen: gross income for a financial year, the deductions you claim &mdash; 80C, 80D, rent paid, HRA received, basic salary &mdash; tax deducted at source, the advance and self-assessment tax payments you record, and your own home-loan interest figure under 24(b) where you give one. A loan can also record what its house is used for (lived in or let out). Capital gains are read from sales already recorded in your portfolio, and home-loan interest from the loan's own schedule; nothing is fetched from anywhere.</td>
               <td>To estimate tax under each regime and show which is lower. Held per person and per financial year, because income tax in India is assessed on an individual &mdash; one member's figures never enter another's estimate.</td>
             </tr>
             <tr>
@@ -243,10 +243,24 @@
 
       <h3>Statement identity is never exported or logged</h3>
       <p>
-        Statement identity and any connected-mailbox tokens are excluded from
-        every export and from every log, by a test that asserts it. Statement
+        Statement identity &mdash; customer IDs and card digits included &mdash; and
+        any connected-mailbox tokens are excluded from every export and from every
+        log, by a test that asserts it. Statement
         passwords are derived, used to open the file, and discarded; only a
         description of which candidate worked is retained.
+      </p>
+
+      <h3>On your device</h3>
+      <p>
+        Apart from its sign-in cookie, the app keeps nothing on your device,
+        with one exception. If you press
+        Save on the Add form with no connection at all, that entry is kept in the
+        app's browser storage until the connection is back and it has been sent.
+        Until then it is stored <strong>unencrypted</strong>, so anyone holding
+        the unlocked device could read it. Signing out clears it, and if another
+        member signs in on the same browser, entries left by someone else are
+        discarded unsent. This is the app's storage on your device; the website
+        at pathayam.app still uses none.
       </p>
 
       <h3>Backups</h3>
