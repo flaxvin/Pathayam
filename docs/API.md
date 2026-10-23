@@ -529,6 +529,7 @@ only (out of a token's reach).
 | POST | `/portfolio/cas/confirm` | W | Confirm a parsed CAS. |
 | GET | `/portfolio/allocation` | R | Allocation by class/region/currency. |
 | POST | `/portfolio/instrument/:id/classify` | W | Set an instrument's class. |
+| POST | `/portfolio/instrument/:id/listed` | W | Say whether a bond is listed on an exchange. |
 | POST | `/portfolio/refresh` | W | Refresh prices. |
 | GET | `/net-worth` | R | Net-worth decomposition & history. |
 | GET | `/fire` | R | Financial-independence projection from trailing spending. |

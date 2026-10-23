@@ -28,7 +28,7 @@ import { accountsByLast4For, cardsByLast4For } from "../domain/accounts.ts";
 import { hiddenAccountSql } from "../domain/member-scope.ts";
 import { ALERT_PROFILES, parseAlert, looksLikeUnreadAlert } from "../import/email-alerts.ts";
 import { senderFor, parseStatementPdf, WrongPassword, STATEMENT_SENDERS } from "../import/pdf-statements.ts";
-import { passwordCandidates } from "../import/statement-passwords.ts";
+import { passwordCandidates, missingDetailFor } from "../import/statement-passwords.ts";
 import { getIdentity } from "../import/identity.ts";
 import { getConnection, markFetched, type GmailConnection } from "./connection.ts";
 import { refreshAccessToken } from "./oauth.ts";
@@ -43,6 +43,12 @@ export interface FetchResult {
   /** `unread`: from an alert sender, read like a transaction, but no profile could read it. */
   alerts: { parsed: number; staged: number; unmatched: number; unread: number };
   statements: { read: number; staged: number; locked: number; unmatched: number };
+  /**
+   * IMPORT-15 · Of the locked statements, the detail each bank's rule needs and
+   * the app does not have, one sentence per kind ("…the card's last four…").
+   * Names the field, never a value.
+   */
+  missingDetails: string[];
   /** Of the staged rows, those a rule approved straight into the ledger, so not in Review. */
   autoApproved: number;
   notes: string[];
@@ -101,6 +107,7 @@ export async function fetchGmail(
     scanned: 0,
     alerts: { parsed: 0, staged: 0, unmatched: 0, unread: 0 },
     statements: { read: 0, staged: 0, locked: 0, unmatched: 0 },
+    missingDetails: [],
     autoApproved: 0,
     notes: [],
   };
@@ -262,10 +269,9 @@ async function handleStatement(
     // path handed it nothing, so the same file that opened when uploaded was
     // "could not open" when mailed. The digits are only ever candidates tried
     // in memory, never logged or stored.
+    const cardDigits = statementCardDigits(db, memberId, statementSender.bank);
     const candidates = identity
-      ? passwordCandidates(identity, statementSender.bank, {
-        cardDigits: statementCardDigits(db, memberId, statementSender.bank),
-      })
+      ? passwordCandidates(identity, statementSender.bank, { cardDigits })
       : [""];
     let parsed;
     // Any other failure — a certificate-protected or damaged file — is this
@@ -283,6 +289,13 @@ async function handleStatement(
     if (!parsed) {
       result.statements.locked++;
       result.notes.push(`Could not open ${pdf.filename}${unreadable ? `: ${unreadable}` : ""}`);
+      // IMPORT-15 · As the upload says it: when the bank's rule needs a digit
+      // the app does not have (SBI Card's or Canara's last four, HSBC's last
+      // six), name that field rather than leave "could not open" a dead end.
+      const missing = !unreadable && identity
+        ? missingDetailFor(statementSender.bank, identity, cardDigits)
+        : null;
+      if (missing && !result.missingDetails.includes(missing)) result.missingDetails.push(missing);
       continue;
     }
     result.statements.read++;

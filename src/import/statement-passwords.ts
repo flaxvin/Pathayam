@@ -57,6 +57,12 @@ export interface StatementIdentity {
   mobile?: string | null;
   /** Per bank, the customer ID that bank's account statement is locked with. */
   customerIds?: CustomerIds | null;
+  /**
+   * IMPORT-15 · The last six digits of an HSBC card. HSBC is the one rule that
+   * wants six, and an account or card records only the last four (they match
+   * SMS alerts by them), so the six live here with the other ingredients.
+   */
+  hsbcCardLast6?: string | null;
 }
 
 /** The banks whose account statements are locked with the customer ID. */
@@ -100,8 +106,8 @@ export function passwordCandidates(
 
   // Every card/account number the app can offer, digits only. The account's
   // stored last-four (F2.9) is the usual one; the household may have typed a
-  // fuller number, which unlocks HSBC's last-six.
-  const numbers = (opts.cardDigits ?? [])
+  // fuller number, which unlocks HSBC's last-six, and Settings may hold that six.
+  const numbers = [...(opts.cardDigits ?? []), identity.hsbcCardLast6]
     .map((n) => (n ?? "").replace(/\D/g, ""))
     .filter((n) => n.length >= 4);
   const lastN = (n: number): string[] =>
@@ -278,7 +284,8 @@ export function missingDetailFor(
   identity: StatementIdentity,
   cardDigits: (string | null | undefined)[] = [],
 ): string | null {
-  const digits = cardDigits.map((d) => (d ?? "").replace(/\D/g, "")).filter(Boolean);
+  const digits = [...cardDigits, identity.hsbcCardLast6]
+    .map((d) => (d ?? "").replace(/\D/g, "")).filter(Boolean);
   const longest = digits.reduce((a, b) => (b.length > a.length ? b : a), "");
   const mobile = identity.mobile?.replace(/\D/g, "") ?? "";
 
@@ -308,7 +315,7 @@ export function missingDetailFor(
       return longest.length < 6
         ? "HSBC uses the last six digits of the card, and this account has "
           + (longest.length > 0 ? "only the last four." : "no card number recorded.")
-          + " Add the fuller number on the account."
+          + " Add the HSBC card's last six in Settings."
         : null;
     // IMPORT-SND-12 · Account statements locked with the customer ID. A card
     // statement from either bank opens with the name and date of birth, so a

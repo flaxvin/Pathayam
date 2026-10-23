@@ -2862,7 +2862,37 @@ CREATE INDEX tax_payments_member_fy ON tax_payments (member_id, fy);
 `,
   },
   {
-    name: "0065-a-password-link-for-a-member-with-none",
+    name: "0065-a-bond-says-whether-it-is-listed",
+    sql: `
+--------------------------------------------------------------------------------
+-- BONDS-1 · Whether a bond is listed on an exchange
+--------------------------------------------------------------------------------
+-- A listed bond held over 12 months is long-term under s112, at 12.5% without
+-- indexation. An unlisted bond or debenture is slab-rated under s50AA however
+-- long it is held. Nothing recorded which a bond was, so every bond gain was
+-- slab-rated. 1 is listed, 0 is not, NULL is not known — which is taxed as
+-- unlisted, because that is the rate that cannot understate the tax.
+ALTER TABLE instruments ADD COLUMN listed INTEGER CHECK (listed IS NULL OR listed IN (0, 1));
+`,
+  },
+  {
+    name: "0066-a-snapshot-keeps-every-part-of-net-worth",
+    sql: `
+--------------------------------------------------------------------------------
+-- NW-1 · The rest of the net worth statement, on each snapshot
+--------------------------------------------------------------------------------
+-- A snapshot kept cash, investments, other assets, credit cards and loans, but
+-- not the statement's other two liability groups — money owed to family and
+-- other liabilities — so the change between two snapshots could not say how
+-- much of it was those, and its parts did not add up to it. Named after the
+-- statement's groups, like the columns beside them. NULL on a row written
+-- before this: what it was then is not known, and is not guessed.
+ALTER TABLE net_worth_snapshots ADD COLUMN owed_to_family INTEGER;
+ALTER TABLE net_worth_snapshots ADD COLUMN other_liabilities INTEGER;
+`,
+  },
+  {
+    name: "0067-a-password-link-for-a-member-with-none",
     sql: `
 --------------------------------------------------------------------------------
 -- A first password for somebody added to a household that has only passwords

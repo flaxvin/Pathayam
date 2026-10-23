@@ -214,7 +214,7 @@ reason — none is marked undone without moving anything:
 
 | Undoing | Reverses |
 |---|---|
-| An instalment, prepayment, charge or settlement payment | The payment row and both of its legs (the bank or card debit, the loan-account credit). A prepayment puts back the tenure and the kept instalment it had. The first instalment of a capitalised moratorium takes the moratorium interest it added with it, and is refused while a later instalment or re-anchor stands on that balance. Refused while the loan is closed — undo the close first. |
+| An instalment, prepayment, charge or settlement payment | The payment row and both of its legs (the bank or card debit, the loan-account credit), and on a card EMI the GST line charged on its interest. A prepayment puts back the tenure and the kept instalment it had. The first instalment of a capitalised moratorium takes the moratorium interest it added with it, and is refused while a later instalment or re-anchor stands on that balance. Refused while the loan is closed — undo the close first. |
 | A rate change | The rate period, and the tenure if "keep the instalment" moved it, and the kept instalment as it was before. |
 | A re-anchor, a lender statement | The row it wrote. |
 | A disbursement | The draw and both of its legs. |
@@ -232,6 +232,14 @@ A credit-card charge can be converted into an instalment plan. The conversion
 creates a loan of type `credit-card-emi` linked to the originating transaction
 and card, dated from the **charge**, with the processing fee recorded against a
 chosen envelope.
+
+Each instalment on a card EMI also posts 18% GST on that instalment's interest
+as its own line — a loan charge and a card charge memoed "GST 18% on EMI
+interest", from the plan's envelope — rounded to the paisa per instalment.
+Interest on credit-card services is outside the GST exemption on loan interest
+(Notification 9/2017-IT(Rate) Sr.28). The schedule is unchanged; the GST is
+shown beside it, added to the plan envelope's monthly target, and counted in
+the total cost of borrowing (`06` §7.4: ₹6,118 on the worked example).
 
 Only a charge converts — not a refund, and not the card side of a payment — and
 only once: a charge partly on a plan offers just the rest, and one wholly on

@@ -15,8 +15,17 @@ import { html, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, type Paise } from "../../core/money.ts";
 import { formatMonth, formatDate, type MonthKey } from "../../core/dates.ts";
 import type { MonthCloseView, ClosedMonth } from "../../domain/month-close.ts";
+import type { NetWorthChangePart } from "../../domain/networth.ts";
 import type { DigestItem, DigestKind } from "../../domain/digest.ts";
 import { DIGEST_KINDS, DIGEST_LABELS } from "../../domain/digest.ts";
+
+/** The close's own words for the four parts it always shows. */
+const CLOSE_LABELS: Partial<Record<NetWorthChangePart["key"], string>> = {
+  saved: "Money you actually saved",
+  market: "The market moved",
+  fx: "Exchange rates moved",
+  debt: "Debt you repaid",
+};
 
 export function renderMonthClose(view: MonthCloseView): SafeHtml {
   const { outcome, next } = view;
@@ -176,27 +185,20 @@ export function renderMonthClose(view: MonthCloseView): SafeHtml {
         <!--
           R29.4: a net worth that rose because the rupee weakened is not the
           same achievement as one that rose because you repaid principal. The
-          single figure above hides which; these four do not.
+          single figure above hides which; these parts do not.
         -->
         <div class="table-scroll">
           <table>
             <tbody>
-              <tr>
-                <td>Money you actually saved</td>
-                <td class="numeric">${formatPaise(view.netWorth!.moneySaved)}</td>
-              </tr>
-              <tr>
-                <td>The market moved</td>
-                <td class="numeric">${formatPaise(view.netWorth!.marketMovement)}</td>
-              </tr>
-              <tr>
-                <td>Exchange rates moved</td>
-                <td class="numeric">${formatPaise(view.netWorth!.fxMovement)}</td>
-              </tr>
-              <tr>
-                <td>Debt you repaid</td>
-                <td class="numeric">${formatPaise(view.netWorth!.debtRepaid)}</td>
-              </tr>
+              <!-- NW-1 · Every part, so the rows add up to the month's change:
+                   the first four always, the rest when they moved. -->
+              ${view.netWorth!.parts
+                .filter((p) => p.key in CLOSE_LABELS || p.value !== 0)
+                .map((p) => html`
+                  <tr>
+                    <td>${CLOSE_LABELS[p.key] ?? p.label}</td>
+                    <td class="numeric">${formatPaise(p.value)}</td>
+                  </tr>`)}
             </tbody>
           </table>
         </div>
@@ -393,6 +395,7 @@ export function renderStatementIdentity(
   masked: {
     name: string; pan: string | null; dob: string | null; mobile: string | null;
     customerIds?: { axis?: string; hdfc?: string };
+    hsbcCardLast6?: string | null;
   } | null,
 ): SafeHtml {
   return html`
@@ -423,6 +426,7 @@ export function renderStatementIdentity(
               <tr><td>Mobile</td><td>${masked!.mobile ?? "Not saved"}</td></tr>
               <tr><td>Axis customer ID</td><td>${masked!.customerIds?.axis ?? "Not saved"}</td></tr>
               <tr><td>HDFC customer ID</td><td>${masked!.customerIds?.hdfc ?? "Not saved"}</td></tr>
+              <tr><td>HSBC card, last six</td><td>${masked!.hsbcCardLast6 ?? "Not saved"}</td></tr>
             </tbody>
           </table>
         </div>
@@ -463,6 +467,12 @@ export function renderStatementIdentity(
           <label for="id-hdfc-customer">HDFC customer ID</label>
           <input id="id-hdfc-customer" name="customer_id_hdfc" autocomplete="off" spellcheck="false"
                  placeholder="${masked?.customerIds?.hdfc ? "Saved — leave blank to keep" : "Optional — HDFC's account statement is locked with it"}">
+        </div>
+        <div class="field">
+          <label for="id-hsbc-last6">HSBC card, last six digits</label>
+          <input id="id-hsbc-last6" name="hsbc_card_last6" autocomplete="off" inputmode="numeric"
+                 placeholder="${masked?.hsbcCardLast6 ? "Saved — leave blank to keep" : "Optional — HSBC's card statement uses them"}">
+          <p class="field-hint">An account keeps only a card's last four; HSBC's password wants six.</p>
         </div>
         <button type="submit">Save</button>
       </form>

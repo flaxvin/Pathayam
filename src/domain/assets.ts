@@ -93,6 +93,11 @@ export interface Instrument {
   /** F19.11 · null until classified; a fund's kind cannot imply it. */
   asset_class: AssetClass | null;
   region: Region | null;
+  /**
+   * BONDS-1 · A bond listed on an exchange (1), or not (0); null when nobody
+   * has said. Only a bond's is read: its tax turns on it, under s112 or s50AA.
+   */
+  listed: number | null;
 }
 
 export interface HoldingRecord {
@@ -477,6 +482,8 @@ export function findOrCreateInstrument(
   input: {
     name: string; kind: InstrumentKind; symbol?: string | null; isin?: string | null;
     currency?: string; provider?: PriceProvider; manualOnly?: boolean;
+    /** BONDS-1 · A bond's listing, when the person has said; ignored for any other kind. */
+    listed?: boolean | null;
   },
 ): Instrument {
   // WEALTH-39 · An unknown kind reached the table's CHECK and answered 500.
@@ -501,8 +508,8 @@ export function findOrCreateInstrument(
     execute(
       db,
       `INSERT INTO instruments
-         (id,name,kind,symbol,isin,currency,provider,manual_only,refresh,asset_class,region,created_at)
-       VALUES (?,?,?,?,?,?,?,?,?,?,?,?)`,
+         (id,name,kind,symbol,isin,currency,provider,manual_only,refresh,asset_class,region,listed,created_at)
+       VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)`,
       id, input.name, input.kind, input.symbol ?? null, input.isin ?? null,
       input.currency ?? "INR", input.provider ?? "manual",
       input.manualOnly ? 1 : 0,
@@ -512,6 +519,7 @@ export function findOrCreateInstrument(
       classFromKind(input.kind),
       // F20: a non-INR instrument is international by default.
       (input.currency ?? "INR") === "INR" ? "domestic" : "international",
+      input.kind === "bond" && input.listed != null ? (input.listed ? 1 : 0) : null,
       nowIST(),
     );
 
@@ -581,6 +589,38 @@ export function findManualInstrument(
     input.kind, input.currency, input.name,
   );
   return candidates.find((i) => !hidden.has(i.id)) ?? null;
+}
+
+/**
+ * BONDS-1 · Say whether a bond is listed on an exchange.
+ *
+ * A listed bond held over 12 months is long-term under s112; an unlisted one
+ * is slab-rated under s50AA however long it is held. Logged, because it moves
+ * a gain from one rate to another.
+ */
+export function setInstrumentListed(
+  db: DB, actor: Actor, instrumentId: string, listed: boolean | null,
+): void {
+  transact(db, () => {
+    const before = getInstrument(db, instrumentId);
+    if (!before) throw new Missing("That instrument does not exist.");
+    if (before.kind !== "bond") {
+      throw new Refusal("Only a bond is recorded as listed or not — the rest are taxed by their kind.");
+    }
+    const value = listed === null ? null : listed ? 1 : 0;
+    if (before.listed === value) return;
+
+    execute(db, `UPDATE instruments SET listed = ? WHERE id = ?`, value, instrumentId);
+    appendEvent(db, actor, {
+      entity: "instrument", entityId: instrumentId, action: "listed",
+      before: { listed: before.listed }, after: { listed: value },
+      summary: value === 1
+        ? `Recorded ${before.name} as listed on an exchange`
+        : value === 0
+          ? `Recorded ${before.name} as not listed`
+          : `Cleared whether ${before.name} is listed`,
+    });
+  });
 }
 
 export function getInstrument(db: DB, id: string): Instrument | null {
@@ -1713,6 +1753,11 @@ registerUndoHandler("instrument", (db, event) => {
     );
     return `Put back the instrument's previous class`;
   }
+  if (event.action === "listed") {
+    const before = (event.before ?? {}) as { listed?: number | null };
+    execute(db, `UPDATE instruments SET listed = ? WHERE id = ?`, before.listed ?? null, id);
+    return `Put back whether the bond is listed`;
+  }
   if (event.action !== "create") {
     throw new UndoRefused("That change to the instrument cannot be undone from here.");
   }
@@ -1838,14 +1883,19 @@ export function exportNetWorthCsv(db: DB): string {
   const rows = queryAll<{
     as_of: string; cash: number; investments: number; other_assets: number;
     credit_cards: number; loans: number; net_worth: number; worst_price_date: string | null;
+    owed_to_family: number | null; other_liabilities: number | null;
   }>(db, `SELECT * FROM net_worth_snapshots ORDER BY as_of`);
+  // NW-1 · The two later columns go last, so a sheet built on the old order
+  // still reads; blank on a row written before they were recorded.
+  const opt = (v: number | null) => (v === null ? "" : (v / 100).toFixed(2));
   return toCsv(
-    ["as_of", "cash", "investments", "other_assets", "credit_cards", "loans", "net_worth", "worst_price_date"],
+    ["as_of", "cash", "investments", "other_assets", "credit_cards", "loans", "net_worth", "worst_price_date",
+      "owed_to_family", "other_liabilities"],
     rows.map((r) => [
       r.as_of,
       (r.cash / 100).toFixed(2), (r.investments / 100).toFixed(2), (r.other_assets / 100).toFixed(2),
       (r.credit_cards / 100).toFixed(2), (r.loans / 100).toFixed(2), (r.net_worth / 100).toFixed(2),
-      r.worst_price_date ?? "",
+      r.worst_price_date ?? "", opt(r.owed_to_family), opt(r.other_liabilities),
     ]),
   );
 }
