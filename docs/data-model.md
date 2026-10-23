@@ -12,6 +12,7 @@
 | `budgets` | `id`, `kind`, `member_id`, `name` | `kind` is `household` or `personal`. A personal budget names its member. |
 | `sessions` | `id`, `member_id`, `expires_at`, `revoked_at`, `impersonating_member_id`, `impersonation_writes`, `impersonation_expires_at` | Token stored as a SHA-256 hash in `id`. |
 | `api_tokens` | `id`, `member_id`, `name`, `token_hash`, `scope`, `expires_at`, `revoked_at`, `last_used_at` | `scope` is `read` or `read-write`. |
+| `password_setup_links` | `token_hash`, `member_id`, `created_by_member_id`, `created_at`, `expires_at`, `used_at` | One-time links that set a member's first password (0067). Only the SHA-256 of the token is kept; `created_by_member_id` is NULL for a link made with `npm run password-link`. Not exported. |
 | `auth_attempts` | `source`, `at`, `outcome`, `detail` | Drives sign-in rate limiting. |
 | `statement_identity` | `member_id`, `name`, `pan`, `dob`, `mobile`, `customer_ids` | Used only to derive statement passwords. Excluded from every export. `customer_ids` (0060) is JSON: the Axis and HDFC customer IDs, and the HSBC card's last six digits (`{"axis":…,"hdfc":…,"hsbcCardLast6":…}`). |
 | `gmail_connections` | `member_id`, `email`, `refresh_token`, `scope`, `last_history_id` | Excluded from every export. |

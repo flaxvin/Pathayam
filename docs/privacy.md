@@ -105,6 +105,17 @@ totals recomputed over what is in the file. The **operator's backup**
 private budget included — and runs only on the server, never through a
 member's browser.
 
+### Password links
+
+Whoever sets a member's password can sign in as them and read what is private
+to them, so a member may make a password link for another only when the other
+keeps nothing private from them — no private account or policy, no personal
+budget with anything in it, no saved statement details, mailbox or tax figures
+(`privateRecordsHeldBy` in `src/auth/setup-links.ts`, asking `memberScope` for
+the first three). Otherwise the link comes from the server's command line,
+whose operator has the database file already. The refusal says that there is
+something private, never what. See [security](security.md#password-links).
+
 ### On the device
 
 The write-only queue (`10` §3.7) keeps an Add-form entry in the browser until

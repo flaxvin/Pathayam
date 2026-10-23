@@ -456,3 +456,32 @@ describe("D7 · a partial edit keeps what it does not mention", () => {
     assert.equal(row.cleared, 1);
   });
 });
+
+/*
+ * A payee could be renamed but never taken off. A blank `payee` was read as
+ * "not mentioned", so emptying the box on the form saved, said "Saved.", and
+ * the payee was still there. Now a missing `payee` keeps it and an empty one
+ * removes it, the way `memo` works.
+ */
+describe("emptying the payee", () => {
+  test("an empty payee takes it off the transaction", async () => {
+    const id = spend(250);
+    assert.ok(getTransaction(db, id)!.payee_id);
+    const res = await app.post(`/transaction/${id}`, {
+      amount: "250", direction: "out", date: "05-09-2026", payee: "  ",
+      split_category_0: groceries,
+    });
+    assert.equal(res.status, 303);
+    const row = getTransaction(db, id)!;
+    assert.equal(row.payee_id, null);
+    assert.equal(row.amount, -rupees(250));
+  });
+
+  test("a post without a payee keeps it", async () => {
+    const id = spend(260);
+    const before = getTransaction(db, id)!.payee_id;
+    const res = await app.post(`/transaction/${id}`, { memo: "noted" });
+    assert.equal(res.status, 303);
+    assert.equal(getTransaction(db, id)!.payee_id, before);
+  });
+});

@@ -12,15 +12,15 @@ configured, and two price feeds.
   stripping; production runs `dist/`, compiled by `tsc`.
 - **Runtime dependencies:** none. `package.json` declares `typescript` and
   `@types/node` as development dependencies only.
-- **Size:** ~74,000 lines of TypeScript, plus ~51,000 lines of tests in 328
-  test files; 2,626 tests.
+- **Size:** ~74,000 lines of TypeScript, plus ~51,000 lines of tests in 331
+  test files; 2,683 tests.
 
 ## Module layout
 
 ```
 src/
   main.ts          entry point: config, database, server
-  app.ts           route table (186 paths, 222 handlers) and middleware
+  app.ts           route table (188 paths, 225 handlers) and middleware
   config.ts        environment parsing and startup safety checks
   restore.ts       backup restore CLI
 
@@ -89,7 +89,7 @@ resolves parameters, calls one or more domain functions, and renders.
 One SQLite file, default `$DATA_DIR/pathayam.sqlite`, opened via `node:sqlite`.
 
 - **Migrations** are an ordered array in `src/db/schema.ts`, applied at startup
-  inside transactions, each recorded as applied. 66 exist.
+  inside transactions, each recorded as applied. 67 exist.
 - The application **refuses to start** if the database reports a schema version
   higher than the build knows.
 - Migrations flagged `rebuildsTable` run with `PRAGMA foreign_keys = OFF`

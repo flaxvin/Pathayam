@@ -13,7 +13,7 @@ import {
   UnsafeConfiguration, devLoginModulePresent,
 } from "./config.ts";
 import { openDatabase, ensureHousehold, queryOne } from "./db/db.ts";
-import { createHttpServer } from "./http/server.ts";
+import { createHttpServer, redactedPath } from "./http/server.ts";
 import { buildApp, renderErrorPage } from "./app.ts";
 import { HttpError } from "./http/router.ts";
 import { Refusal } from "./core/refusal.ts";
@@ -112,14 +112,14 @@ function main(): void {
           level: "error",
           msg: "request failed",
           method: ctx.method,
-          path: ctx.url.pathname,
+          path: redactedPath(ctx.url.pathname),
           error: err instanceof Error ? err.message : String(err),
           stack: err instanceof Error ? err.stack : undefined,
         });
         try {
           recordRequestFailure(db, {
             method: ctx.method,
-            path: ctx.url.pathname,
+            path: redactedPath(ctx.url.pathname),
             status,
             error: err,
           });

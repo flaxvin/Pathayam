@@ -462,7 +462,7 @@ only (out of a token's reach).
 | GET | `/transfer` | R | The transfer form. Accounts whose value is derived (loans, family loans) are not offered. |
 | POST | `/transfer` | W | Transfer between accounts. |
 | GET | `/transaction/:id` | R | Transaction detail, splits, history. |
-| POST | `/transaction/:id` | W | Edit a transaction, including its envelope lines (same fields as `/add`). A legacy `category_id` is still read when no lines are sent; an *empty* one on an already-split transaction means "not mentioned", not "file it nowhere". **Partial edits:** a field you do not send keeps its stored value — `amount`, `direction`, `date`, `payee`, `memo`, `tags`, `owner_member_id`, the envelope lines, `cleared` and `reimbursable` — so `date=07-09-2026` alone moves only the date. A field you *do* send is applied: an empty `memo` clears it, an empty `tags` removes them all, an empty `owner_member_id` makes it the household's; a blank `amount` is refused and a blank `date` or `payee` keeps the old one. For the two flags, `cleared=1` / `reimbursable=1` sets and any other value (e.g. `0`) unsets. The web form also sends `cleared_present=1` and `reimbursable_present=1`, because an unticked checkbox sends nothing: a marker with no flag means "unticked", no marker and no flag means "not mentioned". |
+| POST | `/transaction/:id` | W | Edit a transaction, including its envelope lines (same fields as `/add`). A legacy `category_id` is still read when no lines are sent; an *empty* one on an already-split transaction means "not mentioned", not "file it nowhere". **Partial edits:** a field you do not send keeps its stored value — `amount`, `direction`, `date`, `payee`, `memo`, `tags`, `owner_member_id`, the envelope lines, `cleared` and `reimbursable` — so `date=07-09-2026` alone moves only the date. A field you *do* send is applied: an empty `memo` clears it, an empty `payee` removes it, an empty `tags` removes them all, an empty `owner_member_id` makes it the household's; a blank `amount` is refused and a blank `date` keeps the old one. For the two flags, `cleared=1` / `reimbursable=1` sets and any other value (e.g. `0`) unsets. The web form also sends `cleared_present=1` and `reimbursable_present=1`, because an unticked checkbox sends nothing: a marker with no flag means "unticked", no marker and no flag means "not mentioned". |
 | POST | `/transaction/:id/delete` | W | Delete (undoable). |
 | POST | `/transaction/:id/categorise` | W | File one transaction into an envelope. Also the learning signal (B100). |
 | POST | `/transaction/:id/settled` | W | Mark a reimbursable transaction as repaid. |
@@ -489,6 +489,7 @@ only (out of a token's reach).
 | GET | `/household` | R | What each member has committed to the shared budget this month. |
 | GET | `/members/:id/remove` | — | What removing a member does, and how the balance between you can end. Session only. |
 | POST | `/members/:id/remove` | — | Remove a member, settling what is outstanding first (`15` §6A). Session only. |
+| POST | `/members/:id/password-link` | — | A one-time link that sets another member's first password, shown once on the page it returns. Refused (422) for yourself, a member with a password, one who has signed in before, or one holding records you cannot see — `npm run password-link` on the server makes those. Session only. |
 | POST | `/household/pick-up` | W | Commit more, taking on what the household is behind by. |
 | POST | `/household/call-it-even` | W | Close part of a balance by agreement; it becomes spending on the giving side. |
 | GET | `/categories` | R | Categories, for the budget being viewed (`?budget=`). |
@@ -605,12 +606,14 @@ These return `403` to any token — use a browser session.
 | POST | `/tokens/:id/revoke` | Revoking a token (F30.6). |
 | POST | `/members/invite` | The household allow-list. |
 | GET/POST | `/members/:id/remove` | Removing a member changes who is allowed in. |
+| POST | `/members/:id/password-link` | A link that sets somebody's password is a way in. |
 | POST | `/gmail/disconnect` | Unlinking a mailbox. |
 | POST | `/impersonate/start` · `/impersonate/writes` · `/impersonate/exit` | Impersonation (R38.12). |
 | POST | `/sessions/revoke` | Session management. |
 | GET | `/auth/google` · `/auth/google/callback` · `/auth/oidc` · `/auth/oidc/callback` · `/gmail/connect` · `/gmail/callback` | OAuth and OIDC flows (interactive). |
 | POST | `/auth/dev` · `/signout` | Sign-in / sign-out. |
 | GET/POST | `/auth/first-run` | The first password on a household with no members. 404 unless `LOCAL_LOGIN` is set, and 404 once any member exists. |
+| GET/POST | `/auth/setup/:token` | A one-time password link, opened signed out: set a first password and be signed in. Works once, for 72 hours; every unusable link answers the same 410. Rate limited. |
 | POST | `/auth/password` | Password sign-in (F1.6). 404 unless `LOCAL_LOGIN` is set or a password already exists. |
 | GET/POST | `/settings/password` | Set or change your own password. Changing one requires the current password. |
 
