@@ -191,6 +191,9 @@ describe("the PDF reader · glyphs placed one at a time", () => {
     const vertical = "0 1 -1 0 590 300 Tm (WATERMARK) Tj";
     const text = read(page(`BT /F1 10 Tf 20 700 Td (Folio 123) Tj ET BT /F1 10 Tf ${vertical} ET`), "");
     assert.equal(text.trim(), "Folio 123");
+  });
+});
+
 /** A one-page PDF whose page content is `content`, Flate-compressed. */
 function onePage(content: string): Uint8Array {
   const c = deflateSync(Buffer.from(content, "latin1"));

@@ -889,8 +889,13 @@ function balanceOf(text: string): number | null {
  */
 function withWrappedMarker(lines: string[], i: number): string {
   const line = lines[i]!;
-  const next = lines.slice(i + 1).find((l) => l.trim() !== "");
-  if (next && /^(?:Dr|Cr)\.?$/i.test(next.trim()) && /\d\.\d{2}\s*$/.test(line)) {
+  if (!/\d\.\d{2}\s*$/.test(line)) return line;
+  // Scanned forward in place: copying the rest of the page for every line
+  // made a long statement quadratic.
+  let j = i + 1;
+  while (j < lines.length && lines[j]!.trim() === "") j++;
+  const next = lines[j];
+  if (next !== undefined && /^(?:Dr|Cr)\.?$/i.test(next.trim())) {
     return line.trimEnd() + " " + next.trim();
   }
   return line;
