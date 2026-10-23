@@ -332,7 +332,7 @@ export function renderDigest(items: DigestItem[]): SafeHtml {
   if (items.length === 0) return html``;
 
   return html`
-    <section class="card">
+    <section class="card digest">
       <h2>Worth knowing <span class="chip">${items.length}</span></h2>
       ${items.map(
         (item) => html`
@@ -390,7 +390,10 @@ export function renderDigestSettings(muted: Set<DigestKind>): SafeHtml {
  * a reassuring summary of it.
  */
 export function renderStatementIdentity(
-  masked: { name: string; pan: string | null; dob: string | null; mobile: string | null } | null,
+  masked: {
+    name: string; pan: string | null; dob: string | null; mobile: string | null;
+    customerIds?: { axis?: string; hdfc?: string };
+  } | null,
 ): SafeHtml {
   return html`
     <section class="card" id="statements">
@@ -418,6 +421,8 @@ export function renderStatementIdentity(
               <tr><td>PAN</td><td>${masked!.pan ?? "Not saved"}</td></tr>
               <tr><td>Date of birth</td><td>${masked!.dob ?? "Not saved"}</td></tr>
               <tr><td>Mobile</td><td>${masked!.mobile ?? "Not saved"}</td></tr>
+              <tr><td>Axis customer ID</td><td>${masked!.customerIds?.axis ?? "Not saved"}</td></tr>
+              <tr><td>HDFC customer ID</td><td>${masked!.customerIds?.hdfc ?? "Not saved"}</td></tr>
             </tbody>
           </table>
         </div>
@@ -448,6 +453,16 @@ export function renderStatementIdentity(
           <label for="id-mobile">Registered mobile</label>
           <input id="id-mobile" name="mobile" autocomplete="off" inputmode="numeric"
                  placeholder="Optional — SBI's account statement uses its last five">
+        </div>
+        <div class="field">
+          <label for="id-axis-customer">Axis customer ID</label>
+          <input id="id-axis-customer" name="customer_id_axis" autocomplete="off" spellcheck="false"
+                 placeholder="${masked?.customerIds?.axis ? "Saved — leave blank to keep" : "Optional — Axis's account statement uses it"}">
+        </div>
+        <div class="field">
+          <label for="id-hdfc-customer">HDFC customer ID</label>
+          <input id="id-hdfc-customer" name="customer_id_hdfc" autocomplete="off" spellcheck="false"
+                 placeholder="${masked?.customerIds?.hdfc ? "Saved — leave blank to keep" : "Optional — HDFC's account statement is locked with it"}">
         </div>
         <button type="submit">Save</button>
       </form>

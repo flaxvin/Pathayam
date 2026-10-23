@@ -27,7 +27,7 @@ import type { RawRecord } from "../import/csv.ts";
 import { accountsByLast4For, cardsByLast4For } from "../domain/accounts.ts";
 import { hiddenAccountSql } from "../domain/member-scope.ts";
 import { ALERT_PROFILES, parseAlert, looksLikeUnreadAlert } from "../import/email-alerts.ts";
-import { senderFor, parseStatementPdf, WrongPassword } from "../import/pdf-statements.ts";
+import { senderFor, parseStatementPdf, WrongPassword, STATEMENT_SENDERS } from "../import/pdf-statements.ts";
 import { passwordCandidates } from "../import/statement-passwords.ts";
 import { getIdentity } from "../import/identity.ts";
 import { getConnection, markFetched, type GmailConnection } from "./connection.ts";
@@ -65,27 +65,16 @@ export interface FetchDeps {
  */
 export function buildQuery(sinceDays: number): string {
   const senders = new Set<string>();
-  // Statement senders — real addresses from the sender map.
-  const statementAddresses = [
-    "@hdfcbank.bank.in", "estatement@icici.bank.in", "credit_cards@icici.bank.in",
-    "@axis.bank.in", "@alerts.sbi.bank.in", "statements@sbicard.com",
-    "@ubi.bank.in", "@canarabank.com", "@rbl.bank.in", "@mail.hsbc.co.in",
-    "estatement@yes.bank.in", "@indusind.com", "@camsonline.com", "eCAS@cdslstatement.com",
-    "@transactions.upstox.com", "@transactions.indmoney.com",
-  ];
-  for (const a of statementAddresses) senders.add(a);
+  // Statement senders — from the sender map itself, so every sender it
+  // recognises is one the fetch asks for. A hand-kept copy here had drifted.
+  for (const s of STATEMENT_SENDERS) for (const a of s.query) senders.add(a);
   // Alert senders come from the profiles themselves, kept in one place.
-  for (const p of ALERT_PROFILES) {
-    for (const s of p.senders) senders.add(sourceToAddress(s));
-  }
+  // Spelled out per profile: a pattern covering an old and a new domain has
+  // no single address to strip it down to.
+  for (const p of ALERT_PROFILES) for (const a of p.query) senders.add(a);
 
   const from = [...senders].map((s) => (s.startsWith("@") ? s.slice(1) : s)).join(" OR ");
   return `from:(${from}) newer_than:${sinceDays}d`;
-}
-
-/** Pull a plain address out of an anchored sender regex for the query. */
-function sourceToAddress(re: RegExp): string {
-  return re.source.replace(/[\\^$]/g, "").replace(/\\\./g, ".").replace(/\.\*/g, "");
 }
 
 /**

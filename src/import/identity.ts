@@ -19,7 +19,9 @@ import type { DB } from "../db/db.ts";
 import { transact, queryOne, execute } from "../db/db.ts";
 import { appendEvent, type Actor } from "../core/events.ts";
 import { nowIST } from "../core/dates.ts";
-import type { StatementIdentity } from "./statement-passwords.ts";
+import {
+  CUSTOMER_ID_BANKS, type StatementIdentity, type CustomerIds, type CustomerIdBank,
+} from "./statement-passwords.ts";
 import { Refusal } from "../core/refusal.ts";
 
 /** Ten characters: five letters, four digits, one letter. */
@@ -38,10 +40,33 @@ export function looksLikeDob(value: string): boolean {
 }
 
 export function getIdentity(db: DB, memberId: string): StatementIdentity | null {
-  const row = queryOne<{ name: string; pan: string | null; dob: string | null; mobile: string | null }>(
-    db, `SELECT name, pan, dob, mobile FROM statement_identity WHERE member_id = ?`, memberId,
+  const row = queryOne<{
+    name: string; pan: string | null; dob: string | null; mobile: string | null; customer_ids: string | null;
+  }>(
+    db, `SELECT name, pan, dob, mobile, customer_ids FROM statement_identity WHERE member_id = ?`, memberId,
   );
-  return row ? { name: row.name, pan: row.pan, dob: row.dob, mobile: row.mobile } : null;
+  return row
+    ? {
+      name: row.name, pan: row.pan, dob: row.dob, mobile: row.mobile,
+      customerIds: parseCustomerIds(row.customer_ids),
+    }
+    : null;
+}
+
+/** The stored JSON, or an empty map when it is missing or unreadable. */
+function parseCustomerIds(raw: string | null): CustomerIds {
+  if (!raw) return {};
+  try {
+    const parsed = JSON.parse(raw) as Record<string, unknown>;
+    const out: CustomerIds = {};
+    for (const bank of CUSTOMER_ID_BANKS) {
+      const v = parsed[bank];
+      if (typeof v === "string" && v) out[bank] = v;
+    }
+    return out;
+  } catch {
+    return {};
+  }
 }
 
 export interface MaskedIdentity {
@@ -52,6 +77,8 @@ export interface MaskedIdentity {
   dob: string | null;
   /** `•••••6620` — the last five, which is all SBI's rule reveals anyway. */
   mobile: string | null;
+  /** Per bank, `••••123`. */
+  customerIds: Partial<Record<CustomerIdBank, string>>;
 }
 
 export function maskedIdentity(db: DB, memberId: string): MaskedIdentity | null {
@@ -65,12 +92,34 @@ export function maskedIdentity(db: DB, memberId: string): MaskedIdentity | null 
       : null,
     dob: identity.dob ? `${identity.dob.slice(0, 2)}/${identity.dob.slice(2, 4)}/••••` : null,
     mobile: identity.mobile ? `•••••${identity.mobile.slice(-4)}` : null,
+    customerIds: Object.fromEntries(
+      Object.entries(identity.customerIds ?? {}).map(([bank, id]) => [bank, `••••${id.slice(-3)}`]),
+    ),
   };
+}
+
+/**
+ * A customer ID as the bank prints it: digits, sometimes letters. Axis's is
+ * nine digits and HDFC's eight to ten; anything shorter or with spaces inside
+ * is a typo, and a typo here only ever shows up as a statement that will not
+ * open months later.
+ */
+function cleanCustomerId(raw: string | null | undefined): string | null {
+  const value = (raw ?? "").replace(/\s/g, "");
+  if (value === "") return null;
+  if (!/^[A-Za-z0-9]{6,16}$/.test(value)) {
+    throw new Refusal("A customer ID is six to sixteen letters or digits, as the bank prints it.");
+  }
+  return value;
 }
 
 export function setIdentity(
   db: DB, actor: Actor,
-  input: { name: string; pan?: string | null; dob?: string | null; mobile?: string | null },
+  input: {
+    name: string; pan?: string | null; dob?: string | null; mobile?: string | null;
+    /** Left out, the saved IDs are kept; a bank given as "" is cleared. */
+    customerIds?: Partial<Record<CustomerIdBank, string | null>>;
+  },
 ): void {
   const memberId = actor.memberId;
   if (!memberId) throw new Error("This belongs to a member.");
@@ -93,6 +142,18 @@ export function setIdentity(
     throw new Refusal("Enter the full registered mobile number.");
   }
 
+  // Merged onto what is saved, so a form or caller that does not mention a
+  // bank leaves its ID alone.
+  let customerIds: CustomerIds | undefined;
+  if (input.customerIds) {
+    customerIds = { ...(getIdentity(db, memberId)?.customerIds ?? {}) };
+    for (const bank of CUSTOMER_ID_BANKS) {
+      if (!(bank in input.customerIds)) continue;
+      const id = cleanCustomerId(input.customerIds[bank]);
+      if (id) customerIds[bank] = id; else delete customerIds[bank];
+    }
+  }
+
   transact(db, () => {
     execute(
       db,
@@ -103,12 +164,21 @@ export function setIdentity(
          mobile = excluded.mobile, updated_at = excluded.updated_at`,
       memberId, name, pan ? pan.toUpperCase() : null, dob, mobile, nowIST(),
     );
+    if (customerIds) {
+      execute(
+        db, `UPDATE statement_identity SET customer_ids = ? WHERE member_id = ?`,
+        Object.keys(customerIds).length ? JSON.stringify(customerIds) : null, memberId,
+      );
+    }
 
     // R37 · The change is logged; the values are not. `after` is deliberately
     // a set of booleans — the log is permanent and widely read.
     appendEvent(db, actor, {
       entity: "statement-identity", entityId: memberId, action: "set",
-      after: { hasPan: pan !== null, hasDob: dob !== null, hasMobile: mobile !== null },
+      after: {
+        hasPan: pan !== null, hasDob: dob !== null, hasMobile: mobile !== null,
+        ...(customerIds ? { customerIdBanks: Object.keys(customerIds) } : {}),
+      },
       summary: "Updated the details statement passwords are worked out from",
     });
   });

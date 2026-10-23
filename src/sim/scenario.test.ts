@@ -248,6 +248,9 @@ describe("top-down · nothing in the domain went unexercised", () => {
       "between the household's own accounts — it types its card payments with " +
       "createTransfer — so the Review choice is covered by import-transfer.test.ts; " +
       "adding such a line would change the demo household's figures.",
+    importBudgetApp: "A household moves from YNAB or Actual Budget once, before it " +
+      "starts here; the simulated one starts here. It ends in ingest(), which the " +
+      "scenario calls every month, and budget-app-import.test.ts drives it end to end.",
   };
 
   test("every mutating domain function is called by the scenario", () => {

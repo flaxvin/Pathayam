@@ -30,17 +30,28 @@ type Encoding = {
   /** Byte or CID → string. Absent entries fall back to Latin-1. */
   map: Map<number, string>;
   twoByte: boolean;
+  /**
+   * Code → advance in thousandths of the font size, from /Widths or /W. Null
+   * when the font carries none (a standard-14 font), which falls back to the
+   * half-em estimate.
+   */
+  widths: Map<number, number> | null;
+  defaultWidth: number;
 };
+
+/** Without metrics, a glyph is taken to be half an em wide. */
+const ESTIMATED_WIDTH = 500;
 
 /** Every page's text, in document order, one entry per page. */
 export function extractPages(doc: PdfDocument): string[] {
   const pages: string[] = [];
   for (const page of findPages(doc)) {
     const resources = dictGet(doc, page, "Resources");
-    const fonts = isDict(resources) ? dictGet(doc, resources, "Font") : null;
     const content = contentBytes(doc, page);
     if (content.length === 0) continue;
-    pages.push(layout(extractPieces(doc, content, isDict(fonts) ? fonts : new Map())));
+    const pieces: Piece[] = [];
+    extractPieces(doc, content, isDict(resources) ? resources : new Map(), IDENTITY, pieces, { forms: 0 });
+    pages.push(layout(pieces));
   }
   return pages;
 }
@@ -132,7 +143,7 @@ const MAX_CMAP_RANGE_ENTRIES = 1 << 20;
 const cmapBudget = new WeakMap<PdfDocument, { left: number }>();
 
 function encodingFor(doc: PdfDocument, font: PdfValue): Encoding {
-  if (!isDict(font)) return { map: new Map(), twoByte: false };
+  if (!isDict(font)) return { map: new Map(), twoByte: false, widths: null, defaultWidth: ESTIMATED_WIDTH };
   let cache = encodings.get(doc);
   if (!cache) encodings.set(doc, cache = new Map());
   const known = cache.get(font);
@@ -174,7 +185,68 @@ function readEncoding(doc: PdfDocument, font: PdfDict): Encoding {
     }
   }
 
-  return { map, twoByte: composite };
+  const metrics = composite ? cidWidths(doc, font) : simpleWidths(doc, font);
+  return { map, twoByte: composite, ...metrics };
+}
+
+/** A simple font's /FirstChar + /Widths, with /MissingWidth for the rest. */
+function simpleWidths(doc: PdfDocument, font: PdfDict): Pick<Encoding, "widths" | "defaultWidth"> {
+  const widths = dictGet(doc, font, "Widths");
+  const first = dictGet(doc, font, "FirstChar");
+  if (!Array.isArray(widths) || typeof first !== "number") return { widths: null, defaultWidth: ESTIMATED_WIDTH };
+  const map = new Map<number, number>();
+  widths.forEach((w, i) => {
+    const value = resolve(doc, w);
+    if (typeof value === "number") map.set(first + i, value);
+  });
+  const descriptor = dictGet(doc, font, "FontDescriptor");
+  const missing = isDict(descriptor) ? dictGet(doc, descriptor, "MissingWidth") : null;
+  return { widths: map, defaultWidth: typeof missing === "number" && missing > 0 ? missing : ESTIMATED_WIDTH };
+}
+
+/** A Type0 font's descendant /W array (`c [w…]` and `c1 c2 w` forms) and /DW. */
+function cidWidths(doc: PdfDocument, font: PdfDict): Pick<Encoding, "widths" | "defaultWidth"> {
+  const descendants = dictGet(doc, font, "DescendantFonts");
+  const cid = Array.isArray(descendants) ? resolve(doc, descendants[0] ?? null) : null;
+  if (!isDict(cid)) return { widths: null, defaultWidth: ESTIMATED_WIDTH };
+  const dw = dictGet(doc, cid, "DW");
+  const defaultWidth = typeof dw === "number" ? dw : 1000;
+  const w = dictGet(doc, cid, "W");
+  const map = new Map<number, number>();
+  if (Array.isArray(w)) {
+    const items = w.map((v) => resolve(doc, v));
+    for (let i = 0; i < items.length;) {
+      const start = items[i];
+      const next = items[i + 1];
+      if (typeof start !== "number") break;
+      if (Array.isArray(next)) {
+        next.forEach((v, k) => {
+          const value = resolve(doc, v);
+          if (typeof value === "number") map.set(start + k, value);
+        });
+        i += 2;
+      } else {
+        const last = next;
+        const width = items[i + 2];
+        if (typeof last !== "number" || typeof width !== "number") break;
+        // Bounded: a range is a few hundred glyphs in any real font.
+        for (let c = start; c <= last && c - start < 65536; c++) map.set(c, width);
+        i += 3;
+      }
+    }
+  }
+  return { widths: map, defaultWidth };
+}
+
+/** The character codes in a shown string: two bytes each in a CID font. */
+function codesOf(raw: Uint8Array, twoByte: boolean): number[] {
+  const codes: number[] = [];
+  if (twoByte) {
+    for (let i = 0; i + 1 < raw.length; i += 2) codes.push((raw[i]! << 8) | raw[i + 1]!);
+  } else {
+    for (const b of raw) codes.push(b);
+  }
+  return codes;
 }
 
 function glyphToChar(name: string): string | null {
@@ -244,8 +316,31 @@ function decode(raw: Uint8Array, encoding: Encoding): string {
 // The content stream
 // ---------------------------------------------------------------------------
 
-function extractPieces(doc: PdfDocument, content: Uint8Array, fonts: PdfDict): Piece[] {
-  const pieces: Piece[] = [];
+const IDENTITY = [1, 0, 0, 1, 0, 0];
+
+/**
+ * How many form XObjects one page may draw, nested or repeated. CDSL's CAS
+ * draws each whole page as a single form; a page referencing the same form
+ * thousands of times is a decompression bomb by another route.
+ */
+const MAX_FORMS_PER_PAGE = 64;
+const MAX_FORM_DEPTH = 8;
+
+/**
+ * Collect positioned text from one content stream into `pieces`.
+ *
+ * `ctm` is the transform in force when this stream starts: identity for a
+ * page, the caller's matrix times the form's /Matrix for a form XObject. Text
+ * inside a form (`/Name Do`) is read with the form's own /Resources, because
+ * that is where its fonts live — a CDSL CAS has no fonts on the page at all.
+ */
+function extractPieces(
+  doc: PdfDocument, content: Uint8Array, resources: PdfDict, ctm: number[],
+  pieces: Piece[], budget: { forms: number }, depth = 0,
+): void {
+  const fontsValue = dictGet(doc, resources, "Font");
+  const fonts: PdfDict = isDict(fontsValue) ? fontsValue : new Map();
+  const ctmStack: number[][] = [];
   const lexer = new Lexer(content);
   const stack: PdfValue[] = [];
 
@@ -257,7 +352,7 @@ function extractPieces(doc: PdfDocument, content: Uint8Array, fonts: PdfDict): P
   let charSpacing = 0;
   let wordSpacing = 0;
   let horizontalScale = 1;
-  let encoding: Encoding = { map: new Map(), twoByte: false };
+  let encoding: Encoding = { map: new Map(), twoByte: false, widths: null, defaultWidth: ESTIMATED_WIDTH };
 
   const multiply = (a: number[], b: number[]): number[] => [
     a[0]! * b[0]! + a[1]! * b[2]!,
@@ -272,17 +367,55 @@ function extractPieces(doc: PdfDocument, content: Uint8Array, fonts: PdfDict): P
     const text = decode(raw, encoding);
     if (text === "") return;
 
-    // No font metrics are read, so glyph advance is approximated. It only has
-    // to be good enough to tell a column gap from a letter gap.
+    // The font's own widths where it has them. Registrars place glyphs one at
+    // a time; with a half-em guess every letter of CAMS's "Redemption" looked
+    // a column apart from the next and came out as "R e d e m p t i o n".
+    const codes = codesOf(raw, encoding.twoByte);
+    let glyphs = 0;
+    for (const code of codes) {
+      glyphs += encoding.widths ? encoding.widths.get(code) ?? encoding.defaultWidth : ESTIMATED_WIDTH;
+    }
+    const spaces = encoding.twoByte ? 0 : codes.filter((c) => c === 0x20).length;
     const advance =
-      (text.length * fontSize * 0.5 + text.length * charSpacing +
-        (text.split(" ").length - 1) * wordSpacing) * horizontalScale;
+      ((glyphs / 1000) * fontSize + codes.length * charSpacing + spaces * wordSpacing) * horizontalScale;
 
-    pieces.push({ x: tm[4]!, y: tm[5]!, text, width: advance });
+    // Text set at an angle — a watermark, a reference number down the margin
+    // — is never part of a table, and read upright it lands one letter per
+    // line through the middle of the statement.
+    const a = tm[0]! * ctm[0]! + tm[1]! * ctm[2]!;
+    const b = tm[0]! * ctm[1]! + tm[1]! * ctm[3]!;
+    if (Math.abs(b) > Math.abs(a) * 0.01) {
+      tm = multiply([1, 0, 0, 1, advance, 0], tm);
+      return;
+    }
+
+    // Into the page's space, so text drawn inside a form lines up with text
+    // drawn directly on the page.
+    const x = tm[4]! * ctm[0]! + tm[5]! * ctm[2]! + ctm[4]!;
+    const y = tm[4]! * ctm[1]! + tm[5]! * ctm[3]! + ctm[5]!;
+    pieces.push({ x, y, text, width: advance * Math.abs(a) });
     tm = multiply([1, 0, 0, 1, advance, 0], tm);
   };
 
   const num = (v: PdfValue | undefined): number => (typeof v === "number" ? v : 0);
+
+  const drawForm = (name: string): void => {
+    if (depth >= MAX_FORM_DEPTH || budget.forms >= MAX_FORMS_PER_PAGE) return;
+    const xobjects = dictGet(doc, resources, "XObject");
+    if (!isDict(xobjects)) return;
+    const form = resolve(doc, xobjects.get(name) ?? null);
+    if (!isStream(form)) return;
+    const subtype = dictGet(doc, form.dict, "Subtype");
+    if (!isName(subtype) || subtype.name !== "Form") return; // an image has no text
+    budget.forms++;
+    const matrix = dictGet(doc, form.dict, "Matrix");
+    const formMatrix = Array.isArray(matrix) && matrix.length === 6 ? matrix.map((v) => num(resolve(doc, v))) : IDENTITY;
+    const own = dictGet(doc, form.dict, "Resources");
+    extractPieces(
+      doc, decodeStream(doc, form), isDict(own) ? own : resources,
+      multiply(formMatrix, ctm), pieces, budget, depth + 1,
+    );
+  };
 
   for (;;) {
     lexer.skipSpace();
@@ -303,6 +436,18 @@ function extractPieces(doc: PdfDocument, content: Uint8Array, fonts: PdfDict): P
     if (op === "") { lexer.pos++; continue; }
 
     switch (op) {
+      case "q": ctmStack.push(ctm); break;
+      case "Q": ctm = ctmStack.pop() ?? ctm; break;
+      case "cm": {
+        const m = stack.slice(-6).map(num);
+        if (m.length === 6) ctm = multiply(m, ctm);
+        break;
+      }
+      case "Do": {
+        const name = stack[stack.length - 1];
+        if (isName(name)) drawForm(name.name);
+        break;
+      }
       case "BT":
         tm = [1, 0, 0, 1, 0, 0];
         tlm = tm;
@@ -371,8 +516,6 @@ function extractPieces(doc: PdfDocument, content: Uint8Array, fonts: PdfDict): P
     }
     stack.length = 0;
   }
-
-  return pieces;
 }
 
 /**
@@ -418,23 +561,32 @@ function layout(pieces: Piece[]): string {
     .map((line) => {
       line.sort((a, b) => a.x - b.x);
       let out = "";
+      let end = -Infinity;
       let endsInSpace = false;
       for (const piece of line) {
         // No real page is wider than MAX_COLUMN characters. A piece placed
         // millions of units out would otherwise be padded with that many
         // spaces — gigabytes of string from a few bytes of PDF.
         const column = Math.min(MAX_COLUMN, Math.max(0, Math.round((piece.x - left) / charWidth)));
-        // Never let padding swallow a piece: two adjacent words keep one space
-        // between them even if their computed columns collide.
+        // A piece that starts where the last one ended is the same word, set
+        // glyph by glyph or kerned: "MO" + "TILAL" is MOTILAL, not "MO TILAL".
         // The last character is remembered, not read back: reading a string
         // still being built copies all of it, once per piece.
-        if (column > out.length) out += " ".repeat(column - out.length);
-        else if (out.length > 0 && !endsInSpace) out += " ";
+        const continues = Math.abs(piece.x - end) < charWidth * 0.2 && !endsInSpace;
+        if (!continues) {
+          if (column > out.length) out += " ".repeat(column - out.length);
+          // Never let padding swallow a piece: two adjacent words keep one
+          // space between them even if their computed columns collide.
+          else if (out.length > 0 && !endsInSpace) out += " ";
+        }
         out += piece.text;
+        end = piece.x + piece.width;
         // A piece is never empty: `show` drops those.
         endsInSpace = piece.text.endsWith(" ");
       }
-      return out.replace(/[ \t]+$/, "");
+      // trimEnd, not /[ \t]+$/: the regex restarts at every space run on the
+      // line, which is quadratic on a wide page and took 30s on one statement.
+      return out.trimEnd();
     })
     .filter((l) => l.trim() !== "")
     .join("\n");

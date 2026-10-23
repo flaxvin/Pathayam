@@ -193,6 +193,26 @@ export interface RawRecord {
    * card by its last four, which the narration (a merchant) does not repeat.
    */
   cardId?: string | null;
+  /**
+   * IMPORT-1 · What a budgeting app's export had already decided about the
+   * row: its payee, memo, envelope, the account on the other side of a
+   * transfer, a split. All proposals, staged for Review like a rule's.
+   */
+  proposed?: ProposedFields;
+}
+
+export interface ProposedFields {
+  payee: string | null;
+  memo: string | null;
+  categoryId: string | null;
+  transferAccountId: string | null;
+  splits: ProposedSplit[] | null;
+}
+
+export interface ProposedSplit {
+  categoryId: string | null;
+  amount: Paise;
+  memo: string | null;
 }
 
 export interface ParseError {

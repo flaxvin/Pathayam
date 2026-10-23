@@ -46,7 +46,7 @@ export { WrongPassword };
 
 export type BankId =
   | "hdfc" | "icici" | "axis" | "sbi"
-  | "union" | "canara" | "yes" | "indusind" | "kotak" | "rbl" | "hsbc"
+  | "union" | "canara" | "yes" | "indusind" | "kotak" | "rbl" | "hsbc" | "sc"
   /** Contract notes and funds statements from a broker, not a bank. */
   | "broker";
 
@@ -86,12 +86,17 @@ export const BANKS: BankProfile[] = [
     id: "axis",
     name: "Axis Bank",
     passwordHint:
-      "The first four letters of your name in lower case, followed by your " +
-      "date and month of birth as DDMM. No spaces or special characters.",
+      "Account statement: the first four letters of your name in capitals, " +
+      "followed by your 9-digit customer ID. Credit card statement: the first " +
+      "four letters in lower case, followed by your date and month of birth as DDMM.",
     signatures: [
       /AXIS\s*BANK/i, /axisbank\.com/i,
       // UTIB is Axis's IFSC prefix, from the days it was UTI Bank.
       /\bIFSC\b[^\n]{0,24}?\bUTIB\d/i, /Statement\s+of\s+Axis\s+Account/i,
+      // The monthly "Relationship Statement" names the bank nowhere above its
+      // table: only its reward-points heading, and the IFSC printed as a cell
+      // under an "IFSC Code" heading on the line above.
+      /Axis\s*eDGE/i, /(?:^|\s{2})UTIB0[A-Z0-9]{6}(?=\s{2}|$)/m,
     ],
   },
   {
@@ -175,6 +180,16 @@ BANKS.push(
     signatures: [/\bHSBC\b/i, /hsbc\.co\.in/i, /\bIFSC\b[^\n]{0,24}?\bHSBC\d/i],
   },
   {
+    id: "sc",
+    name: "Standard Chartered",
+    // Quoted: "first 4 letters of your name as embossed on your credit card,
+    // followed by your date of birth … DDMMYY … entered in uppercase".
+    passwordHint:
+      "The first four letters of your name as embossed on the card, in " +
+      "capitals, then your date of birth as DDMMYY.",
+    signatures: [/Standard\s*Chartered/i, /\bsc\.com\b/i, /\bIFSC\b[^\n]{0,24}?\bSCBL\d/i],
+  },
+  {
     id: "broker",
     name: "Your broker",
     // Quoted from Upstox: "use your PAN (in lowercase)".
@@ -206,7 +221,29 @@ export function bankForInstitution(institution: string | null | undefined): Bank
   return null;
 }
 
+/**
+ * Documents that arrive from a statement sender but are not a bank's.
+ *
+ * A mutual-fund statement prints the payout bank ("Bank Name : AXIS BANK",
+ * an Axis IFSC), so detection took it for an Axis account and the parser read
+ * a unit purchase as a payment. These belong to the portfolio importer, and an
+ * exchange's funds-and-securities balance belongs nowhere: neither has a row
+ * that is a movement of money in a bank account.
+ */
+const NOT_A_BANK: { pattern: RegExp; what: string }[] = [
+  { pattern: /\bFolio\s*(?:No|Number)\b/i, what: "a mutual fund statement" },
+  { pattern: /\bAdvisor\s*\/\s*Distributor\b|\bARN\s*Code\b|\bEUIN\b/i, what: "a mutual fund statement" },
+  { pattern: /Consolidated\s+Account\s+Statement/i, what: "a consolidated account statement (CAS)" },
+  { pattern: /funds\s+and\s+securities\s+balances?\b|\bNSE\/INSP\//i, what: "an exchange's funds and securities balance" },
+];
+
+export function nonBankDocument(text: string): string | null {
+  const head = text.split("\n").filter((line) => findDate(line) === null).slice(0, 40).join("\n");
+  return NOT_A_BANK.find((n) => n.pattern.test(head))?.what ?? null;
+}
+
 export function detectBank(text: string): BankProfile | null {
+  if (nonBankDocument(text) !== null) return null;
   /*
    * Everything above the first transaction row decides.
    *
@@ -843,6 +880,27 @@ function balanceOf(text: string): number | null {
   return overdrawn ? -figure : figure;
 }
 
+/**
+ * A balance line with its Dr/Cr marker, when the marker wrapped.
+ *
+ * Union Bank's summary prints "Opening Balance : 17,63,499.00" with "Dr" alone
+ * on the line below. Read without it, a loan's opening balance was positive and
+ * every row after it was out by twice the debt.
+ */
+function withWrappedMarker(lines: string[], i: number): string {
+  const line = lines[i]!;
+  if (!/\d\.\d{2}\s*$/.test(line)) return line;
+  // Scanned forward in place: copying the rest of the page for every line
+  // made a long statement quadratic.
+  let j = i + 1;
+  while (j < lines.length && lines[j]!.trim() === "") j++;
+  const next = lines[j];
+  if (next !== undefined && /^(?:Dr|Cr)\.?$/i.test(next.trim())) {
+    return line.trimEnd() + " " + next.trim();
+  }
+  return line;
+}
+
 /** An opening-balance line, which anchors the fallback path's first row. */
 function openingBalanceOf(line: string): number | null {
   if (!/opening\s+balance|b\/?f\b|brought\s+forward/i.test(line)) return null;
@@ -885,6 +943,7 @@ const LAYOUTS: Partial<Record<BankId, { separateColumns: boolean; skip: RegExp[]
   // The GST line is the statement's tax summary — dated, zero, and not a row.
   rbl: { separateColumns: false, skip: [/^date\b/i, /account summary/i, /goods\s*&\s*service\s*tax/i] },
   hsbc: { separateColumns: false, skip: [/^date\b/i, /^description/i] },
+  sc: { separateColumns: false, skip: [/^date\b/i, /^description/i] },
   broker: { separateColumns: true, skip: [/^date\b/i, /contract note/i] },
 };
 
@@ -907,6 +966,9 @@ const UNIVERSAL_SKIP = [
    * a payee called "BF Traders" keeps its transactions.
    */
   /opening\s+balance|brought\s+forward|carried\s+forward|\bb\/f\b|\bc\/f\b/i,
+  // Its other end. IndusInd dates it ("30-Sep-2025  Closing Balance  269.00"),
+  // and a dated line with one figure read as a ₹269 payment out.
+  /closing\s+balance/i,
 ];
 
 export interface StatementParse extends ParseResult {
@@ -933,6 +995,11 @@ export interface StatementParse extends ParseResult {
     difference: Paise;
     ok: boolean;
   } | null;
+  /**
+   * What the file is, when it is not a bank statement at all — a mutual fund
+   * statement, a CAS, an exchange's balance report. Nothing is read from it.
+   */
+  notAStatement?: string | null;
 }
 
 /**
@@ -944,6 +1011,10 @@ export interface StatementParse extends ParseResult {
 export function parseStatementText(
   text: string, bankId?: BankId, opts: { alreadySliced?: boolean } = {},
 ): StatementParse {
+  const notAStatement = bankId ? null : nonBankDocument(text);
+  if (notAStatement !== null) {
+    return { records: [], errors: [], rowsRead: 0, bank: null, text, reconciliation: null, notAStatement };
+  }
   const bank = bankId ? BANKS.find((b) => b.id === bankId) ?? null : detectBank(text);
   const layout = bank ? LAYOUTS[bank.id] : null;
   const records: RawRecord[] = [];
@@ -957,8 +1028,8 @@ export function parseStatementText(
   // in a summary block below the table — so it is found in a pass of its own
   // rather than picked up on the way past.
   let previousBalance: number | null = null;
-  for (const line of all) {
-    const open = openingBalanceOf(line);
+  for (const [i] of all.entries()) {
+    const open = openingBalanceOf(withWrappedMarker(all, i));
     if (open !== null) { previousBalance = open; break; }
   }
 
@@ -1008,12 +1079,28 @@ export function parseStatementText(
      * it parses as a ₹3,00,000 debit unless the range is recognised for what
      * it is.
      */
+    /*
+     * Anchored at the row's own date. Tested anywhere on the line, IndusInd's
+     * interest row ("30-Sep-2025  …:Int.Pd:01-07-2025 to 30-09-2025  2.00")
+     * was a period too, and the statement read nothing.
+     */
     const isPeriod =
       found !== null &&
-      /\d{1,2}[-\s/][\w]{2,9}[-\s/]\d{2,4}\s*(?:to|through|–|—)\s*\d{1,2}[-\s/][\w]{2,9}[-\s/]\d{2,4}/i
-        .test(bare);
+      /^\d{1,2}[-\s/][\w]{2,9}[-\s/]\d{2,4}\s*(?:to|through|–|—)\s*\d{1,2}[-\s/][\w]{2,9}[-\s/]\d{2,4}/i
+        .test(raw.slice(found.start));
 
-    if (found && !ended && !isPeriod) {
+    /*
+     * A date that is the whole line, or that opens a sentence ("12-02-26. For
+     * details, visit …"), is the tail of wrapped prose — Union Bank wraps the
+     * end of an interest period onto its own line. With no figure it could
+     * never be read, and each one was reported as a broken row.
+     */
+    const isProse =
+      found !== null &&
+      figuresWithOffsets(raw).length === 0 &&
+      /^\s*(?:[.,;:]\s.*)?$/.test(raw.slice(found.end));
+
+    if (found && !ended && !isPeriod && !isProse) {
       classified.push({ raw, kind: "row", date: found.date });
       continue;
     }
@@ -1187,11 +1274,14 @@ function reconcile(
   let opening: number | null = null;
   let closing: number | null = null;
 
-  for (const line of lines) {
+  for (const [i] of lines.entries()) {
+    const line = withWrappedMarker(lines, i);
     const open = openingBalanceOf(line);
     if (open !== null && opening === null) opening = open;
 
-    if (/closing\s+balance/i.test(line)) {
+    // ICICI's TDS summary below the table has its own "Closing Balance
+    // (Cumulative) 704.00 0.00" — interest to date, not the account balance.
+    if (/closing\s+balance/i.test(line) && !/cumulative/i.test(line)) {
       const figures = figuresWithOffsets(line).filter((f) => /\.\d{2}\b/.test(f.text));
       const last = figures[figures.length - 1];
       if (last) closing = balanceOf(last.text);
@@ -1267,25 +1357,97 @@ export function openStatement(
  * address that sends a statement is the address that will send an alert — and
  * because the Gmail adapter does not exist yet.
  */
-export const STATEMENT_SENDERS: { pattern: RegExp; bank: BankId | null; what: string }[] = [
-  { pattern: /@hdfcbank\.bank\.in$/i, bank: "hdfc", what: "HDFC credit card statement" },
-  { pattern: /^estatement@icici\.bank\.in$/i, bank: "icici", what: "ICICI account statement" },
-  { pattern: /^credit_cards@icici\.bank\.in$/i, bank: "icici", what: "ICICI credit card statement" },
-  { pattern: /^(statements|alerts|cc\.statements)@axis\.bank\.in$/i, bank: "axis", what: "Axis statement" },
-  { pattern: /@alerts\.sbi\.bank\.in$/i, bank: "sbi", what: "SBI account statement" },
-  { pattern: /^statements@sbicard\.com$/i, bank: "sbi", what: "SBI Card statement" },
-  { pattern: /@ubi\.bank\.in$/i, bank: "union", what: "Union Bank account statement" },
-  { pattern: /^estatement@yes\.bank\.in$/i, bank: "yes", what: "YES Bank credit card statement" },
-  { pattern: /@canarabank\.com$/i, bank: "canara", what: "Canara Bank credit card statement" },
-  { pattern: /@rbl\.bank\.in$/i, bank: "rbl", what: "RBL Bank credit card statement" },
-  { pattern: /@mail\.hsbc\.co\.in$/i, bank: "hsbc", what: "HSBC statement" },
-  { pattern: /@indusind\.com$/i, bank: "indusind", what: "IndusInd statement" },
-  { pattern: /@transactions\.upstox\.com$/i, bank: "broker", what: "Upstox funds or demat statement" },
-  { pattern: /@transactions\.indmoney\.com$/i, bank: "broker", what: "INDmoney statement" },
-  { pattern: /^eCAS@cdslstatement\.com$/i, bank: null, what: "CDSL CAS — goes to the portfolio importer" },
-  { pattern: /@camsonline\.com$/i, bank: null, what: "CAMS mutual fund statement" },
+export interface StatementSender {
+  pattern: RegExp;
+  bank: BankId | null;
+  what: string;
+  /**
+   * What the Gmail search names for this sender: a full address, or `@domain`
+   * for a whole domain. Kept beside the pattern so a sender recognised here is
+   * also one the fetch asks Gmail for; the two lists used to drift apart.
+   */
+  query: string[];
+}
+
+/*
+ * IMPORT-SND-1 · Banks moved to `.bank.in` during 2025-26, and for years
+ * before that the same statements came from `hdfcbank.net`, `icicibank.com`,
+ * `axisbank.com`, `alerts.sbi.co.in` and `unionbankofindia.com` — Union Bank's
+ * quarterly statement still does. Only the new domains were listed, so every
+ * older statement in a mailbox was neither recognised nor fetched.
+ */
+export const STATEMENT_SENDERS: StatementSender[] = [
+  {
+    pattern: /^hdfcbanksmartstatement@hdfcbank\.(bank\.in|net)$/i, bank: "hdfc",
+    what: "HDFC account statement",
+    query: ["hdfcbanksmartstatement@hdfcbank.bank.in", "hdfcbanksmartstatement@hdfcbank.net"],
+  },
+  {
+    pattern: /@hdfcbank\.(bank\.in|net)$/i, bank: "hdfc", what: "HDFC credit card statement",
+    query: ["@hdfcbank.bank.in", "emailstatements.cards@hdfcbank.net"],
+  },
+  {
+    pattern: /^estatement@icici(\.bank\.in|bank\.com)$/i, bank: "icici", what: "ICICI account statement",
+    query: ["estatement@icici.bank.in", "estatement@icicibank.com"],
+  },
+  {
+    pattern: /^credit_cards@icici(\.bank\.in|bank\.com)$/i, bank: "icici",
+    what: "ICICI credit card statement",
+    query: ["credit_cards@icici.bank.in", "credit_cards@icicibank.com"],
+  },
+  {
+    pattern: /^(statements|alerts|cc\.statements)@axis(\.bank\.in|bank\.com)$/i, bank: "axis",
+    what: "Axis statement",
+    query: ["@axis.bank.in", "statements@axisbank.com", "cc.statements@axisbank.com"],
+  },
+  {
+    pattern: /@alerts\.sbi\.(bank\.in|co\.in)$/i, bank: "sbi", what: "SBI account statement",
+    query: ["@alerts.sbi.bank.in", "cbssbi.cas@alerts.sbi.co.in"],
+  },
+  { pattern: /^statements@sbicard\.com$/i, bank: "sbi", what: "SBI Card statement", query: ["statements@sbicard.com"] },
+  {
+    pattern: /(@ubi\.bank\.in|^noreplyunionbank@unionbankofindia\.com)$/i, bank: "union",
+    what: "Union Bank account statement",
+    query: ["@ubi.bank.in", "noreplyunionbank@unionbankofindia.com"],
+  },
+  {
+    pattern: /^estatement@yes(\.bank\.in|bank\.in)$/i, bank: "yes", what: "YES Bank credit card statement",
+    query: ["estatement@yes.bank.in", "estatement@yesbank.in"],
+  },
+  { pattern: /@canarabank\.com$/i, bank: "canara", what: "Canara Bank credit card statement", query: ["@canarabank.com"] },
+  { pattern: /@rbl\.bank\.in$/i, bank: "rbl", what: "RBL Bank credit card statement", query: ["@rbl.bank.in"] },
+  { pattern: /@mail\.hsbc\.co\.in$/i, bank: "hsbc", what: "HSBC statement", query: ["@mail.hsbc.co.in"] },
+  { pattern: /@indusind\.com$/i, bank: "indusind", what: "IndusInd statement", query: ["@indusind.com"] },
+  // IMPORT-SND-2 · Statement senders in a real mailbox that had no entry at
+  // all. None has a bank profile yet, so each is recognised and named but, like
+  // a CAS, resolves to no account on its own.
+  {
+    pattern: /^global\.e-statement-in@sc\.com$/i, bank: "sc", what: "Standard Chartered credit card statement",
+    query: ["global.e-statement-in@sc.com"],
+  },
+  { pattern: /^alerts@esafbank\.com$/i, bank: null, what: "ESAF Bank account statement", query: ["alerts@esafbank.com"] },
+  { pattern: /^estatements@safegold\.in$/i, bank: null, what: "SafeGold statement", query: ["estatements@safegold.in"] },
+  {
+    pattern: /@mailer\.proteantech\.in$/i, bank: null, what: "NPS transaction statement",
+    query: ["@mailer.proteantech.in"],
+  },
+  {
+    pattern: /@transactions\.upstox\.com$/i, bank: "broker", what: "Upstox funds or demat statement",
+    query: ["@transactions.upstox.com"],
+  },
+  {
+    pattern: /@transactions\.indmoney\.com$/i, bank: "broker", what: "INDmoney statement",
+    query: ["@transactions.indmoney.com"],
+  },
+  {
+    pattern: /^eCAS@cdslstatement\.com$/i, bank: null, what: "CDSL CAS — goes to the portfolio importer",
+    query: ["eCAS@cdslstatement.com"],
+  },
+  { pattern: /@camsonline\.com$/i, bank: null, what: "CAMS mutual fund statement", query: ["@camsonline.com"] },
+  { pattern: /@kfintech\.com$/i, bank: null, what: "KFintech mutual fund statement", query: ["@kfintech.com"] },
 ];
 
 export function senderFor(address: string): { bank: BankId | null; what: string } | null {
-  return STATEMENT_SENDERS.find((s) => s.pattern.test(address.trim())) ?? null;
+  const hit = STATEMENT_SENDERS.find((s) => s.pattern.test(address.trim()));
+  return hit ? { bank: hit.bank, what: hit.what } : null;
 }

@@ -9,6 +9,10 @@ import { cameWithTheCard } from "../../domain/card-shortfall.ts";
 import type { Account, Card, CardStatement } from "../../domain/accounts.ts";
 import { ACCOUNT_SUBTYPES, SUBTYPE_LABELS, MANAGED_SUBTYPES } from "../../domain/accounts.ts";
 import type { AssetEvent } from "../../domain/assets.ts";
+import {
+  DEPOSIT_KINDS, DEPOSIT_KIND_LABELS, COMPOUNDINGS, COMPOUNDING_LABELS, DEFAULT_COMPOUNDING,
+  type DepositTerms,
+} from "../../deposits/accrual.ts";
 import type { AccountKind } from "../../domain/accounts.ts";
 
 /** What each kind means, said once, where the choice is made. */
@@ -44,6 +48,11 @@ export interface AccountRow {
    * appear nowhere.
    */
   derived?: { value: Paise; label: string; href: string } | null;
+  /**
+   * DEPOSITS · For a deposit with terms, what it is worth today and where that
+   * figure came from. Its register balance is not its worth any more.
+   */
+  deposit?: { value: Paise; source: "hand" | "terms" } | null;
 }
 
 /**
@@ -151,6 +160,9 @@ function renderAccountRow(row: AccountRow): SafeHtml {
           <!-- Reconciling means comparing against a statement. There is no
                statement for gold, a flat, or a loan's schedule. -->
           ${when(!row.derived, () => renderStateChip(row))}
+          ${when(row.deposit, () => html`
+            <span class="chip">${row.deposit!.source === "terms" ? "computed from terms" : "valued by hand"}</span>
+          `)}
           ${when(row.funding && row.funding.unfunded > 0, () => html`
             <span class="chip chip-warning">
               ${formatPaise(row.funding!.unfunded)} unfunded
@@ -170,9 +182,9 @@ function renderAccountRow(row: AccountRow): SafeHtml {
             its transaction balance. The balance on a loan or a demat account
             is usually zero, so the row read "₹0" for eighteen lakh of debt.
           -->
-          <strong class="amount ${(row.derived?.value ?? balances.working) < 0 ? "amount-negative" : ""}">
-            <span aria-hidden="true">${formatPaise(row.derived?.value ?? balances.working)}</span>
-            <span class="sr-only">${speakPaise(row.derived?.value ?? balances.working)}</span>
+          <strong class="amount ${(row.derived?.value ?? row.deposit?.value ?? balances.working) < 0 ? "amount-negative" : ""}">
+            <span aria-hidden="true">${formatPaise(row.derived?.value ?? row.deposit?.value ?? balances.working)}</span>
+            <span class="sr-only">${speakPaise(row.derived?.value ?? row.deposit?.value ?? balances.working)}</span>
           </strong>
           ${when(balances.uncleared !== 0, () => html`
             <div class="faint">${formatPaise(balances.uncleared)} uncleared</div>
@@ -257,6 +269,20 @@ export function renderAccountDetail(opts: {
    * somebody can finally read it, on the screen they reached from Accounts.
    */
   assetEvents?: AssetEvent[] | null;
+  /**
+   * DEPOSITS · For an account that can carry deposit terms: the terms, if
+   * set, what they make it worth, and the figure that stands — which is a hand
+   * valuation instead when one is dated on or after the basis date.
+   */
+  deposit?: {
+    terms: DepositTerms | null;
+    description: string | null;
+    computed: Paise | null;
+    basisDate: IsoDate | null;
+    maturity: { date: IsoDate; amount: Paise } | null;
+    standing: { value: Paise; asOf: IsoDate; source: "hand" | "terms" } | null;
+    today: IsoDate;
+  } | null;
 }): SafeHtml {
   const { account, balances, rows, cards, funding } = opts;
 
@@ -442,6 +468,7 @@ export function renderAccountDetail(opts: {
       </form>
     </details>
 
+    ${when(opts.deposit, () => renderDepositPanel(account, opts.deposit!))}
     ${when(account.kind === "credit", () => renderCardPanel(opts))}
     ${when(cards.length > 1, () => renderCardBreakdown(cards, account.id))}
 
@@ -554,6 +581,146 @@ export function renderAccountDetail(opts: {
           `}
     </section>
   `}
+  `;
+}
+
+/**
+ * DEPOSITS · The fields of a deposit's terms, shared by the account page and
+ * the new-account form. `prefix` keeps the ids apart; the names are the same
+ * everywhere, because one route reads them.
+ */
+export function depositTermsFields(prefix: string, terms: DepositTerms | null, opts: { optional?: boolean } = {}): SafeHtml {
+  const rate = terms ? (terms.rateBp / 100).toString() : "";
+  const amount = (p: number | null | undefined) => (p ? (p / 100).toFixed(2) : "");
+  return html`
+    <div class="grid-2">
+      <div class="field">
+        <label for="${prefix}-kind">What kind of deposit</label>
+        <select id="${prefix}-kind" name="deposit_kind" ${raw(opts.optional ? "" : "required")}>
+          ${when(opts.optional, () => html`<option value="">No terms — worth its balance</option>`)}
+          ${DEPOSIT_KINDS.map((k) => html`
+            <option value="${k}" ${raw(terms?.kind === k ? "selected" : "")}>${DEPOSIT_KIND_LABELS[k]}</option>
+          `)}
+        </select>
+      </div>
+      <div class="field">
+        <label for="${prefix}-rate">Interest rate, % a year</label>
+        <input id="${prefix}-rate" name="deposit_rate" inputmode="decimal" autocomplete="off"
+               placeholder="7.1" value="${rate}">
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="field">
+        <label for="${prefix}-principal">Principal <span class="faint">(an FD, PPF, EPF or other)</span></label>
+        <input id="${prefix}-principal" name="deposit_principal" class="amount-input" inputmode="decimal"
+               autocomplete="off" value="${amount(terms?.principal)}">
+        <p class="field-hint">For a PPF or EPF already running, the balance on the start date.</p>
+      </div>
+      <div class="field">
+        <label for="${prefix}-instalment">Monthly instalment <span class="faint">(an RD)</span></label>
+        <input id="${prefix}-instalment" name="deposit_instalment" class="amount-input" inputmode="decimal"
+               autocomplete="off" value="${amount(terms?.instalment)}">
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="field">
+        <label for="${prefix}-start">Started on</label>
+        <input id="${prefix}-start" name="deposit_start_date" type="date" value="${terms?.startDate ?? ""}">
+      </div>
+      <div class="field">
+        <label for="${prefix}-maturity">Matures on <span class="faint">(optional)</span></label>
+        <input id="${prefix}-maturity" name="deposit_maturity_date" type="date" value="${terms?.maturityDate ?? ""}">
+      </div>
+    </div>
+    <div class="grid-2">
+      <div class="field">
+        <label for="${prefix}-compounding">Interest</label>
+        <select id="${prefix}-compounding" name="deposit_compounding">
+          <option value="">The usual for the kind</option>
+          ${COMPOUNDINGS.map((c) => html`
+            <option value="${c}" ${raw(terms?.compounding === c ? "selected" : "")}>${COMPOUNDING_LABELS[c]}</option>
+          `)}
+        </select>
+        <p class="field-hint">
+          The usual: an FD or RD ${COMPOUNDING_LABELS[DEFAULT_COMPOUNDING.fd]}; a PPF or EPF
+          credited once a year on 31 March.
+        </p>
+      </div>
+      <div class="field">
+        <label for="${prefix}-payout">The interest</label>
+        <select id="${prefix}-payout" name="deposit_payout">
+          <option value="cumulative" ${raw(terms?.payout === "periodic" ? "" : "selected")}>Stays in, paid at maturity</option>
+          <option value="periodic" ${raw(terms?.payout === "periodic" ? "selected" : "")}>Paid out as it is earned</option>
+        </select>
+      </div>
+    </div>
+  `;
+}
+
+/** DEPOSITS · What the terms make the account worth, and the forms to change them. */
+function renderDepositPanel(
+  account: Account,
+  deposit: NonNullable<Parameters<typeof renderAccountDetail>[0]["deposit"]>,
+): SafeHtml {
+  const { terms, standing } = deposit;
+  return html`
+    <section class="card" id="terms">
+      <h2>Deposit terms</h2>
+      ${terms && standing
+        ? html`
+            <p style="margin-top:0">
+              <strong class="amount">${formatPaise(standing.value)}</strong>
+              ${standing.source === "terms"
+                ? html`today, <span class="chip">computed from terms</span>`
+                : html`
+                    as of ${formatDate(standing.asOf)}, <span class="chip">valued by hand</span>
+                    <br><span class="faint">
+                      Your valuation is dated on or after ${formatDate(deposit.basisDate!)}, when the
+                      figure was last computed from, so it stands. The terms make it
+                      ${formatPaise(deposit.computed!)} today; the next contribution or change
+                      of terms hands it back to them.
+                    </span>
+                  `}
+            </p>
+            <p class="faint">${deposit.description}.</p>
+            ${deposit.maturity
+              ? html`
+                  <p>
+                    ${deposit.maturity.date < deposit.today ? "Matured" : "Matures"} on
+                    <strong>${formatDate(deposit.maturity.date)}</strong>, paying
+                    <strong>${formatPaise(deposit.maturity.amount)}</strong>.
+                    Nothing is posted for you: record the money where it lands, then close this
+                    account or set new terms if it was renewed.
+                  </p>
+                `
+              : html``}
+            <details>
+              <summary class="linkish">Change the terms</summary>
+              <form method="post" action="/accounts/${account.id}/deposit" style="margin-top:.75rem">
+                ${depositTermsFields("dep-edit", terms)}
+                <button type="submit">Save the terms</button>
+              </form>
+            </details>
+            <form method="post" action="/accounts/${account.id}/deposit/remove"
+                  style="margin-top:1rem;border-top:1px solid var(--border);padding-top:1rem">
+              <p class="faint" style="margin-top:0">
+                Without terms it is worth its balance again, or its latest valuation.
+              </p>
+              <button class="button-small button-danger" type="submit">Remove the terms</button>
+            </form>
+          `
+        : html`
+            <p class="faint" style="margin-top:0">
+              Give the terms and this is worth what they say on any day — net worth, the
+              allocation and FIRE use that figure, and the maturity shows on the cashflow
+              calendar. Until then it is worth its balance.
+            </p>
+            <form method="post" action="/accounts/${account.id}/deposit">
+              ${depositTermsFields("dep-new", null)}
+              <button type="submit">Value it from these terms</button>
+            </form>
+          `}
+    </section>
   `;
 }
 
@@ -759,8 +926,9 @@ export function renderNewAccountForm(opts: {
             stayed at the figure it opened with forever.
           -->
           A tracking account is worth whatever its register adds up to — until
-          you say otherwise. For anything that grows on its own, like a PPF or a
-          deposit, record what it is worth from time to time on
+          you say otherwise. A fixed or recurring deposit, a PPF or an EPF can
+          value itself: give its terms below and it is worth what they say on any
+          day. Anything else that grows on its own, record from time to time on
           <a href="/portfolio/valuations">Update valuations</a>, and that figure
           is the one net worth uses.
         </p>
@@ -782,6 +950,19 @@ export function renderNewAccountForm(opts: {
           <p class="field-hint">Defaults to today. DD-MM also works.</p>
         </div>
       </div>
+
+      <!--
+        DEPOSITS · Offered where a deposit is created, so an FD or PPF entered
+        here values itself from the start. Ignored for any other kind.
+      -->
+      <details class="card">
+        <summary class="linkish">A deposit? Give its terms <span class="faint">(optional)</span></summary>
+        <p class="field-hint">
+          For a fixed or recurring deposit, or an other asset that is a PPF, EPF or similar.
+          With terms, it is worth what they say on any day rather than its balance.
+        </p>
+        ${depositTermsFields("new-dep", null, { optional: true })}
+      </details>
 
       <div class="grid-2">
         <div class="field">

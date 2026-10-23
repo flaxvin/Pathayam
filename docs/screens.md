@@ -28,10 +28,11 @@ answer 404 when the viewer may not see the entity
 | `GET /accounts`, `GET /accounts/new` | List with cleared / uncleared / working balances. |
 | `GET /accounts/:id` | Register with running balance. |
 | `POST /accounts/:id/edit`, `/close`, `/reopen` | |
+| `POST /accounts/:id/deposit`, `POST /accounts/:id/deposit/remove` | A deposit's terms, on its account page: what they make it worth today ("computed from terms" or "valued by hand"), its maturity, and forms to change or remove them. |
 | `GET /accounts/:id/reconcile`, `POST` | Reconcile against a bank balance. |
 | `GET /accounts/:id/cards`, `POST`, `POST /accounts/:id/cards/:cardId/close` | Physical cards on a credit account. |
 | `GET /accounts/:id/statement`, `POST` | Record a card statement. |
-| `GET /add`, `POST /add` | Money in, money out. |
+| `GET /add`, `POST /add` | Money in, money out. With no signal, the entry is kept on the device and sent later (`10` §3.7). |
 | `GET /transfer`, `POST /transfer` | Between accounts. |
 | `GET /transaction/:id`, `POST` | Edit, splits, tags, owner, raw values, history. |
 | `POST /transaction/:id/categorise`, `/settled`, `/delete`, `/attach` | |
@@ -47,6 +48,7 @@ answer 404 when the viewer may not see the entity
 | `POST /review/approve`, `/review/merge`, `/review/reject` | Act on one staged row. |
 | `GET /import` | CSV paste, PDF upload, saved profiles, batch history. |
 | `POST /import`, `POST /import/pdf`, `POST /import/map` | |
+| `POST /import/budget-app` | A YNAB or Actual Budget export, after `POST /import` recognised it and asked which account each of its accounts is (and, when every date reads both ways, which comes first). Transactions only: budget assignments are not imported, and the screen says why. |
 | `POST /import/undo` | Undo an entire batch. |
 | `POST /import/profiles/:id/delete` | |
 | `GET /rules` | Rules, proposals and a tester. |
@@ -88,8 +90,11 @@ answer 404 when the viewer may not see the entity
 | `GET /loans/:id/statement`, `POST` | Record the lender's figure and resolve drift. |
 | `GET /loans/:id/schedule.csv` | |
 | `POST /loans/:id/disburse`, `/loans/:id/close`, `/loans/:id/settle`, `/loans/:id/holder` | |
+| `POST /loans/:id/property` | Whether the house the loan paid for is lived in or let out, for the tax estimate (TAX-1). |
 | `GET /family`, `GET /family/:id` | Lending to and from people. |
 | `POST /family/new`, `/family/:id/advance`, `/family/:id/repayment`, `/family/:id/write-off`, `/family/:id/close` | |
+| `GET /insurance`, `GET /insurance/:id` | The policy register: in force, then lapsed and ended. |
+| `POST /insurance/new`, `/insurance/:id/edit`, `/insurance/:id/paid`, `/insurance/:id/status`, `/insurance/:id/delete` | Paid moves the due date on and posts nothing. |
 
 ## Portfolio
 
@@ -112,7 +117,8 @@ answer 404 when the viewer may not see the entity
 
 | Route | Purpose |
 |---|---|
-| `GET`/`POST /tax` | Income tax estimate for the signed-in member, per financial year (`fy`). Both regimes side by side, 80C/80D/HRA, and the advance-tax instalment dates. Refuses a year whose rates the app does not carry. |
+| `GET`/`POST /tax` | Income tax estimate for the signed-in member, per financial year (`fy`). Both regimes side by side, 80C/80D/HRA, home loan interest under 24(b) carried from loans marked as for a house lived in (with an override), TDS, the balance to pay or refund under each regime, and the advance-tax instalments with what has been paid against each. Refuses a year whose rates the app does not carry. |
+| `POST /tax/payments`, `/tax/payments/:id/delete` | Record or remove an advance or self-assessment tax payment of the member's own. |
 
 ## Financial independence
 
@@ -167,3 +173,31 @@ the budget switcher moves into the header.
   background.
 - Wide tables scroll within their own container.
 - Three themes: light, dark, system. The theme is applied in the first response.
+- Entries waiting on the device (the Add form's write-only queue) show as a
+  banner above every page with **Send now**; a refused one offers **Open in the
+  Add form** and **Discard**. Nothing read is ever shown from the device.
+
+## Printing
+
+Browser print and save-as-PDF give a document rather than a screenshot of the
+app, on every screen; the ones people take to paper also carry a **Print**
+button: `GET /tax`, `GET /reports` (loan interest and realised gains by
+financial year), `GET /months` and `GET /months/:month/close`,
+`GET /net-worth`, and `GET /loans/:id` (the schedule in full).
+
+- Black on white whatever the theme. Charts keep the light theme's colours so
+  their series stay distinguishable.
+- Navigation, header, banners, the digest, toasts, buttons and forms are left
+  off. The exception is the tax estimate's inputs, which print as values,
+  because the estimate is arithmetic on them.
+- Short cards and table rows are not split across pages; table headers repeat
+  on each page; collapsed sections print open.
+- Only links that leave the app print their address.
+- A footer line names the household, the screen and the generated date
+  (DD-MM-YYYY, IST). On the tax estimate it repeats "An estimate, not a return,
+  and not advice."
+- The button is progressive enhancement: rendered hidden and revealed by the
+  client script, so without JavaScript there is no button that does nothing.
+  The browser's own Print menu gives the same result.
+
+![The tax estimate in print preview](screenshots/print-tax.png)

@@ -94,8 +94,12 @@ export const COUNTED_TABLES = [
   "settings_kv", "digest_mutes",
   // Q10 · receipts. The bytes live in this table, so backup covers them.
   "attachments",
-  "tax_declarations",
+  "tax_declarations", "tax_payments",
   "schedule_splits",
+  // INSURANCE-1 · The policy register.
+  "insurance_policies",
+  // DEPOSITS · A deposit's terms; its value is computed from them.
+  "deposit_terms",
 ];
 
 /**

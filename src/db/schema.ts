@@ -2703,4 +2703,162 @@ ALTER TABLE tax_declarations ADD COLUMN s80d_checkup INTEGER NOT NULL DEFAULT 0;
 ALTER TABLE tax_declarations ADD COLUMN s80d_parents_checkup INTEGER NOT NULL DEFAULT 0;
 `,
   },
+  {
+    name: "0060-statement-identity-customer-ids",
+    sql: `
+--------------------------------------------------------------------------------
+-- IMPORT-SND-12 · Axis's account statement opens with the first four letters
+-- of the name in capitals and the 9-digit customer ID; HDFC's SmartStatement
+-- with the customer ID alone. Neither can be worked out from name, PAN, date
+-- of birth or mobile, so the IDs are kept here, per bank, as JSON
+-- {"axis":"…","hdfc":"…"} — under the same never-exported, never-logged rule
+-- as every other column in this table (PR5.3).
+--------------------------------------------------------------------------------
+ALTER TABLE statement_identity ADD COLUMN customer_ids TEXT;
+`,
+  },
+  {
+    name: "0061-an-insurance-policy-register",
+    sql: `
+--------------------------------------------------------------------------------
+-- INSURANCE-1 · The household's insurance policies
+--------------------------------------------------------------------------------
+-- Insurance was a starter envelope and two typed figures on the tax page. A
+-- policy is a thing of its own: who insures it, what it covers, what it costs
+-- and when, and which deduction its premium counts toward. Nothing here moves
+-- money; a premium is paid like any bill, through the register.
+--
+-- The policy number is not kept, only its last four characters
+-- (policy_last4). Four are enough to tell two policies from the same insurer
+-- apart and to match a premium notice; the whole number, with a name and a
+-- date of birth, is what an insurer asks for to change a nominee or start a
+-- claim, and this database is not encrypted field by field (08 S9) and its
+-- export travels.
+--
+-- holder_member_id and visibility are the accounts rule: null is the
+-- household's, and a private policy is its holder's alone (docs/privacy.md).
+--
+-- category_id names the envelope the premium is usually paid from. It is not a
+-- foreign key: an envelope deleted later leaves a policy that once named it,
+-- which should not stop the envelope going.
+--
+-- Nothing is deleted outright. deleted_at keeps the row, so a deleted private
+-- policy stays private in the activity log and an undo has it to restore.
+CREATE TABLE insurance_policies (
+  id               TEXT PRIMARY KEY,
+  insurer          TEXT NOT NULL,
+  kind             TEXT NOT NULL
+                   CHECK (kind IN ('term-life','life','health','vehicle','home','other')),
+  policy_last4     TEXT,
+  sum_assured      INTEGER,
+  premium          INTEGER NOT NULL CHECK (premium > 0),
+  frequency        TEXT NOT NULL
+                   CHECK (frequency IN ('monthly','quarterly','half-yearly','yearly','single')),
+  next_due         TEXT,
+  start_date       TEXT,
+  end_date         TEXT,
+  nominee          TEXT,
+  covered          TEXT,
+  tax_group        TEXT NOT NULL DEFAULT 'none'
+                   CHECK (tax_group IN ('none','80c','80d-self','80d-parents')),
+  senior           INTEGER NOT NULL DEFAULT 0,
+  category_id      TEXT,
+  holder_member_id TEXT REFERENCES members(id),
+  visibility       TEXT NOT NULL DEFAULT 'household' CHECK (visibility IN ('household','private')),
+  status           TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','lapsed','ended')),
+  closed_on        TEXT,
+  note             TEXT,
+  created_at       TEXT NOT NULL,
+  created_by       TEXT,
+  updated_at       TEXT NOT NULL,
+  deleted_at       TEXT
+);
+CREATE INDEX idx_insurance_policies_holder ON insurance_policies(holder_member_id);
+`,
+  },
+  {
+    name: "0062-an-imported-row-remembers-its-transfer-and-split",
+    sql: `
+--------------------------------------------------------------------------------
+-- IMPORT-1 · What the app a household is leaving had already decided
+--------------------------------------------------------------------------------
+-- A YNAB or Actual Budget export says that a row was money moved to another of
+-- the household's accounts, or split across several categories. The review
+-- queue held one envelope per row and nothing else, so a transfer would have
+-- waited there as an expense and a split as one line. Both are proposals, the
+-- same as category_id: Review shows them, the person approves or changes them.
+--
+-- transfer_account_id: the Pathayam account on the other side.
+-- splits_json: [{ "categoryId": id or null, "amount": paise, "memo": text or null }],
+-- summing to the row's amount.
+ALTER TABLE staged_transactions ADD COLUMN transfer_account_id TEXT REFERENCES accounts(id);
+ALTER TABLE staged_transactions ADD COLUMN splits_json TEXT;
+`,
+  },
+  {
+    name: "0063-a-deposit-values-itself",
+    sql: `
+--------------------------------------------------------------------------------
+-- DEPOSITS · A deposit's terms, so it is worth what they say
+--------------------------------------------------------------------------------
+-- A fixed or recurring deposit, a PPF or an EPF was worth its register or a
+-- figure retyped by hand. With terms it is computed (src/deposits/accrual.ts)
+-- on whatever day is asked about. One row per account; the account is a
+-- tracking one. basis_date is the day the terms were last saved: a hand
+-- valuation dated on or after the latest of it, the start date and (for the
+-- kinds that read the register) the last contribution wins over the figure.
+CREATE TABLE deposit_terms (
+  account_id    TEXT PRIMARY KEY REFERENCES accounts(id),
+  kind          TEXT NOT NULL CHECK (kind IN ('fd','rd','ppf','epf','other')),
+  principal     INTEGER NOT NULL DEFAULT 0 CHECK (principal >= 0),
+  instalment    INTEGER CHECK (instalment IS NULL OR instalment > 0),
+  rate_bp       INTEGER NOT NULL CHECK (rate_bp BETWEEN 0 AND 10000),
+  compounding   TEXT NOT NULL
+                CHECK (compounding IN ('simple','monthly','quarterly','half-yearly','yearly')),
+  start_date    TEXT NOT NULL,
+  maturity_date TEXT,
+  payout        TEXT NOT NULL DEFAULT 'cumulative' CHECK (payout IN ('cumulative','periodic')),
+  basis_date    TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  created_by    TEXT REFERENCES members(id),
+  updated_at    TEXT NOT NULL
+);
+`,
+  },
+  {
+    name: "0064-the-tax-estimate-uses-what-the-ledger-knows",
+    sql: `
+--------------------------------------------------------------------------------
+-- TAX-1..3 · Home loan interest carried in, and tax already paid
+--------------------------------------------------------------------------------
+-- What a home loan is for, as section 24(b) sees it: a house the borrower
+-- lives in, one that is let out, or neither (NULL, the default — a loan says
+-- nothing about a house until somebody says so). Only a self-occupied house's
+-- interest is carried into the estimate; a let-out one is shown and not
+-- deducted, because the rent it is set against is not modelled.
+ALTER TABLE loans ADD COLUMN property_use TEXT
+  CHECK (property_use IS NULL OR property_use IN ('self-occupied', 'let-out'));
+
+-- The person's own 24(b) figure, before the cap: NULL uses what the ledger
+-- accrued. And TDS for the year, from Form 16 or 26AS, as one figure.
+ALTER TABLE tax_declarations ADD COLUMN s24b_override INTEGER
+  CHECK (s24b_override IS NULL OR s24b_override >= 0);
+ALTER TABLE tax_declarations ADD COLUMN tds INTEGER NOT NULL DEFAULT 0 CHECK (tds >= 0);
+
+-- Advance and self-assessment tax, a row a challan. Dated, because advance tax
+-- is measured against the four instalment dates. A member's own, like the
+-- declaration: gone with the member.
+CREATE TABLE tax_payments (
+  id         TEXT PRIMARY KEY,
+  member_id  TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  fy         INTEGER NOT NULL,
+  kind       TEXT NOT NULL CHECK (kind IN ('advance', 'self-assessment')),
+  date       TEXT NOT NULL,
+  amount     INTEGER NOT NULL CHECK (amount > 0),
+  note       TEXT,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX tax_payments_member_fy ON tax_payments (member_id, fy);
+`,
+  },
 ];

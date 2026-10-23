@@ -101,6 +101,61 @@ row is skipped as a footer only when its date cell says so (`Total`,
 amount or a footer marker. A merchant named `SWIGGY*ORDER` or `TOTAL GAS` no
 longer makes its row a footer.
 
+## Moving from YNAB or Actual Budget
+
+A household leaving another budgeting app pastes its transaction export on the
+ordinary CSV screen. `parseBudgetApp` (`src/import/budget-apps.ts`) recognises
+it from the header row before any bank mapping is tried:
+
+- **YNAB's register export** — `Account, Flag, Date, Payee, Category
+  Group/Category, Category Group, Category, Memo, Outflow, Inflow, Cleared`.
+  YNAB 4's `Master Category` / `Sub Category` columns are read too.
+- **Actual Budget's transaction export** — `Account, Date, Payee, Notes,
+  Category, Amount`, with `Split_Amount` on a split's lines [unverified: from
+  memory of Actual's export code, not a file it produced, so each column is
+  found by name, in any order, and most are optional].
+
+One file covers every account the household had there, so the next screen
+(`POST /import/budget-app`) asks which Pathayam account each of them is, or to
+leave it out. An exact name is suggested; nothing is created.
+
+**Amounts** carry the budget's currency symbol and number format. The symbol
+is dropped, and the decimal separator is the column's, not each cell's:
+`1.234,56 €` and `₹1,234.56` are both read. Nothing is converted.
+
+**Dates** are in the budget's own format, which the file never names. A first
+part over 12 proves day first, a second part over 12 month first. When every
+date reads both ways (all days 12 or under) the screen asks; nothing is read
+until it is answered. A file that proves both orders is refused.
+
+**Categories** become envelopes by name: an envelope of that name in a group of
+that name ("Group: Category") first, then the category's name alone when only
+one envelope has it. Unmatched rows have no envelope and wait in Review.
+"Ready to Assign" / "To be Budgeted" is new money, as here.
+
+**Transfers.** YNAB's `Transfer : HDFC Savings` payee (in Actual, a payee
+that is another account in the file) between two accounts both brought across
+is staged with `transfer_account_id`, and Review has "Transfer to/from" that
+account chosen already. Approving one leg pairs the other (see Transfers in
+Review), so it is a transfer, not an expense and an income.
+
+**Splits.** YNAB's `Split (1/3)`…`(3/3)` rows, and Actual's parent row with
+its split lines, become one staged row with `splits_json`. Approving it posts
+a split transaction; an envelope chosen in Review fills the lines that matched
+none. A split line that is itself a transfer comes out as a transfer of its
+own, since a split cannot hold one. A split with a part missing, or lines that
+do not add up to the parent, is an error row.
+
+Each Pathayam account's rows are a batch through `ingest()` with adapter
+`ynab` or `actual`, so duplicates, rules and Review apply as for a statement,
+re-importing the file adds nothing, and each batch can be undone. A transfer
+or a split is never auto-approved. "Starting Balance" rows are left out.
+
+**Budget assignments are never imported**, and the screen says so: they were
+worked out against the other app's balances and months, and written into
+envelopes they would count the same money twice and overwrite the plan made
+here.
+
 ## PDF statements
 
 `POST /import/pdf` with a statement file. The reader is implemented in

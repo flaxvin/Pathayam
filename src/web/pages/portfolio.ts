@@ -356,6 +356,12 @@ export function renderValuations(opts: {
     value: Paise; asOf: IsoDate | null; stale: boolean; valued: boolean;
     /** R32 · The currency the number is in, when it is not the base one. */
     currency?: string;
+    /**
+     * DEPOSITS · Where the figure came from: a deposit's terms, or a hand
+     * valuation (which, on a deposit with terms, is one dated on or after the
+     * computed figure's basis and so wins over it). Null with no value yet.
+     */
+    source?: "hand" | "terms" | null;
   }[];
   today: IsoDate;
 }): SafeHtml {
@@ -388,11 +394,19 @@ export function renderValuations(opts: {
             <div class="row-between" style="gap:1rem;flex-wrap:wrap;align-items:flex-end">
               <div style="min-width:0">
                 <strong>${a.name}</strong>
-                <span class="chip">${ASSET_LABELS[a.subtype as AssetSubtype] ?? a.subtype}</span>
+                <span class="chip">${ASSET_LABELS[a.subtype as AssetSubtype] ?? SUBTYPE_LABELS[a.subtype] ?? a.subtype}</span>
                 <div class="faint">
-                  ${a.valued
+                  ${a.source === "terms"
+                    ? html`
+                        ${formatPaise(a.value)} today
+                        <span class="chip">computed from terms</span>
+                        <br>A figure typed here, dated today or later, is used instead
+                        until the next contribution or change of terms.
+                      `
+                    : a.valued
                     ? html`
                         last ${formatPaise(a.value)} on ${formatDate(a.asOf!)}
+                        <span class="chip">valued by hand</span>
                         ${when(a.stale, () => html`<span class="chip chip-warning">not valued recently</span>`)}
                       `
                     : html`<span class="chip chip-warning">no value yet</span>`}

@@ -58,6 +58,12 @@ export interface CasScheme {
   closingUnits: number | null;
   closingValue: Paise | null;
   closingNav: number | null;
+  /**
+   * The balance the statement carries in, when it prints one. A monthly
+   * registrar statement opens at what the folio already held, so the R24.3
+   * check is opening plus rows, not rows alone.
+   */
+  openingUnits?: number | null;
 }
 
 export interface CasStatement {
@@ -149,8 +155,9 @@ export function parseCasPdf(bytes: Uint8Array, password: string): CasStatement {
  * household that can only get a text export still has a route in.
  */
 export function parseCasText(text: string): CasStatement {
-  const lines = text.split("\n").map((l) => l.replace(/\s+$/, ""));
-  const schemes: CasScheme[] = [];
+  const { schemes: demat, rest } = takeDematHoldings(text.split("\n").map((l) => l.replace(/\s+$/, "")));
+  const lines = rest;
+  const schemes: CasScheme[] = [...demat];
   const unparsed: string[] = [];
 
   let period: CasStatement["period"] = null;
@@ -169,7 +176,10 @@ export function parseCasText(text: string): CasStatement {
     const text = line.trim();
     if (text === "") continue;
 
-    const periodMatch = /statement\s+period\s*:?\s*(.+?)\s+(?:to|-)\s+(.+?)\s*$/i.exec(text);
+    // "Statement Period: … to …", or KFintech's bare "01/01/2025 to 31/01/2025".
+    const periodMatch =
+      /statement\s+period\s*:?\s*(.+?)\s+(?:to|-)\s+(.+?)\s*$/i.exec(text) ??
+      /^(\d{1,2}[-/][A-Za-z0-9]{2,3}[-/]\d{4})\s+to\s+(\d{1,2}[-/][A-Za-z0-9]{2,3}[-/]\d{4})$/i.exec(text);
     if (periodMatch) {
       const from = parseCasDate(periodMatch[1]!);
       const to = parseCasDate(periodMatch[2]!);
@@ -184,23 +194,56 @@ export function parseCasText(text: string): CasStatement {
       continue;
     }
 
-    const folioMatch = /folio\s*(?:no\.?|number)?\s*:?\s*([\w/\- ]+?)\s*$/i.exec(text);
+    // A folio number has a digit in it: CAMS also prints "FOLIO DETAILS".
+    const folioMatch = /folio\s*(?:no\.?|number)?\s*:?\s*([\w/\- ]*\d[\w/\- ]*?)\s*$/i.exec(text);
     if (folioMatch) {
-      close();
+      // CAMS repeats the folio line at the top of every page; the same folio
+      // again is a page break inside the scheme, not the end of it.
+      if (folioMatch[1]!.trim() !== folio) close();
       folio = folioMatch[1]!.trim();
       continue;
     }
 
-    const isinMatch = /\bISIN\s*:?\s*([A-Z]{2}[A-Z0-9]{9}\d)\b/i.exec(text);
+    // "ISIN: …", CAMS's "ISIN CODE : …", KFintech's "ISIN No : …".
+    const isinMatch = /\bISIN\s*(?:code|no\.?)?\s*:?\s*([A-Z]{2}[A-Z0-9]{9}\d)\b/i.exec(text);
     if (isinMatch) {
-      // The ISIN line follows the scheme name, so the scheme was opened by the
-      // previous line; attach the identifiers to it.
       const registrar = /registrar\s*:?\s*([A-Za-z]+)/i.exec(text);
+      // CAMS and KFintech print the scheme name on the ISIN's own line,
+      // behind a product code ("LD627G") or a "Scheme" label.
+      const before = text.slice(0, isinMatch.index)
+        .replace(/^\s*scheme\b\s*:?/i, "")
+        .replace(/^\s*(?=[A-Z0-9]*\d)[A-Z0-9]{3,8}\s+(?=[A-Za-z])/, "")
+        .replace(/[\s\-–:]+$/, "")
+        .trim();
+      if (/[A-Za-z]{3}/.test(before)) {
+        close();
+        current = {
+          amc, folio, name: before.replace(/\s+/g, " "),
+          isin: null, registrar: null, rows: [],
+          closingUnits: null, closingValue: null, closingNav: null,
+        };
+      }
+      // Otherwise the ISIN line follows the scheme name, so the scheme was
+      // opened by the previous line; attach the identifiers to it.
       if (current) {
         current.isin = isinMatch[1]!.toUpperCase();
         current.registrar = registrar ? registrar[1]!.toUpperCase() : null;
       }
       continue;
+    }
+
+    if (current) {
+      const opening = /^opening\s+(?:unit\s+)?balance\s*:?\s*\(?([\d,]+\.\d+)\)?$/i.exec(text.replace(/\s{2,}/g, " "));
+      if (opening) {
+        current.openingUnits = toMilliunits(parseNumber(opening[1]!) ?? 0);
+        continue;
+      }
+      // KFintech: "Balance Units: 145.018  Pledged/Blocked Units: 0.000 …".
+      const balanceUnits = /^balance\s+units\s*:?\s*([\d,]+\.\d+)/i.exec(text);
+      if (balanceUnits) {
+        current.closingUnits = toMilliunits(parseNumber(balanceUnits[1]!) ?? 0);
+        continue;
+      }
     }
 
     // A scheme name: mentions a plan or a fund, and carries no figures.
@@ -259,20 +302,25 @@ function parseRow(text: string): CasRow | null {
   const tokens = rest.split(/\s{2,}|\s(?=[(\d₹])/).filter((t) => t.trim() !== "");
 
   const numbers: number[] = [];
+  const figures: string[] = [];
   let cut = tokens.length;
   for (let i = tokens.length - 1; i >= 0; i--) {
     const value = parseNumber(tokens[i]!);
     if (value === null) break;
     numbers.unshift(value);
+    figures.unshift(tokens[i]!.trim());
     cut = i;
   }
 
   const description = tokens.slice(0, cut).join(" ").trim();
   if (description === "" || numbers.length < 3) return null;
 
-  // amount, units, nav [, running balance]. The balance is the statement's own
-  // arithmetic and is not read — it would only ever confirm what we computed.
-  const [amount, units, nav] = numbers;
+  // The amount leads; units and NAV follow in an order that depends on the
+  // registrar — CDSL prints amount, units, NAV, balance; CAMS prints amount,
+  // NAV, price, units, balance. The running balance is the statement's own
+  // arithmetic and is not read.
+  const amount = numbers[0];
+  const [units, nav] = unitsAndNav(numbers, figures);
   if (amount === undefined || units === undefined || nav === undefined) return null;
 
   const kind = classify(description);
@@ -295,6 +343,28 @@ function parseRow(text: string): CasRow | null {
 }
 
 /**
+ * Which of a row's figures are the units and which the NAV.
+ *
+ * Told apart by what they are rather than where they sit: a NAV is printed to
+ * four places and units to three, and units × NAV is the amount. The first
+ * pair that satisfies both wins; a row that offers none is read in CDSL's
+ * order (amount, units, NAV), which is what this parser always assumed.
+ */
+function unitsAndNav(numbers: number[], figures: string[]): [number | undefined, number | undefined] {
+  const amount = Math.abs(numbers[0] ?? 0);
+  const places = (figure: string): number => /\.(\d+)/.exec(figure)?.[1]?.length ?? 0;
+  for (let n = 1; n < numbers.length; n++) {
+    if (places(figures[n]!) !== 4) continue;
+    for (let u = 1; u < numbers.length; u++) {
+      if (u === n || places(figures[u]!) !== 3) continue;
+      const product = Math.abs(numbers[u]! * numbers[n]!);
+      if (Math.abs(product - amount) <= Math.max(1, amount * 0.01)) return [numbers[u], numbers[n]];
+    }
+  }
+  return [numbers[1], numbers[2]];
+}
+
+/**
  * R24.3 check · does the statement's own closing balance agree with its rows?
  *
  * A mismatch means a row was missed, and importing anyway would produce a
@@ -303,7 +373,149 @@ function parseRow(text: string): CasRow | null {
  */
 export function unitsDisagreement(scheme: CasScheme): number | null {
   if (scheme.closingUnits === null) return null;
-  const summed = scheme.rows.reduce((total, row) => total + row.units, 0);
+  // A holdings snapshot — CDSL's demat holding statement, a KFintech folio
+  // with no activity — has nothing to reconcile its balance against.
+  if (scheme.rows.length === 0 && (scheme.openingUnits ?? null) === null) return null;
+  const summed = scheme.rows.reduce((total, row) => total + row.units, scheme.openingUnits ?? 0);
   const difference = scheme.closingUnits - summed;
   return difference === 0 ? null : difference;
+}
+
+// ---------------------------------------------------------------------------
+// CDSL demat holding statement
+// ---------------------------------------------------------------------------
+
+const ISIN_ROW = /^\s*(IN[EF][A-Z0-9]{9})\b(.*)$/;
+
+/** Header residue under the "ISIN  Security  Current Bal …" heading. */
+const HEADING_WORDS = /^(?:bal|value|face|market|price|pledge|setup|free|frozen|current|security|isin|[\s/(`)₹])+$/i;
+
+/**
+ * Pull the "HOLDING STATEMENT AS ON …" tables out of a CDSL CAS.
+ *
+ * A demat CAS lists what is held, not how it was bought: one row per ISIN with
+ * current, frozen, pledged and free balances, a price and a value. The name is
+ * wrapped around the ISIN's line — part above, part below, because the cell is
+ * vertically centred — so each name fragment goes to the nearest ISIN row,
+ * ties to the one above. Lines outside these tables are handed back for the
+ * folio parser untouched.
+ */
+function takeDematHoldings(lines: string[]): { schemes: CasScheme[]; rest: string[] } {
+  const schemes: CasScheme[] = [];
+  const rest: string[] = [];
+
+  for (let i = 0; i < lines.length; i++) {
+    if (!/holding\s+statement\s+as\s+on/i.test(lines[i]!)) { rest.push(lines[i]!); continue; }
+
+    let end = i + 1;
+    while (end < lines.length && !/portfolio\s+value/i.test(lines[end]!)) end++;
+    const block = lines.slice(i + 1, end).map((l) => l.replace(/[^\x20-\x7E₹]+/g, " ").trimEnd());
+    schemes.push(...readHoldingBlock(block));
+    i = end; // the Portfolio Value line is the table's own total
+  }
+
+  return { schemes, rest };
+}
+
+function readHoldingBlock(block: string[]): CasScheme[] {
+  const rows: { isin: string; figures: string[]; inline: string }[] = [];
+  // gaps[k] is the name fragments between row k-1 and row k; the last gap
+  // runs from the final row to the end of the table.
+  const gaps: string[][] = [[]];
+
+  for (const line of block) {
+    const row = ISIN_ROW.exec(line);
+    if (row) {
+      // Figures from the right; "--" is an empty balance column, and a value
+      // run into its price ("45.523037,43,733.22") is kept whole for later.
+      const tokens = row[2]!.trim().split(/\s+/);
+      const figures: string[] = [];
+      while (tokens.length > 0 && /^(?:--|\d[\d,.]*\.\d+)$/.test(tokens[tokens.length - 1]!)) {
+        figures.unshift(tokens.pop()!);
+      }
+      rows.push({ isin: row[1]!, figures, inline: tokens.join(" ") });
+      gaps.push([]);
+      continue;
+    }
+    const text = line.trim().replace(/\s+/g, " ");
+    if (text === "" || !/[A-Za-z]{2}/.test(text)) continue;
+    // Before the first row, only the lines directly above it are its name:
+    // the column headings break the run.
+    if (HEADING_WORDS.test(text) || (rows.length === 0 && /\b(bal|value|price)\b/i.test(text))) {
+      if (rows.length === 0) gaps[0] = [];
+      continue;
+    }
+    gaps[gaps.length - 1]!.push(text);
+  }
+
+  /*
+   * Split each gap between the row above and the row below. CDSL centres the
+   * ISIN in its cell, so a name has as many lines below the row as above it:
+   * the row above takes as many of the gap as it had above itself, and the
+   * rest open the next name. Nearest-row assignment gets this wrong whenever
+   * a long name's first lines sit closer to the previous row.
+   */
+  const names = rows.map((r) => ({ above: [] as string[], inline: r.inline, below: [] as string[] }));
+  if (rows.length > 0) names[0]!.above = gaps[0]!;
+  for (let k = 0; k < rows.length; k++) {
+    const gap = gaps[k + 1]!;
+    if (k === rows.length - 1) { names[k]!.below = gap; break; }
+    const share = Math.min(gap.length, names[k]!.above.length);
+    names[k]!.below = gap.slice(0, share);
+    names[k + 1]!.above = gap.slice(share);
+  }
+
+  const out: CasScheme[] = [];
+  rows.forEach((r, k) => {
+    const held = holdingFigures(r.figures);
+    if (!held) return;
+    const full = [...names[k]!.above, names[k]!.inline, ...names[k]!.below]
+      .filter((t) => t !== "").join(" ").replace(/\s+/g, " ").trim();
+    // "HDFC AMC LTD# HDFC MF - HDFC GOLD ETF …": the issuer, then the security.
+    // For a share it is "ITC HOTELS LIMITED # EQUITY SHARES": both halves
+    // are the name.
+    const hash = full.indexOf("#");
+    const fund = hash > 0 && r.isin.startsWith("INF");
+    const amc = fund ? full.slice(0, hash).trim() : "";
+    const name = (fund ? full.slice(hash + 1) : full.replace(/\s*#\s*/g, " ")).trim() || r.isin;
+    out.push({
+      amc, folio: "CDSL demat", name, isin: r.isin, registrar: "CDSL", rows: [],
+      closingUnits: toMilliunits(held.units),
+      closingNav: toMicroRupees(held.price),
+      closingValue: toPaise(held.value),
+    });
+  });
+  return out;
+}
+
+/**
+ * Current balance, price and value from a holding row's figures.
+ *
+ * The price and value columns sit close enough that a wide value runs into
+ * the price — "36.25221,30,389.24" — so a jammed pair is split wherever
+ * units × price comes out at the value.
+ */
+function holdingFigures(figures: string[]): { units: number; price: number; value: number } | null {
+  const numeric = figures.filter((f) => f !== "--");
+  if (numeric.length < 2) return null;
+  const units = parseNumber(numeric[0]!);
+  if (units === null) return null;
+
+  const agrees = (price: number, value: number): boolean =>
+    Math.abs(units * price - value) <= Math.max(1, value * 0.01);
+
+  if (numeric.length >= 4) {
+    const price = parseNumber(numeric[numeric.length - 2]!);
+    const value = parseNumber(numeric[numeric.length - 1]!);
+    if (price !== null && value !== null && agrees(price, value)) return { units, price, value };
+  }
+  const jammed = numeric[numeric.length - 1]!;
+  for (let places = 2; places <= 4; places++) {
+    const split = new RegExp(`^(\\d+\\.\\d{${places}})(\\d[\\d,]*\\.\\d{2})$`).exec(jammed);
+    if (!split) continue;
+    const price = parseNumber(split[1]!);
+    const value = parseNumber(split[2]!);
+    if (price !== null && value !== null && agrees(price, value)) return { units, price, value };
+  }
+  return null;
 }

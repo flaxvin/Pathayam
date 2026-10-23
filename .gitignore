@@ -15,3 +15,4 @@ attachments/
 .env
 .env.*
 !.env.example
+.claude/worktrees/

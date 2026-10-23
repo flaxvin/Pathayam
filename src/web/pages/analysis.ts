@@ -544,7 +544,8 @@ export function renderReports(opts: {
       </section>
     `)}
 
-    <section class="card">
+    <!-- PRINT-1 · Five links and nothing else; on paper, an empty heading. -->
+    <section class="card no-print">
       <h2>Where the money goes</h2>
       <div class="row" style="flex-wrap:wrap">
         <a class="button" href="/query?group_by=category&period=${opts.period.key}">By category</a>
@@ -1035,7 +1036,7 @@ export function renderNewScheduleForm(opts: {
 /** 03 §6: a vertical list of days on mobile rather than a month grid. */
 function renderCalendar(cashflow: Cashflow): SafeHtml {
   const busy = cashflow.days.filter(
-    (d) => d.inflows.length > 0 || d.outflows.length > 0 || d.belowFloor,
+    (d) => d.inflows.length > 0 || d.outflows.length > 0 || (d.maturing?.length ?? 0) > 0 || d.belowFloor,
   );
 
   if (busy.length === 0) {
@@ -1079,6 +1080,16 @@ function renderCalendarDay(day: CalendarDay): SafeHtml {
       )}
       ${day.inflows.map(
         (f) => html`<div class="faint">+ ${formatPaise(f.amount)} ${f.label}</div>`,
+      )}
+      <!-- DEPOSITS · A maturity is shown here and not added to the balance:
+           the money is in the deposit until somebody moves it. -->
+      ${(day.maturing ?? []).map(
+        (m) => html`
+          <div class="faint">
+            <a href="/accounts/${m.accountId}">${m.label}</a>, paying ${formatPaise(m.amount)}
+            <span class="chip">not in the balance</span>
+          </div>
+        `,
       )}
     </div>
   `;
