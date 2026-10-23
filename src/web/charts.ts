@@ -485,10 +485,12 @@ export function waterfall(opts: {
     if (i < n - 1) {
       parts.push(`<line x1="${r2(x + barW)}" y1="${r2(y2)}" x2="${r2(padL + slot * (i + 1.5) - barW / 2)}" y2="${r2(y2)}" stroke="var(--border)" stroke-dasharray="2 2"/>`);
     }
-    // label (two lines: name, amount)
+    // label (two lines: name, amount). A step's amount is its own movement —
+    // the running total it ends at put "₹30K" under a ₹20K fall (DEBUG-ASSETS-3).
     const label = b.label.length > 12 ? b.label.slice(0, 11) + "…" : b.label;
+    const amount = b.kind === "anchor" ? b.to : b.to - b.from;
     parts.push(`<text x="${r2(cx)}" y="${H - 26}" text-anchor="middle" font-size="10.5" fill="var(--text-muted)">${escape(label)}</text>`);
-    parts.push(`<text x="${r2(cx)}" y="${H - 12}" text-anchor="middle" font-size="10.5" fill="var(--text)">${escape(formatCompact(b.to as Paise))}</text>`);
+    parts.push(`<text x="${r2(cx)}" y="${H - 12}" text-anchor="middle" font-size="10.5" fill="var(--text)">${escape(formatCompact(amount as Paise))}</text>`);
   });
 
   const svg =
