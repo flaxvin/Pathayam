@@ -482,7 +482,21 @@ export function gainsBucketsForYear(db: DB, fy: number, memberId: string): Gains
        */
       if (sale.kind === "bond" && (cls === "debt" || cls === "cash")) {
         if (sale.listed === 1 && heldMoreThanMonths(acquired, sale.date, LONG_TERM_MONTHS.equity)) {
-          out.otherLong = (out.otherLong + gain) as Paise;
+          /*
+           * Placed by the sale date's period, like every other s112 gain. Held
+           * long and sold before 23 July 2024, the pre-Budget s112 rules apply,
+           * which this does not compute, so it is reported, not taxed.
+           */
+          if (rules.otherLongIndexed) {
+            out.unclassified = (out.unclassified + gain) as Paise;
+            out.unclassifiedReasons.push({
+              instrument: sale.instrument, gain,
+              reason: "a listed bond sold before 23 July 2024 and held long falls under the s112 rules " +
+                "before that date — not computed here",
+            });
+          } else {
+            place("otherLong", gain);
+          }
         } else {
           out.slabRated = (out.slabRated + gain) as Paise;
         }

@@ -64,6 +64,19 @@ describe("BONDS-1 · a listed bond", () => {
     assert.equal(tax.special.s112, rupees(50_000));
   });
 
+  test("held long and sold before 23 July 2024, it is reported, not taxed at the new rate", () => {
+    const b = sellBond(true, "2022-05-10", "2024-06-20", 2024);
+    assert.equal(b.otherLong, 0);
+    assert.equal(b.unclassified, rupees(50_000));
+    assert.match(b.unclassifiedReasons[0]!.reason, /before 23 July 2024/);
+  });
+
+  test("held long and sold from 23 July 2024, it is taxed at 12.5% in that period", () => {
+    const b = sellBond(true, "2022-05-10", "2024-09-20", 2024);
+    const tax = taxOnGains(2024, b);
+    assert.equal(tax.otherLongTax, rupees(6_250));
+  });
+
   test("held exactly 12 months is still short-term, at slab", () => {
     const b = sellBond(true, "2024-08-20", "2025-08-20", 2025);
     assert.equal(b.slabRated, rupees(50_000));
