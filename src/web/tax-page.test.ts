@@ -8,7 +8,9 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { rupees } from "../core/money.ts";
+import { rupees, type Paise } from "../core/money.ts";
+import { createLoan, recordInstalment } from "../domain/loans.ts";
+import { listTaxPayments } from "../domain/tax.ts";
 import { createAccount } from "../domain/accounts.ts";
 import { createTransaction } from "../domain/transactions.ts";
 import {
@@ -81,6 +83,66 @@ describe("WEALTH-9 · slab-rated gains alone", () => {
       assert.match(page, /Advance tax/);
     } finally {
       await app.close();
+    }
+  });
+});
+
+describe("TAX-1..3 · the ledger's home loan interest, and tax already paid", () => {
+  test("a loan marked as for a house lived in is carried, overridable, and netted", async () => {
+    const { db, app, bank } = await setup();
+    const priya = await startTestApp(db, { memberId: "p" });
+    try {
+      const loan = createLoan(db, ravi, {
+        holderMemberId: "m", lender: "Fictional Housing Finance", loanType: "home",
+        sanctioned: rupees(10_00_000), sanctionDate: "2025-03-01", interestModel: "reducing",
+        annualRatePct: 9, tenureMonths: 240, currentOutstanding: rupees(10_00_000),
+        repaymentAccountId: bank, firstInstalmentDate: "2025-04-05",
+      });
+      for (let k = 0; k < 13; k++) {
+        const date = new Date(Date.UTC(2025, 3 + k, 5)).toISOString().slice(0, 10);
+        const interest = k === 0 ? rupees(3_100) : rupees(7_000);
+        recordInstalment(db, ravi, {
+          loanId: loan.id, date, amount: rupees(9_000), interest, principal: (rupees(9_000) - interest) as Paise,
+        });
+      }
+
+      // Not marked: nothing carried, and "other deductions" no longer asks for it.
+      let page = await (await app.get("/tax?fy=2025")).text();
+      assert.doesNotMatch(page, /Home loan interest, s24\(b\)/);
+      assert.doesNotMatch(page, /under section 24\(b\), which is often the largest/);
+
+      assert.equal((await app.post(`/loans/${loan.id}/property`, { property_use: "self-occupied" })).status, 303);
+      await app.post("/tax", { fy: "2025", gross: "1500000", s80c: "0", s80d: "0", other: "0", tds: "150000" });
+      page = await (await app.get("/tax?fy=2025")).text();
+      // 5/31 of ₹3,100 + 11 × ₹7,000 + 26/31 of ₹7,000, accrued.
+      assert.match(page, /₹83,370\.97/);
+      assert.match(page, /Home loan interest, s24\(b\)/);
+
+      // The certificate says ₹2,50,000; the cap holds it at ₹2,00,000: old regime ₹1,95,000.
+      await app.post("/tax", {
+        fy: "2025", gross: "1500000", s80c: "0", s80d: "0", other: "0", tds: "150000", s24b: "250000",
+      });
+      assert.equal(
+        (await app.post("/tax/payments", { fy: "2025", kind: "advance", date: "14-06-2025", amount: "30000" })).status,
+        303,
+      );
+      page = await (await app.get("/tax?fy=2025")).text();
+      assert.match(page, /₹1,95,000/);
+      // Old: 1,95,000 − 1,80,000 paid. New: 97,500 − 1,80,000, a refund.
+      assert.match(page, /₹15,000 to pay/);
+      assert.match(page, /₹82,500 refund/);
+
+      // Priya can neither see nor remove Ravi's payment.
+      const id = listTaxPayments(db, "m", 2025)[0]!.id;
+      assert.doesNotMatch(await (await priya.get("/tax?fy=2025")).text(), /14-06-2025/);
+      assert.match(await (await app.get("/tax?fy=2025")).text(), /14-06-2025/);
+      assert.notEqual((await priya.post(`/tax/payments/${id}/delete`, {})).status, 303);
+      assert.equal(listTaxPayments(db, "m", 2025).length, 1);
+      assert.equal((await app.post(`/tax/payments/${id}/delete`, {})).status, 303);
+      assert.equal(listTaxPayments(db, "m", 2025).length, 0);
+    } finally {
+      await app.close();
+      await priya.close();
     }
   });
 });

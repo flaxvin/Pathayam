@@ -11,9 +11,12 @@
 import { html, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, type Paise } from "../../core/money.ts";
 import { formatFiscalYear, formatDate } from "../../core/dates.ts";
-import type { TaxEstimate, RegimeEstimate, Deductions, AdvanceInstalment } from "../../domain/tax.ts";
+import type {
+  TaxEstimate, RegimeEstimate, Deductions, AdvanceInstalment, TaxPayment, TaxPaid, Settlement,
+} from "../../domain/tax.ts";
 import { hraFiftyPercentCities } from "../../domain/tax.ts";
 import type { GainsTax } from "../../domain/capital-gains-tax.ts";
+import type { HomeLoanInterest } from "../../domain/home-loan-interest.ts";
 import type { PolicyTaxSuggestion } from "../../domain/insurance.ts";
 import { renderPolicySuggestion } from "./insurance.ts";
 
@@ -34,6 +37,16 @@ export interface TaxPageProps {
   fromPolicies?: PolicyTaxSuggestion;
   /** Whether the figures below were filled in from them (not yet saved). */
   applyPolicies?: boolean;
+  /** TAX-1 · Home loan interest the ledger accrued in the year, loan by loan. */
+  homeLoan: HomeLoanInterest;
+  /** The person's own 24(b) figure, or null to use the ledger's. */
+  s24bOverride: Paise | null;
+  /** TAX-2 · Advance and self-assessment tax paid, and the totals. */
+  payments: TaxPayment[];
+  paid: TaxPaid;
+  settlement: { old: Settlement; new: Settlement } | null;
+  /** TAX-3 · The year's advance-tax threshold. */
+  advanceThreshold: Paise;
 }
 
 function row(label: string, value: Paise, opts: { muted?: boolean; strong?: boolean } = {}): SafeHtml {
@@ -64,6 +77,7 @@ function regimeCard(e: RegimeEstimate, isBetter: boolean): SafeHtml {
             ${row("Gross income", e.gross)}
             ${e.standardDeduction > 0 ? row("Standard deduction", -e.standardDeduction as Paise, { muted: true }) : html``}
             ${e.hraExempt > 0 ? row("HRA exempt", -e.hraExempt as Paise, { muted: true }) : html``}
+            ${e.homeLoanInterest > 0 ? row("Home loan interest, s24(b)", -e.homeLoanInterest as Paise, { muted: true }) : html``}
             ${e.chapterViA > 0 ? row("80C, 80D and other", -e.chapterViA as Paise, { muted: true }) : html``}
             ${row("Taxable income", e.taxable, { strong: true })}
             ${row("Tax on slabs", e.taxBeforeRebate)}
@@ -76,7 +90,7 @@ function regimeCard(e: RegimeEstimate, isBetter: boolean): SafeHtml {
         </table>
       </div>
       ${e.regime === "new" && (e.chapterViA === 0)
-        ? html`<p class="field-hint">The new regime allows no 80C, 80D or HRA. Anything entered is ignored here, by design.</p>`
+        ? html`<p class="field-hint">The new regime allows no 80C, 80D, HRA or interest on a home you live in. Anything entered is ignored here, by design.</p>`
         : html``}
     </div>
   `;
@@ -215,9 +229,23 @@ export function renderTax(p: TaxPageProps): SafeHtml {
         <label for="other">Other deductions</label>
         <input id="other" name="other" inputmode="decimal" value="${(d.other / 100).toFixed(2)}">
         <p class="field-hint">
-          Anything else you claim — 80CCD(1B), 80TTA, 80G, and home loan interest
-          under section 24(b), which is often the largest of them. Entered as one
-          figure because this app does not know which is which.
+          Anything else you claim — 80CCD(1B), 80TTA, 80G. Entered as one figure
+          because this app does not know which is which. Home loan interest is
+          not one of them any more: it has its own line below.
+        </p>
+      </div>
+
+      <h3>Home loan interest · section 24(b)</h3>
+      ${homeLoanFields(p)}
+
+      <h3>Tax deducted at source</h3>
+      <div class="field">
+        <label for="tds">TDS for the year</label>
+        <input id="tds" name="tds" inputmode="decimal" value="${(p.paid.tds / 100).toFixed(2)}">
+        <p class="field-hint">
+          The total from your Form 16, or from 26AS where more than one employer
+          or bank deducted. It is netted against the estimate below, and comes
+          off before the advance-tax threshold is tested.
         </p>
       </div>
 
@@ -336,36 +364,49 @@ export function renderTax(p: TaxPageProps): SafeHtml {
         `
       : html``}
 
+    ${paidSection(p)}
+
     ${p.advance.length > 0
       ? html`
-          <section class="card">
+          <section class="card" id="advance">
             <h2>Advance tax</h2>
             <p>
-              On ${formatPaise(p.estimate!.better === "old" ? p.estimate!.old.total : p.estimate!.new.total)},
-              section 211 asks for it in four instalments. Missing one costs
-              interest under 234B and 234C, which is the only reason these dates
-              are worth knowing in advance.
+              The ${p.estimate!.better === "old" ? "old" : "new"} regime's
+              ${formatPaise(p.estimate!.better === "old" ? p.estimate!.old.total : p.estimate!.new.total)},
+              less ${formatPaise(p.paid.tds)} deducted at source, leaves
+              <strong>${formatPaise(p.advance.at(-1)!.cumulativeAmount)}</strong> — at or above
+              the ${formatPaise(p.advanceThreshold)} at which advance tax is due. It is paid in
+              four instalments, each a share of the year's whole.
             </p>
             <div class="table-scroll">
               <table>
                 <thead>
-                  <tr><th>Due</th><th>Cumulative</th><th class="amount">By then</th><th class="amount">This instalment</th></tr>
+                  <tr>
+                    <th>Due</th><th>Cumulative</th><th class="amount">Due by then</th>
+                    <th class="amount">This instalment</th><th class="amount">Paid by then</th><th class="amount">Short</th>
+                  </tr>
                 </thead>
                 <tbody>
                   ${p.advance.map((i) => html`
                     <tr>
-                      <td>${i.label} ${i.date.slice(0, 4)}</td>
+                      <td>${formatDate(i.date)}</td>
                       <td>${i.cumulativePct}%</td>
                       <td class="amount">${formatPaise(i.cumulativeAmount)}</td>
                       <td class="amount">${formatPaise(i.instalmentAmount)}</td>
+                      <td class="amount">${formatPaise(i.paidByThen)}</td>
+                      <td class="amount">${i.shortBy > 0 ? formatPaise(i.shortBy) : html`<span class="faint">—</span>`}</td>
                     </tr>
                   `)}
                 </tbody>
               </table>
             </div>
             <p class="field-hint">
-              Figures are on the estimate above and take no account of tax already
-              deducted at source, which for most salaried people covers all of it.
+              Paying late or short costs interest — under section 234C on each
+              instalment, and under 234B if less than 90% is paid by the year's end.
+              This app names them and does not work them out. A resident senior
+              citizen with no business income owes no advance tax at all, and
+              income under 44AD or 44ADA is paid in one instalment by 15 March;
+              neither is modelled here.
             </p>
           </section>
         `
@@ -381,11 +422,175 @@ export function renderTax(p: TaxPageProps): SafeHtml {
       <ul class="checks">
         <li><strong>Marginal relief</strong> on surcharge, and on the 87A cliff — so a figure just over a threshold is overstated.</li>
         <li><strong>Losses set off between heads.</strong> A long-term loss can only go against a long-term gain, and this nets nothing — each bucket is floored at zero, so a year with losses is overstated.</li>
-        <li><strong>Tax already deducted at source.</strong> Nothing here is netted against your Form 16 or 26AS.</li>
-        <li><strong>Losses</strong> set off or carried forward, house property loss, and clubbing.</li>
+        <li><strong>Losses</strong> set off or carried forward, and clubbing. A let-out house's loss, and its rent, are not here at all.</li>
+        <li><strong>Home loan interest beyond the plain case.</strong> Interest before a house is finished (claimed in five parts afterwards), the ₹30,000 limit on a loan taken before April 1999 or for repairs, and a joint loan's split between borrowers — each needs the figure entered by hand.</li>
+        <li><strong>Interest for paying late or short</strong> — 234A, 234B and 234C — and the senior citizen's exemption from advance tax.</li>
+        <li><strong>TDS line by line.</strong> It is one figure, as entered; nothing is read from Form 16 or 26AS.</li>
         <li><strong>Anything foreign</strong> beyond the gain on a sale — foreign income, dividends, Schedule FA, or relief under a treaty. A foreign share's gain is taxed as the Act taxes an unlisted one: slab rates up to 24 months, s112 after.</li>
         <li><strong>Presumptive schemes</strong> under 44AD or 44ADA.</li>
       </ul>
+    </section>
+  `;
+}
+
+/**
+ * TAX-1 · What the ledger accrued, loan by loan, and the box to override it.
+ */
+function homeLoanFields(p: TaxPageProps): SafeHtml {
+  const h = p.homeLoan;
+  const selfOccupied = h.lines.filter((x) => x.use === "self-occupied");
+  const letOut = h.lines.filter((x) => x.use === "let-out");
+  return html`
+    <p class="faint">
+      Carried from your loans, now, rather than typed into "other deductions":
+      interest accrued in ${formatFiscalYear(p.fy)} on a loan for a house you live
+      in, old regime only, capped at ₹2,00,000 across every such house. Mark a loan
+      as for a house on its own page.
+    </p>
+    ${h.lines.length > 0
+      ? html`
+          <div class="table-scroll">
+            <table>
+              <thead><tr><th>Loan</th><th>House</th><th class="amount">Accrued in the year</th><th></th></tr></thead>
+              <tbody>
+                ${h.lines.map((x) => html`
+                  <tr>
+                    <td><a href="/loans/${x.loanId}">${x.name}</a></td>
+                    <td>${x.use === "self-occupied" ? "lived in" : "let out"}</td>
+                    <td class="amount">
+                      ${formatPaise(x.accrued)}
+                      ${x.estimatedPart > 0 || x.incomplete
+                        ? html`<span class="chip chip-warning">estimated</span>`
+                        : html``}
+                    </td>
+                    <td class="faint">${x.carried ? "carried" : html`not carried: ${x.reason}`}</td>
+                  </tr>
+                `)}
+              </tbody>
+            </table>
+          </div>
+          ${selfOccupied.some((x) => x.estimatedPart > 0)
+            ? html`<p class="field-hint">
+                Estimated: ${formatPaise(selfOccupied.reduce((t, x) => t + x.estimatedPart, 0) as Paise)} of it
+                is not the lender's own figure — an instalment whose split the app worked
+                out, or one not yet recorded, taken from the projected schedule. The
+                lender's interest certificate is the number for the return; enter it below.
+              </p>`
+            : html``}
+          ${h.lines.some((x) => x.incomplete)
+            ? html`<p class="field-hint">
+                Some instalments in this year are not recorded, so their interest is
+                missing and the figure is low. Record them, or enter the certificate's figure.
+              </p>`
+            : html``}
+          ${letOut.length > 0
+            ? html`<p class="field-hint">
+                ${formatPaise(h.letOut)} on a let-out house is shown for information and
+                not deducted: it is set against the rent, which this app does not model.
+              </p>`
+            : html``}
+        `
+      : html`<p class="muted">No loan held by you is marked as for a house you live in or let out.</p>`}
+    <div class="field">
+      <label for="s24b">Your own figure, if different</label>
+      <input id="s24b" name="s24b" inputmode="decimal"
+             value="${p.s24bOverride === null ? "" : (p.s24bOverride / 100).toFixed(2)}"
+             placeholder="${(h.selfOccupied / 100).toFixed(2)}">
+      <p class="field-hint">
+        ${p.s24bOverride === null
+          ? html`Blank uses the ${formatPaise(h.selfOccupied)} carried above.`
+          : html`Your figure is used instead of the ${formatPaise(h.selfOccupied)} carried above. Clear it to go back.`}
+        Accrued interest for the year, before the cap: the certificate's figure, or
+        your share of a loan taken jointly.
+      </p>
+    </div>
+  `;
+}
+
+/**
+ * TAX-2 · Tax already paid, and what is left under each regime.
+ */
+function paidSection(p: TaxPageProps): SafeHtml {
+  const line = (s: Settlement): SafeHtml => html`
+    <tr>
+      <td>${s.regime === "old" ? "Old regime" : "New regime"}</td>
+      <td class="amount">${formatPaise(s.total)}</td>
+      <td class="amount">${formatPaise(s.paid)}</td>
+      <td class="amount">
+        <strong>${s.balance >= 0
+          ? html`${formatPaise(s.balance)} to pay`
+          : html`${formatPaise(-s.balance as Paise)} refund`}</strong>
+      </td>
+    </tr>
+  `;
+  return html`
+    <section class="card" id="paid">
+      <h2>Tax already paid</h2>
+      <p>
+        ${formatPaise(p.paid.tds)} deducted at source,
+        ${formatPaise(p.paid.advance)} of advance tax and
+        ${formatPaise(p.paid.selfAssessment)} of self-assessment tax, set against each
+        regime's figure.
+      </p>
+      ${p.settlement
+        ? html`
+            <div class="table-scroll">
+              <table>
+                <thead><tr><th>Regime</th><th class="amount">Estimate</th><th class="amount">Paid</th><th class="amount">Balance</th></tr></thead>
+                <tbody>${line(p.settlement.old)}${line(p.settlement.new)}</tbody>
+              </table>
+            </div>
+          `
+        : html``}
+      ${p.payments.length > 0
+        ? html`
+            <div class="table-scroll">
+              <table>
+                <thead><tr><th>Date</th><th>Kind</th><th class="amount">Amount</th><th>Note</th><th></th></tr></thead>
+                <tbody>
+                  ${p.payments.map((x) => html`
+                    <tr>
+                      <td>${formatDate(x.date)}</td>
+                      <td>${x.kind === "advance" ? "Advance tax" : "Self-assessment tax"}</td>
+                      <td class="amount">${formatPaise(x.amount)}</td>
+                      <td class="faint">${x.note ?? ""}</td>
+                      <td>
+                        <form method="post" action="/tax/payments/${x.id}/delete">
+                          <button class="button-small" type="submit">Remove</button>
+                        </form>
+                      </td>
+                    </tr>
+                  `)}
+                </tbody>
+              </table>
+            </div>
+          `
+        : html``}
+      <form method="post" action="/tax/payments" style="margin-top:.75rem">
+        <input type="hidden" name="fy" value="${p.fy}">
+        <div class="row" style="gap:1rem;flex-wrap:wrap;align-items:flex-end">
+          <div class="field">
+            <label for="tp-kind">Kind</label>
+            <select id="tp-kind" name="kind">
+              <option value="advance">Advance tax</option>
+              <option value="self-assessment">Self-assessment tax</option>
+            </select>
+          </div>
+          <div class="field">
+            <label for="tp-date">Date on the challan</label>
+            <input id="tp-date" name="date" placeholder="Today">
+          </div>
+          <div class="field">
+            <label for="tp-amount">Amount</label>
+            <input id="tp-amount" name="amount" inputmode="decimal" required placeholder="0.00">
+          </div>
+          <div class="field">
+            <label for="tp-note">Note</label>
+            <input id="tp-note" name="note" placeholder="Challan 280, BSR code">
+          </div>
+        </div>
+        <button type="submit">Record a payment</button>
+      </form>
     </section>
   `;
 }
