@@ -1105,9 +1105,11 @@ export function averageDailySpend(
   viewerMemberId?: string | null,
   budgetIds?: readonly string[],
 ): Paise {
-  const from = addDays(asOf, -windowDays);
+  // DEBUG-ENGINE-5 · Both ends are inclusive, so the window starts windowDays − 1
+  // back: from asOf − 90 it held 91 days of spending, divided by 90.
+  const days = Math.max(1, windowDays);
+  const from = addDays(asOf, -(days - 1));
   const total = envelopeSpendBetween(db, from, asOf, viewerMemberId, budgetIds);
-  const days = Math.max(1, daysBetween(from, asOf));
   return Math.round(total / days);
 }
 

@@ -12,6 +12,7 @@ import { html, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, type Paise } from "../../core/money.ts";
 import { formatFiscalYear, formatDate } from "../../core/dates.ts";
 import type { TaxEstimate, RegimeEstimate, Deductions, AdvanceInstalment } from "../../domain/tax.ts";
+import { hraFiftyPercentCities } from "../../domain/tax.ts";
 import type { GainsTax } from "../../domain/capital-gains-tax.ts";
 
 export interface TaxPageProps {
@@ -198,7 +199,7 @@ export function renderTax(p: TaxPageProps): SafeHtml {
       <h3>House rent allowance</h3>
       <p class="faint">
         Exempt to the least of three: the HRA received, rent paid less 10% of
-        basic, and half of basic in a metro (40% elsewhere). Leave the rent at
+        basic, and half of basic in the cities named below (40% elsewhere). Leave the rent at
         zero if you do not pay any — no rent exempts nothing, whatever the HRA.
       </p>
       <div class="row" style="gap:1rem;flex-wrap:wrap">
@@ -220,7 +221,7 @@ export function renderTax(p: TaxPageProps): SafeHtml {
       </div>
       <label class="row" style="gap:.5rem">
         <input type="checkbox" name="hra_metro" value="1" ${d.hra?.metro ? "checked" : ""}>
-        Delhi, Mumbai, Kolkata or Chennai
+        ${hraFiftyPercentCities(p.fy).slice(0, -1).join(", ")} or ${hraFiftyPercentCities(p.fy).at(-1)}
       </label>
 
       <button class="button-primary" type="submit" style="margin-top:1rem">Save and recalculate</button>
@@ -261,7 +262,7 @@ export function renderTax(p: TaxPageProps): SafeHtml {
                     </tr>` : html``}
                   ${p.gains.buckets.otherLong !== 0 ? html`
                     <tr>
-                      <td>Gold, property or foreign shares, over 24 months <span class="faint">· s112, 12.5%</span></td>
+                      <td>Gold, property, foreign shares and older debt funds, held long <span class="faint">· s112, 12.5%</span></td>
                       <td class="amount">${formatPaise(p.gains.buckets.otherLong)}</td>
                       <td class="amount">${formatPaise(p.gains.otherLongTax)}</td>
                     </tr>` : html``}

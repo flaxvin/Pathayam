@@ -626,3 +626,36 @@ describe("a zero-filled Chq./Ref.No. is no reference", () => {
     assert.ok(result.records.every((r) => !r.narration.includes("000000000000")));
   });
 });
+
+describe("a line with a wide gap in it", () => {
+  test("is read in time proportional to its length", () => {
+    /*
+     * The figure finder allowed spaces in three places before a digit, each
+     * optional, so a run of spaces with no figure at its end was tried every
+     * way it could be divided between them — from every position in the run.
+     * One line with a 500-space gap, which a wide landscape page or a crafted
+     * PDF produces, held the server for half a minute; a few such lines, for
+     * as long as anyone waited.
+     */
+    const before = parseStatementText(HDFC).records.length;
+    const text = HDFC + `\n01/08/26  SWIGGY${" ".repeat(600)}x\n`;
+    const started = Date.now();
+    const result = parseStatementText(text);
+    assert.ok(Date.now() - started < 2_000, `took ${Date.now() - started} ms`);
+    assert.equal(result.records.length, before);
+  });
+});
+
+describe("a statement of very many wrapped rows", () => {
+  test("gives each fragment to its row in time proportional to the file", () => {
+    // Every fragment was measured against every row: forty thousand of each,
+    // two megabytes of text, took the server most of a minute.
+    const lines = ["Date  Narration  Amount"];
+    for (let i = 0; i < 60_000; i++) lines.push("01/08/2026  SWIGGY  450.00", "            ORDER");
+    const started = Date.now();
+    const result = parseStatementText(lines.join("\n"));
+    assert.ok(Date.now() - started < 10_000, `took ${Date.now() - started} ms`);
+    assert.equal(result.records.length, 60_000);
+    assert.ok(result.records.every((r) => r.narration === "ORDER SWIGGY"));
+  });
+});

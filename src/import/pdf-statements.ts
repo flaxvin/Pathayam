@@ -559,16 +559,15 @@ function figuresWithOffsets(line: string): { text: string; start: number; end: n
    * span instead and the tolerance costs nothing.
    */
   /*
-   * Both start with `(?=\S)`. Without it a match can begin anywhere inside a
-   * run of padding, and every start scans the rest of the run before failing:
-   * quadratic in the run's length. A page laid out ten thousand columns wide
-   * (Standard Chartered's card statement) never finished. The leading spaces
-   * were trimmed off every match anyway, so nothing read changes.
+   * Spaces are allowed only *after* a mark that is present. Three optional
+   * marks each followed by `\s*` let a run of spaces with no figure at its end
+   * be divided among them every possible way, from every position in it: one
+   * 500-space gap took half a minute.
    */
   const span =
-    /(?=\S)(?:Rs\.?|INR|₹|C)?\s*\(?\s*[-+]?\s*\d(?:[\d,.]| (?=[\d,.]))*\s*\)?(?:\s*(?:Cr|Dr)\.?)?/gi;
+    /(?:(?:Rs\.?|INR|₹|C)\s*)?(?:\(\s*)?(?:[-+]\s*)?\d(?:[\d,.]| (?=[\d,.]))*(?:\s*\))?(?:\s*(?:Cr|Dr)\.?)?/gi;
   const strict =
-    /(?=\S)(?:Rs\.?|INR|₹|C)?\s*\(?\s*[-+]?\s*\d[\d,]*\.?\d*\s*\)?(?:\s*(?:Cr|Dr)\.?)?/gi;
+    /(?:(?:Rs\.?|INR|₹|C)\s*)?(?:\(\s*)?(?:[-+]\s*)?\d[\d,]*\.?\d*(?:\s*\))?(?:\s*(?:Cr|Dr)\.?)?/gi;
 
   const emit = (text: string, start: number, end: number) => {
     // A reference or account number is not a figure: it is a long digit run
@@ -1131,12 +1130,18 @@ export function parseStatementText(
   const rowIndexes = classified.flatMap((l, i) => (l.kind === "row" ? [i] : []));
   const extra = new Map<number, string[]>();
 
+  // The first row at or after the line, walked forward with it: only that row
+  // and the one before it can be nearest. Every row was compared with every
+  // fragment, and a crafted file of forty thousand of each took minutes.
+  let next = 0;
   for (const [i, line] of classified.entries()) {
+    while (next < rowIndexes.length && rowIndexes[next]! < i) next++;
     if (line.kind !== "fragment") continue;
 
     let nearest = -1;
     let best = Infinity;
-    for (const r of rowIndexes) {
+    for (const r of [rowIndexes[next - 1], rowIndexes[next]]) {
+      if (r === undefined) continue;
       // Ties go above, and a fragment more than three lines from any row is
       // page furniture rather than a wrapped cell.
       const distance = Math.abs(r - i) + (r < i ? 0 : 0.5);

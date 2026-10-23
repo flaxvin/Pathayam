@@ -319,7 +319,7 @@ export function renderReports(opts: {
   sankey: { income: Paise; month: MonthKey; groups: { name: string; categories: { name: string; value: Paise }[] }[] };
   period: Period;
   periods: Period[];
-  loanInterest: { fy: number; label: string; interest: Paise; principal: Paise; lender: string }[];
+  loanInterest: { fy: number; label: string; interest: Paise; principal: Paise; lender: string; loan: string }[];
   /** B88 · Realised gains per FY, split by holding period. */
   gains: GainsYear[];
   /** 15 / 16 · Reports offer every scope rather than picking one. */
@@ -569,7 +569,7 @@ export function renderReports(opts: {
             <thead>
               <tr>
                 <th scope="col">Year</th>
-                <th scope="col">Lender</th>
+                <th scope="col">Loan</th>
                 <th scope="col" class="num">Interest</th>
                 <th scope="col" class="num">Principal</th>
               </tr>
@@ -579,7 +579,7 @@ export function renderReports(opts: {
                 (r) => html`
                   <tr>
                     <td>${r.label}</td>
-                    <td>${r.lender}</td>
+                    <td>${r.loan}</td>
                     <td class="num amount">${formatPaise(r.interest)}</td>
                     <td class="num amount">${formatPaise(r.principal)}</td>
                   </tr>

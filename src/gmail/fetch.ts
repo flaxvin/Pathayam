@@ -268,11 +268,23 @@ async function handleStatement(
       })
       : [""];
     let parsed;
+    // Any other failure — a certificate-protected or damaged file — is this
+    // attachment's alone. Thrown, it lost every alert read so far and left the
+    // fetch unmarked, so the same file failed every fetch in its window.
+    let unreadable: string | null = null;
     for (const candidate of candidates) {
       try { parsed = parseStatementPdf(bytes, candidate); break; }
-      catch (e) { if (!(e instanceof WrongPassword)) throw e; }
+      catch (e) {
+        if (e instanceof WrongPassword) continue;
+        unreadable = (e as Error).message;
+        break;
+      }
     }
-    if (!parsed) { result.statements.locked++; result.notes.push(`Could not open ${pdf.filename}`); continue; }
+    if (!parsed) {
+      result.statements.locked++;
+      result.notes.push(`Could not open ${pdf.filename}${unreadable ? `: ${unreadable}` : ""}`);
+      continue;
+    }
     result.statements.read++;
 
     // Resolve the account from the statement's own header — the parser does not

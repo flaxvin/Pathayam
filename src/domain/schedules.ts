@@ -1100,8 +1100,18 @@ export function projectCashflow(
         ${opts.budgetId ? "AND budget_id = ?" : ""}`,
     ...(opts.budgetId ? [opts.budgetId] : []),
   );
-  const inScope = new Set(budgetAccounts.map((a) => a.id));
-  let balance = budgetAccounts.reduce((sum, a) => sum + (balances.get(a.id)?.working ?? 0), 0);
+  /*
+   * DEBUG-ENGINE-1 · Only cash the viewer may see. Asked with no budget, as the
+   * Overview asks, this summed every open account in every budget — another
+   * member's private account in their own budget included — and listed their
+   * private card, by name, as a "due" outflow.
+   */
+  const hiddenAccounts = opts.viewerMemberId === undefined
+    ? new Set<string>()
+    : memberScope(db, opts.viewerMemberId).accounts;
+  const visibleBudgetAccounts = budgetAccounts.filter((a) => !hiddenAccounts.has(a.id));
+  const inScope = new Set(visibleBudgetAccounts.map((a) => a.id));
+  let balance = visibleBudgetAccounts.reduce((sum, a) => sum + (balances.get(a.id)?.working ?? 0), 0);
 
   const opening = balance;
   const byDate = new Map<IsoDate, CalendarDay>();
@@ -1134,7 +1144,7 @@ export function projectCashflow(
         WHERE kind = 'credit' AND closed_at IS NULL
           ${opts.budgetId ? "AND budget_id = ?" : ""}`,
       ...(opts.budgetId ? [opts.budgetId] : []),
-    ).map((card) => [card.id, card]),
+    ).filter((card) => !hiddenAccounts.has(card.id)).map((card) => [card.id, card]),
   );
 
   // Confirmed and detected schedules, distinguished (F7.8).

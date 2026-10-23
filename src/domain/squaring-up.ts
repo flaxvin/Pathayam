@@ -31,6 +31,7 @@ import { Refusal } from "../core/refusal.ts";
 import { getBudget, householdBudgetId, budgetsFor } from "./budgets.ts";
 import { createGroup, createCategory, listCategories, type Category } from "./budget.ts";
 import { standingOf, outstanding } from "./standing.ts";
+import { refusePaymentCategories } from "./transactions.ts";
 import { loadEngineInput } from "../engine/repository.ts";
 import { computeBudget } from "../engine/engine.ts";
 
@@ -159,6 +160,13 @@ export function callItEven(db: DB, actor: Actor, input: CallItEvenInput): EvenCa
 
     const givingCategoryId =
       input.givingCategoryId ?? ensureGivenUpCategory(db, actor, givingBudget).id;
+    /*
+     * DEBUG-ENGINE-7 · Spent from an envelope the engine reads as spending. A
+     * deleted envelope is not walked, a payment envelope's activity is its card's
+     * and a commitment envelope is the claim itself: from any of them the amount
+     * let go was spent from nowhere, and the giving budget's books were out by it.
+     */
+    refusePaymentCategories(db, [givingCategoryId]);
     const givingCategory = queryOne<{ budget_id: string | null; name: string }>(
       db, `SELECT budget_id, name FROM categories WHERE id = ?`, givingCategoryId,
     );

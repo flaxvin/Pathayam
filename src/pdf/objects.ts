@@ -286,18 +286,38 @@ function endsStreamAt(bytes: Uint8Array, end: number): boolean {
   return /^\s*endstream/.test(window);
 }
 
+/**
+ * The last search for `endstream` in a file: from where, and the first one
+ * found at or after it (-1 for none).
+ *
+ * Objects are read front to back, so a search starting between those two
+ * points has the same answer. Without it, every stream missing its terminator
+ * searched the rest of the file again — the square of the file's size, and a
+ * few hundred kilobytes of unterminated streams held the server for minutes.
+ */
+const lastEndstream = new WeakMap<Uint8Array, { from: number; at: number }>();
+
 function findEndstream(bytes: Uint8Array, start: number): number {
   const needle = "endstream";
-  for (let i = start; i < bytes.length - needle.length; i++) {
-    if (bytes[i] !== 0x65) continue;
-    if (latin1(bytes.subarray(i, i + needle.length)) !== needle) continue;
-    // Trim the EOL that precedes the keyword; it is not stream data.
-    let end = i;
-    if (bytes[end - 1] === 0x0a) end--;
-    if (bytes[end - 1] === 0x0d) end--;
-    return end;
+  const known = lastEndstream.get(bytes);
+  let found = -1;
+  if (known && start >= known.from && (known.at === -1 || start <= known.at)) {
+    found = known.at;
+  } else {
+    for (let i = start; i < bytes.length - needle.length; i++) {
+      if (bytes[i] !== 0x65) continue;
+      if (latin1(bytes.subarray(i, i + needle.length)) !== needle) continue;
+      found = i;
+      break;
+    }
+    lastEndstream.set(bytes, { from: start, at: found });
   }
-  return bytes.length;
+  if (found < 0) return bytes.length;
+  // Trim the EOL that precedes the keyword; it is not stream data.
+  let end = found;
+  if (end > start && bytes[end - 1] === 0x0a) end--;
+  if (end > start && bytes[end - 1] === 0x0d) end--;
+  return end;
 }
 
 export function latin1(bytes: Uint8Array): string {

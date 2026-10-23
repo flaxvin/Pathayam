@@ -124,6 +124,9 @@ function toMicroRupees(value: number): number {
 
 function classify(description: string): CasRow["kind"] {
   const text = description.toLowerCase();
+  // A reversal undoes the row before it — a bounced SIP says "Purchase" too.
+  // Not something to create a lot or a sale for: shown, for a person to judge.
+  if (/revers|reject/.test(text)) return "other";
   // Order matters: "dividend reinvestment" is a purchase of units, and calling
   // it a dividend would break R27.5's separation of payouts from cost.
   if (/reinvest/.test(text)) return "purchase";
@@ -323,14 +326,17 @@ function parseRow(text: string): CasRow | null {
   const kind = classify(description);
   // A redemption's figures are sometimes bracketed and sometimes not; the word
   // is the authority, not the punctuation.
-  const sign = kind === "redemption" ? -1 : 1;
+  // A row of no known kind keeps the sign it was printed with, so a reversal's
+  // bracketed units still net against the closing balance.
+  const signed = (value: number) =>
+    kind === "other" ? value : (kind === "redemption" ? -1 : 1) * Math.abs(value);
 
   return {
     date,
     kind,
     description,
-    amount: toPaise(sign * Math.abs(amount)),
-    units: kind === "dividend" ? 0 : toMilliunits(sign * Math.abs(units)),
+    amount: toPaise(signed(amount)),
+    units: kind === "dividend" ? 0 : toMilliunits(signed(units)),
     nav: toMicroRupees(Math.abs(nav)),
     raw: text,
   };
