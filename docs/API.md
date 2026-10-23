@@ -428,6 +428,8 @@ only (out of a token's reach).
 | GET/POST | `/accounts/new` | R/W | Create an account. |
 | GET | `/accounts/:id` | R | One account's register. |
 | POST | `/accounts/:id/edit` · `/accounts/:id/close` · `/accounts/:id/reopen` | W | Rename, close (never delete) and reopen an account. |
+| POST | `/accounts/:id/deposit` | W | Set or change a deposit's terms (`deposit_kind` `fd`/`rd`/`ppf`/`epf`/`other`, `deposit_principal`, `deposit_instalment`, `deposit_rate` as a percentage, `deposit_compounding`, `deposit_start_date`, `deposit_maturity_date`, `deposit_payout` `cumulative`/`periodic`). A fixed deposit, recurring deposit or other-asset tracking account only. `/accounts/new` takes the same fields. |
+| POST | `/accounts/:id/deposit/remove` | W | Take a deposit's terms off; it is worth its balance again. |
 | GET/POST | `/accounts/:id/statement` | R/W | Record a card statement: amount, date, due date, minimum. |
 | GET | `/accounts/:id/cards` | R | Cards on one account, including add-ons. |
 | POST | `/accounts/:id/cards/:cardId/close` | W | Close an add-on card. |
@@ -453,6 +455,7 @@ only (out of a token's reach).
 | GET/POST | `/import` | R/W | CSV paste import. |
 | POST | `/import/pdf` | W | Statement-PDF upload. |
 | POST | `/import/map` | W | Save a column mapping. |
+| POST | `/import/budget-app` | W | Import a YNAB or Actual Budget export: `csv`, `account_<n>` (an account id or `skip`, one per account in the file, in order), and `date_order` when every date reads both ways. Transactions only. |
 | POST | `/import/undo` | W | Undo an import batch. |
 | POST | `/import/profiles/:id/delete` | W | Delete a saved mapping. |
 | GET | `/rules` | R | Rules list. |
@@ -467,7 +470,8 @@ only (out of a token's reach).
 | GET | `/categories` | R | Categories, for the budget being viewed (`?budget=`). |
 | POST | `/groups/new` · `/groups/:id/rename` · `/groups/:id/delete` | W | Add, rename or remove a category group. A group must be empty to be deleted. |
 | POST | `/categories/new` · `/categories/:id/rename` · `/categories/:id/hide` · `/categories/:id/delete` | W | Manage categories. |
-| GET/POST | `/tax` | W | Income tax estimate for the signed-in member and one financial year (`fy`). POST saves gross income and deductions. Refuses a year whose rates the app does not have. |
+| GET/POST | `/tax` | W | Income tax estimate for the signed-in member and one financial year (`fy`). POST saves gross income, deductions, TDS (`tds`) and an optional own figure for home loan interest under section 24(b) (`s24b`; blank uses the interest accrued on loans marked as for a self-occupied house). Refuses a year whose rates the app does not have. |
+| POST | `/tax/payments` · `/tax/payments/:id/delete` | W | Record (`fy`, `kind` = `advance` or `self-assessment`, `date`, `amount`, `note`) or remove a tax payment of the signed-in member's own. Advance tax must be dated inside its financial year. Another member's payment is not found. |
 | POST | `/categories/:id/merge` | W | Merge this category into `winner_id`: assignments are summed month by month, history and targets move across, and this one is deleted. Refuses a payment category and a merge across budgets. |
 | POST | `/categories/:id/target` | W | Set or clear a category's target: `amount`, `kind` (`monthly` or `refill`; omitted keeps a stored refill) and optional `target_date` (makes it by-date). |
 | POST | `/categories/:id/reorder` · `/groups/:id/reorder` | W | Move a category or group up or down. |
@@ -489,6 +493,7 @@ only (out of a token's reach).
 | GET/POST | `/loans/:id/prepay` | R/W | Record a prepayment. |
 | GET/POST | `/loans/:id/rate` | R/W | Record a rate reset. |
 | POST | `/loans/:id/holder` | W | Change whose loan it is and whether it is private (H2, H2.2). |
+| POST | `/loans/:id/property` | W | Say what the house the loan paid for is used for (`property_use` = `self-occupied`, `let-out`, or empty for neither). A self-occupied house's accrued interest is carried into its holder's tax estimate (TAX-1). Undoable from the activity log. |
 | POST | `/loans/:id/close` | W | File away a paid-off loan (R21). |
 | POST | `/loans/:id/settle` | W | Settle a loan early, recording the lender's foreclosure charge (R19.5). |
 | POST | `/transaction/:id/convert-to-emi` | W | Convert a card purchase to an instalment plan (`06` §7.4, F8.5). |
@@ -501,6 +506,16 @@ only (out of a token's reach).
 |---|---|---|---|
 | GET | `/family` · `/family/:id` | R | Lent/borrowed and one arrangement. |
 | POST | `/family/new` · `/family/:id/advance` · `/family/:id/repayment` · `/family/:id/write-off` · `/family/:id/close` | W | Manage family loans. |
+
+### Insurance
+
+| Method | Path | Token | Purpose |
+|---|---|---|---|
+| GET | `/insurance` · `/insurance/:id` | R | The policy register, and one policy. A private policy answers 404 to anyone but its holder. |
+| POST | `/insurance/new` · `/insurance/:id/edit` | W | Record or change a policy. `policy_number` keeps only its last four characters. |
+| POST | `/insurance/:id/paid` | W | Move the next due date on by the premium frequency. Posts no transaction. Optional `back` (a path) to return to. |
+| POST | `/insurance/:id/status` | W | `status` = `lapsed`, `ended` or `active`. A lapsed or ended policy is kept. |
+| POST | `/insurance/:id/delete` | W | Remove a policy recorded by mistake (undoable from Activity). |
 
 ### Portfolio, assets & net worth
 

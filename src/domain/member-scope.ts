@@ -43,6 +43,8 @@ export interface MemberScope {
   instruments: Set<string>;
   loans: Set<string>;
   familyLoans: Set<string>;
+  /** INSURANCE-1 · Policies held privately by somebody else, deleted ones included. */
+  policies: Set<string>;
   /** True when `id` names anything above. */
   hides(id: string | null | undefined): boolean;
   /** True when any string anywhere inside `value` names anything above. */
@@ -161,9 +163,19 @@ export function memberScope(db: DB, viewerMemberId: string | null): MemberScope 
   const loans = ids(db, `SELECT id FROM loans WHERE account_id IN ${HIDDEN_ACCOUNTS}`, v);
   const familyLoans = ids(db,
     `SELECT id FROM family_loans WHERE account_id IN ${HIDDEN_ACCOUNTS}`, v);
+  /*
+   * A policy carries its own holder and flag, as an account does, rather than
+   * hanging off one. One paid from an envelope the viewer cannot see is hidden
+   * too, though the domain does not let a shared policy name a private envelope.
+   */
+  const policies = ids(db,
+    `SELECT id FROM insurance_policies
+      WHERE NOT (visibility = 'household' OR holder_member_id IS ?)
+         OR (category_id IS NOT NULL AND category_id ${inCategories})`,
+    v, ...hiddenCategory);
 
   const all = [budgets, accounts, groups, categories, transactions, cards, schedules,
-    goals, holdings, lots, instruments, loans, familyLoans];
+    goals, holdings, lots, instruments, loans, familyLoans, policies];
   const hides = (id: string | null | undefined): boolean =>
     typeof id === "string" && all.some((set) => set.has(id));
   const mentionsHidden = (value: unknown): boolean => {
@@ -176,6 +188,7 @@ export function memberScope(db: DB, viewerMemberId: string | null): MemberScope 
 
   return {
     viewerMemberId, budgets, accounts, groups, categories, transactions, cards,
-    schedules, goals, holdings, lots, instruments, loans, familyLoans, hides, mentionsHidden,
+    schedules, goals, holdings, lots, instruments, loans, familyLoans, policies, hides,
+    mentionsHidden,
   };
 }

@@ -145,7 +145,7 @@ describe("10 §3.6 · storing it, and the three things it must not do", () => {
   test("it round-trips", () => {
     const db = setup();
     setIdentity(db, actor, IDENTITY);
-    assert.deepEqual(getIdentity(db, RAVI), { ...IDENTITY, pan: "ABCDE1234F" });
+    assert.deepEqual(getIdentity(db, RAVI), { ...IDENTITY, pan: "ABCDE1234F", customerIds: {} });
     db.close();
   });
 
@@ -213,5 +213,49 @@ describe("10 §3.6 · storing it, and the three things it must not do", () => {
     assert.ok(looksLikeDob("01/01/1970"));
     assert.ok(!looksLikeDob("32011970"));
     assert.ok(!looksLikeDob("01131970"));
+  });
+});
+
+describe("IMPORT-SND-12 · rules quoted from Axis's, HDFC's and ESAF's statement emails", () => {
+  const WITH_IDS = { ...IDENTITY, customerIds: { axis: "123456789", hdfc: "87654321" } };
+
+  test("Axis account: the first four letters in capitals, then the 9-digit customer ID, tried first", () => {
+    // "C. K. AJAY KUMAR with cust id as 123456789 … would be CKAJ123456789"
+    const list = passwordCandidates({ ...WITH_IDS, name: "C. K. Ajay Kumar" }, "axis");
+    assert.equal(list[1], "CKAJ123456789");
+    assert.equal(describeCandidate("CKAJ123456789", { ...WITH_IDS, name: "C. K. Ajay Kumar" }), "your customer ID");
+  });
+
+  test("HDFC account: the customer ID alone, tried first", () => {
+    const list = passwordCandidates(WITH_IDS, "hdfc");
+    assert.equal(list[1], "87654321");
+    assert.equal(describeCandidate("87654321", WITH_IDS), "your customer ID");
+  });
+
+  test("ESAF: the first three letters in capitals, then the mobile's last four", () => {
+    // "RAVI SHANKAR and Mobile Number is 9346 5867 59 … RAV6759"
+    const esaf = { name: "Ravi Shankar", pan: null, dob: null, mobile: "9346586759" };
+    assert.ok(passwordCandidates(esaf, null).includes("RAV6759"));
+    assert.equal(describeCandidate("RAV6759", esaf), "your name and mobile number");
+  });
+
+  test("the IDs are stored, masked, kept when a save leaves them out, and never exported or logged", () => {
+    const db = setup();
+    setIdentity(db, actor, { ...IDENTITY, customerIds: { axis: "123456789", hdfc: "87654321" } });
+    setIdentity(db, actor, IDENTITY);
+    assert.deepEqual(getIdentity(db, RAVI)!.customerIds, { axis: "123456789", hdfc: "87654321" });
+
+    const masked = JSON.stringify(maskedIdentity(db, RAVI));
+    assert.ok(!masked.includes("123456789") && !masked.includes("87654321"));
+    assert.match(masked, /••••789/);
+
+    assert.ok(!JSON.stringify(exportEverything(db)).includes("123456789"));
+    const events = JSON.stringify(historyFor(db, "statement-identity", RAVI));
+    assert.ok(!events.includes("123456789") && !events.includes("87654321"));
+
+    setIdentity(db, actor, { ...IDENTITY, customerIds: { hdfc: "" } });
+    assert.deepEqual(getIdentity(db, RAVI)!.customerIds, { axis: "123456789" });
+    assert.throws(() => setIdentity(db, actor, { ...IDENTITY, customerIds: { axis: "12 3" } }), /customer ID/);
+    db.close();
   });
 });

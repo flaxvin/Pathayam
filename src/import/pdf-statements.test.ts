@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   parseStatementText, parseStatementPdf, openStatement, parseStatementDate,
   parseStatementAmount, detectBank, senderFor, readHeader, BANKS, WrongPassword,
+  STATEMENT_SENDERS,
 } from "./pdf-statements.ts";
 import { STATEMENTS, STATEMENT_PASSWORD, STATEMENT_IDENTITY } from "./statements.test-data.ts";
 import { passwordCandidates, describeCandidate } from "./statement-passwords.ts";
@@ -290,6 +291,45 @@ describe("04 §3.4 · which sender means which institution", () => {
     assert.equal(senderFor("cc.statements@axis.bank.in")!.bank, "axis");
     assert.equal(senderFor("cbssbi.cas@alerts.sbi.bank.in")!.bank, "sbi");
     assert.equal(senderFor("Statements@sbicard.com")!.bank, "sbi");
+  });
+
+  test("IMPORT-SND-1: statements from the banks' pre-2026 domains are recognised", () => {
+    assert.equal(senderFor("Emailstatements.cards@hdfcbank.net")!.bank, "hdfc");
+    assert.equal(senderFor("hdfcbanksmartstatement@hdfcbank.net")!.what, "HDFC account statement");
+    assert.equal(senderFor("estatement@icicibank.com")!.bank, "icici");
+    assert.equal(senderFor("credit_cards@icicibank.com")!.bank, "icici");
+    assert.equal(senderFor("statements@axisbank.com")!.bank, "axis");
+    assert.equal(senderFor("cc.statements@axisbank.com")!.bank, "axis");
+    assert.equal(senderFor("cbssbi.cas@alerts.sbi.co.in")!.bank, "sbi");
+    assert.equal(senderFor("noreplyunionbank@unionbankofindia.com")!.bank, "union");
+    assert.equal(senderFor("noreplyunionbank@ubi.bank.in")!.bank, "union");
+    assert.equal(senderFor("estatement@yesbank.in")!.bank, "yes");
+    // Old domains are as anchored as new ones.
+    assert.equal(senderFor("estatement@icicibank.com.example.com"), null);
+    assert.equal(senderFor("someone@unionbankofindia.com"), null);
+  });
+
+  test("IMPORT-SND-2: statement senders that had no entry are named", () => {
+    for (const address of [
+      "Global.E-Statement-IN@sc.com", "alerts@esafbank.com", "estatements@safegold.in",
+      "nps-statements@mailer.proteantech.in", "kfpl.mfservice@kfintech.com",
+    ]) {
+      const s = senderFor(address);
+      assert.ok(s, address);
+      assert.equal(s.bank, address.endsWith("@sc.com") ? "sc" : null);
+    }
+  });
+
+  test("every recognised sender is one the Gmail search asks for", () => {
+    // The search is a from:(…) union; a pattern without a query entry would be
+    // recognised but never fetched.
+    for (const s of STATEMENT_SENDERS) {
+      assert.ok(s.query.length > 0);
+      for (const q of s.query) {
+        const sample = q.startsWith("@") ? `statements${q}` : q;
+        assert.ok(s.pattern.test(sample), `${q} does not match its own pattern`);
+      }
+    }
   });
 
   test("a CAS is routed to the portfolio importer, not to the bank one", () => {

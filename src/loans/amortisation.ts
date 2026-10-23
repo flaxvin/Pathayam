@@ -227,7 +227,7 @@ export function buildSchedule(input: ScheduleInput): Schedule {
   };
 }
 
-function shiftMonths(date: IsoDate, delta: number): IsoDate {
+export function shiftMonths(date: IsoDate, delta: number): IsoDate {
   const month = addMonths(monthOf(date), delta);
   const day = date.slice(8, 10);
   // Clamp to the month's length, the same policy schedules use (F7.3).

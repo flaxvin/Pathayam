@@ -273,3 +273,15 @@ So the tax screen asks for deductions rather than deriving them, and the loan
 report says in as many words that it is not carried across. The estimate is
 only ever as good as what it is told, which is a limitation worth being visible
 rather than one worth hiding behind an automatic figure.
+
+---
+
+## Q32 · A write-only queue for entering a spend without signal
+
+*Decided 22-10-2026, reversing `08` §3.3's "do not reach for it pre-emptively".*
+The five-second spend at a counter (`03` J2) failed whenever there was no
+signal, and R36's in-memory retry only helped if the tab stayed open. The owner
+took the documented escape hatch: the Add form may keep an entry on the device
+until the server confirms it, under one key, with the idempotency key it was
+first sent with, and nothing else. No service worker; no read cache; purged on
+sign-out. The rule is `10` §3.7 (R35.7) and the stranded lines are `10` E17–E18.

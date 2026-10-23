@@ -13,8 +13,8 @@ individual accounts.
 
 ## Visibility
 
-`accounts`, `loans` and `family_loans` each carry `visibility` (`household` or
-`private`) and `holder_member_id`. The predicate is identical everywhere:
+`accounts`, `loans`, `family_loans` and `insurance_policies` each carry
+`visibility` (`household` or `private`) and `holder_member_id`. The predicate is identical everywhere:
 
 ```sql
 (visibility <> 'private' OR holder_member_id IS ?)
@@ -61,6 +61,7 @@ viewer may see, then pass the result to the domain:
 | `requireVisibleStaged` | staged statement line id (approve, dismiss, merge) | the account it was imported into |
 | `requireVisibleSchedule`, `requireVisibleGoal`, `requireVisibleHolding`, `requireVisibleInstrument` | schedule, goal, holding, instrument id | `memberScope` — what the thing hangs off |
 | `requireVisibleEvent` | event id (undo) | `eventVisibility` |
+| `requireVisiblePolicy` | insurance policy id | the policy's own holder and visibility, and the envelope it names (`memberScope.policies`) |
 | `requireVisibleRule`, `requireVisibleImportProfile` | rule, profile id | the envelope / account it names |
 | `requireVisibleBatch` | import batch id (undo) | the account it was imported into |
 | `requireVisibleBudget` | budget id (moving an account between budgets) | the household's, or the viewer's own |
@@ -103,6 +104,18 @@ totals recomputed over what is in the file. The **operator's backup**
 (`createBackup`, `exportEverything`, restore) stays whole — every member's
 private budget included — and runs only on the server, never through a
 member's browser.
+
+### On the device
+
+The write-only queue (`10` §3.7) keeps an Add-form entry in the browser until
+the server has it. Each entry is tagged with the id of the member whose page it
+was — the only identifier the page exposes, as `data-member` on the body. When
+somebody else signs in on the same browser, entries tagged with anyone else are
+discarded unsent, and the page says so: sending them would file one person's
+spend as another's, and showing them would show one person's spend to another.
+While impersonating, the attribute is absent, so nothing is queued, sent or
+claimed. An unsent entry is readable by whoever holds the unlocked device; that
+is the trade `10` §3.7 accepts.
 
 ### Event visibility
 

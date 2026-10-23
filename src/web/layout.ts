@@ -15,6 +15,7 @@ import { CLIENT_SCRIPT } from "./client.ts";
 import { STYLESHEET } from "./styles.ts";
 import { ICON_BACKGROUND, APP_LOGO_SVG } from "./icon.ts";
 import { renderScopeSwitch, scopeName } from "./scope-switch.ts";
+import { formatDate, todayIST } from "../core/dates.ts";
 
 /**
  * Content-hash the client assets so their URLs change when they change. Without
@@ -42,6 +43,13 @@ export interface LayoutOptions {
   /** The member's stored preference (R39.2). */
   theme: Theme;
   memberName?: string | null;
+  /**
+   * OFFLINE-1 · Who this page belongs to, for the client's write-only queue:
+   * it tags what it keeps with this, and drops entries tagged with anybody
+   * else. An opaque id and nothing more. Left out while impersonating and on
+   * the bare screens, where the queue is neither sent nor claimed.
+   */
+  memberId?: string | null;
   /** R38.7: shown on every screen while active, and not dismissible. */
   impersonating?: { name: string; readOnly: boolean } | null;
   /** R38.4: distinct from impersonation, impossible to confuse with production. */
@@ -65,6 +73,19 @@ export interface LayoutOptions {
    */
   budgets?: { id: string; name: string; kind: string }[];
   currentBudgetId?: string | null;
+  /**
+   * PRINT-1 · A screen somebody takes to paper: the tax estimate, the reports,
+   * the month close, the net worth statement, a loan's schedule. It gets a
+   * Print button, and `caveat` is a line the printed footer must carry because
+   * the page means something different without it — the tax estimate's "an
+   * estimate, not a return" is the one that exists.
+   *
+   * Every other screen prints too, with the same stylesheet; it simply does not
+   * offer a button, because a printed Add form or rules list is nobody's goal.
+   */
+  print?: { caveat?: string } | null;
+  /** PRINT-1 · Named in the printed footer, so a sheet says whose it is. */
+  householdName?: string | null;
   features?: {
     loans: boolean;
     assets: boolean;
@@ -88,8 +109,8 @@ const PRIMARY_NAV: NavItem[] = [
 export function page(options: LayoutOptions, content: SafeHtml): string {
   const {
     title, theme, path = "/", impersonating, devMode, demoMode, notice, bare,
-    reviewCount = 0, memberName, features = { loans: true, assets: true },
-    budgets = [], currentBudgetId = null,
+    reviewCount = 0, memberName, memberId, features = { loans: true, assets: true },
+    budgets = [], currentBudgetId = null, print = null, householdName = null,
   } = options;
 
   // "system" leaves the attribute off entirely so the CSS `prefers-color-scheme`
@@ -119,7 +140,7 @@ export function page(options: LayoutOptions, content: SafeHtml): string {
 <meta name="apple-mobile-web-app-title" content="Pathayam">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 </head>
-<body data-features="${[features.loans ? "loans" : "", features.assets ? "assets" : ""].filter(Boolean).join(" ")}">
+<body data-features="${[features.loans ? "loans" : "", features.assets ? "assets" : ""].filter(Boolean).join(" ")}"${memberId && !bare ? ` data-member="${escape(memberId)}"` : ""}>
 ${String(renderBanners(impersonating, devMode, demoMode, path))}
 ${bare ? "" : String(renderHeader(theme, memberName, budgets, currentBudgetId, path))}
 <a class="skip-link" href="#main">Skip to content</a>
@@ -127,7 +148,7 @@ ${bare
     ? `<main id="main">${String(renderNotice(notice))}${content}</main>`
     : `<div class="with-sidebar">
 ${String(renderSidebar(path, reviewCount, features, budgets, currentBudgetId))}
-<main id="main">${String(renderNotice(notice))}${content}</main>
+<main id="main">${String(renderPrintButton(print))}${String(renderNotice(notice))}${content}${String(renderPrintFooter(title, householdName, print))}</main>
 </div>
 ${String(renderBottomNav(path, reviewCount))}`}
 <script src="/assets/app.js?v=${ASSET_VERSION.js}" defer></script>
@@ -263,6 +284,50 @@ function renderHeader(
   `;
 }
 
+/**
+ * PRINT-1 · Progressive enhancement: the button is rendered hidden and the
+ * client script reveals it and wires it to window.print(). Without the script
+ * there is no button, rather than one that does nothing — the browser's own
+ * Print menu works either way, and gets the same stylesheet.
+ *
+ * Inside main rather than in the header so the in-place swap carries it: a
+ * swap replaces main, and a button left in the header would outlive the page
+ * it belonged to.
+ */
+function renderPrintButton(print: LayoutOptions["print"]): SafeHtml {
+  if (!print) return raw("");
+  return html`
+    <div class="print-bar no-print">
+      <button type="button" class="button-quiet button-small print-button" data-print hidden
+              title="Print this page, or save it as a PDF">
+        <span aria-hidden="true">⎙</span> Print
+      </button>
+    </div>
+  `;
+}
+
+/**
+ * PRINT-1 · One line at the foot of the printed document, and nothing on
+ * screen. A sheet of figures found in a drawer a year later should say whose
+ * figures they are, which screen they came from, and when they were true — the
+ * generated date in IST, the household's own day, as everywhere else.
+ */
+function renderPrintFooter(
+  title: string,
+  householdName: string | null,
+  print: LayoutOptions["print"],
+): SafeHtml {
+  return html`
+    <footer class="print-footer">
+      <p>
+        ${when(householdName, () => html`${householdName} · `)}${title} · generated
+        ${formatDate(todayIST())} (IST)
+      </p>
+      ${when(print?.caveat, () => html`<p class="print-caveat">${print!.caveat}</p>`)}
+    </footer>
+  `;
+}
+
 function renderNotice(notice: LayoutOptions["notice"]): SafeHtml {
   if (!notice) return raw("");
   return html`<div class="notice notice-${notice.kind}" role="status">${notice.message}</div>`;
@@ -330,6 +395,7 @@ function renderSidebar(
     { href: "/query", label: "Query", icon: "⌗" },
     { href: "/schedules", label: "Schedules", icon: "◷" },
     { href: "/goals", label: "Goals", icon: "◎" },
+    { href: "/insurance", label: "Insurance", icon: "☂" },
     ...(features.loans ? [{ href: "/loans", label: "Loans", icon: "▽" }] : []),
     ...(features.assets
       ? [
