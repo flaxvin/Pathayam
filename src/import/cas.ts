@@ -388,7 +388,7 @@ export function unitsDisagreement(scheme: CasScheme): number | null {
 const ISIN_ROW = /^\s*(IN[EF][A-Z0-9]{9})\b(.*)$/;
 
 /** Header residue under the "ISIN  Security  Current Bal …" heading. */
-const HEADING_WORDS = /^(?:bal|value|face|market|price|pledge|setup|free|frozen|current|security|isin|[\s/(`)₹]+)+$/i;
+const HEADING_WORDS = /^(?:bal|value|face|market|price|pledge|setup|free|frozen|current|security|isin|[\s/(`)₹])+$/i;
 
 /**
  * Pull the "HOLDING STATEMENT AS ON …" tables out of a CDSL CAS.
