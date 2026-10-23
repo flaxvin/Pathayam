@@ -20,7 +20,9 @@
  * account, not a new one.
  *
  * The fee is a real cost and is charged to the card like any other purchase, so it
- * needs an envelope and shows up in the total cost of borrowing (R22).
+ * needs an envelope and shows up in the total cost of borrowing (R22). So does the
+ * 18% GST the issuer charges on each instalment's interest (EMI-GST-1), which
+ * recordInstalment posts as its own line beside the instalment.
  */
 
 import type { DB } from "../db/db.ts";
@@ -35,10 +37,10 @@ import { moveMoney } from "./budget.ts";
 import { loadEngineInput } from "../engine/repository.ts";
 import { computeBudget } from "../engine/engine.ts";
 import { createTransaction, getTransaction } from "./transactions.ts";
-import { createLoan, projectLoan, paymentCategoryForLoan, type Loan } from "./loans.ts";
+import { createLoan, projectLoan, paymentCategoryForLoan, GST_PCT, type Loan } from "./loans.ts";
 
-/** The GST an Indian issuer adds to a processing fee. */
-export const GST_PCT = 18;
+/** The GST an Indian issuer adds to a processing fee and to each instalment's interest. */
+export { GST_PCT };
 
 export interface ConvertToEmiInput {
   /** The card charge being converted. Its account and amount are read from it. */
@@ -71,6 +73,8 @@ export interface ConversionResult {
   loan: Loan;
   /** What the plan costs beyond the amount borrowed (R22). */
   interest: Paise;
+  /** EMI-GST-1 · 18% GST on each instalment's interest, rounded line by line. */
+  gstOnInterest: Paise;
   feeWithGst: Paise;
   totalCostOfBorrowing: Paise;
   emi: Paise;
@@ -242,6 +246,7 @@ export function convertToEmi(db: DB, actor: Actor, input: ConvertToEmiInput): Co
 
     const projection = projectLoan(db, loan.id);
     const interest = (projection?.schedule.totalInterest ?? 0) as Paise;
+    const gstOnInterest = (projection?.interestGst?.remaining ?? 0) as Paise;
 
     appendEvent(db, actor, {
       entity: "loan", entityId: loan.id, action: "convert-to-emi",
@@ -250,15 +255,17 @@ export function convertToEmi(db: DB, actor: Actor, input: ConvertToEmiInput): Co
       after: { amount, tenureMonths: input.tenureMonths, fee: feeWithGst, feeTransactionId, moved },
       summary:
         `Converted ${formatPaise(amount)} on ${card.nickname || card.name} to ` +
-        `${input.tenureMonths} instalments — ${formatPaise(interest)} interest` +
+        `${input.tenureMonths} instalments — ${formatPaise(interest)} interest, ` +
+        `${formatPaise(gstOnInterest)} GST on it` +
         (feeWithGst > 0 ? ` and ${formatPaise(feeWithGst)} in fees` : ""),
     });
 
     return {
       loan: queryOne<Loan>(db, `SELECT * FROM loans WHERE id = ?`, loan.id)!,
       interest,
+      gstOnInterest,
       feeWithGst,
-      totalCostOfBorrowing: (interest + feeWithGst) as Paise,
+      totalCostOfBorrowing: (interest + gstOnInterest + feeWithGst) as Paise,
       emi: (projection?.emi ?? 0) as Paise,
     };
   });
