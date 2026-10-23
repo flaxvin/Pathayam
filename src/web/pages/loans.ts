@@ -15,6 +15,11 @@ import type { PrepaymentComparison, Schedule, RateResetOptions } from "../../loa
 import { lineChart, horizontalBars } from "../charts.ts";
 import { renderHolderFields } from "./portfolio.ts";
 
+/** TAX-1 · The kinds of loan a house can be bought or built with. */
+const HOUSE_LOAN_TYPES = new Set<Loan["loan_type"]>([
+  "home", "home-under-construction", "loan-against-property", "personal", "other",
+]);
+
 export function renderLoanList(
   rows: LoanProjection[],
   debt: DebtRow[],
@@ -425,6 +430,33 @@ export function renderLoanDetail(opts: {
       </details>
     `)}
 
+    ${when(HOUSE_LOAN_TYPES.has(loan.loan_type), () => html`
+      <!--
+        TAX-1 · Section 24(b) turns on what the house is used for, which the
+        loan cannot know. Said here, the tax estimate carries the interest.
+      -->
+      <details class="card" id="property" ${loan.property_use ? "open" : ""}>
+        <summary class="linkish">The house it paid for, for the tax estimate</summary>
+        <form method="post" action="/loans/${loan.id}/property" style="margin-top:.75rem">
+          <div class="field">
+            <label for="property_use">The house is</label>
+            <select id="property_use" name="property_use">
+              <option value="" ${loan.property_use === null ? "selected" : ""}>Not a house, or not saying</option>
+              <option value="self-occupied" ${loan.property_use === "self-occupied" ? "selected" : ""}>Lived in by its owner</option>
+              <option value="let-out" ${loan.property_use === "let-out" ? "selected" : ""}>Let out</option>
+            </select>
+            <p class="field-hint">
+              Lived in: the interest accrued each financial year goes into the
+              holder's tax estimate under section 24(b), old regime only, capped at
+              ₹2,00,000. Let out: it is shown there and not deducted, because the
+              rent it is set against is not something this app knows.
+            </p>
+          </div>
+          <button type="submit">Save</button>
+        </form>
+      </details>
+    `)}
+
     <!--
       R21 · A loan that reaches zero used to sit in the list for ever, with
       nothing said and nothing to do: closeLoan was written and reachable from
@@ -584,7 +616,8 @@ export function renderLoanDetail(opts: {
     `)}
 
     ${when(p.undrawn > 0 && !loan.closed_at, () => html`
-      <section class="card">
+      <!-- PRINT-1 · A form with a heading; the undrawn figure is printed above. -->
+      <section class="card no-print">
         <h2>Record a disbursement</h2>
         <p class="faint" style="margin-top:-.25rem">
           ${formatPaise(p.undrawn)} of the sanction is still undrawn. A tranche

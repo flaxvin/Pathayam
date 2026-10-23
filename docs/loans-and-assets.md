@@ -190,6 +190,23 @@ SELECT lp.loan_id, l.lender, lp.date, lp.amount
  WHERE lp.kind = 'foreclosure' AND lp.amount > 0 AND lp.transaction_id IS NULL;
 ```
 
+### Home loan interest and the tax estimate
+
+A loan can be marked as for a house that is lived in or let out (TAX-1), on its
+own page. A lived-in house's interest goes into its holder's tax estimate as
+a section 24(b) line, old regime only, capped at ₹2,00,000 across every such
+house; a let-out house's is shown and not deducted, because the rent it is
+set against is not modelled. The figure is **interest accrued** in the
+financial year, not interest paid in it: each instalment's interest is spread
+evenly over the days it pays for — from the previous instalment, or a month
+before its own date — so an EMI on 5 April gives 26 of its 31 days to the
+year that ended on 31 March. Interest in a prepayment or settlement counts on
+its day; charges are not interest. Instalments not yet recorded come from the
+projected schedule. The figure is marked *estimated* wherever any of it is
+not the lender's own split — an estimated split, or the projection — and
+where instalments in the year are missing. The lender's interest certificate
+is the figure for a return, and the tax screen takes it as an override.
+
 ### Undo
 
 Every loan change in the activity log undoes for real or is refused with a
@@ -244,6 +261,35 @@ Money lent to or borrowed from a person, held in a tracking account of subtype
   first); a close or reopen moves the arrangement **and** its account; the
   start of an arrangement removes it only while nothing has been recorded
   against it and it did not open with a balance.
+
+## Insurance
+
+`/insurance` is a register of policies — term and other life, health, vehicle,
+home — each with its insurer, sum assured, premium and frequency, next due
+date, start and end, nominee, who it covers, the 80C / 80D group its premium
+counts toward (with a senior flag for 80D), and optionally the envelope it is
+usually paid from.
+
+- **Only the last four characters of a policy number are stored.** They tell
+  two policies apart and match a premium notice; the whole number, with a name
+  and a date of birth, is what an insurer asks for to change a nominee or start
+  a claim, and the database is not encrypted field by field and its export
+  travels.
+- A policy is the household's or one member's, and can be private to its
+  holder, by the same rule as an account (see [privacy](privacy.md)). A shared
+  policy may name only a household envelope.
+- Premiums and renewals due within Overview's fortnight appear in **Due soon**
+  for the budget they belong to (the envelope's budget; otherwise a private
+  policy's holder's, otherwise the household's). **Paid** moves the due date on
+  by the frequency (monthly, quarterly, half-yearly, yearly; a single premium
+  leaves nothing due) and posts nothing — the payment belongs in the register,
+  and the policy page links to the Add form for it. A schedule for the same
+  premium is a separate thing and lists separately.
+- A lapsed or ended policy is kept and listed apart, with the day it stopped.
+  One whose end date has passed is listed apart without being told.
+- Every change is an event and undoes from Activity, a delete included.
+- The tax page shows the premiums of a member's own policies for the year
+  beside the 80C and 80D inputs; see [limitations](limitations.md#tax).
 
 ## Portfolio
 
@@ -435,13 +481,74 @@ closes the account, anything else keeps it open at that value.
 
 Only the hand-valued kinds have any of this. A fixed deposit is a tracking
 account worth its balance, so there is nothing to state and revalue is not
-offered on one — selling it is money arriving in another account, recorded
+offered on one (unless it carries terms — see "A deposit that values itself") — selling it is money arriving in another account, recorded
 there. *Buy more* and *Sell* refuse it too, as they refuse a demat or bank
 account, whose worth is its holdings or its balance.
 
 What you paid and what it is worth are never assumed to be the same number.
 Adding to a pot prefills the new value with the old one and lets you correct it:
 gold bought at a premium is worth the market rate the moment you own it.
+
+## A deposit that values itself
+
+A fixed or recurring deposit, a PPF or an EPF can carry its **terms** — the
+kind, the principal (or an RD's monthly instalment), the annual rate, how the
+interest compounds, the start date, an optional maturity date, and whether the
+interest stays in or is paid out. Terms go on a plain tracking account (fixed
+deposit, recurring deposit or other asset): from its account page, or when
+creating it on the accounts form. Each set, change or removal is one event in
+the activity log and undoes from there.
+
+With terms the account is worth what they make it on whatever day is asked
+about, and net worth, the allocation, FIRE, the portfolio and the valuations
+screen all read that figure. The arithmetic is pure, in
+`src/deposits/accrual.ts`:
+
+| Kind | Value | Default |
+|---|---|---|
+| `fd` | the principal, compounded from the start date | quarterly |
+| `rd` | one instalment a month from the start date, each compounded from its own date; none on or after maturity | quarterly |
+| `ppf` | the principal, then the register; interest monthly on the lowest balance between the close of the 5th and the month's end, credited on 31 March | yearly (the only choice) |
+| `epf` | the principal, then the register; interest monthly on the balance the month opened with, credited on 31 March | yearly (the only choice) |
+| `other` | the principal, then each register entry compounded from its own date | quarterly |
+
+A compounding period is counted in calendar months from the day the money went
+in; the part of a period still running earns simple interest for its days,
+actual/365. Nothing accrues before the start or after maturity, and a month of
+a PPF or EPF still running has earned nothing yet. Interest paid out leaves the
+deposit worth its principal. For the kinds that read the register, the terms'
+principal stands in for the account's opening balance and every transaction
+dated on or after the start date is a contribution (negative is a withdrawal);
+an FD or RD ignores its register.
+
+**Rounding.** Growth is carried as fractional paise and rounded once, to the
+nearest paisa with a half going away from zero. A PPF or EPF's interest is
+rounded when it is credited each 31 March and earns as part of the balance from
+then. ₹1,00,000 at 7% compounded quarterly for a year is 1,00,000 × 1.0175⁴ =
+₹1,07,185.90; ₹5,000 a month for a year at 7% quarterly matures at ₹62,315.00;
+₹1,50,000 in a PPF on 1 April at 7.1% is ₹1,60,650 on 31 March.
+
+**Computed, or valued by hand.** The computed figure has a **basis date**: the
+latest of the day the terms were last saved, the start date and, for a PPF, EPF
+or other deposit, the last contribution on or before the day asked about. A hand
+valuation (the valuations screen or Revalue, both of which accept a deposit with
+terms) dated **on or after** the basis date wins — it is newer than what the
+arithmetic knows, a passbook figure say. One dated before it has been superseded.
+The next contribution or a re-save of the terms hands the account back to the
+arithmetic. The valuations screen and the account page say which is in force:
+"computed from terms" or "valued by hand". A deposit with terms is never
+reported as drifting from its ledger.
+
+**Maturity.** The maturity date and amount appear on the account page, on the
+cashflow calendar on /schedules (beside the projected balance, not in it — the
+money is in the deposit until it is moved), and in the Overview's due-soon list
+when inside its two weeks. Nothing is posted: record the money where it lands,
+then close the account or set new terms if it was renewed. For a PPF, EPF or
+other deposit the maturity amount counts only what has been paid in so far.
+
+**Privacy.** Terms are the account's: every route resolves the account through
+the visibility guard, a private deposit's maturity is listed only for its
+holder, and its events are hidden from the log of anyone who cannot see it.
 
 ## Disposing of a hand-valued asset
 

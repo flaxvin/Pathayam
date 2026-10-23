@@ -8,7 +8,7 @@ runtime dependencies.
 harvest, drawn from deliberately through the year.
 
 ```
-2405 tests · 0 runtime dependencies · 60 migrations · 209 routes
+2561 tests · 0 runtime dependencies · 64 migrations · 221 routes
 ```
 
 ![The budget screen: the month grid, Ready to Assign, credit-card payment envelopes, and the in-app digest](docs/screenshots/budget.png)
@@ -134,6 +134,7 @@ function and asserts (1) and (2) after each month. Details:
 | **Goals** | `/goals` | Long-horizon savings with progress rings. |
 | **Loans** | `/loans`, `/loans/:id` | Each loan's real cost, schedule, drift, prepayment calculator, disbursements. |
 | **Family lending** | `/family` | Lent / borrowed, derived balances, write-off. |
+| **Insurance** | `/insurance` | Policies, premiums and renewals due, 80C / 80D from your policies. |
 | **Portfolio** | `/portfolio` | Holdings as units, XIRR, allocation, CAS import, CSV export. |
 | **Valuations** | `/portfolio/valuations` | Every hand-valued pot — gold, retirement, anything outside CAS — updated in one sitting, each showing what it was last worth and when. |
 | **Net worth** | `/net-worth` | The four-way decomposition and dated history. |

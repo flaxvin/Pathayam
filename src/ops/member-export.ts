@@ -50,6 +50,7 @@ const REDACT: Record<string, string[]> = {
 /** Rows that belong to one member, whatever they reference. */
 const PER_MEMBER: Record<string, string> = {
   tax_declarations: "member_id",
+  tax_payments: "member_id",
   digest_mutes: "member_id",
   review_dismissals: "member_id",
 };

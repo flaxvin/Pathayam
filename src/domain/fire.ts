@@ -48,6 +48,7 @@ import type { Paise } from "../core/money.ts";
 import { accountBalances, envelopeSpendBetween } from "../engine/repository.ts";
 import { queryAll } from "../db/db.ts";
 import { hiddenAccountIds, DERIVED_VALUE_SUBTYPES, type HolderScope } from "./accounts.ts";
+import { getDepositTerms } from "./deposits.ts";
 import {
   listValuableAccounts, listHoldings, viewHolding, valuationInBase,
   type AssetSubtype,
@@ -310,7 +311,12 @@ export function fireProjection(
     const line: CorpusLine = {
       label: account.name, accountId: account.id, value, subtype: account.subtype,
     };
-    if (DRAWABLE_NOW.has(account.subtype)) drawableLines.push(line);
+    // DEPOSITS · Terms say what a deposit is, whatever account holds it: a PPF
+    // or EPF is locked like any provident fund, an FD or RD can be broken.
+    const kind = getDepositTerms(db, account.id)?.kind;
+    if (kind === "ppf" || kind === "epf") lockedLines.push(line);
+    else if (kind === "fd" || kind === "rd") drawableLines.push(line);
+    else if (DRAWABLE_NOW.has(account.subtype)) drawableLines.push(line);
     else if (LOCKED_UNTIL_RETIREMENT.has(account.subtype)) lockedLines.push(line);
     else if (NOT_A_RETIREMENT.has(account.subtype)) excludedLines.push(line);
   }

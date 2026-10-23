@@ -55,7 +55,7 @@ import { reconcile } from "../domain/reconciliation.ts";
 import { addAttachment, deleteAttachment } from "../domain/attachments.ts";
 import {
   createLoan, recordInstalment, recordDisbursement, recordLoanStatement, recordRateChange,
-  recordPrepayment, closeLoan, listLoans, projectLoan, paymentCategoryForLoan,
+  recordPrepayment, closeLoan, listLoans, projectLoan, paymentCategoryForLoan, setLoanPropertyUse,
 } from "../domain/loans.ts";
 import { convertToEmi } from "../domain/card-emi.ts";
 import {
@@ -72,6 +72,7 @@ import {
   recordDividend, recordSplit, recordMerger, recordReturnOfCapital, recordValuation,
   recordPrice, recordFxRate, listHoldings,
 } from "../domain/assets.ts";
+import { setDepositTerms, removeDepositTerms } from "../domain/deposits.ts";
 import { snapshotNetWorth } from "../domain/networth.ts";
 import { closeMonth, reopenMonth } from "../domain/month-close.ts";
 import { householdBudgetId, ensurePersonalBudget, listBudgets } from "../domain/budgets.ts";
@@ -94,6 +95,9 @@ import type { RuleStage } from "../import/rules.ts";
 import { planCasImport, applyCasPlan } from "../import/cas-plan.ts";
 import { setIdentity, clearIdentity } from "../import/identity.ts";
 import { loadEngineInput } from "../engine/repository.ts";
+import {
+  createPolicy, updatePolicy, markPremiumPaid, setPolicyStatus, deletePolicy,
+} from "../domain/insurance.ts";
 import { computeBudget } from "../engine/engine.ts";
 import { units as toUnits, price as toPrice } from "../portfolio/holdings.ts";
 
@@ -483,6 +487,35 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
   const neighbour = did("createFamilyLoan", () => createFamilyLoan(db, actor, {
     counterparty: "Neighbour Suresh", holderMemberId: priya.id, visibility: "private",
   }));
+
+  // ------------------------------------------------------------ insurance
+  // INSURANCE-1 · The register posts nothing, so none of this moves a figure.
+  const familyHealth = did("createPolicy", () => createPolicy(db, actor, {
+    insurer: "Star Health", kind: "health", premium: rupees(24_000) as Paise, frequency: "yearly",
+    sumAssured: rupees(10_00_000) as Paise, nextDue: `${addMonths(thisMonth, 1)}-15`,
+    covered: "Ravi, Priya, Anu", taxGroup: "80d-self", holderMemberId: ravi.id,
+  }));
+  const ravisTerm = did("createPolicy", () => createPolicy(db, actor, {
+    insurer: "HDFC Life", kind: "term-life", premium: rupees(1_450) as Paise, frequency: "monthly",
+    sumAssured: rupees(1_00_00_000) as Paise, nextDue: `${addMonths(thisMonth, 1)}-05`,
+    policyNumber: "TL-00991234", nominee: "Priya", taxGroup: "80c",
+    holderMemberId: ravi.id, visibility: "private",
+  }));
+  const car = did("createPolicy", () => createPolicy(db, actor, {
+    insurer: "ICICI Lombard", kind: "vehicle", premium: rupees(11_200) as Paise, frequency: "yearly",
+    nextDue: `${addMonths(thisMonth, 3)}-20`,
+  }));
+  const mistaken = did("createPolicy", () => createPolicy(db, actor, {
+    insurer: "Duplicate entry", kind: "other", premium: rupees(100) as Paise, frequency: "single",
+  }));
+  did("updatePolicy", () => updatePolicy(db, actor, familyHealth.id, {
+    insurer: "Star Health", kind: "health", premium: rupees(26_500) as Paise, frequency: "yearly",
+    sumAssured: rupees(15_00_000) as Paise, nextDue: `${addMonths(thisMonth, 1)}-15`,
+    covered: "Ravi, Priya, Anu", taxGroup: "80d-self", holderMemberId: ravi.id,
+  }));
+  did("markPremiumPaid", () => markPremiumPaid(db, actor, ravisTerm.id));
+  did("setPolicyStatus", () => setPolicyStatus(db, actor, car.id, "lapsed"));
+  did("deletePolicy", () => deletePolicy(db, actor, mistaken.id));
 
   did("setMutedKinds", () => setMutedKinds(db, actor, ["subscription-due"]));
 
@@ -984,6 +1017,8 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
         loanId: eduLoan.id, lenderOutstanding: rupees(9_60_000) as Paise,
         asOf: day(month, 20),
       }));
+      // TAX-1 · The family lives in the house the home loan bought.
+      did("setLoanPropertyUse", () => setLoanPropertyUse(db, actor, homeLoan.id, "self-occupied"));
     }
     if (ix === 18 && !ratesChanged) {
       ratesChanged = true;
@@ -1103,6 +1138,24 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
         accountId: overseas.id, value: rupees(Math.round(overseasValue)) as Paise,
         asOf: day(month, 26),
       }));
+    }
+
+    // ------------------------------------------------- a deposit that values itself
+    // DEPOSITS · A one-year FD opened with its terms, the terms entered wrong
+    // and taken off, then entered again. Its value is computed from then on,
+    // and its maturity reaches the calendar and the overview a year later.
+    if (ix === 5 && live(6)) {
+      const fd = did("createAccount", () => createAccount(db, actor, {
+        name: "SBI FD", kind: "tracking", subtype: "fixed-deposit", institution: "SBI",
+        openingBalance: rupees(2_00_000), openingDate: day(month, 6),
+      })).id;
+      const terms = {
+        kind: "fd", principal: rupees(2_00_000) as Paise, rateBp: 690,
+        startDate: day(month, 6), maturityDate: day(addMonths(month, 12), 6),
+      };
+      did("setDepositTerms", () => setDepositTerms(db, actor, fd, { ...terms, rateBp: 960 }, day(month, 6)));
+      did("removeDepositTerms", () => removeDepositTerms(db, actor, fd));
+      did("setDepositTerms", () => setDepositTerms(db, actor, fd, terms, day(month, 6)));
     }
 
     // ------------------------------------------------------ lending in the family

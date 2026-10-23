@@ -17,7 +17,7 @@ import {
   type RequestContext, type Response,
 } from "./http/router.ts";
 import { clientIp, wantsJson } from "./http/server.ts";
-import { html, raw, when } from "./http/html.ts";
+import { html, raw, when, type SafeHtml } from "./http/html.ts";
 import { page, MANIFEST, ASSET_VERSION, type Theme } from "./web/layout.ts";
 import { STYLESHEET } from "./web/styles.ts";
 import { CLIENT_SCRIPT } from "./web/client.ts";
@@ -59,7 +59,7 @@ import {
   renderAddTransaction, renderTransfer, renderMoveMoney, renderAutoAssignPreview, renderHold,
   renderExplain, explainLineFor, renderNotFound,
 } from "./web/pages/actions.ts";
-import { renderReview, renderImport, renderMapping } from "./web/pages/review.ts";
+import { renderReview, renderImport, renderMapping, renderBudgetAppMapping } from "./web/pages/review.ts";
 import {
   parseStatementPdf, openStatement, BANKS, bankForInstitution,
   WrongPassword as StatementWrongPassword,
@@ -87,7 +87,9 @@ import {
   guardHistoricalEdit, breakCheckpoints, CheckpointConfirmationRequired,
   intactCheckpointBalances, checkpointsMovedSince, previewReconciliation, type Checkpoint,
 } from "./domain/reconciliation.ts";
-import { parseStatement, detectDelimiter, dateOrderOf } from "./import/csv.ts";
+import { parseStatement, detectDelimiter, dateOrderOf, parseDelimited } from "./import/csv.ts";
+import { parseBudgetApp, BUDGET_APP_NAMES, type BudgetAppParse } from "./import/budget-apps.ts";
+import { importBudgetApp } from "./import/budget-app-import.ts";
 import {
   ingest, listStaged, approveStaged, approveStagedAsTransfer, rejectStaged, mergeStaged, undoBatch, listBatches, batchUndoDates,
 } from "./import/pipeline.ts";
@@ -152,6 +154,7 @@ import {
 import {
   createLoan, listLoans, getLoan, projectLoan, recordInstalment, listPayments, closeLoan,
   recordDisbursement, recordLoanStatement, recordRateChange, recordPrepayment, canSeeLoan, checkAnnualRate, loanPaymentBudgetId,
+  setLoanPropertyUse,
   listDisbursements, listRatePeriods, debtOverview, type LoanType,
 } from "./domain/loans.ts";
 import { comparePrepayment, rateResetOptions, NegativeAmortisation } from "./loans/amortisation.ts";
@@ -188,11 +191,13 @@ import {
 } from "./auth/passwords.ts";
 import { beginOidc, exchangeOidcCode } from "./auth/oidc.ts";
 import {
-  staleRatesWarning, RATES_VERIFIED_ON, RATES_SOURCE, RULES,
+  staleRatesWarning, RATES_VERIFIED_ON, RATES_SOURCE, RULES, ADVANCE_TAX_RULES,
   estimateTax, advanceTaxSchedule, getDeclaration, hasDeclaration, saveDeclaration,
-  incomeInFinancialYear, type AdvanceInstalment,
+  incomeInFinancialYear, settle, taxPaid, listTaxPayments, addTaxPayment, deleteTaxPayment,
+  type AdvanceInstalment, type TaxPaymentKind,
 } from "./domain/tax.ts";
-import { renderTax } from "./web/pages/tax.ts";
+import { homeLoanInterestFor } from "./domain/home-loan-interest.ts";
+import { renderTax, TAX_PRINT_CAVEAT } from "./web/pages/tax.ts";
 import { renderCategoryLines } from "./web/pages/category-lines.ts";
 import { renderDisposeAsset, renderAddToAsset } from "./web/pages/portfolio.ts";
 import { capitalGainsTaxFor } from "./domain/capital-gains-tax.ts";
@@ -277,7 +282,7 @@ function derivedWorth(
     return { value: total as Paise, label: "Open the portfolio", href: "/portfolio" };
   }
 
-  const valuation = latestValuation(db, account.id);
+  const valuation = standingValuation(db, account.id);
   return {
     value: (valuation?.value ?? 0) as Paise,
     label: "Open the portfolio",
@@ -318,6 +323,12 @@ import {
 } from "./domain/family-loans.ts";
 import { renderFamilyLoans, renderFamilyLoan } from "./web/pages/family-loans.ts";
 import {
+  createPolicy, updatePolicy, markPremiumPaid, setPolicyStatus, deletePolicy, getPolicy,
+  listPolicies, canSeePolicy, policiesDueBy, policyTaxSuggestion, applyPolicySuggestion,
+  type PolicyInput,
+} from "./domain/insurance.ts";
+import { renderInsurance, renderPolicy } from "./web/pages/insurance.ts";
+import {
   digestFor, mutedKinds, setMutedKinds, DIGEST_KINDS, type DigestKind,
 } from "./domain/digest.ts";
 import { cameWithTheCard } from "./domain/card-shortfall.ts";
@@ -345,7 +356,13 @@ import {
   type InstrumentKind,
   signedValuation,
   assetHistory,
+  standingValuation,
 } from "./domain/assets.ts";
+import {
+  getDepositTerms, setDepositTerms, removeDepositTerms, computedDepositValue, listMaturities,
+  describeTerms, DEPOSIT_SUBTYPES, type DepositTermsInput,
+} from "./domain/deposits.ts";
+import { checkTerms } from "./deposits/accrual.ts";
 import {
   netWorthStatement, snapshotNetWorth, netWorthChange, netWorthHistory,
   assetAllocation,
@@ -623,14 +640,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return value;
   }
 
-  function render(ctx: RequestContext, title: string, content: ReturnType<typeof html>, opts: { bare?: boolean; notice?: Parameters<typeof page>[0]["notice"] } = {}): Response {
+  function render(ctx: RequestContext, title: string, content: ReturnType<typeof html>, opts: { bare?: boolean; notice?: Parameters<typeof page>[0]["notice"]; print?: Parameters<typeof page>[0]["print"] } = {}): Response {
     const a = ctx.locals.auth as AuthContext | null;
     return {
       body: page(
         {
           title,
+          // PRINT-1 · The printable screens say so; the footer names the household.
+          print: opts.print ?? null,
+          householdName: a ? householdSettings(db)?.name ?? null : null,
           theme: (a?.viewingAs.theme ?? "system") as Theme,
           memberName: a?.member.name ?? null,
+          // OFFLINE-1 · Not while viewing as somebody else: an entry kept then
+          // would be replayed later under whichever person the session is.
+          memberId: a && !a.impersonating ? a.member.id : null,
           impersonating: a?.impersonating
             ? { name: a.viewingAs.name, readOnly: !a.canWrite }
             : null,
@@ -1260,6 +1283,36 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const parsed = parseDate(raw);
     if (parsed === null) throw new HttpError(400, `"${raw}" isn't a date I can read — DD-MM-YYYY works.`);
     return parsed;
+  }
+
+  /**
+   * DEPOSITS · A deposit's terms as the form sends them, or null when the form
+   * names no kind (the new-account form, where terms are optional). The rate
+   * is a percentage to two places — "7.1" is 710 basis points — and anything
+   * else is a sentence, not a guess. The domain checks the rest.
+   */
+  function depositTermsField(body: Record<string, string | string[]>): DepositTermsInput | null {
+    const kind = field(body, "deposit_kind")?.trim();
+    if (!kind) return null;
+    const rateRaw = (field(body, "deposit_rate") ?? "").trim().replace(/%$/, "").trim();
+    if (!/^\d{1,3}(\.\d{1,2})?$/.test(rateRaw)) {
+      throw new Refusal("The rate is a yearly percentage to two decimal places, like 7.1 or 7.25.");
+    }
+    const optionalAmount = (name: string, label: string) => {
+      const raw = field(body, name);
+      return raw?.trim() ? amountField(raw, label) : null;
+    };
+    const maturityRaw = field(body, "deposit_maturity_date");
+    return {
+      kind,
+      principal: optionalAmount("deposit_principal", "Principal"),
+      instalment: optionalAmount("deposit_instalment", "Monthly instalment"),
+      rateBp: Math.round(Number(rateRaw) * 100),
+      compounding: field(body, "deposit_compounding") || null,
+      startDate: dateField(field(body, "deposit_start_date"), "Started on"),
+      maturityDate: maturityRaw?.trim() ? dateField(maturityRaw, "Matures on") : null,
+      payout: field(body, "deposit_payout") || null,
+    };
   }
 
   /*
@@ -2135,7 +2188,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     revokeSession(db, actorFor(a), a.session.id);
     return {
       redirect: "/signin",
-      headers: { "Set-Cookie": clearedSessionCookie(config.baseUrl.startsWith("https")) },
+      headers: {
+        "Set-Cookie": clearedSessionCookie(config.baseUrl.startsWith("https")),
+        /*
+         * OFFLINE-1 · R35.5 as amended. The client script purges its queue
+         * when the sign-out form is submitted; this is the same promise kept
+         * by the browser, for a script that never ran or a tab that had an
+         * old one. "storage" is localStorage and friends — the session
+         * cookie is cleared by the line above, not here.
+         */
+        "Clear-Site-Data": '"storage"',
+      },
     };
   });
 
@@ -2663,6 +2726,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         holderName: account.holder_member_id ? memberNames.get(account.holder_member_id) ?? null : null,
         balances: balances.get(account.id)!,
         derived: derivedWorth(db, account, viewer(ctx)),
+        // DEPOSITS · A deposit with terms is worth what they say, as on net worth.
+        deposit: getDepositTerms(db, account.id)
+          ? (() => {
+              const v = standingValuation(db, account.id);
+              return v ? { value: v.value, source: v.source } : null;
+            })()
+          : null,
         unclearedCount:
           queryOne<{ n: number }>(
             db,
@@ -2798,6 +2868,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       }
 
       let opening = openingRaw?.trim() ? amountField(openingRaw, "Current balance") : 0;
+      // DEPOSITS · Terms are optional, and read before anything is created so
+      // terms that cannot be priced leave no account behind.
+      const terms = DEPOSIT_SUBTYPES.has(subtype) && kind === "tracking" ? depositTermsField(ctx.body) : null;
+      if (terms) checkTerms(terms);
 
       // F2.6: a credit card's balance is what you owe. Entering it as a
       // positive figure is the obvious slip, so take it as intended rather
@@ -2821,8 +2895,46 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         budgetId: guardedField(ctx, "budget_id", requireVisibleBudget) ?? undefined,
         visibility: field(ctx.body, "visibility") === "private" ? "private" : undefined,
       });
+      if (terms) {
+        setDepositTerms(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), account.id, terms);
+      }
 
-      return { redirect: `/accounts/${account.id}`, message: `Added ${account.name}.` };
+      return {
+        redirect: `/accounts/${account.id}`,
+        message: terms ? `Added ${account.name}, valued from its terms.` : `Added ${account.name}.`,
+      };
+    }),
+  );
+
+  /*
+   * DEPOSITS · Set, change or take off a deposit's terms. Each is one event,
+   * undone from Activity like any other change. The account is resolved
+   * through the visibility guard first, so a private deposit's terms are its
+   * holder's alone.
+   */
+  router.post("/accounts/:id/deposit", (ctx) =>
+    mutate(ctx, (a) => {
+      const account = requireVisibleAccount(ctx, ctx.params.id!);
+      const terms = depositTermsField(ctx.body);
+      if (!terms) throw new Refusal("Pick what kind of deposit this is.");
+      const saved = setDepositTerms(
+        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), account.id, terms,
+      );
+      return {
+        redirect: `/accounts/${account.id}#terms`,
+        message: `${account.nickname || account.name} is now valued from its terms: ${describeTerms(saved)}.`,
+      };
+    }),
+  );
+
+  router.post("/accounts/:id/deposit/remove", (ctx) =>
+    mutate(ctx, (a) => {
+      const account = requireVisibleAccount(ctx, ctx.params.id!);
+      removeDepositTerms(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), account.id);
+      return {
+        redirect: `/accounts/${account.id}`,
+        message: `Took the terms off ${account.nickname || account.name}. Undo it from Activity if that was a slip.`,
+      };
     }),
   );
 
@@ -2936,6 +3048,23 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         })(),
         lastReconciled: recon?.as_of ?? null,
         checkpointBroken: Boolean(recon?.broken_at),
+        deposit: account.kind === "tracking" && DEPOSIT_SUBTYPES.has(account.subtype)
+          ? (() => {
+              const computed = computedDepositValue(db, account.id);
+              const standing = standingValuation(db, account.id);
+              return {
+                terms: computed?.terms ?? null,
+                description: computed ? describeTerms(computed.terms) : null,
+                computed: computed?.value ?? null,
+                basisDate: computed?.basisDate ?? null,
+                maturity: computed?.maturity ?? null,
+                standing: standing && computed
+                  ? { value: standing.value, asOf: standing.asOf, source: standing.source }
+                  : null,
+                today: todayIST(),
+              };
+            })()
+          : null,
       }),
     );
   });
@@ -4985,7 +5114,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
        */
       approveStaged(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
         requireVisibleStaged(ctx, requiredField(ctx.body, "staged_id")),
-        { categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null },
+        {
+          categoryId: requireVisibleCategory(ctx, field(ctx.body, "category_id") || null) || null,
+          // IMPORT-1 · A proposed split's lines, only into envelopes this person may see.
+          mayUseCategory: (id) =>
+            listCategories(db, { includeHidden: true, viewerMemberId: viewer(ctx) }).some((c) => c.id === id),
+        },
       );
 
       // L2 · Categorising the same payee a second time proposes a rule. The
@@ -5050,6 +5184,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // are the same question: can this viewer see the account?
     auth(ctx);
     requireVisibleAccount(ctx, accountId);
+
+    /*
+     * IMPORT-1 · An export from YNAB or Actual Budget, recognised by its
+     * header. It covers every account the household had there, so the
+     * account chosen on this form does not apply: the next step asks which
+     * account each of the file's accounts is. Nothing is written yet.
+     */
+    const fromApp = parseBudgetApp(text);
+    if (fromApp) return render(ctx, `Import from ${BUDGET_APP_NAMES[fromApp.app]}`, budgetAppPrompt(ctx, fromApp, text, fileName));
 
     // 04 §3.2 · A saved profile first, then a guess, then the mapping UI.
     // Checked before the mutation, because an unrecognised file is a *task*
@@ -5353,6 +5496,87 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }),
   );
 
+  /** IMPORT-1 · The account step for a budgeting app's export. */
+  function budgetAppPrompt(
+    ctx: RequestContext, parse: BudgetAppParse, csv: string, fileName: string, error: string | null = null,
+  ): SafeHtml {
+    const accounts = listAccounts(db, { viewerMemberId: viewer(ctx) })
+      .filter((acc) => !DERIVED_VALUE_SUBTYPES.has(acc.subtype));
+    const fold = (s: string) => s.trim().toLowerCase();
+    const rows = parseDelimited(csv, detectDelimiter(csv));
+    const dateColumn = (rows[0] ?? []).findIndex((h) => fold(h) === "date");
+    return renderBudgetAppMapping({
+      appName: BUDGET_APP_NAMES[parse.app],
+      fileName, csv,
+      sources: parse.accounts.map((name) => ({
+        name,
+        rows: parse.accountRows[name] ?? 0,
+        // Only an exact name: anything looser is the person's call.
+        suggestedAccountId: accounts.find((acc) =>
+          fold(acc.name) === fold(name) || (acc.nickname && fold(acc.nickname) === fold(name)))?.id ?? null,
+      })),
+      accounts: accounts.map((acc) => ({ id: acc.id, name: acc.nickname || acc.name })),
+      needsDateOrder: parse.needsDateOrder,
+      dateSamples: rows.slice(1, 4).map((r) => (r[dateColumn] ?? "").trim()).filter(Boolean),
+      startingBalances: parse.startingBalances,
+      error: error ?? parse.dateProblem,
+    });
+  }
+
+  /**
+   * IMPORT-1 · A YNAB or Actual Budget export, with the account each of its
+   * accounts goes to. Every chosen account's rows go through `ingest()` as a
+   * batch of their own, so each can be undone from the import log.
+   */
+  router.post("/import/budget-app", (ctx) => {
+    const text = requiredField(ctx.body, "csv");
+    const fileName = field(ctx.body, "file_name") || "budget-export.csv";
+    const order = field(ctx.body, "date_order");
+    const parse = parseBudgetApp(text, {
+      dateOrder: order === "dd-mm-yyyy" || order === "mm-dd-yyyy" ? order : null,
+    });
+    if (!parse) throw new HttpError(400, "That is not an export from YNAB or Actual Budget.");
+    if (parse.dateProblem) throw new HttpError(400, parse.dateProblem);
+    if (parse.needsDateOrder) {
+      throw new HttpError(400, "Every date in this file reads both ways round. Choose whether the day or the month comes first.");
+    }
+
+    const accounts = new Map<string, string>();
+    parse.accounts.forEach((name, i) => {
+      const choice = field(ctx.body, `account_${i}`) ?? "";
+      if (choice === "") {
+        throw new HttpError(400, `Choose an account for "${name}", or leave it out.`);
+      }
+      if (choice === "skip") return;
+      accounts.set(name, requireVisibleAccount(ctx, choice).id);
+    });
+    if (accounts.size === 0) {
+      return render(ctx, `Import from ${BUDGET_APP_NAMES[parse.app]}`,
+        budgetAppPrompt(ctx, parse, text, fileName, "Every account was left out, so there was nothing to import."));
+    }
+
+    return mutate(ctx, (a) => {
+      const { plan, outcomes } = importBudgetApp(
+        db, actorFor(a, "import", ctx.req.headers["idempotency-key"] as string),
+        { parse, accounts, viewerMemberId: viewer(ctx), fileName },
+      );
+      const sum = (pick: (o: (typeof outcomes)[number]) => number) => outcomes.reduce((s, o) => s + pick(o), 0);
+      const toReview = sum((o) => o.staged - o.autoApproved);
+      const parts = [`${toReview} to review`];
+      if (plan.transfers) parts.push(`${plan.transfers} marked as transfers`);
+      if (plan.splits) parts.push(`${plan.splits} splits`);
+      if (plan.unmatched) parts.push(`${plan.unmatched} needing an envelope`);
+      if (sum((o) => o.duplicates)) parts.push(`${sum((o) => o.duplicates)} possible duplicates`);
+      if (sum((o) => o.skipped)) parts.push(`${sum((o) => o.skipped)} already present`);
+      if (sum((o) => o.errors)) parts.push(`${sum((o) => o.errors)} rows I couldn't read`);
+      return {
+        redirect: toReview > 0 ? "/review" : "/import",
+        message: `Read ${sum((o) => o.batch.rows_read)} rows from ${BUDGET_APP_NAMES[parse.app]} — ${parts.join(", ")}. ` +
+          "Budget assignments were not imported.",
+      };
+    });
+  });
+
   router.post("/import/profiles/:id/delete", (ctx) =>
     mutate(ctx, (a) => {
       deleteProfile(db, actorFor(a), requireVisibleImportProfile(ctx, ctx.params.id!));
@@ -5603,6 +5827,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           .filter((c) => !c.payment_account_id && !c.commits_to_budget_id)
           .map((c) => ({ id: c.id, name: c.name })),
       }),
+      // PRINT-1 · The schedule is the page a lender or an accountant asks for.
+      { print: {} },
     );
   });
 
@@ -5691,6 +5917,24 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
         });
       return { redirect: `/loans/${loan.id}`, message: "Saved." };
+    }),
+  );
+
+  /*
+   * TAX-1 · What the house is used for, which decides whether its interest
+   * goes into the tax estimate. Anyone who can see the loan can say; whose
+   * estimate it reaches follows the holder.
+   */
+  router.post("/loans/:id/property", (ctx) =>
+    mutate(ctx, (a) => {
+      requireLoanVisible(ctx);
+      const loan = getLoan(db, ctx.params.id!);
+      if (!loan) throw new NotFound("That loan does not exist.");
+      const raw = field(ctx.body, "property_use") ?? "";
+      const use = raw === "self-occupied" || raw === "let-out" ? raw : raw === "" ? null : undefined;
+      if (use === undefined) throw new Refusal("Choose lived in, let out, or neither.");
+      setLoanPropertyUse(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), loan.id, use);
+      return { redirect: `/loans/${loan.id}`, message: "Saved. The tax estimate follows it." };
     }),
   );
 
@@ -6263,8 +6507,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         || (s.account_id !== null && budgetAccounts.has(s.account_id))
         || (s.category_id !== null && budgetCategories.has(s.category_id)))
       .sort((x, y) => (x.next_due ?? "").localeCompare(y.next_due ?? ""))
-      .slice(0, 6)
-      .map((s) => ({ id: s.id, name: s.name, amount: Math.abs(s.amount ?? 0) as Paise, nextDue: s.next_due! }));
+      .map((s) => ({ id: s.id, name: s.name, amount: Math.abs(s.amount ?? 0) as Paise, nextDue: s.next_due! }))
+      // INSURANCE-1 · Premiums and renewals, in the same fortnight.
+      .concat(policiesDueBy(db, { viewerMemberId: viewer(ctx), until: soon, budgetId: scope })
+        .map((p) => ({ ...p, policy: true })))
+      .sort((x, y) => x.nextDue.localeCompare(y.nextDue))
+      .slice(0, 6);
 
     return render(
       ctx, "Overview",
@@ -6290,6 +6538,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         cash: cash as Paise,
         runwayMonths,
         dueSoon,
+        // DEPOSITS · Maturities in the same fortnight, from accounts this
+        // member can see. Shown, never posted.
+        maturing: listMaturities(db, { from: todayIST(), to: soon, viewerMemberId: viewer(ctx) })
+          .map((m) => ({ accountId: m.accountId, name: m.name, amount: m.amount, date: m.date })),
       }),
     );
   });
@@ -6383,6 +6635,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         budgets: budgetsFor(db, viewer(ctx)).map((b) => ({ id: b.id, name: b.name, kind: b.kind })),
         scope: asked ?? "all",
       }),
+      // PRINT-1 · Interest and realised gains by year go to whoever files.
+      { print: {} },
     );
   });
 
@@ -7638,6 +7892,132 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   );
 
   // -------------------------------------------------------------------------
+  // INSURANCE-1 · The policy register.
+  // -------------------------------------------------------------------------
+
+  /** A policy named in a URL, if this viewer may see it; 404 otherwise. */
+  function requireVisiblePolicy(ctx: RequestContext): string {
+    const id = ctx.params.id!;
+    if (!canSeePolicy(db, id, viewer(ctx))) throw new NotFound("That policy does not exist.");
+    return id;
+  }
+
+  /** Envelopes a premium can be paid from: the viewer's, less cards and commitments. */
+  function policyEnvelopes(ctx: RequestContext) {
+    return listCategories(db, { includeHidden: true, viewerMemberId: viewer(ctx) })
+      .filter((c) => !c.payment_account_id && !c.commits_to_budget_id)
+      .map((c) => ({ id: c.id, name: c.name }));
+  }
+
+  function policyInput(ctx: RequestContext): PolicyInput {
+    const money = (name: string, label: string): number | null => {
+      const raw = field(ctx.body, name);
+      return raw && raw.trim() ? Math.abs(amountField(raw, label)) : null;
+    };
+    const date = (name: string, label: string): string | null => {
+      const raw = field(ctx.body, name);
+      return raw && raw.trim() ? dateField(raw, label) : null;
+    };
+    return {
+      insurer: requiredField(ctx.body, "insurer"),
+      kind: field(ctx.body, "kind") ?? "",
+      policyNumber: field(ctx.body, "policy_number") || null,
+      sumAssured: money("sum_assured", "Sum assured"),
+      premium: money("premium", "Premium") ?? 0,
+      frequency: field(ctx.body, "frequency") ?? "",
+      nextDue: date("next_due", "Next due"),
+      startDate: date("start_date", "Start date"),
+      endDate: date("end_date", "End date"),
+      nominee: field(ctx.body, "nominee") || null,
+      covered: field(ctx.body, "covered") || null,
+      taxGroup: field(ctx.body, "tax_group") || "none",
+      senior: field(ctx.body, "senior") === "1",
+      categoryId: guardedField(ctx, "category_id", requireVisibleCategory),
+      holderMemberId: guardedField(ctx, "holder_member_id", requireMember),
+      visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
+      note: field(ctx.body, "note") || null,
+    };
+  }
+
+  router.get("/insurance", (ctx) => {
+    auth(ctx);
+    // A private policy is its holder's alone, the same as an account (docs/privacy.md).
+    return render(ctx, "Insurance", renderInsurance({
+      policies: listPolicies(db, { viewerMemberId: viewer(ctx) }),
+      members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
+      envelopes: policyEnvelopes(ctx),
+      today: todayIST(),
+    }));
+  });
+
+  router.post("/insurance/new", (ctx) =>
+    mutate(ctx, (a) => {
+      const policy = createPolicy(
+        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), policyInput(ctx),
+      );
+      return { redirect: `/insurance/${policy.id}`, message: "Added." };
+    }),
+  );
+
+  router.get("/insurance/:id", (ctx) => {
+    const id = requireVisiblePolicy(ctx);
+    auth(ctx);
+    const policy = getPolicy(db, id);
+    if (!policy) throw new NotFound("That policy does not exist.");
+    return render(ctx, policy.insurer, renderPolicy({
+      policy,
+      members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
+      envelopes: policyEnvelopes(ctx),
+      today: todayIST(),
+    }));
+  });
+
+  router.post("/insurance/:id/edit", (ctx) =>
+    mutate(ctx, (a) => {
+      const id = requireVisiblePolicy(ctx);
+      updatePolicy(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, policyInput(ctx));
+      return { redirect: `/insurance/${id}`, message: "Saved." };
+    }),
+  );
+
+  router.post("/insurance/:id/paid", (ctx) =>
+    mutate(ctx, (a) => {
+      const id = requireVisiblePolicy(ctx);
+      const next = markPremiumPaid(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id);
+      return {
+        // Overview's "Due soon" posts here too, and goes back to where it was.
+        redirect: safePath(field(ctx.body, "back"), `/insurance/${id}`),
+        message: next
+          ? `Marked paid; next due ${formatDate(next)}. Nothing was posted — record the payment if it is not in the register.`
+          : "Marked paid; nothing more falls due. Nothing was posted.",
+      };
+    }),
+  );
+
+  router.post("/insurance/:id/status", (ctx) =>
+    mutate(ctx, (a) => {
+      const id = requireVisiblePolicy(ctx);
+      const status = field(ctx.body, "status");
+      if (status !== "active" && status !== "lapsed" && status !== "ended") {
+        throw new Refusal("That is not a policy status.");
+      }
+      setPolicyStatus(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, status);
+      return {
+        redirect: `/insurance/${id}`,
+        message: status === "active" ? "Reinstated." : "Kept, and listed with the lapsed and ended.",
+      };
+    }),
+  );
+
+  router.post("/insurance/:id/delete", (ctx) =>
+    mutate(ctx, (a) => {
+      const id = requireVisiblePolicy(ctx);
+      deletePolicy(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id);
+      return { redirect: "/insurance", message: "Deleted. Activity can undo it." };
+    }),
+  );
+
+  // -------------------------------------------------------------------------
   // `08` F30 · Personal API tokens.
   // -------------------------------------------------------------------------
 
@@ -7702,7 +8082,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return render(ctx, "Month closes", renderClosedMonths({
       months: closedMonths(db, 24, budgetId),
       awaiting: monthAwaitingClose(db, todayIST(), budgetId),
-    }));
+    }), { print: {} });
   });
 
   router.get("/months/:month/close", (ctx) => {
@@ -7714,6 +8094,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return render(
       ctx, `Closing ${formatMonth(month)}`,
       renderMonthClose(monthCloseView(db, month, todayIST(), budgetId, viewer(ctx))),
+      { print: {} },
     );
   });
 
@@ -8011,7 +8392,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       .filter((a) => a.subtype !== "liability")
       .filter((a) => listHoldings(db, a.id).length === 0)
       .map((a) => {
-        const valuation = latestValuation(db, a.id);
+        // DEPOSITS · Computed from terms where it has them (standingValuation).
+        const valuation = standingValuation(db, a.id);
         /*
          * A deposit is worth its balance unless somebody has said otherwise
          * (B56), and that is the whole reason it is a tracking account: the
@@ -8592,6 +8974,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         change: previous ? netWorthChange(db, previous.as_of, todayIST()) : null,
         history,
       }),
+      { print: {} },
     );
   });
 
@@ -8681,17 +9064,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ctx, "Update valuations",
       renderValuations({
         assets: listValuableAccounts(db, { viewerMemberId: viewer(ctx) })
-          // Only the kinds you state by hand. A deposit is worth its balance.
-          .filter((a) => REVALUABLE_SUBTYPES.has(a.subtype))
+          // Only the kinds you state by hand, and deposits with terms — whose
+          // computed figure a passbook can correct. A deposit without terms is
+          // worth its balance.
+          .filter((a) => statable(a))
           .filter((a) => listHoldings(db, a.id).length === 0)
           .map((a) => {
-            const valuation = latestValuation(db, a.id);
+            const valuation = standingValuation(db, a.id);
             return {
               id: a.id, name: a.name, subtype: a.subtype, currency: a.currency,
               value: valuation?.value ?? (0 as Paise),
               asOf: valuation?.asOf ?? null,
               stale: valuation?.stale ?? false,
               valued: valuation !== null,
+              source: valuation?.source ?? null,
             };
           }),
         today: todayIST(),
@@ -8704,7 +9090,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       requireAssets();
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
       const assets = listValuableAccounts(db, { viewerMemberId: viewer(ctx) })
-        .filter((x) => REVALUABLE_SUBTYPES.has(x.subtype))
+        .filter((x) => statable(x))
         .filter((x) => listHoldings(db, x.id).length === 0);
 
       let saved = 0;
@@ -8756,6 +9142,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    * The same test /revalue makes, plus: an account whose worth is its unit
    * holdings has no stated value to change.
    */
+  /**
+   * DEPOSITS · Whose worth can be stated by hand: the hand-valued kinds, and a
+   * deposit with terms, where a passbook figure dated on or after the computed
+   * one's basis date wins over it (standingValuation).
+   */
+  function statable(account: { id: string; subtype: string }): boolean {
+    return REVALUABLE_SUBTYPES.has(account.subtype) || getDepositTerms(db, account.id) !== null;
+  }
+
   function requireHandValuedAsset(ctx: RequestContext, id: string) {
     const account = listValuableAccounts(db, { viewerMemberId: viewer(ctx) }).find((acc) => acc.id === id);
     if (!account) throw new NotFound("That asset does not exist.");
@@ -8911,7 +9306,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     auth(ctx);
     const account = listValuableAccounts(db, { viewerMemberId: viewer(ctx) }).find((acc) => acc.id === ctx.params.id);
     if (!account) throw new NotFound("That asset does not exist.");
-    const valuation = latestValuation(db, account.id);
+    const valuation = standingValuation(db, account.id);
     return render(
       ctx, `Revalue ${account.name}`,
       renderRevalueAsset({
@@ -8929,7 +9324,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       requireAssets();
       const account = listValuableAccounts(db, { viewerMemberId: viewer(ctx) }).find((acc) => acc.id === ctx.params.id);
       if (!account) throw new NotFound("That asset does not exist.");
-      if (!REVALUABLE_SUBTYPES.has(account.subtype)) {
+      if (!statable(account)) {
         throw new Refusal(
           `${account.name} is worth its balance, so there is nothing to state. ` +
           "Record what happened to it — interest credited, money paid in — as a transaction.",
@@ -9246,6 +9641,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const fy = Number.isInteger(fyParam) && fyParam > 2000 ? fyParam : fiscalYearOf(todayIST());
 
     const stored = getDeclaration(db, a.member.id, fy);
+    // INSURANCE-1 · What the member's policies come to; filled in only when asked.
+    const fromPolicies = policyTaxSuggestion(db, a.member.id, fy);
+    const applyPolicies = ctx.query.get("from") === "policies" && fromPolicies.lines.length > 0;
     const visible = listAccounts(db, { viewerMemberId: a.member.id })
       .filter((acc) => acc.kind === "budget")
       .map((acc) => acc.id);
@@ -9259,18 +9657,35 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // Another member's sale is not part of their assessment, however visible.
     const gains = capitalGainsTaxFor(db, fy, a.member.id);
 
+    // TAX-1 · Interest on loans this member holds for a house they live in,
+    // accrued in the year from the loan's ledger — unless they gave their own.
+    const homeLoan = homeLoanInterestFor(db, fy, a.member.id);
+    const s24b = (stored.s24bOverride ?? homeLoan.selfOccupied) as Paise;
+
+    // TAX-2 · What has been paid already.
+    const payments = listTaxPayments(db, a.member.id, fy);
+    const paid = taxPaid(db, a.member.id, fy);
+
     let estimate = null;
     let advance: AdvanceInstalment[] = [];
+    let settlement = null;
     // WEALTH-9 · Slab-rated gains are income too: a member whose only income
     // is a debt-fund gain was told to "enter a gross income" and shown nothing.
     if ((gross > 0 || gains.addToSlabIncome > 0 || gains.specialRateTax > 0) && !staleRatesWarning(fy)) {
-      estimate = estimateTax(fy, gross, stored, gains);
-      const liability = estimate.better === "old" ? estimate.old.total : estimate.new.total;
-      advance = advanceTaxSchedule(fy, liability);
+      estimate = estimateTax(fy, gross, { ...stored, s24b }, gains);
+      settlement = { old: settle(estimate.old, paid), new: settle(estimate.new, paid) };
+      // TAX-3 · Section 208 tests the year's tax after TDS, not before.
+      const liability = Math.max(
+        0, (estimate.better === "old" ? estimate.old.total : estimate.new.total) - paid.tds,
+      ) as Paise;
+      advance = advanceTaxSchedule(fy, liability, payments.filter((p) => p.kind === "advance"));
     }
 
     return {
-      fy, gross, ledgerIncome, deductions: stored, estimate, advance, gains,
+      fy, gross, ledgerIncome, estimate, advance, gains, fromPolicies, applyPolicies,
+      deductions: applyPolicies ? applyPolicySuggestion(stored, fromPolicies) : stored,
+      homeLoan, s24bOverride: stored.s24bOverride ?? null, payments, paid, settlement,
+      advanceThreshold: (ADVANCE_TAX_RULES[fy] ?? ADVANCE_TAX_RULES[2025]!).threshold,
       staleWarning: staleRatesWarning(fy),
       ratesVerifiedOn: RATES_VERIFIED_ON,
       ratesSource: RATES_SOURCE,
@@ -9280,7 +9695,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/tax", (ctx) => {
     const a = auth(ctx);
-    return render(ctx, "Tax estimate", renderTax(taxPageProps(ctx, a)));
+    // PRINT-1 · On paper the caveat travels with every sheet, not only the
+    // first: the page's own notice is at the top, and a second page has none.
+    return render(ctx, "Tax estimate", renderTax(taxPageProps(ctx, a)), {
+      print: { caveat: TAX_PRINT_CAVEAT },
+    });
   });
 
   router.post("/tax", (ctx) =>
@@ -9311,9 +9730,39 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         hra: (received || rentPaid || basic)
           ? { received, rentPaid, basic, metro: field(ctx.body, "hra_metro") === "1" }
           : null,
+        // TAX-1 · Blank uses what the ledger accrued; a figure, even 0, is theirs.
+        s24bOverride: String(field(ctx.body, "s24b") ?? "").trim() ? money("s24b") : null,
+        tds: money("tds"),
       });
 
       return { redirect: `/tax?fy=${fy}`, message: "Saved. The estimate is recalculated." };
+    }),
+  );
+
+  /*
+   * TAX-2 · Advance and self-assessment tax paid, a challan at a time. The
+   * member's own: written against the viewer, and a delete names one of the
+   * viewer's rows or finds nothing.
+   */
+  router.post("/tax/payments", (ctx) =>
+    mutate(ctx, (a) => {
+      const fy = Number(field(ctx.body, "fy"));
+      if (!Number.isInteger(fy)) throw new Refusal("Pick a financial year.");
+      const kind = field(ctx.body, "kind") as TaxPaymentKind;
+      addTaxPayment(db, a.member.id, {
+        fy, kind,
+        date: dateField(field(ctx.body, "date")),
+        amount: amountField(String(field(ctx.body, "amount") ?? ""), "Amount"),
+        note: field(ctx.body, "note") ?? null,
+      });
+      return { redirect: `/tax?fy=${fy}`, message: "Recorded. The balance is recalculated." };
+    }),
+  );
+
+  router.post("/tax/payments/:id/delete", (ctx) =>
+    mutate(ctx, (a) => {
+      const removed = deleteTaxPayment(db, a.member.id, ctx.params.id!);
+      return { redirect: `/tax?fy=${removed.fy}`, message: "Removed." };
     }),
   );
 

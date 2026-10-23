@@ -80,6 +80,11 @@ export interface Loan {
   /** R14: set when the loan predates the app, so metrics can say "from…". */
   history_from: IsoDate | null;
   disbursed_at_creation: Paise;
+  /**
+   * TAX-1 · The house the loan is for, as section 24(b) sees it. Null says
+   * nothing, and nothing is carried into the tax estimate.
+   */
+  property_use: PropertyUse | null;
   closed_at: string | null;
   created_at: string;
 }
@@ -1644,6 +1649,39 @@ export function reanchorToLenderBalance(
 }
 
 /** R21 · Closure, with the summary R21.2 requires. */
+// ---------------------------------------------------------------------------
+// TAX-1 · What the house is used for
+// ---------------------------------------------------------------------------
+
+export type PropertyUse = "self-occupied" | "let-out";
+
+/**
+ * Says what the house a loan paid for is used for, which is what decides
+ * whether its interest goes into the tax estimate: a self-occupied house's
+ * does, capped; a let-out house's is shown and not deducted, since the rent
+ * it would be set against is not modelled. Null clears it.
+ */
+export function setLoanPropertyUse(
+  db: DB, actor: Actor, loanId: string, use: PropertyUse | null,
+): void {
+  if (use !== null && use !== "self-occupied" && use !== "let-out") {
+    throw new Refusal("Choose lived in, let out, or neither.");
+  }
+  transact(db, () => {
+    const loan = getLoan(db, loanId);
+    if (!loan) throw new Missing("That loan does not exist.");
+    if (loan.property_use === use) return;
+    execute(db, `UPDATE loans SET property_use = ? WHERE id = ?`, use, loanId);
+    appendEvent(db, actor, {
+      entity: "loan", entityId: loanId, action: "property-use",
+      before: { property_use: loan.property_use }, after: { property_use: use },
+      summary: use === null
+        ? `Said ${loan.nickname || loan.lender} is for no house the tax estimate counts`
+        : `Said ${loan.nickname || loan.lender} is for a house that is ${use === "self-occupied" ? "lived in" : "let out"}`,
+    });
+  });
+}
+
 export function closeLoan(
   db: DB, actor: Actor,
   input: {
@@ -2009,6 +2047,12 @@ registerUndoHandler("loan", (db, event, actor) => {
     restorePin(db, id, before);
     syncLoanPaymentTarget(db, actor, id);
     return `Removed the rate change to ${String(after.rate)}%`;
+  }
+
+  if (event.action === "property-use") {
+    const was = (before.property_use ?? null) as PropertyUse | null;
+    execute(db, `UPDATE loans SET property_use = ? WHERE id = ?`, was, id);
+    return `Put back what the house is used for`;
   }
 
   if (event.action === "reanchor") {

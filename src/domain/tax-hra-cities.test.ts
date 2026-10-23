@@ -25,6 +25,10 @@ function page(fy: number): string {
     deductions: { s80c: 0 as Paise, s80d: 0 as Paise, s80dSenior: false, other: 0 as Paise, hra: null },
     estimate: null, advance: [], gains: taxOnGains(fy, EMPTY), staleWarning: null,
     ratesVerifiedOn: "2026-10-22", ratesSource: "https://incometaxindia.gov.in", availableYears: [2026, 2025],
+    homeLoan: { lines: [], selfOccupied: 0 as Paise, letOut: 0 as Paise, estimated: false },
+    s24bOverride: null, payments: [],
+    paid: { tds: 0 as Paise, advance: 0 as Paise, selfAssessment: 0 as Paise },
+    settlement: null, advanceThreshold: 10_000_00 as Paise,
   }).value;
 }
 

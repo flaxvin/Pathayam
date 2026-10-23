@@ -28,7 +28,10 @@ export function renderOverview(opts: {
   monthSpend: Paise;
   cash: Paise;
   runwayMonths: number | null;
-  dueSoon: { id: string; name: string; amount: Paise; nextDue: IsoDate }[];
+  /** Schedules, and (INSURANCE-1) policy premiums — `policy` set — which post nothing when paid. */
+  dueSoon: { id: string; name: string; amount: Paise; nextDue: IsoDate; policy?: boolean }[];
+  /** DEPOSITS · Deposits maturing inside the same two weeks. Nothing to mark paid. */
+  maturing?: { accountId: string; name: string; amount: Paise; date: IsoDate }[];
 }): SafeHtml {
   const chrono = [...opts.netWorthHistory].sort((a, b) => a.as_of.localeCompare(b.as_of));
   const distinctMonths = new Set(chrono.map((h) => h.as_of.slice(0, 7))).size;
@@ -101,8 +104,21 @@ export function renderOverview(opts: {
           <h2>Due soon</h2>
           <a class="button button-small" href="/schedules">All schedules</a>
         </div>
+        ${when((opts.maturing ?? []).length > 0, () => html`
+          <ul class="overview-list">
+            ${(opts.maturing ?? []).map((m) => html`
+              <li>
+                <span class="overview-date">${formatDate(m.date).slice(0, 5)}</span>
+                <span class="overview-items"><a href="/accounts/${m.accountId}">${m.name}</a> matures</span>
+                <span class="amount amount-positive">${formatCompact(m.amount)}</span>
+              </li>
+            `)}
+          </ul>
+        `)}
         ${opts.dueSoon.length === 0
-          ? html`<p class="faint">Nothing due in the next two weeks.</p>`
+          ? ((opts.maturing ?? []).length > 0
+              ? html``
+              : html`<p class="faint">Nothing due in the next two weeks.</p>`)
           : html`
               <ul class="overview-list">
                 ${opts.dueSoon.map((s) => html`
@@ -110,9 +126,18 @@ export function renderOverview(opts: {
                     <span class="overview-date">${formatDate(s.nextDue).slice(0, 5)}</span>
                     <span class="overview-items">${s.name}</span>
                     <span class="amount amount-negative">${formatCompact(s.amount)}</span>
-                    <form method="post" action="/schedules/${s.id}/paid" style="display:inline">
-                      <button class="button-small" type="submit">Paid</button>
-                    </form>
+                    ${s.policy
+                      ? html`
+                          <form method="post" action="/insurance/${s.id}/paid" style="display:inline">
+                            <input type="hidden" name="back" value="/overview">
+                            <button class="button-small" type="submit" title="Moves the due date on; posts nothing">Paid</button>
+                          </form>
+                        `
+                      : html`
+                          <form method="post" action="/schedules/${s.id}/paid" style="display:inline">
+                            <button class="button-small" type="submit">Paid</button>
+                          </form>
+                        `}
                   </li>
                 `)}
               </ul>

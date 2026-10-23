@@ -50,13 +50,14 @@ const JUDGED_BY_ID = new Set(["assignment", "target", "transfer"]);
 
 /** The table behind each kind of event that is about one row. */
 const TABLES: Record<string, string> = {
-  account: "accounts", "asset-account": "accounts", category: "categories",
+  account: "accounts", "asset-account": "accounts", "deposit-terms": "accounts", category: "categories",
   "category-group": "category_groups", transaction: "transactions", schedule: "schedules",
   goal: "goals", holding: "holdings", asset: "holdings", instrument: "instruments",
   card: "cards", "card-statement": "card_statements", reconciliation: "reconciliations",
   loan: "loans", "family-loan": "family_loans", attachment: "attachments",
   "import-batch": "import_batches", "import-profile": "import_profiles",
   "staged-transaction": "staged_transactions", "even-call": "even_calls",
+  "insurance-policy": "insurance_policies",
 };
 
 export function eventVisibility(db: DB, viewerMemberId: string | null): EventVisibility {
