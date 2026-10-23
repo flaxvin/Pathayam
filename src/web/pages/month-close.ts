@@ -393,6 +393,7 @@ export function renderStatementIdentity(
   masked: {
     name: string; pan: string | null; dob: string | null; mobile: string | null;
     customerIds?: { axis?: string; hdfc?: string };
+    hsbcCardLast6?: string | null;
   } | null,
 ): SafeHtml {
   return html`
@@ -423,6 +424,7 @@ export function renderStatementIdentity(
               <tr><td>Mobile</td><td>${masked!.mobile ?? "Not saved"}</td></tr>
               <tr><td>Axis customer ID</td><td>${masked!.customerIds?.axis ?? "Not saved"}</td></tr>
               <tr><td>HDFC customer ID</td><td>${masked!.customerIds?.hdfc ?? "Not saved"}</td></tr>
+              <tr><td>HSBC card, last six</td><td>${masked!.hsbcCardLast6 ?? "Not saved"}</td></tr>
             </tbody>
           </table>
         </div>
@@ -463,6 +465,12 @@ export function renderStatementIdentity(
           <label for="id-hdfc-customer">HDFC customer ID</label>
           <input id="id-hdfc-customer" name="customer_id_hdfc" autocomplete="off" spellcheck="false"
                  placeholder="${masked?.customerIds?.hdfc ? "Saved — leave blank to keep" : "Optional — HDFC's account statement is locked with it"}">
+        </div>
+        <div class="field">
+          <label for="id-hsbc-last6">HSBC card, last six digits</label>
+          <input id="id-hsbc-last6" name="hsbc_card_last6" autocomplete="off" inputmode="numeric"
+                 placeholder="${masked?.hsbcCardLast6 ? "Saved — leave blank to keep" : "Optional — HSBC's card statement uses them"}">
+          <p class="field-hint">An account keeps only a card's last four; HSBC's password wants six.</p>
         </div>
         <button type="submit">Save</button>
       </form>
