@@ -2704,7 +2704,21 @@ ALTER TABLE tax_declarations ADD COLUMN s80d_parents_checkup INTEGER NOT NULL DE
 `,
   },
   {
-    name: "0060-an-insurance-policy-register",
+    name: "0060-statement-identity-customer-ids",
+    sql: `
+--------------------------------------------------------------------------------
+-- IMPORT-SND-12 · Axis's account statement opens with the first four letters
+-- of the name in capitals and the 9-digit customer ID; HDFC's SmartStatement
+-- with the customer ID alone. Neither can be worked out from name, PAN, date
+-- of birth or mobile, so the IDs are kept here, per bank, as JSON
+-- {"axis":"…","hdfc":"…"} — under the same never-exported, never-logged rule
+-- as every other column in this table (PR5.3).
+--------------------------------------------------------------------------------
+ALTER TABLE statement_identity ADD COLUMN customer_ids TEXT;
+`,
+  },
+  {
+    name: "0061-an-insurance-policy-register",
     sql: `
 --------------------------------------------------------------------------------
 -- INSURANCE-1 · The household's insurance policies
@@ -2763,7 +2777,7 @@ CREATE INDEX idx_insurance_policies_holder ON insurance_policies(holder_member_i
 `,
   },
   {
-    name: "0061-an-imported-row-remembers-its-transfer-and-split",
+    name: "0062-an-imported-row-remembers-its-transfer-and-split",
     sql: `
 --------------------------------------------------------------------------------
 -- IMPORT-1 · What the app a household is leaving had already decided
@@ -2782,7 +2796,7 @@ ALTER TABLE staged_transactions ADD COLUMN splits_json TEXT;
 `,
   },
   {
-    name: "0062-a-deposit-values-itself",
+    name: "0063-a-deposit-values-itself",
     sql: `
 --------------------------------------------------------------------------------
 -- DEPOSITS · A deposit's terms, so it is worth what they say
@@ -2812,7 +2826,7 @@ CREATE TABLE deposit_terms (
 `,
   },
   {
-    name: "0063-the-tax-estimate-uses-what-the-ledger-knows",
+    name: "0064-the-tax-estimate-uses-what-the-ledger-knows",
     sql: `
 --------------------------------------------------------------------------------
 -- TAX-1..3 · Home loan interest carried in, and tax already paid

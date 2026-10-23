@@ -41,9 +41,17 @@ describe("which detail the bank's rule needs", () => {
 
   test("a bank whose rule needs nothing extra says nothing", () => {
     // Otherwise it sends somebody to fill in a form that is already full.
-    for (const bank of ["hdfc", "icici", "axis", "yes", null] as const) {
+    for (const bank of ["icici", "yes", null] as const) {
       assert.equal(missingDetailFor(bank, NO_MOBILE, []), null, `${bank} invented a missing detail`);
     }
+  });
+
+  test("IMPORT-SND-12: Axis and HDFC account statements need the customer ID", () => {
+    assert.match(missingDetailFor("axis", FULL, [])!, /customer ID/);
+    assert.match(missingDetailFor("hdfc", FULL, [])!, /customer ID/);
+    const withIds = { ...FULL, customerIds: { axis: "100000001", hdfc: "20000002" } };
+    assert.equal(missingDetailFor("axis", withIds, []), null);
+    assert.equal(missingDetailFor("hdfc", withIds, []), null);
   });
 
   test("the account's own institution names the bank, before the file is opened", () => {

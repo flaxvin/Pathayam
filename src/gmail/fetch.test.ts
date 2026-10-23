@@ -93,6 +93,15 @@ describe("04 §3.4 · fetching alerts from Gmail", () => {
     assert.match(q, /newer_than:90d/);
   });
 
+  test("IMPORT-SND-1: the query asks for the banks' pre-2026 domains too", () => {
+    const q = buildQuery(90);
+    for (const old of [
+      "estatement@icicibank.com", "statements@axisbank.com", "cbssbi.cas@alerts.sbi.co.in",
+      "noreplyunionbank@unionbankofindia.com", "hdfcbanksmartstatement@hdfcbank.net",
+      "kfintech.com",
+    ]) assert.ok(q.includes(old), old);
+  });
+
   test("an account alert lands in Review against the matched account", async () => {
     const db = setup();
     const bank = createAccount(db, actor, {

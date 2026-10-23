@@ -5331,6 +5331,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       );
     }
 
+    // A fund statement or an exchange report is not a bank account's rows, and
+    // a mapping screen would invite the household to import it as one.
+    if (parsed.notAStatement) {
+      return importPage(
+        `That file is ${parsed.notAStatement}, not a bank or card statement, so ` +
+        "there are no transactions in it to import here.",
+      );
+    }
+
     // `04` §3.2's rule, applied to PDFs: a file this app cannot read is a
     // mapping task, not an error. The extracted rows go to the same screen an
     // unrecognised CSV goes to.
@@ -8273,6 +8282,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         pan: field(ctx.body, "pan") || null,
         dob: field(ctx.body, "dob") || null,
         mobile: field(ctx.body, "mobile") || null,
+        // Shown masked and never sent back, so a blank box keeps the saved ID.
+        customerIds: Object.fromEntries(
+          (["axis", "hdfc"] as const)
+            .map((bank) => [bank, field(ctx.body, `customer_id_${bank}`)] as const)
+            .filter(([, value]) => Boolean(value)),
+        ),
       });
       return {
         redirect: "/settings#statements",
