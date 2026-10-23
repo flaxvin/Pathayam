@@ -70,9 +70,18 @@ export function clearDiscoveryCache(): void {
   cache.clear();
 }
 
+/**
+ * How long discovery may take. The same bound as the price providers' default
+ * (portfolio/providers.ts): a provider that accepts the connection and then
+ * says nothing otherwise held /auth/oidc open for as long as the socket lived,
+ * and each retry the person made held another.
+ */
+const DISCOVERY_TIMEOUT_MS = 10_000;
+
 export async function discover(
   issuer: string,
   fetchImpl: typeof fetch = fetch,
+  opts: { timeoutMs?: number } = {},
 ): Promise<Discovery> {
   const cached = cache.get(issuer);
   if (cached) return cached;
@@ -85,25 +94,43 @@ export async function discover(
    */
   const url = `${issuer.replace(/\/+$/, "")}/.well-known/openid-configuration`;
 
-  let response: Response;
-  try {
-    response = await fetchImpl(url, { headers: { accept: "application/json" } });
-  } catch (error) {
-    throw new OAuthError(
-      `Could not reach the identity provider at ${url}. ${(error as Error).message}`,
-    );
-  }
-  if (!response.ok) {
-    throw new OAuthError(
-      `The identity provider at ${url} answered ${response.status}. Check OIDC_ISSUER.`,
-    );
-  }
+  const timeoutMs = opts.timeoutMs ?? DISCOVERY_TIMEOUT_MS;
+  const controller = new AbortController();
+  const timer = setTimeout(
+    () => controller.abort(new DOMException("The operation timed out.", "TimeoutError")),
+    timeoutMs,
+  );
+  const timedOut = () =>
+    new OAuthError(`The identity provider at ${url} did not answer within ${timeoutMs / 1000} seconds.`);
 
   let document: Partial<Discovery>;
   try {
-    document = await response.json() as Partial<Discovery>;
-  } catch {
-    throw new OAuthError(`${url} did not return a discovery document.`);
+    let response: Response;
+    try {
+      response = await fetchImpl(url, {
+        headers: { accept: "application/json" }, signal: controller.signal,
+      });
+    } catch (error) {
+      if (controller.signal.aborted) throw timedOut();
+      throw new OAuthError(
+        `Could not reach the identity provider at ${url}. ${(error as Error).message}`,
+      );
+    }
+    if (!response.ok) {
+      throw new OAuthError(
+        `The identity provider at ${url} answered ${response.status}. Check OIDC_ISSUER.`,
+      );
+    }
+
+    // The body is under the same bound: a provider can stall after the headers.
+    try {
+      document = await response.json() as Partial<Discovery>;
+    } catch {
+      if (controller.signal.aborted) throw timedOut();
+      throw new OAuthError(`${url} did not return a discovery document.`);
+    }
+  } finally {
+    clearTimeout(timer);
   }
 
   if (!document.authorization_endpoint || !document.token_endpoint || !document.issuer) {

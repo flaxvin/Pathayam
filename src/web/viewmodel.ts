@@ -294,7 +294,16 @@ function describeState(
   switch (progress.state) {
     case "unfunded": return { stateLabel: "Not funded", stateClass: "", needsCover: false };
     case "partial": return { stateLabel: "Partly funded", stateClass: "", needsCover: false };
-    case "over-funded": return { stateLabel: "Over-funded", stateClass: "", needsCover: false };
+    /*
+     * D8a · More assigned than the target asked for is only "over-funded"
+     * while some of it is still there. An overspend covered back to ₹0 had
+     * more assigned than the target because the extra went to the spending,
+     * and nothing is spare in an envelope at zero.
+     */
+    case "over-funded":
+      return state.balance > 0
+        ? { stateLabel: "Over-funded", stateClass: "", needsCover: false }
+        : { stateLabel: "Funded", stateClass: "", needsCover: false };
     default: return { stateLabel: "Funded", stateClass: "", needsCover: false };
   }
 }

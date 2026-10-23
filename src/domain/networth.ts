@@ -124,10 +124,15 @@ export function netWorthStatement(
   const stillOpen = dated ? "" : "AND closed_at IS NULL";
 
   // --- Assets ---------------------------------------------------------------
-  const cashLines: NetWorthLine[] = queryAll<{ id: string; name: string }>(
-    db, `SELECT id, name FROM accounts WHERE kind = 'budget' ${stillOpen} ORDER BY name`,
+  /*
+   * D8e · Every other screen names an account by the household's nickname
+   * when it has one, and by the bank's name otherwise; so does this one.
+   */
+  const shown = (a: { name: string; nickname?: string | null }) => a.nickname || a.name;
+  const cashLines: NetWorthLine[] = queryAll<{ id: string; name: string; nickname: string | null }>(
+    db, `SELECT id, name, nickname FROM accounts WHERE kind = 'budget' ${stillOpen} ORDER BY name`,
   ).filter((a) => counts(a.id)).map((a) => ({
-    label: a.name,
+    label: shown(a),
     accountId: a.id,
     value: balances.get(a.id)?.working ?? 0,
     asOf,
@@ -170,7 +175,7 @@ export function netWorthStatement(
           if (view.fx?.stale) stale = true;
         }
         investmentLines.push({
-          label: account.name, accountId: account.id, value: total, asOf: oldest, stale,
+          label: shown(account), accountId: account.id, value: total, asOf: oldest, stale,
           href: "/portfolio",
         });
         noteDate(oldest, stale);
@@ -194,7 +199,7 @@ export function netWorthStatement(
       }
 
       investmentLines.push({
-        label: account.name, accountId: account.id, value: total, asOf: oldest, stale,
+        label: shown(account), accountId: account.id, value: total, asOf: oldest, stale,
         href: "/portfolio",
       });
       noteDate(oldest, stale);
@@ -206,7 +211,7 @@ export function netWorthStatement(
     const valuation = valuationInBase(db, account, asOf, baseCurrency);
     if (!valuation) continue;
     otherAssetLines.push({
-      label: `${account.name} (${ASSET_LABELS[account.subtype as AssetSubtype] ?? account.subtype})`,
+      label: `${shown(account)} (${ASSET_LABELS[account.subtype as AssetSubtype] ?? account.subtype})`,
       accountId: account.id,
       value: valuation.value,
       asOf: valuation.asOf,
@@ -218,14 +223,14 @@ export function netWorthStatement(
 
   // --- Liabilities ----------------------------------------------------------
   const cardLines: NetWorthLine[] = [];
-  for (const a of queryAll<{ id: string; name: string }>(
-    db, `SELECT id, name FROM accounts WHERE kind = 'credit' ${stillOpen} ORDER BY name`,
+  for (const a of queryAll<{ id: string; name: string; nickname: string | null }>(
+    db, `SELECT id, name, nickname FROM accounts WHERE kind = 'credit' ${stillOpen} ORDER BY name`,
   )) {
     if (!counts(a.id)) continue;
     const balance = balances.get(a.id)?.working ?? 0;
     if (balance < 0) {
       cardLines.push({
-        label: a.name, accountId: a.id, value: -balance, asOf, stale: false, href: `/accounts/${a.id}`,
+        label: shown(a), accountId: a.id, value: -balance, asOf, stale: false, href: `/accounts/${a.id}`,
       });
     } else if (balance > 0) {
       /*
@@ -235,7 +240,7 @@ export function netWorthStatement(
        * spend, so it sits with the cash.
        */
       cashLines.push({
-        label: `${a.name} (in credit)`, accountId: a.id, value: balance, asOf, stale: false,
+        label: `${shown(a)} (in credit)`, accountId: a.id, value: balance, asOf, stale: false,
         href: `/accounts/${a.id}`,
       });
     }
@@ -324,9 +329,9 @@ export function netWorthStatement(
   // never orphaned from net worth. Their subtypes belong to no companion table,
   // so nothing above has already counted them.
   const otherLiabilityLines: NetWorthLine[] = [];
-  const simpleTracking = queryAll<{ id: string; name: string; subtype: string; currency: string }>(
+  const simpleTracking = queryAll<{ id: string; name: string; nickname: string | null; subtype: string; currency: string }>(
     db,
-    `SELECT id, name, subtype, currency FROM accounts
+    `SELECT id, name, nickname, subtype, currency FROM accounts
       WHERE kind = 'tracking' ${stillOpen}
         AND subtype IN (${SIMPLE_TRACKING_SUBTYPES.map(() => "?").join(",")})
       ORDER BY name`,
@@ -355,12 +360,12 @@ export function netWorthStatement(
 
     if (value > 0) {
       otherAssetLines.push({
-        label: account.name, accountId: account.id, value,
+        label: shown(account), accountId: account.id, value,
         asOf: lineAsOf, stale: lineStale, href,
       });
     } else if (value < 0) {
       otherLiabilityLines.push({
-        label: account.name, accountId: account.id, value: -value,
+        label: shown(account), accountId: account.id, value: -value,
         asOf: lineAsOf, stale: lineStale, href,
       });
     }

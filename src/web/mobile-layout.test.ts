@@ -78,3 +78,54 @@ describe("B118 · every table scrolls inside its own box", () => {
     assert.match(STYLESHEET, /\.table-scroll \{[^}]*overflow-x: auto/);
   });
 });
+
+/**
+ * D5 · A finger gets 44px, a mouse may have less.
+ *
+ * docs/screens.md promises tap targets of at least 44px. The small buttons —
+ * the header's theme toggle and member link, the budget pills, Skip, Use it,
+ * No thanks, Remove — are 34px, which is a fine size under a mouse pointer and
+ * too small under a thumb. The rule: anything that sets a min-height below
+ * --tap is lifted back to --tap when the primary pointer is coarse, so a
+ * desktop keeps its compact rows and a phone gets the promised target.
+ */
+describe("D5 · small controls reach --tap on a touch screen", () => {
+  const coarse = /@media \(pointer: coarse\) \{([\s\S]*?)\n\}/.exec(STYLESHEET);
+
+  test("there is a coarse-pointer block that sets min-height: var(--tap)", () => {
+    assert.ok(coarse, "no @media (pointer: coarse) block in the stylesheet");
+    assert.match(coarse[1], /min-height: var\(--tap\)/);
+  });
+
+  test("every rule with a min-height under 44px is lifted in that block", () => {
+    assert.ok(coarse);
+    const outside = STYLESHEET.replace(coarse[0], "");
+    const offenders: string[] = [];
+    for (const m of outside.matchAll(/([^{}]+)\{[^}]*min-height: (\d+)px/g)) {
+      if (Number(m[2]) >= 44) continue;
+      const selector = m[1].replace(/\/\*[\s\S]*?\*\//g, "").trim();
+      if (!coarse[1].includes(selector)) offenders.push(`${selector} (${m[2]}px)`);
+    }
+    assert.deepEqual(offenders, [], `too small to tap: ${offenders.join(", ")}`);
+  });
+
+  test("the small controls named in the decision are covered", () => {
+    assert.ok(coarse);
+    for (const sel of [".button-small", ".scope-switch a"]) {
+      assert.ok(coarse[1].includes(sel), `${sel} is not lifted on a touch screen`);
+    }
+  });
+});
+
+describe("D5 · no page sets a small min-height inline, out of the media query's reach", () => {
+  test("pages carry no inline min-height under 44px", () => {
+    const offenders: string[] = [];
+    for (const file of readdirSync(join(here, "pages")).filter((f) => f.endsWith(".ts") && !f.includes(".test."))) {
+      const source = readFileSync(join(here, "pages", file), "utf8");
+      for (const m of source.matchAll(/style="[^"]*min-height:\s*(\d+)px/g)) {
+        if (Number(m[1]) < 44) offenders.push(`${file}: ${m[0]}`);
+      }
+    }
+    assert.deepEqual(offenders, [], "an inline style cannot be lifted by @media (pointer: coarse)");
+  });
+});

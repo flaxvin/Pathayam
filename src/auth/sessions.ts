@@ -135,6 +135,15 @@ export function removeMember(db: DB, actor: Actor, id: string): void {
      * restores a member, not the credentials they held before.
      */
     execute(db, `UPDATE api_tokens SET revoked_at = ? WHERE member_id = ? AND revoked_at IS NULL`, nowIST(), id);
+    /*
+     * And their password, for the same reason. Sign-in already refused it
+     * while they were removed, but only by reading the allow-list — so adding
+     * the address back reopened the old password, known to whoever learned it
+     * in the meantime, and nobody re-adding them was told. The row holds
+     * nothing but the hash and its lockout counters (there is no separate
+     * reset state), so deleting it is the whole credential and nothing else.
+     */
+    execute(db, `DELETE FROM member_passwords WHERE member_id = ?`, id);
     appendEvent(db, actor, {
       entity: "member", entityId: id, action: "remove", before, after: getMember(db, id),
       summary: `Removed ${before.name} from the household`,

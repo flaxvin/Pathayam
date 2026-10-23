@@ -726,6 +726,29 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
 .overview-items { flex: 1 1 auto; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: var(--text); }
 .overview-list .amount { white-space: nowrap; }
 .scope-tabs { display: flex; flex-wrap: wrap; gap: .4rem; }
+/* A quiet disclosure under a card ("Edit or remove"): compact under a mouse. */
+.summary-small {
+  min-height: 36px; display: flex; align-items: center; cursor: pointer;
+  color: var(--text-muted); font-size: .9rem;
+}
+
+/*
+ * D5 · A finger gets the full tap target; a mouse keeps the compact rows.
+ *
+ * The small controls above are 34px (38px for an assign box) because on a
+ * desktop a row of 44px buttons is a row of slabs. Under a thumb that is a miss
+ * waiting to happen, and docs/screens.md promises 44px. So whenever the primary
+ * pointer is coarse, everything that set a smaller min-height is lifted to
+ * --tap. Last in the sheet, so it outranks those rules at equal specificity.
+ */
+@media (pointer: coarse) {
+  .button-small,
+  .scope-switch a,
+  .assign-cell input,
+  .summary-small {
+    min-height: var(--tap);
+  }
+}
 
 /* ---------------------------------------------------------------------------
    PRINT-1 · Paper

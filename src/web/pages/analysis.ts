@@ -1210,7 +1210,7 @@ function renderGoalCard(g: GoalProgress): SafeHtml {
         </form>
         <!-- BUDGET-14 · Rolling over needs the goal it rolls into. -->
         <details style="margin-top:.5rem">
-          <summary style="min-height:36px;display:flex;align-items:center;cursor:pointer;color:var(--text-muted);font-size:.9rem">
+          <summary class="summary-small">
             Roll into a new goal
           </summary>
           <form method="post" action="/goals/${g.goal.id}/complete" style="margin-top:.5rem">
@@ -1238,7 +1238,7 @@ function renderGoalCard(g: GoalProgress): SafeHtml {
 
       <!-- F11 · Edit and delete. -->
       <details style="margin-top:.75rem">
-        <summary style="min-height:36px;display:flex;align-items:center;cursor:pointer;color:var(--text-muted);font-size:.9rem">
+        <summary class="summary-small">
           Edit or remove
         </summary>
         <form method="post" action="/goals/${g.goal.id}/edit" style="margin-top:.5rem">

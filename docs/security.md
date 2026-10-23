@@ -77,7 +77,7 @@ can return data for a person, and 404 rather than 403.
 
 ## Cross-site request forgery
 
-Two independent controls:
+Two independent controls, and a third that keeps the second honest:
 
 1. The session cookie is `SameSite=Lax`, and no `GET` handler in the router
    mutates state — verified by a test that walks every handler for write calls.
@@ -85,6 +85,17 @@ Two independent controls:
    `Referer` from it when `Origin` is absent. `Referrer-Policy: same-origin`
    guarantees a same-origin request carries a `Referer` and a cross-origin one
    does not. Failure returns 403.
+3. Before either is compared, the host the request was addressed to (`Host`,
+   or the right-most `X-Forwarded-Host` entry behind `TRUST_PROXY`) must be
+   `BASE_URL`'s hostname — with `BASE_URL`'s port, or none — or a name no DNS
+   answer is involved in: an IP literal or `localhost`. Anything else is 403
+   on an unsafe method. Without this, DNS rebinding defeated (2): a page on
+   `evil.example` re-points its own name at this machine and posts to it, so
+   its Origin and the Host agree, and on a fresh LAN install with
+   `LOCAL_LOGIN` it could create the first member through `/auth/first-run`.
+   An IP literal or `localhost` cannot be rebound, so the LAN address a
+   household types keeps working; any other name it uses must be the one in
+   `BASE_URL`.
 
 Bearer-authenticated requests are exempt from (2) because they carry no cookie —
 and only when they carry no session cookie: a request with one is held to (2)
@@ -100,6 +111,15 @@ requires a path beginning with a single `/`, rejects `//` and `/\` (which
 browsers resolve as another origin), and rejects control characters. Applied to
 the sign-in return, the theme toggle, the review queue and the impersonation
 banner.
+
+## Notices
+
+The banner a redirect lands on is carried in the URL (`?notice=`), so a link
+could put its own words there — escaped, never a script, but in the app's own
+success banner. Every notice the server issues is signed (`ns`, an HMAC of the
+text keyed by a random per-process secret) and an unsigned or mismatched one is
+not shown. A restart between a redirect and its page drops that one notice.
+The CAS import page's error is a fixed key (`?error=expired`), not text.
 
 ## Output encoding
 
@@ -191,6 +211,10 @@ two price providers. User-supplied values reach only path segments and query
 values, through `encodeURIComponent`. `BACKUP_WEBHOOK_URL` and `HEARTBEAT_URL`
 are operator-configured.
 
+OpenID Connect discovery (`{OIDC_ISSUER}/.well-known/openid-configuration`)
+is bounded at ten seconds, like the price providers' fetches; a provider that
+does not answer in time makes `/auth/oidc` answer 503, not hang.
+
 ## Dependencies
 
 None at runtime.
@@ -221,6 +245,11 @@ successful sign-in.
   a scrypt verification on a decoy hash so it takes as long to refuse.
 - Changing a password requires the current one, and signs out every other
   session the member has; the device that made the change stays signed in.
+- Removing a member deletes their password, as it revokes their sessions and
+  API tokens. Adding the address back restores the member and everything they
+  entered, not the credentials they held: they set a new password, and the
+  person re-adding them is told so. Otherwise re-adding somebody silently
+  reopened a password known to whoever learned it while they were away.
 
 ### Errors the household is allowed to see
 

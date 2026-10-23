@@ -87,11 +87,11 @@ async function fetchFromGmail(db: DB): Promise<string> {
     const res = await app.post("/gmail/fetch", {});
     assert.equal(res.status, 303);
     const location = res.headers.get("location")!;
-    // Read from the raw location: when nothing went to Review the redirect is
-    // "/settings#gmail?notice=…", where URL puts the notice in the hash.
-    const notice = /[?&]notice=([^&]*)/.exec(location);
-    assert.ok(notice, location);
-    return decodeURIComponent(notice[1]!);
+    // Read as the browser will: a notice placed after "#gmail" never reaches
+    // the server, so it must be in the query, ahead of the fragment.
+    const notice = new URL(location, app.baseUrl).searchParams.get("notice");
+    assert.ok(notice, `the notice is not in the query the browser sends: ${location}`);
+    return notice;
   } finally {
     await app.close();
   }

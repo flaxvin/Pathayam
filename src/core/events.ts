@@ -198,18 +198,32 @@ export function getEvent(db: DB, id: string): LoggedEvent | null {
  */
 export type UndoHandler = (db: DB, event: LoggedEvent, actor: Actor) => string;
 
+/**
+ * D8d · Why a handler would refuse this event now, or null if it would not.
+ * Read-only: it answers the question the handler asks before it writes.
+ */
+export type UndoPrecheck = (db: DB, event: LoggedEvent) => string | null;
+
 const undoHandlers = new Map<string, UndoHandler>();
 /** Entities whose handler reverses only some of their actions. */
 const undoableActions = new Map<string, Set<string>>();
+const undoPrechecks = new Map<string, UndoPrecheck>();
 
 /**
  * `actions` limits the handler to those actions; the rest of the entity's
  * events stay "cannot be undone" exactly as if no handler were registered, so
  * Activity offers no button it would then refuse.
+ *
+ * `precheck` does the same for a refusal that depends on the record's state
+ * rather than the action — a transfer leg whose transfer is already gone — so
+ * checkUndo, and with it Activity, knows before anybody presses the button.
  */
-export function registerUndoHandler(entity: string, handler: UndoHandler, actions?: string[]): void {
+export function registerUndoHandler(
+  entity: string, handler: UndoHandler, actions?: string[], precheck?: UndoPrecheck,
+): void {
   undoHandlers.set(entity, handler);
   if (actions) undoableActions.set(entity, new Set(actions));
+  if (precheck) undoPrechecks.set(entity, precheck);
 }
 
 export const DEFAULT_UNDO_WINDOW_DAYS = 30; // Q25
@@ -251,6 +265,9 @@ export function checkUndo(
       supersededBy: [],
     };
   }
+
+  const refusal = undoPrechecks.get(event.entity)?.(db, event) ?? null;
+  if (refusal) return { ok: false, reason: refusal, supersededBy: [] };
 
   const superseded = event.entityId
     ? queryAll<EventRow>(
