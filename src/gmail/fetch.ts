@@ -267,7 +267,17 @@ async function handleStatement(
     // A statement account cannot be known without a last-four to match; a CAS
     // is handled by the portfolio importer, not here. So this path covers the
     // bank statements whose destination account the app can resolve.
-    const candidates = identity ? passwordCandidates(identity, statementSender.bank) : [""];
+    //
+    // D9a · SBI Card, Canara and HSBC lock statements with the card's digits.
+    // The upload path hands passwordCandidates the account's last four; this
+    // path handed it nothing, so the same file that opened when uploaded was
+    // "could not open" when mailed. The digits are only ever candidates tried
+    // in memory, never logged or stored.
+    const candidates = identity
+      ? passwordCandidates(identity, statementSender.bank, {
+        cardDigits: statementCardDigits(db, memberId, statementSender.bank),
+      })
+      : [""];
     let parsed;
     // Any other failure — a certificate-protected or damaged file — is this
     // attachment's alone. Thrown, it lost every alert read so far and left the
@@ -307,15 +317,54 @@ async function handleStatement(
 function resolveStatementAccount(
   db: DB, memberId: string, bank: import("../import/pdf-statements.ts").BankId | null,
 ): string | null {
-  if (!bank) return null;
+  const rows = statementAccounts(db, memberId, bank);
+  return rows.length === 1 ? rows[0]!.id : null;
+}
+
+/** Open accounts at `bank` the fetching member can see. */
+function statementAccounts(
+  db: DB, memberId: string, bank: import("../import/pdf-statements.ts").BankId | null,
+): { id: string }[] {
+  if (!bank) return [];
   // Among the fetching member's own view, as for alerts: another member's
   // private account at the same bank is neither a candidate nor a rival.
   const hidden = hiddenAccountSql("a", memberId);
-  const rows = (db.prepare(
+  return (db.prepare(
     `SELECT a.id FROM accounts a
       WHERE a.closed_at IS NULL AND lower(a.institution) LIKE ? AND NOT ${hidden.sql}`,
   ).all(`%${bank}%`, ...hidden.params)) as { id: string }[];
-  return rows.length === 1 ? rows[0]!.id : null;
+}
+
+/**
+ * D9a · The card/account digits a mailed statement's password might use.
+ *
+ * The statement routes to the one account at its bank when there is exactly
+ * one, so that account's last four and its cards' are the digits — what the
+ * upload path uses, plus the add-on cards a household records on the card
+ * rather than the account. When the route is unknown (no account at that
+ * bank, or several), every visible account's and card's digits are offered:
+ * trying a handful of extra candidates against a local file costs nothing,
+ * and a statement that opens but has nowhere to go is then said as such
+ * rather than as "could not open". Another member's private accounts are not
+ * offered, as for routing.
+ */
+function statementCardDigits(
+  db: DB, memberId: string, bank: import("../import/pdf-statements.ts").BankId | null,
+): string[] {
+  const atBank = statementAccounts(db, memberId, bank);
+  const hidden = hiddenAccountSql("a", memberId);
+  const scope = atBank.length === 1
+    ? { sql: "a.id = ?", params: [atBank[0]!.id] as string[] }
+    : { sql: "1 = 1", params: [] as string[] };
+  const rows = db.prepare(
+    `SELECT a.last4 AS digits FROM accounts a
+      WHERE a.closed_at IS NULL AND a.last4 IS NOT NULL AND ${scope.sql} AND NOT ${hidden.sql}
+     UNION
+     SELECT c.last4 AS digits FROM cards c JOIN accounts a ON a.id = c.account_id
+      WHERE c.closed_at IS NULL AND a.closed_at IS NULL AND c.last4 IS NOT NULL
+        AND ${scope.sql} AND NOT ${hidden.sql}`,
+  ).all(...scope.params, ...hidden.params, ...scope.params, ...hidden.params) as { digits: string }[];
+  return rows.map((r) => r.digits);
 }
 
 // ---------------------------------------------------------------------------

@@ -1,0 +1,292 @@
+From 7a53f9949ecaa8b82b1b4f7331d8d6f0b430e4d5 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Thu, 22 Oct 2026 23:39:26 +0000
+Subject: [PATCH] D8d: Activity offers no Undo on the halves of a transfer
+ already undone
+
+A transfer logs three entries: the transfer's own and a create per leg.
+After either the transfer or one leg was undone, the other entries still
+showed an Undo button, and pressing one answered "That transfer has
+already been removed." The refusal lived only inside the undo handlers,
+so checkUndo (which decides whether Activity offers the button) could not
+see it.
+
+registerUndoHandler takes an optional read-only precheck, and checkUndo
+consults it. The transaction and transfer handlers register theirs, using
+the same functions the handlers now call before writing, so the button
+and the undo cannot disagree. Activity shows the sentence instead of the
+button.
+
+engine-undo.test.ts expected those second undos to throw; they are now
+refused by checkUndo, so undoEvent returns ok: false with the same
+"already" sentence and logs nothing. The /activity route answers 422
+either way. Expectation updated deliberately; the guarantee is unchanged.
+
+Test: undone-transfer-activity.test.ts (both orders, plus the page).
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_016zXWwzys3K4XksLh3rrcKu
+---
+ src/core/events.ts                       | 19 ++++++-
+ src/domain/engine-undo.test.ts           | 17 +++---
+ src/domain/transactions.ts               | 47 ++++++++++------
+ src/web/undone-transfer-activity.test.ts | 71 ++++++++++++++++++++++++
+ 4 files changed, 128 insertions(+), 26 deletions(-)
+ create mode 100644 src/web/undone-transfer-activity.test.ts
+
+diff --git a/src/core/events.ts b/src/core/events.ts
+index 9de4c05..b27763e 100644
+--- a/src/core/events.ts
++++ b/src/core/events.ts
+@@ -198,18 +198,32 @@ export function getEvent(db: DB, id: string): LoggedEvent | null {
+  */
+ export type UndoHandler = (db: DB, event: LoggedEvent, actor: Actor) => string;
+ 
++/**
++ * D8d · Why a handler would refuse this event now, or null if it would not.
++ * Read-only: it answers the question the handler asks before it writes.
++ */
++export type UndoPrecheck = (db: DB, event: LoggedEvent) => string | null;
++
+ const undoHandlers = new Map<string, UndoHandler>();
+ /** Entities whose handler reverses only some of their actions. */
+ const undoableActions = new Map<string, Set<string>>();
++const undoPrechecks = new Map<string, UndoPrecheck>();
+ 
+ /**
+  * `actions` limits the handler to those actions; the rest of the entity's
+  * events stay "cannot be undone" exactly as if no handler were registered, so
+  * Activity offers no button it would then refuse.
++ *
++ * `precheck` does the same for a refusal that depends on the record's state
++ * rather than the action — a transfer leg whose transfer is already gone — so
++ * checkUndo, and with it Activity, knows before anybody presses the button.
+  */
+-export function registerUndoHandler(entity: string, handler: UndoHandler, actions?: string[]): void {
++export function registerUndoHandler(
++  entity: string, handler: UndoHandler, actions?: string[], precheck?: UndoPrecheck,
++): void {
+   undoHandlers.set(entity, handler);
+   if (actions) undoableActions.set(entity, new Set(actions));
++  if (precheck) undoPrechecks.set(entity, precheck);
+ }
+ 
+ export const DEFAULT_UNDO_WINDOW_DAYS = 30; // Q25
+@@ -252,6 +266,9 @@ export function checkUndo(
+     };
+   }
+ 
++  const refusal = undoPrechecks.get(event.entity)?.(db, event) ?? null;
++  if (refusal) return { ok: false, reason: refusal, supersededBy: [] };
++
+   const superseded = event.entityId
+     ? queryAll<EventRow>(
+         db,
+diff --git a/src/domain/engine-undo.test.ts b/src/domain/engine-undo.test.ts
+index c55d720..4119652 100644
+--- a/src/domain/engine-undo.test.ts
++++ b/src/domain/engine-undo.test.ts
+@@ -96,10 +96,11 @@ describe("a transfer already reversed is not reversed again by its other entries
+       fromAccountId: bank, toAccountId: card, amount: 519_000, date: "2026-03-28",
+     });
+     assert.equal(undoEvent(db, eventFor(db, "transfer", out.transfer_pair_id!, "create"), actor).ok, true);
+-    assert.throws(
+-      () => undoEvent(db, eventFor(db, "transaction", back.id, "create"), actor),
+-      /already/,
+-    );
++    // D8d · Refused by checkUndo now — the same check Activity reads, so the
++    // button is not offered — rather than thrown from inside the handler.
++    const second = undoEvent(db, eventFor(db, "transaction", back.id, "create"), actor);
++    assert.equal(second.ok, false);
++    assert.match(second.reason ?? "", /already/);
+     // Nothing was logged for the refused undo.
+     const undos = queryAll(db, `SELECT id FROM events WHERE action = 'undo'`);
+     assert.equal(undos.length, 1);
+@@ -111,10 +112,10 @@ describe("a transfer already reversed is not reversed again by its other entries
+       fromAccountId: bank, toAccountId: card, amount: 519_000, date: "2026-03-28",
+     });
+     assert.equal(undoEvent(db, eventFor(db, "transaction", out.id, "create"), actor).ok, true);
+-    assert.throws(
+-      () => undoEvent(db, eventFor(db, "transfer", out.transfer_pair_id!, "create"), actor),
+-      /already/,
+-    );
++    const second = undoEvent(db, eventFor(db, "transfer", out.transfer_pair_id!, "create"), actor);
++    assert.equal(second.ok, false);
++    assert.match(second.reason ?? "", /already/);
++    assert.equal(queryAll(db, `SELECT id FROM events WHERE action = 'undo'`).length, 1);
+   });
+ });
+ 
+diff --git a/src/domain/transactions.ts b/src/domain/transactions.ts
+index 5399a00..f82fe71 100644
+--- a/src/domain/transactions.ts
++++ b/src/domain/transactions.ts
+@@ -9,7 +9,7 @@
+ 
+ import type { DB } from "../db/db.ts";
+ import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
+-import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
++import { appendEvent, registerUndoHandler, type Actor, type LoggedEvent } from "../core/events.ts";
+ import { nowIST, todayIST, formatDate, addDays, type IsoDate } from "../core/dates.ts";
+ import { Missing, Refusal } from "../core/refusal.ts";
+ import { formatPaise, type Paise } from "../core/money.ts";
+@@ -1332,6 +1332,29 @@ export function eraseTransaction(db: DB, id: string | null | undefined): void {
+   execute(db, `DELETE FROM transactions WHERE id = ?`, id);
+ }
+ 
++/**
++ * Already gone — by the transfer's own undo, a delete, or the partner leg's
++ * undo. Removing it "again" would report a change that is not made. Shared by
++ * the handler and its precheck (D8d), so Activity offers no Undo the handler
++ * would answer with this sentence.
++ */
++function createdRowGone(db: DB, event: LoggedEvent): string | null {
++  if (event.before) return null;
++  const row = getTransaction(db, event.entityId!);
++  if (row && !row.deleted_at) return null;
++  return row?.transfer_pair_id
++    ? "That transfer has already been removed."
++    : "That transaction has already been removed.";
++}
++
++function transferGone(db: DB, event: LoggedEvent): string | null {
++  const live = queryOne<{ n: number }>(
++    db, `SELECT COUNT(*) AS n FROM transactions WHERE transfer_pair_id = ? AND deleted_at IS NULL`,
++    event.entityId!,
++  )!.n;
++  return live === 0 ? "That transfer has already been removed." : null;
++}
++
+ registerUndoHandler("transaction", (db, event) => {
+   const before = event.before as Transaction | undefined;
+   if (!before) {
+@@ -1348,15 +1371,8 @@ registerUndoHandler("transaction", (db, event) => {
+      * already acts on both legs; this was the one that did not.
+      */
+     const row = getTransaction(db, event.entityId!);
+-    // Already gone — by the transfer's own undo, a delete, or the partner
+-    // leg's undo. Removing it "again" would report a change that is not made.
+-    if (!row || row.deleted_at) {
+-      throw new UndoRefused(
+-        row?.transfer_pair_id
+-          ? "That transfer has already been removed."
+-          : "That transaction has already been removed.",
+-      );
+-    }
++    const gone = createdRowGone(db, event);
++    if (gone || !row) throw new UndoRefused(gone ?? "That transaction has already been removed.");
+     const ids = row?.transfer_pair_id
+       ? queryAll<{ id: string }>(
+         db, `SELECT id FROM transactions WHERE transfer_pair_id = ?`, row.transfer_pair_id,
+@@ -1615,7 +1631,7 @@ registerUndoHandler("transaction", (db, event) => {
+   return typeof snapshot.amount === "number"
+     ? `Restored the transaction of ${formatPaise(Math.abs(snapshot.amount) as Paise)}`
+     : `Restored the transaction`;
+-});
++}, undefined, createdRowGone);
+ 
+ /**
+  * MONEY-CORE-5 · The charge createTransfer wrote beside the pair, from the
+@@ -1654,11 +1670,8 @@ registerUndoHandler("transfer", (db, event) => {
+    */
+   const feeId = transferFeeId(db, event.entityId!, event.after);
+ 
+-  const live = queryOne<{ n: number }>(
+-    db, `SELECT COUNT(*) AS n FROM transactions WHERE transfer_pair_id = ? AND deleted_at IS NULL`,
+-    event.entityId!,
+-  )!.n;
+-  if (live === 0) throw new UndoRefused("That transfer has already been removed.");
++  const gone = transferGone(db, event);
++  if (gone) throw new UndoRefused(gone);
+ 
+   const now = nowIST();
+   execute(db, `UPDATE transactions SET deleted_at = ? WHERE transfer_pair_id = ?`, now, event.entityId!);
+@@ -1666,7 +1679,7 @@ registerUndoHandler("transfer", (db, event) => {
+     execute(db, `UPDATE transactions SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`, now, feeId);
+   }
+   return feeId ? `Reversed the transfer and its charge` : `Reversed the transfer`;
+-});
++}, undefined, transferGone);
+ 
+ registerUndoHandler("payee", (db, event) => {
+   const before = event.before as Payee | undefined;
+diff --git a/src/web/undone-transfer-activity.test.ts b/src/web/undone-transfer-activity.test.ts
+new file mode 100644
+index 0000000..ac22d48
+--- /dev/null
++++ b/src/web/undone-transfer-activity.test.ts
+@@ -0,0 +1,71 @@
++/**
++ * D8d · Activity offers no Undo it would refuse.
++ *
++ * A transfer writes three events: the transfer's own, and a create for each
++ * leg. Once the transfer was undone, both legs were gone — but their creates
++ * still showed an Undo button, and pressing it answered "That transfer has
++ * already been removed." The check that decides whether to offer the button
++ * now asks the same question the undo itself does.
++ */
++
++import { test, describe } from "node:test";
++import assert from "node:assert/strict";
++import { freshDb, seedMember, startTestApp } from "./harness.test-data.ts";
++import { createAccount } from "../domain/accounts.ts";
++import { createTransfer } from "../domain/transactions.ts";
++import { checkUndo, queryEvents, undoEvent } from "../core/events.ts";
++import { rupees, type Paise } from "../core/money.ts";
++
++const actor = { memberId: "m-ravi", source: "ui" as const };
++
++function setup() {
++  const db = freshDb();
++  seedMember(db, "m-ravi", "Ravi");
++  const bank = createAccount(db, actor, {
++    name: "Bank", kind: "budget", subtype: "savings", openingDate: "2026-08-01", openingBalance: rupees(10_000),
++  }).id;
++  const wallet = createAccount(db, actor, {
++    name: "Wallet", kind: "budget", subtype: "cash", openingDate: "2026-08-01", openingBalance: 0,
++  }).id;
++  createTransfer(db, actor, { fromAccountId: bank, toAccountId: wallet, amount: rupees(1_000) as Paise });
++  const transferEvent = queryEvents(db, { entity: "transfer", action: "create" })[0]!;
++  const legEvents = queryEvents(db, { entity: "transaction", action: "create" });
++  assert.equal(legEvents.length, 2);
++  return { db, transferEvent, legEvents };
++}
++
++describe("D8d · undone transfers offer no Undo on their legs", () => {
++  test("before anything is undone, every part may be undone", () => {
++    const { db, transferEvent, legEvents } = setup();
++    for (const e of [transferEvent, ...legEvents]) assert.equal(checkUndo(db, e.id).ok, true);
++  });
++
++  test("after the transfer's own undo, its legs are not offered", async () => {
++    const { db, transferEvent, legEvents } = setup();
++    assert.equal(undoEvent(db, transferEvent.id, actor).ok, true);
++    for (const e of legEvents) {
++      const check = checkUndo(db, e.id);
++      assert.equal(check.ok, false);
++      assert.match(check.reason ?? "", /already been removed/);
++    }
++
++    const app = await startTestApp(db, { memberId: "m-ravi" });
++    try {
++      const page = await (await app.get("/activity")).text();
++      for (const e of legEvents) {
++        assert.ok(!page.includes(`/activity/${e.id}/undo`), "an Undo the server would refuse is offered");
++      }
++      assert.match(page, /That transfer has already been removed\./);
++      assert.deepEqual(app.failures, []);
++    } finally {
++      await app.close();
++    }
++  });
++
++  test("after one leg's undo, neither the other leg nor the transfer is offered", () => {
++    const { db, transferEvent, legEvents } = setup();
++    assert.equal(undoEvent(db, legEvents[0]!.id, actor).ok, true);
++    assert.equal(checkUndo(db, legEvents[1]!.id).ok, false);
++    assert.equal(checkUndo(db, transferEvent.id).ok, false);
++  });
++});
+-- 
+2.43.0
+
