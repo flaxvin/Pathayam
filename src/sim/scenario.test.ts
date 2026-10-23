@@ -248,6 +248,9 @@ describe("top-down · nothing in the domain went unexercised", () => {
       "between the household's own accounts — it types its card payments with " +
       "createTransfer — so the Review choice is covered by import-transfer.test.ts; " +
       "adding such a line would change the demo household's figures.",
+    setInstrumentListed: "The simulated household holds no bonds, and only a bond " +
+      "records whether it is listed; adding one would change the demo household's " +
+      "figures. capital-gains-bonds.test.ts and portfolio-bond-listed.test.ts drive it.",
     importBudgetApp: "A household moves from YNAB or Actual Budget once, before it " +
       "starts here; the simulated one starts here. It ends in ingest(), which the " +
       "scenario calls every month, and budget-app-import.test.ts drives it end to end.",

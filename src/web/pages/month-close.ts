@@ -15,8 +15,17 @@ import { html, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, type Paise } from "../../core/money.ts";
 import { formatMonth, formatDate, type MonthKey } from "../../core/dates.ts";
 import type { MonthCloseView, ClosedMonth } from "../../domain/month-close.ts";
+import type { NetWorthChangePart } from "../../domain/networth.ts";
 import type { DigestItem, DigestKind } from "../../domain/digest.ts";
 import { DIGEST_KINDS, DIGEST_LABELS } from "../../domain/digest.ts";
+
+/** The close's own words for the four parts it always shows. */
+const CLOSE_LABELS: Partial<Record<NetWorthChangePart["key"], string>> = {
+  saved: "Money you actually saved",
+  market: "The market moved",
+  fx: "Exchange rates moved",
+  debt: "Debt you repaid",
+};
 
 export function renderMonthClose(view: MonthCloseView): SafeHtml {
   const { outcome, next } = view;
@@ -176,27 +185,20 @@ export function renderMonthClose(view: MonthCloseView): SafeHtml {
         <!--
           R29.4: a net worth that rose because the rupee weakened is not the
           same achievement as one that rose because you repaid principal. The
-          single figure above hides which; these four do not.
+          single figure above hides which; these parts do not.
         -->
         <div class="table-scroll">
           <table>
             <tbody>
-              <tr>
-                <td>Money you actually saved</td>
-                <td class="numeric">${formatPaise(view.netWorth!.moneySaved)}</td>
-              </tr>
-              <tr>
-                <td>The market moved</td>
-                <td class="numeric">${formatPaise(view.netWorth!.marketMovement)}</td>
-              </tr>
-              <tr>
-                <td>Exchange rates moved</td>
-                <td class="numeric">${formatPaise(view.netWorth!.fxMovement)}</td>
-              </tr>
-              <tr>
-                <td>Debt you repaid</td>
-                <td class="numeric">${formatPaise(view.netWorth!.debtRepaid)}</td>
-              </tr>
+              <!-- NW-1 · Every part, so the rows add up to the month's change:
+                   the first four always, the rest when they moved. -->
+              ${view.netWorth!.parts
+                .filter((p) => p.key in CLOSE_LABELS || p.value !== 0)
+                .map((p) => html`
+                  <tr>
+                    <td>${CLOSE_LABELS[p.key] ?? p.label}</td>
+                    <td class="numeric">${formatPaise(p.value)}</td>
+                  </tr>`)}
             </tbody>
           </table>
         </div>
