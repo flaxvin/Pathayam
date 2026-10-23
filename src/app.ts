@@ -5070,6 +5070,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       );
     }
 
+    // A fund statement or an exchange report is not a bank account's rows, and
+    // a mapping screen would invite the household to import it as one.
+    if (parsed.notAStatement) {
+      return importPage(
+        `That file is ${parsed.notAStatement}, not a bank or card statement, so ` +
+        "there are no transactions in it to import here.",
+      );
+    }
+
     // `04` §3.2's rule, applied to PDFs: a file this app cannot read is a
     // mapping task, not an error. The extracted rows go to the same screen an
     // unrecognised CSV goes to.

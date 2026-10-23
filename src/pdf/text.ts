@@ -394,7 +394,9 @@ function layout(pieces: Piece[]): string {
         else if (out.length > 0 && !out.endsWith(" ")) out += " ";
         out += piece.text;
       }
-      return out.replace(/[ \t]+$/, "");
+      // trimEnd, not /[ \t]+$/: the regex restarts at every space run on the
+      // line, which is quadratic on a wide page and took 30s on one statement.
+      return out.trimEnd();
     })
     .filter((l) => l.trim() !== "")
     .join("\n");
