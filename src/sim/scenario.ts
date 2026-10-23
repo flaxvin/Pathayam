@@ -31,7 +31,7 @@ import { queryOne, queryAll } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { rupees, type Paise } from "../core/money.ts";
 import {
-  todayIST, monthOf, addMonths, addDays, firstDayOfMonth, lastDayOfMonth,
+  todayIST, monthOf, addMonths, addDays, firstDayOfMonth, lastDayOfMonth, fiscalYearOf,
   type IsoDate, type MonthKey,
 } from "../core/dates.ts";
 import { inviteMember, removeMember, listMembers } from "../auth/sessions.ts";
@@ -73,6 +73,7 @@ import {
   recordPrice, recordFxRate, listHoldings,
 } from "../domain/assets.ts";
 import { setDepositTerms, removeDepositTerms } from "../domain/deposits.ts";
+import { assertKnownYear, saveDeclaration, addTaxPayment } from "../domain/tax.ts";
 import { snapshotNetWorth } from "../domain/networth.ts";
 import { closeMonth, reopenMonth } from "../domain/month-close.ts";
 import { householdBudgetId, ensurePersonalBudget, listBudgets } from "../domain/budgets.ts";
@@ -366,7 +367,7 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
     lender: "SBI", nickname: "Home loan", loanType: "home-under-construction",
     interestModel: "reducing", annualRatePct: 8.6,
     sanctioned: rupees(45_00_000), sanctionDate: `${months[8]!}-12`,
-    tenureMonths: 240, repaymentAccountId: acc.savings,
+    tenureMonths: 240, repaymentAccountId: acc.savings, holderMemberId: ravi.id,
   }));
   did("recordDisbursement", () => recordDisbursement(db, actor, {
     loanId: homeLoan.id, date: `${months[9]!}-05`, amount: rupees(9_00_000),
@@ -503,7 +504,7 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
   }));
   const car = did("createPolicy", () => createPolicy(db, actor, {
     insurer: "ICICI Lombard", kind: "vehicle", premium: rupees(11_200) as Paise, frequency: "yearly",
-    nextDue: `${addMonths(thisMonth, 3)}-20`,
+    nextDue: `${addMonths(thisMonth, -2)}-20`,
   }));
   const mistaken = did("createPolicy", () => createPolicy(db, actor, {
     insurer: "Duplicate entry", kind: "other", premium: rupees(100) as Paise, frequency: "single",
@@ -514,7 +515,8 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
     covered: "Ravi, Priya, Anu", taxGroup: "80d-self", holderMemberId: ravi.id,
   }));
   did("markPremiumPaid", () => markPremiumPaid(db, actor, ravisTerm.id));
-  did("setPolicyStatus", () => setPolicyStatus(db, actor, car.id, "lapsed"));
+  // The renewal went unpaid and the cover lapsed a month later, a month ago.
+  did("setPolicyStatus", () => setPolicyStatus(db, actor, car.id, "lapsed", `${addMonths(thisMonth, -1)}-20`));
   did("deletePolicy", () => deletePolicy(db, actor, mistaken.id));
 
   did("setMutedKinds", () => setMutedKinds(db, actor, ["subscription-due"]));
@@ -1158,6 +1160,19 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
       did("setDepositTerms", () => setDepositTerms(db, actor, fd, terms, day(month, 6)));
     }
 
+    // A second FD, opened seven months ago for two years, so there is always
+    // one still running: valued from its terms, its maturity still ahead.
+    if (ix === MONTHS - 7 && live(10)) {
+      const fd = did("createAccount", () => createAccount(db, actor, {
+        name: "HDFC FD", kind: "tracking", subtype: "fixed-deposit", institution: "HDFC Bank",
+        openingBalance: rupees(3_00_000), openingDate: day(month, 10),
+      })).id;
+      did("setDepositTerms", () => setDepositTerms(db, actor, fd, {
+        kind: "fd", principal: rupees(3_00_000) as Paise, rateBp: 710,
+        startDate: day(month, 10), maturityDate: day(addMonths(month, 24), 10),
+      }, day(month, 10)));
+    }
+
     // ------------------------------------------------------ lending in the family
     if (ix === 3 && live(12)) {
       did("recordAdvance", () => recordAdvance(db, actor, {
@@ -1608,6 +1623,32 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
     deleteAttachment(db, actor, doomed.id);
   });
   did("prepareClaim", () => prepareClaim(db, actor, acc.anilOwn, anilBudget.id, household));
+
+  // TAX-2 · Ravi's declaration for this year, with TDS from his Form 16 and the
+  // advance-tax challans paid so far. Neither posts anything to the ledger.
+  // A year whose slabs the app does not know yet is left alone.
+  const fy = fiscalYearOf(today);
+  let knownYear = true;
+  try { assertKnownYear(fy); } catch { knownYear = false; }
+  if (knownYear) {
+    did("saveDeclaration", () => saveDeclaration(db, ravi.id, fy, {
+      gross: rupees(21_00_000) as Paise, s80c: rupees(1_50_000) as Paise,
+      s80d: rupees(26_500) as Paise, s80dSenior: false,
+      s80dParents: 0 as Paise, s80dParentsSenior: false,
+      s80dCheckup: 0 as Paise, s80dParentsCheckup: 0 as Paise,
+      other: 0 as Paise, hra: null, s24bOverride: null, tds: rupees(1_60_000) as Paise,
+    }));
+    const challans: [IsoDate, number][] = [
+      [`${fy}-06-14`, 8_500], [`${fy}-09-13`, 16_500],
+      [`${fy}-12-13`, 16_500], [`${fy + 1}-03-13`, 13_500],
+    ];
+    for (const [date, amount] of challans) {
+      if (date > today) break;
+      did("addTaxPayment", () => addTaxPayment(db, ravi.id, {
+        fy, kind: "advance", date, amount: rupees(amount) as Paise, note: "Challan 280",
+      }));
+    }
+  }
 
   return {
     months,

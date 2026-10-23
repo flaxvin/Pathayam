@@ -68,6 +68,10 @@ const SHOTS = [
   { name: "valuations", path: "/portfolio/valuations" },
   { name: "allocation", path: "/portfolio/allocation" },
   { name: "net-worth", path: "/net-worth" },
+  { name: "tax", path: "/tax" },
+  { name: "insurance", path: "/insurance" },
+  { name: "deposit", path: "/accounts", pick: "deposit" },
+  { name: "fire", path: "/fire" },
   { name: "health", path: "/health" },
   { name: "settings", path: "/settings" },
   { name: "charts_allocation", path: "/portfolio/allocation", clip: ".chart-donut" },
@@ -116,11 +120,13 @@ try {
    * so without this a rerun can quietly reshoot the whole set in the other
    * theme — which shows up as a 28-file diff nobody asked for.
    */
-  await fetch(`${base}/settings/theme`, {
+  const themed = await fetch(`${base}/settings/theme`, {
     method: "POST", redirect: "manual",
-    headers: { Cookie: cookie, "Content-Type": "application/x-www-form-urlencoded" },
+    headers: { Cookie: cookie, Origin: base, "Content-Type": "application/x-www-form-urlencoded" },
     body: "theme=dark",
   });
+  // A refused pin used to pass silently and reshoot the whole set in the light theme.
+  if (themed.status >= 400) throw new Error(`pinning the theme was refused: ${themed.status}`);
 
   const paths = await resolvePaths(base, cookie);
 
@@ -184,7 +190,21 @@ async function resolvePaths(base, cookie) {
   const query = await get("/query?kind=credit");
   const charge = query.match(/\/transaction\/([0-9a-f-]{36})/)?.[1];
 
+  // A deposit valued from its terms, still running if there is one, so the
+  // shot shows the computed value and a maturity still ahead.
+  const accounts = await get("/accounts");
+  const ids = [...new Set([...accounts.matchAll(/\/accounts\/([0-9a-f-]{36})/g)].map((m) => m[1]))];
+  let deposit = null;
+  for (const id of ids) {
+    const page = await get(`/accounts/${id}`);
+    if (!page.includes("computed from terms")) continue;
+    deposit = `/accounts/${id}`;
+    // "Matures on <strong>date</strong>", not the form label of the same words.
+    if (/Matures\s+on\s*<strong>/.test(page)) break;
+  }
+
   return {
+    deposit,
     loan: loan ? `/loans/${loan}` : null,
     departure: departure ? `/members/${departure}/remove` : null,
     "card-charge": charge ? `/transaction/${charge}` : null,
