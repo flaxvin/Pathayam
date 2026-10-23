@@ -176,7 +176,14 @@ export function renderFamilyLoan(opts: {
       `)}
     </section>
 
-    ${when(!view.writtenOff, () => html`
+    ${when(view.loan.closed_at !== null && !view.writtenOff, () => html`
+      <!-- UI-PASS-13 · Both forms below were refused on a closed arrangement. -->
+      <p class="notice notice-info">
+        This arrangement is closed. Every line below stays; reopen it from the
+        <a href="/activity">activity log</a> to record more.
+      </p>
+    `)}
+    ${when(!view.writtenOff && !view.loan.closed_at, () => html`
       <div class="grid-2">
         <section class="card">
           <h2>You paid them</h2>

@@ -291,6 +291,36 @@ describe("07 P4–P9 · refreshing", () => {
     db.close();
   });
 
+  /*
+   * DEBUG-IMPORT-11 · The fallback's price was logged as MFAPI's: one row,
+   * provider "mfapi", status "ok", AMFI's NAV. The outage left no trace, the
+   * AMFI call was in no log (P3), and the day's count went to MFAPI.
+   */
+  test("a fallback logs both calls, each against its own provider", async () => {
+    clearAmfiCache();
+    const { db, account } = setup();
+    held(db, account.id);
+    const { impl } = stubFetch((url) =>
+      url.includes("mfapi") ? { status: 503 } : { text: AMFI_SAMPLE },
+    );
+
+    const outcome = await refreshPrices(db, actor, {
+      fetchImpl: impl, force: true, sleep: noSleep, random: () => 0,
+    });
+
+    const rows = queryAll<{ provider: string; status: string; price: number | null }>(
+      db, `SELECT provider, status, price FROM price_fetches WHERE instrument_id IS NOT NULL ORDER BY id`,
+    );
+    assert.deepEqual(rows.map((r) => [r.provider, r.status, r.price]), [
+      ["mfapi", "unavailable", null],
+      ["amfi", "ok", 86_400_000],
+    ]);
+    const used = new Map(outcome.quota.map((q) => [q.provider, q.used]));
+    assert.equal(used.get("mfapi"), 1);
+    assert.equal(used.get("amfi"), 1);
+    db.close();
+  });
+
   test("a scheme MFAPI has never heard of is not retried against AMFI", async () => {
     clearAmfiCache();
     const { db, account } = setup();

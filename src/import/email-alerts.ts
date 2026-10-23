@@ -259,7 +259,9 @@ const indusind: AlertProfile = {
     // "Account No. 15XXXXXX6620 has been Debited for INR 1.00 towards
     //  UPI/400111222333/DR/Moj/YESB0PTMUPI/-12345678@ptyb"
     const flat = body.replace(/\s+/g, " ");
-    const m = /Account No\.?\s*([\dxX*]+?\d{4}).*?has been (Debited|Credited)\s+for\s+(INR\s*[\d,]+(?:\.\d{1,2})?)\s+towards\s+(.+?)(?:\.|$)/is
+    // The narration runs to the sentence's full stop — ". " or the end — not
+    // the first dot: a UPI handle such as "swiggy.stores@icici" has one.
+    const m = /Account No\.?\s*([\dxX*]+?\d{4}).*?has been (Debited|Credited)\s+for\s+(INR\s*[\d,]+(?:\.\d{1,2})?)\s+towards\s+(.+?)(?:\.\s|\.$|$)/is
       .exec(flat);
     if (!m) return null;
 

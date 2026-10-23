@@ -164,6 +164,26 @@ describe("04 §3.4 · parsing bank transaction alerts", () => {
     assert.equal(r.record.cardholderName, null);
   });
 
+  /*
+   * DEBUG-IMPORT-13 · The narration ran to the first full stop, and a UPI
+   * handle often has one in it: "swiggy.stores@icici" was cut to "swiggy",
+   * losing the payee's handle that rules and the payee guess key on.
+   */
+  test("IndusInd keeps a UPI handle with a dot in it whole", () => {
+    const r = parseAlert(
+      "IndusInd_Bank@indusind.com",
+      "IndusInd Bank Transaction Alert",
+      "Dear Customer, Your IndusInd Bank Account No. 15XXXXXX0000 has been " +
+        "Debited for INR 1,23,456.00 towards UPI/400111222333/DR/Swiggy/ICIC/swiggy.stores@icici. " +
+        "The balance available in your Account is INR 171.95.",
+      "2026-09-04",
+    )!;
+    assert.ok(r);
+    assert.equal(r.record.amount, -1_23_456_00);
+    assert.equal(r.record.narration, "UPI/400111222333/DR/Swiggy/ICIC/swiggy.stores@icici");
+    assert.equal(r.record.balance, 171_95);
+  });
+
   test("IndusInd states the balance, and it is kept", () => {
     const r = parseAlert(
       "IndusInd_Bank@indusind.com",
