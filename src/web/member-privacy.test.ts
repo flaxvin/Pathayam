@@ -377,7 +377,16 @@ describe("15 · every id-addressed route treats Ravi's things as nonexistent", (
   const source = readFileSync(join(dirname(fileURLToPath(import.meta.url)), "..", "app.ts"), "utf8");
   const routes = [...new Set(
     [...source.matchAll(/router\.(get|post)\(\s*"([^"]*:[^"]*)"/g)].map((m) => `${m[1]} ${m[2]}`),
-  )].sort();
+  )]
+    /*
+     * A password link's token names no record — it is looked up by its hash,
+     * and every id here is as unknown to it as the made-up one. What made the
+     * POST differ was the sweep itself: each wrong token is a failed sign-in
+     * attempt, so the eleventh from this address answers 429 by design.
+     * Unknown tokens are covered in password-links.test.ts.
+     */
+    .filter((r) => !r.endsWith(" /auth/setup/:token"))
+    .sort();
 
   test("there are routes to check", () => {
     assert.ok(routes.length > 60, `only ${routes.length} id-addressed routes found`);

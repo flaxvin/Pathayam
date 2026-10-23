@@ -174,6 +174,29 @@ describe("the token stays out of everything that keeps a copy", () => {
   });
 });
 
+describe("the referrer policy keeps the token in, and the form working", () => {
+  test("strict-origin, because no-referrer would make the browser's own post a stranger", async () => {
+    const app = await ravisApp();
+    try {
+      const { token } = await makeLink(app);
+      const page = await app.get(`/auth/setup/${token}`, SIGNED_OUT);
+      assert.equal(page.headers.get("referrer-policy"), "strict-origin");
+      /*
+       * Under no-referrer a browser serialises the Origin of a form post as
+       * "null" (Fetch, "append a request Origin header"). The write check
+       * refuses that, as it should — this is the post the page would have
+       * made, and the reason the header is not no-referrer.
+       */
+      const nullOrigin = await app.post(
+        `/auth/setup/${token}`, { password: GOOD, confirm: GOOD },
+        { headers: { Cookie: "", Origin: "null" } },
+      );
+      assert.equal(nullOrigin.status, 403);
+      assert.equal((await setupWith(app, token)).status, 303, "the link was spent by a refused post");
+    } finally { await app.close(); }
+  });
+});
+
 describe("the door is rate limited like the password form", () => {
   test("ten bad links from one place and even a good one is turned away", async () => {
     const app = await ravisApp();
