@@ -291,7 +291,18 @@ export function renderTransfer(opts: {
   categories?: { id: string; name: string }[];
   error?: string | null;
 }): SafeHtml {
-  const { accounts, defaultFrom, defaultTo, today, categories = [] } = opts;
+  const { accounts, today, categories = [] } = opts;
+  /*
+   * D8f · Two different accounts, from the first render. With nothing in the
+   * query both selects fell to their first option — one account as From and
+   * To — so the form exactly as drawn was refused. Whichever side a link fixes
+   * is kept; the other starts on the first account that is not it.
+   */
+  const known = (id: string | null) => (id && accounts.some((a) => a.id === id) ? id : null);
+  const otherThan = (id: string | null) => accounts.find((a) => a.id !== id)?.id ?? null;
+  const fixedTo = known(opts.defaultTo);
+  const defaultFrom = known(opts.defaultFrom) ?? otherThan(fixedTo);
+  const defaultTo = fixedTo ?? otherThan(defaultFrom);
 
   if (accounts.length < 2) {
     return html`
