@@ -8267,8 +8267,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (result.statements.unmatched) {
       parts.push(`${plural(result.statements.unmatched, "statement")} for no single account of yours, not imported`);
     }
+    // IMPORT-15 · Which detail would open the locked ones, as the upload says it.
+    const missing = result.missingDetails.length ? ` ${result.missingDetails.join(" ")}` : "";
     const summary = parts.length
-      ? `Read ${result.scanned} messages — ${parts.join(", ")}.`
+      ? `Read ${result.scanned} messages — ${parts.join(", ")}.${missing}`
       : `Read ${result.scanned} messages — nothing new.`;
 
     return { redirect: withNotice(toReview > 0 ? "/review" : "/settings#gmail", summary) };
@@ -8293,6 +8295,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             .map((bank) => [bank, field(ctx.body, `customer_id_${bank}`)] as const)
             .filter(([, value]) => Boolean(value)),
         ),
+        // IMPORT-15 · Masked the same way, so a blank box keeps the saved six.
+        hsbcCardLast6: field(ctx.body, "hsbc_card_last6") || undefined,
       });
       return {
         redirect: "/settings#statements",
