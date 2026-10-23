@@ -134,9 +134,12 @@ export function findDuplicate(incoming: Incoming, candidates: Candidate[]): Dupl
   // amount, was folded into it as an 'upgrade', and never reached the ledger
   // or the queue. An alert and its statement line are days apart, never a
   // month.
-  if (incoming.reference) {
+  // HDFC's reference column pads a UPI RRN to sixteen digits with zeros;
+  // the alert and the narration carry the bare twelve. Same reference.
+  const ref = sameReference(incoming.reference);
+  if (ref) {
     const strong = sameAmount.find(
-      (c) => c.reference && c.reference === incoming.reference &&
+      (c) => sameReference(c.reference) === ref &&
         Math.abs(daysBetween(c.date, incoming.date)) <= STRONG_WINDOW_DAYS,
     );
     if (strong) {
@@ -204,6 +207,12 @@ export function findDuplicate(incoming: Incoming, candidates: Candidate[]): Dupl
   }
 
   return null;
+}
+
+/** A reference as compared: trimmed, upper case, leading zeros dropped. */
+function sameReference(reference: string | null): string | null {
+  const ref = reference?.trim().toUpperCase().replace(/^0+/, "") ?? "";
+  return ref === "" ? null : ref;
 }
 
 function dayGap(a: IsoDate, b: IsoDate): string {
