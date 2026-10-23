@@ -193,8 +193,11 @@ function renderLoanCard(
 
       <div class="row" style="flex-wrap:wrap;margin-top:.75rem">
         <a class="button button-small" href="/loans/${loan.id}">Schedule</a>
-        <a class="button button-small" href="/loans/${loan.id}/pay">Record an instalment</a>
-        <a class="button button-small button-primary" href="/loans/${loan.id}/prepay">Prepay</a>
+        <!-- UI-PASS-13 · A closed loan refuses all three; it offers none. -->
+        ${when(!loan.closed_at, () => html`
+          <a class="button button-small" href="/loans/${loan.id}/pay">Record an instalment</a>
+          <a class="button button-small button-primary" href="/loans/${loan.id}/prepay">Prepay</a>
+        `)}
       </div>
     </section>
   `;
@@ -406,9 +409,11 @@ export function renderLoanDetail(opts: {
         ${when((opts.members ?? []).length > 1, () => html`
           <a class="button" href="#edit">Whose it is</a>
         `)}
-        <a class="button" href="/loans/${loan.id}/pay">Record an instalment</a>
-        <a class="button" href="/loans/${loan.id}/rate">Rate change</a>
-        <a class="button button-primary" href="/loans/${loan.id}/prepay">Prepay</a>
+        ${when(!loan.closed_at, () => html`
+          <a class="button" href="/loans/${loan.id}/pay">Record an instalment</a>
+          <a class="button" href="/loans/${loan.id}/rate">Rate change</a>
+          <a class="button button-primary" href="/loans/${loan.id}/prepay">Prepay</a>
+        `)}
       </div>
     </div>
 
@@ -610,7 +615,7 @@ export function renderLoanDetail(opts: {
       </section>
     `)}
 
-    ${when(p.undrawn > 0, () => html`
+    ${when(p.undrawn > 0 && !loan.closed_at, () => html`
       <!-- PRINT-1 · A form with a heading; the undrawn figure is printed above. -->
       <section class="card no-print">
         <h2>Record a disbursement</h2>
@@ -760,11 +765,22 @@ function renderSchedule(schedule: Schedule, loanId: string): SafeHtml {
 // ---------------------------------------------------------------------------
 
 export function renderPrepaymentComparison(opts: {
-  comparison: PrepaymentComparison;
+  /** Null when what was typed could not be priced; `error` says why. */
+  comparison: PrepaymentComparison | null;
   loan?: Loan | null;
   amount: Paise;
   atMonth: number;
   action: string;
+  /**
+   * UI-PASS-12 · The calculator's own loan, as shown in the table. The three
+   * fields were left empty and required while the table priced ₹50,00,000 at
+   * 8.5% over 240 months, so changing only the prepayment was refused by the
+   * browser — and a refusal from the server was a bare error page that threw
+   * every typed figure away. `typed` echoes what was entered, as entered.
+   */
+  calculator?: { principal: Paise; rate: number; months: number };
+  typed?: Partial<Record<"amount" | "at_month" | "principal" | "rate" | "months", string>>;
+  error?: string | null;
   /** R19.4: a lump sum cannot silently drain envelopes. */
   fundingSources?: { id: string; name: string; balance: Paise }[];
   emergencyFundWarning?: string | null;
@@ -781,32 +797,46 @@ export function renderPrepaymentComparison(opts: {
           <div class="field">
             <label for="amount">Prepayment</label>
             <input id="amount" name="amount" class="amount-input" type="text" inputmode="decimal"
-                   value="${(opts.amount / 100).toFixed(2)}">
+                   value="${opts.typed?.amount ?? (opts.amount / 100).toFixed(2)}">
           </div>
           <div class="field">
             <label for="at_month">At instalment number</label>
-            <input id="at_month" name="at_month" type="number" min="1" value="${opts.atMonth}">
+            <input id="at_month" name="at_month" type="number" min="1"
+                   value="${opts.typed?.at_month ?? String(opts.atMonth)}">
           </div>
         </div>
         ${when(!opts.loan, () => html`
           <div class="grid-2">
             <div class="field">
               <label for="principal">Loan amount</label>
-              <input id="principal" name="principal" class="amount-input" type="text" inputmode="decimal" required>
+              <input id="principal" name="principal" class="amount-input" type="text" inputmode="decimal" required
+                     value="${opts.typed?.principal ?? (opts.calculator ? (opts.calculator.principal / 100).toFixed(2) : "")}">
             </div>
             <div class="field">
               <label for="rate">Rate (% per year)</label>
-              <input id="rate" name="rate" type="text" inputmode="decimal" required>
+              <input id="rate" name="rate" type="text" inputmode="decimal" required
+                     value="${opts.typed?.rate ?? (opts.calculator ? String(opts.calculator.rate) : "")}">
             </div>
           </div>
           <div class="field">
             <label for="months">Tenure in months</label>
-            <input id="months" name="months" type="number" min="1" required>
+            <input id="months" name="months" type="number" min="1" required
+                   value="${opts.typed?.months ?? (opts.calculator ? String(opts.calculator.months) : "")}">
           </div>
         `)}
+        ${when(opts.error, () => html`<p class="notice notice-error" role="alert">${opts.error}</p>`)}
         <button type="submit">Recalculate</button>
       </form>
     </div>
+    ${when(c, () => comparisonBody(opts, c!))}
+  `;
+}
+
+function comparisonBody(
+  opts: Parameters<typeof renderPrepaymentComparison>[0],
+  c: PrepaymentComparison,
+): SafeHtml {
+  return html`
 
     <!-- R19.2: both outcomes side by side, before anything is committed. -->
     <div class="card">

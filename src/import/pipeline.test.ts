@@ -660,6 +660,34 @@ describe("04 §4 · the strong tier is one event, not a standing instruction", (
       `SELECT COUNT(*) AS n FROM transactions WHERE deleted_at IS NULL`)!.n, 1);
     db.close();
   });
+
+  /*
+   * DEBUG-IMPORT-14 · HDFC's Chq./Ref.No. column prints a UPI reference padded
+   * to sixteen digits ("0000431202847592"); the alert and the narration carry
+   * the twelve-digit RRN. Compared as text they differed, so the statement
+   * line two days after its alert matched no tier and the ₹450 was staged a
+   * second time with no flag at all.
+   */
+  test("a reference padded with zeros is the same reference", () => {
+    const { db, account, anyCategory } = setup();
+    ingest(db, actor, {
+      accountId: account.id, source: "email", adapter: "email:zz",
+      records: [{
+        rowNumber: 0, date: "2026-08-03", amount: -45000,
+        narration: "UPI/P2M/431202847592/SWIGGY", reference: "431202847592",
+        raw: { date: "03-08-26", amount: "INR 450.00", narration: "UPI/P2M/431202847592/SWIGGY" },
+      }],
+    });
+    for (const row of listStaged(db)) approveStaged(db, actor, row.id, { categoryId: anyCategory });
+
+    const later = importStatement(db, account.id, `Date,Narration,Chq./Ref.No.,Withdrawal Amt.,Deposit Amt.
+05-08-2026,UPI-BUNDL TECHNOLOGIES-bundl@icici-ICIC0DC0099-431202847592-Payment,0000431202847592,450.00,`, "statement.csv");
+    assert.equal(later.staged, 0, "the statement line upgrades the alert's transaction");
+    assert.equal(later.duplicates, 1);
+    assert.equal(queryOne<{ n: number }>(db,
+      `SELECT COUNT(*) AS n FROM transactions WHERE deleted_at IS NULL`)!.n, 1);
+    db.close();
+  });
 });
 
 describe("04 §4 · rows still waiting in the queue are candidates too", () => {

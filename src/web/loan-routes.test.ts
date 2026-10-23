@@ -168,6 +168,25 @@ describe("WEALTH-37 · the prepayment calculator answers nonsense with a sentenc
     } finally { await app.close(); }
   });
 
+  test("UI-PASS-12 · the form opens on the loan it prices, and a refusal keeps what was typed", async () => {
+    const { app } = await setup();
+    try {
+      const bare = await (await app.get("/loans/what-if")).text();
+      assert.match(bare, /id="principal"[^>]*value="5000000\.00"/);
+      assert.match(bare, /id="rate"[^>]*value="8\.5"/);
+      assert.match(bare, /id="months"[^>]*value="240"/);
+
+      const refused = await app.post("/loans/what-if", { ...good, at_month: "121", principal: "512345" });
+      assert.equal(refused.status, 422);
+      const body = await refused.text();
+      assert.doesNotMatch(body, /Something went wrong/);
+      assert.match(body, /<form method="post" action="\/loans\/what-if"/);
+      assert.match(body, /id="principal"[^>]*value="512345"/);
+      assert.match(body, /id="at_month"[^>]*value="121"/);
+      assert.match(body, /class="notice notice-error" role="alert"/);
+    } finally { await app.close(); }
+  });
+
   test("a loan's own prepay page opens on an amount that does not clear it", async () => {
     const { db, app, bank } = await setup();
     try {

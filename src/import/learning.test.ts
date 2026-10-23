@@ -6,10 +6,10 @@ import { nowIST, todayIST } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import { createAccount } from "../domain/accounts.ts";
 import { createGroup, createCategory } from "../domain/budget.ts";
-import { createTransaction } from "../domain/transactions.ts";
+import { createTransaction, mergePayees } from "../domain/transactions.ts";
 import {
   proposeCategoryRules, proposePayeeRule, previewRetroactive, applyRetroactive,
-  suppress, setLearningEnabled, learningEnabled,
+  suppress, setLearningEnabled, learningEnabled, dismissRule,
 } from "./learning.ts";
 import {
   recognise, saveProfile, listProfiles, mappingFromSelections, validateMapping,
@@ -126,6 +126,44 @@ describe("04 §6.4 · rule learning", () => {
     execute(db, `DELETE FROM rules`);
 
     assert.deepEqual(proposeCategoryRules(db, actor), [], "never suggested again");
+    db.close();
+  });
+
+  /*
+   * DEBUG-IMPORT-12 · Dismissing stored the suppression under the payee's
+   * *name* and the check looked it up by the payee's *id*, so the record never
+   * matched anything: "Won't suggest that again" held only while the dismissed
+   * rule's own name still matched. Merge the payee into another and the same
+   * merchant → envelope suggestion came straight back under the new name.
+   */
+  test("a dismissed proposal stays dismissed after its payee is merged", () => {
+    const { db, account, eatingOut } = setup();
+    spend(db, account.id, "Swiggy Ltd", eatingOut.id, "2026-08-01");
+    spend(db, account.id, "Swiggy Ltd", eatingOut.id, "2026-08-08");
+    spend(db, account.id, "Swiggy", null, "2026-08-09");
+    const [proposal] = proposeCategoryRules(db, actor);
+    assert.equal(proposal!.name, "Swiggy Ltd → Eating Out");
+    dismissRule(db, actor, proposal!.id, proposal!);
+
+    const id = (name: string) =>
+      queryOne<{ id: string }>(db, `SELECT id FROM payees WHERE name = ?`, name)!.id;
+    mergePayees(db, actor, id("Swiggy Ltd"), id("Swiggy"));
+
+    assert.deepEqual(proposeCategoryRules(db, actor), [], "the same merchant, already refused");
+    db.close();
+  });
+
+  test("a dismissal is recorded under the payee's id, as the check reads it", () => {
+    const { db, account, eatingOut } = setup();
+    spend(db, account.id, "DMart", eatingOut.id, "2026-08-01");
+    spend(db, account.id, "DMart", eatingOut.id, "2026-08-08");
+    const [proposal] = proposeCategoryRules(db, actor);
+    dismissRule(db, actor, proposal!.id, proposal!);
+    const payeeId = queryOne<{ id: string }>(db, `SELECT id FROM payees WHERE name = 'DMart'`)!.id;
+    assert.ok(queryOne(
+      db, `SELECT 1 FROM review_dismissals WHERE kind = 'learned-rule' AND ref = ?`,
+      `${payeeId}:${eatingOut.id}`,
+    ));
     db.close();
   });
 

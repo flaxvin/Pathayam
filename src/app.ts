@@ -5718,13 +5718,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    */
   router.get("/loans/what-if", (ctx) => {
     requireLoans();
+    const calculator = {
+      principal: rupeesFromQuery(ctx, "principal", 50_00_000) as Paise,
+      rate: Number(ctx.query.get("rate") ?? 8.5),
+      months: Number(ctx.query.get("months") ?? 240),
+    };
     return render(
       ctx, "Prepayment calculator",
       renderPrepaymentComparison({
         comparison: comparePrepayment({
-          principal: rupeesFromQuery(ctx, "principal", 50_00_000),
-          annualRatePct: Number(ctx.query.get("rate") ?? 8.5),
-          months: Number(ctx.query.get("months") ?? 240),
+          principal: calculator.principal,
+          annualRatePct: calculator.rate,
+          months: calculator.months,
           prepayment: rupeesFromQuery(ctx, "amount", 5_00_000),
           atMonth: Number(ctx.query.get("at_month") ?? 24),
         }),
@@ -5732,6 +5737,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         amount: rupeesFromQuery(ctx, "amount", 5_00_000),
         atMonth: Number(ctx.query.get("at_month") ?? 24),
         action: "/loans/what-if",
+        calculator,
       }),
     );
   });
@@ -5739,19 +5745,51 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/loans/what-if", (ctx) => {
     requireLoans();
     auth(ctx);
-    const principal = amountField(field(ctx.body, "principal"), "Loan amount");
-    const months = Number(requiredField(ctx.body, "months"));
-    const rate = Number(requiredField(ctx.body, "rate"));
-    const amount = amountField(field(ctx.body, "amount"), "Prepayment");
-    const atMonth = Number(field(ctx.body, "at_month") ?? 12);
-
-    return render(
-      ctx, "Prepayment calculator",
-      renderPrepaymentComparison({
-        comparison: comparePrepayment({ principal, annualRatePct: rate, months, prepayment: amount, atMonth }),
-        loan: null, amount, atMonth, action: "/loans/what-if",
-      }),
-    );
+    /*
+     * UI-PASS-12 · The form posts natively, so a refusal here used to replace
+     * the page with "Something went wrong" and every figure typed was gone.
+     * It is said beside the form instead, with the figures as typed.
+     */
+    const typed = {
+      principal: field(ctx.body, "principal") ?? "",
+      rate: field(ctx.body, "rate") ?? "",
+      months: field(ctx.body, "months") ?? "",
+      amount: field(ctx.body, "amount") ?? "",
+      at_month: field(ctx.body, "at_month") ?? "",
+    };
+    try {
+      const principal = amountField(typed.principal, "Loan amount");
+      const months = Number(requiredField(ctx.body, "months"));
+      const rate = Number(requiredField(ctx.body, "rate"));
+      const amount = amountField(typed.amount, "Prepayment");
+      const atMonth = Number(typed.at_month || 12);
+      if (!Number.isInteger(months) || months < 1) {
+        throw new Refusal("The tenure is a whole number of months, 1 or more.");
+      }
+      if (!Number.isFinite(rate) || rate < 0) {
+        throw new Refusal(`"${typed.rate}" isn't a rate I can read. Enter it as a percentage, like 8.5.`);
+      }
+      return render(
+        ctx, "Prepayment calculator",
+        renderPrepaymentComparison({
+          comparison: comparePrepayment({ principal, annualRatePct: rate, months, prepayment: amount, atMonth }),
+          loan: null, amount: amount as Paise, atMonth, action: "/loans/what-if",
+          calculator: { principal: principal as Paise, rate, months },
+        }),
+      );
+    } catch (err) {
+      if (!(err instanceof Refusal || err instanceof HttpError)) throw err;
+      return {
+        ...render(
+          ctx, "Prepayment calculator",
+          renderPrepaymentComparison({
+            comparison: null, loan: null, amount: 0 as Paise, atMonth: 0,
+            action: "/loans/what-if", typed, error: err.message,
+          }),
+        ),
+        status: err.status,
+      };
+    }
   });
 
   router.get("/loans/:id", (ctx) => {

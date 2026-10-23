@@ -232,8 +232,12 @@ export async function refreshPrices(
     outcome.attempted++;
     usedToday.set(provider.name, used + 1);
 
-    const result = await attempt(db, provider, symbol, opts, budget);
-    logFetch(db, instrument.id, provider.name, result);
+    // Every call is logged and counted against the provider that answered
+    // it: a fallback is MFAPI's failure and AMFI's price, not MFAPI's price.
+    const result = await attempt(db, provider, symbol, opts, budget, (name, call) => {
+      logFetch(db, instrument.id, name, call);
+      if (name !== provider.name) usedToday.set(name, (usedToday.get(name) ?? 0) + 1);
+    }, (name) => !quotaFor(PROVIDERS[name]!, usedToday.get(name) ?? 0).exhausted);
 
     if (result.ok) {
       try {
@@ -289,6 +293,8 @@ export async function refreshPrices(
  */
 async function attempt(
   db: DB, provider: Provider, symbol: string, opts: RefreshOptions, budget: Budget,
+  called: (provider: ProviderName, result: PriceOutcome) => void,
+  mayCall: (provider: ProviderName) => boolean,
 ): Promise<PriceOutcome> {
   const fetchOpts = () => ({
     fetchImpl: opts.fetchImpl,
@@ -297,10 +303,11 @@ async function attempt(
   });
 
   let result = await provider.fetchPrice(symbol, fetchOpts());
+  called(provider.name, result);
 
   // EXTRA-5 · The fallback is a second wait; only if the backoff leaves time for it.
   if (!result.ok && result.reason === "unavailable" && provider.name === "mfapi" &&
-      budget.left() > backoffMs(1)) {
+      mayCall("amfi") && budget.left() > backoffMs(1)) {
     const instrument = queryOne<{ isin: string | null }>(
       db, `SELECT isin FROM instruments WHERE symbol = ? AND provider = 'mfapi'`, symbol,
     );
@@ -308,6 +315,7 @@ async function attempt(
       // P5 · Back off before the second try, so an outage is not hammered.
       await (opts.sleep ?? defaultSleep)(backoffMs(1));
       const fallback = await PROVIDERS.amfi!.fetchPrice(instrument.isin, fetchOpts());
+      called("amfi", fallback);
       if (fallback.ok) result = fallback;
     }
   }
