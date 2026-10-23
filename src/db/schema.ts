@@ -2704,7 +2704,7 @@ ALTER TABLE tax_declarations ADD COLUMN s80d_parents_checkup INTEGER NOT NULL DE
 `,
   },
   {
-    name: "0060-statement-identity-customer-ids",
+    name: "0065-statement-identity-customer-ids",
     sql: `
 --------------------------------------------------------------------------------
 -- IMPORT-SND-12 · Axis's account statement opens with the first four letters
