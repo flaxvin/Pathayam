@@ -20,7 +20,10 @@ import { createTransaction, createTransfer } from "./transactions.ts";
 import { loadEngineInput, accountBalances } from "../engine/repository.ts";
 import { computeBudget, identityResidual, cardFunding } from "../engine/engine.ts";
 import { convertToEmi, GST_PCT } from "./card-emi.ts";
-import { projectLoan, listLoans, recordInstalment, createLoan } from "./loans.ts";
+import {
+  projectLoan, listLoans, listPayments, recordInstalment, createLoan, gstOnInterest, scheduleGst,
+} from "./loans.ts";
+import { buildSchedule } from "../loans/amortisation.ts";
 
 const RAVI = "m-ravi";
 const actor: Actor = { memberId: RAVI, source: "ui" };
@@ -112,25 +115,36 @@ describe("06 §7.4 · converting a card purchase to EMI", () => {
     });
 
     /*
-     * The document quotes whole rupees: EMI ₹5,415, interest ₹4,986, fee ₹235,
-     * total cost ₹5,221. The engine works in paise and lands on each of them —
-     * ₹5,415.50, ₹4,985.98, ₹234.82, ₹5,220.80 — so these are the exact figures,
-     * and the assertion that they are within a rupee of §7.4 is what ties the
-     * two together. The EMI is a genuine half-rupee, which is why rounding it
-     * reads as ₹5,416 and the document as ₹5,415; neither is wrong.
+     * The document quotes whole rupees: EMI ₹5,415, interest ₹4,986, GST on the
+     * interest ₹897, fee ₹235, total cost ₹6,118. The engine works in paise and
+     * lands on each of them — ₹5,415.50, ₹4,985.98, ₹897.46, ₹234.82, ₹6,118.26
+     * — so these are the exact figures, and the assertion that they are within a
+     * rupee of §7.4 is what ties the two together. The EMI is a genuine
+     * half-rupee, which is why rounding it reads as ₹5,416 and the document as
+     * ₹5,415; neither is wrong.
+     *
+     * EMI-GST-1 · The total was ₹5,221 until the GST on the interest was
+     * counted: 18% of each instalment's interest, which the issuer charges
+     * beside every instalment and the old figure left out.
      */
     assert.equal(result.emi, 541_550, "₹5,415.50");
     assert.equal(result.interest, 498_598, "₹4,985.98");
+    assert.equal(result.gstOnInterest, 89_746, "18% GST on each instalment's interest = ₹897.46");
     assert.equal(result.feeWithGst, 23_482, "₹199 + 18% GST = ₹234.82");
-    assert.equal(result.totalCostOfBorrowing, 522_080, "₹5,220.80");
+    assert.equal(result.totalCostOfBorrowing, 611_826, "₹6,118.26");
+    assert.equal(
+      result.totalCostOfBorrowing, result.interest + result.gstOnInterest + result.feeWithGst,
+      "the total is its parts",
+    );
     assert.equal(GST_PCT, 18);
 
     const withinARupee = (paise: number, documented: number) =>
       Math.abs(paise - documented * 100) <= 100;
     assert.ok(withinARupee(result.emi, 5_415), "§7.4's EMI");
     assert.ok(withinARupee(result.interest, 4_986), "§7.4's interest");
+    assert.ok(withinARupee(result.gstOnInterest, 897), "§7.4's GST on interest");
     assert.ok(withinARupee(result.feeWithGst, 235), "§7.4's fee");
-    assert.ok(withinARupee(result.totalCostOfBorrowing, 5_221), "§7.4's total cost");
+    assert.ok(withinARupee(result.totalCostOfBorrowing, 6_118), "§7.4's total cost");
   });
 
   test("the fee is charged to the card and budgeted like any purchase", () => {
@@ -239,7 +253,11 @@ describe("06 §7.4 · recording the monthly instalment", () => {
       loanId: loan.id, date: todayIST(), amount: emi, fromAccountId: card.id,
     });
 
-    assert.equal(accountBalances(db).get(card.id)?.working, -emi, "the card carries it");
+    // EMI-GST-1 · With the GST on the month's ₹750 of interest beside it.
+    assert.equal(
+      accountBalances(db).get(card.id)?.working, -(emi + gstOnInterest(75_000)),
+      "the card carries it, and the GST on its interest",
+    );
     assert.equal(
       accountBalances(db).get(
         queryOne<{ id: string }>(db, `SELECT id FROM accounts WHERE kind='budget' LIMIT 1`)!.id,
@@ -253,7 +271,9 @@ describe("06 §7.4 · recording the monthly instalment", () => {
     const { db, card, loan, emi, planEnvelope } = converted();
 
     // Fund the plan's envelope the way a household would, then let the bank charge it.
-    setAssigned(db, actor, MONTH, planEnvelope, emi);
+    // EMI-GST-1 · The month's bill is the instalment and the GST on its interest.
+    const due = emi + gstOnInterest(75_000);
+    setAssigned(db, actor, MONTH, planEnvelope, due);
     recordInstalment(db, actor, {
       loanId: loan.id, date: todayIST(), amount: emi, fromAccountId: card.id,
     });
@@ -261,7 +281,7 @@ describe("06 §7.4 · recording the monthly instalment", () => {
     const after = state(db);
     assert.equal(after.categories.get(planEnvelope)!.balance, 0, "the plan's envelope paid it");
     assert.equal(
-      paymentEnvelope(db, card.id).balance, emi,
+      paymentEnvelope(db, card.id).balance, due,
       "and the card's now holds exactly what the bank will ask for",
     );
   });
@@ -453,5 +473,153 @@ describe("WEALTH-40 · a charge converts once, and only a charge converts", () =
     assert.equal(identityResidual(state(db)), 0);
     // And the charge can be converted again, properly this time.
     convertToEmi(db, actor, { transactionId: charge.id, tenureMonths: 6, annualRatePct: 15 });
+  });
+});
+
+/*
+ * EMI-GST-1 · A card EMI's interest carries 18% GST.
+ *
+ * Notification 9/2017-IT(Rate) Sr.28 keeps "interest involved in credit card
+ * services" out of the exemption every other loan's interest enjoys, so each
+ * card-EMI statement has a second line beside the instalment: 18% of that
+ * month's interest. The plan's cost counted the GST on the processing fee and
+ * not this, which on §7.4's example is ₹897 left out of a ₹6,118 cost.
+ */
+describe("EMI-GST-1 · GST on each instalment's interest", () => {
+  function converted() {
+    const fixture = cardWithCharge();
+    const result = convertToEmi(fixture.db, actor, {
+      transactionId: fixture.charge.id, tenureMonths: 12, annualRatePct: 15,
+    });
+    const planEnvelope = queryOne<{ id: string }>(
+      fixture.db, `SELECT payment_category_id AS id FROM loans WHERE id = ?`, result.loan.id,
+    )!.id;
+    return { ...fixture, result, loan: result.loan, planEnvelope };
+  }
+  const gstLines = (db: DB, loanId: string) =>
+    listPayments(db, loanId).filter((p) => p.kind === "charge" && /GST 18% on EMI interest/.test(p.note ?? ""));
+
+  test("rounded to the paisa per instalment, not once on the total", () => {
+    const schedule = buildSchedule({ principal: rupees(60_000), annualRatePct: 15, months: 12 });
+    const lines = schedule.instalments.map((i) => gstOnInterest(i.interest));
+    // The first month's ₹750 of interest carries ₹135; every line is whole paise.
+    assert.equal(lines[0], 13_500);
+    assert.ok(lines.every((g) => Number.isInteger(g)));
+    assert.equal(scheduleGst(schedule), lines.reduce((a, b) => a + b, 0), "the total is the sum of the lines");
+    assert.equal(scheduleGst(schedule), 89_746, "₹897.46");
+    // 18% of the total, rounded once, is two paise more: not what the bank charges.
+    assert.equal(Math.round(schedule.totalInterest * 0.18), 89_748);
+  });
+
+  test("each instalment posts its GST as its own line on the card, from the plan's envelope", () => {
+    const { db, card, loan, result, planEnvelope } = converted();
+    const before = state(db).categories.get(planEnvelope)!.activity;
+
+    const payment = recordInstalment(db, actor, {
+      loanId: loan.id, date: todayIST(), amount: result.emi, fromAccountId: card.id,
+    });
+
+    // The instalment is unchanged: the bank's split, with no GST in it.
+    assert.equal(payment.amount, result.emi);
+    assert.equal(payment.interest, 75_000);
+    assert.equal(payment.principal + payment.interest, result.emi);
+
+    const [line] = gstLines(db, loan.id);
+    assert.ok(line, "a GST line was recorded against the plan");
+    assert.equal(line!.amount, 13_500, "18% of ₹750, to the paisa");
+    assert.equal(line!.principal, 0, "it repays nothing");
+    assert.equal(line!.interest, 0, "and is not interest");
+
+    const charge = queryOne<{ amount: number; memo: string; category_id: string }>(
+      db, `SELECT amount, memo, category_id FROM transactions WHERE id = ?`, line!.transaction_id,
+    )!;
+    assert.equal(charge.amount, -13_500, "charged to the card");
+    assert.match(charge.memo, /GST 18% on EMI interest/);
+    assert.equal(charge.category_id, planEnvelope, "and budgeted with the instalment");
+    assert.equal(state(db).categories.get(planEnvelope)!.activity, before - result.emi - 13_500);
+    assert.equal(identityResidual(state(db)), 0);
+  });
+
+  test("the lender's own interest figure is what the GST is charged on", () => {
+    const { db, card, loan, result } = converted();
+    recordInstalment(db, actor, {
+      loanId: loan.id, date: todayIST(), amount: result.emi, interest: 74_999, fromAccountId: card.id,
+    });
+    assert.equal(gstLines(db, loan.id)[0]!.amount, 13_500, "₹134.9982 rounds to ₹135.00");
+    recordInstalment(db, actor, {
+      loanId: loan.id, date: todayIST(), amount: result.emi, interest: 69_163, fromAccountId: card.id,
+    });
+    assert.equal(gstLines(db, loan.id)[1]!.amount, 12_449, "₹124.4934 rounds to ₹124.49");
+  });
+
+  test("the whole plan's GST lines sum to the cost quoted at conversion, and the schedule is untouched", () => {
+    const { db, card, loan, result } = converted();
+    const schedule = projectLoan(db, loan.id)!.schedule.instalments;
+
+    for (const i of schedule) {
+      recordInstalment(db, actor, {
+        loanId: loan.id, date: todayIST(), amount: i.payment,
+        principal: i.principal, interest: i.interest, fromAccountId: card.id,
+      });
+      // The plan runs down the schedule quoted at conversion, to the paisa: the
+      // GST is charged beside it and never feeds back into the amortisation.
+      assert.equal(projectLoan(db, loan.id)!.outstanding, i.closing, `after instalment ${i.number}`);
+    }
+
+    const lines = gstLines(db, loan.id);
+    assert.equal(lines.length, 12, "one line per instalment");
+    assert.deepEqual(lines.map((l) => l.amount), schedule.map((i) => gstOnInterest(i.interest)));
+    assert.equal(lines.reduce((sum, l) => sum + l.amount, 0), result.gstOnInterest, "₹897.46 in all");
+
+    const after = projectLoan(db, loan.id)!;
+    assert.equal(after.outstanding, 0, "the plan is repaid");
+    assert.equal(after.interestGst!.remaining, 0, "and nothing is left to charge");
+    assert.equal(
+      after.metrics.totalCostOfBorrowing, result.interest + result.gstOnInterest,
+      "the lifetime cost is the interest and the GST on it",
+    );
+    assert.equal(identityResidual(state(db)), 0);
+  });
+
+  test("the projection and the envelope's target include it", () => {
+    const { db, loan, result, planEnvelope } = converted();
+    const p = projectLoan(db, loan.id)!;
+    assert.deepEqual(p.interestGst, { next: 13_500, remaining: 89_746 });
+    assert.equal(p.metrics.totalCostOfBorrowing, result.interest + 89_746);
+    const target = queryOne<{ amount: number }>(
+      db, `SELECT amount FROM targets WHERE category_id = ?`, planEnvelope,
+    )!;
+    assert.equal(target.amount, result.emi + 13_500, "the envelope asks for the instalment and its GST");
+  });
+
+  test("undoing an instalment takes its GST line and card charge with it", () => {
+    const { db, card, loan, result } = converted();
+    recordInstalment(db, actor, {
+      loanId: loan.id, date: todayIST(), amount: result.emi, fromAccountId: card.id,
+    });
+    const event = queryOne<{ id: string }>(
+      db, `SELECT id FROM events WHERE entity = 'loan' AND action = 'instalment' ORDER BY seq DESC LIMIT 1`,
+    )!.id;
+    const undone = undoEvent(db, event, actor, { force: true });
+    assert.ok(undone.ok, undone.reason);
+
+    assert.equal(listPayments(db, loan.id).length, 0, "neither the instalment nor its GST is left");
+    assert.equal(accountBalances(db).get(card.id)?.working ?? 0, 0, "the GST charge is off the card");
+    assert.equal(identityResidual(state(db)), 0);
+  });
+
+  test("no other loan's interest carries GST", () => {
+    const { db } = cardWithCharge();
+    const bank = queryOne<{ id: string }>(db, `SELECT id FROM accounts WHERE kind='budget' LIMIT 1`)!;
+    const loan = createLoan(db, actor, {
+      lender: "Axis", loanType: "personal", sanctioned: rupees(1_00_000),
+      sanctionDate: todayIST(), interestModel: "reducing", annualRatePct: 12,
+      tenureMonths: 12, currentOutstanding: rupees(1_00_000), repaymentAccountId: bank.id,
+    });
+    recordInstalment(db, actor, {
+      loanId: loan.id, date: todayIST(), amount: rupees(8_885), fromAccountId: bank.id,
+    });
+    assert.equal(listPayments(db, loan.id).length, 1, "the instalment, and nothing beside it");
+    assert.equal(projectLoan(db, loan.id)!.interestGst, null);
   });
 });

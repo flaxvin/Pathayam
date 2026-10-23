@@ -439,6 +439,9 @@ export interface Snapshot {
   other_assets: Paise;
   credit_cards: Paise;
   loans: Paise;
+  /** NW-1 · Null on a snapshot written before these were recorded (0066). */
+  owed_to_family: Paise | null;
+  other_liabilities: Paise | null;
   net_worth: Paise;
 }
 
@@ -464,12 +467,14 @@ export function snapshotNetWorth(db: DB, actor: Actor, asOf = todayIST()): Snaps
   execute(
     db,
     `INSERT INTO net_worth_snapshots
-       (as_of,cash,investments,other_assets,credit_cards,loans,net_worth,worst_price_date,created_at)
-     VALUES (?,?,?,?,?,?,?,?,?)
+       (as_of,cash,investments,other_assets,credit_cards,loans,owed_to_family,other_liabilities,
+        net_worth,worst_price_date,created_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(as_of) DO UPDATE SET
          cash = excluded.cash, investments = excluded.investments,
          other_assets = excluded.other_assets, credit_cards = excluded.credit_cards,
-         loans = excluded.loans, net_worth = excluded.net_worth,
+         loans = excluded.loans, owed_to_family = excluded.owed_to_family,
+         other_liabilities = excluded.other_liabilities, net_worth = excluded.net_worth,
          worst_price_date = excluded.worst_price_date`,
     asOf,
     find(statement.assetGroups, "Cash"),
@@ -477,6 +482,9 @@ export function snapshotNetWorth(db: DB, actor: Actor, asOf = todayIST()): Snaps
     find(statement.assetGroups, "Other assets"),
     find(statement.liabilityGroups, "Credit cards"),
     find(statement.liabilityGroups, "Loans"),
+    // NW-1 · Every group the statement has, so the parts sum to the whole.
+    find(statement.liabilityGroups, "Owed to family"),
+    find(statement.liabilityGroups, "Other liabilities"),
     statement.netWorth,
     statement.worstInputDate,
     nowIST(),
@@ -509,9 +517,35 @@ export interface NetWorthChange {
   moneySaved: Paise;
   marketMovement: Paise;
   fxMovement: Paise;
+  /** Credit cards and loans: principal cleared. */
   debtRepaid: Paise;
+  /** NW-1 · Hand-valued assets, deposits and money lent: their change in value. */
+  otherAssetsChange: Paise;
+  /** NW-1 · Less owed to family. Null when either snapshot predates recording it. */
+  owedToFamilyRepaid: Paise | null;
+  /** NW-1 · Less owed on other liabilities. Null as above. */
+  otherLiabilitiesRepaid: Paise | null;
+  /**
+   * NW-1 · When a snapshot predates the columns above, what they would have
+   * said, as one balancing figure: the total less every other part. Null when
+   * both snapshots recorded everything.
+   */
+  unrecorded: { amount: Paise; since: IsoDate } | null;
+  /**
+   * Every part, in order, labelled for a screen. They always sum to `total`;
+   * a part that cannot move (nothing recorded) is left out rather than shown
+   * as nil.
+   */
+  parts: NetWorthChangePart[];
   /** R29.4's point, said in words. */
   reading: string;
+}
+
+export interface NetWorthChangePart {
+  key: "saved" | "market" | "fx" | "debt" | "other-assets" | "owed-to-family" | "other-liabilities" | "unrecorded";
+  label: string;
+  value: Paise;
+  blurb: string;
 }
 
 /**
@@ -552,6 +586,52 @@ export function netWorthChange(
   const fxMovement = portfolioFxMovement(db, start.as_of, end.as_of);
   const marketMovement = investmentChange - fxMovement - contributed;
 
+  /*
+   * NW-1 · The rest of the statement. Other assets — a flat revalued, a
+   * deposit grown, money lent — were on every snapshot and never in the
+   * breakdown; money owed to family and other liabilities were on neither. So
+   * the parts did not add up to the total they explained.
+   *
+   * A snapshot written before the last two were recorded has them as NULL.
+   * What they were then is not guessed: the difference is shown as one
+   * balancing line, named for when recording began, so the parts still sum.
+   */
+  const otherAssetsChange = end.other_assets - start.other_assets;
+  const recorded = (s: Snapshot) => s.owed_to_family !== null && s.other_liabilities !== null;
+  const both = recorded(start) && recorded(end);
+  const owedToFamilyRepaid = both ? start.owed_to_family! - end.owed_to_family! : null;
+  const otherLiabilitiesRepaid = both ? start.other_liabilities! - end.other_liabilities! : null;
+  const explained = moneySaved + marketMovement + fxMovement + debtRepaid + otherAssetsChange
+    + (owedToFamilyRepaid ?? 0) + (otherLiabilitiesRepaid ?? 0);
+  const unrecorded = both ? null : {
+    amount: total - explained,
+    since: recordedSince(db, recorded(end) ? start.as_of : end.as_of),
+  };
+
+  const parts: NetWorthChangePart[] = [
+    { key: "saved", label: "Money saved", value: moneySaved, blurb: "What you actually put aside" },
+    { key: "market", label: "Market movement", value: marketMovement, blurb: "Prices moving, not your doing" },
+    { key: "fx", label: "Exchange rate", value: fxMovement, blurb: "The rupee moving, not your doing" },
+    { key: "debt", label: "Debt repaid", value: debtRepaid, blurb: "Principal cleared on cards and loans" },
+    {
+      key: "other-assets", label: "Other assets", value: otherAssetsChange,
+      blurb: "Hand-valued assets revalued, deposits grown, money lent",
+    },
+  ];
+  if (owedToFamilyRepaid !== null) {
+    parts.push({ key: "owed-to-family", label: "Owed to family repaid", value: owedToFamilyRepaid, blurb: "Less owed to family and friends" });
+  }
+  if (otherLiabilitiesRepaid !== null) {
+    parts.push({ key: "other-liabilities", label: "Other liabilities repaid", value: otherLiabilitiesRepaid, blurb: "Less owed on other liabilities" });
+  }
+  if (unrecorded) {
+    parts.push({
+      key: "unrecorded", label: `Other (not recorded before ${formatDate(unrecorded.since)})`,
+      value: unrecorded.amount,
+      blurb: "Money owed to family and other liabilities, which snapshots did not keep then",
+    });
+  }
+
   return {
     from: start.as_of,
     to: end.as_of,
@@ -560,8 +640,28 @@ export function netWorthChange(
     marketMovement,
     fxMovement,
     debtRepaid,
-    reading: describeChange(total, moneySaved, marketMovement, fxMovement, debtRepaid),
+    otherAssetsChange,
+    owedToFamilyRepaid,
+    otherLiabilitiesRepaid,
+    unrecorded,
+    parts,
+    reading: describeChange(total, parts),
   };
+}
+
+/**
+ * NW-1 · The first snapshot after `after` that recorded every part — the day
+ * recording began, as far as this period is concerned. With none yet, the
+ * next snapshot will be the first, and that is today's at the earliest.
+ */
+function recordedSince(db: DB, after: IsoDate): IsoDate {
+  return queryOne<{ as_of: IsoDate }>(
+    db,
+    `SELECT as_of FROM net_worth_snapshots
+      WHERE as_of > ? AND owed_to_family IS NOT NULL AND other_liabilities IS NOT NULL
+      ORDER BY as_of LIMIT 1`,
+    after,
+  )?.as_of ?? todayIST();
 }
 
 /**
@@ -635,17 +735,23 @@ function portfolioFxMovement(db: DB, from: IsoDate, to: IsoDate): Paise {
   return movement;
 }
 
-function describeChange(
-  total: Paise, saved: Paise, market: Paise, fx: Paise, debt: Paise,
-): string {
-  const parts: string[] = [];
-  if (saved !== 0) parts.push(`${formatPaise(saved)} saved`);
-  if (market !== 0) parts.push(`${formatPaise(market)} from the market`);
-  if (fx !== 0) parts.push(`${formatPaise(fx)} from the exchange rate`);
-  if (debt !== 0) parts.push(`${formatPaise(debt)} of debt repaid`);
+function describeChange(total: Paise, parts: NetWorthChangePart[]): string {
+  const phrase: Record<NetWorthChangePart["key"], (v: string, label: string) => string> = {
+    saved: (v) => `${v} saved`,
+    market: (v) => `${v} from the market`,
+    fx: (v) => `${v} from the exchange rate`,
+    debt: (v) => `${v} of debt repaid`,
+    "other-assets": (v) => `${v} in other assets`,
+    "owed-to-family": (v) => `${v} less owed to family`,
+    "other-liabilities": (v) => `${v} less owed on other liabilities`,
+    unrecorded: (v, label) => `${v} ${label.toLowerCase()}`,
+  };
+  const said = parts
+    .filter((p) => p.value !== 0)
+    .map((p) => phrase[p.key](formatPaise(p.value), p.label));
 
-  if (parts.length === 0) return "No change since the last snapshot.";
-  return `${formatPaise(total)} in total — ${parts.join(", ")}.`;
+  if (said.length === 0) return "No change since the last snapshot.";
+  return `${formatPaise(total)} in total — ${said.join(", ")}.`;
 }
 
 /** Snapshot on the first of each month, so the trend is real (R29.2). */

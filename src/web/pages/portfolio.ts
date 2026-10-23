@@ -758,6 +758,30 @@ export function renderHoldingDetail(opts: {
       `)}
     </section>
 
+    ${when(v.instrument.kind === "bond", () => html`
+      <!-- BONDS-1 · A bond's tax turns on whether it is listed (s112 or s50AA). -->
+      <section class="card">
+        <h2>How a sale is taxed</h2>
+        <form method="post" action="/portfolio/instrument/${v.instrument.id}/listed">
+          <input type="hidden" name="holding_id" value="${v.holding.id}">
+          <div class="field">
+            <label class="row">
+              <input type="checkbox" name="listed" value="1" ${raw(v.instrument.listed === 1 ? "checked" : "")}>
+              Listed on an exchange
+            </label>
+            <p class="field-hint">
+              ${v.instrument.listed === null
+                ? "Not recorded yet, so a gain is taxed at your slab rate, as an unlisted bond's is."
+                : v.instrument.listed === 1
+                  ? "Held over 12 months, a gain is taxed at 12.5% without indexation (s112); sooner, at your slab rate."
+                  : "An unlisted bond's gain is taxed at your slab rate however long it is held (s50AA)."}
+            </p>
+          </div>
+          <button type="submit" class="button-small">Save</button>
+        </form>
+      </section>
+    `)}
+
     <section class="card">
       <h2>Lots</h2>
       <p class="faint" style="margin-top:-.25rem">
@@ -1064,14 +1088,17 @@ export function renderNetWorth(opts: {
   `;
 }
 
-/** R29.4 · Four numbers that mean four different things. */
+/**
+ * R29.4 · Numbers that mean different things.
+ *
+ * NW-1 · Every part of the change, not four of them: other assets, money owed
+ * to family and other liabilities were left out, so the steps did not reach
+ * the net change they claimed to explain. `parts` always sums to the total.
+ */
 function renderWaterfall(change: NetWorthChange): SafeHtml {
-  const parts: [string, Paise, string][] = [
-    ["Money saved", change.moneySaved, "What you actually put aside"],
-    ["Market movement", change.marketMovement, "Prices moving, not your doing"],
-    ["Exchange rate", change.fxMovement, "The rupee moving, not your doing"],
-    ["Debt repaid", change.debtRepaid, "Principal cleared"],
-  ].filter(([, value]) => value !== 0) as [string, Paise, string][];
+  const parts: [string, Paise, string][] = change.parts
+    .filter((p) => p.value !== 0)
+    .map((p) => [p.label, p.value, p.blurb]);
 
   return html`
     <section class="card">
@@ -1271,10 +1298,22 @@ export function renderAddHolding(opts: {
                     <option value="mutual-fund">Mutual fund</option>
                     <option value="equity">Equity</option>
                     <option value="etf">ETF</option>
+                    <option value="bond">Bond</option>
                     <option value="commodity">Commodity</option>
                     <option value="other">Other</option>
                   </select>
                 </div>
+              </div>
+              <div class="field">
+                <label class="row">
+                  <input type="checkbox" name="listed" value="1">
+                  Listed on an exchange <span class="faint">(bonds only)</span>
+                </label>
+                <p class="field-hint">
+                  A bond listed on NSE or BSE and held over 12 months is taxed at
+                  12.5% on the gain. An unlisted one is taxed at your slab rate
+                  however long it is held, and so is one this is left unticked for.
+                </p>
               </div>`}
 
         <div class="grid-2">

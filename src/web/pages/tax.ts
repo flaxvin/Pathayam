@@ -28,7 +28,12 @@ export interface TaxPageProps {
   deductions: Deductions;
   estimate: TaxEstimate | null;
   advance: AdvanceInstalment[];
-  gains: GainsTax;
+  /** Null when the year's gains rates are not in the app; `gainsRefusal` says so. */
+  gains: GainsTax | null;
+  /** TAX-FY25-1 · Why gains could not be computed for this year. */
+  gainsRefusal?: string | null;
+  /** TAX-FY25-1 · Why there is no estimate for an older year whose slabs are not in the app. */
+  slabsRefusal?: string | null;
   staleWarning: string | null;
   ratesVerifiedOn: string;
   ratesSource: string;
@@ -47,6 +52,23 @@ export interface TaxPageProps {
   settlement: { old: Settlement; new: Settlement } | null;
   /** TAX-3 · The year's advance-tax threshold. */
   advanceThreshold: Paise;
+}
+
+/**
+ * TAX-FY25-1 · The rate a head was taxed at, from the rules that taxed it. In
+ * a year split by sale date (2024-25, on 23 July 2024) each side that had a
+ * gain is named with its own rate.
+ */
+function rateOf(
+  g: GainsTax, head: "equityLong" | "equityShort" | "otherLong",
+  bp: "equityLongBp" | "equityShortBp" | "otherLongBp",
+): string {
+  const pct = (n: number): string => `${n / 100}%`;
+  if (g.byPeriod.length === 1) return pct(g.byPeriod[0]!.rules[bp]);
+  const used = g.byPeriod.map((p, i) => ({ p, next: g.byPeriod[i + 1] })).filter(({ p }) => p[head] !== 0);
+  return used.map(({ p, next }) => next
+    ? `${pct(p.rules[bp])} sold before ${formatDate(next.from)}`
+    : `${pct(p.rules[bp])} sold from ${formatDate(p.from)}`).join(", ");
 }
 
 function row(label: string, value: Paise, opts: { muted?: boolean; strong?: boolean } = {}): SafeHtml {
@@ -124,6 +146,12 @@ export function renderTax(p: TaxPageProps): SafeHtml {
 
     ${p.staleWarning
       ? html`<div class="notice notice-danger"><strong>Rates may be out of date.</strong> ${p.staleWarning}</div>`
+      : html``}
+    ${p.slabsRefusal
+      ? html`<div class="notice notice-warning"><strong>No estimate for this year.</strong> ${p.slabsRefusal}</div>`
+      : html``}
+    ${p.gainsRefusal
+      ? html`<div class="notice notice-danger"><strong>Capital gains not computed.</strong> ${p.gainsRefusal}</div>`
       : html``}
 
     <form class="card" method="get" action="/tax">
@@ -280,7 +308,7 @@ export function renderTax(p: TaxPageProps): SafeHtml {
       <button class="button-primary" type="submit" style="margin-top:1rem">Save and recalculate</button>
     </form>
 
-    ${(p.gains.buckets.equityLong || p.gains.buckets.equityShort || p.gains.buckets.otherLong
+    ${p.gains && (p.gains.buckets.equityLong || p.gains.buckets.equityShort || p.gains.buckets.otherLong
        || p.gains.buckets.slabRated || p.gains.buckets.unclassified)
       ? html`
           <section class="card">
@@ -299,7 +327,7 @@ export function renderTax(p: TaxPageProps): SafeHtml {
                   ${p.gains.buckets.equityLong !== 0 ? html`
                     <tr>
                       <td>
-                        Listed equity, over 12 months <span class="faint">· s112A, 12.5%</span>
+                        Listed equity, over 12 months <span class="faint">· s112A, ${rateOf(p.gains, "equityLong", "equityLongBp")}</span>
                         ${p.gains.exemptionUsed > 0
                           ? html`<br><span class="faint">less ${formatPaise(p.gains.exemptionUsed)} exempt</span>`
                           : html``}
@@ -309,13 +337,13 @@ export function renderTax(p: TaxPageProps): SafeHtml {
                     </tr>` : html``}
                   ${p.gains.buckets.equityShort !== 0 ? html`
                     <tr>
-                      <td>Listed equity, 12 months or less <span class="faint">· s111A, 20%</span></td>
+                      <td>Listed equity, 12 months or less <span class="faint">· s111A, ${rateOf(p.gains, "equityShort", "equityShortBp")}</span></td>
                       <td class="amount">${formatPaise(p.gains.buckets.equityShort)}</td>
                       <td class="amount">${formatPaise(p.gains.equityShortTax)}</td>
                     </tr>` : html``}
                   ${p.gains.buckets.otherLong !== 0 ? html`
                     <tr>
-                      <td>Gold, property, foreign shares and older debt funds, held long <span class="faint">· s112, 12.5%</span></td>
+                      <td>Gold, property, foreign shares and older debt funds, held long <span class="faint">· s112, ${rateOf(p.gains, "otherLong", "otherLongBp")}</span></td>
                       <td class="amount">${formatPaise(p.gains.buckets.otherLong)}</td>
                       <td class="amount">${formatPaise(p.gains.otherLongTax)}</td>
                     </tr>` : html``}

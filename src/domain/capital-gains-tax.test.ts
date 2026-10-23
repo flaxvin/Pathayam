@@ -15,7 +15,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { rupees, formatPaise, type Paise } from "../core/money.ts";
-import { taxOnGains, GAINS_RULES } from "./capital-gains-tax.ts";
+import { taxOnGains, GAINS_RULES, gainsRulesOn } from "./capital-gains-tax.ts";
 
 const FY = 2025;
 
@@ -59,13 +59,20 @@ describe("the 112A exemption", () => {
 
 describe("the rates themselves", () => {
   test("short-term equity is 20%, long-term 12.5%", () => {
-    assert.equal(GAINS_RULES[FY]!.equityShortBp, 2000);
-    assert.equal(GAINS_RULES[FY]!.equityLongBp, 1250);
-    assert.equal(GAINS_RULES[FY]!.otherLongBp, 1250);
+    const rules = gainsRulesOn("2025-06-01");
+    assert.equal(rules.equityShortBp, 2000);
+    assert.equal(rules.equityLongBp, 1250);
+    assert.equal(rules.otherLongBp, 1250);
+    assert.equal(rules.otherLongIndexed, false);
   });
 
   test("the exemption is ₹1,25,000", () => {
-    assert.equal(GAINS_RULES[FY]!.equityLongExemption, rupees(125_000));
+    assert.equal(gainsRulesOn("2025-06-01").equityLongExemption, rupees(125_000));
+  });
+
+  test("2025-26 is one period, and so is 2026-27", () => {
+    assert.equal(GAINS_RULES[2025]!.length, 1);
+    assert.equal(GAINS_RULES[2026]!.length, 1);
   });
 
   test("special-rate tax is the three added together", () => {

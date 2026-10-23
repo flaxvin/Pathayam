@@ -347,13 +347,34 @@ Extends `02` R6, which sketched this.
 
 - Converting a card transaction to EMI MUST: reduce the card's revolving outstanding by the converted amount, create a loan of type credit-card EMI, and create its own payment category.
 - Processing fee and GST MUST be captured as costs (₹199 + 18% GST = ₹235 in the example below), and included in total cost of borrowing.
+- GST at 18% MUST also be charged on the interest in every instalment, posted as its own line beside the instalment ("GST 18% on EMI interest") and included in total cost of borrowing. Interest on a loan is otherwise exempt, but Notification 9/2017-IT(Rate) Sr.28 excludes "interest involved in credit card services" from the exemption, upheld by the Calcutta HC in *Ramesh Kumar Patodia v Citi Bank* (24-06-2022). The GST is rounded to the paisa on each instalment, as the issuer posts it, not once on the total; the amortisation schedule itself does not change. A "no-cost" EMI whose interest is refunded as a discount still carries the GST on that interest.
 - The card's payment category expectation MUST fall by the converted amount so the household is not asked to fund it twice — this is the specific bug to avoid.
 - The EMI instalment appears on the card statement, so its payment is recorded against the card, while the EMI loan's outstanding reduces. Both views must agree.
 - Foreclosing a card EMI usually attracts a charge; it MUST be recordable (R19.5).
 - An EMI converted on an **add-on card** belongs to the primary account, and its instalments appear on that account's statement. The EMI loan records which card the original purchase was made on (`09` §4, R6.c).
 - BNPL is modelled identically, usually at zero stated interest with fees carrying the cost — which the effective rate (R22) exposes.
 
-*Worked example — ₹60,000 converted to 12-month EMI at 15% with a ₹199 processing fee:* EMI **₹5,415**, interest **₹4,986**, fee plus GST **₹235**, total cost of borrowing **₹5,221**.
+*Worked example — ₹60,000 converted to 12-month EMI at 15% with a ₹199 processing fee:* EMI **₹5,415**, interest **₹4,986**, GST on interest **₹897**, fee plus GST **₹235**, total cost of borrowing **₹6,118**.
+
+The GST on interest, instalment by instalment (interest at 15%/12 = 1.25% a month on the opening balance; GST = 18% of it, rounded to the paisa):
+
+| # | Opening | Interest | GST 18% |
+|---|---|---|---|
+| 1 | ₹60,000.00 | ₹750.00 | ₹135.00 |
+| 2 | ₹55,334.50 | ₹691.68 | ₹124.50 |
+| 3 | ₹50,610.68 | ₹632.63 | ₹113.87 |
+| 4 | ₹45,827.82 | ₹572.85 | ₹103.11 |
+| 5 | ₹40,985.17 | ₹512.32 | ₹92.22 |
+| 6 | ₹36,081.98 | ₹451.02 | ₹81.18 |
+| 7 | ₹31,117.51 | ₹388.97 | ₹70.01 |
+| 8 | ₹26,090.98 | ₹326.14 | ₹58.71 |
+| 9 | ₹21,001.62 | ₹262.52 | ₹47.25 |
+| 10 | ₹15,848.64 | ₹198.11 | ₹35.66 |
+| 11 | ₹10,631.25 | ₹132.89 | ₹23.92 |
+| 12 | ₹5,348.64 | ₹66.85 | ₹12.03 |
+| | | **₹4,985.98** | **₹897.46** |
+
+Total cost of borrowing = interest ₹4,985.98 + GST on interest ₹897.46 + fee with GST ₹234.82 (₹199 × 1.18) = **₹6,118.26**, quoted as ₹6,118. (18% of the total interest rounded once would be ₹897.48; the issuer rounds each line, so ₹897.46 is the figure.) Before GST on interest was counted this example read ₹5,221 (₹4,985.98 + ₹234.82); the difference is the ₹897 the household is actually charged across the twelve statements. The first statement carries ₹5,415.50 + ₹135.00 = ₹5,550.50 for the plan.
 
 ---
 
@@ -404,7 +425,7 @@ Reached from Accounts (liabilities section) and from the More hub.
 
 **J13 · Rate reset.** Notification: *"HDFC home loan reset expected this month."* → confirm the new rate 9.0% → two cards: keep EMI (tenure +20 months) or keep tenure (EMI +₹1,485) → choose → schedule recomputes; the interest impact is attributed to rate movement, not to household action (R22.4).
 
-**J14 · Card EMI conversion.** Open the ₹60,000 card transaction → *convert to EMI* → 12 months, 15%, ₹199 fee → a card-EMI loan is created with its own payment category, the card's payment expectation drops by ₹60,000, and the total cost of ₹5,221 is shown before confirming.
+**J14 · Card EMI conversion.** Open the ₹60,000 card transaction → *convert to EMI* → 12 months, 15%, ₹199 fee → a card-EMI loan is created with its own payment category, the card's payment expectation drops by ₹60,000, and the total cost of ₹6,118 (interest, the GST on it, and the fee with its GST) is shown before confirming.
 
 **J15 · Closure.** Final instalment recorded → summary: borrowed ₹50,00,000, repaid ₹89,56,578, lifetime interest ₹39,56,578, saved ₹14,57,301 and 45 EMIs, closed 3 years 9 months early → *"₹43,391/month is now free. Assign it?"* → goes to RTA on confirmation.
 
@@ -473,7 +494,7 @@ EMI = P × r × (1+r)^n ÷ ((1+r)^n − 1),   r = annual rate ÷ 1200
 | Extra monthly | +₹5,000/m from m1 | 187m · interest ₹40,24,629 · **saved ₹13,89,250 / 53 EMIs** |
 | Pre-EMI | ₹10,00,000 drawn · 8.5% | ₹7,083/m · at ₹25,00,000 drawn, ₹17,708/m |
 | Car loan, flat | ₹8,00,000 · 9% flat · 60m | interest ₹3,60,000 · EMI ₹19,333 · **equivalent 15.71% reducing** |
-| Card EMI | ₹60,000 · 15% · 12m · ₹199 fee | EMI ₹5,415 · interest ₹4,986 · fee+GST ₹235 · cost ₹5,221 |
+| Card EMI | ₹60,000 · 15% · 12m · ₹199 fee | EMI ₹5,415 · interest ₹4,986 · GST on interest ₹897 · fee+GST ₹235 · cost ₹6,118 |
 | Education, serviced | ₹15,00,000 · 10.5% · 48m mor. | ₹13,125/m serviced · ₹6,30,000 · then EMI ₹20,240 |
 | Education, capitalised | same | +₹7,78,776 · balance ₹22,78,776 · EMI ₹30,749 · **+₹10,508/m** |
 | Rate reset | 8.5%→9.0% at m24, bal ₹47,92,181 | keep EMI → 236m (+20m) · keep tenure → EMI ₹44,876 (+₹1,485) |

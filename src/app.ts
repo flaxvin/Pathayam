@@ -106,7 +106,7 @@ import { memberScope, hiddenTransactionSql, hiddenAccountSql } from "./domain/me
 import { exportForMember, exportTransactionsCsvForMember } from "./ops/member-export.ts";
 import { callItEven } from "./domain/squaring-up.ts";
 import { describeDeparture, settleDeparture, type DepartureResolution } from "./domain/departure.ts";
-import { convertToEmi, convertedFrom } from "./domain/card-emi.ts";
+import { convertToEmi, convertedFrom, GST_PCT } from "./domain/card-emi.ts";
 import { renderDeparture } from "./web/pages/departure.ts";
 import { renderHousehold } from "./web/pages/household.ts";
 import {
@@ -154,7 +154,7 @@ import {
 import {
   createLoan, listLoans, getLoan, projectLoan, recordInstalment, listPayments, closeLoan,
   recordDisbursement, recordLoanStatement, recordRateChange, recordPrepayment, canSeeLoan, checkAnnualRate, loanPaymentBudgetId,
-  setLoanPropertyUse,
+  setLoanPropertyUse, gstOnInterest,
   listDisbursements, listRatePeriods, debtOverview, type LoanType,
 } from "./domain/loans.ts";
 import { comparePrepayment, rateResetOptions, NegativeAmortisation } from "./loans/amortisation.ts";
@@ -191,7 +191,7 @@ import {
 } from "./auth/passwords.ts";
 import { beginOidc, exchangeOidcCode } from "./auth/oidc.ts";
 import {
-  staleRatesWarning, RATES_VERIFIED_ON, RATES_SOURCE, RULES, ADVANCE_TAX_RULES,
+  staleRatesWarning, assertKnownYear, RATES_VERIFIED_ON, RATES_SOURCE, RULES, ADVANCE_TAX_RULES,
   estimateTax, advanceTaxSchedule, getDeclaration, hasDeclaration, saveDeclaration,
   incomeInFinancialYear, settle, taxPaid, listTaxPayments, addTaxPayment, deleteTaxPayment,
   type AdvanceInstalment, type TaxPaymentKind,
@@ -200,7 +200,7 @@ import { homeLoanInterestFor } from "./domain/home-loan-interest.ts";
 import { renderTax, TAX_PRINT_CAVEAT } from "./web/pages/tax.ts";
 import { renderCategoryLines } from "./web/pages/category-lines.ts";
 import { renderDisposeAsset, renderAddToAsset } from "./web/pages/portfolio.ts";
-import { capitalGainsTaxFor } from "./domain/capital-gains-tax.ts";
+import { capitalGainsTaxFor, type GainsTax } from "./domain/capital-gains-tax.ts";
 import { renderFire } from "./web/pages/fire.ts";
 import { fireProjection, DEFAULT_ASSUMPTIONS } from "./domain/fire.ts";
 import { renderActivity } from "./web/pages/activity.ts";
@@ -348,7 +348,7 @@ import {
   planCasImport, applyCasPlan, casDestinations, stashPlan, takePlan,
 } from "./import/cas-plan.ts";
 import {
-  createAssetAccount, listAssetAccounts, listValuableAccounts, findOrCreateInstrument, recordPurchase,
+  createAssetAccount, listAssetAccounts, listValuableAccounts, findOrCreateInstrument, setInstrumentListed, recordPurchase,
   recordSale, recordPrice, recordSplit, recordMerger, recordValuation, latestValuation, listHoldings, viewHolding,
   priceHistory, previewHoldingSale, getInstrument, findManualInstrument, listInstruments,
   classifyInstrument, ASSET_CLASSES, ASSET_CLASS_LABELS,
@@ -3817,7 +3817,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         redirect: `/loans/${result.loan.id}`,
         message:
           `Converted. ${formatPaise(result.emi)} a month, costing ` +
-          `${formatPaise(result.totalCostOfBorrowing)} in interest and fees.`,
+          `${formatPaise(result.totalCostOfBorrowing)} in interest, GST and fees.`,
       };
     }),
   );
@@ -3951,7 +3951,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               The converted amount comes off this card's balance and becomes a loan
               with its own instalments — so you are not asked to clear it here
               <em>and</em> pay it monthly. The processing fee is charged to the card
-              like any purchase, so give it an envelope.
+              like any purchase, so give it an envelope. Each instalment also carries
+              ${GST_PCT}% GST on its interest, which the plan's envelope pays.
             </p>
             <form method="post" action="/transaction/${transaction.id}/convert-to-emi">
               <div class="grid-2">
@@ -5969,13 +5970,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     auth(ctx);
     const projection = projectLoan(db, ctx.params.id!);
     if (!projection) throw new NotFound("That loan does not exist.");
+    const gst = projection.interestGst !== null;
 
     const rows = [
-      "number,due_date,opening,instalment,principal,interest,closing,cumulative_interest",
+      "number,due_date,opening,instalment,principal,interest,closing,cumulative_interest" +
+        // EMI-GST-1 · A card EMI's GST on interest, the line beside each instalment.
+        (gst ? ",gst_on_interest" : ""),
       ...projection.schedule.instalments.map((i) =>
         [
           i.number, i.dueDate ?? "", i.opening / 100, i.payment / 100,
           i.principal / 100, i.interest / 100, i.closing / 100, i.cumulativeInterest / 100,
+          ...(gst ? [gstOnInterest(i.interest) / 100] : []),
         ].join(","),
       ),
     ].join("\n");
@@ -8262,8 +8267,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (result.statements.unmatched) {
       parts.push(`${plural(result.statements.unmatched, "statement")} for no single account of yours, not imported`);
     }
+    // IMPORT-15 · Which detail would open the locked ones, as the upload says it.
+    const missing = result.missingDetails.length ? ` ${result.missingDetails.join(" ")}` : "";
     const summary = parts.length
-      ? `Read ${result.scanned} messages — ${parts.join(", ")}.`
+      ? `Read ${result.scanned} messages — ${parts.join(", ")}.${missing}`
       : `Read ${result.scanned} messages — nothing new.`;
 
     return { redirect: withNotice(toReview > 0 ? "/review" : "/settings#gmail", summary) };
@@ -8288,6 +8295,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             .map((bank) => [bank, field(ctx.body, `customer_id_${bank}`)] as const)
             .filter(([, value]) => Boolean(value)),
         ),
+        // IMPORT-15 · Masked the same way, so a blank box keeps the saved six.
+        hsbcCardLast6: field(ctx.body, "hsbc_card_last6") || undefined,
       });
       return {
         redirect: "/settings#statements",
@@ -8611,9 +8620,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           kind: (field(ctx.body, "kind") ?? "mutual-fund") as InstrumentKind,
           currency: field(ctx.body, "currency") || "INR",
         };
+        // BONDS-1 · The by-hand form asks whether a bond is listed; a tick is
+        // a yes and no tick a no. Any other kind leaves it unrecorded.
+        const listed = typed.kind === "bond" ? field(ctx.body, "listed") === "1" : null;
         // WEALTH-11 · The same name typed again is the same instrument.
-        return (symbol ? null : findManualInstrument(db, typed, memberScope(db, viewer(ctx)).instruments))
-          ?? findOrCreateInstrument(db, actor, { ...typed, symbol, provider: schemeCode ? "mfapi" : "manual" });
+        const found = symbol ? null : findManualInstrument(db, typed, memberScope(db, viewer(ctx)).instruments);
+        if (found) {
+          if (listed !== null) setInstrumentListed(db, actor, found.id, listed);
+          return getInstrument(db, found.id)!;
+        }
+        return findOrCreateInstrument(db, actor, { ...typed, symbol, listed, provider: schemeCode ? "mfapi" : "manual" });
       };
       const instrument = chosenId
         ? getInstrument(db, requireVisibleInstrument(ctx, chosenId))!
@@ -8686,6 +8702,20 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         : null;
       classifyInstrument(db, actorFor(a), requireVisibleInstrument(ctx, ctx.params.id!), { assetClass });
       return { redirect: "/portfolio/allocation", message: assetClass ? "Classified." : "Cleared." };
+    }),
+  );
+
+  // BONDS-1 · Whether a bond is listed, from its holding page.
+  router.post("/portfolio/instrument/:id/listed", (ctx) =>
+    mutate(ctx, (a) => {
+      requireAssets();
+      const id = requireVisibleInstrument(ctx, ctx.params.id!);
+      setInstrumentListed(db, actorFor(a), id, field(ctx.body, "listed") === "1");
+      const holdingId = field(ctx.body, "holding_id");
+      return {
+        redirect: holdingId ? `/portfolio/${encodeURIComponent(requireVisibleHolding(ctx, holdingId))}` : "/portfolio",
+        message: "Saved.",
+      };
     }),
   );
 
@@ -9655,7 +9685,29 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // Capital gains are taxed at their own rates and are scoped to this
     // member's own holdings — the accounts they are named holder of (WEALTH-7).
     // Another member's sale is not part of their assessment, however visible.
-    const gains = capitalGainsTaxFor(db, fy, a.member.id);
+    //
+    // TAX-FY25-1 · A year whose gains rates are not in the app is refused, not
+    // taxed at the newest year's. The refusal is shown on the page in place of
+    // the gains, so the rest of it — declarations, payments — still works.
+    let gains: GainsTax | null = null;
+    let gainsRefusal: string | null = null;
+    try {
+      gains = capitalGainsTaxFor(db, fy, a.member.id);
+    } catch (err) {
+      if (!(err instanceof Refusal)) throw err;
+      gainsRefusal = err.message;
+    }
+    // An older year with gains rates but no slabs (2024-25) shows its gains
+    // and says why there is no estimate, instead of refusing the whole page.
+    let slabsRefusal: string | null = null;
+    if (!staleRatesWarning(fy)) {
+      try {
+        assertKnownYear(fy);
+      } catch (err) {
+        if (!(err instanceof Refusal)) throw err;
+        slabsRefusal = err.message;
+      }
+    }
 
     // TAX-1 · Interest on loans this member holds for a house they live in,
     // accrued in the year from the loan's ledger — unless they gave their own.
@@ -9671,7 +9723,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     let settlement = null;
     // WEALTH-9 · Slab-rated gains are income too: a member whose only income
     // is a debt-fund gain was told to "enter a gross income" and shown nothing.
-    if ((gross > 0 || gains.addToSlabIncome > 0 || gains.specialRateTax > 0) && !staleRatesWarning(fy)) {
+    if ((gross > 0 || (gains?.addToSlabIncome ?? 0) > 0 || (gains?.specialRateTax ?? 0) > 0)
+        && !staleRatesWarning(fy) && !gainsRefusal && !slabsRefusal) {
       estimate = estimateTax(fy, gross, { ...stored, s24b }, gains);
       settlement = { old: settle(estimate.old, paid), new: settle(estimate.new, paid) };
       // TAX-3 · Section 208 tests the year's tax after TDS, not before.
@@ -9682,7 +9735,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }
 
     return {
-      fy, gross, ledgerIncome, estimate, advance, gains, fromPolicies, applyPolicies,
+      fy, gross, ledgerIncome, estimate, advance, gains, gainsRefusal, slabsRefusal, fromPolicies, applyPolicies,
       deductions: applyPolicies ? applyPolicySuggestion(stored, fromPolicies) : stored,
       homeLoan, s24bOverride: stored.s24bOverride ?? null, payments, paid, settlement,
       advanceThreshold: (ADVANCE_TAX_RULES[fy] ?? ADVANCE_TAX_RULES[2025]!).threshold,

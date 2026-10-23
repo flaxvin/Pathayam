@@ -6,7 +6,7 @@ import { nowIST } from "../core/dates.ts";
 import { historyFor } from "../core/events.ts";
 import { exportEverything } from "../ops/backup.ts";
 import {
-  passwordCandidates, describeCandidate, nameKey,
+  passwordCandidates, describeCandidate, nameKey, missingDetailFor,
 } from "./statement-passwords.ts";
 import {
   setIdentity, getIdentity, clearIdentity, maskedIdentity, looksLikePan, looksLikeDob,
@@ -256,6 +256,39 @@ describe("IMPORT-SND-12 · rules quoted from Axis's, HDFC's and ESAF's statement
     setIdentity(db, actor, { ...IDENTITY, customerIds: { hdfc: "" } });
     assert.deepEqual(getIdentity(db, RAVI)!.customerIds, { axis: "123456789" });
     assert.throws(() => setIdentity(db, actor, { ...IDENTITY, customerIds: { axis: "12 3" } }), /customer ID/);
+    db.close();
+  });
+});
+
+describe("IMPORT-15 · HSBC's last six, kept in Settings", () => {
+  test("they are tried as HSBC's rule, and HSBC stops asking for them", () => {
+    const withSix = { ...IDENTITY, hsbcCardLast6: "556677" };
+    assert.ok(passwordCandidates(withSix, "hsbc").includes("010170556677"));
+    assert.ok(!passwordCandidates(IDENTITY, "hsbc", { cardDigits: ["6677"] }).includes("010170556677"));
+    assert.match(missingDetailFor("hsbc", IDENTITY, ["6677"])!, /last six in Settings/);
+    assert.equal(missingDetailFor("hsbc", withSix, ["6677"]), null);
+  });
+
+  test("stored beside the customer IDs, masked, kept when left out, never exported or logged", () => {
+    const db = setup();
+    setIdentity(db, actor, { ...IDENTITY, customerIds: { axis: "123456789" }, hsbcCardLast6: "55 66-77" });
+    assert.equal(getIdentity(db, RAVI)!.hsbcCardLast6, "556677");
+    // A save that changes only the customer IDs keeps the six, and vice versa.
+    setIdentity(db, actor, { ...IDENTITY, customerIds: { hdfc: "87654321" } });
+    setIdentity(db, actor, IDENTITY);
+    assert.equal(getIdentity(db, RAVI)!.hsbcCardLast6, "556677");
+    assert.deepEqual(getIdentity(db, RAVI)!.customerIds, { axis: "123456789", hdfc: "87654321" });
+
+    const masked = maskedIdentity(db, RAVI)!;
+    assert.equal(masked.hsbcCardLast6, "••••77");
+    assert.ok(!JSON.stringify(masked).includes("556677"));
+    assert.ok(!JSON.stringify(exportEverything(db)).includes("556677"));
+    assert.ok(!JSON.stringify(historyFor(db, "statement-identity", RAVI)).includes("556677"));
+
+    assert.throws(() => setIdentity(db, actor, { ...IDENTITY, hsbcCardLast6: "6677" }), /last six/);
+    setIdentity(db, actor, { ...IDENTITY, hsbcCardLast6: "" });
+    assert.equal(getIdentity(db, RAVI)!.hsbcCardLast6, undefined);
+    assert.deepEqual(getIdentity(db, RAVI)!.customerIds, { axis: "123456789", hdfc: "87654321" });
     db.close();
   });
 });
