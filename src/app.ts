@@ -191,7 +191,7 @@ import {
 } from "./auth/passwords.ts";
 import { beginOidc, exchangeOidcCode } from "./auth/oidc.ts";
 import {
-  staleRatesWarning, RATES_VERIFIED_ON, RATES_SOURCE, RULES, ADVANCE_TAX_RULES,
+  staleRatesWarning, assertKnownYear, RATES_VERIFIED_ON, RATES_SOURCE, RULES, ADVANCE_TAX_RULES,
   estimateTax, advanceTaxSchedule, getDeclaration, hasDeclaration, saveDeclaration,
   incomeInFinancialYear, settle, taxPaid, listTaxPayments, addTaxPayment, deleteTaxPayment,
   type AdvanceInstalment, type TaxPaymentKind,
@@ -200,7 +200,7 @@ import { homeLoanInterestFor } from "./domain/home-loan-interest.ts";
 import { renderTax, TAX_PRINT_CAVEAT } from "./web/pages/tax.ts";
 import { renderCategoryLines } from "./web/pages/category-lines.ts";
 import { renderDisposeAsset, renderAddToAsset } from "./web/pages/portfolio.ts";
-import { capitalGainsTaxFor } from "./domain/capital-gains-tax.ts";
+import { capitalGainsTaxFor, type GainsTax } from "./domain/capital-gains-tax.ts";
 import { renderFire } from "./web/pages/fire.ts";
 import { fireProjection, DEFAULT_ASSUMPTIONS } from "./domain/fire.ts";
 import { renderActivity } from "./web/pages/activity.ts";
@@ -9660,7 +9660,29 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // Capital gains are taxed at their own rates and are scoped to this
     // member's own holdings — the accounts they are named holder of (WEALTH-7).
     // Another member's sale is not part of their assessment, however visible.
-    const gains = capitalGainsTaxFor(db, fy, a.member.id);
+    //
+    // TAX-FY25-1 · A year whose gains rates are not in the app is refused, not
+    // taxed at the newest year's. The refusal is shown on the page in place of
+    // the gains, so the rest of it — declarations, payments — still works.
+    let gains: GainsTax | null = null;
+    let gainsRefusal: string | null = null;
+    try {
+      gains = capitalGainsTaxFor(db, fy, a.member.id);
+    } catch (err) {
+      if (!(err instanceof Refusal)) throw err;
+      gainsRefusal = err.message;
+    }
+    // An older year with gains rates but no slabs (2024-25) shows its gains
+    // and says why there is no estimate, instead of refusing the whole page.
+    let slabsRefusal: string | null = null;
+    if (!staleRatesWarning(fy)) {
+      try {
+        assertKnownYear(fy);
+      } catch (err) {
+        if (!(err instanceof Refusal)) throw err;
+        slabsRefusal = err.message;
+      }
+    }
 
     // TAX-1 · Interest on loans this member holds for a house they live in,
     // accrued in the year from the loan's ledger — unless they gave their own.
@@ -9676,7 +9698,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     let settlement = null;
     // WEALTH-9 · Slab-rated gains are income too: a member whose only income
     // is a debt-fund gain was told to "enter a gross income" and shown nothing.
-    if ((gross > 0 || gains.addToSlabIncome > 0 || gains.specialRateTax > 0) && !staleRatesWarning(fy)) {
+    if ((gross > 0 || (gains?.addToSlabIncome ?? 0) > 0 || (gains?.specialRateTax ?? 0) > 0)
+        && !staleRatesWarning(fy) && !gainsRefusal && !slabsRefusal) {
       estimate = estimateTax(fy, gross, { ...stored, s24b }, gains);
       settlement = { old: settle(estimate.old, paid), new: settle(estimate.new, paid) };
       // TAX-3 · Section 208 tests the year's tax after TDS, not before.
@@ -9687,7 +9710,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }
 
     return {
-      fy, gross, ledgerIncome, estimate, advance, gains, fromPolicies, applyPolicies,
+      fy, gross, ledgerIncome, estimate, advance, gains, gainsRefusal, slabsRefusal, fromPolicies, applyPolicies,
       deductions: applyPolicies ? applyPolicySuggestion(stored, fromPolicies) : stored,
       homeLoan, s24bOverride: stored.s24bOverride ?? null, payments, paid, settlement,
       advanceThreshold: (ADVANCE_TAX_RULES[fy] ?? ADVANCE_TAX_RULES[2025]!).threshold,
