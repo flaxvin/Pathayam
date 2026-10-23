@@ -98,7 +98,7 @@ Three ways, and you need at least one:
 
 | | Set | Notes |
 |---|---|---|
-| Password | `LOCAL_LOGIN=1` | No external service. On a household with no members, `/auth/first-run` creates the first one and sets their password; it 404s from then on. |
+| Password | `LOCAL_LOGIN=1` | No external service. On a household with no members, `/auth/first-run` creates the first one and sets their password; it 404s from then on. Members added later get theirs through a [password link](#password-links). |
 | Any OIDC provider | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | Authelia, Authentik, Keycloak, Zitadel. One issuer URL; the endpoints are discovered from it. `OIDC_LABEL` names the button. |
 | Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Below. Needed for Gmail import whether or not it is used for sign-in. |
 
@@ -116,6 +116,45 @@ Change or set your own password at `/settings/password`. Changing an existing
 one requires the current one, so a borrowed session is not a permanent
 takeover, and signs out every other device the member is signed in on; the one
 that made the change stays signed in.
+
+### Password links
+
+Somebody added to a household that signs in with passwords alone has no
+password yet, and neither does somebody added back (removal clears it). On
+Settings, beside each such member, **Make a password link** shows a one-time
+link to send them: it opens signed out, lets them choose a password, and signs
+them in. It works once and expires after 72 hours; making another replaces it.
+The button is offered whenever password sign-in is (`LOCAL_LOGIN`, or any
+password already set) and the member has none — with Google or OIDC on as well,
+it gives them a second way in that does not depend on that service.
+
+Two cases need whoever runs the server instead, and the button says so when it
+refuses: a member who keeps private records (a private account, a personal
+budget with anything in it, saved statement details, a connected mailbox, tax
+figures), because whoever sets their password could read them; and a member
+who has forgotten the password they have. Why is in
+[security](security.md#password-links).
+
+```bash
+npm run password-link -- priya@example.com                     # dry run: who, and what would happen
+npm run password-link -- priya@example.com --execute           # make the link and print it
+npm run password-link -- priya@example.com --execute --reset   # forgotten password: clear it first
+```
+
+In the Docker image, `docker compose exec pathayam node dist/password-link.js
+priya@example.com …` with the same flags.
+
+It reads the same configuration as the app (`DATABASE_PATH` or `DATA_DIR`, and
+`BASE_URL` for the link it prints) and can run while the app does. Without
+`--execute` it changes nothing: it prints the member, whether they have a
+password, their unused links, their sessions and what they keep privately, and
+what it would do. With `--execute` it prints the same before and after, and the
+link — once; only its hash is stored. For a member who has a password,
+`--execute` alone is refused: `--reset` is what asks for that password to be
+cleared, and it signs them out on every device too (their API tokens are left
+alone — revoke those from their Settings if the password was compromised rather
+than forgotten). Exit status: 0 done or dry run, 1 refused (no such member,
+removed, a password without `--reset`), 2 a usage mistake.
 
 ## Single sign-on
 

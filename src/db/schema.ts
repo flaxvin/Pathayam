@@ -2891,4 +2891,39 @@ ALTER TABLE net_worth_snapshots ADD COLUMN owed_to_family INTEGER;
 ALTER TABLE net_worth_snapshots ADD COLUMN other_liabilities INTEGER;
 `,
   },
+  {
+    name: "0067-a-password-link-for-a-member-with-none",
+    sql: `
+--------------------------------------------------------------------------------
+-- A first password for somebody added to a household that has only passwords
+--------------------------------------------------------------------------------
+-- Inviting a member to a household with no Google or OIDC sign-in said they
+-- "can now sign in", and they could not: they had no password, setting one
+-- needs a session, and the one door that sets a password without a session
+-- (/auth/first-run) closes as soon as the household has anybody in it.
+-- Removing a member clears their password, so adding them back was the same.
+--
+-- A row is a one-time link another member (or the server's command line) made
+-- for them. Only the SHA-256 of the link's token is kept, as for sessions and
+-- API tokens: a copy of this file does not hand over a working link.
+--
+-- created_by_member_id is NULL for a link made with "npm run password-link"
+-- on the server, which may be made for somebody whose private records stop
+-- any other member making one (src/auth/setup-links.ts says why). used_at is
+-- set when the link sets a password; a link made later for the same member
+-- deletes the earlier unused ones, so at most one ever works.
+--
+-- expires_at is an IST timestamp from nowIST, compared as a string like every
+-- other one here: the same shape on both sides or the comparison means nothing.
+CREATE TABLE password_setup_links (
+  token_hash           TEXT PRIMARY KEY,
+  member_id            TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  created_by_member_id TEXT REFERENCES members(id),
+  created_at           TEXT NOT NULL,
+  expires_at           TEXT NOT NULL,
+  used_at              TEXT
+);
+CREATE INDEX idx_password_setup_links_member ON password_setup_links(member_id);
+`,
+  },
 ];

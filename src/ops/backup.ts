@@ -114,6 +114,11 @@ export const COUNTED_TABLES = [
 export const EPHEMERAL = [
   "sessions", "api_tokens", "auth_attempts", "idempotency_keys",
   "job_runs", "price_fetches",
+  // A password link (src/auth/setup-links.ts) is a credential like a session:
+  // only its hash is stored, it lives 72 hours, and it is nobody's household
+  // data. Kept out of the export with sessions and tokens, and not counted —
+  // one made or used between a backup and its check is not a lost record.
+  "password_setup_links",
   // B66 · Operational: a failed request's path and stack. Useful at 2am, not
   // household data, and it would put a stack trace in an export that travels.
   "request_failures",

@@ -177,7 +177,7 @@ export function createHttpServer(options: ServerOptions): Server {
           level: "error",
           msg: "request failed",
           method: ctx.method,
-          path: url.pathname,
+          path: redactedPath(url.pathname),
           error: err instanceof Error ? err.message : String(err),
           stack: err instanceof Error ? err.stack : undefined,
         });
@@ -188,7 +188,7 @@ export function createHttpServer(options: ServerOptions): Server {
         level: "debug",
         msg: "request",
         method: ctx.method,
-        path: url.pathname,
+        path: redactedPath(url.pathname),
         status: res.statusCode,
         ms: Date.now() - started,
       });
@@ -241,6 +241,16 @@ export function send(ctx: RequestContext, response: Response): void {
     ...response.headers,
   });
   res.end(text);
+}
+
+/**
+ * A path as it may be written down: in a log line, or in request_failures,
+ * which the Health page shows. A password link (src/auth/setup-links.ts) is
+ * the one route whose path is itself a credential, and a log is exactly the
+ * kind of copy its "shown once" rule is about. Everything else is unchanged.
+ */
+export function redactedPath(path: string): string {
+  return path.replace(/^\/auth\/setup\/[^/]+/, "/auth/setup/…");
 }
 
 export function wantsJson(ctx: RequestContext): boolean {

@@ -16,6 +16,7 @@
     "start": "node dist/main.js",
     "seed": "node --experimental-strip-types src/seed.ts",
     "demo": "node --experimental-strip-types src/demo.ts",
+    "password-link": "node --experimental-strip-types src/password-link.ts",
     "shots": "node tools/shoot.mjs",
     "icons": "node --experimental-strip-types tools/icons.mjs"
   },
