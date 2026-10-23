@@ -351,6 +351,13 @@ export const CLIENT_SCRIPT = String.raw`
   document.addEventListener("submit", function (event) {
     var form = event.target;
     if (!(form instanceof HTMLFormElement)) return;
+    // UI-PASS · A form that asks first says so in data-confirm. The CSP refuses
+    // inline handlers, so the old onsubmit="return confirm(...)" never ran and
+    // Delete and Merge went through without asking.
+    if (form.dataset.confirm && !window.confirm(form.dataset.confirm)) {
+      event.preventDefault();
+      return;
+    }
     if (form.method.toLowerCase() !== "post") return;
     if (form.dataset.noRetry === "true") return;
     if (!window.fetch) return; // Plain form post still works without JS.

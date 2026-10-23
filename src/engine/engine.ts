@@ -724,11 +724,19 @@ export function computeBuffer(
   }
 
   const days = Math.floor(assignedTotal / averageDailySpend);
+  /*
+   * UI-PASS-10 · A personal budget holding savings against a little spending
+   * read "You have 69398 days of typical spending already assigned" — an
+   * unformatted count nobody can picture. Past two years it is said in years.
+   */
+  const span = days >= 730
+    ? `more than ${Math.floor(days / 365).toLocaleString("en-IN")} years`
+    : `${days} ${days === 1 ? "day" : "days"}`;
   return {
     days,
     assignedTotal,
     averageDailySpend,
-    reading: `You have ${days} days of typical spending already assigned.`,
+    reading: `You have ${span} of typical spending already assigned.`,
   };
 }
 

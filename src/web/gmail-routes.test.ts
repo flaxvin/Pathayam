@@ -49,4 +49,55 @@ describe("Gmail when Google refuses", () => {
       await app.close();
     }
   });
+
+  /*
+   * DEBUG-WEB-7 · Google out of reach is not this server failing. A refused
+   * connection, or a captive portal answering the token endpoint with HTML,
+   * reached the generic 500 page and the health page's fault list.
+   */
+  for (const [name, impl] of [
+    ["the token endpoint unreachable", (async () => { throw new TypeError("fetch failed"); }) as typeof fetch],
+    ["the token endpoint answering HTML", (async () => new Response("<html>portal</html>", { status: 200 })) as typeof fetch],
+    ["the Gmail API unreachable", (async (url: string | URL | Request) => {
+      if (String(url).includes("oauth2")) return Response.json({ access_token: "at", expires_in: 3600 });
+      throw new TypeError("fetch failed");
+    }) as typeof fetch],
+    ["the Gmail API answering 503", (async (url: string | URL | Request) => {
+      if (String(url).includes("oauth2")) return Response.json({ access_token: "at", expires_in: 3600 });
+      return new Response("busy", { status: 503 });
+    }) as typeof fetch],
+  ] as const) {
+    test(`fetching with ${name} says Google could not be reached, and is not a fault`, async () => {
+      const db = freshDb();
+      seedMember(db, "m-ravi", "Ravi");
+      saveConnection(db, { memberId: "m-ravi", source: "ui" }, {
+        email: "m-ravi@example.com", refreshToken: "rt", scope: "gmail.readonly",
+      });
+      const app = await startTestApp(db, { memberId: "m-ravi", config: { google: GOOGLE }, fetchImpl: impl });
+      try {
+        const res = await app.post("/gmail/fetch", {});
+        assert.equal(res.status, 502);
+        assert.match(await res.text(), /reach Google/);
+        assert.deepEqual(app.failures, []);
+      } finally {
+        await app.close();
+      }
+    });
+  }
+
+  test("a callback with the token endpoint unreachable is not a fault", async () => {
+    const db = freshDb();
+    seedMember(db, "m-ravi", "Ravi");
+    const down = (async () => { throw new TypeError("fetch failed"); }) as typeof fetch;
+    const app = await startTestApp(db, { memberId: "m-ravi", config: { google: GOOGLE }, fetchImpl: down });
+    try {
+      const start = await app.get("/gmail/connect");
+      const state = new URL(start.headers.get("location")!).searchParams.get("state")!;
+      const res = await app.get(`/gmail/callback?state=${state}&code=x`);
+      assert.equal(res.status, 502);
+      assert.deepEqual(app.failures, []);
+    } finally {
+      await app.close();
+    }
+  });
 });

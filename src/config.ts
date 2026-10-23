@@ -105,6 +105,22 @@ const LOG_LEVELS = ["debug", "info", "warn", "error"] as const;
  * line was logged in production. Case is forgiven; anything else stops the
  * process with the list of what it takes, rather than guessing what was meant.
  */
+/**
+ * DEBUG-WEB-9 · How long a session lasts, in days. 3,000,000 put the expiry
+ * past year 9999, where its date string sorts before today and every session
+ * expired on arrival; 99,999,999 threw at sign-in. Anything outside 1–3650 —
+ * or not a whole number — stops the process rather than being guessed at.
+ */
+const MAX_SESSION_DAYS = 3650;
+function sessionDays(value: string | undefined): number {
+  if (value === undefined || value.trim() === "") return 30;
+  const n = Number(value.trim());
+  if (Number.isInteger(n) && n >= 1 && n <= MAX_SESSION_DAYS) return n;
+  throw new InvalidConfiguration(
+    `SESSION_DAYS is '${value}'; use a whole number of days from 1 to ${MAX_SESSION_DAYS} (ten years).`,
+  );
+}
+
 function logLevel(value: string | undefined, environment: Config["environment"]): Config["logLevel"] {
   if (value === undefined || value.trim() === "") return environment === "production" ? "info" : "debug";
   const level = value.trim().toLowerCase();
@@ -142,7 +158,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     devLogin: bool(env.DEV_LOGIN, false),
     demoMode: bool(env.DEMO_MODE, false),
     adminDebug: bool(env.ADMIN_DEBUG, false),
-    sessionDays: int(env.SESSION_DAYS, 30), // Q22
+    sessionDays: sessionDays(env.SESSION_DAYS), // Q22
     alphaVantageKey: env.ALPHA_VANTAGE_KEY || null,
     features: {
       loans: bool(env.FEATURE_LOANS, true),

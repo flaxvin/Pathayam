@@ -175,24 +175,13 @@ function renderLoanCard(
         </p>
       `)}
 
-      ${when(p.driftMaterial && p.driftAmount !== null, () => html`
-        <p class="notice notice-warning">
-          The lender's statement of ${formatDate(p.driftAsOf!)} differs from this app by
-          ${formatPaise(Math.abs(p.driftAmount!))} — the app is
-          ${p.driftAmount! > 0 ? "higher" : "lower"}.
-          Common and legitimate causes: a mid-cycle rate reset, value-date versus
-          due-date differences, part-month interest on the first instalment,
-          rounding conventions, or fees added to principal.
-          <a href="/loans/${p.loan.id}/statement">Resolve it</a>
-        </p>
-      `)}
+      ${driftNotice(p)}
 
       <div class="row" style="gap:2rem;flex-wrap:wrap;margin-top:.5rem">
         ${figure("Monthly", p.preEmi ?? p.emi)}
         ${figure("Interest paid so far", p.metrics.interestPaid, "actual")}
         ${figure("Interest still to pay", p.schedule.totalInterest, "projected")}
-        ${when(p.metrics.interestSaved !== 0, () =>
-          figure("Interest saved", p.metrics.interestSaved, "projected"))}
+        ${when(p.metrics.interestSaved !== 0, () => interestSavedFigure(p))}
       </div>
 
       ${moratoriumNotice(p)}
@@ -212,6 +201,42 @@ function renderLoanCard(
  * household goes to read about the loan, showed neither the moratorium state
  * nor the capitalisation warning that makes M4 expensive.
  */
+/**
+ * The lender's latest statement against the app's figure. UI-PASS-5: it was on
+ * the loans list only, so "Statement recorded." landed on the loan's own page
+ * with no sign of what the statement had found.
+ */
+function driftNotice(p: LoanProjection, opts: { confirmMatch?: boolean } = {}): SafeHtml {
+  if (p.driftAmount === null || p.driftAsOf === null) return html``;
+  if (!p.driftMaterial) {
+    return opts.confirmMatch
+      ? html`<p class="notice notice-success">The lender's statement of ${formatDate(p.driftAsOf)} matches this app.</p>`
+      : html``;
+  }
+  return html`
+    <p class="notice notice-warning">
+      The lender's statement of ${formatDate(p.driftAsOf)} differs from this app by
+      ${formatPaise(Math.abs(p.driftAmount))} — the app is
+      ${p.driftAmount > 0 ? "higher" : "lower"}.
+      Common and legitimate causes: a mid-cycle rate reset, value-date versus
+      due-date differences, part-month interest on the first instalment,
+      rounding conventions, or fees added to principal.
+      <a href="/loans/${p.loan.id}/statement">Resolve it</a>
+    </p>
+  `;
+}
+
+/**
+ * UI-PASS-7 · Against the original schedule a loan can cost more, not less — a
+ * rate rise, a moratorium, a part-drawn home loan's pre-EMI. "Interest saved
+ * −₹41,725.94" asked the reader to undo a double negative; say it plainly.
+ */
+function interestSavedFigure(p: LoanProjection): SafeHtml {
+  return p.metrics.interestSaved < 0
+    ? figure("Extra interest", Math.abs(p.metrics.interestSaved) as Paise, "projected")
+    : figure("Interest saved", p.metrics.interestSaved, "projected");
+}
+
 function moratoriumNotice(p: LoanProjection): SafeHtml {
   return when(p.moratorium !== null, () => html`
     <p class="notice ${p.moratorium!.capitalised ? "notice-warning" : "notice-info"}"
@@ -502,6 +527,7 @@ export function renderLoanDetail(opts: {
         </p>
       `)}
       ${moratoriumNotice(p)}
+      ${driftNotice(p, { confirmMatch: true })}
     </section>
 
     ${loanBalanceSection(p)}
@@ -513,7 +539,7 @@ export function renderLoanDetail(opts: {
         ${figure("Interest paid", p.metrics.interestPaid, "actual")}
         ${figure("Interest projected", p.metrics.interestProjected, "projected")}
         ${figure("If nothing had changed", p.metrics.baselineInterest, "projected")}
-        ${figure("Interest saved", p.metrics.interestSaved, "projected")}
+        ${interestSavedFigure(p)}
       </div>
       ${when(p.metrics.savedByRateMovement !== 0, () => html`
         <p class="field-hint">

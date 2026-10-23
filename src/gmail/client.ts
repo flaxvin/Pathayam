@@ -17,6 +17,40 @@ export class GmailApiError extends Error {
   }
 }
 
+/**
+ * DEBUG-WEB-7 · Google could not be reached, or answered with something that
+ * is not its API: a refused connection, a timeout, a captive portal's HTML, a
+ * 5xx. Upstream trouble the household can only retry, not a fault here.
+ */
+export class GoogleUnreachable extends Error {
+  constructor(message = "Could not reach Google just now. Try again in a minute.") {
+    super(message);
+    this.name = "GoogleUnreachable";
+  }
+}
+
+/** `doFetch(...)` then `.json()`, with network and parse failures said as GoogleUnreachable. */
+export async function reachGoogle(
+  doFetch: typeof fetch, url: string, init: RequestInit,
+  refused: (response: Response) => Error,
+): Promise<unknown> {
+  let response: Response;
+  try {
+    response = await doFetch(url, init);
+  } catch {
+    throw new GoogleUnreachable();
+  }
+  if (response.status >= 500) throw new GoogleUnreachable();
+  if (!response.ok) throw refused(response);
+  try {
+    return await response.json();
+  } catch {
+    throw new GoogleUnreachable(
+      "Could not reach Google just now — what answered was not Google. Try again in a minute.",
+    );
+  }
+}
+
 export interface GmailHeader { name: string; value: string }
 
 export interface GmailPart {
@@ -40,14 +74,11 @@ export interface GmailClientOptions {
 }
 
 async function get(path: string, opts: GmailClientOptions): Promise<unknown> {
-  const doFetch = opts.fetchImpl ?? fetch;
-  const response = await doFetch(`${API}${path}`, {
-    headers: { Authorization: `Bearer ${opts.accessToken}` },
-  });
-  if (!response.ok) {
-    throw new GmailApiError(`Gmail API returned ${response.status}.`, response.status);
-  }
-  return response.json();
+  return reachGoogle(
+    opts.fetchImpl ?? fetch, `${API}${path}`,
+    { headers: { Authorization: `Bearer ${opts.accessToken}` } },
+    (response) => new GmailApiError(`Gmail API returned ${response.status}.`, response.status),
+  );
 }
 
 /**
