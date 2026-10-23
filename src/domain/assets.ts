@@ -909,7 +909,13 @@ export function viewHolding(
       : fxRate(db, instrument.currency, baseCurrency, asOf);
 
   const rate = fx?.rate ?? 1;
+  /*
+   * DEBUG-ASSETS-1 · With no price, the units are worth what they cost — and
+   * averageCost is already in base currency, so it is not converted again.
+   * Converting it valued $1,000 bought at 83 as ₹68,89,000.
+   */
   const unitPrice = quote?.price ?? averageCost(holding);
+  const valueRate = quote ? rate : 1;
 
   const events = queryAll<{ kind: string; date: IsoDate; realised_gain: number | null; amount: number | null }>(
     db, `SELECT kind, date, realised_gain, amount FROM holding_events WHERE holding_id = ?`, holdingId,
@@ -925,7 +931,7 @@ export function viewHolding(
   // WEALTH-25 · Dividends are money back (or, reinvested, not money in).
   const cashFlows = holding.lots.length > 0
     ? holdingCashFlows(
-        holding, unitPrice, asOf, rate,
+        holding, unitPrice, asOf, valueRate,
         events
           .filter((e) => e.kind === "dividend" || e.kind === "dividend-reinvested")
           .map((e) => ({ date: e.date, amount: e.amount ?? 0, reinvested: e.kind === "dividend-reinvested" })),
@@ -957,9 +963,9 @@ export function viewHolding(
     averageUnitPrice: averageUnitPrice(holding),
     quote,
     fx,
-    marketValue: marketValue(holding, unitPrice, rate),
-    unrealisedGain: unrealisedGain(holding, unitPrice, rate),
-    absoluteReturn: absoluteReturn(holding, unitPrice, rate),
+    marketValue: marketValue(holding, unitPrice, valueRate),
+    unrealisedGain: unrealisedGain(holding, unitPrice, valueRate),
+    absoluteReturn: absoluteReturn(holding, unitPrice, valueRate),
     xirr: cashFlows.length > 0 ? xirr(cashFlows) : null,
     cashFlows,
     realisedGain,
