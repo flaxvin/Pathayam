@@ -141,8 +141,11 @@ export function formatCompact(amount: Paise): string {
   const r = abs / RUPEE;
   const sign = negative ? "-" : "";
 
-  if (r >= 1_00_00_000) return `${sign}₹${trimZeros(r / 1_00_00_000)}Cr`;
-  if (r >= 1_00_000) return `${sign}₹${trimZeros(r / 1_00_000)}L`;
+  // A unit is chosen by what the smaller one would print, to two decimals:
+  // ₹99,999.99 is "₹1L", not "₹100K" (DEBUG-ASSETS-4).
+  const shown = (unit: number) => Math.round((r / unit) * 100) / 100;
+  if (shown(1_00_000) >= 100) return `${sign}₹${trimZeros(r / 1_00_00_000)}Cr`;
+  if (shown(1_000) >= 100) return `${sign}₹${trimZeros(r / 1_00_000)}L`;
   if (r >= 1_000) return `${sign}₹${trimZeros(r / 1_000)}K`;
   return formatPaise(amount);
 }
