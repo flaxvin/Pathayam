@@ -50,6 +50,11 @@ Fields by subtype:
   the point of them being tracking accounts: interest credited to a deposit is a
   transaction, and the balance moves with it. A stated figure would override the
   balance (B56) and silently stop the interest counting from that moment on.
+  The exception is a deposit given its **terms** (principal or instalment, rate,
+  compounding, start, maturity): it values itself from them instead of from its
+  balance, and then accepts a hand valuation, which wins when dated on or after
+  the terms' basis date. See
+  [a deposit that values itself](loans-and-assets.md#a-deposit-that-values-itself).
   Hand-valued subtypes — `physical`, `commodity`, `retirement` — are the ones
   with no balance to count, and they are revalued on `/portfolio/valuations` or
   `/portfolio/asset/:id/revalue`.

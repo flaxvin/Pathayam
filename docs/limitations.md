@@ -72,6 +72,7 @@ an "Other asset" tracking account instead.
 
 **Tax deducted at source is not modelled.** The computed value is gross.
 
+## Tax
 
 **It is an estimate, not a return.** Arithmetic on figures the person enters,
 under the slabs the app carries. It files nothing, it is not advice, and it is
@@ -147,6 +148,24 @@ A gain is the account holder's: a member's estimate takes sales from the
 accounts they are named holder of, whoever else can see them. A sale in an
 account with no holder is the sole member's in a one-member household and is
 otherwise reported as unplaced until a holder is named.
+Listed bonds held more than 12 months are taxed at 12.5% under 112 with no
+indexation; an unlisted bond, or one whose listing has not been recorded, is
+taxed at slab rates whatever the holding period (s50AA), because guessing
+"listed" would understate the tax. Bonds are marked listed on the instrument.
+
+**FY 2024-25 is split at the sale date.** The Finance (No. 2) Act 2024 changed
+the rates part-way through the year, so a sale is taxed by the rules in force
+on the day it was made. Before 23-07-2024: 15% under 111A, 10% under 112A and
+20% with indexation under 112, with gold, fund units and listed units other
+than equity long-term only after 36 months. From 23-07-2024: 20%, 12.5% and
+12.5% without indexation. The ₹1,25,000 112A exemption applies to the whole
+year, on either side of the date. A gain held long and sold before the date
+that would take indexation under 112 — a listed bond's included — is reported
+as not computed rather than taxed: the app does not carry the cost inflation
+index and will not invent one. The gains rates are keyed by year like the
+slabs; a sale in a year the app has no rates for (it has 2024-25 to 2026-27)
+is refused rather than given another year's.
+
 Losses are floored at zero per bucket rather than set off between heads, so a
 year with losses is overstated. The gains are measured against the rest of the
 person's income the way the Act does it: the 87A ceiling and the surcharge
@@ -158,7 +177,7 @@ all; and the surcharge on special-rate tax stops at 15%. The basic-exemption
 adjustment assumes a resident under 60 — the old regime's ₹3,00,000 and
 ₹5,00,000 senior limits are not modelled, so a senior's figure is overstated.
 
-**Nothing is derived from the ledger except a starting figure.** Income is
+**Income is not derived from the ledger, only prefilled.** Income is
 prefilled from money that arrived in visible budget accounts, which is not
 taxable income — it misses a salary paid elsewhere and includes receipts that
 are not income at all. Deductions are entered, never inferred. The standard
@@ -218,10 +237,14 @@ present after layout. Approaches evaluated and rejected are recorded in
 **Scanned statements cannot be read.** A PDF with no extractable text is
 refused with an explanation. Use the bank's CSV.
 
-**Four banks require a detail beyond name, date of birth and PAN** to derive a
-statement password: SBI account statements need the registered mobile; SBI Card
-and Canara need the card's last four digits; HSBC needs its last six. Without
-them the file cannot be opened, and the interface says which is missing.
+**Some banks require a detail beyond name, date of birth and PAN** to derive a
+statement password: SBI account statements need the registered mobile (its
+last five digits); SBI Card and Canara need the card's last four, recorded on
+the account; HSBC needs the card's last six, saved in Settings; Axis and HDFC
+account statements need the customer ID, saved in Settings; ESAF needs the
+registered mobile (its last four). Without them the file cannot be opened. For
+each of these but ESAF, which the app does not recognise as a bank, the
+interface — Gmail import's notice included — says which detail is missing.
 
 **Importing from YNAB or Actual Budget brings transactions only.** Budget
 assignments, goals and targets are not read: they were worked out against the
@@ -242,7 +265,8 @@ logins.
 bodies. iOS does not permit reading SMS at all.
 
 **Gmail ingestion is opt-in and read-only**, restricted to recognised sender
-addresses. It cannot be tested automatically because it requires a live grant.
+addresses. The fetch loop is tested against a stubbed Gmail; against Google
+itself it cannot be tested automatically, because that requires a live grant.
 
 ## Offline and sync
 

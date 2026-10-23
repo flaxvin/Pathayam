@@ -64,7 +64,7 @@ answer 404 when the viewer may not see the entity
 | `GET /reports` | Income vs spend, category trends, tag spend, spending calendar, Sankey, loan interest by financial year, realised gains by financial year. |
 | `GET /query`, `GET /query.csv` | Filterable, groupable transaction table. Totals cover every matching row. Transfers and a loan's own ledger rows are left out, so an EMI is counted once, where the money moved; filter on the loan's account to see its rows. |
 | `GET /search` | Everything from one box. |
-| `GET /net-worth`, `GET /net-worth.csv` | Decomposition and dated history. |
+| `GET /net-worth`, `GET /net-worth.csv` | Statement groups, the change breakdown (adds up to the total), and dated history. |
 | `GET /household` | Per-member standing, commitments, squaring up. |
 | `POST /household/pick-up`, `/call-it-even` | Settle a lopsided month. |
 | `GET /activity` | Every change, with undo. |
@@ -105,6 +105,7 @@ answer 404 when the viewer may not see the entity
 | `GET` and `POST /portfolio/:id/sell`, `/portfolio/:id/split`, `/portfolio/:id/merge`, `/portfolio/:id/price` | Sell, split, merge, record a manual price. |
 | `POST /portfolio/add` | Buy: opens or adds to a holding. |
 | `POST /portfolio/instrument/:id/classify` | Set asset class and region. |
+| `POST /portfolio/instrument/:id/listed` | Whether a bond is listed on an exchange, from its holding page; decides its capital gains rate. |
 | `GET /portfolio/allocation` | By class, region and currency. |
 | `GET /portfolio/valuations`, `POST` | Update every hand-valued account in one pass. |
 | `GET /portfolio/asset/new`, `GET /portfolio/asset/:id/revalue` and their `POST`s | |
@@ -117,7 +118,7 @@ answer 404 when the viewer may not see the entity
 
 | Route | Purpose |
 |---|---|
-| `GET`/`POST /tax` | Income tax estimate for the signed-in member, per financial year (`fy`). Both regimes side by side, 80C/80D/HRA, home loan interest under 24(b) carried from loans marked as for a house lived in (with an override), TDS, the balance to pay or refund under each regime, and the advance-tax instalments with what has been paid against each. Refuses a year whose rates the app does not carry. |
+| `GET`/`POST /tax` | Income tax estimate for the signed-in member, per financial year (`fy`). Both regimes side by side, 80C/80D/HRA, home loan interest under 24(b) carried from loans marked as for a house lived in (with an override), TDS, the balance to pay or refund under each regime, and the advance-tax instalments with what has been paid against each. Capital gains for 2024-25 are split by sale date at 23-07-2024. Refuses a year whose rates the app does not carry. |
 | `POST /tax/payments`, `/tax/payments/:id/delete` | Record or remove an advance or self-assessment tax payment of the member's own. |
 
 ## Financial independence
@@ -130,7 +131,7 @@ answer 404 when the viewer may not see the entity
 
 | Route | Purpose |
 |---|---|
-| `GET /settings` | Household, theme, members, devices, Gmail, statement identity, notifications, API tokens. |
+| `GET /settings` | Household, theme, members, devices, Gmail, statement identity (including the Axis and HDFC customer IDs and an HSBC card's last six, shown masked), notifications, API tokens. |
 | `POST /settings/theme`, `POST /settings/theme-toggle` | |
 | `POST /settings/overspend-model`, `/settings/identity`, `/settings/digest`, `/settings/learning` | |
 | `POST /members/invite`, `GET` and `POST /members/:id/remove` | |

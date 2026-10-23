@@ -13,7 +13,7 @@
 | `sessions` | `id`, `member_id`, `expires_at`, `revoked_at`, `impersonating_member_id`, `impersonation_writes`, `impersonation_expires_at` | Token stored as a SHA-256 hash in `id`. |
 | `api_tokens` | `id`, `member_id`, `name`, `token_hash`, `scope`, `expires_at`, `revoked_at`, `last_used_at` | `scope` is `read` or `read-write`. |
 | `auth_attempts` | `source`, `at`, `outcome`, `detail` | Drives sign-in rate limiting. |
-| `statement_identity` | `member_id`, `name`, `pan`, `dob`, `mobile` | Used only to derive statement passwords. Excluded from every export. |
+| `statement_identity` | `member_id`, `name`, `pan`, `dob`, `mobile`, `customer_ids` | Used only to derive statement passwords. Excluded from every export. `customer_ids` (0060) is JSON: the Axis and HDFC customer IDs, and the HSBC card's last six digits (`{"axis":…,"hdfc":…,"hsbcCardLast6":…}`). |
 | `gmail_connections` | `member_id`, `email`, `refresh_token`, `scope`, `last_history_id` | Excluded from every export. |
 
 ## Accounts and money
@@ -52,7 +52,7 @@ A unique index on `transactions(account_id, source, source_id)` where
 | Table | Key columns | Notes |
 |---|---|---|
 | `import_batches` | `id`, `source`, `adapter`, `account_id`, `file_name`, `rows_read`, `created_count`, `duplicate_count`, `auto_approved_count`, `error_count`, `errors_json`, `undone_at` | A batch can be undone as a unit. |
-| `staged_transactions` | `id`, `batch_id`, `account_id`, `row_number`, `date`, `amount`, `raw_*`, `source_id`, `proposed_payee`, `category_id`, `applied_rules_json`, `duplicate_of_id`, `duplicate_tier`, `duplicate_reason`, `transfer_account_id`, `splits_json`, `status`, `transaction_id` | `status` ∈ `pending`, `approved`, `merged`, `rejected`. `transfer_account_id` and `splits_json` (0064) are what a YNAB or Actual Budget export proposed: the account on the other side of a transfer, and split lines `[{categoryId, amount, memo}]` summing to `amount`. |
+| `staged_transactions` | `id`, `batch_id`, `account_id`, `row_number`, `date`, `amount`, `raw_*`, `source_id`, `proposed_payee`, `category_id`, `applied_rules_json`, `duplicate_of_id`, `duplicate_tier`, `duplicate_reason`, `transfer_account_id`, `splits_json`, `status`, `transaction_id` | `status` ∈ `pending`, `approved`, `merged`, `rejected`. `transfer_account_id` and `splits_json` (0062) are what a YNAB or Actual Budget export proposed: the account on the other side of a transfer, and split lines `[{categoryId, amount, memo}]` summing to `amount`. |
 | `import_profiles` | `id`, `name`, `account_id`, `header_signature`, `mapping_json`, `last_used_at` | Column mapping recognised by header signature. |
 | `rules` | `id`, `name`, `stage`, `conditions_json`, `actions_json`, `enabled`, `proposed`, `dismissed_at`, `times_applied`, `because`, `strength` | `proposed = 1` is a suggestion awaiting confirmation. |
 | `rule_applications` | `transaction_id`, `rule_id`, `at` | |
@@ -62,7 +62,7 @@ A unique index on `transactions(account_id, source, source_id)` where
 
 | Table | Key columns | Notes |
 |---|---|---|
-| `loans` | `id`, `account_id`, `lender`, `loan_type`, `sanctioned`, `sanction_date`, `interest_model`, `benchmark`, `tenure_months`, `original_tenure_months`, `first_instalment_date`, `instalment_day`, `repayment_account_id`, `payment_category_id`, `moratorium_months`, `card_id`, `converted_from_transaction_id`, `property_use`, `closed_at` | `property_use` (0061) is `self-occupied`, `let-out` or null: whether the loan's interest goes into its holder's tax estimate under 24(b). |
+| `loans` | `id`, `account_id`, `lender`, `loan_type`, `sanctioned`, `sanction_date`, `interest_model`, `benchmark`, `tenure_months`, `original_tenure_months`, `first_instalment_date`, `instalment_day`, `repayment_account_id`, `payment_category_id`, `moratorium_months`, `card_id`, `converted_from_transaction_id`, `property_use`, `closed_at` | `property_use` (0064) is `self-occupied`, `let-out` or null: whether the loan's interest goes into its holder's tax estimate under 24(b). |
 | `loan_rates` | `id`, `loan_id`, `effective_from`, `annual_rate_pct` | Rate history; the schedule is recomputed from it. |
 | `loan_payments` | `id`, `loan_id`, `date`, `amount`, `principal`, `interest`, `estimated`, `kind`, `transaction_id`, `loan_transaction_id` | `kind` distinguishes instalments from prepayments. `transaction_id` is the payment from the paying account; `loan_transaction_id` is the credit it wrote on the loan's own account (the principal only). A zero-amount `charge` with a negative principal raises the outstanding: a re-anchor (no loan-account leg) or a capitalised moratorium's interest added at the first EMI (with one). |
 | `loan_disbursements` | `id`, `loan_id`, `date`, `amount`, `destination`, `destination_account_id` | For tranche-drawn loans. |
@@ -74,8 +74,8 @@ A unique index on `transactions(account_id, source, source_id)` where
 
 | Table | Key columns | Notes |
 |---|---|---|
-| `tax_declarations` | `member_id`, `fy`, `gross`, `s80c`, `s80d`, `s80d_senior`, `s80d_parents`, `s80d_parents_senior`, `s80d_checkup`, `s80d_parents_checkup`, `other`, `hra_*`, `s24b_override`, `tds` | One per member per financial year. `s24b_override` null uses the interest accrued on the member's self-occupied home loans; `tds` is the year's total from Form 16 or 26AS. |
-| `tax_payments` | `id`, `member_id`, `fy`, `kind`, `date`, `amount`, `note` | Advance (`advance`) or self-assessment (`self-assessment`) tax paid, one row a challan (0061). A member's own; no event is written, as for a declaration. |
+| `tax_declarations` | `member_id`, `fy`, `gross`, `s80c`, `s80d`, `s80d_senior`, `s80d_parents`, `s80d_parents_senior`, `s80d_checkup`, `s80d_parents_checkup`, `other`, `hra_*`, `s24b_override`, `tds` | One per member per financial year. `s24b_override` and `tds` were added in 0064. `s24b_override` null uses the interest accrued on the member's self-occupied home loans; `tds` is the year's total from Form 16 or 26AS. |
+| `tax_payments` | `id`, `member_id`, `fy`, `kind`, `date`, `amount`, `note` | Advance (`advance`) or self-assessment (`self-assessment`) tax paid, one row a challan (0064). A member's own; no event is written, as for a declaration. |
 
 ## Assets
 
@@ -88,7 +88,7 @@ A unique index on `transactions(account_id, source, source_id)` where
 | `prices`, `price_fetches` | `instrument_id`, `as_of`, `price`, `source`; fetch outcomes | |
 | `fx_rates` | `base`, `quote`, `as_of`, `rate`, `source` | |
 | `asset_valuations` | `id`, `account_id`, `as_of`, `value`, `note` | Hand-valued accounts. Dated history, not a mutable number. |
-| `deposit_terms` | `account_id`, `kind`, `principal`, `instalment`, `rate_bp`, `compounding`, `start_date`, `maturity_date`, `payout`, `basis_date` | One row per deposit account (0060). `kind` ∈ `fd`, `rd`, `ppf`, `epf`, `other`; `rate_bp` is the annual rate in basis points; `basis_date` is the day the terms were last saved. The account's value is computed from it, not stored. |
+| `deposit_terms` | `account_id`, `kind`, `principal`, `instalment`, `rate_bp`, `compounding`, `start_date`, `maturity_date`, `payout`, `basis_date` | One row per deposit account (0063). `kind` ∈ `fd`, `rd`, `ppf`, `epf`, `other`; `rate_bp` is the annual rate in basis points; `basis_date` is the day the terms were last saved. The account's value is computed from it, not stored. |
 | `net_worth_snapshots` | `as_of`, `cash`, `investments`, `other_assets`, `credit_cards`, `loans`, `owed_to_family`, `other_liabilities`, `net_worth`, `worst_price_date` | One column per statement group. `owed_to_family` and `other_liabilities` (0066) are NULL on rows written before them; a change starting from such a row shows what they hide as one balancing "Other" line. |
 
 ## Scheduling and operations

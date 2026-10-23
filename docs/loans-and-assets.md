@@ -312,6 +312,12 @@ so a second purchase typed by hand adds a lot to the same holding. A holding's
 **Buy more** and a scheme chosen from the search both carry the instrument to
 the purchase form instead.
 
+A bond carries a **listed** flag (`instruments.listed`, migration 0065), set
+from its holding page. It decides the tax on a sale: a listed bond held more
+than 12 months is taxed at 12.5% under 112; an unlisted bond, or one whose
+listing has never been recorded, at slab rates — see
+[limitations](limitations.md#tax).
+
 A `holding` is one instrument in one asset account. Its units and cost come from
 `lots`, which are FIFO.
 
@@ -397,7 +403,9 @@ A reinvested dividend is not new money — its units are return, not a purchase.
 Realised gains are reported by financial year and split by holding period, which
 is what Indian capital gains treatment requires. The holding period is counted in
 calendar months ("more than 12 months"), not days, by the same test the tax
-estimate and the sale preview use.
+estimate and the sale preview use. In 2024-25 the rates and holding periods
+changed on 23-07-2024, so each sale that year is placed by the rules in force
+on its own sale date.
 
 ### CAS import
 
@@ -408,7 +416,8 @@ holdings, which are new, and where units disagree.
 ## Net worth
 
 ```
-net worth = cash + investments + other assets − credit cards − loans
+net worth = cash + investments + other assets
+             − credit cards − loans − owed to family − other liabilities
 ```
 
 - **Cash**: budget accounts at working balance, and any credit card in credit
@@ -417,6 +426,10 @@ net worth = cash + investments + other assets − credit cards − loans
 - **Other assets**: hand-valued tracking accounts at their latest valuation.
 - **Credit cards**: outstanding balances.
 - **Loans**: outstanding principal.
+- **Owed to family**: money borrowed from family and friends, at the balance
+  derived from its tracking account. (Money lent to them is an other asset.)
+- **Other liabilities**: plain tracking accounts whose balance is negative — an
+  "other liability", say — at that balance.
 
 Every line carries the date of its oldest input, and the statement reports the
 worst of those. Snapshots are written to `net_worth_snapshots` at month close
@@ -432,6 +445,17 @@ date is not unwound.
 
 Totals are computed per viewer: an account a member cannot see is excluded from
 the total shown to them, not merely from the list.
+
+**What changed** between two snapshots is broken into seven parts that add up
+to the change in the total: money saved (cash added plus what was put into
+holdings, net of what came out), market movement, exchange rate, debt repaid
+(principal cleared on cards and loans), other assets (hand-valued assets
+revalued, deposits grown, money lent), owed to family repaid, and other
+liabilities repaid. Snapshots written before migration 0066 did not record the
+last two groups. Where either snapshot is that old, those two parts are
+replaced by one balancing line, "Other (not recorded before …)", dated from
+when recording began, so the parts still sum to the total rather than guess
+what was owed then.
 
 ## When the ledger and the figure disagree
 

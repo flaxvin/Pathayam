@@ -1,7 +1,7 @@
 # Seven proposals, sized
 
 An assessment of seven requested features against the code as it stands on
-2026-09-20, at commit `85a1075`. Nothing here is built. Each entry says what the
+2026-09-20, at commit `85a1075`. Nothing here was built then; §3 has been since. Each entry says what the
 feature means *in this app* rather than in general, what it touches, where the
 difficulty actually is, and what it would cost.
 
