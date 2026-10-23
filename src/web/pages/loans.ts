@@ -188,8 +188,11 @@ function renderLoanCard(
 
       <div class="row" style="flex-wrap:wrap;margin-top:.75rem">
         <a class="button button-small" href="/loans/${loan.id}">Schedule</a>
-        <a class="button button-small" href="/loans/${loan.id}/pay">Record an instalment</a>
-        <a class="button button-small button-primary" href="/loans/${loan.id}/prepay">Prepay</a>
+        <!-- UI-PASS-13 · A closed loan refuses all three; it offers none. -->
+        ${when(!loan.closed_at, () => html`
+          <a class="button button-small" href="/loans/${loan.id}/pay">Record an instalment</a>
+          <a class="button button-small button-primary" href="/loans/${loan.id}/prepay">Prepay</a>
+        `)}
       </div>
     </section>
   `;
@@ -401,9 +404,11 @@ export function renderLoanDetail(opts: {
         ${when((opts.members ?? []).length > 1, () => html`
           <a class="button" href="#edit">Whose it is</a>
         `)}
-        <a class="button" href="/loans/${loan.id}/pay">Record an instalment</a>
-        <a class="button" href="/loans/${loan.id}/rate">Rate change</a>
-        <a class="button button-primary" href="/loans/${loan.id}/prepay">Prepay</a>
+        ${when(!loan.closed_at, () => html`
+          <a class="button" href="/loans/${loan.id}/pay">Record an instalment</a>
+          <a class="button" href="/loans/${loan.id}/rate">Rate change</a>
+          <a class="button button-primary" href="/loans/${loan.id}/prepay">Prepay</a>
+        `)}
       </div>
     </div>
 
@@ -578,7 +583,7 @@ export function renderLoanDetail(opts: {
       </section>
     `)}
 
-    ${when(p.undrawn > 0, () => html`
+    ${when(p.undrawn > 0 && !loan.closed_at, () => html`
       <section class="card">
         <h2>Record a disbursement</h2>
         <p class="faint" style="margin-top:-.25rem">
