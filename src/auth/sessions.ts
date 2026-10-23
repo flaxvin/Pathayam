@@ -144,6 +144,12 @@ export function removeMember(db: DB, actor: Actor, id: string): void {
      * reset state), so deleting it is the whole credential and nothing else.
      */
     execute(db, `DELETE FROM member_passwords WHERE member_id = ?`, id);
+    /*
+     * And any password link made for them and not yet used. Removal is the
+     * end of every way in; a link made last week and still sitting in a chat
+     * must not come back to life when somebody adds the address back.
+     */
+    execute(db, `DELETE FROM password_setup_links WHERE member_id = ? AND used_at IS NULL`, id);
     appendEvent(db, actor, {
       entity: "member", entityId: id, action: "remove", before, after: getMember(db, id),
       summary: `Removed ${before.name} from the household`,

@@ -47,7 +47,7 @@ import { fetchGmail } from "./gmail/fetch.ts";
 import { GoogleUnreachable } from "./gmail/client.ts";
 import { withIdempotency, IdempotencyConflict } from "./core/idempotency.ts";
 import { parseAmount, evaluateAmountExpression, formatPaise, type Paise } from "./core/money.ts";
-import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, formatDate, lastDayOfMonth, daysBetween, fiscalYearOf, formatFiscalYear, statementPeriodOf, type MonthKey, type IsoDate, type WeekdayOrdinal } from "./core/dates.ts";
+import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, formatDate, formatDateTime, lastDayOfMonth, daysBetween, fiscalYearOf, formatFiscalYear, statementPeriodOf, type MonthKey, type IsoDate, type WeekdayOrdinal } from "./core/dates.ts";
 import { buildBudgetView, reviewCount } from "./web/viewmodel.ts";
 import { renderBudget } from "./web/pages/budget.ts";
 import {
@@ -189,6 +189,10 @@ import { Refusal } from "./core/refusal.ts";
 import {
   checkPassword, checkAbsentPassword, setPassword, anyPasswordSet, hasPassword,
 } from "./auth/passwords.ts";
+import {
+  issueSetupLink, redeemSetupLink, usableSetupLink, setupLinkBlocker, serverCommandFor,
+  SetupLinkUnusable, SETUP_LINK_UNUSABLE,
+} from "./auth/setup-links.ts";
 import { beginOidc, exchangeOidcCode } from "./auth/oidc.ts";
 import {
   staleRatesWarning, RATES_VERIFIED_ON, RATES_SOURCE, RULES, ADVANCE_TAX_RULES,
@@ -294,6 +298,21 @@ function passwordSignInOffered(db: DB, config: Config): boolean {
   return config.localLogin || anyPasswordSet(db);
 }
 
+/** Whether somebody added to the household has a way in without a password. */
+function singleSignOnConfigured(config: Config): boolean {
+  return Boolean(config.google.clientId && config.google.clientSecret) || oidcConfigured(config);
+}
+
+/**
+ * Whether a newly added member needs a password link to get in at all: there
+ * is no Google or OIDC door for them, the password form is the way in, and
+ * they have no password. The Settings button and the invite message both ask
+ * this, so they cannot disagree about it.
+ */
+function needsPasswordLink(db: DB, config: Config, memberId: string): boolean {
+  return !singleSignOnConfigured(config) && passwordSignInOffered(db, config) && !hasPassword(db, memberId);
+}
+
 const LEGAL_UPDATED = "19 September 2026";
 import { loadRules } from "./import/pipeline.ts";
 import {
@@ -397,6 +416,12 @@ const PUBLIC_PATHS = new Set([
   "/demo/enter",
 ]);
 const STATIC_PREFIX = "/assets/";
+/*
+ * A password link (src/auth/setup-links.ts) is a door too, and the one public
+ * path with a parameter in it — so it cannot sit in the set above, which is
+ * matched exactly. One segment after /auth/setup/ and nothing else.
+ */
+const SETUP_LINK_PATH = /^\/auth\/setup\/[^/]+$/;
 /** The largest body a public route (a sign-in door) will read. */
 const PUBLIC_BODY_BYTES = 64 * 1024;
 
@@ -597,7 +622,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
       ctx.locals.auth = auth;
 
-      if (PUBLIC_PATHS.has(path)) {
+      if (PUBLIC_PATHS.has(path) || SETUP_LINK_PATH.test(path)) {
         // Every door is a short form — an email and a password at most. The
         // 12 MB an attachment needs is not offered to somebody not yet in.
         ctx.locals.bodyLimit = PUBLIC_BODY_BYTES;
@@ -1976,6 +2001,134 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       message: "Household created. Invite the others from Settings.",
       headers: {
         "Set-Cookie": sessionCookie(token, {
+          secure: config.baseUrl.startsWith("https"),
+          days: config.sessionDays,
+        }),
+      },
+    };
+  });
+
+  /*
+   * A password link, opened. Works signed out — that is who opens one.
+   *
+   * Referrer-Policy is strict-origin here, not no-referrer, and the difference
+   * is the form below. The token is in this page's path, so the full URL must
+   * never go anywhere in a Referer: strict-origin sends the origin alone, to
+   * this app's own assets as much as to anybody else. no-referrer would do the
+   * same for the Referer, and also make the browser send "Origin: null" on the
+   * form's POST — the Fetch standard serialises the origin as null under that
+   * policy — which sameOriginWrites refuses, rightly, as a request from
+   * nowhere. Loosening that check for one route to suit a header would trade
+   * the CSRF lock for a guarantee strict-origin already gives.
+   *
+   * no-store, so the page holding the token is not kept by the browser or
+   * anything between it and here.
+   */
+  const SETUP_LINK_HEADERS = {
+    "Cache-Control": "no-store, private",
+    "Referrer-Policy": "strict-origin",
+  };
+
+  router.get("/auth/setup/:token", (ctx) => {
+    const link = usableSetupLink(db, ctx.params.token!);
+    if (!link) {
+      // Unknown, used, expired and no-longer-suitable all answer exactly this.
+      return {
+        ...render(
+          ctx,
+          "Password link",
+          html`
+            <div style="max-width:26rem;margin:3rem auto">
+              <h1>Password link</h1>
+              <p>${SETUP_LINK_UNUSABLE}</p>
+              <p><a href="/signin">Go to sign in</a></p>
+            </div>
+          `,
+          { bare: true },
+        ),
+        status: 410,
+        headers: SETUP_LINK_HEADERS,
+      };
+    }
+    return {
+      ...render(
+        ctx,
+        "Set your password",
+        html`
+          <div style="max-width:26rem;margin:3rem auto">
+            <h1>Set your password</h1>
+            <p class="muted">
+              For ${link.member.name}, signing in as ${link.member.email}. This
+              link works once.
+            </p>
+            <form class="card" method="post" action="/auth/setup/${ctx.params.token!}">
+              <input type="text" name="username" value="${link.member.email}"
+                     autocomplete="username" hidden>
+              <div class="field">
+                <label for="setup-password">New password</label>
+                <input id="setup-password" type="password" name="password" required
+                       autocomplete="new-password" minlength="12">
+                <p class="field-hint">
+                  At least 12 characters. Length is what makes a password hard to
+                  guess — three or four words beats a short one with symbols in it.
+                </p>
+              </div>
+              <div class="field">
+                <label for="setup-confirm">New password again</label>
+                <input id="setup-confirm" type="password" name="confirm" required
+                       autocomplete="new-password">
+              </div>
+              <button class="button button-primary" style="width:100%" type="submit">
+                Set it and sign in
+              </button>
+            </form>
+          </div>
+        `,
+        { bare: true },
+      ),
+      headers: SETUP_LINK_HEADERS,
+    };
+  });
+
+  /*
+   * Rate limited exactly as /auth/password is, and a link that does not work
+   * counts as a failed attempt from where it came: 256 random bits are not
+   * guessed, but a door that lets anybody try without limit is still a door
+   * that lets anybody try without limit.
+   */
+  router.post("/auth/setup/:token", (ctx) => {
+    const source = clientIp(ctx, config.trustProxy);
+    if (isRateLimited(db, source)) {
+      throw new HttpError(429, "Too many sign-in attempts. Try again in a few minutes.");
+    }
+    const token = ctx.params.token!;
+    if (!usableSetupLink(db, token)) {
+      recordAuthAttempt(db, source, "bad-setup-link");
+      throw new SetupLinkUnusable();
+    }
+
+    const password = String(field(ctx.body, "password") ?? "");
+    const confirm = String(field(ctx.body, "confirm") ?? "");
+    if (password !== confirm) {
+      throw new Refusal("Those two passwords are not the same. Go back and type them again.");
+    }
+
+    // Checks the link again inside its own transaction, and spends it there.
+    const member = redeemSetupLink(db, token, password);
+    const { token: session } = createSession(db, member.id, {
+      userAgent: ctx.req.headers["user-agent"] ?? null,
+      ipHint: source,
+      days: config.sessionDays,
+    });
+    recordAuthAttempt(db, source, "success", member.email);
+
+    return {
+      // Home, never back to the link's own path — the token stays out of the
+      // Location header and out of the history entry it would make.
+      redirect: withNotice("/", `Password set. You're signed in, ${member.name}.`),
+      headers: {
+        ...SETUP_LINK_HEADERS,
+        "Set-Cookie": sessionCookie(session, {
           secure: config.baseUrl.startsWith("https"),
           days: config.sessionDays,
         }),
@@ -3546,6 +3699,27 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                           still refuses. Hiding the link left the page reachable
                           only by typing its URL.
                         -->
+                        <!--
+                          A password link, only where one can be made and is
+                          needed: somebody else, with no password, while password
+                          sign-in is a way in at all, and not while viewing as
+                          somebody (the POST refuses that). Offered whether or not
+                          Google is configured: with both, a password is a second
+                          way in that does not depend on Google, which is the
+                          point of /settings/password too. A member whose private
+                          records mean their link must come from the server still
+                          gets the button — the refusal is what explains that, and
+                          leaving the button off would explain nothing.
+                        -->
+                        ${when(
+                          !config.demoMode && !a.impersonating
+                            && passwordSignInOffered(db, config) && !hasPassword(db, m.id),
+                          () => html`
+                            <form method="post" action="/members/${m.id}/password-link">
+                              <button class="button-small" type="submit">Make a password link</button>
+                            </form>
+                          `,
+                        )}
                         <a class="button button-small" href="/members/${m.id}/remove">Remove</a>
                       `}
                 </span>
@@ -3585,7 +3759,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                   <label for="invite-email">Add a household member</label>
                   <input id="invite-email" name="email" type="email" required
                          placeholder="partner@example.com">
-                  <p class="field-hint">They'll be able to sign in with that Google account.</p>
+                  <p class="field-hint">
+                    ${Boolean(config.google.clientId && config.google.clientSecret)
+                      ? "They'll be able to sign in with that Google account."
+                      : oidcConfigured(config)
+                        ? `They'll be able to sign in with ${config.oidc.label} using that address.`
+                        : passwordSignInOffered(db, config)
+                          ? "They'll need a password: once they're added, make them a password link above."
+                          : "They'll be able to sign in with that address."}
+                  </p>
                 </div>
                 <button type="submit">Add to the allow-list</button>
               </form>
@@ -3860,15 +4042,89 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
        * Somebody added back had their password cleared when they were removed
        * (removeMember). "Can now sign in" would tell the person re-adding them
        * that the old one still works, which it deliberately does not.
+       *
+       * And with no Google or OIDC door, a newcomer cannot sign in either: the
+       * password form is the only way in and they have no password. Both are
+       * told what does work — a link from Settings, or, for somebody whose
+       * private records mean no other member may make them one, the server
+       * command.
        */
+      const needsLink = needsPasswordLink(db, config, member.id);
+      const linkWay = setupLinkBlocker(db, a.member.id, member.id) === null
+        ? "make them a password link from the Household list"
+        : `whoever runs the server can make them a password link with ${serverCommandFor(member.email)}`;
       return {
         redirect: "/settings",
         message: returning
           ? `${member.name} is back in the household. Their old password was ` +
-            `cleared when they were removed, so they will need a new one.`
-          : `${member.email} can now sign in.`,
+            `cleared when they were removed, so they will need a new one` +
+            (needsLink ? `: ${linkWay}.` : `.`)
+          : needsLink
+            ? `${member.email} is on the allow-list. They have no password yet, so ${linkWay}.`
+            : `${member.email} can now sign in.`,
       };
     });
+  });
+
+  /*
+   * A one-time link that sets another member's first password
+   * (src/auth/setup-links.ts has who may make one for whom, and why).
+   *
+   * Rendered rather than redirected, for the reason /tokens is: a redirect
+   * would carry the link in a URL — the Location header, the notice, the
+   * history — and this page is the one place it is shown. Not through mutate
+   * or once, either: both remember a request's answer to replay it, and the
+   * answer here is a working credential that must not be kept anywhere.
+   */
+  router.post("/members/:id/password-link", (ctx) => {
+    refuseInDemo(config, "Making password links");
+    const a = auth(ctx);
+    /*
+     * Not while viewing as somebody. The link would be made by whoever is at
+     * the keyboard, against rules checked as them — and viewing as another
+     * member is exactly how somebody comes to be looking at their records.
+     */
+    if (a.impersonating) {
+      throw new HttpError(403, "A password link cannot be made while viewing as another member.");
+    }
+    if (!passwordSignInOffered(db, config)) throw new NotFound();
+
+    const link = issueSetupLink(db, actorFor(a), ctx.params.id!, a.member.id);
+    const name = getMember(db, ctx.params.id!)!.name;
+    const url = `${config.baseUrl}/auth/setup/${link.token}`;
+    return {
+      ...render(
+        ctx,
+        `A password link for ${name}`,
+        html`
+          <div class="prose-page">
+            <p class="faint"><a href="/settings">← Settings</a></p>
+            <h1>A password link for ${name}</h1>
+            <p>
+              Send this to ${name} however you usually would. Opening it lets
+              them choose a password, and signs them in.
+            </p>
+            <section class="card">
+              <p class="notice notice-warning">
+                <strong>Copy it now.</strong> Only a hash of it is kept, so this
+                page is the only time it is shown. If it is lost, make another —
+                that one replaces this.
+              </p>
+              <pre class="raw-block" style="user-select:all;white-space:pre-wrap;word-break:break-all">${url}</pre>
+              <p>
+                It works once, and stops working at
+                ${formatDateTime(link.expiresAt)} IST if nobody has used it by then.
+              </p>
+            </section>
+            <p class="faint">
+              Whoever has this link can set ${name}'s password, so send it only
+              to them.
+            </p>
+          </div>
+        `,
+      ),
+      headers: { "Cache-Control": "no-store, private" },
+    };
   });
 
   // -------------------------------------------------------------------------

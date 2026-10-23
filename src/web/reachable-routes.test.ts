@@ -30,6 +30,8 @@ const NOT_FROM_A_FORM: Record<string, string> = {
   "/demo/enter": "The demo front door, rendered only when DEMO_MODE is on.",
   "/auth/password": "Rendered on /signin, which this scan does not read as a page component.",
   "/auth/first-run": "Its own bare page, posted to by the form it renders.",
+  "/auth/setup/:token": "Its own bare page posts back to itself, the token being the last segment — " +
+    "which this scan's prefix match cannot see, since nothing follows the parameter.",
   "/tax": "Posted to by the tax page's own form, which is built in web/pages/tax.ts.",
   "/settings/theme-toggle": "The command palette in web/client.ts builds a form and posts it (SECURITY-OPS-3).",
 
