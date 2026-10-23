@@ -923,12 +923,21 @@ export interface HoldingView {
 
 export function viewHolding(
   db: DB, holdingId: string, asOf = todayIST(), baseCurrency = "INR",
+  /**
+   * DEBUG-ASSETS-6 · Only the open lots bought by `asOf`. A change between
+   * two dates must not price a lot bought in between as though it was held
+   * at the start.
+   */
+  opts: { boughtBy?: boolean } = {},
 ): HoldingView | null {
   const record = queryOne<HoldingRecord>(db, `SELECT * FROM holdings WHERE id = ?`, holdingId);
   if (!record) return null;
 
   const instrument = getInstrument(db, record.instrument_id)!;
-  const holding = holdingOf(db, holdingId);
+  const open = holdingOf(db, holdingId);
+  const holding = opts.boughtBy
+    ? { lots: open.lots.filter((lot) => lot.tradeDate <= asOf) }
+    : open;
   const quote = latestPrice(db, instrument.id, asOf);
   const fx =
     instrument.currency === baseCurrency
@@ -936,7 +945,13 @@ export function viewHolding(
       : fxRate(db, instrument.currency, baseCurrency, asOf);
 
   const rate = fx?.rate ?? 1;
+  /*
+   * DEBUG-ASSETS-1 · With no price, the units are worth what they cost — and
+   * averageCost is already in base currency, so it is not converted again.
+   * Converting it valued $1,000 bought at 83 as ₹68,89,000.
+   */
   const unitPrice = quote?.price ?? averageCost(holding);
+  const valueRate = quote ? rate : 1;
 
   const events = queryAll<{ kind: string; date: IsoDate; realised_gain: number | null; amount: number | null }>(
     db, `SELECT kind, date, realised_gain, amount FROM holding_events WHERE holding_id = ?`, holdingId,
@@ -952,7 +967,7 @@ export function viewHolding(
   // WEALTH-25 · Dividends are money back (or, reinvested, not money in).
   const cashFlows = holding.lots.length > 0
     ? holdingCashFlows(
-        holding, unitPrice, asOf, rate,
+        holding, unitPrice, asOf, valueRate,
         events
           .filter((e) => e.kind === "dividend" || e.kind === "dividend-reinvested")
           .map((e) => ({ date: e.date, amount: e.amount ?? 0, reinvested: e.kind === "dividend-reinvested" })),
@@ -961,6 +976,15 @@ export function viewHolding(
 
   // R34: only meaningful when the instrument is priced in another currency.
   const firstLot = holding.lots[0];
+  /*
+   * DEBUG-ASSETS-5 · The rate the units were bought at, weighted by what each
+   * lot cost in its own currency — not the first lot's for all of them, which
+   * priced ten shares bought at ₹90 to the dollar as though bought at ₹70.
+   */
+  const paidForeign = holding.lots.reduce((sum, lot) => sum + lot.units * lot.price, 0);
+  const fxAtPurchase = paidForeign > 0
+    ? holding.lots.reduce((sum, lot) => sum + lot.units * lot.price * (lot.fxRate ?? rate), 0) / paidForeign
+    : firstLot?.fxRate ?? rate;
   const decomposition =
     instrument.currency !== baseCurrency && firstLot && quote
       ? decomposeGain({
@@ -969,7 +993,7 @@ export function viewHolding(
           // in base, and feeding that in would count the FX move twice.
           priceAtPurchase: averageUnitPrice(holding),
           priceNow: quote.price,
-          fxAtPurchase: firstLot.fxRate ?? rate,
+          fxAtPurchase,
           fxNow: rate,
         })
       : null;
@@ -984,9 +1008,9 @@ export function viewHolding(
     averageUnitPrice: averageUnitPrice(holding),
     quote,
     fx,
-    marketValue: marketValue(holding, unitPrice, rate),
-    unrealisedGain: unrealisedGain(holding, unitPrice, rate),
-    absoluteReturn: absoluteReturn(holding, unitPrice, rate),
+    marketValue: marketValue(holding, unitPrice, valueRate),
+    unrealisedGain: unrealisedGain(holding, unitPrice, valueRate),
+    absoluteReturn: absoluteReturn(holding, unitPrice, valueRate),
     xirr: cashFlows.length > 0 ? xirr(cashFlows) : null,
     cashFlows,
     realisedGain,
@@ -1024,11 +1048,24 @@ export function holdingValueOn(
   if (!record) return null;
   const instrument = getInstrument(db, record.instrument_id)!;
 
+  /*
+   * DEBUG-ASSETS-2 · A split or bonus is the instrument's, and divided its
+   * price history for every holding — but recordSplit writes an event only on
+   * the holdings that still had lots. One already sold out got none, so its
+   * sale parcels were left in pre-split units against post-split prices. So
+   * the corporate actions are read across the instrument (once per date, as
+   * recordSplit allows), as well as this holding's own.
+   */
   const later = queryAll<{ date: string; kind: string; ratio: number | null; units: number | null; detail_json: string | null }>(
     db,
     `SELECT date, kind, ratio, units, detail_json FROM holding_events
-      WHERE holding_id = ? AND date > ? AND kind IN ('sale','split','bonus')`,
-    holdingId, asOf,
+      WHERE holding_id = ? AND date > ? AND kind = 'sale'
+     UNION ALL
+     SELECT date, kind, MAX(ratio), NULL, NULL FROM holding_events
+      WHERE date > ? AND kind IN ('split','bonus')
+        AND (holding_id = ? OR holding_id IN (SELECT id FROM holdings WHERE instrument_id = ?))
+      GROUP BY kind, date`,
+    holdingId, asOf, asOf, holdingId, record.instrument_id,
   );
   const ratioAfter = (kind: string, date: string) => later
     .filter((e) => e.kind === kind && e.date > date && (e.ratio ?? 0) > 0)

@@ -94,6 +94,14 @@ describe("formatCompact — L2", () => {
     assert.equal(formatCompact(rupees(45_000)), "₹45K");
   });
 
+  // DEBUG-ASSETS-4 · A figure that rounds up to the next unit is shown in it.
+  test("a value just under a lakh or a crore reads as one, not as ₹100K or ₹100L", () => {
+    assert.equal(formatCompact(rupees(99_999.99)), "₹1L");
+    assert.equal(formatCompact(rupees(9_999_999)), "₹1Cr");
+    assert.equal(formatCompact(rupees(-99_998)), "-₹1L");
+    assert.equal(formatCompact(rupees(99_990)), "₹99.99K");
+  });
+
   test("falls back to the exact form below a thousand", () => {
     assert.equal(formatCompact(rupees(840)), "₹840");
   });

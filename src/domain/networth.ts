@@ -622,10 +622,15 @@ function portfolioFxMovement(db: DB, from: IsoDate, to: IsoDate): Paise {
   const hidden = hiddenAccountIds(db, null);
   for (const holding of listHoldings(db)) {
     if (hidden.has(holding.account_id)) continue;
-    const before = viewHolding(db, holding.id, from);
-    const after = viewHolding(db, holding.id, to);
-    if (!before?.decomposition || !after?.decomposition) continue;
-    movement += after.decomposition.fxGain - before.decomposition.fxGain;
+    // DEBUG-ASSETS-6 · Each end on the lots bought by then: a lot bought in
+    // between moved with the rate only from its own purchase.
+    const before = viewHolding(db, holding.id, from, "INR", { boughtBy: true });
+    const after = viewHolding(db, holding.id, to, "INR", { boughtBy: true });
+    if (!after?.decomposition) continue;
+    // Nothing held at the start is nothing gained then; held but unpriced
+    // cannot be split, so the holding is left out as before.
+    if (before && before.lots.length > 0 && !before.decomposition) continue;
+    movement += after.decomposition.fxGain - (before?.decomposition?.fxGain ?? 0);
   }
   return movement;
 }
