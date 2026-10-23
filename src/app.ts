@@ -4322,12 +4322,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // L1 · A renamed payee is the signal. Resolved here so the rename and the
       // rest of the edit land in one update, and so the *old* name is still
       // readable when we decide whether anything actually changed.
-      const newPayee = (field(ctx.body, "payee") ?? "").trim();
+      //
+      // A payee that is not sent is kept; one sent empty is taken off, the way
+      // an empty memo is. Reading blank as "keep" left no way to remove a
+      // payee at all: the form saved, said "Saved.", and the name stayed.
+      const payeeRaw = field(ctx.body, "payee");
+      const newPayee = (payeeRaw ?? "").trim();
       const previousPayee = transaction.payee_id ? getPayee(db, transaction.payee_id)?.name ?? null : null;
       const renamed = newPayee !== "" && newPayee !== previousPayee;
+      const removed = payeeRaw !== undefined && newPayee === "" && transaction.payee_id !== null;
       const payeeId = renamed
         ? resolvePayee(db, actor, newPayee, transaction.raw_narration).id
-        : undefined;
+        : removed ? null : undefined;
 
       /*
        * F4.3 · Split lines from the form. Each filled line is an envelope and an
