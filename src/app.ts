@@ -11,6 +11,7 @@
 import { createHmac, randomBytes, timingSafeEqual } from "node:crypto";
 import type { DB } from "./db/db.ts";
 import { queryAll, queryOne, execute, newId , transact } from "./db/db.ts";
+import { VERSION } from "./version.ts";
 import { devLoginModulePresent, type Config } from "./config.ts";
 import {
   Router, field, fieldList, fileField, requiredField, HttpError, NotFound,
@@ -9659,7 +9660,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           {
             name: "Version",
             state: "healthy",
-            reason: `0.1.0, running in ${config.environment}.`,
+            reason: `${VERSION}, running in ${config.environment}.`,
           },
           {
             // F23.13: in production this must always read "not present".
@@ -10120,7 +10121,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (!ctx.locals.auth) {
       return {
         status: canServe ? 200 : 503,
-        json: { status: canServe ? "ok" : "unavailable", serving: canServe, version: "0.1.0" },
+        json: { status: canServe ? "ok" : "unavailable", serving: canServe, version: VERSION },
       };
     }
 
@@ -10132,7 +10133,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       json: {
         status: overall,
         serving: canServe,
-        version: "0.1.0",
+        version: VERSION,
         checks: groups.flatMap((g) =>
           g.checks.map((c) => ({ group: g.name, name: c.name, state: c.state, reason: c.reason })),
         ),

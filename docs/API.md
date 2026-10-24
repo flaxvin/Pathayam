@@ -288,7 +288,7 @@ and build details that are nobody's business but the household's.
 curl -sS https://pathayam.example.com/healthz
 ```
 ```json
-{ "status": "ok", "serving": true, "version": "0.1.0" }
+{ "status": "ok", "serving": true, "version": "1.0.0" }
 ```
 
 With a session or a `read` token it adds every check:
@@ -300,7 +300,7 @@ curl -sS -H "Authorization: Bearer $TOKEN" https://pathayam.example.com/healthz
 {
   "status": "healthy",
   "serving": true,
-  "version": "0.1.0",
+  "version": "1.0.0",
   "checks": [
     { "group": "Backups", "name": "Last backup", "state": "healthy", "reason": "…" },
     { "group": "Backups", "name": "Restore verification", "state": "healthy", "reason": "…" },

@@ -8,8 +8,11 @@ runtime dependencies.
 harvest, drawn from deliberately through the year.
 
 ```
-2683 tests · 0 runtime dependencies · 67 migrations · 225 routes
+v1.0.0 · 2684 tests · 0 runtime dependencies · 67 migrations · 225 routes
 ```
+
+**Status: production-ready.** 1.0.0 is the first stable release; see
+[CHANGELOG.md](CHANGELOG.md).
 
 ![The budget screen: the month grid, Ready to Assign, credit-card payment envelopes, and the in-app digest](docs/screenshots/budget.png)
 
@@ -101,6 +104,7 @@ Configuration, sign-in (password, OpenID Connect or Google), backups and restore
 | [docs/testing.md](docs/testing.md) | Running and reading the suite. |
 | [docs/limitations.md](docs/limitations.md) | Known constraints. |
 | [docs/API.md](docs/API.md) | HTTP API and access tokens. |
+| [CHANGELOG.md](CHANGELOG.md) | What changed in each release. |
 
 [`docs/archive/`](docs/archive/) holds the original design specification, cited
 from source comments by requirement identifier.
