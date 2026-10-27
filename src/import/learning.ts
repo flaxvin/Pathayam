@@ -61,8 +61,8 @@ export function proposeCategoryRules(db: DB, actor: Actor): Proposal[] {
     // already proposed and waiting.
     const already = queryOne<{ id: string }>(
       db,
-      `SELECT id FROM rules WHERE conditions_json LIKE ? AND actions_json LIKE ?`,
-      `%"${candidate.payee}"%`, `%"${candidate.category_id}"%`,
+      `SELECT id FROM rules WHERE conditions_json LIKE ? ESCAPE '\\' AND actions_json LIKE ? ESCAPE '\\'`,
+      containsJsonString(candidate.payee), containsJsonString(candidate.category_id),
     );
     if (already) continue;
     // A payee merged into this one brings its refusals with it: it is the
@@ -107,8 +107,8 @@ export function proposePayeeRule(
 
   const already = queryOne<{ id: string }>(
     db,
-    `SELECT id FROM rules WHERE stage = 'pre' AND conditions_json LIKE ? AND dismissed_at IS NULL`,
-    `%"${value}"%`,
+    `SELECT id FROM rules WHERE stage = 'pre' AND conditions_json LIKE ? ESCAPE '\\' AND dismissed_at IS NULL`,
+    containsJsonString(value),
   );
   if (already) return null;
 
@@ -125,6 +125,16 @@ export function proposePayeeRule(
 
   persist(db, actor, proposal);
   return proposal;
+}
+
+/**
+ * A LIKE pattern for stored JSON that holds `value` as a string, written the
+ * way JSON.stringify wrote it. `"${value}"` missed a name with a quote in it
+ * (stored as \"), so the same rule was proposed again on every
+ * categorisation; and `_` or `%` in a name matched other names.
+ */
+function containsJsonString(value: string): string {
+  return `%${JSON.stringify(value).replace(/[\\%_]/g, "\\$&")}%`;
 }
 
 function persist(db: DB, actor: Actor, proposal: Proposal): void {

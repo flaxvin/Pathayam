@@ -422,6 +422,16 @@ Date Description Amount
     assert.deepEqual(result.records.map((r) => r.amount), [-10_000, 4_000]);
   });
 
+  test("a Cr marker run into the figure still makes it a credit", () => {
+    // "40.00Cr": `\bcr` never matched after a digit, so the refund fell
+    // through to rule 4 and imported as a ₹40 purchase.
+    const result = parseStatementText(`YES BANK
+Date Description Amount
+15/02/2026  A PURCHASE    100.00Dr
+16/02/2026  A REFUND       40.00Cr`);
+    assert.deepEqual(result.records.map((r) => r.amount), [-10_000, 4_000]);
+  });
+
   test("a leading plus marks a credit on a card", () => {
     const result = parseStatementText(`HDFC BANK Credit Card
 DATE & TIME  TRANSACTION DESCRIPTION  AMOUNT
