@@ -5109,6 +5109,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           last4: account.last4,
           startingDebtNote: cameWithTheCard(funding),
           owed: Math.max(0, -(owedNow.get(account.id) ?? 0)) as Paise,
+          credit: Math.max(0, owedNow.get(account.id) ?? 0) as Paise,
           funded,
           unfunded: funding.unfunded,
           statement: statement
