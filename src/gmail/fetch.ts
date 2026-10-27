@@ -20,7 +20,7 @@
 
 import type { DB } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
-import { todayIST, type IsoDate } from "../core/dates.ts";
+import { daysBetween, todayIST, type IsoDate } from "../core/dates.ts";
 import type { Paise } from "../core/money.ts";
 import { ingest } from "../import/pipeline.ts";
 import type { RawRecord } from "../import/csv.ts";
@@ -114,7 +114,14 @@ export async function fetchGmail(
 
   // A first fetch reaches back 90 days; later fetches only need a short window,
   // but the content-hash dedupe makes a wider window harmless.
-  const sinceDays = connection.last_fetched_at ? 14 : 90;
+  //
+  // The short window still has to reach the last fetch. A fixed 14 days meant
+  // a fetch 40 days after the previous one never read the 26 days between,
+  // and no later fetch would either.
+  const today = todayIST(deps.now);
+  const sinceDays = connection.last_fetched_at
+    ? Math.max(14, daysBetween(connection.last_fetched_at.slice(0, 10), today) + 2)
+    : 90;
   const ids = await listMessageIds(buildQuery(sinceDays), client, 200);
 
   // Accumulate records per account, then ingest once per account so dedupe and
