@@ -131,8 +131,9 @@ function classify(description: string): CasRow["kind"] {
   // it a dividend would break R27.5's separation of payouts from cost.
   if (/reinvest/.test(text)) return "purchase";
   if (/dividend|idcw|payout/.test(text)) return "dividend";
-  if (/redem|sell|switch\s*out|swtout/.test(text)) return "redemption";
-  if (/purchase|invest|sip|switch\s*in|swtin|allot/.test(text)) return "purchase";
+  // CAMS writes "Switch-Out" / "Switch-In" as often as "Switch Out".
+  if (/redem|sell|switch[\s-]*out|swtout/.test(text)) return "redemption";
+  if (/purchase|invest|sip|switch[\s-]*in|swtin|allot/.test(text)) return "purchase";
   return "other";
 }
 

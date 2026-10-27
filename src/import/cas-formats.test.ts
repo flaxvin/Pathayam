@@ -134,6 +134,14 @@ describe("CAS row descriptions that registrars write their own way", () => {
     row,
   ].join("\n")).schemes[0]!.rows[0]!;
 
+  test("a hyphenated Switch-In is a purchase and Switch-Out a redemption", () => {
+    const into = scheme("05-Apr-2026  Switch-In - From Zeta Liquid Fund  10,000.00  100.000  100.0000  100.000");
+    assert.equal(into.kind, "purchase");
+    const out = scheme("06-Apr-2026  Switch-Out - To Eta Fund  (5,000.00)  (50.000)  100.0000  50.000");
+    assert.equal(out.kind, "redemption");
+    assert.equal(out.units, -50_000);
+  });
+
   test("a description ending in a bare number does not become the amount", () => {
     const row = scheme("07-Apr-2026  SIP Purchase Instalment 3  1,000.00  10.000  100.0000  60.000");
     assert.equal(row.description, "SIP Purchase Instalment 3");
