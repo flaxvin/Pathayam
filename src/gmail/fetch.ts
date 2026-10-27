@@ -83,6 +83,9 @@ export function buildQuery(sinceDays: number): string {
   return `from:(${from}) newer_than:${sinceDays}d`;
 }
 
+/** The most messages one fetch reads. */
+const MESSAGE_CAP = 200;
+
 /**
  * Fetch and ingest. Returns a summary; every transaction lands in Review.
  */
@@ -122,7 +125,17 @@ export async function fetchGmail(
   const sinceDays = connection.last_fetched_at
     ? Math.max(14, daysBetween(connection.last_fetched_at.slice(0, 10), today) + 2)
     : 90;
-  const ids = await listMessageIds(buildQuery(sinceDays), client, 200);
+  // One more than is read, to know whether the cap cut anything. Gmail lists
+  // newest first, so what a cap drops is the oldest of the window — and the
+  // next fetch's window starts after it. Said, not swallowed (IL3).
+  const listed = await listMessageIds(buildQuery(sinceDays), client, MESSAGE_CAP + 1);
+  const ids = listed.slice(0, MESSAGE_CAP);
+  if (listed.length > MESSAGE_CAP) {
+    result.notes.push(
+      `More than ${MESSAGE_CAP} bank emails arrived in the last ${sinceDays} days; only the newest ` +
+      `${MESSAGE_CAP} were read. Upload the statement for the earlier part of that period so nothing is missed`,
+    );
+  }
 
   // Accumulate records per account, then ingest once per account so dedupe and
   // the batch log behave the same as an uploaded file.

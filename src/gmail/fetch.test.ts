@@ -394,6 +394,22 @@ describe("a fetch reaches back to the last one, however long ago", () => {
     assert.match(q, /newer_than:14d/);
   });
 
+  test("more messages than one fetch reads is said, not silently cut", async () => {
+    // Gmail lists newest first, so the cap dropped the oldest messages of
+    // the window, and the next fetch's shorter window never came back for them.
+    const db = setup();
+    const messages: Record<string, { from: string; subject: string; body: string }> = {};
+    for (let i = 0; i < 201; i++) {
+      messages[`m${i}`] = { from: "alerts@yes.bank.in", subject: "Offers", body: "Festive offers inside" };
+    }
+    const result = await fetchGmail(db, actor, {
+      clientId: "id", clientSecret: "secret", fetchImpl: fakeGoogle(messages),
+    });
+    assert.equal(result.scanned, 200);
+    assert.ok(result.notes.some((n) => /only the newest 200/i.test(n)), result.notes.join("; "));
+    db.close();
+  });
+
   test("a first fetch reaches back 90 days", async () => {
     const q = await queryAfterGap(null, new Date("2026-09-10T06:00:00Z"));
     assert.match(q, /newer_than:90d/);
