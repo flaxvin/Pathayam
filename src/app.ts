@@ -521,8 +521,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     function sameOriginWrites(ctx: RequestContext): Response | void {
       const method = ctx.method.toUpperCase();
       if (method === "GET" || method === "HEAD" || method === "OPTIONS") return;
+      /*
+       * And never on a public door. A token cannot reach any of them, so a
+       * bearer there authenticates nothing — while a DNS-rebound page, being
+       * same-origin to itself, may set the header without a preflight, and
+       * "Bearer anything" took it past the Host check below into
+       * /auth/first-run.
+       */
+      const publicDoor = PUBLIC_PATHS.has(ctx.url.pathname) || SETUP_LINK_PATH.test(ctx.url.pathname);
       if (
-        /^Bearer\s/i.test(String(ctx.req.headers.authorization ?? ""))
+        !publicDoor
+        && /^Bearer\s/i.test(String(ctx.req.headers.authorization ?? ""))
         && parseCookies(ctx.req.headers.cookie)[SESSION_COOKIE] === undefined
       ) return;
 
