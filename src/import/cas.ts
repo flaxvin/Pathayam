@@ -312,6 +312,22 @@ function parseRow(text: string): CasRow | null {
     cut = i;
   }
 
+  /*
+   * A description can end in a bare number — "SIP Purchase Instalment 3" —
+   * which the scan above took as the amount: ₹3 for 1,000 units at ₹10. A
+   * leading figure with no decimal point, whose removal lets units × NAV
+   * come out at the next figure, belongs to the description.
+   */
+  if (
+    numbers.length > 3 && !figures[0]!.includes(".") &&
+    matchedUnitsAndNav(numbers, figures) === null &&
+    matchedUnitsAndNav(numbers.slice(1), figures.slice(1)) !== null
+  ) {
+    numbers.shift();
+    figures.shift();
+    cut++;
+  }
+
   const description = tokens.slice(0, cut).join(" ").trim();
   if (description === "" || numbers.length < 3) return null;
 
@@ -351,6 +367,11 @@ function parseRow(text: string): CasRow | null {
  * order (amount, units, NAV), which is what this parser always assumed.
  */
 function unitsAndNav(numbers: number[], figures: string[]): [number | undefined, number | undefined] {
+  return matchedUnitsAndNav(numbers, figures) ?? [numbers[1], numbers[2]];
+}
+
+/** The units and NAV whose product is the amount, or null when no pair is. */
+function matchedUnitsAndNav(numbers: number[], figures: string[]): [number, number] | null {
   const amount = Math.abs(numbers[0] ?? 0);
   const places = (figure: string): number => /\.(\d+)/.exec(figure)?.[1]?.length ?? 0;
   for (let n = 1; n < numbers.length; n++) {
@@ -358,10 +379,10 @@ function unitsAndNav(numbers: number[], figures: string[]): [number | undefined,
     for (let u = 1; u < numbers.length; u++) {
       if (u === n || places(figures[u]!) !== 3) continue;
       const product = Math.abs(numbers[u]! * numbers[n]!);
-      if (Math.abs(product - amount) <= Math.max(1, amount * 0.01)) return [numbers[u], numbers[n]];
+      if (Math.abs(product - amount) <= Math.max(1, amount * 0.01)) return [numbers[u]!, numbers[n]!];
     }
   }
-  return [numbers[1], numbers[2]];
+  return null;
 }
 
 /**

@@ -125,3 +125,20 @@ describe("a KFintech folio statement", () => {
     assert.deepEqual(statement.period, { from: "2025-01-01", to: "2025-01-31" });
   });
 });
+
+describe("CAS row descriptions that registrars write their own way", () => {
+  const scheme = (row: string) => parseCasText([
+    "Folio No: 1234/56",
+    "Zeta Flexi Cap Fund - Direct Plan - Growth",
+    "ISIN: INF000Z01ZZ9",
+    row,
+  ].join("\n")).schemes[0]!.rows[0]!;
+
+  test("a description ending in a bare number does not become the amount", () => {
+    const row = scheme("07-Apr-2026  SIP Purchase Instalment 3  1,000.00  10.000  100.0000  60.000");
+    assert.equal(row.description, "SIP Purchase Instalment 3");
+    assert.equal(row.amount, 100_000);
+    assert.equal(row.units, 10_000);
+    assert.equal(row.nav, 100_000_000);
+  });
+});
