@@ -1545,7 +1545,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             : when(
                 !config.demoMode,
                 () => html`
-                  ${when(!oidcConfigured(config), () => html`
+                  ${when(!oidcConfigured(config) && !passwordSignInOffered(db, config), () => html`
                     <p class="notice notice-warning">
                       No way to sign in is configured. Set LOCAL_LOGIN=1 and create
                       the first password, or point OIDC_ISSUER at an identity
