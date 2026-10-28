@@ -2961,12 +2961,39 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         const value = field(ctx.body, name)?.trim();
         return value === undefined ? undefined : value === "" ? null : value;
       };
+      const holder = text("holder_member_id") && requireMember(ctx, text("holder_member_id")!);
+      const visibility = field(ctx.body, "visibility") === "private" ? "private"
+        : field(ctx.body, "visibility") === "household" ? "household" : undefined;
+      /*
+       * FRESH-WEB-3 · "Private to me", as the form says. The visibility and the
+       * holder were taken as two separate fields, so a member could mark
+       * another member's account — in that member's own budget — private to
+       * themselves, and it vanished from the screens of the person it belongs
+       * to, Activity included, leaving them nothing to undo it from. Private
+       * is only ever private to whoever is making it so.
+       */
+      const before = getAccount(db, id)!;
+      const nextHolder = holder !== undefined ? holder : before.holder_member_id;
+      const nextBudget = text("budget_id") ?? before.budget_id;
+      const mine = (who: string | null) => who === null || who === a.member.id;
+      if (
+        (visibility ?? before.visibility) === "private" && nextHolder && (
+          nextHolder !== a.member.id || !mine(before.holder_member_id)
+          // An account funding somebody else's budget is theirs to hide, not mine.
+          || (nextBudget !== null && !budgetsFor(db, a.member.id).some((b) => b.id === nextBudget))
+        )
+      ) {
+        throw new Refusal(
+          "Only you can be the one a private account is private to. Leave it shared, " +
+          "or let whoever's name is on it make it private themselves.",
+        );
+      }
       updateAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, {
         name: requiredField(ctx.body, "name"),
         nickname: text("nickname"),
         institution: text("institution"),
         last4: last4Field(field(ctx.body, "last4")),
-        holder_member_id: text("holder_member_id") && requireMember(ctx, text("holder_member_id")!),
+        holder_member_id: holder,
         statement_day: numberOrNull(field(ctx.body, "statement_day")),
         due_day: numberOrNull(field(ctx.body, "due_day")),
         // 15 · Moving an account between budgets is one undoable step, recorded
@@ -2975,8 +3002,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         // household's joint account could be moved into another member's
         // personal budget (SECURITY-OPS-4).
         budget_id: text("budget_id") && requireVisibleBudget(ctx, text("budget_id")!),
-        visibility: field(ctx.body, "visibility") === "private" ? "private"
-          : field(ctx.body, "visibility") === "household" ? "household" : undefined,
+        visibility,
       });
       return { redirect: `/accounts/${id}`, message: "Saved." };
     }),
@@ -3057,6 +3083,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         // personal budget took the account and its opening balance.
         budgetId: guardedField(ctx, "budget_id", requireVisibleBudget) ?? undefined,
         visibility: field(ctx.body, "visibility") === "private" ? "private" : undefined,
+        // FRESH-WEB-2 · "Private to me": the form sends no holder, and the
+        // domain rightly refuses a private account that is private to nobody —
+        // so every private account the form tried to make was refused.
+        holderMemberId: field(ctx.body, "visibility") === "private" ? a.member.id : undefined,
       });
       if (terms) {
         setDepositTerms(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), account.id, terms);
