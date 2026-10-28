@@ -1571,12 +1571,22 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
    * ₹12,000). The EMI below and the envelope target that follows it come
    * from this same schedule.
    */
+  /*
+   * LOANS-2 · The schedule is what is left, so its first row is the next
+   * instalment: the first instalment date moved on by those already paid.
+   * Dated from the first instalment itself, a loan three EMIs in showed its
+   * next one months in the past, closed three months early, and the cashflow
+   * calendar dropped its last three instalments.
+   */
+  const dated = loan.first_instalment_date
+    ? { firstInstalmentDate: loan.first_instalment_date, instalmentsBefore: instalmentsPaid }
+    : {};
   const schedule =
     outstanding > 0 && flat && !moratoriumOutcome
       ? flatSchedule({
           principal: outstanding, originalPrincipal: principalBase || outstanding,
           annualFlatPct: rate, months: scheduleMonths,
-          firstInstalmentDate: loan.first_instalment_date ?? undefined,
+          ...dated,
         })
     : outstanding > 0
       ? buildSchedule({
@@ -1584,7 +1594,7 @@ export function projectLoan(db: DB, loanId: string): LoanProjection | null {
           annualRatePct: rate,
           months: scheduleMonths,
           ...(pinned !== null ? { emi: pinned } : {}),
-          firstInstalmentDate: loan.first_instalment_date ?? undefined,
+          ...dated,
         })
       : emptySchedule();
 

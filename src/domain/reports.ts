@@ -15,7 +15,7 @@ import { queryAll } from "../db/db.ts";
 import type { Paise } from "../core/money.ts";
 import { hiddenTransactionSql } from "./member-scope.ts";
 import {
-  todayIST, addDays, addMonths, monthOf, fiscalYearOf, fiscalYearRange, formatFiscalYear,
+  todayIST, addDays, addMonths, daysInMonth, monthOf, fiscalYearOf, fiscalYearRange, formatFiscalYear,
   heldMoreThanMonths, type IsoDate, type MonthKey,
 } from "../core/dates.ts";
 import { csvCell } from "../core/csv.ts";
@@ -275,6 +275,13 @@ export interface Period {
   to: IsoDate;
 }
 
+/** The day after `date` less `months` calendar months (a missing day clamps to the month's last). */
+function monthsBackExclusive(date: IsoDate, months: number): IsoDate {
+  const month = addMonths(monthOf(date), -months);
+  const day = Math.min(Number(date.slice(8, 10)), daysInMonth(Number(month.slice(0, 4)), Number(month.slice(5))));
+  return addDays(`${month}-${String(day).padStart(2, "0")}`, 1);
+}
+
 export function periodPresets(today = todayIST()): Period[] {
   const month = monthOf(today);
   const lastMonth = addMonths(month, -1);
@@ -289,8 +296,11 @@ export function periodPresets(today = todayIST()): Period[] {
     // of this month — whose salary was then in last month's totals and CSV,
     // and in this month's too.
     { key: "last-month", label: "Last month", from: `${lastMonth}-01`, to: addDays(`${month}-01`, -1) },
-    { key: "last-3", label: "Last 3 months", from: addDays(today, -90), to: today },
-    { key: "last-12", label: "Last 12 months", from: addDays(today, -365), to: today },
+    // REPORTS-1 · From the day after the same date that many months ago, so a
+    // monthly salary lands in "Last 12 months" twelve times, not thirteen on
+    // payday (today − 365 to today, both ends counted, is 366 days).
+    { key: "last-3", label: "Last 3 months", from: monthsBackExclusive(today, 3), to: today },
+    { key: "last-12", label: "Last 12 months", from: monthsBackExclusive(today, 12), to: today },
     // L4: the Indian financial year, alongside the calendar year.
     { key: "fy", label: `FY ${fy}-${String((fy + 1) % 100).padStart(2, "0")}`, from: fyRange.from, to: fyRange.to },
     {

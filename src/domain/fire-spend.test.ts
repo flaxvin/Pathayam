@@ -55,9 +55,10 @@ describe("FIRE's annual spending", () => {
     }
     const p = fireProjection(db, { asOf: "2026-09-01" });
     assert.equal(p.windowIsShort, true);
-    // The account opened on 2026-06-01, the start of the history: 92 days.
-    assert.equal(p.observedDays, 92);
-    assert.equal(p.annualExpenses, Math.round((rupees(90_000) / 92) * 365));
+    // The account opened on 2026-06-01, the start of the history: 1 June to
+    // 1 September, both days counted, is 93 days.
+    assert.equal(p.observedDays, 93);
+    assert.equal(p.annualExpenses, Math.round((rupees(90_000) / 93) * 365));
     assert.ok(p.annualExpenses > rupees(350_000), `₹${p.annualExpenses / 100} is not a year of ₹30,000 months`);
   });
 
@@ -84,5 +85,28 @@ describe("FIRE's annual spending", () => {
     assert.equal(p.windowIsShort, false);
     // Twelve ₹30,000 months over the full 365-day window.
     assert.equal(p.annualExpenses, rupees(360_000), "the SIP was counted as living costs");
+  });
+
+  /*
+   * FIRE-1 · The trailing year is 365 days, asOf included. It ran from
+   * asOf − 365 to asOf, both ends counted — 366 days — so with rent paid on
+   * the 1st and the projection read on the 1st, thirteen rents were divided by
+   * 365 days: ₹3,90,000 a year for ₹30,000 a month, and a FIRE number ₹8.6
+   * lakh too high at 3.5%. Salary on the same day inflated income the same way.
+   */
+  test("a payment on the same day of every month is counted twelve times, not thirteen", () => {
+    const { db, bank, groceries } = household("2025-01-01");
+    for (let i = 0; i < 14; i++) {
+      const y = 2025 + Math.floor((7 + i) / 12);
+      const date = `${y}-${String(((7 + i) % 12) + 1).padStart(2, "0")}-01`;
+      createTransaction(db, actor, {
+        accountId: bank, amount: -rupees(30_000), date, categoryId: groceries, cleared: true,
+      });
+      createTransaction(db, actor, { accountId: bank, amount: rupees(100_000), date, cleared: true });
+    }
+    const p = fireProjection(db, { asOf: "2026-09-01" });
+    assert.equal(p.windowIsShort, false);
+    assert.equal(p.annualExpenses, rupees(360_000));
+    assert.equal(p.annualIncome, rupees(1_200_000));
   });
 });
