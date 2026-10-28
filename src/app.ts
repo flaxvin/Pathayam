@@ -9971,7 +9971,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
   function taxPageProps(ctx: RequestContext, a: ReturnType<typeof auth>) {
     const fyParam = Number(ctx.query.get("fy"));
-    const fy = Number.isInteger(fyParam) && fyParam > 2000 ? fyParam : fiscalYearOf(todayIST());
+    // FRESH-WEB-3 · 1e308 is an integer too; past year 9998 a date stops being one.
+    const fy = Number.isInteger(fyParam) && fyParam > 2000 && fyParam < 9999
+      ? fyParam : fiscalYearOf(todayIST());
 
     const stored = getDeclaration(db, a.member.id, fy);
     // INSURANCE-1 · What the member's policies come to; filled in only when asked.
