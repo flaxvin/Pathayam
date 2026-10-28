@@ -377,6 +377,7 @@ import {
   signedValuation,
   assetHistory,
   standingValuation,
+  valuationInBase,
 } from "./domain/assets.ts";
 import {
   getDepositTerms, setDepositTerms, removeDepositTerms, computedDepositValue, listMaturities,
@@ -1554,7 +1555,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             : when(
                 !config.demoMode,
                 () => html`
-                  ${when(!oidcConfigured(config), () => html`
+                  ${when(!oidcConfigured(config) && !passwordSignInOffered(db, config), () => html`
                     <p class="notice notice-warning">
                       No way to sign in is configured. Set LOCAL_LOGIN=1 and create
                       the first password, or point OIDC_ISSUER at an identity
@@ -5148,6 +5149,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           last4: account.last4,
           startingDebtNote: cameWithTheCard(funding),
           owed: Math.max(0, -(owedNow.get(account.id) ?? 0)) as Paise,
+          credit: Math.max(0, owedNow.get(account.id) ?? 0) as Paise,
           funded,
           unfunded: funding.unfunded,
           statement: statement
@@ -8705,7 +8707,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       .filter((a) => listHoldings(db, a.id).length === 0)
       .map((a) => {
         // DEPOSITS · Computed from terms where it has them (standingValuation).
-        const valuation = standingValuation(db, a.id);
+        // In rupees: an SGD savings balance of 41,120 was printed "₹41,120"
+        // here while net worth and FIRE counted it as ₹25 lakh.
+        const valuation = valuationInBase(db, a, todayIST());
         /*
          * A deposit is worth its balance unless somebody has said otherwise
          * (B56), and that is the whole reason it is a tracking account: the
@@ -8720,7 +8724,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           id: a.id, name: a.name, subtype: a.subtype,
           value: valuation?.value ?? balance,
           asOf: valuation?.asOf ?? (counted ? todayIST() : null),
-          stale: valuation?.stale ?? false,
+          // "not valued recently" is about the valuation; an exchange rate a day
+          // or two old is not a reason to ask the household to revalue.
+          stale: valuation ? standingValuation(db, a.id)?.stale ?? false : false,
           valued: valuation !== null || (counted && balance !== 0),
         };
       });
