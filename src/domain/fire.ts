@@ -270,8 +270,11 @@ export function fireProjection(
   // drawn from. Credit balances are not netted off here: the card is settled
   // out of this month's envelopes, and it is this month's spending, not a claim
   // against the retirement corpus.
+  // Named as everywhere else, by nickname first: the list read "ICICI Current"
+  // for the account every other screen calls "Business current".
   for (const a of queryAll<{ id: string; name: string }>(
-    db, `SELECT id, name FROM accounts WHERE kind = 'budget' AND closed_at IS NULL ORDER BY name`,
+    db, `SELECT id, COALESCE(NULLIF(nickname, ''), name) AS name FROM accounts
+          WHERE kind = 'budget' AND closed_at IS NULL ORDER BY name`,
   )) {
     if (hidden.has(a.id)) continue;
     const value = balances.get(a.id)?.working ?? 0;
@@ -309,7 +312,7 @@ export function fireProjection(
     if (value <= 0) continue;
 
     const line: CorpusLine = {
-      label: account.name, accountId: account.id, value, subtype: account.subtype,
+      label: account.nickname || account.name, accountId: account.id, value, subtype: account.subtype,
     };
     // DEPOSITS · Terms say what a deposit is, whatever account holds it: a PPF
     // or EPF is locked like any provident fund, an FD or RD can be broken.
