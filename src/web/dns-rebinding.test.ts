@@ -87,6 +87,27 @@ describe("DNS rebinding against a fresh LAN install", () => {
     }
   });
 
+  /*
+   * The bearer exemption skipped every check — the Host one included — for any
+   * request that named a bearer and carried no session cookie. A rebound page
+   * is same-origin to itself, so it may set Authorization without a preflight:
+   * "Bearer anything" walked past SECURITY-D3 into /auth/first-run.
+   */
+  test("nor by naming a bearer token it does not have", async () => {
+    const { db, app } = await freshInstall({});
+    try {
+      const port = new URL(app.baseUrl).port;
+      const status = await post(app, "/auth/first-run", {
+        Host: `evil.example:${port}`, Origin: `http://evil.example:${port}`,
+        Authorization: "Bearer not-a-token",
+      }, FIRST_RUN);
+      assert.equal(status, 403);
+      assert.equal(memberCount(db), 0, "the attacker owns the household");
+    } finally {
+      await app.close();
+    }
+  });
+
   test("the configured name is let through", async () => {
     const { db, app } = await freshInstall({});
     try {

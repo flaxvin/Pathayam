@@ -28,6 +28,7 @@ import { createAccount } from "../domain/accounts.ts";
 import { createGroup, createCategory } from "../domain/budget.ts";
 import { createTransaction } from "../domain/transactions.ts";
 import { createSchedule } from "../domain/schedules.ts";
+import { createLoan } from "../domain/loans.ts";
 import { rupees, type Paise } from "../core/money.ts";
 import type { IsoDate } from "../core/dates.ts";
 
@@ -191,6 +192,32 @@ describe("a cashflow horizon from the address bar", () => {
     const body = await (await app.get("/schedules?days=365")).text();
     assert.match(body, /The next 365 days/);
   });
+});
+
+describe("a financial year from the address bar", () => {
+  /*
+   * FRESH-WEB-3 · /tax?fy= took any integer above 2000, and 1e308 is an
+   * integer: the year's dates became an Invalid time value, a 500 recorded
+   * as a fault, from a URL anybody signed in could type.
+   */
+  for (const fy of ["1e308", "99999999999999999999"]) {
+    test(`fy=${fy} falls back to this year`, async () => {
+      // A home loan is what walks the year's days, accruing its interest.
+      if (!app.db.prepare("SELECT 1 FROM loans").get()) {
+        const loan = createLoan(app.db, actor, {
+          holderMemberId: "m-ravi", lender: "Fictional Housing Finance", loanType: "home",
+          sanctioned: rupees(10_00_000), sanctionDate: "2025-03-01", interestModel: "reducing",
+          annualRatePct: 9, tenureMonths: 240, currentOutstanding: rupees(10_00_000),
+          repaymentAccountId: ids.bank, firstInstalmentDate: "2025-04-05",
+        });
+        await app.post(`/loans/${loan.id}/property`, { property_use: "self-occupied" });
+      }
+      const before = app.failures.length;
+      const res = await app.get(`/tax?fy=${fy}`);
+      assert.equal(res.status, 200);
+      assert.equal(app.failures.length, before, "recorded as a fault");
+    });
+  }
 });
 
 describe("a card's 'Pay it off'", () => {
