@@ -215,7 +215,13 @@ export function fireProjection(
   const windowDays = opts.windowDays ?? 365;
   const baseCurrency = opts.baseCurrency ?? "INR";
   const assumptions: FireAssumptions = { ...DEFAULT_ASSUMPTIONS, ...opts.assumptions };
-  const from = addDays(asOf, -windowDays);
+  /*
+   * FIRE-1 · The window is `windowDays` days ending on asOf, both ends counted
+   * — every query reads `from` and `to` inclusively. asOf − 365 made it 366
+   * days, so rent or salary on the same day of the month as asOf was counted
+   * thirteen times in a "year".
+   */
+  const from = addDays(asOf, -(windowDays - 1));
 
   /*
    * Is there enough history for a trailing year to be a year? History starts
@@ -241,7 +247,7 @@ export function fireProjection(
    * not been scaled at all.
    */
   const observedDays = windowIsShort && earliest !== null && earliest <= asOf
-    ? Math.max(1, daysBetween(earliest, asOf))
+    ? Math.max(1, daysBetween(earliest, asOf) + 1)
     : windowDays;
 
   // --- What a year costs ----------------------------------------------------
@@ -270,8 +276,11 @@ export function fireProjection(
   // drawn from. Credit balances are not netted off here: the card is settled
   // out of this month's envelopes, and it is this month's spending, not a claim
   // against the retirement corpus.
+  // Named as everywhere else, by nickname first: the list read "ICICI Current"
+  // for the account every other screen calls "Business current".
   for (const a of queryAll<{ id: string; name: string }>(
-    db, `SELECT id, name FROM accounts WHERE kind = 'budget' AND closed_at IS NULL ORDER BY name`,
+    db, `SELECT id, COALESCE(NULLIF(nickname, ''), name) AS name FROM accounts
+          WHERE kind = 'budget' AND closed_at IS NULL ORDER BY name`,
   )) {
     if (hidden.has(a.id)) continue;
     const value = balances.get(a.id)?.working ?? 0;
@@ -309,7 +318,7 @@ export function fireProjection(
     if (value <= 0) continue;
 
     const line: CorpusLine = {
-      label: account.name, accountId: account.id, value, subtype: account.subtype,
+      label: account.nickname || account.name, accountId: account.id, value, subtype: account.subtype,
     };
     // DEPOSITS · Terms say what a deposit is, whatever account holds it: a PPF
     // or EPF is locked like any provident fund, an FD or RD can be broken.

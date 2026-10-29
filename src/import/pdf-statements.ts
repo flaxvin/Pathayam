@@ -723,8 +723,10 @@ const TABLE_END = [
  */
 function markedSign(line: string, from: number): 1 | -1 | null {
   const tail = line.slice(from);
-  if (/\bcr\b\.?\s*$/i.test(tail)) return 1;
-  if (/\bdr\b\.?\s*$/i.test(tail)) return -1;
+  // Not `\bcr`: "40.00Cr" has no word boundary between the 0 and the C, and
+  // a refund printed that way fell through to rule 4 as a purchase.
+  if (/(?<![a-z])cr\.?\s*$/i.test(tail)) return 1;
+  if (/(?<![a-z])dr\.?\s*$/i.test(tail)) return -1;
   // ICICI prints a bare minus in front of a refund; HDFC a plus.
   if (/[+]\s*[₹C]?\s*[\d,]+\.\d{2}/.test(tail)) return 1;
   if (/-\s*[₹C]?\s*[\d,]+\.\d{2}/.test(tail)) return 1;

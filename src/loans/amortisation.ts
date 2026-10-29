@@ -121,6 +121,13 @@ export interface ScheduleInput {
   prepayMode?: PrepayMode;
   /** Anchors due dates, so the schedule can feed the cashflow calendar. */
   firstInstalmentDate?: IsoDate;
+  /**
+   * LOANS-2 · Instalments already paid before this schedule's first row. Due
+   * dates count on from `firstInstalmentDate` by this many months, so a loan
+   * due on the 31st stays on the month's last day rather than drifting to
+   * the 28th after February.
+   */
+  instalmentsBefore?: number;
 }
 
 export interface Schedule {
@@ -143,7 +150,7 @@ export function buildSchedule(input: ScheduleInput): Schedule {
   const {
     principal, annualRatePct, months,
     extraMonthly = 0, prepayments = new Map(), prepayMode = "tenure",
-    firstInstalmentDate,
+    firstInstalmentDate, instalmentsBefore = 0,
   } = input;
 
   if (principal <= 0) throw new RangeError("A loan needs a principal above zero.");
@@ -206,7 +213,7 @@ export function buildSchedule(input: ScheduleInput): Schedule {
     const interestP = toPaise(cumulative) - toPaise(cumulativeBefore);
     instalments.push({
       number: month,
-      dueDate: firstInstalmentDate ? shiftMonths(firstInstalmentDate, month - 1) : null,
+      dueDate: firstInstalmentDate ? shiftMonths(firstInstalmentDate, instalmentsBefore + month - 1) : null,
       opening: openingP,
       payment: principalP + interestP,
       interest: interestP,
@@ -284,8 +291,11 @@ export function flatSchedule(input: {
   annualFlatPct: number;
   months: number;
   firstInstalmentDate?: IsoDate;
+  /** LOANS-2 · As `ScheduleInput.instalmentsBefore`. */
+  instalmentsBefore?: number;
 }): Schedule {
   const { principal, originalPrincipal, annualFlatPct, months, firstInstalmentDate } = input;
+  const instalmentsBefore = input.instalmentsBefore ?? 0;
   if (principal <= 0) throw new RangeError("A loan needs a principal above zero.");
   if (months <= 0) throw new RangeError("A loan needs at least one instalment.");
 
@@ -304,7 +314,7 @@ export function flatSchedule(input: {
     const interestP = toPaise(cumulative) - toPaise(cumulative - interest);
     instalments.push({
       number: n,
-      dueDate: firstInstalmentDate ? shiftMonths(firstInstalmentDate, n - 1) : null,
+      dueDate: firstInstalmentDate ? shiftMonths(firstInstalmentDate, instalmentsBefore + n - 1) : null,
       opening: openingP,
       payment: openingP - closingP + interestP,
       interest: interestP,

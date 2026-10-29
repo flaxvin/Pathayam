@@ -25,3 +25,21 @@ test("one at or above zero is still what is set aside", () => {
   const page = String(renderCards({ cards: [card(462_000)], month: "2026-09" })).replace(/\s+/g, " ");
   assert.match(page, /Set aside ?<\/div> <span class="amount">₹4,620<\/span>/);
 });
+
+/*
+ * UI-2 · An overpaid card showed "₹0" in red: nothing owed, drawn as debt, and
+ * the ₹2,710 the bank now owes back shown nowhere. Found paying the demo's
+ * Swiggy HDFC card a little more than it owed.
+ */
+test("an overpaid card says what is in credit, not a red ₹0", () => {
+  const overpaid = { ...card(0), owed: 0 as Paise, credit: 271_000 as Paise, unfunded: 0 as Paise };
+  const page = String(renderCards({ cards: [overpaid], month: "2026-09" })).replace(/\s+/g, " ");
+  assert.match(page, /<div class="amount amount-positive" style="font-size:1.15rem">₹2,710 in credit<\/div>/);
+  assert.doesNotMatch(page, /amount-negative" style="font-size:1.15rem">₹0</);
+});
+
+test("a card that owes nothing and holds nothing is a plain ₹0", () => {
+  const settled = { ...card(0), owed: 0 as Paise, credit: 0 as Paise, unfunded: 0 as Paise };
+  const page = String(renderCards({ cards: [settled], month: "2026-09" })).replace(/\s+/g, " ");
+  assert.match(page, /<div class="amount" style="font-size:1.15rem">₹0<\/div>/);
+});

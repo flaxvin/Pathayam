@@ -21,6 +21,8 @@ export interface CardDue {
   last4: string | null;
   /** What the card owes right now, positive when money is owed. */
   owed: Paise;
+  /** What the bank owes back when the card has been overpaid; 0 otherwise. */
+  credit?: Paise;
   /** What its payment envelope holds. */
   funded: Paise;
   /** R6 · Of what it owes, how much has nothing behind it. */
@@ -159,7 +161,13 @@ function renderCard(card: CardDue, month: string): SafeHtml {
           </div>
         </div>
         <div style="text-align:right">
-          <div class="amount amount-negative" style="font-size:1.15rem">${formatPaise(card.owed)}</div>
+          <!-- An overpaid card read "₹0" in red: nothing owed, shown as debt,
+               and the rupees the bank now owes back nowhere. -->
+          ${card.owed > 0
+            ? html`<div class="amount amount-negative" style="font-size:1.15rem">${formatPaise(card.owed)}</div>`
+            : (card.credit ?? 0) > 0
+              ? html`<div class="amount amount-positive" style="font-size:1.15rem">${formatPaise(card.credit!)} in credit</div>`
+              : html`<div class="amount" style="font-size:1.15rem">${formatPaise(card.owed)}</div>`}
           ${when(state, () => html`<span class="chip ${state!.chip}">${state!.label}</span>`)}
         </div>
       </div>

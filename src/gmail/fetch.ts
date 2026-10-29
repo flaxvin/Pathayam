@@ -20,7 +20,7 @@
 
 import type { DB } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
-import { todayIST, type IsoDate } from "../core/dates.ts";
+import { daysBetween, todayIST, type IsoDate } from "../core/dates.ts";
 import type { Paise } from "../core/money.ts";
 import { ingest } from "../import/pipeline.ts";
 import type { RawRecord } from "../import/csv.ts";
@@ -83,6 +83,9 @@ export function buildQuery(sinceDays: number): string {
   return `from:(${from}) newer_than:${sinceDays}d`;
 }
 
+/** The most messages one fetch reads. */
+const MESSAGE_CAP = 200;
+
 /**
  * Fetch and ingest. Returns a summary; every transaction lands in Review.
  */
@@ -114,8 +117,25 @@ export async function fetchGmail(
 
   // A first fetch reaches back 90 days; later fetches only need a short window,
   // but the content-hash dedupe makes a wider window harmless.
-  const sinceDays = connection.last_fetched_at ? 14 : 90;
-  const ids = await listMessageIds(buildQuery(sinceDays), client, 200);
+  //
+  // The short window still has to reach the last fetch. A fixed 14 days meant
+  // a fetch 40 days after the previous one never read the 26 days between,
+  // and no later fetch would either.
+  const today = todayIST(deps.now);
+  const sinceDays = connection.last_fetched_at
+    ? Math.max(14, daysBetween(connection.last_fetched_at.slice(0, 10), today) + 2)
+    : 90;
+  // One more than is read, to know whether the cap cut anything. Gmail lists
+  // newest first, so what a cap drops is the oldest of the window — and the
+  // next fetch's window starts after it. Said, not swallowed (IL3).
+  const listed = await listMessageIds(buildQuery(sinceDays), client, MESSAGE_CAP + 1);
+  const ids = listed.slice(0, MESSAGE_CAP);
+  if (listed.length > MESSAGE_CAP) {
+    result.notes.push(
+      `More than ${MESSAGE_CAP} bank emails arrived in the last ${sinceDays} days; only the newest ` +
+      `${MESSAGE_CAP} were read. Upload the statement for the earlier part of that period so nothing is missed`,
+    );
+  }
 
   // Accumulate records per account, then ingest once per account so dedupe and
   // the batch log behave the same as an uploaded file.

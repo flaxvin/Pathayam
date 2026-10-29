@@ -362,3 +362,56 @@ describe("IMPORTS-SCHEDULES-34 · an alert that cannot be read is counted, not d
     db.close();
   });
 });
+
+describe("a fetch reaches back to the last one, however long ago", () => {
+  async function queryAfterGap(lastFetched: string | null, now: Date): Promise<string> {
+    const db = setup();
+    execute(db, `UPDATE gmail_connections SET last_fetched_at = ? WHERE member_id = ?`, lastFetched, RAVI);
+    let query = "";
+    const google = fakeGoogle({});
+    await fetchGmail(db, actor, {
+      clientId: "id", clientSecret: "secret", now,
+      fetchImpl: (async (input: string | URL | Request) => {
+        const url = String(input);
+        if (url.includes("/messages?")) query = new URL(url).searchParams.get("q") ?? "";
+        return google(input);
+      }) as unknown as typeof fetch,
+    });
+    db.close();
+    return query;
+  }
+
+  test("a fetch 40 days after the last one asks for those 40 days, not 14", async () => {
+    // Fourteen days was a fixed window: alerts from the 26 days before it
+    // were never read by any fetch, and nothing said so.
+    const q = await queryAfterGap("2026-08-01T10:00:00.000+05:30", new Date("2026-09-10T06:00:00Z"));
+    const days = Number(/newer_than:(\d+)d/.exec(q)?.[1]);
+    assert.ok(days >= 40, `newer_than:${days}d does not reach 1 Aug`);
+  });
+
+  test("a fetch the day after the last one keeps the 14-day overlap", async () => {
+    const q = await queryAfterGap("2026-09-09T10:00:00.000+05:30", new Date("2026-09-10T06:00:00Z"));
+    assert.match(q, /newer_than:14d/);
+  });
+
+  test("more messages than one fetch reads is said, not silently cut", async () => {
+    // Gmail lists newest first, so the cap dropped the oldest messages of
+    // the window, and the next fetch's shorter window never came back for them.
+    const db = setup();
+    const messages: Record<string, { from: string; subject: string; body: string }> = {};
+    for (let i = 0; i < 201; i++) {
+      messages[`m${i}`] = { from: "alerts@yes.bank.in", subject: "Offers", body: "Festive offers inside" };
+    }
+    const result = await fetchGmail(db, actor, {
+      clientId: "id", clientSecret: "secret", fetchImpl: fakeGoogle(messages),
+    });
+    assert.equal(result.scanned, 200);
+    assert.ok(result.notes.some((n) => /only the newest 200/i.test(n)), result.notes.join("; "));
+    db.close();
+  });
+
+  test("a first fetch reaches back 90 days", async () => {
+    const q = await queryAfterGap(null, new Date("2026-09-10T06:00:00Z"));
+    assert.match(q, /newer_than:90d/);
+  });
+});

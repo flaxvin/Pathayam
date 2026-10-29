@@ -430,6 +430,12 @@ export function renderMoveMoney(opts: {
     <form method="post" action="/move" class="card">
       <input type="hidden" name="month" value="${opts.month}">
 
+      <!-- Enter in the amount presses a form's first submit button. Without this
+           one that was the "Ready to Assign" suggestion, so a move typed out as
+           Eating out → Milk and sent with Enter came from Ready to Assign. This
+           nameless twin of "Move it" sends the From the household chose. -->
+      <button type="submit" class="sr-only" tabindex="-1" aria-hidden="true">Move it</button>
+
       ${when(rtaAvailable || opts.suggestions.length > 0, () => html`
         <div class="field">
           <label>Suggested sources</label>

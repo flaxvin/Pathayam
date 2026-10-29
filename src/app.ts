@@ -377,6 +377,7 @@ import {
   signedValuation,
   assetHistory,
   standingValuation,
+  valuationInBase,
 } from "./domain/assets.ts";
 import {
   getDepositTerms, setDepositTerms, removeDepositTerms, computedDepositValue, listMaturities,
@@ -521,8 +522,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     function sameOriginWrites(ctx: RequestContext): Response | void {
       const method = ctx.method.toUpperCase();
       if (method === "GET" || method === "HEAD" || method === "OPTIONS") return;
+      /*
+       * And never on a public door. A token cannot reach any of them, so a
+       * bearer there authenticates nothing — while a DNS-rebound page, being
+       * same-origin to itself, may set the header without a preflight, and
+       * "Bearer anything" took it past the Host check below into
+       * /auth/first-run.
+       */
+      const publicDoor = PUBLIC_PATHS.has(ctx.url.pathname) || SETUP_LINK_PATH.test(ctx.url.pathname);
       if (
-        /^Bearer\s/i.test(String(ctx.req.headers.authorization ?? ""))
+        !publicDoor
+        && /^Bearer\s/i.test(String(ctx.req.headers.authorization ?? ""))
         && parseCookies(ctx.req.headers.cookie)[SESSION_COOKIE] === undefined
       ) return;
 
@@ -1545,7 +1555,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             : when(
                 !config.demoMode,
                 () => html`
-                  ${when(!oidcConfigured(config), () => html`
+                  ${when(!oidcConfigured(config) && !passwordSignInOffered(db, config), () => html`
                     <p class="notice notice-warning">
                       No way to sign in is configured. Set LOCAL_LOGIN=1 and create
                       the first password, or point OIDC_ISSUER at an identity
@@ -2952,12 +2962,39 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         const value = field(ctx.body, name)?.trim();
         return value === undefined ? undefined : value === "" ? null : value;
       };
+      const holder = text("holder_member_id") && requireMember(ctx, text("holder_member_id")!);
+      const visibility = field(ctx.body, "visibility") === "private" ? "private"
+        : field(ctx.body, "visibility") === "household" ? "household" : undefined;
+      /*
+       * FRESH-WEB-2 · "Private to me", as the form says. The visibility and the
+       * holder were taken as two separate fields, so a member could mark
+       * another member's account — in that member's own budget — private to
+       * themselves, and it vanished from the screens of the person it belongs
+       * to, Activity included, leaving them nothing to undo it from. Private
+       * is only ever private to whoever is making it so.
+       */
+      const before = getAccount(db, id)!;
+      const nextHolder = holder !== undefined ? holder : before.holder_member_id;
+      const nextBudget = text("budget_id") ?? before.budget_id;
+      const mine = (who: string | null) => who === null || who === a.member.id;
+      if (
+        (visibility ?? before.visibility) === "private" && nextHolder && (
+          nextHolder !== a.member.id || !mine(before.holder_member_id)
+          // An account funding somebody else's budget is theirs to hide, not mine.
+          || (nextBudget !== null && !budgetsFor(db, a.member.id).some((b) => b.id === nextBudget))
+        )
+      ) {
+        throw new Refusal(
+          "Only you can be the one a private account is private to. Leave it shared, " +
+          "or let whoever's name is on it make it private themselves.",
+        );
+      }
       updateAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, {
         name: requiredField(ctx.body, "name"),
         nickname: text("nickname"),
         institution: text("institution"),
         last4: last4Field(field(ctx.body, "last4")),
-        holder_member_id: text("holder_member_id") && requireMember(ctx, text("holder_member_id")!),
+        holder_member_id: holder,
         statement_day: numberOrNull(field(ctx.body, "statement_day")),
         due_day: numberOrNull(field(ctx.body, "due_day")),
         // 15 · Moving an account between budgets is one undoable step, recorded
@@ -2966,8 +3003,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         // household's joint account could be moved into another member's
         // personal budget (SECURITY-OPS-4).
         budget_id: text("budget_id") && requireVisibleBudget(ctx, text("budget_id")!),
-        visibility: field(ctx.body, "visibility") === "private" ? "private"
-          : field(ctx.body, "visibility") === "household" ? "household" : undefined,
+        visibility,
       });
       return { redirect: `/accounts/${id}`, message: "Saved." };
     }),
@@ -3048,6 +3084,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         // personal budget took the account and its opening balance.
         budgetId: guardedField(ctx, "budget_id", requireVisibleBudget) ?? undefined,
         visibility: field(ctx.body, "visibility") === "private" ? "private" : undefined,
+        // FRESH-WEB-2 · "Private to me": the form sends no holder, and the
+        // domain rightly refuses a private account that is private to nobody —
+        // so every private account the form tried to make was refused.
+        holderMemberId: field(ctx.body, "visibility") === "private" ? a.member.id : undefined,
       });
       if (terms) {
         setDepositTerms(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), account.id, terms);
@@ -5109,6 +5149,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           last4: account.last4,
           startingDebtNote: cameWithTheCard(funding),
           owed: Math.max(0, -(owedNow.get(account.id) ?? 0)) as Paise,
+          credit: Math.max(0, owedNow.get(account.id) ?? 0) as Paise,
           funded,
           unfunded: funding.unfunded,
           statement: statement
@@ -8666,7 +8707,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       .filter((a) => listHoldings(db, a.id).length === 0)
       .map((a) => {
         // DEPOSITS · Computed from terms where it has them (standingValuation).
-        const valuation = standingValuation(db, a.id);
+        // In rupees: an SGD savings balance of 41,120 was printed "₹41,120"
+        // here while net worth and FIRE counted it as ₹25 lakh.
+        const valuation = valuationInBase(db, a, todayIST());
         /*
          * A deposit is worth its balance unless somebody has said otherwise
          * (B56), and that is the whole reason it is a tracking account: the
@@ -8681,7 +8724,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           id: a.id, name: a.name, subtype: a.subtype,
           value: valuation?.value ?? balance,
           asOf: valuation?.asOf ?? (counted ? todayIST() : null),
-          stale: valuation?.stale ?? false,
+          // "not valued recently" is about the valuation; an exchange rate a day
+          // or two old is not a reason to ask the household to revalue.
+          stale: valuation ? standingValuation(db, a.id)?.stale ?? false : false,
           valued: valuation !== null || (counted && balance !== 0),
         };
       });
@@ -9932,7 +9977,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
   function taxPageProps(ctx: RequestContext, a: ReturnType<typeof auth>) {
     const fyParam = Number(ctx.query.get("fy"));
-    const fy = Number.isInteger(fyParam) && fyParam > 2000 ? fyParam : fiscalYearOf(todayIST());
+    // FRESH-WEB-3 · 1e308 is an integer too; past year 9998 a date stops being one.
+    const fy = Number.isInteger(fyParam) && fyParam > 2000 && fyParam < 9999
+      ? fyParam : fiscalYearOf(todayIST());
 
     const stored = getDeclaration(db, a.member.id, fy);
     // INSURANCE-1 · What the member's policies come to; filled in only when asked.

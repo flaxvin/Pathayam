@@ -232,11 +232,11 @@ export function listValuableAccounts(
 ) {
   const subtypes = [...ASSET_SUBTYPES, ...SIMPLE_TRACKING_SUBTYPES];
   return queryAll<{
-    id: string; name: string; subtype: string; currency: string;
+    id: string; name: string; nickname: string | null; subtype: string; currency: string;
     institution: string | null; closed_at: string | null;
   }>(
     db,
-    `SELECT id, name, subtype, currency, institution, closed_at FROM accounts
+    `SELECT id, name, nickname, subtype, currency, institution, closed_at FROM accounts
       WHERE kind = 'tracking' AND subtype IN (${subtypes.map(() => "?").join(",")})
       ${opts.includeClosed ? "" : "AND closed_at IS NULL"}
       ${opts.viewerMemberId !== undefined

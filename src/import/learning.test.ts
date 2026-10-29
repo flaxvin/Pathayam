@@ -59,6 +59,29 @@ describe("04 §6.4 · rule learning", () => {
     db.close();
   });
 
+  test("L4 — a payee with a quote in its name is proposed once, not on every categorisation", () => {
+    // The "already proposed" check searched the stored JSON for "<name>", but
+    // JSON writes the quote as \", so it never found the rule it had written.
+    const { db, account, eatingOut } = setup();
+    spend(db, account.id, `12" Pizza`, eatingOut.id, "2026-08-01");
+    spend(db, account.id, `12" Pizza`, eatingOut.id, "2026-08-08");
+    assert.equal(proposeCategoryRules(db, actor).length, 1);
+    spend(db, account.id, `12" Pizza`, eatingOut.id, "2026-08-15");
+    assert.deepEqual(proposeCategoryRules(db, actor), [], "already proposed");
+    db.close();
+  });
+
+  test("L4 — a payee whose name has a LIKE wildcard does not hide another payee's proposal", () => {
+    const { db, account, eatingOut } = setup();
+    spend(db, account.id, "A1B", eatingOut.id, "2026-08-01");
+    spend(db, account.id, "A1B", eatingOut.id, "2026-08-08");
+    proposeCategoryRules(db, actor);
+    spend(db, account.id, "A_B", eatingOut.id, "2026-08-01");
+    spend(db, account.id, "A_B", eatingOut.id, "2026-08-08");
+    assert.deepEqual(proposeCategoryRules(db, actor).map((p) => p.name), ["A_B → Eating Out"]);
+    db.close();
+  });
+
   test("N9 — the proposal carries the reason it was inferred from", () => {
     const { db, account, eatingOut } = setup();
     spend(db, account.id, "Swiggy", eatingOut.id, "2026-08-01");
