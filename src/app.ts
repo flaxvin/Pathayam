@@ -2966,7 +2966,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const visibility = field(ctx.body, "visibility") === "private" ? "private"
         : field(ctx.body, "visibility") === "household" ? "household" : undefined;
       /*
-       * FRESH-WEB-3 · "Private to me", as the form says. The visibility and the
+       * FRESH-WEB-2 · "Private to me", as the form says. The visibility and the
        * holder were taken as two separate fields, so a member could mark
        * another member's account — in that member's own budget — private to
        * themselves, and it vanished from the screens of the person it belongs
