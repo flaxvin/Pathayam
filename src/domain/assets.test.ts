@@ -17,7 +17,7 @@ import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
 import { openDatabase, ensureHousehold, execute, queryOne, type DB } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
-import { nowIST, todayIST } from "../core/dates.ts";
+import { addDays, nowIST, todayIST } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import { createAccount } from "./accounts.ts";
 import { createGroup, createCategory, setAssigned } from "./budget.ts";
@@ -253,9 +253,10 @@ describe("R30 · the firewall", () => {
     });
     recordPrice(db, { instrumentId: fund.id, price: price(86.4), asOf: `${MONTH}-02`, source: "mfapi" });
 
-    // Weeks later, with no successful fetch since.
+    // Weeks later, with no successful fetch since. ENG-1 · Counted from the
+    // price, not a fixed "2027-01-01", which is before it from January 2027.
     const holding = listHoldings(db, demat.id)[0]!;
-    const view = viewHolding(db, holding.id, "2027-01-01")!;
+    const view = viewHolding(db, holding.id, addDays(`${MONTH}-02`, 21))!;
 
     assert.equal(view.marketValue, rupees(86_400), "never blanked, never zeroed");
     assert.equal(view.quote!.stale, true, "but visibly marked");
