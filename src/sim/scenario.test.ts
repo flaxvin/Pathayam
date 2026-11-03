@@ -405,12 +405,13 @@ describe("top-down · and again, with money it has not seen", () => {
     assert.deepEqual(broken.slice(0, 6), []);
     assert.equal(run.months.length, sim.months.length);
 
-    // Different money, or the seed is not doing anything.
-    const theirs = queryOne<{ n: number }>(
-      other, `SELECT COUNT(*) AS n FROM transactions`,
-    )!.n;
-    const ours = queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM transactions`)!.n;
-    assert.notEqual(theirs, ours, "both households came out identical; the seed is ignored");
+    // Different money, or the seed is not doing anything. ENG-5 · The money,
+    // not only the count: run on 15 June 2027 both seeds happen to make 2,103
+    // transactions, and a count alone called that "the seed is ignored".
+    const fingerprint = (d: typeof db) => queryOne<{ f: string }>(
+      d, `SELECT COUNT(*) || ':' || COALESCE(SUM(amount), 0) AS f FROM transactions`,
+    )!.f;
+    assert.notEqual(fingerprint(other), fingerprint(db), "both households came out identical; the seed is ignored");
     other.close();
   });
 });
