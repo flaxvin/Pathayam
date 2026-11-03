@@ -305,6 +305,25 @@ describe("amounts in a statement file", () => {
       [rupees(-1299), rupees(5000), rupees(-240), rupees(99)]);
   });
 
+  test("a footer's marker does not decide which way the purchases went (IMP-3)", () => {
+    // The card's "Total ... Dr" footer is skipped as a row, but it used to
+    // count as a figure marked money out, and so every bare purchase above it
+    // imported as money in.
+    const { result } = parseStatement(
+      "Date,Transaction Details,Amount (in Rs.)\n03/09/2026,ZZ FICTIONAL STORE,\"1,299.00\"\n" +
+      "05/09/2026,PAYMENT RECEIVED,\"5,000.00 Cr\"\n,Total Amount Due,\"799.00 Dr\"",
+    );
+    assert.deepEqual(result.records.map((r) => r.amount), [rupees(-1299), rupees(5000)]);
+  });
+
+  test("a closing-balance footer marked Cr does not turn bare deposits into money out (IMP-3)", () => {
+    const { result } = parseStatement(
+      "Date,Narration,Amount\n01-08-2026,SALARY,\"1,45,000.00\"\n31-08-2026,INTEREST,120.00\n" +
+      ",Closing Balance,\"2,45,120.00 Cr\"",
+    );
+    assert.deepEqual(result.records.map((r) => r.amount), [rupees(145000), rupees(120)]);
+  });
+
   test("a file that marks its money out too keeps a bare figure as money in", () => {
     const { result } = parseStatement(
       "Date,Narration,Amount\n01-08-2026,SALARY,\"1,200.00Cr\"\n02-08-2026,SHOP,-40.00\n03-08-2026,INTEREST,12.00",

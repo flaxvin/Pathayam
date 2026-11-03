@@ -439,6 +439,10 @@ function bareSign(rows: string[][], mapping: ColumnMapping): 1 | -1 {
   if (mapping.debit !== undefined && mapping.credit !== undefined) return 1;
   let markedIn = false;
   for (let r = mapping.headerRow + 1; r < rows.length; r++) {
+    // IMP-3 · Only transaction rows vote. A "Total Amount Due … Dr" or
+    // "Closing Balance … Cr" footer has no date, is skipped as a row, and
+    // used to flip the sign of every bare figure in the file.
+    if (!readDate((rows[r]?.[mapping.date] ?? "").trim(), mapping)) continue;
     const raw = (rows[r]?.[mapping.amount] ?? "").trim();
     if (raw === "" || BARE_FIGURE.test(raw)) continue;
     if (MARKED_OUT.test(raw)) return 1;
