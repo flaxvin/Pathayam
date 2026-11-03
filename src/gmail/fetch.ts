@@ -27,7 +27,9 @@ import type { RawRecord } from "../import/csv.ts";
 import { accountsByLast4For, cardsByLast4For } from "../domain/accounts.ts";
 import { hiddenAccountSql } from "../domain/member-scope.ts";
 import { ALERT_PROFILES, parseAlert, looksLikeUnreadAlert } from "../import/email-alerts.ts";
-import { senderFor, parseStatementPdf, WrongPassword, STATEMENT_SENDERS } from "../import/pdf-statements.ts";
+import {
+  senderFor, parseStatementPdf, WrongPassword, STATEMENT_SENDERS, bankForInstitution,
+} from "../import/pdf-statements.ts";
 import { passwordCandidates, missingDetailFor } from "../import/statement-passwords.ts";
 import { getIdentity } from "../import/identity.ts";
 import { getConnection, markFetched, type GmailConnection } from "./connection.ts";
@@ -350,11 +352,19 @@ function statementAccounts(
   if (!bank) return [];
   // Among the fetching member's own view, as for alerts: another member's
   // private account at the same bank is neither a candidate nor a rival.
+  //
+  // IMP-4 · The bank as the upload path recognises it — its name or its
+  // signatures ("State Bank of India", "Standard Chartered") — or its id as a
+  // word of its own ("SBI Card", "HDFC"). A substring match on the id missed
+  // the first two and took "Scotiabank" for "sc".
   const hidden = hiddenAccountSql("a", memberId);
+  const word = new RegExp(`\\b${bank}\\b`, "i");
   return (db.prepare(
-    `SELECT a.id FROM accounts a
-      WHERE a.closed_at IS NULL AND lower(a.institution) LIKE ? AND NOT ${hidden.sql}`,
-  ).all(`%${bank}%`, ...hidden.params)) as { id: string }[];
+    `SELECT a.id, a.institution FROM accounts a
+      WHERE a.closed_at IS NULL AND a.institution IS NOT NULL AND NOT ${hidden.sql}`,
+  ).all(...hidden.params) as { id: string; institution: string }[])
+    .filter((a) => bankForInstitution(a.institution) === bank || word.test(a.institution))
+    .map((a) => ({ id: a.id }));
 }
 
 /**

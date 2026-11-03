@@ -228,3 +228,56 @@ describe("IMPORT-15 · Gmail card statements and the card's recorded digits", ()
     assert.ok(!events.includes(HSBC_CARD_LAST6), "the HSBC digits reached the event log");
   });
 });
+
+/**
+ * IMP-4 · A mailed statement goes to the account at its bank, however the
+ * bank's name was typed.
+ *
+ * The account was found by `institution LIKE '%<bank id>%'`. That works for
+ * "HDFC Bank" and "Axis Bank", but SBI's id is "sbi" and Standard Chartered's
+ * is "sc": an account whose institution says "State Bank of India" or
+ * "Standard Chartered" — the bank's own name, as the upload path and the
+ * password hints recognise it — never matched, and every statement from them
+ * was "no matching account".
+ */
+describe("IMP-4 · routing a mailed statement by bank", () => {
+  test("a Standard Chartered statement files under the account typed as Standard Chartered", async () => {
+    const db = setup();
+    createAccount(db, actor, {
+      name: "HSBC Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01", institution: "HSBC",
+    });
+    const sc = createAccount(db, actor, {
+      name: "SC Card", kind: "credit", subtype: "credit-card", openingDate: "2026-08-01",
+      institution: "Standard Chartered",
+    }).id;
+    await fetchFromGmail(db, fakeGoogle({
+      from: "Standard Chartered <global.e-statement-in@sc.com>", pdf: STATEMENTS.hdfc,
+    }));
+    assert.equal(queryOne<{ account_id: string }>(
+      db, "SELECT account_id FROM import_batches WHERE source = 'pdf'",
+    )?.account_id, sc);
+  });
+
+  test("an SBI statement files under the account typed as State Bank of India", async () => {
+    const db = setup();
+    const sbi = createAccount(db, actor, {
+      name: "SBI Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01",
+      institution: "State Bank of India",
+    }).id;
+    await fetchFromGmail(db, fakeGoogle({ from: "SBI <cbssbi.cas@alerts.sbi.co.in>", pdf: STATEMENTS.sbi }));
+    assert.equal(queryOne<{ account_id: string }>(
+      db, "SELECT account_id FROM import_batches WHERE source = 'pdf'",
+    )?.account_id, sbi);
+  });
+
+  test("an id inside another word is not that bank: 'sc' in 'Scotiabank'", async () => {
+    const db = setup();
+    createAccount(db, actor, {
+      name: "Old Scotia", kind: "budget", subtype: "savings", openingDate: "2026-08-01", institution: "Scotiabank",
+    });
+    await fetchFromGmail(db, fakeGoogle({
+      from: "Standard Chartered <global.e-statement-in@sc.com>", pdf: STATEMENTS.hdfc,
+    }));
+    assert.equal(pdfBatches(db), 0);
+  });
+});
