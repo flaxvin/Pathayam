@@ -3150,10 +3150,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const raws = queryAll<{
       id: string; date: string; amount: number; cleared: number; memo: string | null;
       payee: string | null; category: string | null; transfer_pair_id: string | null;
-      card_label: string | null; owner_name: string | null; hidden: number;
+      card_label: string | null; owner_name: string | null; hidden: number; is_split: number;
     }>(
       db,
-      `SELECT t.id, t.date, t.amount, t.cleared, t.memo, t.transfer_pair_id,
+      `SELECT t.id, t.date, t.amount, t.cleared, t.memo, t.transfer_pair_id, t.is_split,
               p.name AS payee, c.name AS category, cd.label AS card_label, m.name AS owner_name,
               ${registerHidden.sql} AS hidden
          FROM transactions t
@@ -3183,6 +3183,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         amount: r.amount,
         cleared: r.cleared === 1,
         isTransfer: r.transfer_pair_id !== null,
+        isSplit: r.is_split === 1,
+        /*
+         * UI-2 · Review's own rule for "needs a category" (see /review): money
+         * out of a budget or credit account, not a transfer, not split, with no
+         * envelope. Income lands in Ready to Assign, a split's lines carry the
+         * envelopes, and a tracking account has none to give.
+         */
+        needsCategory:
+          r.category === null && r.is_split === 0 && r.transfer_pair_id === null
+          && account.kind !== "tracking" && r.amount < 0,
         cardLabel: r.card_label,
         ownerName: r.owner_name,
         // R6 · The cycle this charge bills in, derived from the card's statement
