@@ -35,6 +35,8 @@ import { loadEngineInput } from "../engine/repository.ts";
 
 const RAVI = "m-ravi";
 const actor: Actor = { memberId: RAVI, source: "ui" };
+// Trades are dated the 1st so a sale or dividend dated todayIST() never comes
+// before the purchase: with the 5th, FW5 failed on days 1-4 of every month.
 const MONTH = todayIST().slice(0, 7);
 
 function setup() {
@@ -72,7 +74,7 @@ describe("R30 · the firewall", () => {
     // A holding worth ₹5,00,000 appears out of nowhere, with no cash moving.
     recordPurchase(db, actor, {
       accountId: demat.id, instrumentId: fund.id,
-      tradeDate: `${MONTH}-05`, price: price(80), units: units(6250),
+      tradeDate: `${MONTH}-01`, price: price(80), units: units(6250),
     });
     recordPrice(db, { instrumentId: fund.id, price: price(160), asOf: todayIST(), source: "test" });
 
@@ -86,10 +88,10 @@ describe("R30 · the firewall", () => {
 
     recordPurchase(db, actor, {
       accountId: demat.id, instrumentId: fund.id,
-      tradeDate: `${MONTH}-05`, price: price(80), units: units(937.5),
+      tradeDate: `${MONTH}-01`, price: price(80), units: units(937.5),
     });
 
-    recordPrice(db, { instrumentId: fund.id, price: price(80), asOf: `${MONTH}-05`, source: "t" });
+    recordPrice(db, { instrumentId: fund.id, price: price(80), asOf: `${MONTH}-01`, source: "t" });
     const beforeView = buildBudgetView(db);
     const beforeBalance = beforeView.categories.get(investments.id)!.state.balance;
     const beforeRta = beforeView.monthState.readyToAssign;
@@ -131,7 +133,7 @@ describe("R30 · the firewall", () => {
     const beforeBalance = buildBudgetView(db).categories.get(investments.id)!.state.balance;
 
     recordPurchase(db, actor, {
-      accountId: demat.id, instrumentId: fund.id, tradeDate: `${MONTH}-05`,
+      accountId: demat.id, instrumentId: fund.id, tradeDate: `${MONTH}-01`,
       price: price(80), amount: rupees(25_000),
       fromAccountId: savings.id, categoryId: investments.id,
     });
@@ -151,7 +153,7 @@ describe("R30 · the firewall", () => {
     const { db, savings, demat, fund, investments } = setup();
     setAssigned(db, actor, MONTH, investments.id, rupees(25_000));
     recordPurchase(db, actor, {
-      accountId: demat.id, instrumentId: fund.id, tradeDate: `${MONTH}-05`,
+      accountId: demat.id, instrumentId: fund.id, tradeDate: `${MONTH}-01`,
       price: price(80), amount: rupees(25_000),
       fromAccountId: savings.id, categoryId: investments.id,
     });
@@ -176,7 +178,7 @@ describe("R30 · the firewall", () => {
     const { db, savings, demat, fund } = setup();
     recordPurchase(db, actor, {
       accountId: demat.id, instrumentId: fund.id,
-      tradeDate: `${MONTH}-05`, price: price(80), units: units(1000),
+      tradeDate: `${MONTH}-01`, price: price(80), units: units(1000),
     });
     const holding = listHoldings(db, demat.id)[0]!;
 
@@ -203,7 +205,7 @@ describe("R30 · the firewall", () => {
     const { db, demat, fund } = setup();
     recordPurchase(db, actor, {
       accountId: demat.id, instrumentId: fund.id,
-      tradeDate: `${MONTH}-05`, price: price(80), units: units(100),
+      tradeDate: `${MONTH}-01`, price: price(80), units: units(100),
     });
 
     const before = db.prepare(`SELECT * FROM transactions ORDER BY id`).all();
@@ -220,10 +222,10 @@ describe("R30 · the firewall", () => {
       name: "Apple Inc", kind: "equity", symbol: "AAPL", currency: "USD", provider: "alphavantage",
     });
 
-    recordFxRate(db, { base: "USD", quote: "INR", rate: 83.0, asOf: `${MONTH}-05`, source: "t" });
+    recordFxRate(db, { base: "USD", quote: "INR", rate: 83.0, asOf: `${MONTH}-01`, source: "t" });
     setAssigned(db, actor, MONTH, investments.id, rupees(200_000));
     recordPurchase(db, actor, {
-      accountId: demat.id, instrumentId: usStock.id, tradeDate: `${MONTH}-05`,
+      accountId: demat.id, instrumentId: usStock.id, tradeDate: `${MONTH}-01`,
       price: price(150), units: units(10), fxRate: 83.0,
       fromAccountId: savings.id, categoryId: investments.id,
     });
@@ -268,7 +270,7 @@ describe("R30 · the firewall", () => {
     setAssigned(db, actor, MONTH, investments.id, rupees(25_000));
     recordPurchase(db, actor, {
       accountId: demat.id, instrumentId: fund.id,
-      tradeDate: `${MONTH}-05`, price: price(80), units: units(100),
+      tradeDate: `${MONTH}-01`, price: price(80), units: units(100),
     });
 
     // Dropping the price tables entirely must not break the budget screen —
@@ -286,7 +288,7 @@ describe("R30 · the firewall", () => {
     const { db, savings, demat, fund, investments } = setup();
     setAssigned(db, actor, MONTH, investments.id, rupees(50_000));
     recordPurchase(db, actor, {
-      accountId: demat.id, instrumentId: fund.id, tradeDate: `${MONTH}-05`,
+      accountId: demat.id, instrumentId: fund.id, tradeDate: `${MONTH}-01`,
       price: price(80), amount: rupees(25_000),
       fromAccountId: savings.id, categoryId: investments.id,
     });
