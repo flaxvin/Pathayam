@@ -19,7 +19,10 @@ import type { CardFunding } from "../engine/engine.ts";
 
 export function cameWithTheCard(funding: CardFunding): string | null {
   if (funding.startingDebt <= 0 || funding.unfunded <= 0) return null;
-  const part = Math.min(funding.startingDebt, funding.unfunded);
+  // UI-1 · Overspending on the card is spending, with a register line to file;
+  // only what is left of the shortfall after it can have come with the card.
+  const part = Math.min(funding.startingDebt, funding.unfunded - funding.fromOverspend);
+  if (part <= 0) return null;
   return part >= funding.unfunded
     ? "It came with the card when you added it, so there is no spending to file — "
       + "it clears when you put money in the envelope."
