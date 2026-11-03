@@ -56,7 +56,7 @@ describe("UI-2 · the register's Uncategorised chip", () => {
     const app = await startTestApp(db, { memberId: RAVI });
     try {
       const page = await (await app.get(`/accounts/${savings.id}`)).text();
-      const rows = [...page.matchAll(/<tr class="[^"]*">([\s\S]*?)<\/tr>/g)].map((m) => m[1]!.replace(/<!--[\s\S]*?-->/g, ""));
+      const rows = [...page.matchAll(/<tr class="[^"]*">([\s\S]*?)<\/tr>/g)].map((m) => m[1]!);
       const flagged = rows.filter((r) => /chip-warning">Uncategorised/.test(r));
       assert.equal(flagged.length, 1, `flagged: ${flagged.map((r) => r.replace(/<[^>]+>|\s+/g, " ").trim()).join(" || ")}`);
       assert.match(flagged[0]!, /Mystery shop/);
