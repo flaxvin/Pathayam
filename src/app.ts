@@ -3169,10 +3169,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const raws = queryAll<{
       id: string; date: string; amount: number; cleared: number; memo: string | null;
       payee: string | null; category: string | null; transfer_pair_id: string | null;
-      card_label: string | null; owner_name: string | null; hidden: number;
+      card_label: string | null; owner_name: string | null; hidden: number; is_split: number;
     }>(
       db,
-      `SELECT t.id, t.date, t.amount, t.cleared, t.memo, t.transfer_pair_id,
+      `SELECT t.id, t.date, t.amount, t.cleared, t.memo, t.transfer_pair_id, t.is_split,
               p.name AS payee, c.name AS category, cd.label AS card_label, m.name AS owner_name,
               ${registerHidden.sql} AS hidden
          FROM transactions t
@@ -3202,6 +3202,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         amount: r.amount,
         cleared: r.cleared === 1,
         isTransfer: r.transfer_pair_id !== null,
+        isSplit: r.is_split === 1,
+        /*
+         * UI-2 · Review's own rule for "needs a category" (see /review): money
+         * out of a budget or credit account, not a transfer, not split, with no
+         * envelope. Income lands in Ready to Assign, a split's lines carry the
+         * envelopes, and a tracking account has none to give.
+         */
+        needsCategory:
+          r.category === null && r.is_split === 0 && r.transfer_pair_id === null
+          && account.kind !== "tracking" && r.amount < 0,
         cardLabel: r.card_label,
         ownerName: r.owner_name,
         // R6 · The cycle this charge bills in, derived from the card's statement
@@ -9363,6 +9373,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     auth(ctx);
     return render(ctx, "Add an asset", renderNewAssetForm({
       today: todayIST(),
+      subtype: ctx.query.get("subtype"),
       members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
       payFrom: listAccounts(db, { viewerMemberId: viewer(ctx) })
         .filter((acc) => acc.kind === "budget")
@@ -9376,12 +9387,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/portfolio/asset/new", (ctx) =>
     mutate(ctx, (a) => {
       requireAssets();
-      const valueRaw = field(ctx.body, "value");
+      // UI-4 · An investment account is worth its holdings (derivedWorth), so a
+      // value typed for one would be stored and never read.
+      const subtype = requiredField(ctx.body, "subtype") as "physical";
+      const valueRaw = (subtype as string) === "investment" ? undefined : field(ctx.body, "value");
       const account = createAssetAccount(db, actorFor(a), {
         holderMemberId: guardedField(ctx, "holder_member_id", requireMember),
         visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
         name: requiredField(ctx.body, "name"),
-        subtype: requiredField(ctx.body, "subtype") as "physical",
+        subtype,
         openingValue: valueRaw?.trim() ? amountField(valueRaw) : undefined,
         asOf: dateField(field(ctx.body, "as_of"), "As of"),
       });

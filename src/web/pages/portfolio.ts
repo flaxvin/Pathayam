@@ -250,6 +250,8 @@ export function renderNewAssetForm(opts: {
   payFrom?: { id: string; name: string }[];
   categories?: { id: string; name: string }[];
   error?: string | null;
+  /** UI-4 · The kind to offer first, from a link that already knows it. */
+  subtype?: string | null;
 }): SafeHtml {
   return html`
     <h1>Add an asset</h1>
@@ -272,6 +274,9 @@ export function renderNewAssetForm(opts: {
             ${ASSET_SUBTYPES.filter((s) => s !== "investment").map(
               (s) => html`<option value="${s}">${ASSET_LABELS[s]}</option>`,
             )}
+            <!-- UI-4 · The one kind "Add a holding" needs, which nothing else
+                 in the app could make. Worth its holdings, not a typed value. -->
+            <option value="investment" ${raw(opts.subtype === "investment" ? "selected" : "")}>${ASSET_LABELS.investment} — demat or fund folio, worth its holdings</option>
           </select>
           <p class="field-hint">
             For something valued by hand, where there is no balance to count —
@@ -1241,6 +1246,16 @@ export function renderAddHolding(opts: {
   const chosen = opts.chosen ?? null;
   return html`
     <h1>Add a holding</h1>
+    ${when(opts.assetAccounts.length === 0, () => html`
+      <!-- UI-4 · "Held in" was an empty required dropdown, and Save answered
+           only the browser's "Please select an item in the list". -->
+      <p class="notice notice-warning">
+        A holding is held in an account — a demat, or a fund house's folio — and
+        there is none yet.
+        <a href="/portfolio/asset/new?subtype=investment">Add the investment account</a>
+        first, then come back here.
+      </p>
+    `)}
 
     <form method="get" action="/portfolio/add" class="card">
       <div class="field">
@@ -1433,7 +1448,8 @@ export function renderCasUpload(opts: {
       ? html`
           <div class="card empty-state">
             <p>There is no investment account to import into yet.</p>
-            <p><a class="button" href="/accounts/new?kind=tracking">Add one</a></p>
+            <!-- UI-4 · This went to the account form, which has no investment kind. -->
+            <p><a class="button" href="/portfolio/asset/new?subtype=investment">Add one</a></p>
           </div>
         `
       : html`

@@ -403,6 +403,12 @@ export interface CardFunding {
    * Saying where it came from is the difference between a warning and wallpaper.
    */
   startingDebt: Paise;
+  /**
+   * UI-1 · The part of `unfunded` that is credit overspending: card spending
+   * from an envelope that went negative. That part has spending to file, so it
+   * is never "came with the card", whatever the opening balance was.
+   */
+  fromOverspend: Paise;
 }
 
 /**
@@ -432,6 +438,7 @@ export function cardFunding(
 ): CardFunding {
   const owed = Math.max(0, -outstanding);
   const reallyFunded = paymentCategoryBalance - attributedOverspend;
+  const unfunded = Math.min(owed, Math.max(0, owed - reallyFunded)) as Paise;
   return {
     accountId,
     outstanding,
@@ -445,7 +452,8 @@ export function cardFunding(
      * balance it describes is one a household can disprove with arithmetic,
      * which costs more trust than the warning was ever worth.
      */
-    unfunded: Math.min(owed, Math.max(0, owed - reallyFunded)),
+    unfunded,
+    fromOverspend: Math.min(unfunded, Math.max(0, attributedOverspend)),
   };
 }
 

@@ -228,6 +228,13 @@ export interface RegisterRow {
   amount: Paise;
   cleared: boolean;
   isTransfer: boolean;
+  /** UI-2 · The envelopes are on the split lines, not the row. */
+  isSplit?: boolean;
+  /**
+   * UI-2 · Whether Review would ask for a category for this row. Only these
+   * get the warning chip; the rest of the rows without one need none.
+   */
+  needsCategory?: boolean;
   cardLabel: string | null;
   ownerName: string | null;
   runningBalance: Paise;
@@ -560,7 +567,12 @@ export function renderAccountDetail(opts: {
                           ${when(r.memo, () => html`<div class="faint">${r.memo}</div>`)}
                         </td>
                         <td>
-                          ${r.category ?? html`<span class="chip chip-warning">Uncategorised</span>`}
+                          ${r.category
+                            ?? (r.isSplit
+                              ? html`<a class="faint" href="/transaction/${r.id}">Split</a>`
+                              : r.needsCategory === false
+                                ? html`<span class="faint">—</span>`
+                                : html`<span class="chip chip-warning">Uncategorised</span>`)}
                           ${r.tags.map((t) => html`<span class="chip">#${t}</span>`)}
                         </td>
                         <td class="faint">${r.ownerName ?? "—"}</td>
