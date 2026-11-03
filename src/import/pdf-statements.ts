@@ -727,9 +727,11 @@ function markedSign(line: string, from: number): 1 | -1 | null {
   // a refund printed that way fell through to rule 4 as a purchase.
   if (/(?<![a-z])cr\.?\s*$/i.test(tail)) return 1;
   if (/(?<![a-z])dr\.?\s*$/i.test(tail)) return -1;
-  // ICICI prints a bare minus in front of a refund; HDFC a plus.
-  if (/[+]\s*[₹C]?\s*[\d,]+\.\d{2}/.test(tail)) return 1;
-  if (/-\s*[₹C]?\s*[\d,]+\.\d{2}/.test(tail)) return 1;
+  // ICICI prints a bare minus in front of a refund; HDFC a plus. Not one
+  // glued to a word before it: "AMAZON PAY-  499.00" is a narration's
+  // hyphen, and read as the minus a ₹499 purchase imported as a refund (IMP-2).
+  if (/(?<![A-Za-z0-9])[+]\s*[₹C]?\s*[\d,]+\.\d{2}/.test(tail)) return 1;
+  if (/(?<![A-Za-z0-9])-\s*[₹C]?\s*[\d,]+\.\d{2}/.test(tail)) return 1;
   return null;
 }
 
@@ -1022,7 +1024,9 @@ export function parseStatementText(
   const records: RawRecord[] = [];
   const errors: ParseError[] = [];
 
-  const all = text.split("\n");
+  // IMP-2 · The Unicode minus PDF generators emit, read as the minus it is
+  // (as `parseAmount` does). One code unit for one, so no column moves.
+  const all = text.replace(/−/g, "-").split("\n");
   const lines = all;
   const header = readHeader(lines);
 
