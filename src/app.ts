@@ -1052,6 +1052,25 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return id ? guard(ctx, id) : null;
   }
 
+  /**
+   * FRESH-WEB-2 / WEB-1 · An edit may leave a record private only to whoever is
+   * making the edit, and only if it was theirs or nobody's to begin with.
+   * Otherwise one member could take another's account, loan or policy private
+   * to themselves (or hand it, private, to a third) and it would vanish from
+   * the screens of the person it belongs to, Activity included.
+   */
+  function refuseForeignPrivate(
+    a: AuthContext, before: string | null, next: string | null, visibility: string | null | undefined,
+    noun: string,
+  ): void {
+    if (visibility !== "private" || !next) return;
+    if (next === a.member.id && (before === null || before === a.member.id)) return;
+    throw new Refusal(
+      `Only you can be the one a private ${noun} is private to. Leave it shared, ` +
+      "or let whoever's name is on it make it private themselves.",
+    );
+  }
+
   /** A budget this member may file into: the household's, or their own. */
   function requireVisibleBudget(ctx: RequestContext, id: string): string {
     if (!budgetsFor(db, viewer(ctx)).some((b) => b.id === id)) {
@@ -6217,11 +6236,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       requireLoanVisible(ctx);
       const loan = getLoan(db, ctx.params.id!);
       if (!loan) throw new NotFound("That loan does not exist.");
+      const holder = guardedField(ctx, "holder_member_id", requireMember);
+      const visibility = field(ctx.body, "visibility") === "private" ? "private" : "household";
+      refuseForeignPrivate(
+        a, getAccount(db, loan.account_id)?.holder_member_id ?? null, holder, visibility, "loan",
+      );
       updateAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
-        loan.account_id, {
-          holder_member_id: guardedField(ctx, "holder_member_id", requireMember),
-          visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
-        });
+        loan.account_id, { holder_member_id: holder, visibility });
       return { redirect: `/loans/${loan.id}`, message: "Saved." };
     }),
   );
@@ -8285,7 +8306,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/insurance/:id/edit", (ctx) =>
     mutate(ctx, (a) => {
       const id = requireVisiblePolicy(ctx);
-      updatePolicy(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, policyInput(ctx));
+      const input = policyInput(ctx);
+      refuseForeignPrivate(
+        a, getPolicy(db, id)?.holder_member_id ?? null, input.holderMemberId ?? null,
+        input.visibility, "policy",
+      );
+      updatePolicy(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, input);
       return { redirect: `/insurance/${id}`, message: "Saved." };
     }),
   );

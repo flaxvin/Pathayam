@@ -215,7 +215,7 @@ export function send(ctx: RequestContext, response: Response): void {
       return;
     }
     res.writeHead(response.status ?? 303, {
-      Location: response.redirect,
+      Location: headerSafeLocation(response.redirect),
       ...response.headers,
     });
     res.end();
@@ -241,6 +241,24 @@ export function send(ctx: RequestContext, response: Response): void {
     ...response.headers,
   });
   res.end(text);
+}
+
+/**
+ * WEB-2 · A Location header is ASCII. A same-site path handed back from a form
+ * (`return_to`, `next`) may say /€, and Node throws ERR_INVALID_CHAR on it —
+ * after the work is done, and dropping any Set-Cookie beside it. Anything
+ * outside printable ASCII is percent-encoded, as a browser would have sent it;
+ * an existing %XX escape is left alone. A lone surrogate has no UTF-8 spelling
+ * and becomes U+FFFD's.
+ */
+export function headerSafeLocation(location: string): string {
+  return location.replace(/[^\x21-\x7e]/gu, (c) => {
+    try {
+      return encodeURIComponent(c);
+    } catch {
+      return "%EF%BF%BD";
+    }
+  });
 }
 
 /**
