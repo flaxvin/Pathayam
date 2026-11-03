@@ -124,7 +124,13 @@ export function extractNarrationFields(narration: string): {
 
   // The UPI RRN is 12 digits; bank references run longer. Take the longest
   // digit run of 6+, which is the reference in every shape seen so far.
-  const numbers = narration.match(/\d{6,}/g) ?? [];
+  //
+  // IMP-1 · Not the digits of a masked card number. "POS 416021XXXXXX1234 …"
+  // carries the card's BIN on every swipe, and as a "reference" it made the
+  // strong dedupe tier fold a second same-amount purchase or ATM withdrawal
+  // within five days into the first, without asking.
+  const unmasked = narration.replace(/\d+[xX*•]{2,}[\dxX*•]*|[xX*•]{2,}\d+[\dxX*•]*/g, " ");
+  const numbers = unmasked.match(/\d{6,}/g) ?? [];
   const reference = numbers.length > 0 ? numbers.reduce((a, b) => (b.length >= a.length ? b : a)) : null;
 
   const merchant = extractMerchant(narration, vpa, reference, vpaMatch?.[1] ?? null);
