@@ -13,6 +13,7 @@ import { test, describe, before, after } from "node:test";
 import assert from "node:assert/strict";
 import { execute } from "../db/db.ts";
 import { nowIST } from "../core/dates.ts";
+import { NEWEST_KNOWN_FY } from "../domain/tax.ts";
 import { freshHousehold, RAVI } from "../engine/identity.test-data.ts";
 import { startTestApp, type TestApp } from "./harness.test-data.ts";
 import { page } from "./layout.ts";
@@ -42,7 +43,9 @@ describe("UIQ-5 · names, headings and contrast", () => {
     after(() => app.close());
 
     test("with an estimate showing", async () => {
-      const form = await (await app.get("/tax")).text();
+      // ENG-3 · A year whose rates are in the app. The current year was
+      // refused (422) from 1 April 2027 until the 2027-28 rates are added.
+      const form = await (await app.get(`/tax?fy=${NEWEST_KNOWN_FY}`)).text();
       const fy = /name="fy" value="([^"]+)"/.exec(form)![1]!;
       const saved = await app.post("/tax", { fy, gross: "1800000" });
       assert.ok(saved.status < 400, `posting the figures answered ${saved.status}`);
