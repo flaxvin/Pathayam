@@ -36,6 +36,8 @@ export interface Candidate {
    * ledger. It can be matched like one, but nothing can be merged into it.
    */
   staged?: boolean;
+  /** IMP-5 · A row of the file being imported, auto-approved a moment ago. */
+  thisFile?: boolean;
 }
 
 export interface Incoming {

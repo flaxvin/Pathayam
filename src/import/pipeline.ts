@@ -219,7 +219,7 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
         continue;
       }
 
-      const duplicate = findDuplicate(
+      let duplicate = findDuplicate(
         {
           accountId: opts.accountId,
           date: record.date,
@@ -232,6 +232,18 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
         // Ledger rows first, so a transaction wins a tie with a queued row.
         [...existing, ...pending],
       );
+
+      // IMP-5 · A row of this same file, auto-approved a moment ago, is D2's
+      // other real transaction, never the same event arriving twice: it is
+      // offered as a possible twin, not folded into it. A shared biller or
+      // mandate number made the strong tier "upgrade" it, and the second
+      // premium of the day was gone without a row in Review.
+      if (duplicate && duplicate.action !== "ask" && duplicate.existing.thisFile) {
+        duplicate = {
+          ...duplicate, action: "ask", suggested: "keep-both",
+          reason: `${duplicate.reason} Both rows are in this file.`,
+        };
+      }
 
       if (duplicate?.action === "skip") {
         skipped++;
@@ -318,7 +330,7 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
         existing.push({
           id: transactionId, accountId: opts.accountId, date: record.date, amount: record.amount,
           payee: outcome.subject.payee, reference: record.reference ?? extracted.reference,
-          source: opts.source, sourceId,
+          source: opts.source, sourceId, thisFile: true,
         });
       }
     }

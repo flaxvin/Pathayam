@@ -334,6 +334,30 @@ describe("F6 · rules through the pipeline", () => {
     db.close();
   });
 
+  test("two same-amount debits in one file that share a biller's number both arrive, the first auto-approved (IMP-5)", () => {
+    // Two policies' premiums on one day: the narration's longest digit run is
+    // the biller's own code, the same on both. The first was auto-approved
+    // into the ledger, the second strong-matched it by that "reference" and
+    // was folded into it as an upgrade: gone, with nothing left in Review.
+    const { db, account, group } = setup();
+    const eatingOut = createCategory(db, actor, { groupId: group.id, name: "Eating Out" });
+    addRule(db, eatingOut.id, { autoApprove: true });
+    createTransaction(db, actor, {
+      accountId: account.id, amount: rupees(-120), date: "2026-07-20", payeeName: "Swiggy",
+      categoryId: eatingOut.id,
+    });
+
+    const outcome = importStatement(db, account.id, `Date,Narration,Withdrawal Amt.,Deposit Amt.
+03-08-2026,UPI/P2M/123456789/SWIGGY*ORDER,450.00,
+03-08-2026,UPI/P2M/123456789/SWIGGY*ORDER,450.00,
+`);
+    assert.equal(outcome.autoApproved, 1);
+    const live = queryOne<{ n: number }>(db,
+      `SELECT count(*) AS n FROM transactions WHERE import_batch_id = ?`, outcome.batch.id)!.n;
+    assert.equal(live + listStaged(db).length, 2, "the second debit is in Review or the ledger");
+    db.close();
+  });
+
   test("a placeholder reference does not make two different rows one event", () => {
     const { db, account, group } = setup();
     const eatingOut = createCategory(db, actor, { groupId: group.id, name: "Eating Out" });
