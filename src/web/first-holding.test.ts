@@ -26,6 +26,11 @@ describe("UI-4 · the first holding has somewhere to go", () => {
       const page = await (await app.get("/portfolio/add")).text();
       assert.match(page, /href="\/portfolio\/asset\/new\?subtype=investment"/);
 
+      // The CAS import's own "Add one" went to the account form, which has no
+      // investment kind either.
+      const cas = await (await app.get("/portfolio/cas")).text();
+      assert.match(cas, /href="\/portfolio\/asset\/new\?subtype=investment"/);
+
       const form = await (await app.get("/portfolio/asset/new?subtype=investment")).text();
       assert.match(form, /<option value="investment"\s+selected>/);
 

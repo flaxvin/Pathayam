@@ -1448,7 +1448,8 @@ export function renderCasUpload(opts: {
       ? html`
           <div class="card empty-state">
             <p>There is no investment account to import into yet.</p>
-            <p><a class="button" href="/accounts/new?kind=tracking">Add one</a></p>
+            <!-- UI-4 · This went to the account form, which has no investment kind. -->
+            <p><a class="button" href="/portfolio/asset/new?subtype=investment">Add one</a></p>
           </div>
         `
       : html`
