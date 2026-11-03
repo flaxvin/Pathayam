@@ -236,6 +236,26 @@ describe("INSURANCE-1 · the tax suggestion", () => {
     assert.equal(policyTaxSuggestion(db, PRIYA, 2026).s80c, rupees(18_000));
   });
 
+  test("UI-3 · in a one-member household a policy with no holder named is that member's", async () => {
+    // Weekly UI pass 04-11-2026: first run, one member, a Star Health policy
+    // marked "80D — yourself". The policy form shows no "Whose is it" picker
+    // until there are two members, so the holder stayed empty, and the tax
+    // page — which the insurance page says "adds up the premiums of the
+    // policies you hold" — never offered the ₹24,500.
+    const db = freshDb();
+    seedMember(db, RAVI, "Ravi");
+    createPolicy(db, ravi, {
+      insurer: "Star Health", kind: "health", premium: rupees(24_500) as Paise,
+      frequency: "yearly", nextDue: "2026-11-20", taxGroup: "80d-self",
+    });
+    assert.equal(policyTaxSuggestion(db, RAVI, 2026).s80d, rupees(24_500));
+
+    // With a second member the empty holder means "the household's, jointly"
+    // again, which is nobody's deduction until a holder is named.
+    seedMember(db, PRIYA, "Priya");
+    assert.equal(policyTaxSuggestion(db, RAVI, 2026).s80d, 0);
+  });
+
   test("applying raises a figure to the policies', and never lowers one", () => {
     const s = {
       s80c: rupees(12_000) as Paise, s80d: rupees(18_000) as Paise, s80dParents: rupees(40_000) as Paise,
