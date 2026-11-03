@@ -9347,6 +9347,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     auth(ctx);
     return render(ctx, "Add an asset", renderNewAssetForm({
       today: todayIST(),
+      subtype: ctx.query.get("subtype"),
       members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
       payFrom: listAccounts(db, { viewerMemberId: viewer(ctx) })
         .filter((acc) => acc.kind === "budget")
@@ -9360,12 +9361,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/portfolio/asset/new", (ctx) =>
     mutate(ctx, (a) => {
       requireAssets();
-      const valueRaw = field(ctx.body, "value");
+      // UI-4 · An investment account is worth its holdings (derivedWorth), so a
+      // value typed for one would be stored and never read.
+      const subtype = requiredField(ctx.body, "subtype") as "physical";
+      const valueRaw = (subtype as string) === "investment" ? undefined : field(ctx.body, "value");
       const account = createAssetAccount(db, actorFor(a), {
         holderMemberId: guardedField(ctx, "holder_member_id", requireMember),
         visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
         name: requiredField(ctx.body, "name"),
-        subtype: requiredField(ctx.body, "subtype") as "physical",
+        subtype,
         openingValue: valueRaw?.trim() ? amountField(valueRaw) : undefined,
         asOf: dateField(field(ctx.body, "as_of"), "As of"),
       });
