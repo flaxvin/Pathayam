@@ -887,7 +887,13 @@ export function mergeStaged(db: DB, actor: Actor, stagedId: string): void {
 
     appendEvent(db, actor, {
       entity: "transaction", entityId: row.duplicate_of_id, action: "merge",
-      before, after: queryOne(db, `SELECT * FROM transactions WHERE id = ?`, row.duplicate_of_id),
+      before,
+      // IMP-12 · The staged row is named so undoing its batch reverses this
+      // merge and no other. It is not a column of the row.
+      after: {
+        ...queryOne<Record<string, unknown>>(db, `SELECT * FROM transactions WHERE id = ?`, row.duplicate_of_id),
+        merged_staged_id: stagedId,
+      },
       summary: `Merged an imported row into the transaction you had already entered`,
     });
   });
@@ -1037,7 +1043,11 @@ export function undoBatch(db: DB, actor: Actor, batchId: string): UndoBatchResul
       const history = historyFor(db, "transaction", row.transaction_id);
       const last = history[history.length - 1];
       const before = last?.before as Record<string, unknown> | undefined;
-      if (!last || last.action !== "merge" || last.undoneByEventId || !before) {
+      // IMP-12 · This row's merge, not a later import's merge into the same
+      // transaction (an event from before the row was named is taken as it).
+      const mergedRow = (last?.after as { merged_staged_id?: string } | undefined)?.merged_staged_id;
+      const ours = mergedRow === undefined || mergedRow === row.id;
+      if (!last || last.action !== "merge" || last.undoneByEventId || !before || !ours) {
         keptBecauseEdited.push(row.transaction_id);
         continue;
       }
