@@ -14,6 +14,39 @@
 import { parseAmount, type Paise } from "../core/money.ts";
 import { calendarDate, fullYear, parseDate, type IsoDate } from "../core/dates.ts";
 
+export type CsvEncoding = "UTF-8" | "UTF-16LE" | "UTF-16BE";
+
+/**
+ * IMP-6 · An uploaded CSV file's bytes as text.
+ *
+ * Decoded by its byte-order mark: Excel's "Unicode text" export is UTF-16
+ * little-endian with a mark, its "CSV UTF-8" has a UTF-8 one. A file with no
+ * mark is read as UTF-8. Bytes that are not UTF-8 (an old Windows-1252
+ * export) become U+FFFD rather than refusing the file, and `fellBack` says
+ * so, so the import can tell the person why a name may look wrong.
+ */
+export function decodeCsvBytes(
+  bytes: Uint8Array,
+): { text: string; encoding: CsvEncoding; fellBack: boolean } {
+  let encoding: CsvEncoding = "UTF-8";
+  let body = bytes;
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+    encoding = "UTF-16LE";
+    body = bytes.subarray(2);
+  } else if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+    encoding = "UTF-16BE";
+    body = bytes.subarray(2);
+  } else if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    body = bytes.subarray(3);
+  }
+  const label = encoding.toLowerCase();
+  try {
+    return { text: new TextDecoder(label, { fatal: true, ignoreBOM: true }).decode(body), encoding, fellBack: false };
+  } catch {
+    return { text: new TextDecoder(label, { ignoreBOM: true }).decode(body), encoding, fellBack: true };
+  }
+}
+
 /**
  * Parse delimited text into rows, honouring quotes and embedded newlines.
  *
