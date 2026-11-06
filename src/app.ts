@@ -10131,6 +10131,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         s80dCheckup: money("s80d_checkup"),
         s80dParentsCheckup: money("s80d_parents_checkup"),
         other: money("other"),
+        // ENG-7 · Employer NPS, allowed under both regimes.
+        s80ccd2: money("s80ccd2"),
+        s80ccd2Government: field(ctx.body, "s80ccd2_government") === "1",
         hra: (received || rentPaid || basic)
           ? { received, rentPaid, basic, metro: field(ctx.body, "hra_metro") === "1" }
           : null,

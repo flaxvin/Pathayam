@@ -2926,4 +2926,18 @@ CREATE TABLE password_setup_links (
 CREATE INDEX idx_password_setup_links_member ON password_setup_links(member_id);
 `,
   },
+  {
+    name: "0068-the-employer-s-nps-contribution",
+    sql: `
+--------------------------------------------------------------------------------
+-- ENG-7 · Section 80CCD(2), the employer's NPS contribution
+--------------------------------------------------------------------------------
+-- The one Chapter VI-A deduction the new regime keeps. It went in "other
+-- deductions", which the new regime ignores, so an NPS employee was shown more
+-- new-regime tax than they pay. Its own figure, before the cap; the cap is a
+-- share of hra_basic, raised under the old regime for a government employer.
+ALTER TABLE tax_declarations ADD COLUMN s80ccd2 INTEGER NOT NULL DEFAULT 0 CHECK (s80ccd2 >= 0);
+ALTER TABLE tax_declarations ADD COLUMN s80ccd2_government INTEGER NOT NULL DEFAULT 0;
+`,
+  },
 ];

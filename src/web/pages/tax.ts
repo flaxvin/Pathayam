@@ -101,6 +101,7 @@ function regimeCard(e: RegimeEstimate, isBetter: boolean): SafeHtml {
             ${e.hraExempt > 0 ? row("HRA exempt", -e.hraExempt as Paise, { muted: true }) : html``}
             ${e.homeLoanInterest > 0 ? row("Home loan interest, s24(b)", -e.homeLoanInterest as Paise, { muted: true }) : html``}
             ${e.chapterViA > 0 ? row("80C, 80D and other", -e.chapterViA as Paise, { muted: true }) : html``}
+            ${e.employerNps > 0 ? row("Employer NPS, 80CCD(2)", -e.employerNps as Paise, { muted: true }) : html``}
             ${row("Taxable income", e.taxable, { strong: true })}
             ${row("Tax on slabs", e.taxBeforeRebate)}
             ${e.rebate > 0 ? row("Section 87A rebate", -e.rebate as Paise, { muted: true }) : html``}
@@ -112,7 +113,7 @@ function regimeCard(e: RegimeEstimate, isBetter: boolean): SafeHtml {
         </table>
       </div>
       ${e.regime === "new" && (e.chapterViA === 0)
-        ? html`<p class="field-hint">The new regime allows no 80C, 80D, HRA or interest on a home you live in. Anything entered is ignored here, by design.</p>`
+        ? html`<p class="field-hint">The new regime allows no 80C, 80D, HRA or interest on a home you live in. Anything entered for those is ignored here, by design; employer NPS is not.</p>`
         : html``}
     </div>
   `;
@@ -260,6 +261,21 @@ export function renderTax(p: TaxPageProps): SafeHtml {
           Anything else you claim — 80CCD(1B), 80TTA, 80G. Entered as one figure
           because this app does not know which is which. Home loan interest is
           not one of them any more: it has its own line below.
+        </p>
+      </div>
+
+      <div class="field">
+        <label for="s80ccd2">Employer NPS · section 80CCD(2)</label>
+        <input id="s80ccd2" name="s80ccd2" inputmode="decimal" value="${((d.s80ccd2 ?? 0) / 100).toFixed(2)}">
+        <label class="row" style="gap:.5rem;margin-top:.5rem">
+          <input type="checkbox" name="s80ccd2_government" value="1" ${d.s80ccd2Government ? "checked" : ""}>
+          My employer is a central or state government
+        </label>
+        <p class="field-hint">
+          What your employer paid into your NPS account, from Form 16. Allowed under
+          both regimes: up to 14% of basic + DA under the new, 10% under the old
+          (14% for a government employer). Enter Basic + DA under house rent
+          allowance below, even with no HRA. Your own NPS, 80CCD(1B), goes in other deductions.
         </p>
       </div>
 
