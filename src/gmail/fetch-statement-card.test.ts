@@ -281,3 +281,53 @@ describe("IMP-4 · routing a mailed statement by bank", () => {
     assert.equal(pdfBatches(db), 0);
   });
 });
+
+/**
+ * IMP-9 · A household with an HDFC savings account and an HDFC card had two
+ * accounts at "hdfc", so every mailed HDFC statement was "no matching
+ * account" — though the sender says which it is: the smart-statement address
+ * sends the account statement, the cards address the card statement. The
+ * sender entry's kind now picks between them.
+ */
+describe("IMP-9 · a savings account and a card at the same bank", () => {
+  function twoAtHdfc(db: DB): { savings: string; card: string } {
+    const savings = createAccount(db, actor, {
+      name: "HDFC Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01", institution: "HDFC Bank",
+    }).id;
+    const card = createAccount(db, actor, {
+      name: "HDFC Card", kind: "credit", subtype: "credit-card", openingDate: "2026-08-01", institution: "HDFC Bank",
+    }).id;
+    return { savings, card };
+  }
+  const filedUnder = (db: DB) => queryOne<{ account_id: string }>(
+    db, "SELECT account_id FROM import_batches WHERE source = 'pdf'")?.account_id;
+
+  test("the account statement files under the savings account", async () => {
+    const db = setup();
+    const { savings } = twoAtHdfc(db);
+    await fetchFromGmail(db, fakeGoogle({
+      from: "HDFC Bank <hdfcbanksmartstatement@hdfcbank.net>", pdf: STATEMENTS.hdfc,
+    }));
+    assert.equal(filedUnder(db), savings);
+  });
+
+  test("the card statement files under the card", async () => {
+    const db = setup();
+    const { card } = twoAtHdfc(db);
+    await fetchFromGmail(db, fakeGoogle({
+      from: "HDFC Bank <emailstatements.cards@hdfcbank.net>", pdf: STATEMENTS.hdfc,
+    }));
+    assert.equal(filedUnder(db), card);
+  });
+
+  test("with only a savings account there, a card-sender statement still files under it", async () => {
+    const db = setup();
+    const savings = createAccount(db, actor, {
+      name: "HDFC Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01", institution: "HDFC Bank",
+    }).id;
+    await fetchFromGmail(db, fakeGoogle({
+      from: "HDFC Bank <emailstatements.cards@hdfcbank.net>", pdf: STATEMENTS.hdfc,
+    }));
+    assert.equal(filedUnder(db), savings);
+  });
+});
