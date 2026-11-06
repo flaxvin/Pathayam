@@ -1053,6 +1053,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   }
 
   /**
+   * UI-8 · The holder a new policy, asset or loan is stored with. In a
+   * one-member household the forms offer no "Whose is it", so the holder came
+   * through empty; UI-3 reads an empty holder as the sole member's, but only
+   * while they are alone. When a second member joined, everything recorded
+   * alone became the household's, jointly, and stopped counting as the first
+   * member's (their 80C/80D policies left the tax page). So with one member,
+   * an unnamed holder is stored as that member. With two or more, empty
+   * still means the household's.
+   */
+  function holderOrSoleMember(holder: string | null | undefined): string | null {
+    if (holder) return holder;
+    const members = queryAll<{ id: string }>(db, `SELECT id FROM members WHERE removed_at IS NULL`);
+    return members.length === 1 ? members[0]!.id : null;
+  }
+
+  /**
    * FRESH-WEB-2 / WEB-1 · An edit may leave a record private only to whoever is
    * making the edit, and only if it was theirs or nobody's to begin with.
    * Otherwise one member could take another's account, loan or policy private
@@ -6046,7 +6062,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const loan = createLoan(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         lender: requiredField(ctx.body, "lender"),
         nickname: field(ctx.body, "nickname") || null,
-        holderMemberId: guardedField(ctx, "holder_member_id", requireMember),
+        holderMemberId: holderOrSoleMember(guardedField(ctx, "holder_member_id", requireMember)),
         visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
         // R15 · Where the drawn money landed, if the household said.
         disbursementDestination:
@@ -8311,8 +8327,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/insurance/new", (ctx) =>
     mutate(ctx, (a) => {
+      const input = policyInput(ctx);
+      input.holderMemberId = holderOrSoleMember(input.holderMemberId);
       const policy = createPolicy(
-        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), policyInput(ctx),
+        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), input,
       );
       return { redirect: `/insurance/${policy.id}`, message: "Added." };
     }),
@@ -9410,7 +9428,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const subtype = requiredField(ctx.body, "subtype") as "physical";
       const valueRaw = (subtype as string) === "investment" ? undefined : field(ctx.body, "value");
       const account = createAssetAccount(db, actorFor(a), {
-        holderMemberId: guardedField(ctx, "holder_member_id", requireMember),
+        holderMemberId: holderOrSoleMember(guardedField(ctx, "holder_member_id", requireMember)),
         visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
         name: requiredField(ctx.body, "name"),
         subtype,
