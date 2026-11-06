@@ -228,6 +228,8 @@ export interface RegisterRow {
   amount: Paise;
   cleared: boolean;
   isTransfer: boolean;
+  /** UI-10 · What the category cell says for a transfer: "Card payment" or "Transfer". */
+  transferLabel?: string | null;
   /** UI-2 · The envelopes are on the split lines, not the row. */
   isSplit?: boolean;
   /**
@@ -573,7 +575,7 @@ export function renderAccountDetail(opts: {
                             ?? (r.isSplit
                               ? html`<a class="faint" href="/transaction/${r.id}">Split</a>`
                               : r.needsCategory === false
-                                ? html`<span class="faint">—</span>`
+                                ? html`<span class="faint">${r.transferLabel ?? "—"}</span>`
                                 : html`<span class="chip chip-warning">Uncategorised</span>`)}
                           ${r.tags.map((t) => html`<span class="chip">#${t}</span>`)}
                         </td>

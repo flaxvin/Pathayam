@@ -68,3 +68,45 @@ describe("UI-2 · the register's Uncategorised chip", () => {
     }
   });
 });
+
+describe("UI-10 · a transfer's category cell says what it is", () => {
+  test("\"Card payment\" or \"Transfer\" in faint text, on both sides, instead of a dash", async () => {
+    const db = freshDb();
+    seedMember(db, RAVI, "Ravi");
+    const today = todayIST();
+    const savings = createAccount(db, ravi, {
+      name: "Fictional Savings", kind: "budget", subtype: "savings",
+      openingDate: "2026-01-01", openingBalance: rupees(1_00_000),
+    });
+    const wallet = createAccount(db, ravi, {
+      name: "Fictional Wallet", kind: "budget", subtype: "cash",
+      openingDate: "2026-01-01", openingBalance: rupees(1_000),
+    });
+    const card = createAccount(db, ravi, {
+      name: "Fictional Card", kind: "credit", subtype: "credit-card",
+      openingDate: "2026-01-01", openingBalance: -rupees(5_000) as Paise, dueDay: 5, statementDay: 20,
+    });
+    createTransfer(db, ravi, { fromAccountId: savings.id, toAccountId: card.id, amount: rupees(3_000), date: today });
+    createTransfer(db, ravi, { fromAccountId: savings.id, toAccountId: wallet.id, amount: rupees(2_000), date: today });
+
+    const app = await startTestApp(db, { memberId: RAVI });
+    try {
+      // The third cell of each register row is the category.
+      const cells = async (id: string) => {
+        const page = await (await app.get(`/accounts/${id}`)).text();
+        return [...page.matchAll(/<tr class="[^"]*">([\s\S]*?)<\/tr>/g)]
+          .map((m) => m[1]!.split(/<td[^>]*>/)[3]!.replace(/\s+/g, " ").trim());
+      };
+      const fromSavings = await cells(savings.id);
+      const says = (list: string[], label: string) => list.some((c) => c.startsWith(`<span class="faint">${label}</span>`));
+      assert.ok(says(fromSavings, "Card payment"), fromSavings.join(" || "));
+      assert.ok(says(fromSavings, "Transfer"), fromSavings.join(" || "));
+      assert.ok(!says(fromSavings, "—"));
+      assert.ok(says(await cells(card.id), "Card payment"));
+      assert.ok(says(await cells(wallet.id), "Transfer"));
+      assert.deepEqual(app.failures, []);
+    } finally {
+      await app.close();
+    }
+  });
+});

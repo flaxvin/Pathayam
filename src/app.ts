@@ -3204,10 +3204,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       id: string; date: string; amount: number; cleared: number; memo: string | null;
       payee: string | null; category: string | null; transfer_pair_id: string | null;
       card_label: string | null; owner_name: string | null; hidden: number; is_split: number;
+      pair_kind: string | null;
     }>(
       db,
       `SELECT t.id, t.date, t.amount, t.cleared, t.memo, t.transfer_pair_id, t.is_split,
               p.name AS payee, c.name AS category, cd.label AS card_label, m.name AS owner_name,
+              (SELECT pa.kind FROM transactions pt JOIN accounts pa ON pa.id = pt.account_id
+                WHERE t.transfer_pair_id IS NOT NULL AND pt.transfer_pair_id = t.transfer_pair_id
+                  AND pt.id <> t.id LIMIT 1) AS pair_kind,
               ${registerHidden.sql} AS hidden
          FROM transactions t
          LEFT JOIN payees p   ON p.id = t.payee_id
@@ -3236,6 +3240,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         amount: r.amount,
         cleared: r.cleared === 1,
         isTransfer: r.transfer_pair_id !== null,
+        /*
+         * UI-10 · Money going into a card from another account, seen from
+         * either side, is a card payment; any other transfer is a transfer.
+         */
+        transferLabel: r.transfer_pair_id === null ? null
+          : (account.kind === "credit" && r.amount > 0) || (r.pair_kind === "credit" && r.amount < 0)
+            ? "Card payment"
+            : "Transfer",
         isSplit: r.is_split === 1,
         /*
          * UI-2 · Review's own rule for "needs a category" (see /review): money
