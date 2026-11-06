@@ -49,7 +49,7 @@ function policyForm(opts: {
       <div class="field">
         <label for="ins-number">Policy number</label>
         <input id="ins-number" name="policy_number" autocomplete="off"
-               placeholder="${p?.policy_last4 ? `Ends ${p.policy_last4} — leave blank to keep` : "Optional"}">
+               placeholder="${p?.policy_last4 ? `No. …${p.policy_last4} — leave blank to keep` : "Optional"}">
         <p class="field-hint">
           Only the last four characters are kept. They are enough to tell two
           policies apart and to match a premium notice; the whole number is what
@@ -240,7 +240,7 @@ export function renderPolicy(opts: {
         </div>
         <div style="text-align:right" class="faint">
           ${p.next_due && running ? html`Next due ${formatDate(p.next_due)}` : html`Nothing due`}
-          ${when(p.policy_last4, () => html`<br>Policy ending ${p.policy_last4}`)}
+          ${when(p.policy_last4, () => html`<br>Policy no. …${p.policy_last4}`)}
         </div>
       </div>
       ${when(running && p.next_due !== null, () => html`

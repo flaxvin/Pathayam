@@ -279,7 +279,7 @@ function snapshot(db: DB, id: string): Policy {
 
 function describe(p: { insurer: string; kind: PolicyKind; policyLast4?: string | null; policy_last4?: string | null }): string {
   const tail = p.policyLast4 ?? p.policy_last4;
-  return `${p.insurer} ${KIND_LABELS[p.kind].toLowerCase()} policy${tail ? ` ending ${tail}` : ""}`;
+  return `${p.insurer} ${KIND_LABELS[p.kind].toLowerCase()} policy${tail ? ` no. …${tail}` : ""}`;
 }
 
 export function createPolicy(db: DB, actor: Actor, input: PolicyInput): Policy {
