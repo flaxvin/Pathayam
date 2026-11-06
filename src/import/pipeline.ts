@@ -887,7 +887,13 @@ export function mergeStaged(db: DB, actor: Actor, stagedId: string): void {
 
     appendEvent(db, actor, {
       entity: "transaction", entityId: row.duplicate_of_id, action: "merge",
-      before, after: queryOne(db, `SELECT * FROM transactions WHERE id = ?`, row.duplicate_of_id),
+      before,
+      // IMP-12 · The staged row is named so undoing its batch reverses this
+      // merge and no other. It is not a column of the row.
+      after: {
+        ...queryOne<Record<string, unknown>>(db, `SELECT * FROM transactions WHERE id = ?`, row.duplicate_of_id),
+        merged_staged_id: stagedId,
+      },
       summary: `Merged an imported row into the transaction you had already entered`,
     });
   });
@@ -920,21 +926,42 @@ function breakCheckpointsBehind(
  */
 export function batchUndoDates(db: DB, batchId: string): Map<string, IsoDate[]> {
   const out = new Map<string, IsoDate[]>();
-  for (const t of queryAll<{ account_id: string; date: IsoDate }>(
+  for (const t of queryAll<{ id: string; account_id: string; date: IsoDate }>(
     db,
-    `SELECT account_id, date FROM transactions
+    `SELECT id, account_id, date FROM transactions
       WHERE import_batch_id = ? AND deleted_at IS NULL AND updated_at = created_at`,
     batchId,
   )) {
+    if (vouchedByAnotherBatch(db, t.id, batchId)) continue;
     out.set(t.account_id, [...(out.get(t.account_id) ?? []), t.date]);
   }
   return out;
+}
+
+/**
+ * IMP-7 · Whether another import still standing upgraded this transaction
+ * (D4): a statement row that matched an alert's transaction by reference and
+ * vouched for it in place, creating nothing of its own. Undoing the alert's
+ * batch must not take that statement's line out of the ledger with it.
+ */
+function vouchedByAnotherBatch(db: DB, transactionId: string, batchId: string): boolean {
+  return queryOne(
+    db,
+    `SELECT 1 AS one FROM events e
+       JOIN import_batches b ON b.id = json_extract(e.after_json, '$.upgraded_by_batch_id')
+      WHERE e.entity = 'transaction' AND e.entity_id = ? AND e.action = 'upgrade'
+        AND e.undone_by_event_id IS NULL AND b.undone_at IS NULL AND b.id <> ?
+      LIMIT 1`,
+    transactionId, batchId,
+  ) != null;
 }
 
 export interface UndoBatchResult {
   removed: number;
   /** Records the batch created that have since been edited, and so were left. */
   keptBecauseEdited: string[];
+  /** Records the batch created that a later statement, still imported, vouched for (IMP-7). */
+  keptBecauseOnStatement: string[];
 }
 
 export function undoBatch(db: DB, actor: Actor, batchId: string): UndoBatchResult {
@@ -957,12 +984,18 @@ export function undoBatch(db: DB, actor: Actor, batchId: string): UndoBatchResul
     );
 
     const keptBecauseEdited: string[] = [];
+    const keptBecauseOnStatement: string[] = [];
     let removed = 0;
 
     for (const t of created) {
       // IL2: an edited record is listed and left alone with an explanation.
       if (t.updated_at !== t.created_at) {
         keptBecauseEdited.push(t.id);
+        continue;
+      }
+      // IMP-7 · So is one a later statement, still imported, vouched for.
+      if (vouchedByAnotherBatch(db, t.id, batchId)) {
+        keptBecauseOnStatement.push(t.id);
         continue;
       }
       execute(db, `UPDATE transactions SET deleted_at = ? WHERE id = ?`, nowIST(), t.id);
@@ -1010,7 +1043,11 @@ export function undoBatch(db: DB, actor: Actor, batchId: string): UndoBatchResul
       const history = historyFor(db, "transaction", row.transaction_id);
       const last = history[history.length - 1];
       const before = last?.before as Record<string, unknown> | undefined;
-      if (!last || last.action !== "merge" || last.undoneByEventId || !before) {
+      // IMP-12 · This row's merge, not a later import's merge into the same
+      // transaction (an event from before the row was named is taken as it).
+      const mergedRow = (last?.after as { merged_staged_id?: string } | undefined)?.merged_staged_id;
+      const ours = mergedRow === undefined || mergedRow === row.id;
+      if (!last || last.action !== "merge" || last.undoneByEventId || !before || !ours) {
         keptBecauseEdited.push(row.transaction_id);
         continue;
       }
@@ -1090,15 +1127,18 @@ export function undoBatch(db: DB, actor: Actor, batchId: string): UndoBatchResul
 
     appendEvent(db, actor, {
       entity: "import-batch", entityId: batchId, action: "undo",
-      after: { removed, kept: keptBecauseEdited.length },
+      after: { removed, kept: keptBecauseEdited.length, keptOnStatement: keptBecauseOnStatement.length },
       summary:
         `Undid an import: removed ${removed} transactions` +
         (keptBecauseEdited.length
           ? `, left ${keptBecauseEdited.length} that had been edited since`
+          : "") +
+        (keptBecauseOnStatement.length
+          ? `, left ${keptBecauseOnStatement.length} that a later statement also had`
           : ""),
     });
 
-    return { removed, keptBecauseEdited };
+    return { removed, keptBecauseEdited, keptBecauseOnStatement };
   });
 }
 

@@ -291,7 +291,7 @@ async function handleStatement(
     // path handed it nothing, so the same file that opened when uploaded was
     // "could not open" when mailed. The digits are only ever candidates tried
     // in memory, never logged or stored.
-    const cardDigits = statementCardDigits(db, memberId, statementSender.bank);
+    const cardDigits = statementCardDigits(db, memberId, statementSender);
     const candidates = identity
       ? passwordCandidates(identity, statementSender.bank, { cardDigits })
       : [""];
@@ -325,7 +325,7 @@ async function handleStatement(
     // Resolve the account from the statement's own header — the parser does not
     // expose an account number, so fall back to the single account for that
     // bank if there is exactly one. Left to Review otherwise.
-    const accountId = resolveStatementAccount(db, memberId, statementSender.bank);
+    const accountId = resolveStatementAccount(db, memberId, statementSender);
     if (!accountId) { result.statements.unmatched++; result.notes.push(`${pdf.filename}: no matching account`); continue; }
 
     const outcome = ingest(db, actor, {
@@ -338,17 +338,43 @@ async function handleStatement(
   }
 }
 
-function resolveStatementAccount(
-  db: DB, memberId: string, bank: import("../import/pdf-statements.ts").BankId | null,
-): string | null {
-  const rows = statementAccounts(db, memberId, bank);
+type StatementSenderRef = { bank: import("../import/pdf-statements.ts").BankId | null; what: string };
+
+function resolveStatementAccount(db: DB, memberId: string, sender: StatementSenderRef): string | null {
+  const rows = statementAccounts(db, memberId, sender);
   return rows.length === 1 ? rows[0]!.id : null;
 }
 
-/** Open accounts at `bank` the fetching member can see. */
-function statementAccounts(
+/**
+ * IMP-9 · Which kind of account a sender's statement is for, from its entry's
+ * `what`: a card statement goes to a credit account, an account statement to
+ * a bank account. Null when the entry does not say ("Axis statement").
+ */
+function statementKind(what: string): "credit" | "bank" | null {
+  if (/\bcard\b/i.test(what)) return "credit";
+  if (/\baccount statement\b/i.test(what)) return "bank";
+  return null;
+}
+
+/**
+ * Open accounts at the sender's bank the fetching member can see.
+ *
+ * IMP-9 · A savings account and a card at the same bank were two candidates,
+ * so neither got the statement. Where the sender says which kind it sends,
+ * the accounts of that kind are preferred; when there are none of that kind,
+ * every account at the bank stays a candidate, as before.
+ */
+function statementAccounts(db: DB, memberId: string, sender: StatementSenderRef): { id: string }[] {
+  const atBank = accountsAtBank(db, memberId, sender.bank);
+  const kind = statementKind(sender.what);
+  if (!kind) return atBank.map((a) => ({ id: a.id }));
+  const ofKind = atBank.filter((a) => (a.kind === "credit") === (kind === "credit"));
+  return (ofKind.length > 0 ? ofKind : atBank).map((a) => ({ id: a.id }));
+}
+
+function accountsAtBank(
   db: DB, memberId: string, bank: import("../import/pdf-statements.ts").BankId | null,
-): { id: string }[] {
+): { id: string; kind: string }[] {
   if (!bank) return [];
   // Among the fetching member's own view, as for alerts: another member's
   // private account at the same bank is neither a candidate nor a rival.
@@ -360,11 +386,11 @@ function statementAccounts(
   const hidden = hiddenAccountSql("a", memberId);
   const word = new RegExp(`\\b${bank}\\b`, "i");
   return (db.prepare(
-    `SELECT a.id, a.institution FROM accounts a
+    `SELECT a.id, a.kind, a.institution FROM accounts a
       WHERE a.closed_at IS NULL AND a.institution IS NOT NULL AND NOT ${hidden.sql}`,
-  ).all(...hidden.params) as { id: string; institution: string }[])
+  ).all(...hidden.params) as { id: string; kind: string; institution: string }[])
     .filter((a) => bankForInstitution(a.institution) === bank || word.test(a.institution))
-    .map((a) => ({ id: a.id }));
+    .map((a) => ({ id: a.id, kind: a.kind }));
 }
 
 /**
@@ -381,9 +407,9 @@ function statementAccounts(
  * offered, as for routing.
  */
 function statementCardDigits(
-  db: DB, memberId: string, bank: import("../import/pdf-statements.ts").BankId | null,
+  db: DB, memberId: string, sender: StatementSenderRef,
 ): string[] {
-  const atBank = statementAccounts(db, memberId, bank);
+  const atBank = statementAccounts(db, memberId, sender);
   const hidden = hiddenAccountSql("a", memberId);
   const scope = atBank.length === 1
     ? { sql: "a.id = ?", params: [atBank[0]!.id] as string[] }

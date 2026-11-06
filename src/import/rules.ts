@@ -138,6 +138,10 @@ export function extractNarrationFields(narration: string): {
   return { channel, vpa, merchant, reference };
 }
 
+/** A masked card number standing as a word of its own, with any separators beside it. */
+const MASKED_CARD =
+  /[\s\-/:]*(?<![A-Za-z0-9])(?:\d+[xX*•]{2,}[\dxX*•]*|[xX*•]{2,}\d+[\dxX*•]*)(?![A-Za-z0-9])[\s\-/:]*/g;
+
 function extractMerchant(
   narration: string, vpa: string | null, reference: string | null, rawVpa: string | null,
 ): string | null {
@@ -150,10 +154,16 @@ function extractMerchant(
     if (!/^\d+$/.test(local)) return capitalise(local.replace(/[._-]+/g, " "));
   }
 
+  // IMP-10 · A masked card number ("416021XXXXXX1234", "416021******1234")
+  // is the card, not the merchant. Left in, it became the start of the payee,
+  // and a star mask was cut at by the MERCHANT*SUB collapse below, leaving no
+  // payee at all. Taken out first, with the separators beside it.
+  const unmasked = narration.replace(MASKED_CARD, " ").trim();
+
   // A leading channel token is a rail, not a merchant: "NEFT-ACT FIBERNET"
   // should read "Act Fibernet". Only stripped at the start and only when a
   // separator follows, so a hyphen inside a real name survives.
-  let withoutRail = narration.replace(
+  let withoutRail = unmasked.replace(
     new RegExp(`^\\s*(?:${CHANNELS.join("|")})\\s*[-/: ]\\s*`, "i"),
     "",
   );

@@ -88,7 +88,7 @@ import {
   guardHistoricalEdit, breakCheckpoints, CheckpointConfirmationRequired,
   intactCheckpointBalances, checkpointsMovedSince, previewReconciliation, type Checkpoint,
 } from "./domain/reconciliation.ts";
-import { parseStatement, detectDelimiter, dateOrderOf, parseDelimited } from "./import/csv.ts";
+import { parseStatement, detectDelimiter, dateOrderOf, parseDelimited, decodeCsvBytes } from "./import/csv.ts";
 import { parseBudgetApp, BUDGET_APP_NAMES, type BudgetAppParse } from "./import/budget-apps.ts";
 import { importBudgetApp } from "./import/budget-app-import.ts";
 import {
@@ -5570,8 +5570,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
   // S10 · Import
   // -------------------------------------------------------------------------
-  router.get("/import", (ctx) =>
-    render(ctx, "Import", renderImport({
+  function importPage(ctx: RequestContext, error: string | null = null) {
+    return render(ctx, "Import", renderImport({
       accounts: listAccounts(db, { viewerMemberId: viewer(ctx) }),
       batches: listBatches(db, { viewerMemberId: viewer(ctx) }),
       profiles: visibleProfiles(ctx).map((p) => ({
@@ -5579,13 +5579,28 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       })),
       casEnabled: config.features.assets,
       banks: BANKS.map((b) => ({ id: b.id, name: b.name, passwordHint: b.passwordHint })),
-    })),
-  );
+      error,
+    }));
+  }
+
+  router.get("/import", (ctx) => importPage(ctx));
 
   router.post("/import", (ctx) => {
-    const text = requiredField(ctx.body, "csv");
     const accountId = requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id;
-    const fileName = field(ctx.body, "file_name") || "pasted.csv";
+    /*
+     * IMP-6 · A chosen file wins over the textarea. Its bytes are decoded
+     * here by their byte-order mark, so Excel's UTF-16 "Unicode text" export
+     * reads as well as a UTF-8 one; a file that is not UTF-8 at all still
+     * imports, and the result says some characters were replaced.
+     */
+    const upload = fileField(ctx.req, "csv_file");
+    const decoded = upload ? decodeCsvBytes(upload.bytes) : null;
+    const text = decoded ? decoded.text : (field(ctx.body, "csv") ?? "");
+    if (text.trim() === "") return importPage(ctx, "Paste the CSV or choose its file first.");
+    const encodingNote = decoded?.fellBack
+      ? "Some of the file was not UTF-8, so a few characters show as \uFFFD. Saving it from Excel as \u201cCSV UTF-8\u201d avoids that."
+      : null;
+    const fileName = field(ctx.body, "file_name") || upload?.filename || "pasted.csv";
     // An unknown account id reached the INSERT and failed its foreign key — a
     // 500 — and a private account of another member's was importable. Both
     // are the same question: can this viewer see the account?
@@ -5616,6 +5631,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           candidateHeaders: candidateHeaderRows(recognition.rows),
           headerRow,
           choices: columnChoices(recognition.rows, headerRow),
+          note: encodingNote,
         }),
       );
     }
@@ -5651,7 +5667,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
       return {
         redirect: toReview > 0 ? "/review" : "/import",
-        message: `Read ${outcome.batch.rows_read} rows — ${parts.join(", ")}.`,
+        message: `Read ${outcome.batch.rows_read} rows — ${parts.join(", ")}.` +
+          (encodingNote ? ` ${encodingNote}` : ""),
       };
     });
   });
@@ -5668,19 +5685,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const accountId = requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id;
     const upload = fileField(ctx.req, "statement");
 
-    const importPage = (error: string) =>
-      render(ctx, "Import", renderImport({
-        accounts: listAccounts(db, { viewerMemberId: viewer(ctx) }),
-        batches: listBatches(db, { viewerMemberId: viewer(ctx) }),
-        profiles: visibleProfiles(ctx).map((p) => ({
-          id: p.id, name: p.name, last_used_at: p.last_used_at,
-        })),
-        casEnabled: config.features.assets,
-        banks: BANKS.map((b) => ({ id: b.id, name: b.name, passwordHint: b.passwordHint })),
-        error,
-      }));
-
-    if (!upload) return importPage("Choose the statement PDF first.");
+    if (!upload) return importPage(ctx, "Choose the statement PDF first.");
 
     /*
      * A typed password wins; otherwise the stored identity derives candidates
@@ -5725,7 +5730,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         parsed = parseStatementPdf(upload.bytes, "");
       }
     } catch (error) {
-      return importPage(
+      return importPage(ctx,
         error instanceof StatementWrongPassword
           ? (identity
               ? (missing
@@ -5741,7 +5746,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // A fund statement or an exchange report is not a bank account's rows, and
     // a mapping screen would invite the household to import it as one.
     if (parsed.notAStatement) {
-      return importPage(
+      return importPage(ctx,
         `That file is ${parsed.notAStatement}, not a bank or card statement, so ` +
         "there are no transactions in it to import here.",
       );
@@ -5758,7 +5763,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // none, and the mapping screen would offer "Column 1" for every field
       // above a table of nothing. Say what is actually wrong instead.
       if (!looksMappable(loose)) {
-        return importPage(
+        return importPage(ctx,
           "There is no text in that PDF to read — it is almost certainly a scan " +
           "or an image rather than a statement with selectable text. Ask the bank " +
           "for the text version (net banking usually offers one), or import the " +
@@ -6006,8 +6011,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         message:
           `Removed ${result.removed} transactions` +
           (result.keptBecauseEdited.length
-            ? `. ${result.keptBecauseEdited.length} had been edited since and were left alone.`
-            : "."),
+            ? `. ${result.keptBecauseEdited.length} had been edited since and were left alone`
+            : "") +
+          (result.keptBecauseOnStatement.length
+            ? `. ${result.keptBecauseOnStatement.length} were also on a statement imported since and were kept`
+            : "") +
+          ".",
       };
     });
   });

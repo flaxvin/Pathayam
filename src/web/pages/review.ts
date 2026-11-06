@@ -504,6 +504,8 @@ export interface MappingPrompt {
   headerRow: number;
   choices: { index: number; label: string; sample: string }[];
   error?: string | null;
+  /** IMP-6 · Said once when an uploaded file was not all UTF-8. */
+  note?: string | null;
 }
 
 /**
@@ -538,6 +540,7 @@ export function renderMapping(opts: MappingPrompt): SafeHtml {
       After that, every statement from this bank imports without asking.
     </p>
     ${when(opts.error, () => html`<p class="notice notice-error">${opts.error}</p>`)}
+    ${when(opts.note, () => html`<p class="notice notice-warning">${opts.note}</p>`)}
 
     <section class="card">
       <h2>What arrived</h2>
@@ -800,13 +803,20 @@ export function renderImport(opts: {
       </div>
 
       <div class="field">
-        <label for="csv">Paste the CSV, or upload it</label>
+        <label for="csv">Paste the CSV</label>
         <textarea id="csv" name="csv" rows="8"
                   placeholder="Date,Narration,Withdrawal Amt.,Deposit Amt.&#10;01-08-2026,SALARY,,145000.00"></textarea>
         <p class="field-hint">
           The columns are worked out from the header row, wherever it happens to be.
           Separate debit and credit columns, a single signed column, Indian grouping and
           Cr/Dr suffixes are all understood.
+        </p>
+        <label for="csv_file" style="margin-top:.6rem">Or choose the file</label>
+        <input id="csv_file" name="csv_file" type="file"
+               accept=".csv,.txt,.tsv,text/csv,text/plain,text/tab-separated-values">
+        <p class="field-hint">
+          A chosen file is used instead of anything pasted. UTF-8 and Excel's
+          UTF-16 “Unicode text” both read.
         </p>
         <p class="field-hint">
           Moving from YNAB or Actual Budget? Paste its transaction export here.
