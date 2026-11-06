@@ -286,8 +286,13 @@ function renderCategoryRow(
       <div class="category-meta">
         <span class="chip">${category.stateLabel}</span>
         ${when(progress, () => renderTargetBar(progress!, state.assigned))}
+        <!-- UI-11 · Below zero, a payment envelope has paid the card more than
+             it held, and "settles the balance" beside "Cover ₹X" read as money
+             still owed on a card that owed nothing. -->
         ${when(category.isPaymentCategory, () => html`
-          <span class="faint">Settles this card's balance</span>
+          <span class="faint">${state.balance < 0
+            ? `Paid ${formatPaise(-state.balance as Paise)} more than was set aside for this card — cover it from another envelope`
+            : "Settles this card's balance"}</span>
         `)}
         ${when(Boolean(category.commitsToBudgetId), () => html`
           <span class="faint">
