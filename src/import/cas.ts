@@ -122,14 +122,55 @@ function toMicroRupees(value: number): number {
   return Math.round(value * 1_000_000);
 }
 
-function classify(description: string): CasRow["kind"] {
+/**
+ * IMP-13 · The ways this parser has read a row, oldest first. A fix that
+ * changes a row's kind, units or amount changes the reference the plan hashes
+ * from them (cas-plan.ts rowRef), so a statement imported before it would
+ * have its rows offered again as new. Each such fix adds a reading here, and
+ * keeps the old one reproducible, so the plan can recognise a row recorded
+ * under it.
+ *
+ *   0 · before CAS-1 (3712655) and CAS-2 (50f6a70)
+ *   1 · CAS-1: a description's trailing bare number stays in the description;
+ *       CAS-2: "Switch-In" / "Switch-Out" with a hyphen
+ *   2 · IMP-14: systematic withdrawals and transfers (SWP, STP Out / In)
+ */
+export const CAS_READING = 2;
+
+/** A row classify cannot place by its words alone: a transfer with no direction. */
+type Classified = CasRow["kind"] | "transfer";
+
+function classify(description: string, reading: number = CAS_READING): Classified {
   const text = description.toLowerCase();
+  if (reading < 1) {
+    // As it stood before CAS-2, kept only to rebuild references (IMP-13).
+    if (/revers|reject/.test(text)) return "other";
+    if (/reinvest/.test(text)) return "purchase";
+    if (/dividend|idcw|payout/.test(text)) return "dividend";
+    if (/redem|sell|switch\s*out|swtout/.test(text)) return "redemption";
+    if (/purchase|invest|sip|switch\s*in|swtin|allot/.test(text)) return "purchase";
+    return "other";
+  }
   // A reversal undoes the row before it — a bounced SIP says "Purchase" too.
   // Not something to create a lot or a sale for: shown, for a person to judge.
   if (/revers|reject/.test(text)) return "other";
   // Order matters: "dividend reinvestment" is a purchase of units, and calling
   // it a dividend would break R27.5's separation of payouts from cost.
   if (/reinvest/.test(text)) return "purchase";
+  if (reading >= 2) {
+    /*
+     * IMP-14 · A systematic withdrawal is a redemption, and a systematic
+     * transfer a switch: out of this fund, or into it. Neither matched a
+     * pattern below, so both were "other" and skipped — an SWP's units were
+     * never sold, and an STP never left one fund or reached the other. Before
+     * the payout and purchase words, which the target fund's name can carry
+     * ("STP Out - To Eta Dividend Yield Fund", "… Investment Fund").
+     */
+    if (/\bswp\b|systematic\s+withdrawal|\bsys\.?\s*withdrawal/.test(text)) return "redemption";
+    if (/\bstp[\s-]*out\b|systematic\s+transfer(?:\s+plan)?[\s-]*out\b/.test(text)) return "redemption";
+    if (/\bstp[\s-]*in\b|systematic\s+transfer(?:\s+plan)?[\s-]*in\b/.test(text)) return "purchase";
+    if (/\bstp\b|systematic\s+transfer/.test(text)) return "transfer";
+  }
   if (/dividend|idcw|payout/.test(text)) return "dividend";
   // CAMS writes "Switch-Out" / "Switch-In" as often as "Switch Out".
   if (/redem|sell|switch[\s-]*out|swtout/.test(text)) return "redemption";
@@ -297,7 +338,7 @@ export function parseCasText(text: string): CasStatement {
  * Columns are found from the right, because the description is the only field
  * that can contain spaces and it always sits between the date and the numbers.
  */
-function parseRow(text: string): CasRow | null {
+function parseRow(text: string, reading: number = CAS_READING): CasRow | null {
   const dateMatch = /^(\d{1,2}[-/][A-Za-z0-9]{2,3}[-/]\d{4})\s+(.*)$/.exec(text);
   if (!dateMatch) return null;
 
@@ -325,6 +366,7 @@ function parseRow(text: string): CasRow | null {
    * come out at the next figure, belongs to the description.
    */
   if (
+    reading >= 1 &&
     numbers.length > 3 && !figures[0]!.includes(".") &&
     matchedUnitsAndNav(numbers, figures) === null &&
     matchedUnitsAndNav(numbers.slice(1), figures.slice(1)) !== null
@@ -345,7 +387,11 @@ function parseRow(text: string): CasRow | null {
   const [units, nav] = unitsAndNav(numbers, figures);
   if (amount === undefined || units === undefined || nav === undefined) return null;
 
-  const kind = classify(description);
+  const classified = classify(description, reading);
+  // IMP-14 · A transfer that names no direction goes by the sign of what moved.
+  const kind: CasRow["kind"] = classified !== "transfer"
+    ? classified
+    : units < 0 || amount < 0 ? "redemption" : "purchase";
   // A redemption's figures are sometimes bracketed and sometimes not; the word
   // is the authority, not the punctuation.
   // A row of no known kind keeps the sign it was printed with, so a reversal's
@@ -362,6 +408,15 @@ function parseRow(text: string): CasRow | null {
     nav: toMicroRupees(Math.abs(nav)),
     raw: text,
   };
+}
+
+/**
+ * IMP-13 · A row's raw line as an earlier `reading` of this parser read it —
+ * null when it read no row there. Only for rebuilding the reference an
+ * earlier import recorded; never for importing.
+ */
+export function readCasRowAs(raw: string, reading: number): CasRow | null {
+  return parseRow(raw, reading);
 }
 
 /**

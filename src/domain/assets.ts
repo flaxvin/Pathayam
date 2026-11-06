@@ -482,7 +482,10 @@ export function findOrCreateInstrument(
   input: {
     name: string; kind: InstrumentKind; symbol?: string | null; isin?: string | null;
     currency?: string; provider?: PriceProvider; manualOnly?: boolean;
-    /** BONDS-1 · A bond's listing, when the person has said; ignored for any other kind. */
+    /**
+     * BONDS-1 · A bond's listing, when the person has said. ENG-15 · A share's
+     * too; null on a share is taxed as listed. Ignored for any other kind.
+     */
     listed?: boolean | null;
   },
 ): Instrument {
@@ -519,7 +522,7 @@ export function findOrCreateInstrument(
       classFromKind(input.kind),
       // F20: a non-INR instrument is international by default.
       (input.currency ?? "INR") === "INR" ? "domestic" : "international",
-      input.kind === "bond" && input.listed != null ? (input.listed ? 1 : 0) : null,
+      listedKind(input.kind) && input.listed != null ? (input.listed ? 1 : 0) : null,
       nowIST(),
     );
 
@@ -592,11 +595,22 @@ export function findManualInstrument(
 }
 
 /**
+ * The kinds whose listing changes their tax: a bond (s112 or s50AA) and,
+ * ENG-15, a share (s111A/s112A or s112 and slab). Null means "not recorded":
+ * a bond is then taxed as unlisted and a share as listed — the rate each was
+ * taxed at before the question was asked.
+ */
+export function listedKind(kind: string): boolean {
+  return kind === "bond" || kind === "equity";
+}
+
+/**
  * BONDS-1 · Say whether a bond is listed on an exchange.
  *
  * A listed bond held over 12 months is long-term under s112; an unlisted one
  * is slab-rated under s50AA however long it is held. Logged, because it moves
- * a gain from one rate to another.
+ * a gain from one rate to another. ENG-15 · A share likewise: an unlisted one
+ * is 24 months and s112, not 12 and s112A.
  */
 export function setInstrumentListed(
   db: DB, actor: Actor, instrumentId: string, listed: boolean | null,
@@ -604,8 +618,8 @@ export function setInstrumentListed(
   transact(db, () => {
     const before = getInstrument(db, instrumentId);
     if (!before) throw new Missing("That instrument does not exist.");
-    if (before.kind !== "bond") {
-      throw new Refusal("Only a bond is recorded as listed or not — the rest are taxed by their kind.");
+    if (!listedKind(before.kind)) {
+      throw new Refusal("Only a bond or a share is recorded as listed or not — the rest are taxed by their kind.");
     }
     const value = listed === null ? null : listed ? 1 : 0;
     if (before.listed === value) return;
@@ -1756,7 +1770,7 @@ registerUndoHandler("instrument", (db, event) => {
   if (event.action === "listed") {
     const before = (event.before ?? {}) as { listed?: number | null };
     execute(db, `UPDATE instruments SET listed = ? WHERE id = ?`, before.listed ?? null, id);
-    return `Put back whether the bond is listed`;
+    return `Put back whether the instrument is listed`;
   }
   if (event.action !== "create") {
     throw new UndoRefused("That change to the instrument cannot be undone from here.");

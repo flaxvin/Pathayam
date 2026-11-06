@@ -765,6 +765,28 @@ export function renderHoldingDetail(opts: {
       `)}
     </section>
 
+    ${when(v.instrument.kind === "equity", () => html`
+      <!-- ENG-15 · A share's tax turns on whether it is listed (s111A/s112A, or s112 and slab). -->
+      <section class="card">
+        <h2>How a sale is taxed</h2>
+        <form method="post" action="/portfolio/instrument/${v.instrument.id}/listed">
+          <input type="hidden" name="holding_id" value="${v.holding.id}">
+          <div class="field">
+            <label class="row">
+              <input type="checkbox" name="listed" value="1" ${raw(v.instrument.listed !== 0 ? "checked" : "")}>
+              Listed on a recognised stock exchange
+            </label>
+            <p class="field-hint">
+              ${v.instrument.listed !== 0
+                ? "Held over 12 months, a gain above ₹1.25 lakh a year is taxed at 12.5% (s112A); sooner, at 20% (s111A). Untick it for a share of an unlisted company."
+                : "An unlisted share is long-term after 24 months: then 12.5% without indexation and no ₹1.25 lakh exemption (s112); sooner, at your slab rate."}
+            </p>
+          </div>
+          <button type="submit" class="button-small">Save</button>
+        </form>
+      </section>
+    `)}
+
     ${when(v.instrument.kind === "bond", () => html`
       <!-- BONDS-1 · A bond's tax turns on whether it is listed (s112 or s50AA). -->
       <section class="card">
@@ -1331,6 +1353,19 @@ export function renderAddHolding(opts: {
                   12.5% on the gain. An unlisted one is taxed at your slab rate
                   however long it is held, and so is one this is left unticked for.
                 </p>
+              </div>
+              <!-- ENG-15 · A share of an unlisted company is taxed as property is, not under s112A. -->
+              <input type="hidden" name="share_listed_asked" value="1">
+              <div class="field">
+                <label class="row">
+                  <input type="checkbox" name="share_listed" value="1" checked>
+                  Listed on a recognised stock exchange <span class="faint">(shares only)</span>
+                </label>
+                <p class="field-hint">
+                  Untick it for a share of an unlisted company: its gain is long-term
+                  only after 24 months, then 12.5% with no ₹1.25 lakh exemption, and
+                  at your slab rate before that.
+                </p>
               </div>`}
 
         <div class="grid-2">
@@ -1498,7 +1533,7 @@ export interface CasReviewRow {
   amount: Paise;
   units: number;
   nav: number;
-  status: "new" | "already-held" | "skipped";
+  status: "new" | "already-held" | "skipped" | "check";
   note: string | null;
 }
 
@@ -1526,7 +1561,7 @@ export function renderCasReview(opts: {
   period: { from: IsoDate; to: IsoDate } | null;
   schemes: CasReviewScheme[];
   unparsed: string[];
-  totals: { newLots: number; alreadyHeld: number; invested: Paise };
+  totals: { newLots: number; alreadyHeld: number; invested: Paise; toCheck: number };
   token: string;
 }): SafeHtml {
   const statusChip = (status: CasReviewRow["status"]) =>
@@ -1534,7 +1569,10 @@ export function renderCasReview(opts: {
       ? html`<span class="chip chip-positive">New</span>`
       : status === "already-held"
         ? html`<span class="chip">Already held</span>`
-        : html`<span class="chip chip-warning">Skipped</span>`;
+        // IMP-13 · recorded by an import before CAS-1 / CAS-2, with other figures.
+        : status === "check"
+          ? html`<span class="chip chip-warning">Check</span>`
+          : html`<span class="chip chip-warning">Skipped</span>`;
 
   return html`
     <h1>What this statement says</h1>
@@ -1553,6 +1591,12 @@ export function renderCasReview(opts: {
           ${when(opts.totals.alreadyHeld > 0, () => html`
             <span class="faint">
               · ${opts.totals.alreadyHeld} already recorded by an earlier statement
+            </span>
+          `)}
+          ${when(opts.totals.toCheck > 0, () => html`
+            <span class="faint">
+              · ${opts.totals.toCheck} imported earlier with different figures — check
+              ${opts.totals.toCheck === 1 ? "it" : "them"} below
             </span>
           `)}
         </div>
