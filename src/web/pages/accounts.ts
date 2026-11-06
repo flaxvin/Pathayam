@@ -263,6 +263,8 @@ export function renderAccountDetail(opts: {
   /** N7 · Where "fund the shortfall" should put the money. */
   paymentCategoryId?: string | null;
   lastStatement: { amount: Paise; date: IsoDate; due: IsoDate } | null;
+  /** UI-9 · With no statement, the next due date by the card's due day. */
+  dueByDay?: IsoDate | null;
   lastReconciled: IsoDate | null;
   checkpointBroken: boolean;
   /** See AccountRow.derived — the figure this account is actually worth. */
@@ -777,6 +779,7 @@ function renderCardPanel(opts: {
   /** N7 · Where "fund the shortfall" should put the money. */
   paymentCategoryId?: string | null;
   lastStatement: { amount: Paise; date: IsoDate; due: IsoDate } | null;
+  dueByDay?: IsoDate | null;
 }): SafeHtml {
   const { funding, account } = opts;
   if (!funding) return raw("");
@@ -815,7 +818,11 @@ function renderCardPanel(opts: {
             <!-- R6/F2.3: statement cycles are not calendar months, so the app
                  cannot infer them — the statement is entered. -->
             <p class="faint">
-              No statement recorded yet. Statement cycles don't follow calendar months,
+              ${when(opts.dueByDay, () => html`
+                No statement recorded yet — due ${formatDate(opts.dueByDay!)} by the card's due day.
+              `)}
+              ${when(!opts.dueByDay, () => html`No statement recorded yet.`)}
+              Statement cycles don't follow calendar months,
               so funding advice keys off the statement rather than the month boundary.
               <a href="/accounts/${account.id}/statement">Record a statement</a>
             </p>

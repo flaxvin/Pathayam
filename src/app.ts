@@ -111,7 +111,7 @@ import { convertToEmi, convertedFrom, GST_PCT } from "./domain/card-emi.ts";
 import { renderDeparture } from "./web/pages/departure.ts";
 import { renderHousehold } from "./web/pages/household.ts";
 import {
-  createAccount, updateAccount, closeAccount, reopenAccount, listAccounts, getAccount, listCards, createCard, closeCard, recordCardStatement, lastCardStatement, paymentCategoryFor, MANAGED_SUBTYPES, SUBTYPE_LABELS, type AccountKind, hiddenAccountIds, type HolderScope,
+  createAccount, updateAccount, closeAccount, reopenAccount, listAccounts, getAccount, listCards, createCard, closeCard, recordCardStatement, lastCardStatement, nextDueByDay, paymentCategoryFor, MANAGED_SUBTYPES, SUBTYPE_LABELS, type AccountKind, hiddenAccountIds, type HolderScope,
  creditedSinceStatement, type Account,  DERIVED_VALUE_SUBTYPES,
   REVALUABLE_SUBTYPES,
 } from "./domain/accounts.ts";
@@ -3303,6 +3303,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           const st = lastCardStatement(db, account.id);
           return st ? { amount: st.amount, date: st.statement_date, due: st.due_date } : null;
         })(),
+        // UI-9 · With no statement, the next due date by the card's due day.
+        dueByDay: account.kind === "credit" && account.due_day && balances.working < 0
+          && !lastCardStatement(db, account.id)
+          ? nextDueByDay(account.due_day)
+          : null,
         lastReconciled: recon?.as_of ?? null,
         checkpointBroken: Boolean(recon?.broken_at),
         deposit: account.kind === "tracking" && DEPOSIT_SUBTYPES.has(account.subtype)
@@ -5205,13 +5210,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           account.opening_balance,
         );
         const statement = lastCardStatement(db, account.id);
+        const owed = Math.max(0, -(owedNow.get(account.id) ?? 0)) as Paise;
+        // UI-9 · With no statement, the due day stored on the card, as the
+        // cashflow projection already pays it.
+        const dueByDay = !statement && owed > 0 && account.due_day ? nextDueByDay(account.due_day, today) : null;
 
         return {
           accountId: account.id,
           name: account.nickname || account.name,
           last4: account.last4,
           startingDebtNote: cameWithTheCard(funding),
-          owed: Math.max(0, -(owedNow.get(account.id) ?? 0)) as Paise,
+          owed,
           credit: Math.max(0, owedNow.get(account.id) ?? 0) as Paise,
           funded,
           unfunded: funding.unfunded,
@@ -5221,7 +5230,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 due: statement.due_date, minimum: statement.minimum_due,
               }
             : null,
-          daysToDue: statement ? daysBetween(today, statement.due_date) : null,
+          dueByDay,
+          daysToDue: statement ? daysBetween(today, statement.due_date)
+            : dueByDay ? daysBetween(today, dueByDay) : null,
           paidSinceStatement: statement
             ? creditedSinceStatement(db, account.id, statement.statement_date)
             : (0 as Paise),
@@ -5229,9 +5240,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         };
       })
       /*
-       * Soonest first. A card with no statement has no due date to sort by, so
-       * it goes last rather than being guessed at — R6 reports the debt it can
-       * see and never invents a cycle.
+       * Soonest first. A card with no statement sorts by its stored due day
+       * (UI-9); one with neither has no due date to sort by, so it goes last
+       * rather than being guessed at — R6 never invents a cycle.
        */
       .sort((a, b) => {
         if (a.daysToDue === null && b.daysToDue === null) return b.owed - a.owed;
