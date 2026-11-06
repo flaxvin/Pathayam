@@ -316,7 +316,12 @@ A bond carries a **listed** flag (`instruments.listed`, migration 0065), set
 from its holding page. It decides the tax on a sale: a listed bond held more
 than 12 months is taxed at 12.5% under 112; an unlisted bond, or one whose
 listing has never been recorded, at slab rates — see
-[limitations](limitations.md#tax).
+[limitations](limitations.md#tax). A share (`kind = 'equity'`) carries the same
+flag, asked as "Listed on a recognised stock exchange" on the add form (ticked
+to start) and its holding page. A share recorded as not listed is taxed as
+property is: long-term after 24 months, then 12.5% under 112 with no ₹1,25,000
+exemption, slab rates before that. A share whose listing was never recorded —
+every share added before this — is taxed as listed.
 
 A `holding` is one instrument in one asset account. Its units and cost come from
 `lots`, which are FIFO.

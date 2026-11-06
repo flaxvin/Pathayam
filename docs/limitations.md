@@ -152,6 +152,11 @@ Listed bonds held more than 12 months are taxed at 12.5% under 112 with no
 indexation; an unlisted bond, or one whose listing has not been recorded, is
 taxed at slab rates whatever the holding period (s50AA), because guessing
 "listed" would understate the tax. Bonds are marked listed on the instrument.
+An Indian share marked not listed on a recognised stock exchange is never
+111A/112A: it is long-term after 24 months, then 12.5% under 112 without
+indexation and with no ₹1,25,000 exemption (20% with indexation before 23 July
+2024, reported rather than computed), and slab-rated before that. A share whose
+listing is not recorded is taxed as listed.
 
 **FY 2024-25 is split at the sale date.** The Finance (No. 2) Act 2024 changed
 the rates part-way through the year, so a sale is taxed by the rules in force

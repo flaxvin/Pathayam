@@ -9061,7 +9061,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         };
         // BONDS-1 · The by-hand form asks whether a bond is listed; a tick is
         // a yes and no tick a no. Any other kind leaves it unrecorded.
-        const listed = typed.kind === "bond" ? field(ctx.body, "listed") === "1" : null;
+        /*
+         * ENG-15 · And whether a share is listed on a recognised stock exchange,
+         * ticked to start. Only a form that asked (share_listed_asked) can say
+         * no by leaving it unticked; a post that never asked leaves it
+         * unrecorded, which a share is taxed as listed for.
+         */
+        const listed = typed.kind === "bond"
+          ? field(ctx.body, "listed") === "1"
+          : typed.kind === "equity" && field(ctx.body, "share_listed_asked") === "1"
+            ? field(ctx.body, "share_listed") === "1"
+            : null;
         // WEALTH-11 · The same name typed again is the same instrument.
         const found = symbol ? null : findManualInstrument(db, typed, memberScope(db, viewer(ctx)).instruments);
         if (found) {
@@ -9144,7 +9154,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }),
   );
 
-  // BONDS-1 · Whether a bond is listed, from its holding page.
+  // BONDS-1 · Whether a bond is listed, from its holding page. ENG-15 · A share's too.
   router.post("/portfolio/instrument/:id/listed", (ctx) =>
     mutate(ctx, (a) => {
       requireAssets();
