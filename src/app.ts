@@ -5939,8 +5939,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         message:
           `Removed ${result.removed} transactions` +
           (result.keptBecauseEdited.length
-            ? `. ${result.keptBecauseEdited.length} had been edited since and were left alone.`
-            : "."),
+            ? `. ${result.keptBecauseEdited.length} had been edited since and were left alone`
+            : "") +
+          (result.keptBecauseOnStatement.length
+            ? `. ${result.keptBecauseOnStatement.length} were also on a statement imported since and were kept`
+            : "") +
+          ".",
       };
     });
   });

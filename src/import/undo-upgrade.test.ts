@@ -98,6 +98,44 @@ describe("D9b · batch undo and the statement-after-alert upgrade", () => {
     db.close();
   });
 
+  /*
+   * IMP-7 · The other way round. Undoing the *alert's* batch deleted the
+   * transaction, though the statement imported since had vouched for it —
+   * the upgrade left no staged row and did not touch updated_at, so it looked
+   * unedited. The statement's line was gone from the ledger and nothing said so.
+   */
+  test("undoing the alert keeps a transaction a live statement vouched for, and lists it", () => {
+    const { db, accountId, txId } = setup();
+    const alertBatch = queryOne<{ import_batch_id: string }>(
+      db, `SELECT import_batch_id FROM transactions WHERE id = ?`, txId)!.import_batch_id;
+    const statement = importStatement(db, accountId);
+
+    const result = undoBatch(db, actor, alertBatch);
+    assert.equal(result.removed, 0);
+    assert.deepEqual(result.keptBecauseOnStatement, [txId]);
+    assert.deepEqual(result.keptBecauseEdited, []);
+    assert.equal(row(db, txId).deleted_at, null, "still in the ledger");
+    assert.equal(row(db, txId).cleared, 1);
+
+    // Once that statement is itself undone, nothing vouches for it.
+    undoBatch(db, actor, statement.batch.id);
+    db.close();
+  });
+
+  test("an alert whose vouching statement was undone first is removed as before", () => {
+    const { db, accountId, txId } = setup();
+    const alertBatch = queryOne<{ import_batch_id: string }>(
+      db, `SELECT import_batch_id FROM transactions WHERE id = ?`, txId)!.import_batch_id;
+    const statement = importStatement(db, accountId);
+    undoBatch(db, actor, statement.batch.id);
+
+    const result = undoBatch(db, actor, alertBatch);
+    assert.equal(result.removed, 1);
+    assert.deepEqual(result.keptBecauseOnStatement, []);
+    assert.notEqual(row(db, txId).deleted_at, null);
+    db.close();
+  });
+
   test("after the undo, importing the statement again upgrades it again", () => {
     const { db, accountId, txId } = setup();
     const statement = importStatement(db, accountId);
