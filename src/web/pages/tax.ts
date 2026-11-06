@@ -452,6 +452,12 @@ export function renderTax(p: TaxPageProps): SafeHtml {
               income under 44AD or 44ADA is paid in one instalment by 15 March;
               neither is modelled here.
             </p>
+            <p class="field-hint">
+              The table spreads the year's whole tax, capital gains included. Tax on a
+              capital gain that arose after an instalment's due date is not owed in that
+              instalment, so long as it is paid in the ones that remain (the proviso to
+              section 234C); a "short" before the gain arose may be that tax alone.
+            </p>
           </section>
         `
       : html``}
