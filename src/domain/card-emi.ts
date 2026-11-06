@@ -34,6 +34,7 @@ import { formatPaise, type Paise } from "../core/money.ts";
 import { Refusal } from "../core/refusal.ts";
 import { getAccount, paymentCategoryFor } from "./accounts.ts";
 import { moveMoney } from "./budget.ts";
+import { householdBudgetId } from "./budgets.ts";
 import { loadEngineInput } from "../engine/repository.ts";
 import { computeBudget } from "../engine/engine.ts";
 import { createTransaction, getTransaction } from "./transactions.ts";
@@ -230,7 +231,10 @@ export function convertToEmi(db: DB, actor: Actor, input: ConvertToEmiInput): Co
     const planEnvelope = paymentCategoryForLoan(db, loan.id);
     let moved: { month: string; fromCategoryId: string; toCategoryId: string; amount: Paise } | null = null;
     if (cardEnvelope && planEnvelope) {
-      const held = computeBudget(loadEngineInput(db, { through: monthOf(date) }))
+      // ENG-11 · Read in the card's own budget, where its payment envelope sits —
+      // the one domain engine read that computed every budget at once.
+      const budgetId = card.budget_id ?? householdBudgetId(db);
+      const held = computeBudget(loadEngineInput(db, { through: monthOf(date), budgetId }))
         .get(monthOf(date))?.categories.get(cardEnvelope.id)?.balance ?? 0;
       const toMove = Math.min(Math.max(0, held), amount) as Paise;
       if (toMove > 0) {

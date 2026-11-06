@@ -75,6 +75,14 @@ export interface RegimeRules {
    * was ₹1,50,000 until FY 2013-14 and could move again.
    */
   s24bSelfOccupiedCap: Paise | null;
+  /**
+   * ENG-7 · Section 80CCD(2): the most of the employer's NPS contribution that
+   * may be deducted, as basis points of basic + DA — for a private employer,
+   * and for a central or state government one. Allowed under both regimes;
+   * 115BAC keeps it when it takes away the rest of Chapter VI-A.
+   */
+  s80ccd2CapBp: number;
+  s80ccd2GovernmentCapBp: number;
 }
 
 const RUPEE = 100;
@@ -153,6 +161,14 @@ export const RULES: Record<number, Record<Regime, RegimeRules>> = {
        * was not reachable to check against; RATES_SOURCE is where to.
        */
       s24bSelfOccupiedCap: L(2),
+      /*
+       * ENG-7 · 10% of basic + DA, or 14% for a central or state government
+       * employer (s80CCD(2) proviso; 14% for state government from FY 2022-23).
+       * From the Act as last read for these notes, not re-checked against the
+       * department's site, which was not reachable; RATES_SOURCE is where to.
+       */
+      s80ccd2CapBp: 1000,
+      s80ccd2GovernmentCapBp: 1400,
     },
     new: {
       slabs: [
@@ -177,6 +193,12 @@ export const RULES: Record<number, Record<Regime, RegimeRules>> = {
        * the old regime's cap above.
        */
       s24bSelfOccupiedCap: null,
+      /*
+       * ENG-7 · 14% for every employer under 115BAC since the Finance Act 2024
+       * (FY 2024-25 on). Same caveat as the old regime's figure.
+       */
+      s80ccd2CapBp: 1400,
+      s80ccd2GovernmentCapBp: 1400,
     },
   },
 };
@@ -291,6 +313,14 @@ export interface Deductions {
    * it is its own field and its own line.
    */
   s24b?: Paise;
+  /**
+   * ENG-7 · Section 80CCD(2): the employer's contribution to the person's NPS
+   * account, for the year, before the cap. Capped at a share of basic + DA,
+   * which is the figure in `hra.basic`.
+   */
+  s80ccd2?: Paise;
+  /** The employer is a central or state government, which raises the old regime's cap. */
+  s80ccd2Government?: boolean;
 }
 
 export interface HraInput {
@@ -334,6 +364,8 @@ export interface RegimeEstimate {
   /** TAX-1 · Section 24(b), after the cap; zero where the regime allows none. */
   homeLoanInterest: Paise;
   chapterViA: Paise;
+  /** ENG-7 · Employer NPS, s80CCD(2), after the cap. Allowed under both regimes. */
+  employerNps: Paise;
   taxable: Paise;
   taxBeforeRebate: Paise;
   rebate: Paise;
@@ -409,6 +441,16 @@ export function estimateUnder(
     : 0 as Paise;
 
   /*
+   * ENG-7 · The employer's NPS contribution, under either regime, capped at a
+   * share of basic + DA. Outside 80C's ceiling (80CCE leaves 80CCD(2) out).
+   */
+  const npsCapBp = deductions.s80ccd2Government ? rules.s80ccd2GovernmentCapBp : rules.s80ccd2CapBp;
+  const employerNps = Math.min(
+    Math.max(0, deductions.s80ccd2 ?? 0),
+    Math.round(((deductions.hra?.basic ?? 0) * npsCapBp) / 10_000),
+  ) as Paise;
+
+  /*
    * TAX-1 · Interest on a self-occupied house, capped as the Act caps it. The
    * cap is across every such house, so it applies to the total, not per loan.
    */
@@ -434,7 +476,7 @@ export function estimateUnder(
   const standardDeduction = Math.min(rules.standardDeduction, Math.max(0, gross)) as Paise;
 
   const taxable = Math.max(
-    0, grossWithGains - standardDeduction - hraExempt - homeLoanInterest - chapterViA,
+    0, grossWithGains - standardDeduction - hraExempt - homeLoanInterest - chapterViA - employerNps,
   ) as Paise;
 
   const taxBeforeRebate = taxOnSlabs(taxable, rules.slabs);
@@ -541,7 +583,7 @@ export function estimateUnder(
   return {
     regime, gross: grossWithGains,
     standardDeduction,
-    hraExempt, homeLoanInterest, chapterViA, taxable,
+    hraExempt, homeLoanInterest, chapterViA, employerNps, taxable,
     taxBeforeRebate, rebate, specialRateTax, surcharge, cess, total,
     totalIncome, basicExemptionAgainstGains: basicExemptionAgainstGains as Paise,
     // WEALTH-10 · Over all the income the total is tax on, special-rate gains
@@ -721,7 +763,7 @@ const EMPTY: Declaration = {
   gross: 0 as Paise, s80c: 0 as Paise, s80d: 0 as Paise,
   s80dSenior: false, s80dParents: 0 as Paise, s80dParentsSenior: false,
   s80dCheckup: 0 as Paise, s80dParentsCheckup: 0 as Paise, other: 0 as Paise, hra: null,
-  s24bOverride: null, tds: 0 as Paise,
+  s24bOverride: null, tds: 0 as Paise, s80ccd2: 0 as Paise, s80ccd2Government: false,
 };
 
 export function getDeclaration(db: DB, memberId: string, fy: number): Declaration {
@@ -729,12 +771,13 @@ export function getDeclaration(db: DB, memberId: string, fy: number): Declaratio
     gross: number; s80c: number; s80d: number; s80d_senior: number; other: number;
     s80d_parents: number; s80d_parents_senior: number; s80d_checkup: number; s80d_parents_checkup: number;
     hra_received: number; hra_rent_paid: number; hra_basic: number; hra_metro: number;
-    s24b_override: number | null; tds: number;
+    s24b_override: number | null; tds: number; s80ccd2: number; s80ccd2_government: number;
   }>(
     db,
     `SELECT gross, s80c, s80d, s80d_senior, other,
             s80d_parents, s80d_parents_senior, s80d_checkup, s80d_parents_checkup,
-            hra_received, hra_rent_paid, hra_basic, hra_metro, s24b_override, tds
+            hra_received, hra_rent_paid, hra_basic, hra_metro, s24b_override, tds,
+            s80ccd2, s80ccd2_government
        FROM tax_declarations WHERE member_id = ? AND fy = ?`,
     memberId, fy,
   );
@@ -751,6 +794,8 @@ export function getDeclaration(db: DB, memberId: string, fy: number): Declaratio
     other: row.other as Paise,
     s24bOverride: row.s24b_override as Paise | null,
     tds: row.tds as Paise,
+    s80ccd2: row.s80ccd2 as Paise,
+    s80ccd2Government: row.s80ccd2_government === 1,
     hra: (row.hra_received || row.hra_rent_paid || row.hra_basic)
       ? {
           received: row.hra_received as Paise,
@@ -784,16 +829,22 @@ export function saveDeclaration(db: DB, memberId: string, fy: number, d: Declara
     ["A parents' preventive check-up", d.s80dParentsCheckup ?? 0],
     ["Other deductions", d.other],
     ["Home loan interest", d.s24bOverride ?? 0], ["Tax deducted at source", d.tds ?? 0],
+    ["Employer NPS", d.s80ccd2 ?? 0],
   ] as const) {
     if (value < 0) throw new Refusal(`${label} cannot be negative.`);
+  }
+  // ENG-7 · The cap is a share of basic + DA; without it nothing could be allowed.
+  if ((d.s80ccd2 ?? 0) > 0 && !((d.hra?.basic ?? 0) > 0)) {
+    throw new Refusal("Employer NPS is capped at a share of basic + DA. Enter Basic + DA under house rent allowance too.");
   }
   execute(
     db,
     `INSERT INTO tax_declarations
        (member_id, fy, gross, s80c, s80d, s80d_senior, other,
         s80d_parents, s80d_parents_senior, s80d_checkup, s80d_parents_checkup,
-        hra_received, hra_rent_paid, hra_basic, hra_metro, s24b_override, tds, updated_at)
-     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+        hra_received, hra_rent_paid, hra_basic, hra_metro, s24b_override, tds,
+        s80ccd2, s80ccd2_government, updated_at)
+     VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
        ON CONFLICT(member_id, fy) DO UPDATE SET
          gross = excluded.gross, s80c = excluded.s80c, s80d = excluded.s80d,
          s80d_senior = excluded.s80d_senior, other = excluded.other,
@@ -802,11 +853,13 @@ export function saveDeclaration(db: DB, memberId: string, fy: number, d: Declara
          hra_received = excluded.hra_received, hra_rent_paid = excluded.hra_rent_paid,
          hra_basic = excluded.hra_basic, hra_metro = excluded.hra_metro,
          s24b_override = excluded.s24b_override, tds = excluded.tds,
+         s80ccd2 = excluded.s80ccd2, s80ccd2_government = excluded.s80ccd2_government,
          updated_at = excluded.updated_at`,
     memberId, fy, d.gross, d.s80c, d.s80d, d.s80dSenior ? 1 : 0, d.other,
     d.s80dParents ?? 0, d.s80dParentsSenior ? 1 : 0, d.s80dCheckup ?? 0, d.s80dParentsCheckup ?? 0,
     d.hra?.received ?? 0, d.hra?.rentPaid ?? 0, d.hra?.basic ?? 0, d.hra?.metro ? 1 : 0,
     d.s24bOverride ?? null, d.tds ?? 0,
+    d.s80ccd2 ?? 0, d.s80ccd2Government ? 1 : 0,
     nowIST(),
   );
 }

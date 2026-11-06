@@ -1805,6 +1805,7 @@ export function closeLoan(
     if (!projection) throw new Missing("That loan does not exist.");
     refuseIfClosed(projection.loan);
 
+    let chargePaymentId: string | null = null;
     if (input.foreclosureCharge && input.foreclosureCharge > 0) {
       if (!input.chargeAccountId) {
         throw new Refusal(
@@ -1812,7 +1813,7 @@ export function closeLoan(
           "account behind it is a figure nobody paid.",
         );
       }
-      createTransaction(db, actor, {
+      const chargeTx = createTransaction(db, actor, {
         accountId: input.chargeAccountId,
         amount: -input.foreclosureCharge as Paise,
         date: input.date,
@@ -1821,6 +1822,23 @@ export function closeLoan(
         memo: `Foreclosure charge — ${projection.loan.nickname || projection.loan.lender}`,
         cleared: true,
       });
+      /*
+       * ENG-12 · And a charge row on the loan, as a prepayment charge has, so
+       * the loan's lifetime fees and cost of borrowing include it. It was only
+       * the bank transaction, and the loan's own figures never saw it. Filed
+       * where the person chose (not the loan's envelope), so it is written here
+       * rather than through recordInstalment; undoing the close removes it.
+       */
+      chargePaymentId = newId();
+      execute(
+        db,
+        `INSERT INTO loan_payments
+           (id,loan_id,date,amount,principal,interest,estimated,kind,transaction_id,loan_transaction_id,
+            note,created_at,created_by)
+         VALUES (?,?,?,?,0,0,0,'charge',?,NULL,?,?,?)`,
+        chargePaymentId, input.loanId, input.date, input.foreclosureCharge, chargeTx.id,
+        "Foreclosure charge", nowIST(), actor.memberId,
+      );
     }
 
     /*
@@ -1920,7 +1938,7 @@ export function closeLoan(
     appendEvent(db, actor, {
       entity: "loan", entityId: input.loanId, action: "close",
       before: target ? { target } : undefined,
-      after: projection.metrics,
+      after: { ...projection.metrics, ...(chargePaymentId ? { chargePaymentId } : {}) },
       summary:
         `Closed the ${projection.loan.lender} loan — ` +
         `${formatPaise(projection.metrics.interestPaid)} of interest paid over its life` +
@@ -2047,6 +2065,11 @@ registerUndoHandler("loan", (db, event, actor) => {
     )) {
       execute(db, `DELETE FROM loan_payments WHERE id = ?`, waiver.id);
       eraseTransaction(db, waiver.loan_transaction_id);
+    }
+    // ENG-12 · The foreclosure charge's row on the loan was part of closing too;
+    // its bank transaction has its own entry and can be undone after this.
+    if (typeof after.chargePaymentId === "string") {
+      execute(db, `DELETE FROM loan_payments WHERE id = ? AND kind = 'charge'`, after.chargePaymentId);
     }
     execute(db, `UPDATE loans SET closed_at = NULL WHERE id = ?`, id);
     execute(db, `UPDATE accounts SET closed_at = NULL WHERE id = ?`, loan.account_id);
