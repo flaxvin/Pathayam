@@ -34,7 +34,7 @@ import { totalUnits, formatUnits } from "../portfolio/holdings.ts";
 import { Refusal } from "../core/refusal.ts";
 import { memberScope } from "../domain/member-scope.ts";
 import type { CasRow, CasScheme, CasStatement } from "./cas.ts";
-import { unitsDisagreement } from "./cas.ts";
+import { unitsDisagreement, readCasRowAs, CAS_READING } from "./cas.ts";
 
 /**
  * A row's identity, from the row's own content.
@@ -52,16 +52,71 @@ function rowRef(scheme: CasScheme, row: CasRow, occurrence: number): string {
   return `cas:${digest}:${occurrence}`;
 }
 
-/** Every CAS reference already recorded against a holding. */
-function recordedRefs(db: DB, holdingId: string): Set<string> {
-  const refs = queryAll<{ source_ref: string }>(
+/** What a reference was recorded against: a lot, a sale or a payout, with its figures. */
+interface Recorded {
+  kind: "lot" | "sale" | "dividend" | "other";
+  date: IsoDate;
+  units: number | null;
+  price: number | null;
+  amount: number | null;
+}
+
+/** Every CAS reference already recorded against a holding, with what it recorded. */
+function recordedRefs(db: DB, holdingId: string): Map<string, Recorded> {
+  const refs = queryAll<{ source_ref: string } & Recorded>(
     db,
-    `SELECT source_ref FROM lots WHERE holding_id = ? AND source_ref IS NOT NULL
+    `SELECT source_ref, 'lot' AS kind, trade_date AS date, units, price, NULL AS amount
+       FROM lots WHERE holding_id = ? AND source_ref IS NOT NULL
      UNION ALL
-     SELECT source_ref FROM holding_events WHERE holding_id = ? AND source_ref IS NOT NULL`,
+     SELECT source_ref, CASE WHEN kind IN ('sale','dividend') THEN kind ELSE 'other' END AS kind,
+            date, units, price, amount
+       FROM holding_events WHERE holding_id = ? AND source_ref IS NOT NULL`,
     holdingId, holdingId,
   );
-  return new Set(refs.map((r) => r.source_ref));
+  return new Map(refs.map((r) => [r.source_ref, r]));
+}
+
+/**
+ * IMP-13 · Whether what was recorded is what this row, read today, would
+ * record: the same kind of entry on the same date, at the same price, and the
+ * same units (a lot's may since be fewer — R25.4 rewrites a partly sold one)
+ * or, for a payout, the same amount.
+ */
+function recordsRow(recorded: Recorded, row: CasRow): boolean {
+  if (recorded.date !== row.date) return false;
+  if (row.kind === "purchase") {
+    return recorded.kind === "lot" && recorded.price === row.nav
+      && recorded.units !== null && recorded.units > 0 && recorded.units <= Math.abs(row.units);
+  }
+  if (row.kind === "redemption") {
+    return recorded.kind === "sale" && recorded.price === row.nav && recorded.units === Math.abs(row.units);
+  }
+  if (row.kind === "dividend") {
+    return recorded.kind === "dividend" && recorded.amount === Math.abs(row.amount);
+  }
+  return false;
+}
+
+function describeRecorded(recorded: Recorded): string {
+  if (recorded.kind === "lot") {
+    return `a purchase of ${formatUnits(recorded.units ?? 0)} units at ${formatNav(recorded.price ?? 0)}`;
+  }
+  if (recorded.kind === "sale") {
+    return `a redemption of ${formatUnits(recorded.units ?? 0)} units at ${formatNav(recorded.price ?? 0)}`;
+  }
+  if (recorded.kind === "dividend") return `a payout of ${formatPaise((recorded.amount ?? 0) as Paise)}`;
+  return "an entry";
+}
+
+function describeRow(row: CasRow): string {
+  if (row.kind === "dividend") return `a payout of ${formatPaise(Math.abs(row.amount) as Paise)}`;
+  return `${row.kind === "redemption" ? "a redemption" : "a purchase"} of ` +
+    `${formatUnits(Math.abs(row.units))} units at ${formatNav(row.nav)}`;
+}
+
+/** A NAV in micro-rupees, as ₹ to four places. */
+function formatNav(micro: number): string {
+  return `₹${(micro / 1_000_000).toFixed(4)}`;
 }
 
 export type RowStatus =
@@ -70,7 +125,13 @@ export type RowStatus =
   /** Already recorded by an earlier statement, matched on its recorded ref. */
   | "already-held"
   /** Recognised but not something this import creates — see `note`. */
-  | "skipped";
+  | "skipped"
+  /**
+   * IMP-13 · Recorded by an import before CAS-1 / CAS-2 changed how the row
+   * reads, with figures that differ from today's reading. Not written again —
+   * that would be a second entry — but shown for a person to correct.
+   */
+  | "check";
 
 export interface PlannedRow {
   row: CasRow;
@@ -100,7 +161,7 @@ export interface CasPlan {
   period: CasStatement["period"];
   schemes: PlannedScheme[];
   unparsed: string[];
-  totals: { newLots: number; alreadyHeld: number; invested: Paise };
+  totals: { newLots: number; alreadyHeld: number; invested: Paise; toCheck: number };
 }
 
 /**
@@ -125,6 +186,7 @@ export function planCasImport(
   const schemes: PlannedScheme[] = [];
   let totalNew = 0;
   let totalHeld = 0;
+  let totalCheck = 0;
   let invested = 0;
 
   for (const scheme of statement.schemes) {
@@ -141,8 +203,10 @@ export function planCasImport(
       : [];
     const holding = held.find((h) => h.account_id === accountId) ?? held[0];
 
-    const known = holding ? recordedRefs(db, holding.id) : new Set<string>();
+    const known = holding ? recordedRefs(db, holding.id) : new Map<string, Recorded>();
     const seen = new Map<string, number>();
+    // IMP-13 · Occurrences counted per earlier reading, as that reading counted them.
+    const seenBefore = Array.from({ length: CAS_READING }, () => new Map<string, number>());
 
     const rows: PlannedRow[] = [];
     let schemeNew = 0;
@@ -153,6 +217,41 @@ export function planCasImport(
       const occurrence = seen.get(base) ?? 0;
       seen.set(base, occurrence + 1);
       const ref = rowRef(scheme, row, occurrence);
+
+      /*
+       * IMP-13 · The reference each earlier reading of this row would have
+       * recorded. CAS-1 and CAS-2 changed the kind, units or amount of some
+       * rows, so a statement imported before them recorded a different
+       * reference, and the row was offered again as new — a second lot.
+       */
+      let earlier: Recorded | undefined;
+      for (let reading = 0; reading < CAS_READING; reading++) {
+        const old = readCasRowAs(row.raw, reading);
+        if (!old) continue;
+        const oldBase = rowRef(scheme, old, 0);
+        const oldOccurrence = seenBefore[reading]!.get(oldBase) ?? 0;
+        seenBefore[reading]!.set(oldBase, oldOccurrence + 1);
+        const oldRef = rowRef(scheme, old, oldOccurrence);
+        if (oldRef !== ref && !earlier) earlier = known.get(oldRef);
+      }
+
+      if (!known.has(ref) && earlier) {
+        if (recordsRow(earlier, row)) {
+          rows.push({
+            row, ref, status: "already-held",
+            note: "An earlier statement already recorded this.",
+          });
+          totalHeld++;
+        } else {
+          rows.push({
+            row, ref, status: "check",
+            note: `Imported earlier with different figures — check. Recorded as ${describeRecorded(earlier)}; ` +
+              `this statement reads ${describeRow(row)}. Not imported again: correct the recorded entry by hand.`,
+          });
+          totalCheck++;
+        }
+        continue;
+      }
 
       if (row.kind === "other") {
         rows.push({
@@ -196,7 +295,7 @@ export function planCasImport(
     period: statement.period,
     schemes,
     unparsed: statement.unparsed,
-    totals: { newLots: totalNew, alreadyHeld: totalHeld, invested: invested as Paise },
+    totals: { newLots: totalNew, alreadyHeld: totalHeld, invested: invested as Paise, toCheck: totalCheck },
   };
 }
 

@@ -418,6 +418,14 @@ A Consolidated Account Statement is parsed, matched against existing holdings,
 and applied as a plan the household confirms: which schemes map to which
 holdings, which are new, and where units disagree.
 
+Each row is recognised on a later statement by a reference hashed from its
+scheme, date, kind, units and amount, recorded on the lot or event it made.
+When a parser fix changes how a row reads, the plan also rebuilds the reference
+the earlier reading recorded: a row imported before the fix is shown as already
+held when what was recorded matches today's reading, and as **Check** —
+imported earlier with different figures, not imported again — when it does not,
+so the recorded entry can be corrected by hand.
+
 ## Net worth
 
 ```

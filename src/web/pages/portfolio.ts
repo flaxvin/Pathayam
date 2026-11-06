@@ -1533,7 +1533,7 @@ export interface CasReviewRow {
   amount: Paise;
   units: number;
   nav: number;
-  status: "new" | "already-held" | "skipped";
+  status: "new" | "already-held" | "skipped" | "check";
   note: string | null;
 }
 
@@ -1561,7 +1561,7 @@ export function renderCasReview(opts: {
   period: { from: IsoDate; to: IsoDate } | null;
   schemes: CasReviewScheme[];
   unparsed: string[];
-  totals: { newLots: number; alreadyHeld: number; invested: Paise };
+  totals: { newLots: number; alreadyHeld: number; invested: Paise; toCheck: number };
   token: string;
 }): SafeHtml {
   const statusChip = (status: CasReviewRow["status"]) =>
@@ -1569,7 +1569,10 @@ export function renderCasReview(opts: {
       ? html`<span class="chip chip-positive">New</span>`
       : status === "already-held"
         ? html`<span class="chip">Already held</span>`
-        : html`<span class="chip chip-warning">Skipped</span>`;
+        // IMP-13 · recorded by an import before CAS-1 / CAS-2, with other figures.
+        : status === "check"
+          ? html`<span class="chip chip-warning">Check</span>`
+          : html`<span class="chip chip-warning">Skipped</span>`;
 
   return html`
     <h1>What this statement says</h1>
@@ -1588,6 +1591,12 @@ export function renderCasReview(opts: {
           ${when(opts.totals.alreadyHeld > 0, () => html`
             <span class="faint">
               · ${opts.totals.alreadyHeld} already recorded by an earlier statement
+            </span>
+          `)}
+          ${when(opts.totals.toCheck > 0, () => html`
+            <span class="faint">
+              · ${opts.totals.toCheck} imported earlier with different figures — check
+              ${opts.totals.toCheck === 1 ? "it" : "them"} below
             </span>
           `)}
         </div>
