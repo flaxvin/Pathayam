@@ -154,7 +154,8 @@ export async function startTestApp(
             Origin: baseUrl,
             ...(init?.headers ?? {}),
           },
-          body: new URLSearchParams(form).toString(),
+          // A test that brings its own body (a multipart upload) keeps it.
+          body: init?.body ?? new URLSearchParams(form).toString(),
         }),
       ),
     close: () =>

@@ -4479,19 +4479,27 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               </div>
             `,
           )}
-          <form method="post" action="/transaction/${transaction.id}/attach"
-                enctype="multipart/form-data" style="margin-top:.6rem">
-            <div class="field">
-              <label for="receipt">Add a photo or PDF</label>
-              <input id="receipt" name="receipt" type="file"
-                     accept="image/*,application/pdf" capture="environment" required>
-              <p class="field-hint">
-                Stored on your server only — never on this device, and fetched
-                fresh each time you look.
-              </p>
-            </div>
-            <button type="submit">Attach</button>
-          </form>
+          ${when(!config.demoMode, () => html`
+            <form method="post" action="/transaction/${transaction.id}/attach"
+                  enctype="multipart/form-data" style="margin-top:.6rem">
+              <div class="field">
+                <label for="receipt">Add a photo or PDF</label>
+                <input id="receipt" name="receipt" type="file"
+                       accept="image/*,application/pdf" capture="environment" required>
+                <p class="field-hint">
+                  Stored on your server only — never on this device, and fetched
+                  fresh each time you look.
+                </p>
+              </div>
+              <button type="submit">Attach</button>
+            </form>
+          `)}
+          ${when(config.demoMode, () => html`
+            <p class="faint" style="margin-top:.6rem">
+              Attaching receipts is turned off here — a public demo should not
+              hold files people upload. It works on your own copy.
+            </p>
+          `)}
         </section>
 
         <section class="card">
@@ -4519,6 +4527,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/transaction/:id/attach", (ctx) => {
     const a = auth(ctx);
+    /*
+     * WEB-3 · On the demo anyone is signed in, and each receipt is up to 10 MB
+     * kept in the demo's database on a small disk, with nothing capping the
+     * total until the next restart. Same shape as SECURITY-OPS-24 (backups).
+     */
+    refuseInDemo(config, "Attaching receipts");
     const id = requireLiveTransaction(ctx, ctx.params.id!).id;
     const upload = fileField(ctx.req, "receipt");
     if (!upload) {
