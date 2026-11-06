@@ -14,7 +14,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { openDatabase, ensureHousehold, execute, type DB } from "../db/db.ts";
-import type { Actor } from "../core/events.ts";
+import { undoEvent, type Actor } from "../core/events.ts";
 import { nowIST, todayIST, monthOf } from "../core/dates.ts";
 import { rupees } from "../core/money.ts";
 import { createAccount, createCard, paymentCategoryFor } from "./accounts.ts";
@@ -25,7 +25,8 @@ import { computeBudget } from "../engine/engine.ts";
 import { householdBudgetId, ensurePersonalBudget } from "./budgets.ts";
 import { ensureCommitmentEnvelope } from "./commitments.ts";
 import { convertToEmi } from "./card-emi.ts";
-import { paymentCategoryForLoan } from "./loans.ts";
+import { paymentCategoryForLoan, projectLoan, recordInstalment } from "./loans.ts";
+import type { Paise } from "../core/money.ts";
 
 const RAVI = "m-ravi";
 const PRIYA = "m-priya";
@@ -76,5 +77,74 @@ test("a charge filed to a member's own envelope moves what the card's budget hel
   assert.equal(after.categories.get(paymentCategoryForLoan(db, loan.id)!.id)!.balance, rupees(30_000),
     "the plan's envelope took it");
   assert.equal(after.categories.get(cardEnvelope)!.balance, 0, "and nothing is left behind on the card");
+  db.close();
+});
+
+/*
+ * ENG-14 · A card in a member's own budget converts, and its plan's envelope
+ * sits beside the card's.
+ *
+ * The plan has no repayment account, so its envelope went to the household
+ * budget — and the move from the card's envelope (in her budget) to it was
+ * refused as a move between budgets whenever the card's envelope held money.
+ */
+function personalCard(db: DB) {
+  const hers = ensurePersonalBudget(db, PRIYA, "Priya");
+  ensureCommitmentEnvelope(db, actor, hers.id);
+  createAccount(db, actor, {
+    name: "Her savings", kind: "budget", subtype: "savings",
+    budgetId: hers.id, openingBalance: rupees(50_000), openingDate: todayIST(),
+  });
+  const card = createAccount(db, actor, {
+    name: "Her card", kind: "credit", subtype: "credit-card", openingDate: todayIST(),
+    budgetId: hers.id, holderMemberId: PRIYA,
+  });
+  const herGroup = createGroup(db, actor, "Mine", "normal", hers.id);
+  const phone = createCategory(db, actor, { groupId: herGroup.id, name: "Phone" });
+  setAssigned(db, actor, MONTH, phone.id, rupees(30_000));
+  const charge = createTransaction(db, actor, {
+    accountId: card.id, amount: -rupees(30_000), date: todayIST(),
+    categoryId: phone.id, ownerMemberId: PRIYA,
+  });
+  return { hers, card, charge };
+}
+
+test("ENG-14 · a charge on a card in a member's own budget converts, the envelope going with it", () => {
+  const db = setup();
+  const { hers, card, charge } = personalCard(db);
+  const cardEnvelope = paymentCategoryFor(db, card.id)!.id;
+  const before = computeBudget(loadEngineInput(db, { through: MONTH, budgetId: hers.id })).get(MONTH)!;
+  assert.equal(before.categories.get(cardEnvelope)!.balance, rupees(30_000), "her card's envelope holds the charge");
+
+  const { loan } = convertToEmi(db, actor, { transactionId: charge.id, annualRatePct: 15, tenureMonths: 6 });
+  const planEnvelope = paymentCategoryForLoan(db, loan.id)!.id;
+  const budgetOf = (id: string) =>
+    (db.prepare(`SELECT budget_id FROM categories WHERE id = ?`).get(id) as { budget_id: string }).budget_id;
+  assert.equal(budgetOf(planEnvelope), hers.id, "the plan's envelope is in her budget, beside the card's");
+
+  const after = computeBudget(loadEngineInput(db, { through: MONTH, budgetId: hers.id })).get(MONTH)!;
+  assert.equal(after.categories.get(planEnvelope)!.balance, rupees(30_000), "the plan's envelope took it");
+  assert.equal(after.categories.get(cardEnvelope)!.balance, 0, "and nothing is left behind on the card");
+
+  // And the first instalment, charged to her card from the plan's envelope, records.
+  const { emi } = projectLoan(db, loan.id)!;
+  assert.doesNotThrow(() => recordInstalment(db, actor, {
+    loanId: loan.id, date: todayIST(), amount: emi as Paise, fromAccountId: card.id,
+  }));
+  db.close();
+});
+
+test("ENG-14 · undoing that conversion puts the money back and removes the plan", () => {
+  const db = setup();
+  const { hers, card, charge } = personalCard(db);
+  const cardEnvelope = paymentCategoryFor(db, card.id)!.id;
+  const { loan } = convertToEmi(db, actor, { transactionId: charge.id, annualRatePct: 15, tenureMonths: 6 });
+  const ev = db.prepare(
+    `SELECT id FROM events WHERE entity = 'loan' AND entity_id = ? AND action = 'convert-to-emi'`,
+  ).get(loan.id) as { id: string };
+  assert.ok(undoEvent(db, ev.id, actor, { force: true }).ok);
+  assert.equal(db.prepare(`SELECT COUNT(*) AS n FROM loans WHERE id = ?`).get(loan.id)!.n, 0, "the plan is gone");
+  const back = computeBudget(loadEngineInput(db, { through: MONTH, budgetId: hers.id })).get(MONTH)!;
+  assert.equal(back.categories.get(cardEnvelope)!.balance, rupees(30_000), "the card's envelope holds it again");
   db.close();
 });

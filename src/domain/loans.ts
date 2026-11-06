@@ -209,6 +209,13 @@ export interface CreateLoanInput {
    */
   disbursementDestination?: "budget-account" | "third-party";
   disbursementAccountId?: string | null;
+  /**
+   * ENG-14 · The budget the payment envelope goes in, when the loan has no
+   * repayment account to say so. A card EMI plan's envelope sits beside the
+   * card's — its instalments are charged to the card, and the money set aside
+   * for the card moves to it.
+   */
+  envelopeBudgetId?: string | null;
 }
 
 /** WEALTH-38 · The bounds live beside the arithmetic they protect. */
@@ -329,7 +336,7 @@ export function createLoan(db: DB, actor: Actor, input: CreateLoanInput): Loan {
     );
 
     // R14: the payment category, symmetric with the credit-card one (R6).
-    createLoanPaymentCategory(db, actor, id, input.nickname || input.lender);
+    createLoanPaymentCategory(db, actor, id, input.nickname || input.lender, input.envelopeBudgetId ?? null);
 
     /*
      * R15 · Record where the drawn money went, if the household said. Doing it
@@ -365,11 +372,14 @@ export function createLoan(db: DB, actor: Actor, input: CreateLoanInput): Loan {
 
 export const LOAN_PAYMENTS_GROUP = "Loan Payments";
 
-function createLoanPaymentCategory(db: DB, actor: Actor, loanId: string, name: string): string {
+function createLoanPaymentCategory(
+  db: DB, actor: Actor, loanId: string, name: string, fallbackBudgetId: string | null,
+): string {
   /*
    * 15 · The envelope follows the account that repays the loan — that is whose
    * money is going out every month. A loan with no repayment account set is the
-   * household's until somebody says otherwise.
+   * household's until somebody says otherwise (ENG-14: a card EMI plan says the
+   * card's budget).
    */
   const budget = queryOne<{ budget_id: string | null }>(
     db,
@@ -377,7 +387,7 @@ function createLoanPaymentCategory(db: DB, actor: Actor, loanId: string, name: s
        LEFT JOIN accounts a ON a.id = l.repayment_account_id
       WHERE l.id = ?`,
     loanId,
-  )?.budget_id ?? householdBudgetId(db);
+  )?.budget_id ?? fallbackBudgetId ?? householdBudgetId(db);
 
   let group = queryOne<{ id: string }>(
     db, `SELECT id FROM category_groups WHERE kind = 'loan-payments' AND budget_id = ? LIMIT 1`,

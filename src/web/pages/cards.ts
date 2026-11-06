@@ -182,11 +182,13 @@ function renderCard(card: CardDue, month: string): SafeHtml {
       <div class="row" style="gap:2rem;flex-wrap:wrap;margin-top:.75rem">
         <div>
           <!-- The payment envelope's balance. Below zero it is not money put by
-               at all (a minus figure under that heading read as savings) but an
-               envelope that has paid out more than it held, so it says that. -->
+               at all (a minus figure under that heading read as savings) but
+               payments to the card beyond what was set aside for it. UI-11:
+               calling the envelope overspent, on a card that owed nothing, read
+               as money still owed on it, so it says what happened instead. -->
           ${card.funded < 0
             ? html`
-                <div class="faint">Payment envelope overspent</div>
+                <div class="faint">Paid beyond what was set aside</div>
                 <span class="amount amount-negative">${formatPaise(-card.funded as Paise)}</span>
               `
             : html`
@@ -201,6 +203,16 @@ function renderCard(card: CardDue, month: string): SafeHtml {
           </div>
         `)}
       </div>
+
+      ${when(card.funded < 0, () => html`
+        <p class="notice notice-warning" style="margin-top:.75rem">
+          Paid ${formatPaise(-card.funded as Paise)} more than was set aside for this card — cover it from another envelope.
+          ${when(card.owed <= 0, () => html`The card itself owes nothing.`)}
+          ${when(card.paymentCategoryId, () => html`
+            <a href="/move?to=${card.paymentCategoryId}&amount=${(-card.funded / 100).toFixed(2)}&month=${month}">Cover it</a>
+          `)}
+        </p>
+      `)}
 
       ${when(card.unfunded > 0, () => html`
         <p class="notice notice-warning" style="margin-top:.75rem">

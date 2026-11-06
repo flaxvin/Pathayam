@@ -188,6 +188,9 @@ export function convertToEmi(db: DB, actor: Actor, input: ConvertToEmiInput): Co
        */
       disbursementDestination: "budget-account",
       disbursementAccountId: card.id,
+      // ENG-14 · Its envelope sits in the card's budget, beside the card's own,
+      // so the envelope move below stays inside one budget.
+      envelopeBudgetId: card.budget_id ?? householdBudgetId(db),
     });
 
     execute(
