@@ -129,6 +129,12 @@ describe("INSURANCE-1 · the holder's own", () => {
       const row = db.prepare(`SELECT policy_last4, premium FROM insurance_policies WHERE insurer = 'Wheels Co'`)
         .get() as { policy_last4: string; premium: number };
       assert.deepEqual({ ...row }, { policy_last4: "1234", premium: rupees(9_000) });
+      // UI-7 · The last four of the number, not the year the policy ends.
+      const wheels = db.prepare(`SELECT id FROM insurance_policies WHERE insurer = 'Wheels Co'`).get() as { id: string };
+      const detail = await (await app.get(`/insurance/${wheels.id}`)).text();
+      assert.match(detail, /Policy no\. …1234/);
+      assert.match(detail, /placeholder="No\. …1234 — leave blank to keep"/);
+      assert.doesNotMatch(detail, /Policy ending|Ends 1234/);
 
       const refused = await app.post("/insurance/new", {
         insurer: "Wheels Co", kind: "vehicle", premium: "9000", frequency: "yearly", tax_group: "80c",

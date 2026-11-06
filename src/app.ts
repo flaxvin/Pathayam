@@ -111,7 +111,7 @@ import { convertToEmi, convertedFrom, GST_PCT } from "./domain/card-emi.ts";
 import { renderDeparture } from "./web/pages/departure.ts";
 import { renderHousehold } from "./web/pages/household.ts";
 import {
-  createAccount, updateAccount, closeAccount, reopenAccount, listAccounts, getAccount, listCards, createCard, closeCard, recordCardStatement, lastCardStatement, paymentCategoryFor, MANAGED_SUBTYPES, SUBTYPE_LABELS, type AccountKind, hiddenAccountIds, type HolderScope,
+  createAccount, updateAccount, closeAccount, reopenAccount, listAccounts, getAccount, listCards, createCard, closeCard, recordCardStatement, lastCardStatement, nextDueByDay, paymentCategoryFor, MANAGED_SUBTYPES, SUBTYPE_LABELS, type AccountKind, hiddenAccountIds, type HolderScope,
  creditedSinceStatement, type Account,  DERIVED_VALUE_SUBTYPES,
   REVALUABLE_SUBTYPES,
 } from "./domain/accounts.ts";
@@ -383,7 +383,7 @@ import {
   getDepositTerms, setDepositTerms, removeDepositTerms, computedDepositValue, listMaturities,
   describeTerms, DEPOSIT_SUBTYPES, type DepositTermsInput,
 } from "./domain/deposits.ts";
-import { checkTerms } from "./deposits/accrual.ts";
+import { checkTerms, READS_REGISTER, type DepositKind } from "./deposits/accrual.ts";
 import {
   netWorthStatement, snapshotNetWorth, netWorthChange, netWorthHistory,
   assetAllocation,
@@ -1050,6 +1050,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   ): string | null {
     const id = field(ctx.body, name);
     return id ? guard(ctx, id) : null;
+  }
+
+  /**
+   * UI-8 · The holder a new policy, asset or loan is stored with. In a
+   * one-member household the forms offer no "Whose is it", so the holder came
+   * through empty; UI-3 reads an empty holder as the sole member's, but only
+   * while they are alone. When a second member joined, everything recorded
+   * alone became the household's, jointly, and stopped counting as the first
+   * member's (their 80C/80D policies left the tax page). So with one member,
+   * an unnamed holder is stored as that member. With two or more, empty
+   * still means the household's.
+   */
+  function holderOrSoleMember(holder: string | null | undefined): string | null {
+    if (holder) return holder;
+    const members = queryAll<{ id: string }>(db, `SELECT id FROM members WHERE removed_at IS NULL`);
+    return members.length === 1 ? members[0]!.id : null;
   }
 
   /**
@@ -3081,6 +3097,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // DEPOSITS · Terms are optional, and read before anything is created so
       // terms that cannot be priced leave no account behind.
       const terms = DEPOSIT_SUBTYPES.has(subtype) && kind === "tracking" ? depositTermsField(ctx.body) : null;
+      const openingDate = dateField(openingDateRaw, "Opening date");
+      /*
+       * UI-6 · A PPF, EPF or other deposit already running is usually entered
+       * as its current balance, with the principal left blank. It was valued
+       * at ₹0 — principal plus register, and the opening balance is in
+       * neither — so it fell out of net worth and FIRE. With no principal, the
+       * balance is the principal and its as-of date the start: worth that on
+       * that day, growing from there. The account page says so.
+       */
+      const grewFromOpening = !!terms && terms.principal == null && opening > 0
+        && READS_REGISTER.has(terms.kind as DepositKind);
+      if (terms && grewFromOpening) {
+        terms.principal = opening;
+        terms.startDate = openingDate;
+      }
       if (terms) checkTerms(terms);
 
       // F2.6: a credit card's balance is what you owe. Entering it as a
@@ -3095,7 +3126,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         institution: field(ctx.body, "institution") || null,
         last4: last4Field(field(ctx.body, "last4")) ?? null,
         openingBalance: opening,
-        openingDate: dateField(openingDateRaw, "Opening date"),
+        openingDate,
         statementDay: numberOrNull(field(ctx.body, "statement_day")),
         dueDay: numberOrNull(field(ctx.body, "due_day")),
         // 15 · Whose money it is, and who can see it, are settled at creation
@@ -3115,7 +3146,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
       return {
         redirect: `/accounts/${account.id}`,
-        message: terms ? `Added ${account.name}, valued from its terms.` : `Added ${account.name}.`,
+        message: !terms ? `Added ${account.name}.`
+          : grewFromOpening
+            ? `Added ${account.name}, worth ${formatPaise(opening)} on ${formatDate(openingDate)}, growing from there.`
+            : `Added ${account.name}, valued from its terms.`,
       };
     }),
   );
@@ -3171,10 +3205,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       id: string; date: string; amount: number; cleared: number; memo: string | null;
       payee: string | null; category: string | null; transfer_pair_id: string | null;
       card_label: string | null; owner_name: string | null; hidden: number; is_split: number;
+      pair_kind: string | null;
     }>(
       db,
       `SELECT t.id, t.date, t.amount, t.cleared, t.memo, t.transfer_pair_id, t.is_split,
               p.name AS payee, c.name AS category, cd.label AS card_label, m.name AS owner_name,
+              (SELECT pa.kind FROM transactions pt JOIN accounts pa ON pa.id = pt.account_id
+                WHERE t.transfer_pair_id IS NOT NULL AND pt.transfer_pair_id = t.transfer_pair_id
+                  AND pt.id <> t.id LIMIT 1) AS pair_kind,
               ${registerHidden.sql} AS hidden
          FROM transactions t
          LEFT JOIN payees p   ON p.id = t.payee_id
@@ -3203,6 +3241,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         amount: r.amount,
         cleared: r.cleared === 1,
         isTransfer: r.transfer_pair_id !== null,
+        /*
+         * UI-10 · Money going into a card from another account, seen from
+         * either side, is a card payment; any other transfer is a transfer.
+         */
+        transferLabel: r.transfer_pair_id === null ? null
+          : (account.kind === "credit" && r.amount > 0) || (r.pair_kind === "credit" && r.amount < 0)
+            ? "Card payment"
+            : "Transfer",
         isSplit: r.is_split === 1,
         /*
          * UI-2 · Review's own rule for "needs a category" (see /review): money
@@ -3270,6 +3316,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           const st = lastCardStatement(db, account.id);
           return st ? { amount: st.amount, date: st.statement_date, due: st.due_date } : null;
         })(),
+        // UI-9 · With no statement, the next due date by the card's due day.
+        dueByDay: account.kind === "credit" && account.due_day && balances.working < 0
+          && !lastCardStatement(db, account.id)
+          ? nextDueByDay(account.due_day)
+          : null,
         lastReconciled: recon?.as_of ?? null,
         checkpointBroken: Boolean(recon?.broken_at),
         deposit: account.kind === "tracking" && DEPOSIT_SUBTYPES.has(account.subtype)
@@ -5186,13 +5237,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           account.opening_balance,
         );
         const statement = lastCardStatement(db, account.id);
+        const owed = Math.max(0, -(owedNow.get(account.id) ?? 0)) as Paise;
+        // UI-9 · With no statement, the due day stored on the card, as the
+        // cashflow projection already pays it.
+        const dueByDay = !statement && owed > 0 && account.due_day ? nextDueByDay(account.due_day, today) : null;
 
         return {
           accountId: account.id,
           name: account.nickname || account.name,
           last4: account.last4,
           startingDebtNote: cameWithTheCard(funding),
-          owed: Math.max(0, -(owedNow.get(account.id) ?? 0)) as Paise,
+          owed,
           credit: Math.max(0, owedNow.get(account.id) ?? 0) as Paise,
           funded,
           unfunded: funding.unfunded,
@@ -5202,7 +5257,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 due: statement.due_date, minimum: statement.minimum_due,
               }
             : null,
-          daysToDue: statement ? daysBetween(today, statement.due_date) : null,
+          dueByDay,
+          daysToDue: statement ? daysBetween(today, statement.due_date)
+            : dueByDay ? daysBetween(today, dueByDay) : null,
           paidSinceStatement: statement
             ? creditedSinceStatement(db, account.id, statement.statement_date)
             : (0 as Paise),
@@ -5210,9 +5267,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         };
       })
       /*
-       * Soonest first. A card with no statement has no due date to sort by, so
-       * it goes last rather than being guessed at — R6 reports the debt it can
-       * see and never invents a cycle.
+       * Soonest first. A card with no statement sorts by its stored due day
+       * (UI-9); one with neither has no due date to sort by, so it goes last
+       * rather than being guessed at — R6 never invents a cycle.
        */
       .sort((a, b) => {
         if (a.daysToDue === null && b.daysToDue === null) return b.owed - a.owed;
@@ -6048,7 +6105,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const loan = createLoan(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         lender: requiredField(ctx.body, "lender"),
         nickname: field(ctx.body, "nickname") || null,
-        holderMemberId: holder,
+        holderMemberId: holderOrSoleMember(holder),
         visibility,
         // R15 · Where the drawn money landed, if the household said.
         disbursementDestination:
@@ -8320,6 +8377,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const input = policyInput(ctx);
       // WEB-4 · WEB-1's rule at creation: private only to whoever adds it.
       refuseForeignPrivate(a, null, input.holderMemberId ?? null, input.visibility, "policy");
+      input.holderMemberId = holderOrSoleMember(input.holderMemberId);
       const policy = createPolicy(
         db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), input,
       );
@@ -9423,7 +9481,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // WEB-4 · WEB-1's rule at creation: private only to whoever adds it.
       refuseForeignPrivate(a, null, holder, visibility, "asset");
       const account = createAssetAccount(db, actorFor(a), {
-        holderMemberId: holder,
+        holderMemberId: holderOrSoleMember(holder),
         visibility,
         name: requiredField(ctx.body, "name"),
         subtype,

@@ -11,7 +11,7 @@ import { ACCOUNT_SUBTYPES, SUBTYPE_LABELS, MANAGED_SUBTYPES } from "../../domain
 import type { AssetEvent } from "../../domain/assets.ts";
 import {
   DEPOSIT_KINDS, DEPOSIT_KIND_LABELS, COMPOUNDINGS, COMPOUNDING_LABELS, DEFAULT_COMPOUNDING,
-  type DepositTerms,
+  READS_REGISTER, type DepositTerms,
 } from "../../deposits/accrual.ts";
 import type { AccountKind } from "../../domain/accounts.ts";
 
@@ -228,6 +228,8 @@ export interface RegisterRow {
   amount: Paise;
   cleared: boolean;
   isTransfer: boolean;
+  /** UI-10 · What the category cell says for a transfer: "Card payment" or "Transfer". */
+  transferLabel?: string | null;
   /** UI-2 · The envelopes are on the split lines, not the row. */
   isSplit?: boolean;
   /**
@@ -263,6 +265,8 @@ export function renderAccountDetail(opts: {
   /** N7 · Where "fund the shortfall" should put the money. */
   paymentCategoryId?: string | null;
   lastStatement: { amount: Paise; date: IsoDate; due: IsoDate } | null;
+  /** UI-9 · With no statement, the next due date by the card's due day. */
+  dueByDay?: IsoDate | null;
   lastReconciled: IsoDate | null;
   checkpointBroken: boolean;
   /** See AccountRow.derived — the figure this account is actually worth. */
@@ -571,7 +575,7 @@ export function renderAccountDetail(opts: {
                             ?? (r.isSplit
                               ? html`<a class="faint" href="/transaction/${r.id}">Split</a>`
                               : r.needsCategory === false
-                                ? html`<span class="faint">—</span>`
+                                ? html`<span class="faint">${r.transferLabel ?? "—"}</span>`
                                 : html`<span class="chip chip-warning">Uncategorised</span>`)}
                           ${r.tags.map((t) => html`<span class="chip">#${t}</span>`)}
                         </td>
@@ -626,7 +630,10 @@ export function depositTermsFields(prefix: string, terms: DepositTerms | null, o
         <label for="${prefix}-principal">Principal <span class="faint">(an FD, PPF, EPF or other)</span></label>
         <input id="${prefix}-principal" name="deposit_principal" class="amount-input" inputmode="decimal"
                autocomplete="off" value="${amount(terms?.principal)}">
-        <p class="field-hint">For a PPF or EPF already running, the balance on the start date.</p>
+        <p class="field-hint">
+          For a PPF or EPF already running, the balance on the start date.${when(opts.optional, () => html`
+          Left empty, the current balance above is the principal and its as-of date the start.`)}
+        </p>
       </div>
       <div class="field">
         <label for="${prefix}-instalment">Monthly instalment <span class="faint">(an RD)</span></label>
@@ -669,6 +676,17 @@ export function depositTermsFields(prefix: string, terms: DepositTerms | null, o
   `;
 }
 
+/**
+ * UI-6 · A PPF, EPF or other deposit added with its current balance and no
+ * principal takes that balance as its principal and the as-of date as its
+ * start (see POST /accounts/new). Said on the page, because the start date
+ * typed into the terms was replaced.
+ */
+function grewFromOpening(account: Account, terms: DepositTerms): boolean {
+  return READS_REGISTER.has(terms.kind) && terms.principal > 0
+    && terms.principal === account.opening_balance && terms.startDate === account.opening_date;
+}
+
 /** DEPOSITS · What the terms make the account worth, and the forms to change them. */
 function renderDepositPanel(
   account: Account,
@@ -695,6 +713,14 @@ function renderDepositPanel(
                   `}
             </p>
             <p class="faint">${deposit.description}.</p>
+            ${when(grewFromOpening(account, terms), () => html`
+              <p class="faint">
+                It was
+                worth ${formatPaise(terms.principal)} on ${formatDate(terms.startDate)}, growing from there:
+                no principal was given, so the balance it was added with is the principal and
+                its as-of date the start.
+              </p>
+            `)}
             ${deposit.maturity
               ? html`
                   <p>
@@ -755,6 +781,7 @@ function renderCardPanel(opts: {
   /** N7 · Where "fund the shortfall" should put the money. */
   paymentCategoryId?: string | null;
   lastStatement: { amount: Paise; date: IsoDate; due: IsoDate } | null;
+  dueByDay?: IsoDate | null;
 }): SafeHtml {
   const { funding, account } = opts;
   if (!funding) return raw("");
@@ -793,7 +820,11 @@ function renderCardPanel(opts: {
             <!-- R6/F2.3: statement cycles are not calendar months, so the app
                  cannot infer them — the statement is entered. -->
             <p class="faint">
-              No statement recorded yet. Statement cycles don't follow calendar months,
+              ${when(opts.dueByDay, () => html`
+                No statement recorded yet — due ${formatDate(opts.dueByDay!)} by the card's due day.
+              `)}
+              ${when(!opts.dueByDay, () => html`No statement recorded yet.`)}
+              Statement cycles don't follow calendar months,
               so funding advice keys off the statement rather than the month boundary.
               <a href="/accounts/${account.id}/statement">Record a statement</a>
             </p>

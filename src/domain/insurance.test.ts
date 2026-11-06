@@ -98,6 +98,10 @@ describe("INSURANCE-1 · the register", () => {
     assert.equal(
       queryValue<number>(db, `SELECT COUNT(*) FROM insurance_policies WHERE policy_last4 LIKE '%9876%'`), 0,
     );
+    // UI-7 · "policy ending 2026" read as "the policy ends in 2026".
+    const added = queryEvents(db, { entity: "insurance-policy" }).find((e) => e.action === "create")!;
+    assert.match(added.summary, /Fictional Life term life policy no\. …5432$/);
+    assert.doesNotMatch(added.summary, /ending/);
     assert.throws(() => createPolicy(db, ravi, term({ kind: "vehicle", taxGroup: "80c" })), /80C/);
     assert.throws(() => createPolicy(db, ravi, term({ kind: "term-life", taxGroup: "80d-self" })), /80D/);
     assert.throws(() => createPolicy(db, ravi, term({ premium: 0 as Paise })), /premium/);

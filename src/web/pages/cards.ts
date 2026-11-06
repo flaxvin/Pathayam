@@ -31,7 +31,9 @@ export interface CardDue {
   startingDebtNote?: string | null;
   /** The most recent statement, when one has been recorded. */
   statement: { amount: Paise; date: IsoDate; due: IsoDate; minimum: Paise | null } | null;
-  /** Days until the statement's due date; negative once it has passed. */
+  /** UI-9 · With no statement, the next due date by the card's stored due day. */
+  dueByDay?: IsoDate | null;
+  /** Days until the statement's due date (or, with none, `dueByDay`); negative once it has passed. */
   daysToDue: number | null;
   /** B127 · What has come off the card since the statement was issued. */
   paidSinceStatement: Paise;
@@ -154,10 +156,15 @@ function renderCard(card: CardDue, month: string): SafeHtml {
                       : raw("")
                   }
                 `
-              : html`
-                  No statement recorded yet — the due date is whatever the bank
-                  says until you enter one.
-                `}
+              : card.dueByDay
+                ? html`
+                    No statement recorded yet — due ${formatDate(card.dueByDay)} by the card's due day.
+                    Enter the statement to confirm what the bank asks for.
+                  `
+                : html`
+                    No statement recorded yet — the due date is whatever the bank
+                    says until you enter one.
+                  `}
           </div>
         </div>
         <div style="text-align:right">
