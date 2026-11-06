@@ -127,7 +127,7 @@ export type RowStatus =
   /** Recognised but not something this import creates — see `note`. */
   | "skipped"
   /**
-   * IMP-13 · Recorded by an import before CAS-1 / CAS-2 changed how the row
+   * IMP-13 · Recorded by an import before a fix (CAS-1, CAS-2, IMP-14) changed how the row
    * reads, with figures that differ from today's reading. Not written again —
    * that would be a second entry — but shown for a person to correct.
    */
@@ -222,7 +222,8 @@ export function planCasImport(
        * IMP-13 · The reference each earlier reading of this row would have
        * recorded. CAS-1 and CAS-2 changed the kind, units or amount of some
        * rows, so a statement imported before them recorded a different
-       * reference, and the row was offered again as new — a second lot.
+       * reference, and the row was offered again as new — a second lot. IMP-14
+       * did the same for systematic withdrawals and transfers.
        */
       let earlier: Recorded | undefined;
       for (let reading = 0; reading < CAS_READING; reading++) {

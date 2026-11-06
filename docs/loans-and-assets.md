@@ -426,6 +426,11 @@ held when what was recorded matches today's reading, and as **Check** —
 imported earlier with different figures, not imported again — when it does not,
 so the recorded entry can be corrected by hand.
 
+A systematic withdrawal ("Systematic Withdrawal", "SWP") imports as a
+redemption, and a systematic transfer as a switch: "STP Out" a redemption,
+"STP In" a purchase, and a "Systematic Transfer" that names no direction by the
+sign of its units. A reversed row of any kind is shown and not imported.
+
 ## Net worth
 
 ```

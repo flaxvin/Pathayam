@@ -133,10 +133,14 @@ function toMicroRupees(value: number): number {
  *   0 · before CAS-1 (3712655) and CAS-2 (50f6a70)
  *   1 · CAS-1: a description's trailing bare number stays in the description;
  *       CAS-2: "Switch-In" / "Switch-Out" with a hyphen
+ *   2 · IMP-14: systematic withdrawals and transfers (SWP, STP Out / In)
  */
-export const CAS_READING = 1;
+export const CAS_READING = 2;
 
-function classify(description: string, reading: number = CAS_READING): CasRow["kind"] {
+/** A row classify cannot place by its words alone: a transfer with no direction. */
+type Classified = CasRow["kind"] | "transfer";
+
+function classify(description: string, reading: number = CAS_READING): Classified {
   const text = description.toLowerCase();
   if (reading < 1) {
     // As it stood before CAS-2, kept only to rebuild references (IMP-13).
@@ -153,6 +157,20 @@ function classify(description: string, reading: number = CAS_READING): CasRow["k
   // Order matters: "dividend reinvestment" is a purchase of units, and calling
   // it a dividend would break R27.5's separation of payouts from cost.
   if (/reinvest/.test(text)) return "purchase";
+  if (reading >= 2) {
+    /*
+     * IMP-14 · A systematic withdrawal is a redemption, and a systematic
+     * transfer a switch: out of this fund, or into it. Neither matched a
+     * pattern below, so both were "other" and skipped — an SWP's units were
+     * never sold, and an STP never left one fund or reached the other. Before
+     * the payout and purchase words, which the target fund's name can carry
+     * ("STP Out - To Eta Dividend Yield Fund", "… Investment Fund").
+     */
+    if (/\bswp\b|systematic\s+withdrawal|\bsys\.?\s*withdrawal/.test(text)) return "redemption";
+    if (/\bstp[\s-]*out\b|systematic\s+transfer(?:\s+plan)?[\s-]*out\b/.test(text)) return "redemption";
+    if (/\bstp[\s-]*in\b|systematic\s+transfer(?:\s+plan)?[\s-]*in\b/.test(text)) return "purchase";
+    if (/\bstp\b|systematic\s+transfer/.test(text)) return "transfer";
+  }
   if (/dividend|idcw|payout/.test(text)) return "dividend";
   // CAMS writes "Switch-Out" / "Switch-In" as often as "Switch Out".
   if (/redem|sell|switch[\s-]*out|swtout/.test(text)) return "redemption";
@@ -364,7 +382,11 @@ function parseRow(text: string, reading: number = CAS_READING): CasRow | null {
   const [units, nav] = unitsAndNav(numbers, figures);
   if (amount === undefined || units === undefined || nav === undefined) return null;
 
-  const kind = classify(description, reading);
+  const classified = classify(description, reading);
+  // IMP-14 · A transfer that names no direction goes by the sign of what moved.
+  const kind: CasRow["kind"] = classified !== "transfer"
+    ? classified
+    : units < 0 || amount < 0 ? "redemption" : "purchase";
   // A redemption's figures are sometimes bracketed and sometimes not; the word
   // is the authority, not the punctuation.
   // A row of no known kind keeps the sign it was printed with, so a reversal's
