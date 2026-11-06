@@ -36,7 +36,7 @@
  */
 
 import { calendarDate, fullYear, monthFromName, type IsoDate } from "../core/dates.ts";
-import type { Paise } from "../core/money.ts";
+import { wellGrouped, type Paise } from "../core/money.ts";
 import type { RawRecord, ParseError, ParseResult } from "./csv.ts";
 import { readDocument, expandObjectStreams } from "../pdf/objects.ts";
 import { decryptDocument, isEncrypted, WrongPassword } from "../pdf/decrypt.ts";
@@ -338,6 +338,11 @@ export function parseStatementAmount(raw: string): { value: number; credit: bool
   const withoutCurrency = text
     .replace(/(?<![a-z])[cd]r\.?$/i, "")
     .replace(/^\s*(?:Rs\.?|INR|₹|C)\s*(?=[\d(])/i, "");
+
+  // IMP-11 · Commas are read as grouping only when they group: "1,23" is a
+  // mangled cell, refused as `parseAmount` refuses it, not ₹123.
+  const grouped = withoutCurrency.replace(/[()\s₹]/g, "").replace(/^[-+]/, "");
+  if (!wellGrouped(grouped.split(".")[0]!)) return null;
 
   const digits = withoutCurrency.replace(/[(),\s₹]/g, "");
   // A leading "+" is how HDFC marks a refund on a card, so it has to survive
