@@ -1054,7 +1054,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   /**
    * FRESH-WEB-2 / WEB-1 · An edit may leave a record private only to whoever is
-   * making the edit, and only if it was theirs or nobody's to begin with.
+   * making the edit, and only if it was theirs or nobody's to begin with. A
+   * create passes `before` as null, so the same rule holds there (WEB-4).
    * Otherwise one member could take another's account, loan or policy private
    * to themselves (or hand it, private, to a third) and it would vanish from
    * the screens of the person it belongs to, Activity included.
@@ -4479,19 +4480,27 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               </div>
             `,
           )}
-          <form method="post" action="/transaction/${transaction.id}/attach"
-                enctype="multipart/form-data" style="margin-top:.6rem">
-            <div class="field">
-              <label for="receipt">Add a photo or PDF</label>
-              <input id="receipt" name="receipt" type="file"
-                     accept="image/*,application/pdf" capture="environment" required>
-              <p class="field-hint">
-                Stored on your server only — never on this device, and fetched
-                fresh each time you look.
-              </p>
-            </div>
-            <button type="submit">Attach</button>
-          </form>
+          ${when(!config.demoMode, () => html`
+            <form method="post" action="/transaction/${transaction.id}/attach"
+                  enctype="multipart/form-data" style="margin-top:.6rem">
+              <div class="field">
+                <label for="receipt">Add a photo or PDF</label>
+                <input id="receipt" name="receipt" type="file"
+                       accept="image/*,application/pdf" capture="environment" required>
+                <p class="field-hint">
+                  Stored on your server only — never on this device, and fetched
+                  fresh each time you look.
+                </p>
+              </div>
+              <button type="submit">Attach</button>
+            </form>
+          `)}
+          ${when(config.demoMode, () => html`
+            <p class="faint" style="margin-top:.6rem">
+              Attaching receipts is turned off here — a public demo should not
+              hold files people upload. It works on your own copy.
+            </p>
+          `)}
         </section>
 
         <section class="card">
@@ -4519,6 +4528,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/transaction/:id/attach", (ctx) => {
     const a = auth(ctx);
+    /*
+     * WEB-3 · On the demo anyone is signed in, and each receipt is up to 10 MB
+     * kept in the demo's database on a small disk, with nothing capping the
+     * total until the next restart. Same shape as SECURITY-OPS-24 (backups).
+     */
+    refuseInDemo(config, "Attaching receipts");
     const id = requireLiveTransaction(ctx, ctx.params.id!).id;
     const upload = fileField(ctx.req, "receipt");
     if (!upload) {
@@ -6025,11 +6040,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const historyFrom = field(ctx.body, "history_from");
       const firstDue = field(ctx.body, "first_instalment_date");
 
+      const holder = guardedField(ctx, "holder_member_id", requireMember);
+      const visibility = field(ctx.body, "visibility") === "private" ? "private" : "household";
+      // WEB-4 · WEB-1's rule at creation: private only to whoever adds it.
+      refuseForeignPrivate(a, null, holder, visibility, "loan");
+
       const loan = createLoan(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         lender: requiredField(ctx.body, "lender"),
         nickname: field(ctx.body, "nickname") || null,
-        holderMemberId: guardedField(ctx, "holder_member_id", requireMember),
-        visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
+        holderMemberId: holder,
+        visibility,
         // R15 · Where the drawn money landed, if the household said.
         disbursementDestination:
           field(ctx.body, "disbursement_destination") === "budget-account" ? "budget-account"
@@ -8123,14 +8143,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/family/new", (ctx) =>
     mutate(ctx, (a) => {
       const agreed = field(ctx.body, "agreed_total");
+      const holder = guardedField(ctx, "holder_member_id", requireMember);
+      const visibility = field(ctx.body, "visibility") === "private" ? "private" : undefined;
+      // WEB-4 · WEB-1's rule at creation: private only to whoever adds it.
+      refuseForeignPrivate(a, null, holder, visibility, "loan");
       const loan = createFamilyLoan(db, actorFor(a), {
         counterparty: requiredField(ctx.body, "counterparty"),
         agreedTotal: agreed ? amountField(agreed) : null,
         note: field(ctx.body, "note") || null,
         // H2 / H2.2 · Money lent to your cousin can be yours rather than the
         // household's, the same as an asset or a loan.
-        holderMemberId: guardedField(ctx, "holder_member_id", requireMember),
-        visibility: field(ctx.body, "visibility") === "private" ? "private" : undefined,
+        holderMemberId: holder,
+        visibility,
       });
       return {
         redirect: `/family/${loan.id}`,
@@ -8293,8 +8317,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/insurance/new", (ctx) =>
     mutate(ctx, (a) => {
+      const input = policyInput(ctx);
+      // WEB-4 · WEB-1's rule at creation: private only to whoever adds it.
+      refuseForeignPrivate(a, null, input.holderMemberId ?? null, input.visibility, "policy");
       const policy = createPolicy(
-        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), policyInput(ctx),
+        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), input,
       );
       return { redirect: `/insurance/${policy.id}`, message: "Added." };
     }),
@@ -9391,9 +9418,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // value typed for one would be stored and never read.
       const subtype = requiredField(ctx.body, "subtype") as "physical";
       const valueRaw = (subtype as string) === "investment" ? undefined : field(ctx.body, "value");
+      const holder = guardedField(ctx, "holder_member_id", requireMember);
+      const visibility = field(ctx.body, "visibility") === "private" ? "private" : "household";
+      // WEB-4 · WEB-1's rule at creation: private only to whoever adds it.
+      refuseForeignPrivate(a, null, holder, visibility, "asset");
       const account = createAssetAccount(db, actorFor(a), {
-        holderMemberId: guardedField(ctx, "holder_member_id", requireMember),
-        visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
+        holderMemberId: holder,
+        visibility,
         name: requiredField(ctx.body, "name"),
         subtype,
         openingValue: valueRaw?.trim() ? amountField(valueRaw) : undefined,
