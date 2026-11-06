@@ -177,10 +177,15 @@ export function parseCasText(text: string): CasStatement {
     const text = line.trim();
     if (text === "") continue;
 
-    // "Statement Period: … to …", or KFintech's bare "01/01/2025 to 31/01/2025".
+    // "Statement Period: … to …", or KFintech's bare "01/01/2025 to 31/01/2025",
+    // or — anywhere in a line, as CDSL prints it between the same words in
+    // Hindi — "Statement for the period from … to …" and CAMS-generated AMC
+    // statements' "Account Statement (From … To …)". The anywhere forms need
+    // both a period phrase and two whole dates, so a dated row is never one.
     const periodMatch =
       /statement\s+period\s*:?\s*(.+?)\s+(?:to|-)\s+(.+?)\s*$/i.exec(text) ??
-      /^(\d{1,2}[-/][A-Za-z0-9]{2,3}[-/]\d{4})\s+to\s+(\d{1,2}[-/][A-Za-z0-9]{2,3}[-/]\d{4})$/i.exec(text);
+      /^(\d{1,2}[-/][A-Za-z0-9]{2,3}[-/]\d{4})\s+to\s+(\d{1,2}[-/][A-Za-z0-9]{2,3}[-/]\d{4})$/i.exec(text) ??
+      /(?:for\s+the\s+period|account\s+statement\s*\()\s*from\s+(\d{1,2}[-/ ][A-Za-z0-9]{2,9}[-/ ]\d{4})\s+to\s+(\d{1,2}[-/ ][A-Za-z0-9]{2,9}[-/ ]\d{4})\b/i.exec(text);
     if (periodMatch) {
       const from = parseCasDate(periodMatch[1]!);
       const to = parseCasDate(periodMatch[2]!);
