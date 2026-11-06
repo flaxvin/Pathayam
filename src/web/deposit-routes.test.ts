@@ -7,12 +7,13 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { rupees } from "../core/money.ts";
-import { todayIST, addDays } from "../core/dates.ts";
+import { todayIST, addDays, formatDate } from "../core/dates.ts";
 import type { Actor } from "../core/events.ts";
 import { queryOne } from "../db/db.ts";
 import { createAccount } from "../domain/accounts.ts";
 import { getDepositTerms } from "../domain/deposits.ts";
 import { netWorthStatement } from "../domain/networth.ts";
+import { fireProjection } from "../domain/fire.ts";
 import { freshHousehold, RAVI, PRIYA } from "../engine/identity.test-data.ts";
 import { startTestApp } from "./harness.test-data.ts";
 
@@ -126,6 +127,47 @@ describe("DEPOSITS · routes", () => {
       });
       assert.equal(bad.status, 422);
       assert.equal(queryOne(db, `SELECT 1 FROM accounts WHERE name = 'Fictional Broken FD'`), null);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("UI-6 · a PPF given a current balance and no principal is worth that balance from the as-of date", async () => {
+    // The weekly UI pass (P1): PPF, 7.1%, started 01-04-2020, current balance
+    // ₹2,00,000, principal left blank. It was valued at ₹0, and dropped out of
+    // net worth and FIRE, because the valuation reads principal plus register.
+    const db = freshHousehold();
+    const app = await startTestApp(db, { memberId: RAVI });
+    try {
+      const r = await app.post("/accounts/new", {
+        name: "Fictional Running PPF", subtype: "tracking:asset", opening_balance: "2,00,000", opening_date: today,
+        deposit_kind: "ppf", deposit_principal: "", deposit_rate: "7.1",
+        deposit_start_date: "2020-04-01", deposit_maturity_date: "",
+      });
+      assert.equal(r.status, 303);
+      const id = queryOne<{ id: string }>(db, `SELECT id FROM accounts WHERE name = 'Fictional Running PPF'`)!.id;
+      const saved = getDepositTerms(db, id)!;
+      assert.equal(saved.principal, rupees(2_00_000), "the opening balance is the principal");
+      assert.equal(saved.startDate, today, "from the as-of date");
+
+      assert.equal(netWorthStatement(db).netWorth, rupees(2_00_000));
+      const fire = fireProjection(db, { asOf: today });
+      assert.ok(fire.lockedLines.some((l) => l.accountId === id && l.value === rupees(2_00_000)), "FIRE counts it");
+
+      const detail = await (await app.get(`/accounts/${id}`)).text();
+      assert.match(detail, new RegExp(`worth ₹2,00,000(\\.00)? on ${formatDate(today)}, growing from there`));
+
+      // A principal that is given is kept as given.
+      await app.post("/accounts/new", {
+        name: "Fictional Given PPF", subtype: "tracking:asset", opening_balance: "2,00,000", opening_date: today,
+        deposit_kind: "ppf", deposit_principal: "150000", deposit_rate: "7.1",
+        deposit_start_date: "2025-04-01", deposit_maturity_date: "",
+      });
+      const given = queryOne<{ id: string }>(db, `SELECT id FROM accounts WHERE name = 'Fictional Given PPF'`)!.id;
+      assert.equal(getDepositTerms(db, given)?.principal, rupees(1_50_000));
+      assert.equal(getDepositTerms(db, given)?.startDate, "2025-04-01");
+      assert.doesNotMatch(await (await app.get(`/accounts/${given}`)).text(), /growing from there/);
+      assert.deepEqual(app.failures, []);
     } finally {
       await app.close();
     }

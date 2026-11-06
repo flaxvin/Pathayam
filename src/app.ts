@@ -383,7 +383,7 @@ import {
   getDepositTerms, setDepositTerms, removeDepositTerms, computedDepositValue, listMaturities,
   describeTerms, DEPOSIT_SUBTYPES, type DepositTermsInput,
 } from "./domain/deposits.ts";
-import { checkTerms } from "./deposits/accrual.ts";
+import { checkTerms, READS_REGISTER, type DepositKind } from "./deposits/accrual.ts";
 import {
   netWorthStatement, snapshotNetWorth, netWorthChange, netWorthHistory,
   assetAllocation,
@@ -3080,6 +3080,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // DEPOSITS · Terms are optional, and read before anything is created so
       // terms that cannot be priced leave no account behind.
       const terms = DEPOSIT_SUBTYPES.has(subtype) && kind === "tracking" ? depositTermsField(ctx.body) : null;
+      const openingDate = dateField(openingDateRaw, "Opening date");
+      /*
+       * UI-6 · A PPF, EPF or other deposit already running is usually entered
+       * as its current balance, with the principal left blank. It was valued
+       * at ₹0 — principal plus register, and the opening balance is in
+       * neither — so it fell out of net worth and FIRE. With no principal, the
+       * balance is the principal and its as-of date the start: worth that on
+       * that day, growing from there. The account page says so.
+       */
+      const grewFromOpening = !!terms && terms.principal == null && opening > 0
+        && READS_REGISTER.has(terms.kind as DepositKind);
+      if (terms && grewFromOpening) {
+        terms.principal = opening;
+        terms.startDate = openingDate;
+      }
       if (terms) checkTerms(terms);
 
       // F2.6: a credit card's balance is what you owe. Entering it as a
@@ -3094,7 +3109,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         institution: field(ctx.body, "institution") || null,
         last4: last4Field(field(ctx.body, "last4")) ?? null,
         openingBalance: opening,
-        openingDate: dateField(openingDateRaw, "Opening date"),
+        openingDate,
         statementDay: numberOrNull(field(ctx.body, "statement_day")),
         dueDay: numberOrNull(field(ctx.body, "due_day")),
         // 15 · Whose money it is, and who can see it, are settled at creation
@@ -3114,7 +3129,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
       return {
         redirect: `/accounts/${account.id}`,
-        message: terms ? `Added ${account.name}, valued from its terms.` : `Added ${account.name}.`,
+        message: !terms ? `Added ${account.name}.`
+          : grewFromOpening
+            ? `Added ${account.name}, worth ${formatPaise(opening)} on ${formatDate(openingDate)}, growing from there.`
+            : `Added ${account.name}, valued from its terms.`,
       };
     }),
   );

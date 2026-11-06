@@ -11,7 +11,7 @@ import { ACCOUNT_SUBTYPES, SUBTYPE_LABELS, MANAGED_SUBTYPES } from "../../domain
 import type { AssetEvent } from "../../domain/assets.ts";
 import {
   DEPOSIT_KINDS, DEPOSIT_KIND_LABELS, COMPOUNDINGS, COMPOUNDING_LABELS, DEFAULT_COMPOUNDING,
-  type DepositTerms,
+  READS_REGISTER, type DepositTerms,
 } from "../../deposits/accrual.ts";
 import type { AccountKind } from "../../domain/accounts.ts";
 
@@ -626,7 +626,10 @@ export function depositTermsFields(prefix: string, terms: DepositTerms | null, o
         <label for="${prefix}-principal">Principal <span class="faint">(an FD, PPF, EPF or other)</span></label>
         <input id="${prefix}-principal" name="deposit_principal" class="amount-input" inputmode="decimal"
                autocomplete="off" value="${amount(terms?.principal)}">
-        <p class="field-hint">For a PPF or EPF already running, the balance on the start date.</p>
+        <p class="field-hint">
+          For a PPF or EPF already running, the balance on the start date.${when(opts.optional, () => html`
+          Left empty, the current balance above is the principal and its as-of date the start.`)}
+        </p>
       </div>
       <div class="field">
         <label for="${prefix}-instalment">Monthly instalment <span class="faint">(an RD)</span></label>
@@ -669,6 +672,17 @@ export function depositTermsFields(prefix: string, terms: DepositTerms | null, o
   `;
 }
 
+/**
+ * UI-6 · A PPF, EPF or other deposit added with its current balance and no
+ * principal takes that balance as its principal and the as-of date as its
+ * start (see POST /accounts/new). Said on the page, because the start date
+ * typed into the terms was replaced.
+ */
+function grewFromOpening(account: Account, terms: DepositTerms): boolean {
+  return READS_REGISTER.has(terms.kind) && terms.principal > 0
+    && terms.principal === account.opening_balance && terms.startDate === account.opening_date;
+}
+
 /** DEPOSITS · What the terms make the account worth, and the forms to change them. */
 function renderDepositPanel(
   account: Account,
@@ -695,6 +709,14 @@ function renderDepositPanel(
                   `}
             </p>
             <p class="faint">${deposit.description}.</p>
+            ${when(grewFromOpening(account, terms), () => html`
+              <p class="faint">
+                It was
+                worth ${formatPaise(terms.principal)} on ${formatDate(terms.startDate)}, growing from there:
+                no principal was given, so the balance it was added with is the principal and
+                its as-of date the start.
+              </p>
+            `)}
             ${deposit.maturity
               ? html`
                   <p>
