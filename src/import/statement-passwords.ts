@@ -13,6 +13,7 @@
  *   · **ESAF** — the first three letters in UPPERCASE, then the mobile's last four.
  *   · **ICICI** — the same, lowercase, "no special characters, spaces or
  *     salutation".
+ *   · **SafeGold** — the first four in UPPERCASE, then the mobile's last four.
  *   · **Upstox, INDmoney, most brokers** — the PAN, lowercase.
  *   · **SBI Card** — the date of birth as DDMMYYYY, then the card's last four.
  *   · **SBI account** — the last five of the registered mobile, then DDMMYY.
@@ -181,6 +182,9 @@ export function passwordCandidates(
     add(id);                                                               // HDFC account
   }
   if (mobile && mobile.length >= 4) add(key.slice(0, 3).toUpperCase() + mobile.slice(-4)); // ESAF
+  // IMP-17 · SafeGold — "first 4 characters of your name in UPPERCASE and the
+  // last 4 digits of your registered mobile": RAVI, …86759 -> RAVI6759.
+  if (mobile && mobile.length >= 4) add(key.toUpperCase() + mobile.slice(-4));
 
   if (!d) {
     // Canara needs only the card, so it works even with no date of birth.
@@ -347,7 +351,8 @@ export function describeCandidate(
   }
   const mobile = identity.mobile?.replace(/\D/g, "") ?? "";
   const key = nameKey(identity.name);
-  if (mobile.length >= 4 && candidate === key.slice(0, 3).toUpperCase() + mobile.slice(-4)) {
+  if (mobile.length >= 4 && (candidate === key.slice(0, 3).toUpperCase() + mobile.slice(-4)
+    || candidate === key.toUpperCase() + mobile.slice(-4))) {
     return "your name and mobile number";
   }
   if (key && candidate.toLowerCase().startsWith(key.toLowerCase())) {
