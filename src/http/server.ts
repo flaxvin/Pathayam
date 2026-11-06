@@ -14,6 +14,7 @@ import { SafeHtml } from "./html.ts";
 import {
   Router,
   readBody,
+  emptyBody,
   HttpError,
   NotFound,
   type RequestContext,
@@ -122,7 +123,7 @@ export function createHttpServer(options: ServerOptions): Server {
       url,
       params: {},
       query: url.searchParams,
-      body: {},
+      body: emptyBody(),
       locals: {},
     };
 
