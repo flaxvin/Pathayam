@@ -78,3 +78,28 @@ describe("IMP-1 · masked card numbers are not references", () => {
     assert.equal(listStaged(db).length, 1);
   });
 });
+
+/**
+ * IMP-10 · Nor is a masked card number part of the payee. "POS 416021XXXXXX1234
+ * BIGBAZAAR KOCHI" proposed "416021xxxxxx1234 Bigbazaar Kochi", and with a
+ * star mask — "416021******1234" — the MERCHANT*SUB collapse cut at the first
+ * star and proposed no payee at all.
+ */
+describe("IMP-10 · the payee of a masked-card line", () => {
+  test("an X mask and a star mask both leave the merchant", () => {
+    for (const [narration, payee] of [
+      ["POS 416021XXXXXX1234 BIGBAZAAR KOCHI", "Bigbazaar Kochi"],
+      ["POS 416021******1234 SWIGGY", "Swiggy"],
+      ["POS XXXXXXXXXXXX1234 ZZ MART", "Zz Mart"],
+      ["ATM 416021xxxxxx1234 ZZ BANK ATM KOCHI", "Zz Bank Atm Kochi"],
+      ["POS 416021******1234 RAZORPAY*ZZ STORE", "Razorpay"],
+    ] as const) {
+      assert.equal(extractNarrationFields(narration).merchant, payee, narration);
+    }
+  });
+
+  test("an unmasked name keeps its own Xs and stars", () => {
+    assert.equal(extractNarrationFields("POS MAXX FASHION KOCHI").merchant, "Maxx Fashion Kochi");
+    assert.equal(extractNarrationFields("UPI/P2M/431202847592/SWIGGY*ORDER").merchant, "Swiggy");
+  });
+});
