@@ -229,14 +229,16 @@ export function renderHolderFields(
             Shared with the household
           </option>
           <option value="private" ${raw(current.visibility === "private" ? "selected" : "")}>
-            Private to whoever holds it
+            Private to me
           </option>
         </select>
         <p class="field-hint">
           <strong>Shared</strong> means everyone in the household sees it, with
-          whoever holds it shown as a tag. <strong>Private</strong> means only the
-          holder sees it at all — it is left out of everyone else's screens and out
+          whoever holds it shown as a tag. <strong>Private</strong> means nobody
+          else sees it at all — it is left out of everyone else's screens and out
           of their totals, because a total that included it would give it away.
+          It needs it to be yours, rather than the household's or somebody
+          else's.
         </p>
       </div>
     </div>
