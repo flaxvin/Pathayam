@@ -170,6 +170,10 @@ function classify(description: string, reading: number = CAS_READING): Classifie
     if (/\bstp[\s-]*out\b|systematic\s+transfer(?:\s+plan)?[\s-]*out\b/.test(text)) return "redemption";
     if (/\bstp[\s-]*in\b|systematic\s+transfer(?:\s+plan)?[\s-]*in\b/.test(text)) return "purchase";
     if (/\bstp\b|systematic\s+transfer/.test(text)) return "transfer";
+    // IMP-16 · Likewise a plain switch: "Switch-Out - To Eta Dividend Yield
+    // Fund" names its target, and /dividend/ below read it as a payout.
+    if (/switch[\s-]*out|swtout/.test(text)) return "redemption";
+    if (/switch[\s-]*in|swtin/.test(text)) return "purchase";
   }
   if (/dividend|idcw|payout/.test(text)) return "dividend";
   // CAMS writes "Switch-Out" / "Switch-In" as often as "Switch Out".

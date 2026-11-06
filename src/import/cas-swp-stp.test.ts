@@ -162,3 +162,20 @@ describe("IMP-14 · importing them", () => {
     assert.deepEqual(plan.schemes[0]!.rows.map((r) => r.status), ["already-held", "check"]);
   });
 });
+
+describe("IMP-16 · a switch into or out of a dividend-named fund is a switch", () => {
+  test('"Switch-Out - To Eta Dividend Yield Fund" is a redemption', () => {
+    const row = one("14-May-2026  Switch-Out - To Eta Dividend Yield Fund  (1,000.00)  (10.000)  100.0000  80.000");
+    assert.equal(row.kind, "redemption");
+    assert.equal(row.units, -10_000);
+  });
+  test('"Switch In - From Eta Dividend Yield Fund" is a purchase', () => {
+    const row = one("15-May-2026  Switch In - From Eta Dividend Yield Fund  1,000.00  10.000  100.0000  90.000");
+    assert.equal(row.kind, "purchase");
+    assert.equal(row.units, 10_000);
+  });
+  test("a real IDCW payout is still a dividend", () => {
+    const row = one("16-May-2026  IDCW Payout  500.00  0.000  0.0000  80.000");
+    assert.equal(row.kind, "dividend");
+  });
+});
