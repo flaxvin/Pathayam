@@ -158,7 +158,11 @@ describe("IMP-20 · the Gmail fetch asks for the digits of each card it could no
       for (const bad of ["12", "1234567890", "12ab"]) {
         const res = await app.post("/gmail/card-digits", { account_id: id, card_digits: bad });
         assert.equal(res.status, 422, bad);
-        assert.ok(!(await res.text()).includes(bad), `${bad} was echoed`);
+        // Matched as a whole token, as TEST-2 settled for the same check: the
+        // page carries random ids and content-hashed asset URLs, and "12"
+        // turned up inside one of those whenever the stylesheet or script changed.
+        const echoed = new RegExp(`(?<![0-9A-Za-z])${bad}(?![0-9A-Za-z])`);
+        assert.ok(!echoed.test(await res.text()), `${bad} was echoed`);
       }
       assert.equal(getAccount(db, id)!.last4, null);
     });

@@ -107,7 +107,11 @@ describe("IMP-18 · up to eight of the card's digits on a card account", () => {
       for (const last4 of ["123456789", "12a45678", "12"]) {
         const res = await app.post(`/accounts/${card}/edit`, { name: "HSBC Platinum", last4 });
         assert.equal(res.status, 422, last4);
-        assert.ok(!(await res.text()).includes(last4), `${last4} was echoed`);
+        // Matched as a whole token, as TEST-2 settled for the same check: the
+        // page carries random ids and content-hashed asset URLs, and "12"
+        // turned up inside one of those whenever the stylesheet or script changed.
+        const echoed = new RegExp(`(?<![0-9A-Za-z])${last4}(?![0-9A-Za-z])`);
+        assert.ok(!echoed.test(await res.text()), `${last4} was echoed`);
       }
       assert.equal(cardNumberDigits(db, card), null);
       const res = await app.post(`/accounts/${savings}/edit`, { name: "Savings", last4: "123456" });

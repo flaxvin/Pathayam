@@ -13,7 +13,7 @@ import type { DB } from "./db/db.ts";
 import { queryAll, queryOne, execute, newId , transact } from "./db/db.ts";
 import { VERSION } from "./version.ts";
 import { devLoginModulePresent, type Config } from "./config.ts";
-import { pathAvailable, anyImport } from "./features.ts";
+import { pathAvailable, FEATURE_NAMES, FEATURE_ENV } from "./features.ts";
 import {
   Router, field, fieldList, fileField, requiredField, HttpError, NotFound,
   type RequestContext, type Response, rawBodies,
@@ -10116,10 +10116,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           {
             name: "Modules",
             state: "healthy",
-            reason:
-              `Loans ${config.features.loans ? "on" : "off"}, ` +
-              `assets ${config.features.assets ? "on" : "off"}, ` +
-              `multi-currency ${config.features.multiCurrency ? "on" : "off"}.`,
+            // PLAN-1 · The preset, and what differs from everything-on, so the
+            // operator can see at 2am which modules this instance has.
+            reason: (() => {
+              const off = FEATURE_NAMES.filter((name) => !config.features[name]).map((name) => FEATURE_ENV[name]);
+              const members = config.limits.maxMembers === null ? "no member limit" : `up to ${config.limits.maxMembers} members`;
+              const backups = config.limits.backupRetentionDays === null
+                ? "the newest 14 backups kept"
+                : `backups kept ${config.limits.backupRetentionDays} days`;
+              return `Plan ${config.plan}: ${off.length === 0 ? "every module on" : `off: ${off.join(", ")}`}; ${members}; ${backups}.`;
+            })(),
           },
           {
             /*

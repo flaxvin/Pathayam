@@ -120,6 +120,7 @@
             <li><a href="#activity">Activity and undo</a></li>
             <li><a href="#health">Backups and health</a></li>
             <li><a href="#settings">Settings, members and tokens</a></li>
+            <li><a href="#plans">Plans and modules</a></li>
             <li><a href="#groups">Groups and tidying the grid</a></li>
             <li><a href="#troubleshoot">When something looks wrong</a></li>
           </ol>
@@ -1576,9 +1577,9 @@ replaced, and reads the restored copy back before claiming success.</p>
   <li><strong>API tokens</strong> — scoped read or read-write, shown once, and unable
     to sign in, mint more tokens, set a password, sign devices out or link a mailbox.
     None can be minted while viewing as another member. See the API reference.</li>
-  <li><strong>Feature flags</strong> — turn off loans, assets or multi-currency
-    entirely and they vanish from navigation and reports rather than sitting greyed
-    out.</li>
+  <li><strong>Modules</strong> — any of eighteen can be switched off on the server,
+    and it vanishes from every screen rather than sitting greyed out. See
+    <a href="#plans">Plans and modules</a>.</li>
 </ul>
 <h3>Viewing as another member</h3>
 <p>Read-only by default, always logged, and shown as a banner on every screen while
@@ -1592,6 +1593,51 @@ it is active. Writes require an explicit toggle within the session.</p>
                 <figcaption>Settings — members, identity, connections, tokens.</figcaption>
               </figure>
             </div>
+          </article>
+          <article class="guide" id="plans">
+            <h2>Plans and modules</h2>
+<p>What an instance offers is set where it runs, in its environment — the
+<code>.env</code> file next to <code>compose.yaml</code>, or your host's settings.
+Nothing about it is chosen in the app.</p>
+<h3>Pick a plan</h3>
+<p><code>PLAN</code> applies a preset. Leave it out and the instance is self-hosted:
+every module on, no member limit. The hosted plans are the same app with these
+set:</p>
+<div class="table-scroll">
+<table>
+  <thead><tr><th></th><th><code>selfhost</code></th><th><code>solo</code></th><th><code>household</code></th><th><code>power</code></th></tr></thead>
+  <tbody>
+  <tr><td><code>MAX_MEMBERS</code></td><td>unlimited</td><td>1</td><td>5</td><td>unlimited</td></tr>
+  <tr><td><code>BACKUP_RETENTION_DAYS</code></td><td>newest 14</td><td>30</td><td>90</td><td>365</td></tr>
+  <tr><td>Loans, family lending</td><td>on</td><td>off</td><td>on</td><td>on</td></tr>
+  <tr><td>Investments and net worth</td><td>on</td><td>off</td><td>on</td><td>on</td></tr>
+  <tr><td>API tokens, AI connections</td><td>on</td><td>off</td><td>on</td><td>on</td></tr>
+  <tr><td>Gmail</td><td>on</td><td>off</td><td>off</td><td>off</td></tr>
+  </tbody>
+</table>
+</div>
+<h3>Switch one module</h3>
+<p>Each module has its own variable, and setting it wins over the plan:
+<code>PLAN=solo</code> with <code>FEATURE_LOANS=true</code> is Solo with loans. The
+modules are <code>FEATURE_LOANS</code>, <code>FEATURE_FAMILY_LOANS</code>,
+<code>FEATURE_ASSETS</code>, <code>FEATURE_DEPOSITS</code>,
+<code>FEATURE_INSURANCE</code>, <code>FEATURE_GOALS</code>, <code>FEATURE_TAX</code>,
+<code>FEATURE_REPORTS</code>, <code>FEATURE_SCHEDULES</code>,
+<code>FEATURE_RULES</code>, <code>FEATURE_ATTACHMENTS</code>,
+<code>FEATURE_IMPORT_CSV</code>, <code>FEATURE_IMPORT_PDF</code>,
+<code>FEATURE_IMPORT_BUDGET_APP</code>, <code>FEATURE_GMAIL</code>,
+<code>FEATURE_API_TOKENS</code>, <code>FEATURE_AI</code> and
+<code>FEATURE_MULTI_CURRENCY</code>. Each takes <code>true</code> or
+<code>false</code>.</p>
+<div class="note note--good"><b>Off means gone, and the data stays.</b> A module that
+is off is not in the navigation, the More page or the command palette, no screen
+links to it, and its pages answer “not found”. What you entered in it is
+untouched, and switching it back on brings it back as you left it.</div>
+<p>A value the app cannot read — <code>PLAN=family</code>, <code>FEATURE_LOANS=flase</code>
+— stops it at startup with a message naming the variable, rather than guessing. The
+Health screen lists the plan, every module that is off, and the limits in force.</p>
+<p>The budget itself, accounts, cards, Review, month close, reconciliation, search
+and the export are never switched off: they are the app.</p>
           </article>
           <article class="guide" id="groups">
             <h2>Groups and tidying the grid</h2>

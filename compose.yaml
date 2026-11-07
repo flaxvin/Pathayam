@@ -48,11 +48,32 @@ services:
       # this empty is the expected configuration, not a missing one (P9).
       ALPHA_VANTAGE_KEY: ${ALPHA_VANTAGE_KEY:-}
 
-      # F28: modules disableable per deployment. Multi-currency is off because
-      # Q18 settled on rupee-only accounts.
-      FEATURE_LOANS: ${FEATURE_LOANS:-true}
-      FEATURE_ASSETS: ${FEATURE_ASSETS:-true}
-      FEATURE_MULTI_CURRENCY: ${FEATURE_MULTI_CURRENCY:-false}
+      # PLAN-1: which modules this instance offers, and its limits. PLAN picks
+      # a preset (selfhost, solo, household, power); anything below that is
+      # set in .env wins over it, and anything left unset takes the preset's
+      # value. The table is in docs/operations.md, "Plans and modules".
+      PLAN: ${PLAN:-}
+      MAX_MEMBERS: ${MAX_MEMBERS:-}
+      BACKUP_RETENTION_DAYS: ${BACKUP_RETENTION_DAYS:-}
+      FEATURE_LOANS: ${FEATURE_LOANS:-}
+      FEATURE_FAMILY_LOANS: ${FEATURE_FAMILY_LOANS:-}
+      FEATURE_ASSETS: ${FEATURE_ASSETS:-}
+      FEATURE_DEPOSITS: ${FEATURE_DEPOSITS:-}
+      FEATURE_INSURANCE: ${FEATURE_INSURANCE:-}
+      FEATURE_GOALS: ${FEATURE_GOALS:-}
+      FEATURE_TAX: ${FEATURE_TAX:-}
+      FEATURE_REPORTS: ${FEATURE_REPORTS:-}
+      FEATURE_SCHEDULES: ${FEATURE_SCHEDULES:-}
+      FEATURE_RULES: ${FEATURE_RULES:-}
+      FEATURE_ATTACHMENTS: ${FEATURE_ATTACHMENTS:-}
+      FEATURE_IMPORT_CSV: ${FEATURE_IMPORT_CSV:-}
+      FEATURE_IMPORT_PDF: ${FEATURE_IMPORT_PDF:-}
+      FEATURE_IMPORT_BUDGET_APP: ${FEATURE_IMPORT_BUDGET_APP:-}
+      FEATURE_GMAIL: ${FEATURE_GMAIL:-}
+      FEATURE_API_TOKENS: ${FEATURE_API_TOKENS:-}
+      FEATURE_AI: ${FEATURE_AI:-}
+      # Q18 settled on rupee-only accounts; off in every preset.
+      FEATURE_MULTI_CURRENCY: ${FEATURE_MULTI_CURRENCY:-}
 
       # DEV_LOGIN is deliberately absent. The bypass is not in this image at
       # all (R38.5), and the app refuses to start if it is enabled anywhere

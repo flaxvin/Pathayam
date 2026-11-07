@@ -133,6 +133,26 @@ from an AI app, the Connect an AI page and `/export/analysis.json` all answer
 404. The hosted Solo plan
 runs that way; self-hosted and the Household and Power plans have it on.
 
+## Plans and modules
+
+One variable sets what an instance offers. `PLAN=solo`, `household` or
+`power` applies the hosted tier's limits, and leaving it unset is
+self-hosted, with everything on. Each module can also be switched on its own
+with `FEATURE_*` (loans, family lending, investments and net worth, deposits,
+insurance, goals, tax, reports, schedules, rules, receipts, the three import
+paths, Gmail, API tokens, AI connections and multi-currency). `MAX_MEMBERS`
+and `BACKUP_RETENTION_DAYS` set the limits. A module that is off disappears
+from every page and keeps its data. The full table, with each plan's values,
+is in [docs/operations.md](docs/operations.md#plans-and-modules).
+
+| | Self-host | Solo | Household | Power |
+|---|---|---|---|---|
+| Members | unlimited | 1 | 5 | unlimited |
+| Backup retention | 14 newest | 30 days | 90 days | 1 year |
+| Loans, investments, net worth | ✓ | — | ✓ | ✓ |
+| API tokens, AI connections | ✓ | — | ✓ | ✓ |
+| Gmail ingestion | ✓ | — | — | — |
+
 ## Documentation
 
 | | |

@@ -207,6 +207,17 @@ the activity log.
 
 ---
 
+### Modules that are switched off
+
+An instance may run with modules switched off (`PLAN` and `FEATURE_*`, see
+[operations.md](operations.md#plans-and-modules)). Every route of a module
+that is off answers **404**, the same as a route that never existed, whichever
+way the request authenticates. With `FEATURE_API_TOKENS` off, every bearer
+token answers **403** `{"error":"API tokens are not available on this
+instance."}` except on `/mcp`, which `FEATURE_AI` governs. The token is kept,
+and it works again once the module is back on. The Health screen names the plan
+and every module that is off.
+
 ## Rate limiting
 
 Each token gets a **fixed window of 120 requests per 60 seconds**, counted
