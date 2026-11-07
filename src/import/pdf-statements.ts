@@ -36,7 +36,7 @@
  */
 
 import { calendarDate, fullYear, monthFromName, type IsoDate } from "../core/dates.ts";
-import type { Paise } from "../core/money.ts";
+import { wellGrouped, type Paise } from "../core/money.ts";
 import type { RawRecord, ParseError, ParseResult } from "./csv.ts";
 import { readDocument, expandObjectStreams } from "../pdf/objects.ts";
 import { decryptDocument, isEncrypted, WrongPassword } from "../pdf/decrypt.ts";
@@ -230,11 +230,25 @@ export function bankForInstitution(institution: string | null | undefined): Bank
  * exchange's funds-and-securities balance belongs nowhere: neither has a row
  * that is a movement of money in a bank account.
  */
+/** What `nonBankDocument` calls a SafeGold statement, so its callers can send it to the gold importer. */
+export const SAFEGOLD_STATEMENT = "a SafeGold statement";
+
+/**
+ * IMP-35 · What `nonBankDocument` calls the statement SafeGold mails for gold
+ * bought through a partner bank's app (Axis Bank's, until it moved its
+ * customers' gold to SafeGold): one balance, no wallet, no transactions.
+ */
+export const SAFEGOLD_DISTRIBUTOR_BALANCE = "a SafeGold balance held through a partner bank";
+
 const NOT_A_BANK: { pattern: RegExp; what: string }[] = [
   { pattern: /\bFolio\s*(?:No|Number)\b/i, what: "a mutual fund statement" },
   { pattern: /\bAdvisor\s*\/\s*Distributor\b|\bARN\s*Code\b|\bEUIN\b/i, what: "a mutual fund statement" },
   { pattern: /Consolidated\s+Account\s+Statement/i, what: "a consolidated account statement (CAS)" },
   { pattern: /funds\s+and\s+securities\s+balances?\b|\bNSE\/INSP\//i, what: "an exchange's funds and securities balance" },
+  // IMP-32 · Digital gold: grams bought and sold, read by `safegold.ts`.
+  { pattern: /Gold\s+Wallet\s+Balance/i, what: SAFEGOLD_STATEMENT },
+  // After the wallet: a wallet statement prints "…SafeGold Distributors" too.
+  { pattern: /Gold\s+Balance\s+with\s+SafeGold\s+Distributor\b/i, what: SAFEGOLD_DISTRIBUTOR_BALANCE },
 ];
 
 export function nonBankDocument(text: string): string | null {
@@ -338,6 +352,11 @@ export function parseStatementAmount(raw: string): { value: number; credit: bool
   const withoutCurrency = text
     .replace(/(?<![a-z])[cd]r\.?$/i, "")
     .replace(/^\s*(?:Rs\.?|INR|₹|C)\s*(?=[\d(])/i, "");
+
+  // IMP-11 · Commas are read as grouping only when they group: "1,23" is a
+  // mangled cell, refused as `parseAmount` refuses it, not ₹123.
+  const grouped = withoutCurrency.replace(/[()\s₹]/g, "").replace(/^[-+]/, "");
+  if (!wellGrouped(grouped.split(".")[0]!)) return null;
 
   const digits = withoutCurrency.replace(/[(),\s₹]/g, "");
   // A leading "+" is how HDFC marks a refund on a card, so it has to survive
@@ -445,10 +464,22 @@ function piecedWord(word: string): string {
   return word.split("").join("[ ]{0,3}");
 }
 
+/**
+ * A pieced heading that is a word of its own, optionally plural.
+ *
+ * Unbounded, "debited" in a sentence of SBI Card's terms ("date of such EMI
+ * plans shall be debited to the Credit Card") read as a Debit heading beside a
+ * Credit one, that sentence became the table header, and every row was signed
+ * by which of two prose words its figure sat under (PDF-3).
+ */
+function piecedHeading(word: string): RegExp {
+  return new RegExp(`(?<![a-z])${piecedWord(word)}s?(?![a-z])`, "i");
+}
+
 const PIECED_HEADINGS: { key: keyof HeaderColumns; patterns: RegExp[] }[] = [
-  { key: "debit", patterns: [new RegExp(piecedWord("withdrawal") + "s?", "i"), new RegExp(piecedWord("debit"), "i")] },
-  { key: "credit", patterns: [new RegExp(piecedWord("deposit") + "s?", "i"), new RegExp(piecedWord("credit"), "i")] },
-  { key: "balance", patterns: [new RegExp(piecedWord("balance"), "i")] },
+  { key: "debit", patterns: [piecedHeading("withdrawal"), piecedHeading("debit")] },
+  { key: "credit", patterns: [piecedHeading("deposit"), piecedHeading("credit")] },
+  { key: "balance", patterns: [piecedHeading("balance")] },
   { key: "reference", patterns: [new RegExp(piecedWord("refno"), "i")] },
 ];
 
@@ -727,9 +758,16 @@ function markedSign(line: string, from: number): 1 | -1 | null {
   // a refund printed that way fell through to rule 4 as a purchase.
   if (/(?<![a-z])cr\.?\s*$/i.test(tail)) return 1;
   if (/(?<![a-z])dr\.?\s*$/i.test(tail)) return -1;
-  // ICICI prints a bare minus in front of a refund; HDFC a plus.
-  if (/[+]\s*[₹C]?\s*[\d,]+\.\d{2}/.test(tail)) return 1;
-  if (/-\s*[₹C]?\s*[\d,]+\.\d{2}/.test(tail)) return 1;
+  // SBI Card prints a lone C or D in a column of its own after the amount
+  // (its legend: "C=Credit ; D=Debit"). Unread, a payment imported as a
+  // purchase (PDF-3).
+  if (/\d\.\d{2}\s+C\s*$/.test(tail)) return 1;
+  if (/\d\.\d{2}\s+D\s*$/.test(tail)) return -1;
+  // ICICI prints a bare minus in front of a refund; HDFC a plus. Not one
+  // glued to a word before it: "AMAZON PAY-  499.00" is a narration's
+  // hyphen, and read as the minus a ₹499 purchase imported as a refund (IMP-2).
+  if (/(?<![A-Za-z0-9])[+]\s*[₹C]?\s*[\d,]+\.\d{2}/.test(tail)) return 1;
+  if (/(?<![A-Za-z0-9])-\s*[₹C]?\s*[\d,]+\.\d{2}/.test(tail)) return 1;
   return null;
 }
 
@@ -745,6 +783,7 @@ function parseRow(
   header: HeaderColumns | null,
   previousBalance: number | null,
   continuation: string[],
+  amountThenBalance = false,
 ): {
   row: RowShape; balance: number | null; suspect: boolean;
   raw: { date: string; amount: string };
@@ -771,6 +810,12 @@ function parseRow(
     // not a number but is certainly not a payee either.
     .filter((c) => !/\d[\d,]*\.\d{2}/.test(c))
     .filter((c) => parseStatementAmount(c) === null)
+    // SBI Card's lone C / D sign column, which says which way the money
+    // went and is no part of who it went to (PDF-4) — and a Cr / Dr set a
+    // few spaces after its figure, as Canara prints both its amount's and
+    // its balance's ("… USED-  300.00  Dr  285.00  Dr" read "USED- Dr Dr",
+    // PDF-7).
+    .filter((c) => !/^(?:[CD]|Cr\.?|Dr\.?)$/i.test(c))
     // A stray time from "17/03/2026| 23:08", and column rules.
     .map((c) => c.replace(/^[|\s]+/, "").replace(/^\d{1,2}:\d{2}(:\d{2})?$/, ""))
     // A lone currency mark, sign or bullet left over once the figure beside it
@@ -792,8 +837,10 @@ function parseRow(
   const money = withPaise.length > 0 ? withPaise : figures;
 
   // A balance column only exists if the header says so. Without that, the last
-  // figure is the amount, not a running total.
-  const hasBalance = header?.balance != null && money.length >= 2;
+  // figure is the amount, not a running total — unless the layout is known to
+  // print one after every amount (Canara's card, whose headings name no debit
+  // or credit column for `readHeader` to find).
+  const hasBalance = (header?.balance != null || amountThenBalance) && money.length >= 2;
   const balanceFigure = hasBalance ? money[money.length - 1]! : null;
   const balance = balanceFigure ? balanceOf(balanceFigure.text) : null;
 
@@ -903,10 +950,44 @@ function withWrappedMarker(lines: string[], i: number): string {
   return line;
 }
 
+/**
+ * The column a row's description starts at: its first cell after the date
+ * with a letter in it that is not a figure, a date or a Cr / Dr marker. Null
+ * when the dated line carries no description of its own (Union Bank wraps the
+ * whole cell above and below it).
+ */
+function narrationColumn(line: string, from: number): number | null {
+  const cell = /\S+(?: \S+)*/g;
+  cell.lastIndex = from;
+  let match: RegExpExecArray | null;
+  while ((match = cell.exec(line)) !== null) {
+    const text = match[0];
+    if (!/[A-Za-z]/.test(text)) continue;
+    if (/^(?:Cr|Dr|C|D)\.?$/i.test(text)) continue;
+    if (parseStatementAmount(text) !== null || findDate(text, text.length) !== null) continue;
+    return match.index;
+  }
+  return null;
+}
+
 /** An opening-balance line, which anchors the fallback path's first row. */
-function openingBalanceOf(line: string): number | null {
-  if (!/opening\s+balance|b\/?f\b|brought\s+forward/i.test(line)) return null;
-  const figures = figuresWithOffsets(line);
+function openingBalanceOf(line: string, previous = false): number | null {
+  // "Previous Balance" only where the layout says it is the running balance's
+  // start: on most card statements it is a summary heading over figures on
+  // another line, and it means nothing to a table without a balance column.
+  const pattern = previous
+    ? /opening\s+balance|previous\s+balance|b\/?f\b|brought\s+forward/i
+    : /opening\s+balance|b\/?f\b|brought\s+forward/i;
+  const named = pattern.exec(line);
+  if (!named) return null;
+  /*
+   * A previous balance is the figure printed after its label. Canara's summary
+   * puts the Total Amount Due on the same line, left of a "Previous Balance"
+   * heading whose figure is a line below; taken as the opening, it made the
+   * first row's movement a debit of the wrong size (PDF-8).
+   */
+  const figures = figuresWithOffsets(line)
+    .filter((f) => !/previous/i.test(named[0]) || f.start >= named.index + named[0].length);
   const last = figures[figures.length - 1];
   return last ? balanceOf(last.text) : null;
 }
@@ -920,7 +1001,15 @@ function openingBalanceOf(line: string): number | null {
  * them. Everything else is shared, which is why adding a fifth bank is a row
  * in this table rather than a new file.
  */
-const LAYOUTS: Partial<Record<BankId, { separateColumns: boolean; skip: RegExp[] }>> = {
+const LAYOUTS: Partial<Record<BankId, {
+  separateColumns: boolean;
+  skip: RegExp[];
+  /**
+   * Every row prints its amount and then the running balance, opened by a
+   * "Previous Balance" line, under headings `readHeader` cannot place.
+   */
+  amountThenBalance?: boolean;
+}>> = {
   hdfc: {
     separateColumns: true,
     skip: [/^date\b/i, /opening balance/i, /closing balance/i, /statement of account/i],
@@ -935,10 +1024,25 @@ const LAYOUTS: Partial<Record<BankId, { separateColumns: boolean; skip: RegExp[]
   },
   sbi: {
     separateColumns: true,
-    skip: [/^txn date/i, /^value date/i, /^description/i, /account statement/i],
+    skip: [
+      /^txn date/i, /^value date/i, /^description/i, /account statement/i,
+      // SBI Card: the banner over each cardholder's rows, and the heading of
+      // the notices printed just below the table. Both sat close enough to a
+      // row to be read as its payee (PDF-4).
+      /^transactions\s+for\b/i, /^important\s+messages?$/i,
+    ],
   },
   union: { separateColumns: true, skip: [/^date\b/i, /^particulars/i, /statement of account/i] },
-  canara: { separateColumns: true, skip: [/^date\b/i, /^description/i, /statement/i] },
+  /*
+   * Canara's card prints "Transaction Amount  Closing Balance", each with its
+   * own Cr / Dr. Read without the balance, the last figure — the balance — was
+   * taken for the amount, and a payment that cleared the card to "0.00 Dr" was
+   * a row of nothing, reported as unreadable (PDF-5).
+   */
+  canara: {
+    separateColumns: true, skip: [/^date\b/i, /^description/i, /statement/i],
+    amountThenBalance: true,
+  },
   yes: { separateColumns: true, skip: [/^date\b/i, /^description/i, /transaction details/i] },
   indusind: { separateColumns: true, skip: [/^date\b/i, /^particulars/i, /^description/i] },
   kotak: { separateColumns: true, skip: [/^date\b/i, /^narration/i, /^description/i] },
@@ -1022,7 +1126,9 @@ export function parseStatementText(
   const records: RawRecord[] = [];
   const errors: ParseError[] = [];
 
-  const all = text.split("\n");
+  // IMP-2 · The Unicode minus PDF generators emit, read as the minus it is
+  // (as `parseAmount` does). One code unit for one, so no column moves.
+  const all = text.replace(/−/g, "-").split("\n");
   const lines = all;
   const header = readHeader(lines);
 
@@ -1031,7 +1137,7 @@ export function parseStatementText(
   // rather than picked up on the way past.
   let previousBalance: number | null = null;
   for (const [i] of all.entries()) {
-    const open = openingBalanceOf(withWrappedMarker(all, i));
+    const open = openingBalanceOf(withWrappedMarker(all, i), layout?.amountThenBalance === true);
     if (open !== null) { previousBalance = open; break; }
   }
 
@@ -1124,11 +1230,22 @@ export function parseStatementText(
       /\b(balance|limit|summary|statement\s+period|ckyc|customer\s+id|total|due\s+date)\b/i
         .test(fragment);
 
+    /*
+     * The table's own column headings. SBI Card indents "Date  Transaction
+     * Details  Amount" past its rows' date column, so it read as the first
+     * row's wrapped payee (PDF-4).
+     */
+    const looksLikeHeading =
+      /\bdate\b/i.test(fragment) &&
+      /\b(description|particulars|narration|details|transaction)\b/i.test(fragment) &&
+      /\b(amount|withdrawal|deposit|debit|credit)\b/i.test(fragment);
+
     const looksLikeNarration =
       fragment.length < 120 &&
       /[A-Za-z]/.test(fragment) &&
       !/^[\d,.\s]+$/.test(fragment) &&
-      !looksLikeLabel;
+      !looksLikeLabel &&
+      !looksLikeHeading;
 
     classified.push({ raw, kind: looksLikeNarration ? "fragment" : "ignore" });
   }
@@ -1165,6 +1282,15 @@ export function parseStatementText(
     const indent = line.raw.length - line.raw.trimStart().length;
     if (rowDate && indent <= rowDate.start) continue;
 
+    /*
+     * And it starts in its row's description column, not left of it. Canara
+     * sets a notice ("For details of Complimentary Insurance …") below its
+     * table, indented past the date but well short of the description, and
+     * the paragraph became the last row's payee (PDF-6).
+     */
+    const described = rowDate ? narrationColumn(classified[nearest]!.raw, rowDate.end) : null;
+    if (described !== null && indent < described - 2) continue;
+
     const list = extra.get(nearest) ?? [];
     list.push(line.raw.trim().replace(/\s{2,}/g, " "));
     extra.set(nearest, list);
@@ -1176,7 +1302,9 @@ export function parseStatementText(
     const line = classified[index]!;
     rowNumber++;
 
-    const parsed = parseRow(line.raw, header, previousBalance, extra.get(index) ?? []);
+    const parsed = parseRow(
+      line.raw, header, previousBalance, extra.get(index) ?? [], layout?.amountThenBalance === true,
+    );
     if (!parsed) {
       errors.push({
         rowNumber,

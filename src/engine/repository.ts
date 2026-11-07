@@ -1147,6 +1147,12 @@ export function averageDailySpend(
  * Ravi's household page read "2 days" where the household's own rate gave 100,
  * because Priya's private ₹2,70,000 was in the denominator, and knowing the
  * assigned total he could back out her spending rate from it.
+ *
+ * ENG-6 · Refunds net, per envelope over the window, floored at 0. Counting only
+ * money leaving, a ₹50,000 laptop bought and refunded inside the window added
+ * ₹50,000 to FIRE's annual expenses (≈ ₹14L on its number at 3.5%) and cut the
+ * buffer. The floor keeps a refund of something bought before the window from
+ * eating other envelopes' spending.
  */
 export function envelopeSpendBetween(
   db: DB, from: IsoDate, to: IsoDate, viewerMemberId?: string | null,
@@ -1187,11 +1193,14 @@ export function envelopeSpendBetween(
         WHERE t.deleted_at IS NULL AND s.category_id IS NOT NULL
           AND t.date >= ? AND t.date <= ?${seen.sql}
      )
-     SELECT COALESCE(SUM(-c.amount), 0)
-       FROM categorised c
-       LEFT JOIN categories cat ON cat.id = c.category_id
-      WHERE c.amount < 0 AND cat.payment_account_id IS NULL
-        AND NOT EXISTS (SELECT 1 FROM lots l WHERE l.transaction_id = c.transaction_id)${scoped.sql}`,
+     SELECT COALESCE(SUM(net), 0) FROM (
+       SELECT SUM(-c.amount) AS net
+         FROM categorised c
+         LEFT JOIN categories cat ON cat.id = c.category_id
+        WHERE cat.payment_account_id IS NULL
+          AND NOT EXISTS (SELECT 1 FROM lots l WHERE l.transaction_id = c.transaction_id)${scoped.sql}
+        GROUP BY c.category_id
+     ) WHERE net > 0`,
     // Each leg of the union is bounded to the window, so a long history
     // costs no more than a short one.
     from, to, ...seen.params,

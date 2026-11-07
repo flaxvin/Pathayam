@@ -275,10 +275,18 @@ export interface Period {
   to: IsoDate;
 }
 
-/** The day after `date` less `months` calendar months (a missing day clamps to the month's last). */
+/**
+ * The day after `date` less `months` calendar months (a missing day clamps to the month's last).
+ *
+ * ENG-2 · A month's last day goes back to a month's last day, so the window is
+ * whole months. From 30 April it went back to 30 January, and "Last 3 months"
+ * began on the 31st: a salary paid at each month's end was in it four times.
+ */
 function monthsBackExclusive(date: IsoDate, months: number): IsoDate {
   const month = addMonths(monthOf(date), -months);
-  const day = Math.min(Number(date.slice(8, 10)), daysInMonth(Number(month.slice(0, 4)), Number(month.slice(5))));
+  const last = daysInMonth(Number(month.slice(0, 4)), Number(month.slice(5)));
+  const own = Number(date.slice(8, 10));
+  const day = own === daysInMonth(Number(date.slice(0, 4)), Number(date.slice(5, 7))) ? last : Math.min(own, last);
   return addDays(`${month}-${String(day).padStart(2, "0")}`, 1);
 }
 

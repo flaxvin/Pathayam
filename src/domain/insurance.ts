@@ -279,7 +279,7 @@ function snapshot(db: DB, id: string): Policy {
 
 function describe(p: { insurer: string; kind: PolicyKind; policyLast4?: string | null; policy_last4?: string | null }): string {
   const tail = p.policyLast4 ?? p.policy_last4;
-  return `${p.insurer} ${KIND_LABELS[p.kind].toLowerCase()} policy${tail ? ` ending ${tail}` : ""}`;
+  return `${p.insurer} ${KIND_LABELS[p.kind].toLowerCase()} policy${tail ? ` no. …${tail}` : ""}`;
 }
 
 export function createPolicy(db: DB, actor: Actor, input: PolicyInput): Policy {
@@ -570,12 +570,20 @@ export function policyTaxSuggestion(db: DB, memberId: string, fy: number): Polic
     s80c: 0 as Paise, s80d: 0 as Paise, s80dParents: 0 as Paise,
     s80dSenior: false, s80dParentsSenior: false, lines: [],
   };
+  /*
+   * UI-3 · A household of one cannot name a holder: the policy form shows no
+   * "Whose is it" picker below two members, so every policy it records has
+   * none. There it can only be the one member's, and is counted as theirs.
+   */
+  const alone =
+    queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM members WHERE removed_at IS NULL`)?.n === 1;
   const held = queryAll<Policy>(
     db,
     `SELECT * FROM insurance_policies
-      WHERE deleted_at IS NULL AND holder_member_id = ? AND tax_group <> 'none'
+      WHERE deleted_at IS NULL AND tax_group <> 'none'
+        AND (holder_member_id = ? OR (? = 1 AND holder_member_id IS NULL))
       ORDER BY insurer`,
-    memberId,
+    memberId, alone ? 1 : 0,
   );
   for (const p of held) {
     const premiums = premiumDatesBetween(p, from, to).length;

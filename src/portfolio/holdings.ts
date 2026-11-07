@@ -390,6 +390,9 @@ export function xirr(flows: CashFlow[], opts: { maxRate?: number } = {}): number
 
   const sorted = [...flows].sort((a, b) => (a.date < b.date ? -1 : 1));
   const start = sorted[0]!.date;
+  // UI-5 · Every flow on one day — a fund bought today — has no time in it,
+  // so no rate is defined; the bisection below walked to its −99.99% floor.
+  if (sorted[sorted.length - 1]!.date === start) return null;
 
   const npv = (rate: number): number =>
     sorted.reduce((sum, flow) => {

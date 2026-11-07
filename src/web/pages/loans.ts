@@ -8,7 +8,7 @@
 
 import { html, raw, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, formatCompact, type Paise } from "../../core/money.ts";
-import { formatDate, type IsoDate } from "../../core/dates.ts";
+import { formatDate, heldMoreThanMonths, type IsoDate } from "../../core/dates.ts";
 import type { LoanProjection, Loan, LoanPayment, Disbursement, DebtRow } from "../../domain/loans.ts";
 import { LOAN_TYPE_LABELS, GST_PCT, gstOnInterest, isMoratoriumCapitalisation } from "../../domain/loans.ts";
 import type { PrepaymentComparison, Schedule, RateResetOptions } from "../../loans/amortisation.ts";
@@ -366,6 +366,16 @@ function figure(label: string, amount: Paise, basis?: "actual" | "projected"): S
 // Loan detail
 // ---------------------------------------------------------------------------
 
+/**
+ * UI-12 · Sanctioned more than a month before it was added to the app. A card
+ * EMI plan is left out: it is dated from the charge it replaces, and the
+ * issuer's plan does start when the charge is converted.
+ */
+function startedBeforeAdded(loan: Loan): boolean {
+  return loan.loan_type !== "credit-card-emi" && !loan.closed_at &&
+    heldMoreThanMonths(loan.sanction_date, loan.created_at.slice(0, 10) as IsoDate, 1);
+}
+
 export function renderLoanDetail(opts: {
   projection: LoanProjection;
   payments: LoanPayment[];
@@ -541,6 +551,18 @@ export function renderLoanDetail(opts: {
       <p class="notice notice-info">
         This loan was created part-way through its life. Lifetime figures below are
         <strong>from ${formatDate(loan.history_from!)}</strong>, not from origination.
+      </p>
+    `)}
+
+    ${when(startedBeforeAdded(loan), () => html`
+      <!-- UI-12 · A loan added part-way through: the projection runs the whole
+           tenure from today on what is owed today, so its instalments left and
+           its monthly figure are not the lender's. Said, not left to be found. -->
+      <p class="notice notice-info">
+        This loan was sanctioned on ${formatDate(loan.sanction_date)} and added on
+        ${formatDate(loan.created_at.slice(0, 10) as IsoDate)}, so the instalments left and the
+        monthly figure below assume its full ${loan.tenure_months}-month tenure starts now, on
+        what you owe today. Your lender's figures will differ.
       </p>
     `)}
 
@@ -1207,6 +1229,13 @@ export function renderNewLoanForm(opts: {
         <p class="field-hint">
           If you don't have the full history, lifetime figures will be labelled
           "from" that date rather than presented as complete.
+        </p>
+        <p class="field-hint">
+          <!-- UI-12 · Said before the loan is saved, not discovered after. -->
+          <strong>Started before today?</strong> The instalments left and the EMI are
+          worked out on what you owe today over the whole tenure, as if the loan
+          began now — so for a loan already part-way through they can differ from
+          your lender's.
         </p>
       </fieldset>
 

@@ -166,10 +166,15 @@ function readEncoding(doc: PdfDocument, font: PdfDict): Encoding {
     parseCMap(latin1(decodeStream(doc, toUnicode)), map, budget);
   }
 
-  // A simple font's /Differences array names glyphs; the useful ones are the
-  // /uniXXXX and /gNN forms plus the standard Latin names.
+  // A simple font's /Differences array names glyphs: /uniXXXX forms, or the
+  // standard Latin names. Some generators subset a font and renumber every
+  // glyph it uses from code 64 up (/F /o /l /i …), so a code means nothing
+  // until its name is read.
   const encoding = dictGet(doc, font, "Encoding");
+  let base: string | null = isName(encoding) ? encoding.name : null;
   if (isDict(encoding)) {
+    const baseEncoding = dictGet(doc, encoding, "BaseEncoding");
+    if (isName(baseEncoding)) base = baseEncoding.name;
     const differences = dictGet(doc, encoding, "Differences");
     if (Array.isArray(differences)) {
       let code = 0;
@@ -183,6 +188,13 @@ function readEncoding(doc: PdfDocument, font: PdfDict): Encoding {
         }
       }
     }
+  }
+
+  // What /Differences leaves alone reads through the base encoding. Only
+  // WinAnsi differs from the Latin-1 fallback where it matters: 0x80–0x9F,
+  // where it keeps the dashes, quotes and the euro sign.
+  if (!composite && base === "WinAnsiEncoding") {
+    for (const [code, char] of WIN_ANSI_HIGH) if (!map.has(code)) map.set(code, char);
   }
 
   const metrics = composite ? cidWidths(doc, font) : simpleWidths(doc, font);
@@ -249,15 +261,67 @@ function codesOf(raw: Uint8Array, twoByte: boolean): number[] {
   return codes;
 }
 
+/** WinAnsiEncoding's 0x80–0x9F, the only stretch where it is not Latin-1. */
+const WIN_ANSI_HIGH: ReadonlyMap<number, string> = new Map([
+  [0x80, "€"], [0x82, "‚"], [0x83, "ƒ"], [0x84, "„"], [0x85, "…"], [0x86, "†"], [0x87, "‡"],
+  [0x88, "ˆ"], [0x89, "‰"], [0x8a, "Š"], [0x8b, "‹"], [0x8c, "Œ"], [0x8e, "Ž"],
+  [0x91, "‘"], [0x92, "’"], [0x93, "“"], [0x94, "”"], [0x95, "•"], [0x96, "–"], [0x97, "—"],
+  [0x98, "˜"], [0x99, "™"], [0x9a, "š"], [0x9b, "›"], [0x9c, "œ"], [0x9e, "ž"], [0x9f, "Ÿ"],
+]);
+
+/**
+ * The standard glyph names of every WinAnsi character, in code order from
+ * 0x20 to 0x7E and from 0xA0 to 0xFF. Single letters name themselves and are
+ * handled apart.
+ */
+const ASCII_NAMES = (
+  "space exclam quotedbl numbersign dollar percent ampersand quotesingle parenleft parenright " +
+  "asterisk plus comma hyphen period slash zero one two three four five six seven eight nine " +
+  "colon semicolon less equal greater question at"
+).split(" ");
+const ASCII_NAMES_2 = "bracketleft backslash bracketright asciicircum underscore grave".split(" ");
+const ASCII_NAMES_3 = "braceleft bar braceright asciitilde".split(" ");
+const LATIN1_NAMES = (
+  "nbspace exclamdown cent sterling currency yen brokenbar section dieresis copyright ordfeminine " +
+  "guillemotleft logicalnot sfthyphen registered macron degree plusminus twosuperior threesuperior " +
+  "acute mu paragraph periodcentered cedilla onesuperior ordmasculine guillemotright onequarter " +
+  "onehalf threequarters questiondown Agrave Aacute Acircumflex Atilde Adieresis Aring AE Ccedilla " +
+  "Egrave Eacute Ecircumflex Edieresis Igrave Iacute Icircumflex Idieresis Eth Ntilde Ograve Oacute " +
+  "Ocircumflex Otilde Odieresis multiply Oslash Ugrave Uacute Ucircumflex Udieresis Yacute Thorn " +
+  "germandbls agrave aacute acircumflex atilde adieresis aring ae ccedilla egrave eacute ecircumflex " +
+  "edieresis igrave iacute icircumflex idieresis eth ntilde ograve oacute ocircumflex otilde " +
+  "odieresis divide oslash ugrave uacute ucircumflex udieresis yacute thorn ydieresis"
+).split(" ");
+const WIN_ANSI_HIGH_NAMES = (
+  "Euro quotesinglbase florin quotedblbase ellipsis dagger daggerdbl circumflex perthousand Scaron " +
+  "guilsinglleft OE Zcaron quoteleft quoteright quotedblleft quotedblright bullet endash emdash " +
+  "tilde trademark scaron guilsinglright oe zcaron Ydieresis"
+).split(" ");
+
+const GLYPH_NAMES: ReadonlyMap<string, string> = (() => {
+  const names = new Map<string, string>();
+  ASCII_NAMES.forEach((n, i) => names.set(n, String.fromCharCode(0x20 + i)));
+  ASCII_NAMES_2.forEach((n, i) => names.set(n, String.fromCharCode(0x5b + i)));
+  ASCII_NAMES_3.forEach((n, i) => names.set(n, String.fromCharCode(0x7b + i)));
+  LATIN1_NAMES.forEach((n, i) => names.set(n, String.fromCharCode(0xa0 + i)));
+  [...WIN_ANSI_HIGH.values()].forEach((c, i) => names.set(WIN_ANSI_HIGH_NAMES[i]!, c));
+  names.set("minus", "−");
+  names.set("rupee", "₹");
+  names.set("rupeeindian", "₹");
+  // Read as a middle dot since the first CAS parser; HDFC's amounts rely on it.
+  names.set("bullet", "·");
+  return names;
+})();
+
 function glyphToChar(name: string): string | null {
-  const uni = /^uni([0-9A-Fa-f]{4})$/.exec(name);
-  if (uni) return String.fromCharCode(parseInt(uni[1]!, 16));
-  const named: Record<string, string> = {
-    space: " ", period: ".", comma: ",", hyphen: "-", slash: "/",
-    parenleft: "(", parenright: ")", colon: ":", percent: "%", asterisk: "*",
-    rupee: "₹", bullet: "·", endash: "–", emdash: "—",
-  };
-  return named[name] ?? null;
+  if (/^[A-Za-z]$/.test(name)) return name;
+  const uni = /^uni([0-9A-Fa-f]{4})$/.exec(name) ?? /^u([0-9A-Fa-f]{4,6})$/.exec(name);
+  if (uni) {
+    const cp = parseInt(uni[1]!, 16);
+    return cp <= 0x10ffff ? String.fromCodePoint(cp) : null;
+  }
+  // A suffixed variant (/one.tf, /a.sc) is the same character.
+  return GLYPH_NAMES.get(name) ?? GLYPH_NAMES.get(name.split(".")[0]!) ?? null;
 }
 
 /** The `beginbfchar` / `beginbfrange` sections of a /ToUnicode CMap. */

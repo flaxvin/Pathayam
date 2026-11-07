@@ -14,11 +14,12 @@ const card = (funded: number): CardDue => ({
   paymentCategoryId: null,
 });
 
-test("a payment envelope below zero is called overspent, not set aside", () => {
+// UI-11 · Worded as paid beyond what was set aside (card-paid-unbudgeted.test.ts).
+test("a payment envelope below zero is paid beyond what was set aside, not set aside", () => {
   const page = String(renderCards({ cards: [card(-678_000)], month: "2026-09" })).replace(/\s+/g, " ");
-  assert.doesNotMatch(page, /Set aside/);
+  assert.doesNotMatch(page, /Set aside ?</);
   assert.match(page, /Owed across 1 card</);
-  assert.match(page, /Payment envelope overspent ?<\/div> <span class="amount amount-negative">₹6,780<\/span>/);
+  assert.match(page, /Paid beyond what was set aside ?<\/div> <span class="amount amount-negative">₹6,780<\/span>/);
 });
 
 test("one at or above zero is still what is set aside", () => {

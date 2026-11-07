@@ -119,6 +119,27 @@ describe("R26, R27 · valuation and return", () => {
     );
   });
 
+  test("UI-5 · a holding bought today has no XIRR yet, not −99.99%", () => {
+    // Weekly UI pass 04-11-2026: ₹10,000 of a fund bought today, priced at
+    // what it cost, showed "XIRR −99.99%" on Portfolio. Every flow is on one
+    // day, so no rate is defined; the bisection walked to its floor.
+    assert.equal(
+      xirr([
+        { date: "2026-11-04", amount: rupees(-10_000) },
+        { date: "2026-11-04", amount: rupees(10_000) },
+      ]),
+      null,
+    );
+    // And a same-day gain is no better defined.
+    assert.equal(
+      xirr([
+        { date: "2026-11-04", amount: rupees(-10_000) },
+        { date: "2026-11-04", amount: rupees(10_100) },
+      ]),
+      null,
+    );
+  });
+
   test("a single-lot holding's XIRR matches simple compounding", () => {
     // ₹1,00,000 → ₹1,10,000 over exactly one year is 10%.
     const rate = xirr([

@@ -554,6 +554,9 @@ only (out of a token's reach).
 | GET/POST | `/portfolio/:id/sell` | R/W | Record a sale. |
 | GET/POST | `/portfolio/cas` | R/W | Import a CDSL CAS. |
 | POST | `/portfolio/cas/confirm` | W | Confirm a parsed CAS. |
+| GET/POST | `/portfolio/safegold` | R/W | Import a SafeGold statement (digital gold). A SafeGold PDF posted to `/import/pdf` lands on the same review. |
+| GET | `/portfolio/safegold/review` | R | The review of a SafeGold plan a Gmail fetch read, by its `token`. |
+| POST | `/portfolio/safegold/confirm` | W | Confirm a parsed SafeGold statement; `accept_mismatch=1` imports one whose rows miss its closing balance. |
 | GET | `/portfolio/allocation` | R | Allocation by class/region/currency. |
 | POST | `/portfolio/instrument/:id/classify` | W | Set an instrument's class. |
 | POST | `/portfolio/instrument/:id/listed` | W | Say whether a bond is listed on an exchange. |
@@ -593,6 +596,7 @@ only (out of a token's reach).
 | GET | `/health` | R | Health dashboard (HTML). |
 | POST | `/health/backup` · `/health/verify` | W | Run a backup / verify a restore. |
 | POST | `/gmail/fetch` | W | Fetch from the connected mailbox now. (`/gmail/disconnect` is session only.) |
+| POST | `/gmail/card-digits` | W | Save a card account's last four to eight digits (`account_id`, `card_digits`), offered after a fetch left its statement locked for want of them. Never echoed; the notice shows the last two. |
 | GET | `/export.json` · `/export.csv` | R | Full data exports. |
 | GET | `/healthz` | R (public) | Machine health probe. |
 

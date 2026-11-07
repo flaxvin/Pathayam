@@ -186,13 +186,27 @@ registerUndoHandler("deposit-terms", (db, event) => {
   return "Removed the deposit terms that were set";
 }, ["set", "remove"]);
 
-/** The register's movements a kind reads: every live transaction from the start date. */
-export function contributionsFor(db: DB, accountId: string, from: IsoDate, through: IsoDate): Contribution[] {
+/**
+ * The register's movements a kind reads: every live transaction from the start date.
+ *
+ * ENG-9 · `skipInterestCredits` is for a PPF or EPF, whose terms credit the
+ * year's interest themselves on 31 March. A register that also held that credit
+ * (an imported passbook's "Interest" line) counted the year's interest twice.
+ * Money in whose memo or payee says "interest" is that credit, and is left out.
+ */
+export function contributionsFor(
+  db: DB, accountId: string, from: IsoDate, through: IsoDate, skipInterestCredits = false,
+): Contribution[] {
+  const skip = skipInterestCredits
+    ? ` AND NOT (t.amount > 0 AND (LOWER(COALESCE(t.memo, '')) LIKE '%interest%'
+                                   OR LOWER(COALESCE(p.name, '')) LIKE '%interest%'))`
+    : "";
   return queryAll<{ date: string; amount: number }>(
     db,
-    `SELECT date, SUM(amount) AS amount FROM transactions
-      WHERE account_id = ? AND deleted_at IS NULL AND date >= ? AND date <= ?
-      GROUP BY date ORDER BY date`,
+    `SELECT t.date AS date, SUM(t.amount) AS amount FROM transactions t
+       LEFT JOIN payees p ON p.id = t.payee_id
+      WHERE t.account_id = ? AND t.deleted_at IS NULL AND t.date >= ? AND t.date <= ?${skip}
+      GROUP BY t.date ORDER BY t.date`,
     accountId, from, through,
   ).map((r) => ({ date: r.date, amount: r.amount }));
 }
@@ -211,7 +225,9 @@ export function computedDepositValue(db: DB, accountId: string, asOf = todayIST(
   if (!terms) return null;
   const reads = READS_REGISTER.has(terms.kind);
   const horizon = terms.maturityDate && terms.maturityDate > asOf ? terms.maturityDate : asOf;
-  const register = reads ? contributionsFor(db, accountId, terms.startDate, horizon) : [];
+  const register = reads
+    ? contributionsFor(db, accountId, terms.startDate, horizon, terms.kind === "ppf" || terms.kind === "epf")
+    : [];
   const known = register.filter((c) => c.date <= asOf);
 
   let basisDate = terms.basisDate > terms.startDate ? terms.basisDate : terms.startDate;

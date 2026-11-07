@@ -55,6 +55,9 @@ function monthlySpendByCategory(
     ? null
     : budgetsFor(db, viewerMemberId ?? null).map((b) => b.id);
   // The same split-aware line set the trend uses, grouped by category and month.
+  // ENG-6 · Refunds net within the month (HAVING drops a month that nets to 0 or
+  // less), so a purchase returned in the same month raises no insight.
+  // Uncategorised lines never join a category, so income stays out.
   return queryAll<Row>(
     db,
     `WITH lines AS (
@@ -68,7 +71,7 @@ function monthlySpendByCategory(
      SELECT substr(l.date,1,7) AS month, l.category_id AS category_id,
             c.name AS name, COALESCE(SUM(-l.amount),0) AS spent
        FROM lines l JOIN categories c ON c.id = l.category_id
-      WHERE l.date >= ? AND l.amount < 0 AND c.deleted_at IS NULL
+      WHERE l.date >= ? AND c.deleted_at IS NULL
         AND c.payment_account_id IS NULL
         ${visible ? `AND (c.budget_id IS NULL OR c.budget_id IN (${visible.map(() => "?").join(",")}))` : ""}
       GROUP BY month, l.category_id

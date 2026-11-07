@@ -54,7 +54,7 @@ answer 404 when the viewer may not see the entity
 | `GET /rules` | Rules, proposals and a tester. |
 | `POST /rules/new`, `/rules/test`, `/rules/confirm`, `/rules/dismiss`, `/rules/:id/apply`, `/rules/:id/delete` | |
 | `GET /payees`, `POST /payees/merge` | |
-| `GET /gmail/connect`, `GET /gmail/callback`, `POST /gmail/fetch`, `POST /gmail/disconnect` | |
+| `GET /gmail/connect`, `GET /gmail/callback`, `POST /gmail/fetch`, `POST /gmail/card-digits`, `POST /gmail/disconnect` | |
 
 ## Analysis
 
@@ -111,6 +111,7 @@ answer 404 when the viewer may not see the entity
 | `GET /portfolio/asset/new`, `GET /portfolio/asset/:id/revalue` and their `POST`s | |
 | `GET`/`POST /portfolio/asset/:id/dispose` | Record a hand-valued asset as sold or gone, with where the proceeds landed. |
 | `GET` and `POST /portfolio/cas`, `POST /portfolio/cas/confirm` | CAS import: plan, then confirm. |
+| `GET` and `POST /portfolio/safegold`, `GET /portfolio/safegold/review`, `POST /portfolio/safegold/confirm` | SafeGold statement import: plan, then confirm. |
 | `GET /portfolio/holdings.csv`, `/lots.csv`, `/prices.csv` | |
 | `POST /portfolio/refresh` | Refresh prices from the providers. |
 

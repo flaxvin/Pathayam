@@ -62,13 +62,16 @@ import {
 } from "./web/pages/actions.ts";
 import { renderReview, renderImport, renderMapping, renderBudgetAppMapping } from "./web/pages/review.ts";
 import {
-  parseStatementPdf, openStatement, BANKS, bankForInstitution,
+  parseStatementPdf, openStatement, BANKS, bankForInstitution, SAFEGOLD_DISTRIBUTOR_BALANCE,
   WrongPassword as StatementWrongPassword,
 } from "./import/pdf-statements.ts";
 import {
-  passwordCandidates, describeCandidate, missingDetailFor,
+  passwordCandidates, describeCandidate, missingDetailFor, cardDigitsNeeded,
 } from "./import/statement-passwords.ts";
 import { getIdentity, setIdentity, clearIdentity, maskedIdentity } from "./import/identity.ts";
+import {
+  parseCardNumber, keepLongerCardDigits, setCardNumberDigits, cardNumberDigits, maskedCardNumber,
+} from "./domain/card-digits.ts";
 import {
   recognise, saveProfile, listProfiles, markProfileUsed, deleteProfile,
   mappingFromSelections, validateMapping, columnChoices, candidateHeaderRows, looksMappable,
@@ -88,7 +91,7 @@ import {
   guardHistoricalEdit, breakCheckpoints, CheckpointConfirmationRequired,
   intactCheckpointBalances, checkpointsMovedSince, previewReconciliation, type Checkpoint,
 } from "./domain/reconciliation.ts";
-import { parseStatement, detectDelimiter, dateOrderOf, parseDelimited } from "./import/csv.ts";
+import { parseStatement, detectDelimiter, dateOrderOf, parseDelimited, decodeCsvBytes } from "./import/csv.ts";
 import { parseBudgetApp, BUDGET_APP_NAMES, type BudgetAppParse } from "./import/budget-apps.ts";
 import { importBudgetApp } from "./import/budget-app-import.ts";
 import {
@@ -111,7 +114,7 @@ import { convertToEmi, convertedFrom, GST_PCT } from "./domain/card-emi.ts";
 import { renderDeparture } from "./web/pages/departure.ts";
 import { renderHousehold } from "./web/pages/household.ts";
 import {
-  createAccount, updateAccount, closeAccount, reopenAccount, listAccounts, getAccount, listCards, createCard, closeCard, recordCardStatement, lastCardStatement, paymentCategoryFor, MANAGED_SUBTYPES, SUBTYPE_LABELS, type AccountKind, hiddenAccountIds, type HolderScope,
+  createAccount, updateAccount, closeAccount, reopenAccount, listAccounts, getAccount, listCards, createCard, closeCard, recordCardStatement, lastCardStatement, nextDueByDay, paymentCategoryFor, MANAGED_SUBTYPES, SUBTYPE_LABELS, type AccountKind, hiddenAccountIds, type HolderScope,
  creditedSinceStatement, type Account,  DERIVED_VALUE_SUBTYPES,
   REVALUABLE_SUBTYPES,
 } from "./domain/accounts.ts";
@@ -354,7 +357,7 @@ import {
 import { cameWithTheCard } from "./domain/card-shortfall.ts";
 import {
   renderMonthClose, renderClosedMonths, renderDigest, renderDigestSettings,
-  renderStatementIdentity, renderGmailConnection,
+  renderStatementIdentity, renderGmailConnection, renderCardDigitAsks,
 } from "./web/pages/month-close.ts";
 import {
   renderPortfolio, renderHoldingDetail, renderSalePreview, renderNetWorth,
@@ -364,8 +367,13 @@ import {
   type PortfolioRow, type CasReviewScheme,
 } from "./web/pages/portfolio.ts";
 import { parseCasPdf, WrongPassword } from "./import/cas.ts";
+import { parseSafeGoldText, isSafeGoldText, type SafeGoldStatement } from "./import/safegold.ts";
 import {
-  planCasImport, applyCasPlan, casDestinations, stashPlan, takePlan,
+  planSafeGoldImport, applySafeGoldPlan, stashSafeGoldPlan, peekSafeGoldPlan, takeSafeGoldPlan,
+} from "./import/safegold-plan.ts";
+import { renderSafeGoldUpload, renderSafeGoldReview } from "./web/pages/safegold.ts";
+import {
+  planCasImport, applyCasPlan, casDestinations, stashPlan, peekPlan, takePlan,
 } from "./import/cas-plan.ts";
 import {
   createAssetAccount, listAssetAccounts, listValuableAccounts, findOrCreateInstrument, setInstrumentListed, recordPurchase,
@@ -383,7 +391,7 @@ import {
   getDepositTerms, setDepositTerms, removeDepositTerms, computedDepositValue, listMaturities,
   describeTerms, DEPOSIT_SUBTYPES, type DepositTermsInput,
 } from "./domain/deposits.ts";
-import { checkTerms } from "./deposits/accrual.ts";
+import { checkTerms, READS_REGISTER, type DepositKind } from "./deposits/accrual.ts";
 import {
   netWorthStatement, snapshotNetWorth, netWorthChange, netWorthHistory,
   assetAllocation,
@@ -1050,6 +1058,42 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   ): string | null {
     const id = field(ctx.body, name);
     return id ? guard(ctx, id) : null;
+  }
+
+  /**
+   * UI-8 · The holder a new policy, asset or loan is stored with. In a
+   * one-member household the forms offer no "Whose is it", so the holder came
+   * through empty; UI-3 reads an empty holder as the sole member's, but only
+   * while they are alone. When a second member joined, everything recorded
+   * alone became the household's, jointly, and stopped counting as the first
+   * member's (their 80C/80D policies left the tax page). So with one member,
+   * an unnamed holder is stored as that member. With two or more, empty
+   * still means the household's.
+   */
+  function holderOrSoleMember(holder: string | null | undefined): string | null {
+    if (holder) return holder;
+    const members = queryAll<{ id: string }>(db, `SELECT id FROM members WHERE removed_at IS NULL`);
+    return members.length === 1 ? members[0]!.id : null;
+  }
+
+  /**
+   * FRESH-WEB-2 / WEB-1 · An edit may leave a record private only to whoever is
+   * making the edit, and only if it was theirs or nobody's to begin with. A
+   * create passes `before` as null, so the same rule holds there (WEB-4).
+   * Otherwise one member could take another's account, loan or policy private
+   * to themselves (or hand it, private, to a third) and it would vanish from
+   * the screens of the person it belongs to, Activity included.
+   */
+  function refuseForeignPrivate(
+    a: AuthContext, before: string | null, next: string | null, visibility: string | null | undefined,
+    noun: string,
+  ): void {
+    if (visibility !== "private" || !next) return;
+    if (next === a.member.id && (before === null || before === a.member.id)) return;
+    throw new Refusal(
+      `Only you can be the one a private ${noun} is private to. Leave it shared, ` +
+      "or let whoever's name is on it make it private themselves.",
+    );
   }
 
   /** A budget this member may file into: the household's, or their own. */
@@ -2989,11 +3033,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           "or let whoever's name is on it make it private themselves.",
         );
       }
+      /*
+       * IMP-18 · A card account takes four to eight trailing digits. The form
+       * shows only the last four, so the same four sent back keep any longer
+       * run on file; new digits replace it, and an empty box clears both.
+       */
+      const cardNumber = parseCardNumber(field(ctx.body, "last4"), { card: before.kind === "credit" });
+      const keepsLonger = cardNumber !== undefined && cardNumber !== null
+        && cardNumber.length === 4 && cardNumber === before.last4;
       updateAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, {
         name: requiredField(ctx.body, "name"),
         nickname: text("nickname"),
         institution: text("institution"),
-        last4: last4Field(field(ctx.body, "last4")),
+        last4: cardNumber === undefined ? undefined : cardNumber?.slice(-4) ?? null,
         holder_member_id: holder,
         statement_day: numberOrNull(field(ctx.body, "statement_day")),
         due_day: numberOrNull(field(ctx.body, "due_day")),
@@ -3005,6 +3057,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         budget_id: text("budget_id") && requireVisibleBudget(ctx, text("budget_id")!),
         visibility,
       });
+      if (cardNumber !== undefined && !keepsLonger) keepLongerCardDigits(db, actorFor(a), id, cardNumber);
       return { redirect: `/accounts/${id}`, message: "Saved." };
     }),
   );
@@ -3061,6 +3114,21 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // DEPOSITS · Terms are optional, and read before anything is created so
       // terms that cannot be priced leave no account behind.
       const terms = DEPOSIT_SUBTYPES.has(subtype) && kind === "tracking" ? depositTermsField(ctx.body) : null;
+      const openingDate = dateField(openingDateRaw, "Opening date");
+      /*
+       * UI-6 · A PPF, EPF or other deposit already running is usually entered
+       * as its current balance, with the principal left blank. It was valued
+       * at ₹0 — principal plus register, and the opening balance is in
+       * neither — so it fell out of net worth and FIRE. With no principal, the
+       * balance is the principal and its as-of date the start: worth that on
+       * that day, growing from there. The account page says so.
+       */
+      const grewFromOpening = !!terms && terms.principal == null && opening > 0
+        && READS_REGISTER.has(terms.kind as DepositKind);
+      if (terms && grewFromOpening) {
+        terms.principal = opening;
+        terms.startDate = openingDate;
+      }
       if (terms) checkTerms(terms);
 
       // F2.6: a credit card's balance is what you owe. Entering it as a
@@ -3068,14 +3136,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // than rejecting it.
       if (kind === "credit" && opening > 0) opening = -opening;
 
+      // IMP-18 · A card account takes up to eight trailing digits; any other, four.
+      const cardNumber = parseCardNumber(field(ctx.body, "last4"), { card: kind === "credit" }) ?? null;
       const account = createAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         name: requiredField(ctx.body, "name"),
         kind,
         subtype,
         institution: field(ctx.body, "institution") || null,
-        last4: last4Field(field(ctx.body, "last4")) ?? null,
+        last4: cardNumber?.slice(-4) ?? null,
         openingBalance: opening,
-        openingDate: dateField(openingDateRaw, "Opening date"),
+        openingDate,
         statementDay: numberOrNull(field(ctx.body, "statement_day")),
         dueDay: numberOrNull(field(ctx.body, "due_day")),
         // 15 · Whose money it is, and who can see it, are settled at creation
@@ -3092,10 +3162,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       if (terms) {
         setDepositTerms(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), account.id, terms);
       }
+      if (cardNumber && cardNumber.length > 4) keepLongerCardDigits(db, actorFor(a), account.id, cardNumber);
 
       return {
         redirect: `/accounts/${account.id}`,
-        message: terms ? `Added ${account.name}, valued from its terms.` : `Added ${account.name}.`,
+        message: !terms ? `Added ${account.name}.`
+          : grewFromOpening
+            ? `Added ${account.name}, worth ${formatPaise(opening)} on ${formatDate(openingDate)}, growing from there.`
+            : `Added ${account.name}, valued from its terms.`,
       };
     }),
   );
@@ -3150,11 +3224,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const raws = queryAll<{
       id: string; date: string; amount: number; cleared: number; memo: string | null;
       payee: string | null; category: string | null; transfer_pair_id: string | null;
-      card_label: string | null; owner_name: string | null; hidden: number;
+      card_label: string | null; owner_name: string | null; hidden: number; is_split: number;
+      pair_kind: string | null;
     }>(
       db,
-      `SELECT t.id, t.date, t.amount, t.cleared, t.memo, t.transfer_pair_id,
+      `SELECT t.id, t.date, t.amount, t.cleared, t.memo, t.transfer_pair_id, t.is_split,
               p.name AS payee, c.name AS category, cd.label AS card_label, m.name AS owner_name,
+              (SELECT pa.kind FROM transactions pt JOIN accounts pa ON pa.id = pt.account_id
+                WHERE t.transfer_pair_id IS NOT NULL AND pt.transfer_pair_id = t.transfer_pair_id
+                  AND pt.id <> t.id LIMIT 1) AS pair_kind,
               ${registerHidden.sql} AS hidden
          FROM transactions t
          LEFT JOIN payees p   ON p.id = t.payee_id
@@ -3183,6 +3261,24 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         amount: r.amount,
         cleared: r.cleared === 1,
         isTransfer: r.transfer_pair_id !== null,
+        /*
+         * UI-10 · Money going into a card from another account, seen from
+         * either side, is a card payment; any other transfer is a transfer.
+         */
+        transferLabel: r.transfer_pair_id === null ? null
+          : (account.kind === "credit" && r.amount > 0) || (r.pair_kind === "credit" && r.amount < 0)
+            ? "Card payment"
+            : "Transfer",
+        isSplit: r.is_split === 1,
+        /*
+         * UI-2 · Review's own rule for "needs a category" (see /review): money
+         * out of a budget or credit account, not a transfer, not split, with no
+         * envelope. Income lands in Ready to Assign, a split's lines carry the
+         * envelopes, and a tracking account has none to give.
+         */
+        needsCategory:
+          r.category === null && r.is_split === 0 && r.transfer_pair_id === null
+          && account.kind !== "tracking" && r.amount < 0,
         cardLabel: r.card_label,
         ownerName: r.owner_name,
         // R6 · The cycle this charge bills in, derived from the card's statement
@@ -3212,6 +3308,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       account.nickname || account.name,
       renderAccountDetail({
         account,
+        cardNumberOnFile: account.kind === "credit" ? maskedCardNumber(db, account.id) : null,
         derived: derivedWorth(db, account, viewer(ctx)),
         // A hand-valued asset has no transactions and never will, so its
         // register shows the valuations instead of staying empty forever.
@@ -3240,6 +3337,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           const st = lastCardStatement(db, account.id);
           return st ? { amount: st.amount, date: st.statement_date, due: st.due_date } : null;
         })(),
+        // UI-9 · With no statement, the next due date by the card's due day.
+        dueByDay: account.kind === "credit" && account.due_day && balances.working < 0
+          && !lastCardStatement(db, account.id)
+          ? nextDueByDay(account.due_day)
+          : null,
         lastReconciled: recon?.as_of ?? null,
         checkpointBroken: Boolean(recon?.broken_at),
         deposit: account.kind === "tracking" && DEPOSIT_SUBTYPES.has(account.subtype)
@@ -3624,6 +3726,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           !config.demoMode,
           () => renderGmailConnection(connectionView(db, a.member.id), config.google.clientId !== null),
         )}
+
+        ${when(!config.demoMode, () => renderCardDigitAsks(cardDigitAsks(ctx)))}
+        ${when(!config.demoMode && pendingGoldToken(ctx, a.member.id) !== null, () => html`
+          <p class="notice notice-info" id="gold-waiting">
+            The same fetch read a SafeGold statement.
+            <a href="/portfolio/safegold/review?token=${encodeURIComponent(pendingGoldToken(ctx, a.member.id)!)}">Review its gold entries</a>
+            before they expire in half an hour.
+          </p>`)}
 
         ${when(!config.demoMode, () => renderStatementIdentity(maskedIdentity(db, a.member.id)))}
         ${when(
@@ -4450,19 +4560,27 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               </div>
             `,
           )}
-          <form method="post" action="/transaction/${transaction.id}/attach"
-                enctype="multipart/form-data" style="margin-top:.6rem">
-            <div class="field">
-              <label for="receipt">Add a photo or PDF</label>
-              <input id="receipt" name="receipt" type="file"
-                     accept="image/*,application/pdf" capture="environment" required>
-              <p class="field-hint">
-                Stored on your server only — never on this device, and fetched
-                fresh each time you look.
-              </p>
-            </div>
-            <button type="submit">Attach</button>
-          </form>
+          ${when(!config.demoMode, () => html`
+            <form method="post" action="/transaction/${transaction.id}/attach"
+                  enctype="multipart/form-data" style="margin-top:.6rem">
+              <div class="field">
+                <label for="receipt">Add a photo or PDF</label>
+                <input id="receipt" name="receipt" type="file"
+                       accept="image/*,application/pdf" capture="environment" required>
+                <p class="field-hint">
+                  Stored on your server only — never on this device, and fetched
+                  fresh each time you look.
+                </p>
+              </div>
+              <button type="submit">Attach</button>
+            </form>
+          `)}
+          ${when(config.demoMode, () => html`
+            <p class="faint" style="margin-top:.6rem">
+              Attaching receipts is turned off here — a public demo should not
+              hold files people upload. It works on your own copy.
+            </p>
+          `)}
         </section>
 
         <section class="card">
@@ -4490,6 +4608,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/transaction/:id/attach", (ctx) => {
     const a = auth(ctx);
+    /*
+     * WEB-3 · On the demo anyone is signed in, and each receipt is up to 10 MB
+     * kept in the demo's database on a small disk, with nothing capping the
+     * total until the next restart. Same shape as SECURITY-OPS-24 (backups).
+     */
+    refuseInDemo(config, "Attaching receipts");
     const id = requireLiveTransaction(ctx, ctx.params.id!).id;
     const upload = fileField(ctx.req, "receipt");
     if (!upload) {
@@ -5142,13 +5266,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           account.opening_balance,
         );
         const statement = lastCardStatement(db, account.id);
+        const owed = Math.max(0, -(owedNow.get(account.id) ?? 0)) as Paise;
+        // UI-9 · With no statement, the due day stored on the card, as the
+        // cashflow projection already pays it.
+        const dueByDay = !statement && owed > 0 && account.due_day ? nextDueByDay(account.due_day, today) : null;
 
         return {
           accountId: account.id,
           name: account.nickname || account.name,
           last4: account.last4,
           startingDebtNote: cameWithTheCard(funding),
-          owed: Math.max(0, -(owedNow.get(account.id) ?? 0)) as Paise,
+          owed,
           credit: Math.max(0, owedNow.get(account.id) ?? 0) as Paise,
           funded,
           unfunded: funding.unfunded,
@@ -5158,7 +5286,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 due: statement.due_date, minimum: statement.minimum_due,
               }
             : null,
-          daysToDue: statement ? daysBetween(today, statement.due_date) : null,
+          dueByDay,
+          daysToDue: statement ? daysBetween(today, statement.due_date)
+            : dueByDay ? daysBetween(today, dueByDay) : null,
           paidSinceStatement: statement
             ? creditedSinceStatement(db, account.id, statement.statement_date)
             : (0 as Paise),
@@ -5166,9 +5296,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         };
       })
       /*
-       * Soonest first. A card with no statement has no due date to sort by, so
-       * it goes last rather than being guessed at — R6 reports the debt it can
-       * see and never invents a cycle.
+       * Soonest first. A card with no statement sorts by its stored due day
+       * (UI-9); one with neither has no due date to sort by, so it goes last
+       * rather than being guessed at — R6 never invents a cycle.
        */
       .sort((a, b) => {
         if (a.daysToDue === null && b.daysToDue === null) return b.owed - a.owed;
@@ -5469,8 +5599,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
   // S10 · Import
   // -------------------------------------------------------------------------
-  router.get("/import", (ctx) =>
-    render(ctx, "Import", renderImport({
+  function importPage(
+    ctx: RequestContext, error: string | null = null,
+    pdf: { accountId: string; askDigits: 4 | 6; error: string } | null = null,
+  ) {
+    return render(ctx, "Import", renderImport({
       accounts: listAccounts(db, { viewerMemberId: viewer(ctx) }),
       batches: listBatches(db, { viewerMemberId: viewer(ctx) }),
       profiles: visibleProfiles(ctx).map((p) => ({
@@ -5478,13 +5611,29 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       })),
       casEnabled: config.features.assets,
       banks: BANKS.map((b) => ({ id: b.id, name: b.name, passwordHint: b.passwordHint })),
-    })),
-  );
+      error,
+      pdf,
+    }));
+  }
+
+  router.get("/import", (ctx) => importPage(ctx));
 
   router.post("/import", (ctx) => {
-    const text = requiredField(ctx.body, "csv");
     const accountId = requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id;
-    const fileName = field(ctx.body, "file_name") || "pasted.csv";
+    /*
+     * IMP-6 · A chosen file wins over the textarea. Its bytes are decoded
+     * here by their byte-order mark, so Excel's UTF-16 "Unicode text" export
+     * reads as well as a UTF-8 one; a file that is not UTF-8 at all still
+     * imports, and the result says some characters were replaced.
+     */
+    const upload = fileField(ctx.req, "csv_file");
+    const decoded = upload ? decodeCsvBytes(upload.bytes) : null;
+    const text = decoded ? decoded.text : (field(ctx.body, "csv") ?? "");
+    if (text.trim() === "") return importPage(ctx, "Paste the CSV or choose its file first.");
+    const encodingNote = decoded?.fellBack
+      ? "Some of the file was not UTF-8, so a few characters show as \uFFFD. Saving it from Excel as \u201cCSV UTF-8\u201d avoids that."
+      : null;
+    const fileName = field(ctx.body, "file_name") || upload?.filename || "pasted.csv";
     // An unknown account id reached the INSERT and failed its foreign key — a
     // 500 — and a private account of another member's was importable. Both
     // are the same question: can this viewer see the account?
@@ -5515,6 +5664,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           candidateHeaders: candidateHeaderRows(recognition.rows),
           headerRow,
           choices: columnChoices(recognition.rows, headerRow),
+          note: encodingNote,
         }),
       );
     }
@@ -5550,7 +5700,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
       return {
         redirect: toReview > 0 ? "/review" : "/import",
-        message: `Read ${outcome.batch.rows_read} rows — ${parts.join(", ")}.`,
+        message: `Read ${outcome.batch.rows_read} rows — ${parts.join(", ")}.` +
+          (encodingNote ? ` ${encodingNote}` : ""),
       };
     });
   });
@@ -5567,19 +5718,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const accountId = requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id;
     const upload = fileField(ctx.req, "statement");
 
-    const importPage = (error: string) =>
-      render(ctx, "Import", renderImport({
-        accounts: listAccounts(db, { viewerMemberId: viewer(ctx) }),
-        batches: listBatches(db, { viewerMemberId: viewer(ctx) }),
-        profiles: visibleProfiles(ctx).map((p) => ({
-          id: p.id, name: p.name, last_used_at: p.last_used_at,
-        })),
-        casEnabled: config.features.assets,
-        banks: BANKS.map((b) => ({ id: b.id, name: b.name, passwordHint: b.passwordHint })),
-        error,
-      }));
-
-    if (!upload) return importPage("Choose the statement PDF first.");
+    if (!upload) return importPage(ctx, "Choose the statement PDF first.");
 
     /*
      * A typed password wins; otherwise the stored identity derives candidates
@@ -5589,9 +5728,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      */
     const typed = field(ctx.body, "password") ?? "";
     const identity = getIdentity(db, a.member.id);
+    /*
+     * IMP-19 · The card's digits, typed on the form this route brings back
+     * when they are what the bank's rule needs. Read here and never echoed:
+     * a page that comes back has an empty box, and a notice shows the last two.
+     */
+    const typedDigits = (field(ctx.body, "card_digits") ?? "").replace(/[\s-]/g, "");
 
     let parsed;
     let opened = "";
+    let savedDigits = "";
     /*
      * Which detail the bank's rule needs and this household has not saved.
      * Four institutions account for every statement a real corpus could not
@@ -5599,6 +5745,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * leaving somebody to conclude the file is simply unreadable.
      */
     let missing: string | null = null;
+    /** IMP-19 · How many of the card's digits to ask for, when that is the fix. */
+    let askDigits: 4 | 6 | null = null;
+    let digitsFailed = false;
+    const account = getAccount(db, accountId);
     try {
       if (typed !== "") {
         parsed = parseStatementPdf(upload.bytes, typed);
@@ -5606,25 +5756,66 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         // F2.9 · The destination account already stores the card/account's
         // last four digits (for SMS matching), which is exactly what Canara's
         // and SBI Card's passwords need. Hand them to the derivation.
-        const account = getAccount(db, accountId);
         // The account knows its bank, so the bank's own rule is tried first.
         // detectBank cannot help here: the file is still locked.
         const bank = bankForInstitution(account?.institution);
+        // IMP-18 · A card account may hold up to eight trailing digits.
+        const cardDigits = [cardNumberDigits(db, accountId)];
+        const isCard = account?.kind === "credit";
+        const needed = isCard ? cardDigitsNeeded(bank, identity, cardDigits) : null;
+        const tryDigits = needed && typedDigits !== "" ? typedDigits : null;
+        if (tryDigits !== null && !/^\d{4,8}$/.test(tryDigits)) {
+          askDigits = needed;
+          digitsFailed = true;
+          throw new StatementWrongPassword();
+        }
+        const withTyped = tryDigits ? [...cardDigits, tryDigits] : cardDigits;
         const result = openStatement(
           upload.bytes,
-          passwordCandidates(identity, bank, { cardDigits: [account?.last4] }),
+          passwordCandidates(identity, bank, { cardDigits: withTyped }),
         );
         if (!result) {
-          missing = missingDetailFor(bank, identity, [account?.last4]);
+          missing = missingDetailFor(bank, identity, cardDigits);
+          askDigits = needed;
+          digitsFailed = tryDigits !== null;
           throw new StatementWrongPassword();
         }
         parsed = result.parse;
         opened = ` It opened with ${describeCandidate(result.candidate, identity)}.`;
+        // Saved only when the typed digits are what opened it, and only when
+        // they agree with the last four already on the card.
+        const neededTyped = tryDigits !== null
+          && !passwordCandidates(identity, bank, { cardDigits }).includes(result.candidate);
+        if (neededTyped && tryDigits) {
+          const name = account!.nickname || account!.name;
+          if (account!.last4 && account!.last4 !== tryDigits.slice(-4)) {
+            savedDigits = ` Those digits end differently from the last four recorded on ${name}, ` +
+              "so they were not saved — check the account.";
+          } else {
+            setCardNumberDigits(db, actorFor(a, "ui"), accountId, tryDigits);
+            savedDigits = ` The card's last ${tryDigits.length} digits (ending ••${tryDigits.slice(-2)}) ` +
+              `are now saved on ${name}, so its next statement opens by itself.`;
+          }
+          opened = " It opened with the card's digits.";
+        }
       } else {
         parsed = parseStatementPdf(upload.bytes, "");
       }
     } catch (error) {
-      return importPage(
+      if (error instanceof StatementWrongPassword && askDigits) {
+        const which = askDigits === 6 ? "last six" : "last four";
+        return importPage(ctx, null, {
+          accountId,
+          askDigits,
+          error: (digitsFailed
+            ? `Those digits did not open it. Enter the card number's ${which} as printed on the ` +
+              "card, or type the statement password."
+            : `${missing ?? `This statement opens with the card number's ${which}.`} ` +
+              `Enter the card number's ${which} below, or type the statement password.`) +
+            " Choose the statement again too — a browser does not keep a chosen file between tries.",
+        });
+      }
+      return importPage(ctx,
         error instanceof StatementWrongPassword
           ? (identity
               ? (missing
@@ -5637,10 +5828,23 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       );
     }
 
+    // IMP-32 · A SafeGold statement is gold bought and sold, not this
+    // account's rows: it goes to the same review its own upload does.
+    if (isSafeGoldText(parsed.text)) {
+      // REV-6 · With the assets module off there is no gold to confirm into.
+      if (!config.features.assets) {
+        return importPage(ctx,
+          "That file is a SafeGold statement, not a bank or card statement, so " +
+          "there are no transactions in it to import here.",
+        );
+      }
+      return safeGoldReview(ctx, a.member.id, [parseSafeGoldText(parsed.text)]);
+    }
+
     // A fund statement or an exchange report is not a bank account's rows, and
     // a mapping screen would invite the household to import it as one.
     if (parsed.notAStatement) {
-      return importPage(
+      return importPage(ctx,
         `That file is ${parsed.notAStatement}, not a bank or card statement, so ` +
         "there are no transactions in it to import here.",
       );
@@ -5657,7 +5861,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // none, and the mapping screen would offer "Column 1" for every field
       // above a table of nothing. Say what is actually wrong instead.
       if (!looksMappable(loose)) {
-        return importPage(
+        return importPage(ctx,
           "There is no text in that PDF to read — it is almost certainly a scan " +
           "or an image rather than a statement with selectable text. Ask the bank " +
           "for the text version (net banking usually offers one), or import the " +
@@ -5717,7 +5921,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       redirect: withNotice(
         toReview > 0 ? "/review" : "/import",
         `Read ${parsed.bank ? `your ${parsed.bank.name} statement` : "the statement"} — ` +
-          `${parts.join(", ")}.${opened}${reconciled}`,
+          `${parts.join(", ")}.${opened}${savedDigits}${reconciled}`,
       ),
     };
   });
@@ -5905,8 +6109,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         message:
           `Removed ${result.removed} transactions` +
           (result.keptBecauseEdited.length
-            ? `. ${result.keptBecauseEdited.length} had been edited since and were left alone.`
-            : "."),
+            ? `. ${result.keptBecauseEdited.length} had been edited since and were left alone`
+            : "") +
+          (result.keptBecauseOnStatement.length
+            ? `. ${result.keptBecauseOnStatement.length} were also on a statement imported since and were kept`
+            : "") +
+          ".",
       };
     });
   });
@@ -5996,11 +6204,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const historyFrom = field(ctx.body, "history_from");
       const firstDue = field(ctx.body, "first_instalment_date");
 
+      const holder = guardedField(ctx, "holder_member_id", requireMember);
+      const visibility = field(ctx.body, "visibility") === "private" ? "private" : "household";
+      // WEB-4 · WEB-1's rule at creation: private only to whoever adds it.
+      refuseForeignPrivate(a, null, holder, visibility, "loan");
+
       const loan = createLoan(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         lender: requiredField(ctx.body, "lender"),
         nickname: field(ctx.body, "nickname") || null,
-        holderMemberId: guardedField(ctx, "holder_member_id", requireMember),
-        visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
+        holderMemberId: holderOrSoleMember(holder),
+        visibility,
         // R15 · Where the drawn money landed, if the household said.
         disbursementDestination:
           field(ctx.body, "disbursement_destination") === "budget-account" ? "budget-account"
@@ -6217,11 +6430,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       requireLoanVisible(ctx);
       const loan = getLoan(db, ctx.params.id!);
       if (!loan) throw new NotFound("That loan does not exist.");
+      const holder = guardedField(ctx, "holder_member_id", requireMember);
+      const visibility = field(ctx.body, "visibility") === "private" ? "private" : "household";
+      refuseForeignPrivate(
+        a, getAccount(db, loan.account_id)?.holder_member_id ?? null, holder, visibility, "loan",
+      );
       updateAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
-        loan.account_id, {
-          holder_member_id: guardedField(ctx, "holder_member_id", requireMember),
-          visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
-        });
+        // REV-3 · A sole member's form has no holder field: keep them as holder.
+        loan.account_id, { holder_member_id: holderOrSoleMember(holder), visibility });
       return { redirect: `/loans/${loan.id}`, message: "Saved." };
     }),
   );
@@ -8092,14 +8308,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/family/new", (ctx) =>
     mutate(ctx, (a) => {
       const agreed = field(ctx.body, "agreed_total");
+      const holder = guardedField(ctx, "holder_member_id", requireMember);
+      const visibility = field(ctx.body, "visibility") === "private" ? "private" : undefined;
+      // WEB-4 · WEB-1's rule at creation: private only to whoever adds it.
+      refuseForeignPrivate(a, null, holder, visibility, "loan");
       const loan = createFamilyLoan(db, actorFor(a), {
         counterparty: requiredField(ctx.body, "counterparty"),
         agreedTotal: agreed ? amountField(agreed) : null,
         note: field(ctx.body, "note") || null,
         // H2 / H2.2 · Money lent to your cousin can be yours rather than the
         // household's, the same as an asset or a loan.
-        holderMemberId: guardedField(ctx, "holder_member_id", requireMember),
-        visibility: field(ctx.body, "visibility") === "private" ? "private" : undefined,
+        holderMemberId: holder,
+        visibility,
       });
       return {
         redirect: `/family/${loan.id}`,
@@ -8262,8 +8482,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.post("/insurance/new", (ctx) =>
     mutate(ctx, (a) => {
+      const input = policyInput(ctx);
+      // WEB-4 · WEB-1's rule at creation: private only to whoever adds it.
+      refuseForeignPrivate(a, null, input.holderMemberId ?? null, input.visibility, "policy");
+      input.holderMemberId = holderOrSoleMember(input.holderMemberId);
       const policy = createPolicy(
-        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), policyInput(ctx),
+        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), input,
       );
       return { redirect: `/insurance/${policy.id}`, message: "Added." };
     }),
@@ -8285,7 +8509,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/insurance/:id/edit", (ctx) =>
     mutate(ctx, (a) => {
       const id = requireVisiblePolicy(ctx);
-      updatePolicy(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, policyInput(ctx));
+      const input = policyInput(ctx);
+      refuseForeignPrivate(
+        a, getPolicy(db, id)?.holder_member_id ?? null, input.holderMemberId ?? null,
+        input.visibility, "policy",
+      );
+      // REV-3 · As at creation (UI-8): a sole member's form has no holder field.
+      input.holderMemberId = holderOrSoleMember(input.holderMemberId);
+      updatePolicy(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, input);
       return { redirect: `/insurance/${id}`, message: "Saved." };
     }),
   );
@@ -8572,14 +8803,104 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (result.statements.unmatched) {
       parts.push(`${plural(result.statements.unmatched, "statement")} for no single account of yours, not imported`);
     }
+    // IMP-33 · SafeGold statements, read and waiting on their review.
+    const goldReview = result.gold.token && result.gold.newEntries > 0 && config.features.assets;
+    if (result.gold.statements) {
+      parts.push(`${plural(result.gold.statements, "SafeGold statement")} — ` + (result.gold.newEntries
+        ? `${result.gold.newEntries} new gold ${result.gold.newEntries === 1 ? "entry" : "entries"} to confirm`
+        : "nothing new in it"));
+    }
     // IMPORT-15 · Which detail would open the locked ones, as the upload says it.
     const missing = result.missingDetails.length ? ` ${result.missingDetails.join(" ")}` : "";
+    /*
+     * IMP-20 · The cards whose digits would open the locked ones are listed on
+     * Settings, each with a box for them, so the fetch lands there rather than
+     * on Review. The URL carries ids and how many digits each needs, never a
+     * digit; Settings re-checks each id against what this member can see.
+     */
+    const asks = result.cardDigitsNeeded;
+    const askNote = asks.length
+      ? ` Enter ${asks.length === 1 ? "that card's digits" : "those cards' digits"} below and the next fetch will open ${result.statements.locked === 1 ? "it" : "them"}.`
+      : "";
     const summary = parts.length
-      ? `Read ${result.scanned} messages — ${parts.join(", ")}.${missing}`
+      ? `Read ${result.scanned} messages — ${parts.join(", ")}.${missing}${askNote}`
       : `Read ${result.scanned} messages — nothing new.`;
 
+    // Locked cards land on Settings for their digits. The fetch has already
+    // moved past the SafeGold mail, so a gold plan read in the same fetch
+    // rides along as `gold=` and Settings links to its review.
+    if (asks.length) {
+      const list = asks.map((c) => `${encodeURIComponent(c.accountId)}:${c.digits}`).join(",");
+      const gold = goldReview ? `&gold=${encodeURIComponent(result.gold.token!)}` : "";
+      return { redirect: withNotice(`/settings?card_digits=${list}${gold}#card-digits`, summary) };
+    }
+    if (goldReview) {
+      return { redirect: withNotice(`/portfolio/safegold/review?token=${encodeURIComponent(result.gold.token!)}`, summary) };
+    }
     return { redirect: withNotice(toReview > 0 ? "/review" : "/settings#gmail", summary) };
   });
+
+  /**
+   * IMP-20 · The card's digits, from the list a Gmail fetch left on Settings.
+   * Saved on the card account as the import saves them: the last four for SMS
+   * matching, up to eight kept beside them for statement passwords. Not
+   * checked against a statement here — there is none — so the next fetch is
+   * what tries them. Never echoed: the notice shows the last two.
+   */
+  router.post("/gmail/card-digits", (ctx) =>
+    mutate(ctx, (a) => {
+      refuseGmailWhileViewingAs(a);
+      const account = requireVisibleAccount(ctx, requiredField(ctx.body, "account_id"));
+      if (account.kind !== "credit" || account.closed_at) {
+        throw new Refusal("Only an open card account records a card's digits.");
+      }
+      const digits = parseCardNumber(field(ctx.body, "card_digits") ?? "", { card: true });
+      if (!digits) throw new Refusal("Enter the card number's last four to eight digits.");
+      if (account.last4 && account.last4 !== digits.slice(-4)) {
+        throw new Refusal(
+          `Those digits end differently from the last four recorded on ${account.nickname || account.name}. ` +
+          "Check the card, or change the account's number on its page.",
+        );
+      }
+      setCardNumberDigits(db, actorFor(a), account.id, digits);
+      return {
+        redirect: "/settings#gmail",
+        message: `Saved the card's last ${digits.length} digits (ending ••${digits.slice(-2)}) on ` +
+          `${account.nickname || account.name}. The next fetch will try them.`,
+      };
+    }),
+  );
+
+  /**
+   * IMP-20 · The cards a fetch asked digits for, from `?card_digits=id:n,…`,
+   * kept only when this member can see the account, it is an open card, and
+   * it still has fewer than n digits on file. A forged list can therefore show
+   * a member nothing but forms for their own cards that genuinely lack digits.
+   */
+  /** A SafeGold plan a fetch staged before landing on Settings, if still open for this member. */
+  function pendingGoldToken(ctx: RequestContext, memberId: string): string | null {
+    const token = ctx.query.get("gold");
+    return token && peekSafeGoldPlan(token, memberId) ? token : null;
+  }
+
+  function cardDigitAsks(ctx: RequestContext): { accountId: string; name: string; digits: 4 | 6 }[] {
+    const raw = ctx.query.get("card_digits");
+    if (!raw) return [];
+    const visible = new Map(
+      listAccounts(db, { viewerMemberId: viewer(ctx) }).map((acc) => [acc.id, acc] as const),
+    );
+    const asks: { accountId: string; name: string; digits: 4 | 6 }[] = [];
+    for (const item of raw.split(",").slice(0, 20)) {
+      const [id, n] = item.split(":");
+      const digits = n === "6" ? 6 : n === "4" ? 4 : null;
+      const account = id ? visible.get(id) : undefined;
+      if (!digits || !account || account.kind !== "credit" || account.closed_at) continue;
+      if ((cardNumberDigits(db, account.id) ?? "").length >= digits) continue;
+      if (asks.some((x) => x.accountId === account.id)) continue;
+      asks.push({ accountId: account.id, name: account.nickname || account.name, digits });
+    }
+    return asks;
+  }
 
   /** `10` §3.6 · What statement passwords are worked out from. */
   router.post("/settings/identity", (ctx) => {
@@ -8836,7 +9157,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       requireAssets();
 
-      const plan = takePlan(requiredField(ctx.body, "token"), a.member.id);
+      // REV-1 · Left in the stash until it is applied: a refusal can be retried.
+      const token = requiredField(ctx.body, "token");
+      const plan = peekPlan(token, a.member.id);
       if (!plan) {
         return {
           // A fixed key, not the text: the page shows only errors it knows
@@ -8853,6 +9176,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const result = applyCasPlan(
         db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), plan, chosen,
       );
+      takePlan(token, a.member.id);
 
       const parts = [`${result.lots} ${result.lots === 1 ? "lot" : "lots"}`];
       if (result.sales > 0) {
@@ -8870,6 +9194,106 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         message:
           `Recorded ${parts.join(", ")}. ` +
           `New schemes start on manual pricing — set a NAV source when you want live values.`,
+      };
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // IMP-32 · SafeGold statement import — digital gold, the way a CAS is funds.
+  // -------------------------------------------------------------------------
+
+  /** Plan, stash and show what the statements would record. Nothing is written. */
+  function safeGoldReview(ctx: RequestContext, memberId: string, statements: SafeGoldStatement[]) {
+    const plan = planSafeGoldImport(db, statements, viewer(ctx));
+    const token = newId();
+    stashSafeGoldPlan(token, plan, memberId);
+    return render(ctx, "What this SafeGold statement says", renderSafeGoldReview({ plan, token }));
+  }
+
+  router.get("/portfolio/safegold", (ctx) => {
+    requireAssets();
+    auth(ctx);
+    return render(ctx, "Import a SafeGold statement", renderSafeGoldUpload({
+      error: ctx.query.get("error") === "expired"
+        ? "That statement is no longer open — read it again and confirm within half an hour."
+        : null,
+    }));
+  });
+
+  router.post("/portfolio/safegold", (ctx) => {
+    requireAssets();
+    const a = auth(ctx);
+    const again = (error: string) =>
+      render(ctx, "Import a SafeGold statement", renderSafeGoldUpload({ error }));
+    const upload = fileField(ctx.req, "statement");
+    if (!upload) return again("Choose the statement PDF first.");
+
+    // PR5 · Typed, or worked out from the saved details; used here and gone.
+    const typed = field(ctx.body, "password") ?? "";
+    const identity = getIdentity(db, a.member.id);
+    const candidates = typed !== "" ? [typed] : identity ? [...passwordCandidates(identity, null, {}), ""] : [""];
+    let statement: SafeGoldStatement | null = null;
+    let text = "";
+    let notAStatement: string | null = null;
+    for (const candidate of candidates) {
+      try {
+        const parsed = parseStatementPdf(upload.bytes, candidate);
+        text = parsed.text;
+        notAStatement = parsed.notAStatement ?? null;
+        statement = isSafeGoldText(text) ? parseSafeGoldText(text) : null;
+        break;
+      } catch (error) {
+        if (error instanceof StatementWrongPassword || error instanceof WrongPassword) continue;
+        return again(`That file could not be read. ${(error as Error).message}`);
+      }
+    }
+    if (!text && !statement) {
+      return again(identity && typed === ""
+        ? "None of the passwords worked out from your saved details opened this. Type it above."
+        : "That password did not open the statement. It is the first four letters of your name " +
+          "in capitals, then your mobile's last four.");
+    }
+    // IMP-35 · Gold bought through a partner bank's app: a balance with no rows.
+    if (!statement && notAStatement === SAFEGOLD_DISTRIBUTOR_BALANCE) {
+      return again(`That PDF is ${SAFEGOLD_DISTRIBUTOR_BALANCE}. It lists no transactions, so there is nothing to import.`);
+    }
+    if (!statement) {
+      return again("That PDF opened, but it is not a SafeGold statement — nothing was imported.");
+    }
+    return safeGoldReview(ctx, a.member.id, [statement]);
+  });
+
+  /** The review of a plan read elsewhere — a Gmail fetch — while it is still open. */
+  router.get("/portfolio/safegold/review", (ctx) => {
+    requireAssets();
+    const a = auth(ctx);
+    const token = ctx.query.get("token") ?? "";
+    const plan = peekSafeGoldPlan(token, a.member.id);
+    if (!plan) return { redirect: "/portfolio/safegold?error=expired" };
+    return render(ctx, "What this SafeGold statement says", renderSafeGoldReview({ plan, token }));
+  });
+
+  router.post("/portfolio/safegold/confirm", (ctx) =>
+    mutate(ctx, (a) => {
+      requireAssets();
+      // REV-1 · Left in the stash until it is applied: a refused confirmation
+      // can be retried with "import it anyway".
+      const token = requiredField(ctx.body, "token");
+      const plan = peekSafeGoldPlan(token, a.member.id);
+      if (!plan) return { redirect: "/portfolio/safegold?error=expired" };
+      const result = applySafeGoldPlan(
+        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), plan,
+        { acceptMismatch: field(ctx.body, "accept_mismatch") === "1" },
+      );
+      takeSafeGoldPlan(token, a.member.id);
+      if (result.lots + result.sales === 0) {
+        return { redirect: "/portfolio", message: "Nothing new in that statement, so nothing was recorded." };
+      }
+      const parts = [`${result.lots} ${result.lots === 1 ? "purchase" : "purchases"}`];
+      if (result.sales > 0) parts.push(`${result.sales} ${result.sales === 1 ? "sale" : "sales"}`);
+      return {
+        redirect: "/portfolio",
+        message: `Recorded ${parts.join(", ")} of SafeGold gold. Undo it from Activity if it is not right.`,
       };
     }),
   );
@@ -8931,7 +9355,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         };
         // BONDS-1 · The by-hand form asks whether a bond is listed; a tick is
         // a yes and no tick a no. Any other kind leaves it unrecorded.
-        const listed = typed.kind === "bond" ? field(ctx.body, "listed") === "1" : null;
+        /*
+         * ENG-15 · And whether a share is listed on a recognised stock exchange,
+         * ticked to start. Only a form that asked (share_listed_asked) can say
+         * no by leaving it unticked; a post that never asked leaves it
+         * unrecorded, which a share is taxed as listed for.
+         */
+        const listed = typed.kind === "bond"
+          ? field(ctx.body, "listed") === "1"
+          : typed.kind === "equity" && field(ctx.body, "share_listed_asked") === "1"
+            ? field(ctx.body, "share_listed") === "1"
+            : null;
         // WEALTH-11 · The same name typed again is the same instrument.
         const found = symbol ? null : findManualInstrument(db, typed, memberScope(db, viewer(ctx)).instruments);
         if (found) {
@@ -9014,7 +9448,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }),
   );
 
-  // BONDS-1 · Whether a bond is listed, from its holding page.
+  // BONDS-1 · Whether a bond is listed, from its holding page. ENG-15 · A share's too.
   router.post("/portfolio/instrument/:id/listed", (ctx) =>
     mutate(ctx, (a) => {
       requireAssets();
@@ -9337,6 +9771,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     auth(ctx);
     return render(ctx, "Add an asset", renderNewAssetForm({
       today: todayIST(),
+      subtype: ctx.query.get("subtype"),
       members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
       payFrom: listAccounts(db, { viewerMemberId: viewer(ctx) })
         .filter((acc) => acc.kind === "budget")
@@ -9350,12 +9785,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/portfolio/asset/new", (ctx) =>
     mutate(ctx, (a) => {
       requireAssets();
-      const valueRaw = field(ctx.body, "value");
+      // UI-4 · An investment account is worth its holdings (derivedWorth), so a
+      // value typed for one would be stored and never read.
+      const subtype = requiredField(ctx.body, "subtype") as "physical";
+      const valueRaw = (subtype as string) === "investment" ? undefined : field(ctx.body, "value");
+      const holder = guardedField(ctx, "holder_member_id", requireMember);
+      const visibility = field(ctx.body, "visibility") === "private" ? "private" : "household";
+      // WEB-4 · WEB-1's rule at creation: private only to whoever adds it.
+      refuseForeignPrivate(a, null, holder, visibility, "asset");
       const account = createAssetAccount(db, actorFor(a), {
-        holderMemberId: guardedField(ctx, "holder_member_id", requireMember),
-        visibility: field(ctx.body, "visibility") === "private" ? "private" : "household",
+        holderMemberId: holderOrSoleMember(holder),
+        visibility,
         name: requiredField(ctx.body, "name"),
-        subtype: requiredField(ctx.body, "subtype") as "physical",
+        subtype,
         openingValue: valueRaw?.trim() ? amountField(valueRaw) : undefined,
         asOf: dateField(field(ctx.body, "as_of"), "As of"),
       });
@@ -10091,6 +10533,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         s80dCheckup: money("s80d_checkup"),
         s80dParentsCheckup: money("s80d_parents_checkup"),
         other: money("other"),
+        // ENG-7 · Employer NPS, allowed under both regimes.
+        s80ccd2: money("s80ccd2"),
+        s80ccd2Government: field(ctx.body, "s80ccd2_government") === "1",
         hra: (received || rentPaid || basic)
           ? { received, rentPaid, basic, metro: field(ctx.body, "hra_metro") === "1" }
           : null,

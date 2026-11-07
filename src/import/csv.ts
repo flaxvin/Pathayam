@@ -14,6 +14,39 @@
 import { parseAmount, type Paise } from "../core/money.ts";
 import { calendarDate, fullYear, parseDate, type IsoDate } from "../core/dates.ts";
 
+export type CsvEncoding = "UTF-8" | "UTF-16LE" | "UTF-16BE";
+
+/**
+ * IMP-6 · An uploaded CSV file's bytes as text.
+ *
+ * Decoded by its byte-order mark: Excel's "Unicode text" export is UTF-16
+ * little-endian with a mark, its "CSV UTF-8" has a UTF-8 one. A file with no
+ * mark is read as UTF-8. Bytes that are not UTF-8 (an old Windows-1252
+ * export) become U+FFFD rather than refusing the file, and `fellBack` says
+ * so, so the import can tell the person why a name may look wrong.
+ */
+export function decodeCsvBytes(
+  bytes: Uint8Array,
+): { text: string; encoding: CsvEncoding; fellBack: boolean } {
+  let encoding: CsvEncoding = "UTF-8";
+  let body = bytes;
+  if (bytes[0] === 0xff && bytes[1] === 0xfe) {
+    encoding = "UTF-16LE";
+    body = bytes.subarray(2);
+  } else if (bytes[0] === 0xfe && bytes[1] === 0xff) {
+    encoding = "UTF-16BE";
+    body = bytes.subarray(2);
+  } else if (bytes[0] === 0xef && bytes[1] === 0xbb && bytes[2] === 0xbf) {
+    body = bytes.subarray(3);
+  }
+  const label = encoding.toLowerCase();
+  try {
+    return { text: new TextDecoder(label, { fatal: true, ignoreBOM: true }).decode(body), encoding, fellBack: false };
+  } catch {
+    return { text: new TextDecoder(label, { ignoreBOM: true }).decode(body), encoding, fellBack: true };
+  }
+}
+
 /**
  * Parse delimited text into rows, honouring quotes and embedded newlines.
  *
@@ -376,6 +409,7 @@ export function applyMapping(rows: string[][], mapping: ColumnMapping): ParseRes
   const errors: ParseError[] = [];
   let rowsRead = 0;
   const bare = bareSign(rows, mapping);
+  const fromBalance = balanceSigns(rows, mapping);
 
   for (let r = mapping.headerRow + 1; r < rows.length; r++) {
     const cells = rows[r] ?? [];
@@ -401,11 +435,19 @@ export function applyMapping(rows: string[][], mapping: ColumnMapping): ParseRes
       errors.push({ rowNumber: r + 1, cells, reason: reason ?? "No amount on this row." });
       continue;
     }
+    const way = fromBalance?.get(r);
+    if (way === null) {
+      errors.push({
+        rowNumber: r + 1, cells,
+        reason: `"${rawAmount}" does not say whether it was money out or in, and no balance before this row shows which.`,
+      });
+      continue;
+    }
 
     records.push({
       rowNumber: r + 1,
       date,
-      amount,
+      amount: way === undefined ? amount : (way * Math.abs(amount)) as Paise,
       narration,
       reference: mapping.reference !== undefined ? readReference(cells[mapping.reference] ?? "") : null,
       raw: { date: rawDate, amount: rawAmount, narration },
@@ -439,12 +481,79 @@ function bareSign(rows: string[][], mapping: ColumnMapping): 1 | -1 {
   if (mapping.debit !== undefined && mapping.credit !== undefined) return 1;
   let markedIn = false;
   for (let r = mapping.headerRow + 1; r < rows.length; r++) {
+    // IMP-3 · Only transaction rows vote. A "Total Amount Due … Dr" or
+    // "Closing Balance … Cr" footer has no date, is skipped as a row, and
+    // used to flip the sign of every bare figure in the file.
+    if (!readDate((rows[r]?.[mapping.date] ?? "").trim(), mapping)) continue;
     const raw = (rows[r]?.[mapping.amount] ?? "").trim();
     if (raw === "" || BARE_FIGURE.test(raw)) continue;
     if (MARKED_OUT.test(raw)) return 1;
     if (MARKED_IN.test(raw)) markedIn = true;
   }
   return markedIn ? -1 : 1;
+}
+
+/** A line that states the balance before the first row. */
+const OPENING_LINE = /opening\s+balance|brought\s+forward|\bb\/f\b/i;
+
+/**
+ * IMP-8 · Which way each row went, read from the balance column: 1 in, -1
+ * out, keyed by row index. Null for the whole file when it does not apply.
+ *
+ * A single amount column that is bare throughout ("1,299.00") says nothing
+ * about direction, and every row imported as money in. The running balance
+ * does: its movement from one row to the next is the amount, sign included —
+ * the PDF reader's rule 1. Only when every amount is bare (a file that marks
+ * any of them already says), a balance column is mapped, and every movement
+ * matches its printed amount, read top to bottom or, for a newest-first
+ * export, bottom to top. The earliest row has no balance before it unless the
+ * file prints an opening balance; without one it maps to null, and is
+ * reported rather than guessed.
+ */
+function balanceSigns(rows: string[][], mapping: ColumnMapping): Map<number, 1 | -1 | null> | null {
+  if (mapping.amount === undefined || mapping.balance === undefined) return null;
+  if (mapping.direction !== undefined) return null;
+  if (mapping.debit !== undefined && mapping.credit !== undefined) return null;
+
+  const dated: { r: number; date: IsoDate; amount: number; balance: number }[] = [];
+  let opening: number | null = null;
+  for (let r = mapping.headerRow + 1; r < rows.length; r++) {
+    const cells = rows[r] ?? [];
+    const date = readDate((cells[mapping.date] ?? "").trim(), mapping);
+    if (!date) {
+      if (opening === null && dated.length === 0 && cells.some((c) => OPENING_LINE.test(c))) {
+        opening = parseAmount((cells[mapping.balance] ?? "").trim(), "statement");
+      }
+      continue;
+    }
+    const raw = (cells[mapping.amount] ?? "").trim();
+    if (!BARE_FIGURE.test(raw)) return null;
+    const amount = parseAmount(raw, "statement");
+    const balance = parseAmount((cells[mapping.balance] ?? "").trim(), "statement");
+    if (amount === null || balance === null) return null;
+    dated.push({ r, date, amount: Math.abs(amount), balance });
+  }
+  if (dated.length < 2 && opening === null) return null;
+  if (dated.length === 0) return null;
+
+  const moved = (row: { amount: number; balance: number }, before: number) =>
+    Math.abs(Math.abs(row.balance - before) - row.amount) <= 1;
+  const fits = (order: typeof dated) => order.every((row, i) => i === 0 || moved(row, order[i - 1]!.balance));
+  const reversed = [...dated].reverse();
+  const forward = fits(dated);
+  const backward = fits(reversed);
+  let chronological: typeof dated;
+  if (forward && backward) chronological = dated[0]!.date > dated[dated.length - 1]!.date ? reversed : dated;
+  else if (forward) chronological = dated;
+  else if (backward) chronological = reversed;
+  else return null;
+
+  const out = new Map<number, 1 | -1 | null>();
+  chronological.forEach((row, i) => {
+    const before = i === 0 ? opening : chronological[i - 1]!.balance;
+    out.set(row.r, before === null || !moved(row, before) ? null : row.balance >= before ? 1 : -1);
+  });
+  return out;
 }
 
 function readAmount(

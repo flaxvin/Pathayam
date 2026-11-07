@@ -273,6 +273,16 @@ describe("04 §3.3 · the details that invert a transaction if wrong", () => {
     assert.deepEqual(parseStatementAmount("1,45,000.00"), { value: 145000, credit: false });
   });
 
+  // IMP-11 · As `parseAmount` refuses it: "1,23" is a mangled cell, not ₹123.
+  test("mangled grouping is refused, as the CSV reader refuses it", () => {
+    for (const bad of ["1,23", "1,23.00", "1,2,3,4", "12,3456.00", "₹ 1,23 Cr"]) {
+      assert.equal(parseStatementAmount(bad), null, bad);
+    }
+    assert.deepEqual(parseStatementAmount("1,234.00"), { value: 1234, credit: false });
+    assert.deepEqual(parseStatementAmount("C 12,34,567.89"), { value: 1234567.89, credit: false });
+    assert.deepEqual(parseStatementAmount("+499.00"), { value: 499, credit: false });
+  });
+
   // "1,200.00Cr" with the marker attached: `\bcr` never matched after a digit,
   // so the cell was unreadable here while CSV read it as ₹120 crore. Both now
   // agree on a ₹1,200 credit.

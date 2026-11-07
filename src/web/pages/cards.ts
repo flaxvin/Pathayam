@@ -31,7 +31,9 @@ export interface CardDue {
   startingDebtNote?: string | null;
   /** The most recent statement, when one has been recorded. */
   statement: { amount: Paise; date: IsoDate; due: IsoDate; minimum: Paise | null } | null;
-  /** Days until the statement's due date; negative once it has passed. */
+  /** UI-9 · With no statement, the next due date by the card's stored due day. */
+  dueByDay?: IsoDate | null;
+  /** Days until the statement's due date (or, with none, `dueByDay`); negative once it has passed. */
   daysToDue: number | null;
   /** B127 · What has come off the card since the statement was issued. */
   paidSinceStatement: Paise;
@@ -154,10 +156,15 @@ function renderCard(card: CardDue, month: string): SafeHtml {
                       : raw("")
                   }
                 `
-              : html`
-                  No statement recorded yet — the due date is whatever the bank
-                  says until you enter one.
-                `}
+              : card.dueByDay
+                ? html`
+                    No statement recorded yet — due ${formatDate(card.dueByDay)} by the card's due day.
+                    Enter the statement to confirm what the bank asks for.
+                  `
+                : html`
+                    No statement recorded yet — the due date is whatever the bank
+                    says until you enter one.
+                  `}
           </div>
         </div>
         <div style="text-align:right">
@@ -175,11 +182,13 @@ function renderCard(card: CardDue, month: string): SafeHtml {
       <div class="row" style="gap:2rem;flex-wrap:wrap;margin-top:.75rem">
         <div>
           <!-- The payment envelope's balance. Below zero it is not money put by
-               at all (a minus figure under that heading read as savings) but an
-               envelope that has paid out more than it held, so it says that. -->
+               at all (a minus figure under that heading read as savings) but
+               payments to the card beyond what was set aside for it. UI-11:
+               calling the envelope overspent, on a card that owed nothing, read
+               as money still owed on it, so it says what happened instead. -->
           ${card.funded < 0
             ? html`
-                <div class="faint">Payment envelope overspent</div>
+                <div class="faint">Paid beyond what was set aside</div>
                 <span class="amount amount-negative">${formatPaise(-card.funded as Paise)}</span>
               `
             : html`
@@ -194,6 +203,16 @@ function renderCard(card: CardDue, month: string): SafeHtml {
           </div>
         `)}
       </div>
+
+      ${when(card.funded < 0, () => html`
+        <p class="notice notice-warning" style="margin-top:.75rem">
+          Paid ${formatPaise(-card.funded as Paise)} more than was set aside for this card — cover it from another envelope.
+          ${when(card.owed <= 0, () => html`The card itself owes nothing.`)}
+          ${when(card.paymentCategoryId, () => html`
+            <a href="/move?to=${card.paymentCategoryId}&amount=${(-card.funded / 100).toFixed(2)}&month=${month}">Cover it</a>
+          `)}
+        </p>
+      `)}
 
       ${when(card.unfunded > 0, () => html`
         <p class="notice notice-warning" style="margin-top:.75rem">

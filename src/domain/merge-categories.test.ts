@@ -15,13 +15,14 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { openDatabase, ensureHousehold, execute, queryOne } from "../db/db.ts";
+import { openDatabase, ensureHousehold, execute, queryOne, queryAll } from "../db/db.ts";
 import { nowIST } from "../core/dates.ts";
 import { rupees, formatPaise } from "../core/money.ts";
 import { historyFor, undoEvent, type Actor } from "../core/events.ts";
 import { createAccount } from "./accounts.ts";
 import { createGroup, createCategory, setAssigned, mergeCategories, setTarget, getCategory } from "./budget.ts";
 import { createTransaction } from "./transactions.ts";
+import { createSchedule, setScheduleSplits } from "./schedules.ts";
 import { computeBudget, identityResidual } from "../engine/engine.ts";
 import { loadEngineInput } from "../engine/repository.ts";
 import { Refusal } from "../core/refusal.ts";
@@ -214,6 +215,41 @@ describe("BUDGET-8 · undoing a merge gives back what it moved", () => {
     assert.equal(queryOne<{ n: number }>(
       db, `SELECT COUNT(*) AS n FROM targets WHERE category_id = ?`, restaurants)!.n, 0);
     assertIdentity(db, "after the undo");
+  });
+
+  /*
+   * ENG-4 · The merge moves a split schedule's lines and the rules that file
+   * into the loser, and recorded neither — so after the undo the rent's
+   * "Eating out" line went on posting ₹400 into Restaurants on every Mark
+   * paid, and every Swiggy import was filed there too.
+   */
+  test("a split schedule's lines and the rules come back to the loser", () => {
+    const { db, bank, eatingOut, restaurants } = household();
+    const schedule = createSchedule(db, actor, {
+      name: "Club bill", accountId: bank, amount: -rupees(1_000) as number,
+      recurrence: "monthly", nextDue: "2026-08-20", splitsFollow: true,
+    });
+    setScheduleSplits(db, actor, schedule.id, [
+      { categoryId: eatingOut, amount: -rupees(400) },
+      { categoryId: restaurants, amount: -rupees(600) },
+    ]);
+    const rule = "rule-swiggy";
+    execute(db,
+      `INSERT INTO rules (id,name,stage,conditions_json,actions_json,created_at) VALUES (?,?,?,?,?,?)`,
+      rule, "Swiggy", "default", JSON.stringify({ payee: "Swiggy" }),
+      JSON.stringify({ categoryId: eatingOut }), nowIST());
+
+    mergeCategories(db, actor, eatingOut, restaurants);
+    const ev = historyFor(db, "category", eatingOut).find((e) => e.action === "merge")!;
+    assert.equal(undoEvent(db, ev.id, actor).ok, true);
+
+    const lines = queryAll<{ category_id: string; amount: number }>(
+      db, `SELECT category_id, amount FROM schedule_splits WHERE schedule_id = ? ORDER BY amount DESC`,
+      schedule.id);
+    assert.deepEqual(lines.map((l) => l.category_id), [eatingOut, restaurants],
+      "the ₹400 line still files into Restaurants");
+    assert.match(queryOne<{ actions_json: string }>(
+      db, `SELECT actions_json FROM rules WHERE id = ?`, rule)!.actions_json, new RegExp(eatingOut));
   });
 
   test("a merge logged without that record is refused, not 'restored' empty", () => {

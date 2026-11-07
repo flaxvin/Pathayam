@@ -27,8 +27,11 @@ import type { RawRecord } from "../import/csv.ts";
 import { accountsByLast4For, cardsByLast4For } from "../domain/accounts.ts";
 import { hiddenAccountSql } from "../domain/member-scope.ts";
 import { ALERT_PROFILES, parseAlert, looksLikeUnreadAlert } from "../import/email-alerts.ts";
-import { senderFor, parseStatementPdf, WrongPassword, STATEMENT_SENDERS } from "../import/pdf-statements.ts";
-import { passwordCandidates, missingDetailFor } from "../import/statement-passwords.ts";
+import {
+  senderFor, parseStatementPdf, WrongPassword, STATEMENT_SENDERS, bankForInstitution, SAFEGOLD_DISTRIBUTOR_BALANCE,
+} from "../import/pdf-statements.ts";
+import { passwordCandidates, missingDetailFor, cardDigitsNeeded } from "../import/statement-passwords.ts";
+import { cardNumberDigits } from "../domain/card-digits.ts";
 import { getIdentity } from "../import/identity.ts";
 import { getConnection, markFetched, type GmailConnection } from "./connection.ts";
 import { refreshAccessToken } from "./oauth.ts";
@@ -37,6 +40,9 @@ import {
   type GmailClientOptions,
 } from "./client.ts";
 import { Refusal } from "../core/refusal.ts";
+import { newId } from "../db/db.ts";
+import { isSafeGoldText, parseSafeGoldText, type SafeGoldStatement } from "../import/safegold.ts";
+import { planSafeGoldImport, stashSafeGoldPlan } from "../import/safegold-plan.ts";
 
 export interface FetchResult {
   scanned: number;
@@ -49,8 +55,19 @@ export interface FetchResult {
    * Names the field, never a value.
    */
   missingDetails: string[];
+  /**
+   * IMP-20 · The card accounts whose statement stayed locked for want of the
+   * card's digits, and how many the bank's rule needs: what the fetch notice
+   * offers a form for. Names and ids only, never a digit.
+   */
+  cardDigitsNeeded: { accountId: string; name: string; digits: 4 | 6 }[];
   /** Of the staged rows, those a rule approved straight into the ledger, so not in Review. */
   autoApproved: number;
+  /**
+   * IMP-33 · SafeGold statements read, as one plan awaiting confirmation:
+   * `token` opens its review (`/portfolio/safegold/review`) for half an hour.
+   */
+  gold: { statements: number; newEntries: number; token: string | null };
   notes: string[];
 }
 
@@ -111,9 +128,12 @@ export async function fetchGmail(
     alerts: { parsed: 0, staged: 0, unmatched: 0, unread: 0 },
     statements: { read: 0, staged: 0, locked: 0, unmatched: 0 },
     missingDetails: [],
+    cardDigitsNeeded: [],
     autoApproved: 0,
+    gold: { statements: 0, newEntries: 0, token: null },
     notes: [],
   };
+  const gold: SafeGoldStatement[] = [];
 
   // A first fetch reaches back 90 days; later fetches only need a short window,
   // but the content-hash dedupe makes a wider window harmless.
@@ -152,7 +172,7 @@ export async function fetchGmail(
     const statementSender = senderFor(sender);
     const pdfs = pdfAttachments(message);
     if (statementSender && pdfs.length > 0) {
-      await handleStatement(db, actor, deps, client, memberId, id, pdfs, statementSender, result);
+      await handleStatement(db, actor, deps, client, memberId, id, pdfs, statementSender, result, gold);
       continue;
     }
 
@@ -192,6 +212,18 @@ export async function fetchGmail(
     });
     result.alerts.staged += outcome.staged;
     result.autoApproved += outcome.autoApproved;
+  }
+
+  /*
+   * IMP-33 · Gold is proposed, never written by a fetch (`04` I2): the
+   * statements become one plan — a few months of them, or one mailed twice,
+   * matched row by row — that the person confirms on its review.
+   */
+  if (gold.length > 0) {
+    const plan = planSafeGoldImport(db, gold, memberId);
+    const token = newId();
+    stashSafeGoldPlan(token, plan, memberId);
+    result.gold = { statements: gold.length, newEntries: plan.totals.newEntries, token };
   }
 
   markFetched(db, memberId, latestHistoryId(connection));
@@ -273,6 +305,7 @@ async function handleStatement(
   pdfs: { filename: string; attachmentId: string }[],
   statementSender: { bank: import("../import/pdf-statements.ts").BankId | null; what: string },
   result: FetchResult,
+  gold: SafeGoldStatement[],
 ): Promise<void> {
   const identity = getIdentity(db, memberId);
 
@@ -289,7 +322,7 @@ async function handleStatement(
     // path handed it nothing, so the same file that opened when uploaded was
     // "could not open" when mailed. The digits are only ever candidates tried
     // in memory, never logged or stored.
-    const cardDigits = statementCardDigits(db, memberId, statementSender.bank);
+    const cardDigits = statementCardDigits(db, memberId, statementSender);
     const candidates = identity
       ? passwordCandidates(identity, statementSender.bank, { cardDigits })
       : [""];
@@ -316,14 +349,29 @@ async function handleStatement(
         ? missingDetailFor(statementSender.bank, identity, cardDigits)
         : null;
       if (missing && !result.missingDetails.includes(missing)) result.missingDetails.push(missing);
+      if (!unreadable && identity) {
+        for (const card of cardsLackingDigits(db, memberId, statementSender, identity)) {
+          if (!result.cardDigitsNeeded.some((c) => c.accountId === card.accountId)) {
+            result.cardDigitsNeeded.push(card);
+          }
+        }
+      }
       continue;
     }
     result.statements.read++;
 
+    // IMP-33 · Digital gold has no bank account to land in; it is a holding.
+    if (isSafeGoldText(parsed.text)) { gold.push(parseSafeGoldText(parsed.text)); continue; }
+    // IMP-35 · Gold held through a partner bank's app: a balance, no rows, no account.
+    if (parsed.notAStatement === SAFEGOLD_DISTRIBUTOR_BALANCE) {
+      result.notes.push(`${pdf.filename}: ${SAFEGOLD_DISTRIBUTOR_BALANCE}, with no transactions — nothing to import`);
+      continue;
+    }
+
     // Resolve the account from the statement's own header — the parser does not
     // expose an account number, so fall back to the single account for that
     // bank if there is exactly one. Left to Review otherwise.
-    const accountId = resolveStatementAccount(db, memberId, statementSender.bank);
+    const accountId = resolveStatementAccount(db, memberId, statementSender);
     if (!accountId) { result.statements.unmatched++; result.notes.push(`${pdf.filename}: no matching account`); continue; }
 
     const outcome = ingest(db, actor, {
@@ -336,25 +384,79 @@ async function handleStatement(
   }
 }
 
-function resolveStatementAccount(
-  db: DB, memberId: string, bank: import("../import/pdf-statements.ts").BankId | null,
-): string | null {
-  const rows = statementAccounts(db, memberId, bank);
+type StatementSenderRef = { bank: import("../import/pdf-statements.ts").BankId | null; what: string };
+
+/**
+ * IMP-20 · The card accounts a locked statement could be for, when the card's
+ * digits are what its bank's rule needs: the open credit accounts at that bank
+ * the fetching member can see, each still short of that many digits. An
+ * account statement (SBI's wants the mobile) asks for none.
+ */
+function cardsLackingDigits(
+  db: DB, memberId: string, sender: StatementSenderRef,
+  identity: import("../import/statement-passwords.ts").StatementIdentity,
+): { accountId: string; name: string; digits: 4 | 6 }[] {
+  if (statementKind(sender.what) === "bank") return [];
+  // REV-5 · Each card by its own digits: another card at the bank having its
+  // four says nothing about this one's.
+  const cards = accountsAtBank(db, memberId, sender.bank).filter((a) => a.kind === "credit");
+  return cards.flatMap((a) => {
+    const needed = cardDigitsNeeded(sender.bank, identity, [cardNumberDigits(db, a.id)]);
+    return needed ? [{ accountId: a.id, name: a.name, digits: needed }] : [];
+  });
+}
+
+function resolveStatementAccount(db: DB, memberId: string, sender: StatementSenderRef): string | null {
+  const rows = statementAccounts(db, memberId, sender);
   return rows.length === 1 ? rows[0]!.id : null;
 }
 
-/** Open accounts at `bank` the fetching member can see. */
-function statementAccounts(
+/**
+ * IMP-9 · Which kind of account a sender's statement is for, from its entry's
+ * `what`: a card statement goes to a credit account, an account statement to
+ * a bank account. Null when the entry does not say ("Axis statement").
+ */
+function statementKind(what: string): "credit" | "bank" | null {
+  if (/\bcard\b/i.test(what)) return "credit";
+  if (/\baccount statement\b/i.test(what)) return "bank";
+  return null;
+}
+
+/**
+ * Open accounts at the sender's bank the fetching member can see.
+ *
+ * IMP-9 · A savings account and a card at the same bank were two candidates,
+ * so neither got the statement. Where the sender says which kind it sends,
+ * the accounts of that kind are preferred; when there are none of that kind,
+ * every account at the bank stays a candidate, as before.
+ */
+function statementAccounts(db: DB, memberId: string, sender: StatementSenderRef): { id: string }[] {
+  const atBank = accountsAtBank(db, memberId, sender.bank);
+  const kind = statementKind(sender.what);
+  if (!kind) return atBank.map((a) => ({ id: a.id }));
+  const ofKind = atBank.filter((a) => (a.kind === "credit") === (kind === "credit"));
+  return (ofKind.length > 0 ? ofKind : atBank).map((a) => ({ id: a.id }));
+}
+
+function accountsAtBank(
   db: DB, memberId: string, bank: import("../import/pdf-statements.ts").BankId | null,
-): { id: string }[] {
+): { id: string; kind: string; name: string }[] {
   if (!bank) return [];
   // Among the fetching member's own view, as for alerts: another member's
   // private account at the same bank is neither a candidate nor a rival.
+  //
+  // IMP-4 · The bank as the upload path recognises it — its name or its
+  // signatures ("State Bank of India", "Standard Chartered") — or its id as a
+  // word of its own ("SBI Card", "HDFC"). A substring match on the id missed
+  // the first two and took "Scotiabank" for "sc".
   const hidden = hiddenAccountSql("a", memberId);
+  const word = new RegExp(`\\b${bank}\\b`, "i");
   return (db.prepare(
-    `SELECT a.id FROM accounts a
-      WHERE a.closed_at IS NULL AND lower(a.institution) LIKE ? AND NOT ${hidden.sql}`,
-  ).all(`%${bank}%`, ...hidden.params)) as { id: string }[];
+    `SELECT a.id, a.kind, a.institution, COALESCE(a.nickname, a.name) AS name FROM accounts a
+      WHERE a.closed_at IS NULL AND a.institution IS NOT NULL AND NOT ${hidden.sql}`,
+  ).all(...hidden.params) as { id: string; kind: string; institution: string; name: string }[])
+    .filter((a) => bankForInstitution(a.institution) === bank || word.test(a.institution))
+    .map((a) => ({ id: a.id, kind: a.kind, name: a.name }));
 }
 
 /**
@@ -363,7 +465,8 @@ function statementAccounts(
  * The statement routes to the one account at its bank when there is exactly
  * one, so that account's last four and its cards' are the digits — what the
  * upload path uses, plus the add-on cards a household records on the card
- * rather than the account. When the route is unknown (no account at that
+ * rather than the account, and (IMP-18) the up-to-eight trailing digits a
+ * card account may hold for HSBC's last six. When the route is unknown (no account at that
  * bank, or several), every visible account's and card's digits are offered:
  * trying a handful of extra candidates against a local file costs nothing,
  * and a statement that opens but has nowhere to go is then said as such
@@ -371,9 +474,9 @@ function statementAccounts(
  * offered, as for routing.
  */
 function statementCardDigits(
-  db: DB, memberId: string, bank: import("../import/pdf-statements.ts").BankId | null,
+  db: DB, memberId: string, sender: StatementSenderRef,
 ): string[] {
-  const atBank = statementAccounts(db, memberId, bank);
+  const atBank = statementAccounts(db, memberId, sender);
   const hidden = hiddenAccountSql("a", memberId);
   const scope = atBank.length === 1
     ? { sql: "a.id = ?", params: [atBank[0]!.id] as string[] }
@@ -384,8 +487,14 @@ function statementCardDigits(
      UNION
      SELECT c.last4 AS digits FROM cards c JOIN accounts a ON a.id = c.account_id
       WHERE c.closed_at IS NULL AND a.closed_at IS NULL AND c.last4 IS NOT NULL
+        AND ${scope.sql} AND NOT ${hidden.sql}
+     UNION
+     SELECT d.digits AS digits FROM card_number_digits d JOIN accounts a ON a.id = d.account_id
+      WHERE a.closed_at IS NULL AND substr(d.digits, -4) = a.last4
         AND ${scope.sql} AND NOT ${hidden.sql}`,
-  ).all(...scope.params, ...hidden.params, ...scope.params, ...hidden.params) as { digits: string }[];
+  ).all(
+    ...scope.params, ...hidden.params, ...scope.params, ...hidden.params, ...scope.params, ...hidden.params,
+  ) as { digits: string }[];
   return rows.map((r) => r.digits);
 }
 

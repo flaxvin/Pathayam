@@ -265,7 +265,7 @@ describe("IMPORT-15 · HSBC's last six, kept in Settings", () => {
     const withSix = { ...IDENTITY, hsbcCardLast6: "556677" };
     assert.ok(passwordCandidates(withSix, "hsbc").includes("010170556677"));
     assert.ok(!passwordCandidates(IDENTITY, "hsbc", { cardDigits: ["6677"] }).includes("010170556677"));
-    assert.match(missingDetailFor("hsbc", IDENTITY, ["6677"])!, /last six in Settings/);
+    assert.match(missingDetailFor("hsbc", IDENTITY, ["6677"])!, /last six on the account, or in Settings/);
     assert.equal(missingDetailFor("hsbc", withSix, ["6677"]), null);
   });
 
@@ -290,5 +290,14 @@ describe("IMPORT-15 · HSBC's last six, kept in Settings", () => {
     assert.equal(getIdentity(db, RAVI)!.hsbcCardLast6, undefined);
     assert.deepEqual(getIdentity(db, RAVI)!.customerIds, { axis: "123456789", hdfc: "87654321" });
     db.close();
+  });
+});
+
+describe("IMP-17 · SafeGold", () => {
+  test("the first four letters of the name in capitals, then the mobile's last four", () => {
+    // SafeGold's rule: RAVI, mobile …86759 -> RAVI6759. Synthetic name and number.
+    const who = { name: "Ravi Shankar", pan: null, dob: null, mobile: "9346586759" };
+    assert.ok(passwordCandidates(who, null).includes("RAVI6759"));
+    assert.equal(describeCandidate("RAVI6759", who), "your name and mobile number");
   });
 });

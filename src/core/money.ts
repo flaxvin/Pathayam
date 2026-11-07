@@ -224,6 +224,11 @@ const UNGROUPED = /^\d*$/;
 const INDIAN_GROUPS = /^\d{1,2}(?:,\d{2})*,\d{3}$/;
 const WESTERN_GROUPS = /^\d{1,3}(?:,\d{3})+$/;
 
+/** Whether a figure's rupee digits are ungrouped or grouped either way — not "1,23". */
+export function wellGrouped(whole: string): boolean {
+  return UNGROUPED.test(whole) || INDIAN_GROUPS.test(whole) || WESTERN_GROUPS.test(whole);
+}
+
 /**
  * Parse an amount into paise. Returns null on anything unparseable or
  * ambiguous — callers decide what to tell the user; this never throws on user
