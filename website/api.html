@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>API Reference</title>
-<meta name="description" content="Pathayam's HTTP API: authentication, scopes, idempotency, the same-origin rule for writes, and every route the app serves — the core ones with parameters, responses and a working example.">
+<meta name="description" content="Pathayam's HTTP API: authentication, scopes, idempotency, the same-origin rule for writes, and every route the app serves — the core ones with parameters, responses and a working example — and the read-only MCP server and OAuth sign-in AI apps connect through.">
 <link rel="stylesheet" href="fonts.css">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon.png" sizes="32x32" type="image/png">
@@ -57,7 +57,8 @@
       <p class="lede" style="font-size:var(--step-2);max-width:54ch">
         The app is server-rendered, so there is no second API to keep in sync.
         A personal token authenticates a script against the same routes your
-        browser uses.
+        browser uses, and an AI app reads the same figures through a
+        read-only <a href="#ai">MCP server at <code>/mcp</code></a>.
       </p>
     </div>
   </section>
@@ -70,6 +71,7 @@
           <h3>Authentication</h3>
           <p>The host in every example below is <strong>your own instance</strong> — the machine you self-host on, or your hosted subdomain. The public demo at <code>demo.pathayam.app</code> lets anyone in without an account and issues no tokens, so these examples will not run against it.</p>
         <p>One header on every request: <code>Authorization: Bearer bgt_…</code>. Tokens are minted in Settings — never while viewing as another member — scoped read or read-write, and shown exactly once. One expires after a whole number of days from 1 to 3650, or never, and stops working the moment its member is removed.</p>
+        <p>An AI app needs no token pasted in: give it your address with <code>/mcp</code> on the end and it signs in through OAuth 2.1, then holds an ordinary read token of its own. See <a href="#ai">Connect an AI</a>.</p>
         </div>
         <div class="card">
           <h3>Idempotency</h3>
@@ -77,7 +79,7 @@
         </div>
         <div class="card">
           <h3>Responses</h3>
-          <p>Reads return HTML — this is the same app your browser talks to. <code>/export.json</code>, the CSVs and <code>/healthz</code> return data. Writes redirect on success. Send <code>Accept: application/json</code> and a write answers <code>{ "redirect": …, "message": … }</code> instead, an error comes back as <code>{ "error": … }</code> with its status, and a request that is not signed in gets <code>401</code> rather than a redirect to the sign-in page.</p>
+          <p>Reads return HTML — this is the same app your browser talks to. <code>/export.json</code>, <code>/export/analysis.json</code>, the CSVs, <code>/mcp</code> and <code>/healthz</code> return data. Writes redirect on success. Send <code>Accept: application/json</code> and a write answers <code>{ "redirect": …, "message": … }</code> instead, an error comes back as <code>{ "error": … }</code> with its status, and a request that is not signed in gets <code>401</code> rather than a redirect to the sign-in page.</p>
         </div>
       </div>
       <div class="note" style="margin-top:1.5rem">
@@ -87,6 +89,17 @@
         budget is refused. Send fields form-encoded, as multipart, or as a flat JSON object — a number or
         <code>true</code> is read as the text a form would send, and a nested object is ignored.
       </div>
+      <h3 style="margin-top:1.5rem">Scopes</h3>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th>Scope</th><th>Reads (<code>GET</code>)</th><th>Writes (<code>POST</code>)</th></tr></thead>
+          <tbody>
+            <tr><td><span class="pill pill--r">read</span></td><td>Yes</td><td>No: <code>403 {"error":"That token is read-only."}</code>. The one exception is <code>POST /mcp</code>, because every tool behind it is a read.</td></tr>
+            <tr><td><span class="pill pill--w">read-write</span></td><td>Yes</td><td>Yes</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <p style="margin-top:.75rem">A scope is fixed when the token is minted. To change it, revoke the token and mint another.</p>
     </div>
   </section>
 
@@ -109,6 +122,8 @@
           <li><a href="#months">Months, reports &amp; query</a></li>
           <li><a href="#settings">Settings, activity &amp; health</a></li>
           <li><a href="#data">Exports</a></li>
+          <li><a href="#ai">Connect an AI (MCP)</a></li>
+          <li><a href="#oauth">Signing in from an AI app</a></li>
           <li><a href="#session">Session only</a></li>
           <li><a href="#writes">Writes and the same-origin check</a></li>
           <li><a href="#refused">What a token cannot reach</a></li>
@@ -834,7 +849,7 @@
             <span class="ep__sum">Upload a statement PDF</span>
           </summary>
           <div class="ep__body">
-            <p>Multipart upload of a bank statement. The bank is recognised from its own layout, the file is decrypted in-process if it is password-protected, and the parse is checked against the statement's closing balance. A PDF no reader recognises answers with the column-mapping screen, and one that cannot be opened or read answers with the import screen saying why — both as HTML, with nothing imported.</p>
+            <p>Multipart upload of a bank statement. The bank is recognised from its own layout, the file is decrypted in-process if it is password-protected, and the parse is checked against the statement's closing balance. A SafeGold statement is recognised too, and answers with the same review as <code>/portfolio/safegold</code>. A PDF no reader recognises answers with the column-mapping screen, and one that cannot be opened or read answers with the import screen saying why — both as HTML, with nothing imported.</p>
             <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
             <h3>Parameters</h3>
@@ -845,6 +860,7 @@
                 <tr><td><code>statement</code></td><td class="m">file</td><td><span class='req'>required</span></td><td>The PDF, as multipart form data.</td></tr>
                 <tr><td><code>account_id</code></td><td class="m">string</td><td><span class='req'>required</span></td><td>Which account it belongs to.</td></tr>
                 <tr><td><code>password</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Omit it to let the app derive it from your saved identity.</td></tr>
+                <tr><td><code>card_digits</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>The card number's last four or six digits, when the bank locks its statement with them and the app does not have them. The screen asks for them by name when that is what is missing. Once the file opens they are saved on the card's account (up to eight digits are kept), and never echoed back.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1031,6 +1047,9 @@
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/:id/sell</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>units</code> (required); <code>price</code>, <code>charges</code>, <code>fx_rate</code>, <code>date</code>, <code>to_account_id</code></td><td>Record a sale, realised first in, first out.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/cas</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>statement</code> (multipart PDF), <code>account_id</code> (required); <code>password</code></td><td>Read a CDSL consolidated account statement and show what it found.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/portfolio/cas/confirm</code></td><td><span class="pill pill--w">read-write</span></td><td><code>token</code> (required); <code>scheme</code></td><td>Import the holdings from a parsed CAS.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/safegold</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>statement</code> (multipart PDF, required); <code>password</code></td><td>Read a SafeGold statement (digital gold) and show what it would record: each buy as a lot with its GST in the cost, each sell as a realised gain, checked against the statement&rsquo;s closing gold balance. Nothing is written yet.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/portfolio/safegold/review</code></td><td><span class="pill pill--r">read</span></td><td><code>token</code></td><td>The review of a SafeGold statement a Gmail fetch read.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/portfolio/safegold/confirm</code></td><td><span class="pill pill--w">read-write</span></td><td><code>token</code> (required); <code>accept_mismatch</code></td><td>Record a parsed SafeGold statement. Rows already recorded add nothing; one whose rows miss its closing balance is refused unless <code>accept_mismatch=1</code>. Undoes as one import.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/portfolio/allocation</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Allocation by class, region and currency.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/portfolio/instrument/:id/classify</code></td><td><span class="pill pill--w">read-write</span></td><td><code>asset_class</code></td><td>Set an instrument's asset class.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/portfolio/instrument/:id/listed</code></td><td><span class="pill pill--w">read-write</span></td><td><code>listed</code>, <code>holding_id</code></td><td>Say whether a bond is listed. Listed and held over 12 months is taxed at 12.5%; unlisted or unknown at the slab rate.</td></tr>
@@ -1291,6 +1310,7 @@
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/health</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The health dashboard, as HTML.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/health/backup</code><br><code>/health/verify</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Run a backup now, or verify that the latest restores.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/gmail/fetch</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Fetch statements from the linked Gmail now. 403 while viewing as another member; 400 or 502 when Google refuses or cannot be reached.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/gmail/card-digits</code></td><td><span class="pill pill--w">read-write</span></td><td><code>account_id</code>, <code>card_digits</code></td><td>Save a card account&rsquo;s last four to eight digits, offered after a fetch left its statement locked for want of them. Never echoed; the notice shows the last two.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/privacy</code><br><code>/terms</code></td><td><span class="pill">public</span></td><td>—</td><td>The privacy policy and terms of this instance.</td></tr>
             </tbody>
           </table>
@@ -1333,6 +1353,161 @@
             </tbody>
           </table>
         </div>
+        <details class="ep">
+          <summary>
+            <span class="verb verb--get">GET</span>
+            <span class="ep__path">/export/analysis.json</span>
+            <span class="ep__sum">A summary for an AI or a spreadsheet</span>
+          </summary>
+          <div class="ep__body">
+            <p>A summary of your figures, for pasting into any AI chat or opening in a spreadsheet tool without connecting anything: the overview, each budget&rsquo;s current month and the months before it, spending by envelope and the top 20 payees a month, loans, portfolio, net worth, the next 30 days&rsquo; cashflow, goals, insurance and this financial year&rsquo;s tax estimate. It is the <code>snapshot</code> tool below as a download. Amounts are rupees with two decimals, dates <code>YYYY-MM-DD</code>, and the currency is stated once at the top.</p>
+            <p>It is what you see on screen and nothing more: another member&rsquo;s private accounts, loans, policies and personal budget are absent, totals included. It is not a backup, since there is no transaction list. A section whose module is switched off reads <code>{ "enabled": false }</code>. Answers 404 when <code>FEATURE_AI</code> is off.</p>
+            <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher</p></div>
+          <div>
+            <h3>Parameters</h3>
+            <div class="table-scroll">
+              <table>
+                <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
+                <tbody>
+                <tr><td><code>months</code></td><td class="m">integer</td><td><span class='opt'>optional</span></td><td>How many months of budget and spending, 1 to 36. Default 12.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div>
+            <h3>Responses</h3>
+            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+              <li><span class="status status--ok"><b>200</b></span> — <code>application/json</code>, sent as a download.</li>
+              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
+            </ul>
+          </div>
+            <div>
+              <h3>Example</h3>
+<pre><code>curl -sS <span class="tok-s">"https://pathayam.yourdomain.com/export/analysis.json?months=24"</span> \
+  -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> -o analysis.json</code></pre>
+            </div>
+          </div>
+        </details>
+      </section>
+      <section class="api-group" id="ai">
+        <h2>Connect an AI (MCP)</h2>
+        <p>Pathayam is its own <a href="https://modelcontextprotocol.io" rel="noopener noreferrer">Model Context Protocol</a> server, at <code>/mcp</code> on your own address. Claude, ChatGPT, Gemini and any other MCP client can call its tools to answer questions from your figures. There is no separate process, and nothing is sent anywhere until a member connects an app. Every route in this section and the next answers 404 when <code>FEATURE_AI</code> is off.</p>
+        <div class="note" style="margin-bottom:1.25rem"><b>Read-only, and as the member.</b> No tool writes, and the token behind every connection is read-scope. A connection sees what the member who connected it sees: the household budget and their own personal budget. Another member&rsquo;s private accounts, loans, policies and envelopes are never listed, counted or totalled, and an id it may not see is &ldquo;not found&rdquo;, the same as one that does not exist. Whatever a tool returns is sent to that AI&rsquo;s provider.</div>
+        <details class="ep" open>
+          <summary>
+            <span class="verb verb--post">POST</span>
+            <span class="ep__path">/mcp</span>
+            <span class="ep__sum">The MCP endpoint</span>
+          </summary>
+          <div class="ep__body">
+            <p>Streamable HTTP: one JSON-RPC 2.0 message per <code>POST</code>, a JSON response, and no sessions. Bearer only &mdash; a session cookie is not looked at &mdash; and a <span class="pill pill--r">read</span> token is enough, the one write-shaped request a read token may make. The tools are built for the token&rsquo;s member on every request, so nothing carries over between calls.</p>
+            <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher, as a bearer token</p></div>
+          <div>
+            <h3>Protocol versions</h3>
+            <div class="table-scroll">
+              <table>
+                <thead><tr><th>Version</th><th>How it is spoken</th></tr></thead>
+                <tbody>
+                <tr><td><code>2026-07-28</code></td><td>No handshake. Each request carries its own <code>_meta</code>; the <code>MCP-Protocol-Version</code>, <code>Mcp-Method</code> and <code>Mcp-Name</code> headers must match the body, or the answer is error <code>-32020</code>. <code>server/discover</code> says what the server is. An unknown method is <code>404</code> with <code>-32601</code>.</td></tr>
+                <tr><td><code>2025-11-25</code>, <code>2025-06-18</code>, <code>2025-03-26</code>, <code>2024-11-05</code></td><td>The <code>initialize</code> handshake. No <code>Mcp-Session-Id</code> is issued. A request with no version header is taken as <code>2025-03-26</code>.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div>
+            <h3>Rules</h3>
+            <div class="table-scroll">
+              <table>
+                <thead><tr><th>Rule</th><th>What it means</th></tr></thead>
+                <tbody>
+                <tr><td>No token</td><td><code>401</code> with <code>WWW-Authenticate: Bearer resource_metadata="…/.well-known/oauth-protected-resource", scope="read"</code>. That header is what starts an AI app&rsquo;s sign-in (<a href="#oauth">below</a>). A revoked or expired token adds <code>error="invalid_token"</code>.</td></tr>
+                <tr><td><code>Origin</code></td><td>When one is sent it must be <code>BASE_URL</code>&rsquo;s origin, or listed in <code>MCP_ALLOWED_ORIGINS</code> (comma-separated); anything else is <code>403</code>. Connectors call from their own servers and send none. A token is required either way.</td></tr>
+                <tr><td><code>GET</code>, <code>DELETE</code></td><td><code>405</code> with <code>Allow: POST</code>. There is no event stream and no session to end.</td></tr>
+                <tr><td>Notifications</td><td><code>202</code>, with no body.</td></tr>
+                <tr><td>Errors in a tool</td><td>A bad argument or a refusal (a tax year without rates, say) is a tool result with <code>isError: true</code>, worded for the model to correct, not a protocol error.</td></tr>
+                <tr><td>Size</td><td>An answer is cut at 256 KB with a note saying so. The tools that can return many rows page instead.</td></tr>
+                <tr><td>Everything else</td><td>The token&rsquo;s rate limit, revocation and member removal apply as on any other route.</td></tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+          <div>
+            <h3>Responses</h3>
+            <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
+              <li><span class="status status--ok"><b>200</b></span> — <code>application/json</code>, a JSON-RPC result or error.</li>
+              <li><span class="status status--ok"><b>202</b></span> — A notification, accepted.</li>
+              <li><span class="status status--err"><b>400</b></span> — A protocol version the server does not speak (the error lists those it does), or headers that do not match the body.</li>
+              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked or expired, with the <code>WWW-Authenticate</code> header above.</li>
+              <li><span class="status status--err"><b>403</b></span> — An <code>Origin</code> that is not allowed.</li>
+              <li><span class="status status--err"><b>404</b></span> — An unknown method, under <code>2026-07-28</code>; or <code>FEATURE_AI</code> is off.</li>
+              <li><span class="status status--err"><b>429</b></span> — Rate limit exceeded. Retry after the interval in the response.</li>
+            </ul>
+          </div>
+            <div>
+              <h3>Example</h3>
+<pre><code>curl -sS -X POST https://pathayam.yourdomain.com/mcp \
+  -H <span class="tok-s">"Authorization: Bearer bgt_…"</span> \
+  -H <span class="tok-s">"Content-Type: application/json"</span> \
+  -H <span class="tok-s">"MCP-Protocol-Version: 2025-06-18"</span> \
+  -d <span class="tok-s">'{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"overview","arguments":{}}}'</span></code></pre>
+            </div>
+          </div>
+        </details>
+        <h3 style="margin-top:1.5rem">Tools</h3>
+        <p>Seventeen, every one a read. Money is rupees as decimal numbers, dates are <code>YYYY-MM-DD</code> in IST, and a financial year is named by its first year (<code>2026</code> is FY 2026-27). Each tool calls the same query a screen does, so a figure an AI quotes is the figure on the page.</p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Tool</th><th>Arguments</th><th>Answers</th></tr></thead>
+            <tbody>
+              <tr><td><code>overview</code></td><td><code>month</code></td><td>Start here. Ready to Assign, overspent envelopes, card payments no envelope is funding, account totals by kind, net worth and the next 14 days.</td></tr>
+              <tr><td><code>accounts</code></td><td><code>include_closed</code></td><td>Every visible account, with its balance, cleared and uncleared amounts, institution and holder.</td></tr>
+              <tr><td><code>transactions</code></td><td><code>from</code>, <code>to</code>, <code>account_id</code>, <code>category_id</code>, <code>payee</code>, <code>text</code>, <code>min_amount</code>, <code>max_amount</code>, <code>include_transfers</code>, <code>limit</code> (1&ndash;500), <code>cursor</code></td><td>Newest first, splits as lines, transfers left out unless asked for. 100 a page by default; pass <code>next_cursor</code> back as <code>cursor</code>.</td></tr>
+              <tr><td><code>budget_month</code></td><td><code>month</code></td><td>Every envelope for a month: assigned, activity, available and target, the household and personal budgets labelled apart.</td></tr>
+              <tr><td><code>spending</code></td><td><code>from</code>, <code>to</code> (both required); <code>group_by</code> (<code>category</code>, <code>payee</code>, <code>month</code> or <code>account</code>)</td><td>Spending totals between two dates. Transfers are excluded, as on Reports.</td></tr>
+              <tr><td><code>loans</code></td><td>&mdash;</td><td>Outstanding principal, rate, EMI, remaining tenure and interest paid so far.</td></tr>
+              <tr><td><code>loan_schedule</code></td><td><code>loan_id</code> (required); <code>limit</code> (1&ndash;600)</td><td>One loan&rsquo;s instalments: date, principal, interest and the balance after.</td></tr>
+              <tr><td><code>portfolio</code></td><td>&mdash;</td><td>Holdings with value, cost, gain and XIRR, and the allocation.</td></tr>
+              <tr><td><code>realised_gains</code></td><td><code>fy</code></td><td>Gains realised in a financial year, short and long term, by holding.</td></tr>
+              <tr><td><code>net_worth</code></td><td>&mdash;</td><td>The statement, assets and liabilities by kind, and its history.</td></tr>
+              <tr><td><code>tax_estimate</code></td><td><code>fy</code></td><td>Both regimes, as the Tax screen shows them. A year without rates is refused.</td></tr>
+              <tr><td><code>cashflow</code></td><td><code>days</code> (1&ndash;366, default 30)</td><td>Schedules, card dues and deposit maturities in the coming days.</td></tr>
+              <tr><td><code>insurance</code></td><td>&mdash;</td><td>The policy register: insurer, type, cover, premium, next due and renewal.</td></tr>
+              <tr><td><code>goals</code></td><td>&mdash;</td><td>Savings goals and how far each has come.</td></tr>
+              <tr><td><code>financial_independence</code></td><td>&mdash;</td><td>The target from what the household spent, the assets that could fund it, and the years a locked provident fund leaves uncovered.</td></tr>
+              <tr><td><code>explain</code></td><td><code>what</code> (<code>ready_to_assign</code> or <code>category</code>, required); <code>category_id</code> (required for a category), <code>month</code></td><td>How Ready to Assign, or one envelope&rsquo;s available amount, was reached, line by line.</td></tr>
+              <tr><td><code>snapshot</code></td><td><code>months</code> (1&ndash;36, default 12)</td><td>Everything above in summary, without the transaction list. Large; the narrower tools suit a specific question.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <h3 style="margin-top:1.5rem">Masking and the access log</h3>
+        <p>Masking is chosen per connection and on by default. Before an answer leaves, in every string except the app&rsquo;s own ids and dates, a run of nine or more digits keeps its last four, a UPI ID or email address keeps only what follows the <code>@</code>, and a PAN is masked whole. Amounts, envelope names and payee names are the analysis, and are sent. It is best effort: a name written into a narration is not a pattern.</p>
+        <p>Every tool call is logged: when, which app, which tool, its arguments, and the size of the answer or that it was refused. The answers are not kept. A member sees only their own connections&rsquo; rows, on the Connect an AI page; they are kept 90 days, at most 2,000 a member. Reads are not in the activity log; connecting and disconnecting an app are.</p>
+      </section>
+      <section class="api-group" id="oauth">
+        <h2>Signing in from an AI app</h2>
+        <p>claude.ai custom connectors, ChatGPT connectors, the Gemini app, Gemini CLI and other MCP clients connect by URL: give them <code>/mcp</code> and they find the rest. Pathayam is its own OAuth 2.1 authorization server for this, following the MCP authorization spec.</p>
+        <ol style="margin:0 0 1.25rem;padding-left:1.25rem;display:grid;gap:.4rem">
+          <li><code>POST /mcp</code> without a usable token answers <code>401</code>, naming the protected resource metadata.</li>
+          <li>That metadata (RFC 9728) names <code>/mcp</code> as the resource and your address as the authorization server, whose own metadata (RFC 8414) names the endpoints below.</li>
+          <li>The app registers itself (RFC 7591). Redirect addresses must be <code>https</code>, or <code>http</code> on <code>localhost</code>, <code>127.0.0.1</code> or <code>[::1]</code> on any port, for command-line clients. No fragments, no credentials, at most ten. Public clients only.</li>
+          <li>The member, signed in, approves on the consent page, which names the app and where it sends them back to, and chooses whether identifiers are masked. PKCE <code>S256</code> is required, <code>resource</code> must be <code>/mcp</code> when given, and every redirect back carries <code>iss</code> (RFC 9207).</li>
+          <li>The app trades the code for an access token and a refresh token.</li>
+        </ol>
+        <p>The access token <b>is an ordinary API token</b>: <code>bgt_</code>, scope <span class="pill pill--r">read</span> whatever was asked for, an hour long, and named after the app. The deny-list, the rate limit, revocation and member removal apply to it unchanged. Refresh tokens last 90 days and rotate on every use; presenting an old one again ends the connection, as does using a code twice. Errors are RFC 6749 JSON (<code>invalid_grant</code>, <code>invalid_client</code>, &hellip;).</p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
+            <tbody>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/.well-known/oauth-protected-resource</code><br><code>/.well-known/oauth-protected-resource/mcp</code></td><td><span class="pill">public</span></td><td>&mdash;</td><td>Protected resource metadata (RFC 9728): the resource is <code>/mcp</code>, the authorization server is this instance. Open to any origin.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/.well-known/oauth-authorization-server</code></td><td><span class="pill">public</span></td><td>&mdash;</td><td>Authorization server metadata (RFC 8414): where to register, authorize, trade a code and revoke. Open to any origin.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/oauth/register</code></td><td><span class="pill">public</span></td><td>JSON: <code>client_name</code>, <code>redirect_uris</code></td><td>Dynamic client registration (RFC 7591), JSON in and out. 20 an hour per address and 200 clients at most; one nobody approved within a day is removed.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/oauth/authorize</code></td><td><span class="pill">session</span></td><td><code>client_id</code>, <code>redirect_uri</code>, <code>response_type=code</code>, <code>code_challenge</code>, <code>code_challenge_method=S256</code>; <code>state</code>, <code>resource</code></td><td>The consent page, and the member&rsquo;s answer. Refused while viewing as another member and on the demo.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/oauth/token</code></td><td><span class="pill">public</span></td><td>Form-encoded: <code>grant_type</code> (<code>authorization_code</code> or <code>refresh_token</code>), <code>client_id</code>; <code>code</code>, <code>redirect_uri</code> and <code>code_verifier</code>, or <code>refresh_token</code>; <code>resource</code></td><td>Trade a code for an access token and a refresh token, or a refresh token for a new pair.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/oauth/revoke</code></td><td><span class="pill">public</span></td><td><code>token</code></td><td>Token revocation (RFC 7009). Ends the connection the token belongs to, access and refresh token together. Answers <code>200</code> whatever it was.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p style="margin-top:1rem">The Connect an AI page itself, <code>/tokens/ai</code>, and disconnecting an app are <a href="#session">session only</a>. No token, an AI app&rsquo;s included, can reach <code>/oauth</code> or <code>/tokens</code>: approving an app hands out a fresh token with its own refresh token, and a token that could do that would outlive its own revocation.</p>
       </section>
       <section class="api-group" id="session">
         <h2>Session only</h2>
@@ -1355,6 +1530,8 @@
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/tokens</code></td><td><span class="pill">session</span></td><td>—</td><td>Your API tokens.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tokens</code></td><td><span class="pill">session</span></td><td><code>name</code> (required); <code>scope</code>, <code>expires_in_days</code> (1 to 3650, or empty for never)</td><td>Mint a token, shown once. 403 while viewing as another member.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tokens/:id/revoke</code></td><td><span class="pill">session</span></td><td>—</td><td>Revoke a token. It stops working at once.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/tokens/ai</code></td><td><span class="pill">session</span></td><td>POST: <code>name</code> (required); <code>redact</code>, <code>expires_in_days</code> (30, 90 or 365)</td><td>Connect an AI: the address to give an app, connected apps and what they have read. A POST makes a read-only token for a command-line or desktop client, always expiring, and shows it once with a ready <code>claude mcp add</code> command, a <code>gemini mcp add</code> command and a JSON configuration. 403 while viewing as another member; refused on the demo. 404 when <code>FEATURE_AI</code> is off.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tokens/connections/:id/revoke</code></td><td><span class="pill">session</span></td><td>&mdash;</td><td>Disconnect an AI app that signed in through OAuth. Its access token and refresh token end together.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/members/invite</code></td><td><span class="pill">session</span></td><td><code>email</code> (required)</td><td>Let someone in. Refused on the demo.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/members/:id/remove</code></td><td><span class="pill">session</span></td><td>—</td><td>What removing a member does, and how the balance between you can end.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/members/:id/remove</code></td><td><span class="pill">session</span></td><td><code>resolution</code></td><td>Remove a member. With a balance outstanding, 400 until <code>resolution</code> says how it ends. Clears their password. Refused on the demo.</td></tr>
@@ -1395,7 +1572,7 @@
           <table>
             <thead><tr><th>Prefix</th><th>Why it is blocked</th></tr></thead>
             <tbody>
-              <tr><td><code>/members</code>, <code>/settings/members</code></td><td>The household allow-list: <code>/members/invite</code> and <code>/members/:id/remove</code>. A token must not change who is allowed in.</td></tr>
+              <tr><td><code>/members</code>, <code>/settings/members</code></td><td>The household allow-list: <code>/members/invite</code> and <code>/members/:id/remove</code>. A token must not change who is allowed in. The settings path is denied before any page exists there.</td></tr>
               <tr><td><code>/tokens</code></td><td>A token must not mint or revoke tokens, including itself.</td></tr>
               <tr><td><code>/impersonate</code></td><td>Impersonation is a session-only, logged, human action.</td></tr>
               <tr><td><code>/auth</code></td><td>Sign-in, SSO, and the development bypass state.</td></tr>
@@ -1403,6 +1580,7 @@
               <tr><td><code>/settings/password</code></td><td>A password is a way in that does not need the token, and would outlive revoking it.</td></tr>
               <tr><td><code>/sessions</code></td><td>Signing the member's devices out is a human decision.</td></tr>
               <tr><td><code>/gmail/connect</code>, <code>/gmail/callback</code>, <code>/gmail/disconnect</code></td><td>Linking a mailbox changes what can reach the household. <code>/gmail/fetch</code> stays reachable.</td></tr>
+              <tr><td><code>/oauth</code></td><td>Approving an AI app hands out a fresh token with its own refresh token; a token that could do that would outlive its own revocation. Under <code>/tokens</code>, the Connect an AI page is out of reach too.</td></tr>
             </tbody>
           </table>
         </div>
