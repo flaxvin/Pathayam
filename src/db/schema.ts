@@ -2927,6 +2927,95 @@ CREATE INDEX idx_password_setup_links_member ON password_setup_links(member_id);
 `,
   },
   {
+    name: "0070-an-ai-client-asks-before-it-reads",
+    sql: `
+--------------------------------------------------------------------------------
+-- OAUTH · An AI app connects by asking, and gets a read-only token
+--------------------------------------------------------------------------------
+-- claude.ai, ChatGPT and other MCP clients connect to /mcp by URL. They find
+-- this server's OAuth endpoints from its metadata, register themselves (RFC
+-- 7591), send the member here to approve, and trade the approval for tokens.
+-- src/auth/oauth.ts is the whole of it; docs/security.md says why each rule is
+-- the shape it is.
+--
+-- A client is whoever registered: its name and redirect URIs are its own
+-- claim, which is why the consent page leads with the redirect host. Clients
+-- nobody approved within a day are pruned, and there is a cap on how many
+-- exist, because registering needs no account.
+CREATE TABLE oauth_clients (
+  client_id     TEXT PRIMARY KEY,
+  client_name   TEXT NOT NULL,
+  redirect_uris TEXT NOT NULL,              -- a JSON array of strings
+  source        TEXT NOT NULL CHECK (source IN ('dcr')),
+  created_at    TEXT NOT NULL,
+  last_used_at  TEXT
+);
+
+-- A connection: one member's approval of one client. Revoking it ends every
+-- token it ever issued. Scope is 'read' and nothing else — an AI app is never
+-- handed write access by this route, whatever it asks for. redact carries the
+-- consent page's masking choice to every access token the connection issues,
+-- refreshed ones included.
+CREATE TABLE oauth_grants (
+  id           TEXT PRIMARY KEY,
+  client_id    TEXT NOT NULL REFERENCES oauth_clients(client_id),
+  member_id    TEXT NOT NULL REFERENCES members(id),
+  scope        TEXT NOT NULL CHECK (scope = 'read'),
+  resource     TEXT NOT NULL,
+  redact       INTEGER NOT NULL DEFAULT 1 CHECK (redact IN (0, 1)),
+  created_at   TEXT NOT NULL,
+  last_used_at TEXT,
+  revoked_at   TEXT
+);
+CREATE INDEX idx_oauth_grants_member ON oauth_grants(member_id);
+
+-- An authorization code, by its SHA-256 only. Ten minutes, once. used_at is
+-- kept rather than the row deleted so a second use is recognised as a replay
+-- — which revokes the connection — instead of looking like a wrong code.
+CREATE TABLE oauth_codes (
+  code_hash      TEXT PRIMARY KEY,
+  grant_id       TEXT NOT NULL REFERENCES oauth_grants(id),
+  client_id      TEXT NOT NULL REFERENCES oauth_clients(client_id),
+  member_id      TEXT NOT NULL REFERENCES members(id),
+  redirect_uri   TEXT NOT NULL,
+  code_challenge TEXT NOT NULL,             -- PKCE, S256 only
+  scope          TEXT NOT NULL CHECK (scope = 'read'),
+  resource       TEXT NOT NULL,
+  created_at     TEXT NOT NULL,
+  expires_at     TEXT NOT NULL,
+  used_at        TEXT
+);
+
+-- Refresh tokens rotate: each is good for one refresh and is replaced in the
+-- same response. used_at marks a rotated one, so presenting it again is
+-- recognised as theft and revokes the whole connection (OAuth 2.1 §4.3.1).
+CREATE TABLE oauth_refresh_tokens (
+  token_hash TEXT PRIMARY KEY,
+  grant_id   TEXT NOT NULL REFERENCES oauth_grants(id),
+  created_at TEXT NOT NULL,
+  expires_at TEXT NOT NULL,
+  used_at    TEXT,
+  revoked_at TEXT
+);
+CREATE INDEX idx_oauth_refresh_grant ON oauth_refresh_tokens(grant_id);
+
+-- The access token an AI app holds IS an API token: bgt_, hashed, read-only,
+-- an hour long. So the deny-list, the rate limit, revocation, member removal
+-- and last-used all apply to it without a line of new code. These say which
+-- connection minted it, and so which to end when it is revoked by hand.
+-- expires_at on such a row is an IST timestamp, not a date: an hour does not
+-- fit in a date.
+ALTER TABLE api_tokens ADD COLUMN oauth_client_id TEXT REFERENCES oauth_clients(client_id);
+ALTER TABLE api_tokens ADD COLUMN oauth_grant_id TEXT REFERENCES oauth_grants(id);
+CREATE INDEX idx_api_tokens_grant ON api_tokens(oauth_grant_id);
+
+-- AI-3 · Whether what this token reads has account numbers, UPI IDs, phone
+-- numbers and PAN masked (the MCP route applies it). Off for a token minted by
+-- hand, which has always seen what its member sees.
+ALTER TABLE api_tokens ADD COLUMN redact INTEGER NOT NULL DEFAULT 0 CHECK (redact IN (0, 1));
+`,
+  },
+  {
     name: "0071-an-ai-connection-leaves-a-trail-of-what-it-read",
     sql: `
 --------------------------------------------------------------------------------

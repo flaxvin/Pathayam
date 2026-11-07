@@ -119,6 +119,10 @@ export const EPHEMERAL = [
   // data. Kept out of the export with sessions and tokens, and not counted —
   // one made or used between a backup and its check is not a lost record.
   "password_setup_links",
+  // OAUTH · AI app connections: a registration, an approval and the hashes of
+  // its codes and refresh tokens. Credentials like a session, and not
+  // household data; a restored copy asks each app to connect again.
+  "oauth_clients", "oauth_grants", "oauth_codes", "oauth_refresh_tokens",
   // B66 · Operational: a failed request's path and stack. Useful at 2am, not
   // household data, and it would put a stack trace in an export that travels.
   "request_failures",

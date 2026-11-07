@@ -17,7 +17,7 @@ import {
   Router, field, fieldList, fileField, requiredField, HttpError, NotFound,
   type RequestContext, type Response,
 } from "./http/router.ts";
-import { clientIp, wantsJson } from "./http/server.ts";
+import { clientIp, wantsJson, contentSecurityPolicy } from "./http/server.ts";
 import { html, raw, when, type SafeHtml } from "./http/html.ts";
 import { page, MANIFEST, ASSET_VERSION, type Theme } from "./web/layout.ts";
 import { STYLESHEET } from "./web/styles.ts";
@@ -37,6 +37,10 @@ import {
   mintToken, listTokens, revokeToken, type TokenScope,
 } from "./auth/tokens.ts";
 import { beginOAuth, exchangeCode, OAuthError } from "./auth/google.ts";
+// OAUTH · As a namespace: google.ts already owns these names for the other
+// direction, where this app is the client.
+import * as oauth from "./auth/oauth.ts";
+import { renderConsent, renderConsentProblem } from "./web/pages/oauth.ts";
 import { PendingStates } from "./auth/pending.ts";
 import {
   beginGmailConnect, exchangeGmailCode, revokeToken as revokeGmailToken, GmailAuthError,
@@ -417,6 +421,27 @@ const PUBLIC_PATHS = new Set([
   // is its whole purpose. The route itself refuses unless DEMO_MODE is on.
   "/demo/enter",
 ]);
+/*
+ * OAUTH · The authorization server's machine-facing doors (src/auth/oauth.ts).
+ * An AI provider's servers fetch and post to these, from their own origin or
+ * none, with no session and no cookie — so, exactly these and nothing broader,
+ * they are public, read only a small body, and are exempt from the
+ * same-origin write rule below. Each takes a code, a refresh token or a
+ * registration and nothing a browser's cookie could lend it. The consent
+ * page, /oauth/authorize, is NOT here: it is a signed-in browser page, and
+ * its POST is held to every rule a form post is.
+ */
+const OAUTH_DOORS = new Set([
+  "/.well-known/oauth-protected-resource",
+  "/.well-known/oauth-protected-resource/mcp",
+  "/.well-known/oauth-authorization-server",
+  "/oauth/register", "/oauth/token", "/oauth/revoke",
+]);
+/** OAUTH · The MCP endpoint, matched segment by segment like the router. */
+function isMcpPath(path: string): boolean {
+  const parts = path.split("/").filter((s) => s.length > 0);
+  return parts.length === 1 && parts[0] === "mcp";
+}
 const STATIC_PREFIX = "/assets/";
 /*
  * A password link (src/auth/setup-links.ts) is a door too, and the one public
@@ -490,6 +515,48 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     },
 
     /*
+     * OAUTH · Before the write rule, because both of these are answered for
+     * callers that rule would refuse.
+     *
+     * The doors are called by browser-based MCP clients too (an inspector, a
+     * web app), which need CORS to read the answer. A wildcard is safe here
+     * and only here: none of these reads a cookie, so a page that calls one
+     * learns nothing it could not have asked for itself.
+     *
+     * /mcp without a usable bearer token is 401 with the WWW-Authenticate
+     * header that starts an AI app's sign-in (Claude starts it on a 401 and
+     * nothing else). Without this, the first call — a POST from a server,
+     * with no Origin — met the write rule and was a bare 403, and the app
+     * never learned where to sign in. The route itself is the MCP server's.
+     */
+    function oauthDoors(ctx: RequestContext): Response | void {
+      const path = ctx.url.pathname;
+      if (OAUTH_DOORS.has(path)) {
+        ctx.res.setHeader("Access-Control-Allow-Origin", "*");
+        if (ctx.method.toUpperCase() === "OPTIONS") {
+          return {
+            status: 204,
+            headers: {
+              "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+              "Access-Control-Allow-Headers": "Content-Type, Authorization, MCP-Protocol-Version",
+              "Access-Control-Max-Age": "86400",
+            },
+          };
+        }
+        return;
+      }
+      if (isMcpPath(path) && ctx.method.toUpperCase() !== "OPTIONS") {
+        const header = ctx.req.headers.authorization;
+        const bearer = authenticateToken(db, header);
+        if (!bearer) {
+          return oauth.mcpUnauthorized(config.baseUrl, { invalidToken: /^Bearer\s/i.test(String(header ?? "")) });
+        }
+        // Read once: authenticating records last-used, and twice is noise.
+        ctx.locals.bearer = bearer;
+      }
+    },
+
+    /*
      * A write has to come from this app's own pages.
      *
      * The cookie is already `SameSite=Lax`, which a browser honours by not
@@ -522,6 +589,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     function sameOriginWrites(ctx: RequestContext): Response | void {
       const method = ctx.method.toUpperCase();
       if (method === "GET" || method === "HEAD" || method === "OPTIONS") return;
+      // OAUTH · Posted to by an AI provider's servers; see OAUTH_DOORS.
+      if (OAUTH_DOORS.has(ctx.url.pathname)) return;
       /*
        * And never on a public door. A token cannot reach any of them, so a
        * bearer there authenticates nothing — while a DNS-rebound page, being
@@ -581,7 +650,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // F30 · A bearer token authenticates as its member, but is a narrower
       // thing than a session: it cannot reach the routes in F30.6's list, it
       // is rate-limited separately (F30.7), and a read-only one cannot write.
-      const bearer = authenticateToken(db, ctx.req.headers.authorization);
+      // The OAuth doors take codes and refresh tokens, never a bearer; one sent
+      // along is ignored rather than judged against the deny-list.
+      const bearer = OAUTH_DOORS.has(path) ? null
+        : (ctx.locals.bearer as ReturnType<typeof authenticateToken> | undefined)
+          ?? authenticateToken(db, ctx.req.headers.authorization);
       if (bearer && !auth) {
         if (!tokenMayReach(path)) {
           return {
@@ -633,14 +706,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
       ctx.locals.auth = auth;
 
-      if (PUBLIC_PATHS.has(path) || SETUP_LINK_PATH.test(path)) {
+      if (PUBLIC_PATHS.has(path) || SETUP_LINK_PATH.test(path) || OAUTH_DOORS.has(path)) {
         // Every door is a short form — an email and a password at most. The
         // 12 MB an attachment needs is not offered to somebody not yet in.
         ctx.locals.bodyLimit = PUBLIC_BODY_BYTES;
         return;
       }
       if (!auth) {
+        // OAUTH · A token that authenticated for a member no longer allowed in.
+        if (isMcpPath(path)) return oauth.mcpUnauthorized(config.baseUrl, { invalidToken: true });
         if (wantsJson(ctx)) return { status: 401, json: { error: "Your session has expired." } };
+        // OAUTH · The consent page is nothing without its query — which app,
+        // sent where — so it comes back with it. Sign-in passes `next` through
+        // safePath, which keeps it on this site.
+        if (path === "/oauth/authorize" && ctx.method === "GET") {
+          return { redirect: `/signin?next=${encodeURIComponent(path + ctx.url.search)}` };
+        }
         return { redirect: `/signin?next=${encodeURIComponent(path)}` };
       }
 
@@ -8335,6 +8416,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const a = auth(ctx);
     return render(ctx, "API tokens", renderTokens({
       tokens: listTokens(db, a.member.id),
+      connections: oauth.listConnections(db, a.member.id),
       minted: null,
     }));
   });
@@ -8364,6 +8446,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // carry the secret in a URL — where it would land in logs and history.
     return render(ctx, "API tokens", renderTokens({
       tokens: listTokens(db, a.member.id),
+      connections: oauth.listConnections(db, a.member.id),
       minted: { name: minted.token.name, secret: minted.secret },
     }));
   });
@@ -8374,6 +8457,163 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       return { redirect: "/tokens", message: "Revoked. Anything using it stops now." };
     }),
   );
+
+  router.post("/tokens/connections/:id/revoke", (ctx) =>
+    mutate(ctx, (a) => {
+      oauth.revokeConnection(db, actorFor(a), ctx.params.id!);
+      return { redirect: "/tokens", message: "Disconnected. The app cannot read anything from now on." };
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // OAUTH · The authorization server AI apps connect through (src/auth/oauth.ts)
+  // -------------------------------------------------------------------------
+
+  const protectedResource = (): Response => ({ json: oauth.protectedResourceMetadata(config.baseUrl) });
+  router.get("/.well-known/oauth-protected-resource", protectedResource);
+  // RFC 9728 §3.1 · The path-suffixed form, which clients try first.
+  router.get("/.well-known/oauth-protected-resource/mcp", protectedResource);
+  router.get("/.well-known/oauth-authorization-server", () => ({
+    json: oauth.authorizationServerMetadata(config.baseUrl),
+  }));
+
+  /** An OAuth endpoint answers in OAuth's words, never with an HTML error page. */
+  function oauthJson(fn: () => Response): Response {
+    try {
+      return fn();
+    } catch (err) {
+      if (err instanceof oauth.OAuthError) return err.toResponse();
+      if (err instanceof HttpError) {
+        return { status: err.status, json: { error: "invalid_request", error_description: err.message } };
+      }
+      throw err;
+    }
+  }
+
+  router.post("/oauth/register", (ctx) => oauthJson((): Response => {
+    const limit = oauth.checkOAuthRateLimit("register", clientIp(ctx, config.trustProxy));
+    if (!limit.allowed) {
+      return {
+        status: 429,
+        headers: { "Retry-After": String(limit.retryAfterSeconds) },
+        json: { error: "slow_down", error_description: "Too many registrations from here. Try again later." },
+      };
+    }
+    // Refused where minting a token is: on a demo.
+    if (config.demoMode) {
+      throw new oauth.OAuthError("access_denied", "Connecting AI apps is disabled on the demo.", 403);
+    }
+    return { status: 201, json: oauth.registerClient(db, ctx.body) };
+  }));
+
+  router.post("/oauth/token", (ctx) => oauthJson((): Response => {
+    const limit = oauth.checkOAuthRateLimit("token", clientIp(ctx, config.trustProxy));
+    if (!limit.allowed) {
+      return {
+        status: 429,
+        headers: { "Retry-After": String(limit.retryAfterSeconds) },
+        json: { error: "slow_down", error_description: "Too many token requests. Try again shortly." },
+      };
+    }
+    const clientId = oauth.clientIdFrom(ctx.body, ctx.req.headers.authorization);
+    return {
+      headers: { Pragma: "no-cache" },
+      json: oauth.tokenRequest(db, config.baseUrl, ctx.body, clientId),
+    };
+  }));
+
+  router.post("/oauth/revoke", (ctx) => oauthJson(() => {
+    oauth.revocationRequest(db, ctx.body, oauth.clientIdFrom(ctx.body, ctx.req.headers.authorization));
+    return { json: {} };
+  }));
+
+  /**
+   * The consent page, and its answer. Refused while viewing as somebody else
+   * (a connection is a credential of theirs, like a token: R38.12) and on a
+   * demo, as minting a token is.
+   */
+  function consentGate(ctx: RequestContext): AuthContext {
+    refuseInDemo(config, "Connecting AI apps");
+    const a = auth(ctx);
+    if (a.impersonating) {
+      throw new HttpError(403, "An AI app cannot be connected while viewing as another member.");
+    }
+    return a;
+  }
+
+  /** The parameters a consent form carries back, exactly as the app sent them. */
+  const AUTHORIZE_PARAMS = [
+    "client_id", "redirect_uri", "response_type", "state",
+    "code_challenge", "code_challenge_method", "resource", "scope",
+  ];
+
+  router.get("/oauth/authorize", (ctx) => {
+    const a = consentGate(ctx);
+    const parsed = oauth.parseAuthorizeRequest(db, config.baseUrl, (n) => ctx.query.get(n) ?? undefined);
+    if ("fatal" in parsed) {
+      return { ...render(ctx, "Connect an app", renderConsentProblem(parsed.fatal)), status: 400 };
+    }
+    if ("redirect" in parsed) return { redirect: parsed.redirect };
+
+    const { client, redirectUri } = parsed.ok;
+    const hidden: Record<string, string> = {};
+    for (const name of AUTHORIZE_PARAMS) {
+      const value = ctx.query.get(name);
+      if (value !== null) hidden[name] = value;
+    }
+    hidden.redirect_uri = redirectUri;
+    const registered = oauth.redirectUrisOf(client);
+    const page = render(ctx, `Connect ${client.client_name}`, renderConsent({
+      clientName: client.client_name,
+      redirectHost: oauth.redirectHost(redirectUri),
+      loopbackOnly: registered.every((u) => {
+        try { return oauth.isLoopback(new URL(u)); } catch { return false; }
+      }),
+      memberName: a.member.name,
+      hidden,
+    }));
+    /*
+     * The answer is a redirect to the app, and a browser holds a form's
+     * redirects to the page's form-action — which is 'self' everywhere else,
+     * so Chrome would block the hop to claude.ai and leave the member on a
+     * blank page. This page, and only this page, also allows the one origin
+     * the app registered, which the member is reading on it.
+     */
+    const target = new URL(redirectUri).origin;
+    return {
+      ...page,
+      headers: {
+        ...(page.headers ?? {}),
+        "Content-Security-Policy": contentSecurityPolicy().replace(
+          "form-action 'self'", `form-action 'self' ${target}`,
+        ),
+      },
+    };
+  });
+
+  router.post("/oauth/authorize", (ctx) => {
+    const a = consentGate(ctx);
+    const parsed = oauth.parseAuthorizeRequest(db, config.baseUrl, (n) => field(ctx.body, n));
+    if ("fatal" in parsed) {
+      return { ...render(ctx, "Connect an app", renderConsentProblem(parsed.fatal)), status: 400 };
+    }
+    if ("redirect" in parsed) return { redirect: parsed.redirect };
+
+    const request = parsed.ok;
+    if (field(ctx.body, "decision") !== "approve") {
+      return {
+        redirect: oauth.clientRedirect(config.baseUrl, request.redirectUri, {
+          error: "access_denied", error_description: "The member declined.", state: request.state,
+        }),
+      };
+    }
+    const code = oauth.approveAuthorization(
+      db, actorFor(a), request, { redact: field(ctx.body, "redact") === "1" },
+    );
+    return {
+      redirect: oauth.clientRedirect(config.baseUrl, request.redirectUri, { code, state: request.state }),
+    };
+  });
 
   // -------------------------------------------------------------------------
   // `08` S5 · The month-close ritual. P1 per Q26.

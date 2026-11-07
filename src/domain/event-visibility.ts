@@ -40,7 +40,7 @@ export interface EventVisibility {
  * be wrong.
  */
 const HOUSEHOLD_ENTITIES = new Set([
-  "household", "member", "settings", "session", "impersonation", "api-token",
+  "household", "member", "settings", "session", "impersonation", "api-token", "ai-connection",
   "gmail", "statement-identity", "digest", "backup", "recompute", "prices",
   "category-order", "group-order", "held", "net-worth", "cas-import", "month-close",
 ]);
