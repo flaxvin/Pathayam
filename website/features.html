@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Features</title>
-<meta name="description" content="Everything Pathayam does: the envelope engine, Indian bank ingestion, reports, loans, assets, tax and insurance, and the platform underneath.">
+<meta name="description" content="Everything Pathayam does: the envelope engine, Indian bank ingestion, reports, loans, assets, tax and insurance, asking Claude, ChatGPT or Gemini about it read-only, and the platform underneath.">
 <link rel="stylesheet" href="fonts.css">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon.png" sizes="32x32" type="image/png">
@@ -54,7 +54,101 @@
     <div class="wrap center">
       <p class="eyebrow">Features</p>
       <h1 style="font-size:var(--step-5);max-width:20ch;margin-inline:auto">A better outcome for your income.</h1>
-      <p class="lede" style="font-size:var(--step-2);max-width:52ch">The engine first, because the engine is the product. Then how money gets in, which is the part that decides whether a budgeting app survives month three.</p>
+      <p class="lede" style="font-size:var(--step-2);max-width:52ch">The newest thing first: <a href="#ai">ask an AI about your own figures</a>. Then the engine, because the engine is the product, and how money gets in, which is the part that decides whether a budgeting app survives month three.</p>
+    </div>
+  </section>
+
+  <section class="sec" id="ai">
+    <div class="wrap">
+    <div class="row2">
+      <div class="row2__text">
+        <p class="eyebrow">New · Connect an AI</p>
+        <h2>Ask Claude, ChatGPT or Gemini about your money</h2>
+        <p class="lede">Pathayam has a built-in, read-only MCP server &mdash; the Model Context Protocol AI apps use to reach other software &mdash; at <code>&lt;your Pathayam address&gt;/mcp</code>. Connect an AI app to it, and ask about the household in your own words. The answers come from your own figures, worked out by the same arithmetic as the screens.</p>
+        <ul class="checks" style="margin-top:1.5rem">
+          <li>Claude on claude.ai and in the Claude apps, Claude Code and Claude Desktop</li>
+          <li>ChatGPT, through a custom connector</li>
+          <li>Gemini CLI, and the Gemini app where Google offers custom apps</li>
+          <li>Any other app that speaks MCP over HTTP</li>
+        </ul>
+      </div>
+      <figure class="chat">
+        <div class="chat__bar"><b>ChatGPT</b> · Pathayam connector <span class="chat__live">Read-only</span></div>
+        <div class="chat__body">
+          <p class="chat__you">We have ₹3 lakh spare. Can we prepay the home loan?</p>
+          <p class="chat__tool">Pathayam <code>loans</code> <code>loan_schedule</code> <code>cashflow</code></p>
+          <div class="chat__ai">
+            <p>Yes, and the cash is there: after this month&rsquo;s bills the savings account stays above <span class="m">₹1,40,000</span>.</p>
+            <ul>
+              <li>Keep the EMI, shorten the loan: <span class="m">23 months</span> sooner, <span class="m">₹6,12,400</span> less interest</li>
+              <li>Keep the tenure, lower the EMI: <span class="m">₹3,180</span> a month less, <span class="m">₹2,71,900</span> less interest</li>
+            </ul>
+            <p>Interest under 24(b) falls with it, so next year&rsquo;s deduction will be a little smaller.</p>
+          </div>
+          <p class="chat__you">And under the new regime, what would my tax be?</p>
+          <p class="chat__tool">Pathayam <code>tax_estimate</code></p>
+          <div class="chat__ai">
+            <p><span class="m">₹1,18,560</span> under the new regime, against <span class="m">₹1,46,900</span> under the old &mdash; an estimate on the figures you entered, not advice.</p>
+          </div>
+        </div>
+        <figcaption>The figures are fictional; the tools named are the ones it calls.</figcaption>
+      </figure>
+    </div>
+
+      <div class="cards cards--4" style="margin-top:3rem">
+        <div class="card"><span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg></span>
+          <h3>Read-only, by construction</h3>
+          <p>Not a setting: no tool it offers can write. An AI can read the budget, never move money, file a transaction or change anything.</p></div>
+        <div class="card"><span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v6c0 4.2-2.9 7.6-7 9-4.1-1.4-7-4.8-7-9V6l7-3z"/><path d="M9.5 12.2l1.8 1.8 3.4-3.6"/></svg></span>
+          <h3>Private by member</h3>
+          <p>Each connection sees exactly what the member who approved it sees: the household budget and their own. Another member&rsquo;s private accounts never appear, not in a list, a total or a count &mdash; the same rules, from the same code, as every screen.</p></div>
+        <div class="card"><span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 12h.01M10.5 12h.01M14 12h.01M17.5 12h.01"/></svg></span>
+          <h3>Masked by default</h3>
+          <p>Account numbers, UPI IDs, phone numbers and PAN are masked before anything leaves, on every connection unless you turn it off for that one. It is best effort &mdash; a number typed into a memo in an odd shape can get through.</p></div>
+        <div class="card"><span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg></span>
+          <h3>Every question, on record</h3>
+          <p>The Connect an AI page lists what each AI app asked for and when. The answers are not stored. Disconnect any app with one click.</p></div>
+      </div>
+
+      <div class="row2" style="margin-top:3rem;align-items:start">
+        <div class="row2__text">
+          <h3 style="font-size:var(--step-3)">From claude.ai, ChatGPT or the Gemini app</h3>
+          <ol class="steps" style="margin-top:1.25rem">
+            <li><div>Add a custom connector in the AI app (Gemini calls it a custom app), and give it your address with <code>/mcp</code> on the end.</div></li>
+            <li><div>The app sends you to Pathayam. Sign in as yourself, and approve it.</div></li>
+            <li><div>Ask. It appears on the Connect an AI page, where you can disconnect it.</div></li>
+          </ol>
+          <p class="hero__fine" style="margin-top:1rem">Sign-in is OAuth 2.1 with PKCE. Its access lasts an hour and renews while you keep it connected.</p>
+        </div>
+        <div class="row2__text">
+          <h3 style="font-size:var(--step-3)">From Claude Code, Gemini CLI or Claude Desktop</h3>
+          <p style="margin-top:1.25rem;color:var(--ink-2)">Make a token on <strong>Settings &rarr; API tokens &rarr; Connect an AI</strong>. The page shows the token once, with the command to paste:</p>
+          <pre style="margin-top:1rem"><code>claude mcp add --transport http pathayam \
+  https://budget.example.in/mcp \
+  --header "Authorization: Bearer &lt;token&gt;"</code></pre>
+          <p class="hero__fine" style="margin-top:1rem">A hand-made token expires after 30, 90 or 365 days. Gemini CLI and a Claude Desktop config get their own ready-made lines.</p>
+        </div>
+      </div>
+
+      <p class="note" style="margin-top:2.5rem">
+        <b>What an AI reads is sent to that AI&rsquo;s provider.</b> Anything it asks for travels to Anthropic, OpenAI or Google to be answered, under their terms rather than ours. Self-hosted, nothing goes anywhere unless you connect something; disconnect it and it stops.
+      </p>
+
+      <div class="table-scroll" style="margin-top:2rem">
+        <table>
+          <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
+          <tbody>
+          <tr><td>Seventeen read-only tools</td><td><span class="toolnames"><code>overview</code> <code>accounts</code> <code>transactions</code> <code>budget_month</code> <code>spending</code> <code>loans</code> <code>loan_schedule</code> <code>portfolio</code> <code>realised_gains</code> <code>net_worth</code> <code>tax_estimate</code> <code>cashflow</code> <code>insurance</code> <code>goals</code> <code>financial_independence</code> <code>explain</code> <code>snapshot</code></span></td></tr>
+          <tr><td>Same figures as the screens</td><td>The tools call the functions the screens use, so an AI is never told a balance, a loan&rsquo;s real cost or a tax figure the app would not show you.</td></tr>
+          <tr><td>Transactions, filtered and paged</td><td>Narrowed by account, envelope, payee, dates or amount, and handed over a page at a time.</td></tr>
+          <tr><td>Explain this number</td><td>An AI can ask where Ready to Assign or an envelope balance came from, and is given the events that produced it.</td></tr>
+          <tr><td>Two ways to connect</td><td>Sign in and approve from the AI app (OAuth 2.1 with PKCE, hour-long access that renews), or a hand-made token for a command-line or desktop client, expiring after 30, 90 or 365 days.</td></tr>
+          <tr><td>Masking</td><td>Per connection, on by default: account numbers, UPI IDs, phone numbers and PAN masked before anything is sent. Best effort, and the page says so.</td></tr>
+          <tr><td>Access log</td><td>Each question every AI app asked, with when, on the Connect an AI page. The answers are not kept.</td></tr>
+          <tr><td>Without connecting anything</td><td>Download an analysis summary from <code>/export/analysis.json</code>: a year of budget, spending by envelope, accounts, loans, portfolio and tax, without the transaction list. Paste it into any chat, or open it in a spreadsheet.</td></tr>
+          </tbody>
+        </table>
+      </div>
     </div>
   </section>
 
@@ -458,7 +552,7 @@
           <p>Three separate checks hold the line: every screen rendered as the wrong member, every function that can name a viewer required to, and every addressable thing asked for by somebody who should not have it. Each was written after a leak the others could not see &mdash; including a receipt that downloaded byte for byte.</p></div>
         <div class="card"><span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10" width="15" height="10" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
           <h3>Nothing leaves without you</h3>
-          <p>No telemetry, no analytics, no crash reporting. Bank access is read-only and opt-in, and the statement identity is excluded from every export by a test that asserts it.</p></div>
+          <p>No telemetry, no analytics, no crash reporting. Bank access and AI access are read-only and opt-in, and the statement identity is excluded from every export by a test that asserts it.</p></div>
       </div>
       <div class="table-scroll" style="margin-top:2rem">
         <table>
@@ -469,6 +563,7 @@
           <tr><td>Writes stay at home</td><td>A change sent from a signed-in browser must be addressed to the host in <code>BASE_URL</code>, or to an IP address or localhost; anything else gets a 403. That stops a page elsewhere re-pointing its own name at your server and writing to it.</td></tr>
           <tr><td>Impersonation</td><td>Read-only &ldquo;view as&rdquo; another member, always logged, writes behind an explicit toggle.</td></tr>
           <tr><td>API tokens</td><td>Scoped read or read-write, shown once, stored as a hash, and structurally unable to sign in, mint more tokens, set a password, sign out devices or link Gmail.</td></tr>
+          <tr><td>AI connections</td><td>Read-only by construction, reading as the member who approved them, masked by default and logged question by question. Disconnect one and its token stops working. <a href="#ai">How it works</a>.</td></tr>
           <tr><td>Universal undo</td><td>Thirty days, from an append-only log. The undo is itself an entry — nothing is edited or deleted.</td></tr>
           <tr><td>Verified restore</td><td>A scheduled job restores the latest backup into a scratch database and compares control totals. Failure fires a webhook.</td></tr>
           <tr><td>Feature flags</td><td>Loans, assets and multi-currency each disableable. A disabled module vanishes from navigation and reports.</td></tr>

@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pathayam</title>
-<meta name="description" content="Envelope budgeting built for Indian banking. Self-hosted, source available, and the data never leaves your machine.">
+<meta name="description" content="Envelope budgeting built for Indian banking. Self-hosted, source available, and the data never leaves your machine. Ask Claude, ChatGPT or Gemini about it, read-only.">
 <link rel="stylesheet" href="fonts.css">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon.png" sizes="32x32" type="image/png">
@@ -52,6 +52,7 @@
 <main id="main">
 
   <section class="wrap hero">
+    <a class="hero__new" href="#ask"><span class="pill">New</span> Ask Claude, ChatGPT or Gemini about your budget &rarr;</a>
     <h1>Know where every rupee is going <span class="u">before</span> it goes.</h1>
     <p class="hero__sub">
       Envelope budgeting built for the way Indian banking actually works — UPI
@@ -77,6 +78,62 @@
         <span class="proof__item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10" width="15" height="10" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg>Your data never leaves your machine</span>
         <span class="proof__item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 9h11a5 5 0 0 1 0 10h-6"/><path d="M4 9l4-4M4 9l4 4"/></svg>Everything undoes for 30 days</span>
         <span class="proof__item"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M8 8l4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg>Complete export, any time</span>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="ask">
+    <div class="wrap">
+    <div class="row2">
+      <div class="row2__text">
+        <p class="eyebrow">New · Connect an AI</p>
+        <h2>Ask Claude, ChatGPT or Gemini about your money</h2>
+        <p class="lede">Connect the AI app you already use, and ask it the questions a spreadsheet never answers. It reads your own figures from Pathayam &mdash; the same envelopes, loans and tax estimate you see &mdash; and answers in plain words.</p>
+        <ul class="checks" style="margin-top:1.5rem">
+          <li>&ldquo;Where did the grocery money go this quarter?&rdquo;</li>
+          <li>&ldquo;Can we prepay the home loan, and what would it save?&rdquo;</li>
+          <li>&ldquo;What will my tax be under the new regime?&rdquo;</li>
+          <li>&ldquo;Which envelopes keep running out?&rdquo;</li>
+        </ul>
+        <div class="actions" style="margin-top:1.75rem">
+          <a class="btn btn--primary" href="features.html#ai">How it works</a>
+        </div>
+        <p class="hero__fine" style="text-align:left;margin-top:1rem">What an AI reads is sent to that AI&rsquo;s provider. Connect nothing, and nothing goes anywhere.</p>
+      </div>
+      <figure class="chat">
+        <div class="chat__bar"><b>Claude</b> · Pathayam connector <span class="chat__live">Read-only</span></div>
+        <div class="chat__body">
+          <p class="chat__you">Where did the grocery money go this quarter?</p>
+          <p class="chat__tool">Pathayam <code>spending</code> <code>budget_month</code></p>
+          <div class="chat__ai">
+            <p>Groceries took <span class="m">₹54,180</span> from July to September, against <span class="m">₹48,000</span> assigned &mdash; <span class="m">₹6,180</span> over.</p>
+            <ul>
+              <li>Online orders: <span class="m">₹29,350</span></li>
+              <li>The vegetable shop, by UPI: <span class="m">₹15,620</span></li>
+              <li>Onam shopping in August: <span class="m">₹9,210</span></li>
+            </ul>
+            <p>Without August it was on target. The overspend was covered from Eating out, so the budget still balances.</p>
+          </div>
+        </div>
+        <figcaption>One question, answered from the household&rsquo;s own envelopes. Every figure here is fictional.</figcaption>
+      </figure>
+    </div>
+      <div class="cards" style="margin-top:2.5rem">
+        <div class="card">
+          <span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg></span>
+          <h3>Read-only, by construction</h3>
+          <p>There is no tool that writes. An AI can look at the budget, never move a rupee, file a transaction or change a setting.</p>
+        </div>
+        <div class="card">
+          <span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v6c0 4.2-2.9 7.6-7 9-4.1-1.4-7-4.8-7-9V6l7-3z"/><path d="M9.5 12.2l1.8 1.8 3.4-3.6"/></svg></span>
+          <h3>It sees what you see</h3>
+          <p>Each connection reads as the member who approved it: the household budget and your own. Another member&rsquo;s private accounts stay out, exactly as they do on every screen.</p>
+        </div>
+        <div class="card">
+          <span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg></span>
+          <h3>Masked, and logged</h3>
+          <p>Account numbers, UPI IDs, phone numbers and PAN are masked before anything is sent, unless you turn it off. Every question an AI asked is listed, and one click disconnects it.</p>
+        </div>
       </div>
     </div>
   </section>
@@ -133,6 +190,12 @@
         <span class="choice__icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg></span>
         <h3>I do not know if I can ever stop working</h3>
         <p>A target built from what you actually spent, against the assets that could actually pay for it &mdash; and the years a locked provident fund leaves uncovered.</p>
+        <span class="choice__go">Show me &rarr;</span>
+      </a>
+      <a class="choice" href="features.html#ai">
+        <span class="choice__icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/><path d="M8.5 10.5h.01M12 10.5h.01M15.5 10.5h.01"/></svg></span>
+        <h3>I just want to ask a question about my money</h3>
+        <p>Connect Claude, ChatGPT or Gemini and ask it in plain words. It reads your figures, read-only, and can never change one.</p>
         <span class="choice__go">Show me &rarr;</span>
       </a>
       <a class="choice" href="features.html#platform">
@@ -235,7 +298,7 @@
         <div class="card">
           <span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10" width="15" height="10" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
           <h3>Ask you to trust anybody</h3>
-          <p>No telemetry, no analytics, no third party &mdash; not even to sign in, since a password is built in and Google is optional. Self-host and nothing leaves your machine at all; host with us and your data sits in its own database, never a shared table with your row in it.</p>
+          <p>No telemetry, no analytics, no third party &mdash; not even to sign in, since a password is built in and Google is optional. Self-host and nothing leaves your machine at all, unless you connect an AI yourself; host with us and your data sits in its own database, never a shared table with your row in it.</p>
         </div>
         <div class="card">
           <span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></span>
