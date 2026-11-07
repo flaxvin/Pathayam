@@ -424,6 +424,8 @@ function refuseInDemo(config: Config, what: string): void {
 export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: RequestContext) => Response | void)[] } {
   const { db, config } = deps;
   const router = new Router();
+  // AI-7 · Off on a hosted Solo instance (FEATURE_AI=false); on everywhere else.
+  const aiEnabled = config.features.ai !== false;
 
   // -------------------------------------------------------------------------
   // Middleware
@@ -489,6 +491,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      */
     function oauthDoors(ctx: RequestContext): Response | void {
       const path = ctx.url.pathname;
+      /*
+       * AI-7 · With AI connections switched off, every way in for an AI app is
+       * simply not there: the endpoint, its sign-in, and the page that sets it
+       * up (F28.2 — a disabled module disappears). Checked here, first, so the
+       * 401 that would start an app's sign-in is never offered.
+       */
+      if (!aiEnabled && (isMcpPath(path) || OAUTH_DOORS.has(path) || path === "/oauth/authorize"
+          || path.replace(/\/+$/, "") === "/tokens/ai")) {
+        throw new NotFound();
+      }
       if (OAUTH_DOORS.has(path)) {
         ctx.res.setHeader("Access-Control-Allow-Origin", "*");
         if (ctx.method.toUpperCase() === "OPTIONS") {
@@ -7512,7 +7524,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // S5 More · F5 payees · F6 rules · F3 categories · J1 first run
   // -------------------------------------------------------------------------
   router.get("/more", (ctx) =>
-    render(ctx, "More", renderMore({ loans: config.features.loans, assets: config.features.assets })),
+    render(ctx, "More", renderMore({ loans: config.features.loans, assets: config.features.assets, ai: aiEnabled })),
   );
 
   router.get("/payees", (ctx) => {
@@ -8354,6 +8366,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/tokens", (ctx) => {
     const a = auth(ctx);
     return render(ctx, "API tokens", renderTokens({
+      aiEnabled,
       tokens: listTokens(db, a.member.id),
       connections: oauth.listConnections(db, a.member.id),
       minted: null,
@@ -8384,6 +8397,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // F30.4 · Rendered rather than redirected, because a redirect would have to
     // carry the secret in a URL — where it would land in logs and history.
     return render(ctx, "API tokens", renderTokens({
+      aiEnabled,
       tokens: listTokens(db, a.member.id),
       connections: oauth.listConnections(db, a.member.id),
       minted: { name: minted.token.name, secret: minted.secret },
@@ -10174,7 +10188,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     ];
   }
 
-  router.get("/health", (ctx) => render(ctx, "Health", renderHealth(healthGroups(viewer(ctx)))));
+  router.get("/health", (ctx) => render(ctx, "Health", renderHealth(healthGroups(viewer(ctx)), { aiEnabled })));
 
   /*
    * SECURITY-OPS-24 · On the demo anyone is signed in, and each of these is a
@@ -10254,6 +10268,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    * read-only token reaches it the way it reaches /export.json.
    */
   router.get("/export/analysis.json", (ctx) => {
+    // AI-7 · Part of the AI feature set: off with FEATURE_AI, like /mcp.
+    if (!aiEnabled) throw new NotFound();
     const a = auth(ctx);
     const raw = ctx.query.get("months")?.trim();
     let months: number | undefined;
@@ -10317,7 +10333,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         tools: buildTools(db, a.member.id, { features: { loans: config.features.loans, assets: config.features.assets } }),
         transformResult: tokenRedacts(token) ? redactValue : undefined,
         onToolCall: (c) => recordAiAccess(db, {
-          tokenId: token.id, memberId: a.member.id, tool: c.tool, args: c.args, ok: c.ok, bytes: c.bytes,
+          tokenId: token.id, tokenName: token.name, memberId: a.member.id, tool: c.tool, args: c.args, ok: c.ok, bytes: c.bytes,
         }),
       },
     );

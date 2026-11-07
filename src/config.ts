@@ -49,7 +49,12 @@ export interface Config {
   demoMode: boolean;
   sessionDays: number;
   /** F28: modules disableable per deployment. */
-  features: { loans: boolean; assets: boolean; multiCurrency: boolean };
+  /**
+   * AI-7 · `ai` is the MCP endpoint, signing in from an AI app and Connect an
+   * AI. Optional so a test's partial config means on, as the env default does;
+   * a hosted Solo instance sets FEATURE_AI=false.
+   */
+  features: { loans: boolean; assets: boolean; multiCurrency: boolean; ai?: boolean };
   /** R40.4: where a failed backup or restore verification reports to. */
   backupWebhookUrl: string | null;
   /**
@@ -164,6 +169,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
       loans: bool(env.FEATURE_LOANS, true),
       assets: bool(env.FEATURE_ASSETS, true),
       multiCurrency: bool(env.FEATURE_MULTI_CURRENCY, false), // Q18: ₹ only
+      ai: bool(env.FEATURE_AI, true),
     },
     backupWebhookUrl: env.BACKUP_WEBHOOK_URL || null,
     heartbeatUrl: env.HEARTBEAT_URL || null,

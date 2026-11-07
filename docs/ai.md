@@ -15,6 +15,10 @@ until a member connects an app.
 - [Protocol](#protocol)
 - [Code](#code)
 
+Switched off with `FEATURE_AI=false` ([operations.md](operations.md)): the
+endpoint, the sign-in, the page and `/export/analysis.json` are then 404s. The hosted Solo plan runs
+that way.
+
 ## What a connection can do
 
 | | |

@@ -16,7 +16,7 @@ import type { Rule, RuleStage, RuleSubject } from "../../import/rules.ts";
 // S5 · The More hub
 // ---------------------------------------------------------------------------
 
-export function renderMore(features: { loans: boolean; assets: boolean }): SafeHtml {
+export function renderMore(features: { loans: boolean; assets: boolean; ai?: boolean }): SafeHtml {
   const group = (title: string, items: [string, string, string][]) => html`
     <section class="card">
       <h2>${title}</h2>
@@ -83,7 +83,9 @@ export function renderMore(features: { loans: boolean; assets: boolean }): SafeH
       ["/activity", "Activity", "Every change, and the undo for it"],
       ["/health", "Health", "The page you open at 2am"],
       ["/settings", "Settings", "Household, appearance, devices"],
-      ["/tokens/ai", "Connect an AI", "Ask Claude, ChatGPT or Gemini about your budget, read-only"],
+      ...(features.ai !== false
+        ? [["/tokens/ai", "Connect an AI", "Ask Claude, ChatGPT or Gemini about your budget, read-only"] as [string, string, string]]
+        : []),
       ["/tokens", "API tokens", "For your own scripts, scoped and revocable"],
     ])}
 
@@ -751,6 +753,8 @@ export function renderTokens(opts: {
   tokens: TokenRow[];
   /** OAUTH · Apps connected through the consent page, kept apart from tokens minted here. */
   connections?: ConnectionRow[];
+  /** AI-7 · Whether Connect an AI exists on this server. */
+  aiEnabled?: boolean;
   /** F30.4 · Present exactly once, immediately after minting. */
   minted?: { name: string; secret: string } | null;
 }): SafeHtml {
@@ -760,7 +764,7 @@ export function renderTokens(opts: {
       For your own scripts. A token acts as you, but it cannot sign in, impersonate anyone, create
       more tokens, or change who is allowed into the household.
     </p>
-    <p>Connecting Claude, ChatGPT or Gemini? <a href="/tokens/ai">Connect an AI</a> sets it up read-only and shows what it has read.</p>
+    ${when(opts.aiEnabled !== false, () => html`<p>Connecting Claude, ChatGPT or Gemini? <a href="/tokens/ai">Connect an AI</a> sets it up read-only and shows what it has read.</p>`)}
 
     ${when(opts.minted, () => html`
       <section class="card">

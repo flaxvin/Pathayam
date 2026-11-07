@@ -3065,9 +3065,14 @@ ALTER TABLE api_tokens ADD COLUMN redact INTEGER NOT NULL DEFAULT 0 CHECK (redac
 -- log is the budget's history (R37). Pruned to 90 days and 2000 rows a member.
 --
 -- at is an IST timestamp from nowIST, compared as a string like every other.
+--
+-- token_id is deliberately not a foreign key, and the name is copied: an AI
+-- app's access token lasts an hour and is deleted a day after it expires
+-- (pruneOAuth), while what it read is kept for 90 days.
 CREATE TABLE ai_access_log (
   id        INTEGER PRIMARY KEY AUTOINCREMENT,
-  token_id  TEXT NOT NULL REFERENCES api_tokens(id),
+  token_id  TEXT NOT NULL,
+  token_name TEXT NOT NULL,
   member_id TEXT NOT NULL REFERENCES members(id),
   tool      TEXT NOT NULL,
   arguments TEXT NOT NULL,

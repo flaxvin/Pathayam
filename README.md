@@ -128,6 +128,11 @@ unless you connect something. Without connecting anything,
 envelope, accounts, loans, portfolio and tax, without the transaction list —
 to paste into any chat or spreadsheet.
 
+`FEATURE_AI=false` switches AI connections off entirely: `/mcp`, the sign-in
+from an AI app, the Connect an AI page and `/export/analysis.json` all answer
+404. The hosted Solo plan
+runs that way; self-hosted and the Household and Power plans have it on.
+
 ## Documentation
 
 | | |

@@ -239,3 +239,41 @@ describe("AI-5 · Connect an AI", () => {
     }
   });
 });
+
+describe("AI-7 · with FEATURE_AI off (a hosted Solo instance)", () => {
+  test("every way in for an AI app is not there, and nothing links to it", async () => {
+    const { db } = buildAnalysisWorld({ withPrivate: false });
+    const { secret } = token(db, PRIYA);
+    const off = { features: { loans: true, assets: true, multiCurrency: false, ai: false } };
+    const anon = await startTestApp(db, { memberId: null, config: off });
+    try {
+      assert.equal((await rpc(anon, secret, "tools/list")).res.status, 404);
+      assert.equal((await rpc(anon, null, "tools/list")).res.status, 404, "no 401 to start a sign-in");
+      for (const path of ["/.well-known/oauth-protected-resource", "/.well-known/oauth-authorization-server"]) {
+        assert.equal((await fetch(anon.baseUrl + path)).status, 404, path);
+      }
+      const reg = await fetch(anon.baseUrl + "/oauth/register", {
+        method: "POST", headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ client_name: "x", redirect_uris: ["https://claude.ai/api/mcp/auth_callback"] }),
+      });
+      assert.equal(reg.status, 404);
+    } finally {
+      await anon.close();
+    }
+
+    const member = await startTestApp(db, { memberId: PRIYA, config: off });
+    try {
+      assert.equal((await member.get("/tokens/ai")).status, 404);
+      assert.equal((await member.get("/oauth/authorize?client_id=x")).status, 404);
+      assert.doesNotMatch(await (await member.get("/more")).text(), /\/tokens\/ai/);
+      assert.doesNotMatch(await (await member.get("/tokens")).text(), /\/tokens\/ai/);
+      // The summary meant for AI tools goes with them; the full export stays.
+      assert.equal((await member.get("/export/analysis.json")).status, 404);
+      assert.doesNotMatch(await (await member.get("/health")).text(), /analysis\.json/);
+      assert.equal((await member.get("/export.json")).status, 200);
+      assert.deepEqual(member.failures, []);
+    } finally {
+      await member.close();
+    }
+  });
+});

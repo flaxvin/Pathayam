@@ -40,14 +40,14 @@ export interface AiAccessRow {
 
 export function recordAiAccess(
   db: DB,
-  entry: { tokenId: string; memberId: string; tool: string; args: Record<string, unknown>; ok: boolean; bytes: number },
+  entry: { tokenId: string; tokenName: string; memberId: string; tool: string; args: Record<string, unknown>; ok: boolean; bytes: number },
 ): void {
   let args = JSON.stringify(entry.args);
   if (args.length > MAX_ARGS_CHARS) args = args.slice(0, MAX_ARGS_CHARS) + "…";
   execute(
     db,
-    `INSERT INTO ai_access_log (token_id, member_id, tool, arguments, ok, bytes, at) VALUES (?,?,?,?,?,?,?)`,
-    entry.tokenId, entry.memberId, entry.tool, args, entry.ok ? 1 : 0, entry.bytes, nowIST(),
+    `INSERT INTO ai_access_log (token_id, token_name, member_id, tool, arguments, ok, bytes, at) VALUES (?,?,?,?,?,?,?,?)`,
+    entry.tokenId, entry.tokenName, entry.memberId, entry.tool, args, entry.ok ? 1 : 0, entry.bytes, nowIST(),
   );
   prune(db, entry.memberId);
 }
@@ -71,10 +71,9 @@ function prune(db: DB, memberId: string): void {
 export function listAiAccess(db: DB, memberId: string, limit = 50): AiAccessRow[] {
   return queryAll<AiAccessRow>(
     db,
-    `SELECT l.id, l.token_id, t.name AS token_name, l.tool, l.arguments, l.ok, l.bytes, l.at
-       FROM ai_access_log l JOIN api_tokens t ON t.id = l.token_id
-      WHERE l.member_id = ?
-      ORDER BY l.id DESC LIMIT ?`,
+    `SELECT id, token_id, token_name, tool, arguments, ok, bytes, at
+       FROM ai_access_log WHERE member_id = ?
+      ORDER BY id DESC LIMIT ?`,
     memberId, limit,
   );
 }

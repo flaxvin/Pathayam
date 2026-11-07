@@ -212,6 +212,8 @@ Everything the app reads, and nothing it does not:
 | `FEATURE_LOANS` | `true` | |
 | `FEATURE_ASSETS` | `true` | |
 | `FEATURE_MULTI_CURRENCY` | `false` | |
+| `FEATURE_AI` | `true` | AI connections: `/mcp`, signing in from an AI app (`/oauth/*`, the `.well-known` metadata) and Connect an AI. Off, each is a 404 and nothing links to it; existing connections stop answering. `/export/analysis.json` goes with them; `/export.json` stays. The hosted Solo plan runs with it off. |
+| `MCP_ALLOWED_ORIGINS` | — | Comma-separated browser origins, besides `BASE_URL`'s, allowed to call `/mcp`. Connectors call from their servers and need none (ai.md). |
 | `ADMIN_DEBUG` | `false` | Enables view-as-another-member, read-only by default, bannered. |
 | `DEMO_MODE` | `false` | Bypasses authentication. Refuses to start alongside `DEV_LOGIN`, Google or OIDC credentials, or `LOCAL_LOGIN`, and against a database with passwords, linked Google accounts, a connected mailbox or a statement identity. |
 | `DEV_LOGIN` | `false` | Local auth bypass. Absent from the production image; the app refuses to start with it in a production-shaped environment (production `NODE_ENV`, a public `BASE_URL`, Google or OIDC credentials, `LOCAL_LOGIN`). |
