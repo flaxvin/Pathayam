@@ -37,3 +37,13 @@ describe("SBI Card · a C or D column decides the sign", () => {
     assert.deepEqual(result.errors, []);
   });
 });
+
+describe("SBI Card · a row's narration is the row", () => {
+  test("the table heading, a cardholder banner and a section title are not glued on", () => {
+    const result = parseStatementText(SBI_CARD);
+    assert.deepEqual(result.records.map((r) => r.narration), [
+      "PAYMENT RECEIVED 000AB1234567XYZ",
+      "SAMPLE STORES SOMETOWN IN (Pay in EMIs)",
+    ]);
+  });
+});

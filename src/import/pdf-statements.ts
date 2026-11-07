@@ -795,6 +795,9 @@ function parseRow(
     // not a number but is certainly not a payee either.
     .filter((c) => !/\d[\d,]*\.\d{2}/.test(c))
     .filter((c) => parseStatementAmount(c) === null)
+    // SBI Card's lone C / D sign column, which says which way the money
+    // went and is no part of who it went to (PDF-4).
+    .filter((c) => !/^[CD]$/.test(c))
     // A stray time from "17/03/2026| 23:08", and column rules.
     .map((c) => c.replace(/^[|\s]+/, "").replace(/^\d{1,2}:\d{2}(:\d{2})?$/, ""))
     // A lone currency mark, sign or bullet left over once the figure beside it
@@ -959,7 +962,13 @@ const LAYOUTS: Partial<Record<BankId, { separateColumns: boolean; skip: RegExp[]
   },
   sbi: {
     separateColumns: true,
-    skip: [/^txn date/i, /^value date/i, /^description/i, /account statement/i],
+    skip: [
+      /^txn date/i, /^value date/i, /^description/i, /account statement/i,
+      // SBI Card: the banner over each cardholder's rows, and the heading of
+      // the notices printed just below the table. Both sat close enough to a
+      // row to be read as its payee (PDF-4).
+      /^transactions\s+for\b/i, /^important\s+messages?$/i,
+    ],
   },
   union: { separateColumns: true, skip: [/^date\b/i, /^particulars/i, /statement of account/i] },
   canara: { separateColumns: true, skip: [/^date\b/i, /^description/i, /statement/i] },
@@ -1150,11 +1159,22 @@ export function parseStatementText(
       /\b(balance|limit|summary|statement\s+period|ckyc|customer\s+id|total|due\s+date)\b/i
         .test(fragment);
 
+    /*
+     * The table's own column headings. SBI Card indents "Date  Transaction
+     * Details  Amount" past its rows' date column, so it read as the first
+     * row's wrapped payee (PDF-4).
+     */
+    const looksLikeHeading =
+      /\bdate\b/i.test(fragment) &&
+      /\b(description|particulars|narration|details|transaction)\b/i.test(fragment) &&
+      /\b(amount|withdrawal|deposit|debit|credit)\b/i.test(fragment);
+
     const looksLikeNarration =
       fragment.length < 120 &&
       /[A-Za-z]/.test(fragment) &&
       !/^[\d,.\s]+$/.test(fragment) &&
-      !looksLikeLabel;
+      !looksLikeLabel &&
+      !looksLikeHeading;
 
     classified.push({ raw, kind: looksLikeNarration ? "fragment" : "ignore" });
   }
