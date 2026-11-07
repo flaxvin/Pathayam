@@ -189,4 +189,24 @@ describe("IMP-20 · the Gmail fetch asks for the digits of each card it could no
       assert.doesNotMatch(page, /action="\/gmail\/card-digits"/);
     });
   });
+
+  test("REV-5 · one card at the bank with its digits does not hide another without them", async () => {
+    // The first card's four digits are not the ones this statement wants, so
+    // it stays locked; the second card, with none, is the one to ask about.
+    const db = setup();
+    const known = createAccount(db, ravi, {
+      name: "SBI Card Gold", kind: "credit", subtype: "credit-card", openingDate: "2026-08-01",
+      institution: "SBI Card", last4: "9999",
+    }).id;
+    const blank = createAccount(db, ravi, {
+      name: "SBI Card Travel", kind: "credit", subtype: "credit-card", openingDate: "2026-08-01",
+      institution: "SBI Card",
+    }).id;
+    await withApp(db, SBI(), async (app) => {
+      const res = await app.post("/gmail/fetch", {});
+      const page = await (await app.get(res.headers.get("location")!)).text();
+      assert.match(page, new RegExp(`name="account_id" value="${blank}"`));
+      assert.doesNotMatch(page, new RegExp(`name="account_id" value="${known}"`));
+    });
+  });
 });

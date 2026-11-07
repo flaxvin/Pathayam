@@ -350,7 +350,7 @@ async function handleStatement(
         : null;
       if (missing && !result.missingDetails.includes(missing)) result.missingDetails.push(missing);
       if (!unreadable && identity) {
-        for (const card of cardsLackingDigits(db, memberId, statementSender, identity, cardDigits)) {
+        for (const card of cardsLackingDigits(db, memberId, statementSender, identity)) {
           if (!result.cardDigitsNeeded.some((c) => c.accountId === card.accountId)) {
             result.cardDigitsNeeded.push(card);
           }
@@ -394,14 +394,16 @@ type StatementSenderRef = { bank: import("../import/pdf-statements.ts").BankId |
  */
 function cardsLackingDigits(
   db: DB, memberId: string, sender: StatementSenderRef,
-  identity: import("../import/statement-passwords.ts").StatementIdentity, cardDigits: string[],
+  identity: import("../import/statement-passwords.ts").StatementIdentity,
 ): { accountId: string; name: string; digits: 4 | 6 }[] {
-  const needed = cardDigitsNeeded(sender.bank, identity, cardDigits);
-  if (!needed || statementKind(sender.what) === "bank") return [];
+  if (statementKind(sender.what) === "bank") return [];
+  // REV-5 · Each card by its own digits: another card at the bank having its
+  // four says nothing about this one's.
   const cards = accountsAtBank(db, memberId, sender.bank).filter((a) => a.kind === "credit");
-  return cards
-    .filter((a) => (cardNumberDigits(db, a.id) ?? "").length < needed)
-    .map((a) => ({ accountId: a.id, name: a.name, digits: needed }));
+  return cards.flatMap((a) => {
+    const needed = cardDigitsNeeded(sender.bank, identity, [cardNumberDigits(db, a.id)]);
+    return needed ? [{ accountId: a.id, name: a.name, digits: needed }] : [];
+  });
 }
 
 function resolveStatementAccount(db: DB, memberId: string, sender: StatementSenderRef): string | null {
