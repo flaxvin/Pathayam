@@ -25,6 +25,7 @@ this file, the code wins; please open an issue.
   - [`GET /healthz`](#get-healthz)
   - [`GET /export.json`](#get-exportjson)
   - [`GET /export.csv`](#get-exportcsv)
+  - [`GET /export/analysis.json`](#get-exportanalysisjson)
   - [Portfolio & net-worth CSVs](#portfolio--net-worth-csvs)
 - [Worked examples](#worked-examples)
 - [Full route reference](#full-route-reference)
@@ -98,7 +99,7 @@ viewing as another member. Each accepted request updates the token's
 
 | Scope | GET (reads) | POST (writes) |
 |---|---|---|
-| `read` | ✅ | ❌ `403 { "error": "That token is read-only." }` |
+| `read` | ✅ | ❌ `403 { "error": "That token is read-only." }` (except `POST /mcp`, whose every tool is a read; see [ai.md](ai.md)) |
 | `read-write` | ✅ | ✅ |
 
 Scope is fixed at mint time. To change it, revoke and re-mint.
@@ -147,6 +148,7 @@ enforced as a deny-list in [`tokenMayReach`](../src/auth/tokens.ts)):
 | `/settings/password` | A password is a way in that does not need the token. A token that could set one would outlive its own revocation — and setting it signs the member's browsers out. |
 | `/sessions` | Signing the member's devices out is a human decision, not a script's. |
 | `/gmail/connect`, `/gmail/callback`, `/gmail/disconnect` | Linking or unlinking a mailbox changes what can reach the household, not what the budget says. `/gmail/fetch` stays reachable. |
+| `/oauth` | Approving an AI app hands out a fresh token with its own refresh token; a token that could do that would outlive its own revocation. |
 
 ```json
 // 403 on any forbidden prefix
@@ -154,6 +156,54 @@ enforced as a deny-list in [`tokenMayReach`](../src/auth/tokens.ts)):
   "error": "An API token cannot reach this. Tokens cannot sign in, impersonate, mint other tokens, or change who is allowed in."
 }
 ```
+
+### Connecting an AI app (OAuth)
+
+claude.ai custom connectors, ChatGPT connectors, Gemini and other MCP clients
+connect by URL: give them `${BASE_URL}/mcp` and they find the rest. Pathayam is
+its own OAuth 2.1 authorization server for this, following the MCP
+authorization spec (revision 2026-07-28); the code is
+[`src/auth/oauth.ts`](../src/auth/oauth.ts).
+
+1. `/mcp` without a usable token answers `401` with
+   `WWW-Authenticate: Bearer resource_metadata="${BASE_URL}/.well-known/oauth-protected-resource", scope="read"`.
+2. The protected resource metadata (RFC 9728) names `${BASE_URL}/mcp` as the
+   resource and `BASE_URL` as the authorization server; its metadata (RFC 8414)
+   names the endpoints below.
+3. The app registers itself (RFC 7591). Redirect URIs must be `https`, or
+   `http` on `localhost`, `127.0.0.1` or `[::1]` — matched on any port, for
+   native clients such as Claude Code and Gemini CLI. No fragments, no
+   credentials, at most 10. Public clients only (`token_endpoint_auth_method`
+   is always `none`).
+4. The member, signed in, approves on `/oauth/authorize`. PKCE `S256` is
+   required, `resource` must be `${BASE_URL}/mcp` when given, and every
+   redirect back carries `iss` (RFC 9207).
+5. The app trades the code at `/oauth/token` for an access token and a
+   refresh token.
+
+The access token **is an ordinary API token**: `bgt_`, scope `read` whatever
+was asked for, one hour long, named after the app ("Claude (connector)").
+Everything above applies to it unchanged — the deny-list, the rate limit,
+revocation, member removal. Refresh tokens last 90 days and rotate on every
+use; presenting an old one again ends the connection, as does using a code
+twice. Errors are RFC 6749 JSON (`invalid_grant`, `invalid_client`, …).
+
+Settings → API tokens lists each approval under **Connected AI apps**;
+**Revoke** there (or revoking the access token itself) ends the access token
+and the refresh token together. Approving and disconnecting are recorded in
+the activity log.
+
+| Method | Path | Scope | Purpose |
+|---|---|---|---|
+| GET | `/.well-known/oauth-protected-resource` · `/.well-known/oauth-protected-resource/mcp` | public | RFC 9728 protected resource metadata. CORS-open. |
+| GET | `/.well-known/oauth-authorization-server` | public | RFC 8414 authorization server metadata. CORS-open. |
+| POST | `/oauth/register` | public | RFC 7591 registration, JSON in and out. 20 an hour per address; at most 200 clients; one nobody approved within a day is removed. |
+| GET/POST | `/oauth/authorize` | session only | The consent page and its answer. Refused while viewing as another member and on the demo. |
+| POST | `/oauth/token` | public | `authorization_code` and `refresh_token` grants, form-encoded. |
+| POST | `/oauth/revoke` | public | RFC 7009. Ends the connection the token belongs to; answers `200` whatever it was. |
+| POST | `/tokens/connections/:id/revoke` | session only | Disconnect an AI app (Settings → API tokens). |
+| POST | `/mcp` | bearer, `read` is enough | The MCP endpoint itself. Bearer only: a session cookie is not looked at. `GET` and `DELETE` are `405`. Tools, masking and the protocol versions served are in [ai.md](ai.md). |
+| GET/POST | `/tokens/ai` | session only | Connect an AI: the address to give an app, read-only tokens with set-up commands, connected apps and what they have read. |
 
 ---
 
@@ -335,6 +385,26 @@ Every transaction as CSV, for a spreadsheet.
 ```bash
 curl -sS https://pathayam.example.com/export.csv \
   -H "Authorization: Bearer bgt_…" -o transactions.csv
+```
+
+### `GET /export/analysis.json`
+
+A **summary** of the member's figures, meant for pasting into an AI tool or
+loading into a spreadsheet: the overview, each budget's current month and the
+last `months` months (default 12, 1 to 36), spending by envelope and the top
+20 payees per month, loans, portfolio, net worth, the next 30 days' cashflow,
+goals, insurance and this financial year's tax estimate. Amounts are rupees
+(two decimals), dates `YYYY-MM-DD`, and `currency` is stated once at the top.
+
+It is what the member sees on screen and nothing more — another member's
+private accounts, loans, policies and personal budget are absent, totals
+included — and it is not a backup: there is no transaction list. A section
+whose feature is switched off reads `{ "enabled": false }`. Read-only, so a
+read token reaches it.
+
+```bash
+curl -sS "https://pathayam.example.com/export/analysis.json?months=24" \
+  -H "Authorization: Bearer bgt_…" -o analysis.json
 ```
 
 ### Portfolio & net-worth CSVs
@@ -598,6 +668,7 @@ only (out of a token's reach).
 | POST | `/gmail/fetch` | W | Fetch from the connected mailbox now. (`/gmail/disconnect` is session only.) |
 | POST | `/gmail/card-digits` | W | Save a card account's last four to eight digits (`account_id`, `card_digits`), offered after a fetch left its statement locked for want of them. Never echoed; the notice shows the last two. |
 | GET | `/export.json` · `/export.csv` | R | Full data exports. |
+| GET | `/export/analysis.json` | R | A summary of the member's figures for AI tools and spreadsheets (`months`, 1–36). |
 | GET | `/healthz` | R (public) | Machine health probe. |
 
 ### Session-only (out of a token's reach)

@@ -91,6 +91,7 @@ export function renderMore(features: Features): SafeHtml {
       ["/activity", "Activity", "Every change, and the undo for it"],
       ["/health", "Health", "The page you open at 2am"],
       ["/settings", "Settings", "Household, appearance, devices"],
+      ["/tokens/ai", "Connect an AI", "Ask Claude, ChatGPT or Gemini about your budget, read-only"],
       ["/tokens", "API tokens", "For your own scripts, scoped and revocable"],
     ])}
 
@@ -744,8 +745,22 @@ export interface TokenRow {
   expires_at: string | null;
 }
 
+/** OAUTH · An AI app's connection, as Settings lists it. */
+export interface ConnectionRow {
+  id: string;
+  clientName: string;
+  redirectHost: string;
+  redact: boolean;
+  createdAt: string;
+  lastUsedAt: string | null;
+}
+
 export function renderTokens(opts: {
   tokens: TokenRow[];
+  /** OAUTH · Apps connected through the consent page, kept apart from tokens minted here. */
+  connections?: ConnectionRow[];
+  /** AI-7 · Whether Connect an AI exists on this server. */
+  aiEnabled?: boolean;
   /** F30.4 · Present exactly once, immediately after minting. */
   minted?: { name: string; secret: string } | null;
 }): SafeHtml {
@@ -755,6 +770,7 @@ export function renderTokens(opts: {
       For your own scripts. A token acts as you, but it cannot sign in, impersonate anyone, create
       more tokens, or change who is allowed into the household.
     </p>
+    ${when(opts.aiEnabled !== false, () => html`<p>Connecting Claude, ChatGPT or Gemini? <a href="/tokens/ai">Connect an AI</a> sets it up read-only and shows what it has read.</p>`)}
 
     ${when(opts.minted, () => html`
       <section class="card">
@@ -765,6 +781,46 @@ export function renderTokens(opts: {
           database.
         </p>
         <pre class="raw-block" style="user-select:all">${opts.minted!.secret}</pre>
+      </section>
+    `)}
+
+    ${when((opts.connections ?? []).length > 0, () => html`
+      <section class="card">
+        <h2>Connected AI apps</h2>
+        <p class="muted">
+          Apps you approved to read your budget, read-only. Each holds a token that lasts an
+          hour and renews itself; disconnecting ends both.
+        </p>
+        <div class="table-scroll">
+          <table>
+            <thead>
+              <tr>
+                <th scope="col">App</th>
+                <th scope="col">Sends to</th>
+                <th scope="col">Connected</th>
+                <th scope="col">Last used</th>
+                <th scope="col"></th>
+              </tr>
+            </thead>
+            <tbody>
+              ${opts.connections!.map(
+                (c) => html`
+                  <tr>
+                    <td>${c.clientName}${when(c.redact, () => html`<div class="faint">Account numbers masked</div>`)}</td>
+                    <td>${c.redirectHost}</td>
+                    <td class="faint">${formatDate(c.createdAt.slice(0, 10))}</td>
+                    <td class="faint">${c.lastUsedAt ? formatDate(c.lastUsedAt.slice(0, 10)) : "Never"}</td>
+                    <td>
+                      <form method="post" action="/tokens/connections/${c.id}/revoke">
+                        <button class="button-small button-danger" type="submit">Revoke</button>
+                      </form>
+                    </td>
+                  </tr>
+                `,
+              )}
+            </tbody>
+          </table>
+        </div>
       </section>
     `)}
 

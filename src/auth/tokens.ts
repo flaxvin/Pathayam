@@ -35,8 +35,19 @@ export interface ApiToken {
   scope: TokenScope;
   created_at: string;
   last_used_at: string | null;
+  /** A date for a token minted by hand; an IST timestamp for an OAuth one. */
   expires_at: string | null;
   revoked_at: string | null;
+  /** OAUTH · Set when an AI app's connection minted this (src/auth/oauth.ts). */
+  oauth_client_id: string | null;
+  oauth_grant_id: string | null;
+  /** AI-3 · 1 when what it reads is masked; see tokenRedacts. */
+  redact: number;
+}
+
+/** AI-3 · Whether account numbers, UPI IDs, phone numbers and PAN are masked for it. */
+export function tokenRedacts(token: ApiToken): boolean {
+  return token.redact === 1;
 }
 
 /**
@@ -68,6 +79,13 @@ const FORBIDDEN_PREFIXES = [
   "/gmail/connect",
   "/gmail/callback",
   "/gmail/disconnect",
+  /*
+   * OAUTH · The consent page and the token endpoint. A token that could
+   * approve an AI app could hand out a fresh read token, with its own refresh
+   * token, that outlives revoking the one that asked; and the OAuth endpoints
+   * have nothing to give a bearer anyway — they take codes, not tokens.
+   */
+  "/oauth",
 ];
 
 /*
@@ -87,7 +105,16 @@ export function tokenMayReach(path: string): boolean {
   return !FORBIDDEN_SEGMENTS.some((p) => p.every((seg, i) => parts[i] === seg));
 }
 
+/*
+ * SHA-256, not scrypt, on purpose. What is hashed here is never a person's
+ * password: it is a token this server generated — 32 random bytes, for API
+ * tokens and OAuth codes and refresh tokens alike — so there is nothing to
+ * brute-force and a slow hash buys nothing. It must also be fast and
+ * deterministic, because a request is authenticated by looking the hash up.
+ * Code scanning reads the OAuth error paths as passwords; see docs/security.md.
+ */
 function hash(secret: string): string {
+  // codeql[js/insufficient-password-hash]
   return createHash("sha256").update(secret).digest("hex");
 }
 
@@ -150,11 +177,19 @@ export function getToken(db: DB, id: string): ApiToken | null {
   return queryOne<ApiToken>(db, `SELECT * FROM api_tokens WHERE id = ?`, id);
 }
 
-/** F30.3 · Listable with created date, last-used date and scope. */
+/**
+ * F30.3 · Listable with created date, last-used date and scope.
+ *
+ * The tokens minted by hand. An AI app's access tokens are listed as the
+ * connection that minted them instead (listConnections in oauth.ts): one
+ * expires every hour and is replaced, and a row per hour would bury the
+ * tokens a member actually made.
+ */
 export function listTokens(db: DB, memberId: string): ApiToken[] {
   return queryAll<ApiToken>(
     db,
     `SELECT * FROM api_tokens WHERE member_id = ? AND revoked_at IS NULL
+        AND oauth_grant_id IS NULL
       ORDER BY created_at DESC`,
     memberId,
   );
@@ -169,11 +204,60 @@ export function revokeToken(db: DB, actor: Actor, id: string): void {
       throw new Missing("That token does not exist.");
     }
     execute(db, `UPDATE api_tokens SET revoked_at = ? WHERE id = ?`, nowIST(), id);
+    /*
+     * OAUTH · An AI app's token is revoked with its connection. Revoking the
+     * access token alone would last until the app's next refresh, an hour at
+     * most, and then it would quietly have a new one.
+     */
+    if (token.oauth_grant_id) {
+      revokeGrantCredentials(db, token.oauth_grant_id);
+    }
     appendEvent(db, actor, {
       entity: "api-token", entityId: id, action: "revoke",
       summary: `Revoked the API token "${token.name}"`,
     });
   });
+}
+
+/**
+ * OAUTH · End a connection: the grant, every refresh token it holds, and every
+ * access token it minted. No event — each caller says in its own words why.
+ */
+export function revokeGrantCredentials(db: DB, grantId: string): void {
+  const now = nowIST();
+  execute(db, `UPDATE oauth_grants SET revoked_at = ? WHERE id = ? AND revoked_at IS NULL`, now, grantId);
+  execute(db, `UPDATE oauth_refresh_tokens SET revoked_at = ? WHERE grant_id = ? AND revoked_at IS NULL`, now, grantId);
+  execute(db, `UPDATE api_tokens SET revoked_at = ? WHERE oauth_grant_id = ? AND revoked_at IS NULL`, now, grantId);
+}
+
+/** OAUTH · How long an AI app's access token lasts. It refreshes before then. */
+export const OAUTH_ACCESS_TOKEN_SECONDS = 3600;
+
+/**
+ * OAUTH · The access token an AI app's connection is given: an ordinary
+ * read-only API token, an hour long, named after the app.
+ *
+ * Not mintToken: that one logs an event per token, and this one is minted on
+ * every refresh — the event that matters is the member's approval, which
+ * oauth.ts records once. Scope is not a parameter: it is read, always.
+ */
+export function mintOAuthAccessToken(
+  db: DB,
+  input: { memberId: string; name: string; clientId: string; grantId: string; redact: boolean },
+  now: Date = new Date(),
+): MintedToken {
+  const secret = `bgt_${randomBytes(32).toString("base64url")}`;
+  const id = newId();
+  const expiresAt = nowIST(new Date(now.getTime() + OAUTH_ACCESS_TOKEN_SECONDS * 1000));
+  execute(
+    db,
+    `INSERT INTO api_tokens
+       (id,member_id,name,token_hash,scope,created_at,expires_at,oauth_client_id,oauth_grant_id,redact)
+     VALUES (?,?,?,?,'read',?,?,?,?,?)`,
+    id, input.memberId, input.name, hash(secret), nowIST(now), expiresAt,
+    input.clientId, input.grantId, input.redact ? 1 : 0,
+  );
+  return { token: getToken(db, id)!, secret };
 }
 
 export interface TokenAuth {
@@ -189,7 +273,7 @@ export interface TokenAuth {
  * anyway. Revoked and expired tokens are indistinguishable from wrong ones.
  */
 export function authenticateToken(
-  db: DB, header: string | undefined, today: IsoDate = todayIST(),
+  db: DB, header: string | undefined, today: IsoDate = todayIST(), now: string = nowIST(),
 ): TokenAuth | null {
   const match = /^Bearer\s+(\S+)$/i.exec(header ?? "");
   if (!match) return null;
@@ -205,11 +289,20 @@ export function authenticateToken(
   if (a.length !== b.length || !timingSafeEqual(a, b)) return null;
 
   if (row.revoked_at) return null;
-  if (row.expires_at && row.expires_at < today) return null;
+  // A hand-minted token expires at the end of a date; an AI app's at a moment.
+  // The two shapes are compared each against its own kind of now.
+  if (row.expires_at) {
+    const expired = row.expires_at.length > 10 ? row.expires_at <= now : row.expires_at < today;
+    if (expired) return null;
+  }
 
   // F30.3 · Last-used, which is how a household spots a token they forgot
   // about. Written on every request; it is one indexed update.
   execute(db, `UPDATE api_tokens SET last_used_at = ? WHERE id = ?`, nowIST(), row.id);
+  // OAUTH · And on the connection, which is what Settings lists for an AI app.
+  if (row.oauth_grant_id) {
+    execute(db, `UPDATE oauth_grants SET last_used_at = ? WHERE id = ?`, nowIST(), row.oauth_grant_id);
+  }
 
   return { token: row, scope: row.scope };
 }

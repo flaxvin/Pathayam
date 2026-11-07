@@ -145,6 +145,12 @@ function getRoutes(ids: Record<string, string>): string[] {
     // place, with the flag on.
     "/settings/password",
     "/attachment/:id",                        // needs a stored file on disk
+    // Needs a registered client and a PKCE challenge; without them it is a
+    // deliberate 400. The whole flow is driven in oauth-flow.test.ts.
+    "/oauth/authorize",
+    // AI-2 · Bearer-only by design: a signed-in browser gets the 401 that
+    // starts an AI app's sign-in. Driven in mcp-route.test.ts.
+    "/mcp",
   ]);
 
   const fill = (pattern: string): string | null => {

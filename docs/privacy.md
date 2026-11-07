@@ -190,3 +190,11 @@ name remains on it. Before removal the household settles any balance between
 budgets — the whole of their commitment, including what they had already
 assigned to later months. A removed member can be restored, and is found by the
 same identity.
+
+## AI connections
+
+An AI app connected through `/mcp` acts as the member who connected it, with a
+read-scope token, so everything above applies to it unchanged: each tool calls
+the query its screen does, with the same viewer. What it reads is sent to that
+app's provider; masking and the access log are described in [ai.md](ai.md).
+

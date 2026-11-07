@@ -18,6 +18,7 @@ does, not how it came to do it.
 | [testing.md](testing.md) | Running the suite; what is covered and what is not. |
 | [limitations.md](limitations.md) | Known constraints and unsupported cases. |
 | [API.md](API.md) | HTTP API and personal access tokens. |
+| [ai.md](ai.md) | Connecting Claude, ChatGPT, Gemini and other MCP clients: tools, masking, the access log. |
 | [dev/01-engine-derivation.md](dev/01-engine-derivation.md) | Derivation of the accounting identity. Cited from the engine source. |
 | [dev/02-proposed-features.md](dev/02-proposed-features.md) | Seven requested features, sized against the code. An assessment; one of them (richer recurrence rules, §3) has since been built. |
 

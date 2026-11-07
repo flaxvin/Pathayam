@@ -8,7 +8,7 @@ runtime dependencies.
 harvest, drawn from deliberately through the year.
 
 ```
-v1.0.0 · 2809 tests · 0 runtime dependencies · 69 migrations · 225 routes
+v1.0.0 · 3000 tests · 0 runtime dependencies · 71 migrations · 240 routes
 ```
 
 **Status: production-ready.** 1.0.0 is the first stable release; see
@@ -24,6 +24,13 @@ v1.0.0 · 2809 tests · 0 runtime dependencies · 69 migrations · 225 routes
 - **Credit cards.** Spending on a card moves cash into that card's payment
   envelope. The interface reports how much of a card balance no envelope is
   funding, and what clears it.
+- **Ask an AI about your money.** A built-in, read-only MCP server at `/mcp`
+  lets Claude (claude.ai, the Claude apps, Claude Code, Claude Desktop),
+  ChatGPT, Gemini CLI and other MCP clients answer questions from the
+  household's own figures — where the grocery money went, whether to prepay
+  the home loan, the tax under each regime. No tool can write. Each connection
+  sees what its member sees and no more, masks account numbers, UPI IDs, phone
+  numbers and PAN by default, and every question it asked is logged.
 - **Indian banking.** Statement PDFs from twelve banks, with passwords derived
   from name, date of birth, PAN, mobile and customer ID. UPI narration
   parsing. Reducing-balance and flat loans, rate changes, prepayment
@@ -60,9 +67,10 @@ v1.0.0 · 2809 tests · 0 runtime dependencies · 69 migrations · 225 routes
   the 80C / 80D they suggest for the tax estimate. The tax estimate, reports,
   month close, net worth and a loan's schedule print as documents.
 - **Ownership.** One SQLite file in an open format, complete export, no
-  telemetry, no third-party service holding the data — and no third-party
-  service needed to sign in, either. Password sign-in is built in, any OpenID
-  Connect provider works, and Google is optional.
+  telemetry, no third-party service holding the data unless you connect an AI
+  yourself — and no third-party service needed to sign in, either. Password
+  sign-in is built in, any OpenID Connect provider works, and Google is
+  optional.
 
 ## Quick start
 
@@ -86,6 +94,44 @@ docker compose --profile dev up       # development, with the login bypass
 ```
 
 Configuration, sign-in (password, OpenID Connect or Google), backups and restore: [docs/operations.md](docs/operations.md).
+
+### Connect an AI
+
+Claude, ChatGPT, Gemini and other MCP clients connect to `<your Pathayam address>/mcp`:
+
+- **claude.ai, the Claude apps, ChatGPT, the Gemini app** — add a custom
+  connector with that address. The app sends you to Pathayam to sign in and
+  approve it (OAuth 2.1 with PKCE; access lasts an hour and renews). The
+  Gemini app offers custom apps only where Google has rolled them out.
+- **Claude Code, Gemini CLI, Claude Desktop** — make a token on **Settings →
+  API tokens → Connect an AI** (`/tokens/ai`), which shows the command or
+  config to paste. These tokens expire after 30, 90 or 365 days.
+
+```bash
+claude mcp add --transport http pathayam https://budget.example.in/mcp \
+  --header "Authorization: Bearer <token>"
+```
+
+Seventeen read-only tools cover the overview, accounts, transactions, the
+month's budget, spending, loans and their schedules, portfolio, realised gains,
+net worth, the tax estimate, cashflow, insurance, goals, financial
+independence, *explain this number*, and a snapshot. A connection reads as the
+member who approved it: the household budget and their own, never another
+member's private accounts. Masking of account numbers, UPI IDs, phone numbers
+and PAN is on by default per connection, and is best effort. The Connect an AI
+page lists every question each app asked (not the answers) and disconnects any
+of them.
+
+What an AI reads is sent to that AI's provider. Self-hosted, nothing leaves
+unless you connect something. Without connecting anything,
+`/export/analysis.json` downloads a summary — a year of budget, spending by
+envelope, accounts, loans, portfolio and tax, without the transaction list —
+to paste into any chat or spreadsheet.
+
+`FEATURE_AI=false` switches AI connections off entirely: `/mcp`, the sign-in
+from an AI app, the Connect an AI page and `/export/analysis.json` all answer
+404. The hosted Solo plan
+runs that way; self-hosted and the Household and Power plans have it on.
 
 ## Documentation
 
@@ -165,6 +211,7 @@ function and asserts (1) and (2) after each month. Details:
 | **Rules** | `/rules` | Automatic categorisation: what fires, what the app has proposed from your own filing, and a tester. |
 | **Categories** | `/categories` | Rename, set targets, reorder with ↑/↓, hide, delete. Payment and goal envelopes are marked *managed by the app*. |
 | **Activity** | `/activity` | Every change ever made, and the undo for it. Where later edits touched the same record, the undo shows what it would discard first. |
+| **Connect an AI** | `/tokens/ai` | Connect Claude, ChatGPT or Gemini: the MCP address, a token with copy-paste commands, masking per connection, every question each app asked, and disconnect. |
 | **Settings** | `/settings` | Household, theme, devices, Gmail connection, statement identity, notification prefs, API tokens. |
 | **Health** | `/health` | Backup status, restore verification, price feeds, feature flags, error counts. |
 | **Terms / Privacy** | `/terms`, `/privacy` | Public, signed out — Google's consent screen requires both before it grants `gmail.readonly`. |

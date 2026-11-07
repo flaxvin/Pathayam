@@ -35,6 +35,7 @@ export const FEATURE_ENV = {
   importBudgetApp: "FEATURE_IMPORT_BUDGET_APP",
   gmail: "FEATURE_GMAIL",
   apiTokens: "FEATURE_API_TOKENS",
+  ai: "FEATURE_AI",
   multiCurrency: "FEATURE_MULTI_CURRENCY",
 } as const;
 
@@ -65,7 +66,7 @@ const EVERYTHING: Features = {
   loans: true, familyLoans: true, assets: true, deposits: true, insurance: true,
   goals: true, tax: true, reports: true, schedules: true, rules: true,
   attachments: true, importCsv: true, importPdf: true, importBudgetApp: true,
-  gmail: true, apiTokens: true, multiCurrency: false,
+  gmail: true, apiTokens: true, ai: true, multiCurrency: false,
 };
 
 /*
@@ -73,7 +74,7 @@ const EVERYTHING: Features = {
  * Gmail is off on every hosted tier: the hosted plans never ask for mailbox
  * access (privacy.html, "Gmail"). Solo is the budgeting engine for one person:
  * no loans (family lending included), no investments or net worth (FIRE is
- * built on net worth), and no API tokens.
+ * built on net worth), no API tokens, and no AI connections (Febin, 07-11-2026).
  */
 export const PLAN_PRESETS: Record<Plan, PlanPreset> = {
   selfhost: {
@@ -83,7 +84,7 @@ export const PLAN_PRESETS: Record<Plan, PlanPreset> = {
   solo: {
     features: {
       ...EVERYTHING,
-      loans: false, familyLoans: false, assets: false, apiTokens: false, gmail: false,
+      loans: false, familyLoans: false, assets: false, apiTokens: false, ai: false, gmail: false,
     },
     limits: { maxMembers: 1, backupRetentionDays: 30 },
   },
@@ -146,7 +147,15 @@ const RULES: Rule[] = [
   { test: under("import", "map"), available: (f) => f.importCsv || f.importPdf },
   { test: under("import"), available: anyImport },
   { test: under("gmail"), available: (f) => f.gmail },
+  // AI-7 · Connect an AI lives under /tokens but is its own module: an AI
+  // connection is offered without hand-minted tokens, and vice versa.
+  { test: under("tokens", "ai"), available: (f) => f.ai },
   { test: under("tokens"), available: (f) => f.apiTokens },
+  { test: under("mcp"), available: (f) => f.ai },
+  { test: under("oauth"), available: (f) => f.ai },
+  { test: under(".well-known", "oauth-protected-resource"), available: (f) => f.ai },
+  { test: under(".well-known", "oauth-authorization-server"), available: (f) => f.ai },
+  { test: under("export", "analysis.json"), available: (f) => f.ai },
 ];
 
 /** Is this path served under these features? Core paths always are. */
