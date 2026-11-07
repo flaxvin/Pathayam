@@ -2926,4 +2926,30 @@ CREATE TABLE password_setup_links (
 CREATE INDEX idx_password_setup_links_member ON password_setup_links(member_id);
 `,
   },
+  {
+    name: "0071-an-ai-connection-leaves-a-trail-of-what-it-read",
+    sql: `
+--------------------------------------------------------------------------------
+-- What each AI connection asked for (src/ai/access-log.ts)
+--------------------------------------------------------------------------------
+-- One row per MCP tool call: the connection (an API token), the member it acts
+-- as, the tool and its arguments. The answer is never kept — it is the
+-- household's finances, and a second copy of them would sit in a table nobody
+-- thinks of as sensitive. Not in events: a read changes nothing, and the event
+-- log is the budget's history (R37). Pruned to 90 days and 2000 rows a member.
+--
+-- \`at\` is an IST timestamp from nowIST, compared as a string like every other.
+CREATE TABLE ai_access_log (
+  id        INTEGER PRIMARY KEY AUTOINCREMENT,
+  token_id  TEXT NOT NULL REFERENCES api_tokens(id),
+  member_id TEXT NOT NULL REFERENCES members(id),
+  tool      TEXT NOT NULL,
+  arguments TEXT NOT NULL,
+  ok        INTEGER NOT NULL CHECK (ok IN (0,1)),
+  bytes     INTEGER NOT NULL,
+  at        TEXT NOT NULL
+);
+CREATE INDEX idx_ai_access_log_member ON ai_access_log(member_id, id);
+`,
+  },
 ];
