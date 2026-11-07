@@ -2940,4 +2940,27 @@ ALTER TABLE tax_declarations ADD COLUMN s80ccd2 INTEGER NOT NULL DEFAULT 0 CHECK
 ALTER TABLE tax_declarations ADD COLUMN s80ccd2_government INTEGER NOT NULL DEFAULT 0;
 `,
   },
+  {
+    name: "0069-more-of-a-card-s-number",
+    sql: `
+--------------------------------------------------------------------------------
+-- IMP-18 · Up to the last eight digits of a card account's number
+--------------------------------------------------------------------------------
+-- HSBC locks a card statement with the card's last six, and accounts.last4
+-- holds four, because SMS alerts and every screen use four. A card account may
+-- now record five to eight trailing digits; accounts.last4 stays their last
+-- four, and the longer run is kept here.
+--
+-- A table of its own rather than a column on accounts: accounts is exported,
+-- read whole into the event log on every edit, and returned by the API. These
+-- digits are statement-password ingredients like statement_identity's, under
+-- the same rules: never exported (F15), never logged (R37), never shown whole.
+CREATE TABLE card_number_digits (
+  account_id TEXT PRIMARY KEY REFERENCES accounts(id) ON DELETE CASCADE,
+  digits     TEXT NOT NULL
+             CHECK (length(digits) BETWEEN 5 AND 8 AND digits NOT GLOB '*[^0-9]*'),
+  updated_at TEXT NOT NULL
+);
+`,
+  },
 ];

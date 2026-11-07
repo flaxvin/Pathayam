@@ -254,6 +254,12 @@ describe("top-down · nothing in the domain went unexercised", () => {
     importBudgetApp: "A household moves from YNAB or Actual Budget once, before it " +
       "starts here; the simulated one starts here. It ends in ingest(), which the " +
       "scenario calls every month, and budget-app-import.test.ts drives it end to end.",
+    keepLongerCardDigits: "A card's digits beyond its last four only unlock a locked " +
+      "statement, and the simulated household's statements are not locked; the " +
+      "account form calls it, driven by card-number-digits.test.ts.",
+    setCardNumberDigits: "Called when a locked statement opens with digits typed at " +
+      "import or after a Gmail fetch — neither of which the simulated household " +
+      "meets; card-number-digits.test.ts drives it.",
   };
 
   test("every mutating domain function is called by the scenario", () => {

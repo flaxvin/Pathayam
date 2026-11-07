@@ -19,6 +19,7 @@ import type { DB } from "../db/db.ts";
 import { queryOne } from "../db/db.ts";
 import { createAccount, createCard } from "../domain/accounts.ts";
 import { setIdentity } from "../import/identity.ts";
+import { setCardNumberDigits } from "../domain/card-digits.ts";
 import {
   STATEMENTS, STATEMENT_IDENTITY, SBI_CARD_LAST4, HSBC_CARD_LAST6,
 } from "../import/statements.test-data.ts";
@@ -226,6 +227,15 @@ describe("IMPORT-15 · Gmail card statements and the card's recorded digits", ()
     assert.ok(!notice.includes(HSBC_CARD_LAST6), notice);
     const events = JSON.stringify(db.prepare("SELECT * FROM events").all());
     assert.ok(!events.includes(HSBC_CARD_LAST6), "the HSBC digits reached the event log");
+  });
+
+  test("IMP-18 · …or with the six recorded on the card account itself", async () => {
+    const db = setup();
+    const accountId = hsbcCard(db, null);
+    setCardNumberDigits(db, actor, accountId, "12" + HSBC_CARD_LAST6);
+    const notice = await fetchFromGmail(db, hsbc());
+    assert.doesNotMatch(notice, /could not open|last six/, notice);
+    assert.equal(pdfBatches(db), 1);
   });
 });
 

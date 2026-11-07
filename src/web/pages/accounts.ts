@@ -253,6 +253,8 @@ export interface RegisterRow {
 
 export function renderAccountDetail(opts: {
   account: Account;
+  /** IMP-18 · A card account's longer digits on file, masked: how many, and the last two. */
+  cardNumberOnFile?: { count: number; tail: string } | null;
   /** H2 · Who this account could belong to. Empty for a one-person household. */
   members?: { id: string; name: string }[];
   /** 15 · The budgets this account could live in. */
@@ -376,12 +378,32 @@ export function renderAccountDetail(opts: {
             <label for="acc-institution">Institution</label>
             <input id="acc-institution" name="institution" value="${account.institution ?? ""}">
           </div>
-          <div class="field">
-            <label for="acc-last4">Last four digits</label>
-            <input id="acc-last4" name="last4" inputmode="numeric" maxlength="4"
-                   value="${account.last4 ?? ""}">
-            <p class="field-hint">Used to match bank SMS and statements to this account.</p>
-          </div>
+          ${account.kind === "credit"
+            ? html`
+                <div class="field">
+                  <label for="acc-last4">The card number's last digits</label>
+                  <input id="acc-last4" name="last4" inputmode="numeric" maxlength="11"
+                         autocomplete="off" value="${account.last4 ?? ""}">
+                  <p class="field-hint">
+                    Four to eight. The last four match bank SMS to this card; a
+                    statement locked with more of the number (HSBC uses six)
+                    opens with the rest.
+                    ${when(opts.cardNumberOnFile, () => html`
+                      ${opts.cardNumberOnFile!.count} digits on file, ending
+                      ••${opts.cardNumberOnFile!.tail} — leave the four as they
+                      are to keep them.
+                    `)}
+                  </p>
+                </div>
+              `
+            : html`
+                <div class="field">
+                  <label for="acc-last4">Last four digits</label>
+                  <input id="acc-last4" name="last4" inputmode="numeric" maxlength="4"
+                         value="${account.last4 ?? ""}">
+                  <p class="field-hint">Used to match bank SMS and statements to this account.</p>
+                </div>
+              `}
         </div>
         ${when(account.kind === "credit", () => html`
           <!--
@@ -1010,8 +1032,11 @@ export function renderNewAccountForm(opts: {
       <div class="grid-2">
         <div class="field">
           <label for="last4">Last four digits <span class="faint">(optional)</span></label>
-          <input id="last4" name="last4" inputmode="numeric" maxlength="4" autocomplete="off">
-          <p class="field-hint">Used to match bank alerts to the right account.</p>
+          <input id="last4" name="last4" inputmode="numeric" maxlength="11" autocomplete="off">
+          <p class="field-hint">
+            Used to match bank alerts to the right account. A card may have up
+            to its last eight, for statements locked with more of the number.
+          </p>
         </div>
         <div class="field">
           <label for="institution">Bank <span class="faint">(optional)</span></label>

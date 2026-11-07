@@ -547,3 +547,38 @@ export function renderGmailConnection(
     </section>
   `;
 }
+
+/**
+ * IMP-20 · After a fetch, the cards whose statements stayed locked because the
+ * bank's password uses the card's digits and the app has too few of them —
+ * each with a box for them, in the Gmail section's own notice style. Saved on
+ * the card account; the next fetch tries them. Empty renders nothing.
+ */
+export function renderCardDigitAsks(
+  cards: { accountId: string; name: string; digits: 4 | 6 }[],
+): SafeHtml {
+  if (cards.length === 0) return html``;
+  return html`
+    <section class="card" id="card-digits">
+      <h2>Card statements waiting for the card's digits</h2>
+      <p class="notice notice-warning">
+        <strong>Locked with the card number.</strong> These banks build the
+        statement password from the card's last digits, and the app does not
+        have enough of them yet. Enter them once and they are kept on the card's
+        account — the last four match its SMS alerts, the rest are used only to
+        open its statements and are never shown or exported.
+      </p>
+      ${cards.map((c) => html`
+        <form method="post" action="/gmail/card-digits" class="row" style="gap:.5rem;align-items:flex-end;margin-top:.6rem">
+          <input type="hidden" name="account_id" value="${c.accountId}">
+          <div class="field" style="margin:0">
+            <label for="card-digits-${c.accountId}">${c.name} — the card number's ${c.digits === 6 ? "last six" : "last four"} digits</label>
+            <input id="card-digits-${c.accountId}" name="card_digits" inputmode="numeric"
+                   autocomplete="off" spellcheck="false" minlength="${c.digits}" maxlength="11" required>
+          </div>
+          <button class="button-primary" type="submit">Save</button>
+        </form>
+      `)}
+    </section>
+  `;
+}

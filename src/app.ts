@@ -66,9 +66,12 @@ import {
   WrongPassword as StatementWrongPassword,
 } from "./import/pdf-statements.ts";
 import {
-  passwordCandidates, describeCandidate, missingDetailFor,
+  passwordCandidates, describeCandidate, missingDetailFor, cardDigitsNeeded,
 } from "./import/statement-passwords.ts";
 import { getIdentity, setIdentity, clearIdentity, maskedIdentity } from "./import/identity.ts";
+import {
+  parseCardNumber, keepLongerCardDigits, setCardNumberDigits, cardNumberDigits, maskedCardNumber,
+} from "./domain/card-digits.ts";
 import {
   recognise, saveProfile, listProfiles, markProfileUsed, deleteProfile,
   mappingFromSelections, validateMapping, columnChoices, candidateHeaderRows, looksMappable,
@@ -354,7 +357,7 @@ import {
 import { cameWithTheCard } from "./domain/card-shortfall.ts";
 import {
   renderMonthClose, renderClosedMonths, renderDigest, renderDigestSettings,
-  renderStatementIdentity, renderGmailConnection,
+  renderStatementIdentity, renderGmailConnection, renderCardDigitAsks,
 } from "./web/pages/month-close.ts";
 import {
   renderPortfolio, renderHoldingDetail, renderSalePreview, renderNetWorth,
@@ -3025,11 +3028,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           "or let whoever's name is on it make it private themselves.",
         );
       }
+      /*
+       * IMP-18 · A card account takes four to eight trailing digits. The form
+       * shows only the last four, so the same four sent back keep any longer
+       * run on file; new digits replace it, and an empty box clears both.
+       */
+      const cardNumber = parseCardNumber(field(ctx.body, "last4"), { card: before.kind === "credit" });
+      const keepsLonger = cardNumber !== undefined && cardNumber !== null
+        && cardNumber.length === 4 && cardNumber === before.last4;
       updateAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, {
         name: requiredField(ctx.body, "name"),
         nickname: text("nickname"),
         institution: text("institution"),
-        last4: last4Field(field(ctx.body, "last4")),
+        last4: cardNumber === undefined ? undefined : cardNumber?.slice(-4) ?? null,
         holder_member_id: holder,
         statement_day: numberOrNull(field(ctx.body, "statement_day")),
         due_day: numberOrNull(field(ctx.body, "due_day")),
@@ -3041,6 +3052,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         budget_id: text("budget_id") && requireVisibleBudget(ctx, text("budget_id")!),
         visibility,
       });
+      if (cardNumber !== undefined && !keepsLonger) keepLongerCardDigits(db, actorFor(a), id, cardNumber);
       return { redirect: `/accounts/${id}`, message: "Saved." };
     }),
   );
@@ -3119,12 +3131,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // than rejecting it.
       if (kind === "credit" && opening > 0) opening = -opening;
 
+      // IMP-18 · A card account takes up to eight trailing digits; any other, four.
+      const cardNumber = parseCardNumber(field(ctx.body, "last4"), { card: kind === "credit" }) ?? null;
       const account = createAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         name: requiredField(ctx.body, "name"),
         kind,
         subtype,
         institution: field(ctx.body, "institution") || null,
-        last4: last4Field(field(ctx.body, "last4")) ?? null,
+        last4: cardNumber?.slice(-4) ?? null,
         openingBalance: opening,
         openingDate,
         statementDay: numberOrNull(field(ctx.body, "statement_day")),
@@ -3143,6 +3157,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       if (terms) {
         setDepositTerms(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), account.id, terms);
       }
+      if (cardNumber && cardNumber.length > 4) keepLongerCardDigits(db, actorFor(a), account.id, cardNumber);
 
       return {
         redirect: `/accounts/${account.id}`,
@@ -3288,6 +3303,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       account.nickname || account.name,
       renderAccountDetail({
         account,
+        cardNumberOnFile: account.kind === "credit" ? maskedCardNumber(db, account.id) : null,
         derived: derivedWorth(db, account, viewer(ctx)),
         // A hand-valued asset has no transactions and never will, so its
         // register shows the valuations instead of staying empty forever.
@@ -3705,6 +3721,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           !config.demoMode,
           () => renderGmailConnection(connectionView(db, a.member.id), config.google.clientId !== null),
         )}
+
+        ${when(!config.demoMode, () => renderCardDigitAsks(cardDigitAsks(ctx)))}
 
         ${when(!config.demoMode, () => renderStatementIdentity(maskedIdentity(db, a.member.id)))}
         ${when(
@@ -5570,7 +5588,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
   // S10 · Import
   // -------------------------------------------------------------------------
-  function importPage(ctx: RequestContext, error: string | null = null) {
+  function importPage(
+    ctx: RequestContext, error: string | null = null,
+    pdf: { accountId: string; askDigits: 4 | 6; error: string } | null = null,
+  ) {
     return render(ctx, "Import", renderImport({
       accounts: listAccounts(db, { viewerMemberId: viewer(ctx) }),
       batches: listBatches(db, { viewerMemberId: viewer(ctx) }),
@@ -5580,6 +5601,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       casEnabled: config.features.assets,
       banks: BANKS.map((b) => ({ id: b.id, name: b.name, passwordHint: b.passwordHint })),
       error,
+      pdf,
     }));
   }
 
@@ -5695,9 +5717,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      */
     const typed = field(ctx.body, "password") ?? "";
     const identity = getIdentity(db, a.member.id);
+    /*
+     * IMP-19 · The card's digits, typed on the form this route brings back
+     * when they are what the bank's rule needs. Read here and never echoed:
+     * a page that comes back has an empty box, and a notice shows the last two.
+     */
+    const typedDigits = (field(ctx.body, "card_digits") ?? "").replace(/[\s-]/g, "");
 
     let parsed;
     let opened = "";
+    let savedDigits = "";
     /*
      * Which detail the bank's rule needs and this household has not saved.
      * Four institutions account for every statement a real corpus could not
@@ -5705,6 +5734,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * leaving somebody to conclude the file is simply unreadable.
      */
     let missing: string | null = null;
+    /** IMP-19 · How many of the card's digits to ask for, when that is the fix. */
+    let askDigits: 4 | 6 | null = null;
+    let digitsFailed = false;
+    const account = getAccount(db, accountId);
     try {
       if (typed !== "") {
         parsed = parseStatementPdf(upload.bytes, typed);
@@ -5712,24 +5745,65 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         // F2.9 · The destination account already stores the card/account's
         // last four digits (for SMS matching), which is exactly what Canara's
         // and SBI Card's passwords need. Hand them to the derivation.
-        const account = getAccount(db, accountId);
         // The account knows its bank, so the bank's own rule is tried first.
         // detectBank cannot help here: the file is still locked.
         const bank = bankForInstitution(account?.institution);
+        // IMP-18 · A card account may hold up to eight trailing digits.
+        const cardDigits = [cardNumberDigits(db, accountId)];
+        const isCard = account?.kind === "credit";
+        const needed = isCard ? cardDigitsNeeded(bank, identity, cardDigits) : null;
+        const tryDigits = needed && typedDigits !== "" ? typedDigits : null;
+        if (tryDigits !== null && !/^\d{4,8}$/.test(tryDigits)) {
+          askDigits = needed;
+          digitsFailed = true;
+          throw new StatementWrongPassword();
+        }
+        const withTyped = tryDigits ? [...cardDigits, tryDigits] : cardDigits;
         const result = openStatement(
           upload.bytes,
-          passwordCandidates(identity, bank, { cardDigits: [account?.last4] }),
+          passwordCandidates(identity, bank, { cardDigits: withTyped }),
         );
         if (!result) {
-          missing = missingDetailFor(bank, identity, [account?.last4]);
+          missing = missingDetailFor(bank, identity, cardDigits);
+          askDigits = needed;
+          digitsFailed = tryDigits !== null;
           throw new StatementWrongPassword();
         }
         parsed = result.parse;
         opened = ` It opened with ${describeCandidate(result.candidate, identity)}.`;
+        // Saved only when the typed digits are what opened it, and only when
+        // they agree with the last four already on the card.
+        const neededTyped = tryDigits !== null
+          && !passwordCandidates(identity, bank, { cardDigits }).includes(result.candidate);
+        if (neededTyped && tryDigits) {
+          const name = account!.nickname || account!.name;
+          if (account!.last4 && account!.last4 !== tryDigits.slice(-4)) {
+            savedDigits = ` Those digits end differently from the last four recorded on ${name}, ` +
+              "so they were not saved — check the account.";
+          } else {
+            setCardNumberDigits(db, actorFor(a, "ui"), accountId, tryDigits);
+            savedDigits = ` The card's last ${tryDigits.length} digits (ending ••${tryDigits.slice(-2)}) ` +
+              `are now saved on ${name}, so its next statement opens by itself.`;
+          }
+          opened = " It opened with the card's digits.";
+        }
       } else {
         parsed = parseStatementPdf(upload.bytes, "");
       }
     } catch (error) {
+      if (error instanceof StatementWrongPassword && askDigits) {
+        const which = askDigits === 6 ? "last six" : "last four";
+        return importPage(ctx, null, {
+          accountId,
+          askDigits,
+          error: (digitsFailed
+            ? `Those digits did not open it. Enter the card number's ${which} as printed on the ` +
+              "card, or type the statement password."
+            : `${missing ?? `This statement opens with the card number's ${which}.`} ` +
+              `Enter the card number's ${which} below, or type the statement password.`) +
+            " Choose the statement again too — a browser does not keep a chosen file between tries.",
+        });
+      }
       return importPage(ctx,
         error instanceof StatementWrongPassword
           ? (identity
@@ -5823,7 +5897,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       redirect: withNotice(
         toReview > 0 ? "/review" : "/import",
         `Read ${parsed.bank ? `your ${parsed.bank.name} statement` : "the statement"} — ` +
-          `${parts.join(", ")}.${opened}${reconciled}`,
+          `${parts.join(", ")}.${opened}${savedDigits}${reconciled}`,
       ),
     };
   });
@@ -8704,12 +8778,82 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }
     // IMPORT-15 · Which detail would open the locked ones, as the upload says it.
     const missing = result.missingDetails.length ? ` ${result.missingDetails.join(" ")}` : "";
+    /*
+     * IMP-20 · The cards whose digits would open the locked ones are listed on
+     * Settings, each with a box for them, so the fetch lands there rather than
+     * on Review. The URL carries ids and how many digits each needs, never a
+     * digit; Settings re-checks each id against what this member can see.
+     */
+    const asks = result.cardDigitsNeeded;
+    const askNote = asks.length
+      ? ` Enter ${asks.length === 1 ? "that card's digits" : "those cards' digits"} below and the next fetch will open ${result.statements.locked === 1 ? "it" : "them"}.`
+      : "";
     const summary = parts.length
-      ? `Read ${result.scanned} messages — ${parts.join(", ")}.${missing}`
+      ? `Read ${result.scanned} messages — ${parts.join(", ")}.${missing}${askNote}`
       : `Read ${result.scanned} messages — nothing new.`;
 
+    if (asks.length) {
+      const list = asks.map((c) => `${encodeURIComponent(c.accountId)}:${c.digits}`).join(",");
+      return { redirect: withNotice(`/settings?card_digits=${list}#card-digits`, summary) };
+    }
     return { redirect: withNotice(toReview > 0 ? "/review" : "/settings#gmail", summary) };
   });
+
+  /**
+   * IMP-20 · The card's digits, from the list a Gmail fetch left on Settings.
+   * Saved on the card account as the import saves them: the last four for SMS
+   * matching, up to eight kept beside them for statement passwords. Not
+   * checked against a statement here — there is none — so the next fetch is
+   * what tries them. Never echoed: the notice shows the last two.
+   */
+  router.post("/gmail/card-digits", (ctx) =>
+    mutate(ctx, (a) => {
+      refuseGmailWhileViewingAs(a);
+      const account = requireVisibleAccount(ctx, requiredField(ctx.body, "account_id"));
+      if (account.kind !== "credit" || account.closed_at) {
+        throw new Refusal("Only an open card account records a card's digits.");
+      }
+      const digits = parseCardNumber(field(ctx.body, "card_digits") ?? "", { card: true });
+      if (!digits) throw new Refusal("Enter the card number's last four to eight digits.");
+      if (account.last4 && account.last4 !== digits.slice(-4)) {
+        throw new Refusal(
+          `Those digits end differently from the last four recorded on ${account.nickname || account.name}. ` +
+          "Check the card, or change the account's number on its page.",
+        );
+      }
+      setCardNumberDigits(db, actorFor(a), account.id, digits);
+      return {
+        redirect: "/settings#gmail",
+        message: `Saved the card's last ${digits.length} digits (ending ••${digits.slice(-2)}) on ` +
+          `${account.nickname || account.name}. The next fetch will try them.`,
+      };
+    }),
+  );
+
+  /**
+   * IMP-20 · The cards a fetch asked digits for, from `?card_digits=id:n,…`,
+   * kept only when this member can see the account, it is an open card, and
+   * it still has fewer than n digits on file. A forged list can therefore show
+   * a member nothing but forms for their own cards that genuinely lack digits.
+   */
+  function cardDigitAsks(ctx: RequestContext): { accountId: string; name: string; digits: 4 | 6 }[] {
+    const raw = ctx.query.get("card_digits");
+    if (!raw) return [];
+    const visible = new Map(
+      listAccounts(db, { viewerMemberId: viewer(ctx) }).map((acc) => [acc.id, acc] as const),
+    );
+    const asks: { accountId: string; name: string; digits: 4 | 6 }[] = [];
+    for (const item of raw.split(",").slice(0, 20)) {
+      const [id, n] = item.split(":");
+      const digits = n === "6" ? 6 : n === "4" ? 4 : null;
+      const account = id ? visible.get(id) : undefined;
+      if (!digits || !account || account.kind !== "credit" || account.closed_at) continue;
+      if ((cardNumberDigits(db, account.id) ?? "").length >= digits) continue;
+      if (asks.some((x) => x.accountId === account.id)) continue;
+      asks.push({ accountId: account.id, name: account.nickname || account.name, digits });
+    }
+    return asks;
+  }
 
   /** `10` §3.6 · What statement passwords are worked out from. */
   router.post("/settings/identity", (ctx) => {

@@ -593,6 +593,7 @@ only (out of a token's reach).
 | GET | `/health` | R | Health dashboard (HTML). |
 | POST | `/health/backup` · `/health/verify` | W | Run a backup / verify a restore. |
 | POST | `/gmail/fetch` | W | Fetch from the connected mailbox now. (`/gmail/disconnect` is session only.) |
+| POST | `/gmail/card-digits` | W | Save a card account's last four to eight digits (`account_id`, `card_digits`), offered after a fetch left its statement locked for want of them. Never echoed; the notice shows the last two. |
 | GET | `/export.json` · `/export.csv` | R | Full data exports. |
 | GET | `/healthz` | R (public) | Machine health probe. |
 

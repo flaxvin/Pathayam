@@ -81,7 +81,7 @@ describe("editing an account", () => {
     });
     const app = await startTestApp(db, { memberId: RAVI });
     try {
-      for (const last4 of ["abcdefgh", "12", "123456", "66O4"]) {
+      for (const last4 of ["abcdefgh", "12", "123456789", "66O4"]) {
         const res = await app.post(`/accounts/${card.id}/edit`, { name: "Card", last4 });
         assert.equal(res.status, 422, last4);
         assert.equal(getAccount(db, card.id)!.last4, null, `${last4} was stored`);

@@ -319,7 +319,7 @@ export function missingDetailFor(
       return longest.length < 6
         ? "HSBC uses the last six digits of the card, and this account has "
           + (longest.length > 0 ? "only the last four." : "no card number recorded.")
-          + " Add the HSBC card's last six in Settings."
+          + " Add the card's last six on the account, or in Settings."
         : null;
     // IMPORT-SND-12 · Account statements locked with the customer ID. A card
     // statement from either bank opens with the name and date of birth, so a
@@ -334,6 +334,36 @@ export function missingDetailFor(
         ? null
         : "HDFC account statements open with your customer ID alone, which is not saved yet. "
           + "Add it in Settings.";
+    default:
+      return null;
+  }
+}
+
+/**
+ * IMP-19 · How many of the card's trailing digits this bank's rule wants, when
+ * the app does not have that many — the case an import can fix by asking.
+ * Null when the bank's rule is not a card's, or the digits are already there.
+ * SBI's account statement wants the mobile instead; a caller asks only for a
+ * card account.
+ */
+export function cardDigitsNeeded(
+  bankId: BankId | null | undefined,
+  identity: StatementIdentity,
+  cardDigits: (string | null | undefined)[] = [],
+): 4 | 6 | null {
+  const longest = [...cardDigits, identity.hsbcCardLast6]
+    .map((d) => (d ?? "").replace(/\D/g, ""))
+    .reduce((a, b) => (b.length > a.length ? b : a), "");
+  // SBI Card's and HSBC's rules put the digits after the date of birth, so
+  // without one there is nothing the digits alone could open.
+  const dob = parts(identity.dob) !== null;
+  switch (bankId) {
+    case "canara":
+      return longest.length < 4 ? 4 : null;
+    case "sbi":
+      return dob && longest.length < 4 ? 4 : null;
+    case "hsbc":
+      return dob && longest.length < 6 ? 6 : null;
     default:
       return null;
   }

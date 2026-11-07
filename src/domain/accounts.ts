@@ -894,6 +894,7 @@ registerUndoHandler("account", (db, event) => {
     execute(db, `DELETE FROM targets WHERE category_id IN
                    (SELECT id FROM categories WHERE payment_account_id = ?)`, id);
     execute(db, `DELETE FROM cards WHERE account_id = ?`, id);
+    execute(db, `DELETE FROM card_number_digits WHERE account_id = ?`, id);
     execute(db, `DELETE FROM categories WHERE payment_account_id = ?`, id);
     execute(db, `DELETE FROM accounts WHERE id = ?`, id);
     return `Removed the account that was added`;
