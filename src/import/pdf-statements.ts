@@ -964,8 +964,16 @@ function openingBalanceOf(line: string, previous = false): number | null {
   const pattern = previous
     ? /opening\s+balance|previous\s+balance|b\/?f\b|brought\s+forward/i
     : /opening\s+balance|b\/?f\b|brought\s+forward/i;
-  if (!pattern.test(line)) return null;
-  const figures = figuresWithOffsets(line);
+  const named = pattern.exec(line);
+  if (!named) return null;
+  /*
+   * A previous balance is the figure printed after its label. Canara's summary
+   * puts the Total Amount Due on the same line, left of a "Previous Balance"
+   * heading whose figure is a line below; taken as the opening, it made the
+   * first row's movement a debit of the wrong size (PDF-8).
+   */
+  const figures = figuresWithOffsets(line)
+    .filter((f) => !/previous/i.test(named[0]) || f.start >= named.index + named[0].length);
   const last = figures[figures.length - 1];
   return last ? balanceOf(last.text) : null;
 }

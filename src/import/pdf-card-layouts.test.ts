@@ -70,6 +70,19 @@ const CANARA_CARD = `                                                           
 `;
 
 describe("Canara card · the closing balance column decides the sign", () => {
+  test("the summary's Total Amount Due beside its Previous Balance heading is not the opening balance", () => {
+    // The summary block above the table: the amount due on the left, then the
+    // headings whose figures are on the line below.
+    const summary = `                                             STATEMENT SUMMARY
+           Total Amount Due
+                 339.00                              Previous Balance                  Purchases / Charges                     Cash Advances                    Payments / Credits
+                                                         2,000.00                            354.00                               0.00                              2,015.00
+`;
+    const result = parseStatementText(summary + CANARA_CARD);
+    assert.deepEqual(result.records.map((r) => r.amount), [200_000, 1_500, -30_000, -5_400]);
+    assert.deepEqual(result.errors, []);
+  });
+
   test("a payment that clears the balance to 0.00 Dr is a credit, not an unreadable row", () => {
     const result = parseStatementText(CANARA_CARD);
     assert.deepEqual(result.records.map((r) => r.amount), [200_000, 1_500, -30_000, -5_400]);
