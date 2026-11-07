@@ -247,6 +247,53 @@ export function cardsDue(
 }
 
 /**
+ * S8 · Whether a schedule is listed under one budget on the Schedules screen.
+ */
+export function scheduleInScope(
+  db: DB, opts: { budgetId: string; viewerMemberId: string | null },
+): (s: { account_id: string | null; category_id: string | null }) => boolean {
+  const { budgetId: scope, viewerMemberId } = opts;
+  /*
+   * 15 §3A.4 · A schedule belongs to a budget through **either** end: the
+   * account the money comes out of, or the envelope it lands in. Those differ
+   * exactly when one of you pays a shared bill from your own account, and the
+   * rent is then a household schedule and hers at once — which is the same rule
+   * Query uses for a transaction that crosses budgets.
+   *
+   * Scoping on the account alone made five household bills vanish from the
+   * household's list the moment the account paying them moved into a personal
+   * budget. The cashflow projection stays account-based, because that one is
+   * about whose cash actually leaves.
+   */
+  const accountsInScope = new Set(
+    listAccounts(db, { viewerMemberId })
+      .filter((a) => a.budget_id === scope)
+      .map((a) => a.id),
+  );
+  const categoriesInScope = new Set(
+    listCategories(db, { includeHidden: true, budgetId: scope, viewerMemberId })
+      .map((c) => c.id),
+  );
+  /*
+   * A tracking account belongs to no budget, and money into it names no
+   * envelope — so a "PPF deposit" schedule matched neither end in any scope:
+   * "Schedule added.", then never listed, with no Paid, Skip, Edit or Remove
+   * anywhere. With no envelope to place it, it shows wherever its account is
+   * visible, the way a schedule with neither end always has.
+   */
+  const unbudgetedAccounts = new Set(
+    listAccounts(db, { viewerMemberId })
+      .filter((a) => a.budget_id === null)
+      .map((a) => a.id),
+  );
+  return (s: { account_id: string | null; category_id: string | null }): boolean =>
+    (!s.account_id && !s.category_id)
+    || (s.account_id !== null && accountsInScope.has(s.account_id))
+    || (s.category_id !== null && categoriesInScope.has(s.category_id))
+    || (s.category_id === null && s.account_id !== null && unbudgetedAccounts.has(s.account_id));
+}
+
+/**
  * S16 · The Overview's figures for one budget: the five most-checked numbers
  * from the budget, cashflow, net worth and insight engine.
  */
