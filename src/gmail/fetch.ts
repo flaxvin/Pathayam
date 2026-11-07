@@ -30,7 +30,8 @@ import { ALERT_PROFILES, parseAlert, looksLikeUnreadAlert } from "../import/emai
 import {
   senderFor, parseStatementPdf, WrongPassword, STATEMENT_SENDERS, bankForInstitution,
 } from "../import/pdf-statements.ts";
-import { passwordCandidates, missingDetailFor } from "../import/statement-passwords.ts";
+import { passwordCandidates, missingDetailFor, cardDigitsNeeded } from "../import/statement-passwords.ts";
+import { cardNumberDigits } from "../domain/card-digits.ts";
 import { getIdentity } from "../import/identity.ts";
 import { getConnection, markFetched, type GmailConnection } from "./connection.ts";
 import { refreshAccessToken } from "./oauth.ts";
@@ -51,6 +52,12 @@ export interface FetchResult {
    * Names the field, never a value.
    */
   missingDetails: string[];
+  /**
+   * IMP-20 · The card accounts whose statement stayed locked for want of the
+   * card's digits, and how many the bank's rule needs: what the fetch notice
+   * offers a form for. Names and ids only, never a digit.
+   */
+  cardDigitsNeeded: { accountId: string; name: string; digits: 4 | 6 }[];
   /** Of the staged rows, those a rule approved straight into the ledger, so not in Review. */
   autoApproved: number;
   notes: string[];
@@ -113,6 +120,7 @@ export async function fetchGmail(
     alerts: { parsed: 0, staged: 0, unmatched: 0, unread: 0 },
     statements: { read: 0, staged: 0, locked: 0, unmatched: 0 },
     missingDetails: [],
+    cardDigitsNeeded: [],
     autoApproved: 0,
     notes: [],
   };
@@ -318,6 +326,13 @@ async function handleStatement(
         ? missingDetailFor(statementSender.bank, identity, cardDigits)
         : null;
       if (missing && !result.missingDetails.includes(missing)) result.missingDetails.push(missing);
+      if (!unreadable && identity) {
+        for (const card of cardsLackingDigits(db, memberId, statementSender, identity, cardDigits)) {
+          if (!result.cardDigitsNeeded.some((c) => c.accountId === card.accountId)) {
+            result.cardDigitsNeeded.push(card);
+          }
+        }
+      }
       continue;
     }
     result.statements.read++;
@@ -339,6 +354,24 @@ async function handleStatement(
 }
 
 type StatementSenderRef = { bank: import("../import/pdf-statements.ts").BankId | null; what: string };
+
+/**
+ * IMP-20 · The card accounts a locked statement could be for, when the card's
+ * digits are what its bank's rule needs: the open credit accounts at that bank
+ * the fetching member can see, each still short of that many digits. An
+ * account statement (SBI's wants the mobile) asks for none.
+ */
+function cardsLackingDigits(
+  db: DB, memberId: string, sender: StatementSenderRef,
+  identity: import("../import/statement-passwords.ts").StatementIdentity, cardDigits: string[],
+): { accountId: string; name: string; digits: 4 | 6 }[] {
+  const needed = cardDigitsNeeded(sender.bank, identity, cardDigits);
+  if (!needed || statementKind(sender.what) === "bank") return [];
+  const cards = accountsAtBank(db, memberId, sender.bank).filter((a) => a.kind === "credit");
+  return cards
+    .filter((a) => (cardNumberDigits(db, a.id) ?? "").length < needed)
+    .map((a) => ({ accountId: a.id, name: a.name, digits: needed }));
+}
 
 function resolveStatementAccount(db: DB, memberId: string, sender: StatementSenderRef): string | null {
   const rows = statementAccounts(db, memberId, sender);
@@ -374,7 +407,7 @@ function statementAccounts(db: DB, memberId: string, sender: StatementSenderRef)
 
 function accountsAtBank(
   db: DB, memberId: string, bank: import("../import/pdf-statements.ts").BankId | null,
-): { id: string; kind: string }[] {
+): { id: string; kind: string; name: string }[] {
   if (!bank) return [];
   // Among the fetching member's own view, as for alerts: another member's
   // private account at the same bank is neither a candidate nor a rival.
@@ -386,11 +419,11 @@ function accountsAtBank(
   const hidden = hiddenAccountSql("a", memberId);
   const word = new RegExp(`\\b${bank}\\b`, "i");
   return (db.prepare(
-    `SELECT a.id, a.kind, a.institution FROM accounts a
+    `SELECT a.id, a.kind, a.institution, COALESCE(a.nickname, a.name) AS name FROM accounts a
       WHERE a.closed_at IS NULL AND a.institution IS NOT NULL AND NOT ${hidden.sql}`,
-  ).all(...hidden.params) as { id: string; kind: string; institution: string }[])
+  ).all(...hidden.params) as { id: string; kind: string; institution: string; name: string }[])
     .filter((a) => bankForInstitution(a.institution) === bank || word.test(a.institution))
-    .map((a) => ({ id: a.id, kind: a.kind }));
+    .map((a) => ({ id: a.id, kind: a.kind, name: a.name }));
 }
 
 /**

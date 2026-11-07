@@ -357,7 +357,7 @@ import {
 import { cameWithTheCard } from "./domain/card-shortfall.ts";
 import {
   renderMonthClose, renderClosedMonths, renderDigest, renderDigestSettings,
-  renderStatementIdentity, renderGmailConnection,
+  renderStatementIdentity, renderGmailConnection, renderCardDigitAsks,
 } from "./web/pages/month-close.ts";
 import {
   renderPortfolio, renderHoldingDetail, renderSalePreview, renderNetWorth,
@@ -3721,6 +3721,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           !config.demoMode,
           () => renderGmailConnection(connectionView(db, a.member.id), config.google.clientId !== null),
         )}
+
+        ${when(!config.demoMode, () => renderCardDigitAsks(cardDigitAsks(ctx)))}
 
         ${when(!config.demoMode, () => renderStatementIdentity(maskedIdentity(db, a.member.id)))}
         ${when(
@@ -8776,12 +8778,82 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }
     // IMPORT-15 · Which detail would open the locked ones, as the upload says it.
     const missing = result.missingDetails.length ? ` ${result.missingDetails.join(" ")}` : "";
+    /*
+     * IMP-20 · The cards whose digits would open the locked ones are listed on
+     * Settings, each with a box for them, so the fetch lands there rather than
+     * on Review. The URL carries ids and how many digits each needs, never a
+     * digit; Settings re-checks each id against what this member can see.
+     */
+    const asks = result.cardDigitsNeeded;
+    const askNote = asks.length
+      ? ` Enter ${asks.length === 1 ? "that card's digits" : "those cards' digits"} below and the next fetch will open ${result.statements.locked === 1 ? "it" : "them"}.`
+      : "";
     const summary = parts.length
-      ? `Read ${result.scanned} messages — ${parts.join(", ")}.${missing}`
+      ? `Read ${result.scanned} messages — ${parts.join(", ")}.${missing}${askNote}`
       : `Read ${result.scanned} messages — nothing new.`;
 
+    if (asks.length) {
+      const list = asks.map((c) => `${encodeURIComponent(c.accountId)}:${c.digits}`).join(",");
+      return { redirect: withNotice(`/settings?card_digits=${list}#card-digits`, summary) };
+    }
     return { redirect: withNotice(toReview > 0 ? "/review" : "/settings#gmail", summary) };
   });
+
+  /**
+   * IMP-20 · The card's digits, from the list a Gmail fetch left on Settings.
+   * Saved on the card account as the import saves them: the last four for SMS
+   * matching, up to eight kept beside them for statement passwords. Not
+   * checked against a statement here — there is none — so the next fetch is
+   * what tries them. Never echoed: the notice shows the last two.
+   */
+  router.post("/gmail/card-digits", (ctx) =>
+    mutate(ctx, (a) => {
+      refuseGmailWhileViewingAs(a);
+      const account = requireVisibleAccount(ctx, requiredField(ctx.body, "account_id"));
+      if (account.kind !== "credit" || account.closed_at) {
+        throw new Refusal("Only an open card account records a card's digits.");
+      }
+      const digits = parseCardNumber(field(ctx.body, "card_digits") ?? "", { card: true });
+      if (!digits) throw new Refusal("Enter the card number's last four to eight digits.");
+      if (account.last4 && account.last4 !== digits.slice(-4)) {
+        throw new Refusal(
+          `Those digits end differently from the last four recorded on ${account.nickname || account.name}. ` +
+          "Check the card, or change the account's number on its page.",
+        );
+      }
+      setCardNumberDigits(db, actorFor(a), account.id, digits);
+      return {
+        redirect: "/settings#gmail",
+        message: `Saved the card's last ${digits.length} digits (ending ••${digits.slice(-2)}) on ` +
+          `${account.nickname || account.name}. The next fetch will try them.`,
+      };
+    }),
+  );
+
+  /**
+   * IMP-20 · The cards a fetch asked digits for, from `?card_digits=id:n,…`,
+   * kept only when this member can see the account, it is an open card, and
+   * it still has fewer than n digits on file. A forged list can therefore show
+   * a member nothing but forms for their own cards that genuinely lack digits.
+   */
+  function cardDigitAsks(ctx: RequestContext): { accountId: string; name: string; digits: 4 | 6 }[] {
+    const raw = ctx.query.get("card_digits");
+    if (!raw) return [];
+    const visible = new Map(
+      listAccounts(db, { viewerMemberId: viewer(ctx) }).map((acc) => [acc.id, acc] as const),
+    );
+    const asks: { accountId: string; name: string; digits: 4 | 6 }[] = [];
+    for (const item of raw.split(",").slice(0, 20)) {
+      const [id, n] = item.split(":");
+      const digits = n === "6" ? 6 : n === "4" ? 4 : null;
+      const account = id ? visible.get(id) : undefined;
+      if (!digits || !account || account.kind !== "credit" || account.closed_at) continue;
+      if ((cardNumberDigits(db, account.id) ?? "").length >= digits) continue;
+      if (asks.some((x) => x.accountId === account.id)) continue;
+      asks.push({ accountId: account.id, name: account.nickname || account.name, digits });
+    }
+    return asks;
+  }
 
   /** `10` §3.6 · What statement passwords are worked out from. */
   router.post("/settings/identity", (ctx) => {

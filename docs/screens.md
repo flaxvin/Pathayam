@@ -54,7 +54,7 @@ answer 404 when the viewer may not see the entity
 | `GET /rules` | Rules, proposals and a tester. |
 | `POST /rules/new`, `/rules/test`, `/rules/confirm`, `/rules/dismiss`, `/rules/:id/apply`, `/rules/:id/delete` | |
 | `GET /payees`, `POST /payees/merge` | |
-| `GET /gmail/connect`, `GET /gmail/callback`, `POST /gmail/fetch`, `POST /gmail/disconnect` | |
+| `GET /gmail/connect`, `GET /gmail/callback`, `POST /gmail/fetch`, `POST /gmail/card-digits`, `POST /gmail/disconnect` | |
 
 ## Analysis
 
