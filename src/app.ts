@@ -15,9 +15,9 @@ import { VERSION } from "./version.ts";
 import { devLoginModulePresent, type Config } from "./config.ts";
 import {
   Router, field, fieldList, fileField, requiredField, HttpError, NotFound,
-  type RequestContext, type Response,
+  type RequestContext, type Response, rawBodies,
 } from "./http/router.ts";
-import { clientIp, wantsJson } from "./http/server.ts";
+import { clientIp, wantsJson, contentSecurityPolicy } from "./http/server.ts";
 import { html, raw, when, type SafeHtml } from "./http/html.ts";
 import { page, MANIFEST, ASSET_VERSION, type Theme } from "./web/layout.ts";
 import { STYLESHEET } from "./web/styles.ts";
@@ -33,10 +33,14 @@ import {
   type AuthContext,
 } from "./auth/sessions.ts";
 import {
-  authenticateToken, tokenMayReach, checkTokenRateLimit,
+  authenticateToken, tokenMayReach, checkTokenRateLimit, tokenRedacts, type ApiToken,
   mintToken, listTokens, revokeToken, type TokenScope,
 } from "./auth/tokens.ts";
 import { beginOAuth, exchangeCode, OAuthError } from "./auth/google.ts";
+// OAUTH · As a namespace: google.ts already owns these names for the other
+// direction, where this app is the client.
+import * as oauth from "./auth/oauth.ts";
+import { renderConsent, renderConsentProblem } from "./web/pages/oauth.ts";
 import { PendingStates } from "./auth/pending.ts";
 import {
   beginGmailConnect, exchangeGmailCode, revokeToken as revokeGmailToken, GmailAuthError,
@@ -48,7 +52,11 @@ import { fetchGmail } from "./gmail/fetch.ts";
 import { GoogleUnreachable } from "./gmail/client.ts";
 import { withIdempotency, IdempotencyConflict } from "./core/idempotency.ts";
 import { parseAmount, evaluateAmountExpression, formatPaise, type Paise } from "./core/money.ts";
-import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, formatDate, formatDateTime, lastDayOfMonth, daysBetween, fiscalYearOf, formatFiscalYear, statementPeriodOf, type MonthKey, type IsoDate, type WeekdayOrdinal } from "./core/dates.ts";
+import {
+  parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, formatDate,
+  formatDateTime, fiscalYearOf, formatFiscalYear, statementPeriodOf, type MonthKey, type IsoDate,
+  type WeekdayOrdinal,
+} from "./core/dates.ts";
 import { buildBudgetView, reviewCount } from "./web/viewmodel.ts";
 import { renderBudget } from "./web/pages/budget.ts";
 import {
@@ -108,6 +116,7 @@ import { buildHouseholdView } from "./domain/household-view.ts";
 import { eventVisibility } from "./domain/event-visibility.ts";
 import { memberScope, hiddenTransactionSql, hiddenAccountSql } from "./domain/member-scope.ts";
 import { exportForMember, exportTransactionsCsvForMember } from "./ops/member-export.ts";
+import { aiSnapshot, SNAPSHOT_MAX_MONTHS } from "./ai/analysis.ts";
 import { callItEven } from "./domain/squaring-up.ts";
 import { describeDeparture, settleDeparture, type DepartureResolution } from "./domain/departure.ts";
 import { convertToEmi, convertedFrom, GST_PCT } from "./domain/card-emi.ts";
@@ -167,12 +176,14 @@ import {
 } from "./web/pages/analysis.ts";
 import { renderOverview } from "./web/pages/overview.ts";
 import {
+  derivedWorth, accountRows, cardsDue, overviewData, portfolioData, taxPageModel, scheduleInScope,
+} from "./web/screen-data.ts";
+import {
   queryTransactions, groupTotals, periodPresets, periodFor, incomeVsExpense,
-  envelopeSpendByMonth, outstandingReimbursements, capitalGainsByYear,
-  loanInterestByFinancialYear, categoryTrend, spendingCalendar, spendByTag, rowsToCsv,
-  type GroupBy, type TransactionFilter,
+  outstandingReimbursements, capitalGainsByYear, loanInterestByFinancialYear, categoryTrend,
+  spendingCalendar, spendByTag, rowsToCsv, type GroupBy, type TransactionFilter,
 } from "./domain/reports.ts";
-import { spendingInsights, type Insight } from "./domain/insights.ts";
+import { spendingInsights } from "./domain/insights.ts";
 import {
   listSchedules, createSchedule, updateSchedule, deleteSchedule, markPaid, skipOccurrence,
   detectSchedules, projectCashflow, describeCashflow, subscriptions,
@@ -199,16 +210,12 @@ import {
 } from "./auth/setup-links.ts";
 import { beginOidc, exchangeOidcCode } from "./auth/oidc.ts";
 import {
-  staleRatesWarning, assertKnownYear, RATES_VERIFIED_ON, RATES_SOURCE, RULES, ADVANCE_TAX_RULES,
-  estimateTax, advanceTaxSchedule, getDeclaration, hasDeclaration, saveDeclaration,
-  incomeInFinancialYear, settle, taxPaid, listTaxPayments, addTaxPayment, deleteTaxPayment,
-  type AdvanceInstalment, type TaxPaymentKind,
+  staleRatesWarning, RATES_VERIFIED_ON, RATES_SOURCE, saveDeclaration, settle, addTaxPayment,
+  deleteTaxPayment, type TaxPaymentKind,
 } from "./domain/tax.ts";
-import { homeLoanInterestFor } from "./domain/home-loan-interest.ts";
 import { renderTax, TAX_PRINT_CAVEAT } from "./web/pages/tax.ts";
 import { renderCategoryLines } from "./web/pages/category-lines.ts";
 import { renderDisposeAsset, renderAddToAsset } from "./web/pages/portfolio.ts";
-import { capitalGainsTaxFor, type GainsTax } from "./domain/capital-gains-tax.ts";
 import { renderFire } from "./web/pages/fire.ts";
 import { fireProjection, DEFAULT_ASSUMPTIONS } from "./domain/fire.ts";
 import { renderActivity } from "./web/pages/activity.ts";
@@ -246,56 +253,6 @@ const MAX_CASHFLOW_DAYS = 3650;
 /** Whether an OpenID Connect provider is fully configured. */
 function oidcConfigured(config: Config): boolean {
   return Boolean(config.oidc.issuer && config.oidc.clientId && config.oidc.clientSecret);
-}
-
-/**
- * What an account is actually worth, when that is not its transaction balance.
- *
- * A loan's balance is whatever has been posted to the account, which is usually
- * nothing — the debt lives in its amortisation schedule. A demat account is the
- * same: the holdings carry the value. So a list of accounts showed "₹0" against
- * eighteen lakh of debt, next to a button offering to add a transaction that
- * would then appear on no screen.
- *
- * Returns null for accounts worth exactly what their transactions say, which is
- * most of them.
- */
-function derivedWorth(
-  db: DB, account: { id: string; subtype: string },
-  viewerMemberId: string | null,
-): { value: Paise; label: string; href: string } | null {
-  if (!DERIVED_VALUE_SUBTYPES.has(account.subtype)) return null;
-
-  if (account.subtype === "loan" || account.subtype === "emi") {
-    // Scoped, though the account itself is already one this viewer can see —
-    // an unscoped read here would still be a read of the whole household.
-    const loan = listLoans(db, { viewerMemberId }).find((l) => l.account_id === account.id);
-    const projection = loan ? projectLoan(db, loan.id) : null;
-    return {
-      value: (projection ? -projection.outstanding : 0) as Paise,
-      label: "Open the loan",
-      href: loan ? `/loans/${loan.id}` : "/loans",
-    };
-  }
-
-  if (account.subtype === "family-loan") {
-    return { value: 0 as Paise, label: "Open lending", href: "/family" };
-  }
-
-  if (account.subtype === "investment") {
-    const total = listHoldings(db, account.id).reduce((sum, h) => {
-      const view = viewHolding(db, h.id);
-      return sum + (view?.marketValue ?? 0);
-    }, 0);
-    return { value: total as Paise, label: "Open the portfolio", href: "/portfolio" };
-  }
-
-  const valuation = standingValuation(db, account.id);
-  return {
-    value: (valuation?.value ?? 0) as Paise,
-    label: "Open the portfolio",
-    href: "/portfolio",
-  };
 }
 
 function passwordSignInOffered(db: DB, config: Config): boolean {
@@ -347,24 +304,20 @@ import {
 import { renderFamilyLoans, renderFamilyLoan } from "./web/pages/family-loans.ts";
 import {
   createPolicy, updatePolicy, markPremiumPaid, setPolicyStatus, deletePolicy, getPolicy,
-  listPolicies, canSeePolicy, policiesDueBy, policyTaxSuggestion, applyPolicySuggestion,
-  type PolicyInput,
+  listPolicies, canSeePolicy, type PolicyInput,
 } from "./domain/insurance.ts";
 import { renderInsurance, renderPolicy } from "./web/pages/insurance.ts";
 import {
   digestFor, mutedKinds, setMutedKinds, DIGEST_KINDS, type DigestKind,
 } from "./domain/digest.ts";
-import { cameWithTheCard } from "./domain/card-shortfall.ts";
 import {
   renderMonthClose, renderClosedMonths, renderDigest, renderDigestSettings,
   renderStatementIdentity, renderGmailConnection, renderCardDigitAsks,
 } from "./web/pages/month-close.ts";
 import {
-  renderPortfolio, renderHoldingDetail, renderSalePreview, renderNetWorth,
-  renderAllocation,
-  renderAddHolding, renderCasUpload, renderCasReview,
-  renderNewAssetForm, renderRevalueAsset, renderManualPrice, renderSplitForm, renderMergerForm, renderValuations,
-  type PortfolioRow, type CasReviewScheme,
+  renderPortfolio, renderHoldingDetail, renderSalePreview, renderNetWorth, renderAllocation,
+  renderAddHolding, renderCasUpload, renderCasReview, renderNewAssetForm, renderRevalueAsset,
+  renderManualPrice, renderSplitForm, renderMergerForm, renderValuations, type CasReviewScheme,
 } from "./web/pages/portfolio.ts";
 import { parseCasPdf, WrongPassword } from "./import/cas.ts";
 import { parseSafeGoldText, isSafeGoldText, type SafeGoldStatement } from "./import/safegold.ts";
@@ -376,20 +329,16 @@ import {
   planCasImport, applyCasPlan, casDestinations, stashPlan, peekPlan, takePlan,
 } from "./import/cas-plan.ts";
 import {
-  createAssetAccount, listAssetAccounts, listValuableAccounts, findOrCreateInstrument, setInstrumentListed, recordPurchase,
-  recordSale, recordPrice, recordSplit, recordMerger, recordValuation, latestValuation, listHoldings, viewHolding,
-  priceHistory, previewHoldingSale, getInstrument, findManualInstrument, listInstruments,
-  classifyInstrument, ASSET_CLASSES, ASSET_CLASS_LABELS,
-  exportHoldingsCsv, exportLotsCsv, exportPriceHistoryCsv, exportNetWorthCsv,
-  type InstrumentKind,
-  signedValuation,
-  assetHistory,
-  standingValuation,
-  valuationInBase,
+  createAssetAccount, listAssetAccounts, listValuableAccounts, findOrCreateInstrument,
+  setInstrumentListed, recordPurchase, recordSale, recordPrice, recordSplit, recordMerger,
+  recordValuation, latestValuation, listHoldings, viewHolding, priceHistory, previewHoldingSale,
+  getInstrument, findManualInstrument, listInstruments, classifyInstrument, ASSET_CLASSES,
+  ASSET_CLASS_LABELS, exportHoldingsCsv, exportLotsCsv, exportPriceHistoryCsv, exportNetWorthCsv,
+  type InstrumentKind, signedValuation, assetHistory, standingValuation,
 } from "./domain/assets.ts";
 import {
-  getDepositTerms, setDepositTerms, removeDepositTerms, computedDepositValue, listMaturities,
-  describeTerms, DEPOSIT_SUBTYPES, type DepositTermsInput,
+  getDepositTerms, setDepositTerms, removeDepositTerms, computedDepositValue, describeTerms,
+  DEPOSIT_SUBTYPES, type DepositTermsInput,
 } from "./domain/deposits.ts";
 import { checkTerms, READS_REGISTER, type DepositKind } from "./deposits/accrual.ts";
 import {
@@ -397,10 +346,15 @@ import {
   assetAllocation,
 } from "./domain/networth.ts";
 import {
-  units as toUnits, price as toUnitPrice, xirr, formatUnits, parseUnitPrice, type MicroRupees,
+  units as toUnits, price as toUnitPrice, formatUnits, parseUnitPrice, type MicroRupees,
 } from "./portfolio/holdings.ts";
 import { searchSchemes } from "./portfolio/providers.ts";
 import { refreshPrices, MANUAL_REFRESH } from "./portfolio/refresh.ts";
+import { handleMcp } from "./ai/mcp.ts";
+import { buildTools, MCP_INSTRUCTIONS } from "./ai/tools.ts";
+import { redactValue } from "./ai/redact.ts";
+import { recordAiAccess, listAiAccess } from "./ai/access-log.ts";
+import { renderConnectAi } from "./web/pages/ai.ts";
 
 export interface AppDeps {
   db: DB;
@@ -425,6 +379,27 @@ const PUBLIC_PATHS = new Set([
   // is its whole purpose. The route itself refuses unless DEMO_MODE is on.
   "/demo/enter",
 ]);
+/*
+ * OAUTH · The authorization server's machine-facing doors (src/auth/oauth.ts).
+ * An AI provider's servers fetch and post to these, from their own origin or
+ * none, with no session and no cookie — so, exactly these and nothing broader,
+ * they are public, read only a small body, and are exempt from the
+ * same-origin write rule below. Each takes a code, a refresh token or a
+ * registration and nothing a browser's cookie could lend it. The consent
+ * page, /oauth/authorize, is NOT here: it is a signed-in browser page, and
+ * its POST is held to every rule a form post is.
+ */
+const OAUTH_DOORS = new Set([
+  "/.well-known/oauth-protected-resource",
+  "/.well-known/oauth-protected-resource/mcp",
+  "/.well-known/oauth-authorization-server",
+  "/oauth/register", "/oauth/token", "/oauth/revoke",
+]);
+/** OAUTH · The MCP endpoint, matched segment by segment like the router. */
+function isMcpPath(path: string): boolean {
+  const parts = path.split("/").filter((s) => s.length > 0);
+  return parts.length === 1 && parts[0] === "mcp";
+}
 const STATIC_PREFIX = "/assets/";
 /*
  * A password link (src/auth/setup-links.ts) is a door too, and the one public
@@ -449,6 +424,8 @@ function refuseInDemo(config: Config, what: string): void {
 export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: RequestContext) => Response | void)[] } {
   const { db, config } = deps;
   const router = new Router();
+  // AI-7 · Off on a hosted Solo instance (FEATURE_AI=false); on everywhere else.
+  const aiEnabled = config.features.ai !== false;
 
   // -------------------------------------------------------------------------
   // Middleware
@@ -498,6 +475,58 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     },
 
     /*
+     * OAUTH · Before the write rule, because both of these are answered for
+     * callers that rule would refuse.
+     *
+     * The doors are called by browser-based MCP clients too (an inspector, a
+     * web app), which need CORS to read the answer. A wildcard is safe here
+     * and only here: none of these reads a cookie, so a page that calls one
+     * learns nothing it could not have asked for itself.
+     *
+     * /mcp without a usable bearer token is 401 with the WWW-Authenticate
+     * header that starts an AI app's sign-in (Claude starts it on a 401 and
+     * nothing else). Without this, the first call — a POST from a server,
+     * with no Origin — met the write rule and was a bare 403, and the app
+     * never learned where to sign in. The route itself is the MCP server's.
+     */
+    function oauthDoors(ctx: RequestContext): Response | void {
+      const path = ctx.url.pathname;
+      /*
+       * AI-7 · With AI connections switched off, every way in for an AI app is
+       * simply not there: the endpoint, its sign-in, and the page that sets it
+       * up (F28.2 — a disabled module disappears). Checked here, first, so the
+       * 401 that would start an app's sign-in is never offered.
+       */
+      if (!aiEnabled && (isMcpPath(path) || OAUTH_DOORS.has(path) || path === "/oauth/authorize"
+          || path.replace(/\/+$/, "") === "/tokens/ai")) {
+        throw new NotFound();
+      }
+      if (OAUTH_DOORS.has(path)) {
+        ctx.res.setHeader("Access-Control-Allow-Origin", "*");
+        if (ctx.method.toUpperCase() === "OPTIONS") {
+          return {
+            status: 204,
+            headers: {
+              "Access-Control-Allow-Methods": "GET, POST, OPTIONS",
+              "Access-Control-Allow-Headers": "Content-Type, Authorization, MCP-Protocol-Version",
+              "Access-Control-Max-Age": "86400",
+            },
+          };
+        }
+        return;
+      }
+      if (isMcpPath(path) && ctx.method.toUpperCase() !== "OPTIONS") {
+        const header = ctx.req.headers.authorization;
+        const bearer = authenticateToken(db, header);
+        if (!bearer) {
+          return oauth.mcpUnauthorized(config.baseUrl, { invalidToken: /^Bearer\s/i.test(String(header ?? "")) });
+        }
+        // Read once: authenticating records last-used, and twice is noise.
+        ctx.locals.bearer = bearer;
+      }
+    },
+
+    /*
      * A write has to come from this app's own pages.
      *
      * The cookie is already `SameSite=Lax`, which a browser honours by not
@@ -530,6 +559,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     function sameOriginWrites(ctx: RequestContext): Response | void {
       const method = ctx.method.toUpperCase();
       if (method === "GET" || method === "HEAD" || method === "OPTIONS") return;
+      // OAUTH · Posted to by an AI provider's servers; see OAUTH_DOORS.
+      if (OAUTH_DOORS.has(ctx.url.pathname)) return;
       /*
        * And never on a public door. A token cannot reach any of them, so a
        * bearer there authenticates nothing — while a DNS-rebound page, being
@@ -584,12 +615,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     function authenticateRequest(ctx: RequestContext): Response | void {
       const path = ctx.url.pathname;
       const cookies = parseCookies(ctx.req.headers.cookie);
-      let auth = authenticate(db, cookies[SESSION_COOKIE] ?? null);
+      /*
+       * AI-2 · /mcp is answered only as the token: the tools act for whoever
+       * the AI connection was made by. A browser cookie riding along (the
+       * member's own tab, a page that fetched with credentials) must not turn
+       * a connection into its holder's full session.
+       */
+      let auth = isMcpPath(path) ? null : authenticate(db, cookies[SESSION_COOKIE] ?? null);
 
       // F30 · A bearer token authenticates as its member, but is a narrower
       // thing than a session: it cannot reach the routes in F30.6's list, it
       // is rate-limited separately (F30.7), and a read-only one cannot write.
-      const bearer = authenticateToken(db, ctx.req.headers.authorization);
+      // The OAuth doors take codes and refresh tokens, never a bearer; one sent
+      // along is ignored rather than judged against the deny-list.
+      const bearer = OAUTH_DOORS.has(path) ? null
+        : (ctx.locals.bearer as ReturnType<typeof authenticateToken> | undefined)
+          ?? authenticateToken(db, ctx.req.headers.authorization);
       if (bearer && !auth) {
         if (!tokenMayReach(path)) {
           return {
@@ -611,7 +652,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           };
         }
 
-        if (ctx.method !== "GET" && bearer.scope === "read") {
+        // AI-2 · Except /mcp: MCP is JSON-RPC over POST, and every tool behind
+        // it is a read. A read-only token is exactly what an AI connection is.
+        if (ctx.method !== "GET" && bearer.scope === "read" && !isMcpPath(path)) {
           return { status: 403, json: { error: "That token is read-only." } };
         }
 
@@ -641,14 +684,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
       ctx.locals.auth = auth;
 
-      if (PUBLIC_PATHS.has(path) || SETUP_LINK_PATH.test(path)) {
+      if (PUBLIC_PATHS.has(path) || SETUP_LINK_PATH.test(path) || OAUTH_DOORS.has(path)) {
         // Every door is a short form — an email and a password at most. The
         // 12 MB an attachment needs is not offered to somebody not yet in.
         ctx.locals.bodyLimit = PUBLIC_BODY_BYTES;
         return;
       }
       if (!auth) {
+        // OAUTH · A token that authenticated for a member no longer allowed in.
+        if (isMcpPath(path)) return oauth.mcpUnauthorized(config.baseUrl, { invalidToken: true });
         if (wantsJson(ctx)) return { status: 401, json: { error: "Your session has expired." } };
+        // OAUTH · The consent page is nothing without its query — which app,
+        // sent where — so it comes back with it. Sign-in passes `next` through
+        // safePath, which keeps it on this site.
+        if (path === "/oauth/authorize" && ctx.method === "GET") {
+          return { redirect: `/signin?next=${encodeURIComponent(path + ctx.url.search)}` };
+        }
         return { redirect: `/signin?next=${encodeURIComponent(path)}` };
       }
 
@@ -660,7 +711,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // Signing out is the same kind of door: refusing it left a read-only
       // viewer unable to end their own session on a shared device.
       const IMPERSONATION_CONTROLS = new Set(["/impersonate/exit", "/impersonate/writes", "/signout"]);
-      if (ctx.method !== "GET" && !auth.canWrite && !IMPERSONATION_CONTROLS.has(path)) {
+      if (ctx.method !== "GET" && !auth.canWrite && !IMPERSONATION_CONTROLS.has(path) && !(isMcpPath(path) && ctx.locals.token)) {
         throw new HttpError(
           403,
           `You're viewing as ${auth.viewingAs.name} in read-only mode. Enable writes first, or exit.`,
@@ -2907,74 +2958,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // S2 · Accounts
   // -------------------------------------------------------------------------
   router.get("/accounts", (ctx) => {
-    const balances = accountBalances(db);
-    const outstanding = creditOutstanding(db);
     /*
      * 15 · The accounts of the budget being looked at, plus the tracking accounts,
      * which fund no budget and so belong to the household's picture whichever one
      * is selected (FW1).
      */
     const scope = budgetParam(ctx);
-    const view = buildBudgetView(db, undefined, scope, viewer(ctx));
-
-    const memberNames = new Map(listMembers(db).map((m) => [m.id, m.name]));
-    const rows: AccountRow[] = listAccounts(db, { viewerMemberId: viewer(ctx) })
-      .filter((account) => account.kind === "tracking" || account.budget_id === scope)
-      .map((account) => {
-      const recon = queryOne<{ as_of: string; broken_at: string | null }>(
-        db,
-        `SELECT as_of, broken_at FROM reconciliations WHERE account_id = ? ORDER BY as_of DESC LIMIT 1`,
-        account.id,
-      );
-      const paymentCategory = account.kind === "credit" ? paymentCategoryFor(db, account.id) : null;
-      const funded = paymentCategory ? view.categories.get(paymentCategory.id)?.state.balance ?? 0 : 0;
-
-      return {
-        account,
-        holderName: account.holder_member_id ? memberNames.get(account.holder_member_id) ?? null : null,
-        balances: balances.get(account.id)!,
-        derived: derivedWorth(db, account, viewer(ctx)),
-        // DEPOSITS · A deposit with terms is worth what they say, as on net worth.
-        deposit: getDepositTerms(db, account.id)
-          ? (() => {
-              const v = standingValuation(db, account.id);
-              return v ? { value: v.value, source: v.source } : null;
-            })()
-          : null,
-        unclearedCount:
-          queryOne<{ n: number }>(
-            db,
-            `SELECT COUNT(*) AS n FROM transactions WHERE account_id = ? AND cleared = 0 AND deleted_at IS NULL`,
-            account.id,
-          )?.n ?? 0,
-        lastReconciled: recon?.as_of ?? null,
-        checkpointBroken: Boolean(recon?.broken_at),
-        funding:
-          account.kind === "credit"
-            ? cardFunding(
-                account.id,
-                outstanding.get(account.id) ?? 0,
-                funded,
-                view.monthState.unfundedByAccount[account.id] ?? 0,
-              )
-            : null,
-        // S15 · A recent running-balance series for an inline sparkline. Walk
-        // the last few dozen transactions back from the current balance.
-        balanceSeries: (() => {
-          const recent = queryAll<{ amount: number }>(
-            db,
-            `SELECT amount FROM transactions WHERE account_id = ? AND deleted_at IS NULL
-              ORDER BY date DESC, created_at DESC LIMIT 24`,
-            account.id,
-          );
-          if (recent.length < 2) return undefined;
-          let bal = balances.get(account.id)!.working;
-          const series = [bal];
-          for (const t of recent) { bal -= t.amount; series.push(bal); }
-          return series.reverse();
-        })(),
-      };
-    });
+    const rows: AccountRow[] = accountRows(db, { budgetId: scope, viewerMemberId: viewer(ctx) });
 
     return render(
       ctx, "Accounts",
@@ -5245,67 +5235,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * is yours. Mixing them would put another budget's bill on your list.
      */
     const scope = budgetParam(ctx);
-    const view = buildBudgetView(db, month, scope, viewer(ctx));
-    // WEBUX-2 · The envelope is the viewed month's, so the debt it is weighed
-    // against is too; what the card owes, beside its statement, is today's.
-    const outstanding = creditOutstanding(db, month);
-    const owedNow = month < monthOf(todayIST()) ? creditOutstanding(db) : outstanding;
-    const today = todayIST();
-
-    const cards: CardDue[] = listAccounts(db, { viewerMemberId: viewer(ctx) })
-      .filter((a) => a.kind === "credit" && a.budget_id === scope)
-      .map((account) => {
-        const payment = [...view.categories.values()]
-          .find((c) => c.paymentAccountId === account.id) ?? null;
-        const funded = payment?.state.balance ?? 0;
-        const funding = cardFunding(
-          account.id,
-          outstanding.get(account.id) ?? 0,
-          funded,
-          view.monthState.unfundedByAccount[account.id] ?? 0,
-          account.opening_balance,
-        );
-        const statement = lastCardStatement(db, account.id);
-        const owed = Math.max(0, -(owedNow.get(account.id) ?? 0)) as Paise;
-        // UI-9 · With no statement, the due day stored on the card, as the
-        // cashflow projection already pays it.
-        const dueByDay = !statement && owed > 0 && account.due_day ? nextDueByDay(account.due_day, today) : null;
-
-        return {
-          accountId: account.id,
-          name: account.nickname || account.name,
-          last4: account.last4,
-          startingDebtNote: cameWithTheCard(funding),
-          owed,
-          credit: Math.max(0, owedNow.get(account.id) ?? 0) as Paise,
-          funded,
-          unfunded: funding.unfunded,
-          statement: statement
-            ? {
-                amount: statement.amount, date: statement.statement_date,
-                due: statement.due_date, minimum: statement.minimum_due,
-              }
-            : null,
-          dueByDay,
-          daysToDue: statement ? daysBetween(today, statement.due_date)
-            : dueByDay ? daysBetween(today, dueByDay) : null,
-          paidSinceStatement: statement
-            ? creditedSinceStatement(db, account.id, statement.statement_date)
-            : (0 as Paise),
-          paymentCategoryId: payment?.id ?? null,
-        };
-      })
-      /*
-       * Soonest first. A card with no statement sorts by its stored due day
-       * (UI-9); one with neither has no due date to sort by, so it goes last
-       * rather than being guessed at — R6 never invents a cycle.
-       */
-      .sort((a, b) => {
-        if (a.daysToDue === null && b.daysToDue === null) return b.owed - a.owed;
-        if (a.daysToDue === null) return 1;
-        if (b.daysToDue === null) return -1;
-        return a.daysToDue - b.daysToDue;
-      });
+    const cards: CardDue[] = cardsDue(db, { month, budgetId: scope, viewerMemberId: viewer(ctx) });
 
     return render(ctx, "Cards", renderCards({ cards, month }));
   });
@@ -6971,104 +6901,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * offering the switch at all.
      */
     const scope = budgetParam(ctx);
-    const view = buildBudgetView(db, undefined, scope, viewer(ctx));
-    const month = view.month;
-    // DEBUG-ENGINE-9 · The budget on screen, as the Schedules page asks it.
-    const cashflow = projectCashflow(db, { days: 60, budgetId: scope, viewerMemberId: viewer(ctx) });
-    const outstanding = creditOutstanding(db);
-    const unfundedCards = [...view.categories.values()]
-      .filter((c) => c.paymentAccountId)
-      .map((c) => ({
-        name: c.name,
-        amount: cardFunding(
-          c.paymentAccountId!,
-          outstanding.get(c.paymentAccountId!) ?? 0,
-          c.state.balance,
-          view.monthState.unfundedByAccount[c.paymentAccountId!] ?? 0,
-        ).unfunded,
-      }))
-      .filter((c) => c.amount > 0);
-    /*
-     * B78 · Both figures below are envelope spend, not cash through budget
-     * accounts. The tile read "Spent this month ₹1,060" on a month the
-     * household spent ₹22,010, because 95% of it was on cards — and the runway
-     * denominator had the same blind spot, which is the more dangerous of the
-     * two: it reported months of safety the household did not have.
-     */
-    const monthSpend =
-      (envelopeSpendByMonth(db, `${month}-01`, todayIST(), scope, viewer(ctx))
-        .at(-1)?.spent ?? 0) as Paise;
-
-    // #12 · Months of runway = liquid cash ÷ typical monthly spend (mean of the
-    // three complete months before this one, so a partial month doesn't skew it).
-    const bals = accountBalances(db);
-    const cash = listAccounts(db, { viewerMemberId: viewer(ctx) })
-      .filter((acc) => acc.kind === "budget" && acc.budget_id === scope)
-      .reduce((sum, acc) => sum + Math.max(0, bals.get(acc.id)?.working ?? 0), 0);
-    const priorMonths = envelopeSpendByMonth(
-      db, `${addMonths(month, -3)}-01`, lastDayOfMonth(addMonths(month, -1)), scope, viewer(ctx),
-    );
-    const avgMonthlySpend = priorMonths.length
-      ? priorMonths.reduce((s, m) => s + m.spent, 0) / priorMonths.length
-      : 0;
-    const runwayMonths = avgMonthlySpend > 0 ? cash / avgMonthlySpend : null;
-
-    // #13 · Bills due in the next fortnight, each with a one-tap "mark paid".
-    const soon = addDays(todayIST(), 14);
-    // 15 §3A.4 · Either end, the same as the schedules screen: a household bill
-    // paid from somebody's own account is still a household bill.
-    const budgetAccounts = new Set(
-      listAccounts(db, { viewerMemberId: viewer(ctx) })
-        .filter((acc) => acc.budget_id === scope)
-        .map((acc) => acc.id),
-    );
-    const budgetCategories = new Set(
-      listCategories(db, { includeHidden: true, budgetId: scope, viewerMemberId: viewer(ctx) })
-        .map((c) => c.id),
-    );
-    const dueSoon = listSchedules(db, { viewerMemberId: viewer(ctx) })
-      .filter((s) => s.next_due && s.next_due <= soon && (s.amount ?? 0) < 0)
-      .filter((s) =>
-        (!s.account_id && !s.category_id)
-        || (s.account_id !== null && budgetAccounts.has(s.account_id))
-        || (s.category_id !== null && budgetCategories.has(s.category_id)))
-      .sort((x, y) => (x.next_due ?? "").localeCompare(y.next_due ?? ""))
-      .map((s) => ({ id: s.id, name: s.name, amount: Math.abs(s.amount ?? 0) as Paise, nextDue: s.next_due! }))
-      // INSURANCE-1 · Premiums and renewals, in the same fortnight.
-      .concat(policiesDueBy(db, { viewerMemberId: viewer(ctx), until: soon, budgetId: scope })
-        .map((p) => ({ ...p, policy: true })))
-      .sort((x, y) => x.nextDue.localeCompare(y.nextDue))
-      .slice(0, 6);
-
     return render(
       ctx, "Overview",
-      renderOverview({
-        month,
-        rta: view.monthState.readyToAssign,
-        rtaState: view.monthState.rtaState,
-        /*
-         * H2.2 · With the viewer, the same as the net-worth page itself. Without
-         * it this headline was the whole household's — so somebody saw ₹55.6L
-         * here and ₹28.6L on the page behind it, and the difference was the
-         * private money they could not see, published by subtraction.
-         */
-        netWorth: config.features.assets
-          ? netWorthStatement(db, undefined, "INR", { viewerMemberId: viewer(ctx) }).netWorth
-          : (0 as Paise),
-        netWorthHistory: config.features.assets ? netWorthHistory(db) : [],
-        cashflow,
-        cashflowReading: describeCashflow(cashflow),
-        unfundedCards,
-        insights: spendingInsights(db, todayIST(), 4, viewer(ctx)),
-        monthSpend,
-        cash: cash as Paise,
-        runwayMonths,
-        dueSoon,
-        // DEPOSITS · Maturities in the same fortnight, from accounts this
-        // member can see. Shown, never posted.
-        maturing: listMaturities(db, { from: todayIST(), to: soon, viewerMemberId: viewer(ctx) })
-          .map((m) => ({ accountId: m.accountId, name: m.name, amount: m.amount, date: m.date })),
-      }),
+      renderOverview(overviewData(db, {
+        budgetId: scope, viewerMemberId: viewer(ctx), assets: config.features.assets,
+      })),
     );
   });
 
@@ -7188,44 +7025,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const cashflow = projectCashflow(db, { days: horizon, budgetId: scope, viewerMemberId: viewer(ctx) });
     const view = buildBudgetView(db, undefined, scope, viewer(ctx));
 
-    /*
-     * 15 §3A.4 · A schedule belongs to a budget through **either** end: the
-     * account the money comes out of, or the envelope it lands in. Those differ
-     * exactly when one of you pays a shared bill from your own account, and the
-     * rent is then a household schedule and hers at once — which is the same rule
-     * Query uses for a transaction that crosses budgets.
-     *
-     * Scoping on the account alone made five household bills vanish from the
-     * household's list the moment the account paying them moved into a personal
-     * budget. The cashflow projection stays account-based, because that one is
-     * about whose cash actually leaves.
-     */
-    const accountsInScope = new Set(
-      listAccounts(db, { viewerMemberId: viewer(ctx) })
-        .filter((a) => a.budget_id === scope)
-        .map((a) => a.id),
-    );
-    const categoriesInScope = new Set(
-      listCategories(db, { includeHidden: true, budgetId: scope, viewerMemberId: viewer(ctx) })
-        .map((c) => c.id),
-    );
-    /*
-     * A tracking account belongs to no budget, and money into it names no
-     * envelope — so a "PPF deposit" schedule matched neither end in any scope:
-     * "Schedule added.", then never listed, with no Paid, Skip, Edit or Remove
-     * anywhere. With no envelope to place it, it shows wherever its account is
-     * visible, the way a schedule with neither end always has.
-     */
-    const unbudgetedAccounts = new Set(
-      listAccounts(db, { viewerMemberId: viewer(ctx) })
-        .filter((a) => a.budget_id === null)
-        .map((a) => a.id),
-    );
-    const inScopeSchedule = (s: { account_id: string | null; category_id: string | null }) =>
-      (!s.account_id && !s.category_id)
-      || (s.account_id !== null && accountsInScope.has(s.account_id))
-      || (s.category_id !== null && categoriesInScope.has(s.category_id))
-      || (s.category_id === null && s.account_id !== null && unbudgetedAccounts.has(s.account_id));
+    // 15 §3A.4 · Either end: the account it moves, or the envelope it lands in.
+    const inScopeSchedule = scheduleInScope(db, { budgetId: scope, viewerMemberId: viewer(ctx) });
 
     return render(
       ctx, "Schedules",
@@ -7723,7 +7524,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // S5 More · F5 payees · F6 rules · F3 categories · J1 first run
   // -------------------------------------------------------------------------
   router.get("/more", (ctx) =>
-    render(ctx, "More", renderMore({ loans: config.features.loans, assets: config.features.assets })),
+    render(ctx, "More", renderMore({ loans: config.features.loans, assets: config.features.assets, ai: aiEnabled })),
   );
 
   router.get("/payees", (ctx) => {
@@ -8565,7 +8366,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.get("/tokens", (ctx) => {
     const a = auth(ctx);
     return render(ctx, "API tokens", renderTokens({
+      aiEnabled,
       tokens: listTokens(db, a.member.id),
+      connections: oauth.listConnections(db, a.member.id),
       minted: null,
     }));
   });
@@ -8594,17 +8397,181 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // F30.4 · Rendered rather than redirected, because a redirect would have to
     // carry the secret in a URL — where it would land in logs and history.
     return render(ctx, "API tokens", renderTokens({
+      aiEnabled,
       tokens: listTokens(db, a.member.id),
+      connections: oauth.listConnections(db, a.member.id),
       minted: { name: minted.token.name, secret: minted.secret },
     }));
   });
 
+  // AI-5 · Disconnecting from Connect an AI returns there; nothing else is a
+  // destination this takes, so it cannot be bent into an open redirect.
+  function backToTokens(ctx: RequestContext): string {
+    return field(ctx.body, "back") === "/tokens/ai" ? "/tokens/ai" : "/tokens";
+  }
   router.post("/tokens/:id/revoke", (ctx) =>
     mutate(ctx, (a) => {
       revokeToken(db, actorFor(a), ctx.params.id!);
-      return { redirect: "/tokens", message: "Revoked. Anything using it stops now." };
+      return { redirect: backToTokens(ctx), message: "Revoked. Anything using it stops now." };
     }),
   );
+
+  router.post("/tokens/connections/:id/revoke", (ctx) =>
+    mutate(ctx, (a) => {
+      oauth.revokeConnection(db, actorFor(a), ctx.params.id!);
+      return { redirect: backToTokens(ctx), message: "Disconnected. The app cannot read anything from now on." };
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // OAUTH · The authorization server AI apps connect through (src/auth/oauth.ts)
+  // -------------------------------------------------------------------------
+
+  const protectedResource = (): Response => ({ json: oauth.protectedResourceMetadata(config.baseUrl) });
+  router.get("/.well-known/oauth-protected-resource", protectedResource);
+  // RFC 9728 §3.1 · The path-suffixed form, which clients try first.
+  router.get("/.well-known/oauth-protected-resource/mcp", protectedResource);
+  router.get("/.well-known/oauth-authorization-server", () => ({
+    json: oauth.authorizationServerMetadata(config.baseUrl),
+  }));
+
+  /** An OAuth endpoint answers in OAuth's words, never with an HTML error page. */
+  function oauthJson(fn: () => Response): Response {
+    try {
+      return fn();
+    } catch (err) {
+      if (err instanceof oauth.OAuthError) return err.toResponse();
+      if (err instanceof HttpError) {
+        return { status: err.status, json: { error: "invalid_request", error_description: err.message } };
+      }
+      throw err;
+    }
+  }
+
+  router.post("/oauth/register", (ctx) => oauthJson((): Response => {
+    const limit = oauth.checkOAuthRateLimit("register", clientIp(ctx, config.trustProxy));
+    if (!limit.allowed) {
+      return {
+        status: 429,
+        headers: { "Retry-After": String(limit.retryAfterSeconds) },
+        json: { error: "slow_down", error_description: "Too many registrations from here. Try again later." },
+      };
+    }
+    // Refused where minting a token is: on a demo.
+    if (config.demoMode) {
+      throw new oauth.OAuthError("access_denied", "Connecting AI apps is disabled on the demo.", 403);
+    }
+    return { status: 201, json: oauth.registerClient(db, ctx.body) };
+  }));
+
+  router.post("/oauth/token", (ctx) => oauthJson((): Response => {
+    const limit = oauth.checkOAuthRateLimit("token", clientIp(ctx, config.trustProxy));
+    if (!limit.allowed) {
+      return {
+        status: 429,
+        headers: { "Retry-After": String(limit.retryAfterSeconds) },
+        json: { error: "slow_down", error_description: "Too many token requests. Try again shortly." },
+      };
+    }
+    const clientId = oauth.clientIdFrom(ctx.body, ctx.req.headers.authorization);
+    return {
+      headers: { Pragma: "no-cache" },
+      json: oauth.tokenRequest(db, config.baseUrl, ctx.body, clientId),
+    };
+  }));
+
+  router.post("/oauth/revoke", (ctx) => oauthJson(() => {
+    oauth.revocationRequest(db, ctx.body, oauth.clientIdFrom(ctx.body, ctx.req.headers.authorization));
+    return { json: {} };
+  }));
+
+  /**
+   * The consent page, and its answer. Refused while viewing as somebody else
+   * (a connection is a credential of theirs, like a token: R38.12) and on a
+   * demo, as minting a token is.
+   */
+  function consentGate(ctx: RequestContext): AuthContext {
+    refuseInDemo(config, "Connecting AI apps");
+    const a = auth(ctx);
+    if (a.impersonating) {
+      throw new HttpError(403, "An AI app cannot be connected while viewing as another member.");
+    }
+    return a;
+  }
+
+  /** The parameters a consent form carries back, exactly as the app sent them. */
+  const AUTHORIZE_PARAMS = [
+    "client_id", "redirect_uri", "response_type", "state",
+    "code_challenge", "code_challenge_method", "resource", "scope",
+  ];
+
+  router.get("/oauth/authorize", (ctx) => {
+    const a = consentGate(ctx);
+    const parsed = oauth.parseAuthorizeRequest(db, config.baseUrl, (n) => ctx.query.get(n) ?? undefined);
+    if ("fatal" in parsed) {
+      return { ...render(ctx, "Connect an app", renderConsentProblem(parsed.fatal)), status: 400 };
+    }
+    if ("redirect" in parsed) return { redirect: parsed.redirect };
+
+    const { client, redirectUri } = parsed.ok;
+    const hidden: Record<string, string> = {};
+    for (const name of AUTHORIZE_PARAMS) {
+      const value = ctx.query.get(name);
+      if (value !== null) hidden[name] = value;
+    }
+    hidden.redirect_uri = redirectUri;
+    const registered = oauth.redirectUrisOf(client);
+    const page = render(ctx, `Connect ${client.client_name}`, renderConsent({
+      clientName: client.client_name,
+      redirectHost: oauth.redirectHost(redirectUri),
+      loopbackOnly: registered.every((u) => {
+        try { return oauth.isLoopback(new URL(u)); } catch { return false; }
+      }),
+      memberName: a.member.name,
+      hidden,
+    }));
+    /*
+     * The answer is a redirect to the app, and a browser holds a form's
+     * redirects to the page's form-action — which is 'self' everywhere else,
+     * so Chrome would block the hop to claude.ai and leave the member on a
+     * blank page. This page, and only this page, also allows the one origin
+     * the app registered, which the member is reading on it.
+     */
+    const target = new URL(redirectUri).origin;
+    return {
+      ...page,
+      headers: {
+        ...(page.headers ?? {}),
+        "Content-Security-Policy": contentSecurityPolicy().replace(
+          "form-action 'self'", `form-action 'self' ${target}`,
+        ),
+      },
+    };
+  });
+
+  router.post("/oauth/authorize", (ctx) => {
+    const a = consentGate(ctx);
+    const parsed = oauth.parseAuthorizeRequest(db, config.baseUrl, (n) => field(ctx.body, n));
+    if ("fatal" in parsed) {
+      return { ...render(ctx, "Connect an app", renderConsentProblem(parsed.fatal)), status: 400 };
+    }
+    if ("redirect" in parsed) return { redirect: parsed.redirect };
+
+    const request = parsed.ok;
+    if (field(ctx.body, "decision") !== "approve") {
+      return {
+        redirect: oauth.clientRedirect(config.baseUrl, request.redirectUri, {
+          error: "access_denied", error_description: "The member declined.", state: request.state,
+        }),
+      };
+    }
+    const code = oauth.approveAuthorization(
+      db, actorFor(a), request, { redact: field(ctx.body, "redact") === "1" },
+    );
+    return {
+      redirect: oauth.clientRedirect(config.baseUrl, request.redirectUri, { code, state: request.state }),
+    };
+  });
 
   // -------------------------------------------------------------------------
   // `08` S5 · The month-close ritual. P1 per Q26.
@@ -8978,86 +8945,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/portfolio", (ctx) => {
     requireAssets();
-    const balances = accountBalances(db);
     const scope = holderScopeParam(ctx);
-    const hidden = hiddenAccountIds(db, viewer(ctx), scope);
-    const accounts = new Map(
-      listAssetAccounts(db, { viewerMemberId: viewer(ctx) })
-        .filter((a) => !hidden.has(a.id))
-        .map((a) => [a.id, a.name]),
-    );
-
-    const rows: PortfolioRow[] = listHoldings(db)
-      .filter((h) => accounts.has(h.account_id))
-      .map((h) => {
-        const view = viewHolding(db, h.id);
-        return view ? { view, accountName: accounts.get(view.holding.account_id) ?? "" } : null;
-      })
-      .filter((r): r is PortfolioRow => r !== null);
-
-    // F19.16 · A portfolio-level XIRR, labelled money-weighted — pooled from
-    // each holding's own flows, dividends included (WEALTH-25).
-    const flows = rows.flatMap((r) => r.view.cashFlows);
-
-    /*
-     * B101 · An asset with no valuation yet is still an asset.
-     *
-     * This dropped them, so adding "SafeGold" and not immediately valuing it
-     * made the account disappear from Portfolio and from Net worth both — the
-     * account was in the database and nowhere on screen, with nothing
-     * prompting for the number that would bring it back. A thing that vanishes
-     * after you create it is the worst way to lose someone's trust in a ledger.
-     */
-    /*
-     * listValuableAccounts, not listAssetAccounts.
-     *
-     * The first covers the six asset subtypes; the second adds the plain ones —
-     * "other asset", "other liability", fixed and recurring deposits. The
-     * revalue-everything screen already used the wider list, so those accounts
-     * appeared there, could be revalued, and were then nowhere on this page.
-     * The same account being on one screen and not the other is how a household
-     * concludes the revaluation did nothing.
-     */
-    const manualAssets = listValuableAccounts(db, { viewerMemberId: viewer(ctx) })
-      // A portfolio is what you hold. A deposit belongs here — it is an
-      // investment, and a household thinks of it as one — but "other
-      // liability" does not: it is a debt, it belongs on net worth's other
-      // side, and it is revaluable from the valuations screen without
-      // appearing on a page headed Portfolio.
-      .filter((a) => a.subtype !== "liability")
-      .filter((a) => listHoldings(db, a.id).length === 0)
-      .map((a) => {
-        // DEPOSITS · Computed from terms where it has them (standingValuation).
-        // In rupees: an SGD savings balance of 41,120 was printed "₹41,120"
-        // here while net worth and FIRE counted it as ₹25 lakh.
-        const valuation = valuationInBase(db, a, todayIST());
-        /*
-         * A deposit is worth its balance unless somebody has said otherwise
-         * (B56), and that is the whole reason it is a tracking account: the
-         * interest credited to it is a transaction, and the balance moves with
-         * it. Reading only the stated valuation showed a fixed deposit holding
-         * ₹5,32,000 as "no value yet", which is the app disbelieving its own
-         * ledger.
-         */
-        const counted = !DERIVED_VALUE_SUBTYPES.has(a.subtype);
-        const balance = counted ? (balances.get(a.id)?.working ?? 0) as Paise : (0 as Paise);
-        return {
-          id: a.id, name: a.name, subtype: a.subtype,
-          value: valuation?.value ?? balance,
-          asOf: valuation?.asOf ?? (counted ? todayIST() : null),
-          // "not valued recently" is about the valuation; an exchange rate a day
-          // or two old is not a reason to ask the household to revalue.
-          stale: valuation ? standingValuation(db, a.id)?.stale ?? false : false,
-          valued: valuation !== null || (counted && balance !== 0),
-        };
-      });
-
     return render(
       ctx, "Portfolio",
-      renderPortfolio({
-        rows, manualAssets,
-        portfolioXirr: flows.length >= 2 ? xirr(flows) : null,
-      }),
+      renderPortfolio(portfolioData(db, { viewerMemberId: viewer(ctx), scope })),
     );
   });
 
@@ -10297,7 +10188,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     ];
   }
 
-  router.get("/health", (ctx) => render(ctx, "Health", renderHealth(healthGroups(viewer(ctx)))));
+  router.get("/health", (ctx) => render(ctx, "Health", renderHealth(healthGroups(viewer(ctx)), { aiEnabled })));
 
   /*
    * SECURITY-OPS-24 · On the demo anyone is signed in, and each of these is a
@@ -10369,6 +10260,35 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     };
   });
 
+  /*
+   * AI-4 · A summary of the member's figures for an AI tool or a spreadsheet:
+   * overview, budgets, spending by month, loans, portfolio, net worth, cashflow
+   * and the tax estimate, as the member sees them on screen. Not a backup and
+   * not the register — /export.json is both. A GET that changes nothing, so a
+   * read-only token reaches it the way it reaches /export.json.
+   */
+  router.get("/export/analysis.json", (ctx) => {
+    // AI-7 · Part of the AI feature set: off with FEATURE_AI, like /mcp.
+    if (!aiEnabled) throw new NotFound();
+    const a = auth(ctx);
+    const raw = ctx.query.get("months")?.trim();
+    let months: number | undefined;
+    if (raw) {
+      months = /^[0-9]+$/.test(raw) ? Number(raw) : NaN;
+      if (!Number.isInteger(months) || months < 1 || months > SNAPSHOT_MAX_MONTHS) {
+        throw new Refusal(`months is a whole number from 1 to ${SNAPSHOT_MAX_MONTHS}.`);
+      }
+    }
+    const snapshot = aiSnapshot(db, a.member.id, { months }, { features: config.features });
+    return {
+      body: JSON.stringify(snapshot, null, 2),
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Disposition": `attachment; filename="pathayam-analysis-${todayIST()}.json"`,
+      },
+    };
+  });
+
   router.get("/export.csv", (ctx) => {
     const a = auth(ctx);
     return {
@@ -10378,6 +10298,106 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         "Content-Disposition": `attachment; filename="transactions-${todayIST()}.csv"`,
       },
     };
+  });
+
+  // -------------------------------------------------------------------------
+  // AI-2 · The MCP endpoint: Claude, ChatGPT, Gemini and the rest, read-only.
+  //
+  // The middleware has already made sure this is a bearer token (a cookie is
+  // not looked at here) and has answered a missing one with the 401 that
+  // starts an AI app's sign-in. The tools are built per request for the
+  // token's member, so there is no state between calls to leak across them.
+  // -------------------------------------------------------------------------
+  const mcpOrigins = new Set([
+    new URL(config.baseUrl).origin,
+    ...String(process.env.MCP_ALLOWED_ORIGINS ?? "").split(",").map((o) => o.trim()).filter(Boolean),
+  ]);
+  router.post("/mcp", (ctx) => {
+    const a = auth(ctx);
+    const token = ctx.locals.token as ApiToken | undefined;
+    if (!token) return oauth.mcpUnauthorized(config.baseUrl);
+    /*
+     * The spec's DNS-rebinding rule: an Origin, when there is one, must be
+     * ours. A connector calls from its own servers and sends none; a browser
+     * page that names another origin is refused unless the operator listed it
+     * in MCP_ALLOWED_ORIGINS. A token is still required either way.
+     */
+    const origin = ctx.req.headers.origin;
+    if (origin && !mcpOrigins.has(origin)) {
+      return { status: 403, json: { jsonrpc: "2.0", id: null, error: { code: -32600, message: "That Origin may not call this server." } } };
+    }
+    const reply = handleMcp(
+      { headers: ctx.req.headers, rawBody: rawBodies.get(ctx.req) ?? "" },
+      {
+        server: { name: "pathayam", title: "Pathayam", version: VERSION, instructions: MCP_INSTRUCTIONS },
+        tools: buildTools(db, a.member.id, { features: { loans: config.features.loans, assets: config.features.assets } }),
+        transformResult: tokenRedacts(token) ? redactValue : undefined,
+        onToolCall: (c) => recordAiAccess(db, {
+          tokenId: token.id, tokenName: token.name, memberId: a.member.id, tool: c.tool, args: c.args, ok: c.ok, bytes: c.bytes,
+        }),
+      },
+    );
+    if (reply.json === undefined) return { status: reply.status, body: "" };
+    return { status: reply.status, json: reply.json, headers: reply.headers };
+  });
+  // The 2025 revisions opened a GET stream and ended sessions with DELETE;
+  // with no sessions and no server-sent requests, both are 405 (the spec's
+  // own answer for a server that offers neither).
+  router.get("/mcp", () => ({ status: 405, headers: { Allow: "POST" }, body: "" }));
+  router.add("DELETE", "/mcp", () => ({ status: 405, headers: { Allow: "POST" }, body: "" }));
+
+  // -------------------------------------------------------------------------
+  // AI-5 · Connect an AI. Under /tokens, so no bearer token can reach it.
+  // -------------------------------------------------------------------------
+  function connectAiProps(memberId: string) {
+    const handMinted = queryAll<{ id: string; name: string; redact: number; created_at: string; last_used_at: string | null }>(
+      db,
+      `SELECT id, name, redact, created_at, last_used_at FROM api_tokens
+        WHERE member_id = ? AND for_ai = 1 AND revoked_at IS NULL ORDER BY created_at DESC`,
+      memberId,
+    );
+    return {
+      mcpUrl: `${config.baseUrl}/mcp`,
+      snapshotUrl: "/export/analysis.json",
+      connections: [
+        ...oauth.listConnections(db, memberId).map((c) => ({
+          id: c.id, name: c.clientName, how: `Signed in from ${c.redirectHost}`, redact: c.redact,
+          created_at: c.createdAt, last_used_at: c.lastUsedAt, revoke_url: `/tokens/connections/${c.id}/revoke`,
+        })),
+        ...handMinted.map((t) => ({
+          id: t.id, name: t.name, how: "Token", redact: t.redact === 1,
+          created_at: t.created_at, last_used_at: t.last_used_at, revoke_url: `/tokens/${t.id}/revoke`,
+        })),
+      ],
+      log: listAiAccess(db, memberId),
+    };
+  }
+  router.get("/tokens/ai", (ctx) => {
+    const a = auth(ctx);
+    return render(ctx, "Connect an AI", renderConnectAi({ ...connectAiProps(a.member.id), minted: null }));
+  });
+  router.post("/tokens/ai", (ctx) => {
+    refuseInDemo(config, "Connecting an AI");
+    const a = auth(ctx);
+    // As for /tokens: a token minted while viewing as somebody would be theirs.
+    if (a.impersonating) {
+      throw new HttpError(403, "An AI cannot be connected while viewing as another member.");
+    }
+    const days = Number(field(ctx.body, "expires_in_days"));
+    const redact = field(ctx.body, "redact") === "1";
+    // Always read-only and always expiring: an AI connection has no need to
+    // write, and one forgotten in a config file should stop on its own.
+    const minted = mintToken(db, actorFor(a), {
+      name: requiredField(ctx.body, "name").slice(0, 80),
+      scope: "read",
+      expiresInDays: [30, 90, 365].includes(days) ? days : 90,
+    });
+    execute(db, `UPDATE api_tokens SET for_ai = 1, redact = ? WHERE id = ?`, redact ? 1 : 0, minted.token.id);
+    // F30.4 · Rendered, not redirected: a redirect would carry the secret in a URL.
+    return render(ctx, "Connect an AI", renderConnectAi({
+      ...connectAiProps(a.member.id),
+      minted: { name: minted.token.name, secret: minted.secret, redact },
+    }));
   });
 
   /** F19.13 · Portfolio CSVs — one shape each. */
@@ -10423,80 +10443,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const fy = Number.isInteger(fyParam) && fyParam > 2000 && fyParam < 9999
       ? fyParam : fiscalYearOf(todayIST());
 
-    const stored = getDeclaration(db, a.member.id, fy);
-    // INSURANCE-1 · What the member's policies come to; filled in only when asked.
-    const fromPolicies = policyTaxSuggestion(db, a.member.id, fy);
-    const applyPolicies = ctx.query.get("from") === "policies" && fromPolicies.lines.length > 0;
-    const visible = listAccounts(db, { viewerMemberId: a.member.id })
-      .filter((acc) => acc.kind === "budget")
-      .map((acc) => acc.id);
-    const ledgerIncome = incomeInFinancialYear(db, fy, visible);
-    // WEALTH-6 · A saved declaration is used as saved, ₹0 included; the
-    // ledger's receipts are only the starting point before anything is saved.
-    const gross = hasDeclaration(db, a.member.id, fy) ? stored.gross : ledgerIncome;
-
-    // Capital gains are taxed at their own rates and are scoped to this
-    // member's own holdings — the accounts they are named holder of (WEALTH-7).
-    // Another member's sale is not part of their assessment, however visible.
-    //
-    // TAX-FY25-1 · A year whose gains rates are not in the app is refused, not
-    // taxed at the newest year's. The refusal is shown on the page in place of
-    // the gains, so the rest of it — declarations, payments — still works.
-    let gains: GainsTax | null = null;
-    let gainsRefusal: string | null = null;
-    try {
-      gains = capitalGainsTaxFor(db, fy, a.member.id);
-    } catch (err) {
-      if (!(err instanceof Refusal)) throw err;
-      gainsRefusal = err.message;
-    }
-    // An older year with gains rates but no slabs (2024-25) shows its gains
-    // and says why there is no estimate, instead of refusing the whole page.
-    let slabsRefusal: string | null = null;
-    if (!staleRatesWarning(fy)) {
-      try {
-        assertKnownYear(fy);
-      } catch (err) {
-        if (!(err instanceof Refusal)) throw err;
-        slabsRefusal = err.message;
-      }
-    }
-
-    // TAX-1 · Interest on loans this member holds for a house they live in,
-    // accrued in the year from the loan's ledger — unless they gave their own.
-    const homeLoan = homeLoanInterestFor(db, fy, a.member.id);
-    const s24b = (stored.s24bOverride ?? homeLoan.selfOccupied) as Paise;
-
-    // TAX-2 · What has been paid already.
-    const payments = listTaxPayments(db, a.member.id, fy);
-    const paid = taxPaid(db, a.member.id, fy);
-
-    let estimate = null;
-    let advance: AdvanceInstalment[] = [];
-    let settlement = null;
-    // WEALTH-9 · Slab-rated gains are income too: a member whose only income
-    // is a debt-fund gain was told to "enter a gross income" and shown nothing.
-    if ((gross > 0 || (gains?.addToSlabIncome ?? 0) > 0 || (gains?.specialRateTax ?? 0) > 0)
-        && !staleRatesWarning(fy) && !gainsRefusal && !slabsRefusal) {
-      estimate = estimateTax(fy, gross, { ...stored, s24b }, gains);
-      settlement = { old: settle(estimate.old, paid), new: settle(estimate.new, paid) };
-      // TAX-3 · Section 208 tests the year's tax after TDS, not before.
-      const liability = Math.max(
-        0, (estimate.better === "old" ? estimate.old.total : estimate.new.total) - paid.tds,
-      ) as Paise;
-      advance = advanceTaxSchedule(fy, liability, payments.filter((p) => p.kind === "advance"));
-    }
-
-    return {
-      fy, gross, ledgerIncome, estimate, advance, gains, gainsRefusal, slabsRefusal, fromPolicies, applyPolicies,
-      deductions: applyPolicies ? applyPolicySuggestion(stored, fromPolicies) : stored,
-      homeLoan, s24bOverride: stored.s24bOverride ?? null, payments, paid, settlement,
-      advanceThreshold: (ADVANCE_TAX_RULES[fy] ?? ADVANCE_TAX_RULES[2025]!).threshold,
-      staleWarning: staleRatesWarning(fy),
-      ratesVerifiedOn: RATES_VERIFIED_ON,
-      ratesSource: RATES_SOURCE,
-      availableYears: Object.keys(RULES).map(Number).sort((x, y) => y - x),
-    };
+    return taxPageModel(db, a.member.id, fy, ctx.query.get("from") === "policies");
   }
 
   router.get("/tax", (ctx) => {

@@ -134,6 +134,9 @@ export function fileField(req: IncomingMessage, name: string): UploadedFile | nu
   return uploads.get(req)?.get(name) ?? null;
 }
 
+/** The request body exactly as it arrived, for routes that need more than form shape. */
+export const rawBodies = new WeakMap<IncomingMessage, string>();
+
 /**
  * WEB-5 · An empty body with no prototype. Built on `{}`, a repeated
  * `__proto__` key (or a JSON `"__proto__": [...]`) went through the setter and
@@ -172,6 +175,9 @@ export async function readBody(
   }
 
   const text = raw.toString("utf8");
+  // AI-2 · Kept for the one route that needs the body as sent: /mcp's JSON-RPC
+  // has nested objects the form-shaped body below flattens away.
+  rawBodies.set(req, text);
   if (text === "") return emptyBody();
 
   if (contentType.includes("application/json")) {

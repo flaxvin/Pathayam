@@ -55,6 +55,51 @@ including token management itself. Rate limited per token. A token belonging to
 a member who has been removed from the allow-list stops working, as their
 sessions do, and a token cannot be minted while viewing as another member.
 
+**AI app connections (OAuth).** An MCP client (claude.ai, ChatGPT, Gemini,
+Claude Code) connects to `/mcp` through a small OAuth 2.1 authorization server
+in [`src/auth/oauth.ts`](../src/auth/oauth.ts). What it ends up holding is an
+API token as above — read scope, one hour — so nothing about tokens needed a
+second set of rules. The new surface, and what holds it:
+
+- *Registration is open*, because these clients register themselves (RFC 7591)
+  with no account. So a registration proves nothing: the consent page leads
+  with the redirect URI's **host**, which the client cannot fake, not its
+  self-chosen name, and warns when it only answers on loopback. Redirect URIs
+  are `https`, or `http` on loopback; never `javascript:`, a fragment or
+  `user:pass@`. Registrations are rate limited per address, capped at 200, and
+  pruned after a day if nobody approved them.
+- *Consent* needs a signed-in session, is refused while viewing as another
+  member and on the demo, and its POST is an ordinary form post, held to the
+  Origin and Host rules below. A redirect URI the client did not register is
+  never followed: the error is shown on the page instead. The consent page's
+  CSP adds the one redirect origin to `form-action`, so the browser can follow
+  the answer there; no other page's policy changes.
+- *Codes* are SHA-256-hashed, ten minutes, single use, bound to the client,
+  the redirect URI and a PKCE `S256` challenge (compared in constant time). A
+  code used twice revokes what its first use issued.
+- *Refresh tokens* are hashed, rotate on every use and last 90 days. An old one
+  presented again revokes the whole connection, on the assumption that either
+  holder may be the thief. Removing a member, or revoking the connection or its
+  access token in Settings, ends the refresh token with it.
+- *Scope is `read`, always.* There is no parameter, form field or code path that
+  mints anything else, and the schema's CHECK constraint refuses it too.
+- The machine-facing endpoints — the two `/.well-known` documents,
+  `/oauth/register`, `/oauth/token`, `/oauth/revoke` — are public, read at most
+  64 KB, and are exempt from the same-origin rule (the provider's servers post
+  from their own origin). They take codes and refresh tokens, never a cookie,
+  and send `Access-Control-Allow-Origin: *` so browser-based clients can read
+  the answer; a page that calls them learns nothing it could not ask for
+  directly. `/oauth` is on the token deny-list, so a bearer can never approve
+  more access.
+- `/mcp` without a usable token is answered `401` with
+  `WWW-Authenticate: Bearer resource_metadata=…` before the same-origin rule
+  runs, which is what starts a client's sign-in.
+
+One deliberate departure from RFC 8707's audience idea: the token is issued for
+`${BASE_URL}/mcp`, but as an API token it is also good on the read routes
+(`/export.json` and the like). Both are this server, under the same member's
+visibility rules.
+
 **Development login** (`DEV_LOGIN`) is absent from the production image: the
 module is compiled then deleted, and the build asserts its absence. The
 application also refuses to start with it enabled in a production-shaped
@@ -360,6 +405,11 @@ replaced with scrypt there is not a hardened decryptor, it is one that cannot
 open the statement. The SHA-256 in Algorithm 2.B is additionally only the seed
 of a loop that runs at least sixty-four further rounds over sixty-four
 repetitions of the password; the scanner sees the first line of it.
+
+`src/auth/tokens.ts` is reported the same way: it hashes API tokens and OAuth
+codes and refresh tokens with SHA-256. Each of those is 32 random bytes the
+server generated, so there is no password to guess and a slow hash would only
+slow every request, which is authenticated by looking the hash up.
 
 Each site carries a `codeql[js/insufficient-password-hash]` comment and the
 reason. The alerts are dismissed as false positives rather than left open,
