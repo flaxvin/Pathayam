@@ -11,7 +11,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { parseSafeGoldText, isSafeGoldText, gramsDisagreement, formatGrams } from "./safegold.ts";
-import { statement, TWO_ROWS } from "./safegold.test-data.ts";
+import { statement, TWO_ROWS, TRANSFER_STATEMENT } from "./safegold.test-data.ts";
 
 describe("IMP-30 · a SafeGold statement is recognised", () => {
   test("by its gold wallet balance and SafeGold's name", () => {
@@ -105,6 +105,27 @@ describe("IMP-30 · reading what it cannot reconcile", () => {
     assert.equal(parsed.rows[0]!.kind, "other");
     assert.equal(parsed.rows[0]!.units, -500_000);
     assert.equal(parsed.rows[1]!.units, 1_000_000);
+    assert.equal(gramsDisagreement(parsed), null);
+  });
+});
+
+describe("IMP-34 · a row as the real statement prints it", () => {
+  const parsed = parseSafeGoldText(TRANSFER_STATEMENT);
+
+  test("the time below the details, its colons extracted as private-use characters, is still the row's time", () => {
+    assert.equal(parsed.rows.length, 1);
+    assert.equal(parsed.rows[0]!.date, "2026-12-31");
+    assert.equal(parsed.rows[0]!.time, "21:41");
+  });
+
+  test("and neither it, the detached sign nor an unmapped glyph is left in the description", () => {
+    assert.equal(parsed.rows[0]!.description, "Gold transferred from Example Bank 99.5% to 99.99% purity)");
+  });
+
+  test("the partner bank's own table after it is not SafeGold's wallet, and the month reconciles", () => {
+    assert.equal(parsed.rows[0]!.units, 1_234_500);
+    assert.equal(parsed.openingUnits, 0);
+    assert.equal(parsed.closingUnits, 1_234_500);
     assert.equal(gramsDisagreement(parsed), null);
   });
 });

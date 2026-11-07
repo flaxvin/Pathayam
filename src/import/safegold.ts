@@ -102,10 +102,22 @@ function rupees(text: string): number {
 }
 
 const GRAMS = /([+-]?\d[\d,]*\.\d+)\s*g\b/g;
+/**
+ * A row's grams. IMP-34 · The real table prints the sign apart from the
+ * figure ("+ 1.2345 g", "- 1.2400 g"). Only in a row: the table's opening and
+ * closing lines print "1st December 2026 - 0.0000 g", where the dash is not one.
+ */
+const ROW_GRAMS = /([+-]\s?)?(\d[\d,]*\.\d+)\s*g\b/g;
 /** "1st October 2026", "05 Oct 2026", "05-Oct-2026", "05/10/2026". */
 const DATE = /(\d{1,2})(?:st|nd|rd|th)?[\s/-]+([A-Za-z]{3,9}|\d{1,2})[\s/,-]+(\d{4})/;
 const ROW_START = new RegExp(`^\\s*${DATE.source}`);
-const TIME = /^\s*(\d{1,2}):(\d{2})(?::\d{2})?\s*([AaPp][Mm])?/;
+/**
+ * "10:15 AM", "18:28:03". IMP-34 · The real statement's font maps ":" to a
+ * private-use code point (U+E000–U+F8FF), so the separator is either.
+ */
+const TIME = /^\s*(\d{1,2})[:\uE000-\uF8FF](\d{2})(?:[:\uE000-\uF8FF]\d{2})?\s*([AaPp][Mm])?/;
+/** Glyphs the font maps to no real character — "(" on a real statement. Dropped from a description. */
+const UNMAPPED = /[\uE000-\uF8FF]/g;
 
 function dateOf(match: RegExpExecArray | null): IsoDate | null {
   if (!match) return null;
@@ -116,11 +128,14 @@ function dateOf(match: RegExpExecArray | null): IsoDate | null {
 function timeOf(text: string): { time: string; length: number } | null {
   const m = TIME.exec(text);
   if (!m) return null;
-  let hour = Number(m[1]);
-  const pm = m[3]?.toLowerCase() === "pm";
-  if (m[3]) hour = (hour % 12) + (pm ? 12 : 0);
-  if (hour > 23 || Number(m[2]) > 59) return null;
-  return { time: `${String(hour).padStart(2, "0")}:${m[2]}`, length: m[0].length };
+  const [, h, minute, meridiem] = m as unknown as [string, string, string, string | undefined];
+  let hour = Number(h);
+  if (meridiem) {
+    if (hour < 1 || hour > 12) return null;
+    hour = (hour % 12) + (meridiem.toLowerCase() === "pm" ? 12 : 0);
+  }
+  if (hour > 23 || Number(minute) > 59) return null;
+  return { time: `${String(hour).padStart(2, "0")}:${minute}`, length: m[0].length };
 }
 
 /**
@@ -201,8 +216,8 @@ export function parseSafeGoldText(text: string): SafeGoldStatement {
     const time = timeOf(rest);
     if (time && draft.time === null) { draft.time = time.time; rest = rest.slice(time.length); }
 
-    for (const m of rest.matchAll(GRAMS)) draft.grams.push(m[1]!);
-    const words = rest.replace(GRAMS, " ").replace(/\s+/g, " ").trim();
+    for (const m of rest.matchAll(ROW_GRAMS)) draft.grams.push(`${(m[1] ?? "").trim()}${m[2]!}`);
+    const words = rest.replace(ROW_GRAMS, " ").replace(UNMAPPED, "").replace(/\s+/g, " ").trim();
     if (words !== "") draft.parts.push(words);
   }
 
