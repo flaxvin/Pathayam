@@ -367,6 +367,11 @@ import {
   type PortfolioRow, type CasReviewScheme,
 } from "./web/pages/portfolio.ts";
 import { parseCasPdf, WrongPassword } from "./import/cas.ts";
+import { parseSafeGoldText, isSafeGoldText, type SafeGoldStatement } from "./import/safegold.ts";
+import {
+  planSafeGoldImport, applySafeGoldPlan, stashSafeGoldPlan, peekSafeGoldPlan, takeSafeGoldPlan,
+} from "./import/safegold-plan.ts";
+import { renderSafeGoldUpload, renderSafeGoldReview } from "./web/pages/safegold.ts";
 import {
   planCasImport, applyCasPlan, casDestinations, stashPlan, takePlan,
 } from "./import/cas-plan.ts";
@@ -3723,6 +3728,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         )}
 
         ${when(!config.demoMode, () => renderCardDigitAsks(cardDigitAsks(ctx)))}
+        ${when(!config.demoMode && pendingGoldToken(ctx, a.member.id) !== null, () => html`
+          <p class="notice notice-info" id="gold-waiting">
+            The same fetch read a SafeGold statement.
+            <a href="/portfolio/safegold/review?token=${encodeURIComponent(pendingGoldToken(ctx, a.member.id)!)}">Review its gold entries</a>
+            before they expire in half an hour.
+          </p>`)}
 
         ${when(!config.demoMode, () => renderStatementIdentity(maskedIdentity(db, a.member.id)))}
         ${when(
@@ -5815,6 +5826,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                 "or save your details in Settings and the app will work it out.")
           : `That file could not be read. ${(error as Error).message}`,
       );
+    }
+
+    // IMP-32 · A SafeGold statement is gold bought and sold, not this
+    // account's rows: it goes to the same review its own upload does.
+    if (isSafeGoldText(parsed.text)) {
+      return safeGoldReview(ctx, a.member.id, [parseSafeGoldText(parsed.text)]);
     }
 
     // A fund statement or an exchange report is not a bank account's rows, and
@@ -8776,6 +8793,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (result.statements.unmatched) {
       parts.push(`${plural(result.statements.unmatched, "statement")} for no single account of yours, not imported`);
     }
+    // IMP-33 · SafeGold statements, read and waiting on their review.
+    const goldReview = result.gold.token && result.gold.newEntries > 0 && config.features.assets;
+    if (result.gold.statements) {
+      parts.push(`${plural(result.gold.statements, "SafeGold statement")} — ` + (result.gold.newEntries
+        ? `${result.gold.newEntries} new gold ${result.gold.newEntries === 1 ? "entry" : "entries"} to confirm`
+        : "nothing new in it"));
+    }
     // IMPORT-15 · Which detail would open the locked ones, as the upload says it.
     const missing = result.missingDetails.length ? ` ${result.missingDetails.join(" ")}` : "";
     /*
@@ -8792,9 +8816,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ? `Read ${result.scanned} messages — ${parts.join(", ")}.${missing}${askNote}`
       : `Read ${result.scanned} messages — nothing new.`;
 
+    // Locked cards land on Settings for their digits. The fetch has already
+    // moved past the SafeGold mail, so a gold plan read in the same fetch
+    // rides along as `gold=` and Settings links to its review.
     if (asks.length) {
       const list = asks.map((c) => `${encodeURIComponent(c.accountId)}:${c.digits}`).join(",");
-      return { redirect: withNotice(`/settings?card_digits=${list}#card-digits`, summary) };
+      const gold = goldReview ? `&gold=${encodeURIComponent(result.gold.token!)}` : "";
+      return { redirect: withNotice(`/settings?card_digits=${list}${gold}#card-digits`, summary) };
+    }
+    if (goldReview) {
+      return { redirect: withNotice(`/portfolio/safegold/review?token=${encodeURIComponent(result.gold.token!)}`, summary) };
     }
     return { redirect: withNotice(toReview > 0 ? "/review" : "/settings#gmail", summary) };
   });
@@ -8836,6 +8867,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    * it still has fewer than n digits on file. A forged list can therefore show
    * a member nothing but forms for their own cards that genuinely lack digits.
    */
+  /** A SafeGold plan a fetch staged before landing on Settings, if still open for this member. */
+  function pendingGoldToken(ctx: RequestContext, memberId: string): string | null {
+    const token = ctx.query.get("gold");
+    return token && peekSafeGoldPlan(token, memberId) ? token : null;
+  }
+
   function cardDigitAsks(ctx: RequestContext): { accountId: string; name: string; digits: 4 | 6 }[] {
     const raw = ctx.query.get("card_digits");
     if (!raw) return [];
@@ -9144,6 +9181,96 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         message:
           `Recorded ${parts.join(", ")}. ` +
           `New schemes start on manual pricing — set a NAV source when you want live values.`,
+      };
+    }),
+  );
+
+  // -------------------------------------------------------------------------
+  // IMP-32 · SafeGold statement import — digital gold, the way a CAS is funds.
+  // -------------------------------------------------------------------------
+
+  /** Plan, stash and show what the statements would record. Nothing is written. */
+  function safeGoldReview(ctx: RequestContext, memberId: string, statements: SafeGoldStatement[]) {
+    const plan = planSafeGoldImport(db, statements, viewer(ctx));
+    const token = newId();
+    stashSafeGoldPlan(token, plan, memberId);
+    return render(ctx, "What this SafeGold statement says", renderSafeGoldReview({ plan, token }));
+  }
+
+  router.get("/portfolio/safegold", (ctx) => {
+    requireAssets();
+    auth(ctx);
+    return render(ctx, "Import a SafeGold statement", renderSafeGoldUpload({
+      error: ctx.query.get("error") === "expired"
+        ? "That statement is no longer open — read it again and confirm within half an hour."
+        : null,
+    }));
+  });
+
+  router.post("/portfolio/safegold", (ctx) => {
+    requireAssets();
+    const a = auth(ctx);
+    const again = (error: string) =>
+      render(ctx, "Import a SafeGold statement", renderSafeGoldUpload({ error }));
+    const upload = fileField(ctx.req, "statement");
+    if (!upload) return again("Choose the statement PDF first.");
+
+    // PR5 · Typed, or worked out from the saved details; used here and gone.
+    const typed = field(ctx.body, "password") ?? "";
+    const identity = getIdentity(db, a.member.id);
+    const candidates = typed !== "" ? [typed] : identity ? [...passwordCandidates(identity, null, {}), ""] : [""];
+    let statement: SafeGoldStatement | null = null;
+    let text = "";
+    for (const candidate of candidates) {
+      try {
+        const parsed = parseStatementPdf(upload.bytes, candidate);
+        text = parsed.text;
+        statement = isSafeGoldText(text) ? parseSafeGoldText(text) : null;
+        break;
+      } catch (error) {
+        if (error instanceof StatementWrongPassword || error instanceof WrongPassword) continue;
+        return again(`That file could not be read. ${(error as Error).message}`);
+      }
+    }
+    if (!text && !statement) {
+      return again(identity && typed === ""
+        ? "None of the passwords worked out from your saved details opened this. Type it above."
+        : "That password did not open the statement. It is the first four letters of your name " +
+          "in capitals, then your mobile's last four.");
+    }
+    if (!statement) {
+      return again("That PDF opened, but it is not a SafeGold statement — nothing was imported.");
+    }
+    return safeGoldReview(ctx, a.member.id, [statement]);
+  });
+
+  /** The review of a plan read elsewhere — a Gmail fetch — while it is still open. */
+  router.get("/portfolio/safegold/review", (ctx) => {
+    requireAssets();
+    const a = auth(ctx);
+    const token = ctx.query.get("token") ?? "";
+    const plan = peekSafeGoldPlan(token, a.member.id);
+    if (!plan) return { redirect: "/portfolio/safegold?error=expired" };
+    return render(ctx, "What this SafeGold statement says", renderSafeGoldReview({ plan, token }));
+  });
+
+  router.post("/portfolio/safegold/confirm", (ctx) =>
+    mutate(ctx, (a) => {
+      requireAssets();
+      const plan = takeSafeGoldPlan(requiredField(ctx.body, "token"), a.member.id);
+      if (!plan) return { redirect: "/portfolio/safegold?error=expired" };
+      const result = applySafeGoldPlan(
+        db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), plan,
+        { acceptMismatch: field(ctx.body, "accept_mismatch") === "1" },
+      );
+      if (result.lots + result.sales === 0) {
+        return { redirect: "/portfolio", message: "Nothing new in that statement, so nothing was recorded." };
+      }
+      const parts = [`${result.lots} ${result.lots === 1 ? "purchase" : "purchases"}`];
+      if (result.sales > 0) parts.push(`${result.sales} ${result.sales === 1 ? "sale" : "sales"}`);
+      return {
+        redirect: "/portfolio",
+        message: `Recorded ${parts.join(", ")} of SafeGold gold. Undo it from Activity if it is not right.`,
       };
     }),
   );

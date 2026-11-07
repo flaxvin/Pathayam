@@ -230,11 +230,16 @@ export function bankForInstitution(institution: string | null | undefined): Bank
  * exchange's funds-and-securities balance belongs nowhere: neither has a row
  * that is a movement of money in a bank account.
  */
+/** What `nonBankDocument` calls a SafeGold statement, so its callers can send it to the gold importer. */
+export const SAFEGOLD_STATEMENT = "a SafeGold statement";
+
 const NOT_A_BANK: { pattern: RegExp; what: string }[] = [
   { pattern: /\bFolio\s*(?:No|Number)\b/i, what: "a mutual fund statement" },
   { pattern: /\bAdvisor\s*\/\s*Distributor\b|\bARN\s*Code\b|\bEUIN\b/i, what: "a mutual fund statement" },
   { pattern: /Consolidated\s+Account\s+Statement/i, what: "a consolidated account statement (CAS)" },
   { pattern: /funds\s+and\s+securities\s+balances?\b|\bNSE\/INSP\//i, what: "an exchange's funds and securities balance" },
+  // IMP-32 · Digital gold: grams bought and sold, read by `safegold.ts`.
+  { pattern: /Gold\s+Wallet\s+Balance/i, what: SAFEGOLD_STATEMENT },
 ];
 
 export function nonBankDocument(text: string): string | null {

@@ -40,6 +40,9 @@ import {
   type GmailClientOptions,
 } from "./client.ts";
 import { Refusal } from "../core/refusal.ts";
+import { newId } from "../db/db.ts";
+import { isSafeGoldText, parseSafeGoldText, type SafeGoldStatement } from "../import/safegold.ts";
+import { planSafeGoldImport, stashSafeGoldPlan } from "../import/safegold-plan.ts";
 
 export interface FetchResult {
   scanned: number;
@@ -60,6 +63,11 @@ export interface FetchResult {
   cardDigitsNeeded: { accountId: string; name: string; digits: 4 | 6 }[];
   /** Of the staged rows, those a rule approved straight into the ledger, so not in Review. */
   autoApproved: number;
+  /**
+   * IMP-33 · SafeGold statements read, as one plan awaiting confirmation:
+   * `token` opens its review (`/portfolio/safegold/review`) for half an hour.
+   */
+  gold: { statements: number; newEntries: number; token: string | null };
   notes: string[];
 }
 
@@ -122,8 +130,10 @@ export async function fetchGmail(
     missingDetails: [],
     cardDigitsNeeded: [],
     autoApproved: 0,
+    gold: { statements: 0, newEntries: 0, token: null },
     notes: [],
   };
+  const gold: SafeGoldStatement[] = [];
 
   // A first fetch reaches back 90 days; later fetches only need a short window,
   // but the content-hash dedupe makes a wider window harmless.
@@ -162,7 +172,7 @@ export async function fetchGmail(
     const statementSender = senderFor(sender);
     const pdfs = pdfAttachments(message);
     if (statementSender && pdfs.length > 0) {
-      await handleStatement(db, actor, deps, client, memberId, id, pdfs, statementSender, result);
+      await handleStatement(db, actor, deps, client, memberId, id, pdfs, statementSender, result, gold);
       continue;
     }
 
@@ -202,6 +212,18 @@ export async function fetchGmail(
     });
     result.alerts.staged += outcome.staged;
     result.autoApproved += outcome.autoApproved;
+  }
+
+  /*
+   * IMP-33 · Gold is proposed, never written by a fetch (`04` I2): the
+   * statements become one plan — a few months of them, or one mailed twice,
+   * matched row by row — that the person confirms on its review.
+   */
+  if (gold.length > 0) {
+    const plan = planSafeGoldImport(db, gold, memberId);
+    const token = newId();
+    stashSafeGoldPlan(token, plan, memberId);
+    result.gold = { statements: gold.length, newEntries: plan.totals.newEntries, token };
   }
 
   markFetched(db, memberId, latestHistoryId(connection));
@@ -283,6 +305,7 @@ async function handleStatement(
   pdfs: { filename: string; attachmentId: string }[],
   statementSender: { bank: import("../import/pdf-statements.ts").BankId | null; what: string },
   result: FetchResult,
+  gold: SafeGoldStatement[],
 ): Promise<void> {
   const identity = getIdentity(db, memberId);
 
@@ -336,6 +359,9 @@ async function handleStatement(
       continue;
     }
     result.statements.read++;
+
+    // IMP-33 · Digital gold has no bank account to land in; it is a holding.
+    if (isSafeGoldText(parsed.text)) { gold.push(parseSafeGoldText(parsed.text)); continue; }
 
     // Resolve the account from the statement's own header — the parser does not
     // expose an account number, so fall back to the single account for that

@@ -26,7 +26,7 @@
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { Refusal, Missing } from "../core/refusal.ts";
-import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
+import { appendEvent, registerUndoHandler, type Actor, type LoggedEvent } from "../core/events.ts";
 import { nowIST, todayIST, formatDate, daysBetween, type IsoDate } from "../core/dates.ts";
 import { allocateByWeight, formatPaise, type Paise } from "../core/money.ts";
 import { SIMPLE_TRACKING_SUBTYPES, createAccount, getAccount } from "./accounts.ts";
@@ -1669,6 +1669,7 @@ export function recordReturnOfCapital(
 }
 
 registerUndoHandler("holding", (db, event) => {
+  if (event.action === "safegold-import") return undoStatementImport(db, event);
   if (event.action === "purchase") {
     const lot = event.after as Lot;
     /*
@@ -1721,6 +1722,50 @@ registerUndoHandler("holding", (db, event) => {
       "That change to the holding cannot be undone from here. Record the opposite change on the holding instead.",
   );
 });
+
+/**
+ * IMP-31 · A statement import on one holding, undone as one action.
+ *
+ * Its purchases and sales were each written by `recordPurchase` and
+ * `recordSale`, and a sale cannot be undone alone — it rewrote the lots it
+ * sold from. The import's event kept those lots as they stood before it, so
+ * the whole import can be: the lots and sales it added go, and the lots it
+ * shrank or closed are put back. Only while nothing has touched the holding
+ * since — a later sale may have consumed what this would remove.
+ */
+function undoStatementImport(db: DB, event: LoggedEvent): string {
+  const holdingId = event.entityId!;
+  const before = (event.before ?? {}) as { lots?: { id: string; units: number; cost: number; closed_at: string | null }[] };
+  const after = (event.after ?? {}) as { refs?: string[]; createdHolding?: boolean };
+  const later = queryOne<{ n: number }>(
+    db,
+    `SELECT COUNT(*) AS n FROM events
+      WHERE entity = 'holding' AND entity_id = ? AND seq > ?
+        AND undo_of_event_id IS NULL AND undone_by_event_id IS NULL`,
+    holdingId, event.seq,
+  )?.n ?? 0;
+  if (later > 0) {
+    throw new UndoRefused(
+      "The holding has changed since this statement was imported, so undoing it could remove units a " +
+      "later change depends on. Undo the later changes first.",
+    );
+  }
+  const refs = after.refs ?? [];
+  const kept = new Set((before.lots ?? []).map((l) => l.id));
+  for (const ref of refs) {
+    execute(db, `DELETE FROM holding_events WHERE holding_id = ? AND source_ref = ?`, holdingId, ref);
+  }
+  for (const lot of queryAll<{ id: string }>(db, `SELECT id FROM lots WHERE holding_id = ?`, holdingId)) {
+    if (!kept.has(lot.id)) execute(db, `DELETE FROM lots WHERE id = ?`, lot.id);
+  }
+  for (const lot of before.lots ?? []) {
+    execute(db, `UPDATE lots SET units = ?, cost = ?, closed_at = ? WHERE id = ?`, lot.units, lot.cost, lot.closed_at, lot.id);
+  }
+  const empty = !queryOne(db, `SELECT 1 FROM lots WHERE holding_id = ?`, holdingId)
+    && !queryOne(db, `SELECT 1 FROM holding_events WHERE holding_id = ?`, holdingId);
+  if (after.createdHolding && empty) execute(db, `DELETE FROM holdings WHERE id = ?`, holdingId);
+  return `Removed what the statement import recorded`;
+}
 
 const HOLDING_UNDO_REFUSALS: Record<string, string> = {
   sale:
