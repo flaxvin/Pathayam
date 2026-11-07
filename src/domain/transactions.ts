@@ -1494,12 +1494,21 @@ registerUndoHandler("transaction", (db, event) => {
    * bank's row in neither the ledger nor the queue.
    */
   if (event.action === "merge") {
-    const merged = queryOne<{ id: string }>(
-      db,
-      `SELECT id FROM staged_transactions WHERE transaction_id = ? AND status = 'merged'
-        ORDER BY resolved_at DESC LIMIT 1`,
-      id,
-    );
+    // REV-4 · The row this merge named (IMP-12); an event from before rows
+    // were named takes the latest merged into the transaction, as it did.
+    const named = (event.after as { merged_staged_id?: string } | undefined)?.merged_staged_id;
+    const merged = named
+      ? queryOne<{ id: string }>(
+        db,
+        `SELECT id FROM staged_transactions WHERE id = ? AND transaction_id = ? AND status = 'merged'`,
+        named, id,
+      )
+      : queryOne<{ id: string }>(
+        db,
+        `SELECT id FROM staged_transactions WHERE transaction_id = ? AND status = 'merged'
+          ORDER BY resolved_at DESC LIMIT 1`,
+        id,
+      );
     if (merged) {
       execute(
         db,
