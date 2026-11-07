@@ -6429,7 +6429,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         a, getAccount(db, loan.account_id)?.holder_member_id ?? null, holder, visibility, "loan",
       );
       updateAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
-        loan.account_id, { holder_member_id: holder, visibility });
+        // REV-3 · A sole member's form has no holder field: keep them as holder.
+        loan.account_id, { holder_member_id: holderOrSoleMember(holder), visibility });
       return { redirect: `/loans/${loan.id}`, message: "Saved." };
     }),
   );
@@ -8506,6 +8507,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         a, getPolicy(db, id)?.holder_member_id ?? null, input.holderMemberId ?? null,
         input.visibility, "policy",
       );
+      // REV-3 · As at creation (UI-8): a sole member's form has no holder field.
+      input.holderMemberId = holderOrSoleMember(input.holderMemberId);
       updatePolicy(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, input);
       return { redirect: `/insurance/${id}`, message: "Saved." };
     }),
