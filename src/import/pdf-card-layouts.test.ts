@@ -47,3 +47,32 @@ describe("SBI Card · a row's narration is the row", () => {
     ]);
   });
 });
+
+/**
+ * Canara Bank card: a Transaction Amount and a Closing Balance, each with its
+ * own Cr / Dr set a few spaces apart, under headings that name neither debit
+ * nor credit. The balance is what is owed, so Dr is below zero.
+ */
+const CANARA_CARD = `                                                                           Credit Card Statement
+                                                                                                                                    e-mail: help@canarabank.com
+                                                                  TRANSACTIONS SUMMARY(In Indian Rupees)
+   Transaction Date             Reference No.                          Transaction Description                        Transaction Amount                      Closing Balance
+                                                                                                                                  Previous Balance :                      2,000.00   Dr
+     05-10-2026        123456                         BBPS Payment                                                                   2,000.00 Cr                              0.00   Dr
+     08-10-2026        111122223333                   FUEL SURCHARGE REIMB                                                              15.00 Cr                             15.00   Cr
+     10-10-2026        111122223333444                ANNUAL FEE 0000-0000 THRHLD-000000 USED-                                        300.00  Dr                            285.00   Dr
+                                                      50000.00
+     10-10-2026        111122223333                   IGST @ 18%  On Fees and Charges                                                   54.00 Dr                            339.00   Dr
+                                     For details of Complimentary Insurance provided by M/s ABC, please refer MITC.
+                                     For claim, contact:
+           Insurance                 Mr. A Sample
+                                     Canara Bank
+`;
+
+describe("Canara card · the closing balance column decides the sign", () => {
+  test("a payment that clears the balance to 0.00 Dr is a credit, not an unreadable row", () => {
+    const result = parseStatementText(CANARA_CARD);
+    assert.deepEqual(result.records.map((r) => r.amount), [200_000, 1_500, -30_000, -5_400]);
+    assert.deepEqual(result.errors, []);
+  });
+});

@@ -769,6 +769,7 @@ function parseRow(
   header: HeaderColumns | null,
   previousBalance: number | null,
   continuation: string[],
+  amountThenBalance = false,
 ): {
   row: RowShape; balance: number | null; suspect: boolean;
   raw: { date: string; amount: string };
@@ -819,8 +820,10 @@ function parseRow(
   const money = withPaise.length > 0 ? withPaise : figures;
 
   // A balance column only exists if the header says so. Without that, the last
-  // figure is the amount, not a running total.
-  const hasBalance = header?.balance != null && money.length >= 2;
+  // figure is the amount, not a running total — unless the layout is known to
+  // print one after every amount (Canara's card, whose headings name no debit
+  // or credit column for `readHeader` to find).
+  const hasBalance = (header?.balance != null || amountThenBalance) && money.length >= 2;
   const balanceFigure = hasBalance ? money[money.length - 1]! : null;
   const balance = balanceFigure ? balanceOf(balanceFigure.text) : null;
 
@@ -931,8 +934,14 @@ function withWrappedMarker(lines: string[], i: number): string {
 }
 
 /** An opening-balance line, which anchors the fallback path's first row. */
-function openingBalanceOf(line: string): number | null {
-  if (!/opening\s+balance|b\/?f\b|brought\s+forward/i.test(line)) return null;
+function openingBalanceOf(line: string, previous = false): number | null {
+  // "Previous Balance" only where the layout says it is the running balance's
+  // start: on most card statements it is a summary heading over figures on
+  // another line, and it means nothing to a table without a balance column.
+  const pattern = previous
+    ? /opening\s+balance|previous\s+balance|b\/?f\b|brought\s+forward/i
+    : /opening\s+balance|b\/?f\b|brought\s+forward/i;
+  if (!pattern.test(line)) return null;
   const figures = figuresWithOffsets(line);
   const last = figures[figures.length - 1];
   return last ? balanceOf(last.text) : null;
@@ -947,7 +956,15 @@ function openingBalanceOf(line: string): number | null {
  * them. Everything else is shared, which is why adding a fifth bank is a row
  * in this table rather than a new file.
  */
-const LAYOUTS: Partial<Record<BankId, { separateColumns: boolean; skip: RegExp[] }>> = {
+const LAYOUTS: Partial<Record<BankId, {
+  separateColumns: boolean;
+  skip: RegExp[];
+  /**
+   * Every row prints its amount and then the running balance, opened by a
+   * "Previous Balance" line, under headings `readHeader` cannot place.
+   */
+  amountThenBalance?: boolean;
+}>> = {
   hdfc: {
     separateColumns: true,
     skip: [/^date\b/i, /opening balance/i, /closing balance/i, /statement of account/i],
@@ -971,7 +988,16 @@ const LAYOUTS: Partial<Record<BankId, { separateColumns: boolean; skip: RegExp[]
     ],
   },
   union: { separateColumns: true, skip: [/^date\b/i, /^particulars/i, /statement of account/i] },
-  canara: { separateColumns: true, skip: [/^date\b/i, /^description/i, /statement/i] },
+  /*
+   * Canara's card prints "Transaction Amount  Closing Balance", each with its
+   * own Cr / Dr. Read without the balance, the last figure — the balance — was
+   * taken for the amount, and a payment that cleared the card to "0.00 Dr" was
+   * a row of nothing, reported as unreadable (PDF-5).
+   */
+  canara: {
+    separateColumns: true, skip: [/^date\b/i, /^description/i, /statement/i],
+    amountThenBalance: true,
+  },
   yes: { separateColumns: true, skip: [/^date\b/i, /^description/i, /transaction details/i] },
   indusind: { separateColumns: true, skip: [/^date\b/i, /^particulars/i, /^description/i] },
   kotak: { separateColumns: true, skip: [/^date\b/i, /^narration/i, /^description/i] },
@@ -1066,7 +1092,7 @@ export function parseStatementText(
   // rather than picked up on the way past.
   let previousBalance: number | null = null;
   for (const [i] of all.entries()) {
-    const open = openingBalanceOf(withWrappedMarker(all, i));
+    const open = openingBalanceOf(withWrappedMarker(all, i), layout?.amountThenBalance === true);
     if (open !== null) { previousBalance = open; break; }
   }
 
@@ -1222,7 +1248,9 @@ export function parseStatementText(
     const line = classified[index]!;
     rowNumber++;
 
-    const parsed = parseRow(line.raw, header, previousBalance, extra.get(index) ?? []);
+    const parsed = parseRow(
+      line.raw, header, previousBalance, extra.get(index) ?? [], layout?.amountThenBalance === true,
+    );
     if (!parsed) {
       errors.push({
         rowNumber,
