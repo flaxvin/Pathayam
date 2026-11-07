@@ -111,8 +111,8 @@ describe("IMP-19 · the import asks for the card's digits when they are what is 
         assert.equal(res.status, 200, wrong);
         const body = await res.text();
         assert.match(body, /name="card_digits"/);
-        // Matched as a whole token: the page carries random ids and a hex CSRF
-        // token, and a bare includes() of "98" failed whenever one held it.
+        // Matched as a whole token: the page carries the account's random UUID
+        // (about 1 in 9 contain "98"), and a bare includes() failed on those.
         const echoed = new RegExp(`(?<![0-9A-Za-z])${wrong}(?![0-9A-Za-z])`);
         assert.ok(!echoed.test(body), `${wrong} was echoed`);
       }
