@@ -16,6 +16,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { readdirSync, readFileSync } from "node:fs";
+import { todayIST } from "../core/dates.ts";
 
 const SITE = "https://pathayam.app";
 const sitemap = readFileSync("website/sitemap.xml", "utf8");
@@ -105,7 +106,9 @@ describe("the details that decide whether it is read at all", () => {
   test("every lastmod is a real date, and not in the future", () => {
     const dates = [...sitemap.matchAll(/<lastmod>([^<]+)<\/lastmod>/g)].map((m) => m[1]!);
     assert.equal(dates.length, locs.length, "a <url> without a <lastmod>");
-    const today = new Date().toISOString().slice(0, 10);
+    // WEB-6 · The site is dated in IST, so a page touched after midnight IST
+    // and before 05:30 was "in the future" against a UTC today.
+    const today = todayIST();
     for (const d of dates) {
       assert.match(d, /^\d{4}-\d{2}-\d{2}$/, `"${d}" is not a date`);
       assert.ok(d <= today, `${d} is in the future, which makes every date here suspect`);

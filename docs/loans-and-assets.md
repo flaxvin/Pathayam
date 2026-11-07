@@ -316,7 +316,12 @@ A bond carries a **listed** flag (`instruments.listed`, migration 0065), set
 from its holding page. It decides the tax on a sale: a listed bond held more
 than 12 months is taxed at 12.5% under 112; an unlisted bond, or one whose
 listing has never been recorded, at slab rates — see
-[limitations](limitations.md#tax).
+[limitations](limitations.md#tax). A share (`kind = 'equity'`) carries the same
+flag, asked as "Listed on a recognised stock exchange" on the add form (ticked
+to start) and its holding page. A share recorded as not listed is taxed as
+property is: long-term after 24 months, then 12.5% under 112 with no ₹1,25,000
+exemption, slab rates before that. A share whose listing was never recorded —
+every share added before this — is taxed as listed.
 
 A `holding` is one instrument in one asset account. Its units and cost come from
 `lots`, which are FIFO.
@@ -412,6 +417,19 @@ on its own sale date.
 A Consolidated Account Statement is parsed, matched against existing holdings,
 and applied as a plan the household confirms: which schemes map to which
 holdings, which are new, and where units disagree.
+
+Each row is recognised on a later statement by a reference hashed from its
+scheme, date, kind, units and amount, recorded on the lot or event it made.
+When a parser fix changes how a row reads, the plan also rebuilds the reference
+the earlier reading recorded: a row imported before the fix is shown as already
+held when what was recorded matches today's reading, and as **Check** —
+imported earlier with different figures, not imported again — when it does not,
+so the recorded entry can be corrected by hand.
+
+A systematic withdrawal ("Systematic Withdrawal", "SWP") imports as a
+redemption, and a systematic transfer as a switch: "STP Out" a redemption,
+"STP In" a purchase, and a "Systematic Transfer" that names no direction by the
+sign of its units. A reversed row of any kind is shown and not imported.
 
 ## Net worth
 

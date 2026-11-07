@@ -206,6 +206,7 @@ export function reconcile(db: DB, actor: Actor, input: ReconcileInput): Reconcil
 }
 
 const RECONCILIATION_CATEGORY = "Reconciliation";
+const RECONCILIATION_GROUP = "Internal";
 
 /**
  * 15 · One per budget, because an adjustment is real money appearing or
@@ -226,8 +227,15 @@ function ensureReconciliationCategory(db: DB, actor: Actor, accountId: string): 
   );
   if (existing) return existing.id;
 
+  /*
+   * ENG-13 · Its own "Internal" group. The first internal group could be the
+   * goals' ("Goals") or the household commitment's ("The household"), which
+   * filed Reconciliation among the goals.
+   */
   let group = queryOne<{ id: string }>(
-    db, `SELECT id FROM category_groups WHERE kind = 'internal' AND budget_id = ? LIMIT 1`, budget,
+    db,
+    `SELECT id FROM category_groups WHERE kind = 'internal' AND name = ? AND budget_id = ? LIMIT 1`,
+    RECONCILIATION_GROUP, budget,
   );
   if (!group) {
     const groupId = newId();
@@ -235,7 +243,7 @@ function ensureReconciliationCategory(db: DB, actor: Actor, accountId: string): 
       db,
       `INSERT INTO category_groups (id,name,kind,sort,created_at,budget_id)
          VALUES (?,?,'internal',99,?,?)`,
-      groupId, "Internal", nowIST(), budget,
+      groupId, RECONCILIATION_GROUP, nowIST(), budget,
     );
     group = { id: groupId };
   }

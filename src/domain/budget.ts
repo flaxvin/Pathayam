@@ -470,7 +470,13 @@ interface MergeTaken {
   splitIds: string[];
   stagedIds: string[];
   scheduleIds: string[];
+  /** ENG-4 · Optional: merges logged before it was recorded have none. */
+  scheduleSplitIds?: string[];
+  /** ENG-4 · The rules as they read before the merge repointed them. */
+  rules?: RuleJson[];
   loanIds: string[];
+  /** ENG-10 · Insurance policies paid from the loser. Absent on older events. */
+  insurancePolicyIds?: string[];
   evenCallEnvelopeIds: string[];
   evenCallGivingIds: string[];
   goalIds: string[];
@@ -492,6 +498,11 @@ interface DeleteTaken {
   stagedIds?: string[];
   /** Balances called even that were spent from it, moved to `remapTo`. Absent on older events. */
   evenCallIds?: string[];
+  /**
+   * ENG-10 · Insurance policies paid from it: moved to `remapTo`, or cleared
+   * when there is none. Absent on older events.
+   */
+  insurancePolicyIds?: string[];
 }
 
 interface RuleJson { id: string; name: string; conditions_json: string; actions_json: string }
@@ -674,6 +685,14 @@ export function deleteCategory(
       taken.evenCallIds = ids(`SELECT id FROM even_calls WHERE giving_category_id = ?`);
       execute(db, `UPDATE even_calls SET giving_category_id = ? WHERE giving_category_id = ?`, opts.remapTo, id);
     }
+    /*
+     * ENG-10 · A policy paid from it would name a deleted envelope. It follows
+     * the remap, or with none is left with no envelope (the field is optional).
+     */
+    taken.insurancePolicyIds = queryAll<{ id: string }>(
+      db, `SELECT id FROM insurance_policies WHERE category_id = ?`, id,
+    ).map((r) => r.id);
+    execute(db, `UPDATE insurance_policies SET category_id = ? WHERE category_id = ?`, opts.remapTo ?? null, id);
     execute(db, `DELETE FROM assignments WHERE category_id = ?`, id);
     execute(db, `DELETE FROM targets WHERE category_id = ?`, id);
     execute(db, `UPDATE categories SET deleted_at = ? WHERE id = ?`, nowIST(), id);
@@ -810,7 +829,9 @@ export function mergeCategories(db: DB, actor: Actor, loserId: string, winnerId:
       splitIds: ids(`SELECT id FROM transaction_splits WHERE category_id = ?`),
       stagedIds: ids(`SELECT id FROM staged_transactions WHERE category_id = ?`),
       scheduleIds: ids(`SELECT id FROM schedules WHERE category_id = ?`),
+      scheduleSplitIds: ids(`SELECT id FROM schedule_splits WHERE category_id = ?`),
       loanIds: ids(`SELECT id FROM loans WHERE payment_category_id = ?`),
+      insurancePolicyIds: ids(`SELECT id FROM insurance_policies WHERE category_id = ?`),
       evenCallEnvelopeIds: ids(`SELECT id FROM even_calls WHERE envelope_id = ?`),
       evenCallGivingIds: ids(`SELECT id FROM even_calls WHERE giving_category_id = ?`),
       goalIds: ids(`SELECT goal_id AS id FROM goal_categories WHERE category_id = ?`),
@@ -845,9 +866,11 @@ export function mergeCategories(db: DB, actor: Actor, loserId: string, winnerId:
     // A split schedule's lines too, or its next Mark paid files into the loser.
     execute(db, `UPDATE schedule_splits SET category_id = ? WHERE category_id = ?`, winnerId, loserId);
     execute(db, `UPDATE loans SET payment_category_id = ? WHERE payment_category_id = ?`, winnerId, loserId);
+    // ENG-10 · A policy's premium envelope, or it names the merged-away one.
+    execute(db, `UPDATE insurance_policies SET category_id = ? WHERE category_id = ?`, winnerId, loserId);
     execute(db, `UPDATE even_calls SET envelope_id = ? WHERE envelope_id = ?`, winnerId, loserId);
     execute(db, `UPDATE even_calls SET giving_category_id = ? WHERE giving_category_id = ?`, winnerId, loserId);
-    repointRules(db, loserId, winnerId);
+    merged.rules = repointRules(db, loserId, winnerId);
 
     // A goal can name both; (goal_id, category_id) is a key, so insert what is
     // missing and drop the rest rather than colliding.
@@ -1468,6 +1491,11 @@ registerUndoHandler("category", (db, event) => {
         ...cols.map((c) => taken.target![c] as string | number | null),
       );
     }
+    // ENG-10 · Policies, from the remap or from no envelope, where still there.
+    for (const pid of taken.insurancePolicyIds ?? []) {
+      execute(db, `UPDATE insurance_policies SET category_id = ? WHERE id = ? AND category_id IS ?`,
+        id, pid, taken.remapTo ?? null);
+    }
     // Only what still sits where the delete put it: anything re-filed since is
     // the household's later decision, the same rule a payee merge's undo keeps.
     for (const tid of taken.transactionIds) {
@@ -1525,7 +1553,24 @@ function undoMerge(db: DB, loserId: string, winnerId: string, m: MergeTaken): vo
   back("transaction_splits", "category_id", m.splitIds);
   back("staged_transactions", "category_id", m.stagedIds);
   back("schedules", "category_id", m.scheduleIds);
+  /*
+   * ENG-4 · And a split schedule's lines and the rules, which the merge moved
+   * and did not record: undone, the lines went on posting into the winner on
+   * every Mark paid and the rules filed every import there. A rule goes back
+   * only if it still says what the merge made it say.
+   */
+  back("schedule_splits", "category_id", m.scheduleSplitIds ?? []);
+  for (const r of m.rules ?? []) {
+    execute(
+      db,
+      `UPDATE rules SET conditions_json = ?, actions_json = ?
+        WHERE id = ? AND conditions_json = ? AND actions_json = ?`,
+      r.conditions_json, r.actions_json, r.id,
+      renameIn(r.conditions_json, loserId, winnerId), renameIn(r.actions_json, loserId, winnerId),
+    );
+  }
   back("loans", "payment_category_id", m.loanIds);
+  back("insurance_policies", "category_id", m.insurancePolicyIds ?? []);
   back("even_calls", "envelope_id", m.evenCallEnvelopeIds);
   back("even_calls", "giving_category_id", m.evenCallGivingIds);
 

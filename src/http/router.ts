@@ -137,6 +137,17 @@ export function fileField(req: IncomingMessage, name: string): UploadedFile | nu
 /** The request body exactly as it arrived, for routes that need more than form shape. */
 export const rawBodies = new WeakMap<IncomingMessage, string>();
 
+/**
+ * WEB-5 · An empty body with no prototype. Built on `{}`, a repeated
+ * `__proto__` key (or a JSON `"__proto__": [...]`) went through the setter and
+ * made the body an array, and `constructor` or `toString` read back as
+ * Object.prototype's functions rather than absent. Nothing here may call an
+ * Object.prototype method on a body; use `Object.hasOwn` or `field()`.
+ */
+export function emptyBody(): Record<string, string | string[]> {
+  return Object.create(null) as Record<string, string | string[]>;
+}
+
 export async function readBody(
   req: IncomingMessage, maxBytes: number = MAX_BODY_BYTES,
 ): Promise<Record<string, string | string[]>> {
@@ -167,21 +178,21 @@ export async function readBody(
   // AI-2 · Kept for the one route that needs the body as sent: /mcp's JSON-RPC
   // has nested objects the form-shaped body below flattens away.
   rawBodies.set(req, text);
-  if (text === "") return {};
+  if (text === "") return emptyBody();
 
   if (contentType.includes("application/json")) {
     try {
       const parsed = JSON.parse(text) as unknown;
       return typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)
         ? formShaped(parsed as Record<string, unknown>)
-        : {};
+        : emptyBody();
     } catch {
       throw new BadRequest("That request body was not valid JSON.");
     }
   }
 
   const params = new URLSearchParams(text);
-  const out: Record<string, string | string[]> = {};
+  const out: Record<string, string | string[]> = emptyBody();
   for (const key of new Set(params.keys())) {
     const values = params.getAll(key);
     out[key] = values.length > 1 ? values : values[0]!;
@@ -205,7 +216,7 @@ function formShaped(parsed: Record<string, unknown>): Record<string, string | st
     typeof v === "string" ? v
     : typeof v === "number" || typeof v === "boolean" ? String(v)
     : null;
-  const out: Record<string, string | string[]> = {};
+  const out: Record<string, string | string[]> = emptyBody();
   for (const [key, value] of Object.entries(parsed)) {
     if (Array.isArray(value)) {
       out[key] = value.map(scalar).filter((v): v is string => v !== null);
@@ -227,7 +238,7 @@ function formShaped(parsed: Record<string, unknown>): Record<string, string | st
 function parseMultipart(
   req: IncomingMessage, raw: Buffer, boundary: string,
 ): Record<string, string | string[]> {
-  const out: Record<string, string | string[]> = {};
+  const out: Record<string, string | string[]> = emptyBody();
   const files = new Map<string, UploadedFile>();
   const delimiter = Buffer.from(`--${boundary}`);
 

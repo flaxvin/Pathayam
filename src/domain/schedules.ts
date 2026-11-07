@@ -22,6 +22,7 @@ import { formatPaise, type Paise } from "../core/money.ts";
 import { accountBalances } from "../engine/repository.ts";
 import { listLoans, projectLoan } from "./loans.ts";
 import { listMaturities } from "./deposits.ts";
+import { nextDueByDay } from "./accounts.ts";
 import { Refusal, Missing } from "../core/refusal.ts";
 import { createTransaction, refusePaymentCategories, UndoRefused } from "./transactions.ts";
 
@@ -1231,10 +1232,7 @@ export function projectCashflow(
   for (const card of cards.values()) {
     const owed = Math.max(0, -(balances.get(card.id)?.working ?? 0));
     if (owed === 0 || !card.due_day) continue;
-    const thisMonth = resolveDayOfMonth(monthOf(today), card.due_day, "last-day")!;
-    const due = thisMonth >= today
-      ? thisMonth
-      : resolveDayOfMonth(addMonths(monthOf(today), 1), card.due_day, "last-day")!;
+    const due = nextDueByDay(card.due_day, today);
     if (due > end) continue;
     dayFor(due).outflows.push({ label: `${card.name} due`, amount: owed, confirmed: true });
   }

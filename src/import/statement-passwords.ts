@@ -13,6 +13,7 @@
  *   · **ESAF** — the first three letters in UPPERCASE, then the mobile's last four.
  *   · **ICICI** — the same, lowercase, "no special characters, spaces or
  *     salutation".
+ *   · **SafeGold** — the first four in UPPERCASE, then the mobile's last four.
  *   · **Upstox, INDmoney, most brokers** — the PAN, lowercase.
  *   · **SBI Card** — the date of birth as DDMMYYYY, then the card's last four.
  *   · **SBI account** — the last five of the registered mobile, then DDMMYY.
@@ -181,6 +182,9 @@ export function passwordCandidates(
     add(id);                                                               // HDFC account
   }
   if (mobile && mobile.length >= 4) add(key.slice(0, 3).toUpperCase() + mobile.slice(-4)); // ESAF
+  // IMP-17 · SafeGold — "first 4 characters of your name in UPPERCASE and the
+  // last 4 digits of your registered mobile": RAVI, …86759 -> RAVI6759.
+  if (mobile && mobile.length >= 4) add(key.toUpperCase() + mobile.slice(-4));
 
   if (!d) {
     // Canara needs only the card, so it works even with no date of birth.
@@ -315,7 +319,7 @@ export function missingDetailFor(
       return longest.length < 6
         ? "HSBC uses the last six digits of the card, and this account has "
           + (longest.length > 0 ? "only the last four." : "no card number recorded.")
-          + " Add the HSBC card's last six in Settings."
+          + " Add the card's last six on the account, or in Settings."
         : null;
     // IMPORT-SND-12 · Account statements locked with the customer ID. A card
     // statement from either bank opens with the name and date of birth, so a
@@ -335,6 +339,36 @@ export function missingDetailFor(
   }
 }
 
+/**
+ * IMP-19 · How many of the card's trailing digits this bank's rule wants, when
+ * the app does not have that many — the case an import can fix by asking.
+ * Null when the bank's rule is not a card's, or the digits are already there.
+ * SBI's account statement wants the mobile instead; a caller asks only for a
+ * card account.
+ */
+export function cardDigitsNeeded(
+  bankId: BankId | null | undefined,
+  identity: StatementIdentity,
+  cardDigits: (string | null | undefined)[] = [],
+): 4 | 6 | null {
+  const longest = [...cardDigits, identity.hsbcCardLast6]
+    .map((d) => (d ?? "").replace(/\D/g, ""))
+    .reduce((a, b) => (b.length > a.length ? b : a), "");
+  // SBI Card's and HSBC's rules put the digits after the date of birth, so
+  // without one there is nothing the digits alone could open.
+  const dob = parts(identity.dob) !== null;
+  switch (bankId) {
+    case "canara":
+      return longest.length < 4 ? 4 : null;
+    case "sbi":
+      return dob && longest.length < 4 ? 4 : null;
+    case "hsbc":
+      return dob && longest.length < 6 ? 6 : null;
+    default:
+      return null;
+  }
+}
+
 export function describeCandidate(
   candidate: string, identity: StatementIdentity,
 ): string {
@@ -347,7 +381,8 @@ export function describeCandidate(
   }
   const mobile = identity.mobile?.replace(/\D/g, "") ?? "";
   const key = nameKey(identity.name);
-  if (mobile.length >= 4 && candidate === key.slice(0, 3).toUpperCase() + mobile.slice(-4)) {
+  if (mobile.length >= 4 && (candidate === key.slice(0, 3).toUpperCase() + mobile.slice(-4)
+    || candidate === key.toUpperCase() + mobile.slice(-4))) {
     return "your name and mobile number";
   }
   if (key && candidate.toLowerCase().startsWith(key.toLowerCase())) {

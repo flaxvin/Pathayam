@@ -344,3 +344,49 @@ describe("the PDF reader · nesting deeper than any statement", () => {
     assert.equal(v, 1);
   });
 });
+
+describe("the PDF reader · a subset font renumbered by /Differences", () => {
+  /*
+   * Some registrars' generators subset each font and renumber the glyphs it
+   * uses from code 64 up, naming each with its standard glyph name
+   * (/F /o /l /i …) over a WinAnsi base. Only /uniXXXX and a handful of
+   * punctuation names were understood, so every other code fell back to
+   * Latin-1 and "Folio Statement" came out as a shifted jumble: no folio, no
+   * scheme.
+   */
+  const names = ["F", "o", "l", "i", "S", "t", "a", "e", "m", "n", "zero", "one", "nine", "period", "hyphen", "ampersand", "space"];
+  const font = "<< /Type /Font /Subtype /TrueType /BaseFont /Arial /Encoding " +
+    `<< /Type /Encoding /BaseEncoding /WinAnsiEncoding /Differences [64 ${names.map((n) => "/" + n).join(" ")}] >> >>`;
+  const code = (n: string): string => (64 + names.indexOf(n)).toString(16).padStart(2, "0");
+  const hex = (glyphs: string[]): string => `<${glyphs.map(code).join("")}>`;
+
+  test("each code reads as the glyph its name names", () => {
+    const bytes = pdf([
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+      "<< /Type /Page /Parent 2 0 R /Resources << /Font << /F0 5 0 R >> >> /Contents 4 0 R >>",
+      stream("", [
+        "BT /F0 10 Tf 20 700 Td",
+        hex(["F", "o", "l", "i", "o", "space", "S", "t", "a", "t", "e", "m", "e", "n", "t"]),
+        "Tj 0 -20 Td",
+        hex(["one", "nine", "period", "zero", "hyphen", "one", "space", "ampersand"]),
+        "Tj ET",
+      ].join(" ")),
+      font,
+    ]);
+    const lines = read(bytes, "").split("\n").map((l) => l.trim());
+    assert.deepEqual(lines, ["Folio Statement", "19.0-1 &"]);
+  });
+
+  test("a code /Differences leaves alone reads through the base encoding", () => {
+    const bytes = pdf([
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+      "<< /Type /Page /Parent 2 0 R /Resources << /Font << /F0 5 0 R >> >> /Contents 4 0 R >>",
+      // 0x96 is an en dash in WinAnsi, a C1 control in Latin-1.
+      stream("", "BT /F0 10 Tf 20 700 Td <313296> Tj ET"),
+      font,
+    ]);
+    assert.equal(read(bytes, "").trim(), "12–");
+  });
+});

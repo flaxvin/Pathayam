@@ -38,6 +38,8 @@ const REACHED_ANOTHER_WAY: Record<string, string> = {
   "/auth/google/callback": "Google redirects here. We never link to it.",
   "/gmail/callback": "Google redirects here after the mail-scope consent.",
   "/healthz": "For a monitor, not a person. Deliberately undiscoverable in the UI.",
+  "/portfolio/safegold/review": "Fetch now redirects here when it has read a SafeGold statement; " +
+    "the plan it shows is the fetch's, by its token.",
 };
 
 function registeredGets(): string[] {

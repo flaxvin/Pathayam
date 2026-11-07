@@ -98,6 +98,10 @@ describe("INSURANCE-1 · the register", () => {
     assert.equal(
       queryValue<number>(db, `SELECT COUNT(*) FROM insurance_policies WHERE policy_last4 LIKE '%9876%'`), 0,
     );
+    // UI-7 · "policy ending 2026" read as "the policy ends in 2026".
+    const added = queryEvents(db, { entity: "insurance-policy" }).find((e) => e.action === "create")!;
+    assert.match(added.summary, /Fictional Life term life policy no\. …5432$/);
+    assert.doesNotMatch(added.summary, /ending/);
     assert.throws(() => createPolicy(db, ravi, term({ kind: "vehicle", taxGroup: "80c" })), /80C/);
     assert.throws(() => createPolicy(db, ravi, term({ kind: "term-life", taxGroup: "80d-self" })), /80D/);
     assert.throws(() => createPolicy(db, ravi, term({ premium: 0 as Paise })), /premium/);
@@ -234,6 +238,26 @@ describe("INSURANCE-1 · the tax suggestion", () => {
     assert.equal(s.lines.length, 3);
 
     assert.equal(policyTaxSuggestion(db, PRIYA, 2026).s80c, rupees(18_000));
+  });
+
+  test("UI-3 · in a one-member household a policy with no holder named is that member's", async () => {
+    // Weekly UI pass 04-11-2026: first run, one member, a Star Health policy
+    // marked "80D — yourself". The policy form shows no "Whose is it" picker
+    // until there are two members, so the holder stayed empty, and the tax
+    // page — which the insurance page says "adds up the premiums of the
+    // policies you hold" — never offered the ₹24,500.
+    const db = freshDb();
+    seedMember(db, RAVI, "Ravi");
+    createPolicy(db, ravi, {
+      insurer: "Star Health", kind: "health", premium: rupees(24_500) as Paise,
+      frequency: "yearly", nextDue: "2026-11-20", taxGroup: "80d-self",
+    });
+    assert.equal(policyTaxSuggestion(db, RAVI, 2026).s80d, rupees(24_500));
+
+    // With a second member the empty holder means "the household's, jointly"
+    // again, which is nobody's deduction until a holder is named.
+    seedMember(db, PRIYA, "Priya");
+    assert.equal(policyTaxSuggestion(db, RAVI, 2026).s80d, 0);
   });
 
   test("applying raises a figure to the policies', and never lowers one", () => {

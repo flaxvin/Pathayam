@@ -9,7 +9,7 @@
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
-import { nowIST, todayIST, formatDate, type IsoDate } from "../core/dates.ts";
+import { nowIST, todayIST, formatDate, resolveDayOfMonth, monthOf, addMonths, type IsoDate } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
 import { Missing, Refusal } from "../core/refusal.ts";
 import { householdBudgetId } from "./budgets.ts";
@@ -894,6 +894,7 @@ registerUndoHandler("account", (db, event) => {
     execute(db, `DELETE FROM targets WHERE category_id IN
                    (SELECT id FROM categories WHERE payment_account_id = ?)`, id);
     execute(db, `DELETE FROM cards WHERE account_id = ?`, id);
+    execute(db, `DELETE FROM card_number_digits WHERE account_id = ?`, id);
     execute(db, `DELETE FROM categories WHERE payment_account_id = ?`, id);
     execute(db, `DELETE FROM accounts WHERE id = ?`, id);
     return `Removed the account that was added`;
@@ -1005,6 +1006,17 @@ registerUndoHandler("card-statement", (db, event) => {
   execute(db, `DELETE FROM card_statements WHERE id = ?`, statement.id);
   return `Removed the statement of ${formatPaise(statement.amount)}, due ${statement.due_date}`;
 });
+
+/**
+ * UI-9 · The next date a card falls due by its stored due day: this month's,
+ * or next month's once this month's has passed; a day the month lacks is its
+ * last day. Used where no statement is recorded — Cards, the card panel and
+ * the cashflow projection — so all three name the same day.
+ */
+export function nextDueByDay(dueDay: number, today: IsoDate = todayIST()): IsoDate {
+  const thisMonth = resolveDayOfMonth(monthOf(today), dueDay, "last-day")!;
+  return thisMonth >= today ? thisMonth : resolveDayOfMonth(addMonths(monthOf(today), 1), dueDay, "last-day")!;
+}
 
 /** The most recent statement for a card, or null. */
 export function lastCardStatement(db: DB, accountId: string): CardStatement | null {

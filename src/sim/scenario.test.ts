@@ -254,6 +254,12 @@ describe("top-down · nothing in the domain went unexercised", () => {
     importBudgetApp: "A household moves from YNAB or Actual Budget once, before it " +
       "starts here; the simulated one starts here. It ends in ingest(), which the " +
       "scenario calls every month, and budget-app-import.test.ts drives it end to end.",
+    keepLongerCardDigits: "A card's digits beyond its last four only unlock a locked " +
+      "statement, and the simulated household's statements are not locked; the " +
+      "account form calls it, driven by card-number-digits.test.ts.",
+    setCardNumberDigits: "Called when a locked statement opens with digits typed at " +
+      "import or after a Gmail fetch — neither of which the simulated household " +
+      "meets; card-number-digits.test.ts drives it.",
   };
 
   test("every mutating domain function is called by the scenario", () => {
@@ -405,12 +411,13 @@ describe("top-down · and again, with money it has not seen", () => {
     assert.deepEqual(broken.slice(0, 6), []);
     assert.equal(run.months.length, sim.months.length);
 
-    // Different money, or the seed is not doing anything.
-    const theirs = queryOne<{ n: number }>(
-      other, `SELECT COUNT(*) AS n FROM transactions`,
-    )!.n;
-    const ours = queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM transactions`)!.n;
-    assert.notEqual(theirs, ours, "both households came out identical; the seed is ignored");
+    // Different money, or the seed is not doing anything. ENG-5 · The money,
+    // not only the count: run on 15 June 2027 both seeds happen to make 2,103
+    // transactions, and a count alone called that "the seed is ignored".
+    const fingerprint = (d: typeof db) => queryOne<{ f: string }>(
+      d, `SELECT COUNT(*) || ':' || COALESCE(SUM(amount), 0) AS f FROM transactions`,
+    )!.f;
+    assert.notEqual(fingerprint(other), fingerprint(db), "both households came out identical; the seed is ignored");
     other.close();
   });
 });

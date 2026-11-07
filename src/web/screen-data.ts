@@ -22,7 +22,7 @@ import {
 } from "../core/dates.ts";
 import { listMembers } from "../auth/sessions.ts";
 import {
-  listAccounts, paymentCategoryFor, lastCardStatement, creditedSinceStatement, hiddenAccountIds,
+  listAccounts, paymentCategoryFor, lastCardStatement, creditedSinceStatement, nextDueByDay, hiddenAccountIds,
   DERIVED_VALUE_SUBTYPES, type HolderScope,
 } from "../domain/accounts.ts";
 import { listCategories } from "../domain/budget.ts";
@@ -210,13 +210,17 @@ export function cardsDue(
         account.opening_balance,
       );
       const statement = lastCardStatement(db, account.id);
+      const owed = Math.max(0, -(owedNow.get(account.id) ?? 0)) as Paise;
+      // UI-9 · With no statement, the due day stored on the card, as the
+      // cashflow projection already pays it.
+      const dueByDay = !statement && owed > 0 && account.due_day ? nextDueByDay(account.due_day, today) : null;
 
       return {
         accountId: account.id,
         name: account.nickname || account.name,
         last4: account.last4,
         startingDebtNote: cameWithTheCard(funding),
-        owed: Math.max(0, -(owedNow.get(account.id) ?? 0)) as Paise,
+        owed,
         credit: Math.max(0, owedNow.get(account.id) ?? 0) as Paise,
         funded,
         unfunded: funding.unfunded,
@@ -226,7 +230,9 @@ export function cardsDue(
               due: statement.due_date, minimum: statement.minimum_due,
             }
           : null,
-        daysToDue: statement ? daysBetween(today, statement.due_date) : null,
+        dueByDay,
+        daysToDue: statement ? daysBetween(today, statement.due_date)
+          : dueByDay ? daysBetween(today, dueByDay) : null,
         paidSinceStatement: statement
           ? creditedSinceStatement(db, account.id, statement.statement_date)
           : (0 as Paise),
@@ -234,9 +240,9 @@ export function cardsDue(
       };
     })
     /*
-     * Soonest first. A card with no statement has no due date to sort by, so
-     * it goes last rather than being guessed at — R6 reports the debt it can
-     * see and never invents a cycle.
+     * Soonest first. A card with no statement sorts by its stored due day
+     * (UI-9); one with neither has no due date to sort by, so it goes last
+     * rather than being guessed at — R6 never invents a cycle.
      */
     .sort((a, b) => {
       if (a.daysToDue === null && b.daysToDue === null) return b.owed - a.owed;

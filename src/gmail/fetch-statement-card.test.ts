@@ -19,6 +19,7 @@ import type { DB } from "../db/db.ts";
 import { queryOne } from "../db/db.ts";
 import { createAccount, createCard } from "../domain/accounts.ts";
 import { setIdentity } from "../import/identity.ts";
+import { setCardNumberDigits } from "../domain/card-digits.ts";
 import {
   STATEMENTS, STATEMENT_IDENTITY, SBI_CARD_LAST4, HSBC_CARD_LAST6,
 } from "../import/statements.test-data.ts";
@@ -226,5 +227,117 @@ describe("IMPORT-15 · Gmail card statements and the card's recorded digits", ()
     assert.ok(!notice.includes(HSBC_CARD_LAST6), notice);
     const events = JSON.stringify(db.prepare("SELECT * FROM events").all());
     assert.ok(!events.includes(HSBC_CARD_LAST6), "the HSBC digits reached the event log");
+  });
+
+  test("IMP-18 · …or with the six recorded on the card account itself", async () => {
+    const db = setup();
+    const accountId = hsbcCard(db, null);
+    setCardNumberDigits(db, actor, accountId, "12" + HSBC_CARD_LAST6);
+    const notice = await fetchFromGmail(db, hsbc());
+    assert.doesNotMatch(notice, /could not open|last six/, notice);
+    assert.equal(pdfBatches(db), 1);
+  });
+});
+
+/**
+ * IMP-4 · A mailed statement goes to the account at its bank, however the
+ * bank's name was typed.
+ *
+ * The account was found by `institution LIKE '%<bank id>%'`. That works for
+ * "HDFC Bank" and "Axis Bank", but SBI's id is "sbi" and Standard Chartered's
+ * is "sc": an account whose institution says "State Bank of India" or
+ * "Standard Chartered" — the bank's own name, as the upload path and the
+ * password hints recognise it — never matched, and every statement from them
+ * was "no matching account".
+ */
+describe("IMP-4 · routing a mailed statement by bank", () => {
+  test("a Standard Chartered statement files under the account typed as Standard Chartered", async () => {
+    const db = setup();
+    createAccount(db, actor, {
+      name: "HSBC Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01", institution: "HSBC",
+    });
+    const sc = createAccount(db, actor, {
+      name: "SC Card", kind: "credit", subtype: "credit-card", openingDate: "2026-08-01",
+      institution: "Standard Chartered",
+    }).id;
+    await fetchFromGmail(db, fakeGoogle({
+      from: "Standard Chartered <global.e-statement-in@sc.com>", pdf: STATEMENTS.hdfc,
+    }));
+    assert.equal(queryOne<{ account_id: string }>(
+      db, "SELECT account_id FROM import_batches WHERE source = 'pdf'",
+    )?.account_id, sc);
+  });
+
+  test("an SBI statement files under the account typed as State Bank of India", async () => {
+    const db = setup();
+    const sbi = createAccount(db, actor, {
+      name: "SBI Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01",
+      institution: "State Bank of India",
+    }).id;
+    await fetchFromGmail(db, fakeGoogle({ from: "SBI <cbssbi.cas@alerts.sbi.co.in>", pdf: STATEMENTS.sbi }));
+    assert.equal(queryOne<{ account_id: string }>(
+      db, "SELECT account_id FROM import_batches WHERE source = 'pdf'",
+    )?.account_id, sbi);
+  });
+
+  test("an id inside another word is not that bank: 'sc' in 'Scotiabank'", async () => {
+    const db = setup();
+    createAccount(db, actor, {
+      name: "Old Scotia", kind: "budget", subtype: "savings", openingDate: "2026-08-01", institution: "Scotiabank",
+    });
+    await fetchFromGmail(db, fakeGoogle({
+      from: "Standard Chartered <global.e-statement-in@sc.com>", pdf: STATEMENTS.hdfc,
+    }));
+    assert.equal(pdfBatches(db), 0);
+  });
+});
+
+/**
+ * IMP-9 · A household with an HDFC savings account and an HDFC card had two
+ * accounts at "hdfc", so every mailed HDFC statement was "no matching
+ * account" — though the sender says which it is: the smart-statement address
+ * sends the account statement, the cards address the card statement. The
+ * sender entry's kind now picks between them.
+ */
+describe("IMP-9 · a savings account and a card at the same bank", () => {
+  function twoAtHdfc(db: DB): { savings: string; card: string } {
+    const savings = createAccount(db, actor, {
+      name: "HDFC Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01", institution: "HDFC Bank",
+    }).id;
+    const card = createAccount(db, actor, {
+      name: "HDFC Card", kind: "credit", subtype: "credit-card", openingDate: "2026-08-01", institution: "HDFC Bank",
+    }).id;
+    return { savings, card };
+  }
+  const filedUnder = (db: DB) => queryOne<{ account_id: string }>(
+    db, "SELECT account_id FROM import_batches WHERE source = 'pdf'")?.account_id;
+
+  test("the account statement files under the savings account", async () => {
+    const db = setup();
+    const { savings } = twoAtHdfc(db);
+    await fetchFromGmail(db, fakeGoogle({
+      from: "HDFC Bank <hdfcbanksmartstatement@hdfcbank.net>", pdf: STATEMENTS.hdfc,
+    }));
+    assert.equal(filedUnder(db), savings);
+  });
+
+  test("the card statement files under the card", async () => {
+    const db = setup();
+    const { card } = twoAtHdfc(db);
+    await fetchFromGmail(db, fakeGoogle({
+      from: "HDFC Bank <emailstatements.cards@hdfcbank.net>", pdf: STATEMENTS.hdfc,
+    }));
+    assert.equal(filedUnder(db), card);
+  });
+
+  test("with only a savings account there, a card-sender statement still files under it", async () => {
+    const db = setup();
+    const savings = createAccount(db, actor, {
+      name: "HDFC Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01", institution: "HDFC Bank",
+    }).id;
+    await fetchFromGmail(db, fakeGoogle({
+      from: "HDFC Bank <emailstatements.cards@hdfcbank.net>", pdf: STATEMENTS.hdfc,
+    }));
+    assert.equal(filedUnder(db), savings);
   });
 });

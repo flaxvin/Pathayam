@@ -17,6 +17,7 @@
  *   property, gold or foreign shares, held ≤ 24 months → slab rates
  *   a gold or international ETF listed in India: as above, but 12 months
  *   debt, bought after 1 April 2023  →  slab rates always        (s50AA)
+ *   unlisted Indian shares: as property — 24 months, then s112, no exemption
  *   a listed bond, held > 12 months  →  12.5%, no indexation     (s112)
  *   an unlisted bond, or one not known to be listed → slab rates (s50AA)
  *   a debt fund bought before then   →  as gold (24 months; ETF 12)
@@ -406,7 +407,18 @@ export function gainsBucketsForYear(db: DB, fy: number, memberId: string): Gains
       const foreign = sale.region === "international"
         || (sale.region === null && sale.currency !== "INR");
 
-      if (cls === "equity" && !foreign) {
+      /*
+       * ENG-15 · A share not listed on a recognised stock exchange is not
+       * listed equity either: no s111A, no s112A and no ₹1.25 lakh exemption.
+       * It is long-term after 24 months (s2(42A)), then s112 — 12.5% without
+       * indexation from 23 July 2024, 20% with it before (reported, not
+       * computed) — and slab-rated before that: the property path below. Only
+       * a share recorded as not listed (0) goes there; one never recorded
+       * stays listed, which every stock row before this was.
+       */
+      const unlistedShare = sale.kind === "equity" && sale.listed === 0;
+
+      if (cls === "equity" && !foreign && !unlistedShare) {
         const acquired = acquiredOn(parcel, sale.date);
         if (heldMoreThanMonths(acquired, sale.date, rules.longTermMonths.listedEquity)) {
           if (acquired < GRANDFATHERED_BEFORE) {
@@ -535,7 +547,7 @@ export function gainsBucketsForYear(db: DB, fy: number, memberId: string): Gains
         continue;
       }
 
-      // gold, real-estate, foreign equity: 24 months (12 for a listed unit), then 12.5%.
+      // gold, real-estate, foreign and unlisted equity: 24 months (12 for a listed unit), then 12.5%.
       if (heldMoreThanMonths(acquired, sale.date, longAfter)) {
         otherLong(gain);
       } else {

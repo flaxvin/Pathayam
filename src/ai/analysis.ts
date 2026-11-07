@@ -116,7 +116,8 @@ function isoDay(value: string | null | undefined): IsoDate | null {
 function round(n: number | null | undefined, places = 2): number | null {
   if (n === null || n === undefined || !Number.isFinite(n)) return null;
   const f = 10 ** places;
-  return Math.round(n * f) / f;
+  // `+ 0` folds −0 into 0, as inr() does: JSON prints both as 0.
+  return Math.round(n * f) / f + 0;
 }
 
 function requireMonth(month: string | undefined, db: DB): MonthKey {

@@ -504,6 +504,8 @@ export interface MappingPrompt {
   headerRow: number;
   choices: { index: number; label: string; sample: string }[];
   error?: string | null;
+  /** IMP-6 · Said once when an uploaded file was not all UTF-8. */
+  note?: string | null;
 }
 
 /**
@@ -538,6 +540,7 @@ export function renderMapping(opts: MappingPrompt): SafeHtml {
       After that, every statement from this bank imports without asking.
     </p>
     ${when(opts.error, () => html`<p class="notice notice-error">${opts.error}</p>`)}
+    ${when(opts.note, () => html`<p class="notice notice-warning">${opts.note}</p>`)}
 
     <section class="card">
       <h2>What arrived</h2>
@@ -735,6 +738,12 @@ export function renderImport(opts: {
   /** `04` §3.3 · What each bank puts on its statement password. */
   banks: { id: string; name: string; passwordHint: string }[];
   error?: string | null;
+  /**
+   * IMP-19 · A statement PDF that would open with the card's digits: the form
+   * comes back with its account still chosen and a box for them. Nothing typed
+   * is put back — the digits box and the password box come back empty.
+   */
+  pdf?: { accountId: string; askDigits: 4 | 6; error: string } | null;
   preview?: {
     accountId: string;
     fileName: string;
@@ -751,17 +760,31 @@ export function renderImport(opts: {
         HDFC, ICICI, Axis and SBI are recognised automatically. Anything else
         still works — you name its columns once and it is remembered.
       </p>
+      ${when(opts.pdf, () => html`<p class="notice notice-error" role="alert">${opts.pdf!.error}</p>`)}
       <form method="post" action="/import/pdf" enctype="multipart/form-data">
         <div class="field">
           <label for="pdf-account">Which account?</label>
           <select id="pdf-account" name="account_id" required>
-            ${opts.accounts.map((a) => html`<option value="${a.id}">${a.name}</option>`)}
+            ${opts.accounts.map((a) => html`<option value="${a.id}" ${raw(a.id === opts.pdf?.accountId ? "selected" : "")}>${a.name}</option>`)}
           </select>
         </div>
         <div class="field">
           <label for="pdf-file">The statement</label>
           <input id="pdf-file" name="statement" type="file" accept="application/pdf,.pdf" required>
         </div>
+        ${when(opts.pdf, () => html`
+          <div class="field">
+            <label for="pdf-card-digits">The card number's ${opts.pdf!.askDigits === 6 ? "last six" : "last four"} digits</label>
+            <input id="pdf-card-digits" name="card_digits" inputmode="numeric" autocomplete="off"
+                   spellcheck="false" maxlength="11" minlength="${opts.pdf!.askDigits}"
+                   required autofocus>
+            <p class="field-hint">
+              As printed on the card. Once the statement opens with them they are
+              saved on the card's account, so the next one — uploaded or from
+              Gmail — opens by itself. Up to eight digits are kept.
+            </p>
+          </div>
+        `)}
         <div class="field">
           <label for="pdf-password">Its password</label>
           <input id="pdf-password" name="password" type="password"
@@ -800,13 +823,20 @@ export function renderImport(opts: {
       </div>
 
       <div class="field">
-        <label for="csv">Paste the CSV, or upload it</label>
+        <label for="csv">Paste the CSV</label>
         <textarea id="csv" name="csv" rows="8"
                   placeholder="Date,Narration,Withdrawal Amt.,Deposit Amt.&#10;01-08-2026,SALARY,,145000.00"></textarea>
         <p class="field-hint">
           The columns are worked out from the header row, wherever it happens to be.
           Separate debit and credit columns, a single signed column, Indian grouping and
           Cr/Dr suffixes are all understood.
+        </p>
+        <label for="csv_file" style="margin-top:.6rem">Or choose the file</label>
+        <input id="csv_file" name="csv_file" type="file"
+               accept=".csv,.txt,.tsv,text/csv,text/plain,text/tab-separated-values">
+        <p class="field-hint">
+          A chosen file is used instead of anything pasted. UTF-8 and Excel's
+          UTF-16 “Unicode text” both read.
         </p>
         <p class="field-hint">
           Moving from YNAB or Actual Budget? Paste its transaction export here.

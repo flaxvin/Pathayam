@@ -138,6 +138,43 @@ ISIN: INF846K01131
     assert.equal(cas.period, null, "a period ending in month 13 is no period");
   });
 
+  describe("the statement period, wherever the line prints it", () => {
+    /*
+     * Only "Statement Period: … to …" at the start of a line was read. A CDSL
+     * CAS prints its period mid-line between the same words in Hindi, and a
+     * CAMS-generated AMC statement prints "Account Statement (From … To …)",
+     * so every real statement imported with no period and its import event
+     * was named "?:?".
+     */
+    const body = `
+Folio No: 4444
+Some Fund - Growth
+ISIN: INF846K01131
+01/05/2026  Purchase  1,000.00  20.000  50.0000  20.000
+`;
+
+    test("mid-line, between other text", () => {
+      const cas = parseCasText(`  ०१-सितंबर-२०२६ से Statement for the period from 01-Sep-2026 to 30-Sep-2026 तक की अवधि के लिए\n${body}`);
+      assert.deepEqual(cas.period, { from: "2026-09-01", to: "2026-09-30" });
+      assert.equal(cas.schemes.length, 1);
+    });
+
+    test("in brackets, after \"Account Statement\"", () => {
+      const cas = parseCasText(`        Account Statement (From 01-AUG-2026 To 31-AUG-2026)\n${body}`);
+      assert.deepEqual(cas.period, { from: "2026-08-01", to: "2026-08-31" });
+    });
+
+    test("other dated lines are not taken for it", () => {
+      const cas = parseCasText([
+        "Statement Date : 15-Aug-26",
+        "SIP registered from 01-Sep-2026 to 30-Sep-2030",
+        "FOR THE PERIOD FROM 01-09-2026",
+        body,
+      ].join("\n"));
+      assert.equal(cas.period, null);
+    });
+  });
+
   test("a reversed purchase is not read as a second purchase", () => {
     /*
      * A SIP whose payment bounced is printed, then reversed with bracketed
