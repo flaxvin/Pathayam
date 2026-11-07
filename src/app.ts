@@ -366,7 +366,7 @@ import {
 import { parseCasPdf, WrongPassword } from "./import/cas.ts";
 import { parseSafeGoldText, isSafeGoldText, type SafeGoldStatement } from "./import/safegold.ts";
 import {
-  planSafeGoldImport, applySafeGoldPlan, stashSafeGoldPlan, takeSafeGoldPlan,
+  planSafeGoldImport, applySafeGoldPlan, stashSafeGoldPlan, peekSafeGoldPlan, takeSafeGoldPlan,
 } from "./import/safegold-plan.ts";
 import { renderSafeGoldUpload, renderSafeGoldReview } from "./web/pages/safegold.ts";
 import {
@@ -8713,12 +8713,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (result.statements.unmatched) {
       parts.push(`${plural(result.statements.unmatched, "statement")} for no single account of yours, not imported`);
     }
+    // IMP-33 · SafeGold statements, read and waiting on their review.
+    const goldReview = result.gold.token && result.gold.newEntries > 0 && config.features.assets;
+    if (result.gold.statements) {
+      parts.push(`${plural(result.gold.statements, "SafeGold statement")} — ` + (result.gold.newEntries
+        ? `${result.gold.newEntries} new gold ${result.gold.newEntries === 1 ? "entry" : "entries"} to confirm`
+        : "nothing new in it"));
+    }
     // IMPORT-15 · Which detail would open the locked ones, as the upload says it.
     const missing = result.missingDetails.length ? ` ${result.missingDetails.join(" ")}` : "";
     const summary = parts.length
       ? `Read ${result.scanned} messages — ${parts.join(", ")}.${missing}`
       : `Read ${result.scanned} messages — nothing new.`;
 
+    if (goldReview) {
+      return { redirect: withNotice(`/portfolio/safegold/review?token=${encodeURIComponent(result.gold.token!)}`, summary) };
+    }
     return { redirect: withNotice(toReview > 0 ? "/review" : "/settings#gmail", summary) };
   });
 
@@ -9072,6 +9082,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       return again("That PDF opened, but it is not a SafeGold statement — nothing was imported.");
     }
     return safeGoldReview(ctx, a.member.id, [statement]);
+  });
+
+  /** The review of a plan read elsewhere — a Gmail fetch — while it is still open. */
+  router.get("/portfolio/safegold/review", (ctx) => {
+    requireAssets();
+    const a = auth(ctx);
+    const token = ctx.query.get("token") ?? "";
+    const plan = peekSafeGoldPlan(token, a.member.id);
+    if (!plan) return { redirect: "/portfolio/safegold?error=expired" };
+    return render(ctx, "What this SafeGold statement says", renderSafeGoldReview({ plan, token }));
   });
 
   router.post("/portfolio/safegold/confirm", (ctx) =>
