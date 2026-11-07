@@ -304,7 +304,11 @@ export function scheduleInScope(
  * from the budget, cashflow, net worth and insight engine.
  */
 export function overviewData(
-  db: DB, opts: { budgetId: string; viewerMemberId: string | null; assets: boolean },
+  db: DB, opts: {
+    budgetId: string; viewerMemberId: string | null; assets: boolean;
+    /** PLAN-1 · A module that is off leaves its items out of "due soon". Omitted is on. */
+    schedules?: boolean; insurance?: boolean; deposits?: boolean;
+  },
 ): Parameters<typeof renderOverview>[0] {
   const { budgetId: scope, viewerMemberId } = opts;
   const view = buildBudgetView(db, undefined, scope, viewerMemberId);
@@ -362,7 +366,7 @@ export function overviewData(
     listCategories(db, { includeHidden: true, budgetId: scope, viewerMemberId })
       .map((c) => c.id),
   );
-  const dueSoon = listSchedules(db, { viewerMemberId })
+  const dueSoon = (opts.schedules === false ? [] : listSchedules(db, { viewerMemberId }))
     .filter((s) => s.next_due && s.next_due <= soon && (s.amount ?? 0) < 0)
     .filter((s) =>
       (!s.account_id && !s.category_id)
@@ -371,7 +375,7 @@ export function overviewData(
     .sort((x, y) => (x.next_due ?? "").localeCompare(y.next_due ?? ""))
     .map((s) => ({ id: s.id, name: s.name, amount: Math.abs(s.amount ?? 0) as Paise, nextDue: s.next_due! }))
     // INSURANCE-1 · Premiums and renewals, in the same fortnight.
-    .concat(policiesDueBy(db, { viewerMemberId, until: soon, budgetId: scope })
+    .concat((opts.insurance === false ? [] : policiesDueBy(db, { viewerMemberId, until: soon, budgetId: scope }))
       .map((p) => ({ ...p, policy: true })))
     .sort((x, y) => x.nextDue.localeCompare(y.nextDue))
     .slice(0, 6);
@@ -400,7 +404,7 @@ export function overviewData(
     dueSoon,
     // DEPOSITS · Maturities in the same fortnight, from accounts this
     // member can see. Shown, never posted.
-    maturing: listMaturities(db, { from: todayIST(), to: soon, viewerMemberId })
+    maturing: (opts.deposits === false ? [] : listMaturities(db, { from: todayIST(), to: soon, viewerMemberId }))
       .map((m) => ({ accountId: m.accountId, name: m.name, amount: m.amount, date: m.date })),
   };
 }

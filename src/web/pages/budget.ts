@@ -15,8 +15,8 @@ import type { BudgetView, CategoryView, GroupView } from "../viewmodel.ts";
 import { PUT_IT_DOWN_TO_ME, PUT_IT_DOWN_TO_ME_HINT } from "../../domain/standing.ts";
 import { cameWithTheCard } from "../../domain/card-shortfall.ts";
 
-export function renderBudget(view: BudgetView, digest?: SafeHtml): SafeHtml {
-  return html`
+export function renderBudget(view: BudgetView, digest?: SafeHtml, opts: { reports?: boolean } = {}): SafeHtml {
+  const page = html`
     ${renderMonthBar(view.month, view.currentMonth, view.firstMonth)}
     ${renderReadyToAssign(view)}
     <!-- F14.3 as errata E12 leaves it: the digest on next open, in the one
@@ -33,6 +33,14 @@ export function renderBudget(view: BudgetView, digest?: SafeHtml): SafeHtml {
     ${view.groups.length === 0 ? renderEmptyState() : renderGroups(view)}
     ${renderFooterActions(view)}
   `;
+  /*
+   * PLAN-1 · A category's name drills into its transactions on Query. Without
+   * the reports module, Search answers the same filter — it is the same screen,
+   * and it is core — so the drill-down survives the module going.
+   */
+  return opts.reports === false
+    ? raw(String(page).replaceAll('href="/query?', 'href="/search?'))
+    : page;
 }
 
 /**

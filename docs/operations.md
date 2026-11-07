@@ -209,16 +209,72 @@ Everything the app reads, and nothing it does not:
 | `HEARTBEAT_URL` | — | **Set this.** Pinged on a *successful* verified restore. |
 | `BACKUP_WEBHOOK_URL` | — | Alerted when a backup or its verification fails. |
 | `ALPHA_VANTAGE_KEY` | — | Only for direct equities; mutual funds use a keyless provider. |
-| `FEATURE_LOANS` | `true` | |
-| `FEATURE_ASSETS` | `true` | |
-| `FEATURE_MULTI_CURRENCY` | `false` | |
-| `FEATURE_AI` | `true` | AI connections: `/mcp`, signing in from an AI app (`/oauth/*`, the `.well-known` metadata) and Connect an AI. Off, each is a 404 and nothing links to it; existing connections stop answering. `/export/analysis.json` goes with them; `/export.json` stays. The hosted Solo plan runs with it off. |
+| `PLAN`, `FEATURE_*`, `MAX_MEMBERS`, `BACKUP_RETENTION_DAYS` | `selfhost` | Which modules this instance offers and its limits. See [Plans and modules](#plans-and-modules). |
 | `MCP_ALLOWED_ORIGINS` | — | Comma-separated browser origins, besides `BASE_URL`'s, allowed to call `/mcp`. Connectors call from their servers and need none (ai.md). |
 | `ADMIN_DEBUG` | `false` | Enables view-as-another-member, read-only by default, bannered. |
 | `DEMO_MODE` | `false` | Bypasses authentication. Refuses to start alongside `DEV_LOGIN`, Google or OIDC credentials, or `LOCAL_LOGIN`, and against a database with passwords, linked Google accounts, a connected mailbox or a statement identity. |
 | `DEV_LOGIN` | `false` | Local auth bypass. Absent from the production image; the app refuses to start with it in a production-shaped environment (production `NODE_ENV`, a public `BASE_URL`, Google or OIDC credentials, `LOCAL_LOGIN`). |
 
 A disabled feature module **keeps its data**. Re-enabling restores it intact.
+
+## Plans and modules
+
+`PLAN` picks a preset. Each variable below that is set wins over the preset,
+so `PLAN=solo` with `FEATURE_LOANS=true` is Solo with loans. Leave `PLAN`
+unset and an instance is self-hosted: every module on except multi-currency,
+and no limits. That is how every install before plans existed behaves, and
+how the public demo runs.
+
+A value the app cannot read stops it at startup with a message naming the
+variable. That covers `PLAN=family`, `FEATURE_LOANS=flase` and
+`MAX_MEMBERS=five`. A misspelt flag must not quietly switch a paid module on
+or off. Flags take `true`/`false`, `1`/`0`, `yes`/`no` or `on`/`off`, in
+any case.
+
+### Limits
+
+| Variable | selfhost | solo | household | power | Notes |
+|---|---|---|---|---|---|
+| `MAX_MEMBERS` | unlimited | 1 | 5 | unlimited | A whole number from 1 to 1000, or `unlimited` (or `0`). Adding a member, or adding back a removed one, is refused at the limit, and Settings shows no form to try. A household already over the limit, because its plan changed under it, keeps everyone and can only not add. |
+| `BACKUP_RETENTION_DAYS` | 14 newest | 30 | 90 | 365 | Days, 1 to 3650, or `unlimited`. Every backup from the last two days is kept, then the newest of each IST day back to the limit. The newest backup is never removed, however old. Unset on selfhost, the newest 14 backups are kept whatever their age (3.5 days at the six-hourly cadence). |
+
+### Modules
+
+| Variable | selfhost | solo | household | power | What switching it off removes |
+|---|---|---|---|---|---|
+| `FEATURE_LOANS` | on | off | on | on | `/loans`, the prepayment calculator, converting a card purchase to EMI, loan interest on Reports, the MCP `loans` and `loan_schedule` tools. |
+| `FEATURE_FAMILY_LOANS` | on | off | on | on | `/family`, lending within the family. |
+| `FEATURE_ASSETS` | on | off | on | on | `/portfolio` (CAS and SafeGold imports, valuations, allocation), `/net-worth`, `/fire`, the net-worth tile on Overview, price refreshes (no outbound calls at all), and the MCP `portfolio`, `realised_gains`, `net_worth` and `financial_independence` tools. |
+| `FEATURE_DEPOSITS` | on | on | on | on | Deposit terms on accounts (`/accounts/:id/deposit`), maturities on Overview. A deposit is then worth its balance. |
+| `FEATURE_INSURANCE` | on | on | on | on | `/insurance`, renewals on Overview, the 80C/80D suggestion on Tax, the MCP `insurance` tool. |
+| `FEATURE_GOALS` | on | on | on | on | `/goals`, the MCP `goals` tool. |
+| `FEATURE_TAX` | on | on | on | on | `/tax`, the MCP `tax_estimate` tool. |
+| `FEATURE_REPORTS` | on | on | on | on | `/reports`, `/query` and `/query.csv`. Search stays, at `/search`, without the CSV. |
+| `FEATURE_SCHEDULES` | on | on | on | on | `/schedules`, "Will you make it?" and schedules due on Overview, the MCP `cashflow` tool. |
+| `FEATURE_RULES` | on | on | on | on | `/rules` and the rule suggestions on Review. Rules already saved still categorise imports. |
+| `FEATURE_ATTACHMENTS` | on | on | on | on | Receipts on a transaction. |
+| `FEATURE_IMPORT_CSV` | on | on | on | on | Bank CSV import. |
+| `FEATURE_IMPORT_PDF` | on | on | on | on | Statement PDF upload. |
+| `FEATURE_IMPORT_BUDGET_APP` | on | on | on | on | YNAB and Actual Budget exports. `/import` itself goes only when all three import flags are off. |
+| `FEATURE_GMAIL` | on | off | off | off | Connecting a mailbox, and the card-digit prompts that come from it. The hosted plans never ask for mailbox access (privacy.html). |
+| `FEATURE_API_TOKENS` | on | off | on | on | `/tokens`. A token minted earlier gets 403 everywhere except `/mcp`, and works again when the flag comes back on. |
+| `FEATURE_AI` | on | off | on | on | AI connections: `/mcp`, signing in from an AI app (`/oauth/*`, the `.well-known` metadata), Connect an AI (`/tokens/ai`) and `/export/analysis.json`. Existing connections stop answering. `/export.json` stays. |
+| `FEATURE_MULTI_CURRENCY` | off | off | off | off | Q18 settled on ₹-only accounts. |
+
+A module that is off **disappears**, as F28.2 requires. Its pages answer 404,
+and nothing on any page links to them: the nav, the More page, the command
+palette, dashboards and forms are all covered. Its data stays in the database,
+untouched, and comes back when the flag does. The budget, accounts, cards,
+transactions, Review, month close, reconciliation, search, the export, Health
+and Settings are never gated.
+
+Every combination is tested by walking the whole app with a simulated
+three-year household that used every module (`src/web/plan-*.test.ts`). The
+walks cover each preset, every module on, every module off, each flag off on
+its own, and a pairwise covering array, so every pair of flags is walked in all
+four on/off states. A walk fails on any 500, any page of a module that is off
+answering anything but 404, any link or form pointing at a page that is off,
+and any MCP tool listed for a module that is off.
 
 ## Backups, and being able to restore
 

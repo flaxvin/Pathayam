@@ -14,6 +14,8 @@ import type { Cashflow } from "../../domain/schedules.ts";
 import type { Snapshot } from "../../domain/networth.ts";
 import type { Insight } from "../../domain/insights.ts";
 import { lineChart } from "../charts.ts";
+import { offers } from "../offers.ts";
+import type { Features } from "../../features.ts";
 
 export function renderOverview(opts: {
   month: MonthKey;
@@ -32,7 +34,10 @@ export function renderOverview(opts: {
   dueSoon: { id: string; name: string; amount: Paise; nextDue: IsoDate; policy?: boolean }[];
   /** DEPOSITS · Deposits maturing inside the same two weeks. Nothing to mark paid. */
   maturing?: { accountId: string; name: string; amount: Paise; date: IsoDate }[];
+  /** PLAN-1 · Omitted is everything on. */
+  features?: Features;
 }): SafeHtml {
+  const f = opts.features;
   const chrono = [...opts.netWorthHistory].sort((a, b) => a.as_of.localeCompare(b.as_of));
   const distinctMonths = new Set(chrono.map((h) => h.as_of.slice(0, 7))).size;
 
@@ -50,20 +55,22 @@ export function renderOverview(opts: {
         <a class="faint" href="/">Open the budget →</a>
       </section>
 
-      <!-- Net worth -->
-      <section class="card overview-tile">
-        <div class="overview-label">Net worth</div>
-        <div class="overview-figure ${opts.netWorth < 0 ? "amount-negative" : ""}">
-          ${formatPaise(opts.netWorth)}
-        </div>
-        <a class="faint" href="/net-worth">Net-worth statement →</a>
-      </section>
+      <!-- Net worth: PLAN-1 · not a tile at all without the module, rather than ₹0 -->
+      ${when(offers(f, "/net-worth"), () => html`
+        <section class="card overview-tile">
+          <div class="overview-label">Net worth</div>
+          <div class="overview-figure ${opts.netWorth < 0 ? "amount-negative" : ""}">
+            ${formatPaise(opts.netWorth)}
+          </div>
+          <a class="faint" href="/net-worth">Net-worth statement →</a>
+        </section>
+      `)}
 
       <!-- This month's spend -->
       <section class="card overview-tile">
         <div class="overview-label">Spent this month</div>
         <div class="overview-figure">${formatPaise(opts.monthSpend)}</div>
-        <a class="faint" href="/reports">Reports →</a>
+        ${when(offers(f, "/reports"), () => html`<a class="faint" href="/reports">Reports →</a>`)}
       </section>
 
       <!-- #12 · Months of runway -->
@@ -76,7 +83,8 @@ export function renderOverview(opts: {
       `)}
     </div>
 
-    <!-- Will you make it? -->
+    <!-- Will you make it? PLAN-1 · The projection is made of schedules; without them it is a flat line. -->
+    ${when(offers(f, "/schedules"), () => html`
     <section class="card">
       <div class="row-between">
         <h2>Will you make it?</h2>
@@ -96,13 +104,14 @@ export function renderOverview(opts: {
         }],
       }))}
     </section>
+    `)}
 
     <div class="overview-grid-2">
       <!-- #13 · Bills due soon, each with a one-tap mark-paid -->
       <section class="card">
         <div class="row-between">
           <h2>Due soon</h2>
-          <a class="button button-small" href="/schedules">All schedules</a>
+          ${when(offers(f, "/schedules"), () => html`<a class="button button-small" href="/schedules">All schedules</a>`)}
         </div>
         ${when((opts.maturing ?? []).length > 0, () => html`
           <ul class="overview-list">

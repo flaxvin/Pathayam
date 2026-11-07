@@ -163,6 +163,7 @@ function main(): void {
         backupDir: config.backupDir,
         webhookUrl: config.backupWebhookUrl,
         heartbeatUrl: config.heartbeatUrl,
+        retentionDays: config.limits.backupRetentionDays,
       })
         .then((result) => {
           log({

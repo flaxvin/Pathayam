@@ -66,13 +66,15 @@ export function renderConsent(opts: {
 }
 
 /** A request that cannot be answered at its redirect URI is answered here. */
-export function renderConsentProblem(message: string): SafeHtml {
+export function renderConsentProblem(message: string, opts: { apiTokens?: boolean } = {}): SafeHtml {
   return html`
     <div style="max-width:34rem;margin:2rem auto">
       <h1>That app could not be connected</h1>
       <section class="card">
         <p>${message}</p>
-        <p><a href="/tokens">Settings → API tokens</a> lists the apps already connected.</p>
+        <p>${opts.apiTokens === false
+          ? html`<a href="/tokens/ai">Connect an AI</a>`
+          : html`<a href="/tokens">Settings → API tokens</a>`} lists the apps already connected.</p>
       </section>
     </div>
   `;

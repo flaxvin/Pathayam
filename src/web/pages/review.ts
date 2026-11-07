@@ -735,6 +735,12 @@ export function renderImport(opts: {
   profiles: { id: string; name: string; last_used_at: string | null }[];
   /** F28.2: the pointer disappears with the module rather than 404ing. */
   casEnabled: boolean;
+  /**
+   * PLAN-1 · Which of the three ways in this deployment offers. Omitted is all
+   * of them. The paste box takes both a bank CSV and a YNAB or Actual export,
+   * so it shows when either is on and says only what it will take.
+   */
+  ways?: { csv: boolean; pdf: boolean; budgetApp: boolean };
   /** `04` §3.3 · What each bank puts on its statement password. */
   banks: { id: string; name: string; passwordHint: string }[];
   error?: string | null;
@@ -752,8 +758,10 @@ export function renderImport(opts: {
     errors: { rowNumber: number; cells: string[]; reason: string }[];
   } | null;
 }): SafeHtml {
+  const ways = opts.ways ?? { csv: true, pdf: true, budgetApp: true };
   return html`
     <h1>Import a statement</h1>
+    ${when(ways.pdf, () => html`
     <section class="card">
       <h2>A statement PDF</h2>
       <p class="faint" style="margin-top:-.25rem">
@@ -804,8 +812,9 @@ export function renderImport(opts: {
         <button class="button-primary" type="submit">Read it</button>
       </form>
     </section>
+    `)}
 
-    ${when(opts.casEnabled, () => html`
+    ${when(opts.casEnabled && ways.csv, () => html`
       <p class="muted">
         This page reads bank and card statements as CSV. A
         <a href="/portfolio/cas">CDSL CAS</a> — the monthly one covering your
@@ -814,6 +823,7 @@ export function renderImport(opts: {
     `)}
     ${when(opts.error, () => html`<p class="notice notice-error">${opts.error}</p>`)}
 
+    ${when(ways.csv || ways.budgetApp, () => html`
     <form method="post" action="/import" class="card" enctype="multipart/form-data">
       <div class="field">
         <label for="account_id">Which account is this statement for?</label>
@@ -823,14 +833,16 @@ export function renderImport(opts: {
       </div>
 
       <div class="field">
-        <label for="csv">Paste the CSV</label>
+        <label for="csv">${ways.csv ? "Paste the CSV" : "Paste the YNAB or Actual Budget export"}</label>
         <textarea id="csv" name="csv" rows="8"
                   placeholder="Date,Narration,Withdrawal Amt.,Deposit Amt.&#10;01-08-2026,SALARY,,145000.00"></textarea>
+        ${when(ways.csv, () => html`
         <p class="field-hint">
           The columns are worked out from the header row, wherever it happens to be.
           Separate debit and credit columns, a single signed column, Indian grouping and
           Cr/Dr suffixes are all understood.
         </p>
+        `)}
         <label for="csv_file" style="margin-top:.6rem">Or choose the file</label>
         <input id="csv_file" name="csv_file" type="file"
                accept=".csv,.txt,.tsv,text/csv,text/plain,text/tab-separated-values">
@@ -838,12 +850,14 @@ export function renderImport(opts: {
           A chosen file is used instead of anything pasted. UTF-8 and Excel's
           UTF-16 “Unicode text” both read.
         </p>
+        ${when(ways.budgetApp, () => html`
         <p class="field-hint">
           Moving from YNAB or Actual Budget? Paste its transaction export here.
           It is recognised by its columns, and the next step asks which of your
           accounts each of its accounts is. Transactions only — budget
           assignments are not imported.
         </p>
+        `)}
       </div>
 
       <div class="field">
@@ -856,6 +870,7 @@ export function renderImport(opts: {
         Nothing goes into your ledger yet — every row lands in Review first.
       </p>
     </form>
+    `)}
 
     ${when(opts.profiles.length > 0, () => html`
       <section class="card">

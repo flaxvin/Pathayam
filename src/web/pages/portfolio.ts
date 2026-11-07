@@ -8,6 +8,8 @@
  * Deliberately absent from the budget screen. FW3 forbids it there.
  */
 
+import { offers } from "../offers.ts";
+import type { Features } from "../../features.ts";
 import { html, raw, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, formatCompact, type Paise } from "../../core/money.ts";
 import { formatDate, type IsoDate } from "../../core/dates.ts";
@@ -248,6 +250,8 @@ export function renderHolderFields(
 }
 
 export function renderNewAssetForm(opts: {
+  /** PLAN-1 · Omitted is everything on. */
+  features?: Features;
   today: IsoDate;
   members?: { id: string; name: string }[];
   /** Budget accounts the money could have come from, if it was bought now. */
@@ -288,9 +292,9 @@ export function renderNewAssetForm(opts: {
             deposit</strong> is not one of these: add it from
             <a href="/accounts">Accounts</a> as a tracking account, so interest
             credited to it is a transaction like any other and its balance stays
-            the truth. A debt with a rate and an EMI is a
-            <a href="/loans">loan</a>, and money between you and somebody you
-            know belongs in <a href="/family">lending</a>.
+            the truth.${when(offers(opts.features, "/loans"), () => html` A debt with a rate and an EMI is a
+            <a href="/loans">loan</a>.`)}${when(offers(opts.features, "/family"), () => html` Money between you and somebody you
+            know belongs in <a href="/family">lending</a>.`)}
           </p>
         </div>
         <div class="field">
@@ -687,6 +691,8 @@ export function renderMergerForm(opts: {
 }
 
 export function renderHoldingDetail(opts: {
+  /** PLAN-1 · Omitted is everything on. */
+  features?: Features;
   view: HoldingView;
   accountName: string;
   history: { asOf: IsoDate; price: number; source: string }[];
@@ -817,9 +823,9 @@ export function renderHoldingDetail(opts: {
       <h2>Lots</h2>
       <p class="faint" style="margin-top:-.25rem">
         Oldest first — the order a sale consumes them in. Holding periods are shown
-        so you can see what is long-term; this app classifies nothing. Capital
+        so you can see what is long-term; this app classifies nothing.${when(offers(opts.features, "/tax"), () => html` Capital
         gains are taxed at their own rates and the <a href="/tax">tax estimate</a>
-        deliberately leaves them out, so nothing here is carried into it.
+        deliberately leaves them out, so nothing here is carried into it.`)}
       </p>
       <div class="table-scroll">
         <table>
@@ -1027,6 +1033,8 @@ export function renderSalePreview(opts: {
 // ---------------------------------------------------------------------------
 
 export function renderNetWorth(opts: {
+  /** PLAN-1 · Omitted is everything on. */
+  features?: Features;
   /** H2.3 · Whose figures these are. */
   scope?: "household" | "mine" | "joint";
   members?: { id: string; name: string }[];
@@ -1107,12 +1115,12 @@ export function renderNetWorth(opts: {
         centerLabel: formatCompact(s.totalAssets),
         centerSub: "assets",
       }))}
-      ${s.assetGroups.map((g) => renderGroup(g))}
+      ${s.assetGroups.map((g) => renderGroup(g, opts))}
     </section>
 
     <section class="card">
       <h2>Liabilities <span class="amount">${formatPaise(s.totalLiabilities)}</span></h2>
-      ${s.liabilityGroups.map((g) => renderGroup(g))}
+      ${s.liabilityGroups.map((g) => renderGroup(g, opts))}
     </section>
 
     ${when(opts.history.length > 1, () => renderHistory(opts.history))}
@@ -1164,7 +1172,7 @@ function renderWaterfall(change: NetWorthChange): SafeHtml {
   `;
 }
 
-function renderGroup(group: NetWorthGroup): SafeHtml {
+function renderGroup(group: NetWorthGroup, opts: { features?: Features } = {}): SafeHtml {
   return html`
     <details ${raw(group.lines.length <= 6 ? "open" : "")}>
       <summary style="min-height:44px;display:flex;align-items:center;cursor:pointer;gap:.75rem">
@@ -1181,7 +1189,7 @@ function renderGroup(group: NetWorthGroup): SafeHtml {
                 and the rest did not, which left a fixed deposit or an "other
                 asset" as a number with no way back to its own screen.
               -->
-              ${line.href
+              ${line.href && offers(opts.features, line.href)
                 ? html`<a href="${line.href}">${line.label}</a>`
                 : html`${line.label}`}
               ${when(line.stale, () => html`<span class="chip chip-warning">stale</span>`)}

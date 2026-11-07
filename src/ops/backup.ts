@@ -230,6 +230,43 @@ export function pruneBackups(backupDir: string, keep = 14): number {
   return removed;
 }
 
+/**
+ * PLAN-1 · BACKUP_RETENTION_DAYS. The hosted plans promise a point in the past
+ * can be restored from up to 30, 90 or 365 days back. A backup is taken every
+ * six hours, so keeping all of them for a year is 1,460 copies of the
+ * database; instead every backup from the last two days is kept, then the
+ * newest of each day (IST) back to the limit. The newest backup is never
+ * removed, however old — a box that has been down a month still has one.
+ */
+export function pruneBackupsByAge(backupDir: string, retentionDays: number, now = new Date()): number {
+  const backups = listBackups(backupDir); // newest first
+  const DAY = 24 * 60 * 60 * 1000;
+  const recent = now.getTime() - 2 * DAY;
+  const oldest = now.getTime() - retentionDays * DAY;
+  const istDay = (d: Date) => new Date(d.getTime() + 5.5 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const daysKept = new Set<string>();
+  let removed = 0;
+  backups.forEach((backup, i) => {
+    const t = backup.mtime.getTime();
+    let keep: boolean;
+    if (i === 0) keep = true;
+    else if (t < oldest) keep = false;
+    else if (t >= recent) keep = true;
+    else keep = !daysKept.has(istDay(backup.mtime));
+    if (keep) {
+      daysKept.add(istDay(backup.mtime));
+      return;
+    }
+    try {
+      unlinkSync(backup.path);
+      removed++;
+    } catch {
+      // A backup that cannot be removed is not a reason to fail the job.
+    }
+  });
+  return removed;
+}
+
 export interface VerificationResult {
   ok: boolean;
   at: string;
@@ -477,6 +514,8 @@ export async function runBackupJob(
     /** R40.8: external monitor pinged on success. */
     heartbeatUrl?: string | null;
     keep?: number;
+    /** PLAN-1 · When set, prune by age instead of by count. */
+    retentionDays?: number | null;
     fetchImpl?: typeof fetch;
   },
 ): Promise<VerificationResult> {
@@ -515,7 +554,8 @@ export async function runBackupJob(
     await reportFailure(opts.webhookUrl, verification, opts.fetchImpl);
   }
 
-  pruneBackups(opts.backupDir, opts.keep);
+  if (opts.retentionDays) pruneBackupsByAge(opts.backupDir, opts.retentionDays);
+  else pruneBackups(opts.backupDir, opts.keep);
   return verification;
 }
 

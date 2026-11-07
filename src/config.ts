@@ -9,6 +9,10 @@
 import { existsSync } from "node:fs";
 import { resolve, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  FEATURE_ENV, FEATURE_NAMES, PLANS, PLAN_PRESETS,
+  type Features, type Limits, type Plan,
+} from "./features.ts";
 
 export interface Config {
   port: number;
@@ -48,13 +52,16 @@ export interface Config {
    */
   demoMode: boolean;
   sessionDays: number;
-  /** F28: modules disableable per deployment. */
   /**
-   * AI-7 · `ai` is the MCP endpoint, signing in from an AI app and Connect an
-   * AI. Optional so a test's partial config means on, as the env default does;
-   * a hosted Solo instance sets FEATURE_AI=false.
+   * PLAN-1 · The preset this deployment was configured from. Informational:
+   * `features` and `limits` are what is enforced, each already overridden by
+   * any variable set on its own.
    */
-  features: { loans: boolean; assets: boolean; multiCurrency: boolean; ai?: boolean };
+  plan: Plan;
+  /** F28 · PLAN-1: modules disableable per deployment (see features.ts). */
+  features: Features;
+  /** PLAN-1 · Member count and backup retention. */
+  limits: Limits;
   /** R40.4: where a failed backup or restore verification reports to. */
   backupWebhookUrl: string | null;
   /**
@@ -133,6 +140,60 @@ function logLevel(value: string | undefined, environment: Config["environment"])
   throw new InvalidConfiguration(`LOG_LEVEL is '${value}'; use one of ${LOG_LEVELS.join(", ")}.`);
 }
 
+/*
+ * PLAN-1 · A flag read as a boolean the way the rest of this file reads them,
+ * except that a value it does not recognise stops the process. FEATURE_LOANS=
+ * "flase" silently turning a paid module off — or "of" leaving one on that a
+ * plan excludes — is the kind of mistake nobody finds from a log line.
+ */
+const TRUE_WORDS = ["1", "true", "yes", "on"];
+const FALSE_WORDS = ["0", "false", "no", "off"];
+function strictBool(name: string, value: string | undefined, fallback: boolean): boolean {
+  if (value === undefined || value.trim() === "") return fallback;
+  const v = value.trim().toLowerCase();
+  if (TRUE_WORDS.includes(v)) return true;
+  if (FALSE_WORDS.includes(v)) return false;
+  throw new InvalidConfiguration(`${name} is '${value}'; use true or false.`);
+}
+
+/** A whole-number limit, where "unlimited" (or 0) lifts it. */
+function limit(
+  name: string, value: string | undefined, fallback: number | null, max: number, unit: string,
+): number | null {
+  if (value === undefined || value.trim() === "") return fallback;
+  const v = value.trim().toLowerCase();
+  if (v === "unlimited" || v === "0") return null;
+  const n = Number(v);
+  if (Number.isInteger(n) && n >= 1 && n <= max) return n;
+  throw new InvalidConfiguration(
+    `${name} is '${value}'; use a whole number of ${unit} from 1 to ${max}, or 'unlimited'.`,
+  );
+}
+
+function planSettings(env: NodeJS.ProcessEnv): Pick<Config, "plan" | "features" | "limits"> {
+  const raw = (env.PLAN ?? "").trim().toLowerCase();
+  if (raw !== "" && !(PLANS as readonly string[]).includes(raw)) {
+    throw new InvalidConfiguration(`PLAN is '${env.PLAN}'; use one of ${PLANS.join(", ")}.`);
+  }
+  const plan = (raw || "selfhost") as Plan;
+  const preset = PLAN_PRESETS[plan];
+  const features = Object.fromEntries(
+    FEATURE_NAMES.map((name) => [
+      name, strictBool(FEATURE_ENV[name], env[FEATURE_ENV[name]], preset.features[name]),
+    ]),
+  ) as Features;
+  return {
+    plan,
+    features,
+    limits: {
+      maxMembers: limit("MAX_MEMBERS", env.MAX_MEMBERS, preset.limits.maxMembers, 1000, "members"),
+      backupRetentionDays: limit(
+        "BACKUP_RETENTION_DAYS", env.BACKUP_RETENTION_DAYS, preset.limits.backupRetentionDays, 3650, "days",
+      ),
+    },
+  };
+}
+
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
   const environment = env.NODE_ENV === "production" ? "production" : "development";
   const dataDir = resolve(env.DATA_DIR ?? "./data");
@@ -165,12 +226,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     adminDebug: bool(env.ADMIN_DEBUG, false),
     sessionDays: sessionDays(env.SESSION_DAYS), // Q22
     alphaVantageKey: env.ALPHA_VANTAGE_KEY || null,
-    features: {
-      loans: bool(env.FEATURE_LOANS, true),
-      assets: bool(env.FEATURE_ASSETS, true),
-      multiCurrency: bool(env.FEATURE_MULTI_CURRENCY, false), // Q18: ₹ only
-      ai: bool(env.FEATURE_AI, true),
-    },
+    ...planSettings(env),
     backupWebhookUrl: env.BACKUP_WEBHOOK_URL || null,
     heartbeatUrl: env.HEARTBEAT_URL || null,
     trustProxy: bool(env.TRUST_PROXY, false),

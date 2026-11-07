@@ -570,7 +570,7 @@
           <tr><td>AI connections</td><td>Read-only by construction, reading as the member who approved them, masked by default and logged question by question. Disconnect one and its token stops working. <a href="#ai">How it works</a>.</td></tr>
           <tr><td>Universal undo</td><td>Thirty days, from an append-only log. The undo is itself an entry — nothing is edited or deleted.</td></tr>
           <tr><td>Verified restore</td><td>A scheduled job restores the latest backup into a scratch database and compares control totals. Failure fires a webhook.</td></tr>
-          <tr><td>Feature flags</td><td>Loans, assets and multi-currency each disableable. A disabled module vanishes from navigation and reports.</td></tr>
+          <tr><td>Modules you can switch off</td><td>Eighteen of them, one environment variable each &mdash; loans, investments and net worth, insurance, goals, tax, reports, schedules, rules, receipts, each import path, Gmail, API tokens, AI connections and more. A module that is off disappears from every screen and keeps its data. <a href="#plans">What each plan includes</a>.</td></tr>
           <tr><td>Goals</td><td>Long-horizon savings with their own envelopes, a target amount and an optional date, shown as progress against both.</td></tr>
           <tr><td>Schedules</td><td>Recurring bills and income, with a sixty-day cashflow calendar showing what lands when and where the balance dips.</td></tr>
           <tr><td>Month close</td><td>A monthly ritual that records income, spending and what was assigned, takes a net-worth snapshot, prints, and can be reopened.</td></tr>
@@ -582,6 +582,33 @@
           <tr><td>Privacy</td><td>Private accounts, envelopes and loans stay out of other members&rsquo; lists, reports, exports, activity log and totals. Three automated checks hold it.</td></tr>
           <tr><td>Themes</td><td>Light, dark or follow the system, applied in the first response so the wrong one never flashes.</td></tr>
           <tr><td>Installable</td><td>Add it to a phone&rsquo;s home screen or a desktop dock. It needs the server for everything but the Add form: with no signal, an entry is kept on the device and sent when the connection is back, with a count on every page and a Send now button. The entry sits unencrypted on the device until it is sent, and signing out clears it. Nothing else works offline.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+  </section>
+
+  <section class="sec" id="plans">
+    <div class="wrap">
+      <div class="center" style="margin-bottom:2rem">
+        <h2 class="h-sec">What each plan includes</h2>
+        <p class="lede">Self-hosting gets everything. The hosted plans differ in who it is for and what it keeps, not in how the budget works.</p>
+        <p class="guide-link" style="justify-content:center"><span>Guide</span><a href="guides.html#plans">Plans and modules</a> · <a href="pricing.html">Pricing</a></p>
+      </div>
+      <div class="table-scroll">
+        <table>
+          <thead><tr><th></th><th>Self-host</th><th>Solo</th><th>Household</th><th>Power</th></tr></thead>
+          <tbody>
+          <tr><td>Members</td><td>Unlimited</td><td>1</td><td>Up to 5</td><td>Unlimited</td></tr>
+          <tr><td>Budget engine, cards, rollover, month close</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+          <tr><td>Statement import: CSV, PDF, YNAB and Actual</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+          <tr><td>Insurance, goals, tax, reports, schedules, rules, receipts</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
+          <tr><td>Loans and lending in the family</td><td>✓</td><td>&mdash;</td><td>✓</td><td>✓</td></tr>
+          <tr><td>Investments, net worth, financial independence</td><td>✓</td><td>&mdash;</td><td>✓</td><td>✓</td></tr>
+          <tr><td>API tokens</td><td>✓</td><td>&mdash;</td><td>✓</td><td>✓</td></tr>
+          <tr><td>Connect an AI</td><td>✓</td><td>&mdash;</td><td>✓</td><td>✓</td></tr>
+          <tr><td>Gmail ingestion</td><td>✓</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td></tr>
+          <tr><td>Backups you can restore from</td><td>Yours to keep</td><td>30 days</td><td>90 days</td><td>1 year</td></tr>
           </tbody>
         </table>
       </div>

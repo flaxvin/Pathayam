@@ -8,7 +8,9 @@
  * that gets trusted past them.
  */
 
-import { html, type SafeHtml } from "../../http/html.ts";
+import { offers } from "../offers.ts";
+import type { Features } from "../../features.ts";
+import { html, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, type Paise } from "../../core/money.ts";
 import { formatFiscalYear, formatDate } from "../../core/dates.ts";
 import type {
@@ -21,6 +23,8 @@ import type { PolicyTaxSuggestion } from "../../domain/insurance.ts";
 import { renderPolicySuggestion } from "./insurance.ts";
 
 export interface TaxPageProps {
+  /** PLAN-1 · Omitted is everything on. */
+  features?: Features;
   fy: number;
   gross: Paise;
   /** What the ledger has, before the person overrode it. */
@@ -383,8 +387,8 @@ export function renderTax(p: TaxPageProps): SafeHtml {
                         <li>${r.instrument} — ${formatPaise(r.gain)}: ${r.reason}</li>
                       `)}
                     </ul>
-                    Setting the asset class on the
-                    <a href="/portfolio">portfolio</a> resolves most of these.
+                    ${when(offers(p.features, "/portfolio"), () => html`Setting the asset class on the
+                    <a href="/portfolio">portfolio</a> resolves most of these.`)}
                   </div>
                 `
               : html``}
@@ -505,7 +509,7 @@ function homeLoanFields(p: TaxPageProps): SafeHtml {
               <tbody>
                 ${h.lines.map((x) => html`
                   <tr>
-                    <td><a href="/loans/${x.loanId}">${x.name}</a></td>
+                    <td>${offers(p.features, "/loans") ? html`<a href="/loans/${x.loanId}">${x.name}</a>` : x.name}</td>
                     <td>${x.use === "self-occupied" ? "lived in" : "let out"}</td>
                     <td class="amount">
                       ${formatPaise(x.accrued)}

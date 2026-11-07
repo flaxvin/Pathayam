@@ -11,13 +11,21 @@ import { html, raw, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, type Paise } from "../../core/money.ts";
 import { formatDate, type IsoDate } from "../../core/dates.ts";
 import type { Rule, RuleStage, RuleSubject } from "../../import/rules.ts";
+import { pathAvailable, type Features } from "../../features.ts";
 
 // ---------------------------------------------------------------------------
 // S5 · The More hub
 // ---------------------------------------------------------------------------
 
-export function renderMore(features: { loans: boolean; assets: boolean; ai?: boolean }): SafeHtml {
-  const group = (title: string, items: [string, string, string][]) => html`
+export function renderMore(features: Features): SafeHtml {
+  /*
+   * PLAN-1 · An entry whose page this deployment does not serve is left out,
+   * and a group left with nothing is not drawn: a heading over an empty card
+   * is a module that has been switched off announcing itself.
+   */
+  const group = (title: string, all: [string, string, string][]) => {
+    const items = all.filter(([href]) => pathAvailable(href, features));
+    return items.length === 0 ? raw("") : html`
     <section class="card">
       <h2>${title}</h2>
       ${items.map(
@@ -30,6 +38,7 @@ export function renderMore(features: { loans: boolean; assets: boolean; ai?: boo
       )}
     </section>
   `;
+  };
 
   /*
    * B116 · This is the sidebar, for a phone.
@@ -56,24 +65,23 @@ export function renderMore(features: { loans: boolean; assets: boolean; ai?: boo
       ["/query", "Query", "One table, filtered and grouped however you like"],
       ["/schedules", "Schedules & cashflow", "Will you make it to the 30th?"],
       ["/goals", "Goals", "Long-horizon savings, kept off the monthly grid"],
+      ["/insurance", "Insurance", "Every policy, and which renewal is due next"],
+      ["/tax", "Tax", "This year's estimate, under both regimes"],
     ])}
 
-    ${when(features.loans, () =>
-      group("Debt", [
-        ["/loans", "Loans", "What each one really costs, and what prepaying buys"],
-        ["/loans/what-if", "Prepayment calculator", "Model it before committing a rupee"],
-        ["/family", "Lending in the family", "Lent and borrowed, without interest maths"],
-      ]),
-    )}
+    ${group("Debt", [
+      ["/loans", "Loans", "What each one really costs, and what prepaying buys"],
+      ["/loans/what-if", "Prepayment calculator", "Model it before committing a rupee"],
+      ["/family", "Lending in the family", "Lent and borrowed, without interest maths"],
+    ])}
 
-    ${when(features.assets, () =>
-      group("Invested", [
-        ["/portfolio", "Portfolio", "Holdings as units, with XIRR and what they cost"],
-        ["/portfolio/allocation", "Allocation", "By class, geography and currency"],
-        ["/portfolio/valuations", "Valuations", "Every hand-valued pot, updated in one sitting"],
-        ["/net-worth", "Net worth", "Everything owned against everything owed"],
-      ]),
-    )}
+    ${group("Invested", [
+      ["/portfolio", "Portfolio", "Holdings as units, with XIRR and what they cost"],
+      ["/portfolio/allocation", "Allocation", "By class, geography and currency"],
+      ["/portfolio/valuations", "Valuations", "Every hand-valued pot, updated in one sitting"],
+      ["/net-worth", "Net worth", "Everything owned against everything owed"],
+      ["/fire", "Independence", "How far invested savings are from covering spending"],
+    ])}
 
     ${group("Manage", [
       ["/payees", "Payees", "Merge duplicates; every raw string is kept"],
@@ -83,9 +91,7 @@ export function renderMore(features: { loans: boolean; assets: boolean; ai?: boo
       ["/activity", "Activity", "Every change, and the undo for it"],
       ["/health", "Health", "The page you open at 2am"],
       ["/settings", "Settings", "Household, appearance, devices"],
-      ...(features.ai !== false
-        ? [["/tokens/ai", "Connect an AI", "Ask Claude, ChatGPT or Gemini about your budget, read-only"] as [string, string, string]]
-        : []),
+      ["/tokens/ai", "Connect an AI", "Ask Claude, ChatGPT or Gemini about your budget, read-only"],
       ["/tokens", "API tokens", "For your own scripts, scoped and revocable"],
     ])}
 

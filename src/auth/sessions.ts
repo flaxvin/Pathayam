@@ -80,8 +80,26 @@ export function memberCount(db: DB): number {
 /** F1.2: any existing member may edit the allow-list. All members are peers (P5). */
 export function inviteMember(
   db: DB, actor: Actor, input: { email: string; name?: string },
+  /** PLAN-1 · MAX_MEMBERS. Null, or absent, is no limit. */
+  opts: { maxMembers?: number | null } = {},
 ): Member {
   return transact(db, () => {
+    /*
+     * Adding somebody new, or adding back somebody removed, both make one more
+     * member who can sign in, so both count. Asking for a member already in is
+     * not an addition and is answered as before. A household already over the
+     * limit (a plan changed under it) keeps everyone; it just cannot add.
+     */
+    const atLimit = (): void => {
+      const max = opts.maxMembers ?? null;
+      if (max !== null && memberCount(db) >= max) {
+        throw new Refusal(
+          max === 1
+            ? "This instance is for one person, so nobody else can be added."
+            : `This instance allows ${max} members, and the household has ${memberCount(db)}. Remove somebody first.`,
+        );
+      }
+    };
     const email = input.email.trim().toLowerCase();
     // Somebody has to be able to sign in with it: "   " and "priya" became
     // members with an address no sign-in could ever match.
@@ -91,6 +109,7 @@ export function inviteMember(
     const existing = findMemberByEmail(db, email);
     if (existing) {
       if (existing.removed_at) {
+        atLimit();
         execute(db, `UPDATE members SET removed_at = NULL, allowed = 1 WHERE id = ?`, existing.id);
         appendEvent(db, actor, {
           entity: "member", entityId: existing.id, action: "reinstate", before: existing,
@@ -102,6 +121,7 @@ export function inviteMember(
       return existing;
     }
 
+    atLimit();
     const id = newId();
     execute(
       db,
