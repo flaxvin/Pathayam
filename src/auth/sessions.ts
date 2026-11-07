@@ -136,6 +136,15 @@ export function removeMember(db: DB, actor: Actor, id: string): void {
      */
     execute(db, `UPDATE api_tokens SET revoked_at = ? WHERE member_id = ? AND revoked_at IS NULL`, nowIST(), id);
     /*
+     * OAUTH · And the AI apps they connected: an access token is one of the
+     * rows above, but the connection's refresh token would have minted a new
+     * one an hour later, and that must not come back with a reinstatement.
+     */
+    execute(db, `UPDATE oauth_refresh_tokens SET revoked_at = ?
+                  WHERE revoked_at IS NULL
+                    AND grant_id IN (SELECT id FROM oauth_grants WHERE member_id = ?)`, nowIST(), id);
+    execute(db, `UPDATE oauth_grants SET revoked_at = ? WHERE member_id = ? AND revoked_at IS NULL`, nowIST(), id);
+    /*
      * And their password, for the same reason. Sign-in already refused it
      * while they were removed, but only by reading the allow-list — so adding
      * the address back reopened the old password, known to whoever learned it
