@@ -53,3 +53,34 @@ export const TWO_ROWS = [
   "20 Oct 2026     Gold Sold                                       0.2000 g          1.5000 g",
   "04:30 PM        Rate ₹10,500.00/g  Amount ₹2,100.00",
 ];
+
+/**
+ * The statement as a one-page, unencrypted PDF, one text run per line, so a
+ * test goes through the real chain: extract → recognise → parse. Helvetica
+ * has no rupee sign, so "₹" is written "Rs.".
+ */
+export function safeGoldPdf(text: string): Uint8Array {
+  const lines = text.split("\n");
+  const escape = (s: string) => s.replace(/₹/g, "Rs.").replace(/[\\()]/g, (c) => `\\${c}`);
+  const content = lines
+    .map((line, i) => `BT /F1 8 Tf 1 0 0 1 20 ${820 - i * 11} Tm (${escape(line)}) Tj ET`)
+    .join("\n");
+  const objects = [
+    "<< /Type /Catalog /Pages 2 0 R >>",
+    "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+    "<< /Type /Page /Parent 2 0 R /MediaBox [0 0 595 842] /Resources << /Font << /F1 5 0 R >> >> /Contents 4 0 R >>",
+    `<< /Length ${content.length} >>\nstream\n${content}\nendstream`,
+    "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica /Encoding /WinAnsiEncoding >>",
+  ];
+  let body = "%PDF-1.4\n";
+  const offsets: number[] = [];
+  objects.forEach((o, i) => {
+    offsets.push(body.length);
+    body += `${i + 1} 0 obj\n${o}\nendobj\n`;
+  });
+  const xref = body.length;
+  body += `xref\n0 ${objects.length + 1}\n0000000000 65535 f \n`;
+  for (const at of offsets) body += `${String(at).padStart(10, "0")} 00000 n \n`;
+  body += `trailer << /Size ${objects.length + 1} /Root 1 0 R >>\nstartxref\n${xref}\n%%EOF\n`;
+  return new Uint8Array(Buffer.from(body, "latin1"));
+}

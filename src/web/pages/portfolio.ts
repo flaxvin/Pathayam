@@ -54,6 +54,7 @@ export function renderPortfolio(opts: {
         <p>
           <!-- Q17: the CAS is the primary route in, so it leads. -->
           <a class="button button-primary" href="/portfolio/cas">Import a CAS</a>
+          <a class="button" href="/portfolio/safegold">Import SafeGold</a>
           <a class="button" href="/portfolio/add">Add a holding by hand</a>
         </p>
       </div>
@@ -78,6 +79,7 @@ export function renderPortfolio(opts: {
         <a class="button" href="/portfolio/lots.csv">Lots CSV</a>
         <a class="button" href="/portfolio/prices.csv">Prices CSV</a>
         <a class="button" href="/portfolio/cas">Import a CAS</a>
+        <a class="button" href="/portfolio/safegold">Import SafeGold</a>
         <a class="button" href="/portfolio/asset/new">Add an asset</a>
         <a class="button button-primary" href="/portfolio/add">Add a holding</a>
       </div>
