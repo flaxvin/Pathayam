@@ -105,7 +105,16 @@ export function tokenMayReach(path: string): boolean {
   return !FORBIDDEN_SEGMENTS.some((p) => p.every((seg, i) => parts[i] === seg));
 }
 
+/*
+ * SHA-256, not scrypt, on purpose. What is hashed here is never a person's
+ * password: it is a token this server generated — 32 random bytes, for API
+ * tokens and OAuth codes and refresh tokens alike — so there is nothing to
+ * brute-force and a slow hash buys nothing. It must also be fast and
+ * deterministic, because a request is authenticated by looking the hash up.
+ * Code scanning reads the OAuth error paths as passwords; see docs/security.md.
+ */
 function hash(secret: string): string {
+  // codeql[js/insufficient-password-hash]
   return createHash("sha256").update(secret).digest("hex");
 }
 

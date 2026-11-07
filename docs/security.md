@@ -406,6 +406,11 @@ open the statement. The SHA-256 in Algorithm 2.B is additionally only the seed
 of a loop that runs at least sixty-four further rounds over sixty-four
 repetitions of the password; the scanner sees the first line of it.
 
+`src/auth/tokens.ts` is reported the same way: it hashes API tokens and OAuth
+codes and refresh tokens with SHA-256. Each of those is 32 random bytes the
+server generated, so there is no password to guess and a slow hash would only
+slow every request, which is authenticated by looking the hash up.
+
 Each site carries a `codeql[js/insufficient-password-hash]` comment and the
 reason. The alerts are dismissed as false positives rather than left open,
 because a security tab with three permanent known-good entries is a security tab
