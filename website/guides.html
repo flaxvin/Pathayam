@@ -624,7 +624,8 @@ and all three land in the same queue rather than posting themselves.</p>
 <h3>Statement PDFs</h3>
 <p>Drop the file on the Import screen. Twelve banks are recognised from their own
 layouts — HDFC, ICICI, Axis, SBI, Union, Canara, YES, IndusInd, Kotak, RBL, HSBC and Standard Chartered —
-plus broker contract notes.</p>
+plus broker contract notes. A SafeGold statement dropped here is recognised too, and
+goes to the SafeGold review instead (see <a href="#portfolio">Portfolio</a>).</p>
 <p>Most Indian statements are password-protected, and each bank has its own rule.
 The screen shows you that bank's hint. If you save your statement identity in
 Settings, the app derives the password itself and you never type one. A few banks
@@ -632,6 +633,12 @@ need something more than name, date of birth, PAN and mobile: Axis and HDFC acco
 statements use your customer ID, and HSBC the last six digits of the card, so those
 have their own boxes there. When a statement will not open because one of these is
 missing, the message says which detail and where to add it.</p>
+<p>Card statements locked with the card's own digits &mdash; SBI Card and Canara use
+the last four, HSBC the last six &mdash; ask for them right there when the card's
+account does not have them: the import form comes back with a box for the digits.
+Once the statement opens with them they are saved on the card's account, so the next
+one, uploaded or from Gmail, opens by itself. A card account keeps up to the last
+eight digits of its number.</p>
 <div class="note"><b>Every parse is verified</b> against the statement's own closing
 balance. If the two disagree the app says so rather than quietly importing something
 wrong. On a real 848-row statement it reconciles to the paisa.</div>
@@ -751,7 +758,10 @@ to live as a budget gets without a bank integration.</p>
 decrypted using your saved identity, parsed and queued — the whole chain, without you
 opening the mail. A statement it cannot open because your identity is missing a
 detail is named in the fetch's summary, with what it needs — an Axis or HDFC customer
-ID, a card's last four, an HSBC card's last six — so the fix is one box in Settings.</p>
+ID, a card's last four, an HSBC card's last six — so the fix is one box in Settings.
+For a card, the fetch goes further: each card left locked for want of its digits is
+listed in Settings with a box to enter them, and what you enter is saved on the
+card's account. A SafeGold statement in the mail is read and taken to its review.</p>
 <div class="note"><b>Add-on card alerts</b> arrive in the primary holder's inbox but
 greet the cardholder by name. The parser carries that name through so the transaction
 can be attributed to the right person rather than the account holder.</div>
@@ -1269,6 +1279,17 @@ real return figure possible at all.</p>
 <p>The monthly consolidated statement is the primary route: it already covers every
 fund folio and demat holding, and rows reconcile against lots you already have rather
 than duplicating them. Prices for funds and currencies refresh on their own.</p>
+<h3>Digital gold from SafeGold</h3>
+<p><strong>Import SafeGold</strong> on Portfolio reads SafeGold's monthly statement
+&mdash; also recognised when dropped on Import or fetched from Gmail &mdash; and shows
+every row it would record before anything is written. Each purchase becomes a lot at
+what it cost you, GST included; each sale realises a gain. The rows are checked
+against the statement's closing gold balance, and one that does not reach it is
+refused unless you accept the difference. Importing the same statement again adds
+nothing, and the whole import undoes as one action. Its password is the first four
+letters of your name in capitals and your mobile's last four, so with your statement
+identity saved it opens by itself. A statement for gold held through a partner bank
+says it has nothing to import.</p>
             <div class="shots ">
               <figure class="frame">
                 <picture>
@@ -1416,11 +1437,19 @@ number rather than a guess.</p>
 <p>It models the old regime's deductions &mdash; 80C, 80D, and the HRA exemption,
 which is the least of three figures and the one people most often get wrong
 (paying no rent exempts nothing, however much HRA was received). The new regime
-ignores all of them, which is exactly the trade the comparison is showing you.</p>
+ignores all of them, which is exactly the trade the comparison is showing you;
+employer NPS, below, is the one deduction both allow.</p>
 <p>If you keep an <a href="#insurance">insurance register</a>, the page offers what
 the premiums of your own policies come to for the year under 80C and 80D.
 <em>Use these figures</em> raises each box to the policies' figure, never lowers
 one, and saves nothing until you press Save.</p>
+<h3>Employer NPS, section 80CCD(2)</h3>
+<p>What your employer paid into your NPS account, from Form 16, lowers the estimate
+under <strong>both</strong> regimes &mdash; the one deduction the new regime keeps.
+It is allowed up to 14% of basic + DA under the new regime, and 10% under the old (14%
+for a central or state government employer, which you tick). Enter Basic + DA in the
+house rent allowance boxes even if you receive no HRA, since the cap is worked from
+it. Your own NPS contribution, 80CCD(1B), goes in other deductions.</p>
 <h3>Home loan interest, section 24(b)</h3>
 <p>On a home loan's page, say what the house is: <em>lived in by its owner</em> or
 <em>let out</em>. For a house you live in, the interest accrued in the financial
@@ -1678,6 +1707,9 @@ replaced, and reads the restored copy back before claiming success.</p>
   <li><strong>API tokens</strong> — scoped read or read-write, shown once, and unable
     to sign in, mint more tokens, set a password, sign devices out or link a mailbox.
     None can be minted while viewing as another member. See the API reference.</li>
+  <li><strong>Connect an AI</strong> &mdash; under API tokens: the address to give an
+    AI app, what is connected, what each connection has read, and Disconnect. See
+    <a href="#connect-ai">Connect Claude, ChatGPT or Gemini</a>.</li>
   <li><strong>Feature flags</strong> — turn off loans, assets or multi-currency
     entirely and they vanish from navigation and reports rather than sitting greyed
     out.</li>
