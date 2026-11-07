@@ -11,6 +11,7 @@
  */
 
 import type { DB } from "../db/db.ts";
+import type { FeatureName } from "../features.ts";
 import type { McpTool, JsonSchema } from "./mcp.ts";
 import {
   aiOverview, aiAccounts, aiTransactions, aiBudgetMonth, aiSpending, aiLoans, aiLoanSchedule,
@@ -37,6 +38,13 @@ export const MCP_INSTRUCTIONS =
   "and their own personal budget, never another member's private accounts. Start with overview; page transactions with " +
   "limit and next_cursor rather than asking for everything. Figures are the household's own records, not advice.";
 
+/** PLAN-1 · The module each tool reads, for the ones that belong to one. */
+export const TOOL_MODULES: Readonly<Record<string, FeatureName>> = {
+  loans: "loans", loan_schedule: "loans",
+  portfolio: "assets", realised_gains: "assets", net_worth: "assets", financial_independence: "assets",
+  tax_estimate: "tax", cashflow: "schedules", insurance: "insurance", goals: "goals",
+};
+
 export function buildTools(db: DB, viewerMemberId: string, opts: AnalysisOptions): McpTool[] {
   const tool = (
     name: string, title: string, description: string,
@@ -44,7 +52,19 @@ export function buildTools(db: DB, viewerMemberId: string, opts: AnalysisOptions
     run: (args: Record<string, unknown>) => unknown,
   ): McpTool => ({ name, title, description, inputSchema: schema, run });
 
-  return [
+  /*
+   * PLAN-1 · A tool over a module this server has switched off is not listed:
+   * an AI app that is offered `loans` will call it, and an answer of "switched
+   * off" to every question about debt is a worse conversation than never
+   * being offered it. The functions still answer `{ enabled: false }` if
+   * called by name, for a client holding a cached list.
+   */
+  const offered = (t: McpTool) => {
+    const module = TOOL_MODULES[t.name];
+    return !module || opts.features?.[module] !== false;
+  };
+
+  return ([
     tool("overview", "Household overview",
       "Start here. Ready to Assign, overspent envelopes, credit-card payments no envelope is funding, account totals by kind, net worth, and the next 14 days of cashflow.",
       { type: "object", additionalProperties: false, properties: { month: MONTH } },
@@ -155,5 +175,5 @@ export function buildTools(db: DB, viewerMemberId: string, opts: AnalysisOptions
       "One summary of the household's figures for broad questions: overview, accounts, a budget and spending summary per month, top payees, loans, portfolio, net worth, cashflow and the tax estimate. No transaction list. Large; prefer the narrower tools for a specific question.",
       { type: "object", additionalProperties: false, properties: { months: { type: "integer", minimum: 1, maximum: 36, description: "default 12" } } },
       (a) => aiSnapshot(db, viewerMemberId, a as { months?: number }, opts)),
-  ];
+  ] as McpTool[]).filter(offered);
 }

@@ -61,16 +61,25 @@ export interface QueryOptions {
   selectedAccounts: string[];
   selectedCategories: string[];
   title?: string;
+  /**
+   * PLAN-1 · Where the form posts back to. Search is core and Query belongs to
+   * the reports module, so with reports off, Search keeps its own address and
+   * offers no CSV (`/query.csv` is the module's).
+   */
+  base?: "/query" | "/search";
+  csv?: boolean;
 }
 
 export function renderQuery(opts: QueryOptions): SafeHtml {
+  const base = opts.base ?? "/query";
+  const csv = opts.csv ?? true;
   // B96 · Over everything the filter matched. `rows` is only what is rendered.
   const { net: total, outflow, inflow } = opts.totals;
 
   return html`
     <div class="row-between" style="margin-bottom:1rem">
       <h1>${opts.title ?? "Query"}</h1>
-      <a class="button button-small" href="/query.csv${filterQueryString(opts)}">Export CSV</a>
+      ${when(csv, () => html`<a class="button button-small" href="/query.csv${filterQueryString(opts)}">Export CSV</a>`)}
     </div>
 
     ${when((opts.budgets ?? []).length > 1, () => html`
@@ -85,14 +94,14 @@ export function renderQuery(opts: QueryOptions): SafeHtml {
         ${renderScopeSwitch({
           budgets: opts.budgets ?? [],
           current: opts.scope ?? "all",
-          href: (scope) => `/query${filterQueryString(opts, scope)}`,
+          href: (scope) => `${base}${filterQueryString(opts, scope)}`,
           everything: true,
           label: "Whose money",
         })}
       </div>
     `)}
 
-    <form method="get" action="/query" class="card">
+    <form method="get" action="${base}" class="card">
       <div class="grid-2">
         <div class="field">
           <label for="period">Period</label>
@@ -153,7 +162,7 @@ export function renderQuery(opts: QueryOptions): SafeHtml {
       </div>
 
       <button type="submit">Apply</button>
-      <a class="button button-quiet" href="/query">Clear</a>
+      <a class="button button-quiet" href="${base}">Clear</a>
     </form>
 
     <div class="card">
@@ -187,8 +196,9 @@ export function renderQuery(opts: QueryOptions): SafeHtml {
       ${when(opts.matched > QUERY_TABLE_ROWS, () => html`
         <p class="notice notice-info">
           The table below lists the ${QUERY_TABLE_ROWS} most recent of ${opts.matched}.
-          Every figure on this page counts all ${opts.matched} —
-          <a href="/query.csv${opts.csvQuery ?? ""}">export the CSV</a> for the rest.
+          Every figure on this page counts all ${opts.matched}${csv
+            ? html` — <a href="/query.csv${opts.csvQuery ?? ""}">export the CSV</a> for the rest`
+            : ""}.
         </p>
       `)}
     </div>
@@ -260,7 +270,7 @@ function renderGroupRow(group: GroupedTotal, opts: QueryOptions): SafeHtml {
     const params = new URLSearchParams(filterQueryString(opts).slice(1));
     params.set("category", group.key);
     params.delete("group_by");
-    return `/query?${params}`;
+    return `${opts.base ?? "/query"}?${params}`;
   })();
 
   return html`
@@ -310,6 +320,8 @@ function insightMark(kind: InsightKind): string {
 }
 
 export function renderReports(opts: {
+  /** PLAN-1 · Whether the tax estimate exists to be pointed at. Omitted is yes. */
+  tax?: boolean;
   insights: Insight[];
   trend: TrendPoint[];
   categorySpend: { label: string; value: Paise }[];
@@ -561,9 +573,9 @@ export function renderReports(opts: {
         <h2>Loan interest by financial year</h2>
         <p class="faint" style="margin-top:-.25rem">
           April to March, for your own records. This states what was paid and
-          nothing more. The <a href="/tax">tax estimate</a> is a separate screen,
+          nothing more.${opts.tax === false ? "" : html` The <a href="/tax">tax estimate</a> is a separate screen,
           it is an estimate rather than a computation of what you owe, and it
-          does not read this figure — enter it there yourself if you claim it.
+          does not read this figure — enter it there yourself if you claim it.`}
         </p>
         <div class="table-scroll">
           <table>

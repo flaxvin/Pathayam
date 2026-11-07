@@ -94,7 +94,8 @@ export const PLAN_PRESETS: Record<Plan, PlanPreset> = {
   },
   power: {
     features: { ...EVERYTHING, gmail: false },
-    limits: { maxMembers: 5, backupRetentionDays: 365 },
+    // Febin, 07-11-2026: Power has no member limit.
+    limits: { maxMembers: null, backupRetentionDays: 365 },
   },
 };
 
@@ -141,6 +142,8 @@ const RULES: Rule[] = [
   { test: under("rules"), available: (f) => f.rules },
   { test: under("attachment"), available: (f) => f.attachments },
   { test: under("transaction", ":id", "attach"), available: (f) => f.attachments },
+  // A card purchase converted to EMI becomes a loan with its own schedule.
+  { test: under("transaction", ":id", "convert-to-emi"), available: (f) => f.loans },
   { test: under("import", "pdf"), available: (f) => f.importPdf },
   { test: under("import", "budget-app"), available: (f) => f.importBudgetApp },
   // A PDF with no known layout goes to the same column-mapping step as a CSV.

@@ -1441,6 +1441,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    * else is a sentence, not a guess. The domain checks the rest.
    */
   function depositTermsField(body: Record<string, string | string[]>): DepositTermsInput | null {
+    // PLAN-1 · Without the module, terms sent anyway are not taken.
+    if (!config.features.deposits) return null;
     const kind = field(body, "deposit_kind")?.trim();
     if (!kind) return null;
     const rateRaw = (field(body, "deposit_rate") ?? "").trim().replace(/%$/, "").trim();
@@ -2497,7 +2499,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // 15 · The switcher lives in the sidebar now, on every screen that shows one
     // budget's money. A second copy at the top of this one was the same control
     // twice, and the sidebar's is the one that is always there.
-    return render(ctx, formatMonth(month), renderBudget(view, digest));
+    return render(ctx, formatMonth(month), renderBudget(view, digest, { reports: config.features.reports }));
   });
 
   /*
@@ -2995,6 +2997,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/accounts/new", (ctx) =>
     render(ctx, "Add an account", renderNewAccountForm({
+      features: config.features,
       members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
       budgets: budgetsFor(db, viewer(ctx)).map((b) => ({ id: b.id, name: b.name, kind: b.kind })),
     })));
@@ -3315,6 +3318,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ctx,
       account.nickname || account.name,
       renderAccountDetail({
+        features: config.features,
         account,
         cardNumberOnFile: account.kind === "credit" ? maskedCardNumber(db, account.id) : null,
         derived: derivedWorth(db, account, viewer(ctx)),
@@ -3352,7 +3356,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           : null,
         lastReconciled: recon?.as_of ?? null,
         checkpointBroken: Boolean(recon?.broken_at),
-        deposit: account.kind === "tracking" && DEPOSIT_SUBTYPES.has(account.subtype)
+        deposit: config.features.deposits && account.kind === "tracking" && DEPOSIT_SUBTYPES.has(account.subtype)
           ? (() => {
               const computed = computedDepositValue(db, account.id);
               const standing = standingValuation(db, account.id);
@@ -3733,11 +3737,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         </section>
 
         ${when(
-          !config.demoMode,
+          !config.demoMode && config.features.gmail,
           () => renderGmailConnection(connectionView(db, a.member.id), config.google.clientId !== null),
         )}
 
-        ${when(!config.demoMode, () => renderCardDigitAsks(cardDigitAsks(ctx)))}
+        ${when(!config.demoMode && config.features.gmail, () => renderCardDigitAsks(cardDigitAsks(ctx)))}
         ${when(!config.demoMode && pendingGoldToken(ctx, a.member.id) !== null, () => html`
           <p class="notice notice-info" id="gold-waiting">
             The same fetch read a SafeGold statement.
@@ -4328,7 +4332,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * once all of it is on one, the page says so and links to it instead.
      */
     const convertedAlready = convertedFrom(db, transaction.id);
-    const convertLeft = account.kind === "credit" && transaction.amount < 0 && !transaction.transfer_pair_id
+    const convertLeft = config.features.loans && account.kind === "credit" && transaction.amount < 0 && !transaction.transfer_pair_id
       ? Math.abs(transaction.amount) - convertedAlready
       : 0;
     const plans = convertedAlready > 0
@@ -4365,7 +4369,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         ${when(plans.length > 0, () => html`
           <p class="muted">
             ${formatPaise(convertedAlready)} of this is on an EMI plan:
-            ${plans.map((p, i) => html`${i > 0 ? ", " : ""}<a href="/loans/${p.id}">${p.nickname || p.lender}</a>`)}.
+            ${plans.map((p, i) => html`${i > 0 ? ", " : ""}${config.features.loans
+              ? html`<a href="/loans/${p.id}">${p.nickname || p.lender}</a>`
+              : p.nickname || p.lender}`)}.
           </p>
         `)}
 
@@ -4562,6 +4568,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           </section>
         `)}
 
+        ${when(config.features.attachments, () => html`
         <section class="card">
           <h2>Receipts</h2>
           ${listAttachments(db, transaction.id).map(
@@ -4599,6 +4606,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             </p>
           `)}
         </section>
+        `)}
 
         <section class="card">
           <h2>History</h2>
@@ -5407,7 +5415,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
          * the envelope itself would have given away. A proposal is only offered
          * to somebody who could have made the rule by hand.
          */
-        proposedRules: queryAll<{
+        // PLAN-1 · Without the rules module there is nowhere to confirm one to.
+        proposedRules: !config.features.rules ? [] : queryAll<{
           id: string; name: string; because: string | null; actions_json: string;
           strength: number | null;
         }>(
@@ -5567,6 +5576,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         id: p.id, name: p.name, last_used_at: p.last_used_at,
       })),
       casEnabled: config.features.assets,
+      ways: {
+        csv: config.features.importCsv,
+        pdf: config.features.importPdf,
+        budgetApp: config.features.importBudgetApp,
+      },
       banks: BANKS.map((b) => ({ id: b.id, name: b.name, passwordHint: b.passwordHint })),
       error,
       pdf,
@@ -5604,6 +5618,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * account each of the file's accounts is. Nothing is written yet.
      */
     const fromApp = parseBudgetApp(text);
+    /*
+     * PLAN-1 · The paste box is one door for two modules. Each kind of file is
+     * refused here, by name, when its module is off — the page only offers the
+     * box when one of them is on, and says which.
+     */
+    if (fromApp && !config.features.importBudgetApp) {
+      return importPage(ctx, `Importing from ${BUDGET_APP_NAMES[fromApp.app]} is not available on this instance.`);
+    }
+    if (!fromApp && !config.features.importCsv) {
+      return importPage(ctx, "Bank CSV import is not available on this instance.");
+    }
     if (fromApp) return render(ctx, `Import from ${BUDGET_APP_NAMES[fromApp.app]}`, budgetAppPrompt(ctx, fromApp, text, fileName));
 
     // 04 §3.2 · A saved profile first, then a guess, then the mapping UI.
@@ -6914,6 +6939,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         budgets: budgetsFor(db, viewer(ctx)).map((b) => ({ id: b.id, name: b.name, kind: b.kind })),
         scope: ctx.query.get("scope") ?? "all",
         title,
+        base: config.features.reports ? "/query" : "/search",
+        csv: config.features.reports,
       }),
     );
   }
@@ -6930,9 +6957,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const scope = budgetParam(ctx);
     return render(
       ctx, "Overview",
-      renderOverview(overviewData(db, {
-        budgetId: scope, viewerMemberId: viewer(ctx), assets: config.features.assets,
-      })),
+      renderOverview({
+        ...overviewData(db, {
+          budgetId: scope, viewerMemberId: viewer(ctx), assets: config.features.assets,
+          schedules: config.features.schedules, insurance: config.features.insurance,
+          deposits: config.features.deposits,
+        }),
+        features: config.features,
+      }),
     );
   });
 
@@ -7011,6 +7043,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return render(
       ctx, "Reports",
       renderReports({
+        tax: config.features.tax,
         insights: spendingInsights(db, todayIST(), 6, viewer(ctx)),
         gains: config.features.assets ? capitalGainsByYear(db, viewer(ctx)) : [],
         trend: incomeVsExpense(db, period.from, period.to, scope, viewer(ctx)),
@@ -8536,7 +8569,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const a = consentGate(ctx);
     const parsed = oauth.parseAuthorizeRequest(db, config.baseUrl, (n) => ctx.query.get(n) ?? undefined);
     if ("fatal" in parsed) {
-      return { ...render(ctx, "Connect an app", renderConsentProblem(parsed.fatal)), status: 400 };
+      return { ...render(ctx, "Connect an app", renderConsentProblem(parsed.fatal, { apiTokens: config.features.apiTokens })), status: 400 };
     }
     if ("redirect" in parsed) return { redirect: parsed.redirect };
 
@@ -8580,7 +8613,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const a = consentGate(ctx);
     const parsed = oauth.parseAuthorizeRequest(db, config.baseUrl, (n) => field(ctx.body, n));
     if ("fatal" in parsed) {
-      return { ...render(ctx, "Connect an app", renderConsentProblem(parsed.fatal)), status: 400 };
+      return { ...render(ctx, "Connect an app", renderConsentProblem(parsed.fatal, { apiTokens: config.features.apiTokens })), status: 400 };
     }
     if ("redirect" in parsed) return { redirect: parsed.redirect };
 
@@ -9389,6 +9422,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return render(
       ctx, view.instrument.name,
       renderHoldingDetail({
+        features: config.features,
         view,
         accountName: account?.name ?? "",
         history: priceHistory(db, view.instrument.id, 40),
@@ -9659,6 +9693,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return render(
       ctx, "Net worth",
       renderNetWorth({
+        features: config.features,
         scope,
         members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
         statement,
@@ -9688,6 +9723,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     requireAssets();
     auth(ctx);
     return render(ctx, "Add an asset", renderNewAssetForm({
+      features: config.features,
       today: todayIST(),
       subtype: ctx.query.get("subtype"),
       members: listMembers(db).map((m) => ({ id: m.id, name: m.name })),
@@ -10357,7 +10393,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       { headers: ctx.req.headers, rawBody: rawBodies.get(ctx.req) ?? "" },
       {
         server: { name: "pathayam", title: "Pathayam", version: VERSION, instructions: MCP_INSTRUCTIONS },
-        tools: buildTools(db, a.member.id, { features: { loans: config.features.loans, assets: config.features.assets } }),
+        tools: buildTools(db, a.member.id, { features: config.features }),
         transformResult: tokenRedacts(token) ? redactValue : undefined,
         onToolCall: (c) => recordAiAccess(db, {
           tokenId: token.id, tokenName: token.name, memberId: a.member.id, tool: c.tool, args: c.args, ok: c.ok, bytes: c.bytes,
@@ -10470,7 +10506,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const fy = Number.isInteger(fyParam) && fyParam > 2000 && fyParam < 9999
       ? fyParam : fiscalYearOf(todayIST());
 
-    return taxPageModel(db, a.member.id, fy, ctx.query.get("from") === "policies");
+    const insurance = config.features.insurance;
+    const model = taxPageModel(db, a.member.id, fy, insurance && ctx.query.get("from") === "policies");
+    // PLAN-1 · Without the insurance module there are no policies to suggest from.
+    return { ...model, fromPolicies: insurance ? model.fromPolicies : undefined, features: config.features };
   }
 
   router.get("/tax", (ctx) => {

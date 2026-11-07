@@ -2,6 +2,8 @@
  * S2 · Accounts, the account register, and the credit-card panel.
  */
 
+import { offers } from "../offers.ts";
+import type { Features } from "../../features.ts";
 import { html, raw, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, speakPaise, type Paise } from "../../core/money.ts";
 import { formatDate, daysBetween, todayIST, ordinal, type IsoDate } from "../../core/dates.ts";
@@ -273,6 +275,8 @@ export function renderAccountDetail(opts: {
   checkpointBroken: boolean;
   /** See AccountRow.derived — the figure this account is actually worth. */
   derived?: { value: Paise; label: string; href: string } | null;
+  /** PLAN-1 · Omitted is everything on. */
+  features?: Features;
   /**
    * For a hand-valued asset, every valuation it has had.
    *
@@ -319,9 +323,11 @@ export function renderAccountDetail(opts: {
         <a class="button" href="#edit">Edit</a>
         ${opts.derived
           ? html`
-              <a class="button button-primary" href="${opts.derived.href}">
-                ${opts.derived.label}
-              </a>
+              ${when(offers(opts.features, opts.derived.href), () => html`
+                <a class="button button-primary" href="${opts.derived!.href}">
+                  ${opts.derived!.label}
+                </a>
+              `)}
             `
           : html`
               <a class="button" href="/accounts/${account.id}/reconcile">Reconcile</a>
@@ -901,6 +907,8 @@ function renderCardBreakdown(cards: Card[], accountId: string): SafeHtml {
 // ---------------------------------------------------------------------------
 
 export function renderNewAccountForm(opts: {
+  /** PLAN-1 · Omitted is everything on. */
+  features?: Features;
   error?: string | null;
   members?: { id: string; name: string }[];
   budgets?: { id: string; name: string; kind: string }[];
@@ -978,12 +986,14 @@ export function renderNewAccountForm(opts: {
             `)}
           </select>
         </div>
-        <p class="field-hint">
-          Lending to family? Use <a href="/family">the Lending page</a>.
-          A loan or EMI? Use <a href="/loans">the Loans page</a>. Investments go
-          through <a href="/portfolio">Portfolio</a>. Each sets up more than a bare
-          balance, which is why they live on their own screen.
-        </p>
+        ${when(offers(opts.features, "/family") || offers(opts.features, "/loans") || offers(opts.features, "/portfolio"), () => html`
+          <p class="field-hint">
+            ${when(offers(opts.features, "/family"), () => html`Lending to family? Use <a href="/family">the Lending page</a>.`)}
+            ${when(offers(opts.features, "/loans"), () => html`A loan or EMI? Use <a href="/loans">the Loans page</a>.`)}
+            ${when(offers(opts.features, "/portfolio"), () => html`Investments go through <a href="/portfolio">Portfolio</a>.`)}
+            Each sets up more than a bare balance, which is why it lives on its own screen.
+          </p>
+        `)}
         <p class="field-hint">
           <!--
             The two asset doors used to be a trap: an account made here could
@@ -991,11 +1001,16 @@ export function renderNewAccountForm(opts: {
             stayed at the figure it opened with forever.
           -->
           A tracking account is worth whatever its register adds up to — until
-          you say otherwise. A fixed or recurring deposit, a PPF or an EPF can
-          value itself: give its terms below and it is worth what they say on any
-          day. Anything else that grows on its own, record from time to time on
-          <a href="/portfolio/valuations">Update valuations</a>, and that figure
-          is the one net worth uses.
+          you say otherwise.
+          ${when(offers(opts.features, "/accounts/x/deposit"), () => html`
+            A fixed or recurring deposit, a PPF or an EPF can value itself: give its
+            terms below and it is worth what they say on any day.
+          `)}
+          ${when(offers(opts.features, "/portfolio/valuations"), () => html`
+            Anything else that grows on its own, record from time to time on
+            <a href="/portfolio/valuations">Update valuations</a>, and that figure
+            is the one net worth uses.
+          `)}
         </p>
       </fieldset>
 
@@ -1020,6 +1035,7 @@ export function renderNewAccountForm(opts: {
         DEPOSITS · Offered where a deposit is created, so an FD or PPF entered
         here values itself from the start. Ignored for any other kind.
       -->
+      ${when(offers(opts.features, "/accounts/x/deposit"), () => html`
       <details class="card">
         <summary class="linkish">A deposit? Give its terms <span class="faint">(optional)</span></summary>
         <p class="field-hint">
@@ -1028,6 +1044,7 @@ export function renderNewAccountForm(opts: {
         </p>
         ${depositTermsFields("new-dep", null, { optional: true })}
       </details>
+      `)}
 
       <div class="grid-2">
         <div class="field">

@@ -26,6 +26,7 @@
  * history), so the snapshot reuses one call wherever two sections need it.
  */
 
+import type { Features, FeatureName } from "../features.ts";
 import type { DB } from "../db/db.ts";
 import { queryAll } from "../db/db.ts";
 import type { Paise } from "../core/money.ts";
@@ -74,7 +75,7 @@ export const CURRENCY = "INR" as const;
  * `{ enabled: false }` rather than throwing, so a composite still renders.
  */
 export interface AnalysisOptions {
-  features?: { loans?: boolean; assets?: boolean };
+  features?: Partial<Features>;
 }
 
 export interface Disabled { enabled: false; reason: string }
@@ -84,6 +85,9 @@ const DISABLED_LOANS: Disabled = { enabled: false, reason: "Loans are switched o
 
 function assetsOn(opts: AnalysisOptions): boolean { return opts.features?.assets !== false; }
 function loansOn(opts: AnalysisOptions): boolean { return opts.features?.loans !== false; }
+/** PLAN-1 · Any module, the same rule: omitted is on. */
+function on(opts: AnalysisOptions, name: FeatureName): boolean { return opts.features?.[name] !== false; }
+const disabled = (what: string): Disabled => ({ enabled: false, reason: `${what} switched off on this server.` });
 
 /**
  * Paise to rupees, the one conversion. The engine may carry a fraction of a
@@ -196,7 +200,10 @@ export function aiOverview(
   const hidden = memberScope(db, viewerMemberId).categories;
   const budgets = visibleBudgets(db, viewerMemberId).map((b) => {
     const view = buildBudgetView(db, month, b.id, viewerMemberId);
-    const now = overviewData(db, { budgetId: b.id, viewerMemberId, assets: assetsOn(opts) });
+    const now = overviewData(db, {
+      budgetId: b.id, viewerMemberId, assets: assetsOn(opts),
+      schedules: on(opts, "schedules"), insurance: on(opts, "insurance"), deposits: on(opts, "deposits"),
+    });
     const categories = visibleCategories(view, hidden);
     const names = new Map(categories.map((c) => [c.paymentAccountId, c.name]));
     return {
@@ -891,8 +898,9 @@ export function aiNetWorth(db: DB, viewerMemberId: string, _args: Record<string,
  * `{ refused }` with the page's own sentence, never a guess at another year's.
  */
 export function aiTaxEstimate(
-  db: DB, viewerMemberId: string, args: { fy?: number | string } = {}, _opts: AnalysisOptions = {},
+  db: DB, viewerMemberId: string, args: { fy?: number | string } = {}, opts: AnalysisOptions = {},
 ) {
+  if (!on(opts, "tax")) return disabled("The tax estimate is");
   const fy = requireFy(args.fy);
   const base = { currency: CURRENCY, fy, fy_label: formatFiscalYear(fy) };
   try {
@@ -954,8 +962,9 @@ export const CASHFLOW_MAX_DAYS = 366;
  * and insurance premiums.
  */
 export function aiCashflow(
-  db: DB, viewerMemberId: string, args: { days?: number } = {}, _opts: AnalysisOptions = {},
+  db: DB, viewerMemberId: string, args: { days?: number } = {}, opts: AnalysisOptions = {},
 ) {
+  if (!on(opts, "schedules")) return disabled("Schedules and cashflow are");
   const asked = args.days ?? CASHFLOW_DEFAULT_DAYS;
   if (!Number.isInteger(asked) || asked < 1) throw new Refusal("days must be a whole number, 1 or more.");
   const days = Math.min(asked, CASHFLOW_MAX_DAYS);
@@ -1018,7 +1027,8 @@ export function aiCashflow(
 // ---------------------------------------------------------------------------
 
 /** Every policy the viewer can see: premium, cover, next due, who holds it. */
-export function aiInsurance(db: DB, viewerMemberId: string, _args: Record<string, never> = {}, _opts: AnalysisOptions = {}) {
+export function aiInsurance(db: DB, viewerMemberId: string, _args: Record<string, never> = {}, opts: AnalysisOptions = {}) {
+  if (!on(opts, "insurance")) return disabled("Insurance is");
   const names = memberNames(db);
   const hidden = memberScope(db, viewerMemberId).categories;
   const envelopes = new Map(
@@ -1055,7 +1065,8 @@ export function aiInsurance(db: DB, viewerMemberId: string, _args: Record<string
 }
 
 /** Each goal in the viewer's budgets: target, saved, what it takes per month. */
-export function aiGoals(db: DB, viewerMemberId: string, _args: Record<string, never> = {}, _opts: AnalysisOptions = {}) {
+export function aiGoals(db: DB, viewerMemberId: string, _args: Record<string, never> = {}, opts: AnalysisOptions = {}) {
+  if (!on(opts, "goals")) return disabled("Goals are");
   const hidden = memberScope(db, viewerMemberId).categories;
   const goals = visibleBudgets(db, viewerMemberId).flatMap((b) => {
     const view = buildBudgetView(db, undefined, b.id, viewerMemberId);
@@ -1303,8 +1314,8 @@ export function aiSnapshot(
     portfolio: sectionOf(() => aiPortfolio(db, viewerMemberId, {}, opts)),
     net_worth: sectionOf(() => aiNetWorth(db, viewerMemberId, {}, opts)),
     cashflow_30_days: sectionOf(() => aiCashflow(db, viewerMemberId, { days: 30 }, opts)),
-    goals: sectionOf(() => aiGoals(db, viewerMemberId, {}, opts).goals),
-    insurance: sectionOf(() => aiInsurance(db, viewerMemberId, {}, opts).policies),
+    goals: sectionOf(() => { const g = aiGoals(db, viewerMemberId, {}, opts); return "goals" in g ? g.goals : g; }),
+    insurance: sectionOf(() => { const p = aiInsurance(db, viewerMemberId, {}, opts); return "policies" in p ? p.policies : p; }),
     tax_estimate_current_fy: sectionOf(() => aiTaxEstimate(db, viewerMemberId, {}, opts)),
   };
 }
