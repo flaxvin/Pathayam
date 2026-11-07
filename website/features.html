@@ -150,6 +150,7 @@
           </tbody>
         </table>
       </div>
+      <p class="guide-link" style="margin-top:1.5rem"><span>Guides</span><a href="guides.html#connect-ai">Connect Claude, ChatGPT or Gemini</a> · <a href="api.html#ai">The MCP server in the API reference</a></p>
     </div>
   </section>
 
@@ -292,13 +293,14 @@
           <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
           <tbody>
           <tr><td>Statement PDFs</td><td>Twelve banks plus broker contract notes. Password-protected files are opened in-process: no external tool, no library.</td></tr>
-          <tr><td>Password derivation</td><td>Work the password out from your saved name, date of birth, PAN, mobile or card digits, so nobody types one. Axis and HDFC account statements open with the customer ID you save in Settings, and HSBC card statements with the card&rsquo;s last six. Opt-in, shown masked, never exported, never logged.</td></tr>
+          <tr><td>Password derivation</td><td>Work the password out from your saved name, date of birth, PAN, mobile or card digits, so nobody types one. Axis and HDFC account statements open with the customer ID you save in Settings, and HSBC card statements with the card&rsquo;s last six. A card statement locked with digits its account lacks asks for them on import, and keeps them for next time. Opt-in, shown masked, never exported, never logged.</td></tr>
           <tr><td>Reconciliation check</td><td>Every parse is verified against the statement's own closing balance. On a real 848-row statement it reconciles to the paisa.</td></tr>
           <tr><td>CSV import</td><td>Header detection, Indian amount formats, a Dr / Cr column beside an unsigned amount, UPI narration extraction, saved per-bank column mappings. When the dates could be day or month first, it asks how they are written.</td></tr>
           <tr><td>Coming from YNAB or Actual</td><td>Their CSV exports are recognised on the Import screen. Match their accounts to yours once, and the history lands in Review with transfers and splits intact. Transactions only: budgets and targets are set up here.</td></tr>
           <tr><td>Consolidated statement</td><td>The monthly CAS is the primary way holdings get in. Rows reconcile against existing lots rather than duplicating.</td></tr>
+          <tr><td>SafeGold statements</td><td>Digital gold, read from SafeGold&rsquo;s monthly PDF &mdash; uploaded, dropped on Import or fetched from Gmail. Buys become lots with GST in the cost, sells realise gains, and the rows are checked against the closing gold balance. A re-import adds nothing.</td></tr>
           <tr><td>Five dedupe tiers</td><td>Exact, strong by reference, probable, weak, and manual-versus-imported — so one purchase never lands twice from an alert, an email and a statement.</td></tr>
-          <tr><td>Gmail ingestion</td><td>Opt-in, read-only. Reads only the banks' own addresses; an alert becomes a review row in seconds. When a statement arrives locked and the bank wants card digits you have not saved, it names which ones.</td></tr>
+          <tr><td>Gmail ingestion</td><td>Opt-in, read-only. Reads only the banks' own addresses; an alert becomes a review row in seconds. When a statement arrives locked and the bank wants card digits you have not saved, each such card is listed with a box to enter them.</td></tr>
           <tr><td>Receipts</td><td>A photo or PDF per transaction, stored in the database and served so no device caches it.</td></tr>
           </tbody>
         </table>
@@ -484,6 +486,7 @@
           <li>TDS, advance and self-assessment tax netted to a balance due or a refund</li>
           <li>Each advance-tax instalment checked against what was paid by its date</li>
           <li>Capital gains at their own rates, in the period they were sold in</li>
+          <li>Employer NPS under 80CCD(2), in both regimes</li>
           <li>Prints as a document, caveat included</li>
         </ul>
         <p class="guide-link"><span>Guides</span><a href="guides.html#tax">Tax</a></p>
@@ -636,8 +639,8 @@
       </div>
     </div>
     <p class="foot__note">
-      Run it yourself and nothing is sent anywhere: your data stays on your
-      machine. Hosted instances are set up by request. Every figure and name in the screenshots
+      Run it yourself and your data stays on your machine: nothing is sent
+      anywhere unless you connect an AI app yourself. Hosted instances are set up by request. Every figure and name in the screenshots
       is fictional.
     </p>
     <p class="foot__legal">

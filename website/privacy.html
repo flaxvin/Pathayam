@@ -61,7 +61,7 @@
         or have it deleted.
       </p>
       <p class="legal-meta">
-        Last updated <time datetime="2026-10-23">23 October 2026</time> ·
+        Last updated <time datetime="2026-11-07">7 November 2026</time> ·
         Applies to <strong>pathayam.app</strong>, <strong>demo.pathayam.app</strong>,
         and the hosted service.
       </p>
@@ -75,6 +75,7 @@
           <li>If you self-host, none of this applies: no data reaches us at all.</li>
           <li>On a hosted plan your data sits in its own database, not a shared table, and one endpoint returns all of it at any time.</li>
           <li>Five days after a plan ends, everything is deleted — backups included, and not recoverable.</li>
+          <li>Connect an AI app and what it reads is sent to that app's provider. Connect none, and nothing is.</li>
         </ul>
       </div>
 
@@ -95,8 +96,9 @@
         makes no outbound request to us, sends no telemetry and reports no
         errors. Your database is a file on your own machine. Where that
         installation connects to your own identity provider, to Google, or to a
-        price provider, it does so with credentials you supply, under those
-        parties' terms, and we are not involved. You are the controller of that
+        price provider, or answers an AI app you connect to it, it does so with
+        credentials you supply, under those parties' terms, and we are not
+        involved. You are the controller of that
         data.
       </p>
 
@@ -214,6 +216,11 @@
               <td>To estimate tax under each regime and show which is lower. Held per person and per financial year, because income tax in India is assessed on an individual &mdash; one member's figures never enter another's estimate.</td>
             </tr>
             <tr>
+              <td>AI connections</td>
+              <td>Only if you connect an AI app: the app's name and where it sends you back to, whether masking is on, when it was connected and last used, and a log of each question it asked &mdash; when, which tool, its arguments, and the size of the answer. The answers themselves are not kept. The log is kept for 90 days, at most 2,000 rows a member, and each member sees only their own.</td>
+              <td>So you can see what an AI has read, and disconnect it.</td>
+            </tr>
+            <tr>
               <td>Billing</td>
               <td>Plan, billing cycle, invoices, and a payment token. We never receive or store your full card number, CVV or UPI credentials.</td>
               <td>To take payment and issue invoices.</td>
@@ -285,6 +292,26 @@
         are set out under <a href="#google">Google account data</a> below.
       </p>
 
+      <h3>Connecting an AI app</h3>
+      <p>
+        You can connect Claude, ChatGPT, Gemini or another app that speaks the
+        Model Context Protocol to your instance, and ask it about your figures.
+        Nothing is connected until you do it yourself, from Settings &rarr; API
+        tokens &rarr; Connect an AI.
+      </p>
+      <p>
+        What the app asks for is <strong>sent to that app's provider</strong>
+        &mdash; Anthropic, OpenAI, Google or whoever runs it &mdash; to answer
+        you, and becomes part of your conversation there, under that provider's
+        terms and privacy policy rather than ours. We do not choose that
+        provider and do not send it anything you did not connect. A connection
+        can only read, sees only what the member who connected it sees, and by
+        default masks account and card numbers, UPI IDs, phone numbers and PAN
+        before anything leaves. Masking is best effort: a name written into a
+        narration is sent as written. Disconnecting stops further reading; it
+        cannot recall what the provider already received.
+      </p>
+
       <h3>The mail-forwarding add-on</h3>
       <p>
         If you take the forwarding add-on, you get an address like
@@ -351,6 +378,7 @@
             <tr><td>Razorpay</td><td>Taking payment</td><td>Your name, email, and the payment instrument. They hold the card details; we do not.</td></tr>
             <tr><td>Cloudflare</td><td>Serving the website, and counting visits to it</td><td>The request itself as the network in front of us, and — on pathayam.app only — the page, referrer, browser, country and load time. No cookie, no identifier that outlives the visit.</td></tr>
             <tr><td>Google <em>(only if you choose it)</em></td><td>Sign-in</td><td>That you signed in to Pathayam. Not used at all if you sign in with a password or your own identity provider.</td></tr>
+            <tr><td>The AI app you connect <em>(only if you connect one)</em></td><td>Answering the questions you ask it</td><td>What its questions return, masked by default. Not our processor: a recipient you choose, under its own terms.</td></tr>
             <tr><td>Google</td><td>The sheet that holds instance requests</td><td>The email address you sent, and the plan and page it came from</td></tr>
           </tbody>
         </table>
@@ -457,8 +485,8 @@
       </div>
     </div>
     <p class="foot__note">
-      Run it yourself and nothing is sent anywhere: your data stays on your
-      machine. Hosted instances are set up by request. Every figure and name in the screenshots
+      Run it yourself and your data stays on your machine: nothing is sent
+      anywhere unless you connect an AI app yourself. Hosted instances are set up by request. Every figure and name in the screenshots
       is fictional.
     </p>
     <p class="foot__legal">

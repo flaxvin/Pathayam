@@ -1241,6 +1241,8 @@ pre code { background: none; padding: 0; color: inherit; }
 .chat__ai p + p, .chat__ai p + ul, .chat__ai ul + p { margin-top: 0.5rem; }
 .chat__ai ul { padding-left: 1.1rem; display: grid; gap: 0.2rem; }
 .chat__ai .m { white-space: normal; }
+/* A sentence set in mono (the roadmap's estimates) must still wrap on a phone. */
+.steps p.m { white-space: normal; }
 .chat__tool {
   justify-self: start;
   display: inline-flex; align-items: center; gap: 0.45rem; flex-wrap: wrap;
