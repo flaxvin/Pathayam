@@ -210,6 +210,7 @@ Everything the app reads, and nothing it does not:
 | `BACKUP_WEBHOOK_URL` | — | Alerted when a backup or its verification fails. |
 | `ALPHA_VANTAGE_KEY` | — | Only for direct equities; mutual funds use a keyless provider. |
 | `PLAN`, `FEATURE_*`, `MAX_MEMBERS`, `BACKUP_RETENTION_DAYS` | `selfhost` | Which modules this instance offers and its limits. See [Plans and modules](#plans-and-modules). |
+| `AI_WRITE` | `off` | Whether an AI connection may change anything: `off`, `standard` or `full` (any case); anything else stops startup. See [Letting an AI make changes](#letting-an-ai-make-changes). |
 | `MCP_ALLOWED_ORIGINS` | — | Comma-separated browser origins, besides `BASE_URL`'s, allowed to call `/mcp`. Connectors call from their servers and need none (ai.md). |
 | `ADMIN_DEBUG` | `false` | Enables view-as-another-member, read-only by default, bannered. |
 | `DEMO_MODE` | `false` | Bypasses authentication. Refuses to start alongside `DEV_LOGIN`, Google or OIDC credentials, or `LOCAL_LOGIN`, and against a database with passwords, linked Google accounts, a connected mailbox or a statement identity. |
@@ -275,6 +276,26 @@ its own, and a pairwise covering array, so every pair of flags is walked in all
 four on/off states. A walk fails on any 500, any page of a module that is off
 answering anything but 404, any link or form pointing at a page that is off,
 and any MCP tool listed for a module that is off.
+
+### Letting an AI make changes
+
+`AI_WRITE` is not a module and no preset sets it: every plan is read-only for
+AI connections until an operator sets it on its own. It matters only with
+`FEATURE_AI` on; with AI connections off everything under them is a 404
+anyway.
+
+| `AI_WRITE` | What a connection the member allowed to make changes may do |
+|---|---|
+| `off` (default) | Nothing. Every connection is read-only, the change tools are not listed, and the consent page and Connect an AI offer no "allow changes" box. |
+| `standard` | File, split and write memos on transactions, and propose a payee's usual envelope (a rule waiting in Review). Adding a transaction, assigning money and recording a transfer leave a suggestion in Review that the member approves or rejects. |
+| `full` | The same, and adding a transaction, assigning money and recording a transfer are made directly. |
+
+A member still has to tick "allow changes" for each connection; without it a
+connection is read-only whatever `AI_WRITE` says. Turning `AI_WRITE` back to
+`off` makes every connection read-only at once (an app that signed in gets a
+read-only token at its next hourly refresh; until then the tools are simply not
+offered). Nothing is deleted. What a connection may and may not change, the
+caps, and undoing are in [ai.md](ai.md#changes-an-ai-can-make).
 
 ## Backups, and being able to restore
 

@@ -14,6 +14,10 @@ import {
   type Features, type Limits, type Plan,
 } from "./features.ts";
 
+/** AIW-1 · See Config.aiWrite. */
+export const AI_WRITE_MODES = ["off", "standard", "full"] as const;
+export type AiWriteMode = (typeof AI_WRITE_MODES)[number];
+
 export interface Config {
   port: number;
   host: string;
@@ -62,6 +66,20 @@ export interface Config {
   features: Features;
   /** PLAN-1 · Member count and backup retention. */
   limits: Limits;
+  /**
+   * AIW-1 · Whether an AI connection may change anything, and how much.
+   *
+   *   · `off` (the default): every connection is read-only, as it always was.
+   *   · `standard`: a connection the member allowed to make changes may file,
+   *     split and annotate transactions directly; adding a transaction,
+   *     assigning money and recording a transfer become suggestions that wait
+   *     in Review for the member to approve.
+   *   · `full`: those three are made directly too.
+   *
+   * Only meaningful with `features.ai`. Not a FEATURE_* module on purpose: a
+   * preset turns modules on, and this must stay off unless an operator sets it.
+   */
+  aiWrite: AiWriteMode;
   /** R40.4: where a failed backup or restore verification reports to. */
   backupWebhookUrl: string | null;
   /**
@@ -170,6 +188,14 @@ function limit(
   );
 }
 
+/** AIW-1 · AI_WRITE, read like PLAN: case forgiven, anything unknown refused. */
+export function aiWriteMode(value: string | undefined): AiWriteMode {
+  const raw = (value ?? "").trim().toLowerCase();
+  if (raw === "") return "off";
+  if ((AI_WRITE_MODES as readonly string[]).includes(raw)) return raw as AiWriteMode;
+  throw new InvalidConfiguration(`AI_WRITE is '${value}'; use one of ${AI_WRITE_MODES.join(", ")}.`);
+}
+
 function planSettings(env: NodeJS.ProcessEnv): Pick<Config, "plan" | "features" | "limits"> {
   const raw = (env.PLAN ?? "").trim().toLowerCase();
   if (raw !== "" && !(PLANS as readonly string[]).includes(raw)) {
@@ -227,6 +253,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     sessionDays: sessionDays(env.SESSION_DAYS), // Q22
     alphaVantageKey: env.ALPHA_VANTAGE_KEY || null,
     ...planSettings(env),
+    aiWrite: aiWriteMode(env.AI_WRITE),
     backupWebhookUrl: env.BACKUP_WEBHOOK_URL || null,
     heartbeatUrl: env.HEARTBEAT_URL || null,
     trustProxy: bool(env.TRUST_PROXY, false),
