@@ -31,6 +31,7 @@ const appSource = readFileSync(join(here, "..", "app.ts"), "utf8");
 /** GET routes that nothing links to on purpose, each with its reason. */
 const REACHED_ANOTHER_WAY: Record<string, string> = {
   "/": "The brand in the header and the first item in every nav.",
+  "/mcp": "Called by AI apps, not people; Connect an AI shows the address to give them (AI-2).",
   "/signin": "Where an unauthenticated request is sent; linking to it from inside " +
     "the app would be linking to the door you already came through.",
   "/auth/google": "The sign-in page's button, which is built from the provider config.",

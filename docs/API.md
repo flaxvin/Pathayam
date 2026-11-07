@@ -99,7 +99,7 @@ viewing as another member. Each accepted request updates the token's
 
 | Scope | GET (reads) | POST (writes) |
 |---|---|---|
-| `read` | ✅ | ❌ `403 { "error": "That token is read-only." }` |
+| `read` | ✅ | ❌ `403 { "error": "That token is read-only." }` (except `POST /mcp`, whose every tool is a read; see [ai.md](ai.md)) |
 | `read-write` | ✅ | ✅ |
 
 Scope is fixed at mint time. To change it, revoke and re-mint.
@@ -202,6 +202,8 @@ the activity log.
 | POST | `/oauth/token` | public | `authorization_code` and `refresh_token` grants, form-encoded. |
 | POST | `/oauth/revoke` | public | RFC 7009. Ends the connection the token belongs to; answers `200` whatever it was. |
 | POST | `/tokens/connections/:id/revoke` | session only | Disconnect an AI app (Settings → API tokens). |
+| POST | `/mcp` | bearer, `read` is enough | The MCP endpoint itself. Bearer only: a session cookie is not looked at. `GET` and `DELETE` are `405`. Tools, masking and the protocol versions served are in [ai.md](ai.md). |
+| GET/POST | `/tokens/ai` | session only | Connect an AI: the address to give an app, read-only tokens with set-up commands, connected apps and what they have read. |
 
 ---
 

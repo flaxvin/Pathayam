@@ -138,6 +138,7 @@ export function renderConnectAi(opts: {
                     <td class="faint">${c.last_used_at ? formatDate(c.last_used_at.slice(0, 10)) : "Never"}</td>
                     <td>
                       <form method="post" action="${c.revoke_url}">
+                        <input type="hidden" name="back" value="/tokens/ai">
                         <button class="button-small button-danger" type="submit">Disconnect</button>
                       </form>
                     </td>

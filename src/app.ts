@@ -8166,17 +8166,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }));
   });
 
+  // AI-5 · Disconnecting from Connect an AI returns there; nothing else is a
+  // destination this takes, so it cannot be bent into an open redirect.
+  function backToTokens(ctx: RequestContext): string {
+    return field(ctx.body, "back") === "/tokens/ai" ? "/tokens/ai" : "/tokens";
+  }
   router.post("/tokens/:id/revoke", (ctx) =>
     mutate(ctx, (a) => {
       revokeToken(db, actorFor(a), ctx.params.id!);
-      return { redirect: "/tokens", message: "Revoked. Anything using it stops now." };
+      return { redirect: backToTokens(ctx), message: "Revoked. Anything using it stops now." };
     }),
   );
 
   router.post("/tokens/connections/:id/revoke", (ctx) =>
     mutate(ctx, (a) => {
       oauth.revokeConnection(db, actorFor(a), ctx.params.id!);
-      return { redirect: "/tokens", message: "Disconnected. The app cannot read anything from now on." };
+      return { redirect: backToTokens(ctx), message: "Disconnected. The app cannot read anything from now on." };
     }),
   );
 

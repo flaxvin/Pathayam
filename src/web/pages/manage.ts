@@ -83,6 +83,7 @@ export function renderMore(features: { loans: boolean; assets: boolean }): SafeH
       ["/activity", "Activity", "Every change, and the undo for it"],
       ["/health", "Health", "The page you open at 2am"],
       ["/settings", "Settings", "Household, appearance, devices"],
+      ["/tokens/ai", "Connect an AI", "Ask Claude, ChatGPT or Gemini about your budget, read-only"],
       ["/tokens", "API tokens", "For your own scripts, scoped and revocable"],
     ])}
 
@@ -759,6 +760,7 @@ export function renderTokens(opts: {
       For your own scripts. A token acts as you, but it cannot sign in, impersonate anyone, create
       more tokens, or change who is allowed into the household.
     </p>
+    <p>Connecting Claude, ChatGPT or Gemini? <a href="/tokens/ai">Connect an AI</a> sets it up read-only and shows what it has read.</p>
 
     ${when(opts.minted, () => html`
       <section class="card">

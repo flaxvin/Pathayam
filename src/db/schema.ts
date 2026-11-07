@@ -3027,7 +3027,7 @@ ALTER TABLE api_tokens ADD COLUMN redact INTEGER NOT NULL DEFAULT 0 CHECK (redac
 -- thinks of as sensitive. Not in events: a read changes nothing, and the event
 -- log is the budget's history (R37). Pruned to 90 days and 2000 rows a member.
 --
--- \`at\` is an IST timestamp from nowIST, compared as a string like every other.
+-- at is an IST timestamp from nowIST, compared as a string like every other.
 CREATE TABLE ai_access_log (
   id        INTEGER PRIMARY KEY AUTOINCREMENT,
   token_id  TEXT NOT NULL REFERENCES api_tokens(id),
@@ -3040,8 +3040,8 @@ CREATE TABLE ai_access_log (
 );
 CREATE INDEX idx_ai_access_log_member ON ai_access_log(member_id, id);
 
--- A token minted on Connect an AI (/tokens/ai) rather than for a script, so
--- that page lists it with the AI apps and the API tokens page still lists it.
+-- A token minted on Connect an AI (/tokens/ai) rather than for a script: that
+-- page lists it with the AI apps; the API tokens page lists it as well.
 ALTER TABLE api_tokens ADD COLUMN for_ai INTEGER NOT NULL DEFAULT 0 CHECK (for_ai IN (0, 1));
 `,
   },
