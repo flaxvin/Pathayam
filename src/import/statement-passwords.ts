@@ -339,6 +339,36 @@ export function missingDetailFor(
   }
 }
 
+/**
+ * IMP-19 · How many of the card's trailing digits this bank's rule wants, when
+ * the app does not have that many — the case an import can fix by asking.
+ * Null when the bank's rule is not a card's, or the digits are already there.
+ * SBI's account statement wants the mobile instead; a caller asks only for a
+ * card account.
+ */
+export function cardDigitsNeeded(
+  bankId: BankId | null | undefined,
+  identity: StatementIdentity,
+  cardDigits: (string | null | undefined)[] = [],
+): 4 | 6 | null {
+  const longest = [...cardDigits, identity.hsbcCardLast6]
+    .map((d) => (d ?? "").replace(/\D/g, ""))
+    .reduce((a, b) => (b.length > a.length ? b : a), "");
+  // SBI Card's and HSBC's rules put the digits after the date of birth, so
+  // without one there is nothing the digits alone could open.
+  const dob = parts(identity.dob) !== null;
+  switch (bankId) {
+    case "canara":
+      return longest.length < 4 ? 4 : null;
+    case "sbi":
+      return dob && longest.length < 4 ? 4 : null;
+    case "hsbc":
+      return dob && longest.length < 6 ? 6 : null;
+    default:
+      return null;
+  }
+}
+
 export function describeCandidate(
   candidate: string, identity: StatementIdentity,
 ): string {

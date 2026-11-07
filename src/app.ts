@@ -66,7 +66,7 @@ import {
   WrongPassword as StatementWrongPassword,
 } from "./import/pdf-statements.ts";
 import {
-  passwordCandidates, describeCandidate, missingDetailFor,
+  passwordCandidates, describeCandidate, missingDetailFor, cardDigitsNeeded,
 } from "./import/statement-passwords.ts";
 import { getIdentity, setIdentity, clearIdentity, maskedIdentity } from "./import/identity.ts";
 import {
@@ -5586,7 +5586,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
   // S10 · Import
   // -------------------------------------------------------------------------
-  function importPage(ctx: RequestContext, error: string | null = null) {
+  function importPage(
+    ctx: RequestContext, error: string | null = null,
+    pdf: { accountId: string; askDigits: 4 | 6; error: string } | null = null,
+  ) {
     return render(ctx, "Import", renderImport({
       accounts: listAccounts(db, { viewerMemberId: viewer(ctx) }),
       batches: listBatches(db, { viewerMemberId: viewer(ctx) }),
@@ -5596,6 +5599,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       casEnabled: config.features.assets,
       banks: BANKS.map((b) => ({ id: b.id, name: b.name, passwordHint: b.passwordHint })),
       error,
+      pdf,
     }));
   }
 
@@ -5711,9 +5715,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      */
     const typed = field(ctx.body, "password") ?? "";
     const identity = getIdentity(db, a.member.id);
+    /*
+     * IMP-19 · The card's digits, typed on the form this route brings back
+     * when they are what the bank's rule needs. Read here and never echoed:
+     * a page that comes back has an empty box, and a notice shows the last two.
+     */
+    const typedDigits = (field(ctx.body, "card_digits") ?? "").replace(/[\s-]/g, "");
 
     let parsed;
     let opened = "";
+    let savedDigits = "";
     /*
      * Which detail the bank's rule needs and this household has not saved.
      * Four institutions account for every statement a real corpus could not
@@ -5721,6 +5732,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * leaving somebody to conclude the file is simply unreadable.
      */
     let missing: string | null = null;
+    /** IMP-19 · How many of the card's digits to ask for, when that is the fix. */
+    let askDigits: 4 | 6 | null = null;
+    let digitsFailed = false;
+    const account = getAccount(db, accountId);
     try {
       if (typed !== "") {
         parsed = parseStatementPdf(upload.bytes, typed);
@@ -5728,26 +5743,65 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         // F2.9 · The destination account already stores the card/account's
         // last four digits (for SMS matching), which is exactly what Canara's
         // and SBI Card's passwords need. Hand them to the derivation.
-        const account = getAccount(db, accountId);
         // The account knows its bank, so the bank's own rule is tried first.
         // detectBank cannot help here: the file is still locked.
         const bank = bankForInstitution(account?.institution);
         // IMP-18 · A card account may hold up to eight trailing digits.
         const cardDigits = [cardNumberDigits(db, accountId)];
+        const isCard = account?.kind === "credit";
+        const needed = isCard ? cardDigitsNeeded(bank, identity, cardDigits) : null;
+        const tryDigits = needed && typedDigits !== "" ? typedDigits : null;
+        if (tryDigits !== null && !/^\d{4,8}$/.test(tryDigits)) {
+          askDigits = needed;
+          digitsFailed = true;
+          throw new StatementWrongPassword();
+        }
+        const withTyped = tryDigits ? [...cardDigits, tryDigits] : cardDigits;
         const result = openStatement(
           upload.bytes,
-          passwordCandidates(identity, bank, { cardDigits }),
+          passwordCandidates(identity, bank, { cardDigits: withTyped }),
         );
         if (!result) {
           missing = missingDetailFor(bank, identity, cardDigits);
+          askDigits = needed;
+          digitsFailed = tryDigits !== null;
           throw new StatementWrongPassword();
         }
         parsed = result.parse;
         opened = ` It opened with ${describeCandidate(result.candidate, identity)}.`;
+        // Saved only when the typed digits are what opened it, and only when
+        // they agree with the last four already on the card.
+        const neededTyped = tryDigits !== null
+          && !passwordCandidates(identity, bank, { cardDigits }).includes(result.candidate);
+        if (neededTyped && tryDigits) {
+          const name = account!.nickname || account!.name;
+          if (account!.last4 && account!.last4 !== tryDigits.slice(-4)) {
+            savedDigits = ` Those digits end differently from the last four recorded on ${name}, ` +
+              "so they were not saved — check the account.";
+          } else {
+            setCardNumberDigits(db, actorFor(a, "ui"), accountId, tryDigits);
+            savedDigits = ` The card's last ${tryDigits.length} digits (ending ••${tryDigits.slice(-2)}) ` +
+              `are now saved on ${name}, so its next statement opens by itself.`;
+          }
+          opened = " It opened with the card's digits.";
+        }
       } else {
         parsed = parseStatementPdf(upload.bytes, "");
       }
     } catch (error) {
+      if (error instanceof StatementWrongPassword && askDigits) {
+        const which = askDigits === 6 ? "last six" : "last four";
+        return importPage(ctx, null, {
+          accountId,
+          askDigits,
+          error: (digitsFailed
+            ? `Those digits did not open it. Enter the card number's ${which} as printed on the ` +
+              "card, or type the statement password."
+            : `${missing ?? `This statement opens with the card number's ${which}.`} ` +
+              `Enter the card number's ${which} below, or type the statement password.`) +
+            " Choose the statement again too — a browser does not keep a chosen file between tries.",
+        });
+      }
       return importPage(ctx,
         error instanceof StatementWrongPassword
           ? (identity
@@ -5841,7 +5895,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       redirect: withNotice(
         toReview > 0 ? "/review" : "/import",
         `Read ${parsed.bank ? `your ${parsed.bank.name} statement` : "the statement"} — ` +
-          `${parts.join(", ")}.${opened}${reconciled}`,
+          `${parts.join(", ")}.${opened}${savedDigits}${reconciled}`,
       ),
     };
   });
