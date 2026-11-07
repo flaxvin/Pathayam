@@ -62,7 +62,7 @@ import {
 } from "./web/pages/actions.ts";
 import { renderReview, renderImport, renderMapping, renderBudgetAppMapping } from "./web/pages/review.ts";
 import {
-  parseStatementPdf, openStatement, BANKS, bankForInstitution,
+  parseStatementPdf, openStatement, BANKS, bankForInstitution, SAFEGOLD_DISTRIBUTOR_BALANCE,
   WrongPassword as StatementWrongPassword,
 } from "./import/pdf-statements.ts";
 import {
@@ -9221,10 +9221,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const candidates = typed !== "" ? [typed] : identity ? [...passwordCandidates(identity, null, {}), ""] : [""];
     let statement: SafeGoldStatement | null = null;
     let text = "";
+    let notAStatement: string | null = null;
     for (const candidate of candidates) {
       try {
         const parsed = parseStatementPdf(upload.bytes, candidate);
         text = parsed.text;
+        notAStatement = parsed.notAStatement ?? null;
         statement = isSafeGoldText(text) ? parseSafeGoldText(text) : null;
         break;
       } catch (error) {
@@ -9237,6 +9239,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         ? "None of the passwords worked out from your saved details opened this. Type it above."
         : "That password did not open the statement. It is the first four letters of your name " +
           "in capitals, then your mobile's last four.");
+    }
+    // IMP-35 · Gold bought through a partner bank's app: a balance with no rows.
+    if (!statement && notAStatement === SAFEGOLD_DISTRIBUTOR_BALANCE) {
+      return again(`That PDF is ${SAFEGOLD_DISTRIBUTOR_BALANCE}. It lists no transactions, so there is nothing to import.`);
     }
     if (!statement) {
       return again("That PDF opened, but it is not a SafeGold statement — nothing was imported.");

@@ -13,7 +13,7 @@ import assert from "node:assert/strict";
 import type { Actor } from "../core/events.ts";
 import { queryAll } from "../db/db.ts";
 import { createAccount } from "../domain/accounts.ts";
-import { statement, TWO_ROWS, safeGoldPdf } from "../import/safegold.test-data.ts";
+import { statement, TWO_ROWS, DISTRIBUTOR_STATEMENT, safeGoldPdf } from "../import/safegold.test-data.ts";
 import { freshDb, seedMember, startTestApp, type TestApp } from "./harness.test-data.ts";
 
 const actor: Actor = { memberId: "m", source: "ui" };
@@ -104,6 +104,15 @@ describe("IMP-32 · uploading a SafeGold statement", () => {
       const res = await upload(app, "/portfolio/safegold", safeGoldPdf("HDFC BANK\nStatement of account"));
       assert.equal(res.status, 200);
       assert.match(await res.text(), /not a SafeGold statement/);
+    });
+  });
+
+  test("IMP-35 · a balance held through a partner bank is said to be that, with nothing to import", async () => {
+    await withApp(async (app) => {
+      const page = await (await upload(app, "/portfolio/safegold", safeGoldPdf(DISTRIBUTOR_STATEMENT))).text();
+      assert.match(page, /SafeGold balance held through a partner bank/);
+      assert.doesNotMatch(page, /not a SafeGold statement/);
+      assert.equal(queryAll(app.db, `SELECT id FROM lots`).length, 0);
     });
   });
 });

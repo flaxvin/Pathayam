@@ -105,6 +105,20 @@ export const TRANSFER_STATEMENT = [
 ].join("\n");
 
 /**
+ * IMP-35 · The statement SafeGold mails for gold bought through a partner
+ * bank's app, in the shape a real one prints: one page, the holder, and a
+ * single balance — no wallet balance, no transactions. Made-up figures.
+ */
+export const DISTRIBUTOR_STATEMENT = [
+  "                                                    RAVI EXAMPLE",
+  "                                                    9000000000",
+  "                                                    ravi@example.com",
+  "Account     Summary",
+  "                                                    As of 30th November 2026",
+  " Gold Balance with SafeGold Distributor                             2.0000 g",
+].join("\n");
+
+/**
  * The statement as a one-page, unencrypted PDF, one text run per line, so a
  * test goes through the real chain: extract → recognise → parse. Helvetica
  * has no rupee sign, so "₹" is written "Rs.".

@@ -11,7 +11,8 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { parseSafeGoldText, isSafeGoldText, gramsDisagreement, formatGrams } from "./safegold.ts";
-import { statement, TWO_ROWS, TRANSFER_STATEMENT } from "./safegold.test-data.ts";
+import { statement, TWO_ROWS, TRANSFER_STATEMENT, DISTRIBUTOR_STATEMENT } from "./safegold.test-data.ts";
+import { parseStatementText, SAFEGOLD_DISTRIBUTOR_BALANCE } from "./pdf-statements.ts";
 
 describe("IMP-30 · a SafeGold statement is recognised", () => {
   test("by its gold wallet balance and SafeGold's name", () => {
@@ -127,5 +128,22 @@ describe("IMP-34 · a row as the real statement prints it", () => {
     assert.equal(parsed.openingUnits, 0);
     assert.equal(parsed.closingUnits, 1_234_500);
     assert.equal(gramsDisagreement(parsed), null);
+  });
+});
+
+describe("IMP-35 · a balance held through a partner bank", () => {
+  test("is not a wallet statement to import", () => {
+    assert.equal(isSafeGoldText(DISTRIBUTOR_STATEMENT), false);
+  });
+
+  test("is named for what it is, so it is not sent to the column mapping", () => {
+    const parsed = parseStatementText(DISTRIBUTOR_STATEMENT);
+    assert.equal(parsed.notAStatement, SAFEGOLD_DISTRIBUTOR_BALANCE);
+    assert.equal(parsed.records.length, 0);
+  });
+
+  test("a wallet statement, which also prints a distributors' balance, is still a wallet statement", () => {
+    assert.notEqual(parseStatementText(statement(TWO_ROWS)).notAStatement, SAFEGOLD_DISTRIBUTOR_BALANCE);
+    assert.equal(isSafeGoldText(TRANSFER_STATEMENT), true);
   });
 });

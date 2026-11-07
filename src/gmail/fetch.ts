@@ -28,7 +28,7 @@ import { accountsByLast4For, cardsByLast4For } from "../domain/accounts.ts";
 import { hiddenAccountSql } from "../domain/member-scope.ts";
 import { ALERT_PROFILES, parseAlert, looksLikeUnreadAlert } from "../import/email-alerts.ts";
 import {
-  senderFor, parseStatementPdf, WrongPassword, STATEMENT_SENDERS, bankForInstitution,
+  senderFor, parseStatementPdf, WrongPassword, STATEMENT_SENDERS, bankForInstitution, SAFEGOLD_DISTRIBUTOR_BALANCE,
 } from "../import/pdf-statements.ts";
 import { passwordCandidates, missingDetailFor, cardDigitsNeeded } from "../import/statement-passwords.ts";
 import { cardNumberDigits } from "../domain/card-digits.ts";
@@ -362,6 +362,11 @@ async function handleStatement(
 
     // IMP-33 · Digital gold has no bank account to land in; it is a holding.
     if (isSafeGoldText(parsed.text)) { gold.push(parseSafeGoldText(parsed.text)); continue; }
+    // IMP-35 · Gold held through a partner bank's app: a balance, no rows, no account.
+    if (parsed.notAStatement === SAFEGOLD_DISTRIBUTOR_BALANCE) {
+      result.notes.push(`${pdf.filename}: ${SAFEGOLD_DISTRIBUTOR_BALANCE}, with no transactions — nothing to import`);
+      continue;
+    }
 
     // Resolve the account from the statement's own header — the parser does not
     // expose an account number, so fall back to the single account for that
