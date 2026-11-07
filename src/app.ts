@@ -70,6 +70,9 @@ import {
 } from "./import/statement-passwords.ts";
 import { getIdentity, setIdentity, clearIdentity, maskedIdentity } from "./import/identity.ts";
 import {
+  parseCardNumber, keepLongerCardDigits, setCardNumberDigits, cardNumberDigits, maskedCardNumber,
+} from "./domain/card-digits.ts";
+import {
   recognise, saveProfile, listProfiles, markProfileUsed, deleteProfile,
   mappingFromSelections, validateMapping, columnChoices, candidateHeaderRows, looksMappable,
   rowsByPosition, delimiterName, MAPPING_DELIMITERS,
@@ -3025,11 +3028,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           "or let whoever's name is on it make it private themselves.",
         );
       }
+      /*
+       * IMP-18 · A card account takes four to eight trailing digits. The form
+       * shows only the last four, so the same four sent back keep any longer
+       * run on file; new digits replace it, and an empty box clears both.
+       */
+      const cardNumber = parseCardNumber(field(ctx.body, "last4"), { card: before.kind === "credit" });
+      const keepsLonger = cardNumber !== undefined && cardNumber !== null
+        && cardNumber.length === 4 && cardNumber === before.last4;
       updateAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, {
         name: requiredField(ctx.body, "name"),
         nickname: text("nickname"),
         institution: text("institution"),
-        last4: last4Field(field(ctx.body, "last4")),
+        last4: cardNumber === undefined ? undefined : cardNumber?.slice(-4) ?? null,
         holder_member_id: holder,
         statement_day: numberOrNull(field(ctx.body, "statement_day")),
         due_day: numberOrNull(field(ctx.body, "due_day")),
@@ -3041,6 +3052,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         budget_id: text("budget_id") && requireVisibleBudget(ctx, text("budget_id")!),
         visibility,
       });
+      if (cardNumber !== undefined && !keepsLonger) keepLongerCardDigits(db, actorFor(a), id, cardNumber);
       return { redirect: `/accounts/${id}`, message: "Saved." };
     }),
   );
@@ -3119,12 +3131,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // than rejecting it.
       if (kind === "credit" && opening > 0) opening = -opening;
 
+      // IMP-18 · A card account takes up to eight trailing digits; any other, four.
+      const cardNumber = parseCardNumber(field(ctx.body, "last4"), { card: kind === "credit" }) ?? null;
       const account = createAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), {
         name: requiredField(ctx.body, "name"),
         kind,
         subtype,
         institution: field(ctx.body, "institution") || null,
-        last4: last4Field(field(ctx.body, "last4")) ?? null,
+        last4: cardNumber?.slice(-4) ?? null,
         openingBalance: opening,
         openingDate,
         statementDay: numberOrNull(field(ctx.body, "statement_day")),
@@ -3143,6 +3157,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       if (terms) {
         setDepositTerms(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), account.id, terms);
       }
+      if (cardNumber && cardNumber.length > 4) keepLongerCardDigits(db, actorFor(a), account.id, cardNumber);
 
       return {
         redirect: `/accounts/${account.id}`,
@@ -3288,6 +3303,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       account.nickname || account.name,
       renderAccountDetail({
         account,
+        cardNumberOnFile: account.kind === "credit" ? maskedCardNumber(db, account.id) : null,
         derived: derivedWorth(db, account, viewer(ctx)),
         // A hand-valued asset has no transactions and never will, so its
         // register shows the valuations instead of staying empty forever.
@@ -5716,12 +5732,14 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         // The account knows its bank, so the bank's own rule is tried first.
         // detectBank cannot help here: the file is still locked.
         const bank = bankForInstitution(account?.institution);
+        // IMP-18 · A card account may hold up to eight trailing digits.
+        const cardDigits = [cardNumberDigits(db, accountId)];
         const result = openStatement(
           upload.bytes,
-          passwordCandidates(identity, bank, { cardDigits: [account?.last4] }),
+          passwordCandidates(identity, bank, { cardDigits }),
         );
         if (!result) {
-          missing = missingDetailFor(bank, identity, [account?.last4]);
+          missing = missingDetailFor(bank, identity, cardDigits);
           throw new StatementWrongPassword();
         }
         parsed = result.parse;

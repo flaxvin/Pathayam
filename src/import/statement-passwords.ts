@@ -319,7 +319,7 @@ export function missingDetailFor(
       return longest.length < 6
         ? "HSBC uses the last six digits of the card, and this account has "
           + (longest.length > 0 ? "only the last four." : "no card number recorded.")
-          + " Add the HSBC card's last six in Settings."
+          + " Add the card's last six on the account, or in Settings."
         : null;
     // IMPORT-SND-12 · Account statements locked with the customer ID. A card
     // statement from either bank opens with the name and date of birth, so a

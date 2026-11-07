@@ -533,7 +533,11 @@ export async function runBackupJob(
  * data: restoring somebody's ledger on a new machine should not carry their
  * credentials along with it.
  */
-export const NEVER_EXPORTED = ["statement_identity", "gmail_connections", "member_passwords"];
+// IMP-18 · `card_number_digits` holds up to eight of a card's trailing digits,
+// a statement-password ingredient like the identity: kept on the server only.
+export const NEVER_EXPORTED = [
+  "statement_identity", "gmail_connections", "member_passwords", "card_number_digits",
+];
 
 export function exportEverything(db: DB): Record<string, unknown> {
   const tables = [...COUNTED_TABLES, "household", "import_profiles", "rule_applications", "review_dismissals"]

@@ -399,7 +399,8 @@ function accountsAtBank(
  * The statement routes to the one account at its bank when there is exactly
  * one, so that account's last four and its cards' are the digits — what the
  * upload path uses, plus the add-on cards a household records on the card
- * rather than the account. When the route is unknown (no account at that
+ * rather than the account, and (IMP-18) the up-to-eight trailing digits a
+ * card account may hold for HSBC's last six. When the route is unknown (no account at that
  * bank, or several), every visible account's and card's digits are offered:
  * trying a handful of extra candidates against a local file costs nothing,
  * and a statement that opens but has nowhere to go is then said as such
@@ -420,8 +421,14 @@ function statementCardDigits(
      UNION
      SELECT c.last4 AS digits FROM cards c JOIN accounts a ON a.id = c.account_id
       WHERE c.closed_at IS NULL AND a.closed_at IS NULL AND c.last4 IS NOT NULL
+        AND ${scope.sql} AND NOT ${hidden.sql}
+     UNION
+     SELECT d.digits AS digits FROM card_number_digits d JOIN accounts a ON a.id = d.account_id
+      WHERE a.closed_at IS NULL AND substr(d.digits, -4) = a.last4
         AND ${scope.sql} AND NOT ${hidden.sql}`,
-  ).all(...scope.params, ...hidden.params, ...scope.params, ...hidden.params) as { digits: string }[];
+  ).all(
+    ...scope.params, ...hidden.params, ...scope.params, ...hidden.params, ...scope.params, ...hidden.params,
+  ) as { digits: string }[];
   return rows.map((r) => r.digits);
 }
 

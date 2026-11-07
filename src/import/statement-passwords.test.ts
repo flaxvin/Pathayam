@@ -265,7 +265,7 @@ describe("IMPORT-15 · HSBC's last six, kept in Settings", () => {
     const withSix = { ...IDENTITY, hsbcCardLast6: "556677" };
     assert.ok(passwordCandidates(withSix, "hsbc").includes("010170556677"));
     assert.ok(!passwordCandidates(IDENTITY, "hsbc", { cardDigits: ["6677"] }).includes("010170556677"));
-    assert.match(missingDetailFor("hsbc", IDENTITY, ["6677"])!, /last six in Settings/);
+    assert.match(missingDetailFor("hsbc", IDENTITY, ["6677"])!, /last six on the account, or in Settings/);
     assert.equal(missingDetailFor("hsbc", withSix, ["6677"]), null);
   });
 
