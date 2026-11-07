@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Guides</title>
-<meta name="description" content="42 guides covering every screen in Pathayam: budgeting, separate budgets, statements, credit cards, loans, deposits, insurance, tax, investments, backups and troubleshooting.">
+<meta name="description" content="43 guides covering every screen in Pathayam: budgeting, asking an AI about your figures, separate budgets, statements, credit cards, loans, deposits, insurance, tax, investments, backups and troubleshooting.">
 <link rel="stylesheet" href="fonts.css">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon.png" sizes="32x32" type="image/png">
@@ -55,8 +55,9 @@
       <p class="eyebrow">Guides</p>
       <h1 style="font-size:var(--step-5);max-width:18ch;margin-inline:auto">How to actually use it</h1>
       <p class="lede" style="font-size:var(--step-2);max-width:56ch">
-        42 guides covering every screen in the app, in the order you will need
-        them. Start at the top if it is your first day, or jump to whatever you are
+        43 guides covering every screen in the app, in the order you will need
+        them &mdash; now including <a href="#connect-ai">asking Claude, ChatGPT or
+        Gemini about your own figures</a>. Start at the top if it is your first day, or jump to whatever you are
         stuck on.
       </p>
       <div class="actions" style="margin-top:1.75rem">
@@ -106,6 +107,8 @@
             <li><a href="#print">Print a report</a></li>
             <li><a href="#schedules">Schedules and cashflow</a></li>
             <li><a href="#goals">Savings goals</a></li>
+          <li class="rail-part">Asking an AI</li>
+            <li><a href="#connect-ai">Connect Claude, ChatGPT or Gemini</a></li>
           <li class="rail-part">Investments and net worth</li>
             <li><a href="#portfolio">Portfolio</a></li>
             <li><a href="#valuations">Hand-valued assets</a></li>
@@ -1139,6 +1142,105 @@ set aside and can see.</div>
                 <figcaption>A goal against its target date.</figcaption>
               </figure>
             </div>
+          </article>
+          <h2 class="guide-part" id="part-asking-an-ai">Asking an AI</h2>
+          <article class="guide" id="connect-ai">
+            <h2>Connect Claude, ChatGPT or Gemini</h2>
+<p>Pathayam has a read-only server built in that AI apps speak to through the Model
+Context Protocol, at your own address with <code>/mcp</code> on the end. Connect the
+app you already use and ask it about your figures in plain words: where the grocery
+money went this quarter, whether prepaying the home loan is worth it, what the tax
+comes to under each regime. It answers from the same queries the screens use, so a
+figure it quotes is the figure on the page.</p>
+<p>Everything starts on <strong>Settings &rarr; API tokens &rarr; Connect an AI</strong>,
+which shows the address to give an app, what is connected, and what each connection
+has read.</p>
+<div class="note"><b>What an AI reads is sent to that AI's provider.</b> Whatever a
+tool returns travels to Anthropic, OpenAI or Google and becomes part of the
+conversation there, under their terms. Connect only the apps you would show these
+figures to. Connect nothing, and nothing is sent anywhere.</div>
+<h3>From claude.ai, ChatGPT or the Gemini app</h3>
+<p>These sign in to Pathayam themselves, so there is no token to copy. They call your
+address from their own servers, so it has to be reachable from the internet at your
+<code>BASE_URL</code>.</p>
+<ol class="steps">
+  <li><div><strong>Add the connector.</strong> In <em>claude.ai</em> or the Claude
+    apps, Settings &rarr; Connectors &rarr; add a custom connector. In
+    <em>ChatGPT</em>, add a connector in developer mode. In the <em>Gemini app</em>,
+    Settings &rarr; Connected apps &rarr; add a custom app, where Google offers custom
+    apps (at the time of writing, personal accounts in the US).</div></li>
+  <li><div><strong>Give it your address</strong> with <code>/mcp</code> on the end,
+    as the Connect an AI page shows it: <code>https://budget.example.in/mcp</code>.</div></li>
+  <li><div><strong>Approve it in Pathayam.</strong> The app sends you to sign in. The
+    consent page names the app and where it will send you back to, and asks whether
+    identifiers are masked. Approve, and you are returned to the app.</div></li>
+  <li><div><strong>Ask.</strong> The connection appears on the Connect an AI page. Its
+    access lasts an hour and renews itself while it stays connected.</div></li>
+</ol>
+<h3>From Claude Code, Gemini CLI, Claude Desktop or a script</h3>
+<p>On the Connect an AI page, name the connection, choose whether it is masked and
+when it ends (30 days, 90 or a year), and press <strong>Create a connection</strong>.
+The page shows a token once, already written into three ready commands. Copy the one
+you need before leaving the page; only a hash of the token is kept.</p>
+<p>Claude Code:</p>
+<pre><code>claude mcp add --transport http pathayam https://budget.example.in/mcp \
+  --header "Authorization: Bearer bgt_…"</code></pre>
+<p>Gemini CLI, for every folder you run it in:</p>
+<pre><code>gemini mcp add -s user --transport http \
+  --header "Authorization: Bearer bgt_…" pathayam https://budget.example.in/mcp</code></pre>
+<p>Claude Desktop, Cursor and other apps that take a JSON configuration:</p>
+<pre><code>{
+  "mcpServers": {
+    "pathayam": {
+      "type": "http",
+      "url": "https://budget.example.in/mcp",
+      "headers": { "Authorization": "Bearer bgt_…" }
+    }
+  }
+}</code></pre>
+<p>Gemini CLI can also sign in the way the web apps do, with no token:
+<code>gemini mcp add --transport http pathayam https://budget.example.in/mcp</code>.</p>
+<h3>What it can and cannot see</h3>
+<ul>
+  <li><strong>It reads, only.</strong> No tool it is offered can write, and the token
+    behind every connection is read-only. It can never move money, file a transaction
+    or change a setting.</li>
+  <li><strong>It sees what you see.</strong> A connection reads as the member who
+    made it: the household budget and your own personal budget. Another member's
+    private accounts, loans, policies and envelopes are never listed, counted or
+    totalled.</li>
+  <li><strong>It cannot reach the doors.</strong> Sign-in, tokens, the member list,
+    viewing as somebody, approving another app and the Connect an AI page itself are
+    all out of its reach.</li>
+</ul>
+<h3>Masking</h3>
+<p>On by default, chosen per connection. Before an answer leaves, a run of nine or more
+digits &mdash; an account, card or phone number, a UPI reference &mdash; keeps its last
+four; a UPI ID or email address keeps only what follows the <code>@</code>; and a PAN
+is masked whole. Amounts, envelope names and payee names are sent, because they are
+the analysis.</p>
+<div class="note">Masking is best effort. A person's name written into a narration is
+not something a pattern can recognise, so it goes as written.</div>
+<h3>What they have read</h3>
+<p><strong>What they have read</strong>, on the same page, lists each question a
+connection asked, newest first: when, which app, which tool, with what arguments, and
+how large the answer was or that it was refused. The answers themselves are not kept.
+You see only your own connections' questions. Rows are kept for 90 days. Reads are not
+in Activity, which is the budget's history; connecting and disconnecting an app are.</p>
+<h3>Disconnecting</h3>
+<p>Press <strong>Disconnect</strong> beside it on the Connect an AI page. A signed-in
+app loses its access and its renewal together, and a token stops working at once. A
+token also ends on its own on the date you chose, and every connection ends when its
+member is removed.</p>
+<h3>Without connecting anything</h3>
+<p><strong>Download an analysis summary</strong> from the Connect an AI page or
+Health, or fetch <code>/export/analysis.json</code>: a year of budget and spending by
+envelope, the top payees, accounts, loans, portfolio, net worth, the next 30 days and
+the tax estimate, in one JSON file. Paste it into any AI chat, or open it in a
+spreadsheet. It holds what you see and nothing more, and no transaction list. Pasting
+it into a chat sends it to that provider just the same, and it is not masked.</p>
+            <div class="note note--good"><b>For a script</b>, the endpoint, the
+sign-in and the seventeen tools are in the <a href="api.html#ai">API reference</a>.</div>
           </article>
           <h2 class="guide-part" id="part-investments-and-net-worth">Investments and net worth</h2>
           <article class="guide" id="portfolio">
