@@ -15,7 +15,7 @@ import { VERSION } from "./version.ts";
 import { devLoginModulePresent, type Config } from "./config.ts";
 import {
   Router, field, fieldList, fileField, requiredField, HttpError, NotFound,
-  type RequestContext, type Response,
+  type RequestContext, type Response, rawBodies,
 } from "./http/router.ts";
 import { clientIp, wantsJson, contentSecurityPolicy } from "./http/server.ts";
 import { html, raw, when, type SafeHtml } from "./http/html.ts";
@@ -33,7 +33,7 @@ import {
   type AuthContext,
 } from "./auth/sessions.ts";
 import {
-  authenticateToken, tokenMayReach, checkTokenRateLimit,
+  authenticateToken, tokenMayReach, checkTokenRateLimit, tokenRedacts, type ApiToken,
   mintToken, listTokens, revokeToken, type TokenScope,
 } from "./auth/tokens.ts";
 import { beginOAuth, exchangeCode, OAuthError } from "./auth/google.ts";
@@ -397,6 +397,11 @@ import {
 } from "./portfolio/holdings.ts";
 import { searchSchemes } from "./portfolio/providers.ts";
 import { refreshPrices, MANUAL_REFRESH } from "./portfolio/refresh.ts";
+import { handleMcp } from "./ai/mcp.ts";
+import { buildTools, MCP_INSTRUCTIONS } from "./ai/tools.ts";
+import { redactValue } from "./ai/redact.ts";
+import { recordAiAccess, listAiAccess } from "./ai/access-log.ts";
+import { renderConnectAi } from "./web/pages/ai.ts";
 
 export interface AppDeps {
   db: DB;
@@ -645,7 +650,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     function authenticateRequest(ctx: RequestContext): Response | void {
       const path = ctx.url.pathname;
       const cookies = parseCookies(ctx.req.headers.cookie);
-      let auth = authenticate(db, cookies[SESSION_COOKIE] ?? null);
+      /*
+       * AI-2 · /mcp is answered only as the token: the tools act for whoever
+       * the AI connection was made by. A browser cookie riding along (the
+       * member's own tab, a page that fetched with credentials) must not turn
+       * a connection into its holder's full session.
+       */
+      let auth = isMcpPath(path) ? null : authenticate(db, cookies[SESSION_COOKIE] ?? null);
 
       // F30 · A bearer token authenticates as its member, but is a narrower
       // thing than a session: it cannot reach the routes in F30.6's list, it
@@ -676,7 +687,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           };
         }
 
-        if (ctx.method !== "GET" && bearer.scope === "read") {
+        // AI-2 · Except /mcp: MCP is JSON-RPC over POST, and every tool behind
+        // it is a read. A read-only token is exactly what an AI connection is.
+        if (ctx.method !== "GET" && bearer.scope === "read" && !isMcpPath(path)) {
           return { status: 403, json: { error: "That token is read-only." } };
         }
 
@@ -733,7 +746,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // Signing out is the same kind of door: refusing it left a read-only
       // viewer unable to end their own session on a shared device.
       const IMPERSONATION_CONTROLS = new Set(["/impersonate/exit", "/impersonate/writes", "/signout"]);
-      if (ctx.method !== "GET" && !auth.canWrite && !IMPERSONATION_CONTROLS.has(path)) {
+      if (ctx.method !== "GET" && !auth.canWrite && !IMPERSONATION_CONTROLS.has(path) && !(isMcpPath(path) && ctx.locals.token)) {
         throw new HttpError(
           403,
           `You're viewing as ${auth.viewingAs.name} in read-only mode. Enable writes first, or exit.`,
@@ -10176,6 +10189,106 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         "Content-Disposition": `attachment; filename="transactions-${todayIST()}.csv"`,
       },
     };
+  });
+
+  // -------------------------------------------------------------------------
+  // AI-2 · The MCP endpoint: Claude, ChatGPT, Gemini and the rest, read-only.
+  //
+  // The middleware has already made sure this is a bearer token (a cookie is
+  // not looked at here) and has answered a missing one with the 401 that
+  // starts an AI app's sign-in. The tools are built per request for the
+  // token's member, so there is no state between calls to leak across them.
+  // -------------------------------------------------------------------------
+  const mcpOrigins = new Set([
+    new URL(config.baseUrl).origin,
+    ...String(process.env.MCP_ALLOWED_ORIGINS ?? "").split(",").map((o) => o.trim()).filter(Boolean),
+  ]);
+  router.post("/mcp", (ctx) => {
+    const a = auth(ctx);
+    const token = ctx.locals.token as ApiToken | undefined;
+    if (!token) return oauth.mcpUnauthorized(config.baseUrl);
+    /*
+     * The spec's DNS-rebinding rule: an Origin, when there is one, must be
+     * ours. A connector calls from its own servers and sends none; a browser
+     * page that names another origin is refused unless the operator listed it
+     * in MCP_ALLOWED_ORIGINS. A token is still required either way.
+     */
+    const origin = ctx.req.headers.origin;
+    if (origin && !mcpOrigins.has(origin)) {
+      return { status: 403, json: { jsonrpc: "2.0", id: null, error: { code: -32600, message: "That Origin may not call this server." } } };
+    }
+    const reply = handleMcp(
+      { headers: ctx.req.headers, rawBody: rawBodies.get(ctx.req) ?? "" },
+      {
+        server: { name: "pathayam", title: "Pathayam", version: VERSION, instructions: MCP_INSTRUCTIONS },
+        tools: buildTools(db, a.member.id, { features: { loans: config.features.loans, assets: config.features.assets } }),
+        transformResult: tokenRedacts(token) ? redactValue : undefined,
+        onToolCall: (c) => recordAiAccess(db, {
+          tokenId: token.id, memberId: a.member.id, tool: c.tool, args: c.args, ok: c.ok, bytes: c.bytes,
+        }),
+      },
+    );
+    if (reply.json === undefined) return { status: reply.status, body: "" };
+    return { status: reply.status, json: reply.json, headers: reply.headers };
+  });
+  // The 2025 revisions opened a GET stream and ended sessions with DELETE;
+  // with no sessions and no server-sent requests, both are 405 (the spec's
+  // own answer for a server that offers neither).
+  router.get("/mcp", () => ({ status: 405, headers: { Allow: "POST" }, body: "" }));
+  router.add("DELETE", "/mcp", () => ({ status: 405, headers: { Allow: "POST" }, body: "" }));
+
+  // -------------------------------------------------------------------------
+  // AI-5 · Connect an AI. Under /tokens, so no bearer token can reach it.
+  // -------------------------------------------------------------------------
+  function connectAiProps(memberId: string) {
+    const handMinted = queryAll<{ id: string; name: string; redact: number; created_at: string; last_used_at: string | null }>(
+      db,
+      `SELECT id, name, redact, created_at, last_used_at FROM api_tokens
+        WHERE member_id = ? AND for_ai = 1 AND revoked_at IS NULL ORDER BY created_at DESC`,
+      memberId,
+    );
+    return {
+      mcpUrl: `${config.baseUrl}/mcp`,
+      snapshotUrl: "/export/analysis.json",
+      connections: [
+        ...oauth.listConnections(db, memberId).map((c) => ({
+          id: c.id, name: c.clientName, how: `Signed in from ${c.redirectHost}`, redact: c.redact,
+          created_at: c.createdAt, last_used_at: c.lastUsedAt, revoke_url: `/tokens/connections/${c.id}/revoke`,
+        })),
+        ...handMinted.map((t) => ({
+          id: t.id, name: t.name, how: "Token", redact: t.redact === 1,
+          created_at: t.created_at, last_used_at: t.last_used_at, revoke_url: `/tokens/${t.id}/revoke`,
+        })),
+      ],
+      log: listAiAccess(db, memberId),
+    };
+  }
+  router.get("/tokens/ai", (ctx) => {
+    const a = auth(ctx);
+    return render(ctx, "Connect an AI", renderConnectAi({ ...connectAiProps(a.member.id), minted: null }));
+  });
+  router.post("/tokens/ai", (ctx) => {
+    refuseInDemo(config, "Connecting an AI");
+    const a = auth(ctx);
+    // As for /tokens: a token minted while viewing as somebody would be theirs.
+    if (a.impersonating) {
+      throw new HttpError(403, "An AI cannot be connected while viewing as another member.");
+    }
+    const days = Number(field(ctx.body, "expires_in_days"));
+    const redact = field(ctx.body, "redact") === "1";
+    // Always read-only and always expiring: an AI connection has no need to
+    // write, and one forgotten in a config file should stop on its own.
+    const minted = mintToken(db, actorFor(a), {
+      name: requiredField(ctx.body, "name").slice(0, 80),
+      scope: "read",
+      expiresInDays: [30, 90, 365].includes(days) ? days : 90,
+    });
+    execute(db, `UPDATE api_tokens SET for_ai = 1, redact = ? WHERE id = ?`, redact ? 1 : 0, minted.token.id);
+    // F30.4 · Rendered, not redirected: a redirect would carry the secret in a URL.
+    return render(ctx, "Connect an AI", renderConnectAi({
+      ...connectAiProps(a.member.id),
+      minted: { name: minted.token.name, secret: minted.secret, redact },
+    }));
   });
 
   /** F19.13 · Portfolio CSVs — one shape each. */

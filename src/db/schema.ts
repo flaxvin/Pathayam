@@ -3039,6 +3039,10 @@ CREATE TABLE ai_access_log (
   at        TEXT NOT NULL
 );
 CREATE INDEX idx_ai_access_log_member ON ai_access_log(member_id, id);
+
+-- A token minted on Connect an AI (/tokens/ai) rather than for a script, so
+-- that page lists it with the AI apps and the API tokens page still lists it.
+ALTER TABLE api_tokens ADD COLUMN for_ai INTEGER NOT NULL DEFAULT 0 CHECK (for_ai IN (0, 1));
 `,
   },
 ];

@@ -18,9 +18,10 @@ export interface AiConnectionRow {
   redact: boolean;
   created_at: string;
   last_used_at: string | null;
-  expires_at: string | null;
-  /** Set for a connection made by signing in from the AI app (OAuth). */
-  via_oauth: boolean;
+  /** "Signed in from the app" (OAuth) or "Token". */
+  how: string;
+  /** Where its Disconnect button posts. */
+  revoke_url: string;
 }
 
 export function renderConnectAi(opts: {
@@ -131,12 +132,12 @@ export function renderConnectAi(opts: {
                 ${opts.connections.map((c) => html`
                   <tr>
                     <td>${c.name}</td>
-                    <td class="faint">${c.via_oauth ? "Signed in from the app" : "Token"}</td>
+                    <td class="faint">${c.how}</td>
                     <td>${c.redact ? "Yes" : "No"}</td>
                     <td class="faint">${formatDate(c.created_at.slice(0, 10))}</td>
                     <td class="faint">${c.last_used_at ? formatDate(c.last_used_at.slice(0, 10)) : "Never"}</td>
                     <td>
-                      <form method="post" action="/tokens/${c.id}/revoke">
+                      <form method="post" action="${c.revoke_url}">
                         <button class="button-small button-danger" type="submit">Disconnect</button>
                       </form>
                     </td>

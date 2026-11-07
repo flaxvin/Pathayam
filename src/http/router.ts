@@ -134,6 +134,9 @@ export function fileField(req: IncomingMessage, name: string): UploadedFile | nu
   return uploads.get(req)?.get(name) ?? null;
 }
 
+/** The request body exactly as it arrived, for routes that need more than form shape. */
+export const rawBodies = new WeakMap<IncomingMessage, string>();
+
 export async function readBody(
   req: IncomingMessage, maxBytes: number = MAX_BODY_BYTES,
 ): Promise<Record<string, string | string[]>> {
@@ -161,6 +164,9 @@ export async function readBody(
   }
 
   const text = raw.toString("utf8");
+  // AI-2 · Kept for the one route that needs the body as sent: /mcp's JSON-RPC
+  // has nested objects the form-shaped body below flattens away.
+  rawBodies.set(req, text);
   if (text === "") return {};
 
   if (contentType.includes("application/json")) {
