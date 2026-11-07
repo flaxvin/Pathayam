@@ -9,6 +9,7 @@
  * F21.2: no service worker is registered. There is no exception (R35.1).
  */
 
+import { PLAN_PRESETS, FEATURE_NAMES, anyImport, pathAvailable, type Features } from "../features.ts";
 import { createHash } from "node:crypto";
 import { html, raw, escape, when, type SafeHtml } from "../http/html.ts";
 import { CLIENT_SCRIPT } from "./client.ts";
@@ -86,9 +87,7 @@ export interface LayoutOptions {
   print?: { caveat?: string } | null;
   /** PRINT-1 · Named in the printed footer, so a sheet says whose it is. */
   householdName?: string | null;
-  features?: {
-    loans: boolean;
-    assets: boolean;
+  features?: Features & {
     /**
      * 15 · Whether anybody in the household keeps a separate budget. The
      * household screen only means something once one does, and F28.2 says a
@@ -109,7 +108,7 @@ const PRIMARY_NAV: NavItem[] = [
 export function page(options: LayoutOptions, content: SafeHtml): string {
   const {
     title, theme, path = "/", impersonating, devMode, demoMode, notice, bare,
-    reviewCount = 0, memberName, memberId, features = { loans: true, assets: true },
+    reviewCount = 0, memberName, memberId, features = { ...PLAN_PRESETS.selfhost.features },
     budgets = [], currentBudgetId = null, print = null, householdName = null,
   } = options;
 
@@ -140,7 +139,7 @@ export function page(options: LayoutOptions, content: SafeHtml): string {
 <meta name="apple-mobile-web-app-title" content="Pathayam">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 </head>
-<body data-features="${[features.loans ? "loans" : "", features.assets ? "assets" : ""].filter(Boolean).join(" ")}"${memberId && !bare ? ` data-member="${escape(memberId)}"` : ""}>
+<body data-features="${bare ? "" : enabledFeatureNames(features).join(" ")}"${memberId && !bare ? ` data-member="${escape(memberId)}"` : ""}>
 ${String(renderBanners(impersonating, devMode, demoMode, path))}
 ${bare ? "" : String(renderHeader(theme, memberName, budgets, currentBudgetId, path))}
 <a class="skip-link" href="#main">Skip to content</a>
@@ -379,7 +378,7 @@ function honoursBudget(path: string): boolean {
 function renderSidebar(
   path: string,
   reviewCount: number,
-  features: { loans: boolean; assets: boolean; separateBudgets?: boolean },
+  features: Features & { separateBudgets?: boolean },
   budgets: { id: string; name: string; kind: string }[] = [],
   currentBudgetId: string | null = null,
 ): SafeHtml {
@@ -396,16 +395,14 @@ function renderSidebar(
     { href: "/schedules", label: "Schedules", icon: "◷" },
     { href: "/goals", label: "Goals", icon: "◎" },
     { href: "/insurance", label: "Insurance", icon: "☂" },
-    ...(features.loans ? [{ href: "/loans", label: "Loans", icon: "▽" }] : []),
-    ...(features.assets
-      ? [
-          { href: "/portfolio", label: "Portfolio", icon: "△" },
-          { href: "/net-worth", label: "Net worth", icon: "◈" },
-          { href: "/fire", label: "Independence", icon: "◉" },
-          { href: "/tax", label: "Tax", icon: "₹" },
-        ]
-      : []),
-  ];
+    { href: "/loans", label: "Loans", icon: "▽" },
+    { href: "/portfolio", label: "Portfolio", icon: "△" },
+    { href: "/net-worth", label: "Net worth", icon: "◈" },
+    { href: "/fire", label: "Independence", icon: "◉" },
+    { href: "/tax", label: "Tax", icon: "₹" },
+  // PLAN-1 · One rule for every module: an item whose page this deployment
+  // does not serve is not offered (features.ts holds the route table).
+  ].filter((item) => pathAvailable(item.href, features));
 
   const link = (item: NavItem) => html`
     <a href="${item.href}" ${raw(isCurrent(path, item.href) ? 'aria-current="page"' : "")}>
@@ -457,7 +454,7 @@ function renderSidebar(
         { href: "/activity", label: "Activity", icon: "↺" },
         { href: "/health", label: "Health", icon: "♡" },
         { href: "/settings", label: "Settings", icon: "⚒" },
-      ].map(link)}
+      ].filter((item) => pathAvailable(item.href, features)).map(link)}
     </nav>
   `;
 }
@@ -485,3 +482,11 @@ export const MANIFEST = JSON.stringify({
     { src: "/assets/icon-maskable.png", sizes: "512x512", type: "image/png", purpose: "maskable" },
   ],
 });
+
+/**
+ * PLAN-1 · The modules this page may offer, for the command palette, which
+ * hides a command whose module is off. `import` is any of the three ways in.
+ */
+function enabledFeatureNames(features: Features): string[] {
+  return [...FEATURE_NAMES.filter((name) => features[name]), ...(anyImport(features) ? ["import"] : [])];
+}

@@ -24,6 +24,7 @@ import { HttpError } from "../http/router.ts";
 import { Refusal } from "../core/refusal.ts";
 import { buildApp, renderErrorPage } from "../app.ts";
 import type { Config } from "../config.ts";
+import { PLAN_PRESETS, type Features } from "../features.ts";
 import { nowIST } from "../core/dates.ts";
 import { createSession, SESSION_COOKIE } from "../auth/sessions.ts";
 import { recordRequestFailure } from "../ops/errors.ts";
@@ -38,7 +39,15 @@ export interface TestApp {
   close(): Promise<void>;
 }
 
-export function testConfig(overrides: Partial<Config> = {}): Config {
+/**
+ * `features` may be given in part: what a test names is changed, and the rest
+ * stay as a self-hosted install has them, so a test about one module does not
+ * have to know every other one exists.
+ */
+export type TestConfigOverrides = Omit<Partial<Config>, "features"> & { features?: Partial<Features> };
+
+export function testConfig(overrides: TestConfigOverrides = {}): Config {
+  const { features, ...rest } = overrides;
   return {
     port: 0,
     host: "127.0.0.1",
@@ -54,14 +63,16 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
     demoMode: false,
     adminDebug: false,
     sessionDays: 30,
-    features: { loans: true, assets: true, multiCurrency: false },
+    plan: "selfhost",
+    limits: { ...PLAN_PRESETS.selfhost.limits },
     backupWebhookUrl: null,
     heartbeatUrl: null,
     alphaVantageKey: null,
     trustProxy: false,
     localLogin: false,
     oidc: { issuer: null, clientId: null, clientSecret: null, label: "single sign-on" },
-    ...overrides,
+    ...rest,
+    features: { ...PLAN_PRESETS.selfhost.features, ...features },
   };
 }
 
@@ -72,7 +83,7 @@ export function testConfig(overrides: Partial<Config> = {}): Config {
  */
 export async function startTestApp(
   db: DB,
-  opts: { memberId?: string | null; config?: Partial<Config>; fetchImpl?: typeof fetch } = {},
+  opts: { memberId?: string | null; config?: TestConfigOverrides; fetchImpl?: typeof fetch } = {},
 ): Promise<TestApp> {
   const failures: TestApp["failures"] = [];
   const config = testConfig(opts.config);

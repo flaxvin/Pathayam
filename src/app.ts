@@ -13,6 +13,7 @@ import type { DB } from "./db/db.ts";
 import { queryAll, queryOne, execute, newId , transact } from "./db/db.ts";
 import { VERSION } from "./version.ts";
 import { devLoginModulePresent, type Config } from "./config.ts";
+import { pathAvailable, anyImport } from "./features.ts";
 import {
   Router, field, fieldList, fileField, requiredField, HttpError, NotFound,
   type RequestContext, type Response,
@@ -498,6 +499,17 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     },
 
     /*
+     * PLAN-1 · A module this deployment does not offer answers 404 before any
+     * handler runs, so a route added to a module later is gated by where it
+     * lives rather than by remembering a guard. 404 and not 403: F28.2 makes a
+     * disabled module disappear, and "not on your plan" for a page that does
+     * not exist on this instance would be a promise of something to unlock.
+     */
+    function featureGate(ctx: RequestContext): Response | void {
+      if (!pathAvailable(ctx.url.pathname, config.features)) throw new NotFound();
+    },
+
+    /*
      * A write has to come from this app's own pages.
      *
      * The cookie is already `SameSite=Lax`, which a browser honours by not
@@ -590,6 +602,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       // thing than a session: it cannot reach the routes in F30.6's list, it
       // is rate-limited separately (F30.7), and a read-only one cannot write.
       const bearer = authenticateToken(db, ctx.req.headers.authorization);
+      // PLAN-1 · With API tokens off, a token minted before stops working
+      // rather than outliving the module that issued it. It is kept, so
+      // turning the module back on brings it back.
+      if (bearer && !auth && !config.features.apiTokens) {
+        return { status: 403, json: { error: "API tokens are not available on this instance." } };
+      }
       if (bearer && !auth) {
         if (!tokenMayReach(path)) {
           return {
@@ -708,8 +726,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           notice: opts.notice ?? noticeFrom(ctx),
           bare: opts.bare,
           features: {
-            loans: config.features.loans,
-            assets: config.features.assets,
+            ...config.features,
             /*
              * Visible once there is more than one person, not once somebody has
              * already committed — it is the page that explains the choice and
@@ -3693,6 +3710,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // F1.6 · Removed is a state, not a deletion.
     const removedMembers = listMembers(db, { includeRemoved: true })
       .filter((m) => m.removed_at !== null);
+    // PLAN-1 · At MAX_MEMBERS, a form to add one more would only be refused.
+    const canAddMember = config.limits.maxMembers === null || members.length < config.limits.maxMembers;
     const sessions = listSessions(db, a.member.id);
     const overspendModel = householdSettings(db)?.overspend_model ?? "reduce-rta";
     const learning = learningEnabled(db);
@@ -3892,7 +3911,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
                     <strong>${m.name}</strong>
                     <div class="faint">${m.email} · everything they entered is still here</div>
                   </div>
-                  ${when(!config.demoMode, () => html`
+                  ${when(!config.demoMode && canAddMember, () => html`
                     <form method="post" action="/members/invite">
                       <input type="hidden" name="email" value="${m.email}">
                       <button class="button-small" type="submit">Add back</button>
@@ -3902,8 +3921,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               `,
             )}
           `)}
+          ${when(!config.demoMode && !canAddMember, () => html`
+            <p class="faint" style="margin-top:1rem">
+              ${config.limits.maxMembers === 1
+                ? "This instance is for one person, so nobody else can be added."
+                : `This instance allows ${config.limits.maxMembers} members, and the household is full.`}
+            </p>
+          `)}
           ${when(
-            !config.demoMode,
+            !config.demoMode && canAddMember,
             () => html`
               <form method="post" action="/members/invite" style="margin-top:1rem">
                 <div class="field">
@@ -4188,7 +4214,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     return mutate(ctx, (a) => {
       const email = String(requiredField(ctx.body, "email"));
       const returning = !!findMemberByEmail(db, email)?.removed_at;
-      const member = inviteMember(db, actorFor(a), { email });
+      const member = inviteMember(db, actorFor(a), { email }, { maxMembers: config.limits.maxMembers });
       /*
        * Somebody added back had their password cleared when they were removed
        * (removeMember). "Can now sign in" would tell the person re-adding them
@@ -7723,7 +7749,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // S5 More · F5 payees · F6 rules · F3 categories · J1 first run
   // -------------------------------------------------------------------------
   router.get("/more", (ctx) =>
-    render(ctx, "More", renderMore({ loans: config.features.loans, assets: config.features.assets })),
+    render(ctx, "More", renderMore(config.features)),
   );
 
   router.get("/payees", (ctx) => {
