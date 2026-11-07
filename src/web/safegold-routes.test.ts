@@ -59,6 +59,29 @@ describe("IMP-32 · uploading a SafeGold statement", () => {
     });
   });
 
+  test("REV-6 · on Import with the assets module off, it is said not to be a bank statement", async () => {
+    const db = freshDb();
+    seedMember(db, "m", "Ravi");
+    const bank = createAccount(db, actor, {
+      name: "Savings", kind: "budget", subtype: "savings", openingDate: "2026-01-01", institution: "HDFC Bank",
+    });
+    const app = await startTestApp(db, {
+      memberId: "m", config: { features: { loans: true, assets: false, multiCurrency: false } },
+    });
+    try {
+      const res = await upload(app, "/import/pdf", safeGoldPdf(statement(TWO_ROWS)), { account_id: bank.id });
+      assert.equal(res.status, 200);
+      const page = await res.text();
+      assert.match(page, /not a bank or card statement/);
+      assert.equal(tokenOf(page), undefined, "no gold review to confirm into a 404");
+      assert.doesNotMatch(page, /Which column is which/);
+      assert.equal(queryAll(db, `SELECT id FROM staged_transactions`).length, 0);
+      assert.deepEqual(app.failures, []);
+    } finally {
+      await app.close();
+    }
+  });
+
   test("on Portfolio, and confirming it records the gold", async () => {
     await withApp(async (app) => {
       const form = await app.get("/portfolio/safegold");

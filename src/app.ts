@@ -5831,6 +5831,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // IMP-32 · A SafeGold statement is gold bought and sold, not this
     // account's rows: it goes to the same review its own upload does.
     if (isSafeGoldText(parsed.text)) {
+      // REV-6 · With the assets module off there is no gold to confirm into.
+      if (!config.features.assets) {
+        return importPage(ctx,
+          "That file is a SafeGold statement, not a bank or card statement, so " +
+          "there are no transactions in it to import here.",
+        );
+      }
       return safeGoldReview(ctx, a.member.id, [parseSafeGoldText(parsed.text)]);
     }
 
