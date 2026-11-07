@@ -52,7 +52,11 @@ import { fetchGmail } from "./gmail/fetch.ts";
 import { GoogleUnreachable } from "./gmail/client.ts";
 import { withIdempotency, IdempotencyConflict } from "./core/idempotency.ts";
 import { parseAmount, evaluateAmountExpression, formatPaise, type Paise } from "./core/money.ts";
-import { parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, formatDate, formatDateTime, lastDayOfMonth, daysBetween, fiscalYearOf, formatFiscalYear, statementPeriodOf, type MonthKey, type IsoDate, type WeekdayOrdinal } from "./core/dates.ts";
+import {
+  parseDate, todayIST, nowIST, addDays, addMonths, monthOf, isMonthKey, formatMonth, formatDate,
+  formatDateTime, fiscalYearOf, formatFiscalYear, statementPeriodOf, type MonthKey, type IsoDate,
+  type WeekdayOrdinal,
+} from "./core/dates.ts";
 import { buildBudgetView, reviewCount } from "./web/viewmodel.ts";
 import { renderBudget } from "./web/pages/budget.ts";
 import {
@@ -109,15 +113,17 @@ import { buildHouseholdView } from "./domain/household-view.ts";
 import { eventVisibility } from "./domain/event-visibility.ts";
 import { memberScope, hiddenTransactionSql, hiddenAccountSql } from "./domain/member-scope.ts";
 import { exportForMember, exportTransactionsCsvForMember } from "./ops/member-export.ts";
+import { aiSnapshot, SNAPSHOT_MAX_MONTHS } from "./ai/analysis.ts";
 import { callItEven } from "./domain/squaring-up.ts";
 import { describeDeparture, settleDeparture, type DepartureResolution } from "./domain/departure.ts";
 import { convertToEmi, convertedFrom, GST_PCT } from "./domain/card-emi.ts";
 import { renderDeparture } from "./web/pages/departure.ts";
 import { renderHousehold } from "./web/pages/household.ts";
 import {
-  createAccount, updateAccount, closeAccount, reopenAccount, listAccounts, getAccount, listCards, createCard, closeCard, recordCardStatement, lastCardStatement, paymentCategoryFor, MANAGED_SUBTYPES, SUBTYPE_LABELS, type AccountKind, hiddenAccountIds, type HolderScope,
- creditedSinceStatement, type Account,  DERIVED_VALUE_SUBTYPES,
-  REVALUABLE_SUBTYPES,
+  createAccount, updateAccount, closeAccount, reopenAccount, listAccounts, getAccount, listCards,
+  createCard, closeCard, recordCardStatement, lastCardStatement, paymentCategoryFor,
+  MANAGED_SUBTYPES, SUBTYPE_LABELS, type AccountKind, hiddenAccountIds, type HolderScope,
+  type Account, DERIVED_VALUE_SUBTYPES, REVALUABLE_SUBTYPES,
 } from "./domain/accounts.ts";
 import {
   setAssigned, addAssigned, copyAssignmentsFromMonth, moveMoney, setHeld, getHeld,
@@ -168,12 +174,14 @@ import {
 } from "./web/pages/analysis.ts";
 import { renderOverview } from "./web/pages/overview.ts";
 import {
+  derivedWorth, accountRows, cardsDue, overviewData, portfolioData, taxPageModel, scheduleInScope,
+} from "./web/screen-data.ts";
+import {
   queryTransactions, groupTotals, periodPresets, periodFor, incomeVsExpense,
-  envelopeSpendByMonth, outstandingReimbursements, capitalGainsByYear,
-  loanInterestByFinancialYear, categoryTrend, spendingCalendar, spendByTag, rowsToCsv,
-  type GroupBy, type TransactionFilter,
+  outstandingReimbursements, capitalGainsByYear, loanInterestByFinancialYear, categoryTrend,
+  spendingCalendar, spendByTag, rowsToCsv, type GroupBy, type TransactionFilter,
 } from "./domain/reports.ts";
-import { spendingInsights, type Insight } from "./domain/insights.ts";
+import { spendingInsights } from "./domain/insights.ts";
 import {
   listSchedules, createSchedule, updateSchedule, deleteSchedule, markPaid, skipOccurrence,
   detectSchedules, projectCashflow, describeCashflow, subscriptions,
@@ -200,16 +208,12 @@ import {
 } from "./auth/setup-links.ts";
 import { beginOidc, exchangeOidcCode } from "./auth/oidc.ts";
 import {
-  staleRatesWarning, assertKnownYear, RATES_VERIFIED_ON, RATES_SOURCE, RULES, ADVANCE_TAX_RULES,
-  estimateTax, advanceTaxSchedule, getDeclaration, hasDeclaration, saveDeclaration,
-  incomeInFinancialYear, settle, taxPaid, listTaxPayments, addTaxPayment, deleteTaxPayment,
-  type AdvanceInstalment, type TaxPaymentKind,
+  staleRatesWarning, RATES_VERIFIED_ON, RATES_SOURCE, saveDeclaration, settle, addTaxPayment,
+  deleteTaxPayment, type TaxPaymentKind,
 } from "./domain/tax.ts";
-import { homeLoanInterestFor } from "./domain/home-loan-interest.ts";
 import { renderTax, TAX_PRINT_CAVEAT } from "./web/pages/tax.ts";
 import { renderCategoryLines } from "./web/pages/category-lines.ts";
 import { renderDisposeAsset, renderAddToAsset } from "./web/pages/portfolio.ts";
-import { capitalGainsTaxFor, type GainsTax } from "./domain/capital-gains-tax.ts";
 import { renderFire } from "./web/pages/fire.ts";
 import { fireProjection, DEFAULT_ASSUMPTIONS } from "./domain/fire.ts";
 import { renderActivity } from "./web/pages/activity.ts";
@@ -247,56 +251,6 @@ const MAX_CASHFLOW_DAYS = 3650;
 /** Whether an OpenID Connect provider is fully configured. */
 function oidcConfigured(config: Config): boolean {
   return Boolean(config.oidc.issuer && config.oidc.clientId && config.oidc.clientSecret);
-}
-
-/**
- * What an account is actually worth, when that is not its transaction balance.
- *
- * A loan's balance is whatever has been posted to the account, which is usually
- * nothing — the debt lives in its amortisation schedule. A demat account is the
- * same: the holdings carry the value. So a list of accounts showed "₹0" against
- * eighteen lakh of debt, next to a button offering to add a transaction that
- * would then appear on no screen.
- *
- * Returns null for accounts worth exactly what their transactions say, which is
- * most of them.
- */
-function derivedWorth(
-  db: DB, account: { id: string; subtype: string },
-  viewerMemberId: string | null,
-): { value: Paise; label: string; href: string } | null {
-  if (!DERIVED_VALUE_SUBTYPES.has(account.subtype)) return null;
-
-  if (account.subtype === "loan" || account.subtype === "emi") {
-    // Scoped, though the account itself is already one this viewer can see —
-    // an unscoped read here would still be a read of the whole household.
-    const loan = listLoans(db, { viewerMemberId }).find((l) => l.account_id === account.id);
-    const projection = loan ? projectLoan(db, loan.id) : null;
-    return {
-      value: (projection ? -projection.outstanding : 0) as Paise,
-      label: "Open the loan",
-      href: loan ? `/loans/${loan.id}` : "/loans",
-    };
-  }
-
-  if (account.subtype === "family-loan") {
-    return { value: 0 as Paise, label: "Open lending", href: "/family" };
-  }
-
-  if (account.subtype === "investment") {
-    const total = listHoldings(db, account.id).reduce((sum, h) => {
-      const view = viewHolding(db, h.id);
-      return sum + (view?.marketValue ?? 0);
-    }, 0);
-    return { value: total as Paise, label: "Open the portfolio", href: "/portfolio" };
-  }
-
-  const valuation = standingValuation(db, account.id);
-  return {
-    value: (valuation?.value ?? 0) as Paise,
-    label: "Open the portfolio",
-    href: "/portfolio",
-  };
 }
 
 function passwordSignInOffered(db: DB, config: Config): boolean {
@@ -348,44 +302,36 @@ import {
 import { renderFamilyLoans, renderFamilyLoan } from "./web/pages/family-loans.ts";
 import {
   createPolicy, updatePolicy, markPremiumPaid, setPolicyStatus, deletePolicy, getPolicy,
-  listPolicies, canSeePolicy, policiesDueBy, policyTaxSuggestion, applyPolicySuggestion,
-  type PolicyInput,
+  listPolicies, canSeePolicy, type PolicyInput,
 } from "./domain/insurance.ts";
 import { renderInsurance, renderPolicy } from "./web/pages/insurance.ts";
 import {
   digestFor, mutedKinds, setMutedKinds, DIGEST_KINDS, type DigestKind,
 } from "./domain/digest.ts";
-import { cameWithTheCard } from "./domain/card-shortfall.ts";
 import {
   renderMonthClose, renderClosedMonths, renderDigest, renderDigestSettings,
   renderStatementIdentity, renderGmailConnection,
 } from "./web/pages/month-close.ts";
 import {
-  renderPortfolio, renderHoldingDetail, renderSalePreview, renderNetWorth,
-  renderAllocation,
-  renderAddHolding, renderCasUpload, renderCasReview,
-  renderNewAssetForm, renderRevalueAsset, renderManualPrice, renderSplitForm, renderMergerForm, renderValuations,
-  type PortfolioRow, type CasReviewScheme,
+  renderPortfolio, renderHoldingDetail, renderSalePreview, renderNetWorth, renderAllocation,
+  renderAddHolding, renderCasUpload, renderCasReview, renderNewAssetForm, renderRevalueAsset,
+  renderManualPrice, renderSplitForm, renderMergerForm, renderValuations, type CasReviewScheme,
 } from "./web/pages/portfolio.ts";
 import { parseCasPdf, WrongPassword } from "./import/cas.ts";
 import {
   planCasImport, applyCasPlan, casDestinations, stashPlan, takePlan,
 } from "./import/cas-plan.ts";
 import {
-  createAssetAccount, listAssetAccounts, listValuableAccounts, findOrCreateInstrument, setInstrumentListed, recordPurchase,
-  recordSale, recordPrice, recordSplit, recordMerger, recordValuation, latestValuation, listHoldings, viewHolding,
-  priceHistory, previewHoldingSale, getInstrument, findManualInstrument, listInstruments,
-  classifyInstrument, ASSET_CLASSES, ASSET_CLASS_LABELS,
-  exportHoldingsCsv, exportLotsCsv, exportPriceHistoryCsv, exportNetWorthCsv,
-  type InstrumentKind,
-  signedValuation,
-  assetHistory,
-  standingValuation,
-  valuationInBase,
+  createAssetAccount, listAssetAccounts, listValuableAccounts, findOrCreateInstrument,
+  setInstrumentListed, recordPurchase, recordSale, recordPrice, recordSplit, recordMerger,
+  recordValuation, latestValuation, listHoldings, viewHolding, priceHistory, previewHoldingSale,
+  getInstrument, findManualInstrument, listInstruments, classifyInstrument, ASSET_CLASSES,
+  ASSET_CLASS_LABELS, exportHoldingsCsv, exportLotsCsv, exportPriceHistoryCsv, exportNetWorthCsv,
+  type InstrumentKind, signedValuation, assetHistory, standingValuation,
 } from "./domain/assets.ts";
 import {
-  getDepositTerms, setDepositTerms, removeDepositTerms, computedDepositValue, listMaturities,
-  describeTerms, DEPOSIT_SUBTYPES, type DepositTermsInput,
+  getDepositTerms, setDepositTerms, removeDepositTerms, computedDepositValue, describeTerms,
+  DEPOSIT_SUBTYPES, type DepositTermsInput,
 } from "./domain/deposits.ts";
 import { checkTerms } from "./deposits/accrual.ts";
 import {
@@ -393,7 +339,7 @@ import {
   assetAllocation,
 } from "./domain/networth.ts";
 import {
-  units as toUnits, price as toUnitPrice, xirr, formatUnits, parseUnitPrice, type MicroRupees,
+  units as toUnits, price as toUnitPrice, formatUnits, parseUnitPrice, type MicroRupees,
 } from "./portfolio/holdings.ts";
 import { searchSchemes } from "./portfolio/providers.ts";
 import { refreshPrices, MANUAL_REFRESH } from "./portfolio/refresh.ts";
@@ -2957,74 +2903,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // S2 · Accounts
   // -------------------------------------------------------------------------
   router.get("/accounts", (ctx) => {
-    const balances = accountBalances(db);
-    const outstanding = creditOutstanding(db);
     /*
      * 15 · The accounts of the budget being looked at, plus the tracking accounts,
      * which fund no budget and so belong to the household's picture whichever one
      * is selected (FW1).
      */
     const scope = budgetParam(ctx);
-    const view = buildBudgetView(db, undefined, scope, viewer(ctx));
-
-    const memberNames = new Map(listMembers(db).map((m) => [m.id, m.name]));
-    const rows: AccountRow[] = listAccounts(db, { viewerMemberId: viewer(ctx) })
-      .filter((account) => account.kind === "tracking" || account.budget_id === scope)
-      .map((account) => {
-      const recon = queryOne<{ as_of: string; broken_at: string | null }>(
-        db,
-        `SELECT as_of, broken_at FROM reconciliations WHERE account_id = ? ORDER BY as_of DESC LIMIT 1`,
-        account.id,
-      );
-      const paymentCategory = account.kind === "credit" ? paymentCategoryFor(db, account.id) : null;
-      const funded = paymentCategory ? view.categories.get(paymentCategory.id)?.state.balance ?? 0 : 0;
-
-      return {
-        account,
-        holderName: account.holder_member_id ? memberNames.get(account.holder_member_id) ?? null : null,
-        balances: balances.get(account.id)!,
-        derived: derivedWorth(db, account, viewer(ctx)),
-        // DEPOSITS · A deposit with terms is worth what they say, as on net worth.
-        deposit: getDepositTerms(db, account.id)
-          ? (() => {
-              const v = standingValuation(db, account.id);
-              return v ? { value: v.value, source: v.source } : null;
-            })()
-          : null,
-        unclearedCount:
-          queryOne<{ n: number }>(
-            db,
-            `SELECT COUNT(*) AS n FROM transactions WHERE account_id = ? AND cleared = 0 AND deleted_at IS NULL`,
-            account.id,
-          )?.n ?? 0,
-        lastReconciled: recon?.as_of ?? null,
-        checkpointBroken: Boolean(recon?.broken_at),
-        funding:
-          account.kind === "credit"
-            ? cardFunding(
-                account.id,
-                outstanding.get(account.id) ?? 0,
-                funded,
-                view.monthState.unfundedByAccount[account.id] ?? 0,
-              )
-            : null,
-        // S15 · A recent running-balance series for an inline sparkline. Walk
-        // the last few dozen transactions back from the current balance.
-        balanceSeries: (() => {
-          const recent = queryAll<{ amount: number }>(
-            db,
-            `SELECT amount FROM transactions WHERE account_id = ? AND deleted_at IS NULL
-              ORDER BY date DESC, created_at DESC LIMIT 24`,
-            account.id,
-          );
-          if (recent.length < 2) return undefined;
-          let bal = balances.get(account.id)!.working;
-          const series = [bal];
-          for (const t of recent) { bal -= t.amount; series.push(bal); }
-          return series.reverse();
-        })(),
-      };
-    });
+    const rows: AccountRow[] = accountRows(db, { budgetId: scope, viewerMemberId: viewer(ctx) });
 
     return render(
       ctx, "Accounts",
@@ -5215,61 +5100,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * is yours. Mixing them would put another budget's bill on your list.
      */
     const scope = budgetParam(ctx);
-    const view = buildBudgetView(db, month, scope, viewer(ctx));
-    // WEBUX-2 · The envelope is the viewed month's, so the debt it is weighed
-    // against is too; what the card owes, beside its statement, is today's.
-    const outstanding = creditOutstanding(db, month);
-    const owedNow = month < monthOf(todayIST()) ? creditOutstanding(db) : outstanding;
-    const today = todayIST();
-
-    const cards: CardDue[] = listAccounts(db, { viewerMemberId: viewer(ctx) })
-      .filter((a) => a.kind === "credit" && a.budget_id === scope)
-      .map((account) => {
-        const payment = [...view.categories.values()]
-          .find((c) => c.paymentAccountId === account.id) ?? null;
-        const funded = payment?.state.balance ?? 0;
-        const funding = cardFunding(
-          account.id,
-          outstanding.get(account.id) ?? 0,
-          funded,
-          view.monthState.unfundedByAccount[account.id] ?? 0,
-          account.opening_balance,
-        );
-        const statement = lastCardStatement(db, account.id);
-
-        return {
-          accountId: account.id,
-          name: account.nickname || account.name,
-          last4: account.last4,
-          startingDebtNote: cameWithTheCard(funding),
-          owed: Math.max(0, -(owedNow.get(account.id) ?? 0)) as Paise,
-          credit: Math.max(0, owedNow.get(account.id) ?? 0) as Paise,
-          funded,
-          unfunded: funding.unfunded,
-          statement: statement
-            ? {
-                amount: statement.amount, date: statement.statement_date,
-                due: statement.due_date, minimum: statement.minimum_due,
-              }
-            : null,
-          daysToDue: statement ? daysBetween(today, statement.due_date) : null,
-          paidSinceStatement: statement
-            ? creditedSinceStatement(db, account.id, statement.statement_date)
-            : (0 as Paise),
-          paymentCategoryId: payment?.id ?? null,
-        };
-      })
-      /*
-       * Soonest first. A card with no statement has no due date to sort by, so
-       * it goes last rather than being guessed at — R6 reports the debt it can
-       * see and never invents a cycle.
-       */
-      .sort((a, b) => {
-        if (a.daysToDue === null && b.daysToDue === null) return b.owed - a.owed;
-        if (a.daysToDue === null) return 1;
-        if (b.daysToDue === null) return -1;
-        return a.daysToDue - b.daysToDue;
-      });
+    const cards: CardDue[] = cardsDue(db, { month, budgetId: scope, viewerMemberId: viewer(ctx) });
 
     return render(ctx, "Cards", renderCards({ cards, month }));
   });
@@ -6849,104 +6680,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * offering the switch at all.
      */
     const scope = budgetParam(ctx);
-    const view = buildBudgetView(db, undefined, scope, viewer(ctx));
-    const month = view.month;
-    // DEBUG-ENGINE-9 · The budget on screen, as the Schedules page asks it.
-    const cashflow = projectCashflow(db, { days: 60, budgetId: scope, viewerMemberId: viewer(ctx) });
-    const outstanding = creditOutstanding(db);
-    const unfundedCards = [...view.categories.values()]
-      .filter((c) => c.paymentAccountId)
-      .map((c) => ({
-        name: c.name,
-        amount: cardFunding(
-          c.paymentAccountId!,
-          outstanding.get(c.paymentAccountId!) ?? 0,
-          c.state.balance,
-          view.monthState.unfundedByAccount[c.paymentAccountId!] ?? 0,
-        ).unfunded,
-      }))
-      .filter((c) => c.amount > 0);
-    /*
-     * B78 · Both figures below are envelope spend, not cash through budget
-     * accounts. The tile read "Spent this month ₹1,060" on a month the
-     * household spent ₹22,010, because 95% of it was on cards — and the runway
-     * denominator had the same blind spot, which is the more dangerous of the
-     * two: it reported months of safety the household did not have.
-     */
-    const monthSpend =
-      (envelopeSpendByMonth(db, `${month}-01`, todayIST(), scope, viewer(ctx))
-        .at(-1)?.spent ?? 0) as Paise;
-
-    // #12 · Months of runway = liquid cash ÷ typical monthly spend (mean of the
-    // three complete months before this one, so a partial month doesn't skew it).
-    const bals = accountBalances(db);
-    const cash = listAccounts(db, { viewerMemberId: viewer(ctx) })
-      .filter((acc) => acc.kind === "budget" && acc.budget_id === scope)
-      .reduce((sum, acc) => sum + Math.max(0, bals.get(acc.id)?.working ?? 0), 0);
-    const priorMonths = envelopeSpendByMonth(
-      db, `${addMonths(month, -3)}-01`, lastDayOfMonth(addMonths(month, -1)), scope, viewer(ctx),
-    );
-    const avgMonthlySpend = priorMonths.length
-      ? priorMonths.reduce((s, m) => s + m.spent, 0) / priorMonths.length
-      : 0;
-    const runwayMonths = avgMonthlySpend > 0 ? cash / avgMonthlySpend : null;
-
-    // #13 · Bills due in the next fortnight, each with a one-tap "mark paid".
-    const soon = addDays(todayIST(), 14);
-    // 15 §3A.4 · Either end, the same as the schedules screen: a household bill
-    // paid from somebody's own account is still a household bill.
-    const budgetAccounts = new Set(
-      listAccounts(db, { viewerMemberId: viewer(ctx) })
-        .filter((acc) => acc.budget_id === scope)
-        .map((acc) => acc.id),
-    );
-    const budgetCategories = new Set(
-      listCategories(db, { includeHidden: true, budgetId: scope, viewerMemberId: viewer(ctx) })
-        .map((c) => c.id),
-    );
-    const dueSoon = listSchedules(db, { viewerMemberId: viewer(ctx) })
-      .filter((s) => s.next_due && s.next_due <= soon && (s.amount ?? 0) < 0)
-      .filter((s) =>
-        (!s.account_id && !s.category_id)
-        || (s.account_id !== null && budgetAccounts.has(s.account_id))
-        || (s.category_id !== null && budgetCategories.has(s.category_id)))
-      .sort((x, y) => (x.next_due ?? "").localeCompare(y.next_due ?? ""))
-      .map((s) => ({ id: s.id, name: s.name, amount: Math.abs(s.amount ?? 0) as Paise, nextDue: s.next_due! }))
-      // INSURANCE-1 · Premiums and renewals, in the same fortnight.
-      .concat(policiesDueBy(db, { viewerMemberId: viewer(ctx), until: soon, budgetId: scope })
-        .map((p) => ({ ...p, policy: true })))
-      .sort((x, y) => x.nextDue.localeCompare(y.nextDue))
-      .slice(0, 6);
-
     return render(
       ctx, "Overview",
-      renderOverview({
-        month,
-        rta: view.monthState.readyToAssign,
-        rtaState: view.monthState.rtaState,
-        /*
-         * H2.2 · With the viewer, the same as the net-worth page itself. Without
-         * it this headline was the whole household's — so somebody saw ₹55.6L
-         * here and ₹28.6L on the page behind it, and the difference was the
-         * private money they could not see, published by subtraction.
-         */
-        netWorth: config.features.assets
-          ? netWorthStatement(db, undefined, "INR", { viewerMemberId: viewer(ctx) }).netWorth
-          : (0 as Paise),
-        netWorthHistory: config.features.assets ? netWorthHistory(db) : [],
-        cashflow,
-        cashflowReading: describeCashflow(cashflow),
-        unfundedCards,
-        insights: spendingInsights(db, todayIST(), 4, viewer(ctx)),
-        monthSpend,
-        cash: cash as Paise,
-        runwayMonths,
-        dueSoon,
-        // DEPOSITS · Maturities in the same fortnight, from accounts this
-        // member can see. Shown, never posted.
-        maturing: listMaturities(db, { from: todayIST(), to: soon, viewerMemberId: viewer(ctx) })
-          .map((m) => ({ accountId: m.accountId, name: m.name, amount: m.amount, date: m.date })),
-      }),
+      renderOverview(overviewData(db, {
+        budgetId: scope, viewerMemberId: viewer(ctx), assets: config.features.assets,
+      })),
     );
   });
 
@@ -7066,44 +6804,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const cashflow = projectCashflow(db, { days: horizon, budgetId: scope, viewerMemberId: viewer(ctx) });
     const view = buildBudgetView(db, undefined, scope, viewer(ctx));
 
-    /*
-     * 15 §3A.4 · A schedule belongs to a budget through **either** end: the
-     * account the money comes out of, or the envelope it lands in. Those differ
-     * exactly when one of you pays a shared bill from your own account, and the
-     * rent is then a household schedule and hers at once — which is the same rule
-     * Query uses for a transaction that crosses budgets.
-     *
-     * Scoping on the account alone made five household bills vanish from the
-     * household's list the moment the account paying them moved into a personal
-     * budget. The cashflow projection stays account-based, because that one is
-     * about whose cash actually leaves.
-     */
-    const accountsInScope = new Set(
-      listAccounts(db, { viewerMemberId: viewer(ctx) })
-        .filter((a) => a.budget_id === scope)
-        .map((a) => a.id),
-    );
-    const categoriesInScope = new Set(
-      listCategories(db, { includeHidden: true, budgetId: scope, viewerMemberId: viewer(ctx) })
-        .map((c) => c.id),
-    );
-    /*
-     * A tracking account belongs to no budget, and money into it names no
-     * envelope — so a "PPF deposit" schedule matched neither end in any scope:
-     * "Schedule added.", then never listed, with no Paid, Skip, Edit or Remove
-     * anywhere. With no envelope to place it, it shows wherever its account is
-     * visible, the way a schedule with neither end always has.
-     */
-    const unbudgetedAccounts = new Set(
-      listAccounts(db, { viewerMemberId: viewer(ctx) })
-        .filter((a) => a.budget_id === null)
-        .map((a) => a.id),
-    );
-    const inScopeSchedule = (s: { account_id: string | null; category_id: string | null }) =>
-      (!s.account_id && !s.category_id)
-      || (s.account_id !== null && accountsInScope.has(s.account_id))
-      || (s.category_id !== null && categoriesInScope.has(s.category_id))
-      || (s.category_id === null && s.account_id !== null && unbudgetedAccounts.has(s.account_id));
+    // 15 §3A.4 · Either end: the account it moves, or the envelope it lands in.
+    const inScopeSchedule = scheduleInScope(db, { budgetId: scope, viewerMemberId: viewer(ctx) });
 
     return render(
       ctx, "Schedules",
@@ -8910,86 +8612,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
 
   router.get("/portfolio", (ctx) => {
     requireAssets();
-    const balances = accountBalances(db);
     const scope = holderScopeParam(ctx);
-    const hidden = hiddenAccountIds(db, viewer(ctx), scope);
-    const accounts = new Map(
-      listAssetAccounts(db, { viewerMemberId: viewer(ctx) })
-        .filter((a) => !hidden.has(a.id))
-        .map((a) => [a.id, a.name]),
-    );
-
-    const rows: PortfolioRow[] = listHoldings(db)
-      .filter((h) => accounts.has(h.account_id))
-      .map((h) => {
-        const view = viewHolding(db, h.id);
-        return view ? { view, accountName: accounts.get(view.holding.account_id) ?? "" } : null;
-      })
-      .filter((r): r is PortfolioRow => r !== null);
-
-    // F19.16 · A portfolio-level XIRR, labelled money-weighted — pooled from
-    // each holding's own flows, dividends included (WEALTH-25).
-    const flows = rows.flatMap((r) => r.view.cashFlows);
-
-    /*
-     * B101 · An asset with no valuation yet is still an asset.
-     *
-     * This dropped them, so adding "SafeGold" and not immediately valuing it
-     * made the account disappear from Portfolio and from Net worth both — the
-     * account was in the database and nowhere on screen, with nothing
-     * prompting for the number that would bring it back. A thing that vanishes
-     * after you create it is the worst way to lose someone's trust in a ledger.
-     */
-    /*
-     * listValuableAccounts, not listAssetAccounts.
-     *
-     * The first covers the six asset subtypes; the second adds the plain ones —
-     * "other asset", "other liability", fixed and recurring deposits. The
-     * revalue-everything screen already used the wider list, so those accounts
-     * appeared there, could be revalued, and were then nowhere on this page.
-     * The same account being on one screen and not the other is how a household
-     * concludes the revaluation did nothing.
-     */
-    const manualAssets = listValuableAccounts(db, { viewerMemberId: viewer(ctx) })
-      // A portfolio is what you hold. A deposit belongs here — it is an
-      // investment, and a household thinks of it as one — but "other
-      // liability" does not: it is a debt, it belongs on net worth's other
-      // side, and it is revaluable from the valuations screen without
-      // appearing on a page headed Portfolio.
-      .filter((a) => a.subtype !== "liability")
-      .filter((a) => listHoldings(db, a.id).length === 0)
-      .map((a) => {
-        // DEPOSITS · Computed from terms where it has them (standingValuation).
-        // In rupees: an SGD savings balance of 41,120 was printed "₹41,120"
-        // here while net worth and FIRE counted it as ₹25 lakh.
-        const valuation = valuationInBase(db, a, todayIST());
-        /*
-         * A deposit is worth its balance unless somebody has said otherwise
-         * (B56), and that is the whole reason it is a tracking account: the
-         * interest credited to it is a transaction, and the balance moves with
-         * it. Reading only the stated valuation showed a fixed deposit holding
-         * ₹5,32,000 as "no value yet", which is the app disbelieving its own
-         * ledger.
-         */
-        const counted = !DERIVED_VALUE_SUBTYPES.has(a.subtype);
-        const balance = counted ? (balances.get(a.id)?.working ?? 0) as Paise : (0 as Paise);
-        return {
-          id: a.id, name: a.name, subtype: a.subtype,
-          value: valuation?.value ?? balance,
-          asOf: valuation?.asOf ?? (counted ? todayIST() : null),
-          // "not valued recently" is about the valuation; an exchange rate a day
-          // or two old is not a reason to ask the household to revalue.
-          stale: valuation ? standingValuation(db, a.id)?.stale ?? false : false,
-          valued: valuation !== null || (counted && balance !== 0),
-        };
-      });
-
     return render(
       ctx, "Portfolio",
-      renderPortfolio({
-        rows, manualAssets,
-        portfolioXirr: flows.length >= 2 ? xirr(flows) : null,
-      }),
+      renderPortfolio(portfolioData(db, { viewerMemberId: viewer(ctx), scope })),
     );
   });
 
@@ -10180,6 +9806,33 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     };
   });
 
+  /*
+   * AI-4 · A summary of the member's figures for an AI tool or a spreadsheet:
+   * overview, budgets, spending by month, loans, portfolio, net worth, cashflow
+   * and the tax estimate, as the member sees them on screen. Not a backup and
+   * not the register — /export.json is both. A GET that changes nothing, so a
+   * read-only token reaches it the way it reaches /export.json.
+   */
+  router.get("/export/analysis.json", (ctx) => {
+    const a = auth(ctx);
+    const raw = ctx.query.get("months")?.trim();
+    let months: number | undefined;
+    if (raw) {
+      months = /^[0-9]+$/.test(raw) ? Number(raw) : NaN;
+      if (!Number.isInteger(months) || months < 1 || months > SNAPSHOT_MAX_MONTHS) {
+        throw new Refusal(`months is a whole number from 1 to ${SNAPSHOT_MAX_MONTHS}.`);
+      }
+    }
+    const snapshot = aiSnapshot(db, a.member.id, { months }, { features: config.features });
+    return {
+      body: JSON.stringify(snapshot, null, 2),
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Disposition": `attachment; filename="pathayam-analysis-${todayIST()}.json"`,
+      },
+    };
+  });
+
   router.get("/export.csv", (ctx) => {
     const a = auth(ctx);
     return {
@@ -10334,80 +9987,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const fy = Number.isInteger(fyParam) && fyParam > 2000 && fyParam < 9999
       ? fyParam : fiscalYearOf(todayIST());
 
-    const stored = getDeclaration(db, a.member.id, fy);
-    // INSURANCE-1 · What the member's policies come to; filled in only when asked.
-    const fromPolicies = policyTaxSuggestion(db, a.member.id, fy);
-    const applyPolicies = ctx.query.get("from") === "policies" && fromPolicies.lines.length > 0;
-    const visible = listAccounts(db, { viewerMemberId: a.member.id })
-      .filter((acc) => acc.kind === "budget")
-      .map((acc) => acc.id);
-    const ledgerIncome = incomeInFinancialYear(db, fy, visible);
-    // WEALTH-6 · A saved declaration is used as saved, ₹0 included; the
-    // ledger's receipts are only the starting point before anything is saved.
-    const gross = hasDeclaration(db, a.member.id, fy) ? stored.gross : ledgerIncome;
-
-    // Capital gains are taxed at their own rates and are scoped to this
-    // member's own holdings — the accounts they are named holder of (WEALTH-7).
-    // Another member's sale is not part of their assessment, however visible.
-    //
-    // TAX-FY25-1 · A year whose gains rates are not in the app is refused, not
-    // taxed at the newest year's. The refusal is shown on the page in place of
-    // the gains, so the rest of it — declarations, payments — still works.
-    let gains: GainsTax | null = null;
-    let gainsRefusal: string | null = null;
-    try {
-      gains = capitalGainsTaxFor(db, fy, a.member.id);
-    } catch (err) {
-      if (!(err instanceof Refusal)) throw err;
-      gainsRefusal = err.message;
-    }
-    // An older year with gains rates but no slabs (2024-25) shows its gains
-    // and says why there is no estimate, instead of refusing the whole page.
-    let slabsRefusal: string | null = null;
-    if (!staleRatesWarning(fy)) {
-      try {
-        assertKnownYear(fy);
-      } catch (err) {
-        if (!(err instanceof Refusal)) throw err;
-        slabsRefusal = err.message;
-      }
-    }
-
-    // TAX-1 · Interest on loans this member holds for a house they live in,
-    // accrued in the year from the loan's ledger — unless they gave their own.
-    const homeLoan = homeLoanInterestFor(db, fy, a.member.id);
-    const s24b = (stored.s24bOverride ?? homeLoan.selfOccupied) as Paise;
-
-    // TAX-2 · What has been paid already.
-    const payments = listTaxPayments(db, a.member.id, fy);
-    const paid = taxPaid(db, a.member.id, fy);
-
-    let estimate = null;
-    let advance: AdvanceInstalment[] = [];
-    let settlement = null;
-    // WEALTH-9 · Slab-rated gains are income too: a member whose only income
-    // is a debt-fund gain was told to "enter a gross income" and shown nothing.
-    if ((gross > 0 || (gains?.addToSlabIncome ?? 0) > 0 || (gains?.specialRateTax ?? 0) > 0)
-        && !staleRatesWarning(fy) && !gainsRefusal && !slabsRefusal) {
-      estimate = estimateTax(fy, gross, { ...stored, s24b }, gains);
-      settlement = { old: settle(estimate.old, paid), new: settle(estimate.new, paid) };
-      // TAX-3 · Section 208 tests the year's tax after TDS, not before.
-      const liability = Math.max(
-        0, (estimate.better === "old" ? estimate.old.total : estimate.new.total) - paid.tds,
-      ) as Paise;
-      advance = advanceTaxSchedule(fy, liability, payments.filter((p) => p.kind === "advance"));
-    }
-
-    return {
-      fy, gross, ledgerIncome, estimate, advance, gains, gainsRefusal, slabsRefusal, fromPolicies, applyPolicies,
-      deductions: applyPolicies ? applyPolicySuggestion(stored, fromPolicies) : stored,
-      homeLoan, s24bOverride: stored.s24bOverride ?? null, payments, paid, settlement,
-      advanceThreshold: (ADVANCE_TAX_RULES[fy] ?? ADVANCE_TAX_RULES[2025]!).threshold,
-      staleWarning: staleRatesWarning(fy),
-      ratesVerifiedOn: RATES_VERIFIED_ON,
-      ratesSource: RATES_SOURCE,
-      availableYears: Object.keys(RULES).map(Number).sort((x, y) => y - x),
-    };
+    return taxPageModel(db, a.member.id, fy, ctx.query.get("from") === "policies");
   }
 
   router.get("/tax", (ctx) => {

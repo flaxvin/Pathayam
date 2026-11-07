@@ -108,7 +108,13 @@ export function renderHealth(groups: HealthGroup[]): SafeHtml {
       <div class="row" style="flex-wrap:wrap">
         <a class="button" href="/export.json">Export everything (JSON)</a>
         <a class="button" href="/export.csv">Export transactions (CSV)</a>
+        <a class="button" href="/export/analysis.json">Analysis summary (JSON)</a>
       </div>
+      <p class="faint">
+        The analysis summary is your figures in brief — budgets, spending by month,
+        loans, net worth, cashflow and tax — meant for an AI tool or a spreadsheet,
+        not as a backup.
+      </p>
     </section>
   `;
 }
