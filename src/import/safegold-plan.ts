@@ -242,12 +242,21 @@ export function applySafeGoldPlan(
       `probably missing. Nothing was imported. Tick "import it anyway" to record the rows it does show.`,
     );
   }
-  const fresh = plan.rows
-    .filter((r) => r.status === "new")
-    .sort((a, b) => `${a.row.date} ${a.row.time ?? ""}`.localeCompare(`${b.row.date} ${b.row.time ?? ""}`));
-  if (fresh.length === 0) return { lots: 0, sales: 0, accountId: plan.accountId };
-
   return transact(db, () => {
+    // REV-2 · What is recorded now, not when the plan was made: two plans of
+    // one statement (a Gmail fetch and an upload) are both confirmable, and
+    // the second must add nothing the first already did.
+    const recorded = new Set(queryAll<{ source_ref: string }>(
+      db,
+      `SELECT source_ref FROM lots WHERE source_ref LIKE 'safegold:%'
+       UNION ALL
+       SELECT source_ref FROM holding_events WHERE source_ref LIKE 'safegold:%'`,
+    ).map((r) => r.source_ref));
+    const fresh = plan.rows
+      .filter((r) => r.status === "new" && !recorded.has(r.ref))
+      .sort((a, b) => `${a.row.date} ${a.row.time ?? ""}`.localeCompare(`${b.row.date} ${b.row.time ?? ""}`));
+    if (fresh.length === 0) return { lots: 0, sales: 0, accountId: plan.accountId };
+
     const accountId = plan.accountId ?? createAssetAccount(db, actor, {
       name: SAFEGOLD_ACCOUNT, subtype: "commodity", institution: "SafeGold",
       holderMemberId: actor.memberId ?? null,

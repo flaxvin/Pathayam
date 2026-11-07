@@ -138,6 +138,22 @@ describe("IMP-31 · a statement is imported once", () => {
     assert.equal(queryAll(db, `SELECT id FROM holding_events`).length, 1);
   });
 
+  test("REV-2 · two plans read from one statement, both confirmed, record it once", () => {
+    // A Gmail fetch and an upload of the same month, both reviewed before
+    // either is confirmed: each plan marks every row new.
+    const db = setup();
+    const a = planSafeGoldImport(db, [BUY_AND_SELL], RAVI);
+    const b = planSafeGoldImport(db, [BUY_AND_SELL], RAVI);
+    assert.equal(b.totals.newEntries, 2);
+    applySafeGoldPlan(db, actor, a);
+    const result = applySafeGoldPlan(db, actor, b);
+    assert.deepEqual({ lots: result.lots, sales: result.sales }, { lots: 0, sales: 0 });
+    assert.equal(queryAll(db, `SELECT id FROM lots`).length, 1);
+    assert.equal(queryAll(db, `SELECT id FROM holding_events`).length, 1);
+    assert.equal(listAssetAccounts(db).length, 1, "no second SafeGold account");
+    assert.equal(eventsOf(db, "safegold-import").length, 1);
+  });
+
   test("two identical purchases on one statement both count", () => {
     const db = setup();
     const twice = fromNothing([
