@@ -450,10 +450,22 @@ function piecedWord(word: string): string {
   return word.split("").join("[ ]{0,3}");
 }
 
+/**
+ * A pieced heading that is a word of its own, optionally plural.
+ *
+ * Unbounded, "debited" in a sentence of SBI Card's terms ("date of such EMI
+ * plans shall be debited to the Credit Card") read as a Debit heading beside a
+ * Credit one, that sentence became the table header, and every row was signed
+ * by which of two prose words its figure sat under (PDF-3).
+ */
+function piecedHeading(word: string): RegExp {
+  return new RegExp(`(?<![a-z])${piecedWord(word)}s?(?![a-z])`, "i");
+}
+
 const PIECED_HEADINGS: { key: keyof HeaderColumns; patterns: RegExp[] }[] = [
-  { key: "debit", patterns: [new RegExp(piecedWord("withdrawal") + "s?", "i"), new RegExp(piecedWord("debit"), "i")] },
-  { key: "credit", patterns: [new RegExp(piecedWord("deposit") + "s?", "i"), new RegExp(piecedWord("credit"), "i")] },
-  { key: "balance", patterns: [new RegExp(piecedWord("balance"), "i")] },
+  { key: "debit", patterns: [piecedHeading("withdrawal"), piecedHeading("debit")] },
+  { key: "credit", patterns: [piecedHeading("deposit"), piecedHeading("credit")] },
+  { key: "balance", patterns: [piecedHeading("balance")] },
   { key: "reference", patterns: [new RegExp(piecedWord("refno"), "i")] },
 ];
 
@@ -732,6 +744,11 @@ function markedSign(line: string, from: number): 1 | -1 | null {
   // a refund printed that way fell through to rule 4 as a purchase.
   if (/(?<![a-z])cr\.?\s*$/i.test(tail)) return 1;
   if (/(?<![a-z])dr\.?\s*$/i.test(tail)) return -1;
+  // SBI Card prints a lone C or D in a column of its own after the amount
+  // (its legend: "C=Credit ; D=Debit"). Unread, a payment imported as a
+  // purchase (PDF-3).
+  if (/\d\.\d{2}\s+C\s*$/.test(tail)) return 1;
+  if (/\d\.\d{2}\s+D\s*$/.test(tail)) return -1;
   // ICICI prints a bare minus in front of a refund; HDFC a plus. Not one
   // glued to a word before it: "AMAZON PAY-  499.00" is a narration's
   // hyphen, and read as the minus a ₹499 purchase imported as a refund (IMP-2).
