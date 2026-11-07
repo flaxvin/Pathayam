@@ -76,3 +76,20 @@ describe("Canara card · the closing balance column decides the sign", () => {
     assert.deepEqual(result.errors, []);
   });
 });
+
+describe("Canara card · a paragraph below the table is not a row's payee", () => {
+  test("a notice set left of the description column stays out of the last row", () => {
+    const last = parseStatementText(CANARA_CARD).records.at(-1)!;
+    assert.match(last.narration, /^IGST @ 18% On Fees and Charges\b/);
+    assert.doesNotMatch(last.narration, /details|claim|Insurance|Sample/);
+  });
+
+  test("a payee wrapped onto the line below, in its own column, is still kept", () => {
+    const result = parseStatementText(`YES BANK
+Date        Description            Amount
+15/02/2026  A LONG MERCHANT        100.00 Dr
+            NAME CONTINUED`);
+    assert.match(result.records[0]!.narration, /A LONG MERCHANT/);
+    assert.match(result.records[0]!.narration, /NAME CONTINUED/);
+  });
+});

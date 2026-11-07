@@ -933,6 +933,26 @@ function withWrappedMarker(lines: string[], i: number): string {
   return line;
 }
 
+/**
+ * The column a row's description starts at: its first cell after the date
+ * with a letter in it that is not a figure, a date or a Cr / Dr marker. Null
+ * when the dated line carries no description of its own (Union Bank wraps the
+ * whole cell above and below it).
+ */
+function narrationColumn(line: string, from: number): number | null {
+  const cell = /\S+(?: \S+)*/g;
+  cell.lastIndex = from;
+  let match: RegExpExecArray | null;
+  while ((match = cell.exec(line)) !== null) {
+    const text = match[0];
+    if (!/[A-Za-z]/.test(text)) continue;
+    if (/^(?:Cr|Dr|C|D)\.?$/i.test(text)) continue;
+    if (parseStatementAmount(text) !== null || findDate(text, text.length) !== null) continue;
+    return match.index;
+  }
+  return null;
+}
+
 /** An opening-balance line, which anchors the fallback path's first row. */
 function openingBalanceOf(line: string, previous = false): number | null {
   // "Previous Balance" only where the layout says it is the running balance's
@@ -1236,6 +1256,15 @@ export function parseStatementText(
     const rowDate = findDate(classified[nearest]!.raw);
     const indent = line.raw.length - line.raw.trimStart().length;
     if (rowDate && indent <= rowDate.start) continue;
+
+    /*
+     * And it starts in its row's description column, not left of it. Canara
+     * sets a notice ("For details of Complimentary Insurance …") below its
+     * table, indented past the date but well short of the description, and
+     * the paragraph became the last row's payee (PDF-6).
+     */
+    const described = rowDate ? narrationColumn(classified[nearest]!.raw, rowDate.end) : null;
+    if (described !== null && indent < described - 2) continue;
 
     const list = extra.get(nearest) ?? [];
     list.push(line.raw.trim().replace(/\s{2,}/g, " "));
