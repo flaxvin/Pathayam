@@ -373,7 +373,7 @@ import {
 } from "./import/safegold-plan.ts";
 import { renderSafeGoldUpload, renderSafeGoldReview } from "./web/pages/safegold.ts";
 import {
-  planCasImport, applyCasPlan, casDestinations, stashPlan, takePlan,
+  planCasImport, applyCasPlan, casDestinations, stashPlan, peekPlan, takePlan,
 } from "./import/cas-plan.ts";
 import {
   createAssetAccount, listAssetAccounts, listValuableAccounts, findOrCreateInstrument, setInstrumentListed, recordPurchase,
@@ -5831,6 +5831,13 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     // IMP-32 · A SafeGold statement is gold bought and sold, not this
     // account's rows: it goes to the same review its own upload does.
     if (isSafeGoldText(parsed.text)) {
+      // REV-6 · With the assets module off there is no gold to confirm into.
+      if (!config.features.assets) {
+        return importPage(ctx,
+          "That file is a SafeGold statement, not a bank or card statement, so " +
+          "there are no transactions in it to import here.",
+        );
+      }
       return safeGoldReview(ctx, a.member.id, [parseSafeGoldText(parsed.text)]);
     }
 
@@ -6429,7 +6436,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         a, getAccount(db, loan.account_id)?.holder_member_id ?? null, holder, visibility, "loan",
       );
       updateAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
-        loan.account_id, { holder_member_id: holder, visibility });
+        // REV-3 · A sole member's form has no holder field: keep them as holder.
+        loan.account_id, { holder_member_id: holderOrSoleMember(holder), visibility });
       return { redirect: `/loans/${loan.id}`, message: "Saved." };
     }),
   );
@@ -8506,6 +8514,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         a, getPolicy(db, id)?.holder_member_id ?? null, input.holderMemberId ?? null,
         input.visibility, "policy",
       );
+      // REV-3 · As at creation (UI-8): a sole member's form has no holder field.
+      input.holderMemberId = holderOrSoleMember(input.holderMemberId);
       updatePolicy(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), id, input);
       return { redirect: `/insurance/${id}`, message: "Saved." };
     }),
@@ -9147,7 +9157,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       requireAssets();
 
-      const plan = takePlan(requiredField(ctx.body, "token"), a.member.id);
+      // REV-1 · Left in the stash until it is applied: a refusal can be retried.
+      const token = requiredField(ctx.body, "token");
+      const plan = peekPlan(token, a.member.id);
       if (!plan) {
         return {
           // A fixed key, not the text: the page shows only errors it knows
@@ -9164,6 +9176,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const result = applyCasPlan(
         db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), plan, chosen,
       );
+      takePlan(token, a.member.id);
 
       const parts = [`${result.lots} ${result.lots === 1 ? "lot" : "lots"}`];
       if (result.sales > 0) {
@@ -9263,12 +9276,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/portfolio/safegold/confirm", (ctx) =>
     mutate(ctx, (a) => {
       requireAssets();
-      const plan = takeSafeGoldPlan(requiredField(ctx.body, "token"), a.member.id);
+      // REV-1 · Left in the stash until it is applied: a refused confirmation
+      // can be retried with "import it anyway".
+      const token = requiredField(ctx.body, "token");
+      const plan = peekSafeGoldPlan(token, a.member.id);
       if (!plan) return { redirect: "/portfolio/safegold?error=expired" };
       const result = applySafeGoldPlan(
         db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), plan,
         { acceptMismatch: field(ctx.body, "accept_mismatch") === "1" },
       );
+      takeSafeGoldPlan(token, a.member.id);
       if (result.lots + result.sales === 0) {
         return { redirect: "/portfolio", message: "Nothing new in that statement, so nothing was recorded." };
       }

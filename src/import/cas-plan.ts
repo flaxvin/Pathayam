@@ -477,6 +477,17 @@ export function stashPlan(token: string, plan: CasPlan, memberId: string | null)
   stash.set(token, { plan, memberId, at: now });
 }
 
+/**
+ * The stashed plan, left in place: a confirmation that is refused (a scheme
+ * redeeming units never bought) can be retried with that scheme unticked.
+ * Wrong member, expired, or already used: null.
+ */
+export function peekPlan(token: string, memberId: string | null): CasPlan | null {
+  const entry = stash.get(token);
+  if (!entry || entry.memberId !== memberId || Date.now() - entry.at > PLAN_TTL_MS) return null;
+  return entry.plan;
+}
+
 /** Read a stashed plan once. Wrong member, expired, or already used: null. */
 export function takePlan(token: string, memberId: string | null): CasPlan | null {
   const entry = stash.get(token);
