@@ -373,7 +373,7 @@ import {
 } from "./import/safegold-plan.ts";
 import { renderSafeGoldUpload, renderSafeGoldReview } from "./web/pages/safegold.ts";
 import {
-  planCasImport, applyCasPlan, casDestinations, stashPlan, takePlan,
+  planCasImport, applyCasPlan, casDestinations, stashPlan, peekPlan, takePlan,
 } from "./import/cas-plan.ts";
 import {
   createAssetAccount, listAssetAccounts, listValuableAccounts, findOrCreateInstrument, setInstrumentListed, recordPurchase,
@@ -9147,7 +9147,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     mutate(ctx, (a) => {
       requireAssets();
 
-      const plan = takePlan(requiredField(ctx.body, "token"), a.member.id);
+      // REV-1 · Left in the stash until it is applied: a refusal can be retried.
+      const token = requiredField(ctx.body, "token");
+      const plan = peekPlan(token, a.member.id);
       if (!plan) {
         return {
           // A fixed key, not the text: the page shows only errors it knows
@@ -9164,6 +9166,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       const result = applyCasPlan(
         db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), plan, chosen,
       );
+      takePlan(token, a.member.id);
 
       const parts = [`${result.lots} ${result.lots === 1 ? "lot" : "lots"}`];
       if (result.sales > 0) {
@@ -9263,12 +9266,16 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/portfolio/safegold/confirm", (ctx) =>
     mutate(ctx, (a) => {
       requireAssets();
-      const plan = takeSafeGoldPlan(requiredField(ctx.body, "token"), a.member.id);
+      // REV-1 · Left in the stash until it is applied: a refused confirmation
+      // can be retried with "import it anyway".
+      const token = requiredField(ctx.body, "token");
+      const plan = peekSafeGoldPlan(token, a.member.id);
       if (!plan) return { redirect: "/portfolio/safegold?error=expired" };
       const result = applySafeGoldPlan(
         db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string), plan,
         { acceptMismatch: field(ctx.body, "accept_mismatch") === "1" },
       );
+      takeSafeGoldPlan(token, a.member.id);
       if (result.lots + result.sales === 0) {
         return { redirect: "/portfolio", message: "Nothing new in that statement, so nothing was recorded." };
       }

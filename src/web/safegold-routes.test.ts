@@ -99,6 +99,24 @@ describe("IMP-32 · uploading a SafeGold statement", () => {
     });
   });
 
+  test("REV-1 · a refused confirmation can be retried with \"import it anyway\" on the same review", async () => {
+    await withApp(async (app) => {
+      const short = safeGoldPdf(statement(TWO_ROWS.slice(0, 2), "1.3000"));
+      const token = tokenOf(await (await upload(app, "/portfolio/safegold", short)).text())!;
+      const refused = await app.post("/portfolio/safegold/confirm", { token });
+      assert.equal(refused.status, 422);
+
+      const ok = await app.post("/portfolio/safegold/confirm", { token, accept_mismatch: "1" });
+      assert.equal(ok.status, 303);
+      assert.doesNotMatch(ok.headers.get("location") ?? "", /error=expired/);
+      assert.equal(queryAll(app.db, `SELECT id FROM lots`).length, 1);
+
+      // Once recorded, the plan is spent.
+      const spent = await app.post("/portfolio/safegold/confirm", { token, accept_mismatch: "1" });
+      assert.match(spent.headers.get("location") ?? "", /error=expired/);
+    });
+  });
+
   test("a file that is not a SafeGold statement is said to be one it cannot read", async () => {
     await withApp(async (app) => {
       const res = await upload(app, "/portfolio/safegold", safeGoldPdf("HDFC BANK\nStatement of account"));
