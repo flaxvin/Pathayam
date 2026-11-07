@@ -109,6 +109,7 @@ import { buildHouseholdView } from "./domain/household-view.ts";
 import { eventVisibility } from "./domain/event-visibility.ts";
 import { memberScope, hiddenTransactionSql, hiddenAccountSql } from "./domain/member-scope.ts";
 import { exportForMember, exportTransactionsCsvForMember } from "./ops/member-export.ts";
+import { aiSnapshot, SNAPSHOT_MAX_MONTHS } from "./ai/analysis.ts";
 import { callItEven } from "./domain/squaring-up.ts";
 import { describeDeparture, settleDeparture, type DepartureResolution } from "./domain/departure.ts";
 import { convertToEmi, convertedFrom, GST_PCT } from "./domain/card-emi.ts";
@@ -9548,6 +9549,33 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       headers: {
         "Content-Type": "application/json; charset=utf-8",
         "Content-Disposition": `attachment; filename="pathayam-${todayIST()}.json"`,
+      },
+    };
+  });
+
+  /*
+   * AI-4 · A summary of the member's figures for an AI tool or a spreadsheet:
+   * overview, budgets, spending by month, loans, portfolio, net worth, cashflow
+   * and the tax estimate, as the member sees them on screen. Not a backup and
+   * not the register — /export.json is both. A GET that changes nothing, so a
+   * read-only token reaches it the way it reaches /export.json.
+   */
+  router.get("/export/analysis.json", (ctx) => {
+    const a = auth(ctx);
+    const raw = ctx.query.get("months")?.trim();
+    let months: number | undefined;
+    if (raw) {
+      months = /^[0-9]+$/.test(raw) ? Number(raw) : NaN;
+      if (!Number.isInteger(months) || months < 1 || months > SNAPSHOT_MAX_MONTHS) {
+        throw new Refusal(`months is a whole number from 1 to ${SNAPSHOT_MAX_MONTHS}.`);
+      }
+    }
+    const snapshot = aiSnapshot(db, a.member.id, { months }, { features: config.features });
+    return {
+      body: JSON.stringify(snapshot, null, 2),
+      headers: {
+        "Content-Type": "application/json; charset=utf-8",
+        "Content-Disposition": `attachment; filename="pathayam-analysis-${todayIST()}.json"`,
       },
     };
   });

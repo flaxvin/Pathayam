@@ -25,6 +25,7 @@ this file, the code wins; please open an issue.
   - [`GET /healthz`](#get-healthz)
   - [`GET /export.json`](#get-exportjson)
   - [`GET /export.csv`](#get-exportcsv)
+  - [`GET /export/analysis.json`](#get-exportanalysisjson)
   - [Portfolio & net-worth CSVs](#portfolio--net-worth-csvs)
 - [Worked examples](#worked-examples)
 - [Full route reference](#full-route-reference)
@@ -337,6 +338,26 @@ curl -sS https://pathayam.example.com/export.csv \
   -H "Authorization: Bearer bgt_…" -o transactions.csv
 ```
 
+### `GET /export/analysis.json`
+
+A **summary** of the member's figures, meant for pasting into an AI tool or
+loading into a spreadsheet: the overview, each budget's current month and the
+last `months` months (default 12, 1 to 36), spending by envelope and the top
+20 payees per month, loans, portfolio, net worth, the next 30 days' cashflow,
+goals, insurance and this financial year's tax estimate. Amounts are rupees
+(two decimals), dates `YYYY-MM-DD`, and `currency` is stated once at the top.
+
+It is what the member sees on screen and nothing more — another member's
+private accounts, loans, policies and personal budget are absent, totals
+included — and it is not a backup: there is no transaction list. A section
+whose feature is switched off reads `{ "enabled": false }`. Read-only, so a
+read token reaches it.
+
+```bash
+curl -sS "https://pathayam.example.com/export/analysis.json?months=24" \
+  -H "Authorization: Bearer bgt_…" -o analysis.json
+```
+
 ### Portfolio & net-worth CSVs
 
 Available when the assets feature is enabled. One shape each (F19.13):
@@ -594,6 +615,7 @@ only (out of a token's reach).
 | POST | `/health/backup` · `/health/verify` | W | Run a backup / verify a restore. |
 | POST | `/gmail/fetch` | W | Fetch from the connected mailbox now. (`/gmail/disconnect` is session only.) |
 | GET | `/export.json` · `/export.csv` | R | Full data exports. |
+| GET | `/export/analysis.json` | R | A summary of the member's figures for AI tools and spreadsheets (`months`, 1–36). |
 | GET | `/healthz` | R (public) | Machine health probe. |
 
 ### Session-only (out of a token's reach)
