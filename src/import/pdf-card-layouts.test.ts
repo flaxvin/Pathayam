@@ -84,6 +84,15 @@ describe("Canara card · a paragraph below the table is not a row's payee", () =
     assert.doesNotMatch(last.narration, /details|claim|Insurance|Sample/);
   });
 
+  test("the amount's and the balance's Cr / Dr are not part of the narration", () => {
+    assert.deepEqual(parseStatementText(CANARA_CARD).records.map((r) => r.narration), [
+      "BBPS Payment",
+      "FUEL SURCHARGE REIMB",
+      "ANNUAL FEE 0000-0000 THRHLD-000000 USED-",
+      "IGST @ 18% On Fees and Charges",
+    ]);
+  });
+
   test("a payee wrapped onto the line below, in its own column, is still kept", () => {
     const result = parseStatementText(`YES BANK
 Date        Description            Amount

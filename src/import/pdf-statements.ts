@@ -797,8 +797,11 @@ function parseRow(
     .filter((c) => !/\d[\d,]*\.\d{2}/.test(c))
     .filter((c) => parseStatementAmount(c) === null)
     // SBI Card's lone C / D sign column, which says which way the money
-    // went and is no part of who it went to (PDF-4).
-    .filter((c) => !/^[CD]$/.test(c))
+    // went and is no part of who it went to (PDF-4) — and a Cr / Dr set a
+    // few spaces after its figure, as Canara prints both its amount's and
+    // its balance's ("… USED-  300.00  Dr  285.00  Dr" read "USED- Dr Dr",
+    // PDF-7).
+    .filter((c) => !/^(?:[CD]|Cr\.?|Dr\.?)$/i.test(c))
     // A stray time from "17/03/2026| 23:08", and column rules.
     .map((c) => c.replace(/^[|\s]+/, "").replace(/^\d{1,2}:\d{2}(:\d{2})?$/, ""))
     // A lone currency mark, sign or bullet left over once the figure beside it
