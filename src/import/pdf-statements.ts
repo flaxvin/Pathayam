@@ -233,6 +233,13 @@ export function bankForInstitution(institution: string | null | undefined): Bank
 /** What `nonBankDocument` calls a SafeGold statement, so its callers can send it to the gold importer. */
 export const SAFEGOLD_STATEMENT = "a SafeGold statement";
 
+/**
+ * IMP-35 · What `nonBankDocument` calls the statement SafeGold mails for gold
+ * bought through a partner bank's app (Axis Bank's, until it moved its
+ * customers' gold to SafeGold): one balance, no wallet, no transactions.
+ */
+export const SAFEGOLD_DISTRIBUTOR_BALANCE = "a SafeGold balance held through a partner bank";
+
 const NOT_A_BANK: { pattern: RegExp; what: string }[] = [
   { pattern: /\bFolio\s*(?:No|Number)\b/i, what: "a mutual fund statement" },
   { pattern: /\bAdvisor\s*\/\s*Distributor\b|\bARN\s*Code\b|\bEUIN\b/i, what: "a mutual fund statement" },
@@ -240,6 +247,8 @@ const NOT_A_BANK: { pattern: RegExp; what: string }[] = [
   { pattern: /funds\s+and\s+securities\s+balances?\b|\bNSE\/INSP\//i, what: "an exchange's funds and securities balance" },
   // IMP-32 · Digital gold: grams bought and sold, read by `safegold.ts`.
   { pattern: /Gold\s+Wallet\s+Balance/i, what: SAFEGOLD_STATEMENT },
+  // After the wallet: a wallet statement prints "…SafeGold Distributors" too.
+  { pattern: /Gold\s+Balance\s+with\s+SafeGold\s+Distributor\b/i, what: SAFEGOLD_DISTRIBUTOR_BALANCE },
 ];
 
 export function nonBankDocument(text: string): string | null {

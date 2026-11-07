@@ -55,6 +55,70 @@ export const TWO_ROWS = [
 ];
 
 /**
+ * IMP-34 · A month in which gold moved in from a partner bank's wallet, in the
+ * shape a real statement prints it — the figures and the partner are made up.
+ *
+ *   · The opening balance in the summary wraps its grams onto the next line.
+ *   · A row's date stands alone on its line; the details, the signed quantity
+ *     ("+ 0.5000 g", the sign apart) and the balance follow on the next; the
+ *     time comes last, on its own line. The statement's font maps ":" and
+ *     "(" to private-use code points, so "09:41:07 PM" is extracted as
+ *     "09\uE09241\uE09207 PM" and "(99.5%" as "\uE08199.5%".
+ *   · A second "Transaction Statement" follows for the partner's own wallet,
+ *     with its own opening and closing lines. It is not SafeGold's wallet.
+ */
+export const TRANSFER_STATEMENT = [
+  "                                                    RAVI EXAMPLE",
+  "Account Summary",
+  "                                                    As of 31st December 2026",
+  " SafeGold Balance                                                   1.2345 g",
+  " Gold Balance with SafeGold Distributors                            0.0000 g",
+  "    Transaction Summary",
+  "Opening Gold Wallet Balance as of 1st December 2026 :",
+  "                                                                    0.0000 g",
+  " Transaction Activities between 1st December 2026 to 31st December 2026",
+  " Total Purchased Gold                                               0.0000 g",
+  " Total Other Gold Inflows                                           1.2345 g",
+  "Closing Gold Wallet Balance as of 31st December 2026 :              1.2345 g",
+  "Opening Gold Balance with Example Bank                              1.2400 g",
+  "Closing Gold balance with Example Bank                              0.0000 g",
+  "",
+  "    T ransaction Statement",
+  "                                           Opening Gold Wallet Balance as of",
+  "                                        1st December 2026 \uE088 0.0000 g",
+  "Date & Time         Transaction Details                            Quantity        Closing Balance",
+  "31st December 2026",
+  "                    Gold transferred from Example Bank \uE08199.5% to 99.99% purity)   + 1.2345 g     1.2345 g",
+  "09\uE09241\uE09207 PM",
+  "                                           Closing Gold Wallet Balance as of",
+  "                                        31st December 2026 - 1.2345 g",
+  "",
+  "    T ransaction Statement",
+  "                                           Opening Gold Wallet Balance as of",
+  "                                        1st December 2026 - 1.2400 g",
+  "Date & Time         Transaction Details                            Quantity        Closing Balance",
+  "31st December 2026",
+  "                    Gold transferred to SafeGold \uE08199.5% to 99.99% purity)          - 1.2400 g     0.0000 g",
+  "09\uE09241\uE09207 PM",
+  "                                           Closing Gold Wallet Balance as of",
+  "                                        31st December 2026 - 0.0000 g",
+].join("\n");
+
+/**
+ * IMP-35 · The statement SafeGold mails for gold bought through a partner
+ * bank's app, in the shape a real one prints: one page, the holder, and a
+ * single balance — no wallet balance, no transactions. Made-up figures.
+ */
+export const DISTRIBUTOR_STATEMENT = [
+  "                                                    RAVI EXAMPLE",
+  "                                                    9000000000",
+  "                                                    ravi@example.com",
+  "Account     Summary",
+  "                                                    As of 30th November 2026",
+  " Gold Balance with SafeGold Distributor                             2.0000 g",
+].join("\n");
+
+/**
  * The statement as a one-page, unencrypted PDF, one text run per line, so a
  * test goes through the real chain: extract → recognise → parse. Helvetica
  * has no rupee sign, so "₹" is written "Rs.".

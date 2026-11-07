@@ -15,7 +15,7 @@ import type { DB } from "../db/db.ts";
 import { queryAll } from "../db/db.ts";
 import { fetchGmail } from "./fetch.ts";
 import { saveConnection } from "./connection.ts";
-import { statement, TWO_ROWS, safeGoldPdf } from "../import/safegold.test-data.ts";
+import { statement, TWO_ROWS, DISTRIBUTOR_STATEMENT, safeGoldPdf } from "../import/safegold.test-data.ts";
 import { freshDb, seedMember, startTestApp } from "../web/harness.test-data.ts";
 
 const actor: Actor = { memberId: "m-ravi", source: "ui" };
@@ -107,5 +107,16 @@ describe("IMP-33 · SafeGold statements by mail", () => {
     } finally {
       await app.close();
     }
+  });
+
+  test("IMP-35 · a balance held through a partner bank is noted, not counted as a statement for no account", async () => {
+    const db = setup();
+    const result = await fetchGmail(db, actor, {
+      clientId: "id", clientSecret: "secret", fetchImpl: fakeGoogle(safeGoldPdf(DISTRIBUTOR_STATEMENT)),
+    });
+    assert.equal(result.statements.unmatched, 0);
+    assert.equal(result.gold.statements, 0);
+    assert.ok(result.notes.some((n) => /partner bank/.test(n) && /nothing to import/.test(n)), result.notes.join("; "));
+    assert.equal(queryAll(db, `SELECT id FROM lots`).length, 0);
   });
 });
