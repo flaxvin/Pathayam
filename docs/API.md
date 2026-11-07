@@ -147,6 +147,7 @@ enforced as a deny-list in [`tokenMayReach`](../src/auth/tokens.ts)):
 | `/settings/password` | A password is a way in that does not need the token. A token that could set one would outlive its own revocation — and setting it signs the member's browsers out. |
 | `/sessions` | Signing the member's devices out is a human decision, not a script's. |
 | `/gmail/connect`, `/gmail/callback`, `/gmail/disconnect` | Linking or unlinking a mailbox changes what can reach the household, not what the budget says. `/gmail/fetch` stays reachable. |
+| `/oauth` | Approving an AI app hands out a fresh token with its own refresh token; a token that could do that would outlive its own revocation. |
 
 ```json
 // 403 on any forbidden prefix
@@ -154,6 +155,52 @@ enforced as a deny-list in [`tokenMayReach`](../src/auth/tokens.ts)):
   "error": "An API token cannot reach this. Tokens cannot sign in, impersonate, mint other tokens, or change who is allowed in."
 }
 ```
+
+### Connecting an AI app (OAuth)
+
+claude.ai custom connectors, ChatGPT connectors, Gemini and other MCP clients
+connect by URL: give them `${BASE_URL}/mcp` and they find the rest. Pathayam is
+its own OAuth 2.1 authorization server for this, following the MCP
+authorization spec (revision 2026-07-28); the code is
+[`src/auth/oauth.ts`](../src/auth/oauth.ts).
+
+1. `/mcp` without a usable token answers `401` with
+   `WWW-Authenticate: Bearer resource_metadata="${BASE_URL}/.well-known/oauth-protected-resource", scope="read"`.
+2. The protected resource metadata (RFC 9728) names `${BASE_URL}/mcp` as the
+   resource and `BASE_URL` as the authorization server; its metadata (RFC 8414)
+   names the endpoints below.
+3. The app registers itself (RFC 7591). Redirect URIs must be `https`, or
+   `http` on `localhost`, `127.0.0.1` or `[::1]` — matched on any port, for
+   native clients such as Claude Code and Gemini CLI. No fragments, no
+   credentials, at most 10. Public clients only (`token_endpoint_auth_method`
+   is always `none`).
+4. The member, signed in, approves on `/oauth/authorize`. PKCE `S256` is
+   required, `resource` must be `${BASE_URL}/mcp` when given, and every
+   redirect back carries `iss` (RFC 9207).
+5. The app trades the code at `/oauth/token` for an access token and a
+   refresh token.
+
+The access token **is an ordinary API token**: `bgt_`, scope `read` whatever
+was asked for, one hour long, named after the app ("Claude (connector)").
+Everything above applies to it unchanged — the deny-list, the rate limit,
+revocation, member removal. Refresh tokens last 90 days and rotate on every
+use; presenting an old one again ends the connection, as does using a code
+twice. Errors are RFC 6749 JSON (`invalid_grant`, `invalid_client`, …).
+
+Settings → API tokens lists each approval under **Connected AI apps**;
+**Revoke** there (or revoking the access token itself) ends the access token
+and the refresh token together. Approving and disconnecting are recorded in
+the activity log.
+
+| Method | Path | Scope | Purpose |
+|---|---|---|---|
+| GET | `/.well-known/oauth-protected-resource` · `/.well-known/oauth-protected-resource/mcp` | public | RFC 9728 protected resource metadata. CORS-open. |
+| GET | `/.well-known/oauth-authorization-server` | public | RFC 8414 authorization server metadata. CORS-open. |
+| POST | `/oauth/register` | public | RFC 7591 registration, JSON in and out. 20 an hour per address; at most 200 clients; one nobody approved within a day is removed. |
+| GET/POST | `/oauth/authorize` | session only | The consent page and its answer. Refused while viewing as another member and on the demo. |
+| POST | `/oauth/token` | public | `authorization_code` and `refresh_token` grants, form-encoded. |
+| POST | `/oauth/revoke` | public | RFC 7009. Ends the connection the token belongs to; answers `200` whatever it was. |
+| POST | `/tokens/connections/:id/revoke` | session only | Disconnect an AI app (Settings → API tokens). |
 
 ---
 
