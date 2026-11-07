@@ -94,6 +94,7 @@ import {
 } from "../import/learning.ts";
 import type { RuleStage } from "../import/rules.ts";
 import { planCasImport, applyCasPlan } from "../import/cas-plan.ts";
+import { planSafeGoldImport, applySafeGoldPlan } from "../import/safegold-plan.ts";
 import { setIdentity, clearIdentity } from "../import/identity.ts";
 import { loadEngineInput } from "../engine/repository.ts";
 import {
@@ -1531,6 +1532,24 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
     if (plan.schemes.length > 0) {
       did("applyCasPlan", () => applyCasPlan(db, actor, plan, [0]));
     }
+  }
+
+  /*
+   * IMP-31 · A SafeGold statement, once: a ₹1,000 purchase of digital gold,
+   * GST included, into the household's gold account.
+   */
+  {
+    const goldMonth = months[Math.min(31, MONTHS - 2)]!;
+    const plan = did("planSafeGoldImport", () => planSafeGoldImport(db, [{
+      period: { from: `${goldMonth}-01`, to: `${goldMonth}-28` },
+      openingUnits: null, closingUnits: null, unparsed: [],
+      rows: [{
+        date: `${goldMonth}-10`, time: "10:15", kind: "buy", description: "Gold Purchased",
+        units: 80_000, price: 12_136_000, amount: rupees(1_000) as Paise, gst: 2_913 as Paise,
+        raw: "Gold Purchased 0.0800 g",
+      }],
+    }]));
+    if (plan.totals.newEntries > 0) did("applySafeGoldPlan", () => applySafeGoldPlan(db, actor, plan));
   }
 
   /*
