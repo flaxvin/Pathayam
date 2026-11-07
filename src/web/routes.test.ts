@@ -145,6 +145,9 @@ function getRoutes(ids: Record<string, string>): string[] {
     // place, with the flag on.
     "/settings/password",
     "/attachment/:id",                        // needs a stored file on disk
+    // Needs a registered client and a PKCE challenge; without them it is a
+    // deliberate 400. The whole flow is driven in oauth-flow.test.ts.
+    "/oauth/authorize",
   ]);
 
   const fill = (pattern: string): string | null => {
