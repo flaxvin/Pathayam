@@ -51,6 +51,14 @@ describe("PLAN-1 · presets", () => {
     }
   });
 
+  test("GMAIL-BYO · every preset lets a household bring its own Google keys", () => {
+    for (const plan of PLANS) {
+      assert.equal(PLAN_PRESETS[plan].features.gmailByo, true, plan);
+      assert.equal(loadConfig({ ...base, PLAN: plan }).features.gmailByo, true, plan);
+    }
+    assert.equal(loadConfig({ ...base, PLAN: "solo", FEATURE_GMAIL_BYO: "off" }).features.gmailByo, false);
+  });
+
   test("every preset names every flag", () => {
     for (const plan of PLANS) assert.deepEqual(Object.keys(PLAN_PRESETS[plan].features).sort(), [...FEATURE_NAMES].sort());
   });
@@ -111,7 +119,7 @@ describe("PLAN-1 · the route table", () => {
       ["/goals", "goals"], ["/tax/payments", "tax"], ["/query.csv", "reports"], ["/reports", "reports"],
       ["/schedules/new", "schedules"], ["/rules/test", "rules"], ["/attachment/abc", "attachments"],
       ["/transaction/abc/attach", "attachments"], ["/import/pdf", "importPdf"],
-      ["/import/budget-app", "importBudgetApp"], ["/gmail/fetch", "gmail"], ["/tokens", "apiTokens"],
+      ["/import/budget-app", "importBudgetApp"], ["/tokens", "apiTokens"],
       ["/tokens/ai", "ai"], ["/mcp", "ai"], ["/oauth/token", "ai"], ["/export/analysis.json", "ai"],
       ["/.well-known/oauth-authorization-server", "ai"],
     ];
@@ -120,6 +128,14 @@ describe("PLAN-1 · the route table", () => {
       assert.equal(pathAvailable(path, { ...ALL_FEATURES_OFF, [name]: true }), true, `${path} with only ${name}`);
     }
     assert.ok(pathAvailable("/goalsx", ALL_FEATURES_OFF), "a prefix is a segment, not a string");
+  });
+
+  test("GMAIL-BYO · the Gmail pages are there while either way of connecting is", () => {
+    for (const path of ["/gmail/connect", "/gmail/fetch", "/gmail/keys", "/gmail/disconnect"]) {
+      assert.ok(pathAvailable(path, { ...ALL_FEATURES_OFF, gmail: true }), `${path} with the deployment's client`);
+      assert.ok(pathAvailable(path, { ...ALL_FEATURES_OFF, gmailByo: true }), `${path} with your own keys`);
+      assert.equal(pathAvailable(path, { ...ALL_FEATURES_ON, gmail: false, gmailByo: false }), false, `${path} with neither`);
+    }
   });
 
   test("the import page is there while any way in is", () => {

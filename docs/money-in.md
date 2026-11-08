@@ -251,8 +251,15 @@ revocable there.
 
 `STATEMENT_SENDERS` maps sender addresses to banks; only recognised senders are
 read. Attachments are passed to the PDF path; alert bodies to the email-alert
-parser. The refresh token is stored in `gmail_connections` and excluded from
-every export.
+parser. The refresh token is stored in `gmail_connections` (sealed with
+`SECRETS_KEY` when one is set) and excluded from every export.
+
+The OAuth client is the member's own, else the household's, else the
+deployment's `GOOGLE_CLIENT_ID` when `FEATURE_GMAIL` is on
+(`src/gmail/clients.ts`). Keys a household brings are saved from Settings →
+Gmail (`POST /gmail/keys`) into `gmail_clients`, the secret sealed. A
+connection records the client id that issued its token and always renews
+under it. See [operations](operations.md#gmail-with-your-own-google-keys).
 
 An alert is routed by the last four digits it names, among only the accounts
 and cards the member whose mailbox it came from can see — another member's

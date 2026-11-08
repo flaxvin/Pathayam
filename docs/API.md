@@ -154,7 +154,7 @@ enforced as a deny-list in [`tokenMayReach`](../src/auth/tokens.ts)):
 | `/signout` | Nothing for a token to sign out of. |
 | `/settings/password` | A password is a way in that does not need the token. A token that could set one would outlive its own revocation — and setting it signs the member's browsers out. |
 | `/sessions` | Signing the member's devices out is a human decision, not a script's. |
-| `/gmail/connect`, `/gmail/callback`, `/gmail/disconnect` | Linking or unlinking a mailbox changes what can reach the household, not what the budget says. `/gmail/fetch` stays reachable. |
+| `/gmail/connect`, `/gmail/callback`, `/gmail/disconnect`, `/gmail/keys` | Linking or unlinking a mailbox, or changing which Google client it consents to, changes what can reach the household, not what the budget says. `/gmail/fetch` stays reachable. |
 | `/oauth` | Approving an AI app hands out a fresh token with its own refresh token; a token that could do that would outlive its own revocation. |
 
 ```json
@@ -709,6 +709,7 @@ These return `403` to any token — use a browser session.
 | GET/POST | `/members/:id/remove` | Removing a member changes who is allowed in. |
 | POST | `/members/:id/password-link` | A link that sets somebody's password is a way in. |
 | POST | `/gmail/disconnect` | Unlinking a mailbox. |
+| POST | `/gmail/keys` | Saving or removing your own, or the household's, Google OAuth client. |
 | POST | `/impersonate/start` · `/impersonate/writes` · `/impersonate/exit` | Impersonation (R38.12). |
 | POST | `/sessions/revoke` | Session management. |
 | GET | `/auth/google` · `/auth/google/callback` · `/auth/oidc` · `/auth/oidc/callback` · `/gmail/connect` · `/gmail/callback` | OAuth and OIDC flows (interactive). |

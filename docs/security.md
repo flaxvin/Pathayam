@@ -256,7 +256,7 @@ from the page's `data-member` attribute — until the server confirms it.
 
 ## Secrets
 
-- `statement_identity` and `gmail_connections` are listed in `NEVER_EXPORTED`
+- `statement_identity`, `gmail_connections` and `gmail_clients` are listed in `NEVER_EXPORTED`
   and excluded from the JSON and CSV exports.
 - Statement passwords are used and discarded; only a description of which
   candidate worked is retained.

@@ -15,7 +15,8 @@
 | `password_setup_links` | `token_hash`, `member_id`, `created_by_member_id`, `created_at`, `expires_at`, `used_at` | One-time links that set a member's first password (0067). Only the SHA-256 of the token is kept; `created_by_member_id` is NULL for a link made with `npm run password-link`. Not exported. |
 | `auth_attempts` | `source`, `at`, `outcome`, `detail` | Drives sign-in rate limiting. |
 | `statement_identity` | `member_id`, `name`, `pan`, `dob`, `mobile`, `customer_ids` | Used only to derive statement passwords. Excluded from every export. `customer_ids` (0060) is JSON: the Axis and HDFC customer IDs, and the HSBC card's last six digits (`{"axis":…,"hdfc":…,"hsbcCardLast6":…}`). |
-| `gmail_connections` | `member_id`, `email`, `refresh_token`, `scope`, `last_history_id` | Excluded from every export. |
+| `gmail_connections` | `member_id`, `email`, `refresh_token`, `scope`, `last_history_id`, `client_id` | Excluded from every export. `refresh_token` sealed with `SECRETS_KEY` when set; `client_id` is the OAuth client that issued it (null: the deployment's own). |
+| `gmail_clients` | `owner` (a member id or `household`), `client_id`, `client_secret` (sealed), `set_by`, `set_at` | A Google OAuth client the household brings. Excluded from every export. |
 
 ## Accounts and money
 

@@ -589,6 +589,8 @@ export async function runBackupJob(
 // a statement-password ingredient like the identity: kept on the server only.
 export const NEVER_EXPORTED = [
   "statement_identity", "gmail_connections", "member_passwords", "card_number_digits",
+  // GMAIL-BYO · a household's own Google client secret, sealed but still a credential.
+  "gmail_clients",
 ];
 
 export function exportEverything(db: DB): Record<string, unknown> {

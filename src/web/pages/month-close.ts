@@ -490,11 +490,66 @@ export function renderStatementIdentity(
  * Like the statement identity, this asks for a real capability — read access
  * to a mailbox — so it says plainly what it reads and what it keeps, rather
  * than a reassuring summary.
+ *
+ * GMAIL-BYO · With FEATURE_GMAIL_BYO it also takes a Google OAuth client of
+ * the member's own, or one for the whole household, and says which one a
+ * connection would use. The secret is never shown back: a saved client shows
+ * its id, which is public, and a box to replace or remove it.
  */
+export interface GmailKeysView {
+  /** Which client a new connection would use; null when none is available. */
+  route: "member" | "household" | "deployment" | null;
+  byo: boolean;
+  /** False without SECRETS_KEY: the forms are replaced by a sentence saying why. */
+  canSave: boolean;
+  mine: { clientId: string; setAt: string } | null;
+  household: { clientId: string; setAt: string; setBy: string | null } | null;
+  redirectUri: string;
+  origin: string;
+}
+
+const GUIDE = "https://pathayam.app/guides.html#gmail-keys";
+
+const ROUTE_SENTENCE: Record<"member" | "household" | "deployment", string> = {
+  member: "Connecting uses your own Google keys.",
+  household: "Connecting uses the household's Google keys. Save your own below to use those instead.",
+  deployment: "Connecting uses this server's own Google sign-in.",
+};
+
+function keysForm(scope: "member" | "household", saved: { clientId: string } | null): SafeHtml {
+  const id = scope === "household" ? "household" : "mine";
+  return html`
+    <form method="post" action="/gmail/keys" class="stack" style="gap:.4rem">
+      <input type="hidden" name="scope" value="${scope}">
+      <div class="field">
+        <label for="client-id-${id}">Client ID</label>
+        <input id="client-id-${id}" name="client_id" autocomplete="off" spellcheck="false"
+          placeholder="1234567890-abc.apps.googleusercontent.com" value="${saved?.clientId ?? ""}" required>
+      </div>
+      <div class="field">
+        <label for="client-secret-${id}">Client secret</label>
+        <input id="client-secret-${id}" name="client_secret" type="password" autocomplete="off" spellcheck="false"
+          placeholder="${saved ? "Saved — paste again to replace" : "GOCSPX-…"}" required>
+      </div>
+      <div class="row" style="gap:.5rem">
+        <button type="submit">${saved ? "Replace" : "Save"}</button>
+      </div>
+    </form>
+    ${when(saved !== null, () => html`
+      <form method="post" action="/gmail/keys" style="margin-top:.4rem">
+        <input type="hidden" name="scope" value="${scope}">
+        <input type="hidden" name="clear" value="1">
+        <button class="button-small button-danger" type="submit">Remove</button>
+      </form>
+    `)}
+  `;
+}
+
 export function renderGmailConnection(
   connection: { email: string; connectedAt: string; lastFetchedAt: string | null } | null,
-  configured: boolean,
+  keys: GmailKeysView,
 ): SafeHtml {
+  const configured = keys.route !== null;
   return html`
     <section class="card" id="gmail">
       <h2>Fetching statements and alerts from Gmail</h2>
@@ -504,12 +559,20 @@ export function renderGmailConnection(
         those — into your review queue.
       </p>
 
-      ${when(!configured, () => html`
+      ${when(!configured && !keys.byo, () => html`
         <p class="notice notice-warning">
           Google sign-in is not configured on this server, so Gmail cannot be
           connected here.
         </p>
       `)}
+      ${when(!configured && keys.byo, () => html`
+        <p class="notice notice-info">
+          To connect Gmail, add a Google OAuth client from your own Google Cloud
+          project below — yours, or one for the whole household. It takes about
+          ten minutes and is free. <a href="${GUIDE}" target="_blank" rel="noopener">How to make one</a>.
+        </p>
+      `)}
+      ${when(configured, () => html`<p class="faint">${ROUTE_SENTENCE[keys.route!]}</p>`)}
 
       <p class="notice notice-warning">
         <strong>What this grants.</strong> Read-only access to your Gmail, used
@@ -544,6 +607,57 @@ export function renderGmailConnection(
               <p><a class="button button-primary" href="/gmail/connect">Connect Gmail</a></p>
             `)}
           `}
+
+      ${when(keys.byo, () => html`
+        <details id="gmail-keys" ${keys.mine || keys.household || !configured ? "open" : ""}>
+          <summary>Your own Google keys</summary>
+          <p class="faint">
+            A Google Cloud OAuth client (type <em>Web application</em>) with the
+            Gmail API turned on. Add these to it exactly:
+          </p>
+          <div class="table-scroll">
+            <table>
+              <tbody>
+                <tr><td>Authorised JavaScript origin</td><td><code style="overflow-wrap:anywhere">${keys.origin}</code></td></tr>
+                <tr><td>Authorised redirect URI</td><td><code style="overflow-wrap:anywhere">${keys.redirectUri}</code></td></tr>
+              </tbody>
+            </table>
+          </div>
+          <p class="faint">
+            Publish the project's consent screen to <em>In production</em>: while it
+            says <em>Testing</em>, Google ends the connection every seven days.
+            <a href="${GUIDE}" target="_blank" rel="noopener">Step-by-step guide</a>.
+          </p>
+          ${keys.canSave
+            ? html`
+                <h3>Just for you</h3>
+                ${when(keys.mine !== null, () => html`
+                  <p class="faint">Saved ${formatDate(keys.mine!.setAt.slice(0, 10))}.</p>`)}
+                ${keysForm("member", keys.mine)}
+                <h3 style="margin-top:1.25rem">For the household</h3>
+                <p class="faint">
+                  Used by every member who has not saved their own. Each person
+                  still signs in to Google and consents for their own mailbox.
+                </p>
+                ${when(keys.household !== null, () => html`
+                  <p class="faint">Saved ${formatDate(keys.household!.setAt.slice(0, 10))} by ${keys.household!.setBy ?? "a member"}.</p>`)}
+                ${keysForm("household", keys.household)}
+              `
+            : html`
+                <p class="notice notice-warning">
+                  This server has no <code>SECRETS_KEY</code> set, so it will not
+                  store a Google client secret. Whoever runs it can set one
+                  (<code>openssl rand -base64 32</code>) and restart.
+                </p>
+              `}
+          <p class="faint">
+            The secret is sealed before it is stored, never shown again, and left
+            out of every export. A new secret for the same client keeps your
+            connection; removing the keys, or switching to another client, means
+            connecting Gmail again.
+          </p>
+        </details>
+      `)}
     </section>
   `;
 }

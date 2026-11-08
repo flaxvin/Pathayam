@@ -301,7 +301,7 @@
           <tr><td>Consolidated statement</td><td>The monthly CAS is the primary way holdings get in. Rows reconcile against existing lots rather than duplicating.</td></tr>
           <tr><td>SafeGold statements</td><td>Digital gold, read from SafeGold&rsquo;s monthly PDF &mdash; uploaded, dropped on Import or fetched from Gmail. Buys become lots with GST in the cost, sells realise gains, and the rows are checked against the closing gold balance. A re-import adds nothing.</td></tr>
           <tr><td>Five dedupe tiers</td><td>Exact, strong by reference, probable, weak, and manual-versus-imported — so one purchase never lands twice from an alert, an email and a statement.</td></tr>
-          <tr><td>Gmail ingestion</td><td>Opt-in, read-only. Reads only the banks' own addresses; an alert becomes a review row in seconds. When a statement arrives locked and the bank wants card digits you have not saved, each such card is listed with a box to enter them.</td></tr>
+          <tr><td>Gmail ingestion</td><td>Opt-in, read-only. Reads only the banks' own addresses; an alert becomes a review row in seconds. Works on every plan with your own Google keys &mdash; one set for the household, or each member their own. When a statement arrives locked and the bank wants card digits you have not saved, each such card is listed with a box to enter them.</td></tr>
           <tr><td>Receipts</td><td>A photo or PDF per transaction, stored in the database and served so no device caches it.</td></tr>
           </tbody>
         </table>
@@ -571,7 +571,7 @@
           <tr><td>AI connections</td><td>Read-only unless the operator allows changes and you tick &ldquo;allow changes&rdquo; for one, every change logged and undoable; reading as the member who approved them, masked by default and logged question by question. Disconnect one and its token stops working. <a href="#ai">How it works</a>.</td></tr>
           <tr><td>Universal undo</td><td>Thirty days, from an append-only log. The undo is itself an entry — nothing is edited or deleted.</td></tr>
           <tr><td>Verified restore</td><td>A scheduled job restores the latest backup into a scratch database and compares control totals. Failure fires a webhook.</td></tr>
-          <tr><td>Modules you can switch off</td><td>Eighteen of them, one environment variable each &mdash; loans, investments and net worth, insurance, goals, tax, reports, schedules, rules, receipts, each import path, Gmail, API tokens, AI connections and more. A module that is off disappears from every screen and keeps its data. <a href="#plans">What each plan includes</a>.</td></tr>
+          <tr><td>Modules you can switch off</td><td>Nineteen of them, one environment variable each &mdash; loans, investments and net worth, insurance, goals, tax, reports, schedules, rules, receipts, each import path, Gmail, API tokens, AI connections and more. A module that is off disappears from every screen and keeps its data. <a href="#plans">What each plan includes</a>.</td></tr>
           <tr><td>Goals</td><td>Long-horizon savings with their own envelopes, a target amount and an optional date, shown as progress against both.</td></tr>
           <tr><td>Schedules</td><td>Recurring bills and income, with a sixty-day cashflow calendar showing what lands when and where the balance dips.</td></tr>
           <tr><td>Month close</td><td>A monthly ritual that records income, spending and what was assigned, takes a net-worth snapshot, prints, and can be reopened.</td></tr>
@@ -608,7 +608,7 @@
           <tr><td>Investments, net worth, financial independence</td><td>✓</td><td>&mdash;</td><td>✓</td><td>✓</td></tr>
           <tr><td>API tokens</td><td>✓</td><td>&mdash;</td><td>✓</td><td>✓</td></tr>
           <tr><td>Connect an AI</td><td>✓</td><td>&mdash;</td><td>✓</td><td>✓</td></tr>
-          <tr><td>Gmail ingestion</td><td>✓</td><td>&mdash;</td><td>&mdash;</td><td>&mdash;</td></tr>
+          <tr><td>Gmail, with your own Google keys</td><td>✓</td><td>✓</td><td>✓</td><td>✓</td></tr>
           <tr><td>Backups you can restore from</td><td>Yours to keep</td><td>30 days</td><td>90 days</td><td>1 year</td></tr>
           </tbody>
         </table>

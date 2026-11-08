@@ -47,6 +47,10 @@ services:
       # portfolio is mostly mutual funds, and MFAPI needs no key — so leaving
       # this empty is the expected configuration, not a missing one (P9).
       ALPHA_VANTAGE_KEY: ${ALPHA_VANTAGE_KEY:-}
+      # Seals stored credentials (your own Google client secret, Gmail refresh
+      # tokens). At least 32 characters: openssl rand -base64 32. Keep it out of
+      # the data volume; losing it means reconnecting Gmail, nothing more.
+      SECRETS_KEY: ${SECRETS_KEY:-}
 
       # PLAN-1: which modules this instance offers, and its limits. PLAN picks
       # a preset (selfhost, solo, household, power); anything below that is
@@ -70,6 +74,9 @@ services:
       FEATURE_IMPORT_PDF: ${FEATURE_IMPORT_PDF:-}
       FEATURE_IMPORT_BUDGET_APP: ${FEATURE_IMPORT_BUDGET_APP:-}
       FEATURE_GMAIL: ${FEATURE_GMAIL:-}
+      # Members (or the household) bring their own Google OAuth client for
+      # Gmail. On in every preset; needs SECRETS_KEY to store the secret.
+      FEATURE_GMAIL_BYO: ${FEATURE_GMAIL_BYO:-}
       FEATURE_API_TOKENS: ${FEATURE_API_TOKENS:-}
       FEATURE_AI: ${FEATURE_AI:-}
       # Q18 settled on rupee-only accounts; off in every preset.
