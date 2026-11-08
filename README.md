@@ -355,7 +355,7 @@ Fully listed in [docs/limitations.md](docs/limitations.md). The principal ones:
 - No offline mode beyond the Add form, which keeps an entry on the device until
   the signal returns; everything else requires the server.
 - Payee names extracted from some statement PDFs contain spaces inside words.
-- The database is not encrypted at rest.
+- The app does not encrypt the database file itself; encryption at rest comes from the disk (an encrypted volume on the hosted service).
 
 ## Contributing
 
