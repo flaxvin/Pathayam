@@ -2,7 +2,11 @@
 
 Envelope (zero-based) budgeting for one Indian household. Self-hosted,
 server-rendered, installable as a PWA. TypeScript on Node 24+, SQLite, no
-runtime dependencies.
+runtime dependencies. Source-available: free to self-host for any
+noncommercial use, every feature, no limits ([licence](#licence)).
+Try it with no signup at <https://demo.pathayam.app>.
+
+A product of [Flaxvin Technologies](https://flaxvin.tech).
 
 *Pathayam* (പത്തായം) is the wooden granary of a Kerala house: filled once at
 harvest, then drawn from carefully through the year.
