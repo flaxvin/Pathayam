@@ -3208,4 +3208,57 @@ CREATE TABLE gmail_clients (
 ALTER TABLE gmail_connections ADD COLUMN client_id TEXT;
 `,
   },
+  {
+    name: "0074-a-forwarding-address-for-bank-mail",
+    sql: `
+--------------------------------------------------------------------------------
+-- FWD · A forwarding address: bank mail a member forwards in, read on arrival
+-- (src/forwarding/, docs/forwarding.md)
+--------------------------------------------------------------------------------
+
+-- One address per member, as one Gmail connection is per member: forwarded
+-- mail comes from somebody's mailbox, and routes among the accounts that
+-- member can see. token is the random part of the address; it is the only
+-- thing that lets mail in, so rotating it is replacing the row.
+CREATE TABLE forwarding_addresses (
+  member_id        TEXT PRIMARY KEY REFERENCES members(id),
+  token            TEXT NOT NULL UNIQUE,
+  created_at       TEXT NOT NULL,
+  last_received_at TEXT
+);
+
+-- What arrived and what became of it, without the message: sender, subject
+-- and an outcome, so a member can see that the filter works and why a message
+-- imported nothing. confirmation is the code in Gmail's "confirm forwarding"
+-- message, the one thing Gmail needs typed back before it forwards anything.
+-- Kept 90 days, like everything forwarded (website/pricing.html).
+CREATE TABLE forwarded_mail (
+  id           TEXT PRIMARY KEY,
+  member_id    TEXT NOT NULL REFERENCES members(id),
+  received_at  TEXT NOT NULL,
+  sender       TEXT NOT NULL,
+  subject      TEXT NOT NULL,
+  signed       INTEGER NOT NULL CHECK (signed IN (0, 1)),
+  outcome      TEXT NOT NULL
+               CHECK (outcome IN ('read','nothing','not-a-bank','unsigned','confirmation','held')),
+  detail       TEXT,
+  confirmation TEXT
+);
+CREATE INDEX idx_forwarded_mail_member ON forwarded_mail(member_id, received_at);
+
+-- A statement no password opened. A Gmail fetch can read it again next time;
+-- a forwarded message arrives once, so its PDF waits here, sealed with
+-- SECRETS_KEY, until the missing detail is entered. Deleted when it opens,
+-- when the member deletes it, or at 90 days, whichever is first.
+CREATE TABLE forwarded_statements (
+  id          TEXT PRIMARY KEY,
+  member_id   TEXT NOT NULL REFERENCES members(id),
+  received_at TEXT NOT NULL,
+  sender      TEXT NOT NULL,
+  filename    TEXT NOT NULL,
+  sealed      TEXT NOT NULL
+);
+CREATE INDEX idx_forwarded_statements_member ON forwarded_statements(member_id);
+`,
+  },
 ];

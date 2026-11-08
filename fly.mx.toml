@@ -1,0 +1,48 @@
+# pathayam-mx: the forwarding address's mail receiver, as its own Fly app.
+#
+#   fly apps create pathayam-mx
+#   fly ips allocate-v4 -a pathayam-mx          # dedicated IPv4: port 25 needs one
+#   fly secrets set -a pathayam-mx MX_ROUTES='{"hh1":{"url":"https://<household app>","secret":"<its INBOUND_SECRET>"}}'
+#   fly deploy -c fly.mx.toml
+#
+# Then point the MX record of MX_DOMAIN at this app's IPv4 (docs/forwarding.md).
+# Not deployed by .github/workflows/fly.yml, which deploys fly.toml only: this
+# app changes rarely and is deployed by hand.
+
+app = 'pathayam-mx'
+primary_region = 'iad'
+
+[build]
+  dockerfile = 'Dockerfile'
+  build-target = 'runtime'
+
+[experimental]
+  cmd = ['node', 'dist/mx/main.js']
+
+[env]
+  MX_DOMAIN = 'in.pathayam.app'
+  # The image runs as an unprivileged user, so the process listens on 2525 and
+  # Fly maps the public port 25 to it.
+  MX_PORT = '2525'
+
+# A sending server retries for days, so a short outage loses nothing, but a
+# receiver that stops whenever it is idle answers its first connection late.
+# One machine, always on.
+[[services]]
+  protocol = 'tcp'
+  internal_port = 2525
+  auto_stop_machines = 'off'
+  auto_start_machines = true
+  min_machines_running = 1
+
+  [[services.ports]]
+    port = 25
+
+  [[services.tcp_checks]]
+    interval = '30s'
+    timeout = '5s'
+    grace_period = '10s'
+
+[[vm]]
+  size = 'shared-cpu-1x'
+  memory = '256mb'

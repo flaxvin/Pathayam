@@ -155,6 +155,7 @@ enforced as a deny-list in [`tokenMayReach`](../src/auth/tokens.ts)):
 | `/settings/password` | A password is a way in that does not need the token. A token that could set one would outlive its own revocation — and setting it signs the member's browsers out. |
 | `/sessions` | Signing the member's devices out is a human decision, not a script's. |
 | `/gmail/connect`, `/gmail/callback`, `/gmail/disconnect`, `/gmail/keys` | Linking or unlinking a mailbox, or changing which Google client it consents to, changes what can reach the household, not what the budget says. `/gmail/fetch` stays reachable. |
+| `/forwarding/create`, `/forwarding/remove` | Making, replacing or turning off a forwarding address changes what mail can reach Review. `/forwarding/retry` stays reachable. |
 | `/oauth` | Approving an AI app hands out a fresh token with its own refresh token; a token that could do that would outlive its own revocation. |
 
 ```json
@@ -465,6 +466,24 @@ leading `'` if it wants the original text.
 
 ---
 
+### The mail receiver's hand-off: `POST /inbound/email`
+
+Not for scripts: this is how the mail receiver (`src/mx`, see
+[forwarding.md](forwarding.md)) passes a forwarded message to the app. It is
+answered before sessions, tokens and the same-origin rule, and only when
+`FEATURE_FORWARDING` is on. The body is the raw message (`message/rfc822`);
+`X-Pathayam-Recipient` names the address, and `X-Pathayam-Signature` is
+`t=<unix seconds>,v1=<hex HMAC-SHA256>` over `<t>.<recipient>.` and the body,
+keyed with `INBOUND_SECRET` and at most five minutes old.
+
+| Status | Meaning |
+|---|---|
+| `202` | Taken: imported, or logged and dropped (not a bank, no valid bank signature). |
+| `401` | The signature is missing, wrong or stale. |
+| `404` | No such address on this instance. The receiver refuses the message. |
+| `413` | Over 26 MiB. |
+| `503` | `INBOUND_DOMAIN` or `INBOUND_SECRET` is not set. |
+
 ## Worked examples
 
 **A nightly backup, verifying it isn't empty:**
@@ -693,6 +712,8 @@ only (out of a token's reach).
 | POST | `/health/backup` · `/health/verify` | W | Run a backup / verify a restore. |
 | POST | `/gmail/fetch` | W | Fetch from the connected mailbox now. (`/gmail/disconnect` is session only.) |
 | POST | `/gmail/card-digits` | W | Save a card account's last four to eight digits (`account_id`, `card_digits`), offered after a fetch left its statement locked for want of them. Never echoed; the notice shows the last two. |
+| POST | `/forwarding/retry` | W | Try the member's locked forwarded statements again with the statement details on file; each that opens is imported and deleted. |
+| POST | `/forwarding/held/:id/delete` | W | Delete one locked forwarded statement. |
 | GET | `/export.json` · `/export.csv` | R | Full data exports. |
 | GET | `/export/analysis.json` | R | A summary of the member's figures for AI tools and spreadsheets (`months`, 1–36). |
 | GET | `/healthz` | R (public) | Machine health probe. |
@@ -710,6 +731,7 @@ These return `403` to any token — use a browser session.
 | POST | `/members/:id/password-link` | A link that sets somebody's password is a way in. |
 | POST | `/gmail/disconnect` | Unlinking a mailbox. |
 | POST | `/gmail/keys` | Saving or removing your own, or the household's, Google OAuth client. |
+| POST | `/forwarding/create` · `/forwarding/remove` | Making, replacing or turning off a forwarding address. |
 | POST | `/impersonate/start` · `/impersonate/writes` · `/impersonate/exit` | Impersonation (R38.12). |
 | POST | `/sessions/revoke` | Session management. |
 | GET | `/auth/google` · `/auth/google/callback` · `/auth/oidc` · `/auth/oidc/callback` · `/gmail/connect` · `/gmail/callback` | OAuth and OIDC flows (interactive). |

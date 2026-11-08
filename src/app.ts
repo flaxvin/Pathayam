@@ -365,12 +365,25 @@ import {
 import { redactValue } from "./ai/redact.ts";
 import { recordAiAccess, listAiAccess } from "./ai/access-log.ts";
 import { renderConnectAi, renderAiUndoConfirm } from "./web/pages/ai.ts";
+import { verifyInbound, SIGNATURE_HEADER, RECIPIENT_HEADER } from "./mail/signature.ts";
+import type { TxtResolver } from "./mail/dkim.ts";
+import {
+  addressRow, formatAddress, issueAddress, removeAddress, tokenFromRecipient,
+} from "./forwarding/address.ts";
+import { receiveForwarded } from "./forwarding/inbound.ts";
+import {
+  listHeld, deleteHeld, retryHeld, listForwardedMail, pendingConfirmation,
+} from "./forwarding/held.ts";
+import { renderForwarding } from "./web/pages/forwarding.ts";
+import { bankSenders } from "./gmail/fetch.ts";
 
 export interface AppDeps {
   db: DB;
   config: Config;
   /** Injected so tests can drive the OAuth exchange without a network call. */
   fetchImpl?: typeof fetch;
+  /** FWD · DNS TXT lookups for DKIM keys; injected so tests need no network. */
+  resolveTxt?: TxtResolver;
 }
 
 // `/privacy` and `/terms` are public because Google's OAuth reviewer fetches
@@ -417,6 +430,11 @@ const STATIC_PREFIX = "/assets/";
  * matched exactly. One segment after /auth/setup/ and nothing else.
  */
 const SETUP_LINK_PATH = /^\/auth\/setup\/[^/]+$/;
+/** FWD · The receiver's hand-off, answered before any session or form rule. */
+const INBOUND_PATH = "/inbound/email";
+/** A forwarded message's cap: the receiver's 25 MiB, and a little framing. */
+const INBOUND_BODY_BYTES = 26 * 1024 * 1024;
+
 /** The largest body a public route (a sign-in door) will read. */
 const PUBLIC_BODY_BYTES = 64 * 1024;
 
@@ -431,7 +449,9 @@ function refuseInDemo(config: Config, what: string): void {
   throw new HttpError(403, `${what} is disabled on the demo. Run your own copy to use it.`);
 }
 
-export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: RequestContext) => Response | void)[] } {
+export function buildApp(deps: AppDeps): {
+  router: Router; middleware: ((ctx: RequestContext) => Response | void | Promise<Response | void>)[];
+} {
   const { db, config } = deps;
   const router = new Router();
   // AI-7 · Off on a hosted Solo instance (FEATURE_AI=false); on everywhere else.
@@ -495,6 +515,53 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      */
     function featureGate(ctx: RequestContext): Response | void {
       if (!pathAvailable(ctx.url.pathname, config.features)) throw new NotFound();
+    },
+
+    /*
+     * FWD-2 · The mail receiver's hand-off of one forwarded message.
+     *
+     * Answered here, ahead of sessions and the same-origin write rule, because
+     * the caller is a server holding neither a cookie nor an Origin: what it
+     * holds is INBOUND_SECRET, and the signature over the recipient and the
+     * exact bytes is checked before anything else looks at them. The body is
+     * read here too, as bytes: the form reader would decode it as UTF-8, and a
+     * bank's 8-bit body would then no longer match its DKIM signature.
+     *
+     * The status is the receiver's answer to the sending server: 202 taken,
+     * 404 no such address (refused), 401 a bad signature, 503 not set up.
+     */
+    async function inboundMail(ctx: RequestContext): Promise<Response | void> {
+      if (ctx.url.pathname !== INBOUND_PATH) return;
+      if (ctx.method.toUpperCase() !== "POST") {
+        return { status: 405, headers: { Allow: "POST" }, body: "" };
+      }
+      const { secret } = config.inbound;
+      if (!secret || !config.inbound.domain) {
+        return { status: 503, json: { error: "Forwarding is not set up on this server." } };
+      }
+      const declared = Number(ctx.req.headers["content-length"] ?? NaN);
+      if (Number.isFinite(declared) && declared > INBOUND_BODY_BYTES) {
+        return { status: 413, json: { error: "That message is too large." } };
+      }
+      const chunks: Buffer[] = [];
+      let size = 0;
+      for await (const chunk of ctx.req) {
+        size += (chunk as Buffer).length;
+        if (size > INBOUND_BODY_BYTES) return { status: 413, json: { error: "That message is too large." } };
+        chunks.push(chunk as Buffer);
+      }
+      const raw = new Uint8Array(Buffer.concat(chunks));
+      const recipient = String(ctx.req.headers[RECIPIENT_HEADER] ?? "").toLowerCase();
+      if (!verifyInbound(secret, ctx.req.headers[SIGNATURE_HEADER] as string | undefined, recipient, raw)) {
+        return { status: 401, json: { error: "That hand-off was not signed with this server's INBOUND_SECRET." } };
+      }
+      const token = tokenFromRecipient(config.inbound, recipient);
+      if (!token) return { status: 404, json: { error: "No such address." } };
+      const outcome = await receiveForwarded(db, {
+        secretsKey: config.secretsKey, resolveTxt: deps.resolveTxt,
+      }, token, raw);
+      if (outcome.status === "unknown-address") return { status: 404, json: { error: "No such address." } };
+      return { status: 202, json: { outcome: outcome.outcome } };
     },
 
     /*
@@ -3783,6 +3850,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
             <a href="/portfolio/safegold/review?token=${encodeURIComponent(pendingGoldToken(ctx, a.member.id)!)}">Review its gold entries</a>
             before they expire in half an hour.
           </p>`)}
+
+        ${when(!config.demoMode && config.features.forwarding, () => renderForwarding(forwardingView(a.member.id)))}
 
         ${when(!config.demoMode, () => renderStatementIdentity(maskedIdentity(db, a.member.id)))}
         ${when(
@@ -8997,6 +9066,81 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
    * checked against a statement here — there is none — so the next fetch is
    * what tries them. Never echoed: the notice shows the last two.
    */
+  // -------------------------------------------------------------------------
+  // FWD · The forwarding address (src/forwarding/, docs/forwarding.md)
+  // -------------------------------------------------------------------------
+
+  function forwardingView(memberId: string): import("./web/pages/forwarding.ts").ForwardingView {
+    const row = addressRow(db, memberId);
+    return {
+      ready: config.inbound.domain !== null && config.inbound.secret !== null,
+      address: row ? formatAddress(config.inbound, row.token) : null,
+      createdAt: row?.created_at ?? null,
+      lastReceivedAt: row?.last_received_at ?? null,
+      confirmation: row ? pendingConfirmation(db, memberId) : null,
+      recent: listForwardedMail(db, memberId),
+      held: listHeld(db, memberId),
+      canHold: config.secretsKey !== null,
+      senders: bankSenders(),
+    };
+  }
+
+  /** An address is the member's own, like a Gmail connection: not while viewing as another. */
+  function refuseForwardingWhileViewingAs(a: AuthContext): void {
+    refuseInDemo(config, "A forwarding address");
+    if (a.impersonating) {
+      throw new HttpError(403, "A forwarding address cannot be changed while viewing as another member.");
+    }
+  }
+
+  router.post("/forwarding/create", (ctx) =>
+    mutate(ctx, (a) => {
+      refuseForwardingWhileViewingAs(a);
+      if (!config.inbound.domain || !config.inbound.secret) {
+        throw new Refusal("Forwarding is not set up on this server yet (INBOUND_DOMAIN and INBOUND_SECRET).");
+      }
+      const replacing = addressRow(db, a.member.id) !== null;
+      issueAddress(db, actorFor(a));
+      return {
+        redirect: "/settings#forwarding",
+        message: replacing
+          ? "New address made. The old one no longer takes mail: update your filter."
+          : "Your forwarding address is ready. Set up the filter below.",
+      };
+    }),
+  );
+
+  router.post("/forwarding/remove", (ctx) =>
+    mutate(ctx, (a) => {
+      refuseForwardingWhileViewingAs(a);
+      removeAddress(db, actorFor(a));
+      return { redirect: "/settings#forwarding", message: "Forwarding is off. Mail to the old address is refused." };
+    }),
+  );
+
+  router.post("/forwarding/held/:id/delete", (ctx) =>
+    mutate(ctx, (a) => {
+      refuseForwardingWhileViewingAs(a);
+      if (!deleteHeld(db, a.member.id, ctx.params.id!)) throw new NotFound();
+      return { redirect: "/settings#forwarding", message: "Deleted that statement." };
+    }),
+  );
+
+  router.post("/forwarding/retry", async (ctx) => {
+    const a = auth(ctx);
+    refuseForwardingWhileViewingAs(a);
+    const { result, opened, still, unreadable } = await retryHeld(db, actorFor(a, "import"), config.secretsKey);
+    const imported = result.alerts.staged + result.statements.staged;
+    const parts = [
+      opened ? `Opened ${opened} ${opened === 1 ? "statement" : "statements"}` +
+        (imported ? `: ${imported} ${imported === 1 ? "row" : "rows"} imported` : "") : null,
+      still ? `${still} still locked.${result.missingDetails.length ? ` ${result.missingDetails.join(" ")}` : ""}` : null,
+      unreadable ? `${unreadable} could not be read back (SECRETS_KEY changed); delete ${unreadable === 1 ? "it" : "them"} and forward again` : null,
+    ].filter((p): p is string => p !== null);
+    const message = parts.length ? parts.join(". ") : "Nothing was waiting.";
+    return { redirect: withNotice(imported > result.autoApproved ? "/review" : "/settings#forwarding-held", message) };
+  });
+
   router.post("/gmail/card-digits", (ctx) =>
     mutate(ctx, (a) => {
       refuseGmailWhileViewingAs(a);

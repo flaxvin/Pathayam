@@ -10,6 +10,7 @@ does, not how it came to do it.
 | [budgeting.md](budgeting.md) | The envelope engine: definitions, rules, formulas, the accounting identity. |
 | [accounts.md](accounts.md) | Account kinds and subtypes, transactions, transfers, splits, reconciliation. |
 | [money-in.md](money-in.md) | CSV import, YNAB and Actual Budget exports, PDF statements, Gmail, duplicate detection, transfers in Review, rules, learning, undoing an import. |
+| [forwarding.md](forwarding.md) | The forwarding address: the receiver, the checks on a forwarded message, what is kept and for how long, setting it up. |
 | [loans-and-assets.md](loans-and-assets.md) | Loans, amortisation, EMI conversion, home loan interest for the tax estimate, family lending, insurance, deposits that value themselves, portfolio, net worth, financial independence. |
 | [privacy.md](privacy.md) | Budgets, visibility, and how access is enforced. |
 | [security.md](security.md) | Authentication, authorisation, transport, input handling. |

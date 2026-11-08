@@ -5,6 +5,19 @@ HTTP API in [docs/API.md](docs/API.md), the configuration in
 [docs/operations.md](docs/operations.md) and the database migrations are the
 public surface: a change that breaks one of them is a major version.
 
+## Unreleased
+
+- **Forwarding address.** Each member can have an address
+  (`<route>.<token>@INBOUND_DOMAIN`) to forward bank mail to with a filter;
+  alerts and statements land in Review as they arrive, through the Gmail
+  import's own path. Only known bank senders with a valid DKIM signature are
+  read; locked statements wait, sealed, for a password; everything forwarded
+  is purged at 90 days. A receive-only SMTP server with no dependencies
+  (`src/mx`, `fly.mx.toml`, compose profile `mail`) hands each message over
+  signed with `INBOUND_SECRET`. New: `FEATURE_FORWARDING` (on for selfhost, off
+  in the hosted presets), `INBOUND_DOMAIN`, `INBOUND_ROUTE`, `INBOUND_SECRET`,
+  migration 0074. See [docs/forwarding.md](docs/forwarding.md).
+
 ## 1.0.0 · 24-10-2026
 
 First production release. Everything built since 19-09-2026, in one version.

@@ -242,6 +242,9 @@ Everything the app reads, and nothing it does not:
 | `GOOGLE_CLIENT_ID` | — | Required for Google sign-in. |
 | `GOOGLE_CLIENT_SECRET` | — | |
 | `SECRETS_KEY` | — | Seals stored credentials: a member's or the household's own Google client secret, and Gmail refresh tokens. At least 32 characters (`openssl rand -base64 32`); shorter refuses to start. Keep it outside the data volume (a Fly secret). Unset, own Google keys cannot be saved. |
+| `INBOUND_DOMAIN` | — | The forwarding address's domain, e.g. `in.example.com`: what the mail receiver answers for. Not a mail domain stops startup. See [forwarding.md](forwarding.md). |
+| `INBOUND_ROUTE` | — | This household's prefix on a receiver shared by several (`hh1` makes `hh1.<token>@…`). Empty when the receiver serves this instance alone. Letters and digits, at most 32. |
+| `INBOUND_SECRET` | — | Signs each hand-off from the receiver; the receiver's `MX_ROUTES` entry carries the same value. At least 32 characters (`openssl rand -base64 32`). Without it and `INBOUND_DOMAIN`, Settings says forwarding is not set up. |
 | `PORT` | `8080` | |
 | `HOST` | `0.0.0.0` | |
 | `DATA_DIR` | `./data` | Where the database, backups and attachments live. |
@@ -306,6 +309,7 @@ any case.
 | `FEATURE_GMAIL_BYO` | on | on | on | on | Connecting a mailbox with a Google client the member or household brings (Settings → Gmail, needs `SECRETS_KEY`). With `FEATURE_GMAIL` also off, `/gmail/*` and the card-digit prompts go. |
 | `FEATURE_API_TOKENS` | on | off | on | on | `/tokens`. A token minted earlier gets 403 everywhere except `/mcp`, and works again when the flag comes back on. |
 | `FEATURE_AI` | on | off | on | on | AI connections: `/mcp`, signing in from an AI app (`/oauth/*`, the `.well-known` metadata), Connect an AI (`/tokens/ai`) and `/export/analysis.json`. Existing connections stop answering. `/export.json` stays. |
+| `FEATURE_FORWARDING` | on | off | off | off | The forwarding address (Settings → Forwarding address) and the receiver's hand-off, `/inbound/email`. A paid add-on on every hosted tier: set it to `true` for a household that bought it. Needs `INBOUND_*` and a receiver ([forwarding.md](forwarding.md)). |
 | `FEATURE_MULTI_CURRENCY` | off | off | off | off | Q18 settled on ₹-only accounts. |
 
 A module that is off **disappears**, as F28.2 requires. Its pages answer 404,

@@ -89,6 +89,14 @@ export interface FetchDeps {
  * `04` §3.4 draws: no message from an unlisted sender is ever fetched.
  */
 export function buildQuery(sinceDays: number): string {
+  return `from:(${bankSenders().join(" OR ")}) newer_than:${sinceDays}d`;
+}
+
+/**
+ * Every sender the app knows how to read, as Gmail's search wants them. FWD-3:
+ * also what a member pastes into a mail filter's From to forward them.
+ */
+export function bankSenders(): string[] {
   const senders = new Set<string>();
   // Statement senders — from the sender map itself, so every sender it
   // recognises is one the fetch asks for. A hand-kept copy here had drifted.
@@ -97,9 +105,18 @@ export function buildQuery(sinceDays: number): string {
   // Spelled out per profile: a pattern covering an old and a new domain has
   // no single address to strip it down to.
   for (const p of ALERT_PROFILES) for (const a of p.query) senders.add(a);
+  return [...senders].map((s) => (s.startsWith("@") ? s.slice(1) : s));
+}
 
-  const from = [...senders].map((s) => (s.startsWith("@") ? s.slice(1) : s)).join(" OR ");
-  return `from:(${from}) newer_than:${sinceDays}d`;
+/**
+ * FWD-2 · Whether an address is one the import reads: a statement sender or an
+ * alert sender, the same two lists `buildQuery` searches Gmail for. The
+ * forwarding address opens nothing else.
+ */
+export function knownBankSender(address: string): boolean {
+  const a = address.trim().toLowerCase();
+  if (a === "") return false;
+  return senderFor(a) !== null || ALERT_PROFILES.some((p) => p.senders.some((s) => s.test(a)));
 }
 
 /** The most messages one fetch reads. */
@@ -135,7 +152,6 @@ export async function fetchGmail(
     gold: { statements: 0, newEntries: 0, token: null },
     notes: [],
   };
-  const gold: SafeGoldStatement[] = [];
 
   // A first fetch reaches back 90 days; later fetches only need a short window,
   // but the content-hash dedupe makes a wider window harmless.
@@ -159,77 +175,158 @@ export async function fetchGmail(
     );
   }
 
+  const run = startMailIngest(db, actor, result);
+  for (const id of ids) {
+    result.scanned++;
+    const message = await getMessage(id, client);
+    await run.message({
+      sender: addressOf(header(message, "From") ?? ""),
+      subject: header(message, "Subject") ?? "",
+      received: receivedDate(message),
+      body: () => plainTextBody(message),
+      pdfs: pdfAttachments(message).map((pdf) => ({
+        filename: pdf.filename,
+        load: () => getAttachment(id, pdf.attachmentId, client),
+      })),
+    });
+  }
+  run.finish();
+
+  markFetched(db, memberId, latestHistoryId(connection));
+  return result;
+}
+
+// ---------------------------------------------------------------------------
+// FWD-2 · One message in, whatever its source
+// ---------------------------------------------------------------------------
+
+/**
+ * A bank email as the import needs it, whichever way it arrived: read from
+ * Gmail by the fetch, or forwarded to the household's address (FWD-2). The
+ * body and each PDF are loaded only when the message turns out to need them.
+ */
+export interface MailItem {
+  /** The bare address in From, lowercased. */
+  sender: string;
+  subject: string;
+  received: IsoDate | undefined;
+  body: () => string;
+  pdfs: { filename: string; load: () => Promise<Uint8Array> }[];
+}
+
+export interface MailIngestOptions {
+  /**
+   * FWD-4 · A statement no password opened, with its bytes. A Gmail fetch can
+   * leave it in the mailbox and read it again next time; a forwarded message
+   * arrives once, so the forwarding path keeps it (sealed) until the missing
+   * detail is entered. Not called for a damaged or certificate-locked file.
+   */
+  onLocked?: (pdf: { filename: string; bytes: Uint8Array; sender: string }) => void;
+}
+
+export interface MailIngest {
+  message(item: MailItem): Promise<void>;
+  /** Ingests the alerts gathered per account and stages any SafeGold plan. */
+  finish(): void;
+}
+
+/** A FetchResult with every count at zero. */
+export function emptyFetchResult(): FetchResult {
+  return {
+    scanned: 0,
+    alerts: { parsed: 0, staged: 0, unmatched: 0, unread: 0 },
+    statements: { read: 0, staged: 0, locked: 0, unmatched: 0 },
+    missingDetails: [],
+    cardDigitsNeeded: [],
+    autoApproved: 0,
+    gold: { statements: 0, newEntries: 0, token: null },
+    notes: [],
+  };
+}
+
+/**
+ * Route each message to the right handler, a transaction alert to the alert
+ * parser and a statement PDF to the statement reader, counting into `result`.
+ * The Gmail fetch and the forwarding address share it, so a message reads the
+ * same whichever way it came.
+ */
+export function startMailIngest(
+  db: DB, actor: Actor, result: FetchResult, options: MailIngestOptions = {},
+): MailIngest {
+  const memberId = actor.memberId;
+  if (!memberId) throw new Error("Importing mail needs a member.");
+  const gold: SafeGoldStatement[] = [];
   // Accumulate records per account, then ingest once per account so dedupe and
   // the batch log behave the same as an uploaded file.
   const alertRecords = new Map<string, { records: RawRecord[]; adapter: string }>();
 
-  for (const id of ids) {
-    result.scanned++;
-    const message = await getMessage(id, client);
-    const sender = addressOf(header(message, "From") ?? "");
-    const subject = header(message, "Subject") ?? "";
-    const received = receivedDate(message);
+  return {
+    async message(item) {
+      const { sender, subject, received } = item;
 
-    // A statement PDF, if this sender sends those and the message carries one.
-    const statementSender = senderFor(sender);
-    const pdfs = pdfAttachments(message);
-    if (statementSender && pdfs.length > 0) {
-      await handleStatement(db, actor, deps, client, memberId, id, pdfs, statementSender, result, gold);
-      continue;
-    }
-
-    // Otherwise, a transaction alert.
-    const body = plainTextBody(message);
-    const parsed = parseAlert(sender, subject, body, received);
-    if (!parsed) {
-      // Not every message from a bank is a transaction, but one that reads
-      // like one and could not be read is said, not silently dropped.
-      if (looksLikeUnreadAlert(sender, body)) {
-        result.alerts.unread++;
-        result.notes.push(
-          `An alert from ${sender}${received ? ` on ${received}` : ""} could not be read, ` +
-          "so nothing was imported from it — add that transaction by hand",
+      // A statement PDF, if this sender sends those and the message carries one.
+      const statementSender = senderFor(sender);
+      if (statementSender && item.pdfs.length > 0) {
+        await handleStatement(
+          db, actor, memberId, item.pdfs, { ...statementSender, address: sender }, result, gold, options,
         );
+        return;
       }
-      continue;
-    }
-    result.alerts.parsed++;
 
-    const routed = routeAlert(db, memberId, parsed.record);
-    if (!routed) { result.alerts.unmatched++; result.notes.push(`No account matches ${sender}`); continue; }
-    if ("ambiguous" in routed) {
-      result.alerts.unmatched++;
-      result.notes.push(`More than one of your accounts ends in ${routed.ambiguous}; left an alert from ${sender} alone`);
-      continue;
-    }
+      // Otherwise, a transaction alert.
+      const body = item.body();
+      const parsed = parseAlert(sender, subject, body, received);
+      if (!parsed) {
+        // Not every message from a bank is a transaction, but one that reads
+        // like one and could not be read is said, not silently dropped.
+        if (looksLikeUnreadAlert(sender, body)) {
+          result.alerts.unread++;
+          result.notes.push(
+            `An alert from ${sender}${received ? ` on ${received}` : ""} could not be read, ` +
+            "so nothing was imported from it — add that transaction by hand",
+          );
+        }
+        return;
+      }
+      result.alerts.parsed++;
 
-    const bucket = alertRecords.get(routed.accountId) ?? { records: [], adapter: `email:${parsed.bank}` };
-    bucket.records.push(routed.record);
-    alertRecords.set(routed.accountId, bucket);
-  }
+      const routed = routeAlert(db, memberId, parsed.record);
+      if (!routed) { result.alerts.unmatched++; result.notes.push(`No account matches ${sender}`); return; }
+      if ("ambiguous" in routed) {
+        result.alerts.unmatched++;
+        result.notes.push(`More than one of your accounts ends in ${routed.ambiguous}; left an alert from ${sender} alone`);
+        return;
+      }
 
-  for (const [accountId, bucket] of alertRecords) {
-    const outcome = ingest(db, actor, {
-      accountId, source: "email", adapter: bucket.adapter, records: bucket.records,
-    });
-    result.alerts.staged += outcome.staged;
-    result.autoApproved += outcome.autoApproved;
-  }
+      const bucket = alertRecords.get(routed.accountId) ?? { records: [], adapter: `email:${parsed.bank}` };
+      bucket.records.push(routed.record);
+      alertRecords.set(routed.accountId, bucket);
+    },
 
-  /*
-   * IMP-33 · Gold is proposed, never written by a fetch (`04` I2): the
-   * statements become one plan — a few months of them, or one mailed twice,
-   * matched row by row — that the person confirms on its review.
-   */
-  if (gold.length > 0) {
-    const plan = planSafeGoldImport(db, gold, memberId);
-    const token = newId();
-    stashSafeGoldPlan(token, plan, memberId);
-    result.gold = { statements: gold.length, newEntries: plan.totals.newEntries, token };
-  }
+    finish() {
+      for (const [accountId, bucket] of alertRecords) {
+        const outcome = ingest(db, actor, {
+          accountId, source: "email", adapter: bucket.adapter, records: bucket.records,
+        });
+        result.alerts.staged += outcome.staged;
+        result.autoApproved += outcome.autoApproved;
+      }
+      alertRecords.clear();
 
-  markFetched(db, memberId, latestHistoryId(connection));
-  return result;
+      /*
+       * IMP-33 · Gold is proposed, never written by a fetch (`04` I2): the
+       * statements become one plan — a few months of them, or one mailed twice,
+       * matched row by row — that the person confirms on its review.
+       */
+      if (gold.length > 0) {
+        const plan = planSafeGoldImport(db, gold, memberId);
+        const token = newId();
+        stashSafeGoldPlan(token, plan, memberId);
+        result.gold = { statements: gold.length, newEntries: plan.totals.newEntries, token };
+        gold.length = 0;
+      }
+    },
+  };
 }
 
 // ---------------------------------------------------------------------------
@@ -302,17 +399,17 @@ function onlyOne<T>(rows: T[], held: (row: T) => boolean): T | typeof AMBIGUOUS 
 // ---------------------------------------------------------------------------
 
 async function handleStatement(
-  db: DB, actor: Actor, deps: FetchDeps, client: GmailClientOptions,
-  memberId: string, messageId: string,
-  pdfs: { filename: string; attachmentId: string }[],
-  statementSender: { bank: import("../import/pdf-statements.ts").BankId | null; what: string },
+  db: DB, actor: Actor, memberId: string,
+  pdfs: MailItem["pdfs"],
+  statementSender: { bank: import("../import/pdf-statements.ts").BankId | null; what: string; address?: string },
   result: FetchResult,
   gold: SafeGoldStatement[],
+  options: MailIngestOptions,
 ): Promise<void> {
   const identity = getIdentity(db, memberId);
 
   for (const pdf of pdfs) {
-    const bytes = await getAttachment(messageId, pdf.attachmentId, client);
+    const bytes = await pdf.load();
     if (bytes.length === 0) continue;
 
     // A statement account cannot be known without a last-four to match; a CAS
@@ -344,6 +441,7 @@ async function handleStatement(
     if (!parsed) {
       result.statements.locked++;
       result.notes.push(`Could not open ${pdf.filename}${unreadable ? `: ${unreadable}` : ""}`);
+      if (!unreadable) options.onLocked?.({ filename: pdf.filename, bytes, sender: statementSender.address ?? "" });
       // IMPORT-15 · As the upload says it: when the bank's rule needs a digit
       // the app does not have (SBI Card's or Canara's last four, HSBC's last
       // six), name that field rather than leave "could not open" a dead end.

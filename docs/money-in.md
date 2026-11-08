@@ -284,6 +284,15 @@ in silence: the fetch's summary counts the alerts it could not read, so they
 can be added by hand. Promotions and one-time passwords from the same senders
 are not counted.
 
+## Forwarding address
+
+The same alerts and statements, pushed rather than fetched: a member forwards
+their bank mail to their own address with a filter, and each message runs
+through the Gmail fetch's own path (`startMailIngest` in `src/gmail/fetch.ts`)
+as it arrives. Only bank senders the fetch reads are opened, and only when the
+bank's DKIM signature checks out. A statement no password opens waits, sealed,
+for **Try them again** on Settings. Details: [forwarding.md](forwarding.md).
+
 ## Duplicate detection
 
 Every staged row is compared against existing transactions **in the same

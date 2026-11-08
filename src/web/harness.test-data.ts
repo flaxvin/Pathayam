@@ -71,6 +71,7 @@ export function testConfig(overrides: TestConfigOverrides = {}): Config {
     trustProxy: false,
     localLogin: false,
     secretsKey: null,
+    inbound: { domain: null, route: "", secret: null },
     aiWrite: "off",
     oidc: { issuer: null, clientId: null, clientSecret: null, label: "single sign-on" },
     ...rest,
@@ -85,11 +86,14 @@ export function testConfig(overrides: TestConfigOverrides = {}): Config {
  */
 export async function startTestApp(
   db: DB,
-  opts: { memberId?: string | null; config?: TestConfigOverrides; fetchImpl?: typeof fetch } = {},
+  opts: {
+    memberId?: string | null; config?: TestConfigOverrides; fetchImpl?: typeof fetch;
+    resolveTxt?: import("../mail/dkim.ts").TxtResolver;
+  } = {},
 ): Promise<TestApp> {
   const failures: TestApp["failures"] = [];
   const config = testConfig(opts.config);
-  const { router, middleware } = buildApp({ db, config, fetchImpl: opts.fetchImpl });
+  const { router, middleware } = buildApp({ db, config, fetchImpl: opts.fetchImpl, resolveTxt: opts.resolveTxt });
 
   const server = createHttpServer({
     router,
