@@ -58,8 +58,8 @@ sessions do, and a token cannot be minted while viewing as another member.
 **AI app connections (OAuth).** An MCP client (claude.ai, ChatGPT, Gemini,
 Claude Code) connects to `/mcp` through a small OAuth 2.1 authorization server
 in [`src/auth/oauth.ts`](../src/auth/oauth.ts). What it ends up holding is an
-API token as above — read scope, one hour — so nothing about tokens needed a
-second set of rules. The new surface, and what holds it:
+API token as above — read scope unless changes were allowed (below), one hour
+— so nothing about tokens needed a second set of rules. The new surface, and what holds it:
 
 - *Registration is open*, because these clients register themselves (RFC 7591)
   with no account. So a registration proves nothing: the consent page leads
@@ -81,8 +81,22 @@ second set of rules. The new surface, and what holds it:
   presented again revokes the whole connection, on the assumption that either
   holder may be the thief. Removing a member, or revoking the connection or its
   access token in Settings, ends the refresh token with it.
-- *Scope is `read`, always.* There is no parameter, form field or code path that
-  mints anything else, and the schema's CHECK constraint refuses it too.
+- *Scope is `read` unless three things agree.* The deployment sets `AI_WRITE`
+  to `standard` or `full`; only then is `budget:write` advertised and an "allow
+  changes" box shown on the consent page, never pre-ticked whatever the app
+  asked for. The member ticks it (stored on the grant, `can_write`). And the
+  switch is read again at every token refresh, so turning it off makes every
+  connection read-only within the hour, and the change tools vanish at once.
+  The grant's own `scope` column stays `read` under its CHECK constraint.
+- *An AI's token writes only through `/mcp`.* Any token made on Connect an AI,
+  and every OAuth access token, is marked `for_ai`; whatever its scope, a write
+  to any other route is 403. Over `/mcp` a write is one of seven tools that call
+  the same domain functions and visibility checks as the pages — no deletes, no
+  loans, assets, month close, settings, members, tokens, imports, rules or
+  schedules — capped at 100 a day and 50 suggestions waiting per connection,
+  attributed with source `ai`, and undoable as a day's group
+  ([ai.md](ai.md#changes-an-ai-can-make)). A script's ordinary read-write token
+  is not offered the change tools: the member opted in for an AI, not for it.
 - The machine-facing endpoints — the two `/.well-known` documents,
   `/oauth/register`, `/oauth/token`, `/oauth/revoke` — are public, read at most
   64 KB, and are exempt from the same-origin rule (the provider's servers post
