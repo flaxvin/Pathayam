@@ -242,6 +242,9 @@ describe("top-down · nothing in the domain went unexercised", () => {
       "in the UI, not something a simulated household does by accident.",
     breakCheckpoints: "The consequence of editReconciledHistory, above.",
     startBlank: "The other half of applyStartingTemplate: a household picks one.",
+    proposePayeeDefault: "Only an AI connection allowed to make changes calls it " +
+      "(set_payee_default, AI_WRITE); the simulated household connects no AI. " +
+      "src/web/ai-writes.test.ts drives it over /mcp.",
     setCategoryHidden: "Exercised — but on a category the scenario later deletes, " +
       "so it is called before the deletion rather than after.",
     approveStagedAsTransfer: "The scenario's imported statements carry no movement " +
