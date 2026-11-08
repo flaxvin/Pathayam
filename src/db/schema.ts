@@ -3122,6 +3122,15 @@ INSERT INTO events_new
          entity, entity_id, action, before_json, after_json, summary,
          idempotency_key, undo_of_event_id, undone_by_event_id
     FROM events;
+-- AUTOINCREMENT's high-water mark, which can sit above MAX(seq) when the last
+-- rows were removed; carried over so no sequence number is ever handed out twice.
+UPDATE sqlite_sequence
+   SET seq = MAX(seq, COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'events'), 0))
+ WHERE name = 'events_new';
+INSERT INTO sqlite_sequence (name, seq)
+  SELECT 'events_new', seq FROM sqlite_sequence
+   WHERE name = 'events'
+     AND NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'events_new');
 DROP TABLE events;
 ALTER TABLE events_new RENAME TO events;
 CREATE INDEX idx_events_entity ON events(entity, entity_id, seq);
