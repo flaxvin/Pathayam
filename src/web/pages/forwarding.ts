@@ -26,8 +26,8 @@ export interface ForwardingView {
 const OUTCOME: Record<string, string> = {
   read: "Imported",
   nothing: "Nothing to import",
-  "not-a-bank": "Not a bank sender — not opened",
-  unsigned: "Signature did not check out — not imported",
+  "not-a-bank": "Not a bank sender, so not opened",
+  unsigned: "Signature did not check out, so not imported",
   confirmation: "Gmail's confirmation code",
   held: "Locked statement kept",
 };

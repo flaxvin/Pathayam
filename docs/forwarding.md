@@ -104,7 +104,7 @@ writes nothing to disk and logs envelope facts only, never a body or subject.
 | `MX_PORT` | `25` | The image runs unprivileged, so compose and Fly use `2525` inside and map 25 to it. |
 | `MX_HOSTNAME` | `MX_DOMAIN` | The name in the banner and the `EHLO` reply. |
 | `MX_MAX_BYTES` | `26214400` | |
-| `MX_TLS_CERT`, `MX_TLS_KEY` or `MX_TLS_CERT_FILE`, `MX_TLS_KEY_FILE` | — | PEM. Both or neither. Senders such as Gmail use STARTTLS when offered; without a certificate the mail crosses the internet unencrypted. |
+| `MX_TLS_CERT`, `MX_TLS_KEY` or `MX_TLS_CERT_FILE`, `MX_TLS_KEY_FILE` | None | PEM. Both or neither. Senders such as Gmail use STARTTLS when offered; without a certificate the mail crosses the internet unencrypted. |
 
 How the app's answer becomes the SMTP reply: `202` → `250`; `404` → `550`;
 `413` → `552`; `400`/`401`/`403` → `554` and an error log line; anything else,
@@ -121,7 +121,7 @@ open to it. Check with `nc <host> 25` (a `220` banner) and by forwarding one
 alert. Many home connections block inbound port 25; behind one, use Gmail
 import instead (money-in.md).
 
-**Hosted, on Fly.io:** `fly.mx.toml` is a separate app, deployed by hand (the
+**Hosted, on Fly.io:** `fly.mx.toml` is a separate app, deployed on its own (the
 workflow deploys `fly.toml` only):
 
 ```bash
