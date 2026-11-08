@@ -14,6 +14,10 @@ import type { DB } from "../db/db.ts";
 import type { FeatureName } from "../features.ts";
 import type { McpTool, JsonSchema } from "./mcp.ts";
 import {
+  aiSetEnvelope, aiSplitTransaction, aiSetMemo, aiSetPayeeDefault, aiSuggestedWrite,
+  AI_DAILY_WRITE_CAP, AI_PENDING_CAP, type AiWriteContext,
+} from "./writes.ts";
+import {
   aiOverview, aiAccounts, aiTransactions, aiBudgetMonth, aiSpending, aiLoans, aiLoanSchedule,
   aiPortfolio, aiRealisedGains, aiNetWorth, aiTaxEstimate, aiCashflow, aiInsurance, aiGoals,
   aiFire, aiExplain, aiSnapshot, type AnalysisOptions, type TransactionsArgs, type SpendingGroupBy,
@@ -38,6 +42,26 @@ export const MCP_INSTRUCTIONS =
   "and their own personal budget, never another member's private accounts. Start with overview; page transactions with " +
   "limit and next_cursor rather than asking for everything. Figures are the household's own records, not advice.";
 
+/**
+ * AIW · Said instead, to a connection that may make changes. What it may do,
+ * what it may never do, and that the member reads every change afterwards.
+ */
+export function writeInstructions(mode: "standard" | "full"): string {
+  return MCP_INSTRUCTIONS.replace(
+    "Read-only: nothing here can change it.",
+    "This connection may make a few kinds of change, all logged and undoable by the member.",
+  ) +
+    " Changes you may make: set_envelope, split_transaction and set_memo on a transaction; set_payee_default " +
+    "proposes a payee's usual envelope, which the member confirms in Review. " +
+    (mode === "standard"
+      ? "add_transaction, assign_to_envelope and transfer do not change anything: they leave a suggestion, " +
+        "with your reason, that the member approves or rejects in Review. Say so when you use them. "
+      : "add_transaction, assign_to_envelope and transfer change the budget directly. ") +
+    "Make a change only when the member asked for it, and say what you changed. You can never delete anything, " +
+    "and never change loans, investments, month closes, settings, members, tokens, imports, rules or schedules. " +
+    `At most ${AI_DAILY_WRITE_CAP} changes a day and ${AI_PENDING_CAP} suggestions waiting at once.`;
+}
+
 /** PLAN-1 · The module each tool reads, for the ones that belong to one. */
 export const TOOL_MODULES: Readonly<Record<string, FeatureName>> = {
   loans: "loans", loan_schedule: "loans",
@@ -45,7 +69,11 @@ export const TOOL_MODULES: Readonly<Record<string, FeatureName>> = {
   tax_estimate: "tax", cashflow: "schedules", insurance: "insurance", goals: "goals",
 };
 
-export function buildTools(db: DB, viewerMemberId: string, opts: AnalysisOptions): McpTool[] {
+export function buildTools(
+  db: DB, viewerMemberId: string, opts: AnalysisOptions,
+  /** AIW · Present only when the deployment and this connection both allow changes. */
+  write?: AiWriteContext,
+): McpTool[] {
   const tool = (
     name: string, title: string, description: string,
     schema: JsonSchema & { type: "object" },
@@ -175,5 +203,136 @@ export function buildTools(db: DB, viewerMemberId: string, opts: AnalysisOptions
       "One summary of the household's figures for broad questions: overview, accounts, a budget and spending summary per month, top payees, loans, portfolio, net worth, cashflow and the tax estimate. No transaction list. Large; prefer the narrower tools for a specific question.",
       { type: "object", additionalProperties: false, properties: { months: { type: "integer", minimum: 1, maximum: 36, description: "default 12" } } },
       (a) => aiSnapshot(db, viewerMemberId, a as { months?: number }, opts)),
-  ] as McpTool[]).filter(offered);
+  ] as McpTool[]).filter(offered).concat(write ? writeTools(write) : []);
+}
+
+const ID: JsonSchema = { type: "string", maxLength: 64 };
+const WHY: JsonSchema = {
+  type: "string", maxLength: 500,
+  description: "one sentence for the member, saying why: shown beside Approve and Reject in Review",
+};
+const RUPEES: JsonSchema = { type: "number", minimum: 0.01, description: "rupees, up to two decimal places" };
+
+/**
+ * AIW · The change tools. Listed after the reads so the read list a client
+ * has cached keeps its order. None is destructive: nothing deletes.
+ */
+function writeTools(ctx: AiWriteContext): McpTool[] {
+  const suggests = ctx.mode === "standard";
+  const write = (
+    name: string, title: string, description: string,
+    schema: JsonSchema & { type: "object" },
+    run: (args: Record<string, unknown>) => unknown,
+    idempotent: boolean,
+  ): McpTool => ({
+    name, title, description, inputSchema: schema, run,
+    annotations: { readOnlyHint: false, destructiveHint: false, idempotentHint: idempotent },
+  });
+  const suggestNote = suggests
+    ? " Does not change the budget: leaves a suggestion with your reason, which the member approves or rejects in Review. Returns the suggestion id."
+    : " Changes the budget directly. Returns what changed and the event id.";
+
+  const tools: McpTool[] = [
+    write("set_envelope", "File a transaction",
+      "Put one transaction in one envelope (category), replacing whatever it was filed under, a split included. Transfers have no envelope. Returns what changed and the event id.",
+      {
+        type: "object", additionalProperties: false, required: ["transaction_id", "category_id"],
+        properties: {
+          transaction_id: { ...ID, description: "an id from transactions" },
+          category_id: { ...ID, description: "an envelope id from budget_month" },
+        },
+      },
+      (a) => aiSetEnvelope(ctx, a), true),
+
+    write("split_transaction", "Split a transaction",
+      "Split one transaction between envelopes. Each line is an envelope and an amount in rupees, unsigned; the lines must add up to the transaction's amount exactly. Returns what changed and the event id.",
+      {
+        type: "object", additionalProperties: false, required: ["transaction_id", "lines"],
+        properties: {
+          transaction_id: { ...ID, description: "an id from transactions" },
+          lines: {
+            type: "array", description: "2 to 25 lines of { category_id, amount }",
+            items: {
+              type: "object", additionalProperties: false, required: ["category_id", "amount"],
+              properties: { category_id: ID, amount: RUPEES },
+            },
+          },
+        },
+      },
+      (a) => aiSplitTransaction(ctx, a), true),
+
+    write("set_memo", "Write a memo",
+      "Set a transaction's memo; an empty memo clears it. Returns what changed and the event id.",
+      {
+        type: "object", additionalProperties: false, required: ["transaction_id", "memo"],
+        properties: {
+          transaction_id: { ...ID, description: "an id from transactions" },
+          memo: { type: "string", maxLength: 500 },
+        },
+      },
+      (a) => aiSetMemo(ctx, a), true),
+  ];
+
+  // A payee's default is a rule waiting to be confirmed, so it needs the module.
+  if (ctx.features.rules) {
+    tools.push(write("set_payee_default", "Suggest a payee's envelope",
+      "Propose that a payee's transactions are filed under an envelope from now on. It waits in Review under Proposed rules until the member confirms it; until then it files nothing. Refused if the payee already has such a rule.",
+      {
+        type: "object", additionalProperties: false, required: ["payee", "category_id"],
+        properties: {
+          payee: { type: "string", maxLength: 120, description: "the payee's name as transactions shows it" },
+          category_id: { ...ID, description: "an envelope id from budget_month" },
+          why: WHY,
+        },
+      },
+      (a) => aiSetPayeeDefault(ctx, a), false));
+  }
+
+  tools.push(
+    write("add_transaction", suggests ? "Suggest a transaction" : "Add a transaction",
+      "Record money in or out of one account. Money out needs an envelope; money in without one goes to Ready to Assign. Recorded uncleared." + suggestNote,
+      {
+        type: "object", additionalProperties: false, required: ["account_id", "amount", "direction", "why"],
+        properties: {
+          account_id: { ...ID, description: "an id from accounts" },
+          amount: RUPEES,
+          direction: { type: "string", enum: ["in", "out"] },
+          date: { ...DATE, description: "a date, YYYY-MM-DD; defaults to today" },
+          payee: { type: "string", maxLength: 120 },
+          category_id: { ...ID, description: "an envelope id from budget_month; required for money out" },
+          memo: { type: "string", maxLength: 500 },
+          why: WHY,
+        },
+      },
+      (a) => aiSuggestedWrite(ctx, "add_transaction", a), false),
+
+    write("assign_to_envelope", suggests ? "Suggest an assignment" : "Assign money",
+      "Set how much is assigned to one envelope for a month (the new total, not an addition; 0 clears it). The money comes from Ready to Assign." + suggestNote,
+      {
+        type: "object", additionalProperties: false, required: ["category_id", "amount", "why"],
+        properties: {
+          category_id: { ...ID, description: "an envelope id from budget_month" },
+          month: MONTH,
+          amount: { type: "number", minimum: 0, description: "rupees, up to two decimal places" },
+          why: WHY,
+        },
+      },
+      (a) => aiSuggestedWrite(ctx, "assign_to_envelope", a), true),
+
+    write("transfer", suggests ? "Suggest a transfer" : "Record a transfer",
+      "Record money moved between two of the member's accounts, such as paying a credit card from a bank account. Not spending, so no envelope." + suggestNote,
+      {
+        type: "object", additionalProperties: false, required: ["from_account_id", "to_account_id", "amount", "why"],
+        properties: {
+          from_account_id: { ...ID, description: "an id from accounts" },
+          to_account_id: { ...ID, description: "an id from accounts" },
+          amount: RUPEES,
+          date: { ...DATE, description: "a date, YYYY-MM-DD; defaults to today" },
+          memo: { type: "string", maxLength: 200 },
+          why: WHY,
+        },
+      },
+      (a) => aiSuggestedWrite(ctx, "transfer", a), false),
+  );
+  return tools;
 }

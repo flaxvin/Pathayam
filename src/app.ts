@@ -35,6 +35,7 @@ import {
 } from "./auth/sessions.ts";
 import {
   authenticateToken, tokenMayReach, checkTokenRateLimit, tokenRedacts, type ApiToken,
+  isAiToken, aiConnectionId,
   mintToken, listTokens, revokeToken, type TokenScope,
 } from "./auth/tokens.ts";
 import { beginOAuth, exchangeCode, OAuthError } from "./auth/google.ts";
@@ -149,6 +150,7 @@ import {
 } from "./engine/engine.ts";
 import {
   historyFor, queryEvents, getEvent, appendEvent, checkUndo, undoEvent, DEFAULT_UNDO_WINDOW_DAYS,
+  undoByIdempotencyKey, checkUndoByIdempotencyKey,
   type Actor,
 } from "./core/events.ts";
 import {
@@ -352,10 +354,14 @@ import {
 import { searchSchemes } from "./portfolio/providers.ts";
 import { refreshPrices, MANUAL_REFRESH } from "./portfolio/refresh.ts";
 import { handleMcp } from "./ai/mcp.ts";
-import { buildTools, MCP_INSTRUCTIONS } from "./ai/tools.ts";
+import { buildTools, MCP_INSTRUCTIONS, writeInstructions } from "./ai/tools.ts";
+import {
+  isWriteTool, aiIdempotencyKey, pendingSuggestions, approveSuggestion, rejectSuggestion,
+  pruneSuggestions, type AiWriteContext,
+} from "./ai/writes.ts";
 import { redactValue } from "./ai/redact.ts";
 import { recordAiAccess, listAiAccess } from "./ai/access-log.ts";
-import { renderConnectAi } from "./web/pages/ai.ts";
+import { renderConnectAi, renderAiUndoConfirm } from "./web/pages/ai.ts";
 
 export interface AppDeps {
   db: DB;
@@ -427,6 +433,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   const router = new Router();
   // AI-7 · Off on a hosted Solo instance (FEATURE_AI=false); on everywhere else.
   const aiEnabled = config.features.ai;
+  /** AIW · Whether any AI connection may change anything here (AI_WRITE). */
+  const aiWriteOn = aiEnabled && config.aiWrite !== "off";
 
   // -------------------------------------------------------------------------
   // Middleware
@@ -676,6 +684,18 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         if (ctx.method !== "GET" && bearer.scope === "read" && !isMcpPath(path)) {
           return { status: 403, json: { error: "That token is read-only." } };
         }
+        /*
+         * AIW · An AI's token, even one allowed to make changes, makes them
+         * only through /mcp: there every change is one of a short list of
+         * tools, logged and capped. The REST routes would hand it deletes,
+         * loans, settings and the rest of what docs/ai.md says it never gets.
+         */
+        if (ctx.method !== "GET" && isAiToken(bearer.token) && !isMcpPath(path)) {
+          return {
+            status: 403,
+            json: { error: "An AI connection's token changes things only through /mcp, and only with its tools." },
+          };
+        }
 
         const member = getMember(db, bearer.token.member_id);
         // The allow-list is authority for a token as it is for a session
@@ -774,7 +794,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
           devMode: config.devLogin,
           demoMode: config.demoMode,
           path: ctx.url.pathname,
-          reviewCount: a ? reviewCount(db, viewer(ctx)) : 0,
+          reviewCount: a ? reviewCount(db, viewer(ctx), { ai: aiEnabled }) : 0,
           notice: opts.notice ?? noticeFrom(ctx),
           bare: opts.bare,
           features: {
@@ -2301,7 +2321,9 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
      * page still fills when some of it is somebody else's.
      */
     const canSee = eventVisibility(db, viewer(ctx));
-    const events = queryEvents(db, { entity: entity ?? undefined, limit: 400 })
+    // AIW · "AI changes": what an AI connection made, or a member approved from one.
+    const source = ctx.query.get("source") === "ai" ? "ai" as const : undefined;
+    const events = queryEvents(db, { entity: entity ?? undefined, source, limit: 400 })
       .filter(canSee)
       .slice(0, 100);
 
@@ -2313,6 +2335,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       ctx, "Activity",
       renderActivity({
         entity,
+        source: source ?? null,
         entities,
         windowDays: DEFAULT_UNDO_WINDOW_DAYS,
         rows: events.map((e) => {
@@ -2328,6 +2351,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
               ? memberName(e.realMemberId)
               : null,
             source: e.source,
+            sourceDetail: e.sourceDetail,
             blockedReason: check.ok ? null : check.reason ?? "This cannot be undone.",
             supersededBy: check.supersededBy.map((s) => ({
               at: s.at,
@@ -5441,8 +5465,39 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         ),
         bufferReading: view.buffer.reading,
         month,
+        // AIW · Only the reader's own connections' (see pendingSuggestions).
+        aiSuggestions: aiEnabled
+          ? pendingSuggestions(db, viewer(ctx)).map((r) => ({
+            id: r.id, app: r.token_name, summary: r.summary, why: r.why, at: r.created_at,
+          }))
+          : [],
       }),
     );
+  });
+
+  /*
+   * AIW · A member deciding on what their AI suggested. Approving makes the
+   * change as them, through the same domain function the direct path uses,
+   * checked again against what they can see now; a refusal leaves it waiting,
+   * with the reason, so it can be rejected instead.
+   */
+  router.post("/review/ai/:id/approve", (ctx) => {
+    if (!aiEnabled) throw new NotFound();
+    return mutate(ctx, (a) => {
+      if (a.impersonating) throw new HttpError(403, "A suggestion is decided by the member it was made for.");
+      const done = approveSuggestion(db, a.member.id, ctx.params.id!);
+      return { redirect: "/review", message: `Done: ${done.summary}. Undo it in Activity if that was wrong.` };
+    });
+  });
+
+  router.post("/review/ai/:id/reject", (ctx) => {
+    if (!aiEnabled) throw new NotFound();
+    return mutate(ctx, (a) => {
+      if (a.impersonating) throw new HttpError(403, "A suggestion is decided by the member it was made for.");
+      rejectSuggestion(db, a.member.id, ctx.params.id!);
+      pruneSuggestions(db);
+      return { redirect: "/review", message: "Rejected. Nothing was changed." };
+    });
   });
 
   /*
@@ -8487,12 +8542,12 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // OAUTH · The authorization server AI apps connect through (src/auth/oauth.ts)
   // -------------------------------------------------------------------------
 
-  const protectedResource = (): Response => ({ json: oauth.protectedResourceMetadata(config.baseUrl) });
+  const protectedResource = (): Response => ({ json: oauth.protectedResourceMetadata(config.baseUrl, { write: aiWriteOn }) });
   router.get("/.well-known/oauth-protected-resource", protectedResource);
   // RFC 9728 §3.1 · The path-suffixed form, which clients try first.
   router.get("/.well-known/oauth-protected-resource/mcp", protectedResource);
   router.get("/.well-known/oauth-authorization-server", () => ({
-    json: oauth.authorizationServerMetadata(config.baseUrl),
+    json: oauth.authorizationServerMetadata(config.baseUrl, { write: aiWriteOn }),
   }));
 
   /** An OAuth endpoint answers in OAuth's words, never with an HTML error page. */
@@ -8536,7 +8591,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const clientId = oauth.clientIdFrom(ctx.body, ctx.req.headers.authorization);
     return {
       headers: { Pragma: "no-cache" },
-      json: oauth.tokenRequest(db, config.baseUrl, ctx.body, clientId),
+      json: oauth.tokenRequest(db, config.baseUrl, ctx.body, clientId, new Date(), { write: aiWriteOn }),
     };
   }));
 
@@ -8589,6 +8644,8 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       }),
       memberName: a.member.name,
       hidden,
+      // AIW · Offered only where AI_WRITE allows it, and never ticked for them.
+      writes: aiWriteOn ? { mode: config.aiWrite as "standard" | "full", asked: parsed.ok.asksToWrite } : null,
     }));
     /*
      * The answer is a redirect to the app, and a browser holds a form's
@@ -8626,7 +8683,10 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       };
     }
     const code = oauth.approveAuthorization(
-      db, actorFor(a), request, { redact: field(ctx.body, "redact") === "1" },
+      db, actorFor(a), request, {
+        redact: field(ctx.body, "redact") === "1",
+        write: aiWriteOn && field(ctx.body, "allow_changes") === "1",
+      },
     );
     return {
       redirect: oauth.clientRedirect(config.baseUrl, request.redirectUri, { code, state: request.state }),
@@ -10395,14 +10455,32 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     if (origin && !mcpOrigins.has(origin)) {
       return { status: 403, json: { jsonrpc: "2.0", id: null, error: { code: -32600, message: "That Origin may not call this server." } } };
     }
+    /*
+     * AIW · The change tools exist for this call only when all three locks are
+     * open: the deployment allows changes, this is an AI's token, and the
+     * member ticked "allow changes" for it (read-write). Otherwise they are not
+     * listed at all, and a call to one by name is an unknown tool.
+     */
+    const connectionId = aiConnectionId(token);
+    const write: AiWriteContext | undefined =
+      aiWriteOn && config.aiWrite !== "off" && isAiToken(token) && token.scope === "read-write"
+        ? {
+          db, memberId: a.member.id, mode: config.aiWrite, features: config.features,
+          connection: { id: connectionId, name: token.name, tokenId: token.id },
+        }
+        : undefined;
     const reply = handleMcp(
       { headers: ctx.req.headers, rawBody: rawBodies.get(ctx.req) ?? "" },
       {
-        server: { name: "pathayam", title: "Pathayam", version: VERSION, instructions: MCP_INSTRUCTIONS },
-        tools: buildTools(db, a.member.id, { features: config.features }),
+        server: {
+          name: "pathayam", title: "Pathayam", version: VERSION,
+          instructions: write ? writeInstructions(write.mode) : MCP_INSTRUCTIONS,
+        },
+        tools: buildTools(db, a.member.id, { features: config.features }, write),
         transformResult: tokenRedacts(token) ? redactValue : undefined,
         onToolCall: (c) => recordAiAccess(db, {
           tokenId: token.id, tokenName: token.name, memberId: a.member.id, tool: c.tool, args: c.args, ok: c.ok, bytes: c.bytes,
+          connectionId, wrote: c.ok && isWriteTool(c.tool),
         }),
       },
     );
@@ -10419,22 +10497,32 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // AI-5 · Connect an AI. Under /tokens, so no bearer token can reach it.
   // -------------------------------------------------------------------------
   function connectAiProps(memberId: string) {
-    const handMinted = queryAll<{ id: string; name: string; redact: number; created_at: string; last_used_at: string | null }>(
+    // AIW · An AI app's access tokens are for_ai too; they are listed by their connection.
+    const handMinted = queryAll<{ id: string; name: string; redact: number; scope: string; created_at: string; last_used_at: string | null }>(
       db,
-      `SELECT id, name, redact, created_at, last_used_at FROM api_tokens
-        WHERE member_id = ? AND for_ai = 1 AND revoked_at IS NULL ORDER BY created_at DESC`,
+      `SELECT id, name, redact, scope, created_at, last_used_at FROM api_tokens
+        WHERE member_id = ? AND for_ai = 1 AND oauth_grant_id IS NULL AND revoked_at IS NULL ORDER BY created_at DESC`,
       memberId,
     );
+    // AIW · What each connection changed today, so its undo says how much it undoes.
+    const changedToday = (connectionId: string): number => queryOne<{ n: number }>(
+      db,
+      `SELECT COUNT(*) AS n FROM events WHERE idempotency_key = ? AND undo_of_event_id IS NULL AND undone_by_event_id IS NULL`,
+      aiIdempotencyKey(connectionId),
+    )!.n;
     return {
       mcpUrl: `${config.baseUrl}/mcp`,
       snapshotUrl: "/export/analysis.json",
+      writes: aiWriteOn ? config.aiWrite as "standard" | "full" : null,
       connections: [
         ...oauth.listConnections(db, memberId).map((c) => ({
           id: c.id, name: c.clientName, how: `Signed in from ${c.redirectHost}`, redact: c.redact,
+          canWrite: aiWriteOn && c.canWrite, changedToday: changedToday(c.id),
           created_at: c.createdAt, last_used_at: c.lastUsedAt, revoke_url: `/tokens/connections/${c.id}/revoke`,
         })),
         ...handMinted.map((t) => ({
           id: t.id, name: t.name, how: "Token", redact: t.redact === 1,
+          canWrite: aiWriteOn && t.scope === "read-write", changedToday: changedToday(t.id),
           created_at: t.created_at, last_used_at: t.last_used_at, revoke_url: `/tokens/${t.id}/revoke`,
         })),
       ],
@@ -10454,19 +10542,71 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }
     const days = Number(field(ctx.body, "expires_in_days"));
     const redact = field(ctx.body, "redact") === "1";
-    // Always read-only and always expiring: an AI connection has no need to
-    // write, and one forgotten in a config file should stop on its own.
+    // AIW · Read-only unless the deployment allows changes and the member
+    // ticked the box; always expiring, because one forgotten in a config file
+    // should stop on its own. Either way it is an AI token, confined to /mcp.
+    const writes = aiWriteOn && field(ctx.body, "allow_changes") === "1";
     const minted = mintToken(db, actorFor(a), {
       name: requiredField(ctx.body, "name").slice(0, 80),
-      scope: "read",
+      scope: writes ? "read-write" : "read",
       expiresInDays: [30, 90, 365].includes(days) ? days : 90,
     });
     execute(db, `UPDATE api_tokens SET for_ai = 1, redact = ? WHERE id = ?`, redact ? 1 : 0, minted.token.id);
     // F30.4 · Rendered, not redirected: a redirect would carry the secret in a URL.
     return render(ctx, "Connect an AI", renderConnectAi({
       ...connectAiProps(a.member.id),
-      minted: { name: minted.token.name, secret: minted.secret, redact },
+      minted: { name: minted.token.name, secret: minted.secret, redact, canWrite: writes },
     }));
+  });
+
+  /*
+   * AIW · "Undo this AI's changes today": every change one connection made
+   * today shares one idempotency key, and undoByIdempotencyKey reverses them
+   * newest first. R37.9 holds for the group as for one change: when somebody
+   * has changed one of those records since, the page lists what undoing would
+   * discard and asks again, and only "Undo anyway" discards it. Approved
+   * suggestions are not in the group — a member looked at those — and undo
+   * one by one in Activity. Under /tokens, so no token can press it.
+   */
+  router.post("/tokens/ai/undo-today", (ctx) => {
+    const a = auth(ctx);
+    if (a.impersonating) throw new HttpError(403, "Not while viewing as another member.");
+    const connectionId = requiredField(ctx.body, "connection_id");
+    const props = connectAiProps(a.member.id);
+    const connection = props.connections.find((c) => c.id === connectionId);
+    // Only one's own connections, and not saying whether the id exists.
+    if (!connection) throw new NotFound("That connection does not exist.");
+    const key = aiIdempotencyKey(connectionId);
+    const force = field(ctx.body, "force") === "1";
+    const check = checkUndoByIdempotencyKey(db, key);
+    if (check.events.length === 0) {
+      return { redirect: withNotice("/tokens/ai", `${connection.name} has changed nothing today that is still in place.`) };
+    }
+    if (check.supersededBy.length > 0 && !force) {
+      return render(ctx, "Connect an AI", renderAiUndoConfirm({
+        connectionId, name: connection.name, count: check.events.length,
+        supersededBy: check.supersededBy.map((e) => ({ at: e.at, summary: e.summary ?? `${e.action} ${e.entity}` })),
+      }));
+    }
+    return mutate(ctx, (auth) => {
+      const actor = actorFor(auth, "ui");
+      const intact = intactCheckpointBalances(db);
+      let results;
+      try {
+        results = undoByIdempotencyKey(db, key, actor, { force });
+      } catch (err) {
+        if (err instanceof UndoRefused) throw new HttpError(422, err.message);
+        throw err;
+      }
+      breakCheckpoints(db, actor, checkpointsMovedSince(db, intact), "an undo changed a transaction dated on or before it");
+      const undone = results.filter((r) => r.ok).length;
+      const left = results.length - undone;
+      return {
+        redirect: "/tokens/ai",
+        message: `Undid ${undone} ${undone === 1 ? "change" : "changes"} ${connection.name} made today.` +
+          (left > 0 ? ` ${left} could not be undone; Activity says why.` : ""),
+      };
+    });
   });
 
   /** F19.13 · Portfolio CSVs — one shape each. */

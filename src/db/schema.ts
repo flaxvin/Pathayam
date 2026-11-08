@@ -3165,6 +3165,11 @@ CREATE INDEX idx_ai_suggestions_connection ON ai_suggestions(connection_id, stat
 ALTER TABLE ai_access_log ADD COLUMN connection_id TEXT;
 ALTER TABLE ai_access_log ADD COLUMN wrote INTEGER NOT NULL DEFAULT 0 CHECK (wrote IN (0, 1));
 CREATE INDEX idx_ai_access_log_connection ON ai_access_log(connection_id, at);
+
+-- An AI app's connection the member allowed to make changes (the budget:write
+-- scope, ticked on the consent page). A column rather than a second value of
+-- scope, whose CHECK says 'read' and stays true: what the app reads is the same.
+ALTER TABLE oauth_grants ADD COLUMN can_write INTEGER NOT NULL DEFAULT 0 CHECK (can_write IN (0, 1));
 `,
   },
 ];

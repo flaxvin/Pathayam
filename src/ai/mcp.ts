@@ -23,9 +23,10 @@
  *     it does in the modern era. Nothing about a conversation is remembered
  *     between POSTs, which is the right default for somebody's finances.
  *
- * Everything here is read-only. There is no tool that writes, and the tool
- * annotations say so, but the guarantee is that no tool is *given* anything
- * that can write: they receive the database and a viewer, and call queries.
+ * The read tools receive the database and a viewer, and call queries. AIW
+ * added tools that change things (src/ai/writes.ts); they are listed only for
+ * a connection allowed to make changes on a deployment that allows them, and
+ * their annotations say they are not read-only. This file treats both alike.
  *
  * Spec read 07-11-2026: modelcontextprotocol.io/specification/2026-07-28
  * (basic/transports/streamable-http, basic/versioning, server/discover,
@@ -78,6 +79,11 @@ export interface McpTool {
   /** Written for the model: what the tool answers, in what units, and its limits. */
   description: string;
   inputSchema: JsonSchema & { type: "object" };
+  /**
+   * AIW · Omitted for a read: read-only, idempotent, closed-world. A write
+   * tool says it is not read-only (and never destructive: nothing deletes).
+   */
+  annotations?: { readOnlyHint: boolean; destructiveHint: boolean; idempotentHint: boolean };
   /** Returns JSON-serialisable data. Throw a Refusal for an answer the model should read. */
   run(args: Record<string, unknown>): unknown;
 }
@@ -304,7 +310,10 @@ function dispatch(id: Id, method: string, params: Record<string, unknown>, era: 
             title: t.title,
             description: t.description,
             inputSchema: t.inputSchema,
-            annotations: { title: t.title, readOnlyHint: true, destructiveHint: false, idempotentHint: true, openWorldHint: false },
+            annotations: {
+              title: t.title, readOnlyHint: true, destructiveHint: false, idempotentHint: true,
+              ...t.annotations, openWorldHint: false,
+            },
           })),
         })),
       };

@@ -22,8 +22,11 @@
  * (src/auth/tokens.ts) — `bgt_`, hashed, read-only, an hour long — so every
  * rule a token already lives under applies without being restated here: the
  * deny-list, the rate limit, revocation, member removal, last-used. The scope
- * is `read` and nothing in this file can make it anything else. Refresh
- * tokens rotate, and an old one used again ends the connection.
+ * is `read`, unless the deployment allows AI changes (AI_WRITE) and the member
+ * ticked "allow changes" on the consent page: then it is also `budget:write`,
+ * and the token can call the write tools over /mcp — and still nothing else
+ * (AIW, docs/ai.md). Refresh tokens rotate, and an old one used again ends the
+ * connection.
  *
  * Zero dependencies, like the rest: Node's crypto and the app's own database.
  */
@@ -40,8 +43,23 @@ import {
   mintOAuthAccessToken, revokeGrantCredentials, OAUTH_ACCESS_TOKEN_SECONDS,
 } from "./tokens.ts";
 
-/** The only scope there is. Not a default: the only value. */
+/** What every connection gets. */
 export const OAUTH_SCOPE = "read";
+/**
+ * AIW · What a member may add on the consent page, when AI_WRITE allows it.
+ * Advertised only then: a client never sees a scope it could not be given.
+ */
+export const OAUTH_WRITE_SCOPE = "budget:write";
+
+/** The scopes a deployment offers. */
+export function scopesSupported(opts: { write?: boolean } = {}): string[] {
+  return opts.write ? [OAUTH_SCOPE, OAUTH_WRITE_SCOPE] : [OAUTH_SCOPE];
+}
+
+/** Whether a grant's stored scope includes changes. */
+export function scopeWrites(scope: string | null | undefined): boolean {
+  return (scope ?? "").split(/\s+/).includes(OAUTH_WRITE_SCOPE);
+}
 
 const CODE_SECONDS = 10 * 60;
 const REFRESH_DAYS = 90;
@@ -72,19 +90,19 @@ export function resourceMetadataUrl(baseUrl: string): string {
 }
 
 /** RFC 9728 · Served at the root well-known path and at its /mcp suffix. */
-export function protectedResourceMetadata(baseUrl: string): Record<string, unknown> {
+export function protectedResourceMetadata(baseUrl: string, opts: { write?: boolean } = {}): Record<string, unknown> {
   return {
     resource: mcpResource(baseUrl),
     // Claude uses the first entry and no other, so there is exactly one.
     authorization_servers: [issuerOf(baseUrl)],
-    scopes_supported: [OAUTH_SCOPE],
+    scopes_supported: scopesSupported(opts),
     bearer_methods_supported: ["header"],
     resource_name: "Pathayam",
   };
 }
 
 /** RFC 8414 · What a client checks before it starts. */
-export function authorizationServerMetadata(baseUrl: string): Record<string, unknown> {
+export function authorizationServerMetadata(baseUrl: string, opts: { write?: boolean } = {}): Record<string, unknown> {
   const issuer = issuerOf(baseUrl);
   return {
     issuer,
@@ -101,7 +119,7 @@ export function authorizationServerMetadata(baseUrl: string): Record<string, unk
     // secret it was handed by an open registration endpoint proves nothing.
     token_endpoint_auth_methods_supported: ["none"],
     revocation_endpoint_auth_methods_supported: ["none"],
-    scopes_supported: [OAUTH_SCOPE],
+    scopes_supported: scopesSupported(opts),
     // RFC 9207 · Every authorization response, error or not, names us.
     // ChatGPT uses its stable redirect URI only for a server that does.
     authorization_response_iss_parameter_supported: true,
@@ -425,6 +443,8 @@ export interface AuthorizeRequest {
   state: string | null;
   codeChallenge: string;
   resource: string;
+  /** AIW · The app asked for budget:write. The member still decides on the consent page. */
+  asksToWrite: boolean;
 }
 
 /**
@@ -500,12 +520,15 @@ export function parseAuthorizeRequest(
   if (resource !== undefined && !isOurResource(baseUrl, resource)) {
     return fail("invalid_target", `The only resource here is ${mcpResource(baseUrl)}.`);
   }
-  // Whatever scope is asked for, read is what is granted, and the token
-  // response says so. Asking for more is not an error worth failing over:
-  // there is nothing more to give.
+  // Whatever scope is asked for, read is what is granted unless the member
+  // ticks "allow changes" (AIW), and the token response says which. Asking for
+  // more is not an error worth failing over: the member is the one who decides.
 
   return {
-    ok: { client, redirectUri, state, codeChallenge: challenge, resource: mcpResource(baseUrl) },
+    ok: {
+      client, redirectUri, state, codeChallenge: challenge, resource: mcpResource(baseUrl),
+      asksToWrite: scopeWrites(get("scope")),
+    },
   };
 }
 
@@ -525,19 +548,20 @@ export function redirectHost(redirectUri: string): string {
  * equivalent of "Created the API token" for a token minted by hand.
  */
 export function approveAuthorization(
-  db: DB, actor: Actor, request: AuthorizeRequest, opts: { redact: boolean },
+  db: DB, actor: Actor, request: AuthorizeRequest, opts: { redact: boolean; write?: boolean },
   now: Date = new Date(),
 ): string {
   return transact(db, () => {
     const memberId = actor.memberId;
     if (!memberId) throw new Error("A connection belongs to a member.");
     const grantId = newId();
+    const scope = opts.write ? `${OAUTH_SCOPE} ${OAUTH_WRITE_SCOPE}` : OAUTH_SCOPE;
     execute(
       db,
-      `INSERT INTO oauth_grants (id, client_id, member_id, scope, resource, redact, created_at)
-       VALUES (?,?,?,?,?,?,?)`,
+      `INSERT INTO oauth_grants (id, client_id, member_id, scope, resource, redact, created_at, can_write)
+       VALUES (?,?,?,?,?,?,?,?)`,
       grantId, request.client.client_id, memberId, OAUTH_SCOPE, request.resource,
-      opts.redact ? 1 : 0, at(now),
+      opts.redact ? 1 : 0, at(now), opts.write ? 1 : 0,
     );
     const code = secret("pac_");
     execute(
@@ -552,9 +576,10 @@ export function approveAuthorization(
     const host = redirectHost(request.redirectUri);
     appendEvent(db, actor, {
       entity: "ai-connection", entityId: grantId, action: "create",
-      after: { client: request.client.client_name, redirectHost: host, scope: OAUTH_SCOPE, redact: opts.redact },
+      after: { client: request.client.client_name, redirectHost: host, scope, redact: opts.redact },
       summary:
-        `Connected the AI app "${request.client.client_name}" (${host}) with read-only access` +
+        `Connected the AI app "${request.client.client_name}" (${host}) ` +
+        (opts.write ? "able to make changes" : "with read-only access") +
         (opts.redact ? ", account numbers masked" : ""),
     });
     return code;
@@ -572,6 +597,8 @@ interface GrantRow {
   scope: string;
   resource: string;
   redact: number;
+  /** AIW · The member ticked "allow changes" (budget:write) on the consent page. */
+  can_write: number;
   created_at: string;
   last_used_at: string | null;
   revoked_at: string | null;
@@ -635,14 +662,19 @@ function memberStillIn(db: DB, memberId: string): boolean {
   return Boolean(member && !member.removed_at && member.allowed);
 }
 
-function issueTokens(db: DB, grant: GrantRow, now: Date): TokenResponse {
+function issueTokens(db: DB, grant: GrantRow, now: Date, opts: { write?: boolean }): TokenResponse {
   const client = getClient(db, grant.client_id)!;
+  // AIW · Both the member's tick and the deployment's switch, read now: an
+  // operator who turns AI_WRITE off has every connection read-only from its
+  // next refresh, an hour at most.
+  const writes = Boolean(opts.write) && grant.can_write === 1;
   const access = mintOAuthAccessToken(db, {
     memberId: grant.member_id,
     name: `${client.client_name} (connector)`,
     clientId: grant.client_id,
     grantId: grant.id,
     redact: grant.redact === 1,
+    scope: writes ? "read-write" : "read",
   }, now);
   const refresh = secret("prt_");
   execute(
@@ -656,7 +688,7 @@ function issueTokens(db: DB, grant: GrantRow, now: Date): TokenResponse {
     token_type: "Bearer",
     expires_in: OAUTH_ACCESS_TOKEN_SECONDS,
     refresh_token: refresh,
-    scope: OAUTH_SCOPE,
+    scope: writes ? `${OAUTH_SCOPE} ${OAUTH_WRITE_SCOPE}` : OAUTH_SCOPE,
   };
 }
 
@@ -679,6 +711,8 @@ export function clientIdFrom(body: Record<string, string | string[]>, authorizat
 export function tokenRequest(
   db: DB, baseUrl: string, body: Record<string, string | string[]>,
   clientId: string | undefined, now: Date = new Date(),
+  /** AIW · Whether this deployment lets AI connections make changes at all. */
+  opts: { write?: boolean } = {},
 ): TokenResponse {
   const one = (name: string): string | undefined => {
     const v = body[name];
@@ -724,7 +758,7 @@ export function tokenRequest(
       if (grant.revoked_at || !memberStillIn(db, grant.member_id)) {
         return new OAuthError("invalid_grant", "That connection has been revoked.");
       }
-      return issueTokens(db, grant, now);
+      return issueTokens(db, grant, now, opts);
     }
 
     if (grantType === "refresh_token") {
@@ -747,7 +781,7 @@ export function tokenRequest(
         return new OAuthError("invalid_grant", "That refresh token is no longer valid.");
       }
       execute(db, `UPDATE oauth_refresh_tokens SET used_at = ? WHERE token_hash = ?`, at(now), row.token_hash);
-      return issueTokens(db, grant, now);
+      return issueTokens(db, grant, now, opts);
     }
 
     return new OAuthError("unsupported_grant_type", "Use authorization_code or refresh_token.");
@@ -796,6 +830,8 @@ export interface Connection {
   clientName: string;
   redirectHost: string;
   redact: boolean;
+  /** AIW · The member allowed it to make changes. */
+  canWrite: boolean;
   createdAt: string;
   lastUsedAt: string | null;
 }
@@ -826,6 +862,7 @@ export function listConnections(db: DB, memberId: string): Connection[] {
       clientName: r.client_name,
       redirectHost: redirect ? redirectHost(redirect) : [...new Set(hosts)].join(", ") || "unknown",
       redact: r.redact === 1,
+      canWrite: r.can_write === 1,
       createdAt: r.created_at,
       lastUsedAt: r.last_used_at,
     };

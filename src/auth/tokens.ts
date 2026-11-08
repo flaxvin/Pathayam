@@ -43,6 +43,26 @@ export interface ApiToken {
   oauth_grant_id: string | null;
   /** AI-3 · 1 when what it reads is masked; see tokenRedacts. */
   redact: number;
+  /** AI-5 · 1 for a token made on Connect an AI, and (AIW) for every AI app's access token. */
+  for_ai: number;
+}
+
+/**
+ * AIW · A token an AI holds: one made on Connect an AI, or an AI app's own.
+ * Whatever its scope, it changes things only through /mcp, where every change
+ * is one of a fixed list of tools; the REST routes stay closed to it.
+ */
+export function isAiToken(token: ApiToken): boolean {
+  return token.for_ai === 1 || token.oauth_grant_id !== null;
+}
+
+/**
+ * AIW · The connection a token belongs to, as the member knows it: the OAuth
+ * grant for an app that signed in (its access token is replaced every hour),
+ * or the token itself for one made on Connect an AI.
+ */
+export function aiConnectionId(token: ApiToken): string {
+  return token.oauth_grant_id ?? token.id;
 }
 
 /** AI-3 · Whether account numbers, UPI IDs, phone numbers and PAN are masked for it. */
@@ -239,11 +259,13 @@ export const OAUTH_ACCESS_TOKEN_SECONDS = 3600;
  *
  * Not mintToken: that one logs an event per token, and this one is minted on
  * every refresh — the event that matters is the member's approval, which
- * oauth.ts records once. Scope is not a parameter: it is read, always.
+ * oauth.ts records once. Read, unless the member ticked "allow changes" on the
+ * consent page and the deployment allows them (AIW); either way it is an AI
+ * token (for_ai), confined to /mcp.
  */
 export function mintOAuthAccessToken(
   db: DB,
-  input: { memberId: string; name: string; clientId: string; grantId: string; redact: boolean },
+  input: { memberId: string; name: string; clientId: string; grantId: string; redact: boolean; scope?: TokenScope },
   now: Date = new Date(),
 ): MintedToken {
   const secret = `bgt_${randomBytes(32).toString("base64url")}`;
@@ -252,9 +274,9 @@ export function mintOAuthAccessToken(
   execute(
     db,
     `INSERT INTO api_tokens
-       (id,member_id,name,token_hash,scope,created_at,expires_at,oauth_client_id,oauth_grant_id,redact)
-     VALUES (?,?,?,?,'read',?,?,?,?,?)`,
-    id, input.memberId, input.name, hash(secret), nowIST(now), expiresAt,
+       (id,member_id,name,token_hash,scope,created_at,expires_at,oauth_client_id,oauth_grant_id,redact,for_ai)
+     VALUES (?,?,?,?,?,?,?,?,?,?,1)`,
+    id, input.memberId, input.name, hash(secret), input.scope ?? "read", nowIST(now), expiresAt,
     input.clientId, input.grantId, input.redact ? 1 : 0,
   );
   return { token: getToken(db, id)!, secret };

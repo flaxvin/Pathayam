@@ -3,13 +3,13 @@
  *
  * One page that answers the three questions a household has before letting an
  * AI read the budget: how do I connect it, what will it see, and what has it
- * read. It sits under /tokens on purpose: the token deny-list already keeps
+ * read (and, with AI_WRITE, what it changed). It sits under /tokens on purpose: the token deny-list already keeps
  * every bearer token away from /tokens (F30.6), so no connection can read this
  * page's log or mint itself a sibling.
  */
 
 import { html, when, type SafeHtml } from "../../http/html.ts";
-import { formatDate } from "../../core/dates.ts";
+import { formatDate, formatDateTime } from "../../core/dates.ts";
 import type { AiAccessRow } from "../../ai/access-log.ts";
 
 export interface AiConnectionRow {
@@ -22,6 +22,10 @@ export interface AiConnectionRow {
   how: string;
   /** Where its Disconnect button posts. */
   revoke_url: string;
+  /** AIW · The member allowed it to make changes, and the deployment allows them. */
+  canWrite?: boolean;
+  /** AIW · Changes it made today that are still in place. */
+  changedToday?: number;
 }
 
 export function renderConnectAi(opts: {
@@ -29,9 +33,12 @@ export function renderConnectAi(opts: {
   snapshotUrl: string;
   connections: AiConnectionRow[];
   log: AiAccessRow[];
+  /** AIW · How much an AI may change here (AI_WRITE), or null when it may not. */
+  writes?: "standard" | "full" | null;
   /** Present exactly once, straight after minting (F30.4). */
-  minted?: { name: string; secret: string; redact: boolean } | null;
+  minted?: { name: string; secret: string; redact: boolean; canWrite?: boolean } | null;
 }): SafeHtml {
+  const writes = opts.writes ?? null;
   const claudeCode = (secret: string) =>
     `claude mcp add --transport http pathayam ${opts.mcpUrl} --header "Authorization: Bearer ${secret}"`;
   // Gemini CLI's own syntax (google-gemini/gemini-cli docs/tools/mcp-server.md,
@@ -48,10 +55,25 @@ export function renderConnectAi(opts: {
     <h1>Connect an AI</h1>
     <p class="muted">
       Let Claude, ChatGPT or another assistant read your budget and answer questions about it.
-      A connection is <strong>read-only</strong>: it can look, never change anything. It sees what
-      you see — the household budget and your own personal budget — and never another member's
-      private accounts.
+      ${writes
+        ? html`A connection is <strong>read-only</strong> unless you allow it to make changes when you
+          connect it.`
+        : html`A connection is <strong>read-only</strong>: it can look, never change anything.`}
+      It sees what you see — the household budget and your own personal budget — and never another
+      member's private accounts.
     </p>
+    ${when(writes, () => html`
+      <p class="faint">
+        A connection allowed to make changes can file, split and add memos to transactions, and
+        suggest a payee's usual envelope.
+        ${writes === "standard"
+          ? "Adding a transaction, assigning money and recording a transfer wait in Review for you to approve."
+          : "It can also add transactions, assign money and record transfers."}
+        It can never delete anything, or touch loans, investments, month closes, settings, members,
+        tokens, imports, rules or schedules. At most 100 changes a day; each one is in Activity and can
+        be undone there, or all of today's at once below.
+      </p>
+    `)}
     <p class="notice notice-warning">
       Whatever it reads is sent to that AI's provider and becomes part of the conversation there.
       Connect only the apps you would show these figures to.
@@ -74,6 +96,7 @@ export function renderConnectAi(opts: {
           ${opts.minted!.redact
             ? "Account numbers, UPI IDs, phone numbers and PAN are masked in what it is sent."
             : "Nothing is masked: it is sent names, narrations and numbers as they are."}
+          ${opts.minted!.canWrite ? " It may make changes." : " It is read-only."}
         </p>
       </section>
     `)}
@@ -105,6 +128,13 @@ export function renderConnectAi(opts: {
             Mask account numbers, UPI IDs, phone numbers and PAN in what it is sent</label>
           <p class="faint">Best effort: a name written into a narration is not something a pattern can recognise.</p>
         </div>
+        ${when(writes, () => html`
+          <div class="field">
+            <label><input type="checkbox" name="allow_changes" value="1">
+              Allow changes</label>
+            <p class="faint">Off unless you tick it. Lets this app make the changes described above; every one is logged in Activity and can be undone.</p>
+          </div>
+        `)}
         <div class="field">
           <label for="ai-expiry">Disconnect it after</label>
           <select id="ai-expiry" name="expires_in_days">
@@ -126,6 +156,7 @@ export function renderConnectAi(opts: {
             <table>
               <thead><tr>
                 <th scope="col">App</th><th scope="col">How</th><th scope="col">Masked</th>
+                <th scope="col">Can change things</th>
                 <th scope="col">Connected</th><th scope="col">Last used</th><th scope="col"></th>
               </tr></thead>
               <tbody>
@@ -134,9 +165,16 @@ export function renderConnectAi(opts: {
                     <td>${c.name}</td>
                     <td class="faint">${c.how}</td>
                     <td>${c.redact ? "Yes" : "No"}</td>
+                    <td>${c.canWrite ? "Yes" : "No, read-only"}</td>
                     <td class="faint">${formatDate(c.created_at.slice(0, 10))}</td>
                     <td class="faint">${c.last_used_at ? formatDate(c.last_used_at.slice(0, 10)) : "Never"}</td>
                     <td>
+                      ${when((c.changedToday ?? 0) > 0, () => html`
+                        <form method="post" action="/tokens/ai/undo-today" style="margin-bottom:.25rem">
+                          <input type="hidden" name="connection_id" value="${c.id}">
+                          <button class="button-small" type="submit">Undo this AI's changes today (${c.changedToday})</button>
+                        </form>
+                      `)}
                       <form method="post" action="${c.revoke_url}">
                         <input type="hidden" name="back" value="/tokens/ai">
                         <button class="button-small button-danger" type="submit">Disconnect</button>
@@ -152,7 +190,7 @@ export function renderConnectAi(opts: {
 
     <section class="card">
       <h2>What they have read</h2>
-      <p class="faint">The question each connection asked, newest first. The answers are not kept.</p>
+      <p class="faint">The question each connection asked, and any change it made, newest first. The answers are not kept.</p>
       ${opts.log.length === 0
         ? html`<p class="faint">Nothing yet.</p>`
         : html`
@@ -169,7 +207,7 @@ export function renderConnectAi(opts: {
                     <td>${r.token_name}</td>
                     <td>${r.tool.replace(/_/g, " ")}</td>
                     <td class="faint" style="word-break:break-all">${r.arguments === "{}" ? "—" : r.arguments}</td>
-                    <td>${r.ok ? `${Math.max(1, Math.round(r.bytes / 1024))} KB` : "Refused"}</td>
+                    <td>${!r.ok ? "Refused" : r.wrote ? "Changed or suggested" : `${Math.max(1, Math.round(r.bytes / 1024))} KB`}</td>
                   </tr>
                 `)}
               </tbody>
@@ -186,6 +224,44 @@ export function renderConnectAi(opts: {
         meant for pasting into any AI chat or opening in a spreadsheet tool, when you would rather
         not connect anything.
       </p>
+    </section>
+  `;
+}
+
+/**
+ * AIW · R37.9 for a whole day of one AI's changes: somebody has changed some of
+ * those records since, and undoing goes back to before the AI touched them, so
+ * those later changes would go too. Said, listed, and asked again.
+ */
+export function renderAiUndoConfirm(opts: {
+  connectionId: string;
+  name: string;
+  count: number;
+  supersededBy: { at: string; summary: string }[];
+}): SafeHtml {
+  return html`
+    <h1>Undo ${opts.name}'s changes today?</h1>
+    <section class="card">
+      <p>
+        ${opts.name} made ${opts.count} ${opts.count === 1 ? "change" : "changes"} today. Since then,
+        some of the same records were changed again:
+      </p>
+      <ul>
+        ${opts.supersededBy.map((s) => html`<li>${formatDateTime(s.at)} — ${s.summary}</li>`)}
+      </ul>
+      <p class="notice notice-warning">
+        Undoing puts each record back exactly as it was before ${opts.name} changed it, so the later
+        changes above are lost too. To keep them, undo ${opts.name}'s changes one by one in
+        <a href="/activity?source=ai">Activity</a> instead.
+      </p>
+      <div class="row">
+        <form method="post" action="/tokens/ai/undo-today">
+          <input type="hidden" name="connection_id" value="${opts.connectionId}">
+          <input type="hidden" name="force" value="1">
+          <button class="button-danger" type="submit">Undo anyway</button>
+        </form>
+        <a class="button" href="/tokens/ai">Cancel</a>
+      </div>
     </section>
   `;
 }
