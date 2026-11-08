@@ -312,7 +312,10 @@ history reads the full history.
 
 ## Security boundaries
 
-**The database is not encrypted at rest.** Anyone with the file has everything.
+**The application does not encrypt the database file itself.** Encryption at
+rest comes from the storage underneath: an encrypted volume on the hosted
+service, your own disk encryption when self-hosting. Anyone with a decrypted
+copy of the file has everything.
 
 **Privacy between members is not an adversarial boundary.** It separates people
 who trust each other and want some things kept personal. Any member can see the

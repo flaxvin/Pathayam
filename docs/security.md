@@ -8,9 +8,14 @@ on a private origin, used by a small number of trusted people.
 **In scope:** anything reachable over HTTP by an unauthenticated party or by a
 member acting outside their own data; anything that leaves the machine.
 
-**Out of scope:** an attacker with the database file, the host, or root. The
-database is not encrypted at rest; disk encryption is the operating system's
-responsibility. Privacy between members separates people who trust each other;
+**Out of scope:** an attacker with the database file, the host, or root.
+Encryption at rest is the storage layer's job: on the hosted service the
+database, backups and attachments sit on a volume Fly.io encrypts at rest; on a
+self-hosted install it is whatever the disk provides. The application does not
+encrypt the file itself, because its key would have to live on the same machine
+(the reasoning of `08` S9); stored credentials are sealed under `SECRETS_KEY`.
+Every change is recorded in the event log with its actor; reads are not logged
+(R37.7), except reads by an AI connection, which go to `ai_access_log`. Privacy between members separates people who trust each other;
 it is not an adversarial boundary.
 
 ## Authentication

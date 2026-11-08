@@ -419,9 +419,13 @@
         sessions or the Gmail connection.
       </p>
       <p>
-        The database is not encrypted at rest beyond the disk encryption our
-        hosting provider applies. Anyone with the database file has its
-        contents; we restrict that access to what running the service requires.
+        Your data is encrypted at rest. Each hosted instance keeps its database,
+        backups and attachments on its own storage volume, which our hosting
+        provider encrypts at rest, and stored Google credentials are encrypted
+        again with a key held apart from the data. Every change to your data is
+        recorded in an audit log, with who made it and when, and every read by
+        an AI connection you approve is logged too. Access to the servers is
+        restricted to what running the service requires.
       </p>
       <p>
         If a personal data breach occurs, we will notify the Data Protection
