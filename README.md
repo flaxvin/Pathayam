@@ -8,7 +8,7 @@ runtime dependencies.
 harvest, drawn from deliberately through the year.
 
 ```
-v1.0.0 · 3000 tests · 0 runtime dependencies · 72 migrations · 240 routes
+v1.0.0 · 3000 tests · 0 runtime dependencies · 72 migrations · 247 routes
 ```
 
 **Status: production-ready.** 1.0.0 is the first stable release; see
