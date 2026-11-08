@@ -108,6 +108,15 @@ export interface Config {
    * then refused, and refresh tokens are stored as they always were.
    */
   secretsKey: Buffer | null;
+  /**
+   * FWD-1 · The forwarding address (docs/forwarding.md). `domain` is the part
+   * after the @ that the mail receiver (src/mx) answers for; `route` is this
+   * household's prefix on a receiver shared by several, empty when the
+   * receiver serves this household alone; `secret` signs each hand-off from
+   * the receiver. With no domain or no secret the module is on but cannot be
+   * used, and Settings says so rather than handing out an address.
+   */
+  inbound: { domain: string | null; route: string; secret: string | null };
 }
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -279,11 +288,38 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     trustProxy: bool(env.TRUST_PROXY, false),
     localLogin: bool(env.LOCAL_LOGIN, false),
     secretsKey: secretsKey(env.SECRETS_KEY),
+    inbound: inboundSettings(env),
   };
 
   assertDevLoginIsSafe(config);
   assertDemoModeIsSafe(config);
   return config;
+}
+
+/** The minimum INBOUND_SECRET length: the same floor as SECRETS_KEY. */
+export const INBOUND_SECRET_MIN_LENGTH = 32;
+
+/**
+ * FWD-1 · INBOUND_DOMAIN, INBOUND_ROUTE and INBOUND_SECRET. A value the
+ * receiver could never route to stops the process, as an unreadable FEATURE_
+ * does: an address handed out that no mail can reach fails silently for weeks.
+ */
+function inboundSettings(env: NodeJS.ProcessEnv): Config["inbound"] {
+  const domain = (env.INBOUND_DOMAIN ?? "").trim().toLowerCase() || null;
+  const route = (env.INBOUND_ROUTE ?? "").trim().toLowerCase();
+  const secret = env.INBOUND_SECRET || null;
+  if (domain && !/^(?=.{1,253}$)([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$/.test(domain)) {
+    throw new InvalidConfiguration(`INBOUND_DOMAIN "${domain}" is not a mail domain (e.g. in.example.com).`);
+  }
+  if (!/^[a-z0-9]{0,32}$/.test(route)) {
+    throw new InvalidConfiguration("INBOUND_ROUTE may only hold letters and digits, at most 32.");
+  }
+  if (secret && secret.length < INBOUND_SECRET_MIN_LENGTH) {
+    throw new InvalidConfiguration(
+      `INBOUND_SECRET is ${secret.length} characters; use at least ${INBOUND_SECRET_MIN_LENGTH} (openssl rand -base64 32).`,
+    );
+  }
+  return { domain, route, secret };
 }
 
 /**

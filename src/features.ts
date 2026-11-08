@@ -37,6 +37,7 @@ export const FEATURE_ENV = {
   gmailByo: "FEATURE_GMAIL_BYO",
   apiTokens: "FEATURE_API_TOKENS",
   ai: "FEATURE_AI",
+  forwarding: "FEATURE_FORWARDING",
   multiCurrency: "FEATURE_MULTI_CURRENCY",
 } as const;
 
@@ -67,7 +68,7 @@ const EVERYTHING: Features = {
   loans: true, familyLoans: true, assets: true, deposits: true, insurance: true,
   goals: true, tax: true, reports: true, schedules: true, rules: true,
   attachments: true, importCsv: true, importPdf: true, importBudgetApp: true,
-  gmail: true, gmailByo: true, apiTokens: true, ai: true, multiCurrency: false,
+  gmail: true, gmailByo: true, apiTokens: true, ai: true, forwarding: true, multiCurrency: false,
 };
 
 /*
@@ -80,6 +81,12 @@ const EVERYTHING: Features = {
  * application, and the hosted service only runs it. Solo is the budgeting engine for one person:
  * no loans (family lending included), no investments or net worth (FIRE is
  * built on net worth), no API tokens, and no AI connections (Febin, 07-11-2026).
+ *
+ * The forwarding address is a paid add-on on every hosted tier
+ * (website/pricing.html), so each preset leaves it off and the operator turns
+ * it on with FEATURE_FORWARDING=true for a household that bought it. A
+ * self-hosted install has it, and it works once a receiver is set up
+ * (docs/forwarding.md).
  */
 export const PLAN_PRESETS: Record<Plan, PlanPreset> = {
   selfhost: {
@@ -90,15 +97,16 @@ export const PLAN_PRESETS: Record<Plan, PlanPreset> = {
     features: {
       ...EVERYTHING,
       loans: false, familyLoans: false, assets: false, apiTokens: false, ai: false, gmail: false,
+      forwarding: false,
     },
     limits: { maxMembers: 1, backupRetentionDays: 30 },
   },
   household: {
-    features: { ...EVERYTHING, gmail: false },
+    features: { ...EVERYTHING, gmail: false, forwarding: false },
     limits: { maxMembers: 5, backupRetentionDays: 90 },
   },
   power: {
-    features: { ...EVERYTHING, gmail: false },
+    features: { ...EVERYTHING, gmail: false, forwarding: false },
     // Febin, 07-11-2026: Power has no member limit.
     limits: { maxMembers: null, backupRetentionDays: 365 },
   },
@@ -157,6 +165,9 @@ const RULES: Rule[] = [
   // Either way of connecting a mailbox opens the Gmail pages; which keys a
   // connection may use is decided in gmail/clients.ts.
   { test: under("gmail"), available: (f) => f.gmail || f.gmailByo },
+  // FWD · the address on Settings and the receiver's hand-off.
+  { test: under("forwarding"), available: (f) => f.forwarding },
+  { test: under("inbound"), available: (f) => f.forwarding },
   // AI-7 · Connect an AI lives under /tokens but is its own module: an AI
   // connection is offered without hand-minted tokens, and vice versa.
   { test: under("tokens", "ai"), available: (f) => f.ai },

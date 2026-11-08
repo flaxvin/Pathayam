@@ -102,6 +102,10 @@ const FORBIDDEN_PREFIXES = [
   // GMAIL-BYO · Swapping the Google client would point the next consent at
   // somebody else's application, and the secret is a credential.
   "/gmail/keys",
+  // FWD · An address is a way for mail into Review: a token that could make
+  // one would leave a door that outlives revoking it.
+  "/forwarding/create",
+  "/forwarding/remove",
   /*
    * OAUTH · The consent page and the token endpoint. A token that could
    * approve an AI app could hand out a fresh read token, with its own refresh

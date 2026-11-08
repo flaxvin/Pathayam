@@ -591,6 +591,10 @@ export const NEVER_EXPORTED = [
   "statement_identity", "gmail_connections", "member_passwords", "card_number_digits",
   // GMAIL-BYO · a household's own Google client secret, sealed but still a credential.
   "gmail_clients",
+  // FWD · the address's token lets mail into Review; and forwarded mail, even
+  // its subject lines and a sealed locked statement, is held 90 days at most
+  // and is not budget data. A restored copy makes a new address.
+  "forwarding_addresses", "forwarded_mail", "forwarded_statements",
 ];
 
 export function exportEverything(db: DB): Record<string, unknown> {

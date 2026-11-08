@@ -79,6 +79,11 @@ services:
       FEATURE_GMAIL_BYO: ${FEATURE_GMAIL_BYO:-}
       FEATURE_API_TOKENS: ${FEATURE_API_TOKENS:-}
       FEATURE_AI: ${FEATURE_AI:-}
+      FEATURE_FORWARDING: ${FEATURE_FORWARDING:-}
+      # FWD · The forwarding address, with the mx service below.
+      INBOUND_DOMAIN: ${INBOUND_DOMAIN:-}
+      INBOUND_ROUTE: ${INBOUND_ROUTE:-}
+      INBOUND_SECRET: ${INBOUND_SECRET:-}
       # Q18 settled on rupee-only accounts; off in every preset.
       FEATURE_MULTI_CURRENCY: ${FEATURE_MULTI_CURRENCY:-}
 
@@ -95,6 +100,44 @@ services:
       timeout: 5s
       start_period: 10s
       retries: 3
+
+  # ---------------------------------------------------------------------------
+  # Forwarding address receiver — docker compose --profile mail up -d
+  #
+  # Receive-only SMTP for INBOUND_DOMAIN: point the domain's MX record at this
+  # machine and open port 25 to it. It hands each message to the app above,
+  # signed with INBOUND_SECRET, and keeps nothing. Many home connections block
+  # inbound port 25; if yours does, Gmail import is the way in instead
+  # (docs/forwarding.md).
+  # ---------------------------------------------------------------------------
+  mx:
+    profiles: ["mail"]
+    image: pathayam:latest
+    command: ["node", "dist/mx/main.js"]
+    restart: unless-stopped
+    ports:
+      - "25:2525"
+    environment:
+      MX_PORT: "2525"
+      MX_DOMAIN: ${INBOUND_DOMAIN:?set INBOUND_DOMAIN in .env to run the mail receiver}
+      MX_HOSTNAME: ${MX_HOSTNAME:-}
+      # One route, "" (no prefix), to the app on the compose network.
+      MX_ROUTES: '{"": {"url": "http://pathayam:8080", "secret": "${INBOUND_SECRET:?set INBOUND_SECRET in .env}"}}'
+      MX_TLS_CERT_FILE: ${MX_TLS_CERT_FILE:-}
+      MX_TLS_KEY_FILE: ${MX_TLS_KEY_FILE:-}
+    # The image's own check asks /healthz, which is the app's; this one asks
+    # whether the receiver answers on its port.
+    healthcheck:
+      test:
+        - CMD
+        - node
+        - -e
+        - "require('net').connect(2525,'127.0.0.1').on('connect',()=>process.exit(0)).on('error',()=>process.exit(1))"
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      - pathayam
 
   # ---------------------------------------------------------------------------
   # Development — docker compose --profile dev up

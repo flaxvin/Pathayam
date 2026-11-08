@@ -20,6 +20,7 @@ import { Refusal } from "./core/refusal.ts";
 import { pruneIdempotencyKeys } from "./core/idempotency.ts";
 import { pruneExpiredSessions, pruneAuthAttempts } from "./auth/sessions.ts";
 import { purgeDeleted } from "./domain/transactions.ts";
+import { purgeForwarded } from "./forwarding/held.ts";
 import { runBackupJob } from "./ops/backup.ts";
 import { recordRequestFailure, pruneRequestFailures } from "./ops/errors.ts";
 import { refreshPrices } from "./portfolio/refresh.ts";
@@ -151,7 +152,9 @@ function main(): void {
         const attempts = pruneAuthAttempts(db);
         const purged = purgeDeleted(db);
         const failures = pruneRequestFailures(db);
-        log({ level: "debug", msg: "housekeeping", keys, sessions, attempts, purged, failures });
+        // FWD-4 · Nothing forwarded outlives 90 days: the pricing page's promise.
+        const forwarded = purgeForwarded(db);
+        log({ level: "debug", msg: "housekeeping", keys, sessions, attempts, purged, failures, forwarded });
       } catch (err) {
         log({ level: "error", msg: "housekeeping failed", error: String(err) });
       }
