@@ -12,8 +12,9 @@ their figures in `month_closes`, which is the durable record. See
 
 **A budget spans at most a hundred years.** The engine walks every month from
 the first one with data, and stops after 1,200. A month beyond that is refused
-by name — viewing it, or assigning money to it — rather than shown with the last
-month the walk reached; so is an assignment that would stretch the walk past it.
+by name (whether you view it or assign money to it) rather than shown with the
+last month the walk reached. So is an assignment that would stretch the walk past
+it.
 
 **One household per deployment.** There is no multi-tenancy. Two households need
 two deployments.
@@ -26,9 +27,9 @@ envelope.
 **The independence projection is arithmetic, not a forecast.** It extrapolates
 a trailing window of spending forward unchanged and applies a fixed real return
 every year. Real markets arrive in a sequence, and retiring into a bad first
-decade fails on the same average return that succeeds arriving later — that
-sequence-of-returns risk is not modelled, and no safe-withdrawal figure can
-make it go away.
+decade fails on the same average return that succeeds arriving later. This
+sequence-of-returns risk is not modelled, and no safe-withdrawal figure removes
+it.
 
 **Spending is assumed to stay as it is.** A loan that finishes, a child, a
 parent needing care, or a move all change the target, and none of them are
@@ -40,15 +41,14 @@ outside a retirement account will not stretch quite as far as the figure
 suggests.
 
 **A short history scales up whatever it has.** With less than a year of data
-the window is annualised from the days that exist — history starts at the first
-transaction or the first budget or card account opened, whichever is earlier —
-and the screen says so, but one unusual month still moves the target a long
-way.
+the window is annualised from the days that exist (history starts at the first
+transaction or the first budget or card account opened, whichever is earlier).
+The screen says so, but one unusual month still moves the target a long way.
 
 **Investing is not spending.** Units bought through the portfolio are left out
 of the spending the target is built on, even when paid from an envelope. An
-investment made any other way — a transfer to a tracking account filed to an
-envelope, say — still counts as spending.
+investment made any other way, such as a transfer to a tracking account filed
+to an envelope, still counts as spending.
 
 ## Deposits
 
@@ -88,22 +88,22 @@ from advance tax (s207).
 
 **Home loan interest under 24(b) is carried from the ledger (TAX-1).** A loan
 marked as for a house its owner lives in contributes the interest accrued in
-the financial year — each instalment's interest spread over the days it pays
-for, with instalments not yet recorded taken from the projected schedule — to
+the financial year (each instalment's interest spread over the days it pays
+for, with instalments not yet recorded taken from the projected schedule) to
 its holder's estimate, old regime only (s115BAC allows none under the new),
 capped at ₹2,00,000 across every such house. The cap is keyed by year with the
 slabs. A let-out house's interest is shown and not deducted. Not modelled:
 interest before construction is finished (claimed in five parts from the year
 it is; a loan typed "under construction" is not carried), the ₹30,000 limit on
 a loan taken before April 1999 or for repairs, and a joint loan's split between
-co-borrowers — the whole loan is carried to its holder, and each borrower's
+co-borrowers: the whole loan is carried to its holder, and each borrower's
 share is entered as an override. Where any of the figure is not the lender's
 own split it is marked estimated; the lender's certificate is the number to
 use, entered in the same box. Figures as retrieved on 22-10-2026 from secondary
 sources (the department's site was not reachable to check against).
 
 **Tax already paid is netted (TAX-2).** TDS for the year is entered as one figure
-from Form 16 or 26AS — nothing is read from either — and advance and
+from Form 16 or 26AS (nothing is read from either), and advance and
 self-assessment tax are entered a challan at a time. Each regime's estimate,
 less all three, is shown as a balance to pay or a refund.
 
@@ -117,7 +117,7 @@ Nothing is scheduled or reminded.
 **Section 80D is modelled as the Act has it** (old regime only): premiums for
 yourself, spouse and children up to ₹25,000 (₹50,000 where one of them is a
 senior citizen), and premiums for parents as a second deduction up to ₹25,000
-(₹50,000 for a senior parent) — so up to ₹1,00,000 in all — with preventive
+(₹50,000 for a senior parent), so up to ₹1,00,000 in all, with preventive
 check-ups counted up to ₹5,000 across both, inside each group's ceiling. An
 uninsured senior's medical bills are entered in that group's premium figure,
 under the same ceiling. A declaration saved before migration 0059 had one 80D
@@ -125,20 +125,20 @@ figure; it is kept as the self-and-family one, and the parents' part has to be
 entered again.
 
 **Capital gains are computed, with caveats.** Realised gains from the portfolio
-are sorted by asset class and holding period and taxed at their own rates —
+are sorted by asset class and holding period and taxed at their own rates:
 12.5% above ₹1,25,000 on long-held listed equity (112A), 20% on short-held
 (111A), 12.5% on gold, property and foreign shares held over 24 months (112)
-— 12 months for a gold or international ETF listed in India, as for any listed
-unit — and on debt-fund units bought before 1 April 2023 and held as long,
+(12 months for a gold or international ETF listed in India, as for any listed
+unit) and on debt-fund units bought before 1 April 2023 and held as long,
 slab rates on other debt (s50AA) and on those held shorter. A share whose instrument
 is international (or, with no region set, not in rupees) is never 111A/112A,
 which are for equity listed in India. Listed equity bought before 1 February
-2018 is grandfathered — its cost is the higher of what was paid and the lower
-of its price on 31 January 2018 and the sale proceeds — where a price for that
+2018 is grandfathered (its cost is the higher of what was paid and the lower
+of its price on 31 January 2018 and the sale proceeds) where a price for that
 day is recorded on the instrument; where none is, the parcel is reported as
 unplaced rather than taxed on its whole gain. "Over 12 (or 24) months" is counted in calendar months, as the Act
-words it, not days — bought 2024-02-28 and sold 2025-02-28 is exactly twelve
-months and so short-term, though it is 366 days — and the sale preview, the
+words it, not days. Bought 2024-02-28 and sold 2025-02-28 is exactly twelve
+months and so short-term, though it is 366 days. The sale preview, the
 gains report and the estimate all use the same test. What the app cannot
 place, it refuses to place: an instrument with no
 asset class, a hybrid fund (whose treatment turns on an equity ratio not
@@ -165,7 +165,7 @@ on the day it was made. Before 23-07-2024: 15% under 111A, 10% under 112A and
 than equity long-term only after 36 months. From 23-07-2024: 20%, 12.5% and
 12.5% without indexation. The ₹1,25,000 112A exemption applies to the whole
 year, on either side of the date. A gain held long and sold before the date
-that would take indexation under 112 — a listed bond's included — is reported
+that would take indexation under 112 (a listed bond's included) is reported
 as not computed rather than taxed: the app does not carry the cost inflation
 index and will not invent one. The gains rates are keyed by year like the
 slabs; a sale in a year the app has no rates for (it has 2024-25 to 2026-27)
@@ -176,18 +176,18 @@ year with losses is overstated. The gains are measured against the rest of the
 person's income the way the Act does it: the 87A ceiling and the surcharge
 band are tested on total income including them; where other income is below
 the basic exemption, the unused part is set against 111A, then 112, then 112A
-gains (the order most favourable to the person — the Act fixes none); 87A never
+gains (the order most favourable to the person; the Act fixes none); 87A never
 relieves 112A tax, and under the new regime relieves no special-rate tax at
 all; and the surcharge on special-rate tax stops at 15%. The basic-exemption
-adjustment assumes a resident under 60 — the old regime's ₹3,00,000 and
+adjustment assumes a resident under 60. The old regime's ₹3,00,000 and
 ₹5,00,000 senior limits are not modelled, so a senior's figure is overstated.
 
 **Income is not derived from the ledger, only prefilled.** Income is
 prefilled from money that arrived in visible budget accounts, which is not
-taxable income — it misses a salary paid elsewhere and includes receipts that
+taxable income: it misses a salary paid elsewhere and includes receipts that
 are not income at all. Deductions are entered, never inferred. The standard
 deduction is set only against the gross income entered, which is the only
-salary the estimate knows, and never exceeds it — gains alone earn none. The loan
+salary the estimate knows, and never exceeds it. Gains alone earn none. The loan
 interest report is still not carried in: it is cash paid across every loan. What
 is carried is the accrued interest of loans marked as for a house, above.
 
@@ -195,13 +195,13 @@ is carried is the accrued interest of loans marked as for a house, above.
 cost of closing early, not interest on borrowed capital, and the interest report
 excludes both. It did not always: the prepayment charge was stored with its
 whole amount in the interest column, so a ₹2,000 penalty on a loan that had paid
-no interest was reported as ₹2,000 of interest for the year — and counted twice
+no interest was reported as ₹2,000 of interest for the year, and counted twice
 in the total cost of borrowing, once as interest and once as a fee. Fixed, with
 migration 0042 correcting rows already written that way.
 
-**Policies suggest; they do not declare.** The tax page offers what the
+**Policy premiums are suggested, never declared for you.** The tax page offers what the
 premiums of a member's own policies (those they are named holder of) come to
-in the year, per 80C / 80D group — every premium falling due in the year,
+in the year, per 80C / 80D group: every premium falling due in the year,
 paid or not. It does not spread a multi-year health premium across the years
 it covers, cannot tell a premium paid in cash (which 80D excludes), and knows
 nothing of 80C's other items. Applying it raises each figure to the policies'
@@ -231,8 +231,8 @@ exception: with no rate given and none stored for the trade date, it is refused.
 **Payee names from PDF statements can contain spaces inside words.** Some
 statement generators draw a single word as several positioned text runs; the
 layout pass places each at the column its position implies, which can insert a
-space. Roughly 29% of payee names extracted from one real corpus are affected —
-`Fino P A Ym` for `Fino Pay`. Dates, amounts and table headers are read
+space. Roughly 29% of payee names extracted from one real corpus are affected,
+for example `Fino P A Ym` for `Fino Pay`. Dates, amounts and table headers are read
 correctly despite this; the residue is cosmetic and affects payee grouping.
 
 The information needed to reconstruct the original word boundaries is not
@@ -249,13 +249,13 @@ the account; HSBC needs the card's last six, saved in Settings; Axis and HDFC
 account statements need the customer ID, saved in Settings; ESAF needs the
 registered mobile (its last four). Without them the file cannot be opened. For
 each of these but ESAF, which the app does not recognise as a bank, the
-interface — Gmail import's notice included — says which detail is missing.
+interface (Gmail import's notice included) says which detail is missing.
 
 **Importing from YNAB or Actual Budget brings transactions only.** Budget
 assignments, goals and targets are not read: they were worked out against the
 other app's own balances and months, and copied into envelopes they would
 count the same money twice. Amounts are taken as written, in whatever currency
-the other budget used — nothing is converted. "Starting Balance" rows are left
+the other budget used. Nothing is converted. "Starting Balance" rows are left
 out, since a Pathayam account has its own opening balance. Actual Budget's
 column names are from memory of its export code, not checked against a file
 it produced, so its columns are found by name and most are optional
@@ -275,7 +275,7 @@ itself it cannot be tested automatically, because that requires a live grant.
 
 ## Offline and sync
 
-**No offline mode — except entering a spend.** The application is
+**No offline mode, except for entering a spend.** The application is
 server-rendered and requires the server for everything it shows. There is no
 local replica, no read cache, no service worker and no sync protocol. Installing
 it as a PWA gives it an icon and a standalone window, not offline operation.

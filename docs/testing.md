@@ -32,7 +32,7 @@ failure identifies the month in which it began.
 
 ### Cache against ledger
 
-Every month is computed twice — `useRollup: true` and `useRollup: false` — and
+Every month is computed twice (`useRollup: true` and `useRollup: false`) and
 the results compared. Ready to Assign and every envelope balance must agree.
 
 ### Statement reconciliation

@@ -1,6 +1,7 @@
-# Running it
+# Running Pathayam
 
-One container, one SQLite file, and no external service required at all.
+Pathayam runs as one container with one SQLite file, and needs no external
+service.
 
 ## Requirements
 
@@ -64,8 +65,8 @@ docker compose --profile seed up seed # a development household
 docker compose --profile test up test # the suite and the typecheck
 ```
 
-The production service binds to **loopback** — the tunnel reaches it, the LAN
-does not — sets `TRUST_PROXY`, and mounts a named volume at `/data`. `BASE_URL`
+The production service binds to **loopback** (the tunnel reaches it, the LAN
+does not), sets `TRUST_PROXY`, and mounts a named volume at `/data`. `BASE_URL`
 is required and the stack refuses to come up without it.
 
 The image builds in four stages: `deps`, `dev`, `build`, `runtime`. The
@@ -123,10 +124,10 @@ Three ways, and you need at least one:
 | Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Below. Also the deployment's own Gmail client when `FEATURE_GMAIL` is on. Not needed for Gmail when members bring their own keys (`FEATURE_GMAIL_BYO`). |
 
 They can be on at once, and a member may have more than one. Passwords are scrypt
-(`node:crypto`, no dependency added), stored in `member_passwords` — which is
+(`node:crypto`, no dependency added), stored in `member_passwords`, which is
 in `NEVER_EXPORTED`, so a hash never travels in an export. Eight wrong guesses
-locks that credential for fifteen minutes; the lock is per credential rather
-than per IP, because the attacker worth stopping has more than one address.
+locks that credential for fifteen minutes. The lock is per credential rather
+than per IP, because a determined attacker can use more than one address.
 
 `LOCAL_LOGIN` turning off does **not** disable a password that already exists.
 Otherwise one environment variable would lock a household out of its own
@@ -145,7 +146,7 @@ Settings, beside each such member, **Make a password link** shows a one-time
 link to send them: it opens signed out, lets them choose a password, and signs
 them in. It works once and expires after 72 hours; making another replaces it.
 The button is offered whenever password sign-in is (`LOCAL_LOGIN`, or any
-password already set) and the member has none — with Google or OIDC on as well,
+password already set) and the member has none. With Google or OIDC on as well,
 it gives them a second way in that does not depend on that service.
 
 Two cases need whoever runs the server instead, and the button says so when it
@@ -169,35 +170,35 @@ It reads the same configuration as the app (`DATABASE_PATH` or `DATA_DIR`, and
 `--execute` it changes nothing: it prints the member, whether they have a
 password, their unused links, their sessions and what they keep privately, and
 what it would do. With `--execute` it prints the same before and after, and the
-link — once; only its hash is stored. For a member who has a password,
+link (once; only its hash is stored). For a member who has a password,
 `--execute` alone is refused: `--reset` is what asks for that password to be
 cleared, and it signs them out on every device too (their API tokens are left
-alone — revoke those from their Settings if the password was compromised rather
+alone; revoke those from their Settings if the password was compromised rather
 than forgotten). Exit status: 0 done or dry run, 1 refused (no such member,
 removed, a password without `--reset`), 2 a usage mistake.
 
 ## Single sign-on
 
-Set `OIDC_ISSUER` to the provider's issuer URL — everything else is read from
-`{issuer}/.well-known/openid-configuration`, because four endpoints pasted into
-environment variables is four chances to paste one wrong, and the resulting
-error arrives mid-redirect where nobody can read it. Register
+Set `OIDC_ISSUER` to the provider's issuer URL. Everything else is read from
+`{issuer}/.well-known/openid-configuration`, because pasting four endpoints into
+environment variables makes a mistake more likely, and the resulting error
+appears mid-redirect where it is hard to read. Register
 `{BASE_URL}/auth/oidc/callback` as the redirect URI, and grant the `openid`,
 `email` and `profile` scopes; members are matched by email address, so an
 account with no email cannot sign in.
 
 The ID token's issuer, audience and expiry are checked. Its **signature is
-not** — the code is exchanged over TLS directly with the provider, so the
+not**: the code is exchanged over TLS directly with the provider, so the
 response came from it by construction, and verifying the signature would defend
-only against somebody who can already MITM that connection. That is a decision
-worth disagreeing with, which is why it is written here and in `auth/oidc.ts`
-rather than left implicit.
+only against somebody who can already MITM that connection. Because this is a
+deliberate trade-off, it is documented here and in `auth/oidc.ts` rather than
+left implicit.
 
 ## Google sign-in
 
 1. Google Cloud console → APIs & Services → Credentials → OAuth 2.0 Client ID →
    **Web application**.
-2. Authorised redirect URI: `https://your-origin/auth/google/callback` — exactly,
+2. Authorised redirect URI: `https://your-origin/auth/google/callback`, exactly,
    including the scheme.
 3. Put the client id and secret in the environment, and `BASE_URL` to match.
 
@@ -238,10 +239,10 @@ Everything the app reads, and nothing it does not:
 
 | Variable | Default | Notes |
 |---|---|---|
-| `BASE_URL` | `http://localhost:$PORT` | The public origin, exactly. OAuth redirects, cookie scoping and the same-origin write check all depend on it. A write addressed to any other hostname (or this hostname on another port) is refused with 403 — only an IP address or `localhost` is accepted besides — so a reverse proxy must pass the original `Host` through, or set `X-Forwarded-Host` with `TRUST_PROXY`. |
-| `GOOGLE_CLIENT_ID` | — | Required for Google sign-in. |
-| `GOOGLE_CLIENT_SECRET` | — | |
-| `SECRETS_KEY` | — | Seals stored credentials: a member's or the household's own Google client secret, and Gmail refresh tokens. At least 32 characters (`openssl rand -base64 32`); shorter refuses to start. Keep it outside the data volume (a Fly secret). Unset, own Google keys cannot be saved. |
+| `BASE_URL` | `http://localhost:$PORT` | The public origin, exactly. OAuth redirects, cookie scoping and the same-origin write check all depend on it. A write addressed to any other hostname (or this hostname on another port) is refused with 403 (only an IP address or `localhost` is accepted besides), so a reverse proxy must pass the original `Host` through, or set `X-Forwarded-Host` with `TRUST_PROXY`. |
+| `GOOGLE_CLIENT_ID` | None | Required for Google sign-in. |
+| `GOOGLE_CLIENT_SECRET` | None | |
+| `SECRETS_KEY` | None | Seals stored credentials: a member's or the household's own Google client secret, and Gmail refresh tokens. At least 32 characters (`openssl rand -base64 32`); shorter refuses to start. Keep it outside the data volume (a Fly secret). Unset, own Google keys cannot be saved. |
 | `PORT` | `8080` | |
 | `HOST` | `0.0.0.0` | |
 | `DATA_DIR` | `./data` | Where the database, backups and attachments live. |
@@ -251,12 +252,12 @@ Everything the app reads, and nothing it does not:
 | `SESSION_DAYS` | `30` | How long a session lasts from sign-in (absolute, not extended by use). 1 to 3650; anything else stops startup. |
 | `LOG_LEVEL` | `info` in production | `debug`, `info`, `warn` or `error` (any case); anything else refuses to start. No financial value is ever logged. |
 | `TRUST_PROXY` | `false` | Read the client IP and forwarded host from proxy headers. Set it behind a tunnel. The IP is the right-most `X-Forwarded-For` entry, so exactly one proxy hop is assumed (see security.md). |
-| `HEARTBEAT_URL` | — | **Set this.** Pinged on a *successful* verified restore. |
-| `BACKUP_WEBHOOK_URL` | — | Alerted when a backup or its verification fails. |
-| `ALPHA_VANTAGE_KEY` | — | Only for direct equities; mutual funds use a keyless provider. |
+| `HEARTBEAT_URL` | None | **Set this.** Pinged on a *successful* verified restore. |
+| `BACKUP_WEBHOOK_URL` | None | Alerted when a backup or its verification fails. |
+| `ALPHA_VANTAGE_KEY` | None | Only for direct equities; mutual funds use a keyless provider. |
 | `PLAN`, `FEATURE_*`, `MAX_MEMBERS`, `BACKUP_RETENTION_DAYS` | `selfhost` | Which modules this instance offers and its limits. See [Plans and modules](#plans-and-modules). |
 | `AI_WRITE` | `off` | Whether an AI connection may change anything: `off`, `standard` or `full` (any case); anything else stops startup. See [Letting an AI make changes](#letting-an-ai-make-changes). |
-| `MCP_ALLOWED_ORIGINS` | — | Comma-separated browser origins, besides `BASE_URL`'s, allowed to call `/mcp`. Connectors call from their servers and need none (ai.md). |
+| `MCP_ALLOWED_ORIGINS` | None | Comma-separated browser origins, besides `BASE_URL`'s, allowed to call `/mcp`. Connectors call from their servers and need none (ai.md). |
 | `ADMIN_DEBUG` | `false` | Enables view-as-another-member, read-only by default, bannered. |
 | `DEMO_MODE` | `false` | Bypasses authentication. Refuses to start alongside `DEV_LOGIN`, Google or OIDC credentials, or `LOCAL_LOGIN`, and against a database with passwords, linked Google accounts, a connected mailbox or a statement identity. |
 | `DEV_LOGIN` | `false` | Local auth bypass. Absent from the production image; the app refuses to start with it in a production-shaped environment (production `NODE_ENV`, a public `BASE_URL`, Google or OIDC credentials, `LOCAL_LOGIN`). |
@@ -339,7 +340,7 @@ anyway.
 A member still has to tick "allow changes" for each connection; without it a
 connection is read-only whatever `AI_WRITE` says. Turning `AI_WRITE` back to
 `off` makes every connection read-only at once (an app that signed in gets a
-read-only token at its next hourly refresh; until then the tools are simply not
+read-only token at its next hourly refresh; until then the tools are not
 offered). Nothing is deleted. What a connection may and may not change, the
 caps, and undoing are in [ai.md](ai.md#changes-an-ai-can-make).
 
@@ -378,7 +379,7 @@ reads the restored copy back, and prints the control totals. After a crash the
 last writes live only in the `-wal`; with `--force` that journal moves with the
 kept copy and is folded into it, so the `.replaced` file holds everything up to
 the crash. If the fold fails it says so, and the kept `-wal`/`-shm` stay beside
-it — keep the three together.
+it. Keep the three together.
 
 > **Do not copy a backup over the database file directly.** SQLite maintains
 > `-wal` and `-shm` sidecar files, which persist after a crash. Replacing the
@@ -403,7 +404,7 @@ know.
 `/health` reports the last backup and its verification, the schema version,
 whether the development bypass is absent, stale price and valuation inputs, and
 the state of any Gmail grant. `/healthz` is the container's health check: signed
-out it answers only `{status, serving, version}` — 200 while the database
+out it answers only `{status, serving, version}`: 200 while the database
 answers, 503 when it does not, never failed by anything recorded in the past.
 With a session or an API token it adds every check, the machine-readable
 version of `/health`.

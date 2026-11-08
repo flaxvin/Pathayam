@@ -4,7 +4,7 @@
 
 Pathayam is released under the
 [PolyForm Noncommercial License 1.0.0](LICENSE.md). In short: use it, modify it
-and share it for any noncommercial purpose — your own household, study,
+and share it for any noncommercial purpose: your own household, study,
 research, a hobby project, a charity, a school. Commercial use of any kind is
 not permitted, including inside a business. Commercial licences are available
 separately: <hello@flaxvin.tech>.
@@ -33,7 +33,7 @@ sign; the agreement is the act of contributing.
 
 5. **No warranty.** The contribution is provided as-is.
 
-Why this is here: without it, a single outside pull request would make it
+Why we ask for this: without it, a single outside pull request would make it
 impossible to change the licence later, or to sell a commercial licence to
 somebody who cannot accept a noncommercial one.
 

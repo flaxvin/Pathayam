@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>API Reference</title>
-<meta name="description" content="Pathayam's HTTP API: authentication, scopes, idempotency, the same-origin rule for writes, and every route the app serves — the core ones with parameters, responses and a working example — and the MCP server and OAuth sign-in AI apps connect through, read-only unless changes are allowed.">
+<meta name="description" content="Pathayam's HTTP API: authentication, scopes, idempotency, the same-origin rule for writes, and every route the app serves (the core ones with parameters, responses and a working example), and the MCP server and OAuth sign-in AI apps connect through, read-only unless changes are allowed.">
 <link rel="stylesheet" href="fonts.css">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon.png" sizes="32x32" type="image/png">
@@ -58,7 +58,7 @@
         The app is server-rendered, so there is no second API to keep in sync.
         A personal token authenticates a script against the same routes your
         browser uses, and an AI app reads the same figures through an
-        <a href="#ai">MCP server at <code>/mcp</code></a>, read-only unless you allow it changes.
+        <a href="#ai">MCP server at <code>/mcp</code></a>, read-only unless you allow it to make changes.
       </p>
     </div>
   </section>
@@ -69,24 +69,24 @@
         <div class="cards">
         <div class="card">
           <h3>Authentication</h3>
-          <p>The host in every example below is <strong>your own instance</strong> — the machine you self-host on, or your hosted subdomain. The public demo at <code>demo.pathayam.app</code> lets anyone in without an account and issues no tokens, so these examples will not run against it.</p>
-        <p>One header on every request: <code>Authorization: Bearer bgt_…</code>. Tokens are minted in Settings — never while viewing as another member — scoped read or read-write, and shown exactly once. One expires after a whole number of days from 1 to 3650, or never, and stops working the moment its member is removed.</p>
+          <p>The host in every example below is <strong>your own instance</strong>: the machine you self-host on, or your hosted subdomain. The public demo at <code>demo.pathayam.app</code> lets anyone in without an account and issues no tokens, so these examples will not run against it.</p>
+        <p>One header on every request: <code>Authorization: Bearer bgt_…</code>. Tokens are minted in Settings (never while viewing as another member), scoped read or read-write, and shown exactly once. One expires after a whole number of days from 1 to 3650, or never, and stops working the moment its member is removed.</p>
         <p>An AI app needs no token pasted in: give it your address with <code>/mcp</code> on the end and it signs in through OAuth 2.1, then holds an ordinary read token of its own. See <a href="#ai">Connect an AI</a>.</p>
         </div>
         <div class="card">
           <h3>Idempotency</h3>
-          <p>Every write accepts <code>Idempotency-Key</code>. Replaying a key returns the original result instead of acting twice, so a timeout you never saw is safe to retry. The same key with a different body is refused with <code>422</code>.</p>
+          <p>Every write accepts <code>Idempotency-Key</code>. Replaying a key returns the original result instead of acting twice, so you can safely retry after a timeout. The same key with a different body is refused with <code>422</code>.</p>
         </div>
         <div class="card">
           <h3>Responses</h3>
-          <p>Reads return HTML — this is the same app your browser talks to. <code>/export.json</code>, <code>/export/analysis.json</code>, the CSVs, <code>/mcp</code> and <code>/healthz</code> return data. Writes redirect on success. Send <code>Accept: application/json</code> and a write answers <code>{ "redirect": …, "message": … }</code> instead, an error comes back as <code>{ "error": … }</code> with its status, and a request that is not signed in gets <code>401</code> rather than a redirect to the sign-in page.</p>
+          <p>Reads return HTML, because this is the same app your browser uses. <code>/export.json</code>, <code>/export/analysis.json</code>, the CSVs, <code>/mcp</code> and <code>/healthz</code> return data. Writes redirect on success. Send <code>Accept: application/json</code> and a write answers <code>{ "redirect": …, "message": … }</code> instead, an error comes back as <code>{ "error": … }</code> with its status, and a request that is not signed in gets <code>401</code> rather than a redirect to the sign-in page.</p>
         </div>
       </div>
       <div class="note" style="margin-top:1.5rem">
         <b>Amounts are rupees</b> in requests and integer paise internally, so nothing is ever
         stored as a float. Dates are <code>YYYY-MM-DD</code> (or <code>DD-MM-YYYY</code>, the way the app shows them)
         and months are <code>YYYY-MM</code>, both in IST; a month more than a hundred years from the rest of the
-        budget is refused. Send fields form-encoded, as multipart, or as a flat JSON object — a number or
+        budget is refused. Send fields form-encoded, as multipart, or as a flat JSON object. A number or
         <code>true</code> is read as the text a form would send, and a nested object is ignored.
       </div>
       <h3 style="margin-top:1.5rem">Scopes</h3>
@@ -157,9 +157,9 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--ok"><b>200</b></span> — The rendered screen, as HTML.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
-              <li><span class="status status--err"><b>429</b></span> — Rate limit exceeded. Retry after the interval in the response.</li>
+              <li><span class="status status--ok"><b>200</b></span>: The rendered screen, as HTML.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>429</b></span>: Rate limit exceeded. Retry after the interval in the response.</li>
             </ul>
           </div>
             <div>
@@ -176,7 +176,7 @@
             <span class="ep__sum">Assign to a category</span>
           </summary>
           <div class="ep__body">
-            <p>Set the amount assigned to one category in one month. This is an absolute value, not a delta — sending 4500 makes the assignment 4500, whatever it was before. A month too far back to take an assignment is refused.</p>
+            <p>Set the amount assigned to one category in one month. This is an absolute value, not a delta: sending 4500 makes the assignment 4500, whatever it was before. A month too far back to take an assignment is refused.</p>
             <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
             <h3>Parameters</h3>
@@ -194,13 +194,13 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
-              <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
-              <li><span class="status status--err"><b>403</b></span> — A read-only token.</li>
-              <li><span class="status status--err"><b>404</b></span> — An id that does not exist, or names something you cannot see.</li>
-              <li><span class="status status--err"><b>409</b></span> — The first request with this <code>Idempotency-Key</code> is still being processed.</li>
-              <li><span class="status status--err"><b>422</b></span> — Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
+              <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
+              <li><span class="status status--err"><b>400</b></span>: A field was missing or could not be parsed; the message says which.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>403</b></span>: A read-only token.</li>
+              <li><span class="status status--err"><b>404</b></span>: An id that does not exist, or names something you cannot see.</li>
+              <li><span class="status status--err"><b>409</b></span>: The first request with this <code>Idempotency-Key</code> is still being processed.</li>
+              <li><span class="status status--err"><b>422</b></span>: Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
             </ul>
           </div>
             <div>
@@ -219,7 +219,7 @@
             <span class="ep__sum">Move between envelopes</span>
           </summary>
           <div class="ep__body">
-            <p>Move money from one category to another within the same month. Ready to Assign is unaffected — the total assigned does not change, only where it sits. This is how you cover an overspend. Both envelopes must be in the same budget — money between budgets is a transfer between their accounts, and a move is refused.</p>
+            <p>Move money from one category to another within the same month. Ready to Assign is unaffected: the total assigned stays the same, and only where it sits changes. This is how you cover an overspend. Both envelopes must be in the same budget. A move between budgets is refused; money between budgets is a transfer between their accounts.</p>
             <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
             <h3>Parameters</h3>
@@ -238,13 +238,13 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
-              <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
-              <li><span class="status status--err"><b>403</b></span> — A read-only token.</li>
-              <li><span class="status status--err"><b>404</b></span> — An id that does not exist, or names something you cannot see.</li>
-              <li><span class="status status--err"><b>409</b></span> — The first request with this <code>Idempotency-Key</code> is still being processed.</li>
-              <li><span class="status status--err"><b>422</b></span> — Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
+              <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
+              <li><span class="status status--err"><b>400</b></span>: A field was missing or could not be parsed; the message says which.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>403</b></span>: A read-only token.</li>
+              <li><span class="status status--err"><b>404</b></span>: An id that does not exist, or names something you cannot see.</li>
+              <li><span class="status status--err"><b>409</b></span>: The first request with this <code>Idempotency-Key</code> is still being processed.</li>
+              <li><span class="status status--err"><b>422</b></span>: Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
             </ul>
           </div>
             <div>
@@ -281,12 +281,12 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
-              <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
-              <li><span class="status status--err"><b>403</b></span> — A read-only token.</li>
-              <li><span class="status status--err"><b>409</b></span> — The first request with this <code>Idempotency-Key</code> is still being processed.</li>
-              <li><span class="status status--err"><b>422</b></span> — Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
+              <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
+              <li><span class="status status--err"><b>400</b></span>: A field was missing or could not be parsed; the message says which.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>403</b></span>: A read-only token.</li>
+              <li><span class="status status--err"><b>409</b></span>: The first request with this <code>Idempotency-Key</code> is still being processed.</li>
+              <li><span class="status status--err"><b>422</b></span>: Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
             </ul>
           </div>
             <div>
@@ -322,12 +322,12 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
-              <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
-              <li><span class="status status--err"><b>403</b></span> — A read-only token.</li>
-              <li><span class="status status--err"><b>409</b></span> — The first request with this <code>Idempotency-Key</code> is still being processed.</li>
-              <li><span class="status status--err"><b>422</b></span> — Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
+              <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
+              <li><span class="status status--err"><b>400</b></span>: A field was missing or could not be parsed; the message says which.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>403</b></span>: A read-only token.</li>
+              <li><span class="status status--err"><b>409</b></span>: The first request with this <code>Idempotency-Key</code> is still being processed.</li>
+              <li><span class="status status--err"><b>422</b></span>: Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
             </ul>
           </div>
             <div>
@@ -361,9 +361,9 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--ok"><b>200</b></span> — The rendered screen, as HTML.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
-              <li><span class="status status--err"><b>429</b></span> — Rate limit exceeded. Retry after the interval in the response.</li>
+              <li><span class="status status--ok"><b>200</b></span>: The rendered screen, as HTML.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>429</b></span>: Rate limit exceeded. Retry after the interval in the response.</li>
             </ul>
           </div>
             <div>
@@ -408,9 +408,9 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--ok"><b>200</b></span> — The rendered screen, as HTML.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
-              <li><span class="status status--err"><b>429</b></span> — Rate limit exceeded. Retry after the interval in the response.</li>
+              <li><span class="status status--ok"><b>200</b></span>: The rendered screen, as HTML.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>429</b></span>: Rate limit exceeded. Retry after the interval in the response.</li>
             </ul>
           </div>
             <div>
@@ -433,9 +433,9 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--ok"><b>200</b></span> — The rendered screen, as HTML.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
-              <li><span class="status status--err"><b>429</b></span> — Rate limit exceeded. Retry after the interval in the response.</li>
+              <li><span class="status status--ok"><b>200</b></span>: The rendered screen, as HTML.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>429</b></span>: Rate limit exceeded. Retry after the interval in the response.</li>
             </ul>
           </div>
             <div>
@@ -470,7 +470,7 @@
       </section>
       <section class="api-group" id="txn">
         <h2>Transactions</h2>
-        <p>Where money actually arrives and leaves. Every change here is an event you can undo from Activity.</p>
+        <p>Where money arrives and leaves. Every change here is an event you can undo from Activity.</p>
         <details class="ep">
           <summary>
             <span class="verb verb--post">POST</span>
@@ -478,7 +478,7 @@
             <span class="ep__sum">Record a transaction</span>
           </summary>
           <div class="ep__body">
-            <p>Create one transaction. Money out must name a category — the requirement is enforced on the server, not only in the form. Money in is exempt, because its job is to land in Ready to Assign. A cleared entry dated inside a reconciled period answers with the “Already reconciled” question instead of saving; send it again with <code>confirm_checkpoint=1</code> to save it and break that checkpoint.</p>
+            <p>Create one transaction. Money out must name a category, and the server enforces this as well as the form. Money in is exempt, because it goes to Ready to Assign. A cleared entry dated inside a reconciled period answers with the “Already reconciled” question instead of saving; send it again with <code>confirm_checkpoint=1</code> to save it and break that checkpoint.</p>
             <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
             <h3>Parameters</h3>
@@ -493,7 +493,7 @@
                 <tr><td><code>category_id</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>One envelope for the whole amount. Money out needs this or the lines below.</td></tr>
                 <tr><td><code>split_category_N</code>, <code>split_amount_N</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Envelope lines, <code>N</code> from 0. Line 0 carries no amount and takes whatever the others leave.</td></tr>
                 <tr><td><code>payee</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Free text. Matched against known payees.</td></tr>
-                <tr><td><code>memo</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>A note to your future self.</td></tr>
+                <tr><td><code>memo</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>A note for your own reference.</td></tr>
                 <tr><td><code>tags</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Comma-separated.</td></tr>
                 <tr><td><code>cleared</code></td><td class="m">boolean</td><td><span class='opt'>optional</span></td><td><code>1</code> when the bank has confirmed it.</td></tr>
                 <tr><td><code>owner_member_id</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Who spent it. A card with its own holder still wins.</td></tr>
@@ -505,14 +505,14 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
-              <li><span class="status status--ok"><b>200</b></span> — The “Already reconciled” question, as HTML. Nothing was saved.</li>
-              <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
-              <li><span class="status status--err"><b>403</b></span> — A read-only token.</li>
-              <li><span class="status status--err"><b>404</b></span> — An id that does not exist, or names something you cannot see.</li>
-              <li><span class="status status--err"><b>409</b></span> — The first request with this <code>Idempotency-Key</code> is still being processed.</li>
-              <li><span class="status status--err"><b>422</b></span> — Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
+              <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
+              <li><span class="status status--ok"><b>200</b></span>: The “Already reconciled” question, as HTML. Nothing was saved.</li>
+              <li><span class="status status--err"><b>400</b></span>: A field was missing or could not be parsed; the message says which.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>403</b></span>: A read-only token.</li>
+              <li><span class="status status--err"><b>404</b></span>: An id that does not exist, or names something you cannot see.</li>
+              <li><span class="status status--err"><b>409</b></span>: The first request with this <code>Idempotency-Key</code> is still being processed.</li>
+              <li><span class="status status--err"><b>422</b></span>: Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
             </ul>
           </div>
             <div>
@@ -553,13 +553,13 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
-              <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
-              <li><span class="status status--err"><b>403</b></span> — A read-only token.</li>
-              <li><span class="status status--err"><b>404</b></span> — An id that does not exist, or names something you cannot see.</li>
-              <li><span class="status status--err"><b>409</b></span> — The first request with this <code>Idempotency-Key</code> is still being processed.</li>
-              <li><span class="status status--err"><b>422</b></span> — Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
+              <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
+              <li><span class="status status--err"><b>400</b></span>: A field was missing or could not be parsed; the message says which.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>403</b></span>: A read-only token.</li>
+              <li><span class="status status--err"><b>404</b></span>: An id that does not exist, or names something you cannot see.</li>
+              <li><span class="status status--err"><b>409</b></span>: The first request with this <code>Idempotency-Key</code> is still being processed.</li>
+              <li><span class="status status--err"><b>422</b></span>: Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
             </ul>
           </div>
             <div>
@@ -595,13 +595,13 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
-              <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
-              <li><span class="status status--err"><b>403</b></span> — A read-only token.</li>
-              <li><span class="status status--err"><b>404</b></span> — An id that does not exist, or names something you cannot see.</li>
-              <li><span class="status status--err"><b>409</b></span> — The first request with this <code>Idempotency-Key</code> is still being processed.</li>
-              <li><span class="status status--err"><b>422</b></span> — Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
+              <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
+              <li><span class="status status--err"><b>400</b></span>: A field was missing or could not be parsed; the message says which.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>403</b></span>: A read-only token.</li>
+              <li><span class="status status--err"><b>404</b></span>: An id that does not exist, or names something you cannot see.</li>
+              <li><span class="status status--err"><b>409</b></span>: The first request with this <code>Idempotency-Key</code> is still being processed.</li>
+              <li><span class="status status--err"><b>422</b></span>: Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
             </ul>
           </div>
             <div>
@@ -637,14 +637,14 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
-              <li><span class="status status--ok"><b>200</b></span> — The “Already reconciled” question, as HTML. Nothing was deleted.</li>
-              <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
-              <li><span class="status status--err"><b>403</b></span> — A read-only token.</li>
-              <li><span class="status status--err"><b>404</b></span> — An id that does not exist, or names something you cannot see.</li>
-              <li><span class="status status--err"><b>409</b></span> — The first request with this <code>Idempotency-Key</code> is still being processed.</li>
-              <li><span class="status status--err"><b>422</b></span> — Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
+              <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
+              <li><span class="status status--ok"><b>200</b></span>: The “Already reconciled” question, as HTML. Nothing was deleted.</li>
+              <li><span class="status status--err"><b>400</b></span>: A field was missing or could not be parsed; the message says which.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>403</b></span>: A read-only token.</li>
+              <li><span class="status status--err"><b>404</b></span>: An id that does not exist, or names something you cannot see.</li>
+              <li><span class="status status--err"><b>409</b></span>: The first request with this <code>Idempotency-Key</code> is still being processed.</li>
+              <li><span class="status status--err"><b>422</b></span>: Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
             </ul>
           </div>
             <div>
@@ -675,7 +675,7 @@
       </section>
       <section class="api-group" id="import">
         <h2>Import, review &amp; rules</h2>
-        <p>Nothing posts itself. Everything arrives in Review first, and rules decide where it goes.</p>
+        <p>Nothing is posted automatically. Everything arrives in Review first, and rules decide where it goes.</p>
         <details class="ep">
           <summary>
             <span class="verb verb--get">GET</span>
@@ -683,15 +683,15 @@
             <span class="ep__sum">The review queue</span>
           </summary>
           <div class="ep__body">
-            <p>Everything awaiting a decision: imported rows to confirm, suspected duplicates, uncategorised spending, money you are owed, overspent categories, unfunded cards, reconciliations that no longer hold, and proposed rules — only the parts you can see.</p>
+            <p>Everything awaiting a decision: imported rows to confirm, suspected duplicates, uncategorised spending, money you are owed, overspent categories, unfunded cards, reconciliations that no longer hold, and proposed rules. Only the parts you can see are shown.</p>
             <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher</p></div>
 
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--ok"><b>200</b></span> — The rendered screen, as HTML.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
-              <li><span class="status status--err"><b>429</b></span> — Rate limit exceeded. Retry after the interval in the response.</li>
+              <li><span class="status status--ok"><b>200</b></span>: The rendered screen, as HTML.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>429</b></span>: Rate limit exceeded. Retry after the interval in the response.</li>
             </ul>
           </div>
             <div>
@@ -727,15 +727,15 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
-              <li><span class="status status--ok"><b>200</b></span> — The column-mapping screen, as HTML, when the file matches nothing known. Nothing was imported.</li>
-              <li><span class="status status--ok"><b>200</b></span> — The account-matching screen, as HTML, for a YNAB or Actual Budget export. Nothing was imported.</li>
-              <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
-              <li><span class="status status--err"><b>403</b></span> — A read-only token.</li>
-              <li><span class="status status--err"><b>404</b></span> — An id that does not exist, or names something you cannot see.</li>
-              <li><span class="status status--err"><b>409</b></span> — The first request with this <code>Idempotency-Key</code> is still being processed.</li>
-              <li><span class="status status--err"><b>422</b></span> — Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
+              <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
+              <li><span class="status status--ok"><b>200</b></span>: The column-mapping screen, as HTML, when the file matches nothing known. Nothing was imported.</li>
+              <li><span class="status status--ok"><b>200</b></span>: The account-matching screen, as HTML, for a YNAB or Actual Budget export. Nothing was imported.</li>
+              <li><span class="status status--err"><b>400</b></span>: A field was missing or could not be parsed; the message says which.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>403</b></span>: A read-only token.</li>
+              <li><span class="status status--err"><b>404</b></span>: An id that does not exist, or names something you cannot see.</li>
+              <li><span class="status status--err"><b>409</b></span>: The first request with this <code>Idempotency-Key</code> is still being processed.</li>
+              <li><span class="status status--err"><b>422</b></span>: Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
             </ul>
           </div>
             <div>
@@ -773,14 +773,14 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--redir"><b>303</b></span> — Imported. To <code>/review</code> when anything waits there, otherwise <code>/import</code>.</li>
-              <li><span class="status status--ok"><b>200</b></span> — The account-matching screen again, as HTML, when every account was left out. Nothing was imported.</li>
-              <li><span class="status status--err"><b>400</b></span> — Not a YNAB or Actual Budget export, a date that cannot be read, a missing <code>date_order</code>, or an account with no choice; the message says which.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
-              <li><span class="status status--err"><b>403</b></span> — A read-only token.</li>
-              <li><span class="status status--err"><b>404</b></span> — An account id that does not exist, or names something you cannot see.</li>
-              <li><span class="status status--err"><b>409</b></span> — The first request with this <code>Idempotency-Key</code> is still being processed.</li>
-              <li><span class="status status--err"><b>422</b></span> — Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
+              <li><span class="status status--redir"><b>303</b></span>: Imported. To <code>/review</code> when anything waits there, otherwise <code>/import</code>.</li>
+              <li><span class="status status--ok"><b>200</b></span>: The account-matching screen again, as HTML, when every account was left out. Nothing was imported.</li>
+              <li><span class="status status--err"><b>400</b></span>: Not a YNAB or Actual Budget export, a date that cannot be read, a missing <code>date_order</code>, or an account with no choice; the message says which.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>403</b></span>: A read-only token.</li>
+              <li><span class="status status--err"><b>404</b></span>: An account id that does not exist, or names something you cannot see.</li>
+              <li><span class="status status--err"><b>409</b></span>: The first request with this <code>Idempotency-Key</code> is still being processed.</li>
+              <li><span class="status status--err"><b>422</b></span>: Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
             </ul>
           </div>
             <div>
@@ -800,7 +800,7 @@
             <span class="ep__sum">Say which column is which</span>
           </summary>
           <div class="ep__body">
-            <p>Imports a file with the columns you name, and saves the mapping for the next file like it — only if it read at least one transaction. Columns are numbered from 0. Dates are read day first unless you choose otherwise, or the file proves month first; a column that proves both is refused rather than read half wrong.</p>
+            <p>Imports a file with the columns you name, and saves the mapping for the next file like it, provided it read at least one transaction. Columns are numbered from 0. Dates are read day first unless you choose otherwise, or the file proves month first; a column that proves both is refused instead of being partly misread.</p>
             <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
             <h3>Parameters</h3>
@@ -823,13 +823,13 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
-              <li><span class="status status--err"><b>400</b></span> — A column missing, or dates in both orders; the message says which.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
-              <li><span class="status status--err"><b>403</b></span> — A read-only token.</li>
-              <li><span class="status status--err"><b>404</b></span> — An id that does not exist, or names something you cannot see.</li>
-              <li><span class="status status--err"><b>409</b></span> — The first request with this <code>Idempotency-Key</code> is still being processed.</li>
-              <li><span class="status status--err"><b>422</b></span> — Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
+              <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
+              <li><span class="status status--err"><b>400</b></span>: A column missing, or dates in both orders; the message says which.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>403</b></span>: A read-only token.</li>
+              <li><span class="status status--err"><b>404</b></span>: An id that does not exist, or names something you cannot see.</li>
+              <li><span class="status status--err"><b>409</b></span>: The first request with this <code>Idempotency-Key</code> is still being processed.</li>
+              <li><span class="status status--err"><b>422</b></span>: Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
             </ul>
           </div>
             <div>
@@ -849,7 +849,7 @@
             <span class="ep__sum">Upload a statement PDF</span>
           </summary>
           <div class="ep__body">
-            <p>Multipart upload of a bank statement. The bank is recognised from its own layout, the file is decrypted in-process if it is password-protected, and the parse is checked against the statement's closing balance. A SafeGold statement is recognised too, and answers with the same review as <code>/portfolio/safegold</code>. A PDF no reader recognises answers with the column-mapping screen, and one that cannot be opened or read answers with the import screen saying why — both as HTML, with nothing imported.</p>
+            <p>Multipart upload of a bank statement. The bank is recognised from its own layout, the file is decrypted in-process if it is password-protected, and the parse is checked against the statement's closing balance. A SafeGold statement is recognised too, and answers with the same review as <code>/portfolio/safegold</code>. A PDF no reader recognises answers with the column-mapping screen, and one that cannot be opened or read answers with the import screen saying why. Both answer as HTML, and nothing is imported.</p>
             <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
             <h3>Parameters</h3>
@@ -868,14 +868,14 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
-              <li><span class="status status--ok"><b>200</b></span> — The mapping or import screen, as HTML, when the file could not be imported as it is.</li>
-              <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
-              <li><span class="status status--err"><b>403</b></span> — A read-only token.</li>
-              <li><span class="status status--err"><b>404</b></span> — An id that does not exist, or names something you cannot see.</li>
-              <li><span class="status status--err"><b>409</b></span> — The first request with this <code>Idempotency-Key</code> is still being processed.</li>
-              <li><span class="status status--err"><b>422</b></span> — Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
+              <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
+              <li><span class="status status--ok"><b>200</b></span>: The mapping or import screen, as HTML, when the file could not be imported as it is.</li>
+              <li><span class="status status--err"><b>400</b></span>: A field was missing or could not be parsed; the message says which.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>403</b></span>: A read-only token.</li>
+              <li><span class="status status--err"><b>404</b></span>: An id that does not exist, or names something you cannot see.</li>
+              <li><span class="status status--err"><b>409</b></span>: The first request with this <code>Idempotency-Key</code> is still being processed.</li>
+              <li><span class="status status--err"><b>422</b></span>: Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
             </ul>
           </div>
             <div>
@@ -894,7 +894,7 @@
             <span class="ep__sum">Undo an import batch</span>
           </summary>
           <div class="ep__body">
-            <p>Reverses an entire import and every row it created, in one step — except rows edited since, which are left alone and counted in the message. An import that reaches a reconciled period answers with the “Already reconciled” question first.</p>
+            <p>Reverses an entire import and every row it created, in one step. Rows edited since are left alone and counted in the message. An import that reaches a reconciled period answers with the “Already reconciled” question first.</p>
             <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
             <h3>Parameters</h3>
@@ -911,14 +911,14 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--redir"><b>303</b></span> — Success. Follow <code>Location</code> to the updated screen.</li>
-              <li><span class="status status--ok"><b>200</b></span> — The “Already reconciled” question, as HTML. Nothing was undone.</li>
-              <li><span class="status status--err"><b>400</b></span> — A field was missing or could not be parsed; the message says which.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
-              <li><span class="status status--err"><b>403</b></span> — A read-only token.</li>
-              <li><span class="status status--err"><b>404</b></span> — An id that does not exist, or names something you cannot see.</li>
-              <li><span class="status status--err"><b>409</b></span> — The first request with this <code>Idempotency-Key</code> is still being processed.</li>
-              <li><span class="status status--err"><b>422</b></span> — Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
+              <li><span class="status status--redir"><b>303</b></span>: Success. Follow <code>Location</code> to the updated screen.</li>
+              <li><span class="status status--ok"><b>200</b></span>: The “Already reconciled” question, as HTML. Nothing was undone.</li>
+              <li><span class="status status--err"><b>400</b></span>: A field was missing or could not be parsed; the message says which.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>403</b></span>: A read-only token.</li>
+              <li><span class="status status--err"><b>404</b></span>: An id that does not exist, or names something you cannot see.</li>
+              <li><span class="status status--err"><b>409</b></span>: The first request with this <code>Idempotency-Key</code> is still being processed.</li>
+              <li><span class="status status--err"><b>422</b></span>: Understood and refused; the message says why. Also an <code>Idempotency-Key</code> reused with a different body.</li>
             </ul>
           </div>
             <div>
@@ -1018,7 +1018,7 @@
       </section>
       <section class="api-group" id="family">
         <h2>Family lending</h2>
-        <p>Money lent to, or borrowed from, family — kept apart from the budget's envelopes. A private arrangement answers 404 to anyone but its holder.</p>
+        <p>Money lent to or borrowed from family, kept separate from the budget's envelopes. A private arrangement answers 404 to anyone but its holder.</p>
         <h3 class="sr-only">More family lending routes</h3>
         <div class="table-scroll">
           <table>
@@ -1063,7 +1063,7 @@
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/asset/:id/dispose</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>proceeds</code>, <code>on</code>, <code>into_account</code>, <code>remaining</code></td><td>Record that an asset is gone, and any money arriving. Values it at zero and closes the account; the history stays.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/asset/:id/revalue</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>value</code> (required); <code>as_of</code></td><td>Say what one asset is worth.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/portfolio/valuations</code></td><td><span class="pill pill--r">read</span> / <span class="pill pill--w">read-write</span></td><td><code>value-&lt;id&gt;</code>, <code>asof-&lt;id&gt;</code> per asset</td><td>Update every hand-valued asset in one sitting. Blank ones are left alone.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/net-worth</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Net worth by group — owed to family and other liabilities included — with a change breakdown that adds up to the total.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/net-worth</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Net worth by group (including money owed to family and other liabilities), with a change breakdown that adds up to the total.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/net-worth/snapshot</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Take a dated snapshot.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/fire</code></td><td><span class="pill pill--r">read</span></td><td><code>age</code>, <code>swr</code>, <code>ret</code>, <code>locked</code>, <code>whose</code></td><td>Financial-independence projection from trailing spending.</td></tr>
             </tbody>
@@ -1090,7 +1090,7 @@
       </section>
       <section class="api-group" id="tax">
         <h2>Tax</h2>
-        <p>An income-tax estimate for the signed-in member and one financial year — always your own, never another member's.</p>
+        <p>An income-tax estimate for the signed-in member and one financial year. It is always your own, never another member's.</p>
         <h3 class="sr-only">More tax routes</h3>
         <div class="table-scroll">
           <table>
@@ -1106,7 +1106,7 @@
       </section>
       <section class="api-group" id="months">
         <h2>Months, reports &amp; query</h2>
-        <p>Closing a month, and reading the past back.</p>
+        <p>Closing a month, and reviewing past months.</p>
         <details class="ep">
           <summary>
             <span class="verb verb--get">GET</span>
@@ -1114,7 +1114,7 @@
             <span class="ep__sum">Filter transactions</span>
           </summary>
           <div class="ep__body">
-            <p>The filterable, groupable table. Totals are summed over every row that matched, not the page rendered — the response says how many matched.</p>
+            <p>The filterable, groupable table. Totals are summed over every row that matched, not only the rows on the page, and the response says how many matched.</p>
             <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher</p></div>
           <div>
             <h3>Parameters</h3>
@@ -1135,9 +1135,9 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--ok"><b>200</b></span> — The rendered screen, as HTML.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
-              <li><span class="status status--err"><b>429</b></span> — Rate limit exceeded. Retry after the interval in the response.</li>
+              <li><span class="status status--ok"><b>200</b></span>: The rendered screen, as HTML.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>429</b></span>: Rate limit exceeded. Retry after the interval in the response.</li>
             </ul>
           </div>
             <div>
@@ -1170,8 +1170,8 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--ok"><b>200</b></span> — <code>text/csv</code>.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--ok"><b>200</b></span>: <code>text/csv</code>.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
             </ul>
           </div>
             <div>
@@ -1206,7 +1206,7 @@
             <span class="ep__sum">Every change made</span>
           </summary>
           <div class="ep__body">
-            <p>The append-only event log, newest first, with the undo for each entry — the latest hundred you can see. An undo is itself an entry — nothing is edited away.</p>
+            <p>The append-only event log, newest first, with the undo for each entry. It shows the latest hundred you can see. An undo is recorded as an entry of its own, so nothing is edited away.</p>
             <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher</p></div>
           <div>
             <h3>Parameters</h3>
@@ -1223,9 +1223,9 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--ok"><b>200</b></span> — The rendered screen, as HTML.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
-              <li><span class="status status--err"><b>429</b></span> — Rate limit exceeded. Retry after the interval in the response.</li>
+              <li><span class="status status--ok"><b>200</b></span>: The rendered screen, as HTML.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--err"><b>429</b></span>: Rate limit exceeded. Retry after the interval in the response.</li>
             </ul>
           </div>
             <div>
@@ -1242,7 +1242,7 @@
             <span class="ep__sum">Undo one event</span>
           </summary>
           <div class="ep__body">
-            <p>Reverses a single recorded change within thirty days. Refuses when the record is load-bearing for something later — a loan instalment or a portfolio lot — and says which. When the same record has changed since, it refuses unless you send <code>force=1</code>, which discards those later changes. An undo that would move a reconciled balance answers with the “Already reconciled” question first.</p>
+            <p>Reverses a single recorded change within thirty days. Refuses when something later depends on the record (a loan instalment or a portfolio lot), and says which. When the same record has changed since, it refuses unless you send <code>force=1</code>, which discards those later changes. An undo that would move a reconciled balance answers with the “Already reconciled” question first.</p>
             <div><h3>Scope</h3><p><span class="pill pill--w">read-write</span></p></div>
           <div>
             <h3>Parameters</h3>
@@ -1260,10 +1260,10 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--redir"><b>303</b></span> — Undone.</li>
-              <li><span class="status status--ok"><b>200</b></span> — The “Already reconciled” question, as HTML. Nothing was undone.</li>
-              <li><span class="status status--err"><b>404</b></span> — No such change, or one you cannot see.</li>
-              <li><span class="status status--err"><b>422</b></span> — Refused — older than the thirty-day window, changed since, or something depends on it; the message says which.</li>
+              <li><span class="status status--redir"><b>303</b></span>: Undone.</li>
+              <li><span class="status status--ok"><b>200</b></span>: The “Already reconciled” question, as HTML. Nothing was undone.</li>
+              <li><span class="status status--err"><b>404</b></span>: No such change, or one you cannot see.</li>
+              <li><span class="status status--err"><b>422</b></span>: Refused, because it is older than the thirty-day window, has changed since, or something depends on it. The message says which.</li>
             </ul>
           </div>
             <div>
@@ -1281,14 +1281,14 @@
             <span class="ep__sum">Health probe</span>
           </summary>
           <div class="ep__body">
-            <p>For your uptime monitor. Signed out, it says only whether the instance can serve — nothing about the data. With a token or a session it adds every health check, by name and state.</p>
-            <div><h3>Scope</h3><p><span class="pill">public</span> — no token needed</p></div>
+            <p>For your uptime monitor. Signed out, it says only whether the instance can serve, and nothing about the data. With a token or a session it adds every health check, by name and state.</p>
+            <div><h3>Scope</h3><p><span class="pill">public</span>, no token needed</p></div>
 
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--ok"><b>200</b></span> — <code>application/json</code> — <code>{&quot;status&quot;:&quot;ok&quot;,&quot;serving&quot;:true,&quot;version&quot;:…}</code>.</li>
-              <li><span class="status status--err"><b>503</b></span> — Started, but the database does not answer.</li>
+              <li><span class="status status--ok"><b>200</b></span>: <code>application/json</code>, <code>{&quot;status&quot;:&quot;ok&quot;,&quot;serving&quot;:true,&quot;version&quot;:…}</code>.</li>
+              <li><span class="status status--err"><b>503</b></span>: Started, but the database does not answer.</li>
             </ul>
           </div>
             <div>
@@ -1320,7 +1320,7 @@
       </section>
       <section class="api-group" id="data">
         <h2>Exports</h2>
-        <p>Everything back out, in open formats. In every CSV here a text cell that starts with <code>=</code>, <code>+</code>, <code>-</code>, <code>@</code>, a tab or a carriage return is prefixed with <code>'</code>, so a spreadsheet opens it as text; plain numbers are left alone.</p>
+        <p>Export everything, in open formats. In every CSV here a text cell that starts with <code>=</code>, <code>+</code>, <code>-</code>, <code>@</code>, a tab or a carriage return is prefixed with <code>'</code>, so a spreadsheet opens it as text; plain numbers are left alone.</p>
         <details class="ep">
           <summary>
             <span class="verb verb--get">GET</span>
@@ -1328,13 +1328,13 @@
             <span class="ep__sum">Export everything</span>
           </summary>
           <div class="ep__body">
-            <p>The complete dataset you can see, in an open format: accounts, transactions, assignments, lots, loans and events. Not a summary — but another member's private accounts and envelopes, and what is recorded in them, are left out. The statement identity and any Gmail refresh token are excluded, and a test asserts their absence.</p>
+            <p>The complete dataset you can see, in an open format: accounts, transactions, assignments, lots, loans and events. It is not a summary, but another member's private accounts and envelopes, and what is recorded in them, are left out. The statement identity and any Gmail refresh token are excluded, and a test asserts their absence.</p>
             <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher</p></div>
 
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--ok"><b>200</b></span> — <code>application/json</code>, sent as a download.</li>
+              <li><span class="status status--ok"><b>200</b></span>: <code>application/json</code>, sent as a download.</li>
             </ul>
           </div>
             <div>
@@ -1379,8 +1379,8 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--ok"><b>200</b></span> — <code>application/json</code>, sent as a download.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked, expired or belongs to a removed member.</li>
+              <li><span class="status status--ok"><b>200</b></span>: <code>application/json</code>, sent as a download.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked, expired or belongs to a removed member.</li>
             </ul>
           </div>
             <div>
@@ -1402,7 +1402,7 @@
             <span class="ep__sum">The MCP endpoint</span>
           </summary>
           <div class="ep__body">
-            <p>Streamable HTTP: one JSON-RPC 2.0 message per <code>POST</code>, a JSON response, and no sessions. Bearer only &mdash; a session cookie is not looked at &mdash; and a <span class="pill pill--r">read</span> token is enough, the one write-shaped request a read token may make. An AI connection&rsquo;s token, even a read-write one, makes changes here and nowhere else: any other write is <code>403</code>. The tools are built for the token&rsquo;s member on every request, so nothing carries over between calls.</p>
+            <p>Streamable HTTP: one JSON-RPC 2.0 message per <code>POST</code>, a JSON response, and no sessions. Bearer only (a session cookie is not looked at), and a <span class="pill pill--r">read</span> token is enough, the one write-shaped request a read token may make. An AI connection&rsquo;s token, even a read-write one, makes changes here and nowhere else: any other write is <code>403</code>. The tools are built for the token&rsquo;s member on every request, so nothing carries over between calls.</p>
             <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher, as a bearer token</p></div>
           <div>
             <h3>Protocol versions</h3>
@@ -1436,13 +1436,13 @@
           <div>
             <h3>Responses</h3>
             <ul style="list-style:none;padding:0;display:grid;gap:0.4rem;font-size:var(--step--1)">
-              <li><span class="status status--ok"><b>200</b></span> — <code>application/json</code>, a JSON-RPC result or error.</li>
-              <li><span class="status status--ok"><b>202</b></span> — A notification, accepted.</li>
-              <li><span class="status status--err"><b>400</b></span> — A protocol version the server does not speak (the error lists those it does), or headers that do not match the body.</li>
-              <li><span class="status status--err"><b>401</b></span> — No token, or one that is revoked or expired, with the <code>WWW-Authenticate</code> header above.</li>
-              <li><span class="status status--err"><b>403</b></span> — An <code>Origin</code> that is not allowed.</li>
-              <li><span class="status status--err"><b>404</b></span> — An unknown method, under <code>2026-07-28</code>; or <code>FEATURE_AI</code> is off.</li>
-              <li><span class="status status--err"><b>429</b></span> — Rate limit exceeded. Retry after the interval in the response.</li>
+              <li><span class="status status--ok"><b>200</b></span>: <code>application/json</code>, a JSON-RPC result or error.</li>
+              <li><span class="status status--ok"><b>202</b></span>: A notification, accepted.</li>
+              <li><span class="status status--err"><b>400</b></span>: A protocol version the server does not speak (the error lists those it does), or headers that do not match the body.</li>
+              <li><span class="status status--err"><b>401</b></span>: No token, or one that is revoked or expired, with the <code>WWW-Authenticate</code> header above.</li>
+              <li><span class="status status--err"><b>403</b></span>: An <code>Origin</code> that is not allowed.</li>
+              <li><span class="status status--err"><b>404</b></span>: An unknown method, under <code>2026-07-28</code>; or <code>FEATURE_AI</code> is off.</li>
+              <li><span class="status status--err"><b>429</b></span>: Rate limit exceeded. Retry after the interval in the response.</li>
             </ul>
           </div>
             <div>
@@ -1499,7 +1499,7 @@
         </div>
         <p>A direct change answers with what changed and its event id; a suggestion with its id and &ldquo;waiting for approval in Review&rdquo;, where only that member sees it. Never available: deleting anything, loans, investments, month close, settings, members, tokens, imports, rules and schedules. At most 100 changes a connection a day and 50 suggestions waiting; past either the tool answers <code>isError</code>. Every change is an event with source <code>ai</code> naming the app, and all of one connection&rsquo;s changes in an IST day share one idempotency key, which <b>Undo this AI&rsquo;s changes today</b> on Connect an AI reverses. When somebody has changed those records since, it lists those changes first, and undoing anyway restores each record as it was before the AI and loses them.</p>
         <h3 style="margin-top:1.5rem">Masking and the access log</h3>
-        <p>Masking is chosen per connection and on by default. Before an answer leaves, in every string except the app&rsquo;s own ids and dates, a run of nine or more digits keeps its last four, a UPI ID or email address keeps only what follows the <code>@</code>, and a PAN is masked whole. Amounts, envelope names and payee names are the analysis, and are sent. It is best effort: a name written into a narration is not a pattern.</p>
+        <p>Masking is chosen per connection and on by default. Before an answer leaves, in every string except the app&rsquo;s own ids and dates, a run of nine or more digits keeps its last four, a UPI ID or email address keeps only what follows the <code>@</code>, and a PAN is masked whole. Amounts, envelope names and payee names are what the analysis needs, so they are sent. Masking is best effort: a name written into a narration does not match a pattern.</p>
         <p>Every tool call is logged: when, which app, which tool, its arguments, and the size of the answer, that it was refused, or that it changed something. The answers are not kept. A member sees only their own connections&rsquo; rows, on the Connect an AI page; they are kept 90 days, at most 2,000 a member. Reads are not in the activity log; connecting and disconnecting an app are.</p>
       </section>
       <section class="api-group" id="oauth">
@@ -1566,28 +1566,28 @@
       </section>
       <section class="api-group" id="writes">
         <h2>Writes and the same-origin check</h2>
-        <p>Every write — any method that is not <code>GET</code>, <code>HEAD</code> or <code>OPTIONS</code> — passes one check before it reaches a route, so it covers routes added tomorrow too.</p>
+        <p>Every write (any method other than <code>GET</code>, <code>HEAD</code> or <code>OPTIONS</code>) passes one check before it reaches a route, so it also covers routes added in future.</p>
         <div class="table-scroll">
           <table>
             <thead><tr><th>Rule</th><th>What it means</th></tr></thead>
             <tbody>
               <tr><td>Bearer exemption</td><td>A request with <code>Authorization: Bearer …</code> and <b>no session cookie</b> skips the whole check. A browser cannot be tricked into sending one on somebody's behalf, so your scripts need nothing extra. A request that also carries a session cookie is held to the rules below, whatever it says in <code>Authorization</code>.</td></tr>
-              <tr><td>The host</td><td>The host the request was addressed to must be <code>BASE_URL</code>'s hostname, with <code>BASE_URL</code>'s port or none — or an IP address or <code>localhost</code>, which no DNS answer can re-point. Anything else is <code>403</code>: <em>That request was addressed to a different host than BASE_URL.</em> This is what stops DNS rebinding.</td></tr>
+              <tr><td>The host</td><td>The host the request was addressed to must be <code>BASE_URL</code>'s hostname, with <code>BASE_URL</code>'s port or none, or else an IP address or <code>localhost</code>, which no DNS answer can re-point. Anything else is <code>403</code>: <em>That request was addressed to a different host than BASE_URL.</em> This is what stops DNS rebinding.</td></tr>
               <tr><td>Behind a proxy</td><td>The host is the <code>Host</code> header, or the right-most <code>X-Forwarded-Host</code> entry when <code>TRUST_PROXY</code> is set. A reverse proxy must pass one of them through, or every write from a browser is refused.</td></tr>
               <tr><td><code>Origin</code></td><td>When present it must be <code>BASE_URL</code>'s origin or the origin the request was addressed by. Anything else is <code>403</code>: <em>That request came from somewhere else.</em></td></tr>
               <tr><td><code>Referer</code></td><td>With no <code>Origin</code>, a <code>Referer</code> from one of the same origins will do. <code>Referrer-Policy: same-origin</code> means a same-origin form carries one and a cross-site one does not. With neither header, <code>403</code>.</td></tr>
             </tbody>
           </table>
         </div>
-        <p style="margin-top:1rem">A script in a page of the app that uses the session cookie needs no work either: <code>fetch</code> from that page sends a matching <code>Origin</code> on its own.</p>
+        <p style="margin-top:1rem">A script in a page of the app that uses the session cookie needs nothing extra either: <code>fetch</code> from that page sends a matching <code>Origin</code> on its own.</p>
       </section>
       <section class="api-group" id="refused">
         <h2>What a token cannot reach</h2>
         <p>
-          A deny-list of path prefixes rather than a note in a review checklist.
-          A token that could mint tokens turns one leak into permanent access,
-          and a token that could change the allow-list turns it into somebody
-          else's household.
+          Tokens are refused on a fixed deny-list of path prefixes, enforced in code.
+          A token that could mint tokens would turn one leak into permanent access,
+          and a token that could change the allow-list could give somebody else
+          control of your household.
         </p>
         <div class="table-scroll">
           <table>
@@ -1599,7 +1599,7 @@
               <tr><td><code>/auth</code></td><td>Sign-in, SSO, and the development bypass state.</td></tr>
               <tr><td><code>/signout</code></td><td>There is nothing for a token to sign out of.</td></tr>
               <tr><td><code>/settings/password</code></td><td>A password is a way in that does not need the token, and would outlive revoking it.</td></tr>
-              <tr><td><code>/sessions</code></td><td>Signing the member's devices out is a human decision.</td></tr>
+              <tr><td><code>/sessions</code></td><td>Signing the member's devices out is left to a person.</td></tr>
               <tr><td><code>/gmail/connect</code>, <code>/gmail/callback</code>, <code>/gmail/disconnect</code>, <code>/gmail/keys</code></td><td>Linking a mailbox, or changing which Google client it consents to, changes what can reach the household. <code>/gmail/fetch</code> stays reachable.</td></tr>
               <tr><td><code>/oauth</code></td><td>Approving an AI app hands out a fresh token with its own refresh token; a token that could do that would outlive its own revocation. Under <code>/tokens</code>, the Connect an AI page is out of reach too.</td></tr>
             </tbody>
@@ -1614,11 +1614,11 @@
   <section class="sec">
     <div class="wrap">
       <div class="callout">
-        <h2>Leaving should be as easy as arriving</h2>
+        <h2>Your data is easy to take with you</h2>
         <p>
           One endpoint returns everything in an open format, and the database is a
-          SQLite file you can open with anything. Nothing about the format needs
-          this app to read it.
+          SQLite file that any SQLite tool can open. You do not need this app to
+          read the format.
         </p>
         <a class="btn btn--primary" href="guides.html">Read the guides</a>
       </div>
@@ -1659,18 +1659,19 @@
       <div>
         <h3>The name</h3>
         <ul>
-          <li><span class="mal">പത്തായം</span> — the wooden chest
+          <li><span class="mal">പത്തായം</span>: the wooden chest
               that held a Kerala household's harvest, filled once and
-              drawn from deliberately.</li>
+              drawn from with care.</li>
         </ul>
       </div>
     </div>
     <p class="foot__note">
       Run it yourself and your data stays on your machine: nothing is sent
-      anywhere unless you connect an AI app yourself. Hosted instances are set up by request. Every figure and name in the screenshots
+      anywhere unless you connect an AI app yourself. Hosted plans are available on request. Every figure and name in the screenshots
       is fictional.
     </p>
     <p class="foot__legal">
+      A product of <a href="https://flaxvin.tech">Flaxvin Technologies</a> ·
       <a href="terms.html">Terms of service</a> ·
       <a href="privacy.html">Privacy policy</a> ·
       <a href="terms.html#software">Licence</a> ·

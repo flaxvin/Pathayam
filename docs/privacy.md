@@ -26,7 +26,7 @@ A private entity is excluded from:
 - every picker and dropdown, and the write side of every form;
 - reports, queries, insights and the CSV and JSON exports;
 - the activity log, including event summaries that merely name it;
-- payee lists, where a payee has only ever been seen on invisible accounts —
+- payee lists, where a payee has only ever been seen on invisible accounts,
   and the figures and raw aliases beside a shared payee (count, total, last
   amount and date, usual envelope), which count only what the viewer can see;
 - **totals**, including net worth, so nothing is recoverable by subtraction.
@@ -59,19 +59,19 @@ viewer may see, then pass the result to the domain:
 | `requireVisibleGroup` | group id | the group's budget |
 | `requireVisibleAttachment` | attachment id | the attachment's transaction |
 | `requireVisibleStaged` | staged statement line id (approve, dismiss, merge) | the account it was imported into |
-| `requireVisibleSchedule`, `requireVisibleGoal`, `requireVisibleHolding`, `requireVisibleInstrument` | schedule, goal, holding, instrument id | `memberScope` — what the thing hangs off |
+| `requireVisibleSchedule`, `requireVisibleGoal`, `requireVisibleHolding`, `requireVisibleInstrument` | schedule, goal, holding, instrument id | `memberScope` (what the thing hangs off) |
 | `requireVisibleEvent` | event id (undo) | `eventVisibility` |
 | `requireVisiblePolicy` | insurance policy id | the policy's own holder and visibility, and the envelope it names (`memberScope.policies`) |
 | `requireVisibleRule`, `requireVisibleImportProfile` | rule, profile id | the envelope / account it names |
 | `requireVisibleBatch` | import batch id (undo) | the account it was imported into |
 | `requireVisibleBudget` | budget id (moving an account between budgets) | the household's, or the viewer's own |
 | `requireVisiblePayee` | payee id (merge, confirming a detected schedule) | seen somewhere the viewer can see, or nowhere yet |
-| `requireMember` | member id (who spent it, a holder) | existence only — members are no secret inside the household |
+| `requireMember` | member id (who spent it, a holder) | existence only; members are no secret inside the household |
 
 A form field naming an account (`/add`, `/transfer`, `/schedules/new`,
 `/portfolio/add`, a loan's repayment account, a sale's destination) goes
 through `requireVisibleAccount` too, so a private account id and a made-up one
-both answer 404 — a 422 for one and not the other would confirm which exists.
+both answer 404. A 422 for one and not the other would confirm which exists.
 The same holds for an envelope, group, payee, rule or member named in a form:
 one that does not exist, or is not the viewer's, is a 404, never a database
 error.
@@ -101,15 +101,15 @@ Domain and query functions that can return data for a viewer take
 `/export.json` and `/export.csv` are a **member's export**
 (`src/ops/member-export.ts`): what that member can read on screen, with control
 totals recomputed over what is in the file. The **operator's backup**
-(`createBackup`, `exportEverything`, restore) stays whole — every member's
-private budget included — and runs only on the server, never through a
+(`createBackup`, `exportEverything`, restore) stays whole (every member's
+private budget included) and runs only on the server, never through a
 member's browser.
 
 ### Password links
 
 Whoever sets a member's password can sign in as them and read what is private
 to them, so a member may make a password link for another only when the other
-keeps nothing private from them — no private account or policy, no personal
+keeps nothing private from them: no private account or policy, no personal
 budget with anything in it, no saved statement details, mailbox or tax figures
 (`privateRecordsHeldBy` in `src/auth/setup-links.ts`, asking `memberScope` for
 the first three). Otherwise the link comes from the server's command line,
@@ -120,7 +120,7 @@ something private, never what. See [security](security.md#password-links).
 
 The write-only queue (`10` §3.7) keeps an Add-form entry in the browser until
 the server has it. Each entry is tagged with the id of the member whose page it
-was — the only identifier the page exposes, as `data-member` on the body. When
+was (the only identifier the page exposes, as `data-member` on the body). When
 somebody else signs in on the same browser, entries tagged with anyone else are
 discarded unsent, and the page says so: sending them would file one person's
 spend as another's, and showing them would show one person's spend to another.
@@ -132,7 +132,7 @@ is the trade `10` §3.7 accepts.
 
 `eventVisibility(db, viewerMemberId)` returns a predicate over logged events.
 An event is hidden when its entity id, or any id recorded in its before/after
-state, is one `memberScope` hides — so a deleted private schedule's delete
+state, is one `memberScope` hides, so a deleted private schedule's delete
 event stays private too. `assignment`, `target` and `transfer` are judged by the
 category or legs their id names; `payee` by whether the payee has been seen on a
 visible account.
@@ -140,7 +140,7 @@ visible account.
 Kinds that are the household's own business (settings, members, sessions,
 backups, the price feed, the shared net-worth snapshot and similar) are listed
 explicitly and shown to everyone. **Any other kind is hidden** until it is
-declared household business — the default is deny.
+declared household business: the default is deny.
 
 Undo (`/activity/:id/undo`) resolves the event through the same predicate, so
 another member's private change answers 404.
@@ -187,7 +187,7 @@ another member:
 
 Removing a member sets `removed_at`. Nothing they created is deleted and their
 name remains on it. Before removal the household settles any balance between
-budgets — the whole of their commitment, including what they had already
+budgets: the whole of their commitment, including what they had already
 assigned to later months. A removed member can be restored, and is found by the
 same identity.
 

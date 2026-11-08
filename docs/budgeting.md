@@ -53,7 +53,7 @@ Cash and credit overspend are treated differently because they are different
 facts: a cash overspend has already left a bank account; a credit overspend has
 increased a debt that no envelope is funding. Paying that debt from a bank
 account before funding it overspends the card's payment envelope, which is then
-an ordinary cash overspend — the cash really left.
+an ordinary cash overspend, because the cash really left.
 
 ## Credit cards
 
@@ -101,7 +101,7 @@ balance.
 reports the next scheduled income date alongside.
 
 The Categories page sets three of these by hand: an amount **each month**, a
-level to **refill up to**, or — with a date — **by a date**. It shows which kind
+level to **refill up to**, or (with a date) **by a date**. It shows which kind
 a target is and sends it back, so a refill target (the starting template gives
 some) saved unchanged stays a refill; a request that names no kind keeps a
 stored refill as a refill.
@@ -115,7 +115,7 @@ identity.
 Each budget holds its own: the Hold page acts on the budget being viewed and
 takes the amount out of *that* budget's Ready to Assign, and the combined view
 adds the budgets' amounts together. (Until this was fixed every hold was written
-with no budget at all, so the budget pages never saw it — "Held ₹500" was
+with no budget at all, so the budget pages never saw it: "Held ₹500" was
 reported and Ready to Assign did not move.) A row with no budget reads as the
 household's. The table is keyed by `(month, budget_id)`; on a database still
 keyed by month alone, a second budget holding money in a month another already
@@ -149,7 +149,7 @@ household on that member's behalf reduces it.
 
 Nothing is filed *to* a commitment envelope. Its balance is the claim itself,
 and the receiving budget counts only what was assigned to it, so spending filed
-there lowered the claim with no expense anywhere to meet it — ₹224 left the
+there lowered the claim with no expense anywhere to meet it. ₹224 left the
 household's books out by −₹224 in every month after. Spending for the household
 is filed to the household's own envelope, which is what lowers the commitment.
 The pickers do not offer a commitment envelope, and every filing path (a
@@ -158,12 +158,12 @@ refuses one.
 
 The envelope is opened automatically the first time anything crosses the two
 budgets. Undoing that "opened" event is refused while a filing, a split line or
-a card payment still crosses them — the filings name the other budget's
+a card payment still crosses them. The filings name the other budget's
 envelope, not this one, so nothing else would stop the claim being lost.
 
 The claim appears in the identity as `due from other budgets`. The standing of
 a commitment envelope is described as **overfunded**, **underfunded** or
-**square** — never as debt.
+**square**, never as debt.
 
 An `even_call` settles a lopsided month by moving an agreed amount between
 budgets.
@@ -195,59 +195,58 @@ refused (422). Setting such a row back to zero is always allowed.
 
 ## Merging two categories
 
-Two envelopes turn out to be the same envelope. Merging moves everything from
-one into the other and deletes the loser:
+Sometimes two envelopes turn out to be the same envelope. Merging moves
+everything from one into the other and deletes the loser:
 
-- **Assignments are added, month by month.** Not moved — added. `assignments`
+- **Assignments are added, month by month,** rather than moved. `assignments`
   is keyed `(month, category_id)`, so two categories assigned to in the same
   month collide, and resolving that collision by keeping one row would take
   money out of the ledger without taking it out of any account. The identity
   would break by exactly the amount discarded.
 - **History follows**: transactions, splits, staged imports, schedules, a
-  loan's payment envelope, goal membership — and the import rules that file
-  into it, which used to keep naming the loser, drop off /rules and go on
-  filing into the deleted envelope. Migration 0056 moves the rules an earlier
+  loan's payment envelope, goal membership, and the import rules that file
+  into it (which used to keep naming the loser, drop off /rules and go on
+  filing into the deleted envelope). Migration 0056 moves the rules an earlier
   merge left behind, and switches off any still naming a deleted envelope.
 - **The winner's target stands.** The loser's is inherited only where the
-  winner has none — two targets cannot both apply, and the category being kept
+  winner has none. Two targets cannot both apply, and the category being kept
   is the one whose intent was meant to survive.
 - The rollup cache is dropped and rebuilt, because it is keyed by category.
 
 It refuses two things. **A card's payment category**, on either side: its
 activity is derived from the card account rather than stored (R6), so a merged
-one would lose that link or give the winner a second. And **a merge across
-budgets** — two budgets are two people's money, so moving a balance between
-them is a transfer, not a rename, and it would tip a private envelope's
+one would lose that link or give the winner a second. It also refuses **a merge across
+budgets**: two budgets are two people's money, so moving a balance between
+them is a transfer rather than a rename, and it would tip a private envelope's
 contents into the shared budget where everyone can see it.
 
 Moving an envelope to another group stays inside its budget: a group in
 another budget is refused, because the group decides which grid shows the
-envelope while the envelope's own budget decides whose money it is — moved
+envelope while the envelope's own budget decides whose money it is. Moved
 across, it vanished from its own grid while its money still counted there.
 
 Compare `deleteCategory`, which insists the balance is already zero and only
-remaps transactions. Merge is for when the balance is the thing that has to
-survive.
+remaps transactions. Use Merge when the balance needs to be kept.
 
 **Deleting an envelope with history needs somewhere for that history to go.**
 Delete removes the envelope's assignments, and the engine stops reading a
 deleted envelope, so spending left filed to it was spending nobody counted:
 ₹1,000 assigned and ₹1,000 spent (balance ₹0) handed the ₹1,000 back to Ready
 to Assign while the bank still showed it gone. So delete is refused while any
-transaction or split line — trashed ones included — is filed to the envelope,
+transaction or split line (trashed ones included) is filed to the envelope,
 unless a remap target is given; the Categories page points to Merge instead.
 Nothing new can be filed to a deleted envelope either (a schedule or rule saved
-before the delete is refused rather than filed into nothing — "Apply to
+before the delete is refused rather than filed into nothing, "Apply to
 existing" included). A remap takes the envelope's rules along with its history,
 and undoing the delete takes them back; without a remap, a delete is refused
 while a rule files into the envelope, naming the rule. Schedules and their
 envelope lines are treated the same way, along with imported rows still waiting
 in Review: a remap moves them (a merge does too), and without one the delete is
-refused, naming the schedules — left behind, a schedule's every "Mark paid" was
+refused, naming the schedules. Left behind, a schedule's every "Mark paid" was
 refused for naming a deleted envelope.
 
 Deleting a **group** takes the tombstones of its deleted envelopes with it, so
-it is refused, by a sentence, while anything still points at one of them —
+it is refused, by a sentence, while anything still points at one of them:
 transactions, split lines, schedules, a balance called even (the list is read
 from the schema's foreign keys). An import's proposed envelope does not hold the
 group: a proposal for an envelope that no longer exists is cleared, and undoing
@@ -260,20 +259,21 @@ commitment envelope. Merge refuses a commitment envelope as the winner for the
 same reason.
 
 Undoing a delete gives back what the delete took: the envelope's assignments in
-every month, its target, and — after a remap — the transactions and split lines
+every month, its target, and (after a remap) the transactions and split lines
 that were moved, provided they still sit in the envelope they were moved to
 (anything re-filed since stays where it was put). Deletes recorded before this
 kept no such record, and their undo restores the envelope alone.
 
 ## Splitting a transaction
 
-One payment, more than one envelope. A supermarket bill is half groceries and
-half household; a bank charge rides along with a transfer.
+A split files one payment to more than one envelope. A supermarket bill might
+be half groceries and half household, or a bank charge might come with a
+transfer.
 
-### There is no main category — there are lines
+### Envelope lines instead of a main category
 
-A transaction has envelopes, and usually one. So every screen that files money —
-add a transaction, edit one, add a schedule, edit one — shows the same control:
+A transaction has envelopes, usually one. So every screen that files money
+(add a transaction, edit one, add a schedule, edit one) shows the same control:
 a **list of lines**, where
 
 - the **first carries no amount** and takes whatever the others leave;
@@ -281,28 +281,28 @@ a **list of lines**, where
 
 One line is an ordinary single-envelope entry, which is what almost every
 transaction is. Two lines make it a split without the first ever being retyped:
-add a ₹900 line to a ₹2,400 bill and the first quietly becomes ₹1,500.
+add a ₹900 line to a ₹2,400 bill and the first becomes ₹1,500.
 
-Lines are posted as `split_category_N` / `split_amount_N` — the same names on
+Lines are posted as `split_category_N` / `split_amount_N`, the same names on
 all four screens, so they agree about what a split is. `split_amount_0` is not
 read: the first line's amount is computed, never typed.
 
 This replaced a separate "main category" box sitting above a split section, and
 with it a whole class of bugs. The box meant nothing while the section was in
-use, so the form emptied and disabled it — which destroyed whatever had already
+use, so the form emptied and disabled it. That destroyed whatever had already
 been chosen, left an empty box the form then refused to submit, and gave no way
-back to a single envelope. Every question about what that box should say, and
-whether it was required, stopped having an answer worth giving.
+back to a single envelope. Removing the box removed every question about what it
+should say and whether it was required.
 
 **The lines can no longer disagree with the total.** The remainder is computed
-rather than typed, so the arithmetic the household used to have to get right —
-and the refusal when they got it wrong — stopped existing. What is refused is
+rather than typed, so the household no longer has to get the arithmetic right,
+and there is no refusal for getting it wrong. What is refused is
 only the case that has no reading at all: later lines claiming the total or more,
 which would leave the first line nothing or a negative amount.
 
 When lines are present the transaction's own `category_id` is **null** and the
 lines carry the categories. Setting both would file the amount twice. B99's rule
-still holds: money out needs an envelope, and the first line is that envelope —
+still holds: money out needs an envelope, and the first line is that envelope,
 so it is required for an expense whether or not the entry is split.
 
 A split transaction's amount changes only with its lines (or by filing it whole
@@ -317,7 +317,7 @@ the first line's category becomes the transaction's or the schedule's own. It
 used to be refused as "not a split", which was a dead end.
 
 Clearing the *first* line is how you say "no envelope". On money coming in that
-is ordinary — it lands in Ready to Assign. On an outgoing schedule with nothing
+is ordinary: it lands in Ready to Assign. On an outgoing schedule with nothing
 else to post to it is **refused**: each time it was marked paid it would record
 a payment into nothing, which is the queue of unrecorded spending the envelope rule exists to
 prevent.
@@ -332,38 +332,38 @@ Blank means **no envelope**, and what that is worth depends on which way the
 money is going.
 
 - **Money in:** ordinary. The remainder lands in **Ready to Assign**, stored as
-  a line with a null `category_id` — which is what Ready to Assign is. A
+  a line with a null `category_id`, which is what Ready to Assign is. A
   ₹50,000 salary with ₹5,000 named for provident fund leaves ₹45,000 waiting to
   be given a job, and `identityResidual` comes out at exactly zero.
 - **Money out:** refused on all four screens. An expense with an uncategorised
   remainder is precisely the queue of unrecorded spending B99 exists to prevent.
 
 The rule is `outgoingLacksEnvelope`, and it checks the **lines**, not only the
-single-envelope case. That distinction is the whole of it: "this entry is split,
-so of course it names its envelopes" was true until the first line became one
-that may legitimately be left blank. Until this was fixed, `/add` refused an
-uncategorised expense and the other three screens wrote one — and none of the
+single-envelope case. That distinction matters: "this entry is split, so it
+names its envelopes" was true until the first line became one that may
+legitimately be left blank. Until this was fixed, `/add` refused an
+uncategorised expense and the other three screens wrote one, and none of the
 four handled the income case at all. The create routes skipped a blank first
 select as "no line sent", which promoted the second line to first and filed the
 **whole** amount into it: ₹50,000 of salary, all of it in provident fund, with
 nothing refused, because a single-envelope income is a perfectly legal
 transaction.
 
-### The half a test cannot see
+### The browser side of the form
 
 The envelope select is *also* the thing the browser can decline to send. A
-disabled select submits nothing, so when the client script kept disabling it —
-correct under the old form, wrong the moment the box became the first line — a
+disabled select submits nothing. The client script kept disabling it, which was
+correct under the old form but wrong once the box became the first line, so a
 ₹5,000 expense with ₹1,200 on the second line arrived with no first envelope and
-was filed whole into the second. The forms were right and the server was right;
-the bug lived entirely in between. `client-envelope.test.ts` runs that rule
+was filed whole into the second. The forms and the server were both correct; the
+bug was in the client script between them. `client-envelope.test.ts` runs that rule
 against a stub DOM for exactly this reason.
 
 ## A transfer that costs something
 
 IMPS above a threshold, NEFT at some banks, a demat transfer, the markup on a
 currency conversion. The two legs of a transfer used to have to be equal, so a
-charge had to be entered separately by hand — and if it was not, the account
+charge had to be entered separately by hand, and if it was not, the account
 stopped matching the statement.
 
 A transfer may now carry a fee. It comes out of the **sending** account on top
@@ -378,26 +378,25 @@ explain it.
 It is recorded as a **third transaction, deliberately outside the transfer
 pair**. Inside the pair the two legs would no longer cancel, and every report
 that excludes transfers would quietly swallow a real expense. Outside it, the
-charge behaves like any other categorised spend — it appears in the envelope, in
-the reports, and in the month's spending, which is where somebody goes looking
-for it.
+charge behaves like any other categorised spend: it appears in the envelope, in
+the reports, and in the month's spending, where you would look for it.
 
 ## A schedule that splits
 
 The two most regular payments a household has are both splits. A salary arrives
-and is immediately three things — provident fund, tax deducted, and what landed.
+and is immediately three things: provident fund, tax deducted, and what landed.
 Rent is rent plus maintenance plus parking, one payment on one date. Both had to
 be entered and split by hand every month, which is the work a schedule exists to
 remove.
 
 `schedule_splits` mirrors `transaction_splits` rather than inventing a second
 shape, because when the schedule posts, one becomes the other. The lines work
-the same way too — first line takes the remainder — which matters more here than
-anywhere: a recurring split that was quietly wrong would repeat itself every
-month until somebody noticed.
+the same way too (the first line takes the remainder), which matters most here:
+a recurring split that was quietly wrong would repeat itself every month until
+somebody noticed.
 
 When a split schedule posts, the transaction's own `category_id` goes null and
-the lines carry the categories — the same rule as a hand-entered split. Setting
+the lines carry the categories, the same rule as a hand-entered split. Setting
 both would file the amount twice.
 
 A schedule with no amount cannot be split, since there is nothing to divide, and
@@ -407,8 +406,8 @@ Changing a split schedule's amount re-files its lines the same way: the first
 takes whatever the others leave. ₹1,000.01 split ₹666.68 / ₹333.33 and changed
 to ₹500 becomes ₹166.67 / ₹333.33. If the other lines alone already use up the
 new amount, or are money going the other way, the change is refused with the
-numbers rather than stored — a schedule whose lines no longer add up could never
-be marked paid. Undoing the change puts the lines back with the old amount.
+numbers rather than stored, because a schedule whose lines no longer add up
+could never be marked paid. Undoing the change puts the lines back with the old amount.
 The edit form records an amount change and its new lines as two entries on the
 activity page; undoing the lines entry restores the amount with them, and an
 undo that would still leave lines and amount disagreeing is refused.
@@ -417,12 +416,12 @@ undo that would still leave lines and amount disagreeing is refused.
 
 A month-based schedule (monthly, quarterly, half-yearly, yearly) remembers the
 day it was set to, not the date its last occurrence happened to land on. A rent
-on the 31st goes 31 Jan, 28 Feb, 31 Mar — it does not settle on the 28th after
+on the 31st goes 31 Jan, 28 Feb, 31 Mar; it does not settle on the 28th after
 February. The day moves only when somebody moves the due date.
 
 **Schedules created before migration 0048** had their day read back from the
 due date, so one that had already slid from the 31st to the 28th is backfilled
-as the 28th — the day it was set for is not recorded anywhere reliable. Moving
+as the 28th, because the day it was set for is not recorded anywhere reliable. Moving
 its due date back to the 31st once re-anchors it for good. Schedules the old
 `skip` policy ended (next due empty) can be found with
 `SELECT id, name FROM schedules WHERE next_due IS NULL AND short_month_policy = 'skip'`
@@ -435,14 +434,14 @@ before-state and undo read that as "this was a creation".
 Undoing **Mark paid** removes the transaction it recorded and puts the due date
 back; undoing **Skip** puts the skipped occurrence back. If the recorded
 transaction has been edited since, the undo is refused rather than throw the
-edit away — delete it from the register instead.
+edit away; delete it from the register instead.
 
 The short-month policy decides what happens in a month without that day:
 
 | Policy | 31st, in February 2026 |
 | --- | --- |
 | `last-day` | 28 Feb |
-| `next-day` | 1 Mar — and March's own 31st still comes |
+| `next-day` | 1 Mar, and March's own 31st still comes |
 | `skip` | nothing in February; the next is 31 Mar. The schedule carries on. |
 
 Marking an occurrence paid moves the schedule on from the date it was **due**,
@@ -455,8 +454,8 @@ Paying early works the same way: due 15 Mar, paid 10 Mar, next due 15 Apr.
 ### Suggested schedules
 
 Suggestions come from three or more transactions with the same payee at a
-steady rhythm. They keep the direction they were seen in — a salary is proposed
-as money coming in, a bill as money going out — and a payee seen both ways is
+steady rhythm. They keep the direction they were seen in (a salary is proposed
+as money coming in, a bill as money going out), and a payee seen both ways is
 judged on the way it mostly goes, with the odd refund left out. A monthly
 rhythm is projected in whole months on the day it usually falls, so a salary on
 the 1st is next expected on the 1st, not 30.75 days after the last one.
@@ -467,13 +466,14 @@ the 1st is next expected on the 1st, not 30.75 days after the last one.
 A card's balance is not cash leaving on the day it is charged; it leaves on the
 due date. What a card owes today is projected once, at its next due date. A
 schedule billed to a card leaves cash on the due date of the statement it falls
-into — statement on the 20th, due the 5th: charged 12 Oct, paid 5 Nov. A
+into. With the statement on the 20th and due on the 5th, a charge on 12 Oct is
+paid on 5 Nov. A
 schedule on a tracking account does not move cash. The same rule holds in every
 scope, and a budget's projection takes only that budget's accounts and cards.
 
 ## Rules that build a value
 
-A rule's text actions — `setMemo`, `setPayee` — may interpolate `{field}` from
+A rule's text actions (`setMemo`, `setPayee`) may interpolate `{field}` from
 the transaction: `UPI ref {reference}`, `{merchant} via {channel}`. The fields
 are the ones already extracted from narration (`channel`, `vpa`, `merchant`,
 `reference`) plus `narration`, `importedPayee`, `payee`, `memo`, `date` and
@@ -484,19 +484,19 @@ silently became empty would look like the rule working, and leave empty memos
 with no reason for them. A known field that happens to be empty does become
 empty, because that is its value.
 
-It is substitution and nothing else — no arithmetic, no conditionals, no calls,
-and no recursion, so a narration containing braces cannot inject a placeholder
-of its own. A rules engine that evaluates expressions is one that can loop, fail
-at run time, or be handed something hostile out of a bank statement, and none of
-that buys enough to be worth it.
+It is substitution only, with no arithmetic, conditionals, calls or recursion,
+so a narration containing braces cannot inject a placeholder of its own. A rules
+engine that evaluates expressions can loop, fail at run time, or be handed
+something hostile from a bank statement, and the benefit does not justify that
+risk.
 
 ## Data written before the engine audit fixes
 
 Most of what older versions stored wrongly is corrected automatically:
 migrations 0050–0052 rebuild held-for-next-month per budget, drop the rollup
 cache so sealed months are recomputed, and bring back (hidden) any envelope that
-was deleted while spending was still filed to it — merge those into the right
-envelope to settle them. Migration 0054 recomputes the income and spending
+was deleted while spending was still filed to it (merge those into the right
+envelope to settle them). Migration 0054 recomputes the income and spending
 stored on every closed month from that budget's own transactions; they had
 counted every budget's. At every start, `repairCrossBudgetClaims` opens the
 commitment envelope for any cross-budget card payment that was recorded without
