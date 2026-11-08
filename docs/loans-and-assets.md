@@ -36,7 +36,7 @@ recomputed from that date forward.
 A rate change takes the same rate bounds as a new loan (0–100% a year), and
 cannot take effect before the sanction date. A rate change can keep the tenure (the instalment moves) or keep the
 instalment (the tenure moves). Keeping the instalment is only accepted once the
-new rate applies — dated today or earlier — because the tenure it needs depends
+new rate applies (dated today or earlier), because the tenure it needs depends
 on the balance that day, and stretching it early would lower the instalment the
 projection asks for until the date arrives.
 
@@ -55,7 +55,7 @@ instalment recorded before that choice, or, with none recorded, the loan's
 first instalment priced from its opening principal, first rate and first tenure.
 
 A `flat` loan runs to its own schedule: interest on the original principal,
-the same every month, and principal in equal parts — EMI = (P + P × rate ×
+the same every month, and principal in equal parts: EMI = (P + P × rate ×
 years) ÷ instalments, so ₹1,00,000 at 12% flat over 12 months is ₹9,333.33 a
 month and ₹12,000 of interest. The EMI, the payment envelope's target and the
 estimated split of an instalment paid without the lender's figures all come
@@ -79,7 +79,7 @@ are blank is the split computed and marked `estimated`.
 Paying an instalment:
 
 1. Creates a transaction for the whole instalment on the repayment account (or
-   card), filed to the payment envelope — which is what consumes it.
+   card), filed to the payment envelope, which is what consumes it.
 2. Credits the loan account with the **principal only**. The interest is the
    cost of the month's borrowing, already spent from the envelope; it repays
    nothing, so the loan account's balance always equals the outstanding. A
@@ -92,7 +92,7 @@ Paying an instalment:
 the whole amount, interest included, so the account under-stated the debt and
 net worth reported a drift the household had not caused. 0053 sets each such
 leg to its principal (removing a charge's leg), and for instalments from before
-B124 — a transfer, whose two legs must stay equal — adds one correcting debit
+B124 (a transfer, whose two legs must stay equal) adds one correcting debit
 for the interest instead. A leg edited or deleted since no longer matches and
 is left alone; the drift line on net worth shows it.
 
@@ -111,7 +111,7 @@ whose principal is minus the interest (the shape a re-anchor writes), with a
 loan-account leg for the same amount, so the outstanding, the loan account,
 net worth, the EMI projection and the loan's payments all carry it. The figure
 is the one the projection was showing just before. The instalment's estimated
-split is then taken on the grown balance — ₹9,205.94 interest and ₹5,392.92
+split is then taken on the grown balance: ₹9,205.94 interest and ₹5,392.92
 principal on that first ₹14,598.86, leaving ₹10,99,320.15 owed and the EMI
 unchanged over the 119 months left. Before this, the interest was never added:
 after the first EMI the loan read ₹9,93,734.47 owed with a new EMI of
@@ -120,8 +120,8 @@ after the first EMI the loan read ₹9,93,734.47 owed with a new EMI of
 The interest is added once. Not on an interest-only payment (it begins no
 repayment), not on a serviced moratorium or a loan without one, not when
 repayment had already begun, and not when the loan was re-anchored to the
-lender's balance on or before that instalment — a lender's figure taken during
-the moratorium already holds the interest accrued to it. The row is told apart
+lender's balance on or before that instalment, because a lender's figure taken
+during the moratorium already holds the interest accrued to it. The row is told apart
 from a re-anchor by its loan-account leg, which a re-anchor does not post.
 Undoing that instalment removes the row and its leg with it, so recording the
 instalment again adds the interest once. That undo is refused while a later
@@ -135,14 +135,14 @@ create none), and a backfill could not be made safe: instalments after the
 first were split on the understated balance, a loan added mid-life may have been
 entered with its capitalised balance already in the outstanding, and one
 reconciled since through a lender statement or re-anchor already has the
-interest in it — adding it again would put debt into net worth that is not
+interest in it. Adding it again would put debt into net worth that is not
 owed. A loan in that state shows the gap as drift once a lender statement is
 recorded against it (see Drift).
 
 ### Prepayment
 
-The prepayment screen compares the two options a lender must offer — reduce the
-tenure, or reduce the instalment — and prices both, showing the interest saved
+The prepayment screen compares the two options a lender must offer (reduce the
+tenure, or reduce the instalment) and prices both, showing the interest saved
 by each. Recording one applies it and recomputes the schedule. Reducing the
 tenure keeps the instalment exactly as it was (see Schedule) and closes the
 loan early; reducing the instalment keeps the tenure and lets go of any kept
@@ -150,8 +150,8 @@ instalment.
 
 The lump sum comes out of an envelope the household names, moved into the
 loan's payment envelope first so no envelope is quietly overdrawn. That envelope
-has to be in the budget the loan is paid from — the one its payment envelope
-sits in — and the form offers only those.
+has to be in the budget the loan is paid from (the one its payment envelope
+sits in), and the form offers only those.
 
 ### Drift
 
@@ -168,7 +168,7 @@ what has been drawn.
 ### Closing
 
 A loan can be closed by settlement, with an optional foreclosure charge. The
-settlement is paid like any instalment — from the chosen account (or the loan's
+settlement is paid like any instalment: from the chosen account (or the loan's
 repayment account), through the payment envelope, onto the loan account. Paid
 above the outstanding, the excess is interest. Paid below it, the difference is
 a waiver: a separate `foreclosure` row with no amount and the shortfall as
@@ -178,7 +178,7 @@ Without a settlement a loan closes only when nothing is outstanding; closing
 one that still owes money is refused with a pointer to settling it.
 
 **Settlements recorded before migration 0043.** The old code moved no money
-when a loan was settled — no account was debited — and stored a settlement below
+when a loan was settled (no account was debited) and stored a settlement below
 the outstanding as one payment with *negative* interest. Migration 0043 corrects
 the interest (the shortfall becomes forgiven principal), but it cannot know which
 account paid, so the payment itself has to be entered again through the app.
@@ -198,23 +198,23 @@ a section 24(b) line, old regime only, capped at ₹2,00,000 across every such
 house; a let-out house's is shown and not deducted, because the rent it is
 set against is not modelled. The figure is **interest accrued** in the
 financial year, not interest paid in it: each instalment's interest is spread
-evenly over the days it pays for — from the previous instalment, or a month
-before its own date — so an EMI on 5 April gives 26 of its 31 days to the
+evenly over the days it pays for (from the previous instalment, or a month
+before its own date), so an EMI on 5 April gives 26 of its 31 days to the
 year that ended on 31 March. Interest in a prepayment or settlement counts on
 its day; charges are not interest. Instalments not yet recorded come from the
 projected schedule. The figure is marked *estimated* wherever any of it is
-not the lender's own split — an estimated split, or the projection — and
+not the lender's own split (an estimated split, or the projection), and
 where instalments in the year are missing. The lender's interest certificate
 is the figure for a return, and the tax screen takes it as an override.
 
 ### Undo
 
 Every loan change in the activity log undoes for real or is refused with a
-reason — none is marked undone without moving anything:
+reason. None is marked undone without moving anything:
 
 | Undoing | Reverses |
 |---|---|
-| An instalment, prepayment, charge or settlement payment | The payment row and both of its legs (the bank or card debit, the loan-account credit), and on a card EMI the GST line charged on its interest. A prepayment puts back the tenure and the kept instalment it had. The first instalment of a capitalised moratorium takes the moratorium interest it added with it, and is refused while a later instalment or re-anchor stands on that balance. Refused while the loan is closed — undo the close first. |
+| An instalment, prepayment, charge or settlement payment | The payment row and both of its legs (the bank or card debit, the loan-account credit), and on a card EMI the GST line charged on its interest. A prepayment puts back the tenure and the kept instalment it had. The first instalment of a capitalised moratorium takes the moratorium interest it added with it, and is refused while a later instalment or re-anchor stands on that balance. Refused while the loan is closed: undo the close first. |
 | A rate change | The rate period, and the tenure if "keep the instalment" moved it, and the kept instalment as it was before. |
 | A re-anchor, a lender statement | The row it wrote. |
 | A disbursement | The draw and both of its legs. |
@@ -234,15 +234,15 @@ and card, dated from the **charge**, with the processing fee recorded against a
 chosen envelope.
 
 Each instalment on a card EMI also posts 18% GST on that instalment's interest
-as its own line — a loan charge and a card charge memoed "GST 18% on EMI
-interest", from the plan's envelope — rounded to the paisa per instalment.
+as its own line (a loan charge and a card charge memoed "GST 18% on EMI
+interest", from the plan's envelope), rounded to the paisa per instalment.
 Interest on credit-card services is outside the GST exemption on loan interest
 (Notification 9/2017-IT(Rate) Sr.28). The schedule is unchanged; the GST is
 shown beside it, added to the plan envelope's monthly target, and counted in
 the total cost of borrowing (`06` §7.4: ₹6,118 on the worked example).
 
-Only a charge converts — not a refund, and not the card side of a payment — and
-only once: a charge partly on a plan offers just the rest, and one wholly on
+Only a charge converts (not a refund, and not the card side of a payment), and
+only once: a charge partly on a plan offers only the rest, and one wholly on
 plans offers nothing, with links to them instead.
 
 The converted charge is where the plan came from, so it cannot be deleted, nor
@@ -263,17 +263,17 @@ Money lent to or borrowed from a person, held in a tracking account of subtype
   closes the arrangement.
 - `agreed_total` is optional and documentary.
 - An arrangement closes only at a nil balance; while money is owed either way,
-  closing is refused — record the repayment or write it off first.
+  closing is refused. Record the repayment or write it off first.
 - Undo reverses for real: an advance or repayment takes back both legs of its
-  transfer (refused once the balance has been written off — undo the write-off
+  transfer (refused once the balance has been written off; undo the write-off
   first); a close or reopen moves the arrangement **and** its account; the
   start of an arrangement removes it only while nothing has been recorded
   against it and it did not open with a balance.
 
 ## Insurance
 
-`/insurance` is a register of policies — term and other life, health, vehicle,
-home — each with its insurer, sum assured, premium and frequency, next due
+`/insurance` is a register of policies (term and other life, health, vehicle,
+home), each with its insurer, sum assured, premium and frequency, next due
 date, start and end, nominee, who it covers, the 80C / 80D group its premium
 counts toward (with a senior flag for 80D), and optionally the envelope it is
 usually paid from.
@@ -290,7 +290,7 @@ usually paid from.
   for the budget they belong to (the envelope's budget; otherwise a private
   policy's holder's, otherwise the household's). **Paid** moves the due date on
   by the frequency (monthly, quarterly, half-yearly, yearly; a single premium
-  leaves nothing due) and posts nothing — the payment belongs in the register,
+  leaves nothing due) and posts nothing. The payment belongs in the register,
   and the policy page links to the Add form for it. A schedule for the same
   premium is a separate thing and lists separately.
 - A lapsed or ended policy is kept and listed apart, with the day it stopped.
@@ -307,7 +307,7 @@ An `instrument` is a tradeable thing: `mutual-fund`, `equity`, `etf`, `bond`,
 `commodity` or `other`, with an optional symbol, ISIN, currency, price provider
 and classification (`asset_class`, `region`). An instrument is found again by
 ISIN, then by symbol and provider; one typed by hand (no symbol or ISIN) is
-found again by the same name, ignoring case, with the same kind and currency —
+found again by the same name, ignoring case, with the same kind and currency,
 so a second purchase typed by hand adds a lot to the same holding. A holding's
 **Buy more** and a scheme chosen from the search both carry the instrument to
 the purchase form instead.
@@ -315,13 +315,13 @@ the purchase form instead.
 A bond carries a **listed** flag (`instruments.listed`, migration 0065), set
 from its holding page. It decides the tax on a sale: a listed bond held more
 than 12 months is taxed at 12.5% under 112; an unlisted bond, or one whose
-listing has never been recorded, at slab rates — see
-[limitations](limitations.md#tax). A share (`kind = 'equity'`) carries the same
+listing has never been recorded, at slab rates (see
+[limitations](limitations.md#tax)). A share (`kind = 'equity'`) carries the same
 flag, asked as "Listed on a recognised stock exchange" on the add form (ticked
 to start) and its holding page. A share recorded as not listed is taxed as
 property is: long-term after 24 months, then 12.5% under 112 with no ₹1,25,000
-exemption, slab rates before that. A share whose listing was never recorded —
-every share added before this — is taxed as listed.
+exemption, slab rates before that. A share whose listing was never recorded
+(every share added before this) is taxed as listed.
 
 A `holding` is one instrument in one asset account. Its units and cost come from
 `lots`, which are FIFO.
@@ -397,14 +397,14 @@ is carried at 1 and marked stale.
 A **trade** in a non-base instrument is different: the purchase cost and the
 sale proceeds are what left and reached the bank, so they are converted at the
 rate given on the form, else the stored rate on or before the trade date. With
-neither, the purchase or sale is refused rather than booked at 1 — a $1,000
+neither, the purchase or sale is refused rather than booked at 1: a $1,000
 purchase is never ₹1,000.
 
 ### Returns
 
 XIRR is computed from the dated cash flows of a holding or the portfolio: each
 open lot's cost out, each cash dividend back on its date, and today's value back.
-A reinvested dividend is not new money — its units are return, not a purchase.
+A reinvested dividend is not new money: its units are return, not a purchase.
 Realised gains are reported by financial year and split by holding period, which
 is what Indian capital gains treatment requires. The holding period is counted in
 calendar months ("more than 12 months"), not days, by the same test the tax
@@ -422,8 +422,8 @@ Each row is recognised on a later statement by a reference hashed from its
 scheme, date, kind, units and amount, recorded on the lot or event it made.
 When a parser fix changes how a row reads, the plan also rebuilds the reference
 the earlier reading recorded: a row imported before the fix is shown as already
-held when what was recorded matches today's reading, and as **Check** —
-imported earlier with different figures, not imported again — when it does not,
+held when what was recorded matches today's reading, and as **Check**
+(imported earlier with different figures, not imported again) when it does not,
 so the recorded entry can be corrected by hand.
 
 A systematic withdrawal ("Systematic Withdrawal", "SWP") imports as a
@@ -439,15 +439,15 @@ net worth = cash + investments + other assets
 ```
 
 - **Cash**: budget accounts at working balance, and any credit card in credit
-  (overpaid, or refunded after the bill was paid) — it owes you that money.
+  (overpaid, or refunded after the bill was paid), because it owes you that money.
 - **Investments**: holdings at market value.
 - **Other assets**: hand-valued tracking accounts at their latest valuation.
 - **Credit cards**: outstanding balances.
 - **Loans**: outstanding principal.
 - **Owed to family**: money borrowed from family and friends, at the balance
   derived from its tracking account. (Money lent to them is an other asset.)
-- **Other liabilities**: plain tracking accounts whose balance is negative — an
-  "other liability", say — at that balance.
+- **Other liabilities**: plain tracking accounts whose balance is negative (an
+  "other liability", for example), at that balance.
 
 Every line carries the date of its oldest input, and the statement reports the
 worst of those. Snapshots are written to `net_worth_snapshots` at month close
@@ -486,11 +486,11 @@ their transactions:
 | Investment | market value of its holdings | is counted nowhere |
 | Loan | the amortisation schedule | does not reduce what is owed |
 
-Each is defensible alone and indefensible together: the app accepted an entry,
-stored it, and showed a number that did not include it.
+Each makes sense on its own, but together they cause a problem: the app accepted
+an entry, stored it, and showed a number that did not include it.
 
 Two things now address that. Plain transactions are no longer offered against
-these accounts on the Add screen — each has a flow that works (revalue, a
+these accounts on the Add screen. Each has a flow that works (revalue, a
 portfolio purchase or sale, a loan payment), so offering the account only ever
 led somewhere wrong. And `accountDrifts` reports what is already there, or what
 a transfer creates, beside the net worth total.
@@ -498,8 +498,8 @@ a transfer creates, beside the net worth total.
 It **reports rather than resolves**, deliberately. Adding the movements is
 right for a recurring deposit being paid into and wrong for a revalued flat,
 where the stated figure already includes everything. Only the household knows
-which it meant, so the divergence is surfaced and they decide — the same thing
-this app does when a statement and the ledger disagree. The threshold is ₹500,
+which it meant, so the divergence is surfaced and they decide. The app does the
+same when a statement and the ledger disagree. The threshold is ₹500,
 the one Q12 set for loan reconciliation.
 
 ## A hand-valued asset over its life
@@ -516,8 +516,8 @@ recorded:
 | Sell all | the same route, with nothing left | The proceeds; the account closes |
 
 Its history is on **its own account page**, reached from Accounts like any
-other. A hand-valued asset has no transactions and never will — its worth is
-stated, not counted — so where a register would be, it shows every valuation it
+other. A hand-valued asset has no transactions and never will (its worth is
+stated, not counted), so where a register would be, it shows every valuation it
 has had, with the change between each and the note saying what happened:
 *Added ₹50,000*, *Revalued*, *Sold part for ₹80,000*. Nothing is overwritten,
 so what you thought it was worth in March is still there in December. R23.2 has
@@ -525,13 +525,13 @@ written that series all along; until now nothing displayed it.
 
 **Selling part of it is the ordinary case.** A few grams of gold, not the whole
 holding. Disposal used to be all-or-nothing, so somebody selling a portion had
-to close the account and open a new one for the remainder — losing the history
+to close the account and open a new one for the remainder, losing the history
 to record something that did not happen. Now the sale asks what is left: zero
 closes the account, anything else keeps it open at that value.
 
 Only the hand-valued kinds have any of this. A fixed deposit is a tracking
 account worth its balance, so there is nothing to state and revalue is not
-offered on one (unless it carries terms — see "A deposit that values itself") — selling it is money arriving in another account, recorded
+offered on one (unless it carries terms; see "A deposit that values itself"). Selling it is money arriving in another account, recorded
 there. *Buy more* and *Sell* refuse it too, as they refuse a demat or bank
 account, whose worth is its holdings or its balance.
 
@@ -541,7 +541,7 @@ gold bought at a premium is worth the market rate the moment you own it.
 
 ## A deposit that values itself
 
-A fixed or recurring deposit, a PPF or an EPF can carry its **terms** — the
+A fixed or recurring deposit, a PPF or an EPF can carry its **terms**: the
 kind, the principal (or an RD's monthly instalment), the annual rate, how the
 interest compounds, the start date, an optional maturity date, and whether the
 interest stays in or is paid out. Terms go on a plain tracking account (fixed
@@ -582,15 +582,15 @@ then. ₹1,00,000 at 7% compounded quarterly for a year is 1,00,000 × 1.0175⁴
 latest of the day the terms were last saved, the start date and, for a PPF, EPF
 or other deposit, the last contribution on or before the day asked about. A hand
 valuation (the valuations screen or Revalue, both of which accept a deposit with
-terms) dated **on or after** the basis date wins — it is newer than what the
-arithmetic knows, a passbook figure say. One dated before it has been superseded.
+terms) dated **on or after** the basis date wins, because it is newer than what
+the arithmetic knows (a passbook figure, for example). One dated before it has been superseded.
 The next contribution or a re-save of the terms hands the account back to the
 arithmetic. The valuations screen and the account page say which is in force:
 "computed from terms" or "valued by hand". A deposit with terms is never
 reported as drifting from its ledger.
 
 **Maturity.** The maturity date and amount appear on the account page, on the
-cashflow calendar on /schedules (beside the projected balance, not in it — the
+cashflow calendar on /schedules (beside the projected balance, not in it, as the
 money is in the deposit until it is moved), and in the Overview's due-soon list
 when inside its two weeks. Nothing is posted: record the money where it lands,
 then close the account or set new terms if it was renewed. For a PPF, EPF or
@@ -604,35 +604,35 @@ holder, and its events are hidden from the log of anyone who cannot see it.
 
 An asset could be created and revalued but never sold, so gold that paid for a
 wedding stayed on the statement forever and the only way out was revaluing it to
-zero — losing both the proceeds and the fact that anything happened.
+zero, losing both the proceeds and the fact that anything happened.
 
 `/portfolio/asset/:id/dispose` records both halves: the asset is valued at zero
 on the date and its account closed, and the proceeds are recorded arriving in an
-account you choose. Either half is optional — proceeds of zero is a valid answer
+account you choose. Either half is optional: proceeds of zero is a valid answer
 for something given away or lost, and "nowhere" is valid if the money has not
 landed yet. The dated history stays, because the account is closed rather than
 deleted.
 
-Creating an asset asks the mirror question. If you just bought it, the money
+Creating an asset asks the mirror question. If you are buying it now, the money
 leaves an account you name; if you already owned it, nothing moves. Without that,
 net worth rose by the value of the asset with nothing on the other side.
 
 ## Counted, or derived
 
-The line that matters is not "tracking or not" — it is whether the figure on
-screen is **counted from transactions** or **derived somewhere else**.
+What matters is whether the figure on screen is **counted from transactions**
+or **derived somewhere else**, rather than whether the account is tracking.
 
 **Counted.** Budget accounts, credit cards, and most tracking accounts: a fixed
 or recurring deposit, a savings account somebody watches without budgeting from
 it, "other asset", "other liability". These are worth their balance, so posting
-to them is how you say what happened, and they are ordinary everywhere —
+to them is how you say what happened, and they are ordinary everywhere:
 listed on Accounts, offered when adding a transaction.
 
 **Derived.** A demat account is worth the market value of its holdings; a loan
 or an EMI, what its schedule says; a family loan, the transfers behind it; a
 hand-valued asset, its latest dated valuation. A plain transaction against one
 of these is stored and reflected in none of them, so they are **not offered
-when adding a transaction** — each has a flow that does work (a portfolio
+when adding a transaction**. Each has a flow that does work (a portfolio
 purchase or sale, a loan payment, a revaluation). `DERIVED_VALUE_SUBTYPES` is
 that list.
 
@@ -642,7 +642,7 @@ the household has.
 ### Two subtypes that were saying the same thing twice
 
 `deposit` and `receivable` are gone. The first duplicated fixed and recurring
-deposits, which are tracking accounts worth their balance — a household with a
+deposits, which are tracking accounts worth their balance. A household with a
 fixed deposit had two places to put it and two different behaviours, one where
 interest moves the balance and one where it is a number retyped each month. The
 second duplicated family lending, which tracks money owed to you better, because
@@ -652,7 +652,7 @@ it derives the balance from the actual transfers.
 
 Into the deposit, as a transaction. A fixed or recurring deposit is a tracking
 account precisely so that it can hold one: credit the interest to the account
-and the balance — which is what the deposit is worth — moves with it. Nothing
+and the balance (which is what the deposit is worth) moves with it. Nothing
 reaches the budget, which is right for a cumulative deposit, since the money is
 not spendable until maturity.
 
@@ -661,7 +661,7 @@ the account it lands in, recorded like any other.
 
 Either way it is taxable, and the tax screen does not read it: enter it in the
 gross figure there. That screen asks for gross rather than deriving it for
-exactly this reason — what arrived in the accounts this app can see is not the
+exactly this reason: what arrived in the accounts this app can see is not the
 same thing as taxable income.
 
 **Do not also state a valuation on a deposit you track this way.** A stated
@@ -681,7 +681,7 @@ target        = annual spending ÷ withdrawal rate
 years to hit  = ln(target ÷ corpus) ÷ ln(1 + real return)
 ```
 
-**Spending** is money leaving categories over a trailing window, annualised —
+**Spending** is money leaving categories over a trailing window, annualised:
 the same measure the buffer uses (`envelopeSpendBetween`), so a card swipe
 counts on the day it happens and settling the card afterwards does not count
 again. This matters more here than anywhere else in the app: the target is that
@@ -693,22 +693,22 @@ figure multiplied by roughly thirty, so an error arrives multiplied too.
 |---|---|---|
 | Budget accounts, investments, deposits, commodities | Retirement balances (EPF, NPS) | Physical assets, and anything with no asset class set |
 
-A home is on the net-worth statement and not here — you cannot sell a tenth of
-it each year. Everything excluded is listed on the screen with its reason, so
+A home is on the net-worth statement and not here, because you cannot sell a
+tenth of it each year. Everything excluded is listed on the screen with its reason, so
 the gap against net worth is visible rather than mysterious.
 
 **No further earnings are assumed.** The corpus grows on its own real return
 and by nothing else: no salary, no continued saving. The screen answers "when
 is what I already hold enough", not "when could I stop if I keep saving at this
-rate" — the second needs a contribution assumed decades forward, which is the
-easiest promise such a screen can make and fail to keep. Income and the savings
+rate". The second needs a contribution assumed decades forward, which the screen
+cannot rely on. Income and the savings
 rate are still shown, because they explain the gap; they are not projected.
 
 **The bridge.** A provident fund cannot be drawn before 58–60. Given an age,
 the screen reports the years between stopping and that unlock, and whether the
 drawable corpus alone covers them at current spending. Growth during the bridge
-is deliberately ignored: a drawdown that depends on a good decade is not a
-bridge.
+is deliberately ignored, so the bridge does not depend on a good decade of
+returns.
 
 The default withdrawal rate is 3.5%, not 4%. The familiar figure comes from US
 data over a 30-year retirement; Indian inflation has run higher and retiring

@@ -10,32 +10,32 @@ member acting outside their own data; anything that leaves the machine.
 
 **Out of scope:** an attacker with the database file, the host, or root. The
 database is not encrypted at rest; disk encryption is the operating system's
-responsibility. Privacy between members separates people who trust each other —
+responsibility. Privacy between members separates people who trust each other;
 it is not an adversarial boundary.
 
 ## Authentication
 
-**Google OAuth 2.0** or any **OpenID Connect** provider, both with PKCE — or
+**Google OAuth 2.0** or any **OpenID Connect** provider, both with PKCE; or
 a password, described under [Passwords](#passwords).
 
 - The `state` value is 16 random bytes, held in memory, single-use, expiring
   after ten minutes. It is also bound to the browser that started sign-in by a
   short-lived cookie, so a callback link opened in somebody else's browser
   cannot sign them into the sender's account.
-- A code the provider rejects — forged, replayed or expired — or an ID token
-  that fails its checks is a 400 carrying the provider's reason, recorded in
+- A code the provider rejects (forged, replayed or expired), or an ID token
+  that fails its checks, is a 400 carrying the provider's reason, recorded in
   `auth_attempts` as `rejected-code`, not a server fault.
 - The email must already be a member with `allowed = 1`. Others are refused and
   the attempt recorded in `auth_attempts`.
 - The provider must say the address is verified (`email_verified: true` in the
   ID token), for Google and for any OpenID Connect provider alike. An
-  unverified address — or a provider that does not send the claim — is refused
+  unverified address (or a provider that does not send the claim) is refused
   with 403 before the allow-list is consulted, and recorded as
   `unverified-email`. Otherwise a provider that lets people register
   themselves would let anyone sign in as a member by typing their address.
 - Sign-in attempts are rate limited per source address; exceeding the limit
   returns 429. Behind a proxy (`TRUST_PROXY`) the source address is the
-  **right-most** `X-Forwarded-For` entry — the one the proxy appended. Entries
+  **right-most** `X-Forwarded-For` entry, the one the proxy appended. Entries
   to its left are written by the client and would let it choose a fresh
   address per attempt. This assumes exactly one trusted hop (Fly's proxy, or
   one tunnel); with two, every request would appear to come from the first.
@@ -43,14 +43,14 @@ a password, described under [Passwords](#passwords).
 **Sessions.** 32 random bytes, base64url. Stored as a SHA-256 hash; the
 plaintext exists only in the cookie. Cookie flags: `HttpOnly`, `SameSite=Lax`,
 `Path=/`, and `Secure` when `BASE_URL` is HTTPS. A session lasts `SESSION_DAYS`
-from sign-in, however often it is used — an absolute lifetime, not an idle
-timeout, so a stolen cookie that is kept busy still dies on schedule. Signing
+from sign-in, however often it is used. This is an absolute lifetime, not an idle
+timeout, so a stolen cookie that is kept busy still expires on schedule. Signing
 in again starts a new one.
-Sessions can be revoked individually from Settings — your own only. Another member's session id answers exactly like one that does not exist.
+Sessions can be revoked individually from Settings, but only your own. Another member's session id answers exactly like one that does not exist.
 
 **API tokens.** `Authorization: Bearer`. Stored as a hash, compared in constant
 time, checked for revocation and expiry after lookup. Scoped `read` or
-`read-write`, with a deny-list of path prefixes a token may never reach —
+`read-write`, with a deny-list of path prefixes a token may never reach,
 including token management itself. Rate limited per token. A token belonging to
 a member who has been removed from the allow-list stops working, as their
 sessions do, and a token cannot be minted while viewing as another member.
@@ -58,8 +58,8 @@ sessions do, and a token cannot be minted while viewing as another member.
 **AI app connections (OAuth).** An MCP client (claude.ai, ChatGPT, Gemini,
 Claude Code) connects to `/mcp` through a small OAuth 2.1 authorization server
 in [`src/auth/oauth.ts`](../src/auth/oauth.ts). What it ends up holding is an
-API token as above — read scope unless changes were allowed (below), one hour
-— so nothing about tokens needed a second set of rules. The new surface, and what holds it:
+API token as above, with read scope unless changes were allowed (below) and a
+one-hour lifetime, so nothing about tokens needed a second set of rules. The new surface, and what holds it:
 
 - *Registration is open*, because these clients register themselves (RFC 7591)
   with no account. So a registration proves nothing: the consent page leads
@@ -91,14 +91,14 @@ API token as above — read scope unless changes were allowed (below), one hour
 - *An AI's token writes only through `/mcp`.* Any token made on Connect an AI,
   and every OAuth access token, is marked `for_ai`; whatever its scope, a write
   to any other route is 403. Over `/mcp` a write is one of seven tools that call
-  the same domain functions and visibility checks as the pages — no deletes, no
+  the same domain functions and visibility checks as the pages (no deletes, no
   loans, assets, month close, settings, members, tokens, imports, rules or
-  schedules — capped at 100 a day and 50 suggestions waiting per connection,
+  schedules), capped at 100 a day and 50 suggestions waiting per connection,
   attributed with source `ai`, and undoable as a day's group
   ([ai.md](ai.md#changes-an-ai-can-make)). A script's ordinary read-write token
   is not offered the change tools: the member opted in for an AI, not for it.
-- The machine-facing endpoints — the two `/.well-known` documents,
-  `/oauth/register`, `/oauth/token`, `/oauth/revoke` — are public, read at most
+- The machine-facing endpoints (the two `/.well-known` documents,
+  `/oauth/register`, `/oauth/token`, `/oauth/revoke`) are public, read at most
   64 KB, and are exempt from the same-origin rule (the provider's servers post
   from their own origin). They take codes and refresh tokens, never a cookie,
   and send `Access-Control-Allow-Origin: *` so browser-based clients can read
@@ -122,8 +122,8 @@ environment: `NODE_ENV=production`, a `BASE_URL` that is not loopback, `.local`,
 `LOCAL_LOGIN`.
 
 **Demo mode** (`DEMO_MODE`) bypasses authentication. It refuses to start
-alongside `DEV_LOGIN`, or alongside any real way in — Google or OIDC
-credentials, or `LOCAL_LOGIN` — and refuses a database with a connected
+alongside `DEV_LOGIN`, or alongside any real way in (Google or OIDC
+credentials, or `LOCAL_LOGIN`), and refuses a database with a connected
 mailbox, a saved statement identity, a member's password or a linked Google
 account. A demo is production-shaped by design, so these, not `NODE_ENV` or the
 hostname, are what tell a household's instance apart from one.
@@ -139,14 +139,15 @@ can return data for a person, and 404 rather than 403.
 Two independent controls, and a third that keeps the second honest:
 
 1. The session cookie is `SameSite=Lax`, and no `GET` handler in the router
-   mutates state — verified by a test that walks every handler for write calls.
+   mutates state. This is verified by a test that walks every handler for
+   write calls.
 2. Every unsafe method must carry an `Origin` matching the deployment, or a
    `Referer` from it when `Origin` is absent. `Referrer-Policy: same-origin`
    guarantees a same-origin request carries a `Referer` and a cross-origin one
    does not. Failure returns 403.
 3. Before either is compared, the host the request was addressed to (`Host`,
    or the right-most `X-Forwarded-Host` entry behind `TRUST_PROXY`) must be
-   `BASE_URL`'s hostname — with `BASE_URL`'s port, or none — or a name no DNS
+   `BASE_URL`'s hostname (with `BASE_URL`'s port, or none) or a name no DNS
    answer is involved in: an IP literal or `localhost`. Anything else is 403
    on an unsafe method. Without this, DNS rebinding defeated (2): a page on
    `evil.example` re-points its own name at this machine and posts to it, so
@@ -156,7 +157,7 @@ Two independent controls, and a third that keeps the second honest:
    household types keeps working; any other name it uses must be the one in
    `BASE_URL`.
 
-Bearer-authenticated requests are exempt from (2) because they carry no cookie —
+Bearer-authenticated requests are exempt from (2) because they carry no cookie,
 and only when they carry no session cookie: a request with one is held to (2)
 whatever `Authorization` header it also sends.
 
@@ -174,8 +175,8 @@ banner.
 ## Notices
 
 The banner a redirect lands on is carried in the URL (`?notice=`), so a link
-could put its own words there — escaped, never a script, but in the app's own
-success banner. Every notice the server issues is signed (`ns`, an HMAC of the
+could put its own words there (escaped, never a script, but in the app's own
+success banner). Every notice the server issues is signed (`ns`, an HMAC of the
 text keyed by a random per-process secret) and an unsigned or mismatched one is
 not shown. A restart between a redirect and its page drops that one notice.
 The CAS import page's error is a fixed key (`?error=expired`), not text.
@@ -230,9 +231,10 @@ No third-party script, style, font or image is loaded.
 
 Nothing the server sends is stored on the device (`08` R35). The one exception
 is the Add form's **write-only queue** (`10` §3.7, R35.7): an entry that could
-not reach the server is kept in `localStorage` under `pathayam.outbox.v1` —
-the fields as typed, the idempotency key, when it was kept, and the member id
-from the page's `data-member` attribute — until the server confirms it.
+not reach the server is kept in `localStorage` under `pathayam.outbox.v1`
+until the server confirms it. The entry holds the fields as typed, the
+idempotency key, when it was kept, and the member id from the page's
+`data-member` attribute.
 
 - It is **not encrypted**. A key held by the same script on the same device
   would stop nobody who can already read the browser's storage (the reasoning
@@ -271,8 +273,8 @@ from the page's `data-member` attribute — until the server confirms it.
 
 ## Outbound requests
 
-Every outbound host is fixed in source — Google's OAuth and Gmail endpoints,
-and two price providers — or set by the operator: `OIDC_ISSUER` (and the
+Every outbound host is fixed in source (Google's OAuth and Gmail endpoints,
+and two price providers) or set by the operator: `OIDC_ISSUER` (and the
 endpoints its discovery document names), `BACKUP_WEBHOOK_URL` and
 `HEARTBEAT_URL`. User-supplied values reach only path segments and query
 values, through `encodeURIComponent`.
@@ -287,7 +289,7 @@ None at runtime.
 
 ## Passwords
 
-scrypt from `node:crypto` — N=32768, r=8, p=1 — with the parameters stored
+scrypt from `node:crypto` (N=32768, r=8, p=1), with the parameters stored
 inside the encoded hash, so the cost can be raised later without invalidating
 existing passwords. An old hash keeps verifying and is rewritten on the next
 successful sign-in.
@@ -298,7 +300,7 @@ successful sign-in.
 - In `NEVER_EXPORTED`. A hash is not a password but it is an offline guessing
   target, and an export is the most portable thing this app produces.
 - Verification is constant-time, and a malformed or hostile stored row fails
-  rather than throwing — this is the sign-in path, and an exception there is a
+  rather than throwing. This is the sign-in path, and an exception there is a
   500 on a login page. Parameters read from the database are bounded before
   use, so a tampered row cannot ask scrypt for unbounded memory.
 - Eight failures lock the credential for fifteen minutes. Per credential, not
@@ -327,9 +329,9 @@ that way. Code: `src/auth/setup-links.ts`.
 
 - **The token** is 32 random bytes, base64url. Only its SHA-256 is stored, in
   `password_setup_links`, so a copy of the database, a backup or an export
-  holds no working link. The raw token is shown once — rendered on the page
-  that made it (never in a redirect, a notice or a query string), or printed by
-  the server command — and is kept out of the event log (which records that a
+  holds no working link. The raw token is shown once, either rendered on the
+  page that made it (never in a redirect, a notice or a query string) or printed
+  by the server command. It is kept out of the event log (which records that a
   link was made and used, by whom and for whom, never the token or its hash)
   and out of logged paths (`redactedPath` in `src/http/server.ts`, used for log
   lines and `request_failures`).
@@ -339,8 +341,8 @@ that way. Code: `src/auth/setup-links.ts`.
   (below) answers in one set of words with 410, so a holder of a stale link
   learns nothing about which it is.
 - **The page.** `/auth/setup/<token>` works signed out. It is sent with
-  `Cache-Control: no-store` and `Referrer-Policy: strict-origin`, so the path —
-  which is the credential — is never sent as a Referer, not even to this app's
+  `Cache-Control: no-store` and `Referrer-Policy: strict-origin`, so the path,
+  which is the credential, is never sent as a Referer, not even to this app's
   own stylesheet. Not `no-referrer`: under that policy browsers send
   `Origin: null` on the form's POST, which the same-origin write check refuses;
   `strict-origin` gives the same guarantee for the token and leaves that check
@@ -349,7 +351,7 @@ that way. Code: `src/auth/setup-links.ts`.
   A password is set in one transaction with the link being spent; one the
   rules refuse leaves the link usable.
 
-**Who may make one.** Any signed-in member, for another member — all members
+**Who may make one.** Any signed-in member, for another member. All members
 are peers, and any of them can already add people to the household. Not on the
 demo, and not while viewing as somebody else. The target must be in the
 household, allowed in, and have no password. Four refusals carry the weight:
@@ -357,19 +359,19 @@ household, allowed in, and have no password. Four refusals carry the weight:
 1. **Not for yourself.** You have a session; set your own password in
    Settings.
 2. **Not for somebody who already has a password.** A link sets a password
-   without asking for the old one — a reset. A reset another member can
+   without asking for the old one, so it is a reset. A reset another member can
    perform is a takeover, so they change their own in Settings, and a
    forgotten one is reset by whoever runs the server.
 3. **Not for somebody who has ever signed in.** A member who signs in with
    Google or OIDC has no password either, and a link made for them would add
-   a second way in that they never asked for — a takeover by another route.
+   a second way in that they never asked for: a takeover by another route.
    Every sign-in sets `last_seen_at`, so only somebody who has never been in
    counts as a newcomer; anyone else sets their own password in Settings or
    gets a link from whoever runs the server.
 4. **Not for somebody who holds records the issuer cannot see**: a private
    account or insurance policy, a personal budget with anything in it, saved
    statement-password details (PAN, date of birth), a connected mailbox, or
-   tax figures. Whoever makes a link can use it instead of passing it on — set
+   tax figures. Whoever makes a link can use it instead of passing it on: set
    the password, sign in as that member and read everything private to them.
    Per-member privacy (`docs/privacy.md`) would hold only until somebody
    pressed a button. The refusal says only *that* there is something private,
@@ -378,19 +380,19 @@ household, allowed in, and have no password. Four refusals carry the weight:
 The last three rules are checked again when the link is used, against
 the member who made it: a link made for a newcomer who has since opened a
 private account, signed in some other way, or set a password, does not
-work — and nor does one made by a member who has since been removed.
+work, and nor does one made by a member who has since been removed.
 
 **The server command** (`npm run password-link`, in
 [operations](operations.md#password-links)) is how the refused cases are
-handled. It is held only to the rules about the target — in the household,
-and no password unless `--reset` is given — because whoever runs the server can
+handled. It is held only to the rules about the target (in the household,
+and no password unless `--reset` is given), because whoever runs the server can
 already read the database file (out of scope above), so a link from there
 discloses nothing new. `--reset` clears an existing password and signs the
 member out everywhere before the link is made.
 
 ### Errors the household is allowed to see
 
-Three kinds, and the difference is not cosmetic.
+There are three kinds:
 
 | Thrown | Answers | Recorded as a fault? |
 |---|---|---|
@@ -399,7 +401,7 @@ Three kinds, and the difference is not cosmetic.
 | `HttpError` (`src/http/router.ts`) | its own status | No |
 | anything else | 500, *"Something went wrong"* | **Yes** |
 
-The last row is why this matters beyond politeness. An unexpected throw is
+The last row is why this matters. An unexpected throw is
 recorded as a genuine defect, and a mistyped id in a URL once did exactly that:
 the failed check reached the health page, the health check reported the instance
 unhealthy, the platform stopped routing to it, and the public demo was down for
@@ -407,10 +409,10 @@ twenty-four hours. Somebody guessing a URL must not be able to do that.
 
 `Missing` exists so the domain can say "that is not here" without reaching for
 the HTTP layer, which it must not depend on. It extends `Refusal` so both places
-that already treat a refusal as deliberate — `main.ts` and the test harness —
+that already treat a refusal as deliberate (`main.ts` and the test harness)
 needed no change at all.
 
-`src/web/no-crash.test.ts` holds the line: every POST route, given four shapes of
+`src/web/no-crash.test.ts` enforces this: every POST route, given four shapes of
 bad body, and every id-addressed route given an id that names nothing. A 500
 from any of them fails the suite.
 
@@ -420,11 +422,11 @@ from any of them fails the suite.
 as "password hash with insufficient computational effort". They are not password
 hashes. Nothing in that file stores or verifies a credential: they are the
 key-derivation steps ISO 32000 specifies for opening a PDF somebody else
-encrypted, so the algorithm is a property of the file rather than a choice. MD5
-replaced with scrypt there is not a hardened decryptor, it is one that cannot
-open the statement. The SHA-256 in Algorithm 2.B is additionally only the seed
+encrypted, so the algorithm is a property of the file rather than a choice. Replacing
+MD5 with scrypt there would not harden the decryptor; it would stop it opening
+the statement. The SHA-256 in Algorithm 2.B is additionally only the seed
 of a loop that runs at least sixty-four further rounds over sixty-four
-repetitions of the password; the scanner sees the first line of it.
+repetitions of the password; the scanner sees only the first line of it.
 
 `src/auth/tokens.ts` is reported the same way: it hashes API tokens and OAuth
 codes and refresh tokens with SHA-256. Each of those is 32 random bytes the
@@ -433,14 +435,14 @@ slow every request, which is authenticated by looking the hash up.
 
 Each site carries a `codeql[js/insufficient-password-hash]` comment and the
 reason. The alerts are dismissed as false positives rather than left open,
-because a security tab with three permanent known-good entries is a security tab
-nobody reads.
+because three permanent known-good entries would make the security tab easy
+to ignore.
 
 ### Regexes that look like sanitizers, and are not
 
 Two more alerts flag regex `.replace()` calls shaped like an HTML or XML
-sanitizer — "bad HTML filtering regexp" and "incomplete multi-character
-sanitization" — in test files, not in anything that touches a browser.
+sanitizer ("bad HTML filtering regexp" and "incomplete multi-character
+sanitization") in test files, not in anything that touches a browser.
 
 `src/web/iso-dates.test.ts`'s `visibleText()` strips tags from a test's own
 fetch of this app's server-rendered response, so it can search what a person
@@ -450,8 +452,8 @@ confuses an assertion, at most, not a browser.
 
 `src/web/sitemap.test.ts` strips XML comments from `website/sitemap.xml`
 before checking its `<loc>` elements. That file is committed to this
-repository, never attacker-supplied, and XML comments cannot nest — `--` is
-forbidden inside comment content by the spec — so there is no valid document
+repository, never attacker-supplied, and XML comments cannot nest (`--` is
+forbidden inside comment content by the spec), so there is no valid document
 where the overlap the query warns about (a delimiter pair reassembling from
 the pieces either side of a removed match) can arise.
 

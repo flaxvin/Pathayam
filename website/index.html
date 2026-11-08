@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pathayam</title>
-<meta name="description" content="Envelope budgeting built for Indian banking. Self-hosted, source available, and the data stays on your machine. Ask Claude, ChatGPT or Gemini about it; read-only unless you allow changes.">
+<meta name="description" content="Envelope budgeting designed for Indian banking. Self-hosted and source available, with your data on your own machine. Ask Claude, ChatGPT or Gemini about your budget, read-only unless you allow changes.">
 <link rel="stylesheet" href="fonts.css">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon.png" sizes="32x32" type="image/png">
@@ -53,10 +53,10 @@
 
   <section class="wrap hero">
     <a class="hero__new" href="#ask"><span class="pill">New</span> Ask Claude, ChatGPT or Gemini about your budget &rarr;</a>
-    <h1>Know where every rupee is going <span class="u">before</span> it goes.</h1>
+    <h1>Know where every rupee goes, <span class="u">before</span> you spend it.</h1>
     <p class="hero__sub">
-      Envelope budgeting built for the way Indian banking actually works — UPI
-      noise, cards on half a dozen cycles, and statements locked behind your PAN.
+      Envelope budgeting designed for how Indian households bank: UPI payments,
+      credit cards on different cycles, and password-protected statements.
     </p>
     <div class="actions hero__actions">
       <a class="btn btn--primary" href="demo.html">Try the live demo</a>
@@ -88,7 +88,7 @@
       <div class="row2__text">
         <p class="eyebrow">New · Connect an AI</p>
         <h2>Ask Claude, ChatGPT or Gemini about your money</h2>
-        <p class="lede">Connect the AI app you already use, and ask it the questions a spreadsheet never answers. It reads your own figures from Pathayam &mdash; the same envelopes, loans and tax estimate you see &mdash; and answers in plain words.</p>
+        <p class="lede">Connect the AI app you already use and ask it about your budget. It reads your figures from Pathayam (the same envelopes, loans and tax estimate you see) and answers in plain words.</p>
         <ul class="checks" style="margin-top:1.5rem">
           <li>&ldquo;Where did the grocery money go this quarter?&rdquo;</li>
           <li>&ldquo;Can we prepay the home loan, and what would it save?&rdquo;</li>
@@ -100,7 +100,7 @@
           <a class="btn btn--ghost" href="guides.html#connect-ai">Set it up</a>
         </div>
         <p class="tier__gst" style="margin-top:.75rem">Self-hosted, and on the hosted Household and Power plans. Not on Solo.</p>
-        <p class="hero__fine" style="text-align:left;margin-top:1rem">What an AI reads is sent to that AI&rsquo;s provider. Connect nothing, and nothing goes anywhere.</p>
+        <p class="hero__fine" style="text-align:left;margin-top:1rem">What an AI reads is sent to that AI&rsquo;s provider. If you don&rsquo;t connect one, nothing is sent anywhere.</p>
       </div>
       <figure class="chat">
         <div class="chat__bar"><b>Claude</b> · Pathayam connector <span class="chat__live">Read-only</span></div>
@@ -108,7 +108,7 @@
           <p class="chat__you">Where did the grocery money go this quarter?</p>
           <p class="chat__tool">Pathayam <code>spending</code> <code>budget_month</code></p>
           <div class="chat__ai">
-            <p>Groceries took <span class="m">₹54,180</span> from July to September, against <span class="m">₹48,000</span> assigned &mdash; <span class="m">₹6,180</span> over.</p>
+            <p>Groceries took <span class="m">₹54,180</span> from July to September, against <span class="m">₹48,000</span> assigned, so <span class="m">₹6,180</span> over.</p>
             <ul>
               <li>Online orders: <span class="m">₹29,350</span></li>
               <li>The vegetable shop, by UPI: <span class="m">₹15,620</span></li>
@@ -154,49 +154,49 @@
   <section class="sec">
     <div class="wrap">
       <div class="center" style="margin-bottom:2.5rem">
-        <h2 class="h-sec">What do you want to fix?</h2>
-        <p class="lede">Pick the one that sounds like your month.</p>
+        <h2 class="h-sec">Start with what you want to fix</h2>
+        <p class="lede">Choose the one that sounds most like your month.</p>
       </div>
       <div class="chooser">
       <a class="choice" href="features.html#engine">
         <span class="choice__icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M11 4a7 7 0 1 0 0 14 7 7 0 0 0 0-14zM16 16l5 5"/></svg></span>
         <h3>Money disappears and I cannot say where</h3>
-        <p>Every rupee is assigned to a job before it is spent, so the month is decided in advance rather than reconstructed afterwards.</p>
+        <p>Every rupee is given a job before you spend it, so you plan the month in advance instead of piecing it together afterwards.</p>
         <span class="choice__go">Show me →</span>
       </a>
       <a class="choice" href="features.html#engine">
         <span class="choice__icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="2.5" y="5" width="19" height="14" rx="2.5"/><path d="M2.5 10h19"/></svg></span>
         <h3>My credit cards are out of control</h3>
-        <p>Seven cards on seven cycles, ranked by what falls due next — and spending on one reserves the cash to clear it the moment it lands.</p>
+        <p>Seven cards on seven cycles, ranked by what falls due next. Spending on a card sets aside the cash to clear it as soon as the charge lands.</p>
         <span class="choice__go">Show me →</span>
       </a>
       <a class="choice" href="features.html#ingestion">
         <span class="choice__icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 13h5l1.5 3h5L16 13h5"/><path d="M3 13 6 4h12l3 9v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg></span>
         <h3>Entering everything by hand is too much work</h3>
-        <p>Statements, CSVs, bank alerts and your history from YNAB or Actual become a review queue. Nothing posts itself, but nothing needs retyping either.</p>
+        <p>Statements, CSVs, bank alerts and your history from YNAB or Actual go into a review queue. Nothing is posted until you approve it, and nothing needs retyping.</p>
         <span class="choice__go">Show me →</span>
       </a>
       <a class="choice" href="demo.html">
         <span class="choice__icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M3 10h18M8 3v4M16 3v4"/></svg></span>
         <h3>I am always spending this month&rsquo;s income</h3>
-        <p>Hold this month's income for next month, and keep holding, until you are spending money that arrived weeks ago.</p>
+        <p>Hold this month's income for next month, and keep doing so until you are living on money that arrived weeks earlier.</p>
         <span class="choice__go">Show me →</span>
       </a>
       <a class="choice" href="features.html#debt">
         <span class="choice__icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 4v16M6 8h12M4 8l-2 6h4zM20 8l2 6h-4z"/></svg></span>
         <h3>I do not know what my loans really cost</h3>
-        <p>Real cost, the reducing rate behind a flat quote, and what prepaying actually saves — in tenure and in rupees.</p>
+        <p>See the real cost, the reducing rate behind a flat quote, and what prepaying saves in tenure and in rupees.</p>
         <span class="choice__go">Show me →</span>
       </a>
       <a class="choice" href="features.html#assets">
         <span class="choice__icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="12" r="8.5"/><path d="M12 7v5l3.5 2"/></svg></span>
         <h3>I do not know if I can ever stop working</h3>
-        <p>A target built from what you actually spent, against the assets that could actually pay for it &mdash; and the years a locked provident fund leaves uncovered.</p>
+        <p>A target based on what you actually spent, measured against the assets that could pay for it, including the years a locked provident fund leaves uncovered.</p>
         <span class="choice__go">Show me &rarr;</span>
       </a>
       <a class="choice" href="features.html#ai">
         <span class="choice__icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/><path d="M8.5 10.5h.01M12 10.5h.01M15.5 10.5h.01"/></svg></span>
-        <h3>I just want to ask a question about my money</h3>
+        <h3>I want to ask a question about my money</h3>
         <p>Connect Claude, ChatGPT or Gemini and ask it in plain words. It reads your figures, and changes nothing unless you allow it.</p>
         <span class="choice__go">Show me &rarr;</span>
       </a>
@@ -215,10 +215,10 @@
     <div class="row2">
       <div class="row2__text">
         <h2>Give every rupee a job</h2>
-        <p class="lede">Income arrives and you hand it out — rent, groceries, the card bill, the thing in March you keep forgetting. When Ready to Assign hits zero, the month is decided.</p>
+        <p class="lede">When income arrives, you assign it: rent, groceries, the card bill, the yearly payment in March that is easy to forget. When Ready to Assign reaches zero, your month is planned.</p>
         <ul class="checks" style="margin-top:1.5rem">
           <li>Rollover carries every leftover, and every overspend, into next month</li>
-          <li>Overspending is shown, never hidden — cover it now or let it reduce next month</li>
+          <li>Overspending is always shown. Cover it now, or let it reduce next month</li>
           <li>Targets, and one tap to fund all of them in the order you arranged</li>
         </ul>
       </div>
@@ -244,39 +244,39 @@
       <figure class="frame">
         <picture>
           <source media="(max-width: 44rem)" srcset="img/cards-mobile.webp" width="840" height="1800">
-          <img src="img/cards.webp" width="2800" height="2748" loading="lazy" alt="Cards — due date first, with what is unfunded.">
+          <img src="img/cards.webp" width="2800" height="2748" loading="lazy" alt="Cards, due date first, with what is unfunded.">
         </picture>
-        <figcaption>Cards — due date first, with what is unfunded.</figcaption>
+        <figcaption>Cards, due date first, with what is unfunded.</figcaption>
       </figure>
     </div>
 
     <div class="row2">
       <div class="row2__text">
-        <h2>Money gets itself in</h2>
-        <p class="lede">Twelve Indian banks' statement PDFs, opened in-process even when they are password-protected. CSVs, bank alerts, a consolidated statement for your holdings, SafeGold statements for digital gold, and the exports of YNAB and Actual Budget if you are moving across.</p>
+        <h2>Bring your transactions in without retyping</h2>
+        <p class="lede">Statement PDFs from twelve Indian banks, opened in-process even when they are password-protected. Also CSVs, bank alerts, a consolidated statement for your holdings, SafeGold statements for digital gold, and exports from YNAB and Actual Budget if you are switching over.</p>
         <ul class="checks" style="margin-top:1.5rem">
           <li>Five dedupe tiers, so one purchase never lands twice</li>
           <li>Every parse checked against the statement's own closing balance</li>
-          <li>File a payee twice and a rule is proposed — never applied behind your back</li>
+          <li>File a payee twice and a rule is proposed, never applied without your approval</li>
         </ul>
       </div>
       <figure class="frame">
         <picture>
           <source media="(max-width: 44rem)" srcset="img/review-mobile.webp" width="840" height="1800">
-          <img src="img/review.webp" width="2800" height="3468" loading="lazy" alt="Nothing posts itself. Everything waits for a person.">
+          <img src="img/review.webp" width="2800" height="3468" loading="lazy" alt="The review queue: nothing is posted until you review it.">
         </picture>
-        <figcaption>Nothing posts itself. Everything waits for a person.</figcaption>
+        <figcaption>Nothing is posted until you review it.</figcaption>
       </figure>
     </div>
 
     <div class="row2 row2--flip">
       <div class="row2__text">
         <h2>Know what the whole picture is worth</h2>
-        <p class="lede">Holdings as units with FIFO lots, so cost basis and XIRR are real rather than estimated. Net worth split into what you saved, what the market and the exchange rate did, and what you paid off &mdash; including what you owe family &mdash; and the parts add up to the change.</p>
+        <p class="lede">Holdings are tracked as units with FIFO lots, so cost basis and XIRR are exact rather than estimated. Net worth is split into what you saved, what the market and the exchange rate did, and what you paid off (including what you owe family), and the parts add up to the total change.</p>
         <ul class="checks" style="margin-top:1.5rem">
           <li>Mutual funds and currency rates refresh themselves; every price carries its date</li>
           <li>Fixed and recurring deposits, PPF and EPF value themselves from their terms; gold and anything else hand-valued is updated in one sitting</li>
-          <li>None of it ever appears on the budget screen — growth is not income</li>
+          <li>None of it appears on the budget screen, because growth is not income</li>
         </ul>
       </div>
       <figure class="frame">
@@ -294,18 +294,18 @@
     <div class="wrap">
       <div class="center" style="margin-bottom:2.5rem">
         <h2 class="h-sec">Three things it will not do</h2>
-        <p class="lede">The promises are as much about what is absent.</p>
+        <p class="lede">Some of our commitments are about what Pathayam leaves out.</p>
       </div>
       <div class="cards">
         <div class="card">
           <span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="4.5" y="10" width="15" height="10" rx="2.5"/><path d="M8 10V7a4 4 0 0 1 8 0v3"/></svg></span>
           <h3>Ask you to trust anybody</h3>
-          <p>No telemetry, no analytics, no third party &mdash; not even to sign in, since a password is built in and Google is optional. Self-host and nothing leaves your machine at all, unless you connect an AI yourself; host with us and your data sits in its own database, never a shared table with your row in it.</p>
+          <p>No telemetry, no analytics and no third parties, even for sign-in: a password is built in and Google is optional. Self-host, and nothing leaves your machine unless you connect an AI yourself. Host with us, and your data has its own database, never a row in a shared table.</p>
         </div>
         <div class="card">
           <span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></span>
           <h3>Post anything behind your back</h3>
-          <p>Every imported row waits for a person, with its raw text kept beside it. Rules are proposed, never silently applied, and each proposal states what it inferred from.</p>
+          <p>Every imported row waits for your review, with its raw text kept beside it. Rules are proposed, never applied silently, and each proposal shows what it was based on.</p>
         </div>
         <div class="card">
           <span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 16V4M8 8l4-4 4 4"/><path d="M4 15v3a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-3"/></svg></span>
@@ -319,12 +319,11 @@
   <section class="sec sec--band" id="request">
     <div class="wrap center">
       <p class="eyebrow">Hosted</p>
-      <h2 class="h-sec">Would you rather not run a container?</h2>
+      <h2 class="h-sec">Let us host it for you</h2>
       <p class="lede" style="margin-bottom:1.75rem;max-width:52ch">
-        Ask for an instance and we will set one up for you &mdash; your own
-        server, your own database, nothing shared with another household. From
-        &#8377;249 a month. Tell us where to write and we will come back to you
-        to agree the details.
+        We'll set up a dedicated instance for your household, with its own
+        server and database. From &#8377;249 a month. Leave your email and
+        we'll get in touch to agree the details.
       </p>
       <form class="waitlist" data-waitlist="home">
           <input type="text" name="company" tabindex="-1" autocomplete="off"
@@ -335,7 +334,7 @@
           <button class="btn btn--primary" type="submit">Request an instance</button>
         </div>
         <p class="waitlist__msg" data-waitlist-msg role="status"></p>
-        <p class="waitlist__note">No spam, no newsletter. A person reads this and replies.</p>
+        <p class="waitlist__note">No spam or newsletters. We'll reply to agree the details.</p>
       </form>
     </div>
   </section>
@@ -343,11 +342,11 @@
   <section class="sec">
     <div class="wrap">
       <div class="callout">
-        <h2>Two ways in, and one of them is free forever</h2>
+        <h2>Two ways to get started, one of them free forever</h2>
         <p>
-          Run it yourself in five minutes &mdash; one container, your machine,
-          every feature. Or ask for an instance and we will run it for you, on
-          your own server.
+          Run it yourself in five minutes, with one container on your machine
+          and every feature included. Or request an instance and we'll run it
+          for you on your own server.
         </p>
         <a class="btn btn--primary" href="https://github.com/flaxvin/Pathayam">Get the source</a>
         <a class="btn btn--ghost" href="guides.html">Read the setup guide</a>
@@ -389,18 +388,19 @@
       <div>
         <h3 class="foot__h">The name</h3>
         <ul>
-          <li><span class="mal">പത്തായം</span> — the wooden chest
+          <li><span class="mal">പത്തായം</span>: the wooden chest
               that held a Kerala household's harvest, filled once and
-              drawn from deliberately.</li>
+              drawn from with care.</li>
         </ul>
       </div>
     </div>
     <p class="foot__note">
       Run it yourself and your data stays on your machine: nothing is sent
-      anywhere unless you connect an AI app yourself. Hosted instances are set up by request. Every figure and name in the screenshots
+      anywhere unless you connect an AI app yourself. Hosted plans are available on request. Every figure and name in the screenshots
       is fictional.
     </p>
     <p class="foot__legal">
+      A product of <a href="https://flaxvin.tech">Flaxvin Technologies</a> ·
       <a href="terms.html">Terms of service</a> ·
       <a href="privacy.html">Privacy policy</a> ·
       <a href="terms.html#software">Licence</a> ·

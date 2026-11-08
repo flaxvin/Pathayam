@@ -1,4 +1,4 @@
-# Engine derivation — the identity the budget must satisfy
+# Engine derivation: the identity the budget must satisfy
 
 **Implementation note, not a design doc.** This records the arithmetic behind
 `src/engine/`, so the rules in `02` §4 can be checked against something
@@ -25,7 +25,7 @@ being computed: that envelope gives an absorbed credit overspend back at the
 rollover (§5.1).
 
 Each term is defined below. If a change to the engine breaks this equation, the
-change is wrong — `src/engine/engine.test.ts` asserts it after every scenario,
+change is wrong. `src/engine/engine.test.ts` asserts it after every scenario,
 which is the cheapest possible guard against the `05` §7 risk of "engine
 semantics get subtly wrong and are discovered in month four".
 
@@ -51,7 +51,7 @@ Account balance = opening balance + Σ of its transaction amounts.
 
 ---
 
-## 3. `to_budget` — what actually reaches Ready to Assign
+## 3. `to_budget`: what actually reaches Ready to Assign
 
 For each month `m`:
 
@@ -68,8 +68,8 @@ Three consequences, all of them intended:
   an opening balance "MUST arrive in RTA as income").
 - A **categorised spend** contributes `amount − amount = 0`. It reduces the
   account balance and the category balance equally, and never touches RTA.
-- An **uncategorised spend** reduces RTA directly. This is honest — the money
-  is gone and no envelope recorded it — and it is why F4.1 flags an
+- An **uncategorised spend** reduces RTA directly. This is accurate (the money
+  is gone and no envelope recorded it), and it is why F4.1 flags an
   uncategorised transaction as needing attention.
 
 **Transfers are excluded entirely.** Between two budget accounts they would net
@@ -96,10 +96,10 @@ then spent never re-enters the sum. Assign ₹1,00,000 in January and spend
 nothing: February's RTA is `1,00,000 − 1,00,000 = 0`, and the money is visible
 in the category where it actually sits.
 
-**The known wart.** Viewing a *past* month subtracts assignments made in months
+**A known limitation.** Viewing a *past* month subtracts assignments made in months
 since, so a July view in December can read lower than July ever did. This
-follows R2 literally. It is contained by itemising the breakdown — the RTA
-popover shows "assigned in future months" as its own line — and the historical
+follows R2 literally. It is contained by itemising the breakdown (the RTA
+popover shows "assigned in future months" as its own line), and the historical
 answer proper comes from the as-of-date view (`08` F25.11).
 
 ### R2's worked example, and the state it leaves implicit
@@ -110,7 +110,7 @@ answer proper comes from the as-of-date view (`08` F25.11).
 
 The example states its outputs but not the July that produced them, and **not
 every July reaching those inputs gives ₹17,500**. If July ends with every
-category at zero, the answer is ₹20,000, not ₹17,500 — because a cash
+category at zero, the answer is ₹20,000, not ₹17,500, because a cash
 overspend has already left the bank, so it is inside the ₹1,20,000 balance
 *and* subtracted again as the carry.
 
@@ -139,7 +139,7 @@ so the assumption is visible rather than buried.
 
 ---
 
-## 5. Credit cards — R6 without synthetic transactions
+## 5. Credit cards: R6 without synthetic transactions
 
 The payment category's **activity is derived, never stored**:
 
@@ -161,7 +161,7 @@ change in the debt:
 nothing up, so it must not raise the envelope. A blank (no-envelope) line of a
 split card charge or refund is unfiled in exactly this sense: only the split's
 filed lines move the envelope. A card's transfer leg counts as
-filed — it is a card *payment* — only while its partner is live and on a budget
+filed (it is a card *payment*) only while its partner is live and on a budget
 account or another card. When the partner is on a **tracking** account (a
 wallet top-up, an EMI on a loan tracked off-budget) or is gone, the leg is an
 unfiled card movement: the debt moves, the envelope does not. Counting it as a
@@ -170,7 +170,7 @@ identity failed by the full amount.
 
 **Across budgets** the payment is met by the claim between the two budgets
 (`crossCardPaymentSql`), not by the payer's Ready to Assign. The payer leg can be
-a budget account *or another card* — a balance transfer from one budget's card
+a budget account *or another card*: a balance transfer from one budget's card
 to another's moves both payment envelopes, each by the other budget's debt, and
 only the claim squares them. Card to card both legs are on cards, so only the
 outgoing leg (amount < 0) is read as the payer; reading both would raise the
@@ -187,14 +187,14 @@ actual card transactions behind it.
 
 **Add-on cards** (`09` §4) need nothing here: an add-on is a card *on* the
 account, so its spending is already inside the same sum, settled by the same
-payment category. The `card_id` column is what makes R6.c/R6.d — which card,
-which member — answerable.
+payment category. The `card_id` column is what makes R6.c/R6.d (which card,
+which member) answerable.
 
 ### 5.1 The unfunded figure cannot be derived by subtraction
 
 R6 describes the warning as "the payment category holds less than the card
-balance". Implemented literally that never fires, and the reason is worth
-recording because it is not obvious:
+balance". Implemented literally that never fires. The reason is recorded here
+because it is not obvious:
 
 ```
 payment envelope balance = assigned + (− card flow)
@@ -205,7 +205,7 @@ The two move together by construction. Subtracting one from the other gives
 `assigned`, never a shortfall.
 
 What actually goes missing is upstream. A ₹4,200 card purchase from a category
-holding ₹1,000 still moves ₹4,200 into the payment envelope — but ₹3,200 of it
+holding ₹1,000 still moves ₹4,200 into the payment envelope, but ₹3,200 of it
 came from an envelope that had nothing to give. The envelope *looks* funded;
 ₹3,200 of it is not real money.
 
@@ -224,13 +224,13 @@ the credit overspend back** (BUDGET-18): the category reopens at zero and the
 envelope opens next month holding only what categories gave, so from then on
 `debt − payment envelope` *is* the shortfall. It used to keep the inflated
 balance, with the gap parked in a running `unfundedCreditAbsorbed` term that
-nothing discharged — pay the card from the bank and the envelope spent money
+nothing discharged: pay the card from the bank and the envelope spent money
 that never existed, while Ready to Assign went on offering the charge. Now
 paying beyond what the envelope holds overspends it in cash, and R4 takes it
 from Ready to Assign. `unfundedCreditAbsorbed` remains only for a card whose
 payment envelope is outside the budget being computed.
 
-This only became visible by running the app against seeded data — every
+This only became visible by running the app against seeded data: every
 engine test passed while the warning could never fire. It is covered now by
 `engine.test.ts` under "a credit overspend leaves the card's balance partly
 unfunded".
@@ -261,13 +261,13 @@ budget account, so RTA is where the loss belongs.
 the negative rides on the category into the next month and RTA is untouched.
 
 Both preserve the identity in §1, which is what makes shipping both cheap
-rather than a rewrite — the difference is only *which* term absorbs the
+rather than a rewrite. The difference is only *which* term absorbs the
 negative. Both are implemented and tested; neither is a stub.
 
-**Credit overspend** never reduces RTA — no cash was created (R6). The category
+**Credit overspend** never reduces RTA, because no cash was created (R6). The category
 reopens at zero, the card's payment envelope drops by the same amount (so the
 identity needs no extra term), and the shortfall is the debt the envelope no
-longer covers — the figure S2b states in words: *"₹3,200 of this balance isn't
+longer covers: the figure S2b states in words: *"₹3,200 of this balance isn't
 funded yet"*. Only when the card is paid with money nobody assigned does cash
 leave, and that is a cash overspend of the payment envelope.
 
@@ -276,7 +276,7 @@ leave, and that is a cash overspend of the payment envelope.
 ## 7. Moving money (R5)
 
 A move is two assignment deltas in the same month: `−X` from the source, `+X`
-to the destination. `Σ assignments` is unchanged, so **RTA does not move** —
+to the destination. `Σ assignments` is unchanged, so **RTA does not move**,
 which is what J4 requires.
 
 The table stores the net assigned figure per (month, category); the *event log*
@@ -291,20 +291,20 @@ answer with "₹1,850 moved out to Eating Out on 14-08 by Priya" rather than
 *Added 11-09-2026 · B73–B75, B89–B90.*
 
 Everything above is derived from the ledger on every request. That is what makes
-R7.g possible — edit any month and every figure since re-derives, with no stored
-total to go stale — and it cost 580ms at twenty years of history.
+R7.g possible (edit any month and every figure since re-derives, with no stored
+total to go stale), and it cost 580ms at twenty years of history.
 
 Months older than six are now summarised into `month_rollups` and read back
 instead of rescanned. This does not change the arithmetic. What it changes is
-where the numbers that go *into* §1 come from, which is a distinction worth
-being careful about, because a summary that drifts from the ledger breaks the
+where the numbers that go *into* §1 come from. That distinction needs care,
+because a summary that drifts from the ledger breaks the
 identity without any of the rules above being wrong.
 
-Three things keep it honest:
+Three things keep it accurate:
 
 1. **Invalidation is a database trigger, not a call.** Any insert, update or
    delete on `transactions` or `transaction_splits` drops the rollup for the
-   affected month — both months, when a transaction moves between them — in the
+   affected month (both months, when a transaction moves between them) in the
    same statement. There is no code path, present or future, that can change a
    transaction and forget.
 
@@ -313,7 +313,7 @@ Three things keep it honest:
    transfers were internal to one budget, so moving an account between budgets
    changes history without touching a transaction: ₹400 moved Bank → Bank2 and
    sealed, then Bank2 moved into a personal budget, read ₹400 short through the
-   rollup in every month after. `updateAccount` — and undoing a move — drops
+   rollup in every month after. `updateAccount` (and undoing a move) drops
    every month the account has a transaction in (both legs of a transfer share
    a date, so that covers the partner too). The trigger should watch
    `budget_id` as well; until a migration adds that, the code does not rely on it.
@@ -325,10 +325,10 @@ Three things keep it honest:
 
 3. **The identity is asserted from a real database.** `engine/identity.test.ts`
    builds a household through the domain API and checks §1 over four months and
-   over thirty — once through the rollup, once bypassing it, and again for a
+   over thirty: once through the rollup, once bypassing it, and again for a
    month eighteen months back.
 
-The third point is the lesson. §1 was asserted after every scenario in
+The third point matters most. §1 was asserted after every scenario in
 `engine.test.ts`, but those scenarios are built by `Scenario` and handed to the
 engine directly, so **no test asserted the identity against input assembled from
 rows**. When the sealed-row dispatch absorbed a fourth fact into the wrong term,
@@ -336,6 +336,6 @@ every engine test stayed green: the engine was computing correctly from wrong
 numbers. The first suite to notice was one that started from the database.
 
 A test written to catch exactly this had also been passing, because it emptied
-the rollup and recomputed — and the next read rebuilt it on the way in, so both
+the rollup and recomputed, and the next read rebuilt it on the way in, so both
 sides of the comparison went through the rollup. If you add a cache here, the
 check that it agrees with the ledger has to be able to *not use the cache*.

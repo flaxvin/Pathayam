@@ -1,15 +1,15 @@
 # API reference
 
 This app is a **server-rendered web application first**. There is no separate
-"API server" — the same HTTP routes that render HTML also answer JSON, and a
+"API server": the same HTTP routes that render HTML also answer JSON, and a
 **personal API token** lets your own scripts reach a safe subset of them.
 
-This document is the contract for that surface: how to authenticate, what a
-token may and may not touch, how responses are shaped, and the machine-readable
-endpoints worth scripting against. It is generated from the code in
+This document describes that surface: how to authenticate, what a token can
+and cannot reach, how responses are shaped, and which machine-readable
+endpoints are best for scripts. It is generated from the code in
 [`src/app.ts`](../src/app.ts), [`src/auth/tokens.ts`](../src/auth/tokens.ts),
-and [`src/http/server.ts`](../src/http/server.ts) — where those disagree with
-this file, the code wins; please open an issue.
+and [`src/http/server.ts`](../src/http/server.ts). Where the code and this file
+disagree, the code is correct; please open an issue.
 
 - [Model at a glance](#model-at-a-glance)
 - [Authentication](#authentication)
@@ -38,15 +38,15 @@ this file, the code wins; please open an issue.
 | | |
 |---|---|
 | **Transport** | Plain HTTP/1.1. Behind a reverse proxy in production (TLS terminates there). |
-| **Base URL** | Your deployment's origin — `http://localhost:8080` in dev, e.g. `https://pathayam.example.com` in prod. |
+| **Base URL** | Your deployment's origin: `http://localhost:8080` in dev, e.g. `https://pathayam.example.com` in prod. |
 | **Two ways in** | A **session cookie** (`pathayam_session`, set by signing in through a browser) or a **bearer token** (`Authorization: Bearer bgt_…`, for scripts). |
 | **Token precedence** | A bearer token is honoured **only when there is no session cookie** on the request. Send one or the other, not both. |
 | **Identity** | A token acts *as the member who minted it*. Every write is attributed to that member and names the token in the event log (F30.5). |
 | **Format** | Send `Accept: application/json` to get JSON back from any route; otherwise you get HTML (or a redirect). |
-| **State** | Every mutation is an append-only event (R37) — so anything a token does is undoable and shows up in "explain this number". |
+| **State** | Every mutation is an append-only event (R37), so anything a token does can be undone and shows up in "explain this number". |
 
 There is **no OAuth, no API versioning path prefix, and no separate hostname**.
-The API is the app, narrowed by a token.
+The API is the app itself, limited by what the token may reach.
 
 ---
 
@@ -54,20 +54,20 @@ The API is the app, narrowed by a token.
 
 ### Minting a token
 
-Tokens are created **from the web UI only** — never over the API (a token that
-could mint tokens turns one leak into permanent access, F30.6). Sign in as a
+Tokens are created **from the web UI only**, never over the API (a token that
+could mint tokens would turn one leak into permanent access, F30.6). Sign in as a
 member and open **Settings → API tokens** (`/tokens`):
 
-1. Give the token a name (e.g. `nightly-export`) — this is what appears in the
+1. Give the token a name (e.g. `nightly-export`). This name appears in the
    event log next to everything it does.
 2. Choose a scope: **read** or **read-write**.
 3. Choose an expiry: 90 days, a year, or never. (The server takes a whole
    number of days from 1 to 3650, or none; anything else is refused with 422.)
 
-The secret is shown **exactly once**, at creation, and is never retrievable
-again — only a SHA-256 hash is stored, so the database cannot give it back even
-to the server (F30.4). Copy it immediately. If you lose it, revoke it and mint a
-new one.
+The secret is shown **exactly once**, at creation, and cannot be retrieved
+again. Only a SHA-256 hash is stored, so the database cannot give it back even
+to the server (F30.4). Copy it straight away. If you lose it, revoke it and mint
+a new one.
 
 A token looks like:
 
@@ -75,8 +75,8 @@ A token looks like:
 bgt_Xa3f9K2pLq7wYt0zR8sN1vB4cD6eF5gH2jK8mP0qRsT
 ```
 
-The `bgt_` prefix is a human hint for spotting it in a config file; the entropy
-is 32 random bytes, base64url-encoded.
+The `bgt_` prefix helps you spot it in a config file. The secret itself is
+32 random bytes, base64url-encoded.
 
 ### Using a token
 
@@ -88,12 +88,12 @@ curl -sS https://pathayam.example.com/export.json \
   -H "Accept: application/json"
 ```
 
-Revoked and expired tokens are rejected exactly like wrong ones — the server
-never tells you *which* it was. A token also stops working when its member is
+Revoked and expired tokens are rejected exactly like wrong ones, and the
+server never tells you *which* it was. A token also stops working when its member is
 removed from the household, as their sessions do, and none can be minted while
 viewing as another member. Each accepted request updates the token's
-`last_used_at`, which is how a household spots a token they forgot about
-(visible back in Settings → API tokens).
+`last_used_at`, which helps a household spot a token they forgot about
+(shown in Settings → API tokens).
 
 ### Scopes
 
@@ -102,8 +102,8 @@ viewing as another member. Each accepted request updates the token's
 | `read` | ✅ | ❌ `403 { "error": "That token is read-only." }` (except `POST /mcp`, whose tools are reads for a read token; see [ai.md](ai.md)) |
 | `read-write` | ✅ | ✅, except an AI connection's token (below) |
 
-An **AI connection's token** — one made on Connect an AI, or the access token
-of an app that signed in over OAuth — writes only through `POST /mcp`, whatever
+An **AI connection's token** (one made on Connect an AI, or the access token
+of an app that signed in over OAuth) writes only through `POST /mcp`, whatever
 its scope. Anywhere else a write is `403 { "error": "An AI connection's token
 changes things only through /mcp, and only with its tools." }`. A read-write
 one exists only where `AI_WRITE` allows changes and the member ticked "allow
@@ -114,8 +114,8 @@ Scope is fixed at mint time. To change it, revoke and re-mint.
 ### Writes and the same-origin check
 
 Every unsafe method (`POST`, and anything else that is not a read) must either
-carry a **bearer token** or come from this app's own pages — otherwise it is
-refused with `403`. It is what stops another site making a browser submit a
+carry a **bearer token** or come from this app's own pages. Otherwise it is
+refused with `403`. This stops another site from making a browser submit a
 form on somebody's behalf with their cookie attached. Two checks apply, in
 order:
 
@@ -133,12 +133,12 @@ order:
 
 **A token-authenticated call is exempt from both**, which is the case that
 matters here: your scripts send `Authorization: Bearer …` and no cookie, so
-there is no session for anybody to ride. Nothing extra to set. A request that
+there is no session for anybody to misuse. There is nothing extra to set. A request that
 also carries a session cookie is held to both checks whatever else it carries.
 
 A browser-side script using the session cookie instead does need to send an
-`Origin` belonging to the deployment — which `fetch` from a page of the app does
-on its own.
+`Origin` belonging to the deployment. `fetch` from a page of the app does this
+automatically.
 
 ### What a token can never reach
 
@@ -147,14 +147,14 @@ enforced as a deny-list in [`tokenMayReach`](../src/auth/tokens.ts)):
 
 | Prefix | Why it's blocked |
 |---|---|
-| `/tokens` | A token must not mint or revoke tokens — including itself. |
-| `/members` | The household allow-list — `/members/invite`, and `/members/:id/remove`. A token must not change who is allowed in. A settings sub-page for the same thing is denied alongside it, so it is covered before it exists. |
+| `/tokens` | A token must not mint or revoke tokens, including itself. |
+| `/members` | The household allow-list: `/members/invite` and `/members/:id/remove`. A token must not change who is allowed in. A settings sub-page for the same thing is denied alongside it, so it is covered before it exists. |
 | `/impersonate` | Impersonation is a session-only, logged human action (R38.12). |
 | `/auth` | Sign-in, SSO, and the dev-bypass state. |
 | `/signout` | Nothing for a token to sign out of. |
-| `/settings/password` | A password is a way in that does not need the token. A token that could set one would outlive its own revocation — and setting it signs the member's browsers out. |
-| `/sessions` | Signing the member's devices out is a human decision, not a script's. |
-| `/gmail/connect`, `/gmail/callback`, `/gmail/disconnect`, `/gmail/keys` | Linking or unlinking a mailbox, or changing which Google client it consents to, changes what can reach the household, not what the budget says. `/gmail/fetch` stays reachable. |
+| `/settings/password` | A password is a way in that does not need the token. A token that could set one would outlive its own revocation, and setting it signs the member's browsers out. |
+| `/sessions` | Signing the member's devices out is a decision for a person to make, so scripts cannot do it. |
+| `/gmail/connect`, `/gmail/callback`, `/gmail/disconnect`, `/gmail/keys` | Linking or unlinking a mailbox, or changing which Google client it consents to, changes what can reach the household. It does not change the budget itself. `/gmail/fetch` stays reachable. |
 | `/forwarding/create`, `/forwarding/remove` | Making, replacing or turning off a forwarding address changes what mail can reach Review. `/forwarding/retry` stays reachable. |
 | `/oauth` | Approving an AI app hands out a fresh token with its own refresh token; a token that could do that would outlive its own revocation. |
 
@@ -179,8 +179,8 @@ authorization spec (revision 2026-07-28); the code is
    resource and `BASE_URL` as the authorization server; its metadata (RFC 8414)
    names the endpoints below.
 3. The app registers itself (RFC 7591). Redirect URIs must be `https`, or
-   `http` on `localhost`, `127.0.0.1` or `[::1]` — matched on any port, for
-   native clients such as Claude Code and Gemini CLI. No fragments, no
+   `http` on `localhost`, `127.0.0.1` or `[::1]` (matched on any port, for
+   native clients such as Claude Code and Gemini CLI). No fragments, no
    credentials, at most 10. Public clients only (`token_endpoint_auth_method`
    is always `none`).
 4. The member, signed in, approves on `/oauth/authorize`. PKCE `S256` is
@@ -197,8 +197,8 @@ asked, and a connection approved with it gets `read-write` access tokens (the
 token response's `scope` is `read budget:write`). Whether it may write is read
 again at every refresh, so turning `AI_WRITE` off makes it read-only within the
 hour. Either way the token is an AI connection's, confined to `/mcp`.
-Everything above applies to it unchanged — the deny-list, the rate limit,
-revocation, member removal. Refresh tokens last 90 days and rotate on every
+Everything above applies to it unchanged: the deny-list, the rate limit,
+revocation and member removal. Refresh tokens last 90 days and rotate on every
 use; presenting an old one again ends the connection, as does using a code
 twice. Errors are RFC 6749 JSON (`invalid_grant`, `invalid_client`, …).
 
@@ -236,7 +236,7 @@ and every module that is off.
 ## Rate limiting
 
 Each token gets a **fixed window of 120 requests per 60 seconds**, counted
-independently of any browser session (F30.7) so a runaway script cannot lock the
+independently of any browser session (F30.7), so a runaway script cannot lock the
 household out of their own budget.
 
 When you exceed it:
@@ -257,7 +257,7 @@ resets if the server restarts.
 
 ## Requesting JSON
 
-Content negotiation is by the **`Accept` header** — nothing else. If it contains
+Content negotiation uses the **`Accept` header** only. If it contains
 `application/json`, you get JSON; otherwise you get HTML.
 
 ```bash
@@ -267,7 +267,7 @@ curl -H "Accept: application/json" .../move -X POST ...
 curl .../move -X POST ...
 ```
 
-This applies to *every* route, not just the machine endpoints. A `POST` you'd
+This applies to *every* route, whether or not it is a machine endpoint. A `POST` you'd
 normally make from a form returns, in JSON mode, the redirect target and a
 human message instead of a `303` (see below).
 
@@ -277,8 +277,8 @@ human message instead of a `303` (see below).
 
 Any mutation (`POST`) accepts an **`Idempotency-Key`** header (R36). Replaying a
 request with the same key, member, method, path and payload returns the original
-outcome instead of performing the action twice — the safe way to retry after a
-dropped connection.
+outcome instead of performing the action twice. This is the safe way to retry
+after a dropped connection.
 
 ```bash
 curl -sS .../add -X POST \
@@ -297,34 +297,34 @@ curl -sS .../add -X POST \
 Generate a UUID per logical action. Reusing a key across unrelated writes will
 mask the second one.
 
-Routes that ask a question before writing — the "Already reconciled"
-confirmation on an edit, delete or undo, the preview before applying a rule to
-history — answer the question afresh; only the write behind it is keyed. A
+Routes that ask a question before writing (the "Already reconciled"
+confirmation on an edit, delete or undo, and the preview before applying a rule
+to history) answer the question afresh; only the write behind it is keyed. A
 repeated reconcile shows the same checkpoint again rather than recording another.
 
 ---
 
 ## Response & error shapes
 
-**Successful mutation (JSON mode)** — a `200` with the redirect the browser
-*would* have followed and a message:
+**Successful mutation (JSON mode):** a `200` with the redirect the browser
+*would* have followed, and a message:
 
 ```json
 { "redirect": "/accounts/9f2…", "message": "Saved." }
 ```
 
-**Redirect (JSON mode)** — the same idea for plain redirects:
+**Redirect (JSON mode):** the same, for plain redirects:
 
 ```json
 { "redirect": "/review" }
 ```
 
-**Reads** — routes that render a page return HTML even in JSON mode unless the
+**Reads:** routes that render a page return HTML even in JSON mode, unless the
 route explicitly emits JSON. The endpoints under
 [Machine-readable endpoints](#machine-readable-endpoints) are the ones designed
 to be consumed as data.
 
-**Errors** — in JSON mode every error is `{ "error": "…" }` with the right
+**Errors:** in JSON mode every error is `{ "error": "…" }` with the right
 status code (without `Accept: application/json` the same message comes back as
 an HTML page):
 
@@ -353,12 +353,12 @@ These are the routes built to be scripted. All are `GET`, all are reachable by a
 ### `GET /healthz`
 
 A liveness probe for external monitoring (F27.3). Returns `200` while the
-instance can serve — the database answers — and `503` when it cannot. Nothing
+instance can serve (the database answers) and `503` when it cannot. Nothing
 recorded in the past (a failed request, a missed backup) changes the status
 code.
 
-Signed out, it says nothing else: the full diagnosis names counts, backup gaps
-and build details that are nobody's business but the household's.
+Signed out, it says nothing else, because the full diagnosis names counts,
+backup gaps and build details that are private to the household.
 
 ```bash
 curl -sS https://pathayam.example.com/healthz
@@ -391,7 +391,7 @@ the HTTP status.
 
 ### `GET /export.json`
 
-The **entire budget** as a single JSON document (F15) — the same export used for
+The **entire budget** as a single JSON document (F15), the same export used for
 backups. Served as a download.
 
 ```bash
@@ -401,8 +401,8 @@ curl -sS https://pathayam.example.com/export.json \
 ```
 
 > **Note:** the export deliberately excludes statement identity (PAN / DOB /
-> mobile) and Gmail refresh tokens — that data is never exported and never
-> travels (F15).
+> mobile) and Gmail refresh tokens. That data is never exported and never
+> leaves the instance (F15).
 
 ### `GET /export.csv`
 
@@ -422,9 +422,9 @@ last `months` months (default 12, 1 to 36), spending by envelope and the top
 goals, insurance and this financial year's tax estimate. Amounts are rupees
 (two decimals), dates `YYYY-MM-DD`, and `currency` is stated once at the top.
 
-It is what the member sees on screen and nothing more — another member's
-private accounts, loans, policies and personal budget are absent, totals
-included — and it is not a backup: there is no transaction list. A section
+It contains what the member sees on screen and nothing more: another member's
+private accounts, loans, policies and personal budget are left out, including
+from totals. It is not a backup, and there is no transaction list. A section
 whose feature is switched off reads `{ "enabled": false }`. Read-only, so a
 read token reaches it.
 
@@ -439,7 +439,7 @@ Available when the assets feature is enabled. One shape each (F19.13):
 
 | Endpoint | Contents |
 |---|---|
-| `GET /portfolio/holdings.csv` | Current holdings — units, average cost, price, value, gain. |
+| `GET /portfolio/holdings.csv` | Current holdings: units, average cost, price, value, gain. |
 | `GET /portfolio/lots.csv` | Individual FIFO lots with acquisition dates and costs. |
 | `GET /portfolio/prices.csv` | Price history per instrument. |
 | `GET /net-worth.csv` | The dated net-worth history. |
@@ -548,7 +548,7 @@ only (out of a token's reach).
 | POST | `/assign` | W | Assign to a category. |
 | GET/POST | `/move` | R/W | Move between envelopes. |
 | GET/POST | `/hold` | R/W | Hold income for next month. |
-| GET/POST | `/auto-assign` | R/W | Fund-to-target, with preview — for one budget (`?budget=`, else the last one viewed), from that budget's Ready to Assign. |
+| GET/POST | `/auto-assign` | R/W | Fund-to-target, with preview, for one budget (`?budget=`, else the last one viewed), from that budget's Ready to Assign. |
 | GET | `/overview` | R | Runway, due-soon bills, the month at a glance. |
 | POST | `/budgets/personal` | W | Create your own personal budget, if you do not have one (`15` §2). |
 | GET | `/more` | R | The hub of everything not in the primary nav. |
@@ -576,7 +576,7 @@ only (out of a token's reach).
 | GET | `/transfer` | R | The transfer form. Accounts whose value is derived (loans, family loans) are not offered. |
 | POST | `/transfer` | W | Transfer between accounts. |
 | GET | `/transaction/:id` | R | Transaction detail, splits, history. |
-| POST | `/transaction/:id` | W | Edit a transaction, including its envelope lines (same fields as `/add`). A legacy `category_id` is still read when no lines are sent; an *empty* one on an already-split transaction means "not mentioned", not "file it nowhere". **Partial edits:** a field you do not send keeps its stored value — `amount`, `direction`, `date`, `payee`, `memo`, `tags`, `owner_member_id`, the envelope lines, `cleared` and `reimbursable` — so `date=07-09-2026` alone moves only the date. A field you *do* send is applied: an empty `memo` clears it, an empty `payee` removes it, an empty `tags` removes them all, an empty `owner_member_id` makes it the household's; a blank `amount` is refused and a blank `date` keeps the old one. For the two flags, `cleared=1` / `reimbursable=1` sets and any other value (e.g. `0`) unsets. The web form also sends `cleared_present=1` and `reimbursable_present=1`, because an unticked checkbox sends nothing: a marker with no flag means "unticked", no marker and no flag means "not mentioned". |
+| POST | `/transaction/:id` | W | Edit a transaction, including its envelope lines (same fields as `/add`). A legacy `category_id` is still read when no lines are sent; an *empty* one on an already-split transaction means "not mentioned", not "file it nowhere". **Partial edits:** a field you do not send keeps its stored value (`amount`, `direction`, `date`, `payee`, `memo`, `tags`, `owner_member_id`, the envelope lines, `cleared` and `reimbursable`), so `date=07-09-2026` alone moves only the date. A field you *do* send is applied: an empty `memo` clears it, an empty `payee` removes it, an empty `tags` removes them all, an empty `owner_member_id` makes it the household's; a blank `amount` is refused and a blank `date` keeps the old one. For the two flags, `cleared=1` / `reimbursable=1` sets and any other value (e.g. `0`) unsets. The web form also sends `cleared_present=1` and `reimbursable_present=1`, because an unticked checkbox sends nothing: a marker with no flag means "unticked", no marker and no flag means "not mentioned". |
 | POST | `/transaction/:id/delete` | W | Delete (undoable). |
 | POST | `/transaction/:id/categorise` | W | File one transaction into an envelope. Also the learning signal (B100). |
 | POST | `/transaction/:id/settled` | W | Mark a reimbursable transaction as repaid. |
@@ -604,7 +604,7 @@ only (out of a token's reach).
 | GET | `/household` | R | What each member has committed to the shared budget this month. |
 | GET | `/members/:id/remove` | — | What removing a member does, and how the balance between you can end. Session only. |
 | POST | `/members/:id/remove` | — | Remove a member, settling what is outstanding first (`15` §6A). Session only. |
-| POST | `/members/:id/password-link` | — | A one-time link that sets another member's first password, shown once on the page it returns. Refused (422) for yourself, a member with a password, one who has signed in before, or one holding records you cannot see — `npm run password-link` on the server makes those. Session only. |
+| POST | `/members/:id/password-link` | — | A one-time link that sets another member's first password, shown once on the page it returns. Refused (422) for yourself, a member with a password, one who has signed in before, or one holding records you cannot see. For those, run `npm run password-link` on the server. Session only. |
 | POST | `/household/pick-up` | W | Commit more, taking on what the household is behind by. |
 | POST | `/household/call-it-even` | W | Close part of a balance by agreement; it becomes spending on the giving side. |
 | GET | `/categories` | R | Categories, for the budget being viewed (`?budget=`). |
@@ -622,7 +622,7 @@ only (out of a token's reach).
 |---|---|---|---|
 | GET | `/schedules` | R | Recurring items & cashflow calendar. |
 | GET | `/schedules/new` | R | The form for a new schedule. |
-| POST | `/schedules/new` · `/schedules/confirm` · `/schedules/dismiss` · `/schedules/:id/paid` · `/schedules/:id/skip` | W | Manage schedules. A schedule may be money in or money out; `/schedules/new` takes envelope lines like `/add`. `recurrence` must be one of the eight the app knows — an unrecognised value is refused rather than silently treated as monthly. With `monthly-nth-weekday`, `recurrence_ordinal` (1–4, or −1 for last) and `recurrence_weekday` (0 = Sunday) say which one, and `next_due` is moved to the first such day on or after it. |
+| POST | `/schedules/new` · `/schedules/confirm` · `/schedules/dismiss` · `/schedules/:id/paid` · `/schedules/:id/skip` | W | Manage schedules. A schedule may be money in or money out; `/schedules/new` takes envelope lines like `/add`. `recurrence` must be one of the eight the app knows. An unrecognised value is refused, and is never treated as monthly. With `monthly-nth-weekday`, `recurrence_ordinal` (1–4, or −1 for last) and `recurrence_weekday` (0 = Sunday) say which one, and `next_due` is moved to the first such day on or after it. |
 | POST | `/schedules/:id/edit` · `/schedules/:id/delete` | W | Change or remove a schedule, including its envelope lines (`split_category_N` / `split_amount_N`; the first carries no amount and takes the remainder). A new amount with no line fields re-files the stored lines the same way, or is refused when the other lines leave nothing for the first. Removing leaves everything it already recorded. |
 | GET | `/goals` | R | Savings goals. |
 | POST | `/goals/new` · `/goals/:id/complete` · `/goals/:id/edit` · `/goals/:id/delete` | W | Manage goals. |
@@ -720,7 +720,7 @@ only (out of a token's reach).
 
 ### Session-only (out of a token's reach)
 
-These return `403` to any token — use a browser session.
+These return `403` to any token. Use a browser session instead.
 
 | Method | Path | Why |
 |---|---|---|
@@ -768,11 +768,12 @@ session.
 - **Prefer `read` scope.** Most automation (backups, dashboards, monitoring)
   never needs to write. A read token that leaks cannot change your budget.
 - **Set an expiry** for tokens tied to a specific task.
-- **A token is narrower than a session by design** — it cannot authenticate a
-  human, impersonate, mint tokens, or change the household allow-list, whatever
-  its scope. This is a deny-list, so new routes are *unreachable by tokens until
-  proven safe*, not the reverse.
-- **Everything a token does is logged and undoable** — attributed to the member,
-  naming the token (F30.5), as an append-only event (R37).
+- **A token is narrower than a session by design.** It cannot authenticate a
+  person, impersonate, mint tokens, or change the household allow-list, whatever
+  its scope. This is enforced by a deny-list of path prefixes: any route under
+  a listed prefix, including one added later, is refused to tokens.
+- **Everything a token does is logged and can be undone.** Each change is
+  attributed to the member, names the token (F30.5) and is stored as an
+  append-only event (R37).
 - **Never send identity or credentials over the API.** Statement identity and
   Gmail tokens are not exportable and not returned by any endpoint.

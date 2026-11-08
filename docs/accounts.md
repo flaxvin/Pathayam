@@ -7,16 +7,16 @@ determines what the interface calls it and which extra fields apply.
 
 | Kind | Subtypes | In the budget | In net worth |
 |---|---|---|---|
-| `budget` | `savings`, `current`, `cash`, `wallet` | Yes — feeds Ready to Assign | Yes, as cash |
+| `budget` | `savings`, `current`, `cash`, `wallet` | Yes, feeds Ready to Assign | Yes, as cash |
 | `credit` | `credit-card`, `charge-card` | Owns a payment envelope | Yes, as a liability |
 | `tracking` | `savings`, `current`, `asset`, `liability`, `loan`, `emi`, `fixed-deposit`, `recurring-deposit`, `family-loan` | No | Yes |
 
-`savings` and `current` appear under both `budget` and `tracking`, and that is
-deliberate: whether you budget from an account is a decision about the account,
-not a fact about what sort it is. A salary account you assign every rupee of and
+`savings` and `current` appear under both `budget` and `tracking` on purpose.
+Whether you budget from an account is your decision about that account, and does
+not depend on what sort of account it is. A salary account you assign every rupee of and
 a parent's account you only keep an eye on are both savings accounts.
 
-Because of that, the account form offers the **pair** as one choice — the option
+Because of that, the account form offers the **pair** as one choice: the option
 value is `kind:subtype`, grouped under what each kind means. It used to ask for
 the two separately and offer every subtype of every kind in one flat list, so
 `budget` + `credit-card` was a click away and produced a 500 with no body, which
@@ -39,23 +39,23 @@ then reflected nowhere:
 `DERIVED_VALUE_SUBTYPES` is that list. Those accounts are not offered when
 adding a transaction, they show their derived figure on the Accounts screen
 rather than a misleading ₹0, and `accountDrifts` reports any gap already
-recorded. Everything else — including deposits and tracked savings — behaves
-ordinarily, because posting to them is how you say what happened.
+recorded. Everything else, including deposits and tracked savings, behaves
+normally, because posting to them is how you record what happened.
 
 Fields by subtype:
 
 - `credit-card`, `charge-card`: `credit_limit`, `statement_day`, `due_day`.
 - `fixed-deposit`, `recurring-deposit`, `asset`, `liability`: worth the balance
-  their register adds up to. **Revalue is not offered on these**, and that is
-  the point of them being tracking accounts: interest credited to a deposit is a
-  transaction, and the balance moves with it. A stated figure would override the
+  their register adds up to. **Revalue is not offered on these**, which is why
+  they are tracking accounts: interest credited to a deposit is a transaction,
+  and the balance moves with it. A stated figure would override the
   balance (B56) and silently stop the interest counting from that moment on.
   The exception is a deposit given its **terms** (principal or instalment, rate,
   compounding, start, maturity): it values itself from them instead of from its
-  balance, and then accepts a hand valuation, which wins when dated on or after
-  the terms' basis date. See
+  balance, and then accepts a hand valuation, which takes precedence when dated
+  on or after the terms' basis date. See
   [a deposit that values itself](loans-and-assets.md#a-deposit-that-values-itself).
-  Hand-valued subtypes — `physical`, `commodity`, `retirement` — are the ones
+  Hand-valued subtypes (`physical`, `commodity`, `retirement`) are the ones
   with no balance to count, and they are revalued on `/portfolio/valuations` or
   `/portfolio/asset/:id/revalue`.
 - `loan`, `emi`, `family-loan`: balances are derived from the companion tables
@@ -63,7 +63,7 @@ Fields by subtype:
   `/loans` and `/family`.
 
 **A plain transfer cannot reach a derived account.** Its value comes from its own
-records, so money transferred in would leave the bank and be counted nowhere —
+records, so money transferred in would leave the bank and be counted nowhere.
 ₹5,000 into a demat once made net worth fall by exactly ₹5,000. `createTransfer`
 refuses and names the screen that records it properly, and the transfer form
 does not offer these accounts. The lending code is the one caller that may,
@@ -83,7 +83,7 @@ and `visibility` (`household` or `private`). See [privacy.md](privacy.md).
 ## Transactions
 
 A transaction has an account, a date, a signed amount in paise, an optional
-payee, and — for outflows — a category. Negative is money out.
+payee, and (for outflows) a category. Negative is money out.
 
 Rules enforced on write:
 
@@ -97,11 +97,11 @@ Rules enforced on write:
   can reach it. A deleted transaction can still be viewed, but not changed:
   editing, filing, settling, attaching a receipt to or converting one is refused
   (422) until its delete is undone.
-- A transaction something else is recorded against — a loan instalment, a
-  portfolio lot or transaction, a reconciliation adjustment, a family-loan
-  write-off, a card charge converted to an EMI plan (the refusal names the
-  plan) — cannot be deleted, nor its creation undone. Undo or delete that
-  first.
+- A transaction that something else is recorded against cannot be deleted,
+  nor its creation undone. That includes a loan instalment, a portfolio lot or
+  transaction, a reconciliation adjustment, a family-loan write-off, and a card
+  charge converted to an EMI plan (the refusal names the plan). Undo or delete
+  that first.
 
 Optional fields: `memo`, `tags`, `owner_member_id` (who spent it),
 `reimbursable`, `card_id` (which physical card on a multi-card account),
@@ -123,12 +123,12 @@ Editing or deleting one leg acts on both. Specifically:
 
 - **Amount and date** belong to the pair. Change either on one leg and the other
   leg takes the same amount, opposite sign, and the same date. An edit that
-  changes neither — a memo, a tag — leaves the other leg's date alone, so an
+  changes neither (a memo, a tag) leaves the other leg's date alone, so an
   imported pair whose two statements date it a day apart keeps both dates. A
   reconciled period on *either* account guards the change, each checked
   against that leg's own date.
-- **Direction** cannot change from a leg — which account the money left is what
-  the transfer is. Delete it and record it the other way.
+- **Direction** cannot change from a leg, because which account the money left
+  defines the transfer. Delete it and record it the other way.
 - **No envelope, ever.** The edit screen offers none for a leg, and the domain
   refuses one. The "money out needs an envelope" rule does not apply: nothing
   was spent.
@@ -144,22 +144,22 @@ Editing or deleting one leg acts on both. Specifically:
 
 **Between a card and a tracking account** (topping up a wallet from the card,
 an EMI on a loan tracked outside the budget) the card side is treated exactly
-like an unfiled charge — or, the other way, an unfiled refund. The tracking
+like an unfiled charge (or, in the other direction, an unfiled refund). The tracking
 account is outside every budget, so nothing on the budget side meets the money;
 the card's debt moves and its payment envelope does not, and the card's funding
 warning shows the gap until money is assigned to it. Treating the card leg as a
 card *payment*, as it once was, moved the envelope by the full amount with no
 category giving it up.
 
-**Paying another budget's card** — from a bank account or from a card of your
-own (a balance transfer) — buys a claim rather than spending money: the payer is
+**Paying another budget's card**, from a bank account or from a card of your
+own (a balance transfer), buys a claim rather than spending money: the payer is
 owed what they paid, and the envelope between the two budgets (see
 [budgeting.md](budgeting.md#commitments-between-budgets)) carries it. Recording
 the transfer opens that envelope when it does not exist yet. Two budgets can
-only owe each other when something links them — the household is shared by
-definition, and between two personal budgets an add-on card held by the other
-side's member — so a transfer between two personal budgets' accounts and cards
-with nothing linking them is refused with a sentence. Before this, ₹200 from a
+only owe each other when something links them. The household is shared by
+definition; between two personal budgets, the link is an add-on card held by
+the other side's member. A transfer between two personal budgets' accounts and
+cards with nothing linking them is refused with a sentence. Before this, ₹200 from a
 personal bank to the household card left the household ₹200 up and the payer
 ₹200 down in every month after, and a card-to-card transfer across budgets
 broke both by the full amount even with the envelope in place.
@@ -169,21 +169,22 @@ applies to what it has already done: a past payment onto a card in what is now
 another budget opens that envelope, or the move is refused when nothing links
 the two budgets.
 
-This was documented before it was true. Editing one leg of a ₹1,000 transfer to
-₹3,000 used to change that leg alone, and ₹2,000 left one account and arrived
-nowhere — the identity was out by that much in every month after. Undoing a
+This behaviour was documented before the code matched it. Editing one leg of
+a ₹1,000 transfer to ₹3,000 used to change that leg alone, and ₹2,000 left one
+account and arrived nowhere, so the identity was out by that much in every
+month after. Undoing a
 transfer's delete brought back one side. `src/domain/transfer-integrity.test.ts`
 now holds all of it.
 
 ## Undo
 
 An edit's undo puts back the row **and its split lines**, which live in their own
-table — an edit event now records both. Events recorded before that change
+table. An edit event now records both. Events recorded before that change
 can't restore lines they never kept; undoing one of those on a transaction that
 was split is refused with a sentence rather than half-applied.
 
 Not every event carries a whole row: marking a line cleared while reconciling
-records only `cleared`. Undo writes back exactly the columns an event recorded —
+records only `cleared`. Undo writes back exactly the columns an event recorded,
 and of those, only the ones the edit actually changed. A memo edit's undo puts
 back the memo and nothing else: not `deleted_at` (a transfer deleted since stays
 deleted, both legs), not the envelope (one merged away since keeps the spend in
@@ -193,11 +194,11 @@ refused with a sentence rather than filing the money where no budget counts it;
 a payee merged since comes back as the payee it was merged into. Two things
 travel as a unit even so: split lines and the amount they add up to come back
 together (with the filing they had), whichever of the two the edit changed; and
-a transfer leg's partner takes back the same columns as the leg — its date for
-a date edit, its amount for an amount edit — and no others.
+a transfer leg's partner takes back the same columns as the leg (its date for
+a date edit, its amount for an amount edit) and no others.
 
 Undoing an account's **creation** is refused once anything has been recorded
-against it — transactions, schedules, holdings, reconciliations, imports — and
+against it (transactions, schedules, holdings, reconciliations, imports), and
 says so; close the account instead. The list of what counts is read from the
 schema's own foreign keys, so a table added later cannot be forgotten. Undoing an
 account **edit** restores every column an edit can change, including holder,
@@ -205,13 +206,13 @@ visibility, budget and sort order.
 
 The same rule covers undoing the creation of a **group, an envelope, a loan or a
 payee** (`src/domain/dependants.ts` reads the foreign keys for any table). A
-group has to be empty — a deleted envelope in it with nothing behind it goes
-with it; an envelope must hold no money and have nothing filed to it; a loan's
+group has to be empty (a deleted envelope in it with nothing behind it goes
+with it); an envelope must hold no money and have nothing filed to it; a loan's
 account, envelope, disbursements and instalments must be untouched; a payee must
 be named by nothing. Each used to reach the household as a raw foreign-key 500.
 A card's **payment envelope** is refused on its own for as long as the card
-exists — the card is what needs it, and a card left without one moved its debt
-and nothing in any budget; undoing the card's creation takes the envelope with it.
+exists, because the card needs it: a card left without one moved its debt and
+nothing in any budget; undoing the card's creation takes the envelope with it.
 
 Deleting a group takes the tombstones of its deleted envelopes with it, and
 writes them down: undoing the group's delete puts them back, and only then can
@@ -220,13 +221,13 @@ with a sentence saying so, rather than "Restored" over an envelope that is not
 there.
 
 Undoing a **payee merge** moves back the transactions and aliases the merge
-moved, provided they still sit with the payee they were merged into — or with
-any payee that one has itself been merged into since — and reports the count it
+moved, provided they still sit with the payee they were merged into (or with
+any payee that one has itself been merged into since), and reports the count it
 actually moved back. A merge stays listed in Activity, and undoable, after its
 winner is merged again. Undoing a payee's creation is refused once it has been
 merged into another: its merge is undone first.
 
-The engine also refuses to be the victim of an inconsistent ledger: split lines
+The engine also guards against an inconsistent ledger: split lines
 count only when the transaction says it is split, and a transfer leg whose
 partner has been deleted counts as an ordinary flow into or out of Ready to
 Assign rather than as half of a transfer. On a card, a leg whose partner is gone
@@ -263,10 +264,10 @@ stays off budget, so bringing a fixed deposit up to the bank's figure does not
 move Ready to Assign.
 
 A checkpoint **breaks** when a transaction dated on or before `as_of` is later
-added, edited or deleted — after an "Already reconciled" confirmation. A new
+added, edited or deleted, after an "Already reconciled" confirmation. A new
 entry asks only when it is marked already cleared; an uncleared one is not part of
 what the bank asserted. An undo from Activity asks too, when it would move the
-cleared balance a checkpoint rests on — on whichever account its handler
+cleared balance a checkpoint rests on, on whichever account its handler
 writes. The account shows the break and the reason until it is reconciled
 again. Imports count: approving an imported row, merging one into an uncleared
 transaction, or undoing a whole import asks first, naming the checkpoint, and
@@ -274,15 +275,15 @@ breaks it on the yes; auto-approval breaks it without asking.
 
 Undoing the reconciliation from Activity withdraws the checkpoint and its
 adjustment. Undoing the **"no longer holds"** entry is different: it marks the
-checkpoint intact again, keeping it and its adjustment — and only when the
+checkpoint intact again, keeping it and its adjustment, and only when the
 cleared balance on `as_of` matches the bank's figure again (a memo edit that
 broke it, or an amount change undone since). Otherwise it is refused, naming both
 figures; the app never re-asserts a balance that does not hold.
 
 ## Credit cards
 
-An account of kind `credit` may have several physical `cards` — a primary and
-add-ons — each with its own last four digits and optional holder. Imported rows
+An account of kind `credit` may have several physical `cards` (a primary and
+add-ons), each with its own last four digits and optional holder. Imported rows
 are attributed to a card by matching the digits in the narration.
 
 Recording a statement (`card_statements`) stores the statement date, due date,

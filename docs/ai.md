@@ -113,8 +113,8 @@ suggestion waits in Review under **Suggested by your AI**, after the books' own
 corrections and beside Proposed rules, with **Approve** and **Reject**. It is
 tried and rolled back when it is made, so one the budget would refuse is refused
 to the model at once. Only the member whose connection made it sees or decides
-it — the reason comes from that member's own conversation and can mention their
-private budget — even when it only touches the household budget. Approving
+it, even when it only touches the household budget, because the reason comes
+from that member's own conversation and can mention their private budget. Approving
 makes the change as that member, checked again against what they can see then;
 if it is refused, it stays waiting with the reason. The tool answers with the
 suggestion id and "waiting for approval in Review".
@@ -155,9 +155,9 @@ leaves, in every string except the app's own ids and dates:
 - UPI IDs and email addresses keep only what follows the `@`;
 - PAN numbers are masked whole.
 
-Amounts, envelope names and payee names are the analysis and are sent. It is
-best effort: a person's name written into a narration is not something a
-pattern recognises.
+Amounts, envelope names and payee names are what the analysis needs, so they
+are sent. Masking is best effort: a pattern cannot recognise a person's name
+written into a narration.
 
 ## What they have read
 
