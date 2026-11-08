@@ -13,6 +13,7 @@ import {
   FEATURE_ENV, FEATURE_NAMES, PLANS, PLAN_PRESETS,
   type Features, type Limits, type Plan,
 } from "./features.ts";
+import { deriveSecretsKey, SECRETS_KEY_MIN_LENGTH } from "./gmail/secrets.ts";
 
 /** AIW-1 · See Config.aiWrite. */
 export const AI_WRITE_MODES = ["off", "standard", "full"] as const;
@@ -100,6 +101,13 @@ export interface Config {
   trustProxy: boolean;
   /** F1.6 · Offer password sign-in, so Google is not the only door. */
   localLogin: boolean;
+  /**
+   * GMAIL-BYO · The key that seals stored credentials (src/gmail/secrets.ts):
+   * a member's or the household's own Google client secret, and Gmail refresh
+   * tokens. Null when SECRETS_KEY is unset — saving your own Google keys is
+   * then refused, and refresh tokens are stored as they always were.
+   */
+  secretsKey: Buffer | null;
 }
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -196,6 +204,18 @@ export function aiWriteMode(value: string | undefined): AiWriteMode {
   throw new InvalidConfiguration(`AI_WRITE is '${value}'; use one of ${AI_WRITE_MODES.join(", ")}.`);
 }
 
+/** GMAIL-BYO · A key too short to be one is refused, not quietly used. */
+function secretsKey(value: string | undefined): Buffer | null {
+  const raw = (value ?? "").trim();
+  if (raw === "") return null;
+  if (raw.length < SECRETS_KEY_MIN_LENGTH) {
+    throw new InvalidConfiguration(
+      `SECRETS_KEY is ${raw.length} characters; use at least ${SECRETS_KEY_MIN_LENGTH} (openssl rand -base64 32).`,
+    );
+  }
+  return deriveSecretsKey(raw);
+}
+
 function planSettings(env: NodeJS.ProcessEnv): Pick<Config, "plan" | "features" | "limits"> {
   const raw = (env.PLAN ?? "").trim().toLowerCase();
   if (raw !== "" && !(PLANS as readonly string[]).includes(raw)) {
@@ -258,6 +278,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     heartbeatUrl: env.HEARTBEAT_URL || null,
     trustProxy: bool(env.TRUST_PROXY, false),
     localLogin: bool(env.LOCAL_LOGIN, false),
+    secretsKey: secretsKey(env.SECRETS_KEY),
   };
 
   assertDevLoginIsSafe(config);

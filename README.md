@@ -8,7 +8,7 @@ runtime dependencies.
 harvest, drawn from deliberately through the year.
 
 ```
-v1.0.0 · 3000 tests · 0 runtime dependencies · 72 migrations · 247 routes
+v1.0.0 · 3000 tests · 0 runtime dependencies · 73 migrations · 248 routes
 ```
 
 **Status: production-ready.** 1.0.0 is the first stable release; see
@@ -150,7 +150,8 @@ One variable sets what an instance offers. `PLAN=solo`, `household` or
 self-hosted, with everything on. Each module can also be switched on its own
 with `FEATURE_*` (loans, family lending, investments and net worth, deposits,
 insurance, goals, tax, reports, schedules, rules, receipts, the three import
-paths, Gmail, API tokens, AI connections and multi-currency). `MAX_MEMBERS`
+paths, Gmail with the deployment's Google client, Gmail with your own Google
+keys, API tokens, AI connections and multi-currency). `MAX_MEMBERS`
 and `BACKUP_RETENTION_DAYS` set the limits. A module that is off disappears
 from every page and keeps its data. The full table, with each plan's values,
 is in [docs/operations.md](docs/operations.md#plans-and-modules).
@@ -161,7 +162,22 @@ is in [docs/operations.md](docs/operations.md#plans-and-modules).
 | Backup retention | 14 newest | 30 days | 90 days | 1 year |
 | Loans, investments, net worth | ✓ | — | ✓ | ✓ |
 | API tokens, AI connections | ✓ | — | ✓ | ✓ |
-| Gmail ingestion | ✓ | — | — | — |
+| Gmail, with your own Google keys | ✓ | ✓ | ✓ | ✓ |
+| Gmail, with the deployment's Google client | ✓ | — | — | — |
+
+Gmail works on every plan once a member, or the household, adds a Google
+Cloud OAuth client of their own in Settings → Gmail. The secret is sealed with
+`SECRETS_KEY` before it is stored. Making the client takes about ten minutes:
+[Create your Google OAuth client](https://pathayam.app/guides.html#gmail-keys).
+
+**Deploying: set `SECRETS_KEY` once per instance.** At least 32 characters
+(`openssl rand -base64 32`); it seals the Google client secrets and Gmail
+refresh tokens the instance stores. Docker: put it in `.env` beside
+`compose.yaml` (see [`.env.example`](.env.example)). Fly.io:
+`fly secrets set SECRETS_KEY="$(openssl rand -base64 32)" -a <app>`, then
+`fly secrets list -a <app>` to confirm. Keep it outside the data volume; losing
+it means re-entering Google keys and reconnecting Gmail, nothing more. Details
+in [docs/operations.md](docs/operations.md#on-flyio).
 
 ## Documentation
 

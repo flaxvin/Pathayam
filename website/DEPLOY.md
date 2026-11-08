@@ -124,6 +124,18 @@ Serve both over HTTPS and redirect HTTP. `BASE_URL` on the demo must be exactly
 `https://demo.pathayam.app` — sign-in redirects and cookie scoping depend on
 it being right.
 
+Every app instance, the demo and each hosted household alike, needs its own
+`SECRETS_KEY`, set once as a Fly secret:
+
+```bash
+fly secrets set SECRETS_KEY="$(openssl rand -base64 32)" -a <app>
+fly secrets list -a <app>   # SECRETS_KEY is listed
+```
+
+It seals stored Google client secrets and Gmail refresh tokens (Gmail on every
+plan with the household's own Google keys). The demo has one; `DEMO_MODE`
+refuses Gmail regardless. See [docs/operations.md](../docs/operations.md#on-flyio).
+
 Recommended response headers for the static site:
 
 ```

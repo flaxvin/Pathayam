@@ -96,6 +96,7 @@
             <li><a href="#review">The review queue</a></li>
             <li><a href="#rules">Rules and automatic filing</a></li>
             <li><a href="#gmail">Bank alerts by email</a></li>
+            <li><a href="#gmail-keys">Create your Google OAuth client</a></li>
           <li class="rail-part">Cards and debt</li>
             <li><a href="#cards">Credit cards</a></li>
             <li><a href="#loans">Loans</a></li>
@@ -156,6 +157,13 @@ credentials, password sign-in (<code>LOCAL_LOGIN</code>), or <code>NODE_ENV=prod
 passwords with <code>LOCAL_LOGIN</code> — and somewhere to run one container. Set <code>BASE_URL</code> to your exact public origin — sign-in
 redirects and cookie scoping both depend on it being right — then
 <code>docker compose up -d</code>. Start from an empty budget rather than the seed.</p>
+<p><strong>Set <code>SECRETS_KEY</code> before going live.</strong> It seals the
+Google keys and Gmail access the server stores, so Gmail works with your own Google
+project. Generate it once with <code>openssl rand -base64 32</code> and put it in
+<code>.env</code> as <code>SECRETS_KEY=…</code>; on Fly.io,
+<code>fly secrets set SECRETS_KEY="$(openssl rand -base64 32)" -a your-app</code>.
+Keep a copy somewhere other than the server. Losing it costs nothing but
+re-entering your Google keys and reconnecting Gmail.</p>
 <p>It also decides which writes are accepted. A save, a delete or any other change
 addressed to a host other than <code>BASE_URL</code>'s — another name, or the same
 name on another port — is refused with a 403, so a page somewhere else cannot point
@@ -746,8 +754,11 @@ to live as a budget gets without a bank integration.</p>
   <li>It reads <strong>only the banks' own sending addresses</strong>, never the rest
     of your mail.</li>
   <li>Access is <strong>read-only</strong>. Nothing is sent, labelled, or deleted.</li>
-  <li>You connect your own Google project, so the credentials and the consent are
-    yours rather than a third party's.</li>
+  <li>You connect through your own Google project, so the credentials and the
+    consent are yours rather than a third party's. It works on every plan, Solo
+    included: make the client once (<a href="#gmail-keys">ten minutes, step by
+    step</a>) and paste its keys into Settings &rarr; Gmail, just for you or for the
+    whole household.</li>
   <li>Disconnecting revokes the token and deletes the stored access.</li>
   <li>An alert is filed to the account or card whose last four digits it names, among
     only the ones the member whose mailbox it came from can see. If two still match it
@@ -775,6 +786,89 @@ can be attributed to the right person rather than the account holder.</div>
                 <figcaption>Settings — members, identity, connections, tokens.</figcaption>
               </figure>
             </div>
+          </article>
+          <article class="guide" id="gmail-keys">
+            <h2>Create your Google OAuth client</h2>
+<p>Gmail is connected through a Google OAuth client that <strong>you</strong> own, in
+a free Google Cloud project. You do this once. One client can serve the whole
+household, or each member can make their own. It takes about ten minutes, and
+nothing here is billed. Google renames the console's menus every so often; if a
+name below does not match, the page it describes is still there.</p>
+<p>Keep Settings &rarr; Gmail &rarr; <em>Your own Google keys</em> open in another
+tab: it shows the two addresses you will paste in step 5, already filled in for
+your instance.</p>
+<ol class="steps">
+  <li><div><strong>Make a project.</strong> Open
+    <a href="https://console.cloud.google.com/projectcreate" rel="noopener" target="_blank">console.cloud.google.com</a>,
+    sign in with any Google account, and create a project — call it
+    <em>Pathayam</em>.</div></li>
+  <li><div><strong>Turn on the Gmail API.</strong> In <em>APIs &amp; Services &rarr;
+    Library</em>, search for <em>Gmail API</em> and press <strong>Enable</strong>.</div></li>
+  <li><div><strong>Describe the app.</strong> Open <em>Google Auth Platform</em> (once
+    called <em>OAuth consent screen</em>) and press <strong>Get started</strong>. Give it
+    a name (<em>Pathayam</em>) and your email as the support address. For the
+    audience choose <strong>External</strong>, add your email as the contact, and
+    agree to the policy.</div></li>
+  <li><div><strong>Add the two permissions.</strong> Under <em>Data access</em>, add
+    <code>https://www.googleapis.com/auth/gmail.readonly</code> and
+    <code>.../auth/userinfo.email</code>, then save. Nothing broader is asked for, and
+    the app never sends, labels or deletes mail.</div></li>
+  <li><div><strong>Make the client.</strong> Under <em>Clients</em>, press
+    <strong>Create client</strong> and choose <strong>Web application</strong>. Add
+    your instance's address as an <em>Authorised JavaScript origin</em> (for example
+    <code>https://you.pathayam.app</code>) and the same address followed by
+    <code>/gmail/callback</code> as an <em>Authorised redirect URI</em>. Both must
+    match exactly, scheme included. Press <strong>Create</strong>.</div></li>
+  <li><div><strong>Copy the ID and the secret.</strong> The client ID ends in
+    <code>.apps.googleusercontent.com</code>; the secret usually starts
+    <code>GOCSPX-</code>. Google may show the secret only once, so download the JSON
+    or copy it now.</div></li>
+  <li><div><strong>Publish it.</strong> Under <em>Audience</em>, press
+    <strong>Publish app</strong> so the status reads <strong>In production</strong>.
+    This matters: while it says <em>Testing</em>, Google ends the connection every
+    seven days and you would reconnect each week. You do not need Google to verify
+    an app only your household uses.</div></li>
+  <li><div><strong>Paste the keys into Pathayam.</strong> In Settings &rarr; Gmail,
+    put them under <em>Just for you</em>, or under <em>For the household</em> so every
+    member without their own can use them. Press <strong>Save</strong>, then
+    <strong>Connect Gmail</strong>.</div></li>
+  <li><div><strong>Consent.</strong> Choose the mailbox. Because the app is yours and
+    not verified, Google says <em>“Google hasn’t verified this app”</em>: press
+    <em>Advanced</em>, then <em>Go to Pathayam</em>, and allow read-only access. You
+    are granting your own application access to your own mail.</div></li>
+</ol>
+<div class="note note--good"><b>Which keys are used.</b> Your own if you saved them,
+otherwise the household's. On a self-hosted server that also has its own Google
+sign-in with Gmail turned on, that comes last. A mailbox stays with the keys it was
+connected with: saving different ones later does not move it. To move it, disconnect
+and connect again.</div>
+<h3>Sharing one client with the household</h3>
+<p>Each member still connects their <strong>own</strong> mailbox and consents for
+themselves; the household's keys only say which application they consent to. Any
+member can save, replace or remove the household's keys, and the history shows who
+did. An unverified app can be used by up to 100 Google accounts, far more than a
+household needs.</p>
+<h3>How the keys are kept</h3>
+<p>The secret is encrypted before it is written, never shown again, and left out of
+every export. A hosted instance always has an encryption key set. On your own server,
+set <code>SECRETS_KEY</code> (<code>openssl rand -base64 32</code>); without it,
+Settings explains that keys cannot be saved, and stores nothing. Replacing the secret
+of the same client — after rotating it in Google — keeps your connection. Removing
+the keys, or switching to a different client, means connecting again.</p>
+<h3>When it does not work</h3>
+<ul>
+  <li><strong><code>redirect_uri_mismatch</code></strong> — the redirect URI in step 5
+    differs from the one Settings shows. Copy it from Settings, exactly.</li>
+  <li><strong><code>access_denied</code>, or “has not completed the Google
+    verification process”</strong> — the app is still in <em>Testing</em> and this
+    Google account is not one of its test users. Publish it (step 7).</li>
+  <li><strong>“Google would not renew the connection” after a week</strong> — the app
+    was in <em>Testing</em> when you connected. Publish it, then disconnect and
+    connect again.</li>
+  <li><strong>“The Google keys this mailbox was connected with are no longer
+    available”</strong> — the keys were removed or replaced with another client.
+    Disconnect and connect again.</li>
+</ul>
           </article>
           <h2 class="guide-part" id="part-cards-and-debt">Cards and debt</h2>
           <article class="guide" id="cards">
@@ -1733,7 +1827,7 @@ replaced, and reads the restored copy back before claiming success.</p>
   <li><strong>Connect an AI</strong> &mdash; under API tokens: the address to give an
     AI app, what is connected, what each connection has read, and Disconnect. See
     <a href="#connect-ai">Connect Claude, ChatGPT or Gemini</a>.</li>
-  <li><strong>Modules</strong> — any of eighteen can be switched off on the server,
+  <li><strong>Modules</strong> — any of nineteen can be switched off on the server,
     and it vanishes from every screen rather than sitting greyed out. See
     <a href="#plans">Plans and modules</a>.</li>
 </ul>
@@ -1768,7 +1862,8 @@ set:</p>
   <tr><td>Loans, family lending</td><td>on</td><td>off</td><td>on</td><td>on</td></tr>
   <tr><td>Investments and net worth</td><td>on</td><td>off</td><td>on</td><td>on</td></tr>
   <tr><td>API tokens, AI connections</td><td>on</td><td>off</td><td>on</td><td>on</td></tr>
-  <tr><td>Gmail</td><td>on</td><td>off</td><td>off</td><td>off</td></tr>
+  <tr><td>Gmail, with your own Google keys</td><td>on</td><td>on</td><td>on</td><td>on</td></tr>
+  <tr><td>Gmail, with the server's own Google client</td><td>on</td><td>off</td><td>off</td><td>off</td></tr>
   </tbody>
 </table>
 </div>
@@ -1782,6 +1877,7 @@ modules are <code>FEATURE_LOANS</code>, <code>FEATURE_FAMILY_LOANS</code>,
 <code>FEATURE_RULES</code>, <code>FEATURE_ATTACHMENTS</code>,
 <code>FEATURE_IMPORT_CSV</code>, <code>FEATURE_IMPORT_PDF</code>,
 <code>FEATURE_IMPORT_BUDGET_APP</code>, <code>FEATURE_GMAIL</code>,
+<code>FEATURE_GMAIL_BYO</code>,
 <code>FEATURE_API_TOKENS</code>, <code>FEATURE_AI</code> and
 <code>FEATURE_MULTI_CURRENCY</code>. Each takes <code>true</code> or
 <code>false</code>.</p>

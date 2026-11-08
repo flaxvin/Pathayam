@@ -1559,6 +1559,7 @@
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/impersonate/start</code><br><code>/impersonate/writes</code><br><code>/impersonate/exit</code></td><td><span class="pill">session</span></td><td><code>member_id</code>; <code>allow</code>, <code>return_to</code></td><td>View as another member, read-only unless writes are allowed. 404 unless <code>ADMIN_DEBUG</code> is set.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/gmail/connect</code><br><code>/gmail/callback</code></td><td><span class="pill">session</span></td><td><code>state</code>, <code>code</code> on the callback</td><td>Link a Gmail mailbox.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/gmail/disconnect</code></td><td><span class="pill">session</span></td><td>—</td><td>Unlink it.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/gmail/keys</code></td><td><span class="pill">session</span></td><td><code>scope</code>, <code>client_id</code>, <code>client_secret</code>, <code>clear</code></td><td>Save or remove your own, or the household's, Google OAuth client.</td></tr>
             </tbody>
           </table>
         </div>
@@ -1599,7 +1600,7 @@
               <tr><td><code>/signout</code></td><td>There is nothing for a token to sign out of.</td></tr>
               <tr><td><code>/settings/password</code></td><td>A password is a way in that does not need the token, and would outlive revoking it.</td></tr>
               <tr><td><code>/sessions</code></td><td>Signing the member's devices out is a human decision.</td></tr>
-              <tr><td><code>/gmail/connect</code>, <code>/gmail/callback</code>, <code>/gmail/disconnect</code></td><td>Linking a mailbox changes what can reach the household. <code>/gmail/fetch</code> stays reachable.</td></tr>
+              <tr><td><code>/gmail/connect</code>, <code>/gmail/callback</code>, <code>/gmail/disconnect</code>, <code>/gmail/keys</code></td><td>Linking a mailbox, or changing which Google client it consents to, changes what can reach the household. <code>/gmail/fetch</code> stays reachable.</td></tr>
               <tr><td><code>/oauth</code></td><td>Approving an AI app hands out a fresh token with its own refresh token; a token that could do that would outlive its own revocation. Under <code>/tokens</code>, the Connect an AI page is out of reach too.</td></tr>
             </tbody>
           </table>

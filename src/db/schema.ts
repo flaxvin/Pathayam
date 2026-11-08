@@ -3181,4 +3181,31 @@ CREATE INDEX idx_ai_access_log_connection ON ai_access_log(connection_id, at);
 ALTER TABLE oauth_grants ADD COLUMN can_write INTEGER NOT NULL DEFAULT 0 CHECK (can_write IN (0, 1));
 `,
   },
+  {
+    name: "0073-gmail-with-your-own-google-keys",
+    sql: `
+--------------------------------------------------------------------------------
+-- GMAIL-BYO · A Google Cloud OAuth client the household brings, so Gmail can be
+-- connected on a deployment that has no Google client of its own for it.
+--------------------------------------------------------------------------------
+
+-- owner is a member's id (their own keys) or 'household' (one set every member
+-- without their own may use). client_secret is sealed with SECRETS_KEY
+-- (src/gmail/secrets.ts), never plain, and the table is never exported.
+-- set_by is not a foreign key on purpose: 'household' rows outlive the member
+-- who typed them.
+CREATE TABLE gmail_clients (
+  owner         TEXT PRIMARY KEY,
+  client_id     TEXT NOT NULL,
+  client_secret TEXT NOT NULL,
+  set_by        TEXT NOT NULL,
+  set_at        TEXT NOT NULL
+);
+
+-- A refresh token only renews under the client that issued it, so the
+-- connection remembers which one that was. Null is the deployment's own
+-- (GOOGLE_CLIENT_ID), which is every connection made before this.
+ALTER TABLE gmail_connections ADD COLUMN client_id TEXT;
+`,
+  },
 ];

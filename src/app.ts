@@ -48,8 +48,11 @@ import {
   beginGmailConnect, exchangeGmailCode, revokeToken as revokeGmailToken, GmailAuthError,
 } from "./gmail/oauth.ts";
 import {
-  saveConnection, deleteConnection, connectionView, getConnection,
+  saveConnection, deleteConnection, connectionView, getConnection, refreshTokenOf,
 } from "./gmail/connection.ts";
+import {
+  saveClient, clearClient, clientView, clientForConnect, clientForConnection, canSaveClients, HOUSEHOLD,
+} from "./gmail/clients.ts";
 import { fetchGmail } from "./gmail/fetch.ts";
 import { GoogleUnreachable } from "./gmail/client.ts";
 import { withIdempotency, IdempotencyConflict } from "./core/idempotency.ts";
@@ -1522,7 +1525,7 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   // -------------------------------------------------------------------------
   // Expiring and capped — see auth/pending.ts (SECURITY-OPS-19).
   const pendingOAuth = new PendingStates<{ verifier: string; next: string; at: number }>();
-  const pendingGmail = new PendingStates<{ verifier: string; memberId: string; at: number }>();
+  const pendingGmail = new PendingStates<{ verifier: string; memberId: string; clientId: string; at: number }>();
 
   /*
    * A sign-in's state, bound to the browser that started it.
@@ -3761,11 +3764,19 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
         </section>
 
         ${when(
-          !config.demoMode && config.features.gmail,
-          () => renderGmailConnection(connectionView(db, a.member.id), config.google.clientId !== null),
+          !config.demoMode && (config.features.gmail || config.features.gmailByo),
+          () => renderGmailConnection(connectionView(db, a.member.id), {
+            route: clientForConnect(db, config, a.member.id)?.source ?? null,
+            byo: config.features.gmailByo,
+            canSave: canSaveClients(config),
+            mine: clientView(db, a.member.id),
+            household: clientView(db, HOUSEHOLD),
+            redirectUri: `${config.baseUrl}/gmail/callback`,
+            origin: config.baseUrl,
+          }),
         )}
 
-        ${when(!config.demoMode && config.features.gmail, () => renderCardDigitAsks(cardDigitAsks(ctx)))}
+        ${when(!config.demoMode && (config.features.gmail || config.features.gmailByo), () => renderCardDigitAsks(cardDigitAsks(ctx)))}
         ${when(!config.demoMode && pendingGoldToken(ctx, a.member.id) !== null, () => html`
           <p class="notice notice-info" id="gold-waiting">
             The same fetch read a SafeGold statement.
@@ -8798,16 +8809,22 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     refuseInDemo(config, "Connecting a mailbox");
     const a = auth(ctx);
     refuseGmailWhileViewingAs(a);
-    // Not configured is a deployment state, not a fault — the same 503 as
-    // /auth/google. A 500 here told the person the app had broken.
-    if (!config.google.clientId) {
-      throw new HttpError(503, "Gmail cannot be connected: Google is not configured on this deployment.");
+    // GMAIL-BYO · The member's own keys, else the household's, else the
+    // deployment's (only with FEATURE_GMAIL). None of them is a deployment
+    // state, not a fault — the same 503 as /auth/google.
+    const client = clientForConnect(db, config, a.member.id);
+    if (!client) {
+      throw new HttpError(503, config.features.gmailByo
+        ? "Gmail cannot be connected yet: add your own Google keys in Settings first."
+        : "Gmail cannot be connected: Google is not configured on this deployment.");
     }
     const start = beginGmailConnect({
-      clientId: config.google.clientId,
+      clientId: client.clientId,
       redirectUri: `${config.baseUrl}/gmail/callback`,
     });
-    pendingGmail.set(start.state, { verifier: start.codeVerifier, memberId: a.member.id, at: Date.now() });
+    pendingGmail.set(start.state, {
+      verifier: start.codeVerifier, memberId: a.member.id, clientId: client.clientId, at: Date.now(),
+    });
     return { redirect: start.url };
   });
 
@@ -8822,16 +8839,24 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     const code = ctx.query.get("code");
     if (!code) return { redirect: "/settings#gmail" };
 
+    // The code was issued to the client the connect step used; exchange it
+    // under that one. If those keys changed in between, start again.
+    const client = clientForConnect(db, config, a.member.id);
+    if (!client || client.clientId !== pending.clientId) {
+      throw new HttpError(400, "The Google keys changed while you were connecting. Connect Gmail again.");
+    }
     const tokens = await googleSaidNo(() => exchangeGmailCode({
-      clientId: config.google.clientId!,
-      clientSecret: config.google.clientSecret!,
+      clientId: client.clientId,
+      clientSecret: client.clientSecret,
       redirectUri: `${config.baseUrl}/gmail/callback`,
       code, codeVerifier: pending.verifier, fetchImpl: deps.fetchImpl,
     }));
 
     saveConnection(db, actorFor(a), {
       email: a.member.email, refreshToken: tokens.refreshToken, scope: tokens.scope,
-    });
+      // Null marks the deployment's own client, as connections before GMAIL-BYO.
+      clientId: client.source === "deployment" ? null : client.clientId,
+    }, config.secretsKey);
     return { redirect: withNotice("/settings#gmail", "Gmail connected. Fetch when you're ready.") };
   });
 
@@ -8840,8 +8865,11 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
       refuseGmailWhileViewingAs(a);
       const connection = getConnection(db, a.member.id);
       if (connection) {
-        // Best-effort remote revoke; the local token is deleted regardless.
-        void revokeGmailToken(connection.refresh_token, deps.fetchImpl);
+        // Best-effort remote revoke; the local token is deleted regardless —
+        // including when it can no longer be opened here.
+        let token: string | null = null;
+        try { token = refreshTokenOf(connection, config.secretsKey); } catch { token = null; }
+        if (token) void revokeGmailToken(token, deps.fetchImpl);
       }
       deleteConnection(db, actorFor(a));
       return { redirect: "/settings#gmail", message: "Disconnected. The stored access was deleted." };
@@ -8851,11 +8879,15 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
   router.post("/gmail/fetch", async (ctx) => {
     const a = auth(ctx);
     refuseGmailWhileViewingAs(a);
-    if (!getConnection(db, a.member.id)) throw new HttpError(400, "Gmail is not connected.");
+    const connection = getConnection(db, a.member.id);
+    if (!connection) throw new HttpError(400, "Gmail is not connected.");
+    // GMAIL-BYO · The token renews only under the client that issued it.
+    const client = clientForConnection(db, config, a.member.id, connection.client_id);
 
     const result = await googleSaidNo(() => fetchGmail(db, actorFor(a, "import"), {
-      clientId: config.google.clientId!,
-      clientSecret: config.google.clientSecret!,
+      clientId: client.clientId,
+      clientSecret: client.clientSecret,
+      secretsKey: config.secretsKey,
       fetchImpl: deps.fetchImpl,
     }));
 
@@ -8926,6 +8958,37 @@ export function buildApp(deps: AppDeps): { router: Router; middleware: ((ctx: Re
     }
     return { redirect: withNotice(toReview > 0 ? "/review" : "/settings#gmail", summary) };
   });
+
+  /**
+   * GMAIL-BYO · Your own Google OAuth client, or the household's. Any member
+   * may set the household's — a household has no admin — and the event log
+   * says who did. A blank secret with `clear=1` removes the keys; a saved
+   * connection made with them then asks to be reconnected.
+   */
+  router.post("/gmail/keys", (ctx) =>
+    mutate(ctx, (a) => {
+      refuseInDemo(config, "Saving Google keys");
+      refuseGmailWhileViewingAs(a);
+      const scope = field(ctx.body, "scope") === HOUSEHOLD ? "household" : "member";
+      if (field(ctx.body, "clear") === "1") {
+        clearClient(db, actorFor(a), scope);
+        return {
+          redirect: "/settings#gmail",
+          message: scope === "household" ? "Removed the household's Google keys." : "Removed your Google keys.",
+        };
+      }
+      saveClient(db, config, actorFor(a), {
+        scope,
+        clientId: requiredField(ctx.body, "client_id"),
+        clientSecret: requiredField(ctx.body, "client_secret"),
+      });
+      return {
+        redirect: "/settings#gmail",
+        message: (scope === "household" ? "Saved the household's Google keys." : "Saved your Google keys.") +
+          " Connect Gmail when you're ready.",
+      };
+    }),
+  );
 
   /**
    * IMP-20 · The card's digits, from the list a Gmail fetch left on Settings.

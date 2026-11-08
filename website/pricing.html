@@ -131,6 +131,7 @@
           <li>1 member</li>
           <li>Budget engine, cards, rollover</li>
           <li>Statement import, 12 banks</li>
+          <li>Gmail, with your own Google keys</li>
           <li>30-day backup retention</li>
           <li class="no">Loans, investments, net worth</li>
           <li class="no">API tokens</li>
@@ -258,7 +259,7 @@
         <details open>
           <summary>Is the self-hosted version crippled?</summary>
           <p>No, and it never will be. Self-hosting gets every feature including the
-          ones the hosted tiers do not have — Gmail ingestion among them. What you
+          ones a hosted tier leaves out. What you
           pay for is somebody else doing the backups, the updates and the 2am
           worrying.</p>
           <p>The free version is licensed for <strong>noncommercial use</strong>:
@@ -269,15 +270,17 @@
           <!--email_off--><a href="mailto:hello@flaxvin.tech">hello@flaxvin.tech</a><!--/email_off-->.</p>
         </details>
         <details>
-          <summary>Why is Gmail missing from the hosted plans?</summary>
-          <p>Reading your inbox needs a Google permission tier that requires an
-          annual third-party security audit for any public service. That is months
-          of somebody else's calendar and a five-figure recurring cost, and it would
-          have to be priced into every plan including the ones nobody uses it on.</p>
-          <p>The forwarding add-on gets most of the same result the other way round:
-          you push the mail to us, rather than us reaching into your inbox. If you
-          want the real thing, self-host — you consent to your own Google project
-          and none of this applies to you.</p>
+          <summary>How does Gmail work on a hosted plan?</summary>
+          <p>Every plan, Solo included, can fetch bank alerts and statements from
+          Gmail once you bring your own Google keys. You make a free OAuth client in
+          your own Google Cloud project (about ten minutes, <a href="guides.html#gmail-keys">step by step</a>),
+          paste its client ID and secret into Settings, and connect. You consent to
+          your own application, not ours; your instance only runs it.</p>
+          <p>One set of keys can serve the whole household, or each member can use
+          their own. The secret is encrypted before it is stored and never shown
+          again. What we do not do is ask Google for access to your inbox under our
+          own name: that needs an annual third-party security audit for any public
+          service, priced into every plan including the ones nobody uses it on.</p>
         </details>
         <details>
                     <summary>Where does my data actually live?</summary>

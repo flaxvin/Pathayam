@@ -34,6 +34,7 @@ export const FEATURE_ENV = {
   importPdf: "FEATURE_IMPORT_PDF",
   importBudgetApp: "FEATURE_IMPORT_BUDGET_APP",
   gmail: "FEATURE_GMAIL",
+  gmailByo: "FEATURE_GMAIL_BYO",
   apiTokens: "FEATURE_API_TOKENS",
   ai: "FEATURE_AI",
   multiCurrency: "FEATURE_MULTI_CURRENCY",
@@ -66,13 +67,17 @@ const EVERYTHING: Features = {
   loans: true, familyLoans: true, assets: true, deposits: true, insurance: true,
   goals: true, tax: true, reports: true, schedules: true, rules: true,
   attachments: true, importCsv: true, importPdf: true, importBudgetApp: true,
-  gmail: true, apiTokens: true, ai: true, multiCurrency: false,
+  gmail: true, gmailByo: true, apiTokens: true, ai: true, multiCurrency: false,
 };
 
 /*
  * The hosted tiers, as website/pricing.html and website/privacy.html state them.
- * Gmail is off on every hosted tier: the hosted plans never ask for mailbox
- * access (privacy.html, "Gmail"). Solo is the budgeting engine for one person:
+ * `gmail` is the deployment's own Google client (GOOGLE_CLIENT_ID) reading a
+ * mailbox, and is off on every hosted tier: the hosted service never asks
+ * Google for mailbox access under its own name. `gmailByo` is a member or the
+ * household bringing their own Google Cloud OAuth client, and is on in every
+ * preset (Febin, 08-11-2026): the consent is then to the household's own
+ * application, and the hosted service only runs it. Solo is the budgeting engine for one person:
  * no loans (family lending included), no investments or net worth (FIRE is
  * built on net worth), no API tokens, and no AI connections (Febin, 07-11-2026).
  */
@@ -149,7 +154,9 @@ const RULES: Rule[] = [
   // A PDF with no known layout goes to the same column-mapping step as a CSV.
   { test: under("import", "map"), available: (f) => f.importCsv || f.importPdf },
   { test: under("import"), available: anyImport },
-  { test: under("gmail"), available: (f) => f.gmail },
+  // Either way of connecting a mailbox opens the Gmail pages; which keys a
+  // connection may use is decided in gmail/clients.ts.
+  { test: under("gmail"), available: (f) => f.gmail || f.gmailByo },
   // AI-7 · Connect an AI lives under /tokens but is its own module: an AI
   // connection is offered without hand-minted tokens, and vice versa.
   { test: under("tokens", "ai"), available: (f) => f.ai },

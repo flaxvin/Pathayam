@@ -53,6 +53,7 @@ in a `.env` beside it:
 BASE_URL=https://budget.example.com
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
+SECRETS_KEY=...            # openssl rand -base64 32, once; keep it
 HEARTBEAT_URL=https://hc-ping.com/...
 ```
 
@@ -88,9 +89,28 @@ docker run -d --name pathayam \
   -v pathayam-data:/data \
   -e BASE_URL=https://budget.example.com \
   -e GOOGLE_CLIENT_ID=... -e GOOGLE_CLIENT_SECRET=... \
+  -e SECRETS_KEY="$(cat /path/to/secrets-key)" \
   -e TRUST_PROXY=true -e HEARTBEAT_URL=https://hc-ping.com/... \
   pathayam
 ```
+
+### On Fly.io
+
+Settings go in as Fly secrets, which the app reads as environment variables.
+Set `SECRETS_KEY` once per app, before anyone saves Google keys, and never
+rotate it casually:
+
+```bash
+fly secrets set SECRETS_KEY="$(openssl rand -base64 32)" -a <app>
+fly secrets list -a <app>        # check: SECRETS_KEY is listed
+```
+
+Setting a secret restarts the app's machines once. To take it back,
+`fly secrets unset SECRETS_KEY -a <app>`; stored Google secrets and sealed
+refresh tokens then cannot be opened, so members re-enter their keys and
+reconnect Gmail. No budget data depends on it. Each hosted instance gets its
+own key. The public demo (`pathayam-demo`) has one too, though `DEMO_MODE`
+refuses Gmail regardless.
 
 ## Signing in
 
@@ -100,7 +120,7 @@ Three ways, and you need at least one:
 |---|---|---|
 | Password | `LOCAL_LOGIN=1` | No external service. On a household with no members, `/auth/first-run` creates the first one and sets their password; it 404s from then on. Members added later get theirs through a [password link](#password-links). |
 | Any OIDC provider | `OIDC_ISSUER`, `OIDC_CLIENT_ID`, `OIDC_CLIENT_SECRET` | Authelia, Authentik, Keycloak, Zitadel. One issuer URL; the endpoints are discovered from it. `OIDC_LABEL` names the button. |
-| Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Below. Needed for Gmail import whether or not it is used for sign-in. |
+| Google | `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET` | Below. Also the deployment's own Gmail client when `FEATURE_GMAIL` is on. Not needed for Gmail when members bring their own keys (`FEATURE_GMAIL_BYO`). |
 
 They can be on at once, and a member may have more than one. Passwords are scrypt
 (`node:crypto`, no dependency added), stored in `member_passwords` — which is
@@ -188,6 +208,30 @@ away and the attempt is recorded.
 Gmail ingestion is a **separate, later grant** with `gmail.readonly`, asked for
 only when you turn it on and revocable from Settings.
 
+### Gmail with your own Google keys
+
+With `FEATURE_GMAIL_BYO` (on in every preset), a member pastes the client ID
+and secret of a Google Cloud OAuth client they own into Settings → Gmail, for
+themselves or for the whole household. A new connection uses, in order: the
+member's own keys, the household's, then `GOOGLE_CLIENT_ID` when
+`FEATURE_GMAIL` is on. A connection remembers which client issued its refresh
+token and always renews under that one; if those keys are replaced or
+removed, the fetch asks the member to reconnect.
+
+The secret is sealed with AES-256-GCM under `SECRETS_KEY` and stored in
+`gmail_clients`, which is in `NEVER_EXPORTED`. With `SECRETS_KEY` set, Gmail
+refresh tokens are sealed too; a token stored before the key was set stays
+readable and is sealed on the next connect. Without `SECRETS_KEY`, the
+Settings form is replaced by a sentence asking the operator to set one, and
+nothing is stored. Changing the key makes every sealed secret unreadable: the
+household re-enters its keys and reconnects, and no budget data is affected.
+
+The client needs `${BASE_URL}` as an authorised JavaScript origin and
+`${BASE_URL}/gmail/callback` as an authorised redirect URI (Settings shows
+both). Its consent screen must be **In production**; while it says *Testing*,
+Google expires refresh tokens after seven days. The member-facing steps are
+in the guide: <https://pathayam.app/guides.html#gmail-keys>.
+
 ## Configuration
 
 Everything the app reads, and nothing it does not:
@@ -197,6 +241,7 @@ Everything the app reads, and nothing it does not:
 | `BASE_URL` | `http://localhost:$PORT` | The public origin, exactly. OAuth redirects, cookie scoping and the same-origin write check all depend on it. A write addressed to any other hostname (or this hostname on another port) is refused with 403 — only an IP address or `localhost` is accepted besides — so a reverse proxy must pass the original `Host` through, or set `X-Forwarded-Host` with `TRUST_PROXY`. |
 | `GOOGLE_CLIENT_ID` | — | Required for Google sign-in. |
 | `GOOGLE_CLIENT_SECRET` | — | |
+| `SECRETS_KEY` | — | Seals stored credentials: a member's or the household's own Google client secret, and Gmail refresh tokens. At least 32 characters (`openssl rand -base64 32`); shorter refuses to start. Keep it outside the data volume (a Fly secret). Unset, own Google keys cannot be saved. |
 | `PORT` | `8080` | |
 | `HOST` | `0.0.0.0` | |
 | `DATA_DIR` | `./data` | Where the database, backups and attachments live. |
@@ -257,7 +302,8 @@ any case.
 | `FEATURE_IMPORT_CSV` | on | on | on | on | Bank CSV import. |
 | `FEATURE_IMPORT_PDF` | on | on | on | on | Statement PDF upload. |
 | `FEATURE_IMPORT_BUDGET_APP` | on | on | on | on | YNAB and Actual Budget exports. `/import` itself goes only when all three import flags are off. |
-| `FEATURE_GMAIL` | on | off | off | off | Connecting a mailbox, and the card-digit prompts that come from it. The hosted plans never ask for mailbox access (privacy.html). |
+| `FEATURE_GMAIL` | on | off | off | off | Connecting a mailbox with the deployment's own Google client (`GOOGLE_CLIENT_ID`). The hosted service never asks Google for mailbox access under its own name (privacy.html). |
+| `FEATURE_GMAIL_BYO` | on | on | on | on | Connecting a mailbox with a Google client the member or household brings (Settings → Gmail, needs `SECRETS_KEY`). With `FEATURE_GMAIL` also off, `/gmail/*` and the card-digit prompts go. |
 | `FEATURE_API_TOKENS` | on | off | on | on | `/tokens`. A token minted earlier gets 403 everywhere except `/mcp`, and works again when the flag comes back on. |
 | `FEATURE_AI` | on | off | on | on | AI connections: `/mcp`, signing in from an AI app (`/oauth/*`, the `.well-known` metadata), Connect an AI (`/tokens/ai`) and `/export/analysis.json`. Existing connections stop answering. `/export.json` stays. |
 | `FEATURE_MULTI_CURRENCY` | off | off | off | off | Q18 settled on ₹-only accounts. |

@@ -140,7 +140,7 @@ describe("08 F30 · personal API tokens", () => {
       "/settings/members", "/settings/members/invite",
       "/auth/dev", "/auth/google/callback", "/signout",
       // SECURITY-OPS-13 · the other ways in that do not need the token.
-      "/settings/password", "/sessions/revoke", "/gmail/connect", "/gmail/disconnect",
+      "/settings/password", "/sessions/revoke", "/gmail/connect", "/gmail/disconnect", "/gmail/keys",
     ]) {
       assert.equal(tokenMayReach(path), false, `${path} must be unreachable`);
     }

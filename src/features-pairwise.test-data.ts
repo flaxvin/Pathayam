@@ -1,7 +1,7 @@
 /**
  * PLAN-1 · A pairwise covering array over the FEATURE_* flags.
  *
- * Every combination of 18 flags is 2^18 = 262,144 deployments. A breakage that
+ * Every combination of 19 flags is 2^19 = 524,288 deployments. A breakage that
  * needs two particular flags in two particular states shows up in any set of
  * rows where every pair of flags appears in all four on/off combinations, and
  * that takes about a dozen rows. Built greedily from a fixed seed, so the rows

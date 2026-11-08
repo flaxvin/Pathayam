@@ -33,7 +33,7 @@ import {
 import { passwordCandidates, missingDetailFor, cardDigitsNeeded } from "../import/statement-passwords.ts";
 import { cardNumberDigits } from "../domain/card-digits.ts";
 import { getIdentity } from "../import/identity.ts";
-import { getConnection, markFetched, type GmailConnection } from "./connection.ts";
+import { getConnection, markFetched, refreshTokenOf, type GmailConnection } from "./connection.ts";
 import { refreshAccessToken } from "./oauth.ts";
 import {
   listMessageIds, getMessage, getAttachment, header, plainTextBody, pdfAttachments,
@@ -74,6 +74,8 @@ export interface FetchResult {
 export interface FetchDeps {
   clientId: string;
   clientSecret: string;
+  /** GMAIL-BYO · Opens a sealed refresh token; null when the server has no SECRETS_KEY. */
+  secretsKey?: Buffer | null;
   fetchImpl?: typeof fetch;
   /** Injectable for tests; defaults to a 90-day window. */
   now?: Date;
@@ -118,7 +120,7 @@ export async function fetchGmail(
   const { accessToken } = await refreshAccessToken({
     clientId: deps.clientId,
     clientSecret: deps.clientSecret,
-    refreshToken: connection.refresh_token,
+    refreshToken: refreshTokenOf(connection, deps.secretsKey ?? null),
     fetchImpl: deps.fetchImpl,
   });
 

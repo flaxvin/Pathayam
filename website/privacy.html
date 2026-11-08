@@ -285,11 +285,16 @@
 
       <h3>Gmail</h3>
       <p>
-        The hosted plans do not read your mailbox and never ask for access to
-        it. Gmail ingestion exists only in the self-hosted version, where you
-        supply your own Google project and consent to your own application. The
-        scopes that version requests, and what is done with what they return,
-        are set out under <a href="#google">Google account data</a> below.
+        The hosted service never asks Google for access to your mailbox under
+        its own name. Gmail can still be connected on any plan, and in the
+        self-hosted version, with a Google OAuth client from <em>your own</em>
+        Google Cloud project: you, or someone in your household, create the
+        application, consent to it yourselves, and paste its keys into Settings.
+        Your instance then runs that application on your behalf. Its client
+        secret is encrypted before it is stored, never displayed again, and
+        excluded from every export; removing it from Settings deletes it. The
+        scopes requested, and what is done with what they return, are set out
+        under <a href="#google">Google account data</a> below.
       </p>
 
       <h3>Connecting an AI app</h3>
@@ -352,7 +357,7 @@
         <li><strong>Used.</strong> Only messages from the bank senders you have configured are searched, and only to extract transaction details and open statement PDFs.</li>
         <li><strong>Stored.</strong> Message bodies are <em>not</em> retained. Each message is parsed into the fields that matter &mdash; date, amount, merchant, account &mdash; and then discarded. Only those extracted records are kept, in the same review queue as a statement uploaded by hand.</li>
         <li><strong>Shared.</strong> Never, with anyone, for any purpose. Gmail data is not sold, not used for advertising, and not used to train any model, human or automated.</li>
-        <li><strong>Retained.</strong> Extracted records stay until you delete them. The Google refresh token is kept only so the connection survives a restart; it is excluded from every export and from the audit log, and is never displayed on any screen.</li>
+        <li><strong>Retained.</strong> Extracted records stay until you delete them. The Google refresh token is kept only so the connection survives a restart; it is encrypted at rest where the instance has an encryption key set (every hosted plan does), excluded from every export and from the audit log, and never displayed on any screen. The same applies to a client secret you bring.</li>
       </ul>
 
       <h3>Limited Use</h3>
