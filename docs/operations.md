@@ -53,6 +53,7 @@ in a `.env` beside it:
 BASE_URL=https://budget.example.com
 GOOGLE_CLIENT_ID=...
 GOOGLE_CLIENT_SECRET=...
+SECRETS_KEY=...            # openssl rand -base64 32, once; keep it
 HEARTBEAT_URL=https://hc-ping.com/...
 ```
 
@@ -88,9 +89,28 @@ docker run -d --name pathayam \
   -v pathayam-data:/data \
   -e BASE_URL=https://budget.example.com \
   -e GOOGLE_CLIENT_ID=... -e GOOGLE_CLIENT_SECRET=... \
+  -e SECRETS_KEY="$(cat /path/to/secrets-key)" \
   -e TRUST_PROXY=true -e HEARTBEAT_URL=https://hc-ping.com/... \
   pathayam
 ```
+
+### On Fly.io
+
+Settings go in as Fly secrets, which the app reads as environment variables.
+Set `SECRETS_KEY` once per app, before anyone saves Google keys, and never
+rotate it casually:
+
+```bash
+fly secrets set SECRETS_KEY="$(openssl rand -base64 32)" -a <app>
+fly secrets list -a <app>        # check: SECRETS_KEY is listed
+```
+
+Setting a secret restarts the app's machines once. To take it back,
+`fly secrets unset SECRETS_KEY -a <app>`; stored Google secrets and sealed
+refresh tokens then cannot be opened, so members re-enter their keys and
+reconnect Gmail. No budget data depends on it. Each hosted instance gets its
+own key. The public demo (`pathayam-demo`) has one too, though `DEMO_MODE`
+refuses Gmail regardless.
 
 ## Signing in
 

@@ -258,6 +258,12 @@ from the page's `data-member` attribute — until the server confirms it.
 
 - `statement_identity`, `gmail_connections` and `gmail_clients` are listed in `NEVER_EXPORTED`
   and excluded from the JSON and CSV exports.
+- A Google client secret a household brings, and Gmail refresh tokens, are
+  sealed at rest with AES-256-GCM under `SECRETS_KEY` (`src/gmail/secrets.ts`),
+  each bound to its row, so a copied database file does not yield them. The key
+  is set by the operator (a Fly secret, or `.env`), never stored beside the data;
+  under 32 characters refuses to start. Without it, own Google keys cannot be
+  saved. API tokens cannot reach `/gmail/keys`.
 - Statement passwords are used and discarded; only a description of which
   candidate worked is retained.
 - The request log records method, **path without query string**, status and

@@ -157,6 +157,13 @@ credentials, password sign-in (<code>LOCAL_LOGIN</code>), or <code>NODE_ENV=prod
 passwords with <code>LOCAL_LOGIN</code> — and somewhere to run one container. Set <code>BASE_URL</code> to your exact public origin — sign-in
 redirects and cookie scoping both depend on it being right — then
 <code>docker compose up -d</code>. Start from an empty budget rather than the seed.</p>
+<p><strong>Set <code>SECRETS_KEY</code> before going live.</strong> It seals the
+Google keys and Gmail access the server stores, so Gmail works with your own Google
+project. Generate it once with <code>openssl rand -base64 32</code> and put it in
+<code>.env</code> as <code>SECRETS_KEY=…</code>; on Fly.io,
+<code>fly secrets set SECRETS_KEY="$(openssl rand -base64 32)" -a your-app</code>.
+Keep a copy somewhere other than the server. Losing it costs nothing but
+re-entering your Google keys and reconnecting Gmail.</p>
 <p>It also decides which writes are accepted. A save, a delete or any other change
 addressed to a host other than <code>BASE_URL</code>'s — another name, or the same
 name on another port — is refused with a 403, so a page somewhere else cannot point

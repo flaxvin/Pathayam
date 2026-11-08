@@ -170,6 +170,15 @@ Cloud OAuth client of their own in Settings → Gmail. The secret is sealed with
 `SECRETS_KEY` before it is stored. Making the client takes about ten minutes:
 [Create your Google OAuth client](https://pathayam.app/guides.html#gmail-keys).
 
+**Deploying: set `SECRETS_KEY` once per instance.** At least 32 characters
+(`openssl rand -base64 32`); it seals the Google client secrets and Gmail
+refresh tokens the instance stores. Docker: put it in `.env` beside
+`compose.yaml` (see [`.env.example`](.env.example)). Fly.io:
+`fly secrets set SECRETS_KEY="$(openssl rand -base64 32)" -a <app>`, then
+`fly secrets list -a <app>` to confirm. Keep it outside the data volume; losing
+it means re-entering Google keys and reconnecting Gmail, nothing more. Details
+in [docs/operations.md](docs/operations.md#on-flyio).
+
 ## Documentation
 
 | | |
