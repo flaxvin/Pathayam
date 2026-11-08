@@ -99,8 +99,15 @@ viewing as another member. Each accepted request updates the token's
 
 | Scope | GET (reads) | POST (writes) |
 |---|---|---|
-| `read` | ✅ | ❌ `403 { "error": "That token is read-only." }` (except `POST /mcp`, whose every tool is a read; see [ai.md](ai.md)) |
-| `read-write` | ✅ | ✅ |
+| `read` | ✅ | ❌ `403 { "error": "That token is read-only." }` (except `POST /mcp`, whose tools are reads for a read token; see [ai.md](ai.md)) |
+| `read-write` | ✅ | ✅, except an AI connection's token (below) |
+
+An **AI connection's token** — one made on Connect an AI, or the access token
+of an app that signed in over OAuth — writes only through `POST /mcp`, whatever
+its scope. Anywhere else a write is `403 { "error": "An AI connection's token
+changes things only through /mcp, and only with its tools." }`. A read-write
+one exists only where `AI_WRITE` allows changes and the member ticked "allow
+changes" ([ai.md](ai.md#changes-an-ai-can-make)).
 
 Scope is fixed at mint time. To change it, revoke and re-mint.
 
@@ -181,8 +188,14 @@ authorization spec (revision 2026-07-28); the code is
 5. The app trades the code at `/oauth/token` for an access token and a
    refresh token.
 
-The access token **is an ordinary API token**: `bgt_`, scope `read` whatever
-was asked for, one hour long, named after the app ("Claude (connector)").
+The access token **is an ordinary API token**: `bgt_`, scope `read`, one hour
+long, named after the app ("Claude (connector)"). Where `AI_WRITE` is
+`standard` or `full`, the metadata also offers `budget:write`; the consent page
+then shows an "allow changes" box, never ticked for the member whatever the app
+asked, and a connection approved with it gets `read-write` access tokens (the
+token response's `scope` is `read budget:write`). Whether it may write is read
+again at every refresh, so turning `AI_WRITE` off makes it read-only within the
+hour. Either way the token is an AI connection's, confined to `/mcp`.
 Everything above applies to it unchanged — the deny-list, the rate limit,
 revocation, member removal. Refresh tokens last 90 days and rotate on every
 use; presenting an old one again ends the connection, as does using a code
@@ -202,8 +215,9 @@ the activity log.
 | POST | `/oauth/token` | public | `authorization_code` and `refresh_token` grants, form-encoded. |
 | POST | `/oauth/revoke` | public | RFC 7009. Ends the connection the token belongs to; answers `200` whatever it was. |
 | POST | `/tokens/connections/:id/revoke` | session only | Disconnect an AI app (Settings → API tokens). |
-| POST | `/mcp` | bearer, `read` is enough | The MCP endpoint itself. Bearer only: a session cookie is not looked at. `GET` and `DELETE` are `405`. Tools, masking and the protocol versions served are in [ai.md](ai.md). |
-| GET/POST | `/tokens/ai` | session only | Connect an AI: the address to give an app, read-only tokens with set-up commands, connected apps and what they have read. |
+| POST | `/mcp` | bearer, `read` is enough | The MCP endpoint itself. Bearer only: a session cookie is not looked at. `GET` and `DELETE` are `405`. Tools, masking and the protocol versions served are in [ai.md](ai.md). The change tools are listed only to a read-write AI connection where `AI_WRITE` allows them ([ai.md](ai.md#changes-an-ai-can-make)). |
+| GET/POST | `/tokens/ai` | session only | Connect an AI: the address to give an app, tokens with set-up commands (read-only unless "allow changes" is ticked where `AI_WRITE` allows it), connected apps, which can make changes, and what they have read. |
+| POST | `/tokens/ai/undo-today` | session only | Undo every change one of the member's AI connections made today (`connection_id`). When somebody has changed those records since, it answers a page listing what would be discarded; `force=1` undoes anyway. |
 
 ---
 
@@ -557,6 +571,7 @@ only (out of a token's reach).
 |---|---|---|---|
 | GET | `/review` | R | The review queue. |
 | POST | `/review/approve` · `/review/reject` · `/review/merge` | W | Act on staged items. |
+| POST | `/review/ai/:id/approve` · `/review/ai/:id/reject` | W | Decide on a change one of the member's own AI connections suggested (`AI_WRITE=standard`). Approving makes it as the member; another member's is 404. Not reachable by an AI connection's token. |
 | GET/POST | `/import` | R/W | CSV paste import. |
 | POST | `/import/pdf` | W | Statement-PDF upload. |
 | POST | `/import/map` | W | Save a column mapping. |
@@ -672,7 +687,7 @@ only (out of a token's reach).
 | GET | `/settings` | R | Household settings. |
 | POST | `/settings/theme` · `/settings/learning` · `/settings/overspend-model` · `/settings/identity` · `/settings/digest` | W | Change settings. |
 | POST | `/settings/theme-toggle` | W | Flip between light and dark (`seen` says what a "system" theme shows; `return_to` a path to go back to). The no-JavaScript fallback for the header control. |
-| GET | `/activity` | R | Every change ever made, with its undo. |
+| GET | `/activity` | R | Every change ever made, with its undo. `?entity=` narrows to one kind of record; `?source=ai` to what AI connections changed (or a member approved from one). |
 | POST | `/activity/:id/undo` | W | Undo one recorded event (30 days, R37.8). |
 | GET | `/health` | R | Health dashboard (HTML). |
 | POST | `/health/backup` · `/health/verify` | W | Run a backup / verify a restore. |

@@ -35,12 +35,19 @@ export interface ReviewData {
   claims: { id: string; date: IsoDate; amount: Paise; payee: string | null; category: string | null }[];
   bufferReading: string;
   month: string;
+  /**
+   * AIW · Changes an AI connection of this member's asked for and nothing has
+   * made yet (AI_WRITE=standard). Optional so a caller that predates it
+   * renders as before.
+   */
+  aiSuggestions?: { id: string; app: string; summary: string; why: string; at: string }[];
 }
 
 export function renderReview(data: ReviewData): SafeHtml {
   const total =
     data.staged.length + data.uncategorised.length + data.overspent.length +
-    data.unfundedCards.length + data.brokenCheckpoints.length + data.proposedRules.length;
+    data.unfundedCards.length + data.brokenCheckpoints.length + data.proposedRules.length +
+    (data.aiSuggestions?.length ?? 0);
   // Outstanding claims are shown but never counted: being owed money is a
   // standing fact, not a task waiting on a decision, and a badge that never
   // reaches zero stops meaning anything.
@@ -66,6 +73,7 @@ export function renderReview(data: ReviewData): SafeHtml {
     ${when(data.overspent.length > 0, () => renderOverspent(data))}
     ${when(data.unfundedCards.length > 0, () => renderUnfundedCards(data))}
     ${when(data.brokenCheckpoints.length > 0, () => renderBrokenCheckpoints(data))}
+    ${when((data.aiSuggestions?.length ?? 0) > 0, () => renderAiSuggestions(data))}
     ${when(data.proposedRules.length > 0, () => renderProposedRules(data))}
   `;
 }
@@ -472,6 +480,41 @@ function renderBrokenCheckpoints(data: ReviewData): SafeHtml {
           </div>
         `,
       )}
+    </section>
+  `;
+}
+
+/*
+ * AIW · After everything the books themselves need, beside the other kind of
+ * suggestion: like a proposed rule, nothing here has happened, and nothing will
+ * until it is approved. Shown only to the member whose connection asked.
+ */
+function renderAiSuggestions(data: ReviewData): SafeHtml {
+  const rows = data.aiSuggestions ?? [];
+  return html`
+    <section class="card">
+      <h2>Suggested by your AI <span class="chip">${rows.length}</span></h2>
+      <p class="faint" style="margin-top:-.25rem">
+        An AI app you connected asked for these. Nothing has changed yet; approving makes the
+        change as you, and it can be undone in Activity.
+      </p>
+      ${rows.map((r) => html`
+        <div class="row-between" style="padding:.75rem 0;border-top:1px solid var(--border);gap:1rem;align-items:flex-start">
+          <div style="min-width:0">
+            <strong>${r.summary}</strong>
+            <div class="faint">${r.app} · ${formatDate(r.at.slice(0, 10) as IsoDate)}</div>
+            <div class="muted">“${r.why}”</div>
+          </div>
+          <div class="row" style="gap:.5rem;flex-shrink:0">
+            <form method="post" action="/review/ai/${r.id}/approve">
+              <button class="button-small button-primary" type="submit">Approve</button>
+            </form>
+            <form method="post" action="/review/ai/${r.id}/reject">
+              <button class="button-small" type="submit">Reject</button>
+            </form>
+          </div>
+        </div>
+      `)}
     </section>
   `;
 }

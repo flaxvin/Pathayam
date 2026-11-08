@@ -18,7 +18,13 @@ export function renderConsent(opts: {
   memberName: string;
   /** Every authorization request parameter, carried back unchanged on the POST. */
   hidden: Record<string, string>;
+  /**
+   * AIW · Present when this deployment lets AI connections make changes
+   * (AI_WRITE). The box is never ticked for the member, whatever the app asked.
+   */
+  writes?: { mode: "standard" | "full"; asked: boolean } | null;
 }): SafeHtml {
+  const writes = opts.writes ?? null;
   return html`
     <div style="max-width:34rem;margin:2rem auto">
       <h1>Connect ${opts.clientName}?</h1>
@@ -39,7 +45,9 @@ export function renderConsent(opts: {
         <ul>
           <li>Read what you, ${opts.memberName}, can see here: the household budget and your own personal budget.</li>
           <li>Never read another member's private accounts, loans or policies.</li>
-          <li><strong>Never change anything.</strong> Its access is read-only, whatever it asks for.</li>
+          ${writes
+            ? html`<li><strong>Change nothing</strong> unless you tick the box below. Without it, its access is read-only.</li>`
+            : html`<li><strong>Never change anything.</strong> Its access is read-only, whatever it asks for.</li>`}
         </ul>
         <p class="muted">
           Whatever it reads goes to that app's provider, under their terms, not ours.
@@ -55,8 +63,25 @@ export function renderConsent(opts: {
               Mask account numbers, UPI IDs, phone numbers and PAN in what this app is sent
             </label>
           </div>
+          ${when(writes, () => html`
+            <div class="field">
+              <label>
+                <input type="checkbox" name="allow_changes" value="1">
+                Also let it make changes${writes!.asked ? html` <span class="faint">(the app asked for this)</span>` : ""}
+              </label>
+              <p class="faint">
+                It could file a transaction under an envelope, split one, write a memo, and suggest
+                where a payee's spending goes.
+                ${writes!.mode === "standard"
+                  ? "Adding a transaction, assigning money and recording a transfer would wait in Review for you to approve."
+                  : "It could also add transactions, assign money and record transfers."}
+                It can never delete anything or touch loans, investments, settings or members. Every
+                change is in Activity, where you can undo it, and at most 100 are made a day.
+              </p>
+            </div>
+          `)}
           <div class="row">
-            <button class="button-primary" type="submit" name="decision" value="approve">Approve read-only access</button>
+            <button class="button-primary" type="submit" name="decision" value="approve">${writes ? "Approve" : "Approve read-only access"}</button>
             <button type="submit" name="decision" value="deny">Deny</button>
           </div>
         </form>

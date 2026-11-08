@@ -318,7 +318,7 @@ function describeState(
  * S4's badge: everything that needs a human, counted in one place so the
  * number in the nav and the number on the page cannot disagree.
  */
-export function reviewCount(db: DB, viewerMemberId: string | null): number {
+export function reviewCount(db: DB, viewerMemberId: string | null, opts: { ai?: boolean } = {}): number {
   /*
    * 15 · The same reader as the page. Counting the whole household put another
    * member's private statement lines and unfiled spending into everybody's
@@ -405,7 +405,12 @@ export function reviewCount(db: DB, viewerMemberId: string | null): number {
         ).unfunded > 0,
     ).length;
 
-  return staged + uncategorised + brokenCheckpoints + proposedRules + overspent + unfundedCards;
+  // AIW · What this member's own AI connections suggested, as the page lists it.
+  const aiSuggestions = opts.ai === false || !viewerMemberId ? 0 : queryAll<{ n: number }>(
+    db, `SELECT COUNT(*) AS n FROM ai_suggestions WHERE member_id = ? AND status = 'pending'`, viewerMemberId,
+  )[0]?.n ?? 0;
+
+  return staged + uncategorised + brokenCheckpoints + proposedRules + overspent + unfundedCards + aiSuggestions;
 }
 
 export function isSetupComplete(db: DB): boolean {

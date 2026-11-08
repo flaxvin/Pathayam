@@ -3087,4 +3087,98 @@ CREATE INDEX idx_ai_access_log_member ON ai_access_log(member_id, id);
 ALTER TABLE api_tokens ADD COLUMN for_ai INTEGER NOT NULL DEFAULT 0 CHECK (for_ai IN (0, 1));
 `,
   },
+  {
+    name: "0072-an-ai-may-change-what-it-was-allowed-to",
+    sql: `
+--------------------------------------------------------------------------------
+-- AIW · Changes an AI connection makes (src/ai/writes.ts, docs/ai.md)
+--------------------------------------------------------------------------------
+-- A new event source, 'ai', so a change an AI made is told apart from one made
+-- in the app or by a script: Activity filters on it and "undo this AI's
+-- changes today" finds them. SQLite cannot alter a CHECK in place, so the log
+-- is rebuilt, rows and sequence numbers exactly as they were. Nothing points
+-- at events with a foreign key, so foreign_keys can stay on.
+CREATE TABLE events_new (
+  seq                INTEGER PRIMARY KEY AUTOINCREMENT,
+  id                 TEXT NOT NULL UNIQUE,
+  at                 TEXT NOT NULL,
+  actor_member_id    TEXT REFERENCES members(id),
+  real_member_id     TEXT REFERENCES members(id),
+  source             TEXT NOT NULL
+                     CHECK (source IN ('ui','import','rule','schedule','api','job','system','ai')),
+  source_detail      TEXT,
+  entity             TEXT NOT NULL,
+  entity_id          TEXT,
+  action             TEXT NOT NULL,
+  before_json        TEXT,
+  after_json         TEXT,
+  summary            TEXT,
+  idempotency_key    TEXT,
+  undo_of_event_id   TEXT,
+  undone_by_event_id TEXT
+);
+INSERT INTO events_new
+  SELECT seq, id, at, actor_member_id, real_member_id, source, source_detail,
+         entity, entity_id, action, before_json, after_json, summary,
+         idempotency_key, undo_of_event_id, undone_by_event_id
+    FROM events;
+-- AUTOINCREMENT's high-water mark, which can sit above MAX(seq) when the last
+-- rows were removed; carried over so no sequence number is ever handed out twice.
+UPDATE sqlite_sequence
+   SET seq = MAX(seq, COALESCE((SELECT seq FROM sqlite_sequence WHERE name = 'events'), 0))
+ WHERE name = 'events_new';
+INSERT INTO sqlite_sequence (name, seq)
+  SELECT 'events_new', seq FROM sqlite_sequence
+   WHERE name = 'events'
+     AND NOT EXISTS (SELECT 1 FROM sqlite_sequence WHERE name = 'events_new');
+DROP TABLE events;
+ALTER TABLE events_new RENAME TO events;
+CREATE INDEX idx_events_entity ON events(entity, entity_id, seq);
+CREATE INDEX idx_events_at     ON events(at);
+CREATE INDEX idx_events_actor  ON events(actor_member_id, seq);
+-- "Everything this AI did today" is one idempotency key (ai:<connection>:<day>).
+CREATE INDEX idx_events_idempotency ON events(idempotency_key);
+
+-- A change an AI asked for and a member has not yet decided on. In AI_WRITE
+-- standard mode, adding a transaction, assigning money and recording a
+-- transfer land here instead of in the budget, and wait in Review.
+--
+-- connection_id is the OAuth grant for an app that signed in, or the API token
+-- for one made on Connect an AI: an app's access token is replaced every hour,
+-- and the connection is what the member recognises and approves. Not a foreign
+-- key for the same reason as ai_access_log.token_id; the name is copied.
+-- arguments is the tool's JSON as the model sent it; summary is the app's own
+-- sentence for it, and why is the model's, shown beside the buttons.
+CREATE TABLE ai_suggestions (
+  id              TEXT PRIMARY KEY,
+  member_id       TEXT NOT NULL REFERENCES members(id),
+  connection_id   TEXT NOT NULL,
+  token_id        TEXT NOT NULL,
+  token_name      TEXT NOT NULL,
+  tool            TEXT NOT NULL,
+  arguments       TEXT NOT NULL,
+  summary         TEXT NOT NULL,
+  why             TEXT NOT NULL,
+  status          TEXT NOT NULL DEFAULT 'pending'
+                  CHECK (status IN ('pending','approved','rejected')),
+  created_at      TEXT NOT NULL,
+  decided_at      TEXT,
+  decided_by      TEXT REFERENCES members(id),
+  result_event_id TEXT
+);
+CREATE INDEX idx_ai_suggestions_member ON ai_suggestions(member_id, status);
+CREATE INDEX idx_ai_suggestions_connection ON ai_suggestions(connection_id, status);
+
+-- Which connection a call came through (see above), and whether it was a write
+-- that went through, so the daily cap counts writes rather than questions.
+ALTER TABLE ai_access_log ADD COLUMN connection_id TEXT;
+ALTER TABLE ai_access_log ADD COLUMN wrote INTEGER NOT NULL DEFAULT 0 CHECK (wrote IN (0, 1));
+CREATE INDEX idx_ai_access_log_connection ON ai_access_log(connection_id, at);
+
+-- An AI app's connection the member allowed to make changes (the budget:write
+-- scope, ticked on the consent page). A column rather than a second value of
+-- scope, whose CHECK says 'read' and stays true: what the app reads is the same.
+ALTER TABLE oauth_grants ADD COLUMN can_write INTEGER NOT NULL DEFAULT 0 CHECK (can_write IN (0, 1));
+`,
+  },
 ];

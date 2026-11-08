@@ -70,6 +70,7 @@ export function testConfig(overrides: TestConfigOverrides = {}): Config {
     alphaVantageKey: null,
     trustProxy: false,
     localLogin: false,
+    aiWrite: "off",
     oidc: { issuer: null, clientId: null, clientSecret: null, label: "single sign-on" },
     ...rest,
     features: { ...PLAN_PRESETS.selfhost.features, ...features },

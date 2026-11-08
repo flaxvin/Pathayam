@@ -128,6 +128,55 @@ export function proposePayeeRule(
 }
 
 /**
+ * AIW · An AI connection asked for a payee's default envelope.
+ *
+ * Since B82 a payee has no stored default: where its money goes is a
+ * default-stage rule, and the app's own learning offers those as proposals in
+ * Review (L3). An AI asking for one is offered the same way — a proposal the
+ * member confirms or dismisses, never a rule that files anything on its own.
+ * Refused when a live rule for the payee already sets an envelope: changing a
+ * rule is the Rules page's job, not a conversation's.
+ */
+export function proposePayeeDefault(
+  db: DB, actor: Actor,
+  input: { payee: string; categoryId: string; categoryName: string; because: string },
+): Proposal {
+  // A confirmed rule is the household's decision; a proposal for the same
+  // envelope is already waiting. A proposal for another envelope may sit
+  // beside it, and the member picks one in Review.
+  const existing = queryOne<{ name: string; proposed: number }>(
+    db,
+    `SELECT name, proposed FROM rules
+      WHERE stage = 'default' AND dismissed_at IS NULL
+        AND conditions_json LIKE ? ESCAPE '\\' AND actions_json LIKE '%setCategory%'
+        AND (proposed = 0 OR actions_json LIKE ? ESCAPE '\\')
+      ORDER BY proposed LIMIT 1`,
+    containsJsonString(input.payee), containsJsonString(input.categoryId),
+  );
+  if (existing?.proposed === 0) {
+    throw new Refusal(
+      `There is already a rule for ${input.payee} ("${existing.name}"). ` +
+      "The member can change it on the Rules page.",
+    );
+  }
+  if (existing) {
+    throw new Refusal(`"${existing.name}" is already waiting in Review for the member to confirm.`);
+  }
+  refusePaymentCategories(db, [input.categoryId]);
+  const proposal: Proposal = {
+    id: newId(),
+    name: `${input.payee} → ${input.categoryName}`,
+    stage: "default",
+    conditions: [{ field: "payee", op: "is", value: input.payee }],
+    actions: [{ type: "setCategory", categoryId: input.categoryId }],
+    because: input.because,
+    strength: 1,
+  };
+  persist(db, actor, proposal);
+  return proposal;
+}
+
+/**
  * A LIKE pattern for stored JSON that holds `value` as a string, written the
  * way JSON.stringify wrote it. `"${value}"` missed a name with a quote in it
  * (stored as \"), so the same rule was proposed again on every
@@ -502,6 +551,20 @@ export function applyRetroactive(db: DB, actor: Actor, rule: Rule): number {
  * the rest stay "cannot be undone", so Activity offers no button for them.
  */
 registerUndoHandler("rule", (db, event, actor) => {
+  /*
+   * AIW · A proposal nobody has acted on yet can be taken back: it filed
+   * nothing. One already confirmed or dismissed is the member's decision since,
+   * and stays.
+   */
+  if (event.action === "propose") {
+    const removed = execute(
+      db, `DELETE FROM rules WHERE id = ? AND proposed = 1 AND dismissed_at IS NULL`, event.entityId,
+    );
+    if (removed === 0) {
+      throw new UndoRefused("That suggestion has already been confirmed or dismissed in Review.");
+    }
+    return "Withdrew the suggested rule";
+  }
   const recorded = (event.after as { eventIds?: string[] } | undefined)?.eventIds;
   if (!recorded) {
     throw new UndoRefused(
@@ -521,4 +584,4 @@ registerUndoHandler("rule", (db, event, actor) => {
   const kept = recorded.length - back;
   return `Put ${back} ${back === 1 ? "transaction" : "transactions"} back as they were` +
     (kept > 0 ? `; ${kept} changed since ${kept === 1 ? "was" : "were"} left as ${kept === 1 ? "it is" : "they are"}` : "");
-}, ["apply-retroactive"]);
+}, ["apply-retroactive", "propose"]);

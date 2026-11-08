@@ -1157,7 +1157,7 @@ set aside and can see.</div>
           <h2 class="guide-part" id="part-asking-an-ai">Asking an AI</h2>
           <article class="guide" id="connect-ai">
             <h2>Connect Claude, ChatGPT or Gemini</h2>
-<p>Pathayam has a read-only server built in that AI apps speak to through the Model
+<p>Pathayam has a server built in that AI apps speak to through the Model
 Context Protocol, at your own address with <code>/mcp</code> on the end. Connect the
 app you already use and ask it about your figures in plain words: where the grocery
 money went this quarter, whether prepaying the home loan is worth it, what the tax
@@ -1213,9 +1213,10 @@ you need before leaving the page; only a hash of the token is kept.</p>
 <code>gemini mcp add --transport http pathayam https://budget.example.in/mcp</code>.</p>
 <h3>What it can and cannot see</h3>
 <ul>
-  <li><strong>It reads, only.</strong> No tool it is offered can write, and the token
-    behind every connection is read-only. It can never move money, file a transaction
-    or change a setting.</li>
+  <li><strong>It reads, unless you allow more.</strong> A connection is read-only
+    unless you tick &ldquo;allow changes&rdquo; for it, and that box appears only where
+    your instance turns AI changes on (below). It can never delete anything or change a
+    setting.</li>
   <li><strong>It sees what you see.</strong> A connection reads as the member who
     made it: the household budget and your own personal budget. Another member's
     private accounts, loans, policies and envelopes are never listed, counted or
@@ -1224,6 +1225,27 @@ you need before leaving the page; only a hash of the token is kept.</p>
     viewing as somebody, approving another app and the Connect an AI page itself are
     all out of its reach.</li>
 </ul>
+<h3>Letting it make changes</h3>
+<p>If whoever runs your instance sets <code>AI_WRITE</code> to <code>standard</code> or
+<code>full</code>, the consent page and the Connect an AI page show an <strong>allow
+changes</strong> box. It is never ticked for you. Tick it for an app and that app can:</p>
+<ul>
+  <li><strong>File, split and annotate</strong> a transaction &mdash; put it in an
+    envelope, split it between envelopes, write its memo &mdash; and suggest where a
+    payee's spending should always go, as a rule you confirm in Review.</li>
+  <li><strong>Add a transaction, assign money to an envelope or record a
+    transfer.</strong> With <code>standard</code> these do not happen: they wait in
+    Review under <em>Suggested by your AI</em>, with the app's reason, until you press
+    Approve or Reject. With <code>full</code> they are made directly.</li>
+</ul>
+<p>It can never delete anything, or touch loans, investments, month closes, settings,
+members, tokens, imports, rules or schedules, and it can change only what you can see.
+At most 100 changes a day per app. Each change is in Activity (filter <em>AI
+changes</em>), named after the app, and undoes there like any other. <strong>Undo this
+AI's changes today</strong> on the Connect an AI page reverses one app's whole day; if
+somebody has changed one of those records since, it lists those changes first, and
+undoing anyway puts each record back as it was before the AI, losing the later
+changes too.</p>
 <h3>Masking</h3>
 <p>On by default, chosen per connection. Before an answer leaves, a run of nine or more
 digits &mdash; an account, card or phone number, a UPI reference &mdash; keeps its last
@@ -1235,7 +1257,7 @@ not something a pattern can recognise, so it goes as written.</div>
 <h3>What they have read</h3>
 <p><strong>What they have read</strong>, on the same page, lists each question a
 connection asked, newest first: when, which app, which tool, with what arguments, and
-how large the answer was or that it was refused. The answers themselves are not kept.
+how large the answer was, that it was refused, or that it changed something. The answers themselves are not kept.
 You see only your own connections' questions. Rows are kept for 90 days. Reads are not
 in Activity, which is the budget's history; connecting and disconnecting an app are.</p>
 <h3>Disconnecting</h3>

@@ -198,3 +198,13 @@ read-scope token, so everything above applies to it unchanged: each tool calls
 the query its screen does, with the same viewer. What it reads is sent to that
 app's provider; masking and the access log are described in [ai.md](ai.md).
 
+Where the operator allows it (`AI_WRITE`) and the member ticked "allow
+changes", a connection can also make a few changes. The same viewer applies to
+them: another member's private account, envelope, transaction or payee is "not
+found" to a change exactly as to a read, so a member's AI can change only what
+that member could change by hand. A suggestion it leaves in Review is shown
+only to the member whose connection made it, because the reason is written from
+that member's conversation and may mention their private budget. Every change
+is in the activity log as the member's, marked as made by an AI and naming the
+app ([ai.md](ai.md#changes-an-ai-can-make)).
+

@@ -27,6 +27,8 @@ export interface ActivityRow {
   /** R38.9: who was really at the keyboard, when that differs. */
   onBehalfOf?: string | null;
   source: string;
+  /** Names the rule, job, token or AI connection responsible (R37.6, F30.5). */
+  sourceDetail?: string | null;
   /** Null when this event is undoable; otherwise why it is not. */
   blockedReason: string | null;
   /** R37.9 · Later changes to the same record that an undo would discard. */
@@ -43,11 +45,20 @@ const SOURCE_LABEL: Record<string, string> = {
   job: "by a scheduled job",
   api: "through the API",
   system: "by the app",
+  ai: "by an AI connection",
 };
+
+/** How a row says where it came from: an AI is named, since it is not a person. */
+function sourceLabel(row: ActivityRow): string {
+  if (row.source === "ai" && row.sourceDetail) return `by ${row.sourceDetail} (AI)`;
+  return SOURCE_LABEL[row.source] ?? row.source;
+}
 
 export function renderActivity(opts: {
   rows: ActivityRow[];
   entity: string | null;
+  /** AIW · "ai" when filtered to AI changes. */
+  source?: string | null;
   entities: string[];
   windowDays: number;
 }): SafeHtml {
@@ -71,8 +82,15 @@ export function renderActivity(opts: {
           )}
         </select>
       </div>
+      <div class="field" style="margin:0">
+        <label for="source">Made</label>
+        <select id="source" name="source">
+          <option value="">By anyone</option>
+          <option value="ai" ${raw(opts.source === "ai" ? "selected" : "")}>AI changes</option>
+        </select>
+      </div>
       <button class="button-small" type="submit">Filter</button>
-      ${when(opts.entity, () => html`<a class="button button-small button-quiet" href="/activity">Clear</a>`)}
+      ${when(opts.entity || opts.source, () => html`<a class="button button-small button-quiet" href="/activity">Clear</a>`)}
     </form>
 
     ${opts.rows.length === 0
@@ -96,7 +114,7 @@ function renderRow(row: ActivityRow): SafeHtml {
           <div class="faint">
             ${formatDateTime(row.at)} · ${row.actor}
             ${when(row.onBehalfOf, () => html` (as ${row.onBehalfOf})`)}
-            · ${SOURCE_LABEL[row.source] ?? row.source}
+            · ${sourceLabel(row)}
           </div>
         </div>
 

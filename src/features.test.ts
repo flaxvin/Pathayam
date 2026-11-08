@@ -135,3 +135,28 @@ describe("PLAN-1 · the route table", () => {
     assert.equal(pathAvailable("/import/map", { ...ALL_FEATURES_OFF, importBudgetApp: true }), false);
   });
 });
+
+describe("AIW-1 · AI_WRITE", () => {
+  test("off unless set, and never turned on by a preset", () => {
+    assert.equal(loadConfig(base).aiWrite, "off");
+    for (const plan of PLANS) assert.equal(loadConfig({ ...base, PLAN: plan }).aiWrite, "off", plan);
+    assert.equal(loadConfig({ ...base, AI_WRITE: "" }).aiWrite, "off");
+  });
+
+  test("standard and full are read, case forgiven", () => {
+    assert.equal(loadConfig({ ...base, AI_WRITE: "standard" }).aiWrite, "standard");
+    assert.equal(loadConfig({ ...base, AI_WRITE: " FULL " }).aiWrite, "full");
+    assert.equal(loadConfig({ ...base, AI_WRITE: "off" }).aiWrite, "off");
+  });
+
+  test("anything else stops the process, naming what it takes", () => {
+    for (const value of ["on", "true", "1", "write"]) {
+      assert.throws(() => loadConfig({ ...base, AI_WRITE: value }),
+        (err: unknown) => err instanceof InvalidConfiguration && /AI_WRITE is .*off, standard, full/.test(err.message));
+    }
+  });
+
+  test("it is not a module: no FEATURE_ variable switches it", () => {
+    assert.ok(!Object.values(FEATURE_ENV).some((v) => v.includes("WRITE")));
+  });
+});

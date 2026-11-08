@@ -127,6 +127,10 @@ export const EPHEMERAL = [
   // request_failures, tied to tokens that are not exported either, and pruned
   // to 90 days; an export that travels should not carry it.
   "ai_access_log",
+  // AIW · What an AI connection suggested and a member has not yet decided.
+  // Tied to connections, which are not exported; an approved one is in the
+  // event log as the change it made, and that is what travels.
+  "ai_suggestions",
   // B66 · Operational: a failed request's path and stack. Useful at 2am, not
   // household data, and it would put a stack trace in an export that travels.
   "request_failures",

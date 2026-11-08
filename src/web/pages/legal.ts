@@ -292,9 +292,11 @@ export function renderPrivacy(
             <h2>Connecting an AI app</h2>
             <p>
               Nothing is sent to any AI unless a member connects one, from
-              Settings &rarr; API tokens &rarr; Connect an AI. A connection can only
-              read, sees only what the member who connected it sees, and by default
-              masks account and card numbers, UPI IDs, phone numbers and PAN. What it
+              Settings &rarr; API tokens &rarr; Connect an AI. A connection only reads
+              unless the instance allows AI changes and the member ticked "allow
+              changes" for it; every change is logged and can be undone. It sees only
+              what the member who connected it sees, and by default masks account and
+              card numbers, UPI IDs, phone numbers and PAN. What it
               reads is sent to that app's provider and is handled under that
               provider's terms, not this app's. Every question it asks is listed on
               that page (the answers are not kept), and it can be disconnected at any

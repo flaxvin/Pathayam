@@ -8,7 +8,7 @@ runtime dependencies.
 harvest, drawn from deliberately through the year.
 
 ```
-v1.0.0 · 3000 tests · 0 runtime dependencies · 71 migrations · 240 routes
+v1.0.0 · 3000 tests · 0 runtime dependencies · 72 migrations · 247 routes
 ```
 
 **Status: production-ready.** 1.0.0 is the first stable release; see
@@ -24,13 +24,17 @@ v1.0.0 · 3000 tests · 0 runtime dependencies · 71 migrations · 240 routes
 - **Credit cards.** Spending on a card moves cash into that card's payment
   envelope. The interface reports how much of a card balance no envelope is
   funding, and what clears it.
-- **Ask an AI about your money.** A built-in, read-only MCP server at `/mcp`
-  lets Claude (claude.ai, the Claude apps, Claude Code, Claude Desktop),
-  ChatGPT, Gemini CLI and other MCP clients answer questions from the
-  household's own figures — where the grocery money went, whether to prepay
-  the home loan, the tax under each regime. No tool can write. Each connection
-  sees what its member sees and no more, masks account numbers, UPI IDs, phone
-  numbers and PAN by default, and every question it asked is logged.
+- **Ask an AI about your money.** A built-in MCP server at `/mcp` lets Claude
+  (claude.ai, the Claude apps, Claude Code, Claude Desktop), ChatGPT, Gemini
+  CLI and other MCP clients answer questions from the household's own figures —
+  where the grocery money went, whether to prepay the home loan, the tax under
+  each regime. Read-only by default. Where the operator sets `AI_WRITE` and a
+  member ticks "allow changes", it can also file, split and annotate
+  transactions, and suggest new ones, assignments and transfers for the member
+  to approve in Review; never delete anything. Each connection sees what its
+  member sees and no more, masks account numbers, UPI IDs, phone numbers and
+  PAN by default, and every question and change is logged and every change
+  undoable.
 - **Indian banking.** Statement PDFs from twelve banks, with passwords derived
   from name, date of birth, PAN, mobile and customer ID. UPI narration
   parsing. Reducing-balance and flat loans, rate changes, prepayment
@@ -115,7 +119,13 @@ claude mcp add --transport http pathayam https://budget.example.in/mcp \
 Seventeen read-only tools cover the overview, accounts, transactions, the
 month's budget, spending, loans and their schedules, portfolio, realised gains,
 net worth, the tax estimate, cashflow, insurance, goals, financial
-independence, *explain this number*, and a snapshot. A connection reads as the
+independence, *explain this number*, and a snapshot. With `AI_WRITE=standard`
+or `full` and "allow changes" ticked for a connection, seven more file, split
+and annotate transactions and propose a payee's envelope directly, and add
+transactions, assign money and record transfers — as suggestions waiting in
+Review under `standard`, directly under `full`. At most 100 changes a day per
+connection, all in Activity, and one button undoes an AI's whole day
+([docs/ai.md](docs/ai.md#changes-an-ai-can-make)). A connection reads as the
 member who approved it: the household budget and their own, never another
 member's private accounts. Masking of account numbers, UPI IDs, phone numbers
 and PAN is on by default per connection, and is best effort. The Connect an AI

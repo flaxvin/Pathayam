@@ -16,7 +16,11 @@ import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne } from "../db/db.ts";
 import { nowIST, addDays, todayIST } from "./dates.ts";
 
-export type EventSource = "ui" | "import" | "rule" | "schedule" | "api" | "job" | "system";
+/**
+ * AIW · `ai` is a change an AI connection made over MCP, or a suggestion of one
+ * a member approved; source_detail names the connection.
+ */
+export type EventSource = "ui" | "import" | "rule" | "schedule" | "api" | "job" | "system" | "ai";
 
 /**
  * Who is acting, and how. Threaded through every mutation so attribution is
@@ -346,11 +350,55 @@ export function undoByIdempotencyKey(
   actor: Actor,
   opts: { force?: boolean } = {},
 ): UndoResult[] {
-  const events = queryAll<EventRow>(
+  const events = eventsByIdempotencyKey(db, key);
+
+  /*
+   * AIW · A later change in the same group is not a later edit the household
+   * made: it is undone first, newest first, in this same pass. An AI that filed
+   * a transaction and then wrote its memo left the filing "altered once since"
+   * by its own second write, and the group refused to undo itself.
+   */
+  return transact(db, () => events.map((e) => {
+    if (opts.force) return undoEvent(db, e.id, actor, opts);
+    const check = checkUndo(db, e.id);
+    const outside = check.supersededBy.filter((s) => s.idempotencyKey !== key);
+    return undoEvent(db, e.id, actor, { ...opts, force: check.ok && outside.length === 0 });
+  }));
+}
+
+/** The live (not yet undone, not themselves undos) events sharing a key, newest first. */
+export function eventsByIdempotencyKey(db: DB, key: string): LoggedEvent[] {
+  return queryAll<EventRow>(
     db,
-    "SELECT * FROM events WHERE idempotency_key = ? AND undo_of_event_id IS NULL ORDER BY seq DESC",
+    `SELECT * FROM events WHERE idempotency_key = ? AND undo_of_event_id IS NULL
+        AND undone_by_event_id IS NULL ORDER BY seq DESC`,
     key,
   ).map(hydrate);
+}
 
-  return transact(db, () => events.map((e) => undoEvent(db, e.id, actor, opts)));
+/**
+ * AIW · What undoing a whole group would meet, before anything is written: the
+ * changes made since by somebody else to the same records (R37.9 — shown, and
+ * discarded only when forced), and the events that cannot be undone at all.
+ */
+export function checkUndoByIdempotencyKey(
+  db: DB, key: string,
+): { events: LoggedEvent[]; supersededBy: LoggedEvent[]; blocked: { event: LoggedEvent; reason: string }[] } {
+  const events = eventsByIdempotencyKey(db, key);
+  const seen = new Set<string>();
+  const supersededBy: LoggedEvent[] = [];
+  const blocked: { event: LoggedEvent; reason: string }[] = [];
+  for (const e of events) {
+    const check = checkUndo(db, e.id);
+    if (!check.ok) {
+      blocked.push({ event: e, reason: check.reason ?? "This cannot be undone." });
+      continue;
+    }
+    for (const s of check.supersededBy) {
+      if (s.idempotencyKey === key || seen.has(s.id)) continue;
+      seen.add(s.id);
+      supersededBy.push(s);
+    }
+  }
+  return { events, supersededBy, blocked };
 }
