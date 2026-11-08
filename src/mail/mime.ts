@@ -335,25 +335,44 @@ function parseDate(v: string | null): Date | null {
 const ENTITIES: Record<string, string> = { nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
 
 /**
- * The markup gone, repeated until nothing changes: one pass over
- * "<scr<script>ipt>" leaves a "<script>" behind, and the result is text that a
- * later reader should not have to treat as HTML. (It is only ever shown
- * escaped; this keeps it plain text regardless.)
+ * The markup gone, by scanning rather than by pattern: everything from a "<"
+ * to its ">" is dropped, comments and script, style and head elements with
+ * their contents, and a "<" with no ">" after it ends the text. Regex passes
+ * left "<scr<script>ipt>" behind as a tag. Block ends become line breaks.
  */
 function stripMarkup(html: string): string {
-  let previous: string;
-  let text = html;
-  do {
-    previous = text;
-    text = text
-      .replace(/<(script|style|head)\b[\s\S]*?<\/\1\s*>/gi, "")
-      .replace(/<!--[\s\S]*?-->/g, "")
-      .replace(/<br\b[^>]*>/gi, "\n")
-      .replace(/<\/(p|div|tr|li|h[1-6]|table)\s*>/gi, "\n")
-      .replace(/<\/t[dh]\s*>/gi, " ")
-      .replace(/<[^>]*>/g, "");
-  } while (text !== previous);
-  return text;
+  let out = "";
+  let i = 0;
+  const lower = html.toLowerCase();
+  while (i < html.length) {
+    const lt = html.indexOf("<", i);
+    if (lt < 0) { out += html.slice(i); break; }
+    out += html.slice(i, lt);
+    if (lower.startsWith("<!--", lt)) {
+      const end = lower.indexOf("-->", lt + 4);
+      if (end < 0) break;
+      i = end + 3;
+      continue;
+    }
+    const gt = html.indexOf(">", lt + 1);
+    if (gt < 0) break;
+    const tag = /^<\s*(\/?)\s*([a-z0-9]+)/.exec(lower.slice(lt, gt + 1));
+    const name = tag?.[2] ?? "";
+    const closing = tag?.[1] === "/";
+    i = gt + 1;
+    if (!closing && (name === "script" || name === "style" || name === "head")) {
+      // Skip to the matching close tag; with none, the rest is that element's.
+      const close = lower.indexOf(`</${name}`, i);
+      if (close < 0) break;
+      const closeEnd = html.indexOf(">", close);
+      if (closeEnd < 0) break;
+      i = closeEnd + 1;
+      continue;
+    }
+    if (name === "br" || (closing && /^(p|div|tr|li|h[1-6]|table)$/.test(name))) out += "\n";
+    else if (closing && (name === "td" || name === "th")) out += " ";
+  }
+  return out;
 }
 
 /** Enough HTML-to-text for an alert email: block ends become line breaks, tags go, entities decode. */
