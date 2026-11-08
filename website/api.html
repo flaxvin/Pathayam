@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>API Reference</title>
-<meta name="description" content="Pathayam's HTTP API: authentication, scopes, idempotency, the same-origin rule for writes, and every route the app serves — the core ones with parameters, responses and a working example — and the read-only MCP server and OAuth sign-in AI apps connect through.">
+<meta name="description" content="Pathayam's HTTP API: authentication, scopes, idempotency, the same-origin rule for writes, and every route the app serves — the core ones with parameters, responses and a working example — and the MCP server and OAuth sign-in AI apps connect through, read-only unless changes are allowed.">
 <link rel="stylesheet" href="fonts.css">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon.png" sizes="32x32" type="image/png">
@@ -57,8 +57,8 @@
       <p class="lede" style="font-size:var(--step-2);max-width:54ch">
         The app is server-rendered, so there is no second API to keep in sync.
         A personal token authenticates a script against the same routes your
-        browser uses, and an AI app reads the same figures through a
-        read-only <a href="#ai">MCP server at <code>/mcp</code></a>.
+        browser uses, and an AI app reads the same figures through an
+        <a href="#ai">MCP server at <code>/mcp</code></a>, read-only unless you allow it changes.
       </p>
     </div>
   </section>
@@ -94,7 +94,7 @@
         <table>
           <thead><tr><th>Scope</th><th>Reads (<code>GET</code>)</th><th>Writes (<code>POST</code>)</th></tr></thead>
           <tbody>
-            <tr><td><span class="pill pill--r">read</span></td><td>Yes</td><td>No: <code>403 {"error":"That token is read-only."}</code>. The one exception is <code>POST /mcp</code>, because every tool behind it is a read.</td></tr>
+            <tr><td><span class="pill pill--r">read</span></td><td>Yes</td><td>No: <code>403 {"error":"That token is read-only."}</code>. The one exception is <code>POST /mcp</code>, whose tools are all reads for a read token.</td></tr>
             <tr><td><span class="pill pill--w">read-write</span></td><td>Yes</td><td>Yes</td></tr>
           </tbody>
         </table>
@@ -937,6 +937,7 @@
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/review/approve</code></td><td><span class="pill pill--w">read-write</span></td><td><code>staged_id</code> (required); <code>category_id</code>, <code>confirm_checkpoint</code></td><td>Post a staged row, filed into the envelope given. Inside a reconciled period it asks first (200).</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/review/merge</code></td><td><span class="pill pill--w">read-write</span></td><td><code>staged_id</code> (required); <code>confirm_checkpoint</code></td><td>Merge a staged row into the transaction you already had. Inside a reconciled period it asks first (200).</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/review/reject</code></td><td><span class="pill pill--w">read-write</span></td><td><code>staged_id</code> (required)</td><td>Dismiss a staged row.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/review/ai/:id/approve</code><br><code>/review/ai/:id/reject</code></td><td><span class="pill pill--w">read-write</span></td><td>&mdash;</td><td>Decide on a change one of your own AI connections suggested (<a href="#ai-changes">below</a>). Approving makes it as you; another member&rsquo;s suggestion is 404. An AI connection&rsquo;s own token cannot reach these.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/import</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>The import screen: paste, upload, saved mappings and the import log.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/import/profiles/:id/delete</code></td><td><span class="pill pill--w">read-write</span></td><td>—</td><td>Forget a saved column mapping.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/rules</code></td><td><span class="pill pill--r">read</span></td><td>—</td><td>Rules, and rules the app proposes from what you file.</td></tr>
@@ -1214,6 +1215,7 @@
                 <thead><tr><th>Name</th><th>Type</th><th></th><th>Description</th></tr></thead>
                 <tbody>
                 <tr><td><code>entity</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td>Only changes to one kind of record, such as <code>transaction</code>.</td></tr>
+                <tr><td><code>source</code></td><td class="m">string</td><td><span class='opt'>optional</span></td><td><code>ai</code>: only the changes AI connections made, or that a member approved from one.</td></tr>
                 </tbody>
               </table>
             </div>
@@ -1392,7 +1394,7 @@
       <section class="api-group" id="ai">
         <h2>Connect an AI (MCP)</h2>
         <p>Pathayam is its own <a href="https://modelcontextprotocol.io" rel="noopener noreferrer">Model Context Protocol</a> server, at <code>/mcp</code> on your own address. Claude, ChatGPT, Gemini and any other MCP client can call its tools to answer questions from your figures. There is no separate process, and nothing is sent anywhere until a member connects an app. Every route in this section and the next answers 404 when <code>FEATURE_AI</code> is off.</p>
-        <div class="note" style="margin-bottom:1.25rem"><b>Read-only, and as the member.</b> No tool writes, and the token behind every connection is read-scope. A connection sees what the member who connected it sees: the household budget and their own personal budget. Another member&rsquo;s private accounts, loans, policies and envelopes are never listed, counted or totalled, and an id it may not see is &ldquo;not found&rdquo;, the same as one that does not exist. Whatever a tool returns is sent to that AI&rsquo;s provider.</div>
+        <div class="note" style="margin-bottom:1.25rem"><b>Read-only unless allowed, and always as the member.</b> With <code>AI_WRITE</code> off, the default, no tool writes and every connection&rsquo;s token is read-scope; where it is on, only a connection the member allowed to make changes is offered the <a href="#ai-changes">change tools</a>. A connection sees what the member who connected it sees: the household budget and their own personal budget. Another member&rsquo;s private accounts, loans, policies and envelopes are never listed, counted or totalled, and an id it may not see is &ldquo;not found&rdquo;, the same as one that does not exist. Whatever a tool returns is sent to that AI&rsquo;s provider.</div>
         <details class="ep" open>
           <summary>
             <span class="verb verb--post">POST</span>
@@ -1400,7 +1402,7 @@
             <span class="ep__sum">The MCP endpoint</span>
           </summary>
           <div class="ep__body">
-            <p>Streamable HTTP: one JSON-RPC 2.0 message per <code>POST</code>, a JSON response, and no sessions. Bearer only &mdash; a session cookie is not looked at &mdash; and a <span class="pill pill--r">read</span> token is enough, the one write-shaped request a read token may make. The tools are built for the token&rsquo;s member on every request, so nothing carries over between calls.</p>
+            <p>Streamable HTTP: one JSON-RPC 2.0 message per <code>POST</code>, a JSON response, and no sessions. Bearer only &mdash; a session cookie is not looked at &mdash; and a <span class="pill pill--r">read</span> token is enough, the one write-shaped request a read token may make. An AI connection&rsquo;s token, even a read-write one, makes changes here and nowhere else: any other write is <code>403</code>. The tools are built for the token&rsquo;s member on every request, so nothing carries over between calls.</p>
             <div><h3>Scope</h3><p><span class="pill pill--r">read</span> or higher, as a bearer token</p></div>
           <div>
             <h3>Protocol versions</h3>
@@ -1454,7 +1456,7 @@
           </div>
         </details>
         <h3 style="margin-top:1.5rem">Tools</h3>
-        <p>Seventeen, every one a read. Money is rupees as decimal numbers, dates are <code>YYYY-MM-DD</code> in IST, and a financial year is named by its first year (<code>2026</code> is FY 2026-27). Each tool calls the same query a screen does, so a figure an AI quotes is the figure on the page.</p>
+        <p>Seventeen reads, offered to every connection; the change tools are <a href="#ai-changes">below</a>. Money is rupees as decimal numbers, dates are <code>YYYY-MM-DD</code> in IST, and a financial year is named by its first year (<code>2026</code> is FY 2026-27). Each tool calls the same query a screen does, so a figure an AI quotes is the figure on the page.</p>
         <div class="table-scroll">
           <table>
             <thead><tr><th>Tool</th><th>Arguments</th><th>Answers</th></tr></thead>
@@ -1479,9 +1481,26 @@
             </tbody>
           </table>
         </div>
+        <h3 style="margin-top:1.5rem" id="ai-changes">Changes an AI can make</h3>
+        <p>Only where the operator sets <code>AI_WRITE</code> to <code>standard</code> or <code>full</code> <em>and</em> the member ticked &ldquo;allow changes&rdquo; for that connection, on the consent page or on Connect an AI. Otherwise these tools are not listed at all. Each calls the function its screen calls, with the same checks, so another member&rsquo;s private things are &ldquo;not found&rdquo;. Their annotations say they are not read-only, and none is destructive.</p>
+        <div class="table-scroll">
+          <table>
+            <thead><tr><th>Tool</th><th>Arguments</th><th><code>standard</code></th><th><code>full</code></th><th>Does</th></tr></thead>
+            <tbody>
+              <tr><td><code>set_envelope</code></td><td><code>transaction_id</code>, <code>category_id</code></td><td>direct</td><td>direct</td><td>Files a transaction under one envelope.</td></tr>
+              <tr><td><code>split_transaction</code></td><td><code>transaction_id</code>, <code>lines</code> (2&ndash;25 of <code>category_id</code>, <code>amount</code>)</td><td>direct</td><td>direct</td><td>Splits it; the lines must add up to its amount exactly.</td></tr>
+              <tr><td><code>set_memo</code></td><td><code>transaction_id</code>, <code>memo</code></td><td>direct</td><td>direct</td><td>Sets or clears the memo.</td></tr>
+              <tr><td><code>set_payee_default</code></td><td><code>payee</code>, <code>category_id</code>; <code>why</code></td><td>direct</td><td>direct</td><td>Proposes a payee&rsquo;s envelope as a rule waiting in Review; it files nothing until confirmed.</td></tr>
+              <tr><td><code>add_transaction</code></td><td><code>account_id</code>, <code>amount</code>, <code>direction</code>, <code>why</code>; <code>date</code>, <code>payee</code>, <code>category_id</code>, <code>memo</code></td><td>suggestion</td><td>direct</td><td>Records money in or out, uncleared. Money out needs an envelope.</td></tr>
+              <tr><td><code>assign_to_envelope</code></td><td><code>category_id</code>, <code>amount</code>, <code>why</code>; <code>month</code></td><td>suggestion</td><td>direct</td><td>Sets what an envelope has assigned for a month.</td></tr>
+              <tr><td><code>transfer</code></td><td><code>from_account_id</code>, <code>to_account_id</code>, <code>amount</code>, <code>why</code>; <code>date</code>, <code>memo</code></td><td>suggestion</td><td>direct</td><td>Records money moved between two of the member&rsquo;s accounts.</td></tr>
+            </tbody>
+          </table>
+        </div>
+        <p>A direct change answers with what changed and its event id; a suggestion with its id and &ldquo;waiting for approval in Review&rdquo;, where only that member sees it. Never available: deleting anything, loans, investments, month close, settings, members, tokens, imports, rules and schedules. At most 100 changes a connection a day and 50 suggestions waiting; past either the tool answers <code>isError</code>. Every change is an event with source <code>ai</code> naming the app, and all of one connection&rsquo;s changes in an IST day share one idempotency key, which <b>Undo this AI&rsquo;s changes today</b> on Connect an AI reverses. When somebody has changed those records since, it lists those changes first, and undoing anyway restores each record as it was before the AI and loses them.</p>
         <h3 style="margin-top:1.5rem">Masking and the access log</h3>
         <p>Masking is chosen per connection and on by default. Before an answer leaves, in every string except the app&rsquo;s own ids and dates, a run of nine or more digits keeps its last four, a UPI ID or email address keeps only what follows the <code>@</code>, and a PAN is masked whole. Amounts, envelope names and payee names are the analysis, and are sent. It is best effort: a name written into a narration is not a pattern.</p>
-        <p>Every tool call is logged: when, which app, which tool, its arguments, and the size of the answer or that it was refused. The answers are not kept. A member sees only their own connections&rsquo; rows, on the Connect an AI page; they are kept 90 days, at most 2,000 a member. Reads are not in the activity log; connecting and disconnecting an app are.</p>
+        <p>Every tool call is logged: when, which app, which tool, its arguments, and the size of the answer, that it was refused, or that it changed something. The answers are not kept. A member sees only their own connections&rsquo; rows, on the Connect an AI page; they are kept 90 days, at most 2,000 a member. Reads are not in the activity log; connecting and disconnecting an app are.</p>
       </section>
       <section class="api-group" id="oauth">
         <h2>Signing in from an AI app</h2>
@@ -1493,7 +1512,7 @@
           <li>The member, signed in, approves on the consent page, which names the app and where it sends them back to, and chooses whether identifiers are masked. PKCE <code>S256</code> is required, <code>resource</code> must be <code>/mcp</code> when given, and every redirect back carries <code>iss</code> (RFC 9207).</li>
           <li>The app trades the code for an access token and a refresh token.</li>
         </ol>
-        <p>The access token <b>is an ordinary API token</b>: <code>bgt_</code>, scope <span class="pill pill--r">read</span> whatever was asked for, an hour long, and named after the app. The deny-list, the rate limit, revocation and member removal apply to it unchanged. Refresh tokens last 90 days and rotate on every use; presenting an old one again ends the connection, as does using a code twice. Errors are RFC 6749 JSON (<code>invalid_grant</code>, <code>invalid_client</code>, &hellip;).</p>
+        <p>The access token <b>is an ordinary API token</b>: <code>bgt_</code>, scope <span class="pill pill--r">read</span>, an hour long, and named after the app. Where <code>AI_WRITE</code> allows changes, the metadata also offers <code>budget:write</code> and the consent page an &ldquo;allow changes&rdquo; box, never ticked for the member; a connection approved with it gets <span class="pill pill--w">read-write</span> tokens, still confined to <code>/mcp</code>. The deny-list, the rate limit, revocation and member removal apply to it unchanged. Refresh tokens last 90 days and rotate on every use; presenting an old one again ends the connection, as does using a code twice. Errors are RFC 6749 JSON (<code>invalid_grant</code>, <code>invalid_client</code>, &hellip;).</p>
         <div class="table-scroll">
           <table>
             <thead><tr><th>Method</th><th>Path</th><th>Token</th><th>Parameters</th><th>What it does</th></tr></thead>
@@ -1530,7 +1549,8 @@
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/tokens</code></td><td><span class="pill">session</span></td><td>—</td><td>Your API tokens.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tokens</code></td><td><span class="pill">session</span></td><td><code>name</code> (required); <code>scope</code>, <code>expires_in_days</code> (1 to 3650, or empty for never)</td><td>Mint a token, shown once. 403 while viewing as another member.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tokens/:id/revoke</code></td><td><span class="pill">session</span></td><td>—</td><td>Revoke a token. It stops working at once.</td></tr>
-                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/tokens/ai</code></td><td><span class="pill">session</span></td><td>POST: <code>name</code> (required); <code>redact</code>, <code>expires_in_days</code> (30, 90 or 365)</td><td>Connect an AI: the address to give an app, connected apps and what they have read. A POST makes a read-only token for a command-line or desktop client, always expiring, and shows it once with a ready <code>claude mcp add</code> command, a <code>gemini mcp add</code> command and a JSON configuration. 403 while viewing as another member; refused on the demo. 404 when <code>FEATURE_AI</code> is off.</td></tr>
+                <tr><td class="m"><span class="verb verb--get">GET</span><span class="verb verb--post">POST</span></td><td><code>/tokens/ai</code></td><td><span class="pill">session</span></td><td>POST: <code>name</code> (required); <code>redact</code>, <code>allow_changes</code>, <code>expires_in_days</code> (30, 90 or 365)</td><td>Connect an AI: the address to give an app, connected apps, which of them can make changes, and what they have read. A POST makes a token (read-only unless <code>allow_changes=1</code> where <code>AI_WRITE</code> allows it) for a command-line or desktop client, always expiring, and shows it once with a ready <code>claude mcp add</code> command, a <code>gemini mcp add</code> command and a JSON configuration. 403 while viewing as another member; refused on the demo. 404 when <code>FEATURE_AI</code> is off.</td></tr>
+                <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tokens/ai/undo-today</code></td><td><span class="pill">session</span></td><td><code>connection_id</code> (required); <code>force</code></td><td>Undo every change one of your AI connections made today. When those records were changed since, answers a page listing what would be lost; <code>force=1</code> undoes anyway.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/tokens/connections/:id/revoke</code></td><td><span class="pill">session</span></td><td>&mdash;</td><td>Disconnect an AI app that signed in through OAuth. Its access token and refresh token end together.</td></tr>
                 <tr><td class="m"><span class="verb verb--post">POST</span></td><td><code>/members/invite</code></td><td><span class="pill">session</span></td><td><code>email</code> (required)</td><td>Let someone in. Refused on the demo.</td></tr>
                 <tr><td class="m"><span class="verb verb--get">GET</span></td><td><code>/members/:id/remove</code></td><td><span class="pill">session</span></td><td>—</td><td>What removing a member does, and how the balance between you can end.</td></tr>

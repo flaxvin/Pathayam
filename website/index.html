@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Pathayam</title>
-<meta name="description" content="Envelope budgeting built for Indian banking. Self-hosted, source available, and the data stays on your machine. Ask Claude, ChatGPT or Gemini about it, read-only.">
+<meta name="description" content="Envelope budgeting built for Indian banking. Self-hosted, source available, and the data stays on your machine. Ask Claude, ChatGPT or Gemini about it; read-only unless you allow changes.">
 <link rel="stylesheet" href="fonts.css">
 <link rel="icon" href="img/icon.svg" type="image/svg+xml">
 <link rel="icon" href="favicon.png" sizes="32x32" type="image/png">
@@ -123,8 +123,8 @@
       <div class="cards" style="margin-top:2.5rem">
         <div class="card">
           <span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M2.5 12s3.5-6.5 9.5-6.5 9.5 6.5 9.5 6.5-3.5 6.5-9.5 6.5S2.5 12 2.5 12z"/><circle cx="12" cy="12" r="2.8"/></svg></span>
-          <h3>Read-only, by construction</h3>
-          <p>There is no tool that writes. An AI can look at the budget, never move a rupee, file a transaction or change a setting.</p>
+          <h3>Read-only unless you say so</h3>
+          <p>By default an AI can look at the budget and change nothing. Allow one app to make changes and it can file and split transactions, and suggest new ones for you to approve. It can never delete anything or change a setting, and every change can be undone.</p>
         </div>
         <div class="card">
           <span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3l7 3v6c0 4.2-2.9 7.6-7 9-4.1-1.4-7-4.8-7-9V6l7-3z"/><path d="M9.5 12.2l1.8 1.8 3.4-3.6"/></svg></span>
@@ -134,7 +134,7 @@
         <div class="card">
           <span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg></span>
           <h3>Masked, and logged</h3>
-          <p>Account numbers, UPI IDs, phone numbers and PAN are masked before anything is sent, unless you turn it off. Every question an AI asked is listed, and one click disconnects it.</p>
+          <p>Account numbers, UPI IDs, phone numbers and PAN are masked before anything is sent, unless you turn it off. Every question an AI asked and every change it made is listed, and one click disconnects it.</p>
         </div>
       </div>
     </div>
@@ -197,7 +197,7 @@
       <a class="choice" href="features.html#ai">
         <span class="choice__icon"><svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M4 5h16v11H9l-5 4z"/><path d="M8.5 10.5h.01M12 10.5h.01M15.5 10.5h.01"/></svg></span>
         <h3>I just want to ask a question about my money</h3>
-        <p>Connect Claude, ChatGPT or Gemini and ask it in plain words. It reads your figures, read-only, and can never change one.</p>
+        <p>Connect Claude, ChatGPT or Gemini and ask it in plain words. It reads your figures, and changes nothing unless you allow it.</p>
         <span class="choice__go">Show me &rarr;</span>
       </a>
       <a class="choice" href="features.html#platform">

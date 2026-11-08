@@ -75,7 +75,7 @@
           <li>If you self-host, none of this applies: no data reaches us at all.</li>
           <li>On a hosted plan your data sits in its own database, not a shared table, and one endpoint returns all of it at any time.</li>
           <li>Five days after a plan ends, everything is deleted — backups included, and not recoverable.</li>
-          <li>Connect an AI app and what it reads is sent to that app's provider. Connect none, and nothing is.</li>
+          <li>Connect an AI app and what it reads is sent to that app's provider. Connect none, and nothing is. It changes nothing unless you allow it to, and every change is logged.</li>
         </ul>
       </div>
 
@@ -217,8 +217,8 @@
             </tr>
             <tr>
               <td>AI connections</td>
-              <td>Only if you connect an AI app: the app's name and where it sends you back to, whether masking is on, when it was connected and last used, and a log of each question it asked &mdash; when, which tool, its arguments, and the size of the answer. The answers themselves are not kept. The log is kept for 90 days, at most 2,000 rows a member, and each member sees only their own.</td>
-              <td>So you can see what an AI has read, and disconnect it.</td>
+              <td>Only if you connect an AI app: the app's name and where it sends you back to, whether masking is on, when it was connected and last used, and a log of each question it asked and each change it made &mdash; when, which tool, its arguments, and the size of the answer. The answers themselves are not kept. If you allowed it to make changes, those changes are in the activity log like your own, and any it suggested wait in Review until you decide. The log is kept for 90 days, at most 2,000 rows a member, and each member sees only their own.</td>
+              <td>So you can see what an AI has read or changed, undo it, and disconnect it.</td>
             </tr>
             <tr>
               <td>Billing</td>
@@ -305,7 +305,8 @@
         you, and becomes part of your conversation there, under that provider's
         terms and privacy policy rather than ours. We do not choose that
         provider and do not send it anything you did not connect. A connection
-        can only read, sees only what the member who connected it sees, and by
+        only reads unless you tick &ldquo;allow changes&rdquo; for it where your instance offers that; any change it
+        makes is opt-in, logged and undoable. It sees only what the member who connected it sees, and by
         default masks account and card numbers, UPI IDs, phone numbers and PAN
         before anything leaves. Masking is best effort: a name written into a
         narration is sent as written. Disconnecting stops further reading; it
