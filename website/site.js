@@ -103,7 +103,7 @@
             + "hitting the API never waits for a wake-up. "
             + '<a href="#faq-ondemand">Compare the two</a>.'
           : "Your container starts when you open the app and stops when you are "
-            + "done — a second or two to wake. "
+            + "done. It takes a second or two to wake. "
             + '<a href="#faq-ondemand">What that means</a>.';
       }
     };
@@ -139,13 +139,13 @@
 
       /* Stricter than the browser's own check, which accepts `a@b`. */
       if (!/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(value)) {
-        say("That does not look like an email address.", "err");
+        say("Please enter a valid email address.", "err");
         email.focus();
         return;
       }
       if (!WAITLIST_ENDPOINT) {
-        say("Requests are not connected yet — nothing was sent. " +
-            "Until they are, the repository is the way in.", "err");
+        say("Requests are not connected yet, so nothing was sent. " +
+            "In the meantime, please use the repository.", "err");
         return;
       }
 
@@ -171,9 +171,9 @@
         }),
       }).then(function () {
         form.reset();
-        say("Asked. A person will read this and write back to you.", "ok");
+        say("Thank you. We'll be in touch to agree the details.", "ok");
       }).catch(function () {
-        say("That did not go through. Try again in a moment.", "err");
+        say("Your request did not go through. Please try again in a moment.", "err");
       }).then(function () {
         button.disabled = false;
       });
@@ -311,12 +311,12 @@
 
     var over = st.rows.filter(function (r) { return avail(r) < 0; });
     if (r2a < 0) {
-      say("You have assigned more than you have. Ready to Assign is never allowed to stay negative — take some back.");
+      say("You have assigned more than you have. Ready to Assign cannot stay negative, so take some back.");
     } else if (over.length) {
       say(over.length + (over.length === 1 ? " envelope is" : " envelopes are") +
           " overspent. Cover it from another envelope, or let the rollover handle it.");
     } else if (r2a === 0) {
-      say("Every rupee has a job. That is the whole idea.");
+      say("Every rupee has a job.");
     } else {
       say(rupees(r2a) + " still has no job.");
     }
@@ -360,7 +360,7 @@
       if (s > bestSlack) { bestSlack = s; best = j; }
     });
     if (best < 0 || bestSlack < need) {
-      say("Nothing has enough slack to cover it. Take it from Ready to Assign, or let the rollover deal with it.");
+      say("No envelope has enough to cover it. Take it from Ready to Assign, or let the rollover handle it.");
       return;
     }
     st.rows[best].assigned -= need;
@@ -404,7 +404,7 @@
       var c = cardRow(), pot = avail(c);
       if (pot < st.cardDebt) {
         say("The payment envelope only holds " + rupees(pot) + " against " + rupees(st.cardDebt) +
-            " owed. Fund the difference first — that gap is the warning doing its job.");
+            " owed. Fund the difference first.");
         return;
       }
       c.activity += st.cardDebt;

@@ -53,12 +53,12 @@
   <section class="sec sec--tight">
     <div class="wrap center">
       <p class="eyebrow">Guides</p>
-      <h1 style="font-size:var(--step-5);max-width:18ch;margin-inline:auto">How to actually use it</h1>
+      <h1 style="font-size:var(--step-5);max-width:18ch;margin-inline:auto">How to use Pathayam</h1>
       <p class="lede" style="font-size:var(--step-2);max-width:56ch">
-        43 guides covering every screen in the app, in the order you will need
-        them &mdash; now including <a href="#connect-ai">asking Claude, ChatGPT or
-        Gemini about your own figures</a>. Start at the top if it is your first day, or jump to whatever you are
-        stuck on.
+        43 guides covering every screen in the app, in the order you'll need
+        them, including <a href="#connect-ai">asking Claude, ChatGPT or
+        Gemini about your own figures</a>. Start at the top if you're new, or go
+        straight to the topic you need.
       </p>
       <div class="actions" style="margin-top:1.75rem">
         <a class="btn btn--primary" href="demo.html">Open the demo</a>
@@ -85,7 +85,7 @@
             <li><a href="#overspend">When you go over</a></li>
             <li><a href="#close">Close the month</a></li>
           <li class="rail-part">Keeping money separate</li>
-            <li><a href="#separate">Should you keep it separate?</a></li>
+            <li><a href="#separate">When to keep money separate</a></li>
             <li><a href="#own-budget">Open a budget of your own</a></li>
             <li><a href="#committing">Commit to the household</a></li>
             <li><a href="#shared-spending">Paying for shared things</a></li>
@@ -133,41 +133,41 @@
           <h2 class="guide-part" id="part-getting-started">Getting started</h2>
           <article class="guide" id="install">
             <h2>Install and first run</h2>
-<p>Everything runs in Docker, so Node is not needed on your machine. Five minutes
-from nothing to a budget you can click around.</p>
+<p>Everything runs in Docker, so you don't need Node on your machine. It takes
+about five minutes to get a working budget you can explore.</p>
 <ol class="steps">
   <li><div><strong>Get the source.</strong>
-    <code>git clone https://github.com/flaxvin/Pathayam.git</code>, then <code>cd Pathayam</code>. Everything
-    below runs from there.</div></li>
+    <code>git clone https://github.com/flaxvin/Pathayam.git</code>, then <code>cd Pathayam</code>. Run the
+    steps below from that folder.</div></li>
   <li><div><strong>Make a config file.</strong> <code>cp .env.example .env</code>.
     The defaults are fine for a first look.</div></li>
   <li><div><strong>Seed a demo household.</strong>
-    <code>docker compose --profile seed up seed</code> — two members, four accounts
-    and a month of realistic behaviour including an overspend, so the screens have
-    something true in them.</div></li>
+    <code>docker compose --profile seed up seed</code>. This adds two members, four
+    accounts and a month of realistic activity, including an overspend, so every
+    screen has data to show.</div></li>
   <li><div><strong>Start it.</strong> <code>docker compose --profile dev up</code>,
     then open <code>localhost:8080</code>.</div></li>
 </ol>
 <div class="note"><b>The purple banner</b> means the development login bypass is on.
-It exists only in the development image, and the app refuses to start if it finds
-it anywhere production-shaped — a public hostname, real Google or OpenID Connect
-credentials, password sign-in (<code>LOCAL_LOGIN</code>), or <code>NODE_ENV=production</code>. You will never see it on a real deployment.</div>
+It exists only in the development image, and the app refuses to start if it detects
+anything that looks like production: a public hostname, real Google or OpenID Connect
+credentials, password sign-in (<code>LOCAL_LOGIN</code>), or <code>NODE_ENV=production</code>. You won't see it on a real deployment.</div>
 <h3>Going live</h3>
-<p>You need a domain, a way to sign in — Google, any OpenID Connect provider, or
-passwords with <code>LOCAL_LOGIN</code> — and somewhere to run one container. Set <code>BASE_URL</code> to your exact public origin — sign-in
-redirects and cookie scoping both depend on it being right — then
+<p>You need a domain, a way to sign in (Google, any OpenID Connect provider, or
+passwords with <code>LOCAL_LOGIN</code>) and somewhere to run one container. Set <code>BASE_URL</code> to your exact public origin, because sign-in
+redirects and cookie scoping both depend on it, then run
 <code>docker compose up -d</code>. Start from an empty budget rather than the seed.</p>
-<p><strong>Set <code>SECRETS_KEY</code> before going live.</strong> It seals the
+<p><strong>Set <code>SECRETS_KEY</code> before going live.</strong> It encrypts the
 Google keys and Gmail access the server stores, so Gmail works with your own Google
 project. Generate it once with <code>openssl rand -base64 32</code> and put it in
 <code>.env</code> as <code>SECRETS_KEY=…</code>; on Fly.io,
 <code>fly secrets set SECRETS_KEY="$(openssl rand -base64 32)" -a your-app</code>.
-Keep a copy somewhere other than the server. Losing it costs nothing but
-re-entering your Google keys and reconnecting Gmail.</p>
-<p>It also decides which writes are accepted. A save, a delete or any other change
-addressed to a host other than <code>BASE_URL</code>'s — another name, or the same
-name on another port — is refused with a 403, so a page somewhere else cannot point
-its own name at your machine and post to it. An IP address or
+Keep a copy somewhere other than the server. If you lose it, you'll only
+need to re-enter your Google keys and reconnect Gmail.</p>
+<p>The base URL also decides which writes are accepted. A save, a delete or any other change
+addressed to a host other than <code>BASE_URL</code>'s (another name, or the same
+name on another port) is refused with a 403. This stops a page elsewhere from pointing
+its own name at your machine and posting to it. An IP address or
 <code>localhost</code> is accepted as well, so the app still works from its LAN
 address. Behind a reverse proxy, have the proxy pass the original
 <code>Host</code> header through, or send <code>X-Forwarded-Host</code> and set
@@ -179,24 +179,24 @@ sign-in.</p>
           </article>
           <article class="guide" id="accounts">
             <h2>Add your accounts</h2>
-<p>Accounts come in three kinds, and picking the right one matters more than
-anything else you will do on this screen.</p>
+<p>There are three kinds of account, and choosing the right kind is the most
+important step on this screen.</p>
 <ul>
-  <li><strong>Budget accounts</strong> — current, savings, cash. Money here funds
-    envelopes. The total across them is what you are allowed to budget.</li>
-  <li><strong>Credit accounts</strong> — credit cards. Spending creates a debt
+  <li><strong>Budget accounts</strong>: current, savings and cash. Money here funds
+    envelopes, and their total is the amount you can budget.</li>
+  <li><strong>Credit accounts</strong>: credit cards. Spending creates a debt
     <em>and</em> reserves the cash to clear it. See the cards guide.</li>
-  <li><strong>Tracking accounts</strong> — a PPF, an EPF, a fixed deposit, anything
+  <li><strong>Tracking accounts</strong>: a PPF, an EPF, a fixed deposit, anything
     you want on the net-worth figure but never want to budget from. A fixed or
     recurring deposit, a PPF or an EPF can also be given its terms, and then it
-    values itself — see <a href="#deposits">Give a deposit its terms</a>.</li>
+    values itself (see <a href="#deposits">Give a deposit its terms</a>).</li>
 </ul>
-<p>Give each one its balance as of today. That balance becomes an opening
-transaction, so the arithmetic starts from a real number rather than zero.</p>
+<p>Enter each account's balance as of today. It becomes an opening
+transaction, so your figures start from a real number rather than zero.</p>
 <h3>Closing, not deleting</h3>
-<p>Accounts are closed rather than deleted, always. The history attached to them is
-real and other figures depend on it. A closed account disappears from the places you
-pick accounts and stays in the places you read history.</p>
+<p>Accounts are always closed, never deleted, because their history is real and
+other figures depend on it. A closed account no longer appears when you choose an
+account, but it still appears wherever you view history.</p>
             <div class="shots ">
               <figure class="frame">
                 <picture>
@@ -209,21 +209,19 @@ pick accounts and stays in the places you read history.</p>
           </article>
           <article class="guide" id="categories">
             <h2>Set up categories</h2>
-<p>Categories are the envelopes. Groups hold categories. Start with fewer than you
-think — five or six — and add more when reality demands it rather than in advance.</p>
+<p>Categories are your envelopes, and groups hold categories. Start small, with
+five or six categories, and add more as you need them.</p>
 <p>A useful starting set: <em>Rent</em>, <em>Groceries</em>, <em>Eating out</em>,
-<em>Transport</em>, <em>Bills</em>, and one honest category called something like
+<em>Transport</em>, <em>Bills</em>, and a catch-all category such as
 <em>Stuff I forget</em>.</p>
-<h3>Order is information</h3>
-<p>The arrows beside each category and group move them. This is not decoration:
-<strong>fund every target</strong> spends your money down the budget in exactly this
-order, so whatever sits at the top gets funded first and any shortfall lands at the
-bottom where you will notice it. Put the things that must happen above the things
-that would be nice.</p>
+<h3>The order matters</h3>
+<p>Use the arrows beside each category and group to reorder them.
+<strong>Fund every target</strong> funds categories from the top down, so put your
+essentials first. If money runs short, the gap shows at the bottom of the list.</p>
 <h3>Envelopes the app manages</h3>
-<p>Some categories are created and retired by the app itself — one per credit card
+<p>The app creates and retires some categories itself: one per credit card
 for payments, and one per savings goal. They carry no manual controls and are marked
-<em>managed by the app</em>, so it is obvious why you cannot rename them.</p>
+<em>managed by the app</em>, so it's clear why you can't rename them.</p>
 <h3>Hiding and deleting</h3>
 <p>Hide a category you have stopped using and its history stays intact. Delete one
 only if it never had anything in it. One with history is merged into another instead,
@@ -241,11 +239,11 @@ which carries its balance, transactions, rules and schedules across.</p>
           <h2 class="guide-part" id="part-the-monthly-loop">The monthly loop</h2>
           <article class="guide" id="first-budget">
             <h2>Build your first budget</h2>
-<p>The rule is the whole method: <strong>you can only budget money you already
-have.</strong> Not money you expect, not next week's salary. What is in your budget
-accounts right now.</p>
-<p>That number appears at the top as <strong>Ready to Assign</strong>. Your job is
-to get it to zero — not by spending, but by giving every rupee a job.</p>
+<p>The method rests on one rule: <strong>you can only budget money you already
+have.</strong> That means what is in your budget accounts today, not money you expect
+or next week's salary.</p>
+<p>That number appears at the top as <strong>Ready to Assign</strong>. Your aim is
+to bring it to zero by giving every rupee a job.</p>
 <ol class="steps">
   <li><div><strong>Fund what will definitely happen.</strong> Rent, the loan
     instalment, the electricity bill.</div></li>
@@ -255,13 +253,13 @@ to get it to zero — not by spending, but by giving every rupee a job.</p>
     the emergency fund. Whatever is left goes here.</div></li>
 </ol>
 <div class="note note--good"><b>Ready to Assign going negative</b> means you have
-promised money you do not have. The app will keep saying so until you take some back
-from somewhere. That nagging is the feature.</div>
+assigned money you do not have. The app keeps flagging it until you take some back
+from another category.</div>
 <h3>Reading the grid</h3>
-<p>Three columns per category. <strong>Assigned</strong> is what you gave it this
-month. <strong>Activity</strong> is what happened — spending is negative.
-<strong>Available</strong> is what is left, and it is the only number that matters
-when you are standing in a shop.</p>
+<p>Each category has three columns. <strong>Assigned</strong> is what you gave it this
+month. <strong>Activity</strong> is what happened, with spending shown as negative.
+<strong>Available</strong> is what is left, and it's the number to check before
+you spend.</p>
             <div class="shots cols2">
               <figure class="frame">
                 <picture>
@@ -281,22 +279,22 @@ when you are standing in a shop.</p>
           </article>
           <article class="guide" id="assign">
             <h2>Assign, move and hold</h2>
-<p>Three different actions, and confusing them is the most common early mistake.</p>
+<p>These are three different actions, and mixing them up is the most common early mistake.</p>
 <h3>Assign</h3>
 <p>Moves money from Ready to Assign into a category. This is how the month gets
 budgeted. Ready to Assign falls.</p>
 <h3>Move</h3>
 <p>Moves money between two categories. <strong>Ready to Assign does not
-change</strong> — the total assigned is the same, it is just sitting somewhere else.
-This is how you cover an overspend, and it is not cheating. Eating out came out of
-the holiday fund, and now you know that. Both envelopes have to be in the same budget:
+change</strong>, because the total assigned stays the same.
+This is how you cover an overspend: if eating out comes from the holiday fund, the
+budget now shows it. Both envelopes have to be in the same budget:
 money between two budgets is a transfer between their accounts, not a move.</p>
 <h3>Hold</h3>
 <p>Takes money out of this month's Ready to Assign and places it at the top of next
 month's. This is how you get a month ahead. See its own guide.</p>
 <div class="note"><b>Fill from last month</b> gives every empty category in the budget on
-screen what it was assigned last month, in one step, which makes a routine month about
-thirty seconds of work.</div>
+screen what it was assigned last month, in one step, so a routine month takes about
+thirty seconds.</div>
             <div class="shots ">
               <figure class="frame">
                 <picture>
@@ -311,21 +309,21 @@ thirty seconds of work.</div>
             <h2>Targets and auto-assign</h2>
 <p>A target says what a category <em>needs</em>, so the app can tell you whether it
 has it. Rent needs ₹45,000 a month. An annual insurance premium needs ₹8,000 set
-aside each month so that in March it is simply there.</p>
+aside each month so that the money is ready in March.</p>
 <p>Three kinds are set on Categories: an amount <strong>each month</strong>, a level to
-<strong>refill up to</strong> — only the gap is asked for — or an amount <strong>by a
+<strong>refill up to</strong> (only the gap is asked for), or an amount <strong>by a
 date</strong>, spread over the months until then and asking nothing once that month has
 passed.</p>
-<p>Each category shows its progress against the target as a chip — funded, partly
-funded, or not funded — so a glance down the grid tells you where the month stands.</p>
+<p>Each category shows its progress against the target as a chip (funded, partly
+funded or not funded), so you can see at a glance where the month stands.</p>
 <h3>Fund every target</h3>
-<p>Once targets are set, one tap does the monthly sit-down. You get a preview of
-exactly what would be assigned before anything commits. Money is spent down the
-budget in your order, so a thin month funds the top of the list and leaves the
-shortfall visible at the bottom.</p>
-<div class="note note--good"><b>This does not run automatically at rollover</b>, and
-that is deliberate. The monthly sit-down is where you notice that groceries have
-crept up ₹2,000. An app that quietly did it for you is an app you stop reading.</div>
+<p>Once your targets are set, one tap funds them all. You see a preview of
+exactly what will be assigned before anything is saved. Money is assigned from the top
+of the budget down, in your order, so in a tight month the top of the list is funded
+and the shortfall shows at the bottom.</p>
+<div class="note note--good"><b>This does not run automatically at rollover</b>, by
+design. Reviewing the month yourself is how you notice that groceries have
+crept up by ₹2,000.</div>
             <div class="shots ">
               <figure class="frame">
                 <picture>
@@ -340,25 +338,25 @@ crept up ₹2,000. An app that quietly did it for you is an app you stop reading
             <h2>Record what you spend</h2>
 <p><strong>Add</strong> is in the header on every screen, and <kbd>a</kbd> opens it
 from anywhere. On a household with more than one person the form also asks
-<em>who spent it</em>, which follows the account — a card in somebody's name is
-attributed to them — and that name appears as a column in the register and in
+<em>who spent it</em>, which follows the account (a card in somebody's name is
+attributed to them). That name appears as a column in the register and in
 Query.</p>
-<p><strong>Add</strong> sits in the middle of the navigation on purpose. Recording a
-transaction should take about five seconds.</p>
+<p><strong>Add</strong> sits in the middle of the navigation so that recording a
+transaction takes about five seconds.</p>
 <ul>
   <li><strong>Amounts do arithmetic.</strong> Type <code>450+120</code> and it works
-    it out — useful when you are splitting a bill at the table.</li>
-  <li><strong>Money out must name a category.</strong> &ldquo;I will sort it
-    later&rdquo; is how you end up with a queue of hundreds. Money in is exempt,
+    out the total, which is useful when splitting a bill.</li>
+  <li><strong>Money out must name a category.</strong> Leaving it for later is how
+    a queue of hundreds builds up. Money in is exempt,
     because its job is to sit in Ready to Assign until you give it one.</li>
-  <li><strong>Splits</strong> handle one receipt covering several envelopes — the
+  <li><strong>Splits</strong> handle one receipt covering several envelopes, such as a
     supermarket run that was half groceries and half a birthday present.</li>
   <li><strong>Transfers</strong> between your own accounts are never spending and
     are never counted as such.</li>
   <li><strong>Owner</strong> records who spent it, which matters on a shared budget
     and on add-on cards.</li>
   <li><strong>Cleared</strong> means the bank has confirmed it. Leave it unticked
-    until you have actually seen it on their record. A cleared entry dated inside a
+    until you have seen it on the bank's record. A cleared entry dated inside a
     period you have already reconciled asks first, because saving it breaks that
     reconciliation.</li>
 </ul>
@@ -388,45 +386,44 @@ than on a disk somewhere, and served so that no device caches a copy.</p>
           </article>
           <article class="guide" id="overspend">
             <h2>When you go over</h2>
-<p>You will go over. The question a budgeting app has to answer honestly is what
-happens next, and there are two defensible answers. Choose one in Settings.</p>
+<p>Every budget goes over sometimes. There are two sensible ways to handle what
+happens next, and you choose one in Settings.</p>
 <ul>
-  <li><strong>Reduce next month</strong> (the default) — the overage comes off next
+  <li><strong>Reduce next month</strong> (the default): the overage comes off next
     month's Ready to Assign and the category starts fresh at zero. Last month is
     closed and paid for.</li>
-  <li><strong>Carry the negative</strong> — the category itself starts next month in
-    the red and has to be dug out. Harsher, and some people want exactly that.</li>
+  <li><strong>Carry the negative</strong>: the category itself starts next month in
+    the red and has to be brought back up. It's stricter, and some people prefer that.</li>
 </ul>
-<p>Whichever you pick, today's move is the same: <strong>cover it</strong>. Move
-money from another envelope. The app ranks suggestions by where there is most slack,
-so it takes one tap.</p>
+<p>Whichever you choose, the fix today is the same: <strong>cover it</strong> by
+moving money from another envelope. The app suggests the envelopes with the most to
+spare, so it takes one tap.</p>
 <div class="note"><b>Switching models re-derives your entire history</b> under the new
-one, as a single undoable step. Figures will change, which is correct — they were
-always the answer to a different question.</div>
+one, as a single undoable step. Figures will change, as expected, because each model
+calculates them differently.</div>
 <h3>Converting a purchase to EMI</h3>
 <p>When the bank offers to split a big charge into instalments, open the
-transaction and say yes there. Only a charge converts — not a refund or a payment —
-and only once: a charge partly on a plan offers just the rest. The converted amount comes off the card's balance
-and becomes a loan with its own schedule and its own envelope — so you are not
-asked to clear it on the card <em>and</em> pay it monthly, which is the mistake
-worth avoiding. The processing fee and its GST are charged to the card like any
+transaction and say yes there. Only a charge converts (not a refund or a payment),
+and only once: a charge partly on a plan offers only the rest. The converted amount comes off the card's balance
+and becomes a loan with its own schedule and envelope, so you are never
+asked to clear it on the card <em>and</em> pay it monthly. The processing fee and its GST are charged to the card like any
 purchase, so they need an envelope. Each instalment also posts 18% GST on that
 instalment's interest as its own card charge, the way the statement shows it, and
 the plan's envelope asks for it each month. The loan screen shows what the plan
-actually costs in interest, GST and fees.</p>
-<p>Two details make the plans livable. <strong>Name it</strong> — the conversion form
+costs in interest, GST and fees.</p>
+<p>Two details make plans easier to manage. <strong>Name it</strong>: the conversion form
 offers the payee as a suffix, so you get &ldquo;HDFC EMI — Croma TV&rdquo; rather than a
-column of identically-titled plans you have to open one by one. And whatever the card's
+list of plans with identical names. And whatever the card's
 payment envelope was already holding against that charge <strong>moves across</strong> to
-the new plan's envelope, because the money you set aside to clear the purchase is the
-money that now pays its instalments. Nothing is stranded and nothing is asked for
+the new plan's envelope, because the money you set aside to clear the purchase now
+pays its instalments. Nothing is left behind and nothing is asked for
 twice.</p>
 <h3>On a household commitment it means something else</h3>
 <p>The envelope you use to commit money to the household can go red too, and it is
 not an overspend: it means more of the household's spending was paid out of your
 money than you put aside for it. The button says <strong>Put it down to me</strong>
-rather than <em>Cover</em>, because covering it forgives nobody anything — it
-decides your share this month was larger. <a href="#squaring-up">Squaring up a
+rather than <em>Cover</em>, because covering it doesn't forgive anyone anything; it
+records that your share this month was larger. <a href="#squaring-up">Squaring up a
 month</a> covers the other two ways it can end.</p>
 <h3>Overspending on a card is different</h3>
 <p>Cash overspending means you spent money you had not budgeted. Card overspending
@@ -444,52 +441,53 @@ shows an unfunded amount until you deal with it.</p>
           </article>
           <article class="guide" id="close">
             <h2>Close the month</h2>
-<p>Ten minutes, once a month. Nothing is locked and a closed month can be reopened,
-so this is a ritual rather than a gate.</p>
+<p>This takes about ten minutes once a month. Nothing is locked, and a closed
+month can be reopened.</p>
 <p>It shows you four things, for the budget you are looking at and its money only:</p>
 <ul>
-  <li><strong>What the month did</strong> — earned, spent, saved, the savings rate,
+  <li><strong>What the month did</strong>: earned, spent, saved, the savings rate
     and the biggest categories.</li>
   <li><strong>How your net worth moved</strong>, split into money saved, market
-    movement, exchange rates and debt repaid — and, in a month they moved, other
-    assets, money owed to family and other liabilities. Different reasons a number
-    changed, separated, and they add up to the change.</li>
-  <li><strong>A dated snapshot</strong>, so the history is something recorded rather
-    than recalculated later from whatever the prices are now.</li>
+    movement, exchange rates and debt repaid, plus other assets, money owed to
+    family and other liabilities in any month they moved. The parts add up to the
+    total change.</li>
+  <li><strong>A dated snapshot</strong>, so your history is recorded as it was, not
+    recalculated later from current prices.</li>
   <li><strong>Whether next month is funded.</strong></li>
 </ul>
 <div class="note note--good"><b>The app will remind you</b> once the month is over
-and nobody has closed it, then stop mentioning it if you mute that kind of
+and nobody has closed it. You can mute that kind of
 reminder.</div>
             <div class="shots ">
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/overview-mobile.webp" width="840" height="1800">
-                  <img src="img/overview.webp" width="2800" height="3816" loading="lazy" alt="Overview — runway, what is due, the month so far.">
+                  <img src="img/overview.webp" width="2800" height="3816" loading="lazy" alt="Overview: runway, what is due and the month so far.">
                 </picture>
-                <figcaption>Overview — runway, what is due, the month so far.</figcaption>
+                <figcaption>Overview: runway, what is due and the month so far.</figcaption>
               </figure>
             </div>
           </article>
           <h2 class="guide-part" id="part-keeping-money-separate">Keeping money separate</h2>
           <article class="guide" id="separate">
-            <h2>Should you keep it separate?</h2>
-<p>Most households pool everything. If that is you, skip this part entirely — there
-is nothing to switch on, no second grid, and the app never mentions any of it.</p>
+            <h2>When to keep money separate</h2>
+<p>Most households pool everything. If yours does, you can skip this part: there
+is nothing to switch on and no second grid, and the app never mentions it.</p>
 <p>This is for the other arrangement: <em>we keep our own accounts and split the
-shared bills</em>. Couples who came to it late, one salary and one irregular income,
-somebody supporting a parent out of their own money, or simply a preference. It is a
-legitimate way to run a household and most budgeting apps cannot do it at all.</p>
-<p>What you get is a budget of your own — your accounts, your envelopes, your Ready
-to Assign — plus an agreed amount you put toward the shared bills each month. What
-you give up is nothing: the household budget works exactly as it did.</p>
-<div class="note"><b>The important part is that money never moves to commit it.</b>
-You do not transfer ₹40,000 to a joint account and then budget it twice. You assign
-it, and it stays in your account until something shared is actually paid for.</div>
+shared bills</em>. It suits couples who combined finances later, a household with
+one salary and one irregular income, someone supporting a parent from their own
+money, or anyone who prefers it. It is a perfectly good way to run a household, and
+most budgeting apps don't support it.</p>
+<p>You get a budget of your own (your accounts, envelopes and Ready to Assign),
+plus an agreed amount you put toward the shared bills each month. The household
+budget works exactly as before.</p>
+<div class="note"><b>Committing money never moves it.</b>
+You don't transfer ₹40,000 to a joint account and budget it twice. You assign
+it, and it stays in your account until something shared is paid for.</div>
 <h3>What the other person can see</h3>
-<p>How much you committed, and how much of it has gone out. That is all. Not your
-balances, not your accounts, not your other envelopes — not through any total, and
-not by subtracting one number from another.</p>
+<p>Only how much you committed and how much of it has gone out. They can't see
+your balances, accounts or other envelopes, and no total lets them work these out
+by subtraction.</p>
             <div class="shots ">
               <figure class="frame">
                 <picture>
@@ -503,24 +501,23 @@ not by subtracting one number from another.</p>
 
           <article class="guide" id="own-budget">
             <h2>Open a budget of your own</h2>
-<p>On the budget screen, <strong>+ My own budget</strong>. It appears immediately
-with a few envelopes to start from and one more you did not create: the household
-envelope, which is how you put money toward the shared bills.</p>
-<p>Then move your accounts into it. Open an account, <strong>Edit</strong>, and set
-<em>Which budget this account funds</em> to your own. That is the setting that
+<p>On the budget screen, <strong>+ My own budget</strong>. It appears straight away
+with a few starter envelopes, plus the household envelope, which is how you put
+money toward the shared bills.</p>
+<p>Next, move your accounts into it. Open an account, choose <strong>Edit</strong>, and set
+<em>Which budget this account funds</em> to your own. This setting
 changes the figures: the balance leaves the household's Ready to Assign and joins
 yours, and spending from the account lands in your envelopes.</p>
 <h3>Making an account private</h3>
 <p>Once an account is in your own budget you can set <em>Who can see it</em> to
-private, and nobody else sees the account or its balance at all.</p>
+private, and nobody else sees the account or its balance.</p>
 <div class="note"><b>Private only works in your own budget</b>, and the app refuses
-it in the household's. The reason is arithmetic rather than policy: the household's
+it in the household's. This is a matter of arithmetic: the household's
 Ready to Assign is the sum of every account in it, so a hidden one there could be
-worked out by subtracting the visible ones. Refusing is more honest than a promise
-the sums cannot keep.</div>
+worked out by subtracting the visible ones.</div>
 <h3>Switching between them</h3>
 <p>The sidebar gains a <strong>Looking at</strong> section. Every screen that shows
-one budget's money — the grid, Overview, Cards, Schedules, Categories — follows it.
+one budget's money follows it: the grid, Overview, Cards, Schedules and Categories.
 Reports and Query are different: they ask <em>whose money</em> as a filter, because
 "what did we spend on groceries" and "what did I spend" are different questions.</p>
           </article>
@@ -530,15 +527,15 @@ Reports and Query are different: they ask <em>whose money</em> as a filter, beca
 <p>In your own budget there is an envelope called <strong>→ Household</strong>.
 Assign to it and that money is committed: it shows up in the household's Ready to
 Assign for the two of you to assign to rent, groceries, whatever you have agreed.</p>
-<p>No money moves. It is still in your account. That is the whole point, and it is
-what lets a private account fund shared spending without publishing its balance.</p>
+<p>No money moves; it stays in your account. This is what lets a private account
+fund shared spending without revealing its balance.</p>
 <h3>Set it once</h3>
-<p>On <strong>The household's money</strong>, set a monthly plan — ₹40,000 a month,
-say. It is an ordinary target, so the budget screen measures you against it and
-auto-assign fills it. Agreeing the figure once beats remembering it every month.</p>
+<p>On <strong>The household's money</strong>, set a monthly plan, such as ₹40,000 a
+month. It is an ordinary target, so the budget screen measures you against it and
+auto-assign fills it. You agree the figure once instead of remembering it every month.</p>
 <div class="note note--good"><b>Unspent commitments roll over</b> like any other
-envelope. Nothing expires at month end, and taking money back out is a deliberate
-move rather than something the app does for you — the household was counting on
+envelope. Nothing expires at month end. Taking money back out is a deliberate
+move you make yourself, because the household was counting on
 it.</div>
           </article>
 
@@ -557,9 +554,9 @@ picker. It is the ordinary way to pay for shared things, not an error.</p>
 <ul>
   <li><strong>A shared card</strong> is one whose account sits in the household
     budget. Anybody may spend on it. The bill is paid from the card's own payment
-    envelope, in the household's budget, however the spending was filed — so a
+    envelope, in the household's budget, however the spending was filed, so a
     shared card's payment is never split between you.</li>
-  <li><strong>An add-on card</strong> — your card on somebody else's account — keeps
+  <li><strong>An add-on card</strong> (your card on somebody else's account) keeps
     the debt with the primary holder, because that is who the bank chases. Filing an
     add-on charge to your own envelope means you have used their credit, so the
     balance between you moves by that much.</li>
@@ -574,16 +571,16 @@ lands in its own budget and draws on the right money.</p>
 
           <article class="guide" id="squaring-up">
             <h2>Squaring up a month</h2>
-<p>Some months one of you puts in more. The app does not call that a debt — you are
-not a creditor and your partner is not in default on the electricity. It says the
-commitment is <strong>underfunded</strong>: more has gone to the household than was
+<p>Some months one of you puts in more. The app doesn't treat that as a debt between
+you. Instead it shows the
+commitment as <strong>underfunded</strong>: more has gone to the household than was
 put aside for it.</p>
 <p>On <strong>The household's money</strong>, the row reads left to right and adds
 up: brought forward, plus what went in, less what went to the household, is where it
-stands. There are three ways to settle it, and they are genuinely different.</p>
+stands. There are three ways to settle it.</p>
 <ul>
   <li><strong>Put it down to me.</strong> Fund it from your own Ready to Assign. Your
-    share this month was simply larger. Nothing is forgiven and nobody else is asked
+    share this month was larger. Nothing is forgiven and nobody else is asked
     for anything.</li>
   <li><strong>I'll pick it up.</strong> The other of you commits the amount on top of
     what they already had, so it is funded from their budget instead.</li>
@@ -591,14 +588,14 @@ stands. There are three ways to settle it, and they are genuinely different.</p>
     something go, so it is offered only to whoever is giving it up.</li>
 </ul>
 <div class="note"><b>Calling it even still costs something, and the app shows where.</b>
-It becomes spending on the side that gave it up — it needs an envelope, like
-anything else — and that budget's Ready to Assign pays for it. It is the household
-buying somebody a present, which is what happened. It never reduces what you pay the
+It becomes spending on the side that gave it up, so it needs an envelope like
+anything else, and that budget's Ready to Assign pays for it. In effect, it is a
+gift from one side to the other. It never reduces what you pay the
 bank: the card bill is owed either way.</div>
 <h3>Closing the month</h3>
 <p>Each budget closes on its own. The household's month can close while yours is
-still open, and the other way round — one person's procrastination should not block
-the other's ritual. The household's close reports what each of you put in and how
+still open, and the other way round, so neither of you has to wait for
+the other. The household's close reports what each of you put in and how
 much went out.</p>
           </article>
 
@@ -606,33 +603,33 @@ much went out.</p>
             <h2>When somebody leaves</h2>
 <p>Removing a member never deletes anything. Every transaction they entered keeps
 their name, the history stays exactly as it was, and adding the same email address
-back restores them — they pick up where they left off. Settings lists anybody
+back restores them, and they pick up where they left off. Settings lists anybody
 removed with an <strong>Add back</strong> button, so it is one click either way.</p>
 <p>What is not automatic is the money. If they kept a budget of their own there is
 usually a balance outstanding, and the app will not remove them until you say how
 it ends. It offers the options and never picks one.</p>
 <ul>
-  <li><strong>They have money set aside and unspent.</strong> It is theirs — they
-    promised it, and the promise ends with the arrangement. Giving it back is the
-    only ending offered, because recording a debt here would invent one.</li>
+  <li><strong>They have money set aside and unspent.</strong> It is theirs: the
+    commitment ends with the arrangement. Giving it back is the only option
+    offered, because recording a debt here would create one that doesn't exist.</li>
   <li><strong>The household has had the use of their money.</strong> Either record
-    it as <em>money owed</em> — which becomes ordinary family lending, with them as
-    the counterparty, because they are outside the household now and that is exactly
-    what family lending is for — or they <em>call it even</em> and let it go.</li>
+    it as <em>money owed</em>, which becomes ordinary family lending with them as
+    the counterparty (they are outside the household now), or they <em>call it
+    even</em> and let it go.</li>
 </ul>
 <div class="note"><b>Whichever you pick, both sets of books still close.</b> The
-balance does not evaporate because somebody left, and it does not sit somewhere
-with nobody attached to it.</div>
+balance doesn't disappear when somebody leaves, and it is never left without
+an owner.</div>
           </article>
 
           <h2 class="guide-part" id="part-money-coming-in">Money coming in</h2>
           <article class="guide" id="import">
             <h2>Import statements and CSVs</h2>
-<p>Typing everything in by hand is how budgeting apps get abandoned. Three ways in,
-and all three land in the same queue rather than posting themselves.</p>
+<p>You don't have to type everything in by hand. There are three ways to bring
+transactions in, and all of them land in the same queue rather than posting directly.</p>
 <h3>Statement PDFs</h3>
 <p>Drop the file on the Import screen. Twelve banks are recognised from their own
-layouts — HDFC, ICICI, Axis, SBI, Union, Canara, YES, IndusInd, Kotak, RBL, HSBC and Standard Chartered —
+layouts (HDFC, ICICI, Axis, SBI, Union, Canara, YES, IndusInd, Kotak, RBL, HSBC and Standard Chartered),
 plus broker contract notes. A SafeGold statement dropped here is recognised too, and
 goes to the SafeGold review instead (see <a href="#portfolio">Portfolio</a>).</p>
 <p>Most Indian statements are password-protected, and each bank has its own rule.
@@ -642,18 +639,18 @@ need something more than name, date of birth, PAN and mobile: Axis and HDFC acco
 statements use your customer ID, and HSBC the last six digits of the card, so those
 have their own boxes there. When a statement will not open because one of these is
 missing, the message says which detail and where to add it.</p>
-<p>Card statements locked with the card's own digits &mdash; SBI Card and Canara use
-the last four, HSBC the last six &mdash; ask for them right there when the card's
+<p>Card statements locked with the card's own digits (SBI Card and Canara use
+the last four, HSBC the last six) ask for them right there when the card's
 account does not have them: the import form comes back with a box for the digits.
 Once the statement opens with them they are saved on the card's account, so the next
 one, uploaded or from Gmail, opens by itself. A card account keeps up to the last
 eight digits of its number.</p>
 <div class="note"><b>Every parse is verified</b> against the statement's own closing
-balance. If the two disagree the app says so rather than quietly importing something
+balance. If the two disagree, the app tells you instead of importing something
 wrong. On a real 848-row statement it reconciles to the paisa.</div>
 <h3>CSV</h3>
 <p>Paste it in. Headers are detected, Indian number formats are understood, and once
-you map a bank's columns the mapping is saved and used on its own next time. A file
+you map a bank's columns the mapping is saved and used automatically next time. A file
 with separate Dr / Cr markers, or one that marks only its credits, is signed from
 them. Dates are read day first unless the file proves month first; when every day in
 it is 12 or under and it cannot, the mapping screen asks <em>How are the dates
@@ -664,48 +661,47 @@ recognised from its header row. One file covers every account you had there, so 
 next screen asks which of your accounts each one is, or to leave it out. The rows
 land in Review like any import: transfers between two accounts you brought across
 arrive as transfers, splits stay split, and envelopes are matched by name where one
-exists. Only transactions come across — the other app's budget assignments were
+exists. Only transactions come across. The other app's budget assignments were
 worked out against its own balances and months, and are never imported.</p>
 <h3>Undoing an import</h3>
 <p>Any import can be reversed in one step from the import log, taking every row it
-created with it — except rows you have edited since, which are left alone and counted.
-Worth knowing before your first attempt, because it makes experimenting safe.</p>
+created with it, except rows you have edited since, which are left alone and counted.
+This makes it safe to experiment with your first import.</p>
             <div class="shots ">
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/import-mobile.webp" width="840" height="1800">
-                  <img src="img/import.webp" width="2800" height="4230" loading="lazy" alt="Import — paste a CSV or drop a statement PDF.">
+                  <img src="img/import.webp" width="2800" height="4230" loading="lazy" alt="Import: paste a CSV or drop a statement PDF.">
                 </picture>
-                <figcaption>Import — paste a CSV or drop a statement PDF.</figcaption>
+                <figcaption>Import: paste a CSV or drop a statement PDF.</figcaption>
               </figure>
             </div>
           </article>
           <article class="guide" id="review">
             <h2>The review queue</h2>
-<p>Nothing posts itself. Everything imported waits here with its raw text beside it,
-so you can always see exactly what the bank said rather than only what the app made
-of it.</p>
+<p>Nothing posts automatically. Everything imported waits here with its raw text
+beside it, so you can always see exactly what the bank sent as well as how the app
+read it.</p>
 <ul>
-  <li><strong>Uncategorised spending</strong> — file it. If you have filed that payee
+  <li><strong>Uncategorised spending</strong>: file it. If you have filed that payee
     before, the category is offered as a single tap rather than a dropdown to hunt
     through.</li>
-  <li><strong>Possible duplicates</strong> — the same purchase arriving twice, once
+  <li><strong>Possible duplicates</strong>: the same purchase arriving twice, once
     from an alert and once from the statement. Five separate tiers of matching decide
     how confident the app is; you merge or keep both.</li>
-  <li><strong>Overspent categories and unfunded cards</strong> — the two things most
-    worth acting on, so they are here rather than only on the budget screen.</li>
-  <li><strong>Own transfers and card payments</strong> — an imported row that is money
+  <li><strong>Overspent categories and unfunded cards</strong>: the two things most
+    worth acting on, so they appear here as well as on the budget screen.</li>
+  <li><strong>Own transfers and card payments</strong>: an imported row that is money
     moving between your own accounts is filed as a transfer to or from the other
     account, not as spending. If that account's side is also waiting, it becomes the
     other leg.</li>
-  <li><strong>Proposed rules</strong> — see the next guide.</li>
-  <li><strong>Money you are owed</strong> — anything marked reimbursable stays listed
+  <li><strong>Proposed rules</strong>: see the next guide.</li>
+  <li><strong>Money you are owed</strong>: anything marked reimbursable stays listed
     until it comes back.</li>
 </ul>
-<div class="note">Uncategorised income never appears here. In an envelope budget, income's job is to
-arrive in Ready to Assign and wait to be given one, which the app has already done
-correctly — asking you to categorise it would be asking you to answer a question it
-already answered.</div>
+<div class="note">Uncategorised income never appears here. In an envelope budget, income waits in
+Ready to Assign until you give it a job, and the app has already put it there, so
+there is nothing to categorise.</div>
             <div class="shots ">
               <figure class="frame">
                 <picture>
@@ -719,22 +715,21 @@ already answered.</div>
           <article class="guide" id="rules">
             <h2>Rules and automatic filing</h2>
 <p>File the same payee twice and the app proposes a rule, stating exactly what it
-inferred and from which transactions. It never applies one on its own.</p>
+inferred and from which transactions. It never applies a rule without your confirmation.</p>
 <p>Confirm a rule and you are offered the chance to apply it to your existing
 history, with a preview of every transaction that would change before anything does.
-It only touches rows you can see and could file by hand — split rows, transfers and
-anything in another member's private envelopes are left as they are — and the whole
-apply undoes as one step.</p>
+It only changes rows you can see and could file by hand (split rows, transfers and
+anything in another member's private envelopes are left as they are), and the whole
+change undoes as one step.</p>
 <h3>Writing one yourself</h3>
-<p>A rule matches one thing — the merchant, the bank's whole description, the UPI
+<p>A rule matches one thing (the merchant, the bank's whole description, the UPI
 address, the channel, the imported payee, the amount in rupees, or the card's last
-four digits — and files what it matches into an envelope. <em>Try it on my history</em>
+four digits) and files what it matches into an envelope. <em>Try it on my history</em>
 shows what it would change among the transactions you can see, before you save it.</p>
 <h3>Why it learns from filing rather than importing</h3>
-<p>Filing counts wherever it happens — from the review queue, from the transaction
-screen, from anywhere. That matters more than it sounds: an app that only learned
-from imports would watch you categorise the same delivery service a hundred and
-thirty times and never once offer to help.</p>
+<p>Filing counts wherever it happens: the review queue, the transaction screen or
+anywhere else. If you file the same delivery service by hand many times, the app
+learns from that and offers a rule, even though none of those rows was imported.</p>
             <div class="shots ">
               <figure class="frame">
                 <picture>
@@ -747,9 +742,9 @@ thirty times and never once offer to help.</p>
           </article>
           <article class="guide" id="gmail">
             <h2>Bank alerts by email</h2>
-<p>Optional, read-only, and off until you turn it on. Once connected, <strong>Fetch
+<p>This is optional, read-only and off until you turn it on. Once connected, <strong>Fetch
 now</strong> in Settings turns every new bank alert into a queued row, which is as close
-to live as a budget gets without a bank integration.</p>
+to live updates as a budget can get without a bank integration.</p>
 <ul>
   <li>It reads <strong>only the banks' own sending addresses</strong>, never the rest
     of your mail.</li>
@@ -757,7 +752,7 @@ to live as a budget gets without a bank integration.</p>
   <li>You connect through your own Google project, so the credentials and the
     consent are yours rather than a third party's. It works on every plan, Solo
     included: make the client once (<a href="#gmail-keys">ten minutes, step by
-    step</a>) and paste its keys into Settings &rarr; Gmail, just for you or for the
+    step</a>) and paste its keys into Settings &rarr; Gmail, either for yourself or for the
     whole household.</li>
   <li>Disconnecting revokes the token and deletes the stored access.</li>
   <li>An alert is filed to the account or card whose last four digits it names, among
@@ -767,10 +762,10 @@ to live as a budget gets without a bank integration.</p>
 </ul>
 <h3>Statement emails too</h3>
 <p>When a bank sends the monthly statement as an attachment, it is fetched,
-decrypted using your saved identity, parsed and queued — the whole chain, without you
-opening the mail. A statement it cannot open because your identity is missing a
-detail is named in the fetch's summary, with what it needs — an Axis or HDFC customer
-ID, a card's last four, an HSBC card's last six — so the fix is one box in Settings.
+decrypted using your saved identity, parsed and queued, all without you
+opening the email. A statement it cannot open because your identity is missing a
+detail is named in the fetch's summary, with what it needs (an Axis or HDFC customer
+ID, a card's last four, an HSBC card's last six), so the fix is one box in Settings.
 For a card, the fetch goes further: each card left locked for want of its digits is
 listed in Settings with a box to enter them, and what you enter is saved on the
 card's account. A SafeGold statement in the mail is read and taken to its review.</p>
@@ -781,9 +776,9 @@ can be attributed to the right person rather than the account holder.</div>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/settings-mobile.webp" width="840" height="1800">
-                  <img src="img/settings.webp" width="2800" height="4748" loading="lazy" alt="Settings — members, identity, connections, tokens.">
+                  <img src="img/settings.webp" width="2800" height="4748" loading="lazy" alt="Settings: members, identity, connections and tokens.">
                 </picture>
-                <figcaption>Settings — members, identity, connections, tokens.</figcaption>
+                <figcaption>Settings: members, identity, connections and tokens.</figcaption>
               </figure>
             </div>
           </article>
@@ -800,7 +795,7 @@ your instance.</p>
 <ol class="steps">
   <li><div><strong>Make a project.</strong> Open
     <a href="https://console.cloud.google.com/projectcreate" rel="noopener" target="_blank">console.cloud.google.com</a>,
-    sign in with any Google account, and create a project — call it
+    sign in with any Google account, and create a project called
     <em>Pathayam</em>.</div></li>
   <li><div><strong>Turn on the Gmail API.</strong> In <em>APIs &amp; Services &rarr;
     Library</em>, search for <em>Gmail API</em> and press <strong>Enable</strong>.</div></li>
@@ -853,20 +848,20 @@ household needs.</p>
 every export. A hosted instance always has an encryption key set. On your own server,
 set <code>SECRETS_KEY</code> (<code>openssl rand -base64 32</code>); without it,
 Settings explains that keys cannot be saved, and stores nothing. Replacing the secret
-of the same client — after rotating it in Google — keeps your connection. Removing
+of the same client (after rotating it in Google) keeps your connection. Removing
 the keys, or switching to a different client, means connecting again.</p>
 <h3>When it does not work</h3>
 <ul>
-  <li><strong><code>redirect_uri_mismatch</code></strong> — the redirect URI in step 5
+  <li><strong><code>redirect_uri_mismatch</code></strong>: the redirect URI in step 5
     differs from the one Settings shows. Copy it from Settings, exactly.</li>
   <li><strong><code>access_denied</code>, or “has not completed the Google
-    verification process”</strong> — the app is still in <em>Testing</em> and this
+    verification process”</strong>: the app is still in <em>Testing</em> and this
     Google account is not one of its test users. Publish it (step 7).</li>
-  <li><strong>“Google would not renew the connection” after a week</strong> — the app
+  <li><strong>“Google would not renew the connection” after a week</strong>: the app
     was in <em>Testing</em> when you connected. Publish it, then disconnect and
     connect again.</li>
   <li><strong>“The Google keys this mailbox was connected with are no longer
-    available”</strong> — the keys were removed or replaced with another client.
+    available”</strong>: the keys were removed or replaced with another client.
     Disconnect and connect again.</li>
 </ul>
           </article>
@@ -876,31 +871,31 @@ the keys, or switching to a different client, means connecting again.</p>
 <p><strong>Set the statement day and the due day</strong> when you add the card, or
 from <em>Edit</em> afterwards. They do different jobs: the due day projects the
 payment onto the cashflow calendar, and the statement day tags every charge on the
-register with the cycle it bills in — a cycle runs from the day after one statement
+register with the cycle it bills in. A cycle runs from the day after one statement
 up to and including the next, so a charge on the 19th with a statement day of 18
 bills the following month. Both clamp to the last day in a month too short to have
 theirs.</p>
-<p>This is where most budgeting apps get vague, so it is worth two minutes.
+<p>This section is worth two minutes.
 <strong>Spending on a card is still spending.</strong></p>
 <p>Buy groceries on a card and two things happen at once: the Groceries envelope goes
 down by the amount, and the same amount moves into that card's <em>payment
 envelope</em>. The cash to clear the bill is reserved the moment the charge lands, so
 the statement is never a surprise.</p>
 <h3>The Cards screen</h3>
-<p>Every credit account in the order it falls due, with a summary strip across the
+<p>This lists every credit account in the order it falls due, with a summary across the
 top: total owed, total not funded, and how many fall due within a week.</p>
 <ol class="steps">
   <li><div><strong>Look at what is unfunded.</strong> That is balance with no
-    envelope behind it — usually an overspend, or a charge nobody has filed yet.</div></li>
+    envelope behind it, usually from an overspend or a charge nobody has filed yet.</div></li>
   <li><div><strong>Fund it</strong> from another envelope, using the same cover flow
     as an overspend.</div></li>
   <li><div><strong>Record the payment</strong> as a transfer from a bank account to
-    the card — <em>Pay it off</em> opens one with what the card owes filled in. The
-    payment envelope empties, the balance clears, and no category is involved — the
+    the card. <em>Pay it off</em> opens one with what the card owes filled in. The
+    payment envelope empties, the balance clears, and no category is involved, because the
     categories were charged when you spent.</div></li>
 </ol>
-<div class="note"><b>Record a statement</b> — amount, date, due date, minimum — and
-the card starts showing real due dates instead of &ldquo;whatever the bank says&rdquo;.</div>
+<div class="note"><b>Record a statement</b> (amount, date, due date and minimum) and
+the card shows its real due dates.</div>
 <h3>Add-on cards</h3>
 <p>A second card on someone else's account shares one limit, one statement and one
 payment. Add it as a card <em>on</em> that account rather than as an account of its
@@ -919,65 +914,62 @@ own, and every transaction still records which card it was and whose.</p>
             <h2>Loans</h2>
 <p>Add a loan with its principal, rate and tenure. The one thing to get right is the
 <strong>interest model</strong>.</p>
-<div class="note"><b>A rate quoted &ldquo;flat&rdquo; is not what it sounds like.</b>
+<div class="note"><b>A rate quoted &ldquo;flat&rdquo; is higher than it looks.</b>
 Flat interest is charged on the original principal for the whole tenure, even as you
 pay it down. The app shows the equivalent reducing rate beside it, which is usually
 close to double the quoted number. Personal and gold loans are frequently quoted this
 way.</div>
 <h3>Instalments</h3>
 <p>Record each instalment with the lender's own principal and interest split rather
-than the app's projection — give one half and the other is whatever is left of the
-payment. Where the two disagree, that is <strong>drift</strong>, and
-it is surfaced rather than silently absorbed — the app projects, the lender reconciles,
-and when they differ you want to know.</p>
-<p>Pay it from the account the lender actually debits. A bank EMI leaves a bank
+than the app's projection. Enter one half and the other is worked out from the
+payment. Any difference between the lender's split and the projection is <strong>drift</strong>, and
+the app shows it to you rather than absorbing it.</p>
+<p>Pay it from the account the lender debits. A bank EMI leaves a bank
 account. A <strong>card EMI is a charge on the card</strong>, not a transfer out of
-savings — so recording one against a credit account posts a categorised charge the way
+savings, so recording one against a credit account posts a categorised charge the way
 the statement will show it, and the card balance rises by the instalment before the
-loan balance falls by the principal. Anything else would have the money leaving twice.
+loan balance falls by the principal. Otherwise the money would be counted as leaving twice.
 The 18% GST on the instalment's interest is posted with it as a separate card charge,
 because the issuer bills it separately.</p>
-<h3>Its envelope funds itself</h3>
+<h3>Its envelope target is set for you</h3>
 <p>Every loan gets a payment envelope, and its monthly target is set to the EMI the
-moment the loan exists — you do not have to remember to set one, and a rate change or a
-fresh disbursement moves the target with it, and closing the loan releases it. The EMI is the least negotiable number in
-your month; it should not be the one you forgot to budget for.</p>
+moment the loan exists, so you don't have to set one. A rate change or a
+new disbursement moves the target with it, and closing the loan releases it.</p>
 <h3>Settling early</h3>
 <p>When the loan is paid off, the page says so and offers to close it; a loan that
 still owes money is settled rather than closed. You can also settle before term: enter what you are paying and the <strong>foreclosure charge</strong>
-the lender wants for the privilege, along with the account it comes out of and the
-envelope it spends from. Most lenders charge to be repaid early — a percentage on a
-personal loan, a flat fee on a card plan — and a prepayment decision taken without it
-is taken against a saving larger than the one actually on offer.</p>
+the lender applies, along with the account it comes out of and the
+envelope it spends from. Most lenders charge for early repayment (a percentage on a
+personal loan, a flat fee on a card plan), and leaving it out would make the saving
+look larger than it is.</p>
 <h3>Before you prepay</h3>
 <p>Use the calculator. It puts <em>reduce the tenure</em> against <em>reduce the
-EMI</em> side by side and tells you what each saves. Reducing tenure almost always
-saves more — on a worked ₹50 lakh example it is several lakh more — and the app shows
-the figure rather than asking you to take that on faith.</p>
-<p><strong>Pick the column, and that is what happens.</strong> Choosing to reduce the
+EMI</em> side by side and tells you what each saves. Reducing the tenure almost always
+saves more (several lakh more on a worked ₹50 lakh example), and the app shows you
+the figure.</p>
+<p><strong>The option you pick is the one applied.</strong> Choosing to reduce the
 tenure holds your instalment where it is and shortens the loan; choosing to reduce the
-EMI keeps the closure date and lowers the monthly bill. Say which envelope the lump sum
-comes out of, too, from the budget the loan is paid from — a prepayment is the largest single thing most households will ever
-pay, and it has to leave a named envelope like everything else rather than being
-conjured.</p>
+EMI keeps the closure date and lowers the monthly bill. You also choose which envelope the lump sum
+comes from, in the budget the loan is paid from. A prepayment is the largest single payment most households will ever
+make, and like any other payment it has to come from a named envelope.</p>
 <h3>When the rate resets</h3>
 <p>A repo-linked loan resets several times a year, and your lender has to offer you two
 ways to take it: <strong>keep the instalment</strong> and let the tenure move, or
 <strong>keep the tenure</strong> and let the instalment move. Enter the new rate, press
-<em>work out what it does</em>, and the app prices both against your actual balance —
+<em>work out what it does</em>, and the app works out both against your current balance:
 the new instalment, and how many months you would add or save. Then choose one, and it
 is applied: the loan's envelope is re-targeted either way, so next month's budget asks
 for the right figure without you rewriting it. For a rate change dated ahead, keeping the
-instalment is refused until the new rate applies — record it then, or keep the tenure.</p>
-<div class="note"><b>A rate rise you absorb in the tenure is not free.</b> The instalment
-stays comfortable and the loan runs longer, which costs more interest in total. Both
-figures are on the screen before you pick, which is the point of the screen.</div>
+instalment is refused until the new rate applies: record it then, or keep the tenure.</p>
+<div class="note"><b>Absorbing a rate rise in the tenure still costs you.</b> The instalment
+stays the same and the loan runs longer, which costs more interest in total. Both
+figures are on the screen before you choose.</div>
 <h3>Whose loan it is</h3>
 <p>A loan belongs to a budget like everything else, and a personal one can be marked
-<strong>private</strong> — then only its holder sees it, on the list, in Everything you
-owe, and in net worth. A household loan is visible to everyone in the household, which
-is the point of it being household. The owner is shown on the list, not just buried in
-the detail page, so you can tell at a glance whose debt you are looking at.</p>
+<strong>private</strong>, so only its holder sees it on the list, in Everything you
+owe and in net worth. A household loan is visible to everyone in the household. The
+owner is shown on the list as well as on the detail page, so you can see at a glance
+whose debt it is.</p>
 <h3>Disbursements</h3>
 <p>A loan paid out in tranches records each one with its destination. A
 builder-paid tranche raises the liability without ever touching your budget; a personal
@@ -986,16 +978,16 @@ loan landing in your savings arrives as money you can assign.</p>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/loans-mobile.webp" width="840" height="1800">
-                  <img src="img/loans.webp" width="2800" height="3366" loading="lazy" alt="Loans — real cost, schedule and drift.">
+                  <img src="img/loans.webp" width="2800" height="3366" loading="lazy" alt="Loans: real cost, schedule and drift.">
                 </picture>
-                <figcaption>Loans — real cost, schedule and drift.</figcaption>
+                <figcaption>Loans: real cost, schedule and drift.</figcaption>
               </figure>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/loan-mobile.webp" width="840" height="1800">
                   <img src="img/loan.webp" width="2800" height="7472" loading="lazy" alt="One loan: where it stands, how it pays down, every instalment recorded.">
                 </picture>
-                <figcaption>One loan — where it stands, and every instalment against the lender's own split.</figcaption>
+                <figcaption>One loan: where it stands, and every instalment against the lender's own split.</figcaption>
               </figure>
               <figure class="frame">
                 <picture>
@@ -1009,7 +1001,7 @@ loan landing in your savings arrives as money you can assign.</p>
                   <source media="(max-width: 44rem)" srcset="img/loan-prepay-mobile.webp" width="840" height="1800">
                   <img src="img/loan-prepay.webp" width="2800" height="2460" loading="lazy" alt="The prepayment comparison: reduce the tenure against reduce the EMI.">
                 </picture>
-                <figcaption>What a prepayment buys, before you commit a rupee.</figcaption>
+                <figcaption>What a prepayment saves, before you commit any money.</figcaption>
               </figure>
               <figure class="frame">
                 <picture>
@@ -1023,54 +1015,53 @@ loan landing in your savings arrives as money you can assign.</p>
           <article class="guide" id="family">
             <h2>Lending to family</h2>
 <p>Money lent to or borrowed from a person rather than an institution, tracked
-without pretending it is a bank loan.</p>
+in its own way rather than as a bank loan.</p>
 <ul>
   <li><strong>Advances and repayments</strong> are recorded as they happen, and the
     balance is derived rather than typed.</li>
-  <li><strong>The other side is a name</strong>, not a member of your household —
+  <li><strong>The other side is a name</strong>, not a member of your household,
     which is almost always the case.</li>
-  <li><strong>Write-off</strong> exists, because sometimes that is what happened, and
-    an app that cannot record it makes you lie to it.</li>
+  <li><strong>Write-off</strong> is available for money that won't be repaid, so
+    your records stay accurate.</li>
   <li><strong>Closing</strong> needs a nil balance. While money is owed either way,
     record the repayment or write it off first.</li>
 </ul>
-<p>Outstanding amounts stay on the lending screen and in net worth so they do not
-quietly become gifts.</p>
+<p>Outstanding amounts stay on the lending screen and in net worth so they are not
+forgotten.</p>
           </article>
           <h2 class="guide-part" id="part-making-sense-of-it">Making sense of it</h2>
           <article class="guide" id="overview">
             <h2>Overview and runway</h2>
-<p>The screen to open when you want the month in one glance rather than in detail.</p>
+<p>Open this screen to see the month at a glance.</p>
 <ul>
-  <li><strong>Runway</strong> — how many days of typical spending your money covers,
+  <li><strong>Runway</strong>: how many days of typical spending your money covers,
     measured against what you actually spend rather than a guess.</li>
-  <li><strong>Due soon</strong> — bills and card payments approaching, with whether
+  <li><strong>Due soon</strong>: bills and card payments approaching, with whether
     they are funded.</li>
-  <li><strong>The month so far</strong> — in against out, and where it went.</li>
-  <li><strong>Insights</strong> — a category well above its own three-month average,
+  <li><strong>The month so far</strong>: in against out, and where it went.</li>
+  <li><strong>Insights</strong>: a category well above its own three-month average,
     a subscription about to renew, a spare month sitting unassigned.</li>
 </ul>
-<div class="note">Spending figures here include card spending. That sounds obvious
-and is the single most common way a budgeting app misleads you: a headline that counts
-only bank accounts can understate a card-heavy household by twenty times.</div>
+<div class="note">Spending figures here include card spending. A headline that counts
+only bank accounts can understate a card-heavy household's spending by twenty times.</div>
             <div class="shots ">
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/overview-mobile.webp" width="840" height="1800">
-                  <img src="img/overview.webp" width="2800" height="3816" loading="lazy" alt="Overview — runway, what is due, the month so far.">
+                  <img src="img/overview.webp" width="2800" height="3816" loading="lazy" alt="Overview: runway, what is due and the month so far.">
                 </picture>
-                <figcaption>Overview — runway, what is due, the month so far.</figcaption>
+                <figcaption>Overview: runway, what is due and the month so far.</figcaption>
               </figure>
             </div>
           </article>
           <article class="guide" id="reports">
             <h2>Reports</h2>
-<p>Four reports, all rendered on the server as plain SVG. No charting library, and
-nothing about your figures leaves the machine to be drawn.</p>
+<p>There are four reports, all drawn on the server as plain SVG. No charting
+library is used, and none of your figures leave the machine to be drawn.</p>
 <ul>
   <li><strong>Income against spending</strong> by month, with a net-saved line, so
-    you can see whether the gap is widening or you just had one good month.</li>
-  <li><strong>Category trends</strong> over time — the report that catches groceries
+    you can see whether the gap is widening or it was one good month.</li>
+  <li><strong>Category trends</strong> over time, which show patterns such as groceries
     drifting up ₹500 a month for a year.</li>
   <li><strong>Loan interest by financial year</strong>, April to March: the interest
     actually paid, across every loan. The tax estimate does not use it. Its home-loan
@@ -1078,16 +1069,16 @@ nothing about your figures leaves the machine to be drawn.</p>
     which is what section 24(b) allows, so the two can differ.</li>
   <li><strong>Realised gains by financial year</strong>, split by how long each parcel
     was held. It reports the holding period and names no tax category, because which
-    threshold applies depends on the asset and that year's rules — a judgement that
-    belongs to whoever files.</li>
+    threshold applies depends on the asset and that year's rules, and that judgement
+    is for whoever files the return.</li>
 </ul>
             <div class="shots cols2">
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/reports-mobile.webp" width="840" height="1800">
-                  <img src="img/reports.webp" width="2800" height="10786" loading="lazy" alt="Reports — income against spending, by month.">
+                  <img src="img/reports.webp" width="2800" height="10786" loading="lazy" alt="Reports: income against spending, by month.">
                 </picture>
-                <figcaption>Reports — income against spending, by month.</figcaption>
+                <figcaption>Reports: income against spending, by month.</figcaption>
               </figure>
               <figure class="frame">
                 <picture>
@@ -1103,25 +1094,24 @@ nothing about your figures leaves the machine to be drawn.</p>
 <p>If anybody keeps a separate budget, Query and Reports both ask <strong>whose
 money</strong>, defaulting to everything. "What did we spend on groceries", "what
 did I spend" and "what did all of it come to" are three different questions, so the
-app offers all three rather than picking one. A transaction that crosses budgets —
-your money paying for something shared — counts under both, because which one
-somebody means depends on what they asked.</p>
-<p>One filterable, groupable table that every other screen drills into. Filter by
+app offers all three rather than picking one. A transaction that crosses budgets
+(your money paying for something shared) counts under both, because the right answer
+depends on the question.</p>
+<p>Query is one table you can filter and group, and every other screen links into it. Filter by
 period, category, account or whose money, and search the text; group by category,
 payee, account, owner, month or tag.</p>
 <div class="note note--good"><b>The totals cover every row that matched</b>, not the
 rows rendered on screen. The table shows a page and says how many matched, and the CSV
-export carries the same uncapped figures. A total that silently described only the
-visible page would be worse than no total at all.</div>
+export carries the same uncapped figures.</div>
 <h3>Search</h3>
 <p>Search runs across the cleaned payee name, the memo, the envelope, tags and the
 <em>raw</em> imported narration. When you half-remember a transaction as &ldquo;something with ZEPTO in
 it&rdquo;, the raw string is what finds it.</p>
 <h3>Getting everything out</h3>
 <p>The full export is one file in an open format containing every account,
-transaction, assignment, lot, loan and event you can see — another member's private
-accounts and envelopes stay out of yours. Deliberately excluded, and asserted absent by
-tests: your statement identity and any connected mail token.</p>
+transaction, assignment, lot, loan and event you can see. Another member's private
+accounts and envelopes are left out of yours. Two things are always excluded, and tests
+check they are absent: your statement identity and any connected mail token.</p>
 <p>Every CSV the app writes marks a text cell that starts with <code>=</code>,
 <code>+</code>, <code>-</code> or <code>@</code> with a leading apostrophe, so a
 narration a stranger wrote opens in a spreadsheet as text rather than running as a
@@ -1130,9 +1120,9 @@ formula. Plain numbers are left alone, so amounts still add up.</p>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/query-mobile.webp" width="840" height="1800">
-                  <img src="img/query.webp" width="2800" height="6608" loading="lazy" alt="Query — filter, group, and export what matched.">
+                  <img src="img/query.webp" width="2800" height="6608" loading="lazy" alt="Query: filter, group and export what matched.">
                 </picture>
-                <figcaption>Query — filter, group, and export what matched.</figcaption>
+                <figcaption>Query: filter, group and export what matched.</figcaption>
               </figure>
             </div>
           </article>
@@ -1146,7 +1136,7 @@ same thing on any page.</p>
 <ul>
   <li><strong>It prints as a document</strong>, not a screenshot of the app: black on
     white whatever your theme, with navigation, buttons and forms left off. The tax
-    estimate is the exception — its inputs print as values, because the estimate is
+    estimate is the exception: its inputs print as values, because the estimate is
     arithmetic on them.</li>
   <li><strong>Tables keep their headings</strong> on every page, short cards and rows
     are not split across pages, and collapsed sections print open.</li>
@@ -1159,39 +1149,38 @@ Chrome and Edge do.</div>
           </article>
           <article class="guide" id="schedules">
             <h2>Schedules and cashflow</h2>
-<p>Recurring things — rent, EMIs, subscriptions, a transfer on the 25th — recorded
-once and then expected. One can fall on a weekday rather than a date, such as the
+<p>Recurring payments such as rent, EMIs, subscriptions or a transfer on the 25th
+are recorded once and then expected. One can fall on a weekday rather than a date, such as the
 second Saturday or the last Friday of the month.</p>
 <ul>
   <li><strong>Detection.</strong> The app notices something arriving monthly and
-    offers to make it a schedule rather than waiting for you to think of it.</li>
-  <li><strong>The calendar</strong> projects your balance forward, so the question
-    &ldquo;will I make it to the 30th?&rdquo; has an answer rather than a feeling.</li>
-  <li><strong>Dips below your floor</strong> are flagged in advance, which is the
-    entire point of projecting at all.</li>
+    offers to make it a schedule.</li>
+  <li><strong>The calendar</strong> projects your balance forward, so you can see
+    whether your money will last to the 30th.</li>
+  <li><strong>Dips below your floor</strong> are flagged in advance.</li>
   <li><strong>Subscriptions</strong> are listed with annualised cost, because ₹149 a
-    month is ₹1,788 a year and the second number is the one that changes minds.</li>
-  <li><strong>Money coming in</strong> is a schedule too. A salary on the 1st, rent from
-    a tenant, a quarterly dividend — put them in and the calendar stops asking you to
-    survive to the 30th on the balance you have today.</li>
+    month is ₹1,788 a year, and the yearly figure is easier to judge.</li>
+  <li><strong>Money coming in</strong> is a schedule too. Add a salary on the 1st, rent from
+    a tenant or a quarterly dividend, and the calendar includes it instead of
+    projecting from today's balance alone.</li>
 </ul>
 <h3>Every outgoing schedule names an envelope</h3>
-<p>You cannot save a payment that spends from nowhere. A schedule is a promise about
-money leaving, and a promise with no envelope behind it is the thing zero-based
-budgeting exists to prevent — so the app asks which envelope before it will take it.
+<p>A payment schedule has to spend from an envelope. Money leaving with nothing set
+aside for it is what zero-based budgeting is designed to prevent, so the app asks
+which envelope before it saves the schedule.
 Incoming schedules need no envelope, because money arriving is assigned when it
 arrives, not before.</p>
 <h3>Arrived, paid, skipped</h3>
 <p>When a scheduled thing happens, mark it. <strong>Paid</strong> and
-<strong>Arrived</strong> record the transaction for you — the right amount, the right
-account, the right envelope — and roll the schedule to its next date. Nothing is
+<strong>Arrived</strong> record the transaction for you, with the right amount,
+account and envelope, and roll the schedule to its next date. Nothing is
 recorded until you mark it. <strong>Skip</strong> rolls it forward without recording
 anything, for the month the gym
 was closed or the tenant paid late. The projection redraws immediately either way.</p>
 <h3>Changing one</h3>
-<p>Schedules can be edited and deleted. The rent went up, the subscription moved to
-annual, the standing instruction was cancelled — open it, change it, and the calendar
-reflects it the moment you save. Deleting a schedule leaves every transaction it
+<p>Schedules can be edited and deleted. If the rent goes up, a subscription moves to
+annual or a standing instruction is cancelled, open the schedule and change it. The
+calendar updates as soon as you save. Deleting a schedule leaves every transaction it
 already recorded alone; it only stops the app expecting more. Merging away the envelope
 a schedule spends from takes the schedule along to the one that remains.</p>
             <div class="shots cols2">
@@ -1216,11 +1205,11 @@ a schedule spends from takes the schedule along to the one that remains.</p>
 <p>Each goal gets <strong>its own envelope</strong>, created and kept in step by the
 app, so its progress measures money put aside for that goal and nothing else. If
 anybody keeps a budget of their own, you also choose at creation whether the goal is
-<strong>shared or yours</strong> — and that cannot be changed afterwards, because a
+<strong>shared or yours</strong>. This can't be changed afterwards, because a
 goal is measured by its envelope's balance and moving it between budgets would
 change what the months you have been watching meant.</p>
-<p>Long-horizon saving kept deliberately off the monthly grid, so a three-year goal
-does not clutter the screen you look at every week.</p>
+<p>Goals are for long-term saving and are kept off the monthly grid, so a three-year
+goal doesn't clutter the screen you use every week.</p>
 <p>Each goal has a target amount and optionally a date. The app works out what that
 means per month, shows progress as a ring, and tells you whether you are on track or
 what you would have to raise it to.</p>
@@ -1229,8 +1218,8 @@ leaves the money in the envelope for the thing you saved for, <strong>Back to Re
 Assign</strong> returns the balance to be given another job, and <strong>Roll into a
 new goal</strong> starts the next one on the same envelope with what is already there.</p>
 <div class="note">Each goal gets its own envelope, created and retired by the app.
-Money in it is really assigned — a goal is not a wish, it is money you have already
-set aside and can see.</div>
+Money in it is really assigned: a goal shows money you have already
+set aside.</div>
             <div class="shots cols2">
               <figure class="frame">
                 <picture>
@@ -1262,8 +1251,8 @@ which shows the address to give an app, what is connected, and what each connect
 has read.</p>
 <div class="note"><b>What an AI reads is sent to that AI's provider.</b> Whatever a
 tool returns travels to Anthropic, OpenAI or Google and becomes part of the
-conversation there, under their terms. Connect only the apps you would show these
-figures to. Connect nothing, and nothing is sent anywhere.</div>
+conversation there, under their terms. Only connect apps you're comfortable sharing
+these figures with. If you connect nothing, nothing is sent anywhere.</div>
 <h3>From claude.ai, ChatGPT or the Gemini app</h3>
 <p>These sign in to Pathayam themselves, so there is no token to copy. They call your
 address from their own servers, so it has to be reachable from the internet at your
@@ -1315,7 +1304,7 @@ you need before leaving the page; only a hash of the token is kept.</p>
     made it: the household budget and your own personal budget. Another member's
     private accounts, loans, policies and envelopes are never listed, counted or
     totalled.</li>
-  <li><strong>It cannot reach the doors.</strong> Sign-in, tokens, the member list,
+  <li><strong>It cannot reach account controls.</strong> Sign-in, tokens, the member list,
     viewing as somebody, approving another app and the Connect an AI page itself are
     all out of its reach.</li>
 </ul>
@@ -1324,8 +1313,8 @@ you need before leaving the page; only a hash of the token is kept.</p>
 <code>full</code>, the consent page and the Connect an AI page show an <strong>allow
 changes</strong> box. It is never ticked for you. Tick it for an app and that app can:</p>
 <ul>
-  <li><strong>File, split and annotate</strong> a transaction &mdash; put it in an
-    envelope, split it between envelopes, write its memo &mdash; and suggest where a
+  <li><strong>File, split and annotate</strong> a transaction (put it in an
+    envelope, split it between envelopes, write its memo) and suggest where a
     payee's spending should always go, as a rule you confirm in Review.</li>
   <li><strong>Add a transaction, assign money to an envelope or record a
     transfer.</strong> With <code>standard</code> these do not happen: they wait in
@@ -1342,10 +1331,10 @@ undoing anyway puts each record back as it was before the AI, losing the later
 changes too.</p>
 <h3>Masking</h3>
 <p>On by default, chosen per connection. Before an answer leaves, a run of nine or more
-digits &mdash; an account, card or phone number, a UPI reference &mdash; keeps its last
+digits (an account, card or phone number, or a UPI reference) keeps its last
 four; a UPI ID or email address keeps only what follows the <code>@</code>; and a PAN
-is masked whole. Amounts, envelope names and payee names are sent, because they are
-the analysis.</p>
+is masked whole. Amounts, envelope names and payee names are sent, because the
+analysis needs them.</p>
 <div class="note">Masking is best effort. A person's name written into a narration is
 not something a pattern can recognise, so it goes as written.</div>
 <h3>What they have read</h3>
@@ -1365,7 +1354,7 @@ Health, or fetch <code>/export/analysis.json</code>: a year of budget and spendi
 envelope, the top payees, accounts, loans, portfolio, net worth, the next 30 days and
 the tax estimate, in one JSON file. Paste it into any AI chat, or open it in a
 spreadsheet. It holds what you see and nothing more, and no transaction list. Pasting
-it into a chat sends it to that provider just the same, and it is not masked.</p>
+it into a chat sends it to that provider in the same way, and it is not masked.</p>
             <div class="note note--good"><b>For a script</b>, the endpoint, the
 sign-in and the seventeen tools are in the <a href="api.html#ai">API reference</a>.</div>
           </article>
@@ -1373,32 +1362,31 @@ sign-in and the seventeen tools are in the <a href="api.html#ai">API reference</
           <article class="guide" id="portfolio">
             <h2>Portfolio</h2>
 <p>Holdings are tracked as <strong>units with FIFO lots</strong>, never as a rupee
-balance. That is what makes cost basis, the realised-versus-unrealised split and a
-real return figure possible at all.</p>
+balance. This is what makes cost basis, the realised-versus-unrealised split and a
+true return figure possible.</p>
 <ul>
-  <li><strong>XIRR is the headline return</strong>, not a naive percentage — it
-    accounts for money going in at different times, and dividends coming back, which
-    is how anyone actually invests.</li>
+  <li><strong>XIRR is the headline return</strong>, rather than a simple percentage.
+    It accounts for money going in at different times and dividends coming back.</li>
   <li><strong>Buying more joins the holding you have.</strong> A second purchase of
-    the same instrument — from <em>Buy more</em>, the search, or typed by the same
-    name — adds a lot to it rather than starting another.</li>
+    the same instrument (from <em>Buy more</em>, the search, or typed by the same
+    name) adds a lot to it rather than starting another.</li>
   <li><strong>Foreign holdings</strong> are bought and sold at that day's exchange
     rate, so what left the bank is what the cost says.</li>
-  <li><strong>Every price carries its date</strong>, so a stale figure is visible as
-    stale rather than passing as current.</li>
+  <li><strong>Every price carries its date</strong>, so you can see when a figure is
+    out of date.</li>
   <li><strong>Selling shows a preview</strong> naming the exact lots it will consume
     before you confirm.</li>
   <li><strong>Splits and bonus issues</strong> are recorded as events, once for the
-    instrument, so every holding of it changes together — only the lots bought before
-    the date — without the history becoming wrong.</li>
+    instrument, so every holding of it changes together (only the lots bought before
+    the date) and the history stays correct.</li>
 </ul>
 <h3>Getting holdings in</h3>
 <p>The monthly consolidated statement is the primary route: it already covers every
 fund folio and demat holding, and rows reconcile against lots you already have rather
-than duplicating them. Prices for funds and currencies refresh on their own.</p>
+than duplicating them. Prices for funds and currencies refresh automatically.</p>
 <h3>Digital gold from SafeGold</h3>
 <p><strong>Import SafeGold</strong> on Portfolio reads SafeGold's monthly statement
-&mdash; also recognised when dropped on Import or fetched from Gmail &mdash; and shows
+(also recognised when dropped on Import or fetched from Gmail) and shows
 every row it would record before anything is written. Each purchase becomes a lot at
 what it cost you, GST included; each sale realises a gain. The rows are checked
 against the statement's closing gold balance, and one that does not reach it is
@@ -1420,15 +1408,14 @@ says it has nothing to import.</p>
           <article class="guide" id="valuations">
             <h2>Hand-valued assets</h2>
 <p>Gold, a retirement account, property, anything that does not arrive in a
-consolidated statement. These need you to say what they are worth, and the app makes
-that one sitting rather than a hunt.</p>
+consolidated statement. You tell the app what these are worth, and it lets you
+update them all in one place.</p>
 <p>The valuations screen lists every hand-valued pot at once with what it was last
-worth and when. Fill in the ones you know, leave the rest blank, save.</p>
+worth and when. Fill in the ones you know, leave the rest blank and save.</p>
 <div class="note"><b>Something never valued still appears</b>, marked <em>no value
-yet</em> with a prompt to say what it is worth. An asset that vanished until you
-valued it would disappear at exactly the moment it most needed the reminder.</div>
+yet</em> with a prompt to say what it is worth.</div>
 <p>Anything not valued recently is flagged, so a gold holding last priced eight months
-ago cannot quietly hold up your net worth.</p>
+ago does not go unnoticed in your net worth.</p>
 <p>A deposit with its terms is listed too, but you do not have to value it: it is
 marked <em>computed from terms</em> and its figure is worked out for today. Type a
 passbook figure and it is marked <em>valued by hand</em> instead, and that figure
@@ -1438,20 +1425,20 @@ arithmetic. See <a href="#deposits">Give a deposit its terms</a>.</p>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/valuations-mobile.webp" width="840" height="1800">
-                  <img src="img/valuations.webp" width="2800" height="2422" loading="lazy" alt="Every hand-valued pot, in one sitting.">
+                  <img src="img/valuations.webp" width="2800" height="2422" loading="lazy" alt="Every hand-valued asset, in one place.">
                 </picture>
-                <figcaption>Every hand-valued pot, in one sitting.</figcaption>
+                <figcaption>Every hand-valued asset, in one place.</figcaption>
               </figure>
             </div>
           </article>
           <article class="guide" id="allocation">
             <h2>Allocation</h2>
-<p>Where your money actually sits, by asset class, by geography and by currency —
-three donut charts, drawn on the server. Deposits and hand-valued assets count
+<p>Where your money actually sits, by asset class, by geography and by currency,
+in three donut charts drawn on the server. Deposits and hand-valued assets count
 alongside what the portfolio holds.</p>
-<p>Instruments are classified once and remembered. The point of the screen is the
-gap between what you believe your allocation is and what it is, which is usually
-larger than expected and always more equity than people think.</p>
+<p>Instruments are classified once and remembered. The screen shows the gap
+between the allocation you believe you have and the real one. It is usually larger
+than expected, and the real allocation usually holds more equity than people think.</p>
             <div class="shots cols2">
               <figure class="frame">
                 <picture>
@@ -1471,29 +1458,28 @@ larger than expected and always more equity than people think.</p>
           </article>
           <article class="guide" id="networth">
             <h2>Net worth</h2>
-<p>The figure, with the date it is as of, and a history you can see the shape of.</p>
-<p>The change over any period is broken into its parts, which is what makes it
-useful rather than merely satisfying. The parts add up to the change, so nothing is
-left unexplained:</p>
+<p>Your net worth, with the date it applies to and a chart of its history.</p>
+<p>The change over any period is broken into its parts, which add up to the
+total change:</p>
 <ul>
-  <li><strong>Money saved</strong> — what you actually put aside</li>
-  <li><strong>Market movement</strong> — what prices did</li>
-  <li><strong>Exchange rate</strong> — what the rupee did, kept separate from the
+  <li><strong>Money saved</strong>: what you actually put aside</li>
+  <li><strong>Market movement</strong>: what prices did</li>
+  <li><strong>Exchange rate</strong>: what the rupee did, kept separate from the
     asset's own gain</li>
-  <li><strong>Debt repaid</strong> — principal cleared on cards and loans; the quiet
-    one, and often the biggest</li>
-  <li><strong>Other assets</strong> — hand-valued assets revalued, deposits grown,
+  <li><strong>Debt repaid</strong>: principal cleared on cards and loans, often
+    the biggest part</li>
+  <li><strong>Other assets</strong>: hand-valued assets revalued, deposits grown,
     money lent</li>
   <li><strong>Owed to family repaid</strong> and <strong>other liabilities
-    repaid</strong> — less owed on each</li>
+    repaid</strong>: less owed on each</li>
 </ul>
 <p>A part that did not move is left out. Snapshots taken before money owed to family
 and other liabilities were recorded did not keep them, so a period that starts that
 far back shows one more line, <em>Other (not recorded before</em> the date<em>)</em>,
-for the difference — rather than a total its parts do not reach.</p>
+for the difference, so the parts still add up to the total.</p>
 <div class="note note--good"><b>None of this appears on the budget screen</b>, in any
-form, by design. A good month in the market is not income and must never be
-assignable. That rule is enforced by a test rather than by good intentions.</div>
+form, by design. Market gains are not income and can never be assigned, and a
+test enforces this rule.</div>
             <div class="shots ">
               <figure class="frame">
                 <picture>
@@ -1512,29 +1498,28 @@ the rest takes at a return you choose.</p>
 envelopes over the last year, annualised, divided by the withdrawal rate. A card
 swipe counts on the day you make it, and paying the card off afterwards does not
 count again.</p>
-<p>What counts towards it is narrower than net worth, deliberately:</p>
+<p>What counts towards it is deliberately narrower than net worth:</p>
 <ul>
-  <li><strong>Counted</strong> &mdash; bank balances, investments, deposits, commodities</li>
-  <li><strong>Held apart</strong> &mdash; EPF and NPS, which are real money you cannot
+  <li><strong>Counted</strong>: bank balances, investments, deposits, commodities</li>
+  <li><strong>Held apart</strong>: EPF and NPS, which are real money you cannot
     reach before 58&ndash;60</li>
-  <li><strong>Not counted</strong> &mdash; the flat, the car, money someone owes you.
-    Each is listed with the reason, so the gap against net worth is visible
-    rather than mysterious</li>
+  <li><strong>Not counted</strong>: the flat, the car, money someone owes you.
+    Each is listed with the reason, so you can see why the figure differs
+    from net worth</li>
 </ul>
 <div class="note note--good"><b>No further earnings are assumed.</b> The corpus grows
-on its own return and nothing else &mdash; no salary, no continued saving. It answers
-&ldquo;when is what I already hold enough&rdquo;, not &ldquo;when could I stop if I keep saving at
-this rate for twenty years&rdquo;. Keep saving and you arrive earlier than the date
-shown, which is the direction an estimate about the rest of your life should be
-wrong in.</div>
+on its own return and nothing else, with no salary or continued saving. It shows
+when what you already hold will be enough, not when you could stop if you keep saving at
+this rate for twenty years. If you keep saving, you'll get there earlier than the date
+shown, so the estimate errs on the cautious side.</div>
 <p>If you give it your age it also reports <b>the bridge</b>: the years between
 stopping and the provident fund unlocking, and whether the drawable corpus alone
-covers them. A plan that counts EPF towards the target can still fail here &mdash;
-the money is real, it just arrives too late.</p>
+covers them. A plan that counts EPF towards the target can still fall short here,
+because that money becomes available too late.</p>
 <div class="note"><b>The default withdrawal rate is 3.5%, not 4%.</b> The familiar
 figure comes from US data over a 30-year retirement. Indian inflation has run
-higher and retiring early asks the money to last longer, so the cautious number
-is the default and the 4% answer is shown beside it rather than hidden. It is a
+higher and retiring early asks the money to last longer, so the more cautious figure
+is the default, with the 4% result shown beside it. It is a
 projection on assumptions you set, not advice, and it cannot know what markets
 will do.</div>
             <div class="shots ">
@@ -1549,20 +1534,20 @@ will do.</div>
           </article>
           <article class="guide" id="tax">
             <h2>Tax estimate</h2>
-<p>What the year looks like under each regime, side by side, so the choice is a
-number rather than a guess.</p>
-<p>It models the old regime's deductions &mdash; 80C, 80D, and the HRA exemption,
+<p>What the year looks like under each regime, side by side, so you can compare
+them by the numbers.</p>
+<p>It models the old regime's deductions: 80C, 80D, and the HRA exemption,
 which is the least of three figures and the one people most often get wrong
 (paying no rent exempts nothing, however much HRA was received). The new regime
-ignores all of them, which is exactly the trade the comparison is showing you;
-employer NPS, below, is the one deduction both allow.</p>
+ignores all of them, and that is the trade-off the comparison shows.
+Employer NPS, below, is the one deduction both allow.</p>
 <p>If you keep an <a href="#insurance">insurance register</a>, the page offers what
 the premiums of your own policies come to for the year under 80C and 80D.
 <em>Use these figures</em> raises each box to the policies' figure, never lowers
 one, and saves nothing until you press Save.</p>
 <h3>Employer NPS, section 80CCD(2)</h3>
 <p>What your employer paid into your NPS account, from Form 16, lowers the estimate
-under <strong>both</strong> regimes &mdash; the one deduction the new regime keeps.
+under <strong>both</strong> regimes, as the one deduction the new regime keeps.
 It is allowed up to 14% of basic + DA under the new regime, and 10% under the old (14%
 for a central or state government employer, which you tick). Enter Basic + DA in the
 house rent allowance boxes even if you receive no HRA, since the cap is worked from
@@ -1570,33 +1555,32 @@ it. Your own NPS contribution, 80CCD(1B), goes in other deductions.</p>
 <h3>Home loan interest, section 24(b)</h3>
 <p>On a home loan's page, say what the house is: <em>lived in by its owner</em> or
 <em>let out</em>. For a house you live in, the interest accrued in the financial
-year — each instalment's interest spread over the days it pays for, with
-instalments not yet recorded taken from the schedule — goes into the holder's old
+year (each instalment's interest spread over the days it pays for, with
+instalments not yet recorded taken from the schedule) goes into the holder's old
 regime estimate, capped at ₹2,00,000 across every such house. The new regime allows
 none. A let-out house's interest is shown and not deducted, because the rent it is
 set against is not something the app knows. The lender's interest certificate is
 the number for the return; type it in <em>Your own figure, if different</em> and it
 is used instead.</p>
 <h3>Tax already paid</h3>
-<p>Enter the year's TDS as one figure, from Form 16 or 26AS — nothing is read from
-either — and each advance or self-assessment tax challan with its date. Each
+<p>Enter the year's TDS as one figure, from Form 16 or 26AS (nothing is read from
+either), and each advance or self-assessment tax challan with its date. Each
 regime's estimate, less all three, is shown as a balance to pay or a refund.</p>
 <p>Where the year's tax under the lower regime, less TDS, is ₹10,000 or more, the
-four <b>advance tax</b> instalments are shown — 15%, 45%, 75% and 100% of it by
-15 June, 15 September, 15 December and 15 March — with what you had paid by each
+four <b>advance tax</b> instalments are shown (15%, 45%, 75% and 100% of it by
+15 June, 15 September, 15 December and 15 March), with what you had paid by each
 date and any shortfall. Paying late or short costs interest under 234B and 234C;
 the screen names them and does not work them out. Nothing is scheduled or
 reminded.</p>
 <div class="note"><b>An estimate, not a return, and not advice.</b> It is arithmetic
 on figures you enter. It files nothing and it is not a substitute for an
-accountant. The screen lists what it leaves out &mdash; marginal relief, losses
+accountant. The screen lists what it leaves out (marginal relief, losses
 set off or carried forward, interest under 234A, 234B and 234C, TDS line by line,
-foreign income, presumptive schemes &mdash; because an estimate that hides what it
-ignores is one that gets trusted too far.</div>
+foreign income, presumptive schemes), so you know its limits.</div>
 <p>Slabs are carried as data for each financial year, not baked into the code. A
 year the app does not have rates for is <b>refused</b> rather than computed with
-the previous year's, since applying last February's rules to this year produces
-a confident wrong answer. The health page tells you when the rates have fallen
+the previous year's, since applying the previous year's rules to this year would
+give a wrong answer. The health page tells you when the rates have fallen
 behind the current year.</p>
 <p><b>Capital gains are included</b>, at the rates that actually apply to them
 rather than at your slab rate: 12.5% above the ₹1,25,000 annual exemption on
@@ -1617,8 +1601,8 @@ will not invent one.</p>
 hybrid fund, a sale whose lots were never recorded, listed equity from before
 February 2018 with no price for 31 January 2018, or an account that names no holder
 in a household of more than one are left out of the
-computation and listed on the screen for you to resolve &mdash; because putting a
-gain in the wrong column means taxing it at the wrong rate.</div>
+computation and listed on the screen for you to resolve, because a gain in the
+wrong column would be taxed at the wrong rate.</div>
             <div class="shots ">
               <figure class="frame">
                 <picture>
@@ -1668,36 +1652,36 @@ travels.</div>
           </article>
           <article class="guide" id="assets-life">
             <h2>Gold, property, and anything valued by hand</h2>
-<p>Four things happen to a pot of gold, and the app records all four: you buy it,
-you buy more, you revalue it, and you sell some or all of it.</p>
+<p>The app records the four things that happen to an asset such as gold: you buy
+it, you buy more, you revalue it, and you sell some or all of it.</p>
 <p>Buying or adding asks <b>where the money came from</b>. Leave it blank if you
-already owned the thing &mdash; recording a flat you have lived in for years moves
+already owned it: recording a flat you have lived in for years moves
 no money. Say where, and the payment is recorded leaving that account, because
-otherwise net worth rises by the value of the asset with nothing on the other
-side, which is the one thing a ledger must never do quietly.</p>
+otherwise net worth would rise by the value of the asset with nothing on the other
+side.</p>
 <p>Selling asks <b>what is left</b>. Zero closes the account; anything else keeps
-it open at that value, because selling a few grams is the ordinary case and
+it open at that value, because selling a few grams is common and
 should not mean closing the account and starting again.</p>
 <div class="note note--good"><b>Its history is on its own account page.</b> That
-account has no transactions and never will &mdash; its worth is stated, not counted
-&mdash; so where a register would be, you get every valuation it has ever had, with
+account has no transactions, because its worth is stated rather than counted.
+In place of a register, you get every valuation it has ever had, with
 the change between each: <i>Added &#8377;50,000</i>, <i>Revalued</i>, <i>Sold part for
 &#8377;80,000</i>. Nothing is overwritten. A correction is another entry.</div>
-<p>A <b>fixed or recurring deposit without terms is different</b>, and deliberately
-so. It is worth its balance, so interest credited to it is a transaction like any
+<p>A <b>fixed or recurring deposit without terms is different</b>, by
+design. It is worth its balance, so interest credited to it is a transaction like any
 other and the balance moves with it. That is why revaluing is not offered on one: a
 stated figure would override the balance and silently stop the interest counting.
-Give it its terms instead and it values itself, and then Revalue is offered — see
-the next guide.</p>
+Give it its terms instead and it values itself, and then Revalue is offered (see
+the next guide).</p>
           </article>
           <article class="guide" id="deposits">
             <h2>Give a deposit its terms</h2>
 <p>A fixed or recurring deposit, a PPF or an EPF does not need a figure typed in
-every few months. Give it its terms and it is worth what they make it on any day —
-net worth, allocation, FIRE, the portfolio and the valuations screen all read that
+every few months. Give it its terms and its value is worked out for any day.
+Net worth, allocation, FIRE, the portfolio and the valuations screen all use that
 figure.</p>
 <ol class="steps">
-  <li><div><strong>Open the account.</strong> It has to be a tracking account — a
+  <li><div><strong>Open the account.</strong> It has to be a tracking account: a
     fixed deposit, recurring deposit or other asset. You can also give the terms when
     creating one, under <em>A deposit? Give its terms</em> on the accounts form.</div></li>
   <li><div><strong>Fill in the terms</strong> under <em>Deposit terms</em>: the kind,
@@ -1712,14 +1696,14 @@ figure.</p>
 contribution, and interest is credited each 31 March as the scheme does it. Interest
 that is paid out leaves a deposit worth its principal.</p>
 <h3>When you know better</h3>
-<p>A passbook or an interest certificate beats the arithmetic. Revalue the account,
+<p>A passbook or an interest certificate takes priority over the calculation. Revalue the account,
 or fill it in on the valuations screen, and a figure dated on or after the
-computed one's basis — the last time the terms were saved, the start, or the last
-contribution — wins, marked <em>valued by hand</em>. The next contribution or a
+computed one's basis (the last time the terms were saved, the start, or the last
+contribution) takes precedence, marked <em>valued by hand</em>. The next contribution or a
 change to the terms hands it back.</p>
 <h3>Maturity</h3>
 <p>The maturity date and amount show on the account page, on the cashflow calendar on
-Schedules (beside the projected balance, not in it — the money is in the deposit
+Schedules (beside the projected balance, not in it, because the money stays in the deposit
 until it is moved), and on the Overview's <em>Due soon</em> in its last two weeks.
 Nothing is posted for you: record the money where it lands, then close the account,
 or set new terms if it was renewed. No interest is assumed after maturity.</p>
@@ -1740,15 +1724,15 @@ want computed as an <em>Other asset</em> tracking account instead.</div>
           <h2 class="guide-part" id="part-running-it">Running it</h2>
           <article class="guide" id="activity">
             <h2>Activity and undo</h2>
-<p>Every change ever made, newest first, with the undo beside it. Thirty days.</p>
-<p>The log is append-only and the undo is <strong>itself an entry</strong> — nothing
-is edited away or deleted, so the record of what happened stays true even after you
+<p>Every change ever made, newest first, with an undo beside it for thirty days.</p>
+<p>The log is append-only and the undo is <strong>itself an entry</strong>. Nothing
+is edited away or deleted, so the record of what happened stays accurate even after you
 reverse it.</p>
 <ul>
   <li><strong>Where a later change touched the same record</strong>, the undo tells you
     what it would discard before it does anything.</li>
-  <li><strong>Where the record is load-bearing</strong> — a loan instalment, a
-    portfolio lot — it refuses outright and says what depends on it.</li>
+  <li><strong>Where the record is load-bearing</strong> (a loan instalment, a
+    portfolio lot), it refuses outright and says what depends on it.</li>
   <li><strong>Where it would move a reconciled balance</strong>, it asks first, and
     undoing breaks that reconciliation.</li>
   <li><strong>Imports undo as a batch</strong>, taking every row they created except
@@ -1759,42 +1743,42 @@ reverse it.</p>
 Assign's breaks the figure into income received, what is assigned this month and
 earlier and in future months, what is held, and cash overspending carried in; a
 category's lists this month's assignments and transactions in it, in order. When a
-figure is not what you expected, this is the fastest route to why.</p>
+figure is not what you expected, this is the quickest way to see why.</p>
             <div class="shots ">
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/activity-mobile.webp" width="840" height="1800">
-                  <img src="img/activity.webp" width="2800" height="14604" loading="lazy" alt="Activity — every change, with its undo.">
+                  <img src="img/activity.webp" width="2800" height="14604" loading="lazy" alt="Activity: every change, with its undo.">
                 </picture>
-                <figcaption>Activity — every change, with its undo.</figcaption>
+                <figcaption>Activity: every change, with its undo.</figcaption>
               </figure>
             </div>
           </article>
           <article class="guide" id="health">
             <h2>Backups and health</h2>
-<p>Your data is one SQLite file. Back that up and you have backed up everything.</p>
+<p>Your data is one SQLite file. Back up that file and you have backed up everything.</p>
 <div class="note note--good"><b>The scheduled job does more than copy.</b> It restores
 the latest backup into a scratch database and compares control totals against the
-live one. A backup nobody has ever restored is a hope, not a backup — so the app
-checks, and tells you when it last succeeded.</div>
+live one. This confirms the backup can be
+restored, and the app tells you when the check last succeeded.</div>
 <h3>The Health screen</h3>
-<p>The one to open at 2am: backup status, last verified restore, price-feed health
+<p>The screen to check when something seems wrong: backup status, last verified restore, price-feed health
 and remaining quota, feature flags, error counts, and whether the development bypass
 is present. Every check shows its state, when it last ran, and a plain-language
 reason.</p>
 <h3>Restoring</h3>
 <p>Use the restore command rather than copying a file over the database by hand.
 Copying leaves the database's write-ahead journal behind, and the first query then
-reports the database as malformed — turning a recoverable afternoon into a lost
-ledger at exactly the wrong moment. The command lists what is available, keeps what it
+reports the database as malformed, which can turn a recoverable problem into a
+lost ledger. The command lists what is available, keeps what it
 replaced, and reads the restored copy back before claiming success.</p>
             <div class="shots ">
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/health-mobile.webp" width="840" height="1800">
-                  <img src="img/health.webp" width="2800" height="3354" loading="lazy" alt="Health — backups, restore verification, feeds.">
+                  <img src="img/health.webp" width="2800" height="3354" loading="lazy" alt="Health: backups, restore verification and feeds.">
                 </picture>
-                <figcaption>Health — backups, restore verification, feeds.</figcaption>
+                <figcaption>Health: backups, restore verification and feeds.</figcaption>
               </figure>
             </div>
           </article>
@@ -1802,33 +1786,33 @@ replaced, and reads the restored copy back before claiming success.</p>
             <h2>Settings, members and tokens</h2>
 <p>Everything that configures the household rather than the month.</p>
 <ul>
-  <li><strong>Members</strong> — the allow-list. Invite by email address; they sign in
+  <li><strong>Members</strong>: the allow-list. Invite by email address; they sign in
     with that address, through Google, your OpenID Connect provider or a password.
     Removing someone keeps their historical attributions and stops their API tokens.</li>
-  <li><strong>Password</strong> — set or change your own. Changing one asks for the
+  <li><strong>Password</strong>: set or change your own. Changing one asks for the
     current password and signs your other devices out.</li>
-  <li><strong>Overspend model</strong> — the choice described in the overspend guide.
+  <li><strong>Overspend model</strong>: the choice described in the overspend guide.
     Changing it re-derives your history.</li>
-  <li><strong>Statement identity</strong> — name, PAN, date of birth, mobile, and
+  <li><strong>Statement identity</strong>: name, PAN, date of birth, mobile, and
     where your banks need them an Axis or HDFC customer ID and an HSBC card's last six
-    digits, used to derive statement passwords. Customer IDs are shown masked. Never
-    exported, never logged, and asserted absent from exports by tests.</li>
-  <li><strong>Notifications</strong> — each kind of digest item can be muted
+    digits, used to derive statement passwords. Customer IDs are shown masked. They are never
+    exported or logged, and tests confirm they are absent from exports.</li>
+  <li><strong>Notifications</strong>: each kind of digest item can be muted
     individually, per member.</li>
-  <li><strong>Theme</strong> — light, dark, or follow the system, stored server-side
+  <li><strong>Theme</strong>: light, dark, or follow the system, stored server-side
     so the first paint is already correct.</li>
-  <li><strong>Devices</strong> — every signed-in session, revocable one at a time. A
+  <li><strong>Devices</strong>: every signed-in session, revocable one at a time. A
     session lasts <code>SESSION_DAYS</code> (30 by default) from sign-in, however much
     it is used. It must be a whole number from 1 to 3650; anything else stops the app
     at startup with a message saying so.</li>
-  <li><strong>API tokens</strong> — scoped read or read-write, shown once, and unable
+  <li><strong>API tokens</strong>: scoped read or read-write, shown once, and unable
     to sign in, mint more tokens, set a password, sign devices out or link a mailbox.
     None can be minted while viewing as another member. See the API reference.</li>
-  <li><strong>Connect an AI</strong> &mdash; under API tokens: the address to give an
+  <li><strong>Connect an AI</strong>: under API tokens: the address to give an
     AI app, what is connected, what each connection has read, and Disconnect. See
     <a href="#connect-ai">Connect Claude, ChatGPT or Gemini</a>.</li>
-  <li><strong>Modules</strong> — any of nineteen can be switched off on the server,
-    and it vanishes from every screen rather than sitting greyed out. See
+  <li><strong>Modules</strong>: any of nineteen can be switched off on the server,
+    and it disappears from every screen rather than appearing greyed out. See
     <a href="#plans">Plans and modules</a>.</li>
 </ul>
 <h3>Viewing as another member</h3>
@@ -1838,15 +1822,15 @@ it is active. Writes require an explicit toggle within the session.</p>
               <figure class="frame">
                 <picture>
                   <source media="(max-width: 44rem)" srcset="img/settings-mobile.webp" width="840" height="1800">
-                  <img src="img/settings.webp" width="2800" height="4748" loading="lazy" alt="Settings — members, identity, connections, tokens.">
+                  <img src="img/settings.webp" width="2800" height="4748" loading="lazy" alt="Settings: members, identity, connections and tokens.">
                 </picture>
-                <figcaption>Settings — members, identity, connections, tokens.</figcaption>
+                <figcaption>Settings: members, identity, connections and tokens.</figcaption>
               </figure>
             </div>
           </article>
           <article class="guide" id="plans">
             <h2>Plans and modules</h2>
-<p>What an instance offers is set where it runs, in its environment — the
+<p>What an instance offers is set where it runs, in its environment: the
 <code>.env</code> file next to <code>compose.yaml</code>, or your host's settings.
 Nothing about it is chosen in the app.</p>
 <h3>Pick a plan</h3>
@@ -1881,32 +1865,32 @@ modules are <code>FEATURE_LOANS</code>, <code>FEATURE_FAMILY_LOANS</code>,
 <code>FEATURE_API_TOKENS</code>, <code>FEATURE_AI</code> and
 <code>FEATURE_MULTI_CURRENCY</code>. Each takes <code>true</code> or
 <code>false</code>.</p>
-<div class="note note--good"><b>Off means gone, and the data stays.</b> A module that
+<div class="note note--good"><b>Switching a module off hides it and keeps its data.</b> A module that
 is off is not in the navigation, the More page or the command palette, no screen
 links to it, and its pages answer “not found”. What you entered in it is
 untouched, and switching it back on brings it back as you left it.</div>
-<p>A value the app cannot read — <code>PLAN=family</code>, <code>FEATURE_LOANS=flase</code>
-— stops it at startup with a message naming the variable, rather than guessing. The
+<p>A value the app cannot read (<code>PLAN=family</code>, <code>FEATURE_LOANS=flase</code>)
+stops it at startup with a message naming the variable, rather than guessing. The
 Health screen lists the plan, every module that is off, and the limits in force.</p>
 <p>The budget itself, accounts, cards, Review, month close, reconciliation, search
-and the export are never switched off: they are the app.</p>
+and the export are never switched off, because they are the core of the app.</p>
           </article>
           <article class="guide" id="groups">
             <h2>Groups and tidying the grid</h2>
 <p>A group is the heading envelopes sit under. On <strong>Categories</strong> you
 can rename one in place, reorder it, and delete it once it is empty.</p>
-<p><strong>Deleting needs it empty</strong>, and that is deliberate. Deleting the
-envelopes with it would destroy balances and history at one click; leaving them
-behind would put money in envelopes no screen renders. Move them out first — it is
-one change per envelope, and each is a decision worth making.</p>
+<p><strong>A group must be empty to be deleted</strong>, by design. Deleting the
+envelopes with it would destroy balances and history in one click, and leaving them
+behind would put money in envelopes no screen shows. Move them out first, one
+envelope at a time.</p>
 <h3>The ones the app keeps</h3>
 <p>Credit card payments, loan payments and Goals are marked <em>managed by the
 app</em>. They hold envelopes the app creates and retires alongside the card, loan
 or goal they belong to, so they carry no manual controls and cannot be deleted by
-hand — they go when the last of those does.</p>
+hand. They are removed when the last of those goes.</p>
 <h3>A budget of your own starts with a few</h3>
 <p>Opening a personal budget gives you two groups and four envelopes to start from,
-plus the household one. Rename or delete any of them; they are ordinary.</p>
+plus the household one. They are ordinary groups and envelopes, so you can rename or delete any of them.</p>
           </article>
 
           <article class="guide" id="troubleshoot">
@@ -1915,30 +1899,30 @@ plus the household one. Rename or delete any of them; they are ordinary.</p>
 <p>Use the explain link beside it. It breaks the figure down, or lists what changed
 it in order, which resolves nearly all of these in under a minute.</p>
 <h3>A past month reads lower than it did at the time</h3>
-<p>Known, and written down rather than hidden. Opening July in December subtracts
-assignments made since. The budget is a live document rather than a series of monthly
-photographs, and this is the price of that.</p>
+<p>This is a known, documented behaviour. Opening July in December subtracts
+assignments made since then, because the budget is a live record rather than a series
+of monthly snapshots.</p>
 <h3>My card shows an unfunded amount I do not understand</h3>
 <p>Something was spent on the card without an envelope behind it. Usually a charge
 still sitting unfiled in the review queue, or a genuine overspend. Filing it or
 covering it clears the warning.</p>
 <h3>An import brought in the wrong things</h3>
 <p>Undo the batch from the import log; every row it created goes with it, except any
-you have edited since. Then check the column mapping — and, for a CSV, how the dates
-are written — and try again.</p>
+you have edited since. Then check the column mapping (and, for a CSV, how the dates
+are written) and try again.</p>
 <h3>The same purchase is in there twice</h3>
 <p>The review queue's duplicate tier should have caught it. If one was entered by
-hand and the other imported, merge them from the queue — the merged row keeps the raw
+hand and the other imported, merge them from the queue. The merged row keeps the raw
 imported text.</p>
 <h3>Prices are stale</h3>
 <p>Check Health for the feed's status and remaining quota. Free providers have daily
-limits, and the app deliberately stops asking rather than burning through them.</p>
+limits, and the app stops requesting prices rather than using them up.</p>
 <h3>I am locked out</h3>
 <p>Sign-in depends on <code>BASE_URL</code> exactly matching your public origin,
 because the OAuth redirect and the cookie scope are both derived from it. A mismatch
 after moving domains is the usual cause. Being asked to sign in again after
-<code>SESSION_DAYS</code> is expected — a session's lifetime runs from sign-in, not
-from the last click — and eight wrong passwords lock that sign-in for fifteen
+<code>SESSION_DAYS</code> is expected (a session's lifetime runs from sign-in, not
+from the last click), and eight wrong passwords lock that sign-in for fifteen
 minutes. If the app will not start at all, check that <code>SESSION_DAYS</code> is
 a whole number from 1 to 3650.</p>
 <h3>Pages load but nothing saves</h3>
@@ -1956,8 +1940,8 @@ Behind a reverse proxy, pass the original <code>Host</code> header through, or s
   <section class="sec">
     <div class="wrap">
       <div class="callout">
-        <h2>Easier to try than to read about</h2>
-        <p>The demo runs the real engine in your browser. Nothing to install, nothing to sign up for.</p>
+        <h2>Try it in the demo</h2>
+        <p>The demo runs the real engine in your browser. There's nothing to install and no sign-up.</p>
         <a class="btn btn--primary" href="demo.html">Open the demo</a>
       </div>
     </div>

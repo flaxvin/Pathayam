@@ -5,24 +5,24 @@ An assessment of seven requested features against the code as it stands on
 feature means *in this app* rather than in general, what it touches, where the
 difficulty actually is, and what it would cost.
 
-**They are ordered by recommendation, not as they were asked for** — cheapest
+**They are ordered by recommendation, not as they were asked for**: cheapest
 and safest first, blocked and deferred last. The summary table at the end maps
 back to the original list.
 
 ## What a "day" means here
 
-A day of one developer already fluent in this codebase, and **including the
-tests and documentation this project demands**. That inclusion is most of the
-number. The repository is 115 source files against 119 test files and 1,426
+One day is one engineer-day by someone familiar with this codebase,
+**including the tests and documentation this project requires**. Those account
+for most of the number. The repository is 115 source files against 119 test files and 1,426
 tests; every behavioural rule carries a test that fails when the rule is
 removed, and every non-obvious decision is written down. A change that is two
 hours of typing is routinely a day and a half of work here, and the estimates
-below reflect that rather than apologising for it.
+below reflect that.
 
-Ranges are honest ranges. Where the low end assumes a decision goes a
-particular way, that is said.
+Ranges are genuine ranges. Where the low end assumes a decision goes a
+particular way, that is stated.
 
-## The one constraint that prices everything
+## The constraint that drives every estimate
 
     accounts = Σ category balances + Ready to Assign + held for next month
 
@@ -37,10 +37,10 @@ Two secondary constraints matter almost as much:
 
 - **No runtime dependencies.** Outbound HTTP already exists (Gmail, price
   providers, OIDC, the backup webhook) using the global `fetch`, so an
-  integration is not unprecedented — but it arrives without a library.
+  integration is not unprecedented, but it arrives without a library.
 - **Self-hosted and hosted are the same binary.** A feature that only works when
-  a company operates the instance is a feature that splits the product in two,
-  and two of these are that.
+  a company operates the instance would split the product in two, and two of
+  these proposals are like that.
 
 ---
 
@@ -52,16 +52,16 @@ raided in a tight month.
 
 **The rule, exactly.** A lock forbids **reducing `assigned`**. Adding to a
 locked envelope is always allowed, so a lock never gets in the way of funding
-something — only of raiding it. Spending *from* a locked envelope still reduces
+something, only of raiding it. Spending *from* a locked envelope still reduces
 the balance, because refusing that would mean refusing to record something that
 already happened at a till.
 
-That phrasing settles the case that would otherwise have to be argued: a lock is
-a constraint on **budgeting decisions**, not on reality.
+This settles a case that would otherwise need debate: a lock constrains
+**budgeting decisions**, not what has actually happened.
 
 **A departing member is the exception, and it is a real one.** `departure.ts`
-withdraws a leaving member's unspent assigned by calling `setAssigned` downward
-— which is precisely what the lock forbids. It must still work: that money is
+withdraws a leaving member's unspent assigned by calling `setAssigned` downward,
+which is precisely what the lock forbids. It must still work: that money is
 leaving with a person, not being raided to cover an overspend, and a lock that
 stranded it would leave the budget claiming money the household no longer has.
 Departure is therefore an explicit, named exemption with its own test, not an
@@ -69,13 +69,13 @@ accident of ordering.
 
 **Touches.** A `locked_at` column on `categories`, then every writer that can
 reduce `assigned`: `setAssigned` and `moveMoney` in `src/domain/budget.ts`, and
-their callers — `card-emi.ts`, `loans.ts`, and the auto-assign and
+their callers: `card-emi.ts`, `loans.ts`, and the auto-assign and
 cover-overspending paths in `app.ts`. `suggestCoverSources()` in the engine must
 stop proposing locked envelopes, or the app will keep recommending a move it
 then refuses.
 
-**Effort: 2–3 days**, and firmer than it was — the add-only rule removes the
-design question. Most of it is the sweep across writers, a test per writer
+**Effort: 2–3 days**, and firmer than it was, because the add-only rule removes
+the design question. Most of it is the sweep across writers, a test per writer
 proving the refusal bites, and one proving departure still gets its money out.
 
 ## 2 · Category group targets & nested pooling
@@ -83,7 +83,7 @@ proving the refusal bites, and one proving departure still gets its money out.
 These are two features and should be priced separately, because one is routine
 and the other is not.
 
-**Group targets — 3–5 days.** `targets` is keyed by `category_id` as its primary
+**Group targets: 3–5 days.** `targets` is keyed by `category_id` as its primary
 key, so this needs either a parallel `group_targets` table or a generalised
 owner column. The engine work is real but bounded: `targetProgress()` takes a
 single `CategoryState`, so a group target needs a rolled-up state, and
@@ -92,7 +92,7 @@ of its own. Decide early whether a group target *replaces* its children's
 targets or sits above them; "both, summed" is the answer that produces numbers
 nobody can explain.
 
-**Nested pooling — depends entirely on which thing is meant.**
+**Nested pooling: the cost depends on which version is meant.**
 
 - *Display-only rollup* (a parent row showing the sum of its children, money
   staying in the children): **+2–3 days.** Safe, because the identity never
@@ -103,48 +103,48 @@ nobody can explain.
   explicitly refuse to be: the budget grid, auto-assign, move money, merge,
   delete, hide, the underfunded total, reports, and the identity itself, which
   currently sums a flat `state.categories`. A parent that both holds money and
-  has children holding money is a double-count waiting to happen.
+  has children holding money is likely to be counted twice.
 
 **Recommendation.** Group targets plus display-only rollup gets most of the
 value for a third of the cost. Reach for real nesting only if a household
 actually wants to *fund a parent and spend from children*, which is a different
 feature from wanting to see a subtotal.
 
-## 3 · Richer recurrence rules — **built**
+## 3 · Richer recurrence rules (**built**)
 
 *Shipped 20 September 2026.* What follows is the assessment as written; the
 work is done, both defects are fixed, and `monthly-nth-weekday` is now offered
 by every schedule form with its ordinal and weekday stored.
 
-*Re-scoped.* This was first read as scheduling under **uncertainty** — a bill due
+*Re-scoped.* This was first read as scheduling under **uncertainty**: a bill due
 "around the 15th", a service every four to six weeks. What is actually wanted is
 **exact rules that today's model cannot express**: "the first Sunday of each
 month", "the 24th every three months", "annually on 6 January". That is a
 smaller, more tractable feature, and pricing it turned up two defects.
 
 **Two of the three already work.** `quarterly` and `yearly` both go through
-`shiftMonthsKeepingDay()`, which preserves the day of month — so "the 24th every
+`shiftMonthsKeepingDay()`, which preserves the day of month, so "the 24th every
 three months" and "annually on 6 January" are already correct, including the
 short-month policy for a 29th–31st.
 
 **The weekday one is broken, not missing.** `monthly-nth-weekday` is declared in
 the `Recurrence` union and counted in the annualisation table used by the
-subscriptions view — but **`nextOccurrence()` has no case for it**. It falls
+subscriptions view, but **`nextOccurrence()` has no case for it**. It falls
 through to `default:`, which advances by day of month. A schedule set to "first
 Sunday" would silently behave as ordinary monthly, and the household would never
 be told. It is not currently reachable from the UI, which offers only monthly,
-weekly, fortnightly, quarterly and yearly — so it is a latent fault rather than
+weekly, fortnightly, quarterly and yearly, so it is a latent fault rather than
 a live one, but implementing the feature means fixing it.
 
 **And the enum is not validated.** All three schedule routes do
-`field(ctx.body, "recurrence") as Recurrence` — a bare cast — and the
+`field(ctx.body, "recurrence") as Recurrence` (a bare cast), and the
 `schedules.recurrence` column carries no `CHECK` constraint. Any string a
 crafted POST supplies is stored, and then falls through to monthly. Nothing
 downstream ever complains. This is a data-integrity gap in shipped code, not
 part of the feature, and it should be closed whether or not the feature is
 built.
 
-**The work.** Implement nth-weekday properly — ordinal 1st through 5th plus
+**The work.** Implement nth-weekday properly: ordinal 1st through 5th plus
 "last", and the weekday, stored explicitly rather than inferred from `next_due`.
 Add it to the three schedule forms. Validate the enum on the way in and add the
 `CHECK` constraint by migration. Then decide whether arbitrary intervals are
@@ -155,19 +155,19 @@ only part of this that is genuinely new rather than a completion.
 and part of it is a fix rather than an addition.
 
 **The window idea is set aside, not dropped.** Scheduling under genuine
-uncertainty — a band rather than a date, funded at the earliest end — remains a
+uncertainty (a band rather than a date, funded at the earliest end) remains a
 separate and worthwhile feature at roughly 4–6 days, if irregular real-world
 commitments ever justify it.
 
 ## 4 · Credit card milestone & reward tracking
 
-Tracking only — it records what a card is about to earn, and touches no ledger
+Tracking only: it records what a card is about to earn, and touches no ledger
 row. That is what makes it safe: the identity never sees it, so the cost is
 modelling and arithmetic rather than invariant risk.
 
-**The honest limitation up front.** There is no MCC or merchant-category field
+**The main limitation.** There is no MCC or merchant-category field
 on transactions, and adding one truthfully is not possible from the data sources
-in use — bank statements and SMS do not carry it reliably. Reward rules would
+in use, as bank statements and SMS do not carry it reliably. Reward rules would
 therefore key off **envelope or payee**, which is an approximation. The app
 already ships an approximation of this kind, correctly labelled: the tax screen
 says it is an estimate on figures you enter. Rewards should say the same thing
@@ -176,25 +176,25 @@ in the same voice, or it will be read as a statement of fact and be wrong.
 **Three period types, not one.** Indian cards set milestones on whichever window
 the issuer likes, so a milestone has to name its own:
 
-- **Statement cycle** — `accounts` already carries `statement_day`, and the card
+- **Statement cycle**: `accounts` already carries `statement_day`, and the card
   screens already reason in cycles.
-- **Financial-year quarter** — Apr–Jun, Jul–Sep, Oct–Dec, Jan–Mar. This is the
+- **Financial-year quarter**: Apr–Jun, Jul–Sep, Oct–Dec, Jan–Mar. This is the
   common one for quarterly spend milestones and it is *not* a calendar quarter.
-- **Financial year** — Apr–Mar, for annual fee waivers and yearly thresholds.
+- **Financial year**: Apr–Mar, for annual fee waivers and yearly thresholds.
 
 The groundwork is there: `fiscalYearRange()` and `formatFiscalYear()` already
 live in `src/core/dates.ts` and are used by the tax screen and the FY reports.
 FY quarters are a small addition beside them.
 
-The design consequence is worth stating: because one card can carry milestones
+This has a design consequence: because one card can carry milestones
 on different windows at once, progress cannot be "this cycle's spend". It has to
 be a generic *(window → qualifying spend)* evaluation with the window chosen per
-milestone — cleaner than special-casing, slightly more work. And two milestones
+milestone. That is cleaner than special-casing, and slightly more work. And two milestones
 on different windows must never be presented as one running total, or the
 number means nothing.
 
-**Effort: 7–10 days for milestone progress** — spend against a threshold, on any
-of the three windows, with the benefit named. Points accrual (base rates,
+**Effort: 7–10 days for milestone progress** (spend against a threshold, on any
+of the three windows, with the benefit named). Points accrual (base rates,
 accelerated categories, monthly caps, and how caps interact) is a further
 **4–6 days** and carries a permanent maintenance cost, because card terms change
 and somebody has to keep the rules current. Ship milestones first.
@@ -212,8 +212,8 @@ The transport is where the cost is.
 
 **WhatsApp** needs a Meta app, business verification, a dedicated phone number,
 and **an inbound public webhook**. A self-hosted household behind NAT has no
-public URL, so either every household runs its own Meta app and verification —
-which almost none will — or Flaxvin operates a shared relay, and every
+public URL, so either every household runs its own Meta app and verification
+(which almost none will) or Flaxvin operates a shared relay, and every
 household's spending messages pass through it. That contradicts the current
 privacy position directly, and pulls in DPDP obligations on top of the ones
 already open. Add the 24-hour session window and template approval for anything
@@ -227,7 +227,7 @@ self-hosted app.
 finds the bot must not be able to spend the household's envelopes. A pairing
 code issued in-app plus an allowlist of chat ids is the minimum.
 
-**Effort: Telegram 5–8 days** end to end — polling loop, pairing and
+**Effort: Telegram 5–8 days** end to end: polling loop, pairing and
 authorisation, parser, a confirmation step before anything is written, and
 tests. **WhatsApp is +8–12 days on top**, most of it Meta plumbing rather than
 code, and it should not start until the relay question has an answer.
@@ -242,19 +242,19 @@ Information User**, onboarded with an AA (Finvu, Setu, OneMoney, CAMSFinserv,
 NADL). That is an entity-level registration with a commercial contract and
 per-consent or per-fetch pricing. **A self-hosting household cannot be an FIU.**
 So either Flaxvin Technologies is the FIU and financial data flows through
-Flaxvin to each instance — which rewrites the privacy policy, changes the DPDP
-posture, and makes the feature hosted-only — or the feature does not exist.
+Flaxvin to each instance (which rewrites the privacy policy, changes the DPDP
+posture, and makes the feature hosted-only), or the feature does not exist.
 There is no third option where the household's own server talks to an AA.
 
 The engineering, *after* that is resolved, is substantial in its own right:
 consent creation and lifecycle, FI requests, decrypting FI data (ECDH key
 material, not a REST call), parsing account and transaction schemas that vary by
 FIP, and deduplicating everything against statements and SMS the household has
-already imported — which is the part most likely to be underestimated.
+already imported, which is the part most likely to be underestimated.
 
 **Effort: 20–30 days of engineering, after weeks-to-months of onboarding**, plus
 a privacy policy rewrite and a clear answer about what Flaxvin retains. The
-existing open DPDP items — registered address, named grievance officer — become
+existing open DPDP items (registered address, named grievance officer) become
 blocking rather than outstanding.
 
 ## 7 · Spending abroad, in two very different sizes
@@ -263,44 +263,44 @@ The original request covered two things that look alike and cost differently by
 a factor of four. They are separated here, because **the cheap one is probably
 the one that was wanted.**
 
-### 7a · A transaction entered in foreign currency — 4–6 days
+### 7a · A transaction entered in foreign currency: 4–6 days
 
 Type `$40`, have it stored as the rupees it cost. The envelope is an INR
 envelope, Ready to Assign is an INR figure, and the identity never sees a
-foreign number — the conversion happens at the edge, on the way in, and
+foreign number. The conversion happens at the edge, on the way in, and
 everything downstream is unchanged. That is what makes this cheap: it is an
 *entry* feature, not a budgeting one.
 
 **What it stores.** `original_amount`, `original_currency`, `rate_used` and
 `rate_source` on the transaction, with `amount` staying INR paise as it is
 today. The `fx_rates` table already exists and already has a stale-rate policy.
-The existing `raw_amount` convention — the original record is never overwritten
-— is the same instinct and the same shape.
+The existing `raw_amount` convention (the original record is never overwritten)
+follows the same approach and the same shape.
 
-**The wrinkle that matters, and it is not small.** For a card used abroad, the
+**An important complication.** For a card used abroad, the
 real rupee figure is **the bank's, not the market's**: an issuer's FX markup plus
 any cross-currency fee typically lands 2–3.5% away from a mid-market rate. So a
-converted figure is an *estimate until the statement arrives*, and the honest
-design says so — convert at entry, mark the amount estimated, and let the
+converted figure is an *estimate until the statement arrives*, and the design
+should say so: convert at entry, mark the amount estimated, and let the
 statement import correct `amount` to the real figure while keeping the foreign
-original intact. The app already has this exact instinct elsewhere:
+original intact. The app already does this elsewhere:
 `amount_is_estimate` on schedules, and a tax screen that says plainly it is an
 estimate on figures you enter.
 
 Done that way the feature is genuinely useful and carries no risk to the
-invariant. Done the naive way — convert at a market rate and present it as fact
-— it quietly mis-states every foreign spend by a few percent for ever.
+invariant. Done the naive way (convert at a market rate and present it as fact),
+it would mis-state every foreign spend by a few percent, with no indication.
 
-### 7b · Multi-currency envelopes — 15–25 days
+### 7b · Multi-currency envelopes: 15–25 days
 
 
 
-A genuinely multi-currency budget — an envelope that *holds* dollars — is a
+A genuinely multi-currency budget (an envelope that *holds* dollars) is a
 different proposition, and **the only item here that threatens the invariant.**
 
 The groundwork exists: `fx_rates`, a `currency` column on accounts and
 instruments, and a `FEATURE_MULTI_CURRENCY` flag. But it is deliberately
-confined to *valuation* — `docs/limitations.md` states that budget accounts,
+confined to *valuation*: `docs/limitations.md` states that budget accounts,
 envelopes and Ready to Assign are single-currency, and R30 keeps asset accounts
 out of the budget engine entirely. Extending it to envelopes means choosing
 between two unattractive shapes:
@@ -308,24 +308,24 @@ between two unattractive shapes:
 - **Envelopes stay in base currency; foreign accounts convert.** The identity
   then breaks every time a rate moves, unless an explicit unrealised-FX term is
   added alongside `unfundedCreditAbsorbed`. That term has to be derived,
-  documented in `docs/dev/01-engine-derivation.md`, and defended — it is a new
-  place money can hide.
+  documented in `docs/dev/01-engine-derivation.md`, and justified, because it is
+  a new place money can hide.
 - **Each envelope carries a currency, and cross-currency assignment is
   refused.** The maths stays clean and the user experience gets worse: Ready to
   Assign stops being one number, and the budget screen becomes one screen per
   currency.
 
 Either way, currency awareness propagates into auto-assign, move money, targets,
-card funding, holds, departures and every report — and a rounding policy has to
+card funding, holds, departures and every report, and a rounding policy has to
 be chosen and tested, because integer paise converted at a `REAL` rate and back
 does not return the same number.
 
 **Effort: 15–25 days**, with the widest uncertainty of anything on this list,
 plus a migration and an engine-derivation rewrite.
 
-**Recommendation: defer** unless a real household need exists — NRI income, a
-foreign card being used monthly. The current limitation is documented honestly,
-and "we only do rupees, on purpose" is a far better position than a
+**Recommendation: defer** unless a real household need exists (NRI income, a
+foreign card being used monthly). The current limitation is clearly documented,
+and supporting rupees only, on purpose, is a better position than a
 multi-currency implementation whose identity term nobody can explain.
 
 ---
@@ -353,7 +353,7 @@ of it inside the existing architecture, none of it touching the accounting
 identity, and no external party involved. Recurrence moves up the order because
 part of it is a fix.
 
-## Two defects found while estimating — both fixed
+## Two defects found while estimating, both fixed
 
 Neither was part of any feature above; both were in shipped code, and both went
 out with the recurrence work on 20 September 2026.
@@ -370,13 +370,12 @@ the stored ordinal and weekday; `parseRecurrence()` refuses anything outside the
 eight known values, and every route calls it. The refusal lives in the domain
 rather than as a `CHECK` because `schedules` is referenced by `schedule_splits`
 with `ON DELETE CASCADE` and adding a constraint to an existing SQLite table
-means rebuilding it — every write goes through create or update, and both
+means rebuilding it. Every write goes through create or update, and both
 validate.
 
 ## The decision that gates the rest
 
 **Two items wait on one question:** does household financial data ever leave the
 household's own server? Answering it once settles both WhatsApp (5b) and Account
-Aggregator (6). Until it is answered, neither should be started — and if the
-answer is no, both are closed rather than pending, which is a better place for
-them to be than a backlog.
+Aggregator (6). Until it is answered, neither should be started, and if the
+answer is no, both are closed rather than left pending in a backlog.

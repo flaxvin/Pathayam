@@ -74,8 +74,8 @@
           <li>The demo holds invented data. Do not put anything real into it.</li>
           <li>If you self-host, none of this applies: no data reaches us at all.</li>
           <li>On a hosted plan your data sits in its own database, not a shared table, and one endpoint returns all of it at any time.</li>
-          <li>Five days after a plan ends, everything is deleted — backups included, and not recoverable.</li>
-          <li>Connect an AI app and what it reads is sent to that app's provider. Connect none, and nothing is. It changes nothing unless you allow it to, and every change is logged.</li>
+          <li>Five days after a plan ends, everything is deleted, including backups, and it cannot be recovered.</li>
+          <li>If you connect an AI app, what it reads is sent to that app's provider. If you connect none, nothing is sent. It changes nothing unless you allow it to, and every change is logged.</li>
         </ul>
       </div>
 
@@ -113,12 +113,12 @@
         That records the page you looked at, where you arrived from, your
         browser and operating system, your country, and how quickly the page
         loaded. It uses <strong>no cookies and no local storage</strong>, does
-        not fingerprint your device, and cannot follow you to any other site —
-        there is no identifier that persists between visits, so we can see that
-        a page was read and never that you read it.
+        not fingerprint your device, and cannot follow you to any other site.
+        There is no identifier that persists between visits, so we can see that
+        a page was read but never that you read it.
       </p>
       <p>
-        We look at it to know which pages are worth writing and which are not
+        We use it to learn which pages are worth writing and which are not
         read at all. It is the only measurement on this site.
       </p>
       <div class="note note--good">
@@ -126,12 +126,12 @@
         script into <strong>demo.pathayam.app</strong>, and the app's
         Content-Security-Policy refuses to run anything it did not serve itself,
         so the script is blocked before it executes and nothing is ever sent. A
-        hosted instance behaves the same way. The measurement is on the pages
-        that sell the thing, not on the pages holding your money.
+        hosted instance behaves the same way. Visits are counted on the website,
+        not in the app that holds your money.
       </div>
       <p>
-        Our hosting provider, <strong>Fly.io</strong>, records ordinary server logs — IP address, timestamp, page requested,
-        user agent — which are used for security and to keep the site up, and are retained for 30 days. We do not combine
+        Our hosting provider, <strong>Fly.io</strong>, records ordinary server logs (IP address, timestamp, page requested,
+        user agent), which are used for security and to keep the site up, and are retained for 30 days. We do not combine
         those logs with anything else or use them to build a profile.
       </p>
 
@@ -143,7 +143,7 @@
           <tbody>
             <tr><td>Your email address</td><td>So a person can reply to you about setting it up.</td></tr>
             <tr><td>Which plan you were looking at</td><td>So the reply is about the right one.</td></tr>
-            <tr><td>The page you submitted from</td><td>Same.</td></tr>
+            <tr><td>The page you submitted from</td><td>For the same reason.</td></tr>
             <tr><td>A timestamp</td><td>To keep the list in order.</td></tr>
           </tbody>
         </table>
@@ -158,8 +158,8 @@
       <p>
         Your address is kept until hosting opens and we have written to you, or
         until you ask us to remove it, whichever comes first. To be removed,
-        write to <!--email_off--><a href="mailto:privacy@pathayam.app">privacy@pathayam.app</a><!--/email_off-->
-        — no account or verification is needed, since the address itself is the
+        write to <!--email_off--><a href="mailto:privacy@pathayam.app">privacy@pathayam.app</a><!--/email_off-->.
+        No account or verification is needed, since the address itself is the
         whole record.
       </p>
 
@@ -178,13 +178,13 @@
         Entering the demo sets one session cookie so the app knows which invented
         member you are viewing as. It is strictly necessary for the demo to
         function, expires with the session, and is not used for analytics. The
-        demo's request log records method, path, status and duration — never
+        demo's request log records method, path, status and duration, and never
         query strings, form contents or amounts.
       </p>
 
       <h2 id="hosted">The hosted service</h2>
       <p>
-        This section governs a hosted instance. Instances are set up by hand
+        This section governs a hosted instance. Instances are set up
         after you ask for one and we have agreed the plan and the region with
         you, so nothing here applies until that has happened and nothing is
         charged before it.
@@ -212,12 +212,12 @@
             </tr>
             <tr>
               <td>Tax figures</td>
-              <td>Optional, and entered by you on the tax screen: gross income for a financial year, the deductions you claim &mdash; 80C, 80D, rent paid, HRA received, basic salary &mdash; tax deducted at source, the advance and self-assessment tax payments you record, and your own home-loan interest figure under 24(b) where you give one. A loan can also record what its house is used for (lived in or let out). Capital gains are read from sales already recorded in your portfolio, and home-loan interest from the loan's own schedule; nothing is fetched from anywhere.</td>
-              <td>To estimate tax under each regime and show which is lower. Held per person and per financial year, because income tax in India is assessed on an individual &mdash; one member's figures never enter another's estimate.</td>
+              <td>Optional, and entered by you on the tax screen: gross income for a financial year, the deductions you claim (80C, 80D, rent paid, HRA received, basic salary), tax deducted at source, the advance and self-assessment tax payments you record, and your own home-loan interest figure under 24(b) where you give one. A loan can also record what its house is used for (lived in or let out). Capital gains are read from sales already recorded in your portfolio, and home-loan interest from the loan's own schedule; nothing is fetched from anywhere.</td>
+              <td>To estimate tax under each regime and show which is lower. Held per person and per financial year, because income tax in India is assessed on an individual; one member's figures never enter another's estimate.</td>
             </tr>
             <tr>
               <td>AI connections</td>
-              <td>Only if you connect an AI app: the app's name and where it sends you back to, whether masking is on, when it was connected and last used, and a log of each question it asked and each change it made &mdash; when, which tool, its arguments, and the size of the answer. The answers themselves are not kept. If you allowed it to make changes, those changes are in the activity log like your own, and any it suggested wait in Review until you decide. The log is kept for 90 days, at most 2,000 rows a member, and each member sees only their own.</td>
+              <td>Only if you connect an AI app: the app's name and where it sends you back to, whether masking is on, when it was connected and last used, and a log of each question it asked and each change it made (when, which tool, its arguments, and the size of the answer). The answers themselves are not kept. If you allowed it to make changes, those changes are in the activity log like your own, and any it suggested wait in Review until you decide. The log is kept for 90 days, at most 2,000 rows a member, and each member sees only their own.</td>
               <td>So you can see what an AI has read or changed, undo it, and disconnect it.</td>
             </tr>
             <tr>
@@ -240,8 +240,8 @@
         data is not a row in a shared table alongside other customers'.</p>
         <p>
         Hosted instances run on <strong>Fly.io</strong>, by default in its
-        <strong>Singapore</strong> region — the closest one to India that Fly
-        operates, since it retired its Mumbai region. Your data is therefore
+        <strong>Singapore</strong> region (the closest one to India that Fly
+        operates, since it retired its Mumbai region). Your data is therefore
         stored outside India unless you ask for another region, which we will
         agree with you before anything is deployed. We will name any change
         here, and write to affected customers, before anyone's
@@ -250,7 +250,7 @@
 
       <h3>Statement identity is never exported or logged</h3>
       <p>
-        Statement identity &mdash; customer IDs and card digits included &mdash; and
+        Statement identity (customer IDs and card digits included) and
         any connected-mailbox tokens are excluded from every export and from every
         log, by a test that asserts it. Statement
         passwords are derived, used to open the file, and discarded; only a
@@ -276,7 +276,7 @@
         is verified. They are retained for 30 days on Solo, 90 days on Household
         and one year on Power, so a point in the past can be restored.</p>
         <p class="warn">
-        When a plan ends — you cancel, it expires, or payment fails — everything
+        When a plan ends (you cancel, it expires, or payment fails), everything
         is deleted <strong>five days later</strong>: the live database, every
         backup, and the attachments. Nothing is archived, nothing is held back,
         and after those five days we cannot recover it for you even if you ask.
@@ -306,7 +306,7 @@
       </p>
       <p>
         What the app asks for is <strong>sent to that app's provider</strong>
-        &mdash; Anthropic, OpenAI, Google or whoever runs it &mdash; to answer
+        (Anthropic, OpenAI, Google or whoever runs it) to answer
         you, and becomes part of your conversation there, under that provider's
         terms and privacy policy rather than ours. We do not choose that
         provider and do not send it anything you did not connect. A connection
@@ -323,7 +323,7 @@
         If you take the forwarding add-on, you get an address like
         <code>u-7f3a@in.pathayam.app</code> and set a filter in your own mail
         client. What arrives at that address is parsed into a review row and the
-        original message is then deleted — within 90 days at the outside,
+        original message is then deleted, within 90 days at the outside,
         whatever else happens. Only messages you forward reach us; we hold no
         access to your mailbox and cannot fetch anything ourselves.
       </p>
@@ -346,7 +346,7 @@
             <tr>
               <td><code>gmail.readonly</code></td>
               <td>Read-only access to your Gmail messages.</td>
-              <td>To find bank transaction alerts and statement PDFs, so they need not be downloaded and uploaded by hand. The search is built only from the bank senders you configure &mdash; no other message is ever requested.</td>
+              <td>To find bank transaction alerts and statement PDFs, so they need not be downloaded and uploaded by hand. The search is built only from the bank senders you configure; no other message is ever requested.</td>
             </tr>
           </tbody>
         </table>
@@ -355,7 +355,7 @@
       <h3>How Gmail data is used, stored and shared</h3>
       <ul class="checks">
         <li><strong>Used.</strong> Only messages from the bank senders you have configured are searched, and only to extract transaction details and open statement PDFs.</li>
-        <li><strong>Stored.</strong> Message bodies are <em>not</em> retained. Each message is parsed into the fields that matter &mdash; date, amount, merchant, account &mdash; and then discarded. Only those extracted records are kept, in the same review queue as a statement uploaded by hand.</li>
+        <li><strong>Stored.</strong> Message bodies are <em>not</em> retained. Each message is parsed into the fields that matter (date, amount, merchant, account) and then discarded. Only those extracted records are kept, in the same review queue as a statement uploaded by hand.</li>
         <li><strong>Shared.</strong> Never, with anyone, for any purpose. Gmail data is not sold, not used for advertising, and not used to train any model, human or automated.</li>
         <li><strong>Retained.</strong> Extracted records stay until you delete them. The Google refresh token is kept only so the connection survives a restart; it is encrypted at rest where the instance has an encryption key set (every hosted plan does), excluded from every export and from the audit log, and never displayed on any screen. The same applies to a client secret you bring.</li>
       </ul>
@@ -382,7 +382,7 @@
           <tbody>
             <tr><td>Fly.io (Singapore by default)</td><td>Running the service</td><td>Everything stored, as our infrastructure provider. Another region on request.</td></tr>
             <tr><td>Razorpay</td><td>Taking payment</td><td>Your name, email, and the payment instrument. They hold the card details; we do not.</td></tr>
-            <tr><td>Cloudflare</td><td>Serving the website, and counting visits to it</td><td>The request itself as the network in front of us, and — on pathayam.app only — the page, referrer, browser, country and load time. No cookie, no identifier that outlives the visit.</td></tr>
+            <tr><td>Cloudflare</td><td>Serving the website, and counting visits to it</td><td>The request itself as the network in front of us, and, on pathayam.app only, the page, referrer, browser, country and load time. No cookie, no identifier that outlives the visit.</td></tr>
             <tr><td>Google <em>(only if you choose it)</em></td><td>Sign-in</td><td>That you signed in to Pathayam. Not used at all if you sign in with a password or your own identity provider.</td></tr>
             <tr><td>The AI app you connect <em>(only if you connect one)</em></td><td>Answering the questions you ask it</td><td>What its questions return, masked by default. Not our processor: a recipient you choose, under its own terms.</td></tr>
             <tr><td>Google</td><td>The sheet that holds instance requests</td><td>The email address you sent, and the plan and page it came from</td></tr>
@@ -484,7 +484,7 @@
       <div>
         <h3 class="foot__h">The name</h3>
         <ul>
-          <li><span class="mal">പത്തായം</span> — the wooden chest
+          <li><span class="mal">പത്തായം</span>: the wooden chest
               that held a Kerala household's harvest, filled once and
               drawn from deliberately.</li>
         </ul>

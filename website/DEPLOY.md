@@ -12,14 +12,14 @@ demo.pathayam.app    →  the application itself, in DEMO_MODE
 
 ## 1 · Make the request button live
 
-Until this is done the button refuses politely and sends nothing: `site.js`
-checks `WAITLIST_ENDPOINT` and says *"Requests are not connected yet —
-nothing was sent."* That is deliberate, so a signup box can never silently
-swallow an address.
+Until this is done, the button shows a message and sends nothing: `site.js`
+checks `WAITLIST_ENDPOINT` and says *"Requests are not connected yet, so
+nothing was sent."* This is deliberate, so an address is never lost without
+the person knowing.
 
-The button says *Request an instance*: a person reads the sheet and replies,
-then deploys by hand. The identifiers in the code still say `waitlist` — the
-sheet, its columns and `WAITLIST_ENDPOINT` — deliberately, so the existing
+The button says *Request an instance*. Requests are reviewed, and the instance
+is provisioned once the plan is agreed. The identifiers in the code still say `waitlist` (the
+sheet, its columns and `WAITLIST_ENDPOINT`) on purpose, so the existing
 sheet keeps working and no row already collected is orphaned by a rename.
 
 The whole backend is a Google Sheet plus a bound Apps Script
@@ -27,8 +27,8 @@ The whole backend is a Google Sheet plus a bound Apps Script
 the list.
 
 1. **Create the sheet.** A new Google Sheet. Rename the first tab to exactly
-   `Waitlist` — the script looks for that name and will create it if missing,
-   but matching it keeps the setup obvious.
+   `Waitlist`. The script looks for that name and will create it if missing,
+   but matching it keeps the setup clear.
 
 2. **Add the script.** In that sheet: **Extensions → Apps Script**. Delete the
    placeholder `myFunction`, paste the entire contents of
@@ -46,7 +46,7 @@ the list.
    | Execute as | **Me** | The script writes to *your* sheet. |
    | Who has access | **Anyone** | The browser posts without a Google account. |
 
-   Copy the `/exec` URL it gives you. It ends in `/exec`, not `/dev` — the
+   Copy the `/exec` URL it gives you. It ends in `/exec`, not `/dev`. The
    `/dev` URL only works while you are signed in, which is the usual reason a
    deployment appears to work for you and for nobody else.
 
@@ -63,12 +63,12 @@ the list.
 Submit a real address on the live site, then look at the sheet. A row should
 appear within a second or two.
 
-Two things worth knowing before you trust what the page tells you:
+Two things to know before you rely on what the page tells you:
 
 - The request is sent `mode: "no-cors"`, because Apps Script sends no CORS
   headers. The response is therefore **opaque**: the page says "You are on the
-  list" when the request *left the browser*, not when the row was written. The
-  sheet is the truth, not the message.
+  list" when the request *left the browser*, not when the row was written.
+  Check the sheet, not the message.
 - A submission whose hidden `company` field is filled is dropped silently. That
   field is a bot trap no human sees, so anything filling it is not a person.
 
@@ -82,7 +82,7 @@ do nothing.
 ### What the sheet holds
 
 An email address, the tier the person was looking at, the page they submitted
-from, and an IST timestamp. Nothing that identifies a device — no IP, no
+from, and an IST timestamp. Nothing that identifies a device: no IP, no
 cookie. Duplicate addresses are updated in place rather than appended, so the
 sheet stays a list of people rather than a log of clicks. This matches what
 [`privacy.html`](privacy.html) promises; if you change the script to store
@@ -96,7 +96,7 @@ more, change that page too.
 
 [`privacy.html`](privacy.html) and [`terms.html`](terms.html) carry facts only
 you can supply. Each is wrapped in a dashed gold `TODO` chip, so they are
-impossible to miss on the rendered page. Search both files for `class="todo"`:
+easy to spot on the rendered page. Search both files for `class="todo"`:
 
 | Placeholder | Needed for |
 |---|---|
@@ -108,9 +108,9 @@ impossible to miss on the rendered page. Search both files for `class="todo"`:
 | `[CITY]` | Terms: jurisdiction. |
 | `[LINK TO THE PUBLIC REPOSITORY]` | Terms: where the licence text lives, once the repository is public. |
 
-Have a lawyer read both pages before taking a single payment. They are written
-to be accurate about what the software does — which is the part that is hard to
-get right — but they are not legal advice, and taking money for a service in
+Have a lawyer read both pages before taking any payment. They are written
+to be accurate about what the software does (the part that is hard to
+get right), but they are not legal advice, and taking money for a service in
 India brings in consumer protection, GST and the DPDP Act all at once.
 
 ### Set up the domains
@@ -121,8 +121,8 @@ India brings in consumer protection, GST and the DPDP Act all at once.
 | `demo.pathayam.app` | the app, `DEMO_MODE=1` | Resets on every wake from idle; re-seeded every Wednesday 04:00 IST. The data is public. |
 
 Serve both over HTTPS and redirect HTTP. `BASE_URL` on the demo must be exactly
-`https://demo.pathayam.app` — sign-in redirects and cookie scoping depend on
-it being right.
+`https://demo.pathayam.app`, because sign-in redirects and cookie scoping depend
+on it.
 
 Every app instance, the demo and each hosted household alike, needs its own
 `SECRETS_KEY`, set once as a Fly secret:
@@ -153,7 +153,7 @@ cannot explain.
 ### Submit the sitemap
 
 [`sitemap.xml`](sitemap.xml) lists every page at its canonical URL, and
-[`robots.txt`](robots.txt) points at it — which is how a crawler finds the list
+[`robots.txt`](robots.txt) points at it. That is how a crawler finds the list
 without being told, and how new pages get picked up between submissions.
 
 In [Google Search Console](https://search.google.com/search-console): add
@@ -164,14 +164,14 @@ Google's own schedule.
 
 Both files are plain static assets in this directory, so they deploy with
 everything else. `src/web/sitemap.test.ts` fails if a page is added, renamed or
-removed without the sitemap following — the failure mode otherwise is silence,
-and the first sign is a page that never appears in search.
+removed without the sitemap following. Otherwise nothing would report the
+problem, and the first sign would be a page that never appears in search.
 
 ### Check nothing leaks
 
 The site loads no third-party resource: fonts are served from
 [`fonts/`](fonts/) and there is no analytics, no tag manager and no embed. Keep
-it that way — `privacy.html` says so in as many words. To confirm after a
+it that way: `privacy.html` states this explicitly. To confirm after a
 change, open any page and run:
 
 ```js
@@ -189,10 +189,10 @@ https://static.cloudflareinsights.com/beacon.min.js/…
 ```
 
 into HTML at the edge, so it appears in no file here and the workflow's
-third-party guard cannot see it. It is also served **only to real browsers** —
+third-party guard cannot see it. It is also served **only to real browsers**:
 every `curl` check passes, including one sent with a browser's User-Agent.
 
-That is the whole reason it is written down: nothing in this repository, and no
+That is why it is documented here: nothing in this repository, and no
 check that fetches a page with a script, will tell you it is there. A headless
 browser collecting console errors is what found it.
 
@@ -203,8 +203,8 @@ What it means in practice:
 | **pathayam.app** | No CSP, so the beacon runs. Visits are counted. Disclosed in [`privacy.html`](privacy.html#website). |
 | **demo.pathayam.app**, and any hosted instance | The app sends `script-src 'self'`, so the same injected script is **blocked before it executes**. Nothing is sent. It does log two console errors per page, which is the visible cost of leaving it on. |
 
-If you ever want it gone, turn it off in the Cloudflare dashboard for the zone
-— **Web Analytics**, the automatic or "Browser Insights" setup — and put back
+To remove it, turn it off in the Cloudflare dashboard for the zone
+(**Web Analytics**, the automatic or "Browser Insights" setup) and put back
 the "no analytics" wording in `privacy.html`. Do not instead add the host to
 the app's CSP: that would let it run on the pages holding somebody's money,
 which is the one place it is currently guaranteed not to.
@@ -220,10 +220,9 @@ directory to GitHub Pages on every push to `main` that touches it.
 **Settings → Pages → Source → GitHub Actions**.
 
 While the source is set to a branch, GitHub runs its own Jekyll build of the
-repository root on every push, *in addition to* this workflow — and the Jekyll
+repository root on every push, *in addition to* this workflow, and the Jekyll
 build is what gets served. The symptom is that the site renders `README.md` as
-its home page while this workflow reports success, which is a confusing pair of
-facts to meet at the same time. Changing the source to GitHub Actions stops the
+its home page while this workflow reports success. Changing the source to GitHub Actions stops the
 Jekyll build and serves the artifact this workflow uploads.
 
 The workflow refuses to publish if either check fails:
@@ -256,14 +255,14 @@ throughout mean the sub-path works as-is.
    `CNAME` file to the repository root.
 
 **`website/CNAME` has to exist as well.** This workflow uploads `website/` as
-the artifact, and Pages reads `CNAME` from the artifact it serves — a file at
+the artifact, and Pages reads `CNAME` from the artifact it serves. A file at
 the repository root is not in it. Both files are committed and must stay in
 step; changing the domain means changing both.
 
-`demo.pathayam.app` is a separate host — the application itself, not this
+`demo.pathayam.app` is a separate host: the application itself, not this
 directory. Point it at wherever the app runs and leave it out of DNS for Pages.
 
-Worth re-running after any change to the markup or the stylesheet: the
+Re-run these after any change to the markup or the stylesheet: the
 accessibility and contrast audit, and the horizontal-overflow sweep across
 widths. Both live outside the repository; what they check is contrast against
 actual backgrounds, tap-target size, heading order, duplicate ids, alt text,

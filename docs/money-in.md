@@ -10,8 +10,8 @@ Gmail ┘                                                       → merge
                                                               → reject
 ```
 
-Each row keeps what the source actually wrote — `raw_date`, `raw_amount`,
-`raw_narration` — from staging through approval, and a merge copies them onto
+Each row keeps what the source actually wrote (`raw_date`, `raw_amount`,
+`raw_narration`) from staging through approval, and a merge copies them onto
 the transaction it merges into where that transaction has none. Raw is the
 text as printed (`03/08/26`, `1,450.50 Dr`, `INR 600.00`,
 `28-08-26, 00:01:28 IST`), never the parsed date or the signed rupees. An alert
@@ -32,17 +32,17 @@ dated only by the message's received date has no raw date, and stores NULL.
 Both layouts are supported: a single signed amount column, or separate debit and
 credit columns. With separate columns exactly one may carry money; the other is
 empty, `0.00` or a dash. A row with money in both, an unreadable figure in
-either, or zero in both is an error row naming which of those it is — never
+either, or zero in both is an error row naming which of those it is. It is never
 read as whichever column happens to win.
 
 A third layout is an unsigned amount with a column beside it saying `Dr` / `Cr`
-(or `Debit` / `Credit`). The guess finds that column by what it holds — only
-those words — and uses the one nearest after the amount, so a second `Dr / Cr`
+(or `Debit` / `Credit`). The guess finds that column by what it holds (only
+those words) and uses the one nearest after the amount, so a second `Dr / Cr`
 column describing the balance is left alone; an amount column with its own
 signs or markers is never given one. A row whose indicator says neither is an
 error row. The mapping screen can name the column too.
 
-In a single amount column, a bare figure is money in — unless the file marks
+In a single amount column, a bare figure is money in, unless the file marks
 some figures as money in (`Cr`, a leading `+`) and none as money out. That is a
 card's CSV: payments and refunds say `Cr`, purchases are left bare, so there a
 bare figure is a purchase, the same as on a card's PDF.
@@ -58,7 +58,7 @@ CSV cells, PDF figures and alert amounts are read by the same rules
   `1.2L` in a CSV is an error row.
 - Grouping must be Indian (`12,34,567`) or Western (`1,234,567`); `1,23` is
   refused. More than two decimal places is refused, not rounded.
-- A figure that says "minus" twice — `-450 Dr`, `(450) Dr`, `(-450)` — is
+- A figure that says "minus" twice (`-450 Dr`, `(450) Dr`, `(-450)`) is
   refused.
 - `₹`, `Rs.`, `Rs ` and `INR` prefixes and the Unicode minus `−` are accepted.
 
@@ -90,8 +90,8 @@ The shapes read are the same everywhere: `15-01-2026`, `15/01/26`,
 A CSV's numeric dates are day first unless the file shows otherwise: when a
 date column's second part passes 12 (`09/13/2026`) and its first never does,
 the mapping's `dateFormat` is `mm-dd-yyyy` and every row is read month first.
-The mapping screen asks how the dates are written — day, month or year first,
-or "work it out from the file" — since a month-first file whose days are all
+The mapping screen asks how the dates are written (day, month or year first,
+or "work it out from the file"), since a month-first file whose days are all
 12 or under looks day first. A column that proves both orders (`13/09` and
 `09/14`) is refused there, asking the question, rather than read half wrong.
 
@@ -107,10 +107,10 @@ A household leaving another budgeting app pastes its transaction export on the
 ordinary CSV screen. `parseBudgetApp` (`src/import/budget-apps.ts`) recognises
 it from the header row before any bank mapping is tried:
 
-- **YNAB's register export** — `Account, Flag, Date, Payee, Category
+- **YNAB's register export**: `Account, Flag, Date, Payee, Category
   Group/Category, Category Group, Category, Memo, Outflow, Inflow, Cleared`.
   YNAB 4's `Master Category` / `Sub Category` columns are read too.
-- **Actual Budget's transaction export** — `Account, Date, Payee, Notes,
+- **Actual Budget's transaction export**: `Account, Date, Payee, Notes,
   Category, Amount`, with `Split_Amount` on a split's lines [unverified: from
   memory of Actual's export code, not a file it produced, so each column is
   found by name, in any order, and most are optional].
@@ -159,7 +159,7 @@ here.
 ## PDF statements
 
 `POST /import/pdf` with a statement file. The reader is implemented in
-`src/pdf/` — object parsing, RC4 and AES decryption, and text extraction that
+`src/pdf/`: object parsing, RC4 and AES decryption, and text extraction that
 preserves column layout.
 
 ### Password derivation
@@ -207,8 +207,8 @@ that are never transactions.
 Amounts are derived from **balance movement**: the difference between
 consecutive running balances is the amount, sign included. The printed amount
 verifies that movement. Where the two disagree, the row is reported as an error
-rather than guessed. A balance marked `Dr` — or bracketed, or with a leading
-minus — is overdrawn and counts below zero, so an overdraft account's rows keep
+rather than guessed. A balance marked `Dr` (or bracketed, or with a leading
+minus) is overdrawn and counts below zero, so an overdraft account's rows keep
 their signs; the opening and closing balances the reconciliation checks are
 read the same way.
 
@@ -237,7 +237,7 @@ exposed on `StatementParse.reconciliation` and reported after import.
 
 ### Unreadable files
 
-A PDF with no extractable text is refused with an explanation — it is a scan.
+A PDF with no extractable text is refused with an explanation, as it is a scan.
 A PDF whose table cannot be parsed falls through to the manual column mapping
 screen, the same one an unrecognised CSV uses. Its lines are cut into cells by
 position under the header row, so an empty Withdrawal or Deposit stays an empty
@@ -262,25 +262,25 @@ connection records the client id that issued its token and always renews
 under it. See [operations](operations.md#gmail-with-your-own-google-keys).
 
 An alert is routed by the last four digits it names, among only the accounts
-and cards the member whose mailbox it came from can see — another member's
+and cards the member whose mailbox it came from can see. Another member's
 private account ending in the same digits is never a candidate. The ones that
 member holds are preferred; if two still match, the alert is left alone with a
 note rather than guessed. A statement attachment is routed the same way.
 
 A statement attachment's password is derived as for an upload, and gets the
 card digits too: the last four of the one account at the sender's bank it
-routes to, and of that account's cards. When the route is unknown — no account
-at that bank, or several — the digits of every account and card the member can
+routes to, and of that account's cards. When the route is unknown (no account
+at that bank, or several), the digits of every account and card the member can
 see are tried instead, so a statement that opens but has nowhere to go is
 reported as unmatched rather than as one that would not open. A statement that
 still will not open is reported with the detail it needs where the bank's rule
-names one the household has not saved — SBI's mobile, a card's last four,
-HSBC's last six, an Axis or HDFC customer ID — so the fix is one field in
+names one the household has not saved (SBI's mobile, a card's last four,
+HSBC's last six, an Axis or HDFC customer ID), so the fix is one field in
 Settings or on the account.
 
-A message from an alert sender that reads like a transaction — an amount beside
-"spent", "debited" or "credited" — but that no profile can read is not dropped
-in silence: the fetch's summary counts the alerts it could not read, so they
+A message from an alert sender that reads like a transaction (an amount beside
+"spent", "debited" or "credited") but that no profile can read is not dropped
+silently: the fetch's summary counts the alerts it could not read, so they
 can be added by hand. Promotions and one-time passwords from the same senders
 are not counted.
 
@@ -291,11 +291,11 @@ account** and against rows already pending in that account.
 
 | Tier | Test | Handling |
 |---|---|---|
-| `exact` | Same `source_id` — in the ledger, pending in Review, or dismissed from it. | Skipped. Re-importing a file adds nothing, and a dismissed row stays dismissed. |
-| `strong` | Same amount and the same bank reference, dated within 5 days of each other. | Upgrades the existing transaction automatically, with a note. A reference repeated a month later — a loan or employee number on a standing instruction — is a new transaction, not this. |
-| `manual-vs-imported` | Same amount as a transaction typed by hand, dated within 5 days of it (the counter dates it today; the bank posts it days later). | Queued for a decision, "merge" suggested — the typed side keeps its envelope, the imported side brings the bank's payee and reference. |
+| `exact` | Same `source_id`: in the ledger, pending in Review, or dismissed from it. | Skipped. Re-importing a file adds nothing, and a dismissed row stays dismissed. |
+| `strong` | Same amount and the same bank reference, dated within 5 days of each other. | Upgrades the existing transaction automatically, with a note. A reference repeated a month later (a loan or employee number on a standing instruction) is a new transaction, not this. |
+| `manual-vs-imported` | Same amount as a transaction typed by hand, dated within 5 days of it (the counter dates it today; the bank posts it days later). | Queued for a decision, "merge" suggested. The typed side keeps its envelope, the imported side brings the bank's payee and reference. |
 | `probable` | Same amount and the same payee (normalised: `SWIGGY*ORDER123` is Swiggy), dated within 3 days. | Queued for a decision, "merge" suggested. |
-| `weak` | Same amount within 1 day, but a different payee. | Queued at low prominence, "keep both" suggested — two people paying the same bill at one restaurant is a normal Saturday. |
+| `weak` | Same amount within 1 day, but a different payee. | Queued at low prominence, "keep both" suggested, since two people often pay the same bill at one restaurant. |
 
 Tiers are checked in that order and the first that fits wins, so a reference
 match is never demoted to a fuzzy one. Same date, amount and narration without
@@ -304,8 +304,8 @@ than a second identical payment, so it is queued as `probable`, never merged
 on its own.
 
 A row still pending from an earlier import has no transaction to merge into.
-A strong match with one — an alert awaiting approval when its statement line
-arrives — is folded into the queued row; a weaker match is queued beside it
+A strong match with one (an alert awaiting approval when its statement line
+arrives) is folded into the queued row; a weaker match is queued beside it
 with its reason, and approving one and dismissing the other is the decision.
 Rows of the same file are never compared with each other (D2).
 
@@ -319,13 +319,13 @@ Uniqueness is enforced per account.
 
 ## Transfers in Review
 
-Money moved between the household's own accounts — a card bill paid from the
-bank, a sweep to a deposit — is neither spending nor new money. A staged row's
+Money moved between the household's own accounts (a card bill paid from the
+bank, a sweep to a deposit) is neither spending nor new money. A staged row's
 envelope list ends with "Transfer to / from" each of the viewer's other
 accounts (not the derived-value ones). Choosing one posts the transfer pair,
 the imported side carrying the row's source identity and raw fields. If the
-other account's own imported row is also waiting — the opposite amount, within
-three days — it becomes the other leg, dated as its own statement dates it;
+other account's own imported row is also waiting (the opposite amount, within
+three days), it becomes the other leg, dated as its own statement dates it;
 otherwise that leg is posted uncleared, for its statement to merge into later.
 Undoing either side's import removes both legs, and returns the other side's
 row, if it came from another import, to Review.
@@ -339,7 +339,7 @@ A rule has a stage, conditions, and actions.
 - **Condition fields:** `narration`, `channel`, `vpa`, `merchant`, `reference`,
   `importedPayee`, `payee`, `account`, `amount`, `absoluteAmount`, `direction`,
   `date`, `dayOfMonth`, `memo`, `tags`, `category`, `cleared`, `source`, and
-  `cardLast4` — the last four digits of the card the row was charged to.
+  `cardLast4` (the last four digits of the card the row was charged to).
 - **Amounts** are typed in rupees on `/rules` and stored in paise, like every
   other amount; an amount that is not a figure is refused (422). Migration
   0057 converted the plain figures saved before this.
@@ -350,22 +350,22 @@ A rule has a stage, conditions, and actions.
   a low–high pair), and any field or operator not in these lists, with a 422.
   A stored condition that still has one is read tolerantly: a lone value for
   `oneOf`/`notOneOf` is a list of one, and `between` without a pair matches
-  nothing — an import never fails on it.
+  nothing. An import never fails on it.
 - **Actions:** `setCategory`, `setPayee`, `setMemo` (set, prepend or append),
   `addTag`, `removeTag`, `setOwner`, `setCleared`, `setAccount`, `setDate`,
   `splitFixed`, plus flags to mark for review or ignore.
 - **Match mode:** all conditions, or any.
 
 A rule can be tested against existing transactions before saving, and applied
-retroactively after. Both read only the history the person doing it can see —
-their own and shared accounts, and envelopes they can see on every line — and
+retroactively after. Both read only the history the person doing it can see
+(their own and shared accounts, and envelopes they can see on every line), and
 only budget accounts' unsplit, non-transfer rows. Applying files each row the
 way an edit would: a card's payment envelope, a commitment envelope or a
 deleted one is never a rule's target (saving such a rule is refused), a row in
 a personal budget with nothing linking it to the envelope's budget is left as
 it is, and filing across two linked budgets opens the envelope between them.
 The preview's "would change" count leaves those rows out. The apply is one
-entry in Activity, and undoing it puts back every row it changed — except one
+entry in Activity, and undoing it puts back every row it changed, except one
 changed again since, which stays as it is and is counted in the notice.
 
 ### Narration extraction
@@ -394,7 +394,7 @@ created and marks the batch `undone_at`. A row of it that was merged into a
 transaction already in the ledger has that merge reversed (cleared, payee and
 raw fields as they were), unless the transaction changed since, when it is
 left and listed with the edited records. A row that upgraded an earlier
-transaction automatically (the `strong` tier — a statement line arriving after
+transaction automatically (the `strong` tier: a statement line arriving after
 its alert) is reversed the same way: the upgrade's event names the batch, and
 the transaction's cleared flag, memo and raw fields go back to what they were
 before it, unless the transaction changed since, when it is left and listed.
