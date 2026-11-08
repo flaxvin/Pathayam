@@ -334,15 +334,31 @@ function parseDate(v: string | null): Date | null {
 
 const ENTITIES: Record<string, string> = { nbsp: " ", amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" };
 
+/**
+ * The markup gone, repeated until nothing changes: one pass over
+ * "<scr<script>ipt>" leaves a "<script>" behind, and the result is text that a
+ * later reader should not have to treat as HTML. (It is only ever shown
+ * escaped; this keeps it plain text regardless.)
+ */
+function stripMarkup(html: string): string {
+  let previous: string;
+  let text = html;
+  do {
+    previous = text;
+    text = text
+      .replace(/<(script|style|head)\b[\s\S]*?<\/\1\s*>/gi, "")
+      .replace(/<!--[\s\S]*?-->/g, "")
+      .replace(/<br\b[^>]*>/gi, "\n")
+      .replace(/<\/(p|div|tr|li|h[1-6]|table)\s*>/gi, "\n")
+      .replace(/<\/t[dh]\s*>/gi, " ")
+      .replace(/<[^>]*>/g, "");
+  } while (text !== previous);
+  return text;
+}
+
 /** Enough HTML-to-text for an alert email: block ends become line breaks, tags go, entities decode. */
 function htmlToText(html: string): string {
-  return html
-    .replace(/<(script|style|head)\b[\s\S]*?<\/\1\s*>/gi, "")
-    .replace(/<!--[\s\S]*?-->/g, "")
-    .replace(/<br\b[^>]*>/gi, "\n")
-    .replace(/<\/(p|div|tr|li|h[1-6]|table)\s*>/gi, "\n")
-    .replace(/<\/t[dh]\s*>/gi, " ")
-    .replace(/<[^>]*>/g, "")
+  return stripMarkup(html)
     .replace(/&(#x[0-9a-f]+|#\d+|[a-z]+);/gi, (whole, e: string) => {
       if (e[0] === "#") {
         const code = e[1] === "x" || e[1] === "X" ? parseInt(e.slice(2), 16) : parseInt(e.slice(1), 10);

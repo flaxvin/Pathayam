@@ -212,3 +212,13 @@ test("addressOf", () => {
   assert.equal(addressOf("alerts@bank.example (Example Bank)"), "alerts@bank.example");
   assert.equal(addressOf(""), "");
 });
+
+test("HTML markup nested to survive one pass is still removed", () => {
+  const raw = [
+    "From: a@bank.test", "Subject: x", "MIME-Version: 1.0", "Content-Type: text/html; charset=utf-8", "",
+    "<p>Paid <scr<script>ipt>alert(1)</scr</script>ipt> INR 10</p><!<!---->-- hidden -->",
+  ].join("\r\n");
+  const text = parseMail(new Uint8Array(Buffer.from(raw))).text;
+  assert.doesNotMatch(text, /<script|<!--/i);
+  assert.match(text, /INR 10/);
+});
