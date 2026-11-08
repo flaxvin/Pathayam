@@ -12,8 +12,8 @@ configured, and two price feeds.
   stripping; production runs `dist/`, compiled by `tsc`.
 - **Runtime dependencies:** none. `package.json` declares `typescript` and
   `@types/node` as development dependencies only.
-- **Size:** ~74,000 lines of TypeScript, plus ~51,000 lines of tests in 331
-  test files; 2,683 tests.
+- **Size:** ~83,000 lines of TypeScript, plus ~60,000 lines of tests in 391
+  test files; 3,094 tests.
 
 ## Module layout
 
