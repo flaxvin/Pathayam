@@ -728,6 +728,13 @@ export function buildApp(deps: AppDeps): {
       if (bearer && !auth && !config.features.apiTokens && !isMcpPath(path)) {
         return { status: 403, json: { error: "API tokens are not available on this instance." } };
       }
+      // AI-4 · And an AI connection's token is FEATURE_AI's, on every route:
+      // with that module off, /mcp was gone but the same token still read
+      // /export.json and the rest wherever API tokens stayed on. Kept, like a
+      // token above, so it works again once the module is back.
+      if (bearer && !auth && !aiEnabled && isAiToken(bearer.token)) {
+        return { status: 403, json: { error: "AI connections are not available on this instance." } };
+      }
       if (bearer && !auth) {
         if (!tokenMayReach(path)) {
           return {

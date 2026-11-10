@@ -276,4 +276,24 @@ describe("AI-7 · with FEATURE_AI off (a hosted Solo instance)", () => {
       await member.close();
     }
   });
+
+  test("AI-4 · an AI connection's token stops working everywhere, while a script's keeps working", async () => {
+    const { db } = buildAnalysisWorld({ withPrivate: false });
+    const ai = token(db, PRIYA);
+    execute(db, `UPDATE api_tokens SET for_ai = 1 WHERE id = ?`, ai.token.id);
+    const script = token(db, PRIYA);
+    // API tokens stay on: only the AI module is off.
+    const app = await startTestApp(db, { memberId: null, config: { features: { loans: true, assets: true, multiCurrency: false, ai: false } } });
+    try {
+      for (const path of ["/export.json", "/accounts", "/export.csv"]) {
+        const res = await fetch(app.baseUrl + path, { headers: { Authorization: `Bearer ${ai.secret}`, Accept: "application/json" } });
+        assert.equal(res.status, 403, path);
+      }
+      const ok = await fetch(app.baseUrl + "/export.json", { headers: { Authorization: `Bearer ${script.secret}`, Accept: "application/json" } });
+      assert.equal(ok.status, 200);
+      assert.deepEqual(app.failures, []);
+    } finally {
+      await app.close();
+    }
+  });
 });

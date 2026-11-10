@@ -229,7 +229,10 @@ An instance may run with modules switched off (`PLAN` and `FEATURE_*`, see
 that is off answers **404**, the same as a route that never existed, whichever
 way the request authenticates. With `FEATURE_API_TOKENS` off, every bearer
 token answers **403** `{"error":"API tokens are not available on this
-instance."}` except on `/mcp`, which `FEATURE_AI` governs. The token is kept,
+instance."}` except on `/mcp`, which `FEATURE_AI` governs. With `FEATURE_AI`
+off, an AI connection's token (made on Connect an AI, or an app's OAuth access
+token) answers **403** `{"error":"AI connections are not available on this
+instance."}` on every route. The token is kept,
 and it works again once the module is back on. The Health screen names the plan
 and every module that is off.
 
