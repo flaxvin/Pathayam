@@ -34,7 +34,7 @@ import { execute, newId } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { nowIST, todayIST } from "../core/dates.ts";
 import { parseMail, type ParsedMail } from "../mail/mime.ts";
-import { verifyDkim, alignedPass, type TxtResolver } from "../mail/dkim.ts";
+import { verifyDkim, alignedPass, alignedTempError, type TxtResolver } from "../mail/dkim.ts";
 import { emptyFetchResult, knownBankSender, startMailIngest, type FetchResult } from "../gmail/fetch.ts";
 import { memberForToken, markReceived } from "./address.ts";
 import { holdStatement } from "./held.ts";
@@ -51,6 +51,7 @@ export interface InboundDeps {
 
 export type InboundResult =
   | { status: "unknown-address" }
+  | { status: "try-later" }
   | { status: "taken"; memberId: string; outcome: ForwardOutcome; result: FetchResult | null };
 
 /** Gmail's sender for "confirm forwarding to this address". */
@@ -63,8 +64,14 @@ export async function receiveForwarded(
   if (!memberId) return { status: "unknown-address" };
 
   const mail = parseMail(raw);
-  const signed = !repeatsReadHeader(mail)
-    && alignedPass(await verifyDkim(raw, deps.resolveTxt, deps.now), mail.from);
+  const dkim = await verifyDkim(raw, deps.resolveTxt, deps.now);
+  const signed = !repeatsReadHeader(mail) && alignedPass(dkim, mail.from);
+  // MAIL-4 · The bank's key could not be fetched just now (a DNS timeout).
+  // Judged now, a genuine alert would be logged as forged and lost; answered
+  // as a temporary failure, the sending server keeps it and tries again.
+  if (!signed && knownBankSender(mail.from) && alignedTempError(dkim, mail.from)) {
+    return { status: "try-later" };
+  }
   markReceived(db, memberId);
 
   const log = (outcome: ForwardOutcome, detail: string | null, confirmation: string | null = null) =>

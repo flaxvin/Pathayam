@@ -285,6 +285,36 @@ describe("FWD · a forwarded alert", () => {
     }
   });
 
+  test("MAIL-4 · when the bank's key cannot be looked up just now, the sender is asked to retry, not told it was forged", async () => {
+    const db = setup();
+    createAccount(db, actor, {
+      name: "Axis Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01", last4: "0000",
+    });
+    issueAddress(db, actor);
+    let dnsDown = true;
+    const flaky: TxtResolver = async (name) => {
+      if (dnsDown) throw Object.assign(new Error("timeout"), { code: "ETIMEOUT" });
+      return resolveTxt(name);
+    };
+    const a = await startTestApp(db, {
+      memberId: RAVI, resolveTxt: flaky,
+      config: { inbound: INBOUND, secretsKey: deriveSecretsKey("k".repeat(40)) },
+    });
+    try {
+      const raw = signedAndForwarded(plainMail("alerts@axis.bank.in", "INR 600 debited", AXIS_ALERT), "axis.bank.in");
+      const res = await handOff(a, addressOf(db), raw);
+      assert.equal(res.status, 503, "a temporary answer: the receiver says 451 and the sender tries again");
+      assert.equal(log(db).length, 0, "nothing is logged as forged");
+      assert.equal(staged(db).length, 0);
+
+      dnsDown = false;
+      assert.equal((await handOff(a, addressOf(db), raw)).status, 202);
+      assert.equal(staged(db).length, 1, "the retry imports it");
+    } finally {
+      await a.close();
+    }
+  });
+
   test("mail from a sender the import does not read is logged and not opened", async () => {
     const db = setup();
     issueAddress(db, actor);

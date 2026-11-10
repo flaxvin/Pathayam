@@ -561,6 +561,10 @@ export function buildApp(deps: AppDeps): {
         secretsKey: config.secretsKey, resolveTxt: deps.resolveTxt,
       }, token, raw);
       if (outcome.status === "unknown-address") return { status: 404, json: { error: "No such address." } };
+      // MAIL-4 · The receiver answers the sender 451, and the sender retries.
+      if (outcome.status === "try-later") {
+        return { status: 503, headers: { "Retry-After": "300" }, json: { error: "The bank's signing key could not be looked up just now." } };
+      }
       return { status: 202, json: { outcome: outcome.outcome } };
     },
 

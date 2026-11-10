@@ -292,10 +292,23 @@ async function fetchKey(resolve: TxtResolver, name: string, alg: string): Promis
  * text appended after the signed part would otherwise be read as the bank's.
  */
 export function alignedPass(results: DkimResult[], fromAddress: string): boolean {
+  return aligned(results, fromAddress, "pass");
+}
+
+/**
+ * MAIL-4 · Whether a signature that would align could not be checked for a
+ * reason that may pass (its key's DNS lookup timed out or failed): the
+ * message should be retried later rather than judged now.
+ */
+export function alignedTempError(results: DkimResult[], fromAddress: string): boolean {
+  return aligned(results, fromAddress, "temperror");
+}
+
+function aligned(results: DkimResult[], fromAddress: string, want: DkimResult["result"]): boolean {
   const from = fromAddress.slice(fromAddress.lastIndexOf("@") + 1).trim().toLowerCase().replace(/\.$/, "");
   if (!from) return false;
   return results.some((r) => {
     const d = r.domain.toLowerCase().replace(/\.$/, "");
-    return r.result === "pass" && !r.partialBody && d !== "" && (from === d || from.endsWith("." + d));
+    return r.result === want && !r.partialBody && d !== "" && (from === d || from.endsWith("." + d));
   });
 }
