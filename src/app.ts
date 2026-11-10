@@ -10390,7 +10390,9 @@ export function buildApp(deps: AppDeps): {
               const members = config.limits.maxMembers === null ? "no member limit" : `up to ${config.limits.maxMembers} members`;
               const backups = config.limits.backupRetentionDays === null
                 ? "the newest 14 backups kept"
-                : `backups kept ${config.limits.backupRetentionDays} days`;
+                : config.limits.backupRetentionDays === Number.POSITIVE_INFINITY
+                  ? "daily backups kept with no age limit"
+                  : `backups kept ${config.limits.backupRetentionDays} days`;
               return `Plan ${config.plan}: ${off.length === 0 ? "every module on" : `off: ${off.join(", ")}`}; ${members}; ${backups}.`;
             })(),
           },

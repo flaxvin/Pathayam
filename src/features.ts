@@ -54,6 +54,8 @@ export interface Limits {
   /**
    * How far back a backup can be restored from, in days. Null keeps the
    * self-hosted behaviour: the newest 14 backups, whatever their age.
+   * Infinity (BACKUP_RETENTION_DAYS=unlimited) is no age limit: the last two
+   * days in full, then the newest of each day, for good.
    */
   backupRetentionDays: number | null;
 }

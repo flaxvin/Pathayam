@@ -191,13 +191,17 @@ function strictBool(name: string, value: string | undefined, fallback: boolean):
   throw new InvalidConfiguration(`${name} is '${value}'; use true or false.`);
 }
 
-/** A whole-number limit, where "unlimited" (or 0) lifts it. */
-function limit(
+/**
+ * A whole-number limit, where "unlimited" (or 0) lifts it: `lifted` is what a
+ * lifted limit is stored as.
+ */
+function limit<L>(
   name: string, value: string | undefined, fallback: number | null, max: number, unit: string,
-): number | null {
+  lifted: L,
+): number | null | L {
   if (value === undefined || value.trim() === "") return fallback;
   const v = value.trim().toLowerCase();
-  if (v === "unlimited" || v === "0") return null;
+  if (v === "unlimited" || v === "0") return lifted;
   const n = Number(v);
   if (Number.isInteger(n) && n >= 1 && n <= max) return n;
   throw new InvalidConfiguration(
@@ -241,9 +245,15 @@ function planSettings(env: NodeJS.ProcessEnv): Pick<Config, "plan" | "features" 
     plan,
     features,
     limits: {
-      maxMembers: limit("MAX_MEMBERS", env.MAX_MEMBERS, preset.limits.maxMembers, 1000, "members"),
+      maxMembers: limit("MAX_MEMBERS", env.MAX_MEMBERS, preset.limits.maxMembers, 1000, "members", null),
+      /*
+       * WEB-2 · Lifted is no age limit, not null: null is the self-hosted
+       * "newest 14 whatever their age", and reading "unlimited" as that
+       * deleted all but 14 of a Power instance's year of backups.
+       */
       backupRetentionDays: limit(
         "BACKUP_RETENTION_DAYS", env.BACKUP_RETENTION_DAYS, preset.limits.backupRetentionDays, 3650, "days",
+        Number.POSITIVE_INFINITY,
       ),
     },
   };
