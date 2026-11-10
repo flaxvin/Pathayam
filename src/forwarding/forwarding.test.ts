@@ -449,6 +449,30 @@ describe("FWD · a locked statement", () => {
     }
   });
 
+  test("MAIL-3 · Try again keeps one that opens but has no single account to go to", async () => {
+    const { db, accountId } = sbiCardSetup();
+    // A second SBI card: the statement opens but cannot pick between them.
+    createAccount(db, actor, {
+      name: "SBI Card 2", kind: "credit", subtype: "credit-card", openingDate: "2026-08-01", institution: "SBI Card",
+    });
+    const a = await app(db);
+    try {
+      const raw = signedAndForwarded(pdfMail("SBI Card <statements@sbicard.com>", STATEMENTS.sbiCardEncrypted, "sbicard.pdf"), "sbicard.com");
+      assert.equal((await handOff(a, addressOf(db), raw)).status, 202);
+      assert.equal(queryAll(db, "SELECT id FROM forwarded_statements").length, 1);
+
+      setCardNumberDigits(db, actor, accountId, SBI_CARD_LAST4);
+      const res = await a.post("/forwarding/retry");
+      const notice = new URL(res.headers.get("location")!, a.baseUrl).searchParams.get("notice")!;
+      assert.equal(batches(db), 0);
+      assert.equal(queryAll(db, "SELECT id FROM forwarded_statements").length, 1, "kept: it arrived once and has not been imported");
+      assert.match(notice, /no single account/);
+      assert.deepEqual(a.failures, []);
+    } finally {
+      await a.close();
+    }
+  });
+
   test("is not kept without SECRETS_KEY, and the log says so", async () => {
     const { db } = sbiCardSetup();
     const a = await app(db, { secretsKey: null });

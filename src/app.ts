@@ -9129,12 +9129,15 @@ export function buildApp(deps: AppDeps): {
   router.post("/forwarding/retry", async (ctx) => {
     const a = auth(ctx);
     refuseForwardingWhileViewingAs(a);
-    const { result, opened, still, unreadable } = await retryHeld(db, actorFor(a, "import"), config.secretsKey);
+    const { result, opened, still, unmatched, unreadable } = await retryHeld(db, actorFor(a, "import"), config.secretsKey);
     const imported = result.alerts.staged + result.statements.staged;
     const parts = [
       opened ? `Opened ${opened} ${opened === 1 ? "statement" : "statements"}` +
         (imported ? `: ${imported} ${imported === 1 ? "row" : "rows"} imported` : "") : null,
       still ? `${still} still locked.${result.missingDetails.length ? ` ${result.missingDetails.join(" ")}` : ""}` : null,
+      // MAIL-3 · Opened but kept: say why, so the account can be set up.
+      unmatched ? `${unmatched} opened but ${unmatched === 1 ? "is" : "are"} for no single account of yours, so ` +
+        `${unmatched === 1 ? "it is" : "they are"} kept: add the account (or close the duplicate) and try again` : null,
       unreadable ? `${unreadable} could not be read back (SECRETS_KEY changed); delete ${unreadable === 1 ? "it" : "them"} and forward again` : null,
     ].filter((p): p is string => p !== null);
     const message = parts.length ? parts.join(". ") : "Nothing was waiting.";
