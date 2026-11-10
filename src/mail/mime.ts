@@ -38,7 +38,9 @@ export function parseMail(raw: Uint8Array): ParsedMail {
     const top = splitEntity(s);
     out.headers = top.headers.map((h) => ({ name: h.name, value: headerText(h.value) }));
     const from = mailHeader(out, "from");
-    out.from = from === null ? "" : addressOf(decodeWords(from));
+    // MAIL-5 · Not decoded first: an encoded word is only ever display text,
+    // and decoded it could spell a "<bank address>" ahead of the real one.
+    out.from = from === null ? "" : addressOf(from);
     out.subject = decodeWords(mailHeader(out, "subject") ?? "");
     out.date = parseDate(mailHeader(out, "date"));
     const mid = mailHeader(out, "message-id");
@@ -64,10 +66,14 @@ export function mailHeader(mail: ParsedMail, name: string): string | null {
 
 /** `"Name" <a@b.c>` → `a@b.c`, lowercased. A bare address passes through. */
 export function addressOf(value: string): string {
-  const angle = value.match(/<([^<>]*)>/);
-  if (angle) return angle[1]!.trim().toLowerCase();
-  // No angle brackets: drop comments and take the first thing shaped like an address.
-  const bare = value.replace(/\([^()]*\)/g, " ");
+  // MAIL-5 · Quoted display names and comments go first: the first "<…>" in
+  // `"<alerts@bank>" <me@elsewhere>` is the name, not the address.
+  const bare = value
+    .replace(/"(?:[^"\\]|\\.)*"/g, " ")
+    .replace(/\([^()]*\)/g, " ");
+  const angles = [...bare.matchAll(/<([^<>]*)>/g)];
+  if (angles.length > 0) return angles.at(-1)![1]!.trim().toLowerCase();
+  // No angle brackets: take the first thing shaped like an address.
   const m = bare.match(/[^\s<>(),;:"]+@[^\s<>(),;:"]+/);
   return (m ? m[0] : bare.trim()).toLowerCase();
 }

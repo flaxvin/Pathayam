@@ -21,6 +21,7 @@ import { signInbound, SIGNATURE_HEADER, RECIPIENT_HEADER } from "../mail/signatu
 import { freshDb, seedMember, startTestApp, type TestApp, type TestConfigOverrides } from "../web/harness.test-data.ts";
 import { addressRow, formatAddress, issueAddress, newToken, tokenFromRecipient } from "./address.ts";
 import { purgeForwarded } from "./held.ts";
+import { removeMember } from "../auth/sessions.ts";
 
 const RAVI = "m-ravi";
 const actor: Actor = { memberId: RAVI, source: "ui" };
@@ -172,6 +173,32 @@ describe("FWD · the address", () => {
     }
   });
 
+  test("MAIL-6 · a removed member's address stops taking mail, and does not come back with them", async () => {
+    const db = setup();
+    seedMember(db, "m-meera", "Meera");
+    const meera: Actor = { memberId: "m-meera", source: "ui" };
+    createAccount(db, meera, {
+      name: "Axis Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01", last4: "0000",
+    });
+    const token = issueAddress(db, meera).token;
+    const a = await app(db);
+    try {
+      const raw = signedAndForwarded(plainMail("alerts@axis.bank.in", "INR 600 debited", AXIS_ALERT), "axis.bank.in");
+      removeMember(db, actor, "m-meera");
+      assert.equal((await handOff(a, formatAddress(INBOUND, token)!, raw)).status, 404);
+      assert.equal(staged(db).length, 0);
+      assert.equal(addressRow(db, "m-meera"), null, "removal ends the address");
+
+      // An address left from before this fix is refused too.
+      execute(db, "INSERT INTO forwarding_addresses (member_id, token, created_at) VALUES (?,?,?)",
+        "m-meera", token, "2026-11-01T00:00:00.000+05:30");
+      assert.equal((await handOff(a, formatAddress(INBOUND, token)!, raw)).status, 404);
+      assert.equal(staged(db).length, 0);
+    } finally {
+      await a.close();
+    }
+  });
+
   test("Settings says forwarding is not set up when the server has no INBOUND_DOMAIN", async () => {
     const db = setup();
     const a = await app(db, { inbound: { domain: null, route: "", secret: null } });
@@ -234,6 +261,82 @@ describe("FWD · a forwarded alert", () => {
       assert.deepEqual(log(db).map((l) => l.outcome), ["unsigned", "unsigned", "unsigned"]);
       const page = await (await a.get("/settings")).text();
       assert.match(page, /Signature did not check out/);
+    } finally {
+      await a.close();
+    }
+  });
+
+  test("MAIL-1 · a signature that covers only part of the body (l=) does not vouch for what follows", async () => {
+    const db = setup();
+    createAccount(db, actor, {
+      name: "Axis Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01", last4: "0000",
+    });
+    issueAddress(db, actor);
+    const a = await app(db);
+    try {
+      // The bank signed only its greeting; everything after it is anybody's.
+      const mail = plainMail("alerts@axis.bank.in", "INR 600 debited", "Dear Ravi Kumar,\n");
+      const signed = Buffer.from(signDkim(mail, {
+        domain: "axis.bank.in", selector: "s1", privateKey: keyFor("axis.bank.in").privateKey, extraTags: { l: "18" },
+      })).toString("latin1");
+      const forged = signed + AXIS_ALERT.replace(/\n/g, "\r\n").replace("Dear Ravi Kumar,\r\n", "") + "\r\n";
+      assert.equal((await handOff(a, addressOf(db), new Uint8Array(Buffer.from(forged, "latin1")))).status, 202);
+      assert.equal(staged(db).length, 0, "the appended alert was not imported");
+      assert.deepEqual(log(db).map((l) => [l.outcome, l.signed]), [["unsigned", 0]]);
+    } finally {
+      await a.close();
+    }
+  });
+
+  test("MAIL-2 · a second Subject or From added above the bank's signed one is not trusted", async () => {
+    const db = setup();
+    createAccount(db, actor, {
+      name: "Axis Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01", last4: "0000",
+    });
+    issueAddress(db, actor);
+    const a = await app(db);
+    try {
+      const genuine = Buffer.from(signedAndForwarded(plainMail("alerts@axis.bank.in", "INR 600 debited", AXIS_ALERT), "axis.bank.in"));
+      // DKIM checks the bottom-most Subject (the bank's); the reader took the first one.
+      const extraSubject = Buffer.concat([Buffer.from("Subject: INR 90,000 debited to FRAUDSTER\r\n"), genuine]);
+      assert.equal((await handOff(a, addressOf(db), new Uint8Array(extraSubject))).status, 202);
+      const extraFrom = Buffer.concat([Buffer.from("From: alerts@axis.bank.in\r\n"), genuine]);
+      assert.equal((await handOff(a, addressOf(db), new Uint8Array(extraFrom))).status, 202);
+      assert.equal(staged(db).length, 0);
+      assert.deepEqual(log(db).map((l) => l.outcome), ["unsigned", "unsigned"]);
+      // The same message as the bank sent it still reads.
+      assert.equal((await handOff(a, addressOf(db), new Uint8Array(genuine))).status, 202);
+      assert.equal(staged(db).length, 1);
+    } finally {
+      await a.close();
+    }
+  });
+
+  test("MAIL-4 · when the bank's key cannot be looked up just now, the sender is asked to retry, not told it was forged", async () => {
+    const db = setup();
+    createAccount(db, actor, {
+      name: "Axis Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01", last4: "0000",
+    });
+    issueAddress(db, actor);
+    let dnsDown = true;
+    const flaky: TxtResolver = async (name) => {
+      if (dnsDown) throw Object.assign(new Error("timeout"), { code: "ETIMEOUT" });
+      return resolveTxt(name);
+    };
+    const a = await startTestApp(db, {
+      memberId: RAVI, resolveTxt: flaky,
+      config: { inbound: INBOUND, secretsKey: deriveSecretsKey("k".repeat(40)) },
+    });
+    try {
+      const raw = signedAndForwarded(plainMail("alerts@axis.bank.in", "INR 600 debited", AXIS_ALERT), "axis.bank.in");
+      const res = await handOff(a, addressOf(db), raw);
+      assert.equal(res.status, 503, "a temporary answer: the receiver says 451 and the sender tries again");
+      assert.equal(log(db).length, 0, "nothing is logged as forged");
+      assert.equal(staged(db).length, 0);
+
+      dnsDown = false;
+      assert.equal((await handOff(a, addressOf(db), raw)).status, 202);
+      assert.equal(staged(db).length, 1, "the retry imports it");
     } finally {
       await a.close();
     }
@@ -397,6 +500,30 @@ describe("FWD · a locked statement", () => {
       assert.equal(queryAll(db, "SELECT id FROM forwarded_statements").length, 0, "deleted once it opened");
       page = await (await a.get("/settings")).text();
       assert.doesNotMatch(page, /Locked statements waiting/);
+      assert.deepEqual(a.failures, []);
+    } finally {
+      await a.close();
+    }
+  });
+
+  test("MAIL-3 · Try again keeps one that opens but has no single account to go to", async () => {
+    const { db, accountId } = sbiCardSetup();
+    // A second SBI card: the statement opens but cannot pick between them.
+    createAccount(db, actor, {
+      name: "SBI Card 2", kind: "credit", subtype: "credit-card", openingDate: "2026-08-01", institution: "SBI Card",
+    });
+    const a = await app(db);
+    try {
+      const raw = signedAndForwarded(pdfMail("SBI Card <statements@sbicard.com>", STATEMENTS.sbiCardEncrypted, "sbicard.pdf"), "sbicard.com");
+      assert.equal((await handOff(a, addressOf(db), raw)).status, 202);
+      assert.equal(queryAll(db, "SELECT id FROM forwarded_statements").length, 1);
+
+      setCardNumberDigits(db, actor, accountId, SBI_CARD_LAST4);
+      const res = await a.post("/forwarding/retry");
+      const notice = new URL(res.headers.get("location")!, a.baseUrl).searchParams.get("notice")!;
+      assert.equal(batches(db), 0);
+      assert.equal(queryAll(db, "SELECT id FROM forwarded_statements").length, 1, "kept: it arrived once and has not been imported");
+      assert.match(notice, /no single account/);
       assert.deepEqual(a.failures, []);
     } finally {
       await a.close();

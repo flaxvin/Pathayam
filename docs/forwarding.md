@@ -38,7 +38,12 @@ receiver serves one instance alone (`INBOUND_ROUTE` empty).
 | The hand-off is signed with `INBOUND_SECRET`, at most five minutes old, for this recipient | app | `401`; the receiver answers `554` and logs a configuration error |
 | The token names a member | app | `404`; the receiver answers `550 5.1.1` |
 | The sender is one the import reads (the Gmail fetch's own sender list) | app | logged as *Not a bank sender*, not opened |
-| A DKIM signature on the message passes and its `d=` is the From domain or a parent of it | app | logged as *Signature did not check out*, nothing imported |
+| A DKIM signature on the message passes and its `d=` is the From domain or a parent of it | app | logged as *Signature did not check out*, nothing imported; if the bank's key could not be looked up (a DNS timeout), `503` instead, and the sender retries |
+
+A signature whose `l=` covers only part of the body does not count (text after
+it is unsigned), nor does any signature on a message that repeats a field the
+import reads (From, Subject, Date, Content-Type, Content-Transfer-Encoding):
+DKIM checks the bottom-most copy, the reader the first.
 
 DKIM is verified in-app (`src/mail/dkim.ts`, RFC 6376 with `rsa-sha256` and
 `ed25519-sha256`; `rsa-sha1` is refused). An automatic forward (a Gmail
