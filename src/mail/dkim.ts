@@ -21,6 +21,11 @@ export interface DkimResult {
   selector: string;
   result: "pass" | "fail" | "temperror" | "permerror";
   reason?: string;
+  /**
+   * MAIL-1 · The signature's l= stopped short of the body: what follows was
+   * not signed, and anybody holding the message may have added it.
+   */
+  partialBody?: true;
 }
 
 export type Canon = "simple" | "relaxed";
@@ -204,10 +209,12 @@ async function verifyOne(
     if ("error" in key) return res(key.error, key.reason);
 
     let cbody = canonBody(body, bc);
+    let partialBody = false;
     const l = tags.get("l");
     if (l !== undefined) {
       if (!/^\d+$/.test(l)) return res("permerror", "bad l=");
       if (Number(l) > cbody.length) return res("fail", "l= longer than body");
+      partialBody = Number(l) < cbody.length;
       cbody = cbody.slice(0, Number(l));
     }
     const bh = createHash("sha256").update(cbody, "latin1").digest();
@@ -220,7 +227,8 @@ async function verifyOne(
       ? verify("sha256", data, key.key, signature)
       // RFC 8463 §3: Ed25519 signs the SHA-256 hash of the header data, not the data itself.
       : verify(null, createHash("sha256").update(data).digest(), key.key, signature);
-    return ok ? res("pass") : res("fail", "signature did not verify");
+    if (!ok) return res("fail", "signature did not verify");
+    return partialBody ? { ...res("pass"), partialBody: true } : res("pass");
   } catch (e) {
     return res("permerror", e instanceof Error ? e.message : "verification error");
   }
@@ -279,12 +287,15 @@ async function fetchKey(resolve: TxtResolver, name: string, alg: string): Promis
 /**
  * DMARC-style relaxed alignment: some passing signature's d= is the From
  * domain or a parent of it (alerts@mail.icicibank.com aligns with d=icicibank.com).
+ *
+ * MAIL-1 · A pass over part of the body (l= shorter than it) does not count:
+ * text appended after the signed part would otherwise be read as the bank's.
  */
 export function alignedPass(results: DkimResult[], fromAddress: string): boolean {
   const from = fromAddress.slice(fromAddress.lastIndexOf("@") + 1).trim().toLowerCase().replace(/\.$/, "");
   if (!from) return false;
   return results.some((r) => {
     const d = r.domain.toLowerCase().replace(/\.$/, "");
-    return r.result === "pass" && d !== "" && (from === d || from.endsWith("." + d));
+    return r.result === "pass" && !r.partialBody && d !== "" && (from === d || from.endsWith("." + d));
   });
 }
