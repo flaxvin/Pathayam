@@ -10616,8 +10616,13 @@ export function buildApp(deps: AppDeps): {
       }
     }
     const snapshot = aiSnapshot(db, a.member.id, { months }, { features: config.features });
+    // AI-3 · The snapshot tool's answer, downloaded: a connection that asked
+    // for masking gets it masked here as over /mcp, or the same token handed
+    // the account numbers whole to whoever fetched this instead.
+    const token = ctx.locals.token as ApiToken | undefined;
+    const masked = token && isAiToken(token) && tokenRedacts(token);
     return {
-      body: JSON.stringify(snapshot, null, 2),
+      body: JSON.stringify(masked ? redactValue(snapshot) : snapshot, null, 2),
       headers: {
         "Content-Type": "application/json; charset=utf-8",
         "Content-Disposition": `attachment; filename="pathayam-analysis-${todayIST()}.json"`,

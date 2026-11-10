@@ -8,6 +8,9 @@ import assert from "node:assert/strict";
 import { startTestApp } from "./harness.test-data.ts";
 import { mintToken } from "../auth/tokens.ts";
 import { todayIST } from "../core/dates.ts";
+import { execute } from "../db/db.ts";
+import { createAccount } from "../domain/accounts.ts";
+import { rupees, type Paise } from "../core/money.ts";
 import { buildAnalysisWorld, PRIYA, SECRET_NAMES, SECRET_AMOUNTS } from "../ai/analysis.test-data.ts";
 
 describe("AI-4 · the analysis snapshot export", () => {
@@ -32,6 +35,31 @@ describe("AI-4 · the analysis snapshot export", () => {
       assert.equal(body.months_covered.count, 4);
       assert.deepEqual(SECRET_NAMES.filter((s) => text.includes(s)), []);
       assert.deepEqual(SECRET_AMOUNTS.filter((s) => text.includes(s)), []);
+      assert.deepEqual(app.failures, []);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("AI-3 · a masked AI connection's token gets it masked, as the snapshot tool would", async () => {
+    const { db } = buildAnalysisWorld({ withPrivate: false });
+    createAccount(db, { memberId: PRIYA, source: "ui" }, {
+      name: "SBI 50100234567890", kind: "budget", subtype: "savings",
+      openingDate: "2025-01-01", openingBalance: rupees(100) as Paise,
+    });
+    const masked = mintToken(db, { memberId: PRIYA, source: "ui" }, { name: "Claude Code", scope: "read" });
+    execute(db, `UPDATE api_tokens SET for_ai = 1, redact = 1 WHERE id = ?`, masked.token.id);
+    const plain = mintToken(db, { memberId: PRIYA, source: "ui" }, { name: "Gemini CLI", scope: "read" });
+    execute(db, `UPDATE api_tokens SET for_ai = 1, redact = 0 WHERE id = ?`, plain.token.id);
+    const app = await startTestApp(db, { memberId: null });
+    try {
+      const get = async (secret: string) => (await app.get("/export/analysis.json", {
+        headers: { Authorization: `Bearer ${secret}`, Accept: "application/json" },
+      })).text();
+      const hidden = await get(masked.secret);
+      assert.ok(!hidden.includes("50100234567890"), "the account number left whole");
+      assert.ok(hidden.includes("SBI ••••7890"));
+      assert.ok((await get(plain.secret)).includes("SBI 50100234567890"), "unmasked when not asked");
       assert.deepEqual(app.failures, []);
     } finally {
       await app.close();
