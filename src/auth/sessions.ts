@@ -179,6 +179,12 @@ export function removeMember(db: DB, actor: Actor, id: string): void {
      * must not come back to life when somebody adds the address back.
      */
     execute(db, `DELETE FROM password_setup_links WHERE member_id = ? AND used_at IS NULL`, id);
+    /*
+     * MAIL-6 · And their forwarding address, the one way in that needs no
+     * sign-in: mail forwarded to it kept landing in Review under their name.
+     * Reinstated, they make a new one.
+     */
+    execute(db, `DELETE FROM forwarding_addresses WHERE member_id = ?`, id);
     appendEvent(db, actor, {
       entity: "member", entityId: id, action: "remove", before, after: getMember(db, id),
       summary: `Removed ${before.name} from the household`,

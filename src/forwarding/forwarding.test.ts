@@ -21,6 +21,7 @@ import { signInbound, SIGNATURE_HEADER, RECIPIENT_HEADER } from "../mail/signatu
 import { freshDb, seedMember, startTestApp, type TestApp, type TestConfigOverrides } from "../web/harness.test-data.ts";
 import { addressRow, formatAddress, issueAddress, newToken, tokenFromRecipient } from "./address.ts";
 import { purgeForwarded } from "./held.ts";
+import { removeMember } from "../auth/sessions.ts";
 
 const RAVI = "m-ravi";
 const actor: Actor = { memberId: RAVI, source: "ui" };
@@ -167,6 +168,32 @@ describe("FWD · the address", () => {
         assert.ok(!`${e.summary}${e.after_json}`.includes(first) && !`${e.summary}${e.after_json}`.includes(second));
       }
       assert.deepEqual(a.failures, []);
+    } finally {
+      await a.close();
+    }
+  });
+
+  test("MAIL-6 · a removed member's address stops taking mail, and does not come back with them", async () => {
+    const db = setup();
+    seedMember(db, "m-meera", "Meera");
+    const meera: Actor = { memberId: "m-meera", source: "ui" };
+    createAccount(db, meera, {
+      name: "Axis Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01", last4: "0000",
+    });
+    const token = issueAddress(db, meera).token;
+    const a = await app(db);
+    try {
+      const raw = signedAndForwarded(plainMail("alerts@axis.bank.in", "INR 600 debited", AXIS_ALERT), "axis.bank.in");
+      removeMember(db, actor, "m-meera");
+      assert.equal((await handOff(a, formatAddress(INBOUND, token)!, raw)).status, 404);
+      assert.equal(staged(db).length, 0);
+      assert.equal(addressRow(db, "m-meera"), null, "removal ends the address");
+
+      // An address left from before this fix is refused too.
+      execute(db, "INSERT INTO forwarding_addresses (member_id, token, created_at) VALUES (?,?,?)",
+        "m-meera", token, "2026-11-01T00:00:00.000+05:30");
+      assert.equal((await handOff(a, formatAddress(INBOUND, token)!, raw)).status, 404);
+      assert.equal(staged(db).length, 0);
     } finally {
       await a.close();
     }
