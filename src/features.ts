@@ -171,6 +171,10 @@ const RULES: Rule[] = [
   // AI-7 · Connect an AI lives under /tokens but is its own module: an AI
   // connection is offered without hand-minted tokens, and vice versa.
   { test: under("tokens", "ai"), available: (f) => f.ai },
+  // WEB-1 · Connect an AI's Disconnect buttons post here. With either module
+  // on there is something to disconnect, and revoking only takes access away.
+  { test: under("tokens", "connections"), available: (f) => f.ai || f.apiTokens },
+  { test: under("tokens", ":id", "revoke"), available: (f) => f.ai || f.apiTokens },
   { test: under("tokens"), available: (f) => f.apiTokens },
   { test: under("mcp"), available: (f) => f.ai },
   { test: under("oauth"), available: (f) => f.ai },
