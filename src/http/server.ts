@@ -150,7 +150,7 @@ export function createHttpServer(options: ServerOptions): Server {
        */
       if (!response && (ctx.method === "POST" || ctx.method === "PUT" || ctx.method === "DELETE")) {
         const limit = typeof ctx.locals.bodyLimit === "number" ? ctx.locals.bodyLimit : undefined;
-        ctx.body = await readBody(req, limit);
+        ctx.body = await readBody(req, limit, { routeParsesJson: ctx.locals.routeParsesJson === true });
       }
 
       if (!response) {

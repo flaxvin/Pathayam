@@ -84,6 +84,33 @@ describe("AI-2 · POST /mcp", () => {
     }
   });
 
+  test("AI-5 · a body that is not JSON is a JSON-RPC parse error, not the app's HTML error page", async () => {
+    const { db } = buildAnalysisWorld({ withPrivate: false });
+    const { secret } = token(db, PRIYA);
+    const app = await startTestApp(db, { memberId: null });
+    try {
+      const res = await fetch(app.baseUrl + "/mcp", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+        body: `{"jsonrpc":"2.0","id":1,"method":"tools/list"`,
+      });
+      assert.equal(res.status, 400);
+      assert.match(res.headers.get("content-type") ?? "", /^application\/json/);
+      const body = await res.json() as { jsonrpc: string; id: null; error: { code: number } };
+      assert.deepEqual([body.jsonrpc, body.id, body.error.code], ["2.0", null, -32700]);
+      // Every other route keeps its own answer to a broken JSON body.
+      const other = await fetch(app.baseUrl + "/assign", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
+        body: "{",
+      });
+      assert.equal(other.status, 403);
+      assert.deepEqual(app.failures, []);
+    } finally {
+      await app.close();
+    }
+  });
+
   test("an older client's initialize handshake works too", async () => {
     const { db } = buildAnalysisWorld({ withPrivate: false });
     const { secret } = token(db, PRIYA);

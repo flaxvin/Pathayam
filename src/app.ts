@@ -613,6 +613,8 @@ export function buildApp(deps: AppDeps): {
         }
         // Read once: authenticating records last-used, and twice is noise.
         ctx.locals.bearer = bearer;
+        // AI-5 · Broken JSON is handleMcp's to answer, as a JSON-RPC parse error.
+        ctx.locals.routeParsesJson = true;
       }
     },
 
