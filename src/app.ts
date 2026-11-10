@@ -613,6 +613,8 @@ export function buildApp(deps: AppDeps): {
         }
         // Read once: authenticating records last-used, and twice is noise.
         ctx.locals.bearer = bearer;
+        // AI-5 · Broken JSON is handleMcp's to answer, as a JSON-RPC parse error.
+        ctx.locals.routeParsesJson = true;
       }
     },
 
@@ -727,6 +729,13 @@ export function buildApp(deps: AppDeps): {
       // an AI app's connection is a token too, and FEATURE_AI governs it.
       if (bearer && !auth && !config.features.apiTokens && !isMcpPath(path)) {
         return { status: 403, json: { error: "API tokens are not available on this instance." } };
+      }
+      // AI-4 · And an AI connection's token is FEATURE_AI's, on every route:
+      // with that module off, /mcp was gone but the same token still read
+      // /export.json and the rest wherever API tokens stayed on. Kept, like a
+      // token above, so it works again once the module is back.
+      if (bearer && !auth && !aiEnabled && isAiToken(bearer.token)) {
+        return { status: 403, json: { error: "AI connections are not available on this instance." } };
       }
       if (bearer && !auth) {
         if (!tokenMayReach(path)) {
@@ -10616,8 +10625,13 @@ export function buildApp(deps: AppDeps): {
       }
     }
     const snapshot = aiSnapshot(db, a.member.id, { months }, { features: config.features });
+    // AI-3 · The snapshot tool's answer, downloaded: a connection that asked
+    // for masking gets it masked here as over /mcp, or the same token handed
+    // the account numbers whole to whoever fetched this instead.
+    const token = ctx.locals.token as ApiToken | undefined;
+    const masked = token && isAiToken(token) && tokenRedacts(token);
     return {
-      body: JSON.stringify(snapshot, null, 2),
+      body: JSON.stringify(masked ? redactValue(snapshot) : snapshot, null, 2),
       headers: {
         "Content-Type": "application/json; charset=utf-8",
         "Content-Disposition": `attachment; filename="pathayam-analysis-${todayIST()}.json"`,
