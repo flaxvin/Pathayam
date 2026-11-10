@@ -15,6 +15,16 @@ describe("AI-3 · redaction", () => {
     assert.equal(redactString("IMPS-412345678901-RENT"), "IMPS-••••8901-RENT");
   });
 
+  test("AI-2 · a number glued to the bank's own letters is masked too", () => {
+    // Narrations as banks write them: the reference, phone or UTR runs straight
+    // on from a word with no space or slash between.
+    assert.equal(redactString("TO TRANSFER-INB IMPS412345678901/RENT"), "TO TRANSFER-INB IMPS••••8901/RENT");
+    assert.equal(redactString("UPI-MOB9876543210-PAYMENT"), "UPI-MOB••••3210-PAYMENT");
+    assert.equal(redactString("NEFT*HDFC0000123*N123456789012*RAVI"), "NEFT*HDFC0000123*N••••9012*RAVI");
+    assert.equal(redactString("ACCT50100234567890XX"), "ACCT••••7890XX");
+    assert.equal(redactString("ref_123456789012"), "ref_••••9012");
+  });
+
   test("PAN is masked whole", () => {
     assert.equal(redactString("PAN ABCDE1234F"), "PAN •••••••••• (PAN)");
   });

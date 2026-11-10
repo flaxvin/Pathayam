@@ -29,8 +29,11 @@ const SKIP_KEY = /(^id$|_id$|^cursor$|^next_cursor$|_date$|^date$|^month$|^from$
 const HANDLE = /\b[\w.\-+]{2,}@([A-Za-z][\w\-]*(?:\.[\w\-]+)*)\b/g;
 const PAN = /\b[A-Z]{5}[0-9]{4}[A-Z]\b/g;
 // Nine or more digits, optionally grouped by spaces or hyphens (a card number
-// written 4-4-4-4, a phone written +91 98xxx xxxxx).
-const DIGIT_RUN = /(?<![\w])\+?\d(?:[ \-]?\d){8,}(?![\w])/g;
+// written 4-4-4-4, a phone written +91 98xxx xxxxx). Bounded by digits only,
+// not word characters (AI-2): banks glue a reference to their own letters —
+// "IMPS412345678901", "MOB9876543210", a NEFT UTR "N123456789012" — and a
+// word boundary left every one of those whole.
+const DIGIT_RUN = /(?<!\d)\+?\d(?:[ \-]?\d){8,}(?!\d)/g;
 
 export function redactString(s: string): string {
   return s
