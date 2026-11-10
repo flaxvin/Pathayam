@@ -239,6 +239,52 @@ describe("FWD · a forwarded alert", () => {
     }
   });
 
+  test("MAIL-1 · a signature that covers only part of the body (l=) does not vouch for what follows", async () => {
+    const db = setup();
+    createAccount(db, actor, {
+      name: "Axis Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01", last4: "0000",
+    });
+    issueAddress(db, actor);
+    const a = await app(db);
+    try {
+      // The bank signed only its greeting; everything after it is anybody's.
+      const mail = plainMail("alerts@axis.bank.in", "INR 600 debited", "Dear Ravi Kumar,\n");
+      const signed = Buffer.from(signDkim(mail, {
+        domain: "axis.bank.in", selector: "s1", privateKey: keyFor("axis.bank.in").privateKey, extraTags: { l: "18" },
+      })).toString("latin1");
+      const forged = signed + AXIS_ALERT.replace(/\n/g, "\r\n").replace("Dear Ravi Kumar,\r\n", "") + "\r\n";
+      assert.equal((await handOff(a, addressOf(db), new Uint8Array(Buffer.from(forged, "latin1")))).status, 202);
+      assert.equal(staged(db).length, 0, "the appended alert was not imported");
+      assert.deepEqual(log(db).map((l) => [l.outcome, l.signed]), [["unsigned", 0]]);
+    } finally {
+      await a.close();
+    }
+  });
+
+  test("MAIL-2 · a second Subject or From added above the bank's signed one is not trusted", async () => {
+    const db = setup();
+    createAccount(db, actor, {
+      name: "Axis Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01", last4: "0000",
+    });
+    issueAddress(db, actor);
+    const a = await app(db);
+    try {
+      const genuine = Buffer.from(signedAndForwarded(plainMail("alerts@axis.bank.in", "INR 600 debited", AXIS_ALERT), "axis.bank.in"));
+      // DKIM checks the bottom-most Subject (the bank's); the reader took the first one.
+      const extraSubject = Buffer.concat([Buffer.from("Subject: INR 90,000 debited to FRAUDSTER\r\n"), genuine]);
+      assert.equal((await handOff(a, addressOf(db), new Uint8Array(extraSubject))).status, 202);
+      const extraFrom = Buffer.concat([Buffer.from("From: alerts@axis.bank.in\r\n"), genuine]);
+      assert.equal((await handOff(a, addressOf(db), new Uint8Array(extraFrom))).status, 202);
+      assert.equal(staged(db).length, 0);
+      assert.deepEqual(log(db).map((l) => l.outcome), ["unsigned", "unsigned"]);
+      // The same message as the bank sent it still reads.
+      assert.equal((await handOff(a, addressOf(db), new Uint8Array(genuine))).status, 202);
+      assert.equal(staged(db).length, 1);
+    } finally {
+      await a.close();
+    }
+  });
+
   test("mail from a sender the import does not read is logged and not opened", async () => {
     const db = setup();
     issueAddress(db, actor);

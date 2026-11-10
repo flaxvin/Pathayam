@@ -63,7 +63,8 @@ export async function receiveForwarded(
   if (!memberId) return { status: "unknown-address" };
 
   const mail = parseMail(raw);
-  const signed = alignedPass(await verifyDkim(raw, deps.resolveTxt, deps.now), mail.from);
+  const signed = !repeatsReadHeader(mail)
+    && alignedPass(await verifyDkim(raw, deps.resolveTxt, deps.now), mail.from);
   markReceived(db, memberId);
 
   const log = (outcome: ForwardOutcome, detail: string | null, confirmation: string | null = null) =>
@@ -134,6 +135,30 @@ export async function receiveForwarded(
   ].filter((s): s is string => s !== null).join(". ") || null;
   log(outcome, detail);
   return { status: "taken", memberId, outcome, result };
+}
+
+/**
+ * The header fields the import reads, each of which a message has at most once
+ * (RFC 5322 §3.6, RFC 2045).
+ */
+const READ_ONCE = ["from", "subject", "date", "content-type", "content-transfer-encoding"];
+
+/**
+ * MAIL-2 · Whether a field the import reads appears twice. DKIM checks the
+ * bottom-most instance of a signed field (RFC 6376 §5.4.2) and the reader
+ * takes the first, so a Subject added above the bank's would be read while
+ * the bank's signature still checked out. Mail as a bank sends it, and as a
+ * filter forwards it, never repeats one.
+ */
+function repeatsReadHeader(mail: ParsedMail): boolean {
+  const seen = new Set<string>();
+  for (const h of mail.headers) {
+    const name = h.name.toLowerCase();
+    if (!READ_ONCE.includes(name)) continue;
+    if (seen.has(name)) return true;
+    seen.add(name);
+  }
+  return false;
 }
 
 /**
