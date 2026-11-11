@@ -25,6 +25,8 @@ export interface CardDue {
   credit?: Paise;
   /** What its payment envelope holds. */
   funded: Paise;
+  /** UI-14 · Of that, what is really set aside: less the credit overspending in it. */
+  setAside?: Paise;
   /** R6 · Of what it owes, how much has nothing behind it. */
   unfunded: Paise;
   /** N7 · Why part of the shortfall has no spending behind it, or null. */
@@ -193,7 +195,7 @@ function renderCard(card: CardDue, month: string): SafeHtml {
               `
             : html`
                 <div class="faint">Set aside</div>
-                <span class="amount">${formatPaise(card.funded)}</span>
+                <span class="amount">${formatPaise(card.setAside ?? card.funded)}</span>
               `}
         </div>
         ${when(card.unfunded > 0, () => html`

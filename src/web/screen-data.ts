@@ -223,6 +223,7 @@ export function cardsDue(
         owed,
         credit: Math.max(0, owedNow.get(account.id) ?? 0) as Paise,
         funded,
+        setAside: funding.setAside,
         unfunded: funding.unfunded,
         statement: statement
           ? {
