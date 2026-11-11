@@ -25,9 +25,16 @@ import { createSchedule } from "../domain/schedules.ts";
 import { createGoal } from "../domain/goals.ts";
 import { createLoan } from "../domain/loans.ts";
 import { createPolicy } from "../domain/insurance.ts";
-import { saveDeclaration } from "../domain/tax.ts";
+import { saveDeclaration, NEWEST_KNOWN_FY } from "../domain/tax.ts";
 import { createAssetAccount, findOrCreateInstrument, recordPurchase } from "../domain/assets.ts";
 import { units, price } from "../portfolio/holdings.ts";
+
+/**
+ * ENG-19 · The year the declaration is saved for: this one, or the newest the
+ * app has rates for. Saving the current year was refused from 1 April 2027
+ * (the 2027-28 rates are not in the app yet), which failed 15 AI tests.
+ */
+export const TAX_FY = Math.min(fiscalYearOf(todayIST()), NEWEST_KNOWN_FY);
 
 export const RAVI = "m-ravi";
 export const PRIYA = "m-priya";
@@ -142,7 +149,7 @@ export function buildAnalysisWorld(opts: { withPrivate?: boolean; householdTrans
     holderMemberId: RAVI, visibility: "private", categoryId: category.id,
   });
   // His own tax figures, which are nobody else's estimate.
-  saveDeclaration(db, RAVI, fiscalYearOf(today), {
+  saveDeclaration(db, RAVI, TAX_FY, {
     gross: rupees(12_34_567) as Paise, s80c: 0 as Paise, s80d: 0 as Paise, s80dSenior: false,
     other: 0 as Paise, hra: null, s24bOverride: null, tds: 0 as Paise,
   });
