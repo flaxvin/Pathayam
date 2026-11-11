@@ -138,7 +138,7 @@ export function renderFire(opts: { projection: FireProjection }): SafeHtml {
           <table>
             <tbody>
               <tr>
-                <td>Spending, last ${Math.max(1, Math.round(p.observedDays / 30))} months, annualised</td>
+                <td>Spending, ${spendingWindowLabel(p.observedDays)}, annualised</td>
                 <td class="amount">${formatPaise(p.annualExpenses)}</td>
               </tr>
               <tr>
@@ -277,4 +277,16 @@ export function renderFire(opts: { projection: FireProjection }): SafeHtml {
       </section>
     `)}
   `;
+}
+
+/**
+ * UI-16 · The history the spending figure was annualised from. A household one
+ * day old read "last 1 months": the figure was one day times 365. Under two
+ * months it is counted in days.
+ */
+export function spendingWindowLabel(days: number): string {
+  const d = Math.max(1, Math.round(days));
+  if (d < 60) return `last ${d} ${d === 1 ? "day" : "days"}`;
+  const m = Math.round(d / 30);
+  return `last ${m} ${m === 1 ? "month" : "months"}`;
 }
