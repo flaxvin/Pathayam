@@ -198,18 +198,22 @@ export const CLIENT_SCRIPT = String.raw`
     main.insertBefore(el, main.firstChild);
   }
 
-  function updatePage(url, message, kind, onFail) {
-    var stayPut = samePage(url);
+  // UI-18 · markup, when given, is a page a post already answered with: it is
+  // shown as it came back, from the top, at the address the form was on.
+  function updatePage(url, message, kind, onFail, markup) {
+    var rendered = typeof markup === "string";
+    var stayPut = !rendered && samePage(url);
     var link = resolve(url);
-    var sameUrl = stayPut && link.search === window.location.search;
+    var sameUrl = samePage(url) && link.search === window.location.search;
     var x = window.scrollX;
     var y = window.scrollY;
 
-    fetch(url, { headers: { Accept: "text/html" }, credentials: "same-origin" })
+    var load = rendered ? Promise.resolve(markup) : fetch(url, { headers: { Accept: "text/html" }, credentials: "same-origin" })
       .then(function (response) {
         if (!response.ok) throw new Error("not ok");
         return response.text();
-      })
+      });
+    load
       .then(function (markup) {
         var doc = new DOMParser().parseFromString(markup, "text/html");
         var fresh = doc.getElementById("main");
@@ -658,6 +662,19 @@ export const CLIENT_SCRIPT = String.raw`
             // The first attempt is still in flight. Wait and ask again rather
             // than reporting a failure that may not have happened.
             throw new Error("retryable");
+          }
+          /*
+           * UI-18 · A page, not an answer: Reconcile's difference, a rule tried
+           * on history, a token's secret shown once. Reading it as an empty
+           * answer refetched the form and the result was never seen.
+           */
+          var type = response.headers.get("Content-Type") || "";
+          if (response.ok && type.indexOf("text/html") !== -1) {
+            return response.text().then(function (markup) {
+              form.dataset.idempotencyKey = "";
+              finish("", null);
+              updatePage(window.location.pathname + window.location.search, null, null, null, markup);
+            });
           }
           return response
             .json()
