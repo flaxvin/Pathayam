@@ -14,7 +14,7 @@ import { freshDb, seedMember } from "./harness.test-data.ts";
 import { renderLoanDetail, renderNewLoanForm } from "./pages/loans.ts";
 import { createLoan, projectLoan, type CreateLoanInput } from "../domain/loans.ts";
 import { rupees } from "../core/money.ts";
-import { todayIST, type IsoDate } from "../core/dates.ts";
+import { todayIST, addDays, type IsoDate } from "../core/dates.ts";
 import { shiftMonths } from "../loans/amortisation.ts";
 import type { Actor } from "../core/events.ts";
 
@@ -45,7 +45,16 @@ test("a loan sanctioned well before it was added says its figures assume the ful
 
 test("a loan added within a month of its sanction says nothing of the kind", () => {
   assert.doesNotMatch(loanPage(todayIST()), NOTE);
-  assert.doesNotMatch(loanPage(shiftMonths(todayIST(), -1) as IsoDate), NOTE, "a month is not more than a month");
+  /*
+   * ENG-20 · A month back from the 29th-31st can clamp to a shorter month's
+   * last day: from 31 March that is 28 February, and 28 February plus a month
+   * is 28 March, so the loan rightly reads as more than a month old and the test
+   * failed. On such a day the boundary is not reachable; 28 days back stands in.
+   */
+  const today = todayIST();
+  const monthAgo = shiftMonths(today, -1);
+  const back = monthAgo.slice(8) === today.slice(8) ? monthAgo : addDays(today, -28);
+  assert.doesNotMatch(loanPage(back as IsoDate), NOTE, "a month is not more than a month");
 });
 
 test("the form says, beside the part-way fields, what a loan that started earlier is worked out on", () => {
