@@ -2599,8 +2599,14 @@ export function buildApp(deps: AppDeps): {
 
     // The digest belongs to the person reading, not to the month being read,
     // so it only shows on the current month.
+    // WEB-3 · An item whose page is a module this instance does not offer (a
+    // subscription renewing, a shortfall on the schedules calendar, with
+    // FEATURE_SCHEDULES off) goes with the module rather than linking to a 404.
     const digest = month === view.currentMonth
-      ? renderDigest(digestFor(db, a.viewingAs.id, todayIST(), viewer(ctx), scope))
+      ? renderDigest(
+        digestFor(db, a.viewingAs.id, todayIST(), viewer(ctx), scope)
+          .filter((item) => pathAvailable(item.href, config.features)),
+      )
       : undefined;
 
     // 15 · The switcher lives in the sidebar now, on every screen that shows one
@@ -10406,7 +10412,9 @@ export function buildApp(deps: AppDeps): {
               const members = config.limits.maxMembers === null ? "no member limit" : `up to ${config.limits.maxMembers} members`;
               const backups = config.limits.backupRetentionDays === null
                 ? "the newest 14 backups kept"
-                : `backups kept ${config.limits.backupRetentionDays} days`;
+                : config.limits.backupRetentionDays === Number.POSITIVE_INFINITY
+                  ? "daily backups kept with no age limit"
+                  : `backups kept ${config.limits.backupRetentionDays} days`;
               return `Plan ${config.plan}: ${off.length === 0 ? "every module on" : `off: ${off.join(", ")}`}; ${members}; ${backups}.`;
             })(),
           },

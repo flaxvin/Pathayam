@@ -286,7 +286,7 @@ any case.
 | Variable | selfhost | solo | household | power | Notes |
 |---|---|---|---|---|---|
 | `MAX_MEMBERS` | unlimited | 1 | 5 | unlimited | A whole number from 1 to 1000, or `unlimited` (or `0`). Adding a member, or adding back a removed one, is refused at the limit, and Settings shows no form to try. A household already over the limit, because its plan changed under it, keeps everyone and can only not add. |
-| `BACKUP_RETENTION_DAYS` | 14 newest | 30 | 90 | 365 | Days, 1 to 3650, or `unlimited`. Every backup from the last two days is kept, then the newest of each IST day back to the limit. The newest backup is never removed, however old. Unset on selfhost, the newest 14 backups are kept whatever their age (3.5 days at the six-hourly cadence). |
+| `BACKUP_RETENTION_DAYS` | 14 newest | 30 | 90 | 365 | Days, 1 to 3650, or `unlimited` (no age limit: the newest of each day is kept for good). Every backup from the last two days is kept, then the newest of each IST day back to the limit. The newest backup is never removed, however old. Unset on selfhost, the newest 14 backups are kept whatever their age (3.5 days at the six-hourly cadence). |
 
 ### Modules
 
