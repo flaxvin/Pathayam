@@ -19,6 +19,7 @@ import {
   heldMoreThanMonths, type IsoDate, type MonthKey,
 } from "../core/dates.ts";
 import { csvCell } from "../core/csv.ts";
+import { SPENT_AMOUNT_SQL } from "../engine/repository.ts";
 
 export interface TransactionFilter {
   from?: IsoDate;
@@ -393,7 +394,7 @@ export function envelopeSpendByMonth(
   return queryAll<{ month: string; spent: number }>(
     db,
     `WITH categorised AS (
-       SELECT t.date AS date, t.category_id AS category_id, t.amount AS amount
+       SELECT t.date AS date, t.category_id AS category_id, ${SPENT_AMOUNT_SQL} AS amount
          FROM transactions t JOIN accounts a ON a.id = t.account_id
         WHERE t.deleted_at IS NULL AND t.is_split = 0 AND t.category_id IS NOT NULL
           AND t.date >= ? AND t.date <= ?${seen.sql}

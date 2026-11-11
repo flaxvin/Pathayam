@@ -16,7 +16,7 @@ import {
   aiExplain, aiSnapshot, TRANSACTIONS_MAX_LIMIT, type AnalysisOptions,
 } from "./analysis.ts";
 import {
-  buildAnalysisWorld, RAVI, PRIYA, SECRET_NAMES, SECRET_AMOUNTS, type AnalysisWorld,
+  buildAnalysisWorld, RAVI, PRIYA, SECRET_NAMES, SECRET_AMOUNTS, TAX_FY, type AnalysisWorld,
 } from "./analysis.test-data.ts";
 
 /** Every function, as a member, with arguments that exercise it. */
@@ -216,7 +216,7 @@ describe("AI · nothing private to Ravi reaches Priya", () => {
     const missing = SECRET_NAMES.filter((s) => !text.includes(s));
     assert.deepEqual(missing, [], "his own things should be in his answers");
     assert.ok(text.includes("300017.31"), "his private account's balance");
-    const tax = aiTaxEstimate(world.db, RAVI) as { gross_income?: number };
+    const tax = aiTaxEstimate(world.db, RAVI, { fy: TAX_FY }) as { gross_income?: number };
     assert.equal(tax.gross_income, 1234567, "his own declared income");
     const loans = aiLoans(world.db, RAVI) as ReturnType<typeof aiLoans> & { loans: { name: string; visibility: string }[] };
     assert.ok(loans.loans.some((l) => l.name === "Vorpal Private Lender" && l.visibility === "private"));

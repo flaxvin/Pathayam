@@ -179,7 +179,9 @@ test("rsa-sha1 -> permerror", async () => {
 });
 
 test("expired x= is not a pass; unexpired x= passes", async () => {
-  const s = signed({ extraTags: { x: "1800000000" } }); // 2027-01-15
+  // ENG-18 · Signed on a fixed day, so the test does not depend on the clock:
+  // signed now, it read "x= before t=" from 15-01-2027 on.
+  const s = signed({ extraTags: { x: "1800000000" }, signedAt: new Date("2026-11-01T00:00:00Z") }); // 2027-01-15
   assert.equal((await one(s, bankDns, new Date("2026-11-08T00:00:00Z"))).result, "pass");
   const late = await one(s, bankDns, new Date("2027-02-01T00:00:00Z"));
   assert.notEqual(late.result, "pass");
