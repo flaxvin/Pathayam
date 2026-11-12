@@ -14,6 +14,7 @@ import {
   type Features, type Limits, type Plan,
 } from "./features.ts";
 import { deriveSecretsKey, SECRETS_KEY_MIN_LENGTH } from "./gmail/secrets.ts";
+import { loadAcmeSettings, type AcmeSettings } from "./tls/settings.ts";
 
 /** AIW-1 · See Config.aiWrite. */
 export const AI_WRITE_MODES = ["off", "standard", "full"] as const;
@@ -117,6 +118,12 @@ export interface Config {
    * used, and Settings says so rather than handing out an address.
    */
   inbound: { domain: string | null; route: string; secret: string | null };
+  /**
+   * TLS-1 · The app's own HTTPS, with a Let's Encrypt certificate it gets and
+   * renews by DNS-01 (src/tls). Null, the default, unless TLS_ACME_DOMAIN is
+   * set: on Fly and behind a tunnel or proxy, TLS ends in front of the app.
+   */
+  tls: (AcmeSettings & { httpsPort: number }) | null;
 }
 
 const HERE = dirname(fileURLToPath(import.meta.url));
@@ -299,11 +306,39 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     localLogin: bool(env.LOCAL_LOGIN, false),
     secretsKey: secretsKey(env.SECRETS_KEY),
     inbound: inboundSettings(env),
+    tls: tlsSettings(env),
   };
 
   assertDevLoginIsSafe(config);
   assertDemoModeIsSafe(config);
   return config;
+}
+
+/**
+ * TLS-1 · TLS_ACME_DOMAIN, HTTPS_PORT and the shared ACME_* / CLOUDFLARE_*
+ * settings. With HTTPS on, BASE_URL has to be the https:// origin it serves,
+ * or OAuth, cookies and the redirect from plain HTTP would all point wrong.
+ */
+function tlsSettings(env: NodeJS.ProcessEnv): Config["tls"] {
+  let acme: AcmeSettings | null;
+  try {
+    acme = loadAcmeSettings(env, "TLS_ACME_DOMAIN");
+  } catch (err) {
+    throw new InvalidConfiguration((err as Error).message);
+  }
+  if (!acme) return null;
+  const rawPort = (env.HTTPS_PORT ?? "").trim();
+  const httpsPort = rawPort === "" ? 443 : Number(rawPort);
+  if (!Number.isInteger(httpsPort) || httpsPort < 1 || httpsPort > 65535) {
+    throw new InvalidConfiguration(`HTTPS_PORT is '${env.HTTPS_PORT}'; use a port number from 1 to 65535.`);
+  }
+  const base = (env.BASE_URL ?? "").trim();
+  if (!base.startsWith("https://")) {
+    throw new InvalidConfiguration(
+      `TLS_ACME_DOMAIN is set, so BASE_URL must be the https:// address it serves (it is '${base || "unset"}').`,
+    );
+  }
+  return { ...acme, httpsPort };
 }
 
 /** The minimum INBOUND_SECRET length: the same floor as SECRETS_KEY. */

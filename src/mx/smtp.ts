@@ -62,19 +62,33 @@ const LF = 0x0a;
 const CR = 0x0d;
 const DOT = 0x2e;
 
+export type SmtpServer = net.Server & {
+  /**
+   * TLS-1 · Swaps the certificate (or adds one to a server started without):
+   * connections from now on offer STARTTLS with it, and a session already
+   * open keeps the one it started with. A bad key pair throws and changes
+   * nothing.
+   */
+  setTlsCertificate(pair: { cert: string; key: string }): void;
+};
+
 /** Creates the server; the caller listens on it. A bad TLS key pair throws here. */
-export function createSmtpServer(opts: SmtpServerOptions): net.Server {
-  const secureContext = opts.tls
+export function createSmtpServer(opts: SmtpServerOptions): SmtpServer {
+  let secureContext = opts.tls
     ? tls.createSecureContext({ cert: opts.tls.cert, key: opts.tls.key })
     : undefined;
-  return net.createServer((socket) => {
+  const server = net.createServer((socket) => {
     try {
       handleConnection(socket, opts, secureContext);
     } catch (err) {
       safeLog(opts, { level: "error", msg: "smtp session failed", error: String(err) });
       socket.destroy();
     }
-  });
+  }) as SmtpServer;
+  server.setTlsCertificate = (pair) => {
+    secureContext = tls.createSecureContext({ cert: pair.cert, key: pair.key });
+  };
+  return server;
 }
 
 function safeLog(opts: SmtpServerOptions, entry: Record<string, unknown>): void {

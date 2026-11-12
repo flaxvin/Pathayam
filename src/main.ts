@@ -13,7 +13,10 @@ import {
   UnsafeConfiguration, devLoginModulePresent,
 } from "./config.ts";
 import { openDatabase, ensureHousehold, queryOne } from "./db/db.ts";
-import { createHttpServer, redactedPath } from "./http/server.ts";
+import { createServer } from "node:http";
+import { createRequestListener, redactedPath } from "./http/server.ts";
+import { createHttpsFrontend, redirectingListener } from "./tls/https.ts";
+import { createAcmeManager } from "./tls/manager.ts";
 import { buildApp, renderErrorPage } from "./app.ts";
 import { HttpError } from "./http/router.ts";
 import { Refusal } from "./core/refusal.ts";
@@ -80,7 +83,7 @@ function main(): void {
 
   const { router, middleware } = buildApp({ db, config });
 
-  const server = createHttpServer({
+  const listener = createRequestListener({
     router,
     baseUrl: config.baseUrl,
     trustProxy: config.trustProxy,
@@ -136,6 +139,23 @@ function main(): void {
       return { status, body: renderErrorPage(status, message) };
     },
   });
+
+  /*
+   * TLS-1 · Off unless TLS_ACME_DOMAIN is set (never on Fly, where the edge
+   * ends TLS). On, the app gets and renews its own Let's Encrypt certificate
+   * and serves HTTPS on HTTPS_PORT; the plain port keeps /healthz and, once
+   * HTTPS is up, redirects everything else to BASE_URL.
+   */
+  const httpsFrontend = config.tls
+    ? createHttpsFrontend({ port: config.tls.httpsPort, host: config.host, listener, log })
+    : null;
+  const server = createServer(
+    httpsFrontend ? redirectingListener(listener, () => httpsFrontend.live(), config.baseUrl) : listener,
+  );
+  const certificates = config.tls && httpsFrontend
+    ? createAcmeManager(config.tls, (bundle) => httpsFrontend.onCert(bundle), { log })
+    : null;
+  if (certificates) void certificates.start();
 
   // Housekeeping. Deliberately in-process rather than a cron container: the
   // deployment is one box (Q8), and a job that needs a second container is a
@@ -234,6 +254,8 @@ function main(): void {
   for (const signal of ["SIGINT", "SIGTERM"] as const) {
     process.on(signal, () => {
       log({ level: "info", msg: "shutting down", signal });
+      certificates?.stop();
+      void httpsFrontend?.close();
       server.close(() => {
         db.close();
         process.exit(0);
