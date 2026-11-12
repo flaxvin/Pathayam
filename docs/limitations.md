@@ -184,8 +184,8 @@ adjustment assumes a resident under 60. The old regime's ₹3,00,000 and
 
 **Income is not derived from the ledger, only prefilled.** Income is
 prefilled from money that arrived in visible budget accounts, which is not
-taxable income: it misses a salary paid elsewhere and includes receipts that
-are not income at all. Deductions are entered, never inferred. The standard
+taxable income (money a loan paid in is left out): it misses a salary paid
+elsewhere and includes receipts that are not income at all. Deductions are entered, never inferred. The standard
 deduction is set only against the gross income entered, which is the only
 salary the estimate knows, and never exceeds it. Gains alone earn none. The loan
 interest report is still not carried in: it is cash paid across every loan. What

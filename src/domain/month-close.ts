@@ -23,6 +23,7 @@
  * makes it safe to make it a habit.
  */
 
+import { borrowedTransactionIds } from "./borrowed.ts";
 import type { DB } from "../db/db.ts";
 import { transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
@@ -133,6 +134,9 @@ export function monthCloseView(
    */
   const rows = queryTransactions(db, { from, to, budgetId: budget, viewerMemberId });
 
+  // ENG-22 · A loan's money paid in (a personal loan to the bank, an EMI
+  // conversion's credit on a card) is borrowed, so it is not "came in".
+  const borrowed = borrowedTransactionIds(db, from, to);
   let income = 0;
   let spending = 0;
   const byCategory = new Map<string, { name: string; amount: number }>();
@@ -142,8 +146,9 @@ export function monthCloseView(
     // different place, and counting it would make every month look wrong.
     if (row.isTransfer) continue;
 
-    if (row.amount > 0) income += row.amount;
-    else spending += -row.amount;
+    if (row.amount > 0) {
+      if (!borrowed.has(row.id)) income += row.amount;
+    } else spending += -row.amount;
 
     if (row.amount < 0 && row.categoryId) {
       const entry = byCategory.get(row.categoryId) ??

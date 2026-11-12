@@ -208,8 +208,8 @@ export function renderTax(p: TaxPageProps): SafeHtml {
           financial year across accounts you can see. That is money that arrived,
           which is not the same as taxable salary — it misses anything paid into
           an account this app does not hold, and it includes receipts that are
-          not income at all. Correct it here; this figure is what the estimate
-          uses.
+          not income at all. Money a loan paid in is already left out. Correct
+          it here; this figure is what the estimate uses.
         </p>
       </div>
 

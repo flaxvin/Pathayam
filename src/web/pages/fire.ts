@@ -160,7 +160,8 @@ export function renderFire(opts: { projection: FireProjection }): SafeHtml {
         <p class="faint">
           Spending is money leaving your envelopes, so a card swipe counts on the
           day you make it and paying the card off afterwards does not count again.
-          Transfers and income never touch an envelope.
+          Transfers and income never touch an envelope. Income leaves out money
+          a loan paid in, because it is borrowed.
         </p>
         <p class="faint">
           Income and saving are shown because they explain the gap, but the

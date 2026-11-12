@@ -683,6 +683,7 @@ export function purgeDeleted(db: DB, olderThanDays = 30, today = todayIST()): nu
       if (held) continue;
       execute(db, `UPDATE staged_transactions SET transaction_id = NULL WHERE transaction_id = ?`, id);
       execute(db, `UPDATE staged_transactions SET duplicate_of_id = NULL WHERE duplicate_of_id = ?`, id);
+      unlinkBorrowed(db, id);
       purged += execute(db, `DELETE FROM transactions WHERE id = ?`, id);
     }
     return purged;
@@ -1376,7 +1377,17 @@ export function eraseTransaction(db: DB, id: string | null | undefined): void {
   execute(db, `UPDATE staged_transactions SET duplicate_of_id = NULL WHERE duplicate_of_id = ?`, id);
   execute(db, `DELETE FROM transaction_splits WHERE transaction_id = ?`, id);
   execute(db, `DELETE FROM transaction_tags WHERE transaction_id = ?`, id);
+  unlinkBorrowed(db, id);
   execute(db, `DELETE FROM transactions WHERE id = ?`, id);
+}
+
+/**
+ * ENG-22 · A disbursement's link to the money it paid in only tells income
+ * figures to leave that row out. It holds nothing up: the row can be deleted
+ * or taken back as before, and the link goes with it.
+ */
+function unlinkBorrowed(db: DB, id: string): void {
+  execute(db, `UPDATE loan_disbursements SET transaction_id = NULL WHERE transaction_id = ?`, id);
 }
 
 /**
@@ -1475,6 +1486,7 @@ registerUndoHandler("transaction", (db, event) => {
 
       execute(db, `DELETE FROM transaction_splits WHERE transaction_id = ?`, id);
       execute(db, `DELETE FROM transaction_tags WHERE transaction_id = ?`, id);
+      unlinkBorrowed(db, id);
       execute(db, `DELETE FROM transactions WHERE id = ?`, id);
     }
     if (feeId) {

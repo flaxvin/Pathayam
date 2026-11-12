@@ -125,7 +125,8 @@ export function renderMonthClose(view: MonthCloseView): SafeHtml {
 
       <p class="field-hint">
         Transfers between your own accounts are left out of both figures — the
-        same money in a different place is neither income nor spending.
+        same money in a different place is neither income nor spending. Money
+        a loan paid in is left out of what came in, because it is borrowed.
       </p>
     </section>
 
