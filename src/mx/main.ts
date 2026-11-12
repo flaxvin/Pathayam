@@ -6,8 +6,9 @@
  *
  * It runs as its own process (its own Fly app with port 25 and a dedicated
  * IPv4, or an optional compose service), takes mail for MX_DOMAIN and hands
- * each message to the household app its address routes to. Nothing touches
- * disk; the logs carry envelope facts only, never a body or a subject.
+ * each message to the household app its address routes to. Nothing but its
+ * own TLS certificate (MX_TLS_ACME_DOMAIN) touches disk; the logs carry
+ * envelope facts only, never a body or a subject.
  *
  * Environment:
  *   MX_DOMAIN       required  the domain addresses live under (in.pathayam.app)

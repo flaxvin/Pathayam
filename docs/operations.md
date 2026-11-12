@@ -95,6 +95,39 @@ docker run -d --name pathayam \
   pathayam
 ```
 
+### HTTPS without a proxy
+
+Behind a Cloudflare Tunnel or a reverse proxy, HTTPS ends in front of the app
+and none of this applies. A box that faces the internet directly can serve
+HTTPS itself, with a Let's Encrypt certificate it gets and renews on its own:
+
+```bash
+BASE_URL=https://budget.example.com
+TLS_ACME_DOMAIN=budget.example.com
+CLOUDFLARE_API_TOKEN=...       # Cloudflare token: Zone · DNS · Edit, this zone only
+ACME_EMAIL=you@example.com     # optional
+```
+
+In `compose.yaml`, uncomment the `443:8443` and `80:8080` lines and set
+`TRUST_PROXY` to `"false"`. The app proves the domain with a `_acme-challenge`
+TXT record made through the Cloudflare API (the domain's DNS has to be on
+Cloudflare; port 80 is not used for it), keeps the account key and certificate
+in `/data/acme` (0600), checks every 12 hours and renews when fewer than 30
+days are left. A renewed certificate is used for new connections at once;
+nothing restarts and no connection is dropped. If a renewal fails it keeps the
+current certificate, logs `tls renewal failed` with the days left, and tries
+again with backoff.
+
+Until the first certificate arrives (usually under a minute), the plain port
+serves the app as before. After that it answers `/healthz` (the container's
+health check) and redirects everything else to `BASE_URL`.
+
+Checks: `docker compose logs pathayam` shows `https listening`;
+`curl -sI http://budget.example.com/` answers `308` with `Location: https://…`;
+`openssl s_client -connect budget.example.com:443 -servername budget.example.com -brief </dev/null`
+shows `Verification: OK`. Try it first with `ACME_DIRECTORY=staging`, then
+empty it.
+
 ### On Fly.io
 
 Settings go in as Fly secrets, which the app reads as environment variables.
@@ -105,6 +138,8 @@ rotate it casually:
 fly secrets set SECRETS_KEY="$(openssl rand -base64 32)" -a <app>
 fly secrets list -a <app>        # check: SECRETS_KEY is listed
 ```
+
+Fly ends HTTPS at its edge, so `TLS_ACME_DOMAIN` stays unset there. The forwarding address's mail receiver is the exception: it gets its own certificate ([forwarding.md](forwarding.md#tls-for-the-receiver)).
 
 Setting a secret restarts the app's machines once. To take it back,
 `fly secrets unset SECRETS_KEY -a <app>`; stored Google secrets and sealed
@@ -247,6 +282,13 @@ Everything the app reads, and nothing it does not:
 | `INBOUND_ROUTE` | None | This household's prefix on a receiver shared by several (`hh1` makes `hh1.<token>@…`). Empty when the receiver serves this instance alone. Letters and digits, at most 32. |
 | `INBOUND_SECRET` | None | Signs each hand-off from the receiver; the receiver's `MX_ROUTES` entry carries the same value. At least 32 characters (`openssl rand -base64 32`). Without it and `INBOUND_DOMAIN`, Settings says forwarding is not set up. |
 | `PORT` | `8080` | |
+| `TLS_ACME_DOMAIN` | None | Serve HTTPS with a Let's Encrypt certificate for this name, got and renewed by the app ([HTTPS without a proxy](#https-without-a-proxy)). Off unless set; `BASE_URL` must then be `https://`. |
+| `HTTPS_PORT` | `443` | Where HTTPS listens when `TLS_ACME_DOMAIN` is set. Compose uses `8443` and publishes it as 443, because the container runs unprivileged. |
+| `CLOUDFLARE_API_TOKEN` | None | Required with `TLS_ACME_DOMAIN` (and the mail receiver's `MX_TLS_ACME_DOMAIN`): a Cloudflare API token with *Zone · DNS · Edit* for the zone. A Fly secret or `.env`, never committed. |
+| `CLOUDFLARE_ZONE_ID` | found by name | |
+| `ACME_EMAIL` | None | Where Let's Encrypt writes about the certificate. |
+| `ACME_DIRECTORY` | `production` | `production`, `staging` (untrusted certificates, for a first try) or an ACME directory URL. |
+| `ACME_DIR` | `$DATA_DIR/acme` | The ACME account key and the certificates, each file 0600. |
 | `HOST` | `0.0.0.0` | |
 | `DATA_DIR` | `./data` | Where the database, backups and attachments live. |
 | `DATABASE_PATH` | `$DATA_DIR/pathayam.sqlite` | |
