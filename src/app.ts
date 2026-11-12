@@ -8723,7 +8723,7 @@ export function buildApp(deps: AppDeps): {
     const a = consentGate(ctx);
     const parsed = oauth.parseAuthorizeRequest(db, config.baseUrl, (n) => ctx.query.get(n) ?? undefined);
     if ("fatal" in parsed) {
-      return { ...render(ctx, "Connect an app", renderConsentProblem(parsed.fatal, { apiTokens: config.features.apiTokens })), status: 400 };
+      return { ...render(ctx, "Connect an app", renderConsentProblem(parsed.fatal)), status: 400 };
     }
     if ("redirect" in parsed) return { redirect: parsed.redirect };
 
@@ -8769,7 +8769,7 @@ export function buildApp(deps: AppDeps): {
     const a = consentGate(ctx);
     const parsed = oauth.parseAuthorizeRequest(db, config.baseUrl, (n) => field(ctx.body, n));
     if ("fatal" in parsed) {
-      return { ...render(ctx, "Connect an app", renderConsentProblem(parsed.fatal, { apiTokens: config.features.apiTokens })), status: 400 };
+      return { ...render(ctx, "Connect an app", renderConsentProblem(parsed.fatal)), status: 400 };
     }
     if ("redirect" in parsed) return { redirect: parsed.redirect };
 
@@ -10780,7 +10780,8 @@ export function buildApp(deps: AppDeps): {
     const redact = field(ctx.body, "redact") === "1";
     // AIW · Read-only unless the deployment allows changes and the member
     // ticked the box; always expiring, because one forgotten in a config file
-    // should stop on its own. Either way it is an AI token, confined to /mcp.
+    // should stop on its own. Either way it is an AI token: it writes only
+    // through /mcp, and can also read the REST routes (AI-6; the page says so).
     const writes = aiWriteOn && field(ctx.body, "allow_changes") === "1";
     const minted = mintToken(db, actorFor(a), {
       name: requiredField(ctx.body, "name").slice(0, 80),

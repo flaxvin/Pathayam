@@ -79,12 +79,24 @@ under the slabs the app carries. It files nothing, it is not advice, and it is
 not a substitute for an accountant.
 
 **What it does not model**, each of which changes the answer: marginal relief
-on surcharge and on the 87A cliff, so a figure just over a threshold is
-overstated; losses set off between heads or carried forward, and a let-out
+on surcharge, so a figure just over ₹50 lakh, ₹1 crore, ₹2 crore or ₹5 crore
+is overstated; losses set off between heads or carried forward, and a let-out
 house's loss and rent; clubbing; foreign income and treaty relief; presumptive
 schemes under 44AD and 44ADA; interest under 234A, 234B and 234C, which the
 screen names and does not compute; and the resident senior citizen's exemption
 from advance tax (s207).
+
+**Marginal relief on the new regime's 87A limit is worked out (TAX-4).** Just
+over ₹12,00,000 of total income the full rebate is gone, and the tax on slab
+income is cut so that it is no more than the income over ₹12,00,000: ₹12,10,000
+taxable pays ₹10,000 plus cess, ₹10,400, rather than ₹63,960. The relief runs
+out at about ₹12,70,588 and shows on the screen as its own line. It applies to
+FY 2025-26 and FY 2026-27 alike (s87A as amended by the Finance Act 2025, and
+s156 of the Income-tax Act, 2025). Capital gains at special rates count toward
+the ₹12,00,000 but their tax is never relieved; where the Act leaves the
+comparison open, the estimate compares only the slab tax with the income over
+the limit, which never understates. The old regime has no such relief: its
+₹5,00,000 limit is a cliff.
 
 **Home loan interest under 24(b) is carried from the ledger (TAX-1).** A loan
 marked as for a house its owner lives in contributes the interest accrued in

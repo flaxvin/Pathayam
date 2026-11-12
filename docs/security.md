@@ -117,7 +117,11 @@ one-hour lifetime, so nothing about tokens needed a second set of rules. The new
 One deliberate departure from RFC 8707's audience idea: the token is issued for
 `${BASE_URL}/mcp`, but as an API token it is also good on the read routes
 (`/export.json` and the like). Both are this server, under the same member's
-visibility rules.
+visibility rules. The same holds for a token made on Connect an AI. Those
+reads are not masked, whatever the connection chose (only
+`/export/analysis.json` is, AI-3), and they are not in the AI access log, which
+records `/mcp`. We chose to tell the member rather than close the routes: the
+consent page and Connect an AI both say it where the key is made (AI-6).
 
 **Development login** (`DEV_LOGIN`) is absent from the production image: the
 module is compiled then deleted, and the build asserts its absence. The

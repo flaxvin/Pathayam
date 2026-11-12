@@ -109,6 +109,7 @@ function regimeCard(e: RegimeEstimate, isBetter: boolean): SafeHtml {
             ${row("Taxable income", e.taxable, { strong: true })}
             ${row("Tax on slabs", e.taxBeforeRebate)}
             ${e.rebate > 0 ? row("Section 87A rebate", -e.rebate as Paise, { muted: true }) : html``}
+            ${e.marginalRelief > 0 ? row("Marginal relief, 87A", -e.marginalRelief as Paise, { muted: true }) : html``}
             ${e.specialRateTax > 0 ? row("Capital gains, at their own rates", e.specialRateTax) : html``}
             ${e.surcharge > 0 ? row("Surcharge", e.surcharge) : html``}
             ${row("Health and education cess", e.cess)}
@@ -474,7 +475,7 @@ export function renderTax(p: TaxPageProps): SafeHtml {
         what it ignores is one that gets trusted too far.
       </p>
       <ul class="checks">
-        <li><strong>Marginal relief</strong> on surcharge, and on the 87A cliff — so a figure just over a threshold is overstated.</li>
+        <li><strong>Marginal relief on surcharge</strong>, so a figure just over ₹50 lakh, ₹1 crore, ₹2 crore or ₹5 crore is overstated. (Marginal relief just over the new regime's ₹12 lakh rebate limit is worked out, and shown as its own line. The old regime has none: its ₹5 lakh limit is a cliff.)</li>
         <li><strong>Losses set off between heads.</strong> A long-term loss can only go against a long-term gain, and this nets nothing — each bucket is floored at zero, so a year with losses is overstated.</li>
         <li><strong>Losses</strong> set off or carried forward, and clubbing. A let-out house's loss, and its rent, are not here at all.</li>
         <li><strong>Home loan interest beyond the plain case.</strong> Interest before a house is finished (claimed in five parts afterwards), the ₹30,000 limit on a loan taken before April 1999 or for repairs, and a joint loan's split between borrowers — each needs the figure entered by hand.</li>

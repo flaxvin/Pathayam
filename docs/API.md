@@ -196,13 +196,18 @@ then shows an "allow changes" box, never ticked for the member whatever the app
 asked, and a connection approved with it gets `read-write` access tokens (the
 token response's `scope` is `read budget:write`). Whether it may write is read
 again at every refresh, so turning `AI_WRITE` off makes it read-only within the
-hour. Either way the token is an AI connection's, confined to `/mcp`.
-Everything above applies to it unchanged: the deny-list, the rate limit,
-revocation and member removal. Refresh tokens last 90 days and rotate on every
+hour. Either way the token is an AI connection's: it writes only through
+`/mcp`, and like any read token it can also read every GET route here
+(`/export.json` and the rest). Those reads are answered in full, whatever the
+connection chose about masking (only `/export/analysis.json` is masked for it),
+and they are not in the AI access log, which records `/mcp`. The consent page
+and Connect an AI say so when the key is made. Everything above applies to it
+unchanged: the deny-list, the rate limit, revocation and member removal. Refresh tokens last 90 days and rotate on every
 use; presenting an old one again ends the connection, as does using a code
 twice. Errors are RFC 6749 JSON (`invalid_grant`, `invalid_client`, …).
 
-Settings → API tokens lists each approval under **Connected AI apps**;
+More → Connect an AI (`/tokens/ai`) lists each approval, and so does the API
+tokens page (`/tokens`) under **Connected AI apps**;
 **Revoke** there (or revoking the access token itself) ends the access token
 and the refresh token together. Approving and disconnecting are recorded in
 the activity log.
