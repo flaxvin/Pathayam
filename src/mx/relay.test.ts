@@ -313,7 +313,6 @@ test("MAIL-9 · checkAddress asks the app, signed, and maps its answer", async (
   const later = { code: 451, message: "4.4.3 Mailbox service unavailable, try again later" };
   for (const respond of [
     () => new Response(null, { status: 503 }),
-    () => new Response(null, { status: 404 }), // an app from before /inbound/check
     () => new Response("not json", { status: 200 }),
     () => Response.json({ maybe: true }),
     () => { throw new TypeError("fetch failed"); },
@@ -324,6 +323,14 @@ test("MAIL-9 · checkAddress asks the app, signed, and maps its answer", async (
   }
   const refused = await checkAddress(ROUTE, "a.b@in.test", fakeFetch(() => new Response(null, { status: 401 })).fetchImpl);
   assert.deepEqual(refused, { verdict: later, cache: false, misconfigured: 401 });
+});
+
+test("REV-2 · an app that does not answer the check (forwarding off) leaves the verdict to the hand-off", async () => {
+  // FEATURE_FORWARDING=false answers 404 on /inbound/check and /inbound/email
+  // alike. As a 451 at RCPT the sender queued for days and then bounced; let
+  // through, the hand-off's 404 refuses it at once (550), as the docs say.
+  const r = await checkAddress(ROUTE, "a.b@in.test", fakeFetch(() => new Response(null, { status: 404 })).fetchImpl);
+  assert.deepEqual(r, { verdict: "ok", cache: false });
 });
 
 test("MAIL-9 · answers are remembered briefly: five minutes for yes, one for no", () => {

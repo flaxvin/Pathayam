@@ -73,12 +73,20 @@ export function createHttpsFrontend(opts: {
  * container health check asks it over HTTP), everything else is a 308 to the
  * same path on BASE_URL. BASE_URL, not the Host header, so the redirect can
  * never be pointed somewhere else.
+ *
+ * REV-1 · The mail receiver's two calls stay too. Under compose it reaches the
+ * app at http://pathayam:8080 and never follows a redirect, so a 308 turned
+ * every forwarded message into a 451. Both are signed with INBOUND_SECRET and
+ * never come from a browser.
  */
+const PLAIN_PATHS = new Set(["/healthz", "/inbound/email", "/inbound/check"]);
+
 export function redirectingListener(listener: Listener, isLive: () => boolean, baseUrl: string): Listener {
   const origin = new URL(baseUrl).origin;
   return (req, res) => {
     const path = req.url ?? "/";
-    if (!isLive() || path === "/healthz" || path.startsWith("/healthz?")) return listener(req, res);
+    const q = path.indexOf("?");
+    if (!isLive() || PLAIN_PATHS.has(q < 0 ? path : path.slice(0, q))) return listener(req, res);
     const target = `${origin}${path.startsWith("/") ? path : `/${path}`}`;
     res.writeHead(308, { Location: target, "Content-Type": "text/plain", "Cache-Control": "no-store" });
     res.end(`Moved to ${target}\n`);

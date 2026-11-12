@@ -120,7 +120,9 @@ again with backoff.
 
 Until the first certificate arrives (usually under a minute), the plain port
 serves the app as before. After that it answers `/healthz` (the container's
-health check) and redirects everything else to `BASE_URL`.
+health check) and the mail receiver's signed hand-offs (`/inbound/email` and
+`/inbound/check`, which it sends to `http://pathayam:8080`), and redirects
+everything else to `BASE_URL`.
 
 Checks: `docker compose logs pathayam` shows `https listening`;
 `curl -sI http://budget.example.com/` answers `308` with `Location: https://…`;
