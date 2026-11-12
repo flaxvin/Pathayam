@@ -146,3 +146,22 @@ describe("TAX-1..3 · the ledger's home loan interest, and tax already paid", ()
     }
   });
 });
+
+describe("TAX-4 · new-regime marginal relief on the tax page", () => {
+  test("shows as its own line, and the total is the relieved one", async () => {
+    const { app } = await setup();
+    try {
+      // Salary 12,85,000 → 12,10,000 taxable: ₹63,960 before, ₹10,400 now.
+      await app.post("/tax", { fy: "2026", gross: "1285000", s80c: "0", s80d: "0", other: "0" });
+      const page = await (await app.get("/tax?fy=2026")).text();
+      assert.match(page, /Marginal relief, 87A/);
+      assert.match(page, /₹51,500/);
+      assert.match(page, /₹10,400/);
+      assert.doesNotMatch(page, /₹63,960/);
+      // The limitations list no longer says the 87A cliff is unmodelled.
+      assert.doesNotMatch(page, /on the 87A cliff/);
+    } finally {
+      await app.close();
+    }
+  });
+});

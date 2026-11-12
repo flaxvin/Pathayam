@@ -14,7 +14,7 @@ import { rupees, formatPaise, type Paise } from "../core/money.ts";
 import { Refusal } from "../core/refusal.ts";
 import {
   estimateTax, estimateUnder, taxOnSlabs, hraExemption, advanceTaxSchedule,
-  assertKnownYear, RULES, LIMITS, ADVANCE_TAX_THRESHOLD,
+  assertKnownYear, RULES, LIMITS, ADVANCE_TAX_THRESHOLD, type GainsContribution,
 } from "./tax.ts";
 import { taxOnGains } from "./capital-gains-tax.ts";
 
@@ -55,8 +55,8 @@ describe("the 87A rebate", () => {
   });
 
   test("a rupee over the ceiling and the rebate is gone entirely", () => {
-    // The cliff is real and is what marginal relief exists to soften — which
-    // this app does not model, and says so.
+    // The full rebate stops at the ceiling; above it only marginal relief
+    // (TAX-4, below) softens the step.
     const under = estimateUnder(FY, "new", rupees(1_275_000), none);
     const over = estimateUnder(FY, "new", rupees(1_276_000), none);
     assert.equal(under.rebate > 0, true);
@@ -68,6 +68,95 @@ describe("the 87A rebate", () => {
     const e = estimateUnder(FY, "old", rupees(500_000), none);
     // Taxable 4,50,000 → tax 10,000, under the ₹12,500 cap, so nil.
     assert.equal(e.total, 0);
+  });
+});
+
+describe("TAX-4 · new-regime marginal relief on the 87A ceiling", () => {
+  const FY27 = 2026;
+  const salary = (gross: number, gains: GainsContribution | null = null, fy = FY27) =>
+    estimateUnder(fy, "new", rupees(gross), none, gains);
+
+  test("₹12,00,000 taxable is nil, by the rebate, with no relief needed", () => {
+    const e = salary(1_275_000);
+    assert.equal(e.taxable, rupees(1_200_000));
+    assert.equal(e.total, 0);
+    assert.equal(e.marginalRelief, 0);
+  });
+
+  test("₹12,10,000 taxable pays ₹10,400, not ₹63,960 (the weekly-pass case)", () => {
+    // Salary 12,85,000 − 75,000 = 12,10,000. Slab tax 61,500; income over
+    // 12L is 10,000, so 51,500 of relief; 10,000 + 4% cess = 10,400.
+    const e = salary(1_285_000);
+    assert.equal(e.taxable, rupees(1_210_000));
+    assert.equal(e.taxBeforeRebate, rupees(61_500));
+    assert.equal(e.rebate, 0);
+    assert.equal(e.marginalRelief, rupees(51_500));
+    assert.equal(e.cess, rupees(400));
+    assert.equal(e.total, rupees(10_400));
+  });
+
+  test("the same in FY 2025-26", () => {
+    assert.equal(salary(1_285_000, null, 2025).total, rupees(10_400));
+  });
+
+  test("the relief runs out where slab tax meets the income over 12L, about ₹12,70,588", () => {
+    // Taxable 12,70,588: slab tax 70,588.20 against 70,588 over: 20 paise.
+    const at = salary(1_345_588);
+    assert.equal(at.taxable, rupees(1_270_588));
+    assert.equal(at.marginalRelief, 20);
+    // Taxable 12,70,600: slab tax 70,590 is under the 70,600 over: none.
+    const past = salary(1_345_600);
+    assert.equal(past.marginalRelief, 0);
+    assert.equal(past.taxBeforeRebate, rupees(70_590));
+    // Both round to the same payable, so there is no step at the crossover.
+    assert.equal(at.total, past.total);
+    assert.equal(past.total, rupees(73_410));
+  });
+
+  test("₹13,00,000 taxable is taxed normally: ₹75,000 + cess = ₹78,000", () => {
+    const e = salary(1_375_000);
+    assert.equal(e.taxable, rupees(1_300_000));
+    assert.equal(e.marginalRelief, 0);
+    assert.equal(e.total, rupees(78_000));
+  });
+
+  test("a ₹13,00,000 salary (₹12,25,000 taxable after the standard deduction) pays ₹26,000", () => {
+    // Was ₹66,300 (63,750 + cess) without the relief; capped at the 25,000 over.
+    const e = salary(1_300_000);
+    assert.equal(e.standardDeduction, rupees(75_000));
+    assert.equal(e.taxable, rupees(1_225_000));
+    assert.equal(e.taxBeforeRebate, rupees(63_750));
+    assert.equal(e.marginalRelief, rupees(38_750));
+    assert.equal(e.total, rupees(26_000));
+  });
+
+  test("with a short-term equity gain: gains count toward 12L, and their tax is never relieved", () => {
+    // Taxable salary 11,25,000 + 1,00,000 of 111A gain = 12,25,000 total.
+    // Slab tax 52,500 is cut to the 25,000 over; the 20,000 of gains tax stays.
+    // 45,000 + 4% = 46,800.
+    const stcg: GainsContribution = {
+      addToSlabIncome: 0 as Paise, specialRateTax: 0 as Paise,
+      special: {
+        s111a: rupees(100_000), s111aBp: 2000,
+        s112a: 0 as Paise, s112aBp: 1250, s112aExemption: rupees(125_000),
+        s112: 0 as Paise, s112Bp: 1250,
+      },
+    };
+    const e = salary(1_200_000, stcg);
+    assert.equal(e.totalIncome, rupees(1_225_000));
+    assert.equal(e.rebate, 0, "total income is over 12L, so no full rebate");
+    assert.equal(e.taxBeforeRebate, rupees(52_500));
+    assert.equal(e.marginalRelief, rupees(27_500));
+    assert.equal(e.specialRateTax, rupees(20_000));
+    assert.equal(e.total, rupees(46_800));
+  });
+
+  test("the old regime has no relief: its ₹5,00,000 ceiling stays a cliff", () => {
+    // Old regime, taxable 5,10,000: 12,500 + 2,000 = 14,500 + cess = 15,080.
+    const e = estimateUnder(FY27, "old", rupees(560_000), none);
+    assert.equal(e.taxable, rupees(510_000));
+    assert.equal(e.marginalRelief, 0);
+    assert.equal(e.total, rupees(15_080));
   });
 });
 
