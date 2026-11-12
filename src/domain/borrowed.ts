@@ -11,7 +11,8 @@
  * coin, turns something you already owned into cash: return of capital, not
  * earnings. The gain inside it is reported where gains are (the Tax page adds
  * realised gains on their own, so counting the proceeds as well counted the
- * gain twice there).
+ * gain twice there). REV-22 · A hand-valued asset (gold, property) has no
+ * cost on record, so its gain is reported nowhere; the Tax page says to add it.
  *
  * A row is left out of income when something links it as such, never by its
  * memo:
