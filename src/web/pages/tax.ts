@@ -210,8 +210,10 @@ export function renderTax(p: TaxPageProps): SafeHtml {
           which is not the same as taxable salary — it misses anything paid into
           an account this app does not hold, and it includes receipts that are
           not income at all. Money a loan paid in, and what a sale brought in,
-          are already left out (a sale's gain is counted with your gains below).
-          Correct it here; this figure is what the estimate uses.
+          are already left out. A sale from your portfolio has its gain counted
+          with your gains below; gold, property or anything else valued by hand
+          has no cost on record here, so if you sold one at a gain, add its gain
+          yourself. Correct it here; this figure is what the estimate uses.
         </p>
       </div>
 

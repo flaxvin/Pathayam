@@ -14,12 +14,14 @@ import assert from "node:assert/strict";
 import { openDatabase, ensureHousehold, execute } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { nowIST, todayIST, monthOf } from "../core/dates.ts";
-import { rupees } from "../core/money.ts";
+import { rupees, type Paise } from "../core/money.ts";
 import { createAccount } from "./accounts.ts";
 import { createGroup, createCategory, setAssigned } from "./budget.ts";
 import { createTransaction } from "./transactions.ts";
 import { loadEngineInput } from "../engine/repository.ts";
-import { computeBudget, identityResidual } from "../engine/engine.ts";
+import { computeBudget, identityResidual, cardFunding } from "../engine/engine.ts";
+import { cardsDue } from "../web/screen-data.ts";
+import { householdBudgetId } from "./budgets.ts";
 import { convertToEmi } from "./card-emi.ts";
 import { paymentCategoryForLoan } from "./loans.ts";
 
@@ -72,5 +74,41 @@ describe("ENG-21 · only money set aside follows the debt to the plan", () => {
     const { db, charge } = cardWith(rupees(30_000));
     const r = convertToEmi(db, actor, { transactionId: charge.id, tenureMonths: 6, annualRatePct: 15 });
     assert.equal(planBalance(db, r.loan.id), rupees(30_000));
+  });
+});
+
+/*
+ * REV-20 · UI-14 and ENG-21 together. ENG-21 leaves the overspent ₹30,000 in
+ * the card's payment envelope (it is not money, so it does not follow the
+ * debt), and UI-14's "Set aside" took only the overspend still unfunded off
+ * that balance. Once the charge is converted the card owes nothing, so none of
+ * the overspend is unfunded, and Cards read "Set aside ₹30,000" on a card
+ * nobody had put a rupee by for. Set aside is the balance less the whole
+ * overspend in it.
+ */
+describe("REV-20 · a card converted after overspending shows nothing set aside that was not", () => {
+  const due = (db: ReturnType<typeof cardWith>["db"], cardId: string) =>
+    cardsDue(db, { month: MONTH, budgetId: householdBudgetId(db), viewerMemberId: "m-ravi" })
+      .find((c) => c.accountId === cardId)!;
+
+  test("a charge from an empty envelope, converted: ₹0 set aside", () => {
+    const { db, card, charge } = cardWith(0);
+    assert.equal(due(db, card.id).setAside, 0, "before: nothing set aside");
+    convertToEmi(db, actor, { transactionId: charge.id, tenureMonths: 6, annualRatePct: 15 });
+    const after = due(db, card.id);
+    assert.equal(after.owed, 0);
+    assert.equal(after.setAside, 0, "the overspend is still not money once the debt has moved");
+  });
+
+  test("a part-funded charge, converted: the funded part went to the plan, so ₹0 is left", () => {
+    const { db, card, charge } = cardWith(rupees(10_000));
+    assert.equal(due(db, card.id).setAside, rupees(10_000));
+    convertToEmi(db, actor, { transactionId: charge.id, tenureMonths: 6, annualRatePct: 15 });
+    assert.equal(due(db, card.id).setAside, 0);
+  });
+
+  test("an envelope holding more than an overspent card owes counts only the real money", () => {
+    const f = cardFunding("c", -rupees(30_000) as Paise, rupees(80_000) as Paise, rupees(30_000) as Paise);
+    assert.equal(f.setAside, rupees(50_000), "₹80,000 in the envelope, ₹30,000 of it overspend");
   });
 });
