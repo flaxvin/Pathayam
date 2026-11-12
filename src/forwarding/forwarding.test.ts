@@ -17,10 +17,13 @@ import { STATEMENTS, STATEMENT_IDENTITY, SBI_CARD_LAST4 } from "../import/statem
 import { deriveSecretsKey } from "../gmail/secrets.ts";
 import { signDkim, keyRecord } from "../mail/dkim-sign.test-data.ts";
 import type { TxtResolver } from "../mail/dkim.ts";
-import { signInbound, SIGNATURE_HEADER, RECIPIENT_HEADER } from "../mail/signature.ts";
+import { signInbound, signInboundCheck, SIGNATURE_HEADER, RECIPIENT_HEADER } from "../mail/signature.ts";
+import { connect, type Socket } from "node:net";
+import { INBOUND_CONCURRENCY } from "../app.ts";
 import { freshDb, seedMember, startTestApp, type TestApp, type TestConfigOverrides } from "../web/harness.test-data.ts";
 import { addressRow, formatAddress, issueAddress, newToken, tokenFromRecipient } from "./address.ts";
 import { purgeForwarded } from "./held.ts";
+import { removeMember } from "../auth/sessions.ts";
 
 const RAVI = "m-ravi";
 const actor: Actor = { memberId: RAVI, source: "ui" };
@@ -172,6 +175,32 @@ describe("FWD · the address", () => {
     }
   });
 
+  test("MAIL-6 · a removed member's address stops taking mail, and does not come back with them", async () => {
+    const db = setup();
+    seedMember(db, "m-meera", "Meera");
+    const meera: Actor = { memberId: "m-meera", source: "ui" };
+    createAccount(db, meera, {
+      name: "Axis Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01", last4: "0000",
+    });
+    const token = issueAddress(db, meera).token;
+    const a = await app(db);
+    try {
+      const raw = signedAndForwarded(plainMail("alerts@axis.bank.in", "INR 600 debited", AXIS_ALERT), "axis.bank.in");
+      removeMember(db, actor, "m-meera");
+      assert.equal((await handOff(a, formatAddress(INBOUND, token)!, raw)).status, 404);
+      assert.equal(staged(db).length, 0);
+      assert.equal(addressRow(db, "m-meera"), null, "removal ends the address");
+
+      // An address left from before this fix is refused too.
+      execute(db, "INSERT INTO forwarding_addresses (member_id, token, created_at) VALUES (?,?,?)",
+        "m-meera", token, "2026-11-01T00:00:00.000+05:30");
+      assert.equal((await handOff(a, formatAddress(INBOUND, token)!, raw)).status, 404);
+      assert.equal(staged(db).length, 0);
+    } finally {
+      await a.close();
+    }
+  });
+
   test("Settings says forwarding is not set up when the server has no INBOUND_DOMAIN", async () => {
     const db = setup();
     const a = await app(db, { inbound: { domain: null, route: "", secret: null } });
@@ -234,6 +263,82 @@ describe("FWD · a forwarded alert", () => {
       assert.deepEqual(log(db).map((l) => l.outcome), ["unsigned", "unsigned", "unsigned"]);
       const page = await (await a.get("/settings")).text();
       assert.match(page, /Signature did not check out/);
+    } finally {
+      await a.close();
+    }
+  });
+
+  test("MAIL-1 · a signature that covers only part of the body (l=) does not vouch for what follows", async () => {
+    const db = setup();
+    createAccount(db, actor, {
+      name: "Axis Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01", last4: "0000",
+    });
+    issueAddress(db, actor);
+    const a = await app(db);
+    try {
+      // The bank signed only its greeting; everything after it is anybody's.
+      const mail = plainMail("alerts@axis.bank.in", "INR 600 debited", "Dear Ravi Kumar,\n");
+      const signed = Buffer.from(signDkim(mail, {
+        domain: "axis.bank.in", selector: "s1", privateKey: keyFor("axis.bank.in").privateKey, extraTags: { l: "18" },
+      })).toString("latin1");
+      const forged = signed + AXIS_ALERT.replace(/\n/g, "\r\n").replace("Dear Ravi Kumar,\r\n", "") + "\r\n";
+      assert.equal((await handOff(a, addressOf(db), new Uint8Array(Buffer.from(forged, "latin1")))).status, 202);
+      assert.equal(staged(db).length, 0, "the appended alert was not imported");
+      assert.deepEqual(log(db).map((l) => [l.outcome, l.signed]), [["unsigned", 0]]);
+    } finally {
+      await a.close();
+    }
+  });
+
+  test("MAIL-2 · a second Subject or From added above the bank's signed one is not trusted", async () => {
+    const db = setup();
+    createAccount(db, actor, {
+      name: "Axis Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01", last4: "0000",
+    });
+    issueAddress(db, actor);
+    const a = await app(db);
+    try {
+      const genuine = Buffer.from(signedAndForwarded(plainMail("alerts@axis.bank.in", "INR 600 debited", AXIS_ALERT), "axis.bank.in"));
+      // DKIM checks the bottom-most Subject (the bank's); the reader took the first one.
+      const extraSubject = Buffer.concat([Buffer.from("Subject: INR 90,000 debited to FRAUDSTER\r\n"), genuine]);
+      assert.equal((await handOff(a, addressOf(db), new Uint8Array(extraSubject))).status, 202);
+      const extraFrom = Buffer.concat([Buffer.from("From: alerts@axis.bank.in\r\n"), genuine]);
+      assert.equal((await handOff(a, addressOf(db), new Uint8Array(extraFrom))).status, 202);
+      assert.equal(staged(db).length, 0);
+      assert.deepEqual(log(db).map((l) => l.outcome), ["unsigned", "unsigned"]);
+      // The same message as the bank sent it still reads.
+      assert.equal((await handOff(a, addressOf(db), new Uint8Array(genuine))).status, 202);
+      assert.equal(staged(db).length, 1);
+    } finally {
+      await a.close();
+    }
+  });
+
+  test("MAIL-4 · when the bank's key cannot be looked up just now, the sender is asked to retry, not told it was forged", async () => {
+    const db = setup();
+    createAccount(db, actor, {
+      name: "Axis Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01", last4: "0000",
+    });
+    issueAddress(db, actor);
+    let dnsDown = true;
+    const flaky: TxtResolver = async (name) => {
+      if (dnsDown) throw Object.assign(new Error("timeout"), { code: "ETIMEOUT" });
+      return resolveTxt(name);
+    };
+    const a = await startTestApp(db, {
+      memberId: RAVI, resolveTxt: flaky,
+      config: { inbound: INBOUND, secretsKey: deriveSecretsKey("k".repeat(40)) },
+    });
+    try {
+      const raw = signedAndForwarded(plainMail("alerts@axis.bank.in", "INR 600 debited", AXIS_ALERT), "axis.bank.in");
+      const res = await handOff(a, addressOf(db), raw);
+      assert.equal(res.status, 503, "a temporary answer: the receiver says 451 and the sender tries again");
+      assert.equal(log(db).length, 0, "nothing is logged as forged");
+      assert.equal(staged(db).length, 0);
+
+      dnsDown = false;
+      assert.equal((await handOff(a, addressOf(db), raw)).status, 202);
+      assert.equal(staged(db).length, 1, "the retry imports it");
     } finally {
       await a.close();
     }
@@ -308,6 +413,184 @@ describe("FWD · the hand-off itself", () => {
     const unset = await app(db, { inbound: { domain: "in.pathayam.test", route: "hh1", secret: null } });
     try {
       assert.equal((await handOff(unset, addressOf(db), raw)).status, 503);
+    } finally {
+      await unset.close();
+    }
+  });
+});
+
+/**
+ * Sends a hand-off's headers and `sent` bytes of a body declared to be
+ * `declared` long, and gives the status line if one arrives within `ms`, or
+ * null if the server sat waiting for the rest. The socket is handed back so a
+ * test can hold the request open.
+ */
+function partialHandOff(
+  baseUrl: string, headers: Record<string, string>, declared: number, sent: number, ms = 1500,
+): { status: Promise<number | null>; socket: Socket } {
+  const { hostname, port } = new URL(baseUrl);
+  const socket = connect(Number(port), hostname);
+  const status = new Promise<number | null>((resolve) => {
+    let buffer = "";
+    const timer = setTimeout(() => resolve(null), ms);
+    socket.on("data", (chunk) => {
+      buffer += chunk.toString("latin1");
+      const m = /^HTTP\/1\.1 (\d{3})/.exec(buffer);
+      if (m) { clearTimeout(timer); resolve(Number(m[1])); }
+    });
+    socket.on("error", () => { clearTimeout(timer); resolve(null); });
+  });
+  const all = { Host: `${hostname}:${port}`, "Content-Type": "message/rfc822", "Content-Length": String(declared), ...headers };
+  socket.write(
+    `POST /inbound/email HTTP/1.1\r\n${Object.entries(all).map(([k, v]) => `${k}: ${v}\r\n`).join("")}\r\n${"x".repeat(sent)}`,
+  );
+  return { status, socket };
+}
+
+describe("MAIL-7 · the hand-off is not read for somebody who cannot be the receiver", () => {
+  test("a missing, malformed or stale signature is refused before the body is read", async () => {
+    const db = setup();
+    issueAddress(db, actor);
+    const a = await app(db);
+    const sockets: Socket[] = [];
+    try {
+      const big = 20 * 1024 * 1024;
+      const stale = signInbound(SECRET, addressOf(db), new Uint8Array(0), new Date(Date.now() - 600_000));
+      const future = signInbound(SECRET, addressOf(db), new Uint8Array(0), new Date(Date.now() + 600_000));
+      const cases: [string, Record<string, string>][] = [
+        ["missing", { [RECIPIENT_HEADER]: addressOf(db) }],
+        ["malformed", { [RECIPIENT_HEADER]: addressOf(db), [SIGNATURE_HEADER]: "t=1,v1=nothex" }],
+        ["no time", { [RECIPIENT_HEADER]: addressOf(db), [SIGNATURE_HEADER]: `v1=${"a".repeat(64)}` }],
+        ["stale", { [RECIPIENT_HEADER]: addressOf(db), [SIGNATURE_HEADER]: stale }],
+        ["from the future", { [RECIPIENT_HEADER]: addressOf(db), [SIGNATURE_HEADER]: future }],
+      ];
+      for (const [name, headers] of cases) {
+        const { status, socket } = partialHandOff(a.baseUrl, headers, big, 1024);
+        sockets.push(socket);
+        assert.equal(await status, 401, `${name}: the server waited for 20 MiB from somebody without a signature`);
+      }
+      assert.equal(log(db).length, 0);
+    } finally {
+      for (const s of sockets) s.destroy();
+      await a.close();
+    }
+  });
+
+  test(`at most ${INBOUND_CONCURRENCY} hand-offs are read at once; one more is told to come back (503)`, async () => {
+    const db = setup();
+    issueAddress(db, actor);
+    const a = await app(db);
+    const held: Socket[] = [];
+    try {
+      // Fresh-looking signatures, bodies that never finish arriving.
+      const headers = {
+        [RECIPIENT_HEADER]: addressOf(db),
+        [SIGNATURE_HEADER]: signInbound(SECRET, addressOf(db), new Uint8Array(0)),
+      };
+      for (let i = 0; i < INBOUND_CONCURRENCY; i++) {
+        const { status, socket } = partialHandOff(a.baseUrl, headers, 1024 * 1024, 100, 300);
+        held.push(socket);
+        assert.equal(await status, null, "a slow hand-off is waited for");
+      }
+      const raw = new Uint8Array(Buffer.from(plainMail("alerts@axis.bank.in", "x", AXIS_ALERT)));
+      const busy = await handOff(a, addressOf(db), raw);
+      assert.equal(busy.status, 503);
+      assert.ok(busy.headers.get("retry-after"));
+      assert.equal(log(db).length, 0, "the refused one was not read");
+
+      // The slow ones go away; their places are given back.
+      for (const s of held) s.destroy();
+      let status = 0;
+      for (let i = 0; i < 50 && status !== 202; i++) {
+        await new Promise((r) => setTimeout(r, 20));
+        status = (await handOff(a, addressOf(db), raw)).status;
+      }
+      assert.equal(status, 202);
+    } finally {
+      for (const s of held) s.destroy();
+      await a.close();
+    }
+  });
+});
+
+describe("MAIL-9 · the receiver's question at RCPT time", () => {
+  function ask(a: TestApp, recipient: string, signature?: string): Promise<Response> {
+    return fetch(`${a.baseUrl}/inbound/check`, {
+      method: "POST",
+      headers: {
+        [RECIPIENT_HEADER]: recipient,
+        ...(signature === undefined ? {} : { [SIGNATURE_HEADER]: signature }),
+      },
+    });
+  }
+
+  test("a signed question is answered known or not; an unsigned one learns nothing", async () => {
+    const db = setup();
+    issueAddress(db, actor);
+    const a = await app(db);
+    try {
+      const mine = addressOf(db);
+      const plus = mine.replace("@", "+hdfc@");
+      const nobody = `hh1.${newToken()}@${INBOUND.domain}`;
+      const known = async (r: string) => {
+        const res = await ask(a, r, signInboundCheck(SECRET, r));
+        assert.equal(res.status, 200, r);
+        return ((await res.json()) as { known: boolean }).known;
+      };
+      assert.equal(await known(mine), true);
+      assert.equal(await known(plus), true);
+      assert.equal(await known(nobody), false);
+      assert.equal(await known(mine.replace("hh1.", "hh9.")), false, "another household's route");
+
+      // Without the secret, a real address and a made-up one get the same answer.
+      for (const r of [mine, nobody]) {
+        assert.equal((await ask(a, r)).status, 401);
+        assert.equal((await ask(a, r, signInboundCheck("not-the-secret-not-the-secret", r))).status, 401);
+        assert.equal((await ask(a, r, signInboundCheck(SECRET, r, new Date(Date.now() - 600_000)))).status, 401);
+      }
+      // A question's signature is not a hand-off's, nor the other way round.
+      const asHandOff = signInbound(SECRET, mine, new Uint8Array(0));
+      assert.equal((await ask(a, mine, asHandOff)).status, 401);
+      const res = await fetch(`${a.baseUrl}/inbound/email`, {
+        method: "POST",
+        headers: { [RECIPIENT_HEADER]: mine, [SIGNATURE_HEADER]: signInboundCheck(SECRET, mine) },
+        body: new Uint8Array(0),
+      });
+      assert.equal(res.status, 401);
+      // Signed for one address, asked about another.
+      assert.equal((await ask(a, mine, signInboundCheck(SECRET, nobody))).status, 401);
+    } finally {
+      await a.close();
+    }
+  });
+
+  test("a removed member's address, or one turned off, is not known", async () => {
+    const db = setup();
+    issueAddress(db, actor);
+    const mine = addressOf(db);
+    const a = await app(db);
+    try {
+      execute(db, "DELETE FROM forwarding_addresses WHERE member_id = ?", RAVI);
+      const res = await ask(a, mine, signInboundCheck(SECRET, mine));
+      assert.deepEqual(await res.json(), { known: false });
+    } finally {
+      await a.close();
+    }
+  });
+
+  test("with the module off it is not there; with no secret it says so", async () => {
+    const db = setup();
+    issueAddress(db, actor);
+    const mine = addressOf(db);
+    const off = await app(db, { features: { forwarding: false } });
+    try {
+      assert.equal((await ask(off, mine, signInboundCheck(SECRET, mine))).status, 404);
+    } finally {
+      await off.close();
+    }
+    const unset = await app(db, { inbound: { domain: "in.pathayam.test", route: "hh1", secret: null } });
+    try {
+      assert.equal((await ask(unset, mine, signInboundCheck(SECRET, mine))).status, 503);
     } finally {
       await unset.close();
     }
@@ -403,6 +686,30 @@ describe("FWD · a locked statement", () => {
     }
   });
 
+  test("MAIL-3 · Try again keeps one that opens but has no single account to go to", async () => {
+    const { db, accountId } = sbiCardSetup();
+    // A second SBI card: the statement opens but cannot pick between them.
+    createAccount(db, actor, {
+      name: "SBI Card 2", kind: "credit", subtype: "credit-card", openingDate: "2026-08-01", institution: "SBI Card",
+    });
+    const a = await app(db);
+    try {
+      const raw = signedAndForwarded(pdfMail("SBI Card <statements@sbicard.com>", STATEMENTS.sbiCardEncrypted, "sbicard.pdf"), "sbicard.com");
+      assert.equal((await handOff(a, addressOf(db), raw)).status, 202);
+      assert.equal(queryAll(db, "SELECT id FROM forwarded_statements").length, 1);
+
+      setCardNumberDigits(db, actor, accountId, SBI_CARD_LAST4);
+      const res = await a.post("/forwarding/retry");
+      const notice = new URL(res.headers.get("location")!, a.baseUrl).searchParams.get("notice")!;
+      assert.equal(batches(db), 0);
+      assert.equal(queryAll(db, "SELECT id FROM forwarded_statements").length, 1, "kept: it arrived once and has not been imported");
+      assert.match(notice, /no single account/);
+      assert.deepEqual(a.failures, []);
+    } finally {
+      await a.close();
+    }
+  });
+
   test("is not kept without SECRETS_KEY, and the log says so", async () => {
     const { db } = sbiCardSetup();
     const a = await app(db, { secretsKey: null });
@@ -475,6 +782,12 @@ describe("FWD · from SMTP to Review", () => {
     await say("EHLO forwarder.test\r\n");
     await say("MAIL FROM:<bounce@forwarder.test>\r\n");
     await say(`RCPT TO:<${rcpt}>\r\n`);
+    // MAIL-9 · An address the app does not know is refused here, before any data.
+    if (replies.at(-1)?.startsWith("5")) {
+      await say("QUIT\r\n");
+      socket.destroy();
+      return replies;
+    }
     await say("DATA\r\n");
     const body = Buffer.from(raw).toString("latin1").replace(/^\./gm, "..");
     await say(Buffer.from(`${body}${body.endsWith("\r\n") ? "" : "\r\n"}.\r\n`, "latin1"));
@@ -508,7 +821,8 @@ describe("FWD · from SMTP to Review", () => {
       assert.equal(log(db)[0]!.outcome, "read", "the dot-stuffed body still matched the bank's signature");
 
       const dead = await sendSmtp(mx.port, `hh1.${newToken()}@${INBOUND.domain}`, raw);
-      assert.ok(dead.some((r) => r.startsWith("550")), dead.join("\n"));
+      assert.ok(dead.some((r) => r.startsWith("550 5.1.1")), dead.join("\n"));
+      assert.ok(!dead.some((r) => r.startsWith("354")), "refused at RCPT, before any data");
     } finally {
       await mx.close(100);
       await a.close();

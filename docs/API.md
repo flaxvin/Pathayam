@@ -196,13 +196,18 @@ then shows an "allow changes" box, never ticked for the member whatever the app
 asked, and a connection approved with it gets `read-write` access tokens (the
 token response's `scope` is `read budget:write`). Whether it may write is read
 again at every refresh, so turning `AI_WRITE` off makes it read-only within the
-hour. Either way the token is an AI connection's, confined to `/mcp`.
-Everything above applies to it unchanged: the deny-list, the rate limit,
-revocation and member removal. Refresh tokens last 90 days and rotate on every
+hour. Either way the token is an AI connection's: it writes only through
+`/mcp`, and like any read token it can also read every GET route here
+(`/export.json` and the rest). Those reads are answered in full, whatever the
+connection chose about masking (only `/export/analysis.json` is masked for it),
+and they are not in the AI access log, which records `/mcp`. The consent page
+and Connect an AI say so when the key is made. Everything above applies to it
+unchanged: the deny-list, the rate limit, revocation and member removal. Refresh tokens last 90 days and rotate on every
 use; presenting an old one again ends the connection, as does using a code
 twice. Errors are RFC 6749 JSON (`invalid_grant`, `invalid_client`, …).
 
-Settings → API tokens lists each approval under **Connected AI apps**;
+More → Connect an AI (`/tokens/ai`) lists each approval, and so does the API
+tokens page (`/tokens`) under **Connected AI apps**;
 **Revoke** there (or revoking the access token itself) ends the access token
 and the refresh token together. Approving and disconnecting are recorded in
 the activity log.
@@ -229,7 +234,10 @@ An instance may run with modules switched off (`PLAN` and `FEATURE_*`, see
 that is off answers **404**, the same as a route that never existed, whichever
 way the request authenticates. With `FEATURE_API_TOKENS` off, every bearer
 token answers **403** `{"error":"API tokens are not available on this
-instance."}` except on `/mcp`, which `FEATURE_AI` governs. The token is kept,
+instance."}` except on `/mcp`, which `FEATURE_AI` governs. With `FEATURE_AI`
+off, an AI connection's token (made on Connect an AI, or an app's OAuth access
+token) answers **403** `{"error":"AI connections are not available on this
+instance."}` on every route. The token is kept,
 and it works again once the module is back on. The Health screen names the plan
 and every module that is off.
 
@@ -479,9 +487,23 @@ keyed with `INBOUND_SECRET` and at most five minutes old.
 | Status | Meaning |
 |---|---|
 | `202` | Taken: imported, or logged and dropped (not a bank, no valid bank signature). |
-| `401` | The signature is missing, wrong or stale. |
+| `401` | The signature is missing, wrong or stale. A missing, malformed or stale header is refused before the body is read. |
 | `404` | No such address on this instance. The receiver refuses the message. |
 | `413` | Over 26 MiB. |
+| `503` | `INBOUND_DOMAIN` or `INBOUND_SECRET` is not set; or four hand-offs are already being read (with `Retry-After`), and the receiver tells the sender to retry. |
+
+### The mail receiver's address check: `POST /inbound/check`
+
+Also not for scripts: the receiver asks this before it takes a message, so mail
+to an address nobody has is refused at once. No body; `X-Pathayam-Recipient`
+names the address, and `X-Pathayam-Signature` is `t=<unix seconds>,v1=<hex
+HMAC-SHA256>` over `check.<t>.<recipient>.`, keyed with `INBOUND_SECRET` and at
+most five minutes old.
+
+| Status | Meaning |
+|---|---|
+| `200` | `{"known": true}` for an address in use on this instance, `{"known": false}` otherwise. |
+| `401` | The signature is missing, wrong or stale. Nothing is said about the address. |
 | `503` | `INBOUND_DOMAIN` or `INBOUND_SECRET` is not set. |
 
 ## Worked examples

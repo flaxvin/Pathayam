@@ -1154,6 +1154,39 @@ export function averageDailySpend(
  * buffer. The floor keeps a refund of something bought before the window from
  * eating other envelopes' spending.
  */
+/**
+ * ENG-17 · What an unsplit transaction `t` consumed, as a signed amount: its
+ * amount, less the principal of a card EMI instalment whose plan was converted
+ * from a recorded purchase. That purchase was spending the day it was charged;
+ * the principal repays it, as a card payment repays a card, so only the
+ * interest is new. A ₹60,000 purchase converted over 12 months was counted as
+ * about ₹1,26,000 of spending in its year. A plan not converted here (one taken
+ * before the app) has no purchase on record, so its instalments count whole.
+ */
+export const SPENT_AMOUNT_SQL = `(t.amount + COALESCE((
+    SELECT SUM(lp.principal) FROM loan_payments lp JOIN loans l ON l.id = lp.loan_id
+     WHERE lp.transaction_id = t.id AND l.converted_from_transaction_id IS NOT NULL), 0))`;
+
+/**
+ * REV-21 · The same principal, by transaction, for callers that add up rows
+ * themselves (the month close): what SPENT_AMOUNT_SQL takes off each one.
+ */
+export function convertedPrincipalByTransaction(
+  db: DB, from: IsoDate, to: IsoDate,
+): Map<string, Paise> {
+  return new Map(queryAll<{ id: string; principal: number }>(
+    db,
+    `SELECT lp.transaction_id AS id, SUM(lp.principal) AS principal
+       FROM loan_payments lp
+       JOIN loans l ON l.id = lp.loan_id
+       JOIN transactions t ON t.id = lp.transaction_id
+      WHERE l.converted_from_transaction_id IS NOT NULL
+        AND t.date >= ? AND t.date <= ?
+      GROUP BY lp.transaction_id`,
+    from, to,
+  ).map((r) => [r.id, r.principal as Paise]));
+}
+
 export function envelopeSpendBetween(
   db: DB, from: IsoDate, to: IsoDate, viewerMemberId?: string | null,
   budgetIds?: readonly string[],
@@ -1182,7 +1215,8 @@ export function envelopeSpendBetween(
   return queryValue<number>(
     db,
     `WITH categorised AS (
-       SELECT t.id AS transaction_id, t.account_id AS account_id, t.category_id AS category_id, t.amount AS amount
+       SELECT t.id AS transaction_id, t.account_id AS account_id, t.category_id AS category_id,
+              ${SPENT_AMOUNT_SQL} AS amount
          FROM transactions t
         WHERE t.deleted_at IS NULL AND t.is_split = 0 AND t.category_id IS NOT NULL
           AND t.date >= ? AND t.date <= ?${seen.sql}

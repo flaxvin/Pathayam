@@ -73,6 +73,23 @@ describe("S15 · the client script", () => {
     assert.match(CLIENT_SCRIPT, /submitter\.hasAttribute\("formaction"\)/);
   });
 
+  /*
+   * UI-18 · Some posts answer with a page rather than a redirect: reconcile's
+   * difference, a rule tried on history, a minted token or AI connection whose
+   * secret is shown once, an undo that asks first. The script asked for JSON,
+   * got that page, read it as an empty answer and refetched the form — so
+   * "Check it" on Reconcile did nothing visible, and a minted token's secret
+   * was never seen. A 2xx page is now swapped in as it came back.
+   */
+  test("UI-18 · a post answered with a page shows that page instead of refetching", () => {
+    const submit = CLIENT_SCRIPT.slice(CLIENT_SCRIPT.indexOf("function submitWithRetry("));
+    assert.match(submit, /response\.headers\.get\("Content-Type"\)/);
+    assert.match(submit, /indexOf\("text\/html"\) !== -1/);
+    assert.match(submit, /updatePage\([^;]*, markup\)/);
+    assert.match(CLIENT_SCRIPT, /function updatePage\(url, message, kind, onFail, markup\)/);
+    assert.match(CLIENT_SCRIPT, /rendered \? Promise\.resolve\(markup\)/);
+  });
+
   test("B60 · a successful mutation updates in place rather than navigating", () => {
     // The two calls that threw away the scroll position, and the message.
     assert.equal(

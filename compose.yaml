@@ -23,6 +23,11 @@ services:
     # Bound to loopback: the tunnel reaches it, the LAN does not.
     ports:
       - "127.0.0.1:${PORT:-8080}:8080"
+      # TLS-1 · Facing the internet with no tunnel? Set TLS_ACME_DOMAIN in .env,
+      # uncomment these two, and set TRUST_PROXY to "false" below. The app gets
+      # its own Let's Encrypt certificate and serves HTTPS on 8443 inside.
+      # - "443:8443"
+      # - "80:8080"
     volumes:
       - pathayam-data:/data
     environment:
@@ -87,6 +92,17 @@ services:
       # Q18 settled on rupee-only accounts; off in every preset.
       FEATURE_MULTI_CURRENCY: ${FEATURE_MULTI_CURRENCY:-}
 
+      # TLS-1 · The app's own HTTPS with a Let's Encrypt certificate, proved by
+      # a DNS record made through Cloudflare and renewed by the app. Off while
+      # TLS_ACME_DOMAIN is empty, which is right behind a tunnel. The account key
+      # and certificate live in /data/acme.
+      TLS_ACME_DOMAIN: ${TLS_ACME_DOMAIN:-}
+      HTTPS_PORT: ${HTTPS_PORT:-8443}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+      CLOUDFLARE_ZONE_ID: ${CLOUDFLARE_ZONE_ID:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      ACME_DIRECTORY: ${ACME_DIRECTORY:-}
+
       # DEV_LOGIN is deliberately absent. The bypass is not in this image at
       # all (R38.5), and the app refuses to start if it is enabled anywhere
       # production-shaped (R38.3).
@@ -117,6 +133,9 @@ services:
     restart: unless-stopped
     ports:
       - "25:2525"
+    # Keeps the Let's Encrypt account key and certificate across restarts.
+    volumes:
+      - mx-data:/data
     environment:
       MX_PORT: "2525"
       MX_DOMAIN: ${INBOUND_DOMAIN:?set INBOUND_DOMAIN in .env to run the mail receiver}
@@ -125,6 +144,14 @@ services:
       MX_ROUTES: '{"": {"url": "http://pathayam:8080", "secret": "${INBOUND_SECRET:?set INBOUND_SECRET in .env}"}}'
       MX_TLS_CERT_FILE: ${MX_TLS_CERT_FILE:-}
       MX_TLS_KEY_FILE: ${MX_TLS_KEY_FILE:-}
+      # TLS-1 · Or let the receiver get and renew its own certificate for this
+      # name (normally INBOUND_DOMAIN). Needs CLOUDFLARE_API_TOKEN; without any
+      # certificate, bank mail crosses the internet unencrypted.
+      MX_TLS_ACME_DOMAIN: ${MX_TLS_ACME_DOMAIN:-}
+      CLOUDFLARE_API_TOKEN: ${CLOUDFLARE_API_TOKEN:-}
+      CLOUDFLARE_ZONE_ID: ${CLOUDFLARE_ZONE_ID:-}
+      ACME_EMAIL: ${ACME_EMAIL:-}
+      ACME_DIRECTORY: ${ACME_DIRECTORY:-}
     # The image's own check asks /healthz, which is the app's; this one asks
     # whether the receiver answers on its port.
     healthcheck:
@@ -194,4 +221,5 @@ services:
 
 volumes:
   pathayam-data:
+  mx-data:
   dev-data:

@@ -79,12 +79,24 @@ under the slabs the app carries. It files nothing, it is not advice, and it is
 not a substitute for an accountant.
 
 **What it does not model**, each of which changes the answer: marginal relief
-on surcharge and on the 87A cliff, so a figure just over a threshold is
-overstated; losses set off between heads or carried forward, and a let-out
+on surcharge, so a figure just over ₹50 lakh, ₹1 crore, ₹2 crore or ₹5 crore
+is overstated; losses set off between heads or carried forward, and a let-out
 house's loss and rent; clubbing; foreign income and treaty relief; presumptive
 schemes under 44AD and 44ADA; interest under 234A, 234B and 234C, which the
 screen names and does not compute; and the resident senior citizen's exemption
 from advance tax (s207).
+
+**Marginal relief on the new regime's 87A limit is worked out (TAX-4).** Just
+over ₹12,00,000 of total income the full rebate is gone, and the tax on slab
+income is cut so that it is no more than the income over ₹12,00,000: ₹12,10,000
+taxable pays ₹10,000 plus cess, ₹10,400, rather than ₹63,960. The relief runs
+out at about ₹12,70,588 and shows on the screen as its own line. It applies to
+FY 2025-26 and FY 2026-27 alike (s87A as amended by the Finance Act 2025, and
+s156 of the Income-tax Act, 2025). Capital gains at special rates count toward
+the ₹12,00,000 but their tax is never relieved; where the Act leaves the
+comparison open, the estimate compares only the slab tax with the income over
+the limit, which never understates. The old regime has no such relief: its
+₹5,00,000 limit is a cliff.
 
 **Home loan interest under 24(b) is carried from the ledger (TAX-1).** A loan
 marked as for a house its owner lives in contributes the interest accrued in
@@ -184,8 +196,8 @@ adjustment assumes a resident under 60. The old regime's ₹3,00,000 and
 
 **Income is not derived from the ledger, only prefilled.** Income is
 prefilled from money that arrived in visible budget accounts, which is not
-taxable income: it misses a salary paid elsewhere and includes receipts that
-are not income at all. Deductions are entered, never inferred. The standard
+taxable income (money a loan paid in, and a sale's proceeds, are left out): it misses a salary paid
+elsewhere and includes receipts that are not income at all. Deductions are entered, never inferred. The standard
 deduction is set only against the gross income entered, which is the only
 salary the estimate knows, and never exceeds it. Gains alone earn none. The loan
 interest report is still not carried in: it is cash paid across every loan. What
@@ -202,7 +214,9 @@ migration 0042 correcting rows already written that way.
 **Policy premiums are suggested, never declared for you.** The tax page offers what the
 premiums of a member's own policies (those they are named holder of) come to
 in the year, per 80C / 80D group: every premium falling due in the year,
-paid or not. It does not spread a multi-year health premium across the years
+paid or not. A life policy's premiums count only up to 10% of the sum
+assured in a year (20% for a policy issued before 1 April 2012), as 80C
+allows; the 15% share for a person with a disability is not modelled. It does not spread a multi-year health premium across the years
 it covers, cannot tell a premium paid in cash (which 80D excludes), and knows
 nothing of 80C's other items. Applying it raises each figure to the policies'
 and never lowers one; nothing is saved until the form is. A household policy

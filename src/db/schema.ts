@@ -3261,4 +3261,39 @@ CREATE TABLE forwarded_statements (
 CREATE INDEX idx_forwarded_statements_member ON forwarded_statements(member_id);
 `,
   },
+  {
+    name: "0075-a-disbursement-knows-the-money-it-paid-in",
+    sql: `
+--------------------------------------------------------------------------------
+-- ENG-22 · Borrowed money is not income. A disbursement paid into a budget
+-- account (or a card, for an EMI conversion) names the transaction it wrote
+-- there, so income figures can leave it out by link, never by its wording.
+--------------------------------------------------------------------------------
+ALTER TABLE loan_disbursements ADD COLUMN transaction_id TEXT REFERENCES transactions(id);
+
+-- Since WEALTH-21 the disbursement's event carries both legs; the one on the
+-- destination account is the money that arrived. Draws recorded before that
+-- carry no legs and stay unlinked.
+UPDATE loan_disbursements
+   SET transaction_id = (
+     SELECT t.id
+       FROM events e,
+            json_each(CASE WHEN json_valid(e.after_json) THEN e.after_json ELSE '{}' END,
+                      '$.transactionIds') j
+       JOIN transactions t ON t.id = j.value
+      WHERE e.entity = 'loan' AND e.action = 'disburse'
+        AND e.entity_id = loan_disbursements.loan_id
+        AND json_extract(CASE WHEN json_valid(e.after_json) THEN e.after_json ELSE '{}' END, '$.id')
+            = loan_disbursements.id
+        AND t.account_id = loan_disbursements.destination_account_id
+      LIMIT 1)
+ WHERE destination = 'budget-account' AND destination_account_id IS NOT NULL;
+CREATE INDEX idx_disbursements_tx ON loan_disbursements(transaction_id);
+
+-- ENG-23 · A hand-valued asset sold into a budget account names the money it
+-- brought in, so income figures can leave it out too. Sales recorded before
+-- this kept only a memo, so they stay unlinked.
+ALTER TABLE asset_valuations ADD COLUMN proceeds_transaction_id TEXT REFERENCES transactions(id);
+`,
+  },
 ];

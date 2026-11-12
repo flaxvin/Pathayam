@@ -476,3 +476,26 @@ describe("AIW · OAuth: allowing changes when an app signs in", () => {
     } finally { await on.close(); }
   });
 });
+
+describe("AI-1 · an amount too large to hold in paise is refused, as on the page", () => {
+  test("add_transaction, assign_to_envelope and transfer write nothing for 1e20 rupees", async () => {
+    const w = world();
+    const writer = aiToken(w.db, PRIYA);
+    const app = await startTestApp(w.db, { memberId: null, config: FULL });
+    try {
+      const before = queryOne<{ n: number }>(w.db, `SELECT COUNT(*) AS n FROM events`)!.n;
+      const cases: [string, Record<string, unknown>][] = [
+        ["add_transaction", { account_id: w.ids.householdAccount, amount: 1e20, direction: "in", why: "test" }],
+        ["assign_to_envelope", { category_id: w.ids.groceries, amount: 1e20, why: "test" }],
+        ["transfer", { from_account_id: w.ids.householdAccount, to_account_id: w.wallet, amount: 1e20, why: "test" }],
+      ];
+      for (const [name, args] of cases) {
+        const r = await call(app, writer.secret, name, args);
+        assert.equal(r.isError, true, `${name}: ${r.text}`);
+        assert.match(r.text, /too large/, name);
+      }
+      assert.equal(queryOne<{ n: number }>(w.db, `SELECT COUNT(*) AS n FROM events`)!.n, before);
+      assert.equal(queryAll(w.db, `SELECT id FROM transactions WHERE abs(amount) > 9007199254740991`).length, 0);
+    } finally { await app.close(); }
+  });
+});

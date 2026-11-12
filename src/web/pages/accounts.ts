@@ -819,7 +819,7 @@ function renderCardPanel(opts: {
       <h2>This card</h2>
       <div class="row" style="gap:2rem;flex-wrap:wrap">
         ${balanceFigure("Outstanding", funding.outstanding)}
-        ${balanceFigure("Funded", funding.funded)}
+        ${balanceFigure("Funded", funding.funded < 0 ? funding.funded : funding.setAside)}
         ${balanceFigure("Unfunded", -funding.unfunded)}
       </div>
 

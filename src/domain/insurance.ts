@@ -588,7 +588,21 @@ export function policyTaxSuggestion(db: DB, memberId: string, fy: number): Polic
   for (const p of held) {
     const premiums = premiumDatesBetween(p, from, to).length;
     if (premiums === 0) continue;
-    const amount = (premiums * p.premium) as Paise;
+    let amount = (premiums * p.premium) as Paise;
+    /*
+     * ENG-16 · s80C(3)/(3A): a life policy's premium counts only up to a share
+     * of the actual capital sum assured — 10% for a policy issued on or after
+     * 1 April 2012, 20% before. A single premium of ₹1,00,000 on ₹5,00,000 of
+     * cover was suggested as ₹1,00,000 of 80C; ₹50,000 is allowed. Not
+     * modelled: the 15% share for a person with a disability or a disease
+     * under 80DDB, so their figure here is the lower one. With no sum assured
+     * recorded nothing is capped; with no start date the 10% share is used.
+     */
+    if (p.tax_group === "80c" && (p.kind === "life" || p.kind === "term-life")
+        && p.sum_assured !== null && p.sum_assured > 0) {
+      const shareBp = p.start_date !== null && p.start_date < "2012-04-01" ? 2000 : 1000;
+      amount = Math.min(amount, Math.round((p.sum_assured * shareBp) / 10_000)) as Paise;
+    }
     if (p.tax_group === "80c") out.s80c = (out.s80c + amount) as Paise;
     if (p.tax_group === "80d-self") {
       out.s80d = (out.s80d + amount) as Paise;

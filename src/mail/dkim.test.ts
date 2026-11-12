@@ -179,7 +179,9 @@ test("rsa-sha1 -> permerror", async () => {
 });
 
 test("expired x= is not a pass; unexpired x= passes", async () => {
-  const s = signed({ extraTags: { x: "1800000000" } }); // 2027-01-15
+  // ENG-18 · Signed on a fixed day, so the test does not depend on the clock:
+  // signed now, it read "x= before t=" from 15-01-2027 on.
+  const s = signed({ extraTags: { x: "1800000000" }, signedAt: new Date("2026-11-01T00:00:00Z") }); // 2027-01-15
   assert.equal((await one(s, bankDns, new Date("2026-11-08T00:00:00Z"))).result, "pass");
   const late = await one(s, bankDns, new Date("2027-02-01T00:00:00Z"));
   assert.notEqual(late.result, "pass");
@@ -190,6 +192,10 @@ test("l= limits the hashed body; content appended beyond it still passes", async
   const s = signed({ extraTags: { l: "20" } });
   assert.equal((await one(s)).result, "pass");
   assert.equal((await one(s + "appended\r\n")).result, "pass");
+  // MAIL-1 · but it is marked, and alignment does not count it.
+  const partial = await verifyDkim(bytes(s + "appended\r\n"), bankDns);
+  assert.equal(partial[0]!.partialBody, true);
+  assert.equal(alignedPass(partial, "alerts@bank.example"), false);
 });
 
 test("signature without From in h= -> permerror; key type mismatch -> permerror", async () => {

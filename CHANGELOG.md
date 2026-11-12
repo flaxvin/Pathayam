@@ -17,6 +17,25 @@ public surface: a change that breaks one of them is a major version.
   signed with `INBOUND_SECRET`. New: `FEATURE_FORWARDING` (on for selfhost, off
   in the hosted presets), `INBOUND_DOMAIN`, `INBOUND_ROUTE`, `INBOUND_SECRET`,
   migration 0074. See [docs/forwarding.md](docs/forwarding.md).
+- **Let's Encrypt, renewed on its own.** The mail receiver gets a certificate
+  for `MX_TLS_ACME_DOMAIN` and offers `STARTTLS` with it, so forwarded bank mail
+  no longer crosses the internet in clear. A self-hosted app facing the
+  internet without a proxy can do the same for HTTPS with `TLS_ACME_DOMAIN`
+  (off by default; the hosted apps are unchanged). The domain is proved with a
+  DNS record made through Cloudflare (`CLOUDFLARE_API_TOKEN`); the certificate
+  is checked every 12 hours, renewed with 30 days left, and swapped in without
+  a restart. New: `MX_TLS_ACME_DOMAIN`, `TLS_ACME_DOMAIN`, `HTTPS_PORT`,
+  `CLOUDFLARE_API_TOKEN`, `CLOUDFLARE_ZONE_ID`, `ACME_EMAIL`,
+  `ACME_DIRECTORY`, `ACME_DIR`. See [docs/forwarding.md](docs/forwarding.md#tls-for-the-receiver)
+  and [docs/operations.md](docs/operations.md#https-without-a-proxy).
+- **The mail receiver keeps to its means.** It asks the app whether an address
+  is in use before taking any data (`POST /inbound/check`, signed with
+  `INBOUND_SECRET`), holds at most 96 MiB of mail across all sessions, takes 20
+  sessions at once and 3 from one address, and ends any session after ten
+  minutes; a sender over a limit is told to retry later. The app refuses an
+  unsigned hand-off before reading its body and reads four at once. New:
+  `MX_MEMORY_BYTES`, `MX_MAX_CONNECTIONS`, `MX_MAX_CONNECTIONS_PER_IP`,
+  `MX_SESSION_SECONDS`, `MX_PROXY_PROTOCOL`, `MX_CHECK_RECIPIENTS`.
 
 ## 1.0.0 · 24-10-2026
 

@@ -23,6 +23,8 @@
  * makes it safe to make it a habit.
  */
 
+import { notIncomeTransactionIds } from "./borrowed.ts";
+import { convertedPrincipalByTransaction } from "../engine/repository.ts";
 import type { DB } from "../db/db.ts";
 import { transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
@@ -133,6 +135,14 @@ export function monthCloseView(
    */
   const rows = queryTransactions(db, { from, to, budgetId: budget, viewerMemberId });
 
+  // ENG-22/23 · A loan's money paid in (a personal loan to the bank, an EMI
+  // conversion's credit on a card) is borrowed, and a sale's proceeds are
+  // money coming back, so neither is "came in".
+  const borrowed = notIncomeTransactionIds(db, from, to);
+  // REV-21 · ENG-17's rule: an instalment on a plan converted from a recorded
+  // purchase repays that purchase, already spent the month it was charged.
+  // Only its interest is new spending.
+  const repaid = convertedPrincipalByTransaction(db, from, to);
   let income = 0;
   let spending = 0;
   const byCategory = new Map<string, { name: string; amount: number }>();
@@ -142,13 +152,17 @@ export function monthCloseView(
     // different place, and counting it would make every month look wrong.
     if (row.isTransfer) continue;
 
-    if (row.amount > 0) income += row.amount;
-    else spending += -row.amount;
+    if (row.amount > 0) {
+      if (!borrowed.has(row.id)) income += row.amount;
+      continue;
+    }
+    const spent = Math.max(0, -row.amount - (repaid.get(row.id) ?? 0));
+    spending += spent;
 
     if (row.amount < 0 && row.categoryId) {
       const entry = byCategory.get(row.categoryId) ??
         { name: row.category ?? "Uncategorised", amount: 0 };
-      entry.amount += -row.amount;
+      entry.amount += spent;
       byCategory.set(row.categoryId, entry);
     }
   }

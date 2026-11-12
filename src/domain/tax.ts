@@ -29,13 +29,14 @@
  *
  * ## What is deliberately not modelled
  *
- * Marginal relief on surcharge and on the 87A cliff, clubbing, set-off and
- * carry-forward of losses, presumptive income, foreign income and
- * relief under a treaty. Each of those changes the answer and none of them is
+ * Marginal relief on surcharge, clubbing, set-off and carry-forward of
+ * losses, presumptive income, foreign income and relief under a treaty.
+ * (Marginal relief on the new regime's 87A cliff is modelled — TAX-4, below.) Each of those changes the answer and none of them is
  * here. The screen lists them, because an estimate that hides what it ignores
  * is the kind that gets trusted too far.
  */
 
+import { notIncomeRowSql } from "./borrowed.ts";
 import type { Paise } from "../core/money.ts";
 import { Missing, Refusal } from "../core/refusal.ts";
 
@@ -62,6 +63,14 @@ export interface RegimeRules {
    */
   rebateCeiling: Paise;
   rebateCap: Paise;
+  /**
+   * TAX-4 · Whether income just over `rebateCeiling` gets marginal relief: the
+   * tax on slab income is cut so it is no more than the income over the
+   * ceiling. The new regime has it (s87A, proviso for 115BAC(1A), as amended
+   * by the Finance Act 2025; s156(2)(b) of the Income-tax Act, 2025). The old
+   * regime has none: its ₹5,00,000 ceiling stays a cliff.
+   */
+  rebateMarginalRelief: boolean;
   /** Whether Chapter VI-A deductions (80C, 80D) and HRA apply at all. */
   allowsDeductions: boolean;
   /** Surcharge bands, highest first. */
@@ -150,6 +159,7 @@ export const RULES: Record<number, Record<Regime, RegimeRules>> = {
       standardDeduction: R(50_000),
       rebateCeiling: L(5),
       rebateCap: R(12_500),
+      rebateMarginalRelief: false,
       allowsDeductions: true,
       surcharge: [{ above: L(500), rateBp: 3700 }, ...OLD_SURCHARGE],
       /*
@@ -183,6 +193,7 @@ export const RULES: Record<number, Record<Regime, RegimeRules>> = {
       standardDeduction: R(75_000),
       rebateCeiling: L(12),
       rebateCap: R(60_000),
+      rebateMarginalRelief: true,
       allowsDeductions: false,
       // The new regime's surcharge stops at 25%; there is no 37% band.
       surcharge: OLD_SURCHARGE,
@@ -369,6 +380,12 @@ export interface RegimeEstimate {
   taxable: Paise;
   taxBeforeRebate: Paise;
   rebate: Paise;
+  /**
+   * TAX-4 · New-regime marginal relief on the 87A ceiling: how much of the
+   * slab tax is taken off so it does not exceed the income over ₹12,00,000.
+   * Zero under the old regime and whenever the full rebate applies.
+   */
+  marginalRelief: Paise;
   /** Tax on capital gains at their own rates, before any rebate taken from it. */
   specialRateTax: Paise;
   surcharge: Paise;
@@ -537,6 +554,35 @@ export function estimateUnder(
     ? Math.min(relievable, rules.rebateCap) as Paise
     : 0 as Paise;
 
+  /*
+   * TAX-4 · Marginal relief, new regime only. Just over the ₹12,00,000
+   * ceiling the full rebate is gone, and without relief ₹12,10,000 of taxable
+   * salary paid ₹63,960 where the Act asks ₹10,400. The relief cuts the tax so
+   * that it is no more than the income over the ceiling: ₹61,500 on slabs
+   * becomes ₹10,000, plus 4% cess. It runs out at about ₹12,70,588, where the
+   * slab tax and the income over the ceiling meet.
+   *
+   * Source: s87A, the proviso for income under 115BAC(1A) and the further
+   * proviso added by the Finance Act 2025 (no deduction beyond the tax at
+   * 115BAC(1A) rates), incometaxindia.gov.in/w/section-87a-26; carried into the
+   * Income-tax Act, 2025 as s156(2)(b) and s156(3) with the same ₹12,00,000,
+   * so FY 2026-27 is unchanged, incometaxindia.gov.in/w/section-156-88; CBDT's
+   * Budget 2025 FAQ (Q15-Q20: resident individuals only, the ₹12,10,000 →
+   * ₹10,000 example, no rebate on capital gains). All retrieved 11-11-2026.
+   *
+   * With special-rate gains the Act is not explicit, so this takes the reading
+   * that never understates: total income (gains included) sets how far over
+   * the ceiling the person is, and only the slab tax is compared with that and
+   * relieved. Gains tax is never reduced. This is also how filing software
+   * describes its steps (slab tax, excess over ₹12 lakh, the lower of the two).
+   * The other reading — compare slab plus gains tax with the excess, then cap
+   * the relief at the slab tax — gives more relief when gains are large. Like
+   * the basic-exemption adjustment, this assumes a resident.
+   */
+  const marginalRelief = rules.rebateMarginalRelief && totalIncome > rules.rebateCeiling
+    ? Math.max(0, taxBeforeRebate - (totalIncome - rules.rebateCeiling)) as Paise
+    : 0 as Paise;
+
   // The rebate comes off slab tax first, then off 111A, then 112.
   let rebateLeft: number = rebate;
   const takeRebate = (tax: number): number => {
@@ -544,7 +590,7 @@ export function estimateUnder(
     rebateLeft -= used;
     return tax - used;
   };
-  const afterRebate = takeRebate(taxBeforeRebate);
+  const afterRebate = takeRebate(taxBeforeRebate) - marginalRelief;
   const specialAfter = takeRebate(tax111a) + takeRebate(tax112) + tax112a;
 
   /*
@@ -584,7 +630,7 @@ export function estimateUnder(
     regime, gross: grossWithGains,
     standardDeduction,
     hraExempt, homeLoanInterest, chapterViA, employerNps, taxable,
-    taxBeforeRebate, rebate, specialRateTax, surcharge, cess, total,
+    taxBeforeRebate, rebate, marginalRelief, specialRateTax, surcharge, cess, total,
     totalIncome, basicExemptionAgainstGains: basicExemptionAgainstGains as Paise,
     // WEALTH-10 · Over all the income the total is tax on, special-rate gains
     // included. Dividing by gross plus slab-rated gains alone put ₹23,02,300
@@ -873,6 +919,10 @@ export function saveDeclaration(db: DB, memberId: string, fy: number, d: Declara
  * transfer in from outside, a gift — that are not income at all. It is offered
  * because typing a year's salary from memory is worse than correcting a number
  * that is nearly right.
+ *
+ * ENG-22 · A loan's money paid in is left out: borrowing is never income, and
+ * a ₹5,00,000 personal loan made the figure ₹5,00,000 wrong. ENG-23 · So are
+ * a sale's proceeds: the gain in them is added from the gains section.
  */
 export function incomeInFinancialYear(db: DB, fy: number, visibleAccountIds: string[]): Paise {
   if (visibleAccountIds.length === 0) return 0 as Paise;
@@ -886,6 +936,7 @@ export function incomeInFinancialYear(db: DB, fy: number, visibleAccountIds: str
       WHERE t.deleted_at IS NULL
         AND t.amount > 0
         AND t.transfer_pair_id IS NULL
+        AND NOT ${notIncomeRowSql("t")}
         AND a.kind = 'budget'
         AND t.account_id IN (${placeholders})
         AND t.date BETWEEN ? AND ?`,

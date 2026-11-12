@@ -75,9 +75,13 @@ export function tokenFromRecipient(inbound: Config["inbound"], recipient: string
   return /^[a-z2-7]{32}$/.test(token) ? token : null;
 }
 
+/** MAIL-6 · Only a current member's: a removed member's address takes nothing. */
 export function memberForToken(db: DB, token: string): string | null {
   return queryOne<{ member_id: string }>(
-    db, `SELECT member_id FROM forwarding_addresses WHERE token = ?`, token,
+    db,
+    `SELECT f.member_id FROM forwarding_addresses f JOIN members m ON m.id = f.member_id
+      WHERE f.token = ? AND m.removed_at IS NULL`,
+    token,
   )?.member_id ?? null;
 }
 

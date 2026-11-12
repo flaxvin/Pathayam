@@ -150,6 +150,12 @@ export function emptyBody(): Record<string, string | string[]> {
 
 export async function readBody(
   req: IncomingMessage, maxBytes: number = MAX_BODY_BYTES,
+  /**
+   * AI-5 · The route reads the raw body itself (rawBodies) and answers broken
+   * JSON in its own protocol's words — /mcp's JSON-RPC parse error — so a body
+   * that does not parse is left to it rather than refused here as HTML.
+   */
+  opts: { routeParsesJson?: boolean } = {},
 ): Promise<Record<string, string | string[]>> {
   const contentType = req.headers["content-type"] ?? "";
   const chunks: Buffer[] = [];
@@ -187,6 +193,7 @@ export async function readBody(
         ? formShaped(parsed as Record<string, unknown>)
         : emptyBody();
     } catch {
+      if (opts.routeParsesJson) return emptyBody();
       throw new BadRequest("That request body was not valid JSON.");
     }
   }

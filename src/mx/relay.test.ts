@@ -6,9 +6,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import net from "node:net";
-import { parseRoutes, resolveRecipient, relayMessage, type Route } from "./relay.ts";
+import { checkAddress, CheckCache, parseRoutes, resolveRecipient, relayMessage, type Route } from "./relay.ts";
 import { loadMxConfig, startMx } from "./main.ts";
-import { verifyInbound, SIGNATURE_HEADER, RECIPIENT_HEADER } from "../mail/signature.ts";
+import { verifyInbound, verifyInboundCheck, SIGNATURE_HEADER, RECIPIENT_HEADER } from "../mail/signature.ts";
 
 const ROUTES = JSON.stringify({
   ab12cd: { url: "https://hh1.example.com/", secret: "s1" },
@@ -192,10 +192,13 @@ async function dialog(port: number, lines: string[]): Promise<number[]> {
 
 test("startMx end to end: routes, self-host form, plus-tags, 404 from the app, dedupe", async (t) => {
   const logs: Record<string, unknown>[] = [];
-  const { fetchImpl, calls } = fakeFetch(({ init }) => {
+  const { fetchImpl, calls: all } = fakeFetch(({ url, init }) => {
+    // The address check says yes to all; "gone" is removed between RCPT and the hand-off.
+    if (url.endsWith("/inbound/check")) return Response.json({ known: true });
     const recipient = new Headers(init.headers).get(RECIPIENT_HEADER);
     return new Response(null, { status: recipient?.includes("gone") ? 404 : 202 });
   });
+  const handOffs = () => all.filter((c) => c.url.endsWith("/inbound/email"));
   const mx = await startMx(
     { MX_DOMAIN: "in.pathayam.app", MX_ROUTES: ROUTES, MX_PORT: "0", MX_HOSTNAME: "mx.test" },
     { log: (e) => logs.push(e), fetchImpl },
@@ -221,6 +224,7 @@ test("startMx end to end: routes, self-host form, plus-tags, 404 from the app, d
   assert.deepEqual(codes, [250, 250, 250, 250, 250, 550, 550, 354, 250, 250, 250, 354, 550, 221]);
 
   // Two plus-tagged RCPTs for one mailbox are one hand-off; the self-host one goes to its own route.
+  const calls = handOffs();
   const first = calls.slice(0, 2).map((c) => [c.url, new Headers(c.init.headers).get(RECIPIENT_HEADER)]);
   assert.deepEqual(first.sort(), [
     ["http://app:3000/inbound/email", "selfhosttok@in.pathayam.app"],
@@ -241,7 +245,8 @@ test("startMx end to end: routes, self-host form, plus-tags, 404 from the app, d
 
 test("startMx: a 401 from the app is a 554 and an error log naming the route", async (t) => {
   const logs: Record<string, unknown>[] = [];
-  const { fetchImpl } = fakeFetch(() => new Response(null, { status: 401 }));
+  const { fetchImpl } = fakeFetch(({ url }) =>
+    url.endsWith("/inbound/check") ? Response.json({ known: true }) : new Response(null, { status: 401 }));
   const mx = await startMx({ MX_DOMAIN: "in.test", MX_ROUTES: ROUTES, MX_PORT: "0" }, { log: (e) => logs.push(e), fetchImpl });
   t.after(() => mx.close(500));
   const codes = await dialog(mx.port, ["HELO x", "MAIL FROM:<a@b.example>", "RCPT TO:<tok@in.test>", "DATA", "x\r\n."]);
@@ -249,4 +254,155 @@ test("startMx: a 401 from the app is a 554 and an error log naming the route", a
   const err = logs.find((e) => e.level === "error");
   assert.ok(err);
   assert.equal(err.route, "http://app:3000");
+});
+
+// ---------------------------------------------------------------------------
+// MAIL-8/9 · Limits, and the address check at RCPT.
+// ---------------------------------------------------------------------------
+
+test("MAIL-8 · loadMxConfig: limits default, read, and refuse nonsense", () => {
+  const base = { MX_DOMAIN: "in.test", MX_ROUTES: ROUTES };
+  assert.deepEqual(loadMxConfig(base).limits, {
+    memoryBytes: 96 * 1024 * 1024, maxConnections: 20, maxPerAddress: 3, sessionSeconds: 600,
+    proxyProtocol: false, checkRecipients: true,
+  });
+  const set = loadMxConfig({
+    ...base, MX_MEMORY_BYTES: "50000000", MX_MAX_CONNECTIONS: "5", MX_MAX_CONNECTIONS_PER_IP: "1",
+    MX_SESSION_SECONDS: "60", MX_PROXY_PROTOCOL: "on", MX_CHECK_RECIPIENTS: "off", MX_MAX_BYTES: "1000000",
+  }).limits;
+  assert.deepEqual(set, {
+    memoryBytes: 50_000_000, maxConnections: 5, maxPerAddress: 1, sessionSeconds: 60,
+    proxyProtocol: true, checkRecipients: false,
+  });
+  assert.throws(() => loadMxConfig({ ...base, MX_MAX_CONNECTIONS: "0" }), /MX_MAX_CONNECTIONS/);
+  assert.throws(() => loadMxConfig({ ...base, MX_PROXY_PROTOCOL: "maybe" }), /MX_PROXY_PROTOCOL must be on or off/);
+  // The largest message has to fit the budget, or it is turned away for ever.
+  assert.throws(() => loadMxConfig({ ...base, MX_MEMORY_BYTES: "26214400" }), /MX_MEMORY_BYTES must be at least MX_MAX_BYTES/);
+});
+
+test("MAIL-8 · a message in pieces is streamed to the app as it is, signed over the whole", async () => {
+  const parts = [Buffer.from("Subject: x\r\n"), Buffer.from("\r\nbody\r\n")];
+  const { fetchImpl, calls } = fakeFetch(() => new Response(null, { status: 202 }));
+  const now = new Date();
+  assert.equal((await relayMessage(ROUTE, "a.b@in.test", parts, fetchImpl, now)).code, 250);
+  const init = calls[0]!.init as RequestInit & { duplex?: string };
+  assert.equal(init.duplex, "half");
+  const sent = Buffer.from(await new Response(init.body).arrayBuffer());
+  assert.equal(sent.toString(), "Subject: x\r\n\r\nbody\r\n");
+  assert.ok(verifyInbound("s1", new Headers(init.headers).get(SIGNATURE_HEADER), "a.b@in.test", new Uint8Array(sent), now));
+});
+
+test("MAIL-9 · checkAddress asks the app, signed, and maps its answer", async () => {
+  const now = new Date("2026-11-12T10:00:00Z");
+  const yes = fakeFetch(() => Response.json({ known: true }));
+  assert.deepEqual(await checkAddress(ROUTE, "ab12cd.tok@in.test", yes.fetchImpl, now), { verdict: "ok", cache: true });
+  const call = yes.calls[0]!;
+  assert.equal(call.url, "https://hh1.example.com/inbound/check");
+  assert.equal(call.init.method, "POST");
+  assert.equal(call.init.body, undefined);
+  const h = new Headers(call.init.headers);
+  assert.equal(h.get(RECIPIENT_HEADER), "ab12cd.tok@in.test");
+  assert.ok(verifyInboundCheck("s1", h.get(SIGNATURE_HEADER), "ab12cd.tok@in.test", now));
+  assert.ok(!verifyInbound("s1", h.get(SIGNATURE_HEADER), "ab12cd.tok@in.test", new Uint8Array(0), now));
+  assert.ok(call.init.signal instanceof AbortSignal);
+
+  const no = fakeFetch(() => Response.json({ known: false }));
+  assert.deepEqual(await checkAddress(ROUTE, "a.b@in.test", no.fetchImpl),
+    { verdict: { code: 550, message: "5.1.1 No such user here" }, cache: true });
+
+  const later = { code: 451, message: "4.4.3 Mailbox service unavailable, try again later" };
+  for (const respond of [
+    () => new Response(null, { status: 503 }),
+    () => new Response("not json", { status: 200 }),
+    () => Response.json({ maybe: true }),
+    () => { throw new TypeError("fetch failed"); },
+    () => { throw new DOMException("timed out", "TimeoutError"); },
+  ]) {
+    const r = await checkAddress(ROUTE, "a.b@in.test", fakeFetch(respond).fetchImpl);
+    assert.deepEqual(r, { verdict: later, cache: false });
+  }
+  const refused = await checkAddress(ROUTE, "a.b@in.test", fakeFetch(() => new Response(null, { status: 401 })).fetchImpl);
+  assert.deepEqual(refused, { verdict: later, cache: false, misconfigured: 401 });
+});
+
+test("REV-2 · an app that does not answer the check (forwarding off) leaves the verdict to the hand-off", async () => {
+  // FEATURE_FORWARDING=false answers 404 on /inbound/check and /inbound/email
+  // alike. As a 451 at RCPT the sender queued for days and then bounced; let
+  // through, the hand-off's 404 refuses it at once (550), as the docs say.
+  const r = await checkAddress(ROUTE, "a.b@in.test", fakeFetch(() => new Response(null, { status: 404 })).fetchImpl);
+  assert.deepEqual(r, { verdict: "ok", cache: false });
+});
+
+test("MAIL-9 · answers are remembered briefly: five minutes for yes, one for no", () => {
+  let now = 0;
+  const cache = new CheckCache(() => now);
+  const no = { code: 550, message: "5.1.1 No such user here" };
+  cache.set("yes@in.test", "ok");
+  cache.set("no@in.test", no);
+  assert.equal(cache.get("yes@in.test"), "ok");
+  assert.deepEqual(cache.get("no@in.test"), no);
+  now = 61_000;
+  assert.equal(cache.get("no@in.test"), undefined);
+  assert.equal(cache.get("yes@in.test"), "ok");
+  now = 301_000;
+  assert.equal(cache.get("yes@in.test"), undefined);
+});
+
+test("MAIL-9 · startMx: RCPT is 250 for a known address, 550 for an unknown one, 451 when the app cannot say", async (t) => {
+  const logs: Record<string, unknown>[] = [];
+  const { fetchImpl, calls } = fakeFetch(({ url, init }) => {
+    const recipient = new Headers(init.headers).get(RECIPIENT_HEADER) ?? "";
+    if (url.endsWith("/inbound/check")) {
+      if (recipient.startsWith("down")) throw new TypeError("fetch failed");
+      return Response.json({ known: recipient.includes("tok") });
+    }
+    return new Response(null, { status: 202 });
+  });
+  const mx = await startMx({ MX_DOMAIN: "in.test", MX_ROUTES: ROUTES, MX_PORT: "0" }, { log: (e) => logs.push(e), fetchImpl });
+  t.after(() => mx.close(500));
+  const checks = () => calls.filter((c) => c.url.endsWith("/inbound/check")).length;
+
+  const codes = await dialog(mx.port, [
+    "EHLO bank.example",
+    "MAIL FROM:<alerts@bank.example>",
+    "RCPT TO:<ab12cd.tok@in.test>",
+    "RCPT TO:<ab12cd.nobody@in.test>",
+    "RCPT TO:<downtok@in.test>",
+    "RCPT TO:<ab12cd.tok+again@in.test>",
+    "DATA",
+    "x\r\n.",
+  ]);
+  assert.deepEqual(codes, [250, 250, 250, 550, 451, 250, 354, 250]);
+  // The second RCPT for the same mailbox was answered from memory.
+  assert.equal(checks(), 3);
+
+  // A no is remembered too; an outage is not, so the retry asks again.
+  const again = await dialog(mx.port, [
+    "HELO x", "MAIL FROM:<a@b.example>", "RCPT TO:<ab12cd.nobody@in.test>", "RCPT TO:<downtok@in.test>",
+  ]);
+  assert.deepEqual(again, [250, 250, 550, 451]);
+  assert.equal(checks(), 4);
+  assert.doesNotMatch(JSON.stringify(logs), /"s1"|self"/);
+});
+
+test("MAIL-9 · startMx: a 401 from the address check is a 451 and an error log naming the route", async (t) => {
+  const logs: Record<string, unknown>[] = [];
+  const { fetchImpl } = fakeFetch(() => new Response(null, { status: 401 }));
+  const mx = await startMx({ MX_DOMAIN: "in.test", MX_ROUTES: ROUTES, MX_PORT: "0" }, { log: (e) => logs.push(e), fetchImpl });
+  t.after(() => mx.close(500));
+  const codes = await dialog(mx.port, ["HELO x", "MAIL FROM:<a@b.example>", "RCPT TO:<tok@in.test>"]);
+  assert.deepEqual(codes, [250, 250, 451]);
+  const err = logs.find((e) => e.level === "error");
+  assert.equal(err?.route, "http://app:3000");
+  assert.equal(err?.status, 401);
+});
+
+test("MAIL-9 · startMx with MX_CHECK_RECIPIENTS=off takes any well-formed address at RCPT", async (t) => {
+  const { fetchImpl, calls } = fakeFetch(() => new Response(null, { status: 202 }));
+  const mx = await startMx(
+    { MX_DOMAIN: "in.test", MX_ROUTES: ROUTES, MX_PORT: "0", MX_CHECK_RECIPIENTS: "off" }, { log: () => {}, fetchImpl },
+  );
+  t.after(() => mx.close(500));
+  assert.deepEqual(await dialog(mx.port, ["HELO x", "MAIL FROM:<a@b.example>", "RCPT TO:<anything@in.test>"]), [250, 250, 250]);
+  assert.equal(calls.length, 0);
 });

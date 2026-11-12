@@ -6,8 +6,9 @@
  *
  * It runs as its own process (its own Fly app with port 25 and a dedicated
  * IPv4, or an optional compose service), takes mail for MX_DOMAIN and hands
- * each message to the household app its address routes to. Nothing touches
- * disk; the logs carry envelope facts only, never a body or a subject.
+ * each message to the household app its address routes to. Nothing but its
+ * own TLS certificate (MX_TLS_ACME_DOMAIN) touches disk; the logs carry
+ * envelope facts only, never a body or a subject.
  *
  * Environment:
  *   MX_DOMAIN       required  the domain addresses live under (in.pathayam.app)
@@ -15,15 +16,28 @@
  *   MX_PORT         25
  *   MX_HOSTNAME     MX_DOMAIN; the name in the banner and EHLO reply
  *   MX_MAX_BYTES    26214400 (25 MiB)
+ *   MX_MEMORY_BYTES             100663296 (96 MiB) held as messages, all sessions together
+ *   MX_MAX_CONNECTIONS          20 sessions at once
+ *   MX_MAX_CONNECTIONS_PER_IP   3 sessions at once from one address
+ *   MX_SESSION_SECONDS          600; a session ends this long after it began
+ *   MX_PROXY_PROTOCOL           off; "on" when a proxy sends PROXY v1 lines (Fly proxy_proto)
+ *   MX_CHECK_RECIPIENTS         on; "off" accepts any well-formed address at RCPT
  *   MX_TLS_CERT / MX_TLS_KEY            PEM text, or
  *   MX_TLS_CERT_FILE / MX_TLS_KEY_FILE  paths to PEM files; both or neither.
+ *   MX_TLS_ACME_DOMAIN  TLS-1: get and renew a Let's Encrypt certificate for
+ *                       this name by DNS-01 (src/tls; needs CLOUDFLARE_API_TOKEN,
+ *                       see src/tls/settings.ts). An explicit MX_TLS_CERT wins.
  */
 
 import { readFileSync } from "node:fs";
 import type net from "node:net";
 import { pathToFileURL } from "node:url";
-import { createSmtpServer, type SmtpReply } from "./smtp.ts";
-import { parseRoutes, resolveRecipient, relayMessage, type Route } from "./relay.ts";
+import { createSmtpServer, SLAB_OVERHEAD, type SmtpReply, type SmtpServer } from "./smtp.ts";
+import { checkAddress, CheckCache, parseRoutes, resolveRecipient, relayMessage, type Route } from "./relay.ts";
+import { loadAcmeSettings, type AcmeSettings } from "../tls/settings.ts";
+import { createAcmeManager, type CertManager, type Clock } from "../tls/manager.ts";
+import type { DnsSolver } from "../tls/dns.ts";
+import type { AcmeClientOptions } from "../tls/acme.ts";
 
 export type MxConfig = {
   domain: string;
@@ -32,7 +46,48 @@ export type MxConfig = {
   maxBytes: number;
   routes: Map<string, Route>;
   tls?: { cert: string; key: string };
+  /** TLS-1 · Set when the certificate comes from Let's Encrypt rather than MX_TLS_CERT. */
+  acme?: AcmeSettings;
+  /** MX_TLS_ACME_DOMAIN was set alongside an explicit certificate, which won. */
+  acmeIgnored?: boolean;
+  /** MAIL-8/9 · What one stranger can cost, and whether RCPT asks the app. */
+  limits: MxLimits;
 };
+
+export type MxLimits = {
+  memoryBytes: number;
+  maxConnections: number;
+  maxPerAddress: number;
+  sessionSeconds: number;
+  proxyProtocol: boolean;
+  checkRecipients: boolean;
+};
+
+export const DEFAULT_MEMORY_BYTES = 96 * 1024 * 1024;
+
+function onOff(env: NodeJS.ProcessEnv, name: string, fallback: boolean): boolean {
+  const raw = env[name]?.trim().toLowerCase();
+  if (!raw) return fallback;
+  if (raw === "on" || raw === "true" || raw === "1") return true;
+  if (raw === "off" || raw === "false" || raw === "0") return false;
+  throw new Error(`${name} must be on or off, got "${raw}"`);
+}
+
+/** MAIL-8/9 · The caps on what the receiver holds, and the RCPT check. */
+function loadLimits(env: NodeJS.ProcessEnv, maxBytes: number): MxLimits {
+  const limits: MxLimits = {
+    memoryBytes: integer(env, "MX_MEMORY_BYTES", DEFAULT_MEMORY_BYTES, 1024, 64 * 1024 ** 3),
+    maxConnections: integer(env, "MX_MAX_CONNECTIONS", 20, 1, 10_000),
+    maxPerAddress: integer(env, "MX_MAX_CONNECTIONS_PER_IP", 3, 1, 10_000),
+    sessionSeconds: integer(env, "MX_SESSION_SECONDS", 600, 10, 86_400),
+    proxyProtocol: onOff(env, "MX_PROXY_PROTOCOL", false),
+    checkRecipients: onOff(env, "MX_CHECK_RECIPIENTS", true),
+  };
+  if (limits.memoryBytes < maxBytes + SLAB_OVERHEAD) {
+    throw new Error(`MX_MEMORY_BYTES must be at least MX_MAX_BYTES plus 1 MiB (${maxBytes + SLAB_OVERHEAD}), or the largest message never fits`);
+  }
+  return limits;
+}
 
 export const DEFAULT_MAX_BYTES = 26_214_400;
 /** How long a shutdown waits for sessions in progress before cutting them off. */
@@ -79,14 +134,24 @@ export function loadMxConfig(env: NodeJS.ProcessEnv): MxConfig {
   if ((cert === undefined) !== (key === undefined)) {
     throw new Error("TLS needs both a certificate and a key (MX_TLS_CERT[_FILE] and MX_TLS_KEY[_FILE]), or neither");
   }
+  const maxBytes = integer(env, "MX_MAX_BYTES", DEFAULT_MAX_BYTES, 1024, 1024 ** 3);
   const config: MxConfig = {
     domain,
     hostname: env.MX_HOSTNAME?.trim() || domain,
     port: integer(env, "MX_PORT", 25, 0, 65535),
-    maxBytes: integer(env, "MX_MAX_BYTES", DEFAULT_MAX_BYTES, 1024, 1024 ** 3),
+    maxBytes,
     routes,
+    limits: loadLimits(env, maxBytes),
   };
   if (cert !== undefined && key !== undefined) config.tls = { cert, key };
+  let acme: AcmeSettings | null;
+  try {
+    acme = loadAcmeSettings(env, "MX_TLS_ACME_DOMAIN");
+  } catch (err) {
+    throw new Error(`Let's Encrypt for the receiver: ${(err as Error).message}`);
+  }
+  if (acme && config.tls) config.acmeIgnored = true;
+  else if (acme) config.acme = acme;
   return config;
 }
 
@@ -94,6 +159,10 @@ export type RunningMx = {
   server: net.Server;
   /** The port actually bound (useful with MX_PORT=0). */
   port: number;
+  /** TLS-1 · The certificate keeper, when MX_TLS_ACME_DOMAIN is in charge. */
+  acme: CertManager | null;
+  /** Settles once the first certificate check is done (at once without ACME). */
+  acmeReady: Promise<void>;
   /** Stops accepting, waits up to SHUTDOWN_GRACE_MS for open sessions, then cuts them off. */
   close(graceMs?: number): Promise<void>;
 };
@@ -101,23 +170,45 @@ export type RunningMx = {
 /** Starts the server from an environment. Rejects on bad config or a failed listen. */
 export async function startMx(
   env: NodeJS.ProcessEnv = process.env,
-  options: { log?: Logger; fetchImpl?: typeof fetch } = {},
+  options: {
+    log?: Logger; fetchImpl?: typeof fetch;
+    /** Tests: what the ACME manager talks to, and its clock. */
+    acme?: { fetchImpl?: typeof fetch; solver?: DnsSolver; clock?: Clock; client?: Partial<AcmeClientOptions> };
+  } = {},
 ): Promise<RunningMx> {
   const log = options.log ?? jsonLog;
   const config = loadMxConfig(env);
 
   const resolve = (address: string) => resolveRecipient(address, config.domain, config.routes);
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const checked = new CheckCache();
 
-  let server: net.Server;
+  let server: SmtpServer;
   try {
     server = createSmtpServer({
       hostname: config.hostname,
       maxBytes: config.maxBytes,
       ...(config.tls ? { tls: config.tls } : {}),
       log,
+      memoryBytes: config.limits.memoryBytes,
+      maxConnections: config.limits.maxConnections,
+      maxPerAddress: config.limits.maxPerAddress,
+      sessionTimeoutMs: config.limits.sessionSeconds * 1000,
+      proxyProtocol: config.limits.proxyProtocol,
       checkRecipient(address) {
         const r = resolve(address);
-        return "code" in r ? r : "ok";
+        if ("code" in r) return r;
+        if (!config.limits.checkRecipients) return "ok";
+        // MAIL-9 · Ask the app whether the address is in use, before any data.
+        const known = checked.get(r.recipient);
+        if (known !== undefined) return known;
+        return checkAddress(r.route, r.recipient, fetchImpl).then((answer) => {
+          if (answer.misconfigured) {
+            log({ level: "error", msg: "app refused the address check: check the route's url and secret", route: r.route.url, status: answer.misconfigured });
+          }
+          if (answer.cache) checked.set(r.recipient, answer.verdict);
+          return answer.verdict;
+        });
       },
       async deliver({ recipients, raw }) {
         // Two RCPTs can name the same mailbox (x+a@, x+b@): hand it over once.
@@ -127,7 +218,7 @@ export async function startMx(
           if ("code" in r) return r;
           let pending = byRecipient.get(r.recipient);
           if (!pending) {
-            pending = relayMessage(r.route, r.recipient, raw, options.fetchImpl ?? fetch).then((reply) => {
+            pending = relayMessage(r.route, r.recipient, raw, fetchImpl).then((reply) => {
               if (reply.code === 554) {
                 log({ level: "error", msg: "app refused hand-off: check the route's url and secret", route: r.route.url, reply: reply.message });
               }
@@ -162,13 +253,41 @@ export async function startMx(
   const port = typeof address === "object" && address ? address.port : config.port;
   log({
     msg: "pathayam-mx listening", port, domain: config.domain, hostname: config.hostname,
-    routes: [...config.routes.keys()], tls: Boolean(config.tls), maxBytes: config.maxBytes,
+    routes: [...config.routes.keys()], maxBytes: config.maxBytes,
+    tls: config.tls ? "certificate" : config.acme ? "lets-encrypt" : false,
+    limits: config.limits,
   });
+  if (config.acmeIgnored) {
+    log({ level: "warn", msg: "MX_TLS_ACME_DOMAIN ignored: MX_TLS_CERT/MX_TLS_KEY are set and win" });
+  } else if (!config.tls && !config.acme) {
+    log({ level: "warn", msg: "no TLS certificate: STARTTLS is not offered and mail arrives unencrypted (set MX_TLS_ACME_DOMAIN)" });
+  }
+
+  // TLS-1 · The receiver answers at once; STARTTLS appears as soon as the
+  // first certificate is in hand, and each renewal swaps in for new sessions.
+  let acme: CertManager | null = null;
+  let acmeReady = Promise.resolve();
+  if (config.acme) {
+    const a = options.acme ?? {};
+    acme = createAcmeManager(config.acme, (bundle) => {
+      server.setTlsCertificate({ cert: bundle.certPem, key: bundle.keyPem });
+    }, {
+      log,
+      ...(a.fetchImpl ? { fetchImpl: a.fetchImpl } : {}),
+      ...(a.solver ? { solver: a.solver } : {}),
+      ...(a.clock ? { clock: a.clock } : {}),
+      ...(a.client ? { client: a.client } : {}),
+    });
+    acmeReady = acme.start();
+  }
 
   return {
     server,
     port,
+    acme,
+    acmeReady,
     close(graceMs = SHUTDOWN_GRACE_MS) {
+      acme?.stop();
       return new Promise<void>((done) => {
         const finish = () => {
           clearInterval(poll);

@@ -19,11 +19,20 @@ export type SmtpReply = { code: number; message: string };
 
 export type DeliverInput = {
   recipients: string[];
-  raw: Uint8Array;
+  /**
+   * The message, in the order received. MAIL-8: it is held in the pieces it
+   * was read into rather than copied into one buffer, which for a moment held
+   * every message twice.
+   */
+  raw: readonly Uint8Array[];
+  /** Its length in bytes: the pieces' lengths added up. */
+  size: number;
   mailFrom: string;
   helo: string;
   remoteAddress: string;
 };
+
+export type RecipientVerdict = "ok" | SmtpReply;
 
 export type SmtpServerOptions = {
   /** Our name in the banner and the EHLO reply. */
@@ -32,14 +41,42 @@ export type SmtpServerOptions = {
   maxBytes: number;
   /** PEM certificate and key; STARTTLS is offered only when given. */
   tls?: { cert: string; key: string };
-  /** Decides each RCPT TO before any message data is taken. */
-  checkRecipient(address: string): "ok" | SmtpReply;
+  /**
+   * Decides each RCPT TO before any message data is taken. It may ask
+   * somebody (MAIL-9); the session reads nothing more until it has answered.
+   */
+  checkRecipient(address: string): RecipientVerdict | Promise<RecipientVerdict>;
   /** Hands a finished message on; one reply per recipient, in order. */
   deliver(input: DeliverInput): Promise<SmtpReply[]>;
   log?(entry: Record<string, unknown>): void;
   /** Close a connection silent this long with a 421. Default five minutes. */
   idleTimeoutMs?: number;
+  /**
+   * MAIL-8 · Close any session this old with a 421, however busy it is: the
+   * idle timer alone lets a byte every few minutes keep one open for ever.
+   * Default ten minutes.
+   */
+  sessionTimeoutMs?: number;
+  /** MAIL-8 · Bytes all sessions together may hold as messages. Default 96 MiB. */
+  memoryBytes?: number;
+  /** MAIL-8 · Sessions open at once; more are told 421. Default 20. */
+  maxConnections?: number;
+  /** MAIL-8 · Sessions open at once from one address; more are told 421. Default 3. */
+  maxPerAddress?: number;
+  /**
+   * MAIL-8 · Each connection starts with a PROXY protocol v1 line naming the
+   * real client, as Fly's proxy sends with `handlers = ["proxy_proto"]`.
+   * Without it every client looks like the proxy and shares one address.
+   */
+  proxyProtocol?: boolean;
+  /** Runs `fn` after `ms` and returns a cancel; tests pass a fake clock. */
+  schedule?(fn: () => void, ms: number): () => void;
 };
+
+function schedule(fn: () => void, ms: number): () => void {
+  const timer = setTimeout(fn, ms);
+  return () => clearTimeout(timer);
+}
 
 /** RFC 5321 §4.5.3.1.4 says 512 octets; real clients send longer, so allow 4 KiB. */
 export const MAX_COMMAND_LINE = 4096;
@@ -48,7 +85,24 @@ export const MAX_RECIPIENTS = 20;
 /** Error replies before the connection is dropped: stops address probing. */
 export const MAX_BAD_COMMANDS = 10;
 export const DEFAULT_IDLE_TIMEOUT_MS = 5 * 60_000;
+export const DEFAULT_SESSION_TIMEOUT_MS = 10 * 60_000;
+export const DEFAULT_MEMORY_BYTES = 96 * 1024 * 1024;
+export const DEFAULT_MAX_CONNECTIONS = 20;
+export const DEFAULT_MAX_PER_ADDRESS = 3;
+/** How long a connection has to send its PROXY line. */
+const PROXY_HEADER_TIMEOUT_MS = 10_000;
+/** RFC: a v1 PROXY line is at most 107 bytes with its CRLF. */
+const PROXY_HEADER_MAX = 107;
 
+/**
+ * MAIL-8 · A message is copied into slabs as it arrives: the first small, each
+ * next one twice the last, up to SLAB_MAX. Nothing is ever copied twice, and a
+ * slab is paid for from the shared budget before it is allocated.
+ */
+const SLAB_FIRST = 64 * 1024;
+const SLAB_MAX = 1024 * 1024;
+/** What a whole message may cost beyond its own size: one part-filled slab. */
+export const SLAB_OVERHEAD = SLAB_MAX;
 /**
  * A DATA line longer than this is taken in pieces rather than buffered whole.
  * RFC 5321 caps text lines at 1000 octets but real mail breaks that, so long
@@ -62,19 +116,190 @@ const LF = 0x0a;
 const CR = 0x0d;
 const DOT = 0x2e;
 
+export type SmtpServer = net.Server & {
+  /**
+   * TLS-1 · Swaps the certificate (or adds one to a server started without):
+   * connections from now on offer STARTTLS with it, and a session already
+   * open keeps the one it started with. A bad key pair throws and changes
+   * nothing.
+   */
+  setTlsCertificate(pair: { cert: string; key: string }): void;
+};
+
 /** Creates the server; the caller listens on it. A bad TLS key pair throws here. */
-export function createSmtpServer(opts: SmtpServerOptions): net.Server {
-  const secureContext = opts.tls
+export function createSmtpServer(opts: SmtpServerOptions): SmtpServer {
+  let secureContext = opts.tls
     ? tls.createSecureContext({ cert: opts.tls.cert, key: opts.tls.key })
     : undefined;
-  return net.createServer((socket) => {
+  const shared: Shared = {
+    budget: new Budget(opts.memoryBytes ?? DEFAULT_MEMORY_BYTES),
+    open: 0,
+    perAddress: new Map(),
+  };
+  const maxConnections = opts.maxConnections ?? DEFAULT_MAX_CONNECTIONS;
+  const server = net.createServer((socket) => {
     try {
-      handleConnection(socket, opts, secureContext);
+      admit(socket, opts, shared, maxConnections, secureContext);
     } catch (err) {
       safeLog(opts, { level: "error", msg: "smtp session failed", error: String(err) });
       socket.destroy();
     }
+  }) as SmtpServer;
+  server.setTlsCertificate = (pair) => {
+    secureContext = tls.createSecureContext({ cert: pair.cert, key: pair.key });
+  };
+  // A backstop beyond the polite 421s below: past this the kernel's queue waits.
+  server.maxConnections = maxConnections * 2;
+  return server;
+}
+
+/** MAIL-8 · Bytes held as messages, across every session. */
+export class Budget {
+  used = 0;
+  readonly limit: number;
+  constructor(limit: number) {
+    this.limit = limit;
+  }
+  take(n: number): boolean {
+    if (this.used + n > this.limit) return false;
+    this.used += n;
+    return true;
+  }
+  give(n: number): void {
+    this.used = Math.max(0, this.used - n);
+  }
+}
+
+type Shared = { budget: Budget; open: number; perAddress: Map<string, number> };
+
+/** Turns a refused connection away with a 421 and lets it go. */
+function turnAway(socket: net.Socket, message: string): void {
+  socket.on("error", () => {});
+  socket.end(`421 ${message}\r\n`);
+  setTimeout(() => socket.destroy(), 5_000).unref?.();
+}
+
+/**
+ * MAIL-8 · Counts the connection, learns who it is from (from a PROXY line
+ * when configured), applies the caps, then starts the SMTP session.
+ */
+function admit(
+  socket: net.Socket, opts: SmtpServerOptions, shared: Shared, maxConnections: number,
+  secureContext: tls.SecureContext | undefined,
+): void {
+  shared.open += 1;
+  let address: string | null = null;
+  socket.once("close", () => {
+    shared.open -= 1;
+    if (address === null) return;
+    const n = (shared.perAddress.get(address) ?? 1) - 1;
+    if (n <= 0) shared.perAddress.delete(address);
+    else shared.perAddress.set(address, n);
   });
+  if (shared.open > maxConnections) {
+    safeLog(opts, { level: "warn", msg: "too many connections", open: shared.open - 1 });
+    return turnAway(socket, `4.7.0 ${opts.hostname} Too many connections, try again later`);
+  }
+  const start = (remote: string, early: Buffer) => {
+    const limit = opts.maxPerAddress ?? DEFAULT_MAX_PER_ADDRESS;
+    const already = shared.perAddress.get(remote) ?? 0;
+    if (already >= limit) {
+      safeLog(opts, { level: "warn", msg: "too many connections from one address", remoteAddress: remote });
+      return turnAway(socket, `4.7.0 ${opts.hostname} Too many connections from your address, try again later`);
+    }
+    address = remote;
+    shared.perAddress.set(remote, already + 1);
+    handleConnection(socket, opts, secureContext, shared.budget, remote, early);
+  };
+  if (!opts.proxyProtocol) return start(socket.remoteAddress ?? "unknown", EMPTY);
+
+  let head: Buffer = EMPTY;
+  const timer = setTimeout(() => socket.destroy(), PROXY_HEADER_TIMEOUT_MS);
+  const done = () => {
+    clearTimeout(timer);
+    socket.removeListener("data", onHead);
+  };
+  const onHead = (chunk: Buffer) => {
+    head = head.length === 0 ? chunk : Buffer.concat([head, chunk]);
+    const end = head.indexOf("\r\n");
+    if (end < 0) {
+      if (head.length > PROXY_HEADER_MAX) { done(); socket.destroy(); }
+      return;
+    }
+    done();
+    const remote = parseProxyLine(head.subarray(0, end).toString("latin1"), socket.remoteAddress ?? "unknown");
+    if (remote === null) {
+      safeLog(opts, { level: "warn", msg: "bad PROXY line; is MX_PROXY_PROTOCOL set without the proxy sending one?" });
+      socket.destroy();
+      return;
+    }
+    start(remote, head.subarray(end + 2));
+  };
+  socket.on("data", onHead);
+  socket.on("error", () => { done(); socket.destroy(); });
+}
+
+/** The client's address from a PROXY v1 line; the socket's own for UNKNOWN; null if malformed. */
+export function parseProxyLine(line: string, fallback: string): string | null {
+  const parts = line.split(" ");
+  if (parts[0] !== "PROXY") return null;
+  if (parts[1] === "UNKNOWN") return fallback;
+  if ((parts[1] !== "TCP4" && parts[1] !== "TCP6") || parts.length !== 6) return null;
+  const source = parts[2]!;
+  if (net.isIP(source) !== (parts[1] === "TCP4" ? 4 : 6)) return null;
+  return source;
+}
+
+/**
+ * MAIL-8 · One message as it is read: slabs paid for from the budget, filled
+ * in order. `append` answers false when the budget has no room for the next
+ * slab; the caller then lets everything go.
+ */
+class MessageBuffer {
+  private slabs: Buffer[] = [];
+  private fill = 0;
+  /** Bytes taken from the budget for the slabs now held. */
+  private held = 0;
+  size = 0;
+  private readonly budget: Budget;
+
+  constructor(budget: Budget) {
+    this.budget = budget;
+  }
+
+  append(piece: Uint8Array): boolean {
+    let at = 0;
+    while (at < piece.length) {
+      let slab = this.slabs.at(-1);
+      if (!slab || this.fill === slab.length) {
+        const next = slab ? Math.min(SLAB_MAX, slab.length * 2) : SLAB_FIRST;
+        if (!this.budget.take(next)) return false;
+        this.held += next;
+        slab = Buffer.allocUnsafe(next);
+        this.slabs.push(slab);
+        this.fill = 0;
+      }
+      const n = Math.min(piece.length - at, slab.length - this.fill);
+      slab.set(piece.subarray(at, at + n), this.fill);
+      this.fill += n;
+      at += n;
+    }
+    this.size += piece.length;
+    return true;
+  }
+
+  /** The filled part of every slab, without copying. */
+  parts(): Uint8Array[] {
+    return this.slabs.map((s, i) => (i === this.slabs.length - 1 ? s.subarray(0, this.fill) : s));
+  }
+
+  release(): void {
+    this.budget.give(this.held);
+    this.held = 0;
+    this.slabs = [];
+    this.fill = 0;
+    this.size = 0;
+  }
 }
 
 function safeLog(opts: SmtpServerOptions, entry: Record<string, unknown>): void {
@@ -85,18 +310,18 @@ function safeLog(opts: SmtpServerOptions, entry: Record<string, unknown>): void 
   }
 }
 
-type Transaction = { mailFrom: string; recipients: string[] };
+type Transaction = { mailFrom: string; recipients: string[]; declaredSize: number };
 
 function handleConnection(
   raw: net.Socket, opts: SmtpServerOptions, secureContext: tls.SecureContext | undefined,
+  budget: Budget, remoteAddress: string, early: Buffer,
 ): void {
-  const remoteAddress = raw.remoteAddress ?? "unknown";
   const idleMs = opts.idleTimeoutMs ?? DEFAULT_IDLE_TIMEOUT_MS;
 
   let sock: net.Socket = raw;
   let secure = false;
   let closed = false;
-  /** Set while a message is being handed on; input waits in `buf` until then. */
+  /** Set while a message is handed on or a recipient checked; input waits in `buf` until then. */
   let busy = false;
   let mode: "command" | "data" = "command";
   let buf: Buffer = EMPTY;
@@ -107,10 +332,25 @@ function handleConnection(
   let tx: Transaction | null = null;
 
   // DATA state: the message so far, its size, and where the current line is.
-  let chunks: Buffer[] = [];
+  let message = new MessageBuffer(budget);
   let size = 0;
   let oversize = false;
+  /** MAIL-8 · The shared budget had no room: read to the dot, then 451. */
+  let overBudget = false;
   let lineStart = true;
+
+  // MAIL-8 · However the session is spent, it ends this long after it began.
+  const cancelSessionTimer = (opts.schedule ?? schedule)(() => {
+    reply(421, `4.4.2 ${opts.hostname} Session time limit reached, closing connection`);
+    safeLog(opts, { level: "info", msg: "session time limit", remoteAddress });
+    hangUp();
+    freeMessage();
+  }, opts.sessionTimeoutMs ?? DEFAULT_SESSION_TIMEOUT_MS);
+
+  /** Lets go of the message being read, and its share of the budget. */
+  function freeMessage(): void {
+    message.release();
+  }
 
   function reply(code: number, message: string): void {
     if (closed) return;
@@ -128,7 +368,7 @@ function handleConnection(
     if (closed) return;
     closed = true;
     sock.end();
-    setTimeout(() => sock.destroy(), 5_000).unref();
+    setTimeout(() => sock.destroy(), 5_000).unref?.();
   }
 
   function fail(code: number, message: string): void {
@@ -142,9 +382,10 @@ function handleConnection(
 
   function resetTransaction(): void {
     tx = null;
-    chunks = [];
+    freeMessage();
     size = 0;
     oversize = false;
+    overBudget = false;
     lineStart = true;
   }
 
@@ -168,6 +409,8 @@ function handleConnection(
 
   function onClose(): void {
     closed = true;
+    cancelSessionTimer();
+    freeMessage();
   }
 
   function attach(s: net.Socket): void {
@@ -243,16 +486,22 @@ function handleConnection(
     return true;
   }
 
-  /** Over the limit we keep reading to the final dot (so the reply lines up) but stop storing. */
+  /**
+   * Over the size limit, or out of shared memory, we keep reading to the final
+   * dot (so the reply lines up) but stop storing and let go of what was held.
+   */
   function append(piece: Buffer): void {
     size += piece.length;
-    if (oversize) return;
+    if (oversize || overBudget) return;
     if (size > opts.maxBytes) {
       oversize = true;
-      chunks = [];
+      freeMessage();
       return;
     }
-    chunks.push(piece);
+    if (!message.append(piece)) {
+      overBudget = true;
+      freeMessage();
+    }
   }
 
   function endData(): void {
@@ -268,12 +517,21 @@ function handleConnection(
       resetTransaction();
       return;
     }
-    const message = new Uint8Array(Buffer.concat(chunks, size));
-    chunks = [];
+    if (overBudget) {
+      reply(451, `4.3.1 ${opts.hostname} Insufficient system storage, try again later`);
+      safeLog(opts, { level: "warn", ...base, codes: [], reply: 451, reason: "memory budget" });
+      resetTransaction();
+      return;
+    }
+    // The pieces go with the hand-off; the session reads any next message into new ones.
+    const sent = message;
+    message = new MessageBuffer(budget);
     busy = true;
     sock.pause();
     let results: SmtpReply[] = [];
-    opts.deliver({ recipients: [...t.recipients], raw: message, mailFrom: t.mailFrom, helo, remoteAddress })
+    opts.deliver({
+      recipients: [...t.recipients], raw: sent.parts(), size: sent.size, mailFrom: t.mailFrom, helo, remoteAddress,
+    })
       .then(
         (r) => { results = r; },
         (err) => {
@@ -282,6 +540,7 @@ function handleConnection(
         },
       )
       .finally(() => {
+        sent.release();
         const failed = results.find((r) => r.code < 200 || r.code >= 300);
         const answer = failed ?? (results.length > 0
           ? { code: 250, message: "2.0.0 OK: message accepted" }
@@ -333,10 +592,16 @@ function handleConnection(
         if (arg) return fail(501, "5.5.4 DATA takes no arguments");
         if (!tx) return fail(503, "5.5.1 Need MAIL command");
         if (tx.recipients.length === 0) return fail(503, "5.5.1 Need RCPT command");
+        // MAIL-8 · No room for even the message it said it would send: come back later.
+        if (budget.used + Math.max(SLAB_FIRST, tx.declaredSize) > budget.limit) {
+          safeLog(opts, { level: "warn", msg: "memory budget full at DATA", remoteAddress, used: budget.used });
+          return reply(452, `4.3.1 ${opts.hostname} Insufficient system storage, try again later`);
+        }
         mode = "data";
-        chunks = [];
+        freeMessage();
         size = 0;
         oversize = false;
+        overBudget = false;
         lineStart = true;
         return reply(354, "End data with <CR><LF>.<CR><LF>");
       case "RSET":
@@ -361,12 +626,14 @@ function handleConnection(
     if (tx) return fail(503, "5.5.1 Sender already specified");
     const parsed = parsePath(arg, "FROM");
     if (!parsed) return fail(501, "5.5.4 Syntax: MAIL FROM:<address>");
+    let declaredSize = 0;
     for (const [key, value] of parsed.params) {
       if (key === "SIZE") {
         if (!value || !/^\d+$/.test(value)) return fail(501, "5.5.4 Bad SIZE parameter");
         if (Number(value) > opts.maxBytes) {
           return reply(552, `5.3.4 Message size exceeds fixed maximum of ${opts.maxBytes} bytes`);
         }
+        declaredSize = Number(value);
       } else if (key === "BODY") {
         if (value !== "7BIT" && value !== "8BITMIME") return fail(501, "5.5.4 Bad BODY parameter");
       } else if (key === "SMTPUTF8") {
@@ -375,7 +642,7 @@ function handleConnection(
         return fail(555, `5.5.4 Unsupported parameter ${key}`);
       }
     }
-    tx = { mailFrom: parsed.address, recipients: [] };
+    tx = { mailFrom: parsed.address, recipients: [], declaredSize };
     return reply(250, "2.1.0 OK");
   }
 
@@ -385,14 +652,40 @@ function handleConnection(
     if (!parsed || !parsed.address) return fail(501, "5.5.4 Syntax: RCPT TO:<address>");
     if (parsed.params.length > 0) return fail(555, "5.5.4 Unsupported RCPT parameter");
     if (tx.recipients.length >= MAX_RECIPIENTS) return reply(452, "4.5.3 Too many recipients");
-    const verdict = opts.checkRecipient(parsed.address);
-    if (verdict === "ok") {
-      tx.recipients.push(parsed.address);
-      return reply(250, "2.1.5 OK");
+    const t = tx;
+    const address = parsed.address;
+    const answer = (verdict: RecipientVerdict) => {
+      if (verdict === "ok") {
+        t.recipients.push(address);
+        return reply(250, "2.1.5 OK");
+      }
+      // Refused recipients count as errors, so one connection cannot probe for valid addresses.
+      if (verdict.code >= 500) return fail(verdict.code, verdict.message);
+      return reply(verdict.code, verdict.message);
+    };
+    let verdict: RecipientVerdict | Promise<RecipientVerdict>;
+    try {
+      verdict = opts.checkRecipient(address);
+    } catch (err) {
+      safeLog(opts, { level: "error", msg: "recipient check failed", remoteAddress, error: String(err) });
+      verdict = { code: 451, message: "4.3.0 Temporary local problem, try again later" };
     }
-    // Refused recipients count as errors, so one connection cannot probe for valid addresses.
-    if (verdict.code >= 500) return fail(verdict.code, verdict.message);
-    return reply(verdict.code, verdict.message);
+    if (!(verdict instanceof Promise)) return answer(verdict);
+    // MAIL-9 · The answer is somebody else's to give: read nothing more until it comes.
+    busy = true;
+    sock.pause();
+    verdict
+      .catch((err): RecipientVerdict => {
+        safeLog(opts, { level: "error", msg: "recipient check failed", remoteAddress, error: String(err) });
+        return { code: 451, message: "4.3.0 Temporary local problem, try again later" };
+      })
+      .then((v) => {
+        busy = false;
+        if (closed) return;
+        answer(v);
+        sock.resume();
+        pump();
+      });
   }
 
   function startTls(arg: string): void {
@@ -417,6 +710,7 @@ function handleConnection(
 
   attach(raw);
   reply(220, `${opts.hostname} ESMTP pathayam-mx`);
+  if (early.length > 0) onData(early);
 }
 
 /**

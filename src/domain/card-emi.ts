@@ -237,8 +237,17 @@ export function convertToEmi(db: DB, actor: Actor, input: ConvertToEmiInput): Co
       // ENG-11 · Read in the card's own budget, where its payment envelope sits —
       // the one domain engine read that computed every budget at once.
       const budgetId = card.budget_id ?? householdBudgetId(db);
-      const held = computeBudget(loadEngineInput(db, { through: monthOf(date), budgetId }))
-        .get(monthOf(date))?.categories.get(cardEnvelope.id)?.balance ?? 0;
+      const month = computeBudget(loadEngineInput(db, { through: monthOf(date), budgetId }))
+        .get(monthOf(date));
+      /*
+       * ENG-21 · Only what was set aside. Credit overspend (a charge from an
+       * envelope with nothing in it) shows in the payment envelope's balance
+       * but is not money; moving it made the plan read "over-funded" by the
+       * whole charge while nothing had been put by. cardFunding subtracts the
+       * same figure for its reallyFunded.
+       */
+      const held = (month?.categories.get(cardEnvelope.id)?.balance ?? 0)
+        - (month?.unfundedByAccount[card.id] ?? 0);
       const toMove = Math.min(Math.max(0, held), amount) as Paise;
       if (toMove > 0) {
         moveMoney(db, actor, {

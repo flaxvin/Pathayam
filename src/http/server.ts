@@ -87,10 +87,18 @@ function securityHeaders(secure: boolean): Record<string, string> {
 }
 
 export function createHttpServer(options: ServerOptions): Server {
+  return createServer(createRequestListener(options));
+}
+
+/**
+ * TLS-1 · The app as a request listener, so the same app can be served over
+ * plain HTTP and, on a self-hosted box with TLS_ACME_DOMAIN, over HTTPS.
+ */
+export function createRequestListener(options: ServerOptions): (req: IncomingMessage, res: ServerResponse) => void {
   const { router, baseUrl, trustProxy, middleware = [], onError, logger } = options;
   const secure = baseUrl.startsWith("https://");
 
-  return createServer((req, res) => {
+  return (req, res) => {
     void handle(req, res).catch((err) => {
       // Nothing below should reach here; if it does, fail closed rather than
       // leaving the socket open.
@@ -98,7 +106,7 @@ export function createHttpServer(options: ServerOptions): Server {
       if (!res.headersSent) res.writeHead(500, { "Content-Type": "text/plain" });
       res.end("Something went wrong.");
     });
-  });
+  };
 
   async function handle(req: IncomingMessage, res: ServerResponse): Promise<void> {
     const started = Date.now();
@@ -150,7 +158,7 @@ export function createHttpServer(options: ServerOptions): Server {
        */
       if (!response && (ctx.method === "POST" || ctx.method === "PUT" || ctx.method === "DELETE")) {
         const limit = typeof ctx.locals.bodyLimit === "number" ? ctx.locals.bodyLimit : undefined;
-        ctx.body = await readBody(req, limit);
+        ctx.body = await readBody(req, limit, { routeParsesJson: ctx.locals.routeParsesJson === true });
       }
 
       if (!response) {

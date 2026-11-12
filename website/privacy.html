@@ -313,8 +313,10 @@
         only reads unless you tick &ldquo;allow changes&rdquo; for it where your instance offers that; any change it
         makes is opt-in, logged and undoable. It sees only what the member who connected it sees, and by
         default masks account and card numbers, UPI IDs, phone numbers and PAN
-        before anything leaves. Masking is best effort: a name written into a
-        narration is sent as written. Disconnecting stops further reading; it
+        in what the connection answers. Masking is best effort: a name written into a
+        narration is sent as written. The same key can also read the app's API
+        pages, such as the full export, without masking; the page where you make
+        the key says so. Disconnecting stops further reading; it
         cannot recall what the provider already received.
       </p>
 

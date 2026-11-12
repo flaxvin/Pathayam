@@ -26,6 +26,8 @@ export function signDkim(
     headers?: string[];
     /** Extra tags (e.g. `{ x: "1700000000", l: "10" }`) placed before bh=. */
     extraTags?: Record<string, string>;
+    /** ENG-18 · When it was signed (t=); now unless a test pins it. */
+    signedAt?: Date;
   },
 ): Uint8Array {
   const algorithm = opts.algorithm ?? "rsa-sha256";
@@ -42,7 +44,7 @@ export function signDkim(
   // Folded across lines on purpose: the verifier must cope with FWS in the tag list.
   const head =
     `DKIM-Signature: v=1; a=${algorithm}; c=${canon}; d=${opts.domain};\r\n` +
-    `\ts=${opts.selector}; t=${Math.floor(Date.now() / 1000)}; ${extra}\r\n` +
+    `\ts=${opts.selector}; t=${Math.floor((opts.signedAt ?? new Date()).getTime() / 1000)}; ${extra}\r\n` +
     `\th=${headerNames.join(":")};\r\n` +
     `\tbh=${bh};\r\n\tb=`;
 

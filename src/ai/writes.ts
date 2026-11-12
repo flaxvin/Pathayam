@@ -134,7 +134,13 @@ function amountArg(value: unknown, what: string): Paise {
   if (Math.abs(value * 100 - Math.round(value * 100)) > 1e-6) {
     throw new Refusal(`"${what}" has more than two decimal places; rupees go to paise and no further.`);
   }
-  return rupees(value) as Paise;
+  // AI-1 · The page's reader (parseAmount) refuses what paise cannot hold
+  // exactly; ₹1e20 from a model was written, as a float, into the ledger.
+  const paise = rupees(value);
+  if (!Number.isSafeInteger(paise)) {
+    throw new Refusal(`"${what}" is too large to be an amount of rupees.`);
+  }
+  return paise as Paise;
 }
 
 function dateArg(value: unknown): IsoDate {

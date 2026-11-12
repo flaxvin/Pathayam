@@ -77,12 +77,13 @@ export function deleteHeld(db: DB, memberId: string, id: string): boolean {
  */
 export async function retryHeld(
   db: DB, actor: Actor, secretsKey: Buffer | null,
-): Promise<{ result: FetchResult; opened: number; still: number; unreadable: number }> {
+): Promise<{ result: FetchResult; opened: number; still: number; unmatched: number; unreadable: number }> {
   const memberId = actor.memberId;
   if (!memberId) throw new Error("Trying statements needs a member.");
   const result = emptyFetchResult();
   let opened = 0;
   let still = 0;
+  let unmatched = 0;
   let unreadable = 0;
   const rows = queryAll<HeldStatement & { sealed: string }>(
     db, `SELECT * FROM forwarded_statements WHERE member_id = ? ORDER BY received_at`, memberId,
@@ -100,6 +101,7 @@ export async function retryHeld(
       continue;
     }
     let locked = false;
+    const unmatchedBefore = result.statements.unmatched;
     const run = startMailIngest(db, actor, result, { onLocked: () => { locked = true; } });
     result.scanned++;
     await run.message({
@@ -108,10 +110,14 @@ export async function retryHeld(
     });
     run.finish();
     if (locked) { still++; continue; }
+    // MAIL-3 · Opened, but no single account to put it in: nothing was
+    // imported, and a forwarded statement never comes again, so it waits for
+    // the account to be set up rather than being deleted.
+    if (result.statements.unmatched > unmatchedBefore) { unmatched++; continue; }
     deleteHeld(db, memberId, row.id);
     opened++;
   }
-  return { result, opened, still, unreadable };
+  return { result, opened, still, unmatched, unreadable };
 }
 
 export function listForwardedMail(db: DB, memberId: string, limit = 20): ForwardedMailRow[] {

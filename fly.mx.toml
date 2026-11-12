@@ -2,10 +2,16 @@
 #
 #   fly apps create pathayam-mx
 #   fly ips allocate-v4 -a pathayam-mx          # dedicated IPv4: port 25 needs one
+#   fly volumes create pathayam_mx_data -a pathayam-mx --region iad --size 1
 #   fly secrets set -a pathayam-mx MX_ROUTES='{"hh1":{"url":"https://<household app>","secret":"<its INBOUND_SECRET>"}}'
+#   fly secrets set -a pathayam-mx CLOUDFLARE_API_TOKEN=<token> ACME_EMAIL=<address>
 #   fly deploy -c fly.mx.toml
 #
 # Then point the MX record of MX_DOMAIN at this app's IPv4 (docs/forwarding.md).
+# TLS: the receiver gets its own Let's Encrypt certificate for MX_TLS_ACME_DOMAIN
+# by DNS-01 on Cloudflare, keeps it on the volume below, and renews it itself.
+# It will not start without CLOUDFLARE_API_TOKEN, so set that secret first.
+# Step by step, with a check for each: docs/forwarding.md, "TLS for the receiver".
 # Not deployed by .github/workflows/fly.yml, which deploys fly.toml only: this
 # app changes rarely and is deployed by hand.
 
@@ -24,6 +30,20 @@ primary_region = 'iad'
   # The image runs as an unprivileged user, so the process listens on 2525 and
   # Fly maps the public port 25 to it.
   MX_PORT = '2525'
+  # TLS-1 · STARTTLS with a Let's Encrypt certificate (needs the
+  # CLOUDFLARE_API_TOKEN secret). ACME_DIR defaults to /data/acme, on the volume.
+  MX_TLS_ACME_DOMAIN = 'in.pathayam.app'
+  # MAIL-8 · Fly's proxy hides the sender's address; the proxy_proto handler
+  # below hands it over in a PROXY line. Set both or neither.
+  MX_PROXY_PROTOCOL = 'on'
+
+# The ACME account key and the certificate, kept across deploys and restarts so
+# a restart never asks Let's Encrypt again (it limits duplicate certificates
+# to five a week). Create it once: fly volumes create pathayam_mx_data -a
+# pathayam-mx --region iad --size 1
+[mounts]
+  source = 'pathayam_mx_data'
+  destination = '/data'
 
 # A sending server retries for days, so a short outage loses nothing, but a
 # receiver that stops whenever it is idle answers its first connection late.
@@ -37,6 +57,8 @@ primary_region = 'iad'
 
   [[services.ports]]
     port = 25
+    handlers = ['proxy_proto']
+    proxy_proto_options = { version = 'v1' }
 
   [[services.tcp_checks]]
     interval = '30s'

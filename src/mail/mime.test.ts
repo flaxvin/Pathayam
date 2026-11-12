@@ -211,6 +211,14 @@ test("addressOf", () => {
   assert.equal(addressOf("Alerts@Bank.Example"), "alerts@bank.example");
   assert.equal(addressOf("alerts@bank.example (Example Bank)"), "alerts@bank.example");
   assert.equal(addressOf(""), "");
+  // MAIL-5 · The address is the angle-addr, never something shaped like one in the display name.
+  assert.equal(addressOf('"<alerts@axis.bank.in>" <me@evil.test>'), "me@evil.test");
+  assert.equal(addressOf('"a \\"<x@y.z>\\"" <me@evil.test>'), "me@evil.test");
+  assert.equal(addressOf("Bank (<alerts@axis.bank.in>) <me@evil.test>"), "me@evil.test");
+  const encodedName = parseMail(enc(
+    "From: =?utf-8?Q?=3Calerts@axis.bank.in=3E?= <me@evil.test>\r\nSubject: x\r\n\r\nbody",
+  ));
+  assert.equal(encodedName.from, "me@evil.test", "an encoded display name is not decoded into the address");
 });
 
 test("HTML markup nested to survive one pass is still removed", () => {

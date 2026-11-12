@@ -34,7 +34,7 @@ import { execute, newId } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { nowIST, todayIST } from "../core/dates.ts";
 import { parseMail, type ParsedMail } from "../mail/mime.ts";
-import { verifyDkim, alignedPass, type TxtResolver } from "../mail/dkim.ts";
+import { verifyDkim, alignedPass, alignedTempError, type TxtResolver } from "../mail/dkim.ts";
 import { emptyFetchResult, knownBankSender, startMailIngest, type FetchResult } from "../gmail/fetch.ts";
 import { memberForToken, markReceived } from "./address.ts";
 import { holdStatement } from "./held.ts";
@@ -51,6 +51,7 @@ export interface InboundDeps {
 
 export type InboundResult =
   | { status: "unknown-address" }
+  | { status: "try-later" }
   | { status: "taken"; memberId: string; outcome: ForwardOutcome; result: FetchResult | null };
 
 /** Gmail's sender for "confirm forwarding to this address". */
@@ -63,7 +64,14 @@ export async function receiveForwarded(
   if (!memberId) return { status: "unknown-address" };
 
   const mail = parseMail(raw);
-  const signed = alignedPass(await verifyDkim(raw, deps.resolveTxt, deps.now), mail.from);
+  const dkim = await verifyDkim(raw, deps.resolveTxt, deps.now);
+  const signed = !repeatsReadHeader(mail) && alignedPass(dkim, mail.from);
+  // MAIL-4 · The bank's key could not be fetched just now (a DNS timeout).
+  // Judged now, a genuine alert would be logged as forged and lost; answered
+  // as a temporary failure, the sending server keeps it and tries again.
+  if (!signed && knownBankSender(mail.from) && alignedTempError(dkim, mail.from)) {
+    return { status: "try-later" };
+  }
   markReceived(db, memberId);
 
   const log = (outcome: ForwardOutcome, detail: string | null, confirmation: string | null = null) =>
@@ -134,6 +142,30 @@ export async function receiveForwarded(
   ].filter((s): s is string => s !== null).join(". ") || null;
   log(outcome, detail);
   return { status: "taken", memberId, outcome, result };
+}
+
+/**
+ * The header fields the import reads, each of which a message has at most once
+ * (RFC 5322 §3.6, RFC 2045).
+ */
+const READ_ONCE = ["from", "subject", "date", "content-type", "content-transfer-encoding"];
+
+/**
+ * MAIL-2 · Whether a field the import reads appears twice. DKIM checks the
+ * bottom-most instance of a signed field (RFC 6376 §5.4.2) and the reader
+ * takes the first, so a Subject added above the bank's would be read while
+ * the bank's signature still checked out. Mail as a bank sends it, and as a
+ * filter forwards it, never repeats one.
+ */
+function repeatsReadHeader(mail: ParsedMail): boolean {
+  const seen = new Set<string>();
+  for (const h of mail.headers) {
+    const name = h.name.toLowerCase();
+    if (!READ_ONCE.includes(name)) continue;
+    if (seen.has(name)) return true;
+    seen.add(name);
+  }
+  return false;
 }
 
 /**

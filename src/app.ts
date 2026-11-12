@@ -365,10 +365,12 @@ import {
 import { redactValue } from "./ai/redact.ts";
 import { recordAiAccess, listAiAccess } from "./ai/access-log.ts";
 import { renderConnectAi, renderAiUndoConfirm } from "./web/pages/ai.ts";
-import { verifyInbound, SIGNATURE_HEADER, RECIPIENT_HEADER } from "./mail/signature.ts";
+import {
+  verifyInbound, verifyInboundCheck, signatureLooksFresh, SIGNATURE_HEADER, RECIPIENT_HEADER,
+} from "./mail/signature.ts";
 import type { TxtResolver } from "./mail/dkim.ts";
 import {
-  addressRow, formatAddress, issueAddress, removeAddress, tokenFromRecipient,
+  addressRow, formatAddress, issueAddress, memberForToken, removeAddress, tokenFromRecipient,
 } from "./forwarding/address.ts";
 import { receiveForwarded } from "./forwarding/inbound.ts";
 import {
@@ -432,8 +434,12 @@ const STATIC_PREFIX = "/assets/";
 const SETUP_LINK_PATH = /^\/auth\/setup\/[^/]+$/;
 /** FWD · The receiver's hand-off, answered before any session or form rule. */
 const INBOUND_PATH = "/inbound/email";
+/** MAIL-9 · The receiver's question at RCPT time: is this address in use? */
+const INBOUND_CHECK_PATH = "/inbound/check";
 /** A forwarded message's cap: the receiver's 25 MiB, and a little framing. */
 const INBOUND_BODY_BYTES = 26 * 1024 * 1024;
+/** MAIL-7 · Hand-offs read at once; more wait at the receiver, which retries. */
+export const INBOUND_CONCURRENCY = 4;
 
 /** The largest body a public route (a sign-in door) will read. */
 const PUBLIC_BODY_BYTES = 64 * 1024;
@@ -458,6 +464,8 @@ export function buildApp(deps: AppDeps): {
   const aiEnabled = config.features.ai;
   /** AIW · Whether any AI connection may change anything here (AI_WRITE). */
   const aiWriteOn = aiEnabled && config.aiWrite !== "off";
+  /** MAIL-7 · Hand-offs to /inbound/email being read or processed right now. */
+  let inboundInFlight = 0;
 
   // -------------------------------------------------------------------------
   // Middleware
@@ -528,40 +536,77 @@ export function buildApp(deps: AppDeps): {
      * bank's 8-bit body would then no longer match its DKIM signature.
      *
      * The status is the receiver's answer to the sending server: 202 taken,
-     * 404 no such address (refused), 401 a bad signature, 503 not set up.
+     * 404 no such address (refused), 401 a bad signature, 503 not set up or
+     * busy (the receiver answers 451 and the sender retries).
+     *
+     * MAIL-7 · Nothing is read from a caller who cannot be the receiver: a
+     * signature header that is missing, malformed or outside the five-minute
+     * window is refused from the headers alone, and at most
+     * INBOUND_CONCURRENCY hand-offs are read at once.
+     *
+     * MAIL-9 · POST /inbound/check is the receiver's question at RCPT time,
+     * signed the same way over the recipient alone: 200 {"known": …}. Unsigned
+     * askers get 401, so which addresses exist is told only to the receiver.
      */
     async function inboundMail(ctx: RequestContext): Promise<Response | void> {
-      if (ctx.url.pathname !== INBOUND_PATH) return;
+      const path = ctx.url.pathname;
+      if (path !== INBOUND_PATH && path !== INBOUND_CHECK_PATH) return;
       if (ctx.method.toUpperCase() !== "POST") {
         return { status: 405, headers: { Allow: "POST" }, body: "" };
       }
       const { secret } = config.inbound;
       if (!secret || !config.inbound.domain) {
-        return { status: 503, json: { error: "Forwarding is not set up on this server." } };
+        return { status: 503, headers: { Connection: "close" }, json: { error: "Forwarding is not set up on this server." } };
+      }
+      const signature = ctx.req.headers[SIGNATURE_HEADER] as string | undefined;
+      const recipient = String(ctx.req.headers[RECIPIENT_HEADER] ?? "").toLowerCase();
+      if (!signatureLooksFresh(signature)) {
+        return { status: 401, headers: { Connection: "close" }, json: { error: "That hand-off was not signed with this server's INBOUND_SECRET." } };
+      }
+      if (path === INBOUND_CHECK_PATH) {
+        if (!verifyInboundCheck(secret, signature, recipient)) {
+          return { status: 401, headers: { Connection: "close" }, json: { error: "That question was not signed with this server's INBOUND_SECRET." } };
+        }
+        const token = tokenFromRecipient(config.inbound, recipient);
+        return { status: 200, json: { known: token !== null && memberForToken(db, token) !== null } };
       }
       const declared = Number(ctx.req.headers["content-length"] ?? NaN);
       if (Number.isFinite(declared) && declared > INBOUND_BODY_BYTES) {
-        return { status: 413, json: { error: "That message is too large." } };
+        return { status: 413, headers: { Connection: "close" }, json: { error: "That message is too large." } };
       }
-      const chunks: Buffer[] = [];
-      let size = 0;
-      for await (const chunk of ctx.req) {
-        size += (chunk as Buffer).length;
-        if (size > INBOUND_BODY_BYTES) return { status: 413, json: { error: "That message is too large." } };
-        chunks.push(chunk as Buffer);
+      if (inboundInFlight >= INBOUND_CONCURRENCY) {
+        return {
+          status: 503, headers: { "Retry-After": "60", Connection: "close" },
+          json: { error: "Too many messages are being handed over at once; try again shortly." },
+        };
       }
-      const raw = new Uint8Array(Buffer.concat(chunks));
-      const recipient = String(ctx.req.headers[RECIPIENT_HEADER] ?? "").toLowerCase();
-      if (!verifyInbound(secret, ctx.req.headers[SIGNATURE_HEADER] as string | undefined, recipient, raw)) {
-        return { status: 401, json: { error: "That hand-off was not signed with this server's INBOUND_SECRET." } };
+      inboundInFlight += 1;
+      try {
+        const chunks: Buffer[] = [];
+        let size = 0;
+        for await (const chunk of ctx.req) {
+          size += (chunk as Buffer).length;
+          if (size > INBOUND_BODY_BYTES) return { status: 413, headers: { Connection: "close" }, json: { error: "That message is too large." } };
+          chunks.push(chunk as Buffer);
+        }
+        const raw = new Uint8Array(Buffer.concat(chunks));
+        if (!verifyInbound(secret, signature, recipient, raw)) {
+          return { status: 401, json: { error: "That hand-off was not signed with this server's INBOUND_SECRET." } };
+        }
+        const token = tokenFromRecipient(config.inbound, recipient);
+        if (!token) return { status: 404, json: { error: "No such address." } };
+        const outcome = await receiveForwarded(db, {
+          secretsKey: config.secretsKey, resolveTxt: deps.resolveTxt,
+        }, token, raw);
+        if (outcome.status === "unknown-address") return { status: 404, json: { error: "No such address." } };
+        // MAIL-4 · The receiver answers the sender 451, and the sender retries.
+        if (outcome.status === "try-later") {
+          return { status: 503, headers: { "Retry-After": "300" }, json: { error: "The bank's signing key could not be looked up just now." } };
+        }
+        return { status: 202, json: { outcome: outcome.outcome } };
+      } finally {
+        inboundInFlight -= 1;
       }
-      const token = tokenFromRecipient(config.inbound, recipient);
-      if (!token) return { status: 404, json: { error: "No such address." } };
-      const outcome = await receiveForwarded(db, {
-        secretsKey: config.secretsKey, resolveTxt: deps.resolveTxt,
-      }, token, raw);
-      if (outcome.status === "unknown-address") return { status: 404, json: { error: "No such address." } };
-      return { status: 202, json: { outcome: outcome.outcome } };
     },
 
     /*
@@ -613,6 +658,8 @@ export function buildApp(deps: AppDeps): {
         }
         // Read once: authenticating records last-used, and twice is noise.
         ctx.locals.bearer = bearer;
+        // AI-5 · Broken JSON is handleMcp's to answer, as a JSON-RPC parse error.
+        ctx.locals.routeParsesJson = true;
       }
     },
 
@@ -727,6 +774,13 @@ export function buildApp(deps: AppDeps): {
       // an AI app's connection is a token too, and FEATURE_AI governs it.
       if (bearer && !auth && !config.features.apiTokens && !isMcpPath(path)) {
         return { status: 403, json: { error: "API tokens are not available on this instance." } };
+      }
+      // AI-4 · And an AI connection's token is FEATURE_AI's, on every route:
+      // with that module off, /mcp was gone but the same token still read
+      // /export.json and the rest wherever API tokens stayed on. Kept, like a
+      // token above, so it works again once the module is back.
+      if (bearer && !auth && !aiEnabled && isAiToken(bearer.token)) {
+        return { status: 403, json: { error: "AI connections are not available on this instance." } };
       }
       if (bearer && !auth) {
         if (!tokenMayReach(path)) {
@@ -2586,8 +2640,14 @@ export function buildApp(deps: AppDeps): {
 
     // The digest belongs to the person reading, not to the month being read,
     // so it only shows on the current month.
+    // WEB-3 · An item whose page is a module this instance does not offer (a
+    // subscription renewing, a shortfall on the schedules calendar, with
+    // FEATURE_SCHEDULES off) goes with the module rather than linking to a 404.
     const digest = month === view.currentMonth
-      ? renderDigest(digestFor(db, a.viewingAs.id, todayIST(), viewer(ctx), scope))
+      ? renderDigest(
+        digestFor(db, a.viewingAs.id, todayIST(), viewer(ctx), scope)
+          .filter((item) => pathAvailable(item.href, config.features)),
+      )
       : undefined;
 
     // 15 · The switcher lives in the sidebar now, on every screen that shows one
@@ -8704,7 +8764,7 @@ export function buildApp(deps: AppDeps): {
     const a = consentGate(ctx);
     const parsed = oauth.parseAuthorizeRequest(db, config.baseUrl, (n) => ctx.query.get(n) ?? undefined);
     if ("fatal" in parsed) {
-      return { ...render(ctx, "Connect an app", renderConsentProblem(parsed.fatal, { apiTokens: config.features.apiTokens })), status: 400 };
+      return { ...render(ctx, "Connect an app", renderConsentProblem(parsed.fatal)), status: 400 };
     }
     if ("redirect" in parsed) return { redirect: parsed.redirect };
 
@@ -8750,7 +8810,7 @@ export function buildApp(deps: AppDeps): {
     const a = consentGate(ctx);
     const parsed = oauth.parseAuthorizeRequest(db, config.baseUrl, (n) => field(ctx.body, n));
     if ("fatal" in parsed) {
-      return { ...render(ctx, "Connect an app", renderConsentProblem(parsed.fatal, { apiTokens: config.features.apiTokens })), status: 400 };
+      return { ...render(ctx, "Connect an app", renderConsentProblem(parsed.fatal)), status: 400 };
     }
     if ("redirect" in parsed) return { redirect: parsed.redirect };
 
@@ -9129,12 +9189,15 @@ export function buildApp(deps: AppDeps): {
   router.post("/forwarding/retry", async (ctx) => {
     const a = auth(ctx);
     refuseForwardingWhileViewingAs(a);
-    const { result, opened, still, unreadable } = await retryHeld(db, actorFor(a, "import"), config.secretsKey);
+    const { result, opened, still, unmatched, unreadable } = await retryHeld(db, actorFor(a, "import"), config.secretsKey);
     const imported = result.alerts.staged + result.statements.staged;
     const parts = [
       opened ? `Opened ${opened} ${opened === 1 ? "statement" : "statements"}` +
         (imported ? `: ${imported} ${imported === 1 ? "row" : "rows"} imported` : "") : null,
       still ? `${still} still locked.${result.missingDetails.length ? ` ${result.missingDetails.join(" ")}` : ""}` : null,
+      // MAIL-3 · Opened but kept: say why, so the account can be set up.
+      unmatched ? `${unmatched} opened but ${unmatched === 1 ? "is" : "are"} for no single account of yours, so ` +
+        `${unmatched === 1 ? "it is" : "they are"} kept: add the account (or close the duplicate) and try again` : null,
       unreadable ? `${unreadable} could not be read back (SECRETS_KEY changed); delete ${unreadable === 1 ? "it" : "them"} and forward again` : null,
     ].filter((p): p is string => p !== null);
     const message = parts.length ? parts.join(". ") : "Nothing was waiting.";
@@ -10261,15 +10324,17 @@ export function buildApp(deps: AppDeps): {
        * entry with nothing to show for it.
        */
       let note = "";
+      let proceedsTransactionId: string | null = null;
       if (into && proceeds > 0) {
         const target = requireVisibleAccount(ctx, into)!.id;
-        createTransaction(db, actor, {
+        // ENG-23 · Kept, so income figures know this is the asset coming back.
+        proceedsTransactionId = createTransaction(db, actor, {
           accountId: target,
           amount: proceeds as Paise,
           date: on,
           categoryId: null,
           memo: `Sold ${account.name}`,
-        });
+        }).id;
         note = ` ${formatPaise(proceeds as Paise)} recorded into ${getAccount(db, target)?.name ?? "that account"}.`;
       }
 
@@ -10291,6 +10356,7 @@ export function buildApp(deps: AppDeps): {
         note: remaining > 0
           ? `Sold part${proceeds > 0 ? ` for ${formatPaise(proceeds as Paise)}` : ""}`
           : `Disposed of${proceeds > 0 ? ` for ${formatPaise(proceeds as Paise)}` : ""}`,
+        proceedsTransactionId,
       });
       if (remaining === 0) closeAccount(db, actor, account.id);
 
@@ -10390,7 +10456,9 @@ export function buildApp(deps: AppDeps): {
               const members = config.limits.maxMembers === null ? "no member limit" : `up to ${config.limits.maxMembers} members`;
               const backups = config.limits.backupRetentionDays === null
                 ? "the newest 14 backups kept"
-                : `backups kept ${config.limits.backupRetentionDays} days`;
+                : config.limits.backupRetentionDays === Number.POSITIVE_INFINITY
+                  ? "daily backups kept with no age limit"
+                  : `backups kept ${config.limits.backupRetentionDays} days`;
               return `Plan ${config.plan}: ${off.length === 0 ? "every module on" : `off: ${off.join(", ")}`}; ${members}; ${backups}.`;
             })(),
           },
@@ -10616,8 +10684,13 @@ export function buildApp(deps: AppDeps): {
       }
     }
     const snapshot = aiSnapshot(db, a.member.id, { months }, { features: config.features });
+    // AI-3 · The snapshot tool's answer, downloaded: a connection that asked
+    // for masking gets it masked here as over /mcp, or the same token handed
+    // the account numbers whole to whoever fetched this instead.
+    const token = ctx.locals.token as ApiToken | undefined;
+    const masked = token && isAiToken(token) && tokenRedacts(token);
     return {
-      body: JSON.stringify(snapshot, null, 2),
+      body: JSON.stringify(masked ? redactValue(snapshot) : snapshot, null, 2),
       headers: {
         "Content-Type": "application/json; charset=utf-8",
         "Content-Disposition": `attachment; filename="pathayam-analysis-${todayIST()}.json"`,
@@ -10751,7 +10824,8 @@ export function buildApp(deps: AppDeps): {
     const redact = field(ctx.body, "redact") === "1";
     // AIW · Read-only unless the deployment allows changes and the member
     // ticked the box; always expiring, because one forgotten in a config file
-    // should stop on its own. Either way it is an AI token, confined to /mcp.
+    // should stop on its own. Either way it is an AI token: it writes only
+    // through /mcp, and can also read the REST routes (AI-6; the page says so).
     const writes = aiWriteOn && field(ctx.body, "allow_changes") === "1";
     const minted = mintToken(db, actorFor(a), {
       name: requiredField(ctx.body, "name").slice(0, 80),

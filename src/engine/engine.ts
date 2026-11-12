@@ -409,6 +409,14 @@ export interface CardFunding {
    * is never "came with the card", whatever the opening balance was.
    */
   fromOverspend: Paise;
+  /**
+   * UI-14 · What is really set aside for the card: the payment envelope's
+   * balance less the credit overspending R6 moved into it, never below zero.
+   * `funded` counts that overspending too, so "Funded ₹40,450" sat beside
+   * "Unfunded ₹30,000" on a card owing ₹40,450. This and `unfunded` add up to
+   * what is owed whenever the envelope does not hold more than the debt.
+   */
+  setAside: Paise;
 }
 
 /**
@@ -439,6 +447,7 @@ export function cardFunding(
   const owed = Math.max(0, -outstanding);
   const reallyFunded = paymentCategoryBalance - attributedOverspend;
   const unfunded = Math.min(owed, Math.max(0, owed - reallyFunded)) as Paise;
+  const fromOverspend = Math.min(unfunded, Math.max(0, attributedOverspend)) as Paise;
   return {
     accountId,
     outstanding,
@@ -453,7 +462,15 @@ export function cardFunding(
      * which costs more trust than the warning was ever worth.
      */
     unfunded,
-    fromOverspend: Math.min(unfunded, Math.max(0, attributedOverspend)),
+    fromOverspend,
+    /*
+     * REV-20 · Less the whole overspend, not just the part still unfunded. A
+     * charge converted to EMI leaves its overspend in the envelope (ENG-21:
+     * it is not money, so it does not follow the debt) while the card owes
+     * nothing, so none of it is unfunded and "Set aside" showed all of it.
+     * The same when the envelope holds more than the card owes.
+     */
+    setAside: Math.max(0, reallyFunded) as Paise,
   };
 }
 

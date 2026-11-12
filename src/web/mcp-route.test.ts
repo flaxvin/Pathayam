@@ -84,6 +84,33 @@ describe("AI-2 · POST /mcp", () => {
     }
   });
 
+  test("AI-5 · a body that is not JSON is a JSON-RPC parse error, not the app's HTML error page", async () => {
+    const { db } = buildAnalysisWorld({ withPrivate: false });
+    const { secret } = token(db, PRIYA);
+    const app = await startTestApp(db, { memberId: null });
+    try {
+      const res = await fetch(app.baseUrl + "/mcp", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json", Accept: "application/json, text/event-stream" },
+        body: `{"jsonrpc":"2.0","id":1,"method":"tools/list"`,
+      });
+      assert.equal(res.status, 400);
+      assert.match(res.headers.get("content-type") ?? "", /^application\/json/);
+      const body = await res.json() as { jsonrpc: string; id: null; error: { code: number } };
+      assert.deepEqual([body.jsonrpc, body.id, body.error.code], ["2.0", null, -32700]);
+      // Every other route keeps its own answer to a broken JSON body.
+      const other = await fetch(app.baseUrl + "/assign", {
+        method: "POST",
+        headers: { Authorization: `Bearer ${secret}`, "Content-Type": "application/json" },
+        body: "{",
+      });
+      assert.equal(other.status, 403);
+      assert.deepEqual(app.failures, []);
+    } finally {
+      await app.close();
+    }
+  });
+
   test("an older client's initialize handshake works too", async () => {
     const { db } = buildAnalysisWorld({ withPrivate: false });
     const { secret } = token(db, PRIYA);
@@ -238,6 +265,41 @@ describe("AI-5 · Connect an AI", () => {
       await app.close();
     }
   });
+
+  test("AI-6 · says, on the form and with the new key, that the key also reads the API pages in full", async () => {
+    const { db } = buildAnalysisWorld({ withPrivate: false });
+    const app = await startTestApp(db, { memberId: PRIYA });
+    try {
+      const notice = (html: string) => {
+        assert.match(html, /data-ai-key-notice/);
+        assert.match(html, /<code>\/export\.json<\/code>, in full/);
+        assert.match(html, /Masking applies only to\s+answers through the AI connection/);
+        assert.match(html, /not in the AI access\s+log/);
+        assert.match(html, /Keep it only in apps you trust/);
+      };
+      notice(await (await app.get("/tokens/ai")).text());
+
+      const minted = await (await app.post("/tokens/ai", { name: "Claude Code", redact: "1", expires_in_days: "30" })).text();
+      notice(minted);
+      // On the result it sits with the key, not only on the form below it.
+      const ready = minted.indexOf("is ready");
+      const form = minted.indexOf("Create a connection");
+      assert.ok(ready >= 0 && form > ready);
+      assert.ok(minted.slice(ready, form).includes("data-ai-key-notice"));
+
+      // What the notice says is so: the key reads /export.json, unmasked.
+      const secret = /Bearer (bgt_[A-Za-z0-9_-]+)/.exec(minted)![1]!;
+      const anon = await startTestApp(db, { memberId: null });
+      try {
+        const res = await fetch(anon.baseUrl + "/export.json", { headers: { Authorization: `Bearer ${secret}` } });
+        assert.equal(res.status, 200);
+      } finally {
+        await anon.close();
+      }
+    } finally {
+      await app.close();
+    }
+  });
 });
 
 describe("AI-7 · with FEATURE_AI off (a hosted Solo instance)", () => {
@@ -274,6 +336,26 @@ describe("AI-7 · with FEATURE_AI off (a hosted Solo instance)", () => {
       assert.deepEqual(member.failures, []);
     } finally {
       await member.close();
+    }
+  });
+
+  test("AI-4 · an AI connection's token stops working everywhere, while a script's keeps working", async () => {
+    const { db } = buildAnalysisWorld({ withPrivate: false });
+    const ai = token(db, PRIYA);
+    execute(db, `UPDATE api_tokens SET for_ai = 1 WHERE id = ?`, ai.token.id);
+    const script = token(db, PRIYA);
+    // API tokens stay on: only the AI module is off.
+    const app = await startTestApp(db, { memberId: null, config: { features: { loans: true, assets: true, multiCurrency: false, ai: false } } });
+    try {
+      for (const path of ["/export.json", "/accounts", "/export.csv"]) {
+        const res = await fetch(app.baseUrl + path, { headers: { Authorization: `Bearer ${ai.secret}`, Accept: "application/json" } });
+        assert.equal(res.status, 403, path);
+      }
+      const ok = await fetch(app.baseUrl + "/export.json", { headers: { Authorization: `Bearer ${script.secret}`, Accept: "application/json" } });
+      assert.equal(ok.status, 200);
+      assert.deepEqual(app.failures, []);
+    } finally {
+      await app.close();
     }
   });
 });

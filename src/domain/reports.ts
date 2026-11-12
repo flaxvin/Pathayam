@@ -10,6 +10,7 @@
  * is a dead end.
  */
 
+import { notIncomeRowSql } from "./borrowed.ts";
 import type { DB } from "../db/db.ts";
 import { queryAll } from "../db/db.ts";
 import type { Paise } from "../core/money.ts";
@@ -19,6 +20,7 @@ import {
   heldMoreThanMonths, type IsoDate, type MonthKey,
 } from "../core/dates.ts";
 import { csvCell } from "../core/csv.ts";
+import { SPENT_AMOUNT_SQL } from "../engine/repository.ts";
 
 export interface TransactionFilter {
   from?: IsoDate;
@@ -335,7 +337,13 @@ export interface TrendPoint {
   net: Paise;
 }
 
-/** F10.1 · Income against expense over time, and the net cash position. */
+/**
+ * F10.1 · Income against expense over time, and the net cash position.
+ *
+ * ENG-22/23 · Income leaves out money a loan paid in, and a sale's proceeds
+ * (src/domain/borrowed.ts).
+ * It still reaches Ready to Assign; it is just not earnings.
+ */
 export function incomeVsExpense(
   db: DB, from: IsoDate, to: IsoDate, budgetId?: string,
   viewerMemberId?: string | null,
@@ -345,7 +353,9 @@ export function incomeVsExpense(
   const rows = queryAll<{ month: string; income: number; spending: number }>(
     db,
     `SELECT substr(t.date,1,7) AS month,
-            COALESCE(SUM(CASE WHEN t.amount > 0 THEN t.amount ELSE 0 END),0) AS income,
+            -- ENG-22/23 · Borrowed or returned money is not earned.
+            COALESCE(SUM(CASE WHEN t.amount > 0 AND NOT ${notIncomeRowSql("t")}
+                              THEN t.amount ELSE 0 END),0) AS income,
             COALESCE(SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END),0) AS spending
        FROM transactions t
        JOIN accounts a ON a.id = t.account_id
@@ -393,7 +403,7 @@ export function envelopeSpendByMonth(
   return queryAll<{ month: string; spent: number }>(
     db,
     `WITH categorised AS (
-       SELECT t.date AS date, t.category_id AS category_id, t.amount AS amount
+       SELECT t.date AS date, t.category_id AS category_id, ${SPENT_AMOUNT_SQL} AS amount
          FROM transactions t JOIN accounts a ON a.id = t.account_id
         WHERE t.deleted_at IS NULL AND t.is_split = 0 AND t.category_id IS NOT NULL
           AND t.date >= ? AND t.date <= ?${seen.sql}

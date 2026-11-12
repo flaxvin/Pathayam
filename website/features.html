@@ -105,7 +105,7 @@
           <p>Each connection sees exactly what the member who approved it sees: the household budget and their own. Another member&rsquo;s private accounts never appear, not in a list, a total or a count. The same rules and the same code apply as on every screen.</p></div>
         <div class="card"><span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><rect x="3" y="7" width="18" height="10" rx="2"/><path d="M7 12h.01M10.5 12h.01M14 12h.01M17.5 12h.01"/></svg></span>
           <h3>Masked by default</h3>
-          <p>Account numbers, UPI IDs, phone numbers and PAN are masked before anything leaves, on every connection unless you turn it off for that one. Masking is best effort: a number typed into a memo in an unusual format may get through.</p></div>
+          <p>Account numbers, UPI IDs, phone numbers and PAN are masked in what the AI connection answers, on every connection unless you turn it off for that one. Masking is best effort: a number typed into a memo in an unusual format may get through. The same key can also read the app&rsquo;s API pages, such as <code>/export.json</code>, in full; the page says so when you make it.</p></div>
         <div class="card"><span class="card__icon"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M8 6h13M8 12h13M8 18h13"/><path d="M3.5 6h.01M3.5 12h.01M3.5 18h.01"/></svg></span>
           <h3>Every question, on record</h3>
           <p>The Connect an AI page lists what each AI app asked for and when. The answers are not stored. Disconnect any app with one click.</p></div>
@@ -145,8 +145,8 @@
           <tr><td>Transactions, filtered and paged</td><td>Narrowed by account, envelope, payee, dates or amount, and handed over a page at a time.</td></tr>
           <tr><td>Explain this number</td><td>An AI can ask where Ready to Assign or an envelope balance came from, and is given the events that produced it.</td></tr>
           <tr><td>Two ways to connect</td><td>Sign in and approve from the AI app (OAuth 2.1 with PKCE, hour-long access that renews), or a hand-made token for a command-line or desktop client, expiring after 30, 90 or 365 days.</td></tr>
-          <tr><td>Masking</td><td>Per connection, on by default: account numbers, UPI IDs, phone numbers and PAN masked before anything is sent. Best effort, and the page says so.</td></tr>
-          <tr><td>Access log</td><td>Each question every AI app asked, with when, on the Connect an AI page. The answers are not kept.</td></tr>
+          <tr><td>Masking</td><td>Per connection, on by default: account numbers, UPI IDs, phone numbers and PAN masked in the AI connection&rsquo;s answers. Best effort, and the page says so. The key&rsquo;s reads of the API pages (<code>/export.json</code> and the like) are not masked, which the page also says.</td></tr>
+          <tr><td>Access log</td><td>Each question every AI app asked through the connection, with when, on the Connect an AI page. The answers are not kept. Reads of the API pages with the same key are not in it.</td></tr>
           <tr><td>Without connecting anything</td><td>Download an analysis summary from <code>/export/analysis.json</code>: a year of budget, spending by envelope, accounts, loans, portfolio and tax, without the transaction list. Paste it into any chat, or open it in a spreadsheet.</td></tr>
           </tbody>
         </table>
@@ -372,7 +372,7 @@
           <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
           <tbody>
           <tr><td>Interest models</td><td>Reducing balance and flat rate, with the equivalent reducing rate shown whenever a lender quotes flat.</td></tr>
-          <tr><td>Disbursements</td><td>Per-tranche destinations: a builder-paid tranche raises the liability only; a personal loan into savings arrives as income.</td></tr>
+          <tr><td>Disbursements</td><td>Per-tranche destinations: a builder-paid tranche raises the liability only; a personal loan into savings arrives in Ready to Assign, and is never counted as income.</td></tr>
           <tr><td>Prepayment</td><td>Tenure against EMI as the headline comparison, with interest saved and instalments saved. Reducing tenure is the default.</td></tr>
           <tr><td>Rate resets</td><td>Both options a lender must offer, priced at the rate you type against your actual balance, and the one you pick is the one applied.</td></tr>
           <tr><td>Foreclosure</td><td>Settling early records the lender's charge against an account and an envelope, so the saving you compare against is the one actually on offer.</td></tr>

@@ -268,16 +268,25 @@ export function signedValuation(subtype: string, value: Paise): Paise {
 /** R23.2 · A dated valuation, never a mutable single number. */
 export function recordValuation(
   db: DB, actor: Actor,
-  input: { accountId: string; value: Paise; asOf: IsoDate; note?: string | null },
+  input: {
+    accountId: string; value: Paise; asOf: IsoDate; note?: string | null;
+    /** ENG-23 · On a sale, the money it brought into a budget account. Not income. */
+    proceedsTransactionId?: string | null;
+  },
 ): void {
   transact(db, () => {
+    const id = newId();
     execute(
       db,
       `INSERT INTO asset_valuations (id,account_id,as_of,value,note,created_at,created_by)
        VALUES (?,?,?,?,?,?,?)`,
-      newId(), input.accountId, input.asOf, input.value, input.note ?? null,
+      id, input.accountId, input.asOf, input.value, input.note ?? null,
       nowIST(), actor.memberId,
     );
+    if (input.proceedsTransactionId) {
+      execute(db, `UPDATE asset_valuations SET proceeds_transaction_id = ? WHERE id = ?`,
+        input.proceedsTransactionId, id);
+    }
     appendEvent(db, actor, {
       entity: "asset-account", entityId: input.accountId, action: "value",
       after: { value: input.value, asOf: input.asOf },
