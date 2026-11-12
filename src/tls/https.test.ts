@@ -80,3 +80,21 @@ test("the plain port serves the app until HTTPS is live, then redirects all but 
   assert.equal(moved.headers.get("location"), "https://budget.example.com/budget?month=2026-11");
   assert.equal(await (await fetch(`${base}/healthz`)).text(), "app /healthz");
 });
+
+test("REV-1 · once HTTPS is live, the mail receiver's signed hand-offs still reach the app on the plain port", async (t) => {
+  // compose.yaml points the receiver at http://pathayam:8080; it never follows
+  // a redirect (a redirect would re-send the message unsigned-for), so a 308
+  // here was a 451 for every forwarded message, for as long as HTTPS was on.
+  const server = createServer(redirectingListener(app, () => true, "https://budget.example.com"));
+  await new Promise<void>((r) => server.listen(0, "127.0.0.1", r));
+  t.after(() => new Promise<void>((r) => server.close(() => r())));
+  const base = `http://127.0.0.1:${(server.address() as AddressInfo).port}`;
+
+  for (const path of ["/inbound/email", "/inbound/check"]) {
+    const res = await fetch(`${base}${path}`, { method: "POST", body: "x", redirect: "manual" });
+    assert.equal(res.status, 200, path);
+    assert.equal(await res.text(), `app ${path}`);
+  }
+  // Only those two: anything else is a browser's, and moves.
+  assert.equal((await fetch(`${base}/inbound/emailx`, { redirect: "manual" })).status, 308);
+});
