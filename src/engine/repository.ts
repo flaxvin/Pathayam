@@ -1167,6 +1167,26 @@ export const SPENT_AMOUNT_SQL = `(t.amount + COALESCE((
     SELECT SUM(lp.principal) FROM loan_payments lp JOIN loans l ON l.id = lp.loan_id
      WHERE lp.transaction_id = t.id AND l.converted_from_transaction_id IS NOT NULL), 0))`;
 
+/**
+ * REV-21 · The same principal, by transaction, for callers that add up rows
+ * themselves (the month close): what SPENT_AMOUNT_SQL takes off each one.
+ */
+export function convertedPrincipalByTransaction(
+  db: DB, from: IsoDate, to: IsoDate,
+): Map<string, Paise> {
+  return new Map(queryAll<{ id: string; principal: number }>(
+    db,
+    `SELECT lp.transaction_id AS id, SUM(lp.principal) AS principal
+       FROM loan_payments lp
+       JOIN loans l ON l.id = lp.loan_id
+       JOIN transactions t ON t.id = lp.transaction_id
+      WHERE l.converted_from_transaction_id IS NOT NULL
+        AND t.date >= ? AND t.date <= ?
+      GROUP BY lp.transaction_id`,
+    from, to,
+  ).map((r) => [r.id, r.principal as Paise]));
+}
+
 export function envelopeSpendBetween(
   db: DB, from: IsoDate, to: IsoDate, viewerMemberId?: string | null,
   budgetIds?: readonly string[],
