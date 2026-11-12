@@ -165,6 +165,16 @@ A loan drawn in tranches (typically under-construction property) records each
 disbursement with its date, amount and destination. The schedule reflects only
 what has been drawn.
 
+**Borrowed money is not income.** A draw paid into a budget account reaches
+Ready to Assign, because it is money to give a job to. It is not earnings, so
+every income figure leaves it out: the Overview's income chart, FIRE's annual
+income and savings rate, a month's close, and the Tax page's starting figure.
+The same goes for the credit an EMI conversion puts on a card. The draw is
+recognised by its link to the money it paid in (migration 0075), never by
+wording. Draws recorded before the app kept both legs of a draw on its activity
+log have no link, and still count as income. Money from or back to family, and
+a deposit's proceeds, are transfers, so they were never income.
+
 ### Closing
 
 A loan can be closed by settlement, with an optional foreclosure charge. The
@@ -514,6 +524,15 @@ recorded:
 | Revalue it | `/portfolio/asset/:id/revalue` | What it is worth now. No money moves |
 | Sell some | `/portfolio/asset/:id/dispose` | The proceeds, and what is left |
 | Sell all | the same route, with nothing left | The proceeds; the account closes |
+
+**A sale's proceeds are not income.** Money a sale puts in a budget account,
+here or from a holding in the portfolio, reaches Ready to Assign like any other
+cash. It is your own money coming back, though, so the income figures leave it
+out (the Overview's income chart, FIRE's income and savings rate, a month's
+close, the Tax page's starting figure); a gain inside it is reported with your
+gains. The sale is recognised by its link to the money it brought in. A
+hand-valued sale recorded before migration 0075 kept only a note, so it still
+counts. A dividend paid out is earned, and stays income.
 
 Its history is on **its own account page**, reached from Accounts like any
 other. A hand-valued asset has no transactions and never will (its worth is

@@ -124,6 +124,8 @@ export interface Disbursement {
   destination: "budget-account" | "third-party";
   destination_account_id: string | null;
   note: string | null;
+  /** ENG-22 · The money it paid into a budget account or card, when it did. */
+  transaction_id: string | null;
 }
 
 export interface RatePeriod {
@@ -604,13 +606,17 @@ export function recordDisbursement(
       // R15.2: arrives as income requiring assignment, never as an
       // uncategorised transaction. Leaving category_id null is what makes it
       // reach Ready to Assign (derivation §3) and appear in Review.
-      legs.push(createTransaction(db, actor, {
+      const cash = createTransaction(db, actor, {
         accountId: input.destinationAccountId,
         amount: input.amount,
         date: input.date,
         memo: `Loan disbursement from ${loan.lender}`,
         cleared: true,
-      }).id);
+      }).id;
+      legs.push(cash);
+      // ENG-22 · Ready to Assign takes it, but income figures do not: it is
+      // borrowed. The link is how they tell (src/domain/borrowed.ts).
+      execute(db, `UPDATE loan_disbursements SET transaction_id = ? WHERE id = ?`, cash, id);
     }
 
     // R15.4 · Drawing more changes the instalment, so the envelope follows.

@@ -41,10 +41,11 @@ type Row = Record<string, unknown>;
 const REDACT: Record<string, string[]> = {
   payees: ["default_account_id"],
   loans: ["repayment_account_id"],
-  loan_disbursements: ["destination_account_id"],
+  loan_disbursements: ["destination_account_id", "transaction_id"],
   even_calls: ["giving_category_id", "giving_budget_id"],
   categories: ["commits_to_budget_id"],
   reconciliations: ["adjustment_transaction_id"],
+  asset_valuations: ["proceeds_transaction_id"],
 };
 
 /** Rows that belong to one member, whatever they reference. */
