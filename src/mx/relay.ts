@@ -8,13 +8,22 @@
  * is only known from the app's answer to the hand-off.
  */
 
-import { signInbound, SIGNATURE_HEADER, RECIPIENT_HEADER } from "../mail/signature.ts";
-import type { SmtpReply } from "./smtp.ts";
+import {
+  signInbound, signInboundCheck, SIGNATURE_HEADER, RECIPIENT_HEADER, type MessageBytes,
+} from "../mail/signature.ts";
+import type { RecipientVerdict, SmtpReply } from "./smtp.ts";
 
 export type Route = { url: string; secret: string };
 
 /** How long the app has to answer a hand-off before the sender is told to retry. */
 export const RELAY_TIMEOUT_MS = 30_000;
+/** MAIL-9 · How long the app has to say whether an address is in use. */
+export const CHECK_TIMEOUT_MS = 5_000;
+/** MAIL-9 · How long an answer is remembered: an address in use, and one not. */
+export const CHECK_KNOWN_TTL_MS = 5 * 60_000;
+export const CHECK_UNKNOWN_TTL_MS = 60_000;
+/** MAIL-9 · Answers remembered at once; the oldest goes first. */
+export const CHECK_CACHE_ENTRIES = 10_000;
 
 const NAME = /^[a-z0-9]+$/;
 
@@ -97,7 +106,7 @@ export function resolveRecipient(
  * that recipient. Never throws: a failure the sender can retry is a 451.
  */
 export async function relayMessage(
-  route: Route, recipient: string, raw: Uint8Array,
+  route: Route, recipient: string, raw: MessageBytes,
   fetchImpl: typeof fetch = fetch, now: Date = new Date(),
 ): Promise<SmtpReply> {
   let status: number;
@@ -109,7 +118,7 @@ export async function relayMessage(
         [RECIPIENT_HEADER]: recipient,
         [SIGNATURE_HEADER]: signInbound(route.secret, recipient, raw, now),
       },
-      body: raw,
+      ...requestBody(raw),
       // A redirect would re-send the message somewhere unsigned-for; treat it as an answer.
       redirect: "manual",
       signal: AbortSignal.timeout(RELAY_TIMEOUT_MS),
@@ -133,4 +142,91 @@ export async function relayMessage(
   }
   // 429, 5xx and anything unexpected: the sender keeps the message and retries.
   return { code: 451, message: `4.3.0 Mailbox service unavailable (HTTP ${status}), try again later` };
+}
+
+/**
+ * MAIL-8 · A message held in pieces is streamed as it is, rather than copied
+ * into one buffer for the request; one piece is sent as it is.
+ */
+function requestBody(raw: MessageBytes): { body: NonNullable<RequestInit["body"]>; duplex?: "half" } {
+  if (raw instanceof Uint8Array) return { body: raw };
+  if (raw.length === 1) return { body: raw[0]! };
+  const parts = [...raw];
+  let i = 0;
+  const stream = new ReadableStream<Uint8Array>({
+    pull(controller) {
+      const next = parts[i++];
+      if (next) controller.enqueue(next);
+      else controller.close();
+    },
+  });
+  return { body: stream, duplex: "half" };
+}
+
+export type CheckAnswer = { verdict: RecipientVerdict; cache: boolean; misconfigured?: number };
+
+/**
+ * MAIL-9 · Asks the route's app whether `recipient` is in use, signed with its
+ * secret over the recipient alone. An address the app does not know is
+ * refused for good (550); no answer, a slow one or an odd one is a 451 the
+ * sender retries, so an outage at the app never bounces a member's mail.
+ * Never throws.
+ */
+export async function checkAddress(
+  route: Route, recipient: string, fetchImpl: typeof fetch = fetch, now: Date = new Date(),
+): Promise<CheckAnswer> {
+  const later: CheckAnswer = {
+    verdict: { code: 451, message: "4.4.3 Mailbox service unavailable, try again later" }, cache: false,
+  };
+  try {
+    const res = await fetchImpl(`${route.url}/inbound/check`, {
+      method: "POST",
+      headers: {
+        [RECIPIENT_HEADER]: recipient,
+        [SIGNATURE_HEADER]: signInboundCheck(route.secret, recipient, now),
+      },
+      redirect: "manual",
+      signal: AbortSignal.timeout(CHECK_TIMEOUT_MS),
+    });
+    if (res.status !== 200) {
+      try { await res.body?.cancel(); } catch { /* the status is the answer */ }
+      if (res.status === 400 || res.status === 401 || res.status === 403) return { ...later, misconfigured: res.status };
+      return later;
+    }
+    const body = await res.json() as { known?: unknown };
+    if (body.known === true) return { verdict: "ok", cache: true };
+    if (body.known === false) return { verdict: { code: 550, message: "5.1.1 No such user here" }, cache: true };
+    return later;
+  } catch {
+    return later;
+  }
+}
+
+/** MAIL-9 · Answers from the app, remembered briefly; 451s are never remembered. */
+export class CheckCache {
+  private readonly entries = new Map<string, { verdict: RecipientVerdict; until: number }>();
+  private readonly clock: () => number;
+  constructor(clock: () => number = Date.now) {
+    this.clock = clock;
+  }
+
+  get(recipient: string): RecipientVerdict | undefined {
+    const hit = this.entries.get(recipient);
+    if (!hit) return undefined;
+    if (hit.until <= this.clock()) {
+      this.entries.delete(recipient);
+      return undefined;
+    }
+    return hit.verdict;
+  }
+
+  set(recipient: string, verdict: RecipientVerdict): void {
+    const ttl = verdict === "ok" ? CHECK_KNOWN_TTL_MS : CHECK_UNKNOWN_TTL_MS;
+    this.entries.delete(recipient);
+    if (this.entries.size >= CHECK_CACHE_ENTRIES) {
+      const oldest = this.entries.keys().next().value;
+      if (oldest !== undefined) this.entries.delete(oldest);
+    }
+    this.entries.set(recipient, { verdict, until: this.clock() + ttl });
+  }
 }

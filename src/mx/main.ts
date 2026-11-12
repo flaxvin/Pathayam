@@ -16,6 +16,12 @@
  *   MX_PORT         25
  *   MX_HOSTNAME     MX_DOMAIN; the name in the banner and EHLO reply
  *   MX_MAX_BYTES    26214400 (25 MiB)
+ *   MX_MEMORY_BYTES             100663296 (96 MiB) held as messages, all sessions together
+ *   MX_MAX_CONNECTIONS          20 sessions at once
+ *   MX_MAX_CONNECTIONS_PER_IP   3 sessions at once from one address
+ *   MX_SESSION_SECONDS          600; a session ends this long after it began
+ *   MX_PROXY_PROTOCOL           off; "on" when a proxy sends PROXY v1 lines (Fly proxy_proto)
+ *   MX_CHECK_RECIPIENTS         on; "off" accepts any well-formed address at RCPT
  *   MX_TLS_CERT / MX_TLS_KEY            PEM text, or
  *   MX_TLS_CERT_FILE / MX_TLS_KEY_FILE  paths to PEM files; both or neither.
  *   MX_TLS_ACME_DOMAIN  TLS-1: get and renew a Let's Encrypt certificate for
@@ -26,8 +32,8 @@
 import { readFileSync } from "node:fs";
 import type net from "node:net";
 import { pathToFileURL } from "node:url";
-import { createSmtpServer, type SmtpReply, type SmtpServer } from "./smtp.ts";
-import { parseRoutes, resolveRecipient, relayMessage, type Route } from "./relay.ts";
+import { createSmtpServer, SLAB_OVERHEAD, type SmtpReply, type SmtpServer } from "./smtp.ts";
+import { checkAddress, CheckCache, parseRoutes, resolveRecipient, relayMessage, type Route } from "./relay.ts";
 import { loadAcmeSettings, type AcmeSettings } from "../tls/settings.ts";
 import { createAcmeManager, type CertManager, type Clock } from "../tls/manager.ts";
 import type { DnsSolver } from "../tls/dns.ts";
@@ -44,7 +50,44 @@ export type MxConfig = {
   acme?: AcmeSettings;
   /** MX_TLS_ACME_DOMAIN was set alongside an explicit certificate, which won. */
   acmeIgnored?: boolean;
+  /** MAIL-8/9 · What one stranger can cost, and whether RCPT asks the app. */
+  limits: MxLimits;
 };
+
+export type MxLimits = {
+  memoryBytes: number;
+  maxConnections: number;
+  maxPerAddress: number;
+  sessionSeconds: number;
+  proxyProtocol: boolean;
+  checkRecipients: boolean;
+};
+
+export const DEFAULT_MEMORY_BYTES = 96 * 1024 * 1024;
+
+function onOff(env: NodeJS.ProcessEnv, name: string, fallback: boolean): boolean {
+  const raw = env[name]?.trim().toLowerCase();
+  if (!raw) return fallback;
+  if (raw === "on" || raw === "true" || raw === "1") return true;
+  if (raw === "off" || raw === "false" || raw === "0") return false;
+  throw new Error(`${name} must be on or off, got "${raw}"`);
+}
+
+/** MAIL-8/9 · The caps on what the receiver holds, and the RCPT check. */
+function loadLimits(env: NodeJS.ProcessEnv, maxBytes: number): MxLimits {
+  const limits: MxLimits = {
+    memoryBytes: integer(env, "MX_MEMORY_BYTES", DEFAULT_MEMORY_BYTES, 1024, 64 * 1024 ** 3),
+    maxConnections: integer(env, "MX_MAX_CONNECTIONS", 20, 1, 10_000),
+    maxPerAddress: integer(env, "MX_MAX_CONNECTIONS_PER_IP", 3, 1, 10_000),
+    sessionSeconds: integer(env, "MX_SESSION_SECONDS", 600, 10, 86_400),
+    proxyProtocol: onOff(env, "MX_PROXY_PROTOCOL", false),
+    checkRecipients: onOff(env, "MX_CHECK_RECIPIENTS", true),
+  };
+  if (limits.memoryBytes < maxBytes + SLAB_OVERHEAD) {
+    throw new Error(`MX_MEMORY_BYTES must be at least MX_MAX_BYTES plus 1 MiB (${maxBytes + SLAB_OVERHEAD}), or the largest message never fits`);
+  }
+  return limits;
+}
 
 export const DEFAULT_MAX_BYTES = 26_214_400;
 /** How long a shutdown waits for sessions in progress before cutting them off. */
@@ -91,12 +134,14 @@ export function loadMxConfig(env: NodeJS.ProcessEnv): MxConfig {
   if ((cert === undefined) !== (key === undefined)) {
     throw new Error("TLS needs both a certificate and a key (MX_TLS_CERT[_FILE] and MX_TLS_KEY[_FILE]), or neither");
   }
+  const maxBytes = integer(env, "MX_MAX_BYTES", DEFAULT_MAX_BYTES, 1024, 1024 ** 3);
   const config: MxConfig = {
     domain,
     hostname: env.MX_HOSTNAME?.trim() || domain,
     port: integer(env, "MX_PORT", 25, 0, 65535),
-    maxBytes: integer(env, "MX_MAX_BYTES", DEFAULT_MAX_BYTES, 1024, 1024 ** 3),
+    maxBytes,
     routes,
+    limits: loadLimits(env, maxBytes),
   };
   if (cert !== undefined && key !== undefined) config.tls = { cert, key };
   let acme: AcmeSettings | null;
@@ -135,6 +180,8 @@ export async function startMx(
   const config = loadMxConfig(env);
 
   const resolve = (address: string) => resolveRecipient(address, config.domain, config.routes);
+  const fetchImpl = options.fetchImpl ?? fetch;
+  const checked = new CheckCache();
 
   let server: SmtpServer;
   try {
@@ -143,9 +190,25 @@ export async function startMx(
       maxBytes: config.maxBytes,
       ...(config.tls ? { tls: config.tls } : {}),
       log,
+      memoryBytes: config.limits.memoryBytes,
+      maxConnections: config.limits.maxConnections,
+      maxPerAddress: config.limits.maxPerAddress,
+      sessionTimeoutMs: config.limits.sessionSeconds * 1000,
+      proxyProtocol: config.limits.proxyProtocol,
       checkRecipient(address) {
         const r = resolve(address);
-        return "code" in r ? r : "ok";
+        if ("code" in r) return r;
+        if (!config.limits.checkRecipients) return "ok";
+        // MAIL-9 · Ask the app whether the address is in use, before any data.
+        const known = checked.get(r.recipient);
+        if (known !== undefined) return known;
+        return checkAddress(r.route, r.recipient, fetchImpl).then((answer) => {
+          if (answer.misconfigured) {
+            log({ level: "error", msg: "app refused the address check: check the route's url and secret", route: r.route.url, status: answer.misconfigured });
+          }
+          if (answer.cache) checked.set(r.recipient, answer.verdict);
+          return answer.verdict;
+        });
       },
       async deliver({ recipients, raw }) {
         // Two RCPTs can name the same mailbox (x+a@, x+b@): hand it over once.
@@ -155,7 +218,7 @@ export async function startMx(
           if ("code" in r) return r;
           let pending = byRecipient.get(r.recipient);
           if (!pending) {
-            pending = relayMessage(r.route, r.recipient, raw, options.fetchImpl ?? fetch).then((reply) => {
+            pending = relayMessage(r.route, r.recipient, raw, fetchImpl).then((reply) => {
               if (reply.code === 554) {
                 log({ level: "error", msg: "app refused hand-off: check the route's url and secret", route: r.route.url, reply: reply.message });
               }
@@ -192,6 +255,7 @@ export async function startMx(
     msg: "pathayam-mx listening", port, domain: config.domain, hostname: config.hostname,
     routes: [...config.routes.keys()], maxBytes: config.maxBytes,
     tls: config.tls ? "certificate" : config.acme ? "lets-encrypt" : false,
+    limits: config.limits,
   });
   if (config.acmeIgnored) {
     log({ level: "warn", msg: "MX_TLS_ACME_DOMAIN ignored: MX_TLS_CERT/MX_TLS_KEY are set and win" });

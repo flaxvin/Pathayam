@@ -365,10 +365,12 @@ import {
 import { redactValue } from "./ai/redact.ts";
 import { recordAiAccess, listAiAccess } from "./ai/access-log.ts";
 import { renderConnectAi, renderAiUndoConfirm } from "./web/pages/ai.ts";
-import { verifyInbound, SIGNATURE_HEADER, RECIPIENT_HEADER } from "./mail/signature.ts";
+import {
+  verifyInbound, verifyInboundCheck, signatureLooksFresh, SIGNATURE_HEADER, RECIPIENT_HEADER,
+} from "./mail/signature.ts";
 import type { TxtResolver } from "./mail/dkim.ts";
 import {
-  addressRow, formatAddress, issueAddress, removeAddress, tokenFromRecipient,
+  addressRow, formatAddress, issueAddress, memberForToken, removeAddress, tokenFromRecipient,
 } from "./forwarding/address.ts";
 import { receiveForwarded } from "./forwarding/inbound.ts";
 import {
@@ -432,8 +434,12 @@ const STATIC_PREFIX = "/assets/";
 const SETUP_LINK_PATH = /^\/auth\/setup\/[^/]+$/;
 /** FWD · The receiver's hand-off, answered before any session or form rule. */
 const INBOUND_PATH = "/inbound/email";
+/** MAIL-9 · The receiver's question at RCPT time: is this address in use? */
+const INBOUND_CHECK_PATH = "/inbound/check";
 /** A forwarded message's cap: the receiver's 25 MiB, and a little framing. */
 const INBOUND_BODY_BYTES = 26 * 1024 * 1024;
+/** MAIL-7 · Hand-offs read at once; more wait at the receiver, which retries. */
+export const INBOUND_CONCURRENCY = 4;
 
 /** The largest body a public route (a sign-in door) will read. */
 const PUBLIC_BODY_BYTES = 64 * 1024;
@@ -458,6 +464,8 @@ export function buildApp(deps: AppDeps): {
   const aiEnabled = config.features.ai;
   /** AIW · Whether any AI connection may change anything here (AI_WRITE). */
   const aiWriteOn = aiEnabled && config.aiWrite !== "off";
+  /** MAIL-7 · Hand-offs to /inbound/email being read or processed right now. */
+  let inboundInFlight = 0;
 
   // -------------------------------------------------------------------------
   // Middleware
@@ -528,44 +536,77 @@ export function buildApp(deps: AppDeps): {
      * bank's 8-bit body would then no longer match its DKIM signature.
      *
      * The status is the receiver's answer to the sending server: 202 taken,
-     * 404 no such address (refused), 401 a bad signature, 503 not set up.
+     * 404 no such address (refused), 401 a bad signature, 503 not set up or
+     * busy (the receiver answers 451 and the sender retries).
+     *
+     * MAIL-7 · Nothing is read from a caller who cannot be the receiver: a
+     * signature header that is missing, malformed or outside the five-minute
+     * window is refused from the headers alone, and at most
+     * INBOUND_CONCURRENCY hand-offs are read at once.
+     *
+     * MAIL-9 · POST /inbound/check is the receiver's question at RCPT time,
+     * signed the same way over the recipient alone: 200 {"known": …}. Unsigned
+     * askers get 401, so which addresses exist is told only to the receiver.
      */
     async function inboundMail(ctx: RequestContext): Promise<Response | void> {
-      if (ctx.url.pathname !== INBOUND_PATH) return;
+      const path = ctx.url.pathname;
+      if (path !== INBOUND_PATH && path !== INBOUND_CHECK_PATH) return;
       if (ctx.method.toUpperCase() !== "POST") {
         return { status: 405, headers: { Allow: "POST" }, body: "" };
       }
       const { secret } = config.inbound;
       if (!secret || !config.inbound.domain) {
-        return { status: 503, json: { error: "Forwarding is not set up on this server." } };
+        return { status: 503, headers: { Connection: "close" }, json: { error: "Forwarding is not set up on this server." } };
+      }
+      const signature = ctx.req.headers[SIGNATURE_HEADER] as string | undefined;
+      const recipient = String(ctx.req.headers[RECIPIENT_HEADER] ?? "").toLowerCase();
+      if (!signatureLooksFresh(signature)) {
+        return { status: 401, headers: { Connection: "close" }, json: { error: "That hand-off was not signed with this server's INBOUND_SECRET." } };
+      }
+      if (path === INBOUND_CHECK_PATH) {
+        if (!verifyInboundCheck(secret, signature, recipient)) {
+          return { status: 401, headers: { Connection: "close" }, json: { error: "That question was not signed with this server's INBOUND_SECRET." } };
+        }
+        const token = tokenFromRecipient(config.inbound, recipient);
+        return { status: 200, json: { known: token !== null && memberForToken(db, token) !== null } };
       }
       const declared = Number(ctx.req.headers["content-length"] ?? NaN);
       if (Number.isFinite(declared) && declared > INBOUND_BODY_BYTES) {
-        return { status: 413, json: { error: "That message is too large." } };
+        return { status: 413, headers: { Connection: "close" }, json: { error: "That message is too large." } };
       }
-      const chunks: Buffer[] = [];
-      let size = 0;
-      for await (const chunk of ctx.req) {
-        size += (chunk as Buffer).length;
-        if (size > INBOUND_BODY_BYTES) return { status: 413, json: { error: "That message is too large." } };
-        chunks.push(chunk as Buffer);
+      if (inboundInFlight >= INBOUND_CONCURRENCY) {
+        return {
+          status: 503, headers: { "Retry-After": "60", Connection: "close" },
+          json: { error: "Too many messages are being handed over at once; try again shortly." },
+        };
       }
-      const raw = new Uint8Array(Buffer.concat(chunks));
-      const recipient = String(ctx.req.headers[RECIPIENT_HEADER] ?? "").toLowerCase();
-      if (!verifyInbound(secret, ctx.req.headers[SIGNATURE_HEADER] as string | undefined, recipient, raw)) {
-        return { status: 401, json: { error: "That hand-off was not signed with this server's INBOUND_SECRET." } };
+      inboundInFlight += 1;
+      try {
+        const chunks: Buffer[] = [];
+        let size = 0;
+        for await (const chunk of ctx.req) {
+          size += (chunk as Buffer).length;
+          if (size > INBOUND_BODY_BYTES) return { status: 413, headers: { Connection: "close" }, json: { error: "That message is too large." } };
+          chunks.push(chunk as Buffer);
+        }
+        const raw = new Uint8Array(Buffer.concat(chunks));
+        if (!verifyInbound(secret, signature, recipient, raw)) {
+          return { status: 401, json: { error: "That hand-off was not signed with this server's INBOUND_SECRET." } };
+        }
+        const token = tokenFromRecipient(config.inbound, recipient);
+        if (!token) return { status: 404, json: { error: "No such address." } };
+        const outcome = await receiveForwarded(db, {
+          secretsKey: config.secretsKey, resolveTxt: deps.resolveTxt,
+        }, token, raw);
+        if (outcome.status === "unknown-address") return { status: 404, json: { error: "No such address." } };
+        // MAIL-4 · The receiver answers the sender 451, and the sender retries.
+        if (outcome.status === "try-later") {
+          return { status: 503, headers: { "Retry-After": "300" }, json: { error: "The bank's signing key could not be looked up just now." } };
+        }
+        return { status: 202, json: { outcome: outcome.outcome } };
+      } finally {
+        inboundInFlight -= 1;
       }
-      const token = tokenFromRecipient(config.inbound, recipient);
-      if (!token) return { status: 404, json: { error: "No such address." } };
-      const outcome = await receiveForwarded(db, {
-        secretsKey: config.secretsKey, resolveTxt: deps.resolveTxt,
-      }, token, raw);
-      if (outcome.status === "unknown-address") return { status: 404, json: { error: "No such address." } };
-      // MAIL-4 · The receiver answers the sender 451, and the sender retries.
-      if (outcome.status === "try-later") {
-        return { status: 503, headers: { "Retry-After": "300" }, json: { error: "The bank's signing key could not be looked up just now." } };
-      }
-      return { status: 202, json: { outcome: outcome.outcome } };
     },
 
     /*

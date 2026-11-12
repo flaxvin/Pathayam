@@ -35,6 +35,7 @@ receiver serves one instance alone (`INBOUND_ROUTE` empty).
 | Check | Where | If it fails |
 |---|---|---|
 | The domain is `MX_DOMAIN` and the route is known | receiver, at `RCPT` | `550`, refused |
+| The address is in use: the receiver asks the app (`POST /inbound/check`, signed like a hand-off) | receiver, at `RCPT` | `550 5.1.1`, refused before any data; if the app cannot answer, `451 4.4.3` and the sender retries |
 | The hand-off is signed with `INBOUND_SECRET`, at most five minutes old, for this recipient | app | `401`; the receiver answers `554` and logs a configuration error |
 | The token names a member | app | `404`; the receiver answers `550 5.1.1` |
 | The sender is one the import reads (the Gmail fetch's own sender list) | app | logged as *Not a bank sender*, not opened |
@@ -109,6 +110,12 @@ writes no mail to disk (only its own certificate, when it gets one from Let's En
 | `MX_PORT` | `25` | The image runs unprivileged, so compose and Fly use `2525` inside and map 25 to it. |
 | `MX_HOSTNAME` | `MX_DOMAIN` | The name in the banner and the `EHLO` reply. |
 | `MX_MAX_BYTES` | `26214400` | |
+| `MX_MEMORY_BYTES` | `100663296` (96 MiB) | What all sessions together may hold as messages. At least `MX_MAX_BYTES` plus 1 MiB. |
+| `MX_MAX_CONNECTIONS` | `20` | Sessions at once. |
+| `MX_MAX_CONNECTIONS_PER_IP` | `3` | Sessions at once from one address. |
+| `MX_SESSION_SECONDS` | `600` | A session ends this long after it began, however busy it keeps. |
+| `MX_PROXY_PROTOCOL` | `off` | `on` when a proxy in front sends a PROXY v1 line naming the client (Fly's `proxy_proto` handler, set in `fly.mx.toml`). Without it every client looks like the proxy, and the per-address cap counts them all as one. |
+| `MX_CHECK_RECIPIENTS` | `on` | `off` takes any well-formed address at `RCPT` and leaves the check to the hand-off, as before. Only for a receiver in front of an app older than `/inbound/check`. |
 | `MX_TLS_CERT`, `MX_TLS_KEY` or `MX_TLS_CERT_FILE`, `MX_TLS_KEY_FILE` | None | PEM. Both or neither. Senders such as Gmail use STARTTLS when offered; without a certificate the mail crosses the internet unencrypted. Given, these win over `MX_TLS_ACME_DOMAIN`. |
 | `MX_TLS_ACME_DOMAIN` | None | Get a Let's Encrypt certificate for this name and renew it automatically ([TLS for the receiver](#tls-for-the-receiver)). Several names may be given, comma-separated. |
 | `CLOUDFLARE_API_TOKEN` | None | Required with `MX_TLS_ACME_DOMAIN`: a token that may edit DNS in the zone. |
@@ -117,6 +124,38 @@ writes no mail to disk (only its own certificate, when it gets one from Let's En
 How the app's answer becomes the SMTP reply: `202` → `250`; `404` → `550`;
 `413` → `552`; `400`/`401`/`403` → `554` and an error log line; anything else,
 a timeout (30 s) or no answer → `451`, so the sender retries.
+
+**The address check at `RCPT`.** Before taking any data the receiver asks the
+route's app whether the address is in use: `POST /inbound/check` with the
+recipient and a signature made with the same `INBOUND_SECRET` over
+`check.<t>.<recipient>.` (so it can never pass for a hand-off's, nor a
+hand-off's for it). The app answers `200 {"known": true|false}` only to a
+signed question; anybody else gets `401`, so which addresses exist is never
+told to a stranger. The receiver remembers a yes for five minutes and a no for
+one; it allows the app 5 s. A `401`/`403` from the check is logged as a
+configuration error, and the sender is told `451` rather than refused. The app
+still checks the address again on the hand-off.
+
+**What a sending server sees when the receiver is full.** Nothing is lost; each
+of these is a temporary answer, and the sender keeps the message and tries
+again later (Gmail retries for days):
+
+| When | Reply |
+|---|---|
+| More than `MX_MAX_CONNECTIONS` sessions are open | `421 4.7.0 Too many connections, try again later`, then the connection closes |
+| More than `MX_MAX_CONNECTIONS_PER_IP` from one address | `421 4.7.0 Too many connections from your address, try again later` |
+| The memory budget cannot take the message (its `SIZE`, or a first 64 KiB) | `452 4.3.1 Insufficient system storage` to `DATA` |
+| The budget runs out while the message arrives | read to the end, then `451 4.3.1 Insufficient system storage`; what was held is let go at once |
+| The session is `MX_SESSION_SECONDS` old | `421 4.4.2 Session time limit reached`, and the connection closes |
+| The app is busy (more than four hand-offs at once) | the app answers `503`, the receiver `451` |
+
+A message is held in pieces as it arrives and handed to the app as those
+pieces, never copied into one buffer, so a 25 MiB message costs about 25 MiB.
+
+**The app's side.** `POST /inbound/email` refuses a hand-off whose signature
+header is missing, malformed or more than five minutes out before reading a
+byte of its body (`401`), and reads at most four hand-offs at once (`503` with
+`Retry-After` past that).
 
 **Self-hosted, with compose:**
 
@@ -221,6 +260,12 @@ shows in the logs as `tls certificate due for renewal` followed by
 `docker compose --profile mail up -d`. The `mx-data` volume keeps the
 certificate. The checks are the same as steps 1, 2 and 6 above, with
 `docker compose logs mx` in place of `fly logs`.
+Fly's proxy stands between the sender and the receiver, so `fly.mx.toml` turns
+on its `proxy_proto` handler and sets `MX_PROXY_PROTOCOL=on`: each connection
+then opens with a line naming the real client, which the per-address cap and
+the logs use. The two go together; one without the other turns every
+connection away. The 256 MB machine fits the default 96 MiB budget with room
+for Node itself.
 
 Rollback: remove the MX record (senders queue and retry for days), then
 `fly scale count 0 -a pathayam-mx`. Turning `FEATURE_FORWARDING` off on an

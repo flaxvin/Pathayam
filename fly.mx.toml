@@ -33,6 +33,9 @@ primary_region = 'iad'
   # TLS-1 · STARTTLS with a Let's Encrypt certificate (needs the
   # CLOUDFLARE_API_TOKEN secret). ACME_DIR defaults to /data/acme, on the volume.
   MX_TLS_ACME_DOMAIN = 'in.pathayam.app'
+  # MAIL-8 · Fly's proxy hides the sender's address; the proxy_proto handler
+  # below hands it over in a PROXY line. Set both or neither.
+  MX_PROXY_PROTOCOL = 'on'
 
 # The ACME account key and the certificate, kept across deploys and restarts so
 # a restart never asks Let's Encrypt again (it limits duplicate certificates
@@ -54,6 +57,8 @@ primary_region = 'iad'
 
   [[services.ports]]
     port = 25
+    handlers = ['proxy_proto']
+    proxy_proto_options = { version = 'v1' }
 
   [[services.tcp_checks]]
     interval = '30s'
