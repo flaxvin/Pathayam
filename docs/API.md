@@ -482,9 +482,23 @@ keyed with `INBOUND_SECRET` and at most five minutes old.
 | Status | Meaning |
 |---|---|
 | `202` | Taken: imported, or logged and dropped (not a bank, no valid bank signature). |
-| `401` | The signature is missing, wrong or stale. |
+| `401` | The signature is missing, wrong or stale. A missing, malformed or stale header is refused before the body is read. |
 | `404` | No such address on this instance. The receiver refuses the message. |
 | `413` | Over 26 MiB. |
+| `503` | `INBOUND_DOMAIN` or `INBOUND_SECRET` is not set; or four hand-offs are already being read (with `Retry-After`), and the receiver tells the sender to retry. |
+
+### The mail receiver's address check: `POST /inbound/check`
+
+Also not for scripts: the receiver asks this before it takes a message, so mail
+to an address nobody has is refused at once. No body; `X-Pathayam-Recipient`
+names the address, and `X-Pathayam-Signature` is `t=<unix seconds>,v1=<hex
+HMAC-SHA256>` over `check.<t>.<recipient>.`, keyed with `INBOUND_SECRET` and at
+most five minutes old.
+
+| Status | Meaning |
+|---|---|
+| `200` | `{"known": true}` for an address in use on this instance, `{"known": false}` otherwise. |
+| `401` | The signature is missing, wrong or stale. Nothing is said about the address. |
 | `503` | `INBOUND_DOMAIN` or `INBOUND_SECRET` is not set. |
 
 ## Worked examples

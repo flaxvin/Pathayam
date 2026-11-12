@@ -24,6 +24,9 @@ primary_region = 'iad'
   # The image runs as an unprivileged user, so the process listens on 2525 and
   # Fly maps the public port 25 to it.
   MX_PORT = '2525'
+  # MAIL-8 · Fly's proxy hides the sender's address; the proxy_proto handler
+  # below hands it over in a PROXY line. Set both or neither.
+  MX_PROXY_PROTOCOL = 'on'
 
 # A sending server retries for days, so a short outage loses nothing, but a
 # receiver that stops whenever it is idle answers its first connection late.
@@ -37,6 +40,8 @@ primary_region = 'iad'
 
   [[services.ports]]
     port = 25
+    handlers = ['proxy_proto']
+    proxy_proto_options = { version = 'v1' }
 
   [[services.tcp_checks]]
     interval = '30s'

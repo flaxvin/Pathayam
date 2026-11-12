@@ -782,6 +782,12 @@ describe("FWD · from SMTP to Review", () => {
     await say("EHLO forwarder.test\r\n");
     await say("MAIL FROM:<bounce@forwarder.test>\r\n");
     await say(`RCPT TO:<${rcpt}>\r\n`);
+    // MAIL-9 · An address the app does not know is refused here, before any data.
+    if (replies.at(-1)?.startsWith("5")) {
+      await say("QUIT\r\n");
+      socket.destroy();
+      return replies;
+    }
     await say("DATA\r\n");
     const body = Buffer.from(raw).toString("latin1").replace(/^\./gm, "..");
     await say(Buffer.from(`${body}${body.endsWith("\r\n") ? "" : "\r\n"}.\r\n`, "latin1"));
@@ -815,7 +821,8 @@ describe("FWD · from SMTP to Review", () => {
       assert.equal(log(db)[0]!.outcome, "read", "the dot-stuffed body still matched the bank's signature");
 
       const dead = await sendSmtp(mx.port, `hh1.${newToken()}@${INBOUND.domain}`, raw);
-      assert.ok(dead.some((r) => r.startsWith("550")), dead.join("\n"));
+      assert.ok(dead.some((r) => r.startsWith("550 5.1.1")), dead.join("\n"));
+      assert.ok(!dead.some((r) => r.startsWith("354")), "refused at RCPT, before any data");
     } finally {
       await mx.close(100);
       await a.close();

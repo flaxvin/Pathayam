@@ -7,7 +7,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import net from "node:net";
 import tls from "node:tls";
-import { createSmtpServer, type DeliverInput, type SmtpServerOptions } from "./smtp.ts";
+import { createSmtpServer, parseProxyLine, type DeliverInput, type SmtpServerOptions } from "./smtp.ts";
 
 // Throwaway self-signed pair for CN=localhost (openssl req -x509 -newkey rsa:2048
 // -nodes -days 36500 -subj /CN=localhost). Test use only; node cannot mint X.509.
@@ -161,6 +161,8 @@ type Harness = {
   delivered: DeliverInput[];
   logs: Record<string, unknown>[];
   client(): Promise<Client>;
+  /** A connection that has not yet been sent or read anything. */
+  connect(): Promise<Client>;
 };
 
 async function start(t: { after(fn: () => unknown): void }, overrides: Partial<SmtpServerOptions> = {}): Promise<Harness> {
@@ -194,10 +196,15 @@ async function start(t: { after(fn: () => unknown): void }, overrides: Partial<S
       await c.expect(220);
       return c;
     },
+    async connect() {
+      const c = await Client.connect(port);
+      clients.push(c);
+      return c;
+    },
   };
 }
 
-const text = (b: Uint8Array) => Buffer.from(b).toString("utf8");
+const text = (b: readonly Uint8Array[]) => Buffer.concat(b).toString("utf8");
 
 test("happy path: dot-unstuffing, CRLF body, envelope handed over, log has no content", async (t) => {
   const h = await start(t);
@@ -227,7 +234,7 @@ test("happy path: dot-unstuffing, CRLF body, envelope handed over, log has no co
   const entry = h.logs.find((e) => e.msg === "message");
   assert.ok(entry);
   assert.equal(entry.recipients, 1);
-  assert.equal(entry.bytes, d.raw.length);
+  assert.equal(entry.bytes, d.size);
   assert.deepEqual(entry.codes, [250]);
   assert.equal(entry.reply, 250);
   assert.doesNotMatch(JSON.stringify(h.logs), /Secret|leading dot/);
@@ -479,4 +486,218 @@ test("a failed TLS handshake does not hurt the server", async (t) => {
   await c.waitClosed();
   const d = await h.client();
   await d.command("NOOP", 250);
+});
+
+// ---------------------------------------------------------------------------
+// MAIL-8 · What one stranger can make the receiver hold.
+// ---------------------------------------------------------------------------
+
+const pause = (ms: number) => new Promise((r) => setTimeout(r, ms));
+
+/** Opens a transaction up to the 354, ready for data. */
+async function inData(c: Client, size?: number): Promise<void> {
+  await c.command("EHLO s.example", 250);
+  await c.command(`MAIL FROM:<a@b.example>${size === undefined ? "" : ` SIZE=${size}`}`, 250);
+  await c.command("RCPT TO:<x@in.test>", 250);
+  await c.command("DATA", 354);
+}
+
+const lines = (bytes: number) => `${"z".repeat(98)}\r\n`.repeat(Math.ceil(bytes / 100));
+
+test("MAIL-8 · past the memory budget: 452 at DATA, 451 at the dot, and the memory is given back", async (t) => {
+  // Room for a 64 KiB slab and a 128 KiB one: 192 KiB in all.
+  const h = await start(t, { maxBytes: 4 * 1024 * 1024, memoryBytes: 192 * 1024 });
+  const a = await h.client();
+  await inData(a);
+  a.send(lines(150 * 1024)); // holds both slabs
+  await pause(200);
+
+  const b = await h.client();
+  await b.command("EHLO s.example", 250);
+  await b.command("MAIL FROM:<a@b.example>", 250);
+  await b.command("RCPT TO:<x@in.test>", 250);
+  assert.match(await b.command("DATA", 452), /4\.3\.1/);
+
+  // A needs a third slab, which does not fit: it is read to the dot and refused for now.
+  a.send(`${lines(100 * 1024)}.\r\n`);
+  assert.match(await a.expect(451), /4\.3\.1/);
+  assert.equal(h.delivered.length, 0);
+  const refused = h.logs.find((e) => e.msg === "message" && e.reply === 451);
+  assert.equal(refused?.reason, "memory budget");
+
+  // Given back: B's message now fits, and so does A's next one.
+  await b.command("DATA", 354);
+  b.send(`${lines(150 * 1024)}.\r\n`);
+  await b.expect(250);
+  await a.command("MAIL FROM:<a@b.example>", 250);
+  await a.command("RCPT TO:<x@in.test>", 250);
+  await a.command("DATA", 354);
+  a.send("small\r\n.\r\n");
+  await a.expect(250);
+  assert.equal(h.delivered.length, 2);
+  assert.equal(h.delivered[0]!.size, Math.ceil(150 * 1024 / 100) * 100);
+  assert.equal(text(h.delivered[1]!.raw), "small\r\n");
+});
+
+test("MAIL-8 · a declared SIZE that does not fit what is left is told 452 at DATA", async (t) => {
+  const h = await start(t, { maxBytes: 4 * 1024 * 1024, memoryBytes: 256 * 1024 });
+  const a = await h.client();
+  await inData(a);
+  a.send(lines(100 * 1024)); // 192 KiB held
+  await pause(200);
+  const b = await h.client();
+  await b.command("EHLO s.example", 250);
+  await b.command("MAIL FROM:<a@b.example> SIZE=100000", 250);
+  await b.command("RCPT TO:<x@in.test>", 250);
+  await b.command("DATA", 452);
+  await b.command("RSET", 250);
+  await b.command("MAIL FROM:<a@b.example> SIZE=1000", 250);
+  await b.command("RCPT TO:<x@in.test>", 250);
+  await b.command("DATA", 354);
+});
+
+test("MAIL-8 · a client vanishing mid-DATA gives its memory back", async (t) => {
+  const h = await start(t, { maxBytes: 4 * 1024 * 1024, memoryBytes: 192 * 1024 });
+  const a = await h.client();
+  await inData(a);
+  a.send(lines(150 * 1024));
+  await pause(200);
+  a.socket.resetAndDestroy();
+  await pause(100);
+  const b = await h.client();
+  await inData(b);
+  b.send(`${lines(150 * 1024)}.\r\n`);
+  await b.expect(250);
+});
+
+test("MAIL-8 · a message arrives in pieces, whole and in order, never copied into one buffer", async (t) => {
+  const h = await start(t, { maxBytes: 4 * 1024 * 1024 });
+  const c = await h.client();
+  await inData(c);
+  const body = Array.from({ length: 3000 }, (_, i) => `line ${i} ${"q".repeat(200)}`).join("\r\n");
+  c.send(`${body}\r\n.\r\n`);
+  await c.expect(250);
+  const d = h.delivered[0]!;
+  assert.ok(d.raw.length > 1, "held in more than one piece");
+  assert.equal(d.size, d.raw.reduce((n, p) => n + p.length, 0));
+  assert.equal(text(d.raw), `${body}\r\n`);
+});
+
+test("MAIL-8 · past the connection cap a newcomer is told 421 and let go", async (t) => {
+  const h = await start(t, { maxConnections: 2, maxPerAddress: 10 });
+  await h.client();
+  const second = await h.client();
+  const third = await h.connect();
+  assert.match(await third.expect(421), /4\.7\.0 .*Too many connections/);
+  await third.waitClosed();
+  second.end();
+  await pause(100);
+  await h.client(); // a place came free
+});
+
+test("MAIL-8 · past the per-address cap a newcomer from that address is told 421", async (t) => {
+  const h = await start(t, { maxConnections: 10, maxPerAddress: 2 });
+  const first = await h.client();
+  await h.client();
+  const third = await h.connect();
+  assert.match(await third.expect(421), /from your address/);
+  await third.waitClosed();
+  assert.ok(h.logs.some((e) => e.msg === "too many connections from one address"));
+  await first.command("QUIT", 221);
+  await first.waitClosed();
+  await pause(100);
+  await h.client();
+});
+
+test("MAIL-8 · behind a proxy, the PROXY line names the client the caps and the log use", async (t) => {
+  const h = await start(t, { proxyProtocol: true, maxPerAddress: 1 });
+  const viaProxy = async (source: string) => {
+    const c = await h.connect();
+    c.send(`PROXY TCP4 ${source} 10.0.0.1 40000 25\r\n`);
+    return c;
+  };
+  const a = await viaProxy("203.0.113.5");
+  await a.expect(220);
+  const b = await viaProxy("198.51.100.7"); // same socket address as a, another client
+  await b.expect(220);
+  const again = await viaProxy("203.0.113.5");
+  assert.match(await again.expect(421), /from your address/);
+
+  await inData(a);
+  a.send("x\r\n.\r\n");
+  await a.expect(250);
+  assert.equal(h.delivered[0]!.remoteAddress, "203.0.113.5");
+
+  const bad = await h.connect();
+  bad.send("EHLO no-proxy-line\r\n");
+  await bad.waitClosed();
+});
+
+test("MAIL-8 · PROXY lines: v1 TCP4/TCP6, UNKNOWN, and anything else refused", () => {
+  assert.equal(parseProxyLine("PROXY TCP4 203.0.113.5 10.0.0.1 1 25", "p"), "203.0.113.5");
+  assert.equal(parseProxyLine("PROXY TCP6 2001:db8::1 2001:db8::2 1 25", "p"), "2001:db8::1");
+  assert.equal(parseProxyLine("PROXY UNKNOWN", "p"), "p");
+  for (const bad of [
+    "EHLO x", "PROXY TCP4 2001:db8::1 10.0.0.1 1 25", "PROXY TCP4 nope 10.0.0.1 1 25",
+    "PROXY TCP4 1.2.3.4", "PROXY UDP4 1.2.3.4 1.2.3.4 1 2",
+  ]) {
+    assert.equal(parseProxyLine(bad, "p"), null, bad);
+  }
+});
+
+test("MAIL-8 · a session ends at its time limit however busy it keeps", async (t) => {
+  // A fake clock for the session timer alone: node's mock timers would also
+  // fake the sockets' own, and the test's.
+  let now = 0;
+  const timers: { at: number; fn: () => void; live: boolean }[] = [];
+  const tick = (ms: number) => {
+    now += ms;
+    for (const timer of timers) if (timer.live && timer.at <= now) { timer.live = false; timer.fn(); }
+  };
+  const h = await start(t, {
+    sessionTimeoutMs: 10 * 60_000,
+    schedule(fn, ms) {
+      const timer = { at: now + ms, fn, live: true };
+      timers.push(timer);
+      return () => { timer.live = false; };
+    },
+  });
+  const c = await h.client();
+  await inData(c);
+  // A byte now and then resets the idle timer, never the session's.
+  for (let minute = 1; minute < 10; minute++) {
+    tick(60_000);
+    c.send("z");
+    await pause(10);
+  }
+  assert.equal(c.closed, false);
+  assert.equal(c.buffer, "");
+  tick(60_000);
+  assert.match(await c.expect(421), /4\.4\.2 .*Session time limit/);
+  await c.waitClosed();
+  assert.equal(h.delivered.length, 0);
+  assert.ok(h.logs.some((e) => e.msg === "session time limit"));
+});
+
+test("MAIL-9 · a recipient check that answers later holds the session until it does", async (t) => {
+  let release: (v: "ok") => void = () => {};
+  const h = await start(t, {
+    checkRecipient: (a) => a.startsWith("slow")
+      ? new Promise((r) => { release = r; })
+      : Promise.resolve({ code: 451, message: "4.4.3 Mailbox service unavailable, try again later" }),
+  });
+  const c = await h.client();
+  await c.command("EHLO s.example", 250);
+  await c.command("MAIL FROM:<a@b.example>", 250);
+  // Pipelined: nothing after the RCPT is acted on before its answer.
+  c.send("RCPT TO:<slow@in.test>\r\nRCPT TO:<down@in.test>\r\nDATA\r\n");
+  await pause(100);
+  assert.equal(c.buffer, "");
+  release("ok");
+  await c.expect(250);
+  assert.match(await c.expect(451), /4\.4\.3/);
+  await c.expect(354);
+  c.send("x\r\n.\r\n");
+  await c.expect(250);
+  assert.deepEqual(h.delivered[0]!.recipients, ["slow@in.test"]);
 });
