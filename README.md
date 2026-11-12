@@ -12,7 +12,7 @@ A product of [Flaxvin Technologies](https://flaxvin.tech).
 harvest, then drawn from carefully through the year.
 
 ```
-v1.0.0 · 3000 tests · 0 runtime dependencies · 74 migrations · 252 routes
+v1.0.0 · 3100 tests · 0 runtime dependencies · 74 migrations · 252 routes
 ```
 
 **Status: production-ready.** 1.0.0 is the first stable release; see
@@ -102,7 +102,7 @@ docker compose up -d                  # production; requires BASE_URL in .env
 docker compose --profile dev up       # development, with the login bypass
 ```
 
-Configuration, sign-in (password, OpenID Connect or Google), backups and restore: [docs/operations.md](docs/operations.md).
+Configuration, sign-in (password, OpenID Connect or Google), backups and restore: [docs/operations.md](docs/operations.md). A box with no tunnel or proxy in front can serve HTTPS itself, with a Let's Encrypt certificate it renews on its own ([HTTPS without a proxy](docs/operations.md#https-without-a-proxy)).
 
 ### Connect an AI
 

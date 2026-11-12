@@ -72,6 +72,7 @@ export function testConfig(overrides: TestConfigOverrides = {}): Config {
     localLogin: false,
     secretsKey: null,
     inbound: { domain: null, route: "", secret: null },
+    tls: null,
     aiWrite: "off",
     oidc: { issuer: null, clientId: null, clientSecret: null, label: "single sign-on" },
     ...rest,
