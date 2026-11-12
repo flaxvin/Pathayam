@@ -10,7 +10,7 @@
  * is a dead end.
  */
 
-import { borrowedRowSql } from "./borrowed.ts";
+import { notIncomeRowSql } from "./borrowed.ts";
 import type { DB } from "../db/db.ts";
 import { queryAll } from "../db/db.ts";
 import type { Paise } from "../core/money.ts";
@@ -340,7 +340,8 @@ export interface TrendPoint {
 /**
  * F10.1 · Income against expense over time, and the net cash position.
  *
- * ENG-22 · Income leaves out money a loan paid in (src/domain/borrowed.ts).
+ * ENG-22/23 · Income leaves out money a loan paid in, and a sale's proceeds
+ * (src/domain/borrowed.ts).
  * It still reaches Ready to Assign; it is just not earnings.
  */
 export function incomeVsExpense(
@@ -352,8 +353,8 @@ export function incomeVsExpense(
   const rows = queryAll<{ month: string; income: number; spending: number }>(
     db,
     `SELECT substr(t.date,1,7) AS month,
-            -- ENG-22 · A loan's money paid in is borrowed, not earned.
-            COALESCE(SUM(CASE WHEN t.amount > 0 AND NOT ${borrowedRowSql("t")}
+            -- ENG-22/23 · Borrowed or returned money is not earned.
+            COALESCE(SUM(CASE WHEN t.amount > 0 AND NOT ${notIncomeRowSql("t")}
                               THEN t.amount ELSE 0 END),0) AS income,
             COALESCE(SUM(CASE WHEN t.amount < 0 THEN -t.amount ELSE 0 END),0) AS spending
        FROM transactions t

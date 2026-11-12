@@ -3289,6 +3289,11 @@ UPDATE loan_disbursements
       LIMIT 1)
  WHERE destination = 'budget-account' AND destination_account_id IS NOT NULL;
 CREATE INDEX idx_disbursements_tx ON loan_disbursements(transaction_id);
+
+-- ENG-23 · A hand-valued asset sold into a budget account names the money it
+-- brought in, so income figures can leave it out too. Sales recorded before
+-- this kept only a memo, so they stay unlinked.
+ALTER TABLE asset_valuations ADD COLUMN proceeds_transaction_id TEXT REFERENCES transactions(id);
 `,
   },
 ];

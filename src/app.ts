@@ -10283,15 +10283,17 @@ export function buildApp(deps: AppDeps): {
        * entry with nothing to show for it.
        */
       let note = "";
+      let proceedsTransactionId: string | null = null;
       if (into && proceeds > 0) {
         const target = requireVisibleAccount(ctx, into)!.id;
-        createTransaction(db, actor, {
+        // ENG-23 · Kept, so income figures know this is the asset coming back.
+        proceedsTransactionId = createTransaction(db, actor, {
           accountId: target,
           amount: proceeds as Paise,
           date: on,
           categoryId: null,
           memo: `Sold ${account.name}`,
-        });
+        }).id;
         note = ` ${formatPaise(proceeds as Paise)} recorded into ${getAccount(db, target)?.name ?? "that account"}.`;
       }
 
@@ -10313,6 +10315,7 @@ export function buildApp(deps: AppDeps): {
         note: remaining > 0
           ? `Sold part${proceeds > 0 ? ` for ${formatPaise(proceeds as Paise)}` : ""}`
           : `Disposed of${proceeds > 0 ? ` for ${formatPaise(proceeds as Paise)}` : ""}`,
+        proceedsTransactionId,
       });
       if (remaining === 0) closeAccount(db, actor, account.id);
 

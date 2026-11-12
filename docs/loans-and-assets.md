@@ -525,6 +525,15 @@ recorded:
 | Sell some | `/portfolio/asset/:id/dispose` | The proceeds, and what is left |
 | Sell all | the same route, with nothing left | The proceeds; the account closes |
 
+**A sale's proceeds are not income.** Money a sale puts in a budget account,
+here or from a holding in the portfolio, reaches Ready to Assign like any other
+cash. It is your own money coming back, though, so the income figures leave it
+out (the Overview's income chart, FIRE's income and savings rate, a month's
+close, the Tax page's starting figure); a gain inside it is reported with your
+gains. The sale is recognised by its link to the money it brought in. A
+hand-valued sale recorded before migration 0075 kept only a note, so it still
+counts. A dividend paid out is earned, and stays income.
+
 Its history is on **its own account page**, reached from Accounts like any
 other. A hand-valued asset has no transactions and never will (its worth is
 stated, not counted), so where a register would be, it shows every valuation it

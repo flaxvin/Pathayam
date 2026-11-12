@@ -23,7 +23,7 @@
  * makes it safe to make it a habit.
  */
 
-import { borrowedTransactionIds } from "./borrowed.ts";
+import { notIncomeTransactionIds } from "./borrowed.ts";
 import type { DB } from "../db/db.ts";
 import { transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
@@ -134,9 +134,10 @@ export function monthCloseView(
    */
   const rows = queryTransactions(db, { from, to, budgetId: budget, viewerMemberId });
 
-  // ENG-22 · A loan's money paid in (a personal loan to the bank, an EMI
-  // conversion's credit on a card) is borrowed, so it is not "came in".
-  const borrowed = borrowedTransactionIds(db, from, to);
+  // ENG-22/23 · A loan's money paid in (a personal loan to the bank, an EMI
+  // conversion's credit on a card) is borrowed, and a sale's proceeds are
+  // money coming back, so neither is "came in".
+  const borrowed = notIncomeTransactionIds(db, from, to);
   let income = 0;
   let spending = 0;
   const byCategory = new Map<string, { name: string; amount: number }>();

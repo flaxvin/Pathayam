@@ -1382,12 +1382,13 @@ export function eraseTransaction(db: DB, id: string | null | undefined): void {
 }
 
 /**
- * ENG-22 · A disbursement's link to the money it paid in only tells income
- * figures to leave that row out. It holds nothing up: the row can be deleted
+ * ENG-22/23 · A disbursement's (or an asset sale's) link to the money it
+ * brought in only tells income figures to leave that row out. It holds nothing up: the row can be deleted
  * or taken back as before, and the link goes with it.
  */
 function unlinkBorrowed(db: DB, id: string): void {
   execute(db, `UPDATE loan_disbursements SET transaction_id = NULL WHERE transaction_id = ?`, id);
+  execute(db, `UPDATE asset_valuations SET proceeds_transaction_id = NULL WHERE proceeds_transaction_id = ?`, id);
 }
 
 /**

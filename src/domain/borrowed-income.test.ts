@@ -12,6 +12,8 @@
  *   · a card EMI conversion's credit on the card
  *   · money a family member lends you, or repays you (a transfer: already out)
  *   · a deposit's proceeds moved to the bank (a transfer: already out)
+ *   · ENG-23 · a portfolio sale's proceeds (a hand-valued asset's sale is in
+ *     src/web/sale-proceeds-income.test.ts, since its route writes it)
  */
 
 import { test, describe } from "node:test";
@@ -31,6 +33,10 @@ import { incomeVsExpense } from "./reports.ts";
 import { incomeInFinancialYear } from "./tax.ts";
 import { fireProjection } from "./fire.ts";
 import { monthCloseView } from "./month-close.ts";
+import {
+  createAssetAccount, findOrCreateInstrument, recordPurchase, recordSale, recordDividend, listHoldings,
+} from "./assets.ts";
+import { units, price } from "../portfolio/holdings.ts";
 import { loadEngineInput } from "../engine/repository.ts";
 import { computeBudget } from "../engine/engine.ts";
 
@@ -218,6 +224,7 @@ describe("ENG-22 · a loan's money paid in is not income", () => {
     // Back to how the app left them before 0075.
     db.exec(`DROP INDEX idx_disbursements_tx`);
     db.exec(`ALTER TABLE loan_disbursements DROP COLUMN transaction_id`);
+    db.exec(`ALTER TABLE asset_valuations DROP COLUMN proceeds_transaction_id`);
     db.exec(`PRAGMA user_version = 74`);
     migrate(db, false, 75);
     db.exec(`PRAGMA user_version = ${MIGRATIONS.length}`);
@@ -226,5 +233,47 @@ describe("ENG-22 · a loan's money paid in is not income", () => {
     assert.equal(queryOne<{ n: number }>(db,
       `SELECT COUNT(*) AS n FROM loan_disbursements WHERE destination = 'third-party' AND transaction_id IS NOT NULL`)!.n, 0);
     assert.equal(trendIncome(db), trend);
+  });
+});
+
+describe("ENG-23 · a sale's proceeds are money coming back, not income", () => {
+  test("a fund sold into savings: out of reports, FIRE, tax and month close; a dividend stays in", () => {
+    const { db, bank } = household();
+    const demat = createAssetAccount(db, actor, { name: "Demat", subtype: "investment" }).id;
+    const fund = findOrCreateInstrument(db, actor, {
+      name: "Fictional Index Fund", kind: "mutual-fund", symbol: "F", provider: "manual",
+    }).id;
+    recordPurchase(db, actor, {
+      accountId: demat, instrumentId: fund, tradeDate: "2025-06-02", price: price(100), units: units(2_000),
+    });
+    const holdingId = listHoldings(db, demat)[0]!.id;
+    const before = {
+      trend: trendIncome(db), tax: incomeInFinancialYear(db, FY, [bank]),
+      fire: fireProjection(db, { asOf: AS_OF }),
+      close: monthCloseView(db, "2026-03", AS_OF).outcome.income,
+      rta: rta(db, "2026-03"),
+    };
+    // ₹3,00,000 of proceeds, ₹1,00,000 of it gain.
+    recordSale(db, actor, { holdingId, units: units(2_000), price: price(150), date: "2026-03-12", toAccountId: bank });
+
+    assert.equal(trendIncome(db), before.trend, "Overview income chart");
+    const fire = fireProjection(db, { asOf: AS_OF });
+    assert.equal(fire.annualIncome, before.fire.annualIncome, "FIRE annual income");
+    assert.equal(fire.savingsRatePct, before.fire.savingsRatePct, "FIRE savings rate");
+    assert.equal(incomeInFinancialYear(db, FY, [bank]), before.tax, "Tax page starting figure");
+    assert.equal(monthCloseView(db, "2026-03", AS_OF).outcome.income, before.close, "month close");
+    assert.equal(rta(db, "2026-03"), before.rta + rupees(3_00_000), "Ready to Assign still takes it");
+
+    // A dividend paid out is earned, so it is still income.
+    const fund2 = findOrCreateInstrument(db, actor, {
+      name: "Fictional Dividend Fund", kind: "mutual-fund", symbol: "D", provider: "manual",
+    }).id;
+    recordPurchase(db, actor, {
+      accountId: demat, instrumentId: fund2, tradeDate: "2025-06-02", price: price(100), units: units(100),
+    });
+    const h2 = listHoldings(db, demat).find((h) => h.instrument_id === fund2)!.id;
+    recordDividend(db, actor, { holdingId: h2, date: "2026-03-20", amount: rupees(5_000) as Paise, toAccountId: bank });
+    assert.equal(trendIncome(db), before.trend + rupees(5_000));
+    assert.equal(incomeInFinancialYear(db, FY, [bank]), before.tax + rupees(5_000));
   });
 });

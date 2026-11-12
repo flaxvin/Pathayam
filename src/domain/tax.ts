@@ -36,7 +36,7 @@
  * is the kind that gets trusted too far.
  */
 
-import { borrowedRowSql } from "./borrowed.ts";
+import { notIncomeRowSql } from "./borrowed.ts";
 import type { Paise } from "../core/money.ts";
 import { Missing, Refusal } from "../core/refusal.ts";
 
@@ -876,7 +876,8 @@ export function saveDeclaration(db: DB, memberId: string, fy: number, d: Declara
  * that is nearly right.
  *
  * ENG-22 · A loan's money paid in is left out: borrowing is never income, and
- * a ₹5,00,000 personal loan made the figure ₹5,00,000 wrong.
+ * a ₹5,00,000 personal loan made the figure ₹5,00,000 wrong. ENG-23 · So are
+ * a sale's proceeds: the gain in them is added from the gains section.
  */
 export function incomeInFinancialYear(db: DB, fy: number, visibleAccountIds: string[]): Paise {
   if (visibleAccountIds.length === 0) return 0 as Paise;
@@ -890,7 +891,7 @@ export function incomeInFinancialYear(db: DB, fy: number, visibleAccountIds: str
       WHERE t.deleted_at IS NULL
         AND t.amount > 0
         AND t.transfer_pair_id IS NULL
-        AND NOT ${borrowedRowSql("t")}
+        AND NOT ${notIncomeRowSql("t")}
         AND a.kind = 'budget'
         AND t.account_id IN (${placeholders})
         AND t.date BETWEEN ? AND ?`,
