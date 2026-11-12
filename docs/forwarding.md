@@ -133,8 +133,10 @@ hand-off's for it). The app answers `200 {"known": true|false}` only to a
 signed question; anybody else gets `401`, so which addresses exist is never
 told to a stranger. The receiver remembers a yes for five minutes and a no for
 one; it allows the app 5 s. A `401`/`403` from the check is logged as a
-configuration error, and the sender is told `451` rather than refused. The app
-still checks the address again on the hand-off.
+configuration error, and the sender is told `451` rather than refused. A `404`
+(an instance with `FEATURE_FORWARDING` off) is no answer either way: the
+address is taken at `RCPT` and the hand-off's own `404` refuses the message.
+The app still checks the address again on the hand-off.
 
 **What a sending server sees when the receiver is full.** Nothing is lost; each
 of these is a temporary answer, and the sender keeps the message and tries

@@ -190,6 +190,9 @@ export async function checkAddress(
     });
     if (res.status !== 200) {
       try { await res.body?.cancel(); } catch { /* the status is the answer */ }
+      // REV-2 · No such question here (FEATURE_FORWARDING off answers 404):
+      // let the hand-off decide, whose 404 refuses the mail at once.
+      if (res.status === 404) return { verdict: "ok", cache: false };
       if (res.status === 400 || res.status === 401 || res.status === 403) return { ...later, misconfigured: res.status };
       return later;
     }
