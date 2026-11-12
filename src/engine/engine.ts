@@ -463,7 +463,14 @@ export function cardFunding(
      */
     unfunded,
     fromOverspend,
-    setAside: Math.max(0, paymentCategoryBalance - fromOverspend) as Paise,
+    /*
+     * REV-20 · Less the whole overspend, not just the part still unfunded. A
+     * charge converted to EMI leaves its overspend in the envelope (ENG-21:
+     * it is not money, so it does not follow the debt) while the card owes
+     * nothing, so none of it is unfunded and "Set aside" showed all of it.
+     * The same when the envelope holds more than the card owes.
+     */
+    setAside: Math.max(0, reallyFunded) as Paise,
   };
 }
 
