@@ -50,7 +50,12 @@ export interface ApiToken {
 /**
  * AIW · A token an AI holds: one made on Connect an AI, or an AI app's own.
  * Whatever its scope, it changes things only through /mcp, where every change
- * is one of a fixed list of tools; the REST routes stay closed to it.
+ * is one of a fixed list of tools; a write to any REST route is refused.
+ *
+ * AI-6 · Reads are another matter: like any API token it can GET every REST
+ * read route (/export.json and the rest), in full and not in the AI access
+ * log. Only /export/analysis.json is masked for it (AI-3). That is by choice,
+ * and the member is told so where the key is made (aiKeyReadsNotice).
  */
 export function isAiToken(token: ApiToken): boolean {
   return token.for_ai === 1 || token.oauth_grant_id !== null;
@@ -268,7 +273,8 @@ export const OAUTH_ACCESS_TOKEN_SECONDS = 3600;
  * every refresh — the event that matters is the member's approval, which
  * oauth.ts records once. Read, unless the member ticked "allow changes" on the
  * consent page and the deployment allows them (AIW); either way it is an AI
- * token (for_ai), confined to /mcp.
+ * token (for_ai): it writes only through /mcp, and reads /mcp and the REST
+ * read routes (see isAiToken).
  */
 export function mintOAuthAccessToken(
   db: DB,

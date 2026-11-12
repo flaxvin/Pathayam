@@ -29,14 +29,14 @@ that way.
 | **Changes** | Only where `AI_WRITE` is `standard` or `full` *and* the member ticked "allow changes" for this connection: a short list of tools, every change logged and undoable ([below](#changes-an-ai-can-make)). |
 | **Sees** | What the member who connected it sees: the household budget and their own personal budget. Another member's private accounts, loans, policies and envelopes are never listed, counted or totalled ([privacy.md](privacy.md)). An id it may not see is "not found", the same as one that does not exist. |
 | **Cannot reach** | Anything a token cannot reach ([API.md](API.md#what-a-token-can-never-reach)): sign-in, tokens, the member list, impersonation, OAuth approval, and the Connect an AI page itself. |
-| **Leaves** | A line per question, and per change, in the access log. The answers are not kept. A change is in the activity log too. |
+| **Leaves** | A line per question, and per change, in the access log. The answers are not kept. A change is in the activity log too. The same key can also read the app's API pages (`/export.json` and the like), in full and without a line in the access log; see [Masking](#masking). |
 
 Whatever a tool returns is sent to that AI's provider and becomes part of the
 conversation there. The Connect an AI page says so before anything is set up.
 
 ## Connecting
 
-**Settings → API tokens → Connect an AI** (`/tokens/ai`).
+**More → Connect an AI** (`/tokens/ai`).
 
 | Client | How |
 |---|---|
@@ -158,6 +158,13 @@ leaves, in every string except the app's own ids and dates:
 Amounts, envelope names and payee names are what the analysis needs, so they
 are sent. Masking is best effort: a pattern cannot recognise a person's name
 written into a narration.
+
+Masking applies to answers through the AI connection (`/mcp`, and
+`/export/analysis.json`). The same key can also read the app's other API pages,
+such as `/export.json`, and those answer in full, as they would for any read
+token; those reads are not in the access log below either. The consent page
+and Connect an AI say this when the key is made. Keep a key only in apps you
+trust.
 
 ## What they have read
 

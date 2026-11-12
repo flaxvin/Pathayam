@@ -265,6 +265,41 @@ describe("AI-5 · Connect an AI", () => {
       await app.close();
     }
   });
+
+  test("AI-6 · says, on the form and with the new key, that the key also reads the API pages in full", async () => {
+    const { db } = buildAnalysisWorld({ withPrivate: false });
+    const app = await startTestApp(db, { memberId: PRIYA });
+    try {
+      const notice = (html: string) => {
+        assert.match(html, /data-ai-key-notice/);
+        assert.match(html, /<code>\/export\.json<\/code>, in full/);
+        assert.match(html, /Masking applies only to\s+answers through the AI connection/);
+        assert.match(html, /not in the AI access\s+log/);
+        assert.match(html, /Keep it only in apps you trust/);
+      };
+      notice(await (await app.get("/tokens/ai")).text());
+
+      const minted = await (await app.post("/tokens/ai", { name: "Claude Code", redact: "1", expires_in_days: "30" })).text();
+      notice(minted);
+      // On the result it sits with the key, not only on the form below it.
+      const ready = minted.indexOf("is ready");
+      const form = minted.indexOf("Create a connection");
+      assert.ok(ready >= 0 && form > ready);
+      assert.ok(minted.slice(ready, form).includes("data-ai-key-notice"));
+
+      // What the notice says is so: the key reads /export.json, unmasked.
+      const secret = /Bearer (bgt_[A-Za-z0-9_-]+)/.exec(minted)![1]!;
+      const anon = await startTestApp(db, { memberId: null });
+      try {
+        const res = await fetch(anon.baseUrl + "/export.json", { headers: { Authorization: `Bearer ${secret}` } });
+        assert.equal(res.status, 200);
+      } finally {
+        await anon.close();
+      }
+    } finally {
+      await app.close();
+    }
+  });
 });
 
 describe("AI-7 · with FEATURE_AI off (a hosted Solo instance)", () => {

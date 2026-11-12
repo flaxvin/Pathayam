@@ -1,5 +1,5 @@
 /**
- * AI-5 · Connect an AI — Settings → API tokens → Connect an AI.
+ * AI-5 · Connect an AI — More → Connect an AI (/tokens/ai).
  *
  * One page that answers the three questions a household has before letting an
  * AI read the budget: how do I connect it, what will it see, and what has it
@@ -26,6 +26,26 @@ export interface AiConnectionRow {
   canWrite?: boolean;
   /** AIW · Changes it made today that are still in place. */
   changedToday?: number;
+}
+
+/**
+ * AI-6 · What an AI's key can read besides /mcp, said where the key is made.
+ *
+ * A token made here, or an AI app's access token, is an API token like any
+ * other for reading: every GET route answers it (/export.json, /api/...), in
+ * full, and those reads are not in the AI access log, which records /mcp. Only
+ * /export/analysis.json is masked for it (AI-3). Febin's call (11-11-2026) was
+ * to say so plainly when the key is made rather than to close the routes.
+ */
+export function aiKeyReadsNotice(opts: { approving?: boolean } = {}): SafeHtml {
+  return html`
+    <p class="notice notice-info" data-ai-key-notice>
+      ${opts.approving ? "The key this app is given" : "This key"} can also read your data through
+      Pathayam's API pages, such as <code>/export.json</code>, in full. Masking applies only to
+      answers through the AI connection, and reads through those pages are not in the AI access
+      log. ${opts.approving ? "Approve only apps you trust." : "Keep it only in apps you trust."}
+    </p>
+  `;
 }
 
 export function renderConnectAi(opts: {
@@ -98,6 +118,7 @@ export function renderConnectAi(opts: {
             : "Nothing is masked: it is sent names, narrations and numbers as they are."}
           ${opts.minted!.canWrite ? " It may make changes." : " It is read-only."}
         </p>
+        ${aiKeyReadsNotice()}
       </section>
     `)}
 
@@ -143,6 +164,7 @@ export function renderConnectAi(opts: {
             <option value="365">A year</option>
           </select>
         </div>
+        ${aiKeyReadsNotice()}
         <button class="button-primary" type="submit">Create a connection</button>
       </form>
     </section>

@@ -198,7 +198,13 @@ describe("OAUTH · an AI app connects over HTTP", () => {
       const text = await page.text();
       assert.match(text, /claude\.ai/, "the redirect host is on the page");
       assert.match(text, /read-only/i);
-      assert.match(text, /Settings → API tokens/);
+      // UI-19 · Connections are listed under More → Connect an AI, not Settings.
+      assert.match(text, /More → Connect an AI/);
+      assert.doesNotMatch(text, /Settings → API tokens/);
+      // AI-6 · The member is told what the key can read besides the AI connection.
+      assert.match(text, /data-ai-key-notice/);
+      assert.match(text, /\/export\.json<\/code>, in full/);
+      assert.match(text, /not in the AI access\s+log/);
       assert.match(text, /name="redact" value="1" checked/);
       assert.match(page.headers.get("content-security-policy") ?? "", /form-action 'self' https:\/\/claude\.ai/);
 
