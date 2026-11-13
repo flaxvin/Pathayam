@@ -241,3 +241,20 @@ describe("AI-1 · malformed requests", () => {
     assert.match(validateArgs({ type: "object", required: ["fy"], properties: { fy: { type: "integer" } } }, {})!, /Missing required argument "fy"/);
   });
 });
+
+describe("WEB-6 · a refusal is masked like a result", () => {
+  test("the connection's transform applies to a tool's refusal text", async () => {
+    const { redactValue } = await import("./redact.ts");
+    const refuses: McpTool = {
+      name: "refuses", title: "Refuses", description: "Always refuses.",
+      inputSchema: { type: "object", additionalProperties: false, properties: {} },
+      run: () => { throw new Missing("HDFC 50100123456789 (ravi@okhdfc) is valued on its own screen."); },
+    };
+    const r = handleMcp(legacy("tools/call", { name: "refuses", arguments: {} }),
+      opts({ tools: [refuses], transformResult: redactValue }));
+    const text = res(r).result.content[0].text as string;
+    assert.equal(res(r).result.isError, true);
+    assert.doesNotMatch(text, /50100123456789|ravi@/);
+    assert.match(text, /••••6789/);
+  });
+});

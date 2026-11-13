@@ -363,7 +363,10 @@ function callTool(id: Id, params: Record<string, unknown>, era: Era, opts: McpOp
   } catch (err) {
     if (err instanceof Refusal) {
       opts.onToolCall?.({ tool: tool.name, args, ok: false, bytes: 0, ms: Date.now() - started });
-      return { status: 200, json: rpcResult(id, complete(era, toolError(err.message))) };
+      // WEB-6 · A refusal names things too ("HDFC 50100123456789 is valued on
+      // its own screen"), and leaves the house exactly as a result does.
+      const said = opts.transformResult ? opts.transformResult(err.message) : err.message;
+      return { status: 200, json: rpcResult(id, complete(era, toolError(String(said)))) };
     }
     throw err; // A real fault: the route's error handling records it.
   }
