@@ -180,6 +180,46 @@ describe("the PDF reader · IMPORT-4 a page tree that lists one node many times"
   });
 });
 
+describe("the PDF reader · IMPORT-6 a page that draws millions of times", () => {
+  /*
+   * Within the decode budget a page can still say "(a) Tj" two million times
+   * (58 KB of PDF), or push fourteen million operands with no operator; every
+   * piece and every operand was kept: 900 MB and 585 MB. Run with a small
+   * heap, as a Fly machine has.
+   */
+  const objectsUrl = new URL("./objects.ts", import.meta.url).href;
+  const textUrl = new URL("./text.ts", import.meta.url).href;
+  for (const [what, op, reps] of [
+    ["pieces", "(a) Tj 0 -1 Td ", 2_000_000],
+    ["glyphs set one after another", "(a) Tj ", 3_000_000],
+    ["operands", "1 ", 14_000_000],
+  ] as const) {
+    test(`too many ${what} are not all kept`, () => {
+      const script = `
+        const { deflateSync } = require("node:zlib");
+        const content = deflateSync(Buffer.from("BT /F1 10 Tf 20 760 Td " + ${JSON.stringify(op)}.repeat(${reps}) + " ET"), { level: 9 });
+        const head = "%PDF-1.4\\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\\n" +
+          "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\\n" +
+          "3 0 obj << /Type /Page /Parent 2 0 R /Contents 4 0 R >> endobj\\n" +
+          "4 0 obj << /Length " + content.length + " /Filter /FlateDecode >>\\nstream\\n";
+        const bytes = new Uint8Array(Buffer.concat([Buffer.from(head, "latin1"), content,
+          Buffer.from("\\nendstream\\nendobj\\ntrailer << /Root 1 0 R >>\\n%%EOF\\n", "latin1")]));
+        (async () => {
+          const objects = await import(${JSON.stringify(objectsUrl)});
+          const text = await import(${JSON.stringify(textUrl)});
+          text.extractText(objects.readDocument(bytes));
+          console.log("read");
+        })();
+      `;
+      const run = spawnSync(process.execPath, [
+        "--experimental-strip-types", "--no-warnings", "--max-old-space-size=256", "-e", script,
+      ], { encoding: "utf8", timeout: 60_000 });
+      assert.equal(run.status, 0, (run.stderr ?? "").slice(-400));
+      assert.match(run.stdout, /read/);
+    });
+  }
+});
+
 describe("the PDF reader · IMPORT-5 objects that never close", () => {
   /*
    * Every "N G obj" was parsed from where it stood, and an unclosed string,
