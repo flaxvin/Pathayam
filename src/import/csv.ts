@@ -232,6 +232,14 @@ export interface RawRecord {
    * transfer, a split. All proposals, staged for Review like a rule's.
    */
   proposed?: ProposedFields;
+  /**
+   * IMPORT-3 · What tells this row from an identical one that arrived on its
+   * own: a forwarded alert's Message-ID. Two ₹99 orders at the same shop on
+   * one day are two messages, each ingested alone, so counting occurrences
+   * within the batch could not tell them apart and the second was skipped as
+   * already imported. Absent for a file, whose rows arrive together.
+   */
+  sourceKey?: string;
 }
 
 export interface ProposedFields {

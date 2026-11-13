@@ -29,6 +29,7 @@
  * Settings can show it.
  */
 
+import { createHash } from "node:crypto";
 import type { DB } from "../db/db.ts";
 import { execute, newId } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
@@ -114,6 +115,8 @@ export async function receiveForwarded(
     subject: mail.subject,
     received: todayIST(mail.date ?? deps.now ?? new Date()),
     body: () => mail.text,
+    // IMPORT-3 · Each forwarded message is ingested on its own.
+    messageKey: mail.messageId ?? createHash("sha256").update(raw).digest("hex"),
     pdfs: mail.attachments
       .filter((a) => a.contentType.toLowerCase() === "application/pdf" || /\.pdf$/i.test(a.filename))
       .map((a) => ({ filename: a.filename, load: async () => a.bytes })),

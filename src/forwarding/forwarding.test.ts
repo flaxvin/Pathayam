@@ -314,6 +314,33 @@ describe("FWD · a forwarded alert", () => {
     }
   });
 
+  test("IMPORT-3 · two identical spends on one day, forwarded as two alerts, are two rows", async () => {
+    const db = setup();
+    createAccount(db, actor, {
+      name: "HDFC Card", kind: "credit", subtype: "credit-card", openingDate: "2026-08-01", last4: "1111", institution: "HDFC Bank",
+    });
+    issueAddress(db, actor);
+    const a = await app(db);
+    try {
+      const alert = (time: string) =>
+        `Dear Card Member,\nRs. 99.00 has been debited from your HDFC Bank Credit Card ending 1111 ` +
+        `towards SWIGGY INSTAMART on 31 Aug, 2026 at ${time}.`;
+      const mail = (id: string, time: string) => signedAndForwarded(
+        plainMail("alerts@hdfcbank.bank.in", "Rs.99 debited", alert(time)).replace("<a1@bank.test>", `<${id}@bank.test>`),
+        "hdfcbank.bank.in",
+      );
+      const first = mail("m1", "09:10:00");
+      assert.equal((await handOff(a, addressOf(db), first)).status, 202);
+      assert.equal((await handOff(a, addressOf(db), mail("m2", "21:40:00"))).status, 202);
+      assert.equal(staged(db).length, 2, "the second order is not taken for the first");
+      // The same message handed over again is still one row.
+      assert.equal((await handOff(a, addressOf(db), first)).status, 202);
+      assert.equal(staged(db).length, 2);
+    } finally {
+      await a.close();
+    }
+  });
+
   test("IMPORT-2 · lines slipped among the bank's headers are not read as its message", async () => {
     const db = setup();
     createAccount(db, actor, {

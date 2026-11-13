@@ -212,6 +212,12 @@ export interface MailItem {
   received: IsoDate | undefined;
   body: () => string;
   pdfs: { filename: string; load: () => Promise<Uint8Array> }[];
+  /**
+   * IMPORT-3 · The message's own identity, for a path that ingests each
+   * message alone (forwarding), so two identical alerts stay two rows and the
+   * same message handed over twice stays one.
+   */
+  messageKey?: string;
 }
 
 export interface MailIngestOptions {
@@ -299,7 +305,9 @@ export function startMailIngest(
       }
 
       const bucket = alertRecords.get(routed.accountId) ?? { records: [], adapter: `email:${parsed.bank}` };
-      bucket.records.push(routed.record);
+      bucket.records.push(
+        item.messageKey === undefined ? routed.record : { ...routed.record, sourceKey: item.messageKey },
+      );
       alertRecords.set(routed.accountId, bucket);
     },
 

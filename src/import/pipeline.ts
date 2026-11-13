@@ -48,6 +48,7 @@ function sourceIdFor(
 ): string {
   const digest = createHash("sha256")
     .update(`${record.date}\0${record.amount}\0${record.narration}\0${record.reference ?? ""}`)
+    .update(record.sourceKey === undefined ? "" : `\0${record.sourceKey}`)
     .digest("hex")
     .slice(0, 16);
   return `${adapter}:${digest}:${occurrence}`;
