@@ -5080,8 +5080,20 @@ export function buildApp(deps: AppDeps): {
       // raw string to the clean name, so next month's identical narration
       // arrives already named. Only for imported rows: a manually typed
       // transaction has no bank string to key a rule on.
+      //
+      // WEB-1 · Only for a row every member may see. A rule is household-wide
+      // and its name and reason quote both names ("UPI-DRSHARMA → Dr Sharma"),
+      // so renaming a payee on a private account or in a personal envelope
+      // published where somebody spent on /rules, /review and /activity.
       let learned = "";
-      if (renamed && transaction.raw_narration && learningEnabled(db)) {
+      const seenByAll = (): boolean => {
+        const hidden = hiddenTransactionSql("t", null);
+        return !queryOne<{ x: number }>(
+          db, `SELECT 1 AS x FROM transactions t WHERE t.id = ? AND ${hidden.sql}`,
+          transaction.id, ...hidden.params,
+        );
+      };
+      if (renamed && transaction.raw_narration && learningEnabled(db) && seenByAll()) {
         const proposal = proposePayeeRule(db, actorFor(a), {
           rawNarration: transaction.raw_narration, cleanName: newPayee,
         });
