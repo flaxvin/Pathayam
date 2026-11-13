@@ -378,16 +378,35 @@ export function readDocument(bytes: Uint8Array): PdfDocument {
   const objects = new Map<number, PdfValue>();
   const text = latin1(bytes);
 
+  /*
+   * IMPORT-5 · Each object is read no further than its own "endobj", and an
+   * "obj" inside what was just read is not read again. Every match used to be
+   * parsed from where it stood, and an unclosed string runs to the end of the
+   * file: "1 0 obj (" repeated read the rest of the file once per repeat, and
+   * 112 KB held the server for 18 seconds.
+   */
+  let endobjFrom = -1;
+  let endobjAt = -1;
+  const endOfObject = (from: number): number => {
+    if (endobjFrom < 0 || from < endobjFrom || (endobjAt !== -1 && from > endobjAt)) {
+      endobjFrom = from;
+      endobjAt = text.indexOf("endobj", from);
+    }
+    return endobjAt === -1 ? bytes.length : endobjAt;
+  };
+
   const objRe = /(\d+)\s+(\d+)\s+obj\b/g;
   let m: RegExpExecArray | null;
   while ((m = objRe.exec(text)) !== null) {
     const num = Number(m[1]);
-    const lexer = new Lexer(bytes, m.index + m[0].length);
+    const start = m.index + m[0].length;
+    const lexer = new Lexer(bytes.subarray(0, endOfObject(start)), start);
     try {
       objects.set(num, lexer.parseValue());
     } catch {
       // One unreadable object must not cost the whole document.
     }
+    if (lexer.pos > objRe.lastIndex) objRe.lastIndex = lexer.pos;
   }
 
   // Trailers accumulate: an incrementally updated file has several, and later
@@ -395,8 +414,10 @@ export function readDocument(bytes: Uint8Array): PdfDocument {
   const trailer: PdfDict = new Map();
   const trailerRe = /trailer\b/g;
   while ((m = trailerRe.exec(text)) !== null) {
-    const parsed = new Lexer(bytes, m.index + m[0].length).parseValue();
+    const lexer = new Lexer(bytes, m.index + m[0].length);
+    const parsed = lexer.parseValue();
     if (isDict(parsed)) for (const [k, v] of parsed) trailer.set(k, v);
+    if (lexer.pos > trailerRe.lastIndex) trailerRe.lastIndex = lexer.pos;
   }
 
   // A cross-reference *stream* carries the same keys in its dictionary.
