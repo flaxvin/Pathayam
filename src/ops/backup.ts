@@ -573,11 +573,16 @@ export async function runBackupJob(
    * that restores. Until one verifies, nothing is deleted; the failure has
    * already been reported above.
    */
-  if (verification.ok) {
-    if (opts.retentionDays) pruneBackupsByAge(opts.backupDir, opts.retentionDays);
-    else pruneBackups(opts.backupDir, opts.keep);
-  }
+  if (verification.ok) pruneForRetention(opts.backupDir, opts.retentionDays ?? null, opts.keep);
   return verification;
+}
+
+/**
+ * The one pruning rule, for the scheduled job and "Back up now" alike: by age
+ * when the plan sets BACKUP_RETENTION_DAYS, else the newest `keep`.
+ */
+export function pruneForRetention(backupDir: string, retentionDays: number | null, keep?: number): number {
+  return retentionDays ? pruneBackupsByAge(backupDir, retentionDays) : pruneBackups(backupDir, keep);
 }
 
 // ---------------------------------------------------------------------------
