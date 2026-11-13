@@ -210,6 +210,12 @@ function constantTimeEqual(a: string, b: string): boolean {
  * real client, which refreshes once an hour.
  */
 const limits = new Map<string, { count: number; resetAt: number }>();
+export const OAUTH_LIMIT_CAP = 10_000;
+
+/** How many addresses the limiter is holding, for a test. */
+export function oauthRateLimitSize(): number {
+  return limits.size;
+}
 
 export function checkOAuthRateLimit(
   kind: "register" | "token", ip: string, now = Date.now(),
@@ -218,6 +224,21 @@ export function checkOAuthRateLimit(
   const key = `${kind}:${ip}`;
   const bucket = limits.get(key);
   if (!bucket || now >= bucket.resetAt) {
+    /*
+     * WEB-7 · Bounded, as PendingStates is (SECURITY-OPS-19). Every new
+     * address added a bucket nothing removed, so anonymous posts to
+     * /oauth/register or /oauth/token from fresh addresses (an IPv6 /64 is
+     * plenty) grew the process without limit. Past the cap, finished windows
+     * go first, then the oldest buckets.
+     */
+    limits.delete(key);
+    if (limits.size >= OAUTH_LIMIT_CAP) {
+      for (const [k, b] of limits) if (now >= b.resetAt) limits.delete(k);
+      for (const k of limits.keys()) {
+        if (limits.size < OAUTH_LIMIT_CAP) break;
+        limits.delete(k);
+      }
+    }
     limits.set(key, { count: 1, resetAt: now + windowMs });
     return { allowed: true, retryAfterSeconds: 0 };
   }
