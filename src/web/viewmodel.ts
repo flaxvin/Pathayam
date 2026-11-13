@@ -250,7 +250,12 @@ export function buildBudgetView(
      * courses is over by ₹2,300": an envelope without a target that has gone
      * below zero is not funded either.
      */
-    fullyFunded: isFullyFunded(progressList, monthState.readyToAssign)
+    /*
+     * td-UI-2 · A household with no envelopes at all is not "fully funded":
+     * the banner sat above "Nothing to budget yet" on the very first screen.
+     */
+    fullyFunded: categories.size > 0
+      && isFullyFunded(progressList, monthState.readyToAssign)
       && ![...categories.values()].some((c) => c.state.balance < 0),
     cards,
     futureCaveat: futureMonthCaveat(target, currentMonth),
