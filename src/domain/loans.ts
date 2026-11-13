@@ -126,6 +126,12 @@ export interface Disbursement {
   note: string | null;
   /** ENG-22 · The money it paid into a budget account or card, when it did. */
   transaction_id: string | null;
+  /**
+   * td-UI-9 · The kind and name of the account it was credited to, so the
+   * screen can tell money to assign from a card balance paid down.
+   */
+  destination_kind?: string | null;
+  destination_name?: string | null;
 }
 
 export interface RatePeriod {
@@ -638,7 +644,11 @@ export function recordDisbursement(
 
 export function listDisbursements(db: DB, loanId: string): Disbursement[] {
   return queryAll<Disbursement>(
-    db, `SELECT * FROM loan_disbursements WHERE loan_id = ? ORDER BY date`, loanId,
+    db,
+    `SELECT d.*, a.kind AS destination_kind, a.name AS destination_name
+       FROM loan_disbursements d LEFT JOIN accounts a ON a.id = d.destination_account_id
+      WHERE d.loan_id = ? ORDER BY d.date`,
+    loanId,
   );
 }
 

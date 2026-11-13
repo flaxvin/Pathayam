@@ -701,7 +701,12 @@ export const CLIENT_SCRIPT = String.raw`
                 // Clear the form's own status first — the message is about to
                 // be shown against the refreshed page instead.
                 finish("", null);
-                updatePage(payload.redirect, payload.message || "Saved.", "success", null, undefined, payload.location);
+                // td-UI-6 · A redirect that already carries its notice (an
+                // edit's "Saved.", a delete's "Deleted. You can restore it…")
+                // shows it on the page it fetches; adding "Saved." here put
+                // two notices on screen, the first one wrong after a delete.
+                var carriesNotice = /[?&]notice=/.test(payload.redirect);
+                updatePage(payload.redirect, payload.message || (carriesNotice ? null : "Saved."), "success", null, undefined, payload.location);
                 return;
               }
               finish(payload.message || "Saved.", "success");
