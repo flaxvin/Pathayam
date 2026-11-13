@@ -198,6 +198,19 @@ describe("evaluateAmountExpression — F4.10", () => {
     assert.equal(evaluateAmountExpression("(-450)"), rupees(-450));
   });
 
+  // Each operand obeys parseAmount's rules: "1,23+5" was read as 123+5
+  // (commas stripped) and "1.234+0" / "0.005+0" were rounded to whole paise.
+  test("each operand is held to parseAmount's rules", () => {
+    assert.equal(evaluateAmountExpression("1,23+5"), null);
+    assert.equal(evaluateAmountExpression("1.234+0"), null);
+    assert.equal(evaluateAmountExpression("0.005+0"), null);
+    assert.equal(evaluateAmountExpression("1.2.3+1"), null);
+    assert.equal(evaluateAmountExpression("1,234+5"), rupees(1239));
+    assert.equal(evaluateAmountExpression("12,34,567.89+1"), 123456889);
+    assert.equal(evaluateAmountExpression("₹ 1,200 + 50.5"), 125050);
+    assert.equal(evaluateAmountExpression("0.1+0.2"), 30);
+  });
+
   test("does not execute anything that is not arithmetic", () => {
     assert.equal(evaluateAmountExpression("process.exit(1)"), null);
     assert.equal(evaluateAmountExpression("1;2"), null);
