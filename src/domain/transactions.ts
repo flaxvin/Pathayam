@@ -1048,6 +1048,14 @@ export function listPayees(db: DB, viewerMemberId?: string | null): Payee[] {
   if (viewerMemberId === undefined) {
     return queryAll<Payee>(db, `SELECT * FROM payees WHERE merged_into_id IS NULL ORDER BY name`);
   }
+  /*
+   * WEB-2 · The whole of the transaction rule, envelope half included. Only
+   * the account half was applied here, so a merchant Ravi files to his own
+   * envelope from a household-visible account was in Priya's /payees, her Add
+   * form's list, /activity and her export, while every screen that lists his
+   * transaction hid it.
+   */
+  const hidden = hiddenTransactionSql("t", viewerMemberId);
   return queryAll<Payee>(
     db,
     `SELECT p.* FROM payees p
@@ -1056,13 +1064,11 @@ export function listPayees(db: DB, viewerMemberId?: string | null): Payee[] {
           NOT EXISTS (SELECT 1 FROM transactions t WHERE t.payee_id = p.id)
           OR EXISTS (
             SELECT 1 FROM transactions t
-              JOIN accounts a ON a.id = t.account_id
-             WHERE t.payee_id = p.id
-               AND (a.visibility <> 'private' OR a.holder_member_id IS ?)
+             WHERE t.payee_id = p.id AND NOT ${hidden.sql}
           )
         )
       ORDER BY p.name`,
-    viewerMemberId,
+    ...hidden.params,
   );
 }
 
