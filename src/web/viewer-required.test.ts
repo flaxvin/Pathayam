@@ -42,6 +42,9 @@ const app = readFileSync(join(src, "app.ts"), "utf8");
 const WHOLE_HOUSEHOLD: Record<string, string> = {
   // D14 · Auto-assign's plan was the one exemption; it now reads one budget, as
   // the person looking at it, like every other screen.
+  'hiddenTransactionSql("t", null)':
+    "WEB-1 · the opposite of a leak: asks whether a renamed row is hidden from " +
+    "anyone at all, so a household-wide rule is proposed only for a row every member sees.",
 };
 
 /** Every function in the app that accepts a viewer, read from its signature. */
