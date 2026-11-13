@@ -1460,7 +1460,20 @@ export function buildApp(deps: AppDeps): {
 
       const result = outcome.body as { redirect?: string; message?: string };
       if (wantsJson(ctx)) {
-        return { json: { redirect: result.redirect, message: result.message ?? "Saved." } };
+        /*
+         * td-UI-1 · location is the redirect with the notice signed in. The
+         * script swaps pages in place and shows the message itself, but when it
+         * has to navigate for real (a bare first-run screen to a full one) the
+         * message only survives in the address.
+         */
+        const message = result.message ?? "Saved.";
+        return {
+          json: {
+            redirect: result.redirect,
+            message,
+            ...(result.redirect ? { location: withNotice(result.redirect, result.message) } : {}),
+          },
+        };
       }
       return { redirect: withNotice(result.redirect ?? ctx.url.pathname, result.message) };
     } catch (err) {

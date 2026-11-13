@@ -86,7 +86,7 @@ describe("S15 · the client script", () => {
     assert.match(submit, /response\.headers\.get\("Content-Type"\)/);
     assert.match(submit, /indexOf\("text\/html"\) !== -1/);
     assert.match(submit, /updatePage\([^;]*, markup\)/);
-    assert.match(CLIENT_SCRIPT, /function updatePage\(url, message, kind, onFail, markup\)/);
+    assert.match(CLIENT_SCRIPT, /function updatePage\(url, message, kind, onFail, markup(, noticeUrl)?\)/);
     assert.match(CLIENT_SCRIPT, /rendered \? Promise\.resolve\(markup\)/);
   });
 
