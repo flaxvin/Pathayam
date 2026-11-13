@@ -163,7 +163,7 @@ import {
   renderHealth, overallState, type HealthGroup,
 } from "./web/pages/health.ts";
 import {
-  createBackup, pruneBackups, verifyRestore, listBackups, lastJobRun, recordJobRun,
+  createBackup, pruneForRetention, verifyRestore, listBackups, lastJobRun, recordJobRun,
   pingHeartbeat,
 } from "./ops/backup.ts";
 import {
@@ -10632,7 +10632,10 @@ export function buildApp(deps: AppDeps): {
     mutate(ctx, (a) => {
       refuseInDemo(config, "Taking backups");
       const backup = createBackup(db, config.backupDir);
-      pruneBackups(config.backupDir);
+      // WEB-9 · The plan's retention, as the scheduled job prunes. This kept
+      // the newest 14 whatever BACKUP_RETENTION_DAYS said, so one press of
+      // "Back up now" on a 365-day plan deleted all but three and a half days.
+      pruneForRetention(config.backupDir, config.limits.backupRetentionDays);
       recordJobRun(db, "backup", "ok", `${backup.path} (${backup.bytes} bytes)`);
       appendEvent(db, actorFor(a, "job"), {
         entity: "backup", entityId: backup.path, action: "create",
