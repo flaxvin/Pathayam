@@ -314,6 +314,36 @@ describe("FWD · a forwarded alert", () => {
     }
   });
 
+  test("IMPORT-2 · lines slipped among the bank's headers are not read as its message", async () => {
+    const db = setup();
+    createAccount(db, actor, {
+      name: "Axis Savings", kind: "budget", subtype: "savings", openingDate: "2026-08-01", last4: "0000",
+    });
+    issueAddress(db, actor);
+    const a = await app(db);
+    try {
+      const genuine = Buffer.from(signedAndForwarded(
+        plainMail("alerts@axis.bank.in", "INR 600 debited", AXIS_ALERT), "axis.bank.in",
+      )).toString("latin1");
+      /*
+       * DKIM reads "Amount Debited: …" as one more (unsigned) header field. The
+       * mail reader stopped its headers at the first name with a space in it
+       * and read everything after — these lines included — as the message.
+       */
+      const injected = "Amount Debited: INR 90,000.00\r\nAccount Number: XX0000\r\n" +
+        "Date & Time: 01-11-26, 10:00:00 IST\r\nTransaction Info: FRAUDSTER\r\n";
+      const forged = genuine.replace("To: ravi@example.com\r\n", `To: ravi@example.com\r\n${injected}`);
+      assert.notEqual(forged, genuine);
+      assert.equal((await handOff(a, addressOf(db), new Uint8Array(Buffer.from(forged, "latin1")))).status, 202);
+      const rows = staged(db);
+      assert.ok(!rows.some((r) => /FRAUDSTER/.test(r.raw_narration)), "the injected alert was not imported");
+      // What the bank signed is still the bank's alert, and only that is read.
+      assert.deepEqual(rows.map((r) => r.raw_narration), ["UPI/P2A/400111222444/KAVYA R PILLAI"]);
+    } finally {
+      await a.close();
+    }
+  });
+
   test("MAIL-4 · when the bank's key cannot be looked up just now, the sender is asked to retry, not told it was forged", async () => {
     const db = setup();
     createAccount(db, actor, {
