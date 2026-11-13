@@ -566,8 +566,17 @@ export async function runBackupJob(
     await reportFailure(opts.webhookUrl, verification, opts.fetchImpl);
   }
 
-  if (opts.retentionDays) pruneBackupsByAge(opts.backupDir, opts.retentionDays);
-  else pruneBackups(opts.backupDir, opts.keep);
+  /*
+   * WEB-5 · Only after a backup that restored. Pruning counts every file, so a
+   * run of unverifiable backups (a full disk, a corrupt copy) pushed the last
+   * good ones out: fourteen failed runs, three and a half days, left nothing
+   * that restores. Until one verifies, nothing is deleted; the failure has
+   * already been reported above.
+   */
+  if (verification.ok) {
+    if (opts.retentionDays) pruneBackupsByAge(opts.backupDir, opts.retentionDays);
+    else pruneBackups(opts.backupDir, opts.keep);
+  }
   return verification;
 }
 
