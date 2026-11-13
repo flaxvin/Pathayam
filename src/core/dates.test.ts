@@ -137,6 +137,19 @@ describe("parseDate — L3 entry shorthand", () => {
     assert.equal(parseDate("01-01", "2026-12-30"), "2027-01-01");
   });
 
+  // "29-02" typed on 02-01-2027 came back 29-02-2028, fourteen months ahead:
+  // the nearest-year rule only looked at real dates, so a 29 February that
+  // does not exist this year jumped to the next leap year. Shorthand means the
+  // occurrence nearest today; when that is more than half a year away it is
+  // a guess, and is refused.
+  test("refuses shorthand whose nearest real date is more than half a year away", () => {
+    assert.equal(parseDate("29-02", "2027-01-02"), null);
+    assert.equal(parseDate("29-02", "2027-08-01"), null);
+    assert.equal(parseDate("29-02", "2027-12-01"), "2028-02-29");
+    assert.equal(parseDate("29-02", "2028-06-01"), "2028-02-29");
+    assert.equal(parseDate("29-02", "2024-03-10"), "2024-02-29");
+  });
+
   test("passes ISO through", () => {
     assert.equal(parseDate("2026-08-26"), "2026-08-26");
   });
