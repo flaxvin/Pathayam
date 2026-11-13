@@ -1,6 +1,7 @@
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
 import { deflateSync } from "node:zlib";
+import { spawnSync } from "node:child_process";
 import { readDocument, expandObjectStreams } from "./objects.ts";
 import { decryptDocument, isEncrypted, WrongPassword } from "./decrypt.ts";
 import { extractText } from "./text.ts";
@@ -102,6 +103,58 @@ describe("the PDF reader · a file that decompresses without end", () => {
     const started = Date.now();
     read(bytes, "");
     assert.ok(Date.now() - started < 5_000, `took ${Date.now() - started} ms`);
+  });
+});
+
+describe("the PDF reader · IMPORT-1 every decode step is held to the budget", () => {
+  /*
+   * Flate of 30 MB of "z" is 30 KB of PDF. ASCII85 turns each "z" into four
+   * zero bytes, and it collected them in a plain array before the budget was
+   * checked at the end of the chain: 120 million slots, and the server ran out
+   * of memory. Run in a child with a small heap, as a Fly machine has.
+   */
+  const objectsUrl = new URL("./objects.ts", import.meta.url).href;
+  const textUrl = new URL("./text.ts", import.meta.url).href;
+  const script = `
+    const { deflateSync } = require("node:zlib");
+    const z = deflateSync(Buffer.alloc(30 * 1024 * 1024, 0x7a), { level: 9 });
+    const head = "%PDF-1.4\\n1 0 obj << /Type /Catalog /Pages 2 0 R >> endobj\\n" +
+      "2 0 obj << /Type /Pages /Kids [3 0 R] /Count 1 >> endobj\\n" +
+      "3 0 obj << /Type /Page /Parent 2 0 R /Contents [" + "4 0 R ".repeat(20) + "] >> endobj\\n" +
+      "4 0 obj << /Length " + z.length + " /Filter [/FlateDecode /ASCII85Decode] >>\\nstream\\n";
+    const bytes = new Uint8Array(Buffer.concat([Buffer.from(head, "latin1"), z,
+      Buffer.from("\\nendstream\\nendobj\\ntrailer << /Root 1 0 R >>\\n%%EOF\\n", "latin1")]));
+    (async () => {
+      const objects = await import(${JSON.stringify(objectsUrl)});
+      const text = await import(${JSON.stringify(textUrl)});
+      text.extractText(objects.readDocument(bytes));
+      console.log("read");
+    })();
+  `;
+
+  test("an ASCII85 stream that expands past the budget reads as empty, without running out of memory", () => {
+    const run = spawnSync(process.execPath, [
+      "--experimental-strip-types", "--no-warnings", "--max-old-space-size=256", "-e", script,
+    ], { encoding: "utf8", timeout: 60_000 });
+    assert.equal(run.status, 0, (run.stderr ?? "").slice(-400));
+    assert.match(run.stdout, /read/);
+  });
+
+  test("ASCII85 and ASCIIHex still decode, and a predictor wider than its data allocates nothing", () => {
+    const bytes = pdf([
+      "<< /Type /Catalog /Pages 2 0 R >>",
+      "<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
+      "<< /Type /Page /Parent 2 0 R /Resources << /Font << /F1 6 0 R >> >> /Contents [4 0 R 5 0 R 7 0 R] >>",
+      // "BT /F1 10 Tf 20 760 Td (Hi) Tj ET"
+      stream("/Filter /ASCII85Decode", String.raw`6<#'\7PQ#?0Ha>,+>PVn2` + "`" + String.raw`<?4<+I+"880Lq<,*OE;u~>`),
+      // "BT /F1 10 Tf 20 740 Td (Well) Tj ET"
+      stream("/Filter /AHx", "4254202F463120313020546620323020373430205464202857656C6C2920546A204554>"),
+      "<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
+      stream("/Filter /AHx /DecodeParms << /Predictor 12 /Columns 2000000000 /Colors 4 >>", "00FF>"),
+    ]);
+    const text = read(bytes, "");
+    assert.match(text, /Hi/);
+    assert.match(text, /Well/);
   });
 });
 
