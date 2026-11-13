@@ -20,6 +20,7 @@ import { createGroup, createCategory, setAssigned } from "../domain/budget.ts";
 import { rupees, type Paise } from "../core/money.ts";
 import { todayIST, monthOf } from "../core/dates.ts";
 import type { Actor } from "../core/events.ts";
+import { buildBudgetView } from "./viewmodel.ts";
 
 const actor: Actor = { memberId: "m-asha", source: "ui" };
 const flat = (s: string) => s.replace(/\s+/g, " ");
@@ -59,4 +60,48 @@ test("a credit overspend is not counted as set aside on Cards or the card panel"
   } finally {
     await app.close();
   }
+});
+
+/*
+ * td-UI-5 · The same charge, seen from the budget row. A card owing ₹18,450
+ * with nothing set aside, then ₹5,999 on it from an empty Eating out: the
+ * payment envelope holds ₹5,999 that nobody assigned, and its row said
+ * "Funded" right under "₹24,449 of your card balance isn't funded yet".
+ */
+test("a card payment row is not 'Funded' while its card has money nothing is behind", () => {
+  const db = freshDb();
+  seedMember(db, "m-asha", "Asha");
+  const month = monthOf(todayIST());
+  createAccount(db, actor, {
+    name: "Savings", kind: "budget", subtype: "savings",
+    openingDate: `${month}-01`, openingBalance: rupees(2_00_000),
+  });
+  const card = createAccount(db, actor, {
+    name: "Fictional Card", kind: "credit", subtype: "credit-card",
+    openingDate: `${month}-01`, openingBalance: -rupees(18_450) as Paise,
+  });
+  const group = createGroup(db, actor, "Flexible");
+  const eatingOut = createCategory(db, actor, { groupId: group.id, name: "Eating out" });
+  createTransaction(db, actor, {
+    accountId: card.id, amount: -rupees(5_999) as Paise, categoryId: eatingOut.id,
+    payeeName: "Swiggy", date: todayIST(),
+  });
+  const payment = paymentCategoryFor(db, card.id)!.id;
+
+  let view = buildBudgetView(db, month, undefined, "m-asha");
+  assert.equal(view.categories.get(payment)!.state.balance, rupees(5_999), "the control: R6 moved the charge");
+  assert.equal(view.cards[0]!.unfunded, rupees(24_449));
+  assert.equal(view.categories.get(payment)!.stateLabel, "Not funded");
+
+  // Part of it really set aside: partly funded.
+  setAssigned(db, actor, month, payment, rupees(10_000));
+  view = buildBudgetView(db, month, undefined, "m-asha");
+  assert.equal(view.categories.get(payment)!.stateLabel, "Partly funded");
+
+  // All of it set aside and the overspend covered: funded.
+  setAssigned(db, actor, month, payment, rupees(18_450));
+  setAssigned(db, actor, month, eatingOut.id, rupees(5_999));
+  view = buildBudgetView(db, month, undefined, "m-asha");
+  assert.equal(view.cards[0]!.unfunded, 0);
+  assert.equal(view.categories.get(payment)!.stateLabel, "Funded");
 });

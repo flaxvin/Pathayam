@@ -218,6 +218,16 @@ export function buildBudgetView(
         input.creditOpeningBalances?.[c.paymentAccountId] ?? 0,
       ),
     );
+    /*
+     * td-UI-5 · A card charged from an empty envelope put that charge in the
+     * payment envelope, and the row read "Funded" with a balance, right under
+     * "₹24,449 of your card balance isn't funded yet" — and the Cards page
+     * said Set aside ₹0. The row says what the card says.
+     */
+    const card = cards[cards.length - 1]!;
+    if (card.unfunded > 0 && c.state.balance >= 0) {
+      c.stateLabel = card.setAside > 0 ? "Partly funded" : "Not funded";
+    }
   }
 
   return {
@@ -250,7 +260,12 @@ export function buildBudgetView(
      * courses is over by ₹2,300": an envelope without a target that has gone
      * below zero is not funded either.
      */
-    fullyFunded: isFullyFunded(progressList, monthState.readyToAssign)
+    /*
+     * td-UI-2 · A household with no envelopes at all is not "fully funded":
+     * the banner sat above "Nothing to budget yet" on the very first screen.
+     */
+    fullyFunded: categories.size > 0
+      && isFullyFunded(progressList, monthState.readyToAssign)
       && ![...categories.values()].some((c) => c.state.balance < 0),
     cards,
     futureCaveat: futureMonthCaveat(target, currentMonth),
