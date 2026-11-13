@@ -66,8 +66,16 @@ function findPages(doc: PdfDocument): PdfDict[] {
   const root = dictGet(doc, doc.trailer, "Root");
   const pagesNode = isDict(root) ? dictGet(doc, root, "Pages") : null;
 
+  /*
+   * IMPORT-4 · Each node once. A page tree is a tree, but a file can list the
+   * same node twice in /Kids at every level: twenty levels of [next next] is
+   * 1.4 KB that walks a million pages, and a few more levels ran the server
+   * out of memory.
+   */
+  const visited = new Set<PdfDict>();
   const walk = (node: PdfValue, depth: number, inherited: PdfDict): void => {
-    if (depth > 64 || !isDict(node)) return;
+    if (depth > 64 || !isDict(node) || visited.has(node)) return;
+    visited.add(node);
 
     // /Resources and /MediaBox are inheritable; carry them down.
     const carried: PdfDict = new Map(inherited);

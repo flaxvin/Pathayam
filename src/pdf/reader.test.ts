@@ -158,6 +158,28 @@ describe("the PDF reader · IMPORT-1 every decode step is held to the budget", (
   });
 });
 
+describe("the PDF reader · IMPORT-4 a page tree that lists one node many times", () => {
+  /*
+   * Forty levels of /Kids [next next] is a 2 KB file naming 2^40 pages. Each
+   * listing was walked: twenty levels took ten seconds and a gigabyte, a few
+   * more ran the server out of memory.
+   */
+  test("is walked once per node", () => {
+    const levels = 40;
+    const objects = ["<< /Type /Catalog /Pages 2 0 R >>"];
+    for (let i = 0; i < levels; i++) objects.push(`<< /Type /Pages /Kids [${i + 3} 0 R ${i + 3} 0 R] /Count 2 >>`);
+    objects.push(`<< /Type /Page /Resources << /Font << /F1 ${levels + 3} 0 R >> >> /Contents ${levels + 4} 0 R >>`);
+    objects.push("<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>");
+    objects.push(stream("", "BT /F1 10 Tf 20 760 Td (Only page) Tj ET"));
+    // Catalog 1, Pages 2..levels+1, the page levels+2, its font and content after it.
+    const bytes = pdf(objects);
+    const started = Date.now();
+    const text = read(bytes, "");
+    assert.ok(Date.now() - started < 2_000, `took ${Date.now() - started} ms`);
+    assert.match(text, /Only page/);
+  });
+});
+
 /** A hand-written PDF from numbered object bodies, object 1 being the catalog. */
 function pdf(objects: string[]): Uint8Array {
   const body = objects.map((o, i) => `${i + 1} 0 obj ${o} endobj\n`).join("");
