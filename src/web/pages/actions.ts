@@ -407,6 +407,8 @@ export function renderMoveMoney(opts: {
   month: MonthKey;
   categories: CategoryView[];
   toCategoryId: string | null;
+  /** Preselected source, when the form is shown again after a refusal. */
+  fromCategoryId?: string | null;
   amount: Paise | null;
   suggestions: CoverSource[];
   readyToAssign: Paise;
@@ -470,7 +472,7 @@ export function renderMoveMoney(opts: {
             `)}
             ${opts.categories.map(
               (c) => html`
-                <option value="${c.id}">${c.name} — ${formatPaise(c.state.balance)}</option>
+                <option value="${c.id}" ${raw(c.id === opts.fromCategoryId ? "selected" : "")}>${c.name} — ${formatPaise(c.state.balance)}</option>
               `,
             )}
           </select>
@@ -494,6 +496,13 @@ export function renderMoveMoney(opts: {
         <input id="move-amount" name="amount" class="amount-input" type="text" inputmode="decimal"
                value="${opts.amount ? (opts.amount / 100).toFixed(2) : ""}" required>
       </div>
+
+      <!-- Decision 7 (UI-8) · Moving more than the source holds is refused
+           unless this is ticked. -->
+      <label style="display:flex;gap:.5rem;align-items:center;min-height:44px;font-weight:400">
+        <input type="checkbox" name="allow_below_zero" value="1">
+        Allow it to go below zero
+      </label>
 
       <p class="field-hint">
         Moving between categories doesn't change Ready to Assign — the same rupees
