@@ -14,7 +14,7 @@ import { createAccount } from "../domain/accounts.ts";
 import { createTransaction } from "../domain/transactions.ts";
 import { createGroup, createCategory } from "../domain/budget.ts";
 import { rupees, type Paise } from "../core/money.ts";
-import { todayIST } from "../core/dates.ts";
+import { todayIST, addDays } from "../core/dates.ts";
 import { spendingWindowLabel } from "./pages/fire.ts";
 
 test("the window is said in days while it is short, and singular when it is one", () => {
@@ -25,13 +25,13 @@ test("the window is said in days while it is short, and singular when it is one"
   assert.equal(spendingWindowLabel(365), "last 12 months");
 });
 
-test("a household one day old reads one day, not '1 months'", async () => {
+test("a household 30 days old reads 30 days, not '1 months' (UI-12 hides anything shorter)", async () => {
   const db = freshDb();
   seedMember(db, "m-asha", "Asha");
   const actor = { memberId: "m-asha", source: "ui" as const };
   const bank = createAccount(db, actor, {
     name: "Savings", kind: "budget", subtype: "savings",
-    openingDate: todayIST(), openingBalance: rupees(2_00_000),
+    openingDate: addDays(todayIST(), -29), openingBalance: rupees(2_00_000),
   });
   const group = createGroup(db, actor, "Flexible");
   const food = createCategory(db, actor, { groupId: group.id, name: "Groceries" });
@@ -39,7 +39,7 @@ test("a household one day old reads one day, not '1 months'", async () => {
   const app = await startTestApp(db, { memberId: "m-asha" });
   try {
     const page = (await (await app.get("/fire")).text()).replace(/\s+/g, " ");
-    assert.match(page, /Spending, last 1 day, annualised/);
+    assert.match(page, /Spending, last 30 days, annualised/);
     assert.doesNotMatch(page, /1 months/);
     assert.deepEqual(app.failures, []);
   } finally {
