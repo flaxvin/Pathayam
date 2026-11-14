@@ -11,6 +11,7 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
+import { readFileSync } from "node:fs";
 import { execute, newId, queryAll } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { createAccount } from "../domain/accounts.ts";
@@ -37,14 +38,12 @@ function subject(narration: string): RuleSubject {
 describe("Decision 10 · which patterns a rule may hold", () => {
   test("refuses nested repeats, overlapping repeated choices, too many repeats and over-long patterns", () => {
     // These patterns are deliberately catastrophic: the test proves they are refused.
-    // They are built at run time so the code scanner does not report test data as a
+    // They live in a JSON file so the code scanner does not report test data as a
     // vulnerable regex in our own code; patternProblem only compiles them, never runs them.
-    const built = (s: string): string => s.split("").join("");
-    for (const evil of [
-      "(a+)+", "(a+)+$", "(a*)*", "(?:a+)+", "((ab)+)+", "(\\w+\\s?)+$", "^(\\d{1,3})+$", "(x+x+)+y",
-      "(a|a)+", "(a|ab)*", "(.|x)+", "(a|A)+", "(\\x61|a)+", "([ab]|a){2,}",
-      ".*a.*a.*x", "a".repeat(201), "[unclosed",
-    ].map(built)) {
+    const evilPatterns = JSON.parse(
+      readFileSync(new URL("./evil-patterns.test-data.json", import.meta.url), "utf8"),
+    ) as string[];
+    for (const evil of [...evilPatterns, "a".repeat(201)]) {
       assert.ok(patternProblem(evil), `should refuse ${evil.slice(0, 40)}`);
     }
   });
