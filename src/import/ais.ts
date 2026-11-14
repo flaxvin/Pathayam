@@ -133,7 +133,7 @@ function amountOf(cell: string): Paise | null {
 }
 
 /** The headings this knows, in the words of the AIS FAQ and Handbook. */
-function headingOf(line: string): { part: string; section: AisSection | "general" } | null {
+function headingOf(line: string): { part: string; section: AisSection | "general" | "unknown" } | null {
   const t = line.trim().replace(/\s+/g, " ").toLowerCase();
   if (t.length > 60) return null;
   if (/^(?:part\s*a\s*[-–:]?\s*)?general information\b/.test(t)) return { part: "General information", section: "general" };
@@ -142,6 +142,9 @@ function headingOf(line: string): { part: string; section: AisSection | "general
   if (/^(?:part\s*b\d*\s*[-–:]?\s*)?payment of taxes\b/.test(t)) return { part: "Payment of taxes", section: "taxes-paid" };
   if (/^(?:part\s*b\d*\s*[-–:]?\s*)?demand and refund\b/.test(t)) return { part: "Demand and refund", section: "demand-refund" };
   if (/^(?:part\s*b\d*\s*[-–:]?\s*)?other information\b/.test(t)) return { part: "Other information", section: "other" };
+  // A part this does not know — a new one the department adds. Its lines are
+  // not read into the part before it; they are counted as not read.
+  if (/^part\s*[a-z]\d*\s*[-–:]/.test(t)) return { part: "A part this app does not know", section: "unknown" };
   return null;
 }
 
@@ -212,7 +215,7 @@ export function parseAisText(text: string): AisStatement {
   const notRead = new Map<string, number>();
   const unread = (part: string) => notRead.set(part, (notRead.get(part) ?? 0) + 1);
 
-  let section: AisSection | "general" | null = null;
+  let section: AisSection | "general" | "unknown" | null = null;
   let part = "Before Part A";
   let current: AisLine | null = null;
 
