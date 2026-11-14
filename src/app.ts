@@ -207,6 +207,7 @@ import {
 } from "./web/pages/manage.ts";
 import { renderPrivacy, renderTerms, type LegalMode } from "./web/pages/legal.ts";
 import { Refusal } from "./core/refusal.ts";
+import { ltcgHarvestHint } from "./domain/ltcg-harvest.ts";
 import {
   checkPassword, checkAbsentPassword, setPassword, anyPasswordSet, hasPassword,
 } from "./auth/passwords.ts";
@@ -326,6 +327,8 @@ import {
   renderManualPrice, renderSplitForm, renderMergerForm, renderValuations, type CasReviewScheme,
 } from "./web/pages/portfolio.ts";
 import { parseCasPdf, WrongPassword } from "./import/cas.ts";
+import { parseAisPdf, aisPassword, WrongPassword as AisWrongPassword } from "./import/ais.ts";
+import { checkAis, replaceAis, deleteAis } from "./domain/ais.ts";
 import { parseSafeGoldText, isSafeGoldText, type SafeGoldStatement } from "./import/safegold.ts";
 import {
   planSafeGoldImport, applySafeGoldPlan, stashSafeGoldPlan, peekSafeGoldPlan, takeSafeGoldPlan,
@@ -336,7 +339,7 @@ import {
 } from "./import/cas-plan.ts";
 import {
   createAssetAccount, listAssetAccounts, listValuableAccounts, findOrCreateInstrument,
-  setInstrumentListed, recordPurchase, recordSale, recordPrice, recordSplit, recordMerger,
+  setInstrumentListed, setInstrumentIdentifier, recordPurchase, recordSale, recordPrice, recordSplit, recordMerger,
   recordValuation, latestValuation, listHoldings, viewHolding, priceHistory, previewHoldingSale,
   getInstrument, findManualInstrument, listInstruments, classifyInstrument, ASSET_CLASSES,
   ASSET_CLASS_LABELS, exportHoldingsCsv, exportLotsCsv, exportPriceHistoryCsv, exportNetWorthCsv,
@@ -9336,9 +9339,20 @@ export function buildApp(deps: AppDeps): {
   router.get("/portfolio", (ctx) => {
     requireAssets();
     const scope = holderScopeParam(ctx);
+    // HARVEST-1 · The viewer's own exemption, whatever scope the list shows:
+    // a member's s112A figures are theirs alone. Tax off, it is not offered.
+    const me = viewer(ctx);
+    let harvest = null;
+    if (me && config.features.tax) {
+      try {
+        harvest = ltcgHarvestHint(db, me);
+      } catch (err) {
+        if (!(err instanceof Refusal)) throw err;
+      }
+    }
     return render(
       ctx, "Portfolio",
-      renderPortfolio(portfolioData(db, { viewerMemberId: viewer(ctx), scope })),
+      renderPortfolio({ ...portfolioData(db, { viewerMemberId: me, scope }), harvest }),
     );
   });
 
@@ -9647,13 +9661,27 @@ export function buildApp(deps: AppDeps): {
           : typed.kind === "equity" && field(ctx.body, "share_listed_asked") === "1"
             ? field(ctx.body, "share_listed") === "1"
             : null;
+        /*
+         * PRICES-1 · A share or ETF typed with its ISIN or exchange symbol is
+         * priced each evening from the exchanges' closing files. Checked here
+         * the same way the holding page checks it, before anything is made.
+         */
+        const isin = schemeCode ? null : (field(ctx.body, "isin") ?? "").trim().toUpperCase() || null;
+        if (isin && !/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(isin)) {
+          throw new Refusal(`"${isin}" is not an ISIN: two letters, nine letters or digits, then a digit (INE002A01018).`);
+        }
         // WEALTH-11 · The same name typed again is the same instrument.
-        const found = symbol ? null : findManualInstrument(db, typed, memberScope(db, viewer(ctx)).instruments);
+        const hidden = memberScope(db, viewer(ctx)).instruments;
+        const found = symbol || isin ? null : findManualInstrument(db, typed, hidden);
         if (found) {
           if (listed !== null) setInstrumentListed(db, actor, found.id, listed);
           return getInstrument(db, found.id)!;
         }
-        return findOrCreateInstrument(db, actor, { ...typed, symbol, listed, provider: schemeCode ? "mfapi" : "manual" });
+        // Review 3: an ISIN or symbol matches only instruments this member can see.
+        return findOrCreateInstrument(db, actor, {
+          ...typed, symbol: symbol ? symbol.trim().toUpperCase() || null : null, isin, listed,
+          provider: schemeCode ? "mfapi" : "manual",
+        }, hidden);
       };
       const instrument = chosenId
         ? getInstrument(db, requireVisibleInstrument(ctx, chosenId))!
@@ -9743,6 +9771,23 @@ export function buildApp(deps: AppDeps): {
     }),
   );
 
+  // PRICES-1 · A share's or ETF's ISIN and exchange symbol, from its holding page.
+  router.post("/portfolio/instrument/:id/identifier", (ctx) =>
+    mutate(ctx, (a) => {
+      requireAssets();
+      const id = requireVisibleInstrument(ctx, ctx.params.id!);
+      setInstrumentIdentifier(db, actorFor(a), id, {
+        isin: field(ctx.body, "isin") ?? null,
+        symbol: field(ctx.body, "symbol") ?? null,
+      });
+      const holdingId = field(ctx.body, "holding_id");
+      return {
+        redirect: holdingId ? `/portfolio/${encodeURIComponent(requireVisibleHolding(ctx, holdingId))}` : "/portfolio",
+        message: "Saved. The price is fetched with the next refresh.",
+      };
+    }),
+  );
+
   router.get("/portfolio/:id", (ctx) => {
     requireAssets();
     const view = viewHolding(db, requireVisibleHolding(ctx, ctx.params.id!));
@@ -9757,6 +9802,7 @@ export function buildApp(deps: AppDeps): {
         accountName: account?.name ?? "",
         history: priceHistory(db, view.instrument.id, 40),
         today: todayIST(),
+        bhavcopy: config.bhavcopyPrices,
       }),
     );
   });
@@ -9976,6 +10022,7 @@ export function buildApp(deps: AppDeps): {
     const outcome = await refreshPrices(db, actorFor(a, "ui"), {
       force: true,
       alphaVantageKey: config.alphaVantageKey,
+      bhavcopy: config.bhavcopyPrices,
       fetchImpl: deps.fetchImpl,
       ...MANUAL_REFRESH,
     });
@@ -10927,17 +10974,30 @@ export function buildApp(deps: AppDeps): {
   // income tax in India is assessed on an individual — a household figure
   // would mix one member's salary into another's estimate.
   // -------------------------------------------------------------------------
-  function taxPageProps(ctx: RequestContext, a: ReturnType<typeof auth>) {
-    const fyParam = Number(ctx.query.get("fy"));
+  function taxPageProps(ctx: RequestContext, a: ReturnType<typeof auth>, fyOverride?: number) {
+    const fyParam = fyOverride ?? Number(ctx.query.get("fy"));
     // FRESH-WEB-3 · 1e308 is an integer too; past year 9998 a date stops being one.
     const fy = Number.isInteger(fyParam) && fyParam > 2000 && fyParam < 9999
       ? fyParam : fiscalYearOf(todayIST());
 
     const insurance = config.features.insurance;
-    const model = taxPageModel(db, a.member.id, fy, insurance && ctx.query.get("from") === "policies");
+    // "from" names what to fill the form in from: policies, the AIS, or both.
+    const from = new Set((ctx.query.get("from") ?? "").split(","));
+    const model = taxPageModel(db, a.member.id, fy, insurance && from.has("policies"), from.has("ais"));
     // PLAN-1 · Without the insurance module there are no policies to suggest from.
-    return { ...model, fromPolicies: insurance ? model.fromPolicies : undefined, features: config.features };
+    return {
+      ...model, fromPolicies: insurance ? model.fromPolicies : undefined, features: config.features,
+      aisDisabled: config.demoMode ? AIS_DEMO_REFUSAL : null,
+    };
   }
+
+  /*
+   * TAX-AIS · R38 · The demo is public, and an AIS is somebody's whole tax
+   * year: a visitor trying the feature with their own would leave their
+   * salary and bank interest on a shared server. So the upload is refused
+   * there, the same way saving a statement identity is.
+   */
+  const AIS_DEMO_REFUSAL = "Reading an Annual Information Statement is disabled on the demo. Run your own copy to use it.";
 
   router.get("/tax", (ctx) => {
     const a = auth(ctx);
@@ -10985,6 +11045,76 @@ export function buildApp(deps: AppDeps): {
       });
 
       return { redirect: `/tax?fy=${fy}`, message: "Saved. The estimate is recalculated." };
+    }),
+  );
+
+  /*
+   * TAX-AIS · The member's own AIS, read from its PDF. Always the signed-in
+   * member's — there is no member to choose, so no way to file one member's
+   * AIS under another — and checked against their saved PAN where there is
+   * one. The file and its password live for this request only (PR5); what
+   * is kept is figures (src/domain/ais.ts). A re-import replaces the year.
+   */
+  router.post("/tax/ais", (ctx) => {
+    refuseInDemo(config, "Reading an Annual Information Statement");
+    const a = auth(ctx);
+    const fy = Number(field(ctx.body, "fy"));
+    if (!Number.isInteger(fy) || fy < 2000 || fy > 9998) throw new Refusal("Pick a financial year.");
+    const again = (error: string) => render(ctx, "Tax estimate", renderTax({
+      ...taxPageProps(ctx, a, fy), aisError: error,
+    }), { print: { caveat: TAX_PRINT_CAVEAT } });
+
+    const upload = fileField(ctx.req, "statement");
+    if (!upload) return again("Choose your AIS PDF first.");
+
+    const typed = field(ctx.body, "password") ?? "";
+    const identity = getIdentity(db, a.member.id);
+    const derived = identity?.pan && identity.dob ? aisPassword(identity.pan, identity.dob) : null;
+    const candidates = typed !== "" ? [typed] : derived ? [derived, ""] : [""];
+
+    let statement = null;
+    for (const candidate of candidates) {
+      try {
+        statement = parseAisPdf(upload.bytes, candidate);
+        break;
+      } catch (error) {
+        if (error instanceof AisWrongPassword) continue;
+        if (error instanceof Refusal) return again(error.message);
+        return again(`That file could not be read as an AIS. ${(error as Error).message}`);
+      }
+    }
+    if (!statement) {
+      return again(typed === "" && derived
+        ? "The password worked out from your saved PAN and date of birth did not open it. Type it above."
+        : "That password did not open it. It is your PAN in small letters followed by your date of " +
+          "birth as DDMMYYYY — abcde1234f01011990, for example.");
+    }
+
+    let check;
+    try {
+      check = checkAis(db, a.member.id, fy, statement);
+    } catch (error) {
+      if (error instanceof Refusal) return again(error.message);
+      throw error;
+    }
+    const read = statement;
+    return mutate(ctx, (auth) => {
+      replaceAis(db, auth.member.id, fy, read, check);
+      const used = read.lines.filter((l) => l.category !== "unread").length;
+      return {
+        redirect: `/tax?fy=${fy}#ais`,
+        message: [`Read ${used} ${used === 1 ? "line" : "lines"} from your AIS. Nothing in the form below has changed yet.`,
+          ...check.warnings].join(" "),
+      };
+    });
+  });
+
+  router.post("/tax/ais/delete", (ctx) =>
+    mutate(ctx, (a) => {
+      const fy = Number(field(ctx.body, "fy"));
+      if (!Number.isInteger(fy)) throw new Refusal("Pick a financial year.");
+      deleteAis(db, a.member.id, fy);
+      return { redirect: `/tax?fy=${fy}`, message: "Forgotten. Figures you already saved below are unchanged." };
     }),
   );
 

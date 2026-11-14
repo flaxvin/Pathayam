@@ -18,7 +18,7 @@ import { queryAll, queryOne } from "../db/db.ts";
 import type { Paise } from "../core/money.ts";
 import { Refusal } from "../core/refusal.ts";
 import {
-  todayIST, addDays, addMonths, monthOf, lastDayOfMonth, daysBetween, type MonthKey,
+  todayIST, fiscalYearOf, addDays, addMonths, monthOf, lastDayOfMonth, daysBetween, type MonthKey,
 } from "../core/dates.ts";
 import { listMembers } from "../auth/sessions.ts";
 import {
@@ -35,6 +35,7 @@ import { getDepositTerms, listMaturities } from "../domain/deposits.ts";
 import { netWorthStatement, netWorthHistory } from "../domain/networth.ts";
 import { listSchedules, projectCashflow, describeCashflow } from "../domain/schedules.ts";
 import { policiesDueBy, policyTaxSuggestion, applyPolicySuggestion } from "../domain/insurance.ts";
+import { aisSummary, applyAisSuggestion } from "../domain/ais.ts";
 import { envelopeSpendByMonth } from "../domain/reports.ts";
 import { spendingInsights } from "../domain/insights.ts";
 import { cameWithTheCard } from "../domain/card-shortfall.ts";
@@ -46,6 +47,7 @@ import {
 } from "../domain/tax.ts";
 import { homeLoanInterestFor } from "../domain/home-loan-interest.ts";
 import { capitalGainsTaxFor, type GainsTax } from "../domain/capital-gains-tax.ts";
+import { ltcgHarvestHint, type HarvestHint } from "../domain/ltcg-harvest.ts";
 import { accountBalances, creditOutstanding } from "../engine/repository.ts";
 import { cardFunding } from "../engine/engine.ts";
 import { xirr } from "../portfolio/holdings.ts";
@@ -503,10 +505,11 @@ export function portfolioData(
  *
  * Per member, because income tax in India is assessed on an individual — a
  * household figure would mix one member's salary into another's estimate.
- * `applyPolicies` is the page's "fill in from my policies" (INSURANCE-1).
+ * `applyPolicies` is the page's "fill in from my policies" (INSURANCE-1), and
+ * `applyAis` its "use these figures" from the member's own AIS (TAX-AIS).
  */
 export function taxPageModel(
-  db: DB, memberId: string, fy: number, applyPolicies: boolean,
+  db: DB, memberId: string, fy: number, applyPolicies: boolean, applyAis = false,
 ): TaxPageProps {
   const stored = getDeclaration(db, memberId, fy);
   // INSURANCE-1 · What the member's policies come to; filled in only when asked.
@@ -547,6 +550,17 @@ export function taxPageModel(
     }
   }
 
+  // HARVEST-1 · Only the year in progress has an exemption left to use, and
+  // only its prices mean anything for a sale that has not happened yet.
+  let harvest: HarvestHint | null = null;
+  if (fy === fiscalYearOf(todayIST()) && !gainsRefusal) {
+    try {
+      harvest = ltcgHarvestHint(db, memberId);
+    } catch (err) {
+      if (!(err instanceof Refusal)) throw err;
+    }
+  }
+
   // TAX-1 · Interest on loans this member holds for a house they live in,
   // accrued in the year from the loan's ledger — unless they gave their own.
   const homeLoan = homeLoanInterestFor(db, fy, memberId);
@@ -572,9 +586,18 @@ export function taxPageModel(
     advance = advanceTaxSchedule(fy, liability, payments.filter((p) => p.kind === "advance"));
   }
 
+  // TAX-AIS · The member's own AIS for the year, if imported; offered into the
+  // form only when asked, and saved only when the form is.
+  const fromAis = aisSummary(db, memberId, fy);
+  const aisApplied = applyAis && fromAis !== null;
+  const offered = aisApplied ? applyAisSuggestion({ gross, tds: paid.tds }, fromAis) : null;
+
   return {
-    fy, gross, ledgerIncome, estimate, advance, gains, gainsRefusal, slabsRefusal, fromPolicies,
+    fy, gross, ledgerIncome, estimate, advance, gains, gainsRefusal, slabsRefusal, fromPolicies, harvest,
     applyPolicies: apply,
+    fromAis, applyAis: aisApplied,
+    formGross: offered?.gross ?? gross,
+    formTds: offered?.tds ?? paid.tds,
     deductions: apply ? applyPolicySuggestion(stored, fromPolicies) : stored,
     homeLoan, s24bOverride: stored.s24bOverride ?? null, payments, paid, settlement,
     advanceThreshold: (ADVANCE_TAX_RULES[fy] ?? ADVANCE_TAX_RULES[2025]!).threshold,

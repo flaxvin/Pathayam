@@ -633,6 +633,7 @@ only (out of a token's reach).
 | POST | `/groups/new` · `/groups/:id/rename` · `/groups/:id/delete` | W | Add, rename or remove a category group. A group must be empty to be deleted. |
 | POST | `/categories/new` · `/categories/:id/rename` · `/categories/:id/hide` · `/categories/:id/delete` | W | Manage categories. |
 | GET/POST | `/tax` | R/W | Income tax estimate for the signed-in member and one financial year (`fy`). POST saves gross income, deductions, TDS (`tds`) and an optional own figure for home loan interest under section 24(b) (`s24b`; blank uses the interest accrued on loans marked as for a self-occupied house). Refuses a year whose rates the app does not have. |
+| POST | `/tax/ais` · `/tax/ais/delete` | W | Read the signed-in member's own Annual Information Statement from its PDF (multipart: `statement`, `fy`, optional `password`; without one, the password is worked out from the saved PAN and date of birth) and keep its figures for that year, replacing any earlier import; or forget them (`fy`). Refuses another PAN than the member's saved one, a file for a year other than `fy`, and a year whose rates the app does not have; reading one (`/tax/ais`) is also refused on the demo, while forgetting (`/tax/ais/delete`) is not. `GET /tax?fy=…&from=ais` offers its TDS and income into the form. |
 | POST | `/tax/payments` · `/tax/payments/:id/delete` | W | Record (`fy`, `kind` = `advance` or `self-assessment`, `date`, `amount`, `note`) or remove a tax payment of the signed-in member's own. Advance tax must be dated inside its financial year. Another member's payment is not found. |
 | POST | `/categories/:id/merge` | W | Merge this category into `winner_id`: assignments are summed month by month, history and targets move across, and this one is deleted. Refuses a payment category and a merge across budgets. |
 | POST | `/categories/:id/target` | W | Set or clear a category's target: `amount`, `kind` (`monthly` or `refill`; omitted keeps a stored refill) and optional `target_date` (makes it by-date). |
@@ -685,7 +686,7 @@ only (out of a token's reach).
 
 | Method | Path | Token | Purpose |
 |---|---|---|---|
-| GET | `/portfolio` | R | Holdings, XIRR, other assets. |
+| GET | `/portfolio` | R | Holdings, XIRR, other assets, and (tax on) the signed-in member's unused s112A exemption this year, linking to the Tax page's card. |
 | GET | `/portfolio/:id` | R | One instrument. |
 | GET/POST | `/portfolio/add` | R/W | Add a holding. `?instrument=<id>` (where "Choose" on a searched scheme lands) buys that instrument; the POST takes `instrument_id` for it. |
 | GET/POST | `/portfolio/:id/sell` | R/W | Record a sale. |
@@ -697,6 +698,7 @@ only (out of a token's reach).
 | GET | `/portfolio/allocation` | R | Allocation by class/region/currency. |
 | POST | `/portfolio/instrument/:id/classify` | W | Set an instrument's class. |
 | POST | `/portfolio/instrument/:id/listed` | W | Say whether a bond is listed on an exchange. |
+| POST | `/portfolio/instrument/:id/identifier` | W | Set a share's or ETF's `isin` and `symbol` (NSE symbol or BSE scrip code); blank clears. |
 | POST | `/portfolio/refresh` | W | Refresh prices. |
 | GET | `/net-worth` | R | Net-worth decomposition & history. |
 | GET | `/fire` | R | Financial-independence projection from trailing spending. |

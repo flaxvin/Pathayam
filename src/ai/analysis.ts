@@ -939,6 +939,25 @@ export function aiTaxEstimate(
         label: a.label, due_date: a.date, cumulative_pct: a.cumulativePct, instalment: inr(a.instalmentAmount),
         paid_by_then: inr(a.paidByThen), short_by: inr(a.shortBy),
       })),
+      // HARVEST-1 · The s112A exemption left in the year in progress, as the
+      // Tax page's card shows it; null for any other year.
+      ltcg_harvest: p.harvest
+        ? {
+            exemption: inr(p.harvest.exemption), realised_112a: inr(p.harvest.realised), unused: inr(p.harvest.unused),
+            days_left: p.harvest.daysLeft, year_ends: p.harvest.fyEnd,
+            gains_not_placed: inr(p.harvest.unplaced),
+            holdings: p.harvest.lines.map((l) => ({
+              holding_id: l.holdingId, instrument_name: l.instrument, account_name: l.accountName,
+              price: { per_unit: perUnit(l.price), as_of: l.priceAsOf, stale: l.priceStale },
+              long_term_units: l.longTermUnits / UNIT_SCALE, long_term_gain: inr(l.longTermGain),
+              short_term_units: l.shortTermUnits / UNIT_SCALE, next_long_term_on: l.nextLongTermOn,
+              suggest_units: l.suggestUnits / UNIT_SCALE, suggest_gain: inr(l.suggestGain),
+            })),
+            excluded: p.harvest.excluded.map((e) => ({ instrument_name: e.instrument, account_name: e.accountName, reason: e.reason })),
+            caveat: "Arithmetic at the last stored prices, not advice. Units follow FIFO and stop before any short-term lot. " +
+              "Exit loads, STT and brokerage are not included; losses are not set off between heads; buying back is the person's choice.",
+          }
+        : null,
       rates_verified_on: p.ratesVerifiedOn,
       caveat: "An estimate from what is recorded here, not a filing. Check with the department's own calculator.",
     };

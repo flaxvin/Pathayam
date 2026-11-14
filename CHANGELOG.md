@@ -7,6 +7,41 @@ public surface: a change that breaks one of them is a major version.
 
 ## Unreleased
 
+- **Tax-free long-term gains left this year.** The Tax page shows, for the
+  year in progress, how much of the ₹1,25,000 s112A exemption the member has
+  used on long-term listed equity, what is left, and the days to 31 March; and
+  for each listed equity holding of their own, the lots already long-term at
+  the latest stored price and how many units could be sold, oldest lots first,
+  without crossing what is left. Unlisted shares, hybrid funds, international
+  holdings and anything without a price are listed as left out, never
+  suggested. Portfolio links to it, and the AI connector's `tax_estimate`
+  carries it as `ltcg_harvest`. No migration.
+
+- **The tax estimate reads your Annual Information Statement.** On the Tax
+  page, upload your own AIS PDF (it opens with your saved PAN and date of
+  birth): TDS by deductor, salary, interest from savings and deposits,
+  dividends and securities sold are read and shown, with the sales set beside
+  what the app recorded. "Use these figures" raises the form's TDS and gross
+  income to the AIS's, never lowers them, and saves nothing until you do. Only
+  the figures are kept, never the file, and only for you. JSON and CSV
+  downloads are not read; the PDF layout is assumed, and anything not
+  recognised is listed as not read, TCS lines among them: tax collected at
+  source is never counted as TDS. Refused on the demo. Migration 0076. See
+  [docs/limitations.md](docs/limitations.md#tax).
+
+- **Indian shares and ETFs priced without a key.** A rupee share or ETF given
+  its ISIN or its NSE symbol or BSE scrip code (new fields on the add form, and
+  a "Where its price comes from" card on its holding page,
+  `POST /portfolio/instrument/:id/identifier`) is priced each evening from the
+  exchanges' public end-of-day files (bhavcopy): NSE's first, BSE's when NSE
+  does not list it, dated by the trading day in the file. One download per
+  exchange per day serves every holding, nothing about the holding is sent,
+  and each exchange is asked at most twelve times a day by one running server
+  (the count is kept in memory and starts again on a restart). Alpha Vantage, when
+  configured, remains for foreign shares and as the fallback for an instrument
+  set up for it. The equity refresh now runs after 18:00 IST, once the files
+  are out. New: `BHAVCOPY_PRICES` (default `true`). No migration.
+
 - **Forwarding address.** Each member can have an address
   (`<route>.<token>@INBOUND_DOMAIN`) to forward bank mail to with a filter;
   alerts and statements land in Review as they arrive, through the Gmail

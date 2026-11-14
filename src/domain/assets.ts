@@ -32,6 +32,7 @@ import { allocateByWeight, formatPaise, type Paise } from "../core/money.ts";
 import { SIMPLE_TRACKING_SUBTYPES, createAccount, getAccount } from "./accounts.ts";
 import { createTransaction, UndoRefused } from "./transactions.ts";
 import { dependantsOf } from "./dependants.ts";
+import { parseIdentifier } from "../portfolio/bhavcopy.ts";
 import { computedDepositValue } from "./deposits.ts";
 import {
   makeLot, previewSale, totalUnits, costBasis, averageCost, averageUnitPrice, marketValue,
@@ -497,6 +498,13 @@ export function findOrCreateInstrument(
      */
     listed?: boolean | null;
   },
+  /**
+   * The viewer's hidden instruments (memberScope().instruments), when a
+   * member typed the ISIN or symbol. One held only in another member's
+   * private accounts is never matched — attaching to it would show its name,
+   * kind and prices — and a new instrument is made instead (review 3).
+   */
+  hidden?: ReadonlySet<string>,
 ): Instrument {
   // WEALTH-39 · An unknown kind reached the table's CHECK and answered 500.
   if (!(INSTRUMENT_KINDS as readonly string[]).includes(input.kind)) {
@@ -504,15 +512,19 @@ export function findOrCreateInstrument(
   }
   return transact(db, () => {
     // R24.6: match on ISIN first — it survives a change of price provider.
+    const visible = (rows: Instrument[]): Instrument | null =>
+      rows.find((i) => !hidden?.has(i.id)) ?? null;
     const existing =
       (input.isin
-        ? queryOne<Instrument>(db, `SELECT * FROM instruments WHERE isin = ?`, input.isin)
+        ? visible(queryAll<Instrument>(
+            db, `SELECT * FROM instruments WHERE isin = ? ORDER BY created_at, id`, input.isin,
+          ))
         : null) ??
       (input.symbol
-        ? queryOne<Instrument>(
-            db, `SELECT * FROM instruments WHERE symbol = ? AND provider = ?`,
+        ? visible(queryAll<Instrument>(
+            db, `SELECT * FROM instruments WHERE symbol = ? AND provider = ? ORDER BY created_at, id`,
             input.symbol, input.provider ?? "manual",
-          )
+          ))
         : null);
     if (existing) return existing;
 
@@ -642,6 +654,86 @@ export function setInstrumentListed(
         : value === 0
           ? `Recorded ${before.name} as not listed`
           : `Cleared whether ${before.name} is listed`,
+    });
+  });
+}
+
+/** The one refusal for an ISIN already in use, whoever holds it. */
+const ISIN_TAKEN =
+  "Another instrument already has that ISIN, and two cannot share one. If it is yours, buy more of it instead of a second instrument.";
+
+/** Whether an instrument other than `exceptId` already has `isin`. */
+function isinTaken(db: DB, isin: string, exceptId: string): boolean {
+  return queryOne<{ x: number }>(
+    db, `SELECT 1 AS x FROM instruments WHERE isin = ? AND id <> ? LIMIT 1`, isin, exceptId,
+  ) !== null;
+}
+
+/** Any ISIN's shape: country, nine characters, a check digit. */
+const ISIN_SHAPE = /^[A-Z]{2}[A-Z0-9]{9}[0-9]$/;
+
+/**
+ * PRICES-1 · What a share or ETF is known by on the exchanges: its ISIN and
+ * its NSE symbol or BSE scrip code. Either is enough for the evening's
+ * closing price to be fetched (portfolio/bhavcopy.ts); a blank clears it.
+ *
+ * Refused for any other kind: a fund's scheme code and ISIN come from the
+ * scheme search, and changing them by hand would detach it from its NAV.
+ */
+export function setInstrumentIdentifier(
+  db: DB, actor: Actor, instrumentId: string,
+  input: { isin: string | null; symbol: string | null },
+): void {
+  transact(db, () => {
+    const before = getInstrument(db, instrumentId);
+    if (!before) throw new Missing("That instrument does not exist.");
+    if (before.kind !== "equity" && before.kind !== "etf") {
+      throw new Refusal("Only a share or an ETF is looked up on the exchanges by its ISIN or symbol.");
+    }
+    const isin = (input.isin ?? "").trim().toUpperCase() || null;
+    let symbol = (input.symbol ?? "").trim().toUpperCase() || null;
+    if (isin && !ISIN_SHAPE.test(isin)) {
+      throw new Refusal(`"${isin}" is not an ISIN: two letters, nine letters or digits, then a digit (INE002A01018).`);
+    }
+    if (symbol) {
+      const id = parseIdentifier(null, symbol);
+      if (!id.symbol && !id.bseCode && !id.isin) {
+        throw new Refusal(`"${symbol}" is not an exchange symbol (RELIANCE, NSE:RELIANCE) or a BSE scrip code (500325).`);
+      }
+      /*
+       * Review 6 · An Alpha Vantage share's symbol is also what the refresh
+       * asks Alpha Vantage for when the exchange files cannot price it, in
+       * Alpha Vantage's own form (RELIANCE.BSE) — which the files read too,
+       * as a BSE ticker. A ticker typed bare or as BSE:… is kept in that
+       * form, so the fallback still asks for the right one; an NSE name or a
+       * scrip code is one Alpha Vantage would not know, so it is refused
+       * rather than saved over the symbol the fallback uses. A foreign share
+       * (AAPL) is not on the exchange files and is left as typed.
+       */
+      if (before.provider === "alphavantage" && before.currency === "INR") {
+        if (!id.symbol || id.symbolExchange === "NSE") {
+          throw new Refusal(
+            `${before.name} is also priced from Alpha Vantage, which knows it by its BSE ticker (RELIANCE or RELIANCE.BSE), not "${symbol}".`,
+          );
+        }
+        symbol = `${id.symbol}.BSE`;
+      }
+    }
+    if (isin && isin !== before.isin) {
+      // R24.6 · The ISIN is how an instrument is found again; two cannot share one.
+      // Review 3: the refusal names nothing — the other may be held only in
+      // another member's private account, and its name is theirs.
+      if (isinTaken(db, isin, instrumentId)) throw new Refusal(ISIN_TAKEN);
+    }
+    if (before.isin === isin && before.symbol === symbol) return;
+
+    execute(db, `UPDATE instruments SET isin = ?, symbol = ? WHERE id = ?`, isin, symbol, instrumentId);
+    appendEvent(db, actor, {
+      entity: "instrument", entityId: instrumentId, action: "identify",
+      before: { isin: before.isin, symbol: before.symbol }, after: { isin, symbol },
+      summary: isin || symbol
+        ? `Recorded ${before.name} as ${[isin, symbol].filter(Boolean).join(" / ")}`
+        : `Cleared ${before.name}'s ISIN and symbol`,
     });
   });
 }
@@ -1825,6 +1917,21 @@ registerUndoHandler("instrument", (db, event) => {
     const before = (event.before ?? {}) as { listed?: number | null };
     execute(db, `UPDATE instruments SET listed = ? WHERE id = ?`, before.listed ?? null, id);
     return `Put back whether the instrument is listed`;
+  }
+  if (event.action === "identify") {
+    const before = (event.before ?? {}) as { isin?: string | null; symbol?: string | null };
+    // R24.6 · Review 4: the old ISIN may since have gone to another
+    // instrument; putting it back would leave two sharing one.
+    if (before.isin && isinTaken(db, before.isin, id)) {
+      throw new UndoRefused(
+        "That ISIN now belongs to another instrument, so it cannot be put back. Change this instrument's ISIN on its holding page instead.",
+      );
+    }
+    execute(
+      db, `UPDATE instruments SET isin = ?, symbol = ? WHERE id = ?`,
+      before.isin ?? null, before.symbol ?? null, id,
+    );
+    return `Put back the instrument's ISIN and symbol`;
   }
   if (event.action !== "create") {
     throw new UndoRefused("That change to the instrument cannot be undone from here.");

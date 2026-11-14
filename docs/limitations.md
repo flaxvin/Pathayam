@@ -114,10 +114,55 @@ own split it is marked estimated; the lender's certificate is the number to
 use, entered in the same box. Figures as retrieved on 22-10-2026 from secondary
 sources (the department's site was not reachable to check against).
 
-**Tax already paid is netted (TAX-2).** TDS for the year is entered as one figure
-from Form 16 or 26AS (nothing is read from either), and advance and
-self-assessment tax are entered a challan at a time. Each regime's estimate,
-less all three, is shown as a balance to pay or a refund.
+**Tax already paid is netted (TAX-2).** TDS for the year is one figure, typed
+from Form 16 or 26AS (nothing is read from either) or offered from the member's
+Annual Information Statement, and advance and self-assessment tax are entered a
+challan at a time. Each regime's estimate, less all three, is shown as a
+balance to pay or a refund.
+
+**The Annual Information Statement is read from its PDF (TAX-AIS).** A member
+uploads their own AIS on the Tax page; the app reads TDS by deductor, salary,
+interest (savings bank, deposits, other), dividends and the sale value of
+securities, keeps those figures (never the file, the PAN, the name or any
+account number), and offers the TDS and the salary, interest and dividends into
+the form, raising a figure and never lowering it, saved only with the form.
+Checked against the department (retrieved 13/14-11-2026): the AIS downloads as
+PDF, JSON or CSV; the PDF's password is the PAN in lower case followed by the
+date of birth as DDMMYYYY; the category names are the AIS Handbook's (v2.0,
+March 2022). What is not modelled:
+
+- **The JSON and CSV downloads.** The JSON's fields are not published anywhere
+  the app could check, and it is a file for the department's own offline
+  utility, opened with a different password (the PAN in capitals). Only the PDF
+  is read.
+- **The PDF's exact layout is [unverified].** No real AIS was available to
+  build against, so the reader assumes one line per information line —
+  serial, code, description, source, count, amount — with dated quarter rows
+  under a TDS line whose last amount is the TDS deposited. A line of another
+  shape is counted as not read rather than guessed at; a source name that
+  wraps onto a second line is one such case.
+- **Parts not read:** TCS, payment of taxes, demand and refund, and every other
+  category (rent, cash deposits, purchases, foreign remittances and the rest).
+  Each shows on the page as not used, with its amount where it had one, or as a
+  count of lines. TCS lines (codes TCS-206C…) sit in the same part as TDS and are
+  counted as not read under their own name; tax collected is never added to the
+  TDS offered. A line in that part of a kind this does not read keeps its TDS
+  only when its code says TDS.
+- **Duplicates** are handled as the Handbook describes: the same income reported
+  by one bank or company twice (with its TDS and in its SFT return) is counted
+  once, at the higher figure. Two names for one source that differ by more than
+  a bracketed code are taken as two sources.
+- **The taxpayer's feedback on the AIS** (marking a line wrong or a duplicate on
+  the portal) is not seen; the figures are as printed.
+- **Securities sold** are shown beside the sale proceeds this app recorded for
+  the member's own holdings, as a hint to reconcile. The capital gains in the
+  estimate still come only from the sales recorded here. Proceeds here are
+  after charges; the AIS's are the sale consideration.
+- **Ownership** is checked against the PAN saved for the member under statement
+  passwords; with none saved the import goes ahead with a warning. One member
+  cannot import, see or remove another's AIS.
+- **The demo refuses the upload**, because an AIS is a whole tax year of
+  somebody's figures and the demo is public.
 
 **Advance tax is measured against what was paid (TAX-3).** Where the year's
 tax under the lower regime, less TDS, is ₹10,000 or more, the four instalments
@@ -183,6 +228,19 @@ index and will not invent one. The gains rates are keyed by year like the
 slabs; a sale in a year the app has no rates for (it has 2024-25 to 2026-27)
 is refused rather than given another year's.
 
+The tax page's "tax-free long-term gains" card (HARVEST-1) is arithmetic on
+stored prices, not advice. Its "sell up to" figure follows the app's FIFO and
+stops before any short-term lot; it uses the last stored price (dated, and
+marked when stale), and leaves out exit loads, STT and brokerage, and any
+short-term loss that could absorb the gain. It covers only listed equity and
+equity-classed funds and ETFs priced in rupees, in accounts the member is named
+holder of; unlisted shares, hybrid funds, international holdings, anything
+without a price, and a lot bought before 01-02-2018 with no 31-01-2018 price
+are listed as left out. Whether a fund is "equity-oriented" under s112A is
+taken from the asset class the household set, not from the fund's portfolio.
+Buying back after selling is the person's choice; the card says nothing about
+it.
+
 Losses are floored at zero per bucket rather than set off between heads, so a
 year with losses is overstated. The gains are measured against the rest of the
 person's income the way the Act does it: the 87A ceiling and the surcharge
@@ -225,6 +283,18 @@ with no holder is nobody's deduction until one is named.
 **Rates go stale.** Slabs change with each Finance Act. A year the app does not
 have is refused rather than computed with the previous year's, and the health
 page reports when the current financial year is newer than the rates carried.
+
+## Prices
+
+**Indian shares and ETFs at the day's close, not live.** The exchanges' end-of-day
+files are read once each is published (after 18:00 IST); there are no intraday
+prices. A share is matched by ISIN or exchange symbol only, never by name, and
+one not traded on the latest day is not in that day's file, so it keeps its
+last price with that price's date. NSE is read first; a share listed on both is
+priced at NSE's close. Debt and other segments' files (bonds, derivatives) are
+not read. The download URLs and columns were verified on 13-11-2026; if an
+exchange changes them, the fetch fails with a stated reason and the last price
+stays.
 
 ## Currency
 

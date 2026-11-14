@@ -12,7 +12,7 @@ A product of [Flaxvin Technologies](https://flaxvin.tech).
 harvest, then drawn from carefully through the year.
 
 ```
-v1.0.0 · 3100 tests · 0 runtime dependencies · 75 migrations · 252 routes
+v1.0.0 · 3300 tests · 0 runtime dependencies · 76 migrations · 255 routes
 ```
 
 **Status: production-ready.** 1.0.0 is the first stable release; see
@@ -43,7 +43,9 @@ v1.0.0 · 3100 tests · 0 runtime dependencies · 75 migrations · 252 routes
   from name, date of birth, PAN, mobile and customer ID. UPI narration
   parsing. Reducing-balance and flat loans, rate changes, prepayment
   comparison, EMI conversion (with the 18% GST on each instalment's interest charged as its own card
-  line). CAS portfolio import. Realised gains by financial year.
+  line). CAS portfolio import. Realised gains by financial year. Mutual funds,
+  and Indian shares and ETFs from NSE's and BSE's end-of-day files, priced
+  without any API key.
 - **Deposits that value themselves.** An FD, RD, PPF or EPF account given its
   terms (principal or instalment, rate, compounding, start and maturity) is
   valued from them through to maturity, and the maturity shows on the account,
@@ -65,10 +67,15 @@ v1.0.0 · 3100 tests · 0 runtime dependencies · 75 migrations · 252 routes
   a tax return nor advice.
   Home-loan interest under 24(b) comes from the loan ledger; TDS, advance tax
   and self-assessment payments are netted to a balance due or a refund; each
-  advance-tax instalment is checked against what was paid by its date. FY
+  advance-tax instalment is checked against what was paid by its date. Your
+  own Annual Information Statement PDF can be uploaded to read its TDS,
+  interest and dividends instead of typing them. FY
   2024-25 gains are split at 23-07-2024, and listed bonds held over a year
   are taxed at 12.5%. Slabs are data keyed by financial year, so a year the
   app does not have rates for is refused rather than computed with last year's.
+  For the year in progress it shows how much of the ₹1,25,000 s112A exemption
+  on long-term listed equity is still unused, and how many units of each
+  holding could be sold, oldest lots first, to use it without crossing it.
 - **Financial independence.** A target based on what the household actually
   spent, measured against the assets that could fund it (your home belongs on
   the net worth statement, not here). It assumes no further earnings, and
