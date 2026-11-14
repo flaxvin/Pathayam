@@ -98,6 +98,13 @@ export interface Config {
    * absent key is a normal configuration, not a misconfiguration.
    */
   alphaVantageKey: string | null;
+  /**
+   * PRICES-1 · Price Indian shares and ETFs from NSE's and BSE's public
+   * end-of-day files (bhavcopy), keylessly. On by default; BHAVCOPY_PRICES=false
+   * turns it off, and such holdings are then priced by hand, or by Alpha
+   * Vantage where one is set up for it and a key is configured (P9).
+   */
+  bhavcopyPrices: boolean;
   /** Set behind a reverse proxy that terminates TLS. */
   trustProxy: boolean;
   /** F1.6 · Offer password sign-in, so Google is not the only door. */
@@ -298,6 +305,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): Config {
     adminDebug: bool(env.ADMIN_DEBUG, false),
     sessionDays: sessionDays(env.SESSION_DAYS), // Q22
     alphaVantageKey: env.ALPHA_VANTAGE_KEY || null,
+    bhavcopyPrices: bool(env.BHAVCOPY_PRICES, true),
     ...planSettings(env),
     aiWrite: aiWriteMode(env.AI_WRITE),
     backupWebhookUrl: env.BACKUP_WEBHOOK_URL || null,

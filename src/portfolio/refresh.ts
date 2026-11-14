@@ -6,7 +6,10 @@
  *
  *   · **Mutual funds** — once daily after 23:00 IST, because AMFI publishes
  *     NAVs at end of day. Asking at noon gets yesterday's.
- *   · **Equities** — once daily after the relevant market closes.
+ *   · **Equities** — once daily after the relevant market closes. PRICES-1:
+ *     18:00 IST, not 16:00, because the exchanges' end-of-day files appeared
+ *     about 16:35 IST on 13-11-2026; asking at 16:00 got the day before and
+ *     then counted the day as done.
  *   · **FX** — once daily after 18:30 IST; the ECB publishes around 16:00 CET.
  *   · **Manual assets** — never (R26.6).
  *
@@ -25,7 +28,8 @@ import { queryAll, queryOne, execute } from "../db/db.ts";
 import type { Actor } from "../core/events.ts";
 import { Refusal } from "../core/refusal.ts";
 import { todayIST, nowIST, type IsoDate } from "../core/dates.ts";
-import { recordPrice, recordFxRate, listInstruments, listHoldings } from "../domain/assets.ts";
+import { recordPrice, recordFxRate, listInstruments, listHoldings, type Instrument } from "../domain/assets.ts";
+import { parseIdentifier, canPrice } from "./bhavcopy.ts";
 import {
   PROVIDERS, quotaFor, jitterMs, backoffMs, fetchFxRate,
   type Provider, type PriceOutcome, type ProviderName,
@@ -36,7 +40,7 @@ export type PriceClass = "mutual-fund" | "equity" | "fx" | "manual";
 /** P4's table, as code. Hours are IST, because every cadence in it is. */
 export const REFRESH_AFTER_HOUR: Record<PriceClass, number | null> = {
   "mutual-fund": 23,
-  equity: 16,
+  equity: 18,
   fx: 19,
   manual: null,
 };
@@ -81,6 +85,11 @@ export interface RefreshOutcome {
 export interface RefreshOptions {
   fetchImpl?: typeof fetch;
   alphaVantageKey?: string | null;
+  /**
+   * PRICES-1 · Price Indian shares and ETFs from the NSE and BSE end-of-day
+   * files. On unless BHAVCOPY_PRICES=false.
+   */
+  bhavcopy?: boolean;
   now?: Date;
   /** Ignore the cadence. What the manual refresh button passes (P6). */
   force?: boolean;
@@ -193,7 +202,7 @@ export async function refreshPrices(
       continue;
     }
 
-    const provider = providerFor(instrument.provider);
+    const provider = pricingProvider(instrument, opts);
     if (!provider) {
       outcome.skipped++;
       continue;
@@ -212,7 +221,9 @@ export async function refreshPrices(
 
     // P8 · Only a symbol goes out. Never a holding, a quantity, or anything
     // identifying the household.
-    const symbol = provider.name === "amfi" ? instrument.isin : instrument.symbol;
+    const symbol = provider.name === "amfi" ? instrument.isin
+      : provider.name === "bhavcopy" ? instrument.symbol ?? instrument.isin
+      : instrument.symbol;
     if (!symbol) {
       outcome.skipped++;
       continue;
@@ -234,7 +245,7 @@ export async function refreshPrices(
 
     // Every call is logged and counted against the provider that answered
     // it: a fallback is MFAPI's failure and AMFI's price, not MFAPI's price.
-    const result = await attempt(db, provider, symbol, opts, budget, (name, call) => {
+    const result = await attempt(db, provider, symbol, instrument, opts, budget, (name, call) => {
       logFetch(db, instrument.id, name, call);
       if (name !== provider.name) usedToday.set(name, (usedToday.get(name) ?? 0) + 1);
     }, (name) => !quotaFor(PROVIDERS[name]!, usedToday.get(name) ?? 0).exhausted);
@@ -292,14 +303,17 @@ export async function refreshPrices(
  * spend a second call to learn the same thing.
  */
 async function attempt(
-  db: DB, provider: Provider, symbol: string, opts: RefreshOptions, budget: Budget,
+  db: DB, provider: Provider, symbol: string, instrument: Instrument, opts: RefreshOptions, budget: Budget,
   called: (provider: ProviderName, result: PriceOutcome) => void,
   mayCall: (provider: ProviderName) => boolean,
 ): Promise<PriceOutcome> {
-  const fetchOpts = () => ({
+  const fetchOpts = (name: ProviderName = provider.name) => ({
     fetchImpl: opts.fetchImpl,
-    apiKey: provider.name === "alphavantage" ? opts.alphaVantageKey : null,
+    apiKey: name === "alphavantage" ? opts.alphaVantageKey : null,
     timeoutMs: budget.timeoutMs(),
+    // PRICES-1 · Looked up locally in the downloaded file; never sent.
+    isin: name === "bhavcopy" ? instrument.isin : null,
+    now: opts.now,
   });
 
   let result = await provider.fetchPrice(symbol, fetchOpts());
@@ -318,6 +332,19 @@ async function attempt(
       called("amfi", fallback);
       if (fallback.ok) result = fallback;
     }
+  }
+
+  /*
+   * PRICES-1 · An instrument set up for Alpha Vantage, with a key configured,
+   * still has it when the exchange files could not price it. Not the other
+   * way round: the files are the exchange's own close and cost no quota.
+   */
+  if (!result.ok && provider.name === "bhavcopy" && instrument.provider === "alphavantage" &&
+      opts.alphaVantageKey && instrument.symbol && mayCall("alphavantage") &&
+      budget.left() > backoffMs(1)) {
+    const fallback = await PROVIDERS.alphavantage!.fetchPrice(instrument.symbol, fetchOpts("alphavantage"));
+    called("alphavantage", fallback);
+    if (fallback.ok) result = fallback;
   }
 
   return result;
@@ -364,6 +391,33 @@ function providerFor(name: string): Provider | null {
   return PROVIDERS[name] ?? null;
 }
 
+/**
+ * PRICES-1 · Whether the exchanges' end-of-day files can price this: a
+ * rupee share or ETF with an ISIN or exchange symbol, that is not set up for
+ * a mutual-fund provider. Pinning it to manual pricing (R26.6) is checked
+ * before this is asked.
+ */
+export function bhavcopyCanPrice(instrument: Instrument): boolean {
+  return (instrument.kind === "equity" || instrument.kind === "etf") &&
+    instrument.currency === "INR" &&
+    (instrument.provider === "manual" || instrument.provider === "alphavantage") &&
+    canPrice(parseIdentifier(instrument.isin, instrument.symbol));
+}
+
+/**
+ * PRICES-1 · Which provider prices an instrument.
+ *
+ * An Indian share or ETF goes to the bhavcopy first, with or without an
+ * Alpha Vantage key: it is the exchange's own closing price, needs no key and
+ * spends no quota, where Alpha Vantage's quote fields were never verified and
+ * its free tier allows 25 calls a day. Alpha Vantage stays the fallback for an
+ * instrument set up for it, and the only provider for a foreign one.
+ */
+function pricingProvider(instrument: Instrument, opts: RefreshOptions): Provider | null {
+  if (opts.bhavcopy !== false && bhavcopyCanPrice(instrument)) return PROVIDERS.bhavcopy!;
+  return providerFor(instrument.provider);
+}
+
 /** The last date this class was fetched at all. */
 function lastRunFor(db: DB, cls: PriceClass): IsoDate | null {
   const row = queryOne<{ day: string }>(
@@ -384,7 +438,7 @@ function logFetch(
   db: DB, instrumentId: string | null, provider: ProviderName, result: PriceOutcome,
 ): void {
   const cls: PriceClass = provider === "frankfurter" ? "fx"
-    : provider === "alphavantage" ? "equity" : "mutual-fund";
+    : provider === "alphavantage" || provider === "bhavcopy" ? "equity" : "mutual-fund";
 
   execute(
     db,

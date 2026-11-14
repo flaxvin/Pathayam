@@ -9976,6 +9976,7 @@ export function buildApp(deps: AppDeps): {
     const outcome = await refreshPrices(db, actorFor(a, "ui"), {
       force: true,
       alphaVantageKey: config.alphaVantageKey,
+      bhavcopy: config.bhavcopyPrices,
       fetchImpl: deps.fetchImpl,
       ...MANUAL_REFRESH,
     });
