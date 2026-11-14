@@ -54,7 +54,7 @@ import { applyStartingTemplate } from "../domain/starting-budget.ts";
 import { reconcile } from "../domain/reconciliation.ts";
 import { addAttachment, deleteAttachment } from "../domain/attachments.ts";
 import {
-  createLoan, recordInstalment, recordDisbursement, recordLoanStatement, recordRateChange,
+  createLoan, setLoanVisibility, recordInstalment, recordDisbursement, recordLoanStatement, recordRateChange,
   recordPrepayment, closeLoan, listLoans, projectLoan, paymentCategoryForLoan, setLoanPropertyUse,
 } from "../domain/loans.ts";
 import { convertToEmi } from "../domain/card-emi.ts";
@@ -369,6 +369,11 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
     interestModel: "reducing", annualRatePct: 8.6,
     sanctioned: rupees(45_00_000), sanctionDate: `${months[8]!}-12`,
     tenureMonths: 240, repaymentAccountId: acc.savings, holderMemberId: ravi.id,
+  }));
+  // H2.2 / UI-14 · Whose it is, said again on the loan page: Ravi's, shared.
+  // Its envelope stays in the household budget (only a private loan's moves).
+  did("setLoanVisibility", () => setLoanVisibility(db, actor, homeLoan.id, {
+    holderMemberId: ravi.id, visibility: "household",
   }));
   did("recordDisbursement", () => recordDisbursement(db, actor, {
     loanId: homeLoan.id, date: `${months[9]!}-05`, amount: rupees(9_00_000),
