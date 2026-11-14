@@ -101,6 +101,7 @@ import {
 } from "./web/pages/reconcile.ts";
 import {
   reconcile, reconciliationStatus, listCheckpoints, clearedBalanceAsOf,
+  isOwedAccount, owedFigureToBalance,
   guardHistoricalEdit, breakCheckpoints, CheckpointConfirmationRequired,
   intactCheckpointBalances, checkpointsMovedSince, previewReconciliation, type Checkpoint,
 } from "./domain/reconciliation.ts";
@@ -5360,7 +5361,18 @@ export function buildApp(deps: AppDeps): {
 
     const asOfRaw = field(ctx.body, "as_of");
     const asOf = dateField(asOfRaw, "As of");
-    const bankBalance = amountField(field(ctx.body, "bank_balance"), "The bank's balance");
+    const bankRaw = field(ctx.body, "bank_balance");
+    let bankBalance = amountField(bankRaw, "The bank's balance");
+    if (isOwedAccount(account)) {
+      // Decision 3 (E4) · The field asks how much you owe, so the figure is
+      // owed whichever way it is written. In credit is the tick, or the
+      // statement's own "Cr" marker — told from crore shorthand ("3Cr") by
+      // reading the figure again without it: a credit marker leaves the
+      // amount the same, crore does not.
+      const crMarked = bankBalance > 0 && /cr\.?\s*$/i.test(bankRaw ?? "") &&
+        parseAmount((bankRaw ?? "").trim().replace(/\s*cr\.?$/i, "")) === bankBalance;
+      bankBalance = owedFigureToBalance(bankBalance, field(ctx.body, "in_credit") === "1" || crMarked);
+    }
     const clearIds = fieldList(ctx.body, "clear");
     const allowAdjustment = field(ctx.body, "allow_adjustment") === "1";
 

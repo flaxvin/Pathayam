@@ -53,6 +53,33 @@ export interface Checkpoint {
   broken_reason: string | null;
 }
 
+/**
+ * Decision 3 (E4) · Accounts whose statement prints what you owe.
+ *
+ * A card or loan statement says "Total due ₹10,000", a positive figure, while
+ * the app holds the same account at −₹10,000. Asking "What does the bank say?"
+ * and taking the typed figure as the balance made a matching card show a
+ * ₹20,000 gap and offered to post it. On these accounts the form asks how much
+ * you owe and stores it as a negative.
+ */
+const OWED_SUBTYPES = new Set(["loan", "emi", "liability"]);
+export function isOwedAccount(account: { kind: string; subtype: string }): boolean {
+  return account.kind === "credit" || OWED_SUBTYPES.has(account.subtype);
+}
+
+/**
+ * The signed balance for a figure typed into the "you owe" field.
+ *
+ * Any way of writing the figure is read as owed ("10,000", "-10,000",
+ * "(10,000)", "10,000 Dr"), because the question already says "owe". A card in
+ * credit is said with the "in credit" tick, or with the statement's own "Cr"
+ * marker ("2,500.00 Cr"), and comes back positive.
+ */
+export function owedFigureToBalance(typed: Paise, inCredit: boolean): Paise {
+  const size = Math.abs(typed);
+  return inCredit ? size : -size;
+}
+
 /** F9.1: the bank's balance against the app's cleared balance, on a date. */
 export interface ReconciliationPreview {
   accountId: string;
