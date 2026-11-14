@@ -507,8 +507,14 @@ function handleConnection(
   function endData(): void {
     mode = "command";
     const t = tx!;
+    // The envelope sender's domain only: for a Gmail auto-forward the local
+    // part is the member's own mailbox plus "+caf_=" and the forwarding
+    // address, which the operator log has no business holding. Recipients
+    // are only counted for the same reason.
+    const at = t.mailFrom.lastIndexOf("@");
     const base = {
-      msg: "message", remoteAddress, helo, tls: secure, mailFrom: t.mailFrom,
+      msg: "message", remoteAddress, helo, tls: secure,
+      mailFromDomain: at < 0 ? "" : t.mailFrom.slice(at + 1).toLowerCase(),
       recipients: t.recipients.length, bytes: size,
     };
     if (oversize) {
