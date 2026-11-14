@@ -129,6 +129,27 @@ export interface FireProjection {
   windowIsShort: boolean;
   /** Days of history the annual figures are scaled from: the window, or less. */
   observedDays: number;
+  /**
+   * UI-12 · Days of history on asOf, counted from the same start FIRE-1 uses
+   * (first transaction, or first budget or card account opened) and not capped
+   * at the window. 0 when there is none yet.
+   */
+  historyDays: number;
+  /**
+   * UI-12 · Whether there is enough history (FIRE_MIN_HISTORY_DAYS) for the
+   * estimate to be shown at all. Two days of spending times 182 is not a
+   * target; every screen and export hides the figures until this is true.
+   */
+  estimateReady: boolean;
+  /** UI-12 · The day the estimate first appears, or null with no history at all. */
+  estimateReadyOn: IsoDate | null;
+  /**
+   * UI-12 · What history the estimate rests on, said for a person — "4 months
+   * of spending", "the last 12 months of spending (2 years 3 months of
+   * history)" — or null when it is not ready, or once there are five years of
+   * history and the caveat has stopped earning its place.
+   */
+  basedOn: string | null;
 
   annualExpenses: Paise;
   annualIncome: Paise;
@@ -164,6 +185,33 @@ export interface FireProjection {
   bridgeCovered: boolean | null;
 
   assumptions: FireAssumptions;
+}
+
+/** UI-12 · Below this many days of history no FIRE figure is shown. */
+export const FIRE_MIN_HISTORY_DAYS = 30;
+/** UI-12 · From this many whole months of history the "based on" line is dropped. */
+const BASED_ON_UNTIL_MONTHS = 60;
+
+/** Whole calendar months from `start` to the end of `asOf` (both days counted). */
+function wholeMonths(start: IsoDate, asOf: IsoDate): number {
+  const end = addDays(asOf, 1);
+  const [sy, sm, sd] = start.split("-").map(Number) as [number, number, number];
+  const [ey, em, ed] = end.split("-").map(Number) as [number, number, number];
+  return Math.max(0, (ey - sy) * 12 + (em - sm) - (ed < sd ? 1 : 0));
+}
+
+/** "30 days", "1 month", "4 months", "1 year", "2 years 3 months". */
+export function historyLength(start: IsoDate, asOf: IsoDate): string {
+  const months = wholeMonths(start, asOf);
+  if (months < 1) {
+    const d = Math.max(1, daysBetween(start, asOf) + 1);
+    return `${d} ${d === 1 ? "day" : "days"}`;
+  }
+  const y = Math.floor(months / 12);
+  const m = months % 12;
+  const ys = y > 0 ? `${y} ${y === 1 ? "year" : "years"}` : "";
+  const ms = m > 0 ? `${m} ${m === 1 ? "month" : "months"}` : "";
+  return [ys, ms].filter(Boolean).join(" ");
 }
 
 /**
@@ -249,6 +297,23 @@ export function fireProjection(
   const observedDays = windowIsShort && earliest !== null && earliest <= asOf
     ? Math.max(1, daysBetween(earliest, asOf) + 1)
     : windowDays;
+
+  /*
+   * UI-12 · Febin's decision 8. A household two days old was told it needed
+   * ₹46 crore. Nothing is shown before FIRE_MIN_HISTORY_DAYS of history, and
+   * until five years the estimate says what it rests on. The window itself is
+   * unchanged (FIRE-1): at most `windowDays`, annualised over the days seen.
+   */
+  const historyDays = earliest !== null && earliest <= asOf ? daysBetween(earliest, asOf) + 1 : 0;
+  const estimateReady = historyDays >= FIRE_MIN_HISTORY_DAYS;
+  const estimateReadyOn = earliest === null ? null : addDays(earliest, FIRE_MIN_HISTORY_DAYS - 1);
+  let basedOn: string | null = null;
+  if (estimateReady && earliest !== null && wholeMonths(earliest, asOf) < BASED_ON_UNTIL_MONTHS) {
+    const history = historyLength(earliest, asOf);
+    basedOn = windowIsShort
+      ? `${history} of spending`
+      : `the last ${windowDays === 365 ? "12 months" : `${windowDays} days`} of spending (${history} of history)`;
+  }
 
   // --- What a year costs ----------------------------------------------------
   const spend = envelopeSpendBetween(db, from, asOf, opts.viewerMemberId);
@@ -384,6 +449,7 @@ export function fireProjection(
 
   return {
     asOf, windowDays, windowIsShort, observedDays,
+    historyDays, estimateReady, estimateReadyOn, basedOn,
     annualExpenses, annualIncome, annualSavings, savingsRatePct,
     drawableNow, lockedUntilRetirement, corpus, excluded,
     drawableLines, lockedLines, excludedLines,

@@ -7,7 +7,7 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync } from "node:fs";
+import { chmodSync, existsSync, mkdirSync } from "node:fs";
 import { dirname } from "node:path";
 import { MIGRATIONS } from "./schema.ts";
 import { nowIST } from "../core/dates.ts";
@@ -23,11 +23,19 @@ export interface OpenOptions {
 }
 
 export function openDatabase({ path, verbose = true }: OpenOptions): DB {
+  /*
+   * WEB-4 · A database this opens for the first time is the owner's alone
+   * (SQLite gives its -wal and -shm the same mode). Under the usual umask it
+   * was 0644, readable by any account on the box. One that already exists keeps
+   * the mode its operator gave it.
+   */
+  const created = path !== ":memory:" && !existsSync(path);
   if (path !== ":memory:") {
-    mkdirSync(dirname(path), { recursive: true });
+    mkdirSync(dirname(path), { recursive: true, mode: 0o700 });
   }
 
   const db = new DatabaseSync(path);
+  if (created) chmodSync(path, 0o600);
 
   // WAL lets the health page and backup job read while the app writes.
   // An in-memory database has no journal to switch.

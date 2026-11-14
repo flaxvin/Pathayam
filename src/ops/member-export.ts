@@ -61,10 +61,24 @@ export function exportForMember(db: DB, memberId: string): Record<string, unknow
   const scope = memberScope(db, memberId);
   const canSeeEvent = eventVisibility(db, memberId);
   const payees = visiblePayeeIds(db, memberId);
+  /*
+   * WEB-3 · A tag, like a payee, is a household-wide name that says where
+   * somebody spent when it has only ever been on rows the member cannot see.
+   * Its row names no hidden id, so the rule below kept every one: a tag used
+   * only on Ravi's private account was in Priya's file. Kept when it is used
+   * nowhere, or on at least one row this member may see.
+   */
+  const tagged = new Map<string, boolean>();
+  for (const link of full.data.transaction_tags ?? []) {
+    const tag = String(link.tag_id);
+    const seen = !scope.transactions.has(String(link.transaction_id));
+    tagged.set(tag, (tagged.get(tag) ?? false) || seen);
+  }
 
   const data: Record<string, Row[]> = {};
   for (const [table, rows] of Object.entries(full.data)) {
-    data[table] = rows.filter((row) => keep(db, table, row, scope, memberId, payees, canSeeEvent))
+    data[table] = rows.filter((row) => table !== "tags" || tagged.get(String(row.id)) !== false)
+      .filter((row) => keep(db, table, row, scope, memberId, payees, canSeeEvent))
       .map((row) => redact(table, row, scope));
   }
 

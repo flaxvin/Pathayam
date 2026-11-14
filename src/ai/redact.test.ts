@@ -35,6 +35,36 @@ describe("AI-3 · redaction", () => {
     }
   });
 
+  // Gaps found 13-11-2026: each of these went to the AI provider whole.
+  test("lowercase PAN is masked too", () => {
+    assert.equal(redactString("pan abcpe1234f"), "pan •••••••••• (PAN)");
+  });
+
+  test("phones written with dots or brackets keep only the last four digits", () => {
+    assert.equal(redactString("Call 98765.43210"), "Call ••••3210");
+    assert.equal(redactString("Call 987.654.3210"), "Call ••••3210");
+    assert.equal(redactString("Call (987) 654-3210"), "Call ••••3210");
+    assert.equal(redactString("Office (022) 2345 6789"), "Office ••••6789");
+  });
+
+  test("a labelled account, folio, CRN or customer id is masked even when short", () => {
+    assert.equal(redactString("acct 1234-5678"), "acct ••••5678");
+    assert.equal(redactString("A/c no. 12345678"), "A/c no. ••••5678");
+    assert.equal(redactString("Folio 12345678/90"), "Folio ••••7890");
+    assert.equal(redactString("CRN 87654321"), "CRN ••••4321");
+    assert.equal(redactString("Customer ID: 12345678"), "Customer ID: ••••5678");
+  });
+
+  test("amounts and dates survive the wider patterns", () => {
+    for (const s of [
+      "98,765.43", "98765.43", "₹12,34,567.89", "12345678.90", "₹1,23,45,678.90",
+      "13.11.2026", "13-11-2026", "13-11-2026 10:32", "2026-11-13 10:32",
+      "account 1234567.89", "Folio total ₹45,000", "ref 12345678", "EMI 12 of 240",
+    ]) {
+      assert.equal(redactString(s), s, s);
+    }
+  });
+
   test("ids, cursors and dates are never touched; numbers stay numbers", () => {
     const out = redactValue({
       id: "123456789012",

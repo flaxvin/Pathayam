@@ -278,6 +278,7 @@ export function checkUndo(
         db,
         `SELECT * FROM events
           WHERE entity = ? AND entity_id = ? AND seq > ? AND undo_of_event_id IS NULL
+            AND undone_by_event_id IS NULL
           ORDER BY seq ASC LIMIT 20`,
         event.entity,
         event.entityId,

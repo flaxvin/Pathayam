@@ -48,6 +48,7 @@ function sourceIdFor(
 ): string {
   const digest = createHash("sha256")
     .update(`${record.date}\0${record.amount}\0${record.narration}\0${record.reference ?? ""}`)
+    .update(record.sourceKey === undefined ? "" : `\0${record.sourceKey}`)
     .digest("hex")
     .slice(0, 16);
   return `${adapter}:${digest}:${occurrence}`;
@@ -268,7 +269,8 @@ export function ingest(db: DB, actor: Actor, opts: IngestOptions): IngestResult 
       // string is a *proposal*, never an auto-created payee (`04` §3.6).
       const namedByRule = outcome.appliedRuleIds.length > 0 && outcome.subject.payee !== importedPayee;
       const payeeId = namedByRule && outcome.subject.payee
-        ? resolvePayee(db, actor, outcome.subject.payee, record.narration).id
+        // Decision 6 · For this row: where it began is settled when it posts.
+        ? resolvePayee(db, actor, outcome.subject.payee, record.narration, { forRow: true }).id
         : findExistingPayee(db, outcome.subject.payee);
 
       /*
@@ -661,7 +663,7 @@ export function approveStaged(
     const payeeName = patch.payeeName ?? row.proposed_payee;
     // Staged before a payee merge, the row still names the merged-away one.
     const payeeId = (row.payee_id ? livePayeeId(db, row.payee_id) : null)
-      ?? (payeeName ? resolvePayee(db, actor, payeeName, row.raw_narration ?? undefined).id : null);
+      ?? (payeeName ? resolvePayee(db, actor, payeeName, row.raw_narration ?? undefined, { forRow: true }).id : null);
 
     const transaction = createTransaction(db, actor, {
       accountId: row.account_id,

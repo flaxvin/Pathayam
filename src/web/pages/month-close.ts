@@ -243,7 +243,12 @@ export function renderMonthClose(view: MonthCloseView): SafeHtml {
 
       <p>
         <strong>${formatPaise(next.readyToAssign)}</strong> ready to assign.
-        <a href="/?month=${next.month}">Go and assign it</a>
+        <!-- td-UI-18 · ₹0 to assign used to come with a link to go and assign it. -->
+        ${next.readyToAssign > 0
+          ? html`<a href="/?month=${next.month}">Go and assign it</a>`
+          : next.readyToAssign < 0
+            ? html`More is assigned than there is. <a href="/?month=${next.month}">Take some back</a>`
+            : html`Every rupee has a job.`}
       </p>
     </section>
 

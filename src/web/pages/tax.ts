@@ -29,6 +29,11 @@ export interface TaxPageProps {
   gross: Paise;
   /** What the ledger has, before the person overrode it. */
   ledgerIncome: Paise;
+  /**
+   * E5 · The accounts that figure was summed from, with what each brought in —
+   * only accounts the member can see. Omitted or empty shows no list.
+   */
+  ledgerIncomeAccounts?: { name: string; amount: Paise }[];
   deductions: Deductions;
   estimate: TaxEstimate | null;
   advance: AdvanceInstalment[];
@@ -215,6 +220,14 @@ export function renderTax(p: TaxPageProps): SafeHtml {
           has no cost on record here, so if you sold one at a gain, add its gain
           yourself. Correct it here; this figure is what the estimate uses.
         </p>
+        ${(p.ledgerIncomeAccounts?.length ?? 0) > 0
+          ? html`<p class="field-hint" data-testid="ledger-income-accounts">
+              Summed from:
+              ${p.ledgerIncomeAccounts!.map((a, i) => html`${i > 0 ? "; " : ""}${a.name} ${formatPaise(a.amount)}`)}.
+              A shared account's money is counted in full, so take out anything
+              that was not yours.
+            </p>`
+          : html``}
       </div>
 
       <h3>Deductions</h3>

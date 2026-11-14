@@ -13,6 +13,14 @@ import type { Account } from "../../domain/accounts.ts";
 import type {
   ReconciliationPreview, Checkpoint, ReconciliationStatus,
 } from "../../domain/reconciliation.ts";
+import { isOwedAccount } from "../../domain/reconciliation.ts";
+
+/** A card or loan balance said the way its statement says it. */
+function owedWords(balance: number): string {
+  return balance > 0
+    ? `${formatPaise(balance)} in credit`
+    : `you owe ${formatPaise(-balance)}`;
+}
 
 export function renderReconcileStart(opts: {
   account: Account;
@@ -23,6 +31,7 @@ export function renderReconcileStart(opts: {
   error?: string | null;
 }): SafeHtml {
   const { account, status } = opts;
+  const owed = isOwedAccount(account);
 
   return html`
     <h1>Reconcile ${account.nickname || account.name}</h1>
@@ -36,17 +45,34 @@ export function renderReconcileStart(opts: {
     `)}
 
     <form method="post" action="/accounts/${account.id}/reconcile" class="card">
-      <p class="muted">
-        The app currently shows <strong>${formatPaise(opts.clearedBalance)}</strong> cleared
-        in this account.
-      </p>
+      ${owed
+        ? html`<p class="muted">
+            Going by what has cleared, the app says <strong>${owedWords(opts.clearedBalance)}</strong>
+            on this account.
+          </p>`
+        : html`<p class="muted">
+            The app currently shows <strong>${formatPaise(opts.clearedBalance)}</strong> cleared
+            in this account.
+          </p>`}
 
       <div class="grid-2">
-        <div class="field">
-          <label for="bank_balance">What does the bank say?</label>
-          <input id="bank_balance" name="bank_balance" class="amount-input"
-                 type="text" inputmode="decimal" required autofocus placeholder="0.00">
-        </div>
+        ${owed
+          ? html`<div class="field">
+              <label for="bank_balance">How much does the statement say you owe?</label>
+              <input id="bank_balance" name="bank_balance" class="amount-input"
+                     type="text" inputmode="decimal" required autofocus placeholder="0.00"
+                     aria-describedby="bank_balance_hint">
+              <p class="field-hint" id="bank_balance_hint">Type it as the statement prints it, e.g. 10,000.</p>
+              <label style="display:flex;gap:.5rem;align-items:center;min-height:44px;font-weight:400">
+                <input type="checkbox" name="in_credit" value="1">
+                It's in credit — the statement says they owe me this
+              </label>
+            </div>`
+          : html`<div class="field">
+              <label for="bank_balance">What does the bank say?</label>
+              <input id="bank_balance" name="bank_balance" class="amount-input"
+                     type="text" inputmode="decimal" required autofocus placeholder="0.00">
+            </div>`}
         <div class="field">
           <label for="as_of">As of</label>
           <input id="as_of" name="as_of" type="date" autocomplete="off"
@@ -86,6 +112,8 @@ export function renderReconcileDifference(opts: {
 }): SafeHtml {
   const { account, preview } = opts;
   const shortBy = preview.difference;
+  const owed = isOwedAccount(account);
+  const shown = (balance: number) => owed ? owedWords(balance) : formatPaise(balance);
 
   return html`
     <h1>Reconcile ${account.nickname || account.name}</h1>
@@ -93,12 +121,12 @@ export function renderReconcileDifference(opts: {
     <div class="card">
       <div class="row" style="gap:2rem;flex-wrap:wrap">
         <div>
-          <div class="faint">The bank says</div>
-          <strong class="amount" style="font-size:1.15rem">${formatPaise(preview.bankBalance)}</strong>
+          <div class="faint">${owed ? "The statement says" : "The bank says"}</div>
+          <strong class="amount" style="font-size:1.15rem">${shown(preview.bankBalance)}</strong>
         </div>
         <div>
           <div class="faint">This app says</div>
-          <strong class="amount" style="font-size:1.15rem">${formatPaise(preview.clearedBalance)}</strong>
+          <strong class="amount" style="font-size:1.15rem">${shown(preview.clearedBalance)}</strong>
         </div>
         <div>
           <div class="faint">Difference</div>
@@ -118,7 +146,10 @@ export function renderReconcileDifference(opts: {
     </div>
 
     <form method="post" action="/accounts/${account.id}/reconcile" class="card">
-      <input type="hidden" name="bank_balance" value="${(preview.bankBalance / 100).toFixed(2)}">
+      ${owed
+        ? html`<input type="hidden" name="bank_balance" value="${(Math.abs(preview.bankBalance) / 100).toFixed(2)}">
+            ${when(preview.bankBalance > 0, () => html`<input type="hidden" name="in_credit" value="1">`)}`
+        : html`<input type="hidden" name="bank_balance" value="${(preview.bankBalance / 100).toFixed(2)}">`}
       <input type="hidden" name="as_of" value="${preview.asOf}">
 
       ${when(preview.uncleared.length > 0, () => html`

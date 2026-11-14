@@ -37,11 +37,11 @@ import { listSchedules, projectCashflow, describeCashflow } from "../domain/sche
 import { policiesDueBy, policyTaxSuggestion, applyPolicySuggestion } from "../domain/insurance.ts";
 import { envelopeSpendByMonth } from "../domain/reports.ts";
 import { spendingInsights } from "../domain/insights.ts";
-import { cameWithTheCard } from "../domain/card-shortfall.ts";
+import { cameWithTheCard, cardPaymentsSinceOpening } from "../domain/card-shortfall.ts";
 import {
   staleRatesWarning, assertKnownYear, RATES_VERIFIED_ON, RATES_SOURCE, RULES, ADVANCE_TAX_RULES,
   estimateTax, advanceTaxSchedule, getDeclaration, hasDeclaration,
-  incomeInFinancialYear, settle, taxPaid, listTaxPayments,
+  incomeInFinancialYear, incomeByAccountInFinancialYear, settle, taxPaid, listTaxPayments,
   type AdvanceInstalment,
 } from "../domain/tax.ts";
 import { homeLoanInterestFor } from "../domain/home-loan-interest.ts";
@@ -195,6 +195,7 @@ export function cardsDue(
   const outstanding = creditOutstanding(db, month);
   const owedNow = month < monthOf(todayIST()) ? creditOutstanding(db) : outstanding;
   const today = todayIST();
+  const paidSinceOpening = cardPaymentsSinceOpening(db, lastDayOfMonth(month));
 
   return listAccounts(db, { viewerMemberId })
     .filter((a) => a.kind === "credit" && a.budget_id === scope)
@@ -208,6 +209,7 @@ export function cardsDue(
         funded,
         view.monthState.unfundedByAccount[account.id] ?? 0,
         account.opening_balance,
+        paidSinceOpening.get(account.id) ?? 0,
       );
       const statement = lastCardStatement(db, account.id);
       const owed = Math.max(0, -(owedNow.get(account.id) ?? 0)) as Paise;
@@ -516,6 +518,10 @@ export function taxPageModel(
     .filter((acc) => acc.kind === "budget")
     .map((acc) => acc.id);
   const ledgerIncome = incomeInFinancialYear(db, fy, visible);
+  // E5 · Which of those accounts the figure came from, so a joint account's
+  // salary counted here is visible (Febin's decision 4: list, do not rescope).
+  const ledgerIncomeAccounts = incomeByAccountInFinancialYear(db, fy, visible)
+    .map(({ name, amount }) => ({ name, amount }));
   // WEALTH-6 · A saved declaration is used as saved, ₹0 included; the
   // ledger's receipts are only the starting point before anything is saved.
   const gross = hasDeclaration(db, memberId, fy) ? stored.gross : ledgerIncome;
@@ -573,7 +579,7 @@ export function taxPageModel(
   }
 
   return {
-    fy, gross, ledgerIncome, estimate, advance, gains, gainsRefusal, slabsRefusal, fromPolicies,
+    fy, gross, ledgerIncome, ledgerIncomeAccounts, estimate, advance, gains, gainsRefusal, slabsRefusal, fromPolicies,
     applyPolicies: apply,
     deductions: apply ? applyPolicySuggestion(stored, fromPolicies) : stored,
     homeLoan, s24bOverride: stored.s24bOverride ?? null, payments, paid, settlement,
