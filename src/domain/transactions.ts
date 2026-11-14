@@ -988,13 +988,21 @@ export function resolvePayee(
    * and that row says where it began (placePayee). Without it, a payee typed
    * on its own is a household name from the start.
    */
-  opts: { forRow?: boolean } = {},
+  opts: {
+    forRow?: boolean;
+    /**
+     * The name was typed: it is the payee, whatever the raw string is already
+     * an alias of. An imported row's narration is always an alias of its
+     * current payee, so letting the alias win made renaming one a no-op.
+     */
+    byName?: boolean;
+  } = {},
 ): Payee {
   const clean = name.trim();
   if (!clean) throw new Refusal("A payee needs a name.");
 
   return transact(db, () => {
-    if (raw) {
+    if (raw && !opts.byName) {
       const viaAlias = queryOne<Payee>(
         db,
         `SELECT p.* FROM payee_aliases a JOIN payees p ON p.id = a.payee_id WHERE a.raw = ?`,
