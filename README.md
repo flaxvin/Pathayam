@@ -43,7 +43,9 @@ v1.0.0 · 3100 tests · 0 runtime dependencies · 75 migrations · 252 routes
   from name, date of birth, PAN, mobile and customer ID. UPI narration
   parsing. Reducing-balance and flat loans, rate changes, prepayment
   comparison, EMI conversion (with the 18% GST on each instalment's interest charged as its own card
-  line). CAS portfolio import. Realised gains by financial year.
+  line). CAS portfolio import. Realised gains by financial year. Mutual funds,
+  and Indian shares and ETFs from NSE's and BSE's end-of-day files, priced
+  without any API key.
 - **Deposits that value themselves.** An FD, RD, PPF or EPF account given its
   terms (principal or instalment, rate, compounding, start and maturity) is
   valued from them through to maturity, and the maturity shows on the account,

@@ -106,6 +106,7 @@ answer 404 when the viewer may not see the entity
 | `POST /portfolio/add` | Buy: opens or adds to a holding. |
 | `POST /portfolio/instrument/:id/classify` | Set asset class and region. |
 | `POST /portfolio/instrument/:id/listed` | Whether a bond is listed on an exchange, from its holding page; decides its capital gains rate. |
+| `POST /portfolio/instrument/:id/identifier` | A share's or ETF's ISIN and NSE symbol or BSE code, from its holding page, so its closing price is fetched from the exchanges' end-of-day files. |
 | `GET /portfolio/allocation` | By class, region and currency. |
 | `GET /portfolio/valuations`, `POST` | Update every hand-valued account in one pass. |
 | `GET /portfolio/asset/new`, `GET /portfolio/asset/:id/revalue` and their `POST`s | |

@@ -301,7 +301,8 @@ Everything the app reads, and nothing it does not:
 | `TRUST_PROXY` | `false` | Read the client IP and forwarded host from proxy headers. Set it behind a tunnel. The IP is the right-most `X-Forwarded-For` entry, so exactly one proxy hop is assumed (see security.md). |
 | `HEARTBEAT_URL` | None | **Set this.** Pinged on a *successful* verified restore. |
 | `BACKUP_WEBHOOK_URL` | None | Alerted when a backup or its verification fails. |
-| `ALPHA_VANTAGE_KEY` | None | Only for direct equities; mutual funds use a keyless provider. |
+| `ALPHA_VANTAGE_KEY` | None | Only for foreign shares, or an Indian one the exchange files cannot price; mutual funds and Indian shares and ETFs use keyless sources. |
+| `BHAVCOPY_PRICES` | `true` | Price Indian shares and ETFs from NSE's and BSE's public end-of-day files. `false` makes no request to either exchange. |
 | `PLAN`, `FEATURE_*`, `MAX_MEMBERS`, `BACKUP_RETENTION_DAYS` | `selfhost` | Which modules this instance offers and its limits. See [Plans and modules](#plans-and-modules). |
 | `AI_WRITE` | `off` | Whether an AI connection may change anything: `off`, `standard` or `full` (any case); anything else stops startup. See [Letting an AI make changes](#letting-an-ai-make-changes). |
 | `MCP_ALLOWED_ORIGINS` | None | Comma-separated browser origins, besides `BASE_URL`'s, allowed to call `/mcp`. Connectors call from their servers and need none (ai.md). |
