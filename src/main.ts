@@ -8,6 +8,7 @@
  */
 
 import { repairCrossBudgetClaims } from "./domain/commitments.ts";
+import { movePrivateLoanEnvelopes } from "./domain/loans.ts";
 import {
   loadConfig, assertDevLoginSafeAgainstData, assertDemoModeSafeAgainstData, InvalidConfiguration,
   UnsafeConfiguration, devLoginModulePresent,
@@ -61,6 +62,16 @@ function main(): void {
     if (repair.opened > 0 || repair.unresolved.length > 0) {
       log({ level: repair.unresolved.length ? "warn" : "info", msg: "cross-budget claims repaired",
         opened: repair.opened, unresolved: repair.unresolved.length });
+    }
+  }
+
+  // UI-14 · Private loans added before their envelope followed them into the
+  // holder's own budget. Only untouched envelopes move; the rest are logged.
+  {
+    const moved = movePrivateLoanEnvelopes(db);
+    if (moved.moved > 0 || moved.left.length > 0) {
+      log({ level: moved.left.length ? "warn" : "info", msg: "private loan envelopes moved",
+        moved: moved.moved, left: moved.left.length });
     }
   }
 

@@ -171,7 +171,7 @@ import {
   renderPrepaymentComparison, renderLoanStatementForm, renderRateReset,
 } from "./web/pages/loans.ts";
 import {
-  createLoan, listLoans, getLoan, projectLoan, recordInstalment, listPayments, closeLoan,
+  createLoan, setLoanVisibility, listLoans, getLoan, projectLoan, recordInstalment, listPayments, closeLoan,
   recordDisbursement, recordLoanStatement, recordRateChange, recordPrepayment, canSeeLoan, checkAnnualRate, loanPaymentBudgetId,
   setLoanPropertyUse, gstOnInterest,
   listDisbursements, listRatePeriods, debtOverview, type LoanType,
@@ -6654,9 +6654,11 @@ export function buildApp(deps: AppDeps): {
       refuseForeignPrivate(
         a, getAccount(db, loan.account_id)?.holder_member_id ?? null, holder, visibility, "loan",
       );
-      updateAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+      // UI-14 · Through the loan, so its envelope follows it into (or out of)
+      // the holder's own budget.
+      setLoanVisibility(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
         // REV-3 · A sole member's form has no holder field: keep them as holder.
-        loan.account_id, { holder_member_id: holderOrSoleMember(holder), visibility });
+        loan.id, { holderMemberId: holderOrSoleMember(holder), visibility });
       return { redirect: `/loans/${loan.id}`, message: "Saved." };
     }),
   );
