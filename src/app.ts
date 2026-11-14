@@ -328,7 +328,7 @@ import {
   renderManualPrice, renderSplitForm, renderMergerForm, renderValuations, type CasReviewScheme,
 } from "./web/pages/portfolio.ts";
 import { WrongPassword } from "./import/cas.ts";
-import { readStatementPdf, readCasPdf, PdfBusy, PdfReadFailed } from "./import/pdf-read.ts";
+import { readStatementPdf, readCasPdf, PdfBusy, PdfReadFailed, DEMO_PDF_UPLOADS_PER_IP, type PdfReadOptions } from "./import/pdf-read.ts";
 import { parseSafeGoldText, isSafeGoldText, type SafeGoldStatement } from "./import/safegold.ts";
 import {
   planSafeGoldImport, applySafeGoldPlan, stashSafeGoldPlan, peekSafeGoldPlan, takeSafeGoldPlan,
@@ -456,6 +456,16 @@ const PUBLIC_BODY_BYTES = 64 * 1024;
 function refuseInDemo(config: Config, what: string): void {
   if (!config.demoMode) return;
   throw new HttpError(403, `${what} is disabled on the demo. Run your own copy to use it.`);
+}
+
+/**
+ * PDF-2 · On the public demo an upload waits its turn, and one address may
+ * have at most five uploads being read or waiting. A household's own instance
+ * keeps PDF-1's answer: one at a time, "try again" when busy, no address limit.
+ */
+function uploadReadOptions(config: Config, ctx: RequestContext): PdfReadOptions {
+  if (!config.demoMode) return {};
+  return { ip: clientIp(ctx, config.trustProxy), perIpLimit: DEMO_PDF_UPLOADS_PER_IP };
 }
 
 /**
@@ -6026,7 +6036,7 @@ export function buildApp(deps: AppDeps): {
     try {
       if (typed !== "") {
         // PDF-1 · Read in the worker; a typed password is the one candidate.
-        const result = await readStatementPdf(upload.bytes, [typed]);
+        const result = await readStatementPdf(upload.bytes, [typed], uploadReadOptions(config, ctx));
         if (!result) throw new StatementWrongPassword();
         parsed = result.parse;
       } else if (identity) {
@@ -6050,6 +6060,7 @@ export function buildApp(deps: AppDeps): {
         const result = await readStatementPdf(
           upload.bytes,
           passwordCandidates(identity, bank, { cardDigits: withTyped }),
+          uploadReadOptions(config, ctx),
         );
         if (!result) {
           missing = missingDetailFor(bank, identity, cardDigits);
@@ -6076,7 +6087,7 @@ export function buildApp(deps: AppDeps): {
           opened = " It opened with the card's digits.";
         }
       } else {
-        const result = await readStatementPdf(upload.bytes, [""]);
+        const result = await readStatementPdf(upload.bytes, [""], uploadReadOptions(config, ctx));
         if (!result) throw new StatementWrongPassword();
         parsed = result.parse;
       }
@@ -9493,7 +9504,7 @@ export function buildApp(deps: AppDeps): {
 
     let statement;
     try {
-      statement = await readCasPdf(upload.bytes, password);
+      statement = await readCasPdf(upload.bytes, password, uploadReadOptions(config, ctx));
     } catch (error) {
       // A wrong password is the one failure worth naming precisely; everything
       // else is a file this app could not read, which is the same to the user.
@@ -9637,7 +9648,7 @@ export function buildApp(deps: AppDeps): {
     let notAStatement: string | null = null;
     // PDF-1 · Every candidate in one read, in the worker.
     try {
-      const opened = await readStatementPdf(upload.bytes, candidates);
+      const opened = await readStatementPdf(upload.bytes, candidates, uploadReadOptions(config, ctx));
       if (opened) {
         text = opened.parse.text;
         notAStatement = opened.parse.notAStatement ?? null;

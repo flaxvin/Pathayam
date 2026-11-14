@@ -72,6 +72,32 @@ export interface PdfReadOptions {
    * Default false: the interactive answer.
    */
   wait?: boolean;
+  /**
+   * Demo only: the uploader's address. An upload with `ip` waits its turn
+   * instead of being refused, but one address may have at most
+   * `perIpLimit` uploads being read or waiting at once.
+   */
+  ip?: string;
+  perIpLimit?: number;
+}
+
+/** Febin's rule for the public demo: five uploads at once per address. */
+export const DEMO_PDF_UPLOADS_PER_IP = 5;
+
+/** Refused because this address already has its uploads in the queue. */
+export class PdfIpLimit extends PdfBusy {
+  constructor(limit: number) {
+    super();
+    this.message = `You already have ${limit} files being read. Wait for one to finish, then try again.`;
+    this.name = "PdfIpLimit";
+  }
+}
+
+const perIp = new Map<string, number>();
+
+/** How many uploads an address has in flight (tests). */
+export function pdfUploadsInFlight(ip: string): number {
+  return perIp.get(ip) ?? 0;
 }
 
 // ---------------------------------------------------------------------------
@@ -191,7 +217,19 @@ function rebuild(error: { name: string; message: string }): Error {
 async function read(
   kind: PdfReadKind, bytes: Uint8Array, candidates: string[], options: PdfReadOptions,
 ): Promise<{ index: number; result: unknown } | null> {
-  await acquire(options.wait === true);
+  const ip = options.ip;
+  if (ip !== undefined) {
+    const limit = options.perIpLimit ?? DEMO_PDF_UPLOADS_PER_IP;
+    const held = perIp.get(ip) ?? 0;
+    if (held >= limit) throw new PdfIpLimit(limit);
+    perIp.set(ip, held + 1);
+  }
+  try {
+    await acquire(options.wait === true || ip !== undefined);
+  } catch (error) {
+    if (ip !== undefined) dropIp(ip);
+    throw error;
+  }
   try {
     const reply = await runInWorker({ kind, bytes, candidates });
     if (!reply.ok) throw rebuild(reply.error);
@@ -199,7 +237,14 @@ async function read(
     return { index: reply.index, result: reply.result };
   } finally {
     release();
+    if (ip !== undefined) dropIp(ip);
   }
+}
+
+function dropIp(ip: string): void {
+  const left = (perIp.get(ip) ?? 1) - 1;
+  if (left <= 0) perIp.delete(ip);
+  else perIp.set(ip, left);
 }
 
 // ---------------------------------------------------------------------------

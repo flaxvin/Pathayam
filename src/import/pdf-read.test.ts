@@ -12,7 +12,7 @@ import { STATEMENTS, STATEMENT_PASSWORD, SBI_CARD_PASSWORD, HSBC_CARD_PASSWORD }
 import { parseStatementPdf, BANKS } from "./pdf-statements.ts";
 import { parseCasPdf, WrongPassword } from "./cas.ts";
 import {
-  readStatementPdf, readCasPdf, setPdfReadLimits, PdfBusy, PdfReadFailed,
+  readStatementPdf, readCasPdf, setPdfReadLimits, PdfBusy, PdfReadFailed, PdfIpLimit, pdfUploadsInFlight,
   PDF_READ_DEADLINE_MS, PDF_READ_HEAP_MB, PDF_TOO_SLOW, PDF_TOO_LARGE,
 } from "./pdf-read.ts";
 import { freshDb, seedMember, startTestApp } from "../web/harness.test-data.ts";
@@ -187,4 +187,53 @@ describe("PDF-1 · mail (Gmail fetch, forwarding, held retries)", () => {
     assert.ok(result.notes.some((n) => n.startsWith("Could not open slow.pdf: This PDF took too long to read")), result.notes.join("; "));
     assert.deepEqual(locked, [], "a slow file is not a locked one");
   });
+});
+
+describe("PDF-2 · demo: five uploads at once per address", () => {
+  test("with an address, uploads wait their turn; the sixth from one address is refused; another address is not", async () => {
+    setPdfReadLimits({ deadlineMs: 30_000 });
+    const ip = "203.0.113.7";
+    const first = readStatementPdf(SLOW, [""], { ip, perIpLimit: 5 });
+    const queued = [1, 2, 3, 4].map(() => readStatementPdf(STATEMENTS.hdfc, [""], { ip, perIpLimit: 5 }));
+    assert.equal(pdfUploadsInFlight(ip), 5);
+    await assert.rejects(readStatementPdf(STATEMENTS.hdfc, [""], { ip, perIpLimit: 5 }), (e: Error) =>
+      e instanceof PdfIpLimit && e instanceof PdfBusy && /You already have 5 files being read/.test(e.message));
+    // Another address still gets in line.
+    const other = readCasPdf(FIXTURES.plain, "", { ip: "198.51.100.2", perIpLimit: 5 });
+    const results = await Promise.all([first, ...queued, other]);
+    for (const r of results) assert.ok(r);
+    assert.equal(pdfUploadsInFlight(ip), 0);
+    assert.equal(pdfUploadsInFlight("198.51.100.2"), 0);
+  });
+
+  const actor: Actor = { memberId: "m", source: "ui" };
+  for (const demoMode of [true, false]) {
+    test(`over HTTP with DEMO_MODE ${demoMode ? "on, a second upload waits" : "off, a second upload is told to try again"}`, async () => {
+      const db = freshDb();
+      seedMember(db, "m", "Ravi");
+      const bank = createAccount(db, actor, {
+        name: "Savings", kind: "budget", subtype: "savings", openingDate: "2026-01-01", institution: "HDFC Bank",
+      });
+      const app = await startTestApp(db, { memberId: "m", config: { demoMode } });
+      setPdfReadLimits({ deadlineMs: 30_000 });
+      const post = (pdf: Uint8Array) => {
+        const form = new FormData();
+        form.set("account_id", bank.id);
+        form.set("statement", new Blob([pdf], { type: "application/pdf" }), "statement.pdf");
+        return app.get("/import/pdf", { method: "POST", body: form, headers: { Origin: app.baseUrl } });
+      };
+      try {
+        const slow = post(SLOW);
+        await new Promise((r) => setTimeout(r, 150));
+        const second = await post(STATEMENTS.hdfc);
+        if (demoMode) assert.ok(second.status === 200 || second.status === 303, `status ${second.status}`);
+        else assert.equal(second.status, 503);
+        await (await slow).text();
+        await second.text();
+        assert.deepEqual(app.failures, []);
+      } finally {
+        await app.close();
+      }
+    });
+  }
 });
