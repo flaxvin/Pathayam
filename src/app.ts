@@ -336,7 +336,7 @@ import {
 } from "./import/cas-plan.ts";
 import {
   createAssetAccount, listAssetAccounts, listValuableAccounts, findOrCreateInstrument,
-  setInstrumentListed, recordPurchase, recordSale, recordPrice, recordSplit, recordMerger,
+  setInstrumentListed, setInstrumentIdentifier, recordPurchase, recordSale, recordPrice, recordSplit, recordMerger,
   recordValuation, latestValuation, listHoldings, viewHolding, priceHistory, previewHoldingSale,
   getInstrument, findManualInstrument, listInstruments, classifyInstrument, ASSET_CLASSES,
   ASSET_CLASS_LABELS, exportHoldingsCsv, exportLotsCsv, exportPriceHistoryCsv, exportNetWorthCsv,
@@ -9647,13 +9647,25 @@ export function buildApp(deps: AppDeps): {
           : typed.kind === "equity" && field(ctx.body, "share_listed_asked") === "1"
             ? field(ctx.body, "share_listed") === "1"
             : null;
+        /*
+         * PRICES-1 · A share or ETF typed with its ISIN or exchange symbol is
+         * priced each evening from the exchanges' closing files. Checked here
+         * the same way the holding page checks it, before anything is made.
+         */
+        const isin = schemeCode ? null : (field(ctx.body, "isin") ?? "").trim().toUpperCase() || null;
+        if (isin && !/^[A-Z]{2}[A-Z0-9]{9}[0-9]$/.test(isin)) {
+          throw new Refusal(`"${isin}" is not an ISIN: two letters, nine letters or digits, then a digit (INE002A01018).`);
+        }
         // WEALTH-11 · The same name typed again is the same instrument.
-        const found = symbol ? null : findManualInstrument(db, typed, memberScope(db, viewer(ctx)).instruments);
+        const found = symbol || isin ? null : findManualInstrument(db, typed, memberScope(db, viewer(ctx)).instruments);
         if (found) {
           if (listed !== null) setInstrumentListed(db, actor, found.id, listed);
           return getInstrument(db, found.id)!;
         }
-        return findOrCreateInstrument(db, actor, { ...typed, symbol, listed, provider: schemeCode ? "mfapi" : "manual" });
+        return findOrCreateInstrument(db, actor, {
+          ...typed, symbol: symbol ? symbol.trim().toUpperCase() || null : null, isin, listed,
+          provider: schemeCode ? "mfapi" : "manual",
+        });
       };
       const instrument = chosenId
         ? getInstrument(db, requireVisibleInstrument(ctx, chosenId))!
@@ -9743,6 +9755,23 @@ export function buildApp(deps: AppDeps): {
     }),
   );
 
+  // PRICES-1 · A share's or ETF's ISIN and exchange symbol, from its holding page.
+  router.post("/portfolio/instrument/:id/identifier", (ctx) =>
+    mutate(ctx, (a) => {
+      requireAssets();
+      const id = requireVisibleInstrument(ctx, ctx.params.id!);
+      setInstrumentIdentifier(db, actorFor(a), id, {
+        isin: field(ctx.body, "isin") ?? null,
+        symbol: field(ctx.body, "symbol") ?? null,
+      });
+      const holdingId = field(ctx.body, "holding_id");
+      return {
+        redirect: holdingId ? `/portfolio/${encodeURIComponent(requireVisibleHolding(ctx, holdingId))}` : "/portfolio",
+        message: "Saved. The price is fetched with the next refresh.",
+      };
+    }),
+  );
+
   router.get("/portfolio/:id", (ctx) => {
     requireAssets();
     const view = viewHolding(db, requireVisibleHolding(ctx, ctx.params.id!));
@@ -9757,6 +9786,7 @@ export function buildApp(deps: AppDeps): {
         accountName: account?.name ?? "",
         history: priceHistory(db, view.instrument.id, 40),
         today: todayIST(),
+        bhavcopy: config.bhavcopyPrices,
       }),
     );
   });
