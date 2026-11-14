@@ -95,6 +95,8 @@ export const COUNTED_TABLES = [
   // Q10 · receipts. The bytes live in this table, so backup covers them.
   "attachments",
   "tax_declarations", "tax_payments",
+  // TAX-AIS · What the member's AIS said, as figures. Parent before lines.
+  "ais_imports", "ais_lines",
   "schedule_splits",
   // INSURANCE-1 · The policy register.
   "insurance_policies",

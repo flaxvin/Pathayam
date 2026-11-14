@@ -3296,4 +3296,45 @@ CREATE INDEX idx_disbursements_tx ON loan_disbursements(transaction_id);
 ALTER TABLE asset_valuations ADD COLUMN proceeds_transaction_id TEXT REFERENCES transactions(id);
 `,
   },
+  {
+    name: "0076-the-tax-page-reads-the-annual-information-statement",
+    sql: `
+--------------------------------------------------------------------------------
+-- TAX-AIS · What the department's Annual Information Statement says, read from
+-- the member's own AIS PDF (src/import/ais.ts). Figures only: the file is not
+-- kept, and neither is the PAN, the name, the address or any account number
+-- in it. Per member and per financial year, like tax_declarations, and gone
+-- with the member. A re-import replaces the member's year whole.
+--------------------------------------------------------------------------------
+CREATE TABLE ais_imports (
+  member_id   TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  fy          INTEGER NOT NULL,
+  imported_at TEXT NOT NULL,
+  -- 1 when the PAN in the file was checked against the member's saved PAN;
+  -- 0 when no PAN was saved to check it against.
+  pan_checked INTEGER NOT NULL CHECK (pan_checked IN (0, 1)),
+  -- [{"part":"Payment of taxes","lines":3}]: counts of what was not read,
+  -- never the text, which can be an address or an account number.
+  not_read    TEXT NOT NULL DEFAULT '[]',
+  PRIMARY KEY (member_id, fy)
+);
+
+CREATE TABLE ais_lines (
+  id          TEXT PRIMARY KEY,
+  member_id   TEXT NOT NULL REFERENCES members(id) ON DELETE CASCADE,
+  fy          INTEGER NOT NULL,
+  section     TEXT NOT NULL CHECK (section IN ('tds', 'sft', 'other')),
+  category    TEXT NOT NULL CHECK (category IN
+                ('salary', 'interest-savings', 'interest-deposit', 'interest-other',
+                 'dividend', 'securities-sale', 'unread')),
+  code        TEXT,
+  label       TEXT NOT NULL,
+  source      TEXT NOT NULL,
+  amount      INTEGER NOT NULL CHECK (amount >= 0),
+  tds         INTEGER NOT NULL DEFAULT 0 CHECK (tds >= 0),
+  FOREIGN KEY (member_id, fy) REFERENCES ais_imports(member_id, fy) ON DELETE CASCADE
+);
+CREATE INDEX idx_ais_lines_member_fy ON ais_lines (member_id, fy);
+`,
+  },
 ];

@@ -158,7 +158,7 @@ export function privateRecordsHeldBy(
     queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM ${table} WHERE member_id = ?`, memberId)!.n;
   if (own("statement_identity")) found.push("saved statement-password details (PAN, date of birth)");
   if (own("gmail_connections")) found.push("a connected mailbox");
-  if (own("tax_declarations") + own("tax_payments")) found.push("tax figures");
+  if (own("tax_declarations") + own("tax_payments") + own("ais_imports")) found.push("tax figures");
 
   return found;
 }
