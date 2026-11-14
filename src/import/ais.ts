@@ -30,16 +30,17 @@
  *     "SFT Information", "Payment of Taxes", "Demand and Refund" and
  *     "Other Information" (also in the AIS FAQ, Q-2).
  *
- * ## What is assumed [unverified]
+ * ## The layout (checked 14-11-2026)
  *
- * The table layout of the PDF itself. No source shows it, and there is no real
- * AIS in this repository (nor should there be). The reading below assumes each
- * information line is one text line of columns — serial number, an
- * information code (TDS-192, SFT-016…), its description, the information
- * source, a count and an amount — and that the lines under it with a date are
- * its quarter-by-quarter detail, whose last amount is the TDS deposited. A
- * PDF laid out otherwise does not produce wrong figures: its lines fail the
- * shape, and are reported as not read.
+ * Built first from the Handbook alone, then checked and corrected against
+ * real statements for 2024-25, 2025-26 and 2026-27 (seen in the session that
+ * wrote this, never stored): numbered part headings, a category heading above
+ * each table, an information line (serial, code, description, source, count,
+ * amount) with its own header row and a detail table under it, a repeated
+ * page band carrying the PAN, name and year, and from 2026-27 a "Tax Year
+ * (T.Y.)" heading and Income-tax Act, 2025 codes. Those statements were saved
+ * through a browser; the portal's own download may place text differently
+ * [inferred]. A line of any other shape is counted as not read, never guessed.
  *
  * ## What is never kept
  *
@@ -120,7 +121,9 @@ export function parseAisPdf(bytes: Uint8Array, password: string): AisStatement {
 }
 
 const PAN = /\b([A-Z]{5}\d{4}[A-Z])\b/;
-const CODE = /^(?:TDS|TCS|SFT)-[0-9A-Z()/-]+$/i;
+// Codes as printed: TDS-192, SFT-016(SB), SFT-17-OTU(M), TDS-Ann.II-SAL, and the
+// Income-tax Act, 2025's TDS-393(1)[Table: S.No. 5(ii) & 5(iii)], which has spaces.
+const CODE = /^(?:TDS|TCS|SFT)-\S.*$/i;
 const AMOUNT = /^-?[\d,]+(?:\.\d{1,2})?$/;
 const DATE = /^\d{2}[-/](?:\d{2}|[A-Za-z]{3})[-/]\d{4}$/;
 
@@ -132,20 +135,61 @@ function amountOf(cell: string): Paise | null {
   return Math.round(n * 100) as Paise;
 }
 
-/** The headings this knows, in the words of the AIS FAQ and Handbook. */
+/**
+ * A part heading. A real AIS (checked against statements for 2024-25, 2025-26
+ * and 2026-27, 14-11-2026) prints them as "Part A - General Information",
+ * "Part B1-Information relating to tax deducted or collected at source",
+ * "Part B2-Information relating to specified financial transaction (SFT)",
+ * "Part B3-Information relating to payment of taxes", "Part B4-Information
+ * relating to demand and refund" and "Part B7-Any other information in
+ * relation to sub-rule (2) of rule 114-I". The words decide; the number only
+ * when the words are new. The Handbook's shorter names ("TDS/TCS
+ * Information", "SFT Information"…) are still recognised.
+ */
 function headingOf(line: string): { part: string; section: AisSection | "general" | "unknown" } | null {
+  // Ligatures (fi, ffi) do not survive text extraction; "specified" can come out as "speci?ed".
   const t = line.trim().replace(/\s+/g, " ").toLowerCase();
-  if (t.length > 60) return null;
-  if (/^(?:part\s*a\s*[-–:]?\s*)?general information\b/.test(t)) return { part: "General information", section: "general" };
-  if (/^(?:part\s*b\d*\s*[-–:]?\s*)?tds\s*\/\s*tcs information\b/.test(t)) return { part: "TDS/TCS information", section: "tds" };
-  if (/^(?:part\s*b\d*\s*[-–:]?\s*)?sft information\b/.test(t)) return { part: "SFT information", section: "sft" };
-  if (/^(?:part\s*b\d*\s*[-–:]?\s*)?payment of taxes\b/.test(t)) return { part: "Payment of taxes", section: "taxes-paid" };
-  if (/^(?:part\s*b\d*\s*[-–:]?\s*)?demand and refund\b/.test(t)) return { part: "Demand and refund", section: "demand-refund" };
-  if (/^(?:part\s*b\d*\s*[-–:]?\s*)?other information\b/.test(t)) return { part: "Other information", section: "other" };
+  const numbered = /^part\s*(a|b\d*)\s*[-–:]/.exec(t);
+  const bare = !numbered && t.length <= 60;
+  if (!numbered && !bare) return null;
+  const body = numbered ? t.slice(numbered[0].length) : t;
+  const known = (re: RegExp) => re.test(body) && (numbered !== null || new RegExp("^" + re.source).test(body));
+  if (known(/general information/)) return { part: "General information", section: "general" };
+  if (known(/tds\s*\/\s*tcs information|tax deducted or collected at source/)) return { part: "TDS/TCS information", section: "tds" };
+  if (known(/sft information|\(sft\)|financial transaction/)) return { part: "SFT information", section: "sft" };
+  if (known(/payment of taxes/)) return { part: "Payment of taxes", section: "taxes-paid" };
+  if (known(/demand and refund/)) return { part: "Demand and refund", section: "demand-refund" };
+  if (known(/other information/)) return { part: "Other information", section: "other" };
   // A part this does not know — a new one the department adds. Its lines are
   // not read into the part before it; they are counted as not read.
-  if (/^part\s*[a-z]\d*\s*[-–:]/.test(t)) return { part: "A part this app does not know", section: "unknown" };
+  if (numbered) return { part: "A part this app does not know", section: "unknown" };
   return null;
+}
+
+/**
+ * The Handbook's category headings, which a real AIS prints on a line of
+ * their own above the information lines they cover ("Salary", "Interest from
+ * savings bank", "Sale of securities and units of mutual fund"…). They are a
+ * better guide than the description: SFT-016's description is "Interest
+ * income (SFT-016) - Savings", which says neither "savings bank" nor
+ * "deposit" plainly.
+ */
+const SUBHEADINGS: readonly [RegExp, AisCategory][] = [
+  [/^salary$/, "salary"],
+  [/^dividend$/, "dividend"],
+  [/^interest from savings bank$/, "interest-savings"],
+  [/^interest from deposits?$/, "interest-deposit"],
+  [/^interest from others?$/, "interest-other"],
+  [/^sale of securities and units of mutual funds?$/, "securities-sale"],
+];
+
+/** A category heading line: words only, no figures, starting at the margin. */
+function subheadingOf(raw: string): string | null {
+  if (/^\s/.test(raw)) return null;
+  const t = raw.trim().replace(/\s+/g, " ");
+  if (t.length > 80 || /\d/.test(t) || /^(?:part\b|note\b|download id|generation date)/i.test(t)) return null;
+  if (!/^[A-Za-z][A-Za-z ,/&()'-]*$/.test(t)) return null;
+  return t;
 }
 
 /**
@@ -156,9 +200,13 @@ function headingOf(line: string): { part: string; section: AisSection | "general
  * line is deposit interest here too — which is what lets the summary keep the
  * higher of a bank's two reports of the same interest instead of adding both.
  */
-export function categoryOf(code: string | null, label: string): AisCategory {
+export function categoryOf(code: string | null, label: string, subheading: string | null = null): AisCategory {
+  const h = (subheading ?? "").toLowerCase().replace(/\s+/g, " ");
+  for (const [re, category] of SUBHEADINGS) if (re.test(h)) return category;
   const d = label.toLowerCase();
   const c = (code ?? "").toUpperCase();
+  if (/^SFT-016\s*\(SB\)/.test(c)) return "interest-savings";
+  if (/^SFT-016\s*\((?:TD|RD)\)/.test(c)) return "interest-deposit";
   if (/sale of securities|units of mutual fund/.test(d) && /sale/.test(d)) return "securities-sale";
   if (/purchase/.test(d)) return "unread";
   if (/\bsalary\b/.test(d) || c === "TDS-192") return "salary";
@@ -167,7 +215,7 @@ export function categoryOf(code: string | null, label: string): AisCategory {
     return "interest-deposit";
   }
   if (/\binterest\b/.test(d) || c === "TDS-193") return "interest-other";
-  if (/\bdividend\b/.test(d) || c === "TDS-194" || c === "SFT-015" || c === "SFT-018") return "dividend";
+  if (/\bdividend\b/.test(d) || c === "TDS-194" || c === "SFT-015") return "dividend";
   return "unread";
 }
 
@@ -211,15 +259,8 @@ export function parseAisText(text: string): AisStatement {
     );
   }
 
-  // The year. "Financial Year 2025-26", or "Assessment Year 2026-27" a year on.
-  let fy: number | null = null;
-  const fyMatch = /financial\s+year\s*[:\-]?\s*(\d{4})\s*-\s*(\d{2,4})/i.exec(all);
-  if (fyMatch) fy = Number(fyMatch[1]);
-  else {
-    const ay = /assessment\s+year\s*[:\-]?\s*(\d{4})\s*-\s*(\d{2,4})/i.exec(all);
-    if (ay) fy = Number(ay[1]) - 1;
-  }
-  if (fy === null || !Number.isInteger(fy) || fy < 2000 || fy > 9998) {
+  const fy = yearOf(rawLines);
+  if (fy === null) {
     throw new Refusal("That AIS does not say which financial year it is for, so nothing was imported.");
   }
 
@@ -236,43 +277,97 @@ export function parseAisText(text: string): AisStatement {
 
   let section: AisSection | "general" | "unknown" | null = null;
   let part = "Before Part A";
+  let subheading: string | null = null;
+  /** The information line the rows below belong to. */
   let current: AisLine | null = null;
+  /** Where the description and source columns start, from the header row. */
+  let columns: { description: number; source: number } | null = null;
+  /** Inside the detail table under an information line (after its own header row). */
+  let inDetail = false;
+  /** Whether the detail table's last amount is the TDS deposited. */
+  let detailIsTds = false;
   let skippingTcs = false;
+  let pageHeader = false;
 
   for (const raw of rawLines) {
     const line = raw.trim();
     if (line === "") continue;
+
+    // Page furniture: the repeated "PAN / Name / Financial Year" band, whose
+    // next line is the PAN, the person's name and the year; the footer.
+    if (pageHeader) { pageHeader = false; continue; }
+    if (/^PAN\s{2,}Name\s{2,}(?:Financial|Tax)\s+Year/i.test(line)) { pageHeader = true; continue; }
+    if (/^(?:download id|generation date)\s*:/i.test(line)) continue;
+    if (/^note\s*-/i.test(line) || /no transactions present/i.test(line)) { current = null; inDetail = false; continue; }
+
     const heading = headingOf(line);
     if (heading) {
       section = heading.section;
       part = heading.part;
-      current = null;
+      current = null; subheading = null; inDetail = false; skippingTcs = false;
       continue;
     }
     // Part A is identity — name, PAN, address. Read for the PAN above and
     // otherwise left alone; nothing in it is a figure.
     if (section === null || section === "general") continue;
-    if (isFurniture(line)) continue;
 
-    const cells = line.split(/\s{2,}/).map((c) => c.trim()).filter((c) => c !== "");
-
-    // A detail row under the last information line: a date, then amounts.
-    const dateAt = cells.findIndex((c) => DATE.test(c));
-    // The dated rows under a TCS line belong to it and are not read either.
-    if (skippingTcs && dateAt >= 0) continue;
-    skippingTcs = false;
-    if (current && dateAt >= 0) {
-      const amounts = cells.slice(dateAt + 1).map(amountOf).filter((a): a is Paise => a !== null);
-      if (current.section === "tds" && amounts.length >= 2 && isClearlyTds(current)) {
-        // [unverified] amount paid/credited, TDS deducted, TDS deposited: the last is what was deposited.
-        current.tds = (current.tds + amounts[amounts.length - 1]!) as Paise;
+    // The header row of an information table, or of the detail under one.
+    if (/^SR\.?\s*NO\.?\b/i.test(line) || /^SR\.\s/i.test(line)) {
+      if (/INFORMATION\s+CODE/i.test(line)) {
+        const d = raw.search(/INFORMATION\s+DESCRIPTION/i);
+        const src = raw.search(/INFORMATION\s+SOURCE/i);
+        columns = d > 0 && src > d ? { description: d, source: src } : null;
+        inDetail = false;
+        current = null;
+      } else {
+        inDetail = true;
+        detailIsTds = /TDS\s+DEPOSITED/i.test(line);
       }
-      // An SFT detail row (a reported date, perhaps an account number) is
-      // the line above in parts; its total is already on that line.
+      skippingTcs = skippingTcs && !/INFORMATION\s+CODE/i.test(line);
+      continue;
+    }
+    if (isFurniture(line) && !/^\d/.test(line)) continue;
+
+    const sub = subheadingOf(raw);
+    if (sub !== null && !/^\d/.test(line)) {
+      subheading = sub;
+      current = null; inDetail = false; skippingTcs = false;
       continue;
     }
 
-    const main = informationLine(cells);
+    const serial = /^\d{1,4}\s/.test(line);
+    if (!serial) {
+      // A wrapped cell — the rest of a description, a source's identifier, a
+      // security's name. Part of the row above; never a figure of its own.
+      if (current && !inDetail && columns && raw.search(/\S/) >= columns.source - 2) {
+        current.source = cleanSource(`${current.source} ${line}`);
+      }
+      continue;
+    }
+
+    if (section === "taxes-paid" || section === "demand-refund" || section === "unknown") {
+      if (!inDetail || section !== "unknown") unread(part);
+      continue;
+    }
+
+    if (inDetail) {
+      if (skippingTcs || !current) continue;
+      const cells = line.split(/\s{2,}/).map((c) => c.trim()).filter((c) => c !== "");
+      if (current.section === "tds" && detailIsTds && isClearlyTds(current)) {
+        const status = cells[cells.length - 1]!;
+        // [inferred] Only an "Active" row counts; the portal marks rows the
+        // taxpayer has disputed or the deductor has revised otherwise.
+        if (/^[A-Za-z]+$/.test(status) && !/^active$/i.test(status)) continue;
+        const amounts = cells.slice(1).map(amountOf).filter((a): a is Paise => a !== null);
+        // Amount paid/credited, TDS deducted, TDS deposited: the last is what was deposited.
+        if (amounts.length >= 2) current.tds = (current.tds + amounts[amounts.length - 1]!) as Paise;
+      }
+      // An SFT or Part B7 detail row (an account, a client ID, a sale) is the
+      // line above in parts; its total is already on that line.
+      continue;
+    }
+
+    const main = informationLine(raw, columns);
     // Tax collected at source shares the part with TDS but is not TDS: it is
     // not read (docs/limitations.md), and never summed into the TDS box
     // (review 2). Counted as not read, under its own name.
@@ -283,7 +378,8 @@ export function parseAisText(text: string): AisStatement {
       continue;
     }
     if (main && (section === "tds" || section === "sft" || section === "other")) {
-      const category = categoryOf(main.code, main.label);
+      skippingTcs = false;
+      const category = categoryOf(main.code, main.label, subheading);
       current = {
         section, category, code: main.code, label: main.label, source: main.source,
         amount: main.amount, tds: 0 as Paise,
@@ -303,14 +399,55 @@ export function parseAisText(text: string): AisStatement {
 }
 
 /**
- * One information line: a serial number, an optional code, the description,
- * the source, a count and an amount — the columns the Handbook names (with
- * "Information Source" and "Information Description"); their order is
- * [unverified].
+ * The year the statement is for. A real AIS heads its first page "Financial
+ * Year 2024-25", or from 2026-27, under the Income-tax Act, 2025, "Tax Year
+ * (T.Y.) 2026-27" (a tax year is the financial year, s3 of that Act); its
+ * later pages repeat it in a band whose figures sit on the next line. Only
+ * the heading and that band are read: the body's notes mention other years
+ * ("For financial year 2022-23 and earlier…"), which must not be taken.
  */
-function informationLine(cells: string[]): {
+function yearOf(rawLines: string[]): number | null {
+  const head = rawLines.slice(0, 3).join(" ");
+  const named = /(?:financial\s+year|tax\s+year\s*\(\s*t\s*\.\s*y\s*\.?\s*\))\s*[:\-]?\s*(\d{4})\s*-\s*(\d{2,4})/i.exec(head)
+    ?? /\b(?:financial|tax)\s+year\s*[:\-]?\s*(\d{4})\s*-\s*(\d{2,4})/i.exec(head);
+  let fy: number | null = named ? Number(named[1]) : null;
+  if (fy === null) {
+    const ay = /assessment\s+year\s*[:\-]?\s*(\d{4})\s*-\s*(\d{2,4})/i.exec(head);
+    if (ay) fy = Number(ay[1]) - 1;
+  }
+  if (fy === null) {
+    for (let i = 0; i + 1 < rawLines.length; i++) {
+      if (/(?:financial|tax)\s+year\s*$/i.test(rawLines[i]!.trim())) {
+        const m = /(\d{4})\s*-\s*(\d{2,4})\s*$/.exec(rawLines[i + 1]!.trim());
+        if (m) { fy = Number(m[1]); break; }
+      }
+    }
+  }
+  if (fy === null || !Number.isInteger(fy) || fy < 2000 || fy > 9998) return null;
+  return fy;
+}
+
+/**
+ * A source's name without its identifier: "HDFC BANK LIMITED (MUMH03189E)"
+ * is a TAN, "(AAACH2702H.AB772)" a reporting entity's PAN and registration.
+ * Neither is the person's, but neither is needed, and both stay out.
+ */
+function cleanSource(source: string): string {
+  return source.replace(/\s*\((?=[A-Z0-9.]*\d)[A-Z0-9.]{8,}\)/g, "").replace(/\s+/g, " ").trim();
+}
+
+/**
+ * One information line: a serial number, a code, the description, the
+ * source, a count and an amount — the columns of a real AIS (checked
+ * 14-11-2026). Cells are split on runs of spaces; where a long description
+ * runs into the source with a single space, the header's column positions
+ * decide, falling back on the source being the upper-case name that ends the
+ * run ("… received EXAMPLE JEWELLERS LIMITED").
+ */
+function informationLine(raw: string, columns: { description: number; source: number } | null): {
   code: string | null; label: string; source: string; amount: Paise;
 } | null {
+  const cells = raw.trim().split(/\s{2,}/).map((c) => c.trim()).filter((c) => c !== "");
   if (cells.length < 4) return null;
   if (!/^\d{1,4}$/.test(cells[0]!)) return null;
   const amount = amountOf(cells[cells.length - 1]!);
@@ -318,11 +455,39 @@ function informationLine(cells: string[]): {
   if (!/^\d{1,6}$/.test(cells[cells.length - 2]!)) return null;
   const middle = cells.slice(1, -2);
   let code: string | null = null;
-  if (middle.length > 0 && CODE.test(middle[0]!)) code = middle.shift()!.toUpperCase();
-  if (middle.length < 2) return null;
-  const label = middle[0]!;
-  const source = middle.slice(1).join(" ");
+  if (middle.length > 0 && CODE.test(middle[0]!)) code = middle.shift()!.replace(/\s+/g, " ").toUpperCase();
+  let label: string;
+  let source: string;
+  if (middle.length >= 2) {
+    label = middle[0]!;
+    source = middle.slice(1).join(" ");
+  } else if (middle.length === 1) {
+    const split = splitRun(middle[0]!, raw, columns);
+    if (!split) return null;
+    [label, source] = split;
+  } else return null;
+  source = cleanSource(source);
   // A label or source that is itself a number is a row of some other shape.
-  if (amountOf(label) !== null || amountOf(source) !== null) return null;
+  if (source === "" || amountOf(label) !== null || amountOf(source) !== null) return null;
   return { code, label, source, amount };
+}
+
+/** Split a description that ran into its source. */
+function splitRun(run: string, raw: string, columns: { description: number; source: number } | null): [string, string] | null {
+  const words = run.split(" ");
+  // The source is the longest upper-case tail ("EXAMPLE JEWELLERS LIMITED (BLRE00000Z)").
+  let i = words.length;
+  while (i > 0 && !/[a-z]/.test(words[i - 1]!)) i--;
+  if (i > 0 && i < words.length && words.slice(i).some((w) => /[A-Z]{2}/.test(w))) {
+    return [words.slice(0, i).join(" "), words.slice(i).join(" ")];
+  }
+  if (columns) {
+    const at = raw.indexOf(run);
+    const cut = columns.source - at;
+    if (cut > 0 && cut < run.length) {
+      const sp = run.lastIndexOf(" ", cut);
+      if (sp > 0) return [run.slice(0, sp).trim(), run.slice(sp + 1).trim()];
+    }
+  }
+  return null;
 }

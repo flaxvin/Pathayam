@@ -43,7 +43,7 @@ describe("TAX-AIS · Part B1, TDS/TCS information", () => {
     assert.equal(salary.section, "tds");
     assert.equal(salary.amount, 12_00_000_00);
     assert.equal(salary.tds, 80_000_00);
-    assert.equal(salary.source, "EXAMPLE SOFTWARE LTD (BLRE00000A)");
+    assert.equal(salary.source, "EXAMPLE SOFTWARE LTD", "the TAN is left out");
   });
 
   test("194A interest is deposit interest, as the Handbook files it, with its TDS", () => {
@@ -65,12 +65,20 @@ describe("REV-2 · TCS and uncategorised lines never feed TDS", () => {
     const lines = sampleAis();
     const at = lines.findIndex((l) => typeof l === "string" && /Part B2/.test(l));
     lines.splice(at, 0,
-      ["4", "TCS-206CQ", "Remittance under LRS for purposes other than education or medical treatment", "SAMPLE BANK (MUMS00000B)", "1", "8,00,000.00"],
-      ["", "Q2", "20/07/2025", "8,00,000.00", "1,60,000.00", "1,60,000.00"],
-      ["5", "TDS-194C", "Payment to contractors", "EXAMPLE BUILDERS LTD (MUME00000D)", "1", "1,00,000.00"],
-      ["", "Q2", "20/08/2025", "1,00,000.00", "1,000.00", "1,000.00"],
-      ["6", "Something unlisted", "EXAMPLE TRUST (MUME00000E)", "1", "20,000.00"],
-      ["", "Q2", "20/08/2025", "20,000.00", "2,000.00", "2,000.00"],
+      "Outward foreign remittance/purchase of foreign currency",
+      ["SR. NO.", "INFORMATION CODE", "INFORMATION DESCRIPTION", "INFORMATION SOURCE", "COUNT", "AMOUNT"],
+      ["4", "TCS-206CQ", "Remittance under LRS (u/s 206C(1G(a)))", "SAMPLE BANK (MUMS00000B)", "1", "8,00,000"],
+      ["SR. NO.", "QUARTER", "DATE OF PAYMENT/CREDIT", "AMOUNT PAID/CREDITED", "TCS COLLECTED", "TCS DEPOSITED", "STATUS"],
+      ["1", "Q2(Jul-Sep)", "20/07/2025", "8,00,000", "1,60,000", "1,60,000", "Active"],
+      "Payment to contractors",
+      ["SR. NO.", "INFORMATION CODE", "INFORMATION DESCRIPTION", "INFORMATION SOURCE", "COUNT", "AMOUNT"],
+      ["5", "TDS-194C", "Payment to contractors", "EXAMPLE BUILDERS LTD (MUME00000D)", "1", "1,00,000"],
+      ["SR. NO.", "QUARTER", "DATE OF PAYMENT/CREDIT", "AMOUNT PAID/CREDITED", "TDS DEDUCTED", "TDS DEPOSITED", "STATUS"],
+      ["1", "Q2(Jul-Sep)", "20/08/2025", "1,00,000", "1,000", "1,000", "Active"],
+      ["SR. NO.", "INFORMATION CODE", "INFORMATION DESCRIPTION", "INFORMATION SOURCE", "COUNT", "AMOUNT"],
+      ["6", "Something unlisted", "EXAMPLE TRUST (MUME00000E)", "1", "20,000"],
+      ["SR. NO.", "QUARTER", "DATE OF PAYMENT/CREDIT", "AMOUNT PAID/CREDITED", "TDS DEDUCTED", "TDS DEPOSITED", "STATUS"],
+      ["1", "Q2(Jul-Sep)", "20/08/2025", "20,000", "2,000", "2,000", "Active"],
     );
     return parseAisText(aisText(lines));
   };
@@ -102,7 +110,7 @@ describe("TAX-AIS · Part B2, SFT information", () => {
 
   test("a dividend and a sale of securities", () => {
     assert.equal(byCode(s, "SFT-015")!.category, "dividend");
-    const sale = byCode(s, "SFT-017")!;
+    const sale = byCode(s, "SFT-17-OTU(M)")!;
     assert.equal(sale.category, "securities-sale");
     assert.equal(sale.amount, 2_50_000_00);
     assert.equal(sale.tds, 0);
@@ -111,7 +119,7 @@ describe("TAX-AIS · Part B2, SFT information", () => {
   test("a category the estimate does not model is kept as unread, not guessed into income", () => {
     const rent = byCode(s, "SFT-004")!;
     assert.equal(rent.category, "unread");
-    assert.equal(rent.label, "Rent received");
+    assert.match(rent.label, /^Rent received/);
   });
 });
 
@@ -122,14 +130,14 @@ describe("TAX-AIS · what is not read", () => {
   });
 
   test("a line of an unrecognised shape inside a known part is counted as not read", () => {
-    const s = parseAisText(aisText(sampleAis({ extra: [["something", "odd"], ["6", "SFT-099", "no amount here"]] })));
+    const s = parseAisText(aisText(sampleAis({ extra: [["6", "SFT-099", "no amount here"], ["7", "SFT-098", "ONE", "TWO", "THREE"]] })));
     assert.deepEqual(s.notRead.find((n) => n.part === "SFT information"), { part: "SFT information", lines: 2 });
   });
 
   test("an unknown part's lines are counted as not read, not read into the part before it", () => {
     const lines = sampleAis();
-    const at = lines.findIndex((l) => typeof l === "string" && /Payment of Taxes/.test(l));
-    lines.splice(at, 0, "Part B9 - Something New", ["1", "SFT-200", "Interest from somewhere", "BANK", "1", "1.00"]);
+    const at = lines.findIndex((l) => typeof l === "string" && /payment of taxes/i.test(l));
+    lines.splice(at, 0, "Part B9 - Something New", ["SR. NO.", "INFORMATION CODE", "INFORMATION DESCRIPTION", "INFORMATION SOURCE", "COUNT", "AMOUNT"], ["1", "SFT-200", "Interest from somewhere", "BANK", "1", "1.00"]);
     const s = parseAisText(aisText(lines));
     assert.equal(byCode(s, "SFT-200"), undefined);
     assert.deepEqual(s.notRead.find((n) => n.part === "A part this app does not know")?.lines, 1);
@@ -175,8 +183,72 @@ describe("TAX-AIS · categories", () => {
     assert.equal(categoryOf(null, "Interest from others"), "interest-other");
     assert.equal(categoryOf(null, "Interest from income tax refund"), "interest-other");
     assert.equal(categoryOf(null, "Dividend received"), "dividend");
-    assert.equal(categoryOf("SFT-018", "Income from units"), "dividend");
+    // SFT-018 is a purchase of fund units on a real AIS, not a dividend.
+    assert.equal(categoryOf("SFT-18(PUR)", "Purchase of mutual funds (SFT - 018)"), "unread");
     assert.equal(categoryOf(null, "Purchase of securities and units of mutual funds"), "unread");
     assert.equal(categoryOf(null, "Cash deposits"), "unread");
+  });
+});
+
+describe("TAX-AIS · the layout of a real statement (synthetic figures)", () => {
+  test("the category heading decides where the description is vague", () => {
+    assert.equal(categoryOf("SFT-016(SB)", "Interest income (SFT-016) - Savings", "Interest from savings bank"), "interest-savings");
+    assert.equal(categoryOf("SFT-016(TD)", "Interest income (SFT-016) - Term Deposit", "Interest from deposit"), "interest-deposit");
+    assert.equal(categoryOf("SFT-17-OTU(M)", "Sale of other unit (Depository)", "Sale of securities and units of mutual fund"), "securities-sale");
+    assert.equal(categoryOf("SFT-016(SB)", "Interest income (SFT-016) - Savings"), "interest-savings", "the code, with no heading");
+  });
+
+  test("2026-27 onward: 'Tax Year (T.Y.)' and the Income-tax Act, 2025's codes", () => {
+    const lines = sampleAis({ fy: "2026-27", taxYear: true });
+    const at = lines.findIndex((l) => typeof l === "string" && /^Dividend$/.test(l));
+    lines.splice(at, 0,
+      "Interest from deposit",
+      ["SR. NO.", "INFORMATION CODE", "INFORMATION DESCRIPTION", "INFORMATION SOURCE", "COUNT", "AMOUNT"],
+      // A real line whose long description runs into the source with one space.
+      ["9", "TDS-393(1)[Table: S.No. 5(ii) & 5(iii)]", "Interest other than \"Interest on Securities\" received EXAMPLE JEWELLERS LIMITED (BLRE00000Z)", "3", "77"],
+      "(Section 393(1) [Table: S.No. 5(ii) & 5(iii)])",
+      ["SR. NO.", "QUARTER", "DATE OF PAYMENT/CREDIT", "AMOUNT PAID/CREDITED", "TDS DEDUCTED", "TDS DEPOSITED", "STATUS"],
+      ["1", "Q2(Jul-Sep)", "30/09/2026", "77", "7", "7", "Active"],
+    );
+    const s = parseAisText(aisText(lines));
+    assert.equal(s.fy, 2026);
+    const l = s.lines.find((x) => /^TDS-393/.test(x.code ?? ""))!;
+    assert.equal(l.source, "EXAMPLE JEWELLERS LIMITED");
+    assert.match(l.label, /^Interest other than/);
+    assert.equal(l.category, "interest-deposit");
+    assert.equal(l.tds, 7_00);
+  });
+
+  test("a note naming another year does not set the year", () => {
+    const lines = sampleAis({ fy: "2024-25" });
+    lines.splice(2, 0, "Note - For financial year 2022-23 and earlier, details of tax payments are available in Form 26AS.");
+    assert.equal(parseAisText(aisText(lines)).fy, 2024);
+  });
+
+  test("the year is found in the page band when the heading lacks it", () => {
+    const text = "Annual Information Statement (AIS)\nPart A - General Information\nPAN    Name    Financial Year\nABCDE1234F    TEST PERSON    2025-26\n";
+    assert.equal(parseAisText(text).fy, 2025);
+  });
+
+  test("the page band and footer are furniture: no name, no counts as not read", () => {
+    const s = parseAisText(aisText(sampleAis()));
+    assert.deepEqual(s.notRead, [{ part: "Payment of taxes", lines: 1 }]);
+    assert.doesNotMatch(JSON.stringify(s.lines), /TEST PERSON|000000000000/);
+  });
+
+  test("a detail row that is not Active does not add to TDS", () => {
+    const lines = sampleAis();
+    const at = lines.findIndex((l) => Array.isArray(l) && l[0] === "4" && l[1] === "Q1(Apr-Jun)");
+    lines.splice(at + 1, 0, ["5", "Q1(Apr-Jun)", "30/04/2025", "3,00,000", "20,000", "20,000", "Inactive"]);
+    const s = parseAisText(aisText(lines));
+    assert.equal(byCode(s, "TDS-192")!.tds, 80_000_00);
+  });
+
+  test("Part B7's salary is read, and the summary counts one employer's salary once", () => {
+    const s = parseAisText(aisText(sampleAis()));
+    const b7 = s.lines.find((l) => l.section === "other")!;
+    assert.equal(b7.category, "salary");
+    assert.equal(b7.source, "EXAMPLE SOFTWARE LTD");
+    assert.equal(b7.tds, 0);
   });
 });

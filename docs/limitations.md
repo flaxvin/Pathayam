@@ -135,12 +135,15 @@ March 2022). What is not modelled:
   the app could check, and it is a file for the department's own offline
   utility, opened with a different password (the PAN in capitals). Only the PDF
   is read.
-- **The PDF's exact layout is [unverified].** No real AIS was available to
-  build against, so the reader assumes one line per information line —
-  serial, code, description, source, count, amount — with dated quarter rows
-  under a TDS line whose last amount is the TDS deposited. A line of another
-  shape is counted as not read rather than guessed at; a source name that
-  wraps onto a second line is one such case.
+- **The PDF's layout is checked against real statements** for 2024-25,
+  2025-26 and 2026-27 (14-11-2026): part headings ("Part B1-Information
+  relating to tax deducted or collected at source" and the rest), the category
+  headings above each table, information lines with their detail tables, the
+  page band, and from 2026-27 the "Tax Year (T.Y.)" heading and the Income-tax
+  Act, 2025's codes (TDS-392, TDS-393(1)…). Those statements were saved from
+  the portal through a browser; a PDF downloaded straight from the portal may
+  place its text differently [inferred]. A line of another shape is counted as
+  not read rather than guessed at. Only a detail row marked Active adds to TDS.
 - **Parts not read:** TCS, payment of taxes, demand and refund, and every other
   category (rent, cash deposits, purchases, foreign remittances and the rest).
   Each shows on the page as not used, with its amount where it had one, or as a

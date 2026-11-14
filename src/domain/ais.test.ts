@@ -113,9 +113,9 @@ describe("TAX-AIS · the summary", () => {
     importFor(db, "m");
     const s = aisSummary(db, "m", 2025)!;
     assert.deepEqual(s.tdsBySource.map((t) => [t.source, t.tds]), [
-      ["EXAMPLE SOFTWARE LTD (BLRE00000A)", 80_000_00],
-      ["SAMPLE BANK (MUMS00000B)", 5_000_00],
-      ["EXAMPLE INDUSTRIES LTD (MUME00000C)", 800_00],
+      ["EXAMPLE SOFTWARE LTD", 80_000_00],
+      ["SAMPLE BANK", 5_000_00],
+      ["EXAMPLE INDUSTRIES LTD", 800_00],
     ]);
     assert.equal(s.salary, 12_00_000_00);
     assert.equal(s.interestSavings, 4_200_00);
@@ -125,7 +125,7 @@ describe("TAX-AIS · the summary", () => {
     assert.equal(s.dividends, 8_000_00);
     assert.equal(s.securitiesSold, 2_50_000_00);
     assert.equal(s.incomeOffer, (12_00_000_00 + 4_200_00 + 50_000_00 + 8_000_00) as Paise);
-    assert.deepEqual(s.unread.map((u) => u.label), ["Rent received"]);
+    assert.deepEqual(s.unread.map((u) => u.label), ["Rent received (SFT-004)"]);
     assert.deepEqual(s.notRead, [{ part: "Payment of taxes", lines: 1 }]);
   });
 
