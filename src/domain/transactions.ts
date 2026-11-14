@@ -215,7 +215,7 @@ export function createTransaction(
       claimFilingFor(db, actor, account, line.categoryId ?? null);
     }
 
-    const payeeId = input.payeeId ?? (input.payeeName ? resolvePayee(db, actor, input.payeeName, input.raw?.payee).id : null);
+    const payeeId = input.payeeId ?? (input.payeeName ? resolvePayee(db, actor, input.payeeName, input.raw?.payee, { forRow: true }).id : null);
     const cardId = input.cardId ?? defaultCardFor(db, account.kind, input.accountId);
     if (input.ownerMemberId) refuseUnknownMember(db, input.ownerMemberId);
     const ownerMemberId =
@@ -268,6 +268,7 @@ export function createTransaction(
     }
 
     if (input.tags?.length) setTags(db, id, input.tags);
+    if (payeeId) placePayee(db, payeeId, id);
 
     const created = getTransaction(db, id)!;
     appendEvent(db, actor, {
@@ -557,6 +558,10 @@ export function updateTransaction(
     }
 
     if (patch.tags !== undefined) setTags(db, id, patch.tags);
+    if (patch.payeeId) placePayee(db, patch.payeeId, id);
+    if (patch.payeeId !== undefined && before.payee_id && before.payee_id !== patch.payeeId) {
+      releasePayeeIfUnused(db, before.payee_id);
+    }
 
     const after = editSnapshot(db, id)!;
     appendEvent(db, actor, {
@@ -684,7 +689,9 @@ export function purgeDeleted(db: DB, olderThanDays = 30, today = todayIST()): nu
       execute(db, `UPDATE staged_transactions SET transaction_id = NULL WHERE transaction_id = ?`, id);
       execute(db, `UPDATE staged_transactions SET duplicate_of_id = NULL WHERE duplicate_of_id = ?`, id);
       unlinkBorrowed(db, id);
+      const payeeId = getTransaction(db, id)?.payee_id ?? null;
       purged += execute(db, `DELETE FROM transactions WHERE id = ?`, id);
+      releasePayeeIfUnused(db, payeeId);
     }
     return purged;
   });
@@ -974,7 +981,15 @@ export interface Payee {
  * Find or create a payee by clean name, recording the raw string it came from
  * (F5.1, P4). Every raw string ever mapped is retained forever.
  */
-export function resolvePayee(db: DB, actor: Actor, name: string, raw?: string | null): Payee {
+export function resolvePayee(
+  db: DB, actor: Actor, name: string, raw?: string | null,
+  /**
+   * Decision 6 · `forRow`: the payee is being made for a row about to name it,
+   * and that row says where it began (placePayee). Without it, a payee typed
+   * on its own is a household name from the start.
+   */
+  opts: { forRow?: boolean } = {},
+): Payee {
   const clean = name.trim();
   if (!clean) throw new Refusal("A payee needs a name.");
 
@@ -991,7 +1006,11 @@ export function resolvePayee(db: DB, actor: Actor, name: string, raw?: string | 
     let payee = queryOne<Payee>(db, `SELECT * FROM payees WHERE name = ? COLLATE NOCASE`, clean);
     if (!payee) {
       const id = newId();
-      execute(db, `INSERT INTO payees (id,name,created_at) VALUES (?,?,?)`, id, clean, nowIST());
+      // For a row: not yet placed, until that row says where it began.
+      execute(
+        db, `INSERT INTO payees (id,name,created_at,hidden_origin) VALUES (?,?,?,?)`,
+        id, clean, nowIST(), opts.forRow ? null : 0,
+      );
       payee = queryOne<Payee>(db, `SELECT * FROM payees WHERE id = ?`, id)!;
       appendEvent(db, actor, {
         entity: "payee", entityId: id, action: "create", after: payee,
@@ -1033,6 +1052,81 @@ function addAlias(db: DB, payeeId: string, raw: string): void {
   );
 }
 
+/**
+ * Decision 6 (P-1) · Where a payee began. A payee is created for a row; the
+ * first row it lands on says whether it is a household name (everyone can see
+ * that row) or one member's merchant (somebody cannot). Settled once.
+ */
+function placePayee(db: DB, payeeId: string, transactionId: string): void {
+  const payee = queryOne<{ hidden_origin: number | null }>(
+    db, `SELECT hidden_origin FROM payees WHERE id = ?`, payeeId,
+  );
+  if (!payee || payee.hidden_origin !== null) return;
+  execute(
+    db, `UPDATE payees SET hidden_origin = ? WHERE id = ?`,
+    hiddenFromSomeone(db, transactionId) ? 1 : 0, payeeId,
+  );
+}
+
+function hiddenFromSomeone(db: DB, transactionId: string): boolean {
+  for (const { id } of queryAll<{ id: string }>(db, `SELECT id FROM members`)) {
+    const hidden = hiddenTransactionSql("t", id);
+    const row = queryOne<{ one: number }>(
+      db, `SELECT 1 AS one FROM transactions t WHERE t.id = ? AND ${hidden.sql}`,
+      transactionId, ...hidden.params,
+    );
+    if (row) return true;
+  }
+  return false;
+}
+
+/**
+ * Decision 6 (P-1) · A payee that began in private and that nothing uses any
+ * more goes, aliases and all. Left behind, it was "used nowhere" — and so in
+ * every member's /payees, Add form and /activity: renaming, purging or undoing
+ * the one private row handed the merchant's name to the household.
+ *
+ * A household name (began on a row everyone could see) stays, as does one
+ * merged into another (its merge's undo needs it) or still named by anything.
+ */
+export function releasePayeeIfUnused(db: DB, payeeId: string | null | undefined): void {
+  if (!payeeId) return;
+  const payee = queryOne<{ hidden_origin: number | null; merged_into_id: string | null }>(
+    db, `SELECT hidden_origin, merged_into_id FROM payees WHERE id = ?`, payeeId,
+  );
+  if (!payee || payee.hidden_origin === 0 || payee.merged_into_id) return;
+  if (dependantsOf(db, "payees", payeeId, { own: ["payee_aliases.payee_id"] }).length > 0) return;
+  execute(db, `DELETE FROM payee_aliases WHERE payee_id = ?`, payeeId);
+  execute(db, `DELETE FROM payees WHERE id = ?`, payeeId);
+}
+
+/**
+ * A private payee released above, wanted back by the undo of the edit that
+ * renamed it away: put back under its own id, from the event that created it
+ * — or the payee of that name, if one has appeared since.
+ */
+function revivePayee(db: DB, payeeId: string): Payee | null {
+  const created = queryOne<{ after_json: string | null }>(
+    db, `SELECT after_json FROM events WHERE entity = 'payee' AND entity_id = ? AND action = 'create'`,
+    payeeId,
+  );
+  let name: string | undefined;
+  let createdAt: string | undefined;
+  try {
+    const after = created?.after_json ? JSON.parse(created.after_json) : null;
+    name = typeof after?.name === "string" ? after.name : undefined;
+    createdAt = typeof after?.created_at === "string" ? after.created_at : undefined;
+  } catch { /* unreadable: treated as gone */ }
+  if (!name) return null;
+  const sameName = queryOne<Payee>(db, `SELECT * FROM payees WHERE name = ? COLLATE NOCASE`, name);
+  if (sameName) return sameName;
+  execute(
+    db, `INSERT INTO payees (id,name,created_at,hidden_origin) VALUES (?,?,?,1)`,
+    payeeId, name, createdAt ?? nowIST(),
+  );
+  return getPayee(db, payeeId);
+}
+
 export function listPayees(db: DB, viewerMemberId?: string | null): Payee[] {
   /*
    * 15 · A payee is a household-wide name, and mostly that is right: the same
@@ -1044,6 +1138,11 @@ export function listPayees(db: DB, viewerMemberId?: string | null): Payee[] {
    * Visible means: used at least once somewhere the viewer can see, or used
    * nowhere yet (a payee somebody typed and has not spent against is nobody's
    * secret). Omitted viewer means every payee, which is what an export wants.
+   *
+   * Decision 6 · "Used nowhere" counts only for a payee that began on a row
+   * everyone could see. One that began in private is deleted once its last row
+   * goes (releasePayeeIfUnused); until then — staged for review, say — it is
+   * nobody's to list.
    */
   if (viewerMemberId === undefined) {
     return queryAll<Payee>(db, `SELECT * FROM payees WHERE merged_into_id IS NULL ORDER BY name`);
@@ -1061,7 +1160,7 @@ export function listPayees(db: DB, viewerMemberId?: string | null): Payee[] {
     `SELECT p.* FROM payees p
       WHERE p.merged_into_id IS NULL
         AND (
-          NOT EXISTS (SELECT 1 FROM transactions t WHERE t.payee_id = p.id)
+          (NOT EXISTS (SELECT 1 FROM transactions t WHERE t.payee_id = p.id) AND p.hidden_origin IS 0)
           OR EXISTS (
             SELECT 1 FROM transactions t
              WHERE t.payee_id = p.id AND NOT ${hidden.sql}
@@ -1384,7 +1483,9 @@ export function eraseTransaction(db: DB, id: string | null | undefined): void {
   execute(db, `DELETE FROM transaction_splits WHERE transaction_id = ?`, id);
   execute(db, `DELETE FROM transaction_tags WHERE transaction_id = ?`, id);
   unlinkBorrowed(db, id);
+  const payeeId = getTransaction(db, id)?.payee_id ?? null;
   execute(db, `DELETE FROM transactions WHERE id = ?`, id);
+  releasePayeeIfUnused(db, payeeId);
 }
 
 /**
@@ -1494,7 +1595,9 @@ registerUndoHandler("transaction", (db, event) => {
       execute(db, `DELETE FROM transaction_splits WHERE transaction_id = ?`, id);
       execute(db, `DELETE FROM transaction_tags WHERE transaction_id = ?`, id);
       unlinkBorrowed(db, id);
+      const payeeId = getTransaction(db, id)?.payee_id ?? null;
       execute(db, `DELETE FROM transactions WHERE id = ?`, id);
+      releasePayeeIfUnused(db, payeeId);
     }
     if (feeId) {
       execute(db, `UPDATE transactions SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL`, nowIST(), feeId);
@@ -1652,8 +1755,9 @@ registerUndoHandler("transaction", (db, event) => {
   // A payee removed since is the same foreign key; one merged since goes back
   // as the payee it was merged into, which is what every other row of it shows.
   let payeeBack = snapshot.payee_id ?? null;
+  const payeeNow = getTransaction(db, id)?.payee_id ?? null;
   if (present.includes("payee_id") && payeeBack !== null) {
-    const payee = getPayee(db, payeeBack);
+    const payee = getPayee(db, payeeBack) ?? revivePayee(db, payeeBack);
     if (!payee) {
       throw new UndoRefused(
         "The payee it had before that edit has since been removed, so the edit cannot be " +
@@ -1675,6 +1779,7 @@ registerUndoHandler("transaction", (db, event) => {
         c === "payee_id" ? payeeBack : (snapshot as Record<string, unknown>)[c] as string | number | null),
       nowIST(), id,
     );
+    if (present.includes("payee_id") && payeeNow !== payeeBack) releasePayeeIfUnused(db, payeeNow);
   }
 
   // Split lines, when the event recorded them and the edit changed them.
