@@ -106,6 +106,7 @@ answer 404 when the viewer may not see the entity
 | `POST /portfolio/add` | Buy: opens or adds to a holding. |
 | `POST /portfolio/instrument/:id/classify` | Set asset class and region. |
 | `POST /portfolio/instrument/:id/listed` | Whether a bond is listed on an exchange, from its holding page; decides its capital gains rate. |
+| `POST /portfolio/instrument/:id/identifier` | A share's or ETF's ISIN and NSE symbol or BSE code, from its holding page, so its closing price is fetched from the exchanges' end-of-day files. |
 | `GET /portfolio/allocation` | By class, region and currency. |
 | `GET /portfolio/valuations`, `POST` | Update every hand-valued account in one pass. |
 | `GET /portfolio/asset/new`, `GET /portfolio/asset/:id/revalue` and their `POST`s | |
@@ -119,8 +120,9 @@ answer 404 when the viewer may not see the entity
 
 | Route | Purpose |
 |---|---|
-| `GET`/`POST /tax` | Income tax estimate for the signed-in member, per financial year (`fy`). Both regimes side by side, 80C/80D/HRA, home loan interest under 24(b) carried from loans marked as for a house lived in (with an override), TDS, the balance to pay or refund under each regime, and the advance-tax instalments with what has been paid against each. Capital gains for 2024-25 are split by sale date at 23-07-2024. Refuses a year whose rates the app does not carry. |
+| `GET`/`POST /tax` | Income tax estimate for the signed-in member, per financial year (`fy`). Both regimes side by side, 80C/80D/HRA, home loan interest under 24(b) carried from loans marked as for a house lived in (with an override), TDS, the balance to pay or refund under each regime, and the advance-tax instalments with what has been paid against each. Capital gains for 2024-25 are split by sale date at 23-07-2024. For the year in progress, a card (`#harvest`, HARVEST-1) shows the s112A exemption still unused, the long-term lots of each listed equity holding of the member's own at the latest stored price, and the units that could be sold FIFO without crossing the exemption; unlisted, hybrid, international and unpriced holdings are listed as left out. Refuses a year whose rates the app does not carry. |
 | `POST /tax/payments`, `/tax/payments/:id/delete` | Record or remove an advance or self-assessment tax payment of the member's own. |
+| `POST /tax/ais`, `/tax/ais/delete` | TAX-AIS · Read the member's own Annual Information Statement PDF (`statement`, optional `password`, `fy`) into figures for that year, replacing any earlier import; or forget them. Refused for another PAN than the member's saved one, a year other than `fy`, a year without slabs, and on the demo. `GET /tax?from=ais` fills the form's gross income and TDS from it (raising, never lowering; nothing saved until the form is). |
 
 ## Financial independence
 

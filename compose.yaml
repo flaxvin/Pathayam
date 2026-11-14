@@ -52,6 +52,9 @@ services:
       # portfolio is mostly mutual funds, and MFAPI needs no key — so leaving
       # this empty is the expected configuration, not a missing one (P9).
       ALPHA_VANTAGE_KEY: ${ALPHA_VANTAGE_KEY:-}
+      # PRICES-1: Indian shares and ETFs from NSE's and BSE's public end-of-day
+      # files, no key. false makes no request to either exchange.
+      BHAVCOPY_PRICES: ${BHAVCOPY_PRICES:-true}
       # Seals stored credentials (your own Google client secret, Gmail refresh
       # tokens). At least 32 characters: openssl rand -base64 32. Keep it out of
       # the data volume; losing it means reconnecting Gmail, nothing more.

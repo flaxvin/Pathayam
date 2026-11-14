@@ -221,6 +221,7 @@ function main(): void {
       if (config.features.assets) {
         void refreshPrices(db, { memberId: null, source: "job" }, {
           alphaVantageKey: config.alphaVantageKey,
+          bhavcopy: config.bhavcopyPrices,
         })
           .then((result) => {
             if (result.attempted === 0) return;

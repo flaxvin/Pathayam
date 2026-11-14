@@ -68,6 +68,7 @@ export function testConfig(overrides: TestConfigOverrides = {}): Config {
     backupWebhookUrl: null,
     heartbeatUrl: null,
     alphaVantageKey: null,
+    bhavcopyPrices: true,
     trustProxy: false,
     localLogin: false,
     secretsKey: null,

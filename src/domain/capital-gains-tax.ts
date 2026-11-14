@@ -243,7 +243,7 @@ const EMPTY: GainsBuckets = {
  * worth ₹250 on that day and sold at ₹300, were ₹2,00,000 of 112A gain instead
  * of ₹50,000, inside the exemption.
  */
-const GRANDFATHERED_BEFORE = "2018-02-01";
+export const GRANDFATHERED_BEFORE = "2018-02-01";
 const GRANDFATHERING_DATE = "2018-01-31";
 
 /**
@@ -256,7 +256,7 @@ const GRANDFATHERING_DATE = "2018-01-31";
  * never changes the original lot's units at all. So the stored price is
  * multiplied back by each split after the sale and by each bonus since.
  */
-function grandfatheredValue(db: DB, instrumentId: string, soldOn: IsoDate, parcelUnits: number): Paise | null {
+export function grandfatheredValue(db: DB, instrumentId: string, soldOn: IsoDate, parcelUnits: number): Paise | null {
   const row = queryOne<{ price: number }>(
     db, `SELECT price FROM prices WHERE instrument_id = ? AND as_of = ?`, instrumentId, GRANDFATHERING_DATE,
   );

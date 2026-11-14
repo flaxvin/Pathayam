@@ -283,7 +283,7 @@ idempotency key, when it was kept, and the member id from the page's
 ## Outbound requests
 
 Every outbound host is fixed in source (Google's OAuth and Gmail endpoints,
-and two price providers) or set by the operator: `OIDC_ISSUER` (and the
+the price providers, and NSE's and BSE's end-of-day files) or set by the operator: `OIDC_ISSUER` (and the
 endpoints its discovery document names), `BACKUP_WEBHOOK_URL` and
 `HEARTBEAT_URL`. User-supplied values reach only path segments and query
 values, through `encodeURIComponent`.

@@ -20,6 +20,7 @@
  * The result types are the ones the synchronous readers return
  * (`parseStatementPdf`, `parseCasPdf`), which stay for tests and tools.
  */
+import type { AisStatement } from "./ais.ts";
 import { Worker } from "node:worker_threads";
 import { Refusal } from "../core/refusal.ts";
 import { WrongPassword } from "../pdf/decrypt.ts";
@@ -275,4 +276,16 @@ export async function readCasPdf(
   const read_ = await read("cas", bytes, [password], options);
   if (!read_) throw new WrongPassword();
   return read_.result as CasStatement;
+}
+
+/**
+ * TAX-AIS · An Annual Information Statement, opened with the first candidate
+ * password that works (typed, or worked out from the saved PAN and date of
+ * birth) — null when none does.
+ */
+export async function readAisPdf(
+  bytes: Uint8Array, candidates: string[], options: PdfReadOptions = {},
+): Promise<AisStatement | null> {
+  const read_ = await read("ais", bytes, candidates, options);
+  return read_ ? read_.result as AisStatement : null;
 }

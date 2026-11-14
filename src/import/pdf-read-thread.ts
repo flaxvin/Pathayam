@@ -16,8 +16,9 @@ import { decryptDocument, isEncrypted, WrongPassword } from "../pdf/decrypt.ts";
 import { extractText } from "../pdf/text.ts";
 import { parseStatementText } from "./pdf-statements.ts";
 import { parseCasText } from "./cas.ts";
+import { parseAisText } from "./ais.ts";
 
-export type PdfReadKind = "statement" | "cas";
+export type PdfReadKind = "statement" | "cas" | "ais";
 
 export interface PdfReadJob {
   id: number;
@@ -53,7 +54,9 @@ function read(job: PdfReadJob): Outcome {
   }
   expandObjectStreams(doc);
   const text = extractText(doc);
-  const result = job.kind === "cas" ? parseCasText(text) : parseStatementText(text);
+  const result = job.kind === "cas" ? parseCasText(text)
+    : job.kind === "ais" ? parseAisText(text)
+    : parseStatementText(text);
   return { ok: true, index, result };
 }
 

@@ -167,7 +167,7 @@ export function buildTools(
       NONE, () => aiNetWorth(db, viewerMemberId, {}, opts)),
 
     tool("tax_estimate", "Income tax estimate",
-      "The member's income tax estimate for a financial year under both regimes, as the Tax screen shows it: an estimate on the figures entered, not a return and not advice. A year the app has no rates for is refused.",
+      "The member's income tax estimate for a financial year under both regimes, as the Tax screen shows it: an estimate on the figures entered, not a return and not advice. For the year in progress it also gives the s112A long-term gains exemption still unused and, per holding, the units that could be sold oldest-first without crossing it. A year the app has no rates for is refused.",
       { type: "object", additionalProperties: false, properties: { fy: FY } },
       (a) => aiTaxEstimate(db, viewerMemberId, a as { fy?: number }, opts)),
 

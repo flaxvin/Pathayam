@@ -432,6 +432,8 @@ describe("07 P4–P9 · refreshing", () => {
     const outcome = await refreshPrices(db, actor, {
       fetchImpl: impl, force: true, sleep: noSleep, random: () => 0,
       alphaVantageKey: "test-key",
+      // PRICES-1 · Otherwise a rupee share goes to the exchange files first.
+      bhavcopy: false,
     });
 
     assert.equal(calls.length, 0, "the app enforces its own ceiling");
