@@ -7,6 +7,15 @@ public surface: a change that breaks one of them is a major version.
 
 ## Unreleased
 
+- **Tax-free long-term gains left this year.** The Tax page shows, for the
+  year in progress, how much of the ₹1,25,000 s112A exemption the member has
+  used on long-term listed equity, what is left, and the days to 31 March; and
+  for each listed equity holding of their own, the lots already long-term at
+  the latest stored price and how many units could be sold, oldest lots first,
+  without crossing what is left. Unlisted shares, hybrid funds, international
+  holdings and anything without a price are listed as left out, never
+  suggested. Portfolio links to it, and the AI connector's `tax_estimate`
+  carries it as `ltcg_harvest`. No migration.
 - **Forwarding address.** Each member can have an address
   (`<route>.<token>@INBOUND_DOMAIN`) to forward bank mail to with a filter;
   alerts and statements land in Review as they arrive, through the Gmail

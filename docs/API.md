@@ -685,7 +685,7 @@ only (out of a token's reach).
 
 | Method | Path | Token | Purpose |
 |---|---|---|---|
-| GET | `/portfolio` | R | Holdings, XIRR, other assets. |
+| GET | `/portfolio` | R | Holdings, XIRR, other assets, and (tax on) the signed-in member's unused s112A exemption this year, linking to `/tax#harvest`. |
 | GET | `/portfolio/:id` | R | One instrument. |
 | GET/POST | `/portfolio/add` | R/W | Add a holding. `?instrument=<id>` (where "Choose" on a searched scheme lands) buys that instrument; the POST takes `instrument_id` for it. |
 | GET/POST | `/portfolio/:id/sell` | R/W | Record a sale. |

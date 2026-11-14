@@ -119,7 +119,7 @@ answer 404 when the viewer may not see the entity
 
 | Route | Purpose |
 |---|---|
-| `GET`/`POST /tax` | Income tax estimate for the signed-in member, per financial year (`fy`). Both regimes side by side, 80C/80D/HRA, home loan interest under 24(b) carried from loans marked as for a house lived in (with an override), TDS, the balance to pay or refund under each regime, and the advance-tax instalments with what has been paid against each. Capital gains for 2024-25 are split by sale date at 23-07-2024. Refuses a year whose rates the app does not carry. |
+| `GET`/`POST /tax` | Income tax estimate for the signed-in member, per financial year (`fy`). Both regimes side by side, 80C/80D/HRA, home loan interest under 24(b) carried from loans marked as for a house lived in (with an override), TDS, the balance to pay or refund under each regime, and the advance-tax instalments with what has been paid against each. Capital gains for 2024-25 are split by sale date at 23-07-2024. For the year in progress, a card (`#harvest`, HARVEST-1) shows the s112A exemption still unused, the long-term lots of each listed equity holding of the member's own at the latest stored price, and the units that could be sold FIFO without crossing the exemption; unlisted, hybrid, international and unpriced holdings are listed as left out. Refuses a year whose rates the app does not carry. |
 | `POST /tax/payments`, `/tax/payments/:id/delete` | Record or remove an advance or self-assessment tax payment of the member's own. |
 
 ## Financial independence
