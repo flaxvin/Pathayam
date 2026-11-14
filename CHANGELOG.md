@@ -16,6 +16,18 @@ public surface: a change that breaks one of them is a major version.
   holdings and anything without a price are listed as left out, never
   suggested. Portfolio links to it, and the AI connector's `tax_estimate`
   carries it as `ltcg_harvest`. No migration.
+
+- **The tax estimate reads your Annual Information Statement.** On the Tax
+  page, upload your own AIS PDF (it opens with your saved PAN and date of
+  birth): TDS by deductor, salary, interest from savings and deposits,
+  dividends and securities sold are read and shown, with the sales set beside
+  what the app recorded. "Use these figures" raises the form's TDS and gross
+  income to the AIS's, never lowers them, and saves nothing until you do. Only
+  the figures are kept, never the file, and only for you. JSON and CSV
+  downloads are not read; the PDF layout is assumed, and anything not
+  recognised is listed as not read. Refused on the demo. Migration 0076. See
+  [docs/limitations.md](docs/limitations.md#tax).
+
 - **Forwarding address.** Each member can have an address
   (`<route>.<token>@INBOUND_DOMAIN`) to forward bank mail to with a filter;
   alerts and statements land in Review as they arrive, through the Gmail

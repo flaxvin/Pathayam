@@ -114,10 +114,52 @@ own split it is marked estimated; the lender's certificate is the number to
 use, entered in the same box. Figures as retrieved on 22-10-2026 from secondary
 sources (the department's site was not reachable to check against).
 
-**Tax already paid is netted (TAX-2).** TDS for the year is entered as one figure
-from Form 16 or 26AS (nothing is read from either), and advance and
-self-assessment tax are entered a challan at a time. Each regime's estimate,
-less all three, is shown as a balance to pay or a refund.
+**Tax already paid is netted (TAX-2).** TDS for the year is one figure, typed
+from Form 16 or 26AS (nothing is read from either) or offered from the member's
+Annual Information Statement, and advance and self-assessment tax are entered a
+challan at a time. Each regime's estimate, less all three, is shown as a
+balance to pay or a refund.
+
+**The Annual Information Statement is read from its PDF (TAX-AIS).** A member
+uploads their own AIS on the Tax page; the app reads TDS by deductor, salary,
+interest (savings bank, deposits, other), dividends and the sale value of
+securities, keeps those figures (never the file, the PAN, the name or any
+account number), and offers the TDS and the salary, interest and dividends into
+the form, raising a figure and never lowering it, saved only with the form.
+Checked against the department (retrieved 13/14-11-2026): the AIS downloads as
+PDF, JSON or CSV; the PDF's password is the PAN in lower case followed by the
+date of birth as DDMMYYYY; the category names are the AIS Handbook's (v2.0,
+March 2022). What is not modelled:
+
+- **The JSON and CSV downloads.** The JSON's fields are not published anywhere
+  the app could check, and it is a file for the department's own offline
+  utility, opened with a different password (the PAN in capitals). Only the PDF
+  is read.
+- **The PDF's exact layout is [unverified].** No real AIS was available to
+  build against, so the reader assumes one line per information line —
+  serial, code, description, source, count, amount — with dated quarter rows
+  under a TDS line whose last amount is the TDS deposited. A line of another
+  shape is counted as not read rather than guessed at; a source name that
+  wraps onto a second line is one such case.
+- **Parts not read:** TCS, payment of taxes, demand and refund, and every other
+  category (rent, cash deposits, purchases, foreign remittances and the rest).
+  Each shows on the page as not used, with its amount where it had one, or as a
+  count of lines.
+- **Duplicates** are handled as the Handbook describes: the same income reported
+  by one bank or company twice (with its TDS and in its SFT return) is counted
+  once, at the higher figure. Two names for one source that differ by more than
+  a bracketed code are taken as two sources.
+- **The taxpayer's feedback on the AIS** (marking a line wrong or a duplicate on
+  the portal) is not seen; the figures are as printed.
+- **Securities sold** are shown beside the sale proceeds this app recorded for
+  the member's own holdings, as a hint to reconcile. The capital gains in the
+  estimate still come only from the sales recorded here. Proceeds here are
+  after charges; the AIS's are the sale consideration.
+- **Ownership** is checked against the PAN saved for the member under statement
+  passwords; with none saved the import goes ahead with a warning. One member
+  cannot import, see or remove another's AIS.
+- **The demo refuses the upload**, because an AIS is a whole tax year of
+  somebody's figures and the demo is public.
 
 **Advance tax is measured against what was paid (TAX-3).** Where the year's
 tax under the lower regime, less TDS, is ₹10,000 or more, the four instalments

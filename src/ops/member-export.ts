@@ -52,6 +52,8 @@ const REDACT: Record<string, string[]> = {
 const PER_MEMBER: Record<string, string> = {
   tax_declarations: "member_id",
   tax_payments: "member_id",
+  ais_imports: "member_id",
+  ais_lines: "member_id",
   digest_mutes: "member_id",
   review_dismissals: "member_id",
 };
