@@ -22,6 +22,8 @@
  * - **MFAPI** — response shape verified live on 26-08-2026. NAV is a *string*
  *   and dates are DD-MM-YYYY.
  * - **Frankfurter** — verified live. v2 is pinned, v1 is the fallback.
+ * - **NSE and BSE bhavcopy** — URLs, headers and columns verified live on
+ *   13-11-2026; see bhavcopy.ts (PRICES-1).
  * - **Alpha Vantage** — the endpoint, the `.BSE` suffix and the quota are
  *   verified, but **the `GLOBAL_QUOTE` field names are not**. The adapter
  *   therefore reads defensively and reports a typed failure rather than
@@ -35,8 +37,9 @@
 import type { IsoDate } from "../core/dates.ts";
 import { todayIST } from "../core/dates.ts";
 import { price as toMicroRupees, type MicroRupees } from "./holdings.ts";
+import { bhavcopy } from "./bhavcopy.ts";
 
-export type ProviderName = "mfapi" | "amfi" | "frankfurter" | "alphavantage" | "manual";
+export type ProviderName = "mfapi" | "amfi" | "frankfurter" | "alphavantage" | "bhavcopy" | "manual";
 
 export interface PriceResult {
   ok: true;
@@ -47,6 +50,8 @@ export interface PriceResult {
   source: ProviderName;
   name?: string;
   isin?: string | null;
+  /** The clock, injected in tests; providers that walk back over days need it. */
+  now?: Date;
 }
 
 export interface PriceFailure {
@@ -70,6 +75,11 @@ export interface FetchOptions {
   fetchImpl?: typeof fetch;
   apiKey?: string | null;
   timeoutMs?: number;
+  /**
+   * PRICES-1 · The instrument's ISIN, for a provider that can look one up
+   * beside the symbol (the bhavcopy matches on it first). Never sent anywhere.
+   */
+  isin?: string | null;
 }
 
 function fail(source: ProviderName, reason: PriceFailure["reason"], message: string): PriceFailure {
@@ -436,6 +446,7 @@ export const PROVIDERS: Record<string, Provider> = {
   mfapi,
   amfi,
   alphavantage: alphaVantage,
+  bhavcopy,
 };
 
 // ---------------------------------------------------------------------------

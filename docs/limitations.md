@@ -281,6 +281,18 @@ with no holder is nobody's deduction until one is named.
 have is refused rather than computed with the previous year's, and the health
 page reports when the current financial year is newer than the rates carried.
 
+## Prices
+
+**Indian shares and ETFs at the day's close, not live.** The exchanges' end-of-day
+files are read once each is published (after 18:00 IST); there are no intraday
+prices. A share is matched by ISIN or exchange symbol only, never by name, and
+one not traded on the latest day is not in that day's file, so it keeps its
+last price with that price's date. NSE is read first; a share listed on both is
+priced at NSE's close. Debt and other segments' files (bonds, derivatives) are
+not read. The download URLs and columns were verified on 13-11-2026; if an
+exchange changes them, the fetch fails with a stated reason and the last price
+stays.
+
 ## Currency
 
 **Rupee by default.** `FEATURE_MULTI_CURRENCY` is off unless set. With it off,

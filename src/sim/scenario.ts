@@ -68,7 +68,7 @@ import {
   reopenFamilyLoan, listFamilyLoans,
 } from "../domain/family-loans.ts";
 import {
-  createAssetAccount, findOrCreateInstrument, classifyInstrument, recordPurchase, recordSale,
+  createAssetAccount, findOrCreateInstrument, classifyInstrument, setInstrumentIdentifier, recordPurchase, recordSale,
   recordDividend, recordSplit, recordMerger, recordReturnOfCapital, recordValuation,
   recordPrice, recordFxRate, listHoldings,
 } from "../domain/assets.ts";
@@ -408,6 +408,10 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
     classifyInstrument(db, actor, flexi.id, { assetClass: "equity", region: "domestic" }));
   did("classifyInstrument", () =>
     classifyInstrument(db, actor, apple.id, { assetClass: "equity", region: "international" }));
+  // PRICES-1 · Its ISIN beside its ticker. A dollar share is not priced from
+  // the Indian exchanges' files, so this changes no price, only what it is known by.
+  did("setInstrumentIdentifier", () =>
+    setInstrumentIdentifier(db, actor, apple.id, { isin: "US0378331005", symbol: "AAPL" }));
   /*
    * The index fund is the one the household sells, and its gain is what the
    * tax screen has to place. Left unclassified it is correctly refused rather

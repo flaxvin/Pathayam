@@ -32,6 +32,7 @@ import { allocateByWeight, formatPaise, type Paise } from "../core/money.ts";
 import { SIMPLE_TRACKING_SUBTYPES, createAccount, getAccount } from "./accounts.ts";
 import { createTransaction, UndoRefused } from "./transactions.ts";
 import { dependantsOf } from "./dependants.ts";
+import { parseIdentifier } from "../portfolio/bhavcopy.ts";
 import { computedDepositValue } from "./deposits.ts";
 import {
   makeLot, previewSale, totalUnits, costBasis, averageCost, averageUnitPrice, marketValue,
@@ -642,6 +643,58 @@ export function setInstrumentListed(
         : value === 0
           ? `Recorded ${before.name} as not listed`
           : `Cleared whether ${before.name} is listed`,
+    });
+  });
+}
+
+/** Any ISIN's shape: country, nine characters, a check digit. */
+const ISIN_SHAPE = /^[A-Z]{2}[A-Z0-9]{9}[0-9]$/;
+
+/**
+ * PRICES-1 · What a share or ETF is known by on the exchanges: its ISIN and
+ * its NSE symbol or BSE scrip code. Either is enough for the evening's
+ * closing price to be fetched (portfolio/bhavcopy.ts); a blank clears it.
+ *
+ * Refused for any other kind: a fund's scheme code and ISIN come from the
+ * scheme search, and changing them by hand would detach it from its NAV.
+ */
+export function setInstrumentIdentifier(
+  db: DB, actor: Actor, instrumentId: string,
+  input: { isin: string | null; symbol: string | null },
+): void {
+  transact(db, () => {
+    const before = getInstrument(db, instrumentId);
+    if (!before) throw new Missing("That instrument does not exist.");
+    if (before.kind !== "equity" && before.kind !== "etf") {
+      throw new Refusal("Only a share or an ETF is looked up on the exchanges by its ISIN or symbol.");
+    }
+    const isin = (input.isin ?? "").trim().toUpperCase() || null;
+    const symbol = (input.symbol ?? "").trim().toUpperCase() || null;
+    if (isin && !ISIN_SHAPE.test(isin)) {
+      throw new Refusal(`"${isin}" is not an ISIN: two letters, nine letters or digits, then a digit (INE002A01018).`);
+    }
+    if (symbol) {
+      const id = parseIdentifier(null, symbol);
+      if (!id.symbol && !id.bseCode && !id.isin) {
+        throw new Refusal(`"${symbol}" is not an exchange symbol (RELIANCE, NSE:RELIANCE) or a BSE scrip code (500325).`);
+      }
+    }
+    if (isin && isin !== before.isin) {
+      // R24.6 · The ISIN is how an instrument is found again; two cannot share one.
+      const other = queryOne<{ name: string }>(
+        db, `SELECT name FROM instruments WHERE isin = ? AND id <> ?`, isin, instrumentId,
+      );
+      if (other) throw new Refusal(`${other.name} already has that ISIN. Buy more of it instead of a second instrument.`);
+    }
+    if (before.isin === isin && before.symbol === symbol) return;
+
+    execute(db, `UPDATE instruments SET isin = ?, symbol = ? WHERE id = ?`, isin, symbol, instrumentId);
+    appendEvent(db, actor, {
+      entity: "instrument", entityId: instrumentId, action: "identify",
+      before: { isin: before.isin, symbol: before.symbol }, after: { isin, symbol },
+      summary: isin || symbol
+        ? `Recorded ${before.name} as ${[isin, symbol].filter(Boolean).join(" / ")}`
+        : `Cleared ${before.name}'s ISIN and symbol`,
     });
   });
 }
@@ -1825,6 +1878,14 @@ registerUndoHandler("instrument", (db, event) => {
     const before = (event.before ?? {}) as { listed?: number | null };
     execute(db, `UPDATE instruments SET listed = ? WHERE id = ?`, before.listed ?? null, id);
     return `Put back whether the instrument is listed`;
+  }
+  if (event.action === "identify") {
+    const before = (event.before ?? {}) as { isin?: string | null; symbol?: string | null };
+    execute(
+      db, `UPDATE instruments SET isin = ?, symbol = ? WHERE id = ?`,
+      before.isin ?? null, before.symbol ?? null, id,
+    );
+    return `Put back the instrument's ISIN and symbol`;
   }
   if (event.action !== "create") {
     throw new UndoRefused("That change to the instrument cannot be undone from here.");

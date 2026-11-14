@@ -698,6 +698,7 @@ only (out of a token's reach).
 | GET | `/portfolio/allocation` | R | Allocation by class/region/currency. |
 | POST | `/portfolio/instrument/:id/classify` | W | Set an instrument's class. |
 | POST | `/portfolio/instrument/:id/listed` | W | Say whether a bond is listed on an exchange. |
+| POST | `/portfolio/instrument/:id/identifier` | W | Set a share's or ETF's `isin` and `symbol` (NSE symbol or BSE scrip code); blank clears. |
 | POST | `/portfolio/refresh` | W | Refresh prices. |
 | GET | `/net-worth` | R | Net-worth decomposition & history. |
 | GET | `/fire` | R | Financial-independence projection from trailing spending. |

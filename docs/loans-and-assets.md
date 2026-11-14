@@ -380,9 +380,45 @@ class it replaced; undoing its creation is refused while anything is held in it.
 
 ### Prices
 
-Mutual funds are priced from a keyless public provider by scheme code; equities
-from Alpha Vantage when a key is configured. Prices are stored with their date;
-`price_fetches` records outcomes. Instruments may be marked `manual_only`.
+Mutual funds are priced from a keyless public provider by scheme code. Indian
+shares and ETFs are priced from the exchanges' own end-of-day files (the
+"bhavcopy"), also without a key: a rupee share or ETF given its ISIN or its NSE
+symbol or BSE scrip code (on the add form, or under "Where its price comes
+from" on its holding page) gets the closing price of the latest trading day.
+Foreign shares, and an instrument set up for Alpha Vantage that the files
+cannot price, use Alpha Vantage when a key is configured. Prices are stored
+with their date; `price_fetches` records outcomes. Instruments may be marked
+`manual_only`, and are then never fetched.
+
+**The bhavcopy** (PRICES-1, `src/portfolio/bhavcopy.ts`). Verified live on
+13-11-2026:
+
+| | NSE | BSE |
+|---|---|---|
+| URL | `https://nsearchives.nseindia.com/content/cm/BhavCopy_NSE_CM_0_0_0_YYYYMMDD_F_0000.csv.zip` | `https://www.bseindia.com/download/BhavCopy/Equity/BhavCopy_BSE_CM_0_0_0_YYYYMMDD_F_0000.CSV` |
+| Form | A ZIP holding one deflated CSV (~0.2 MB, ~3,700 rows) | A plain CSV (~0.9 MB, ~5,100 rows) |
+| No file that day | 404 | 200 with BSE's HTML home page |
+| Headers | Refuses a request with no User-Agent | None needed |
+
+Both files share the UDiFF header (`TradDt`, `ISIN`, `TckrSymb`, `SctySrs`,
+`FinInstrmId`, `FinInstrmNm`, `ClsPric`, ...), read by name. A holding is
+matched by ISIN first, then by symbol (NSE's ordinary series, EQ, ahead of BE,
+BZ, SM and ST) or BSE scrip code (`FinInstrmId` in BSE's file). NSE's file is
+read first and BSE's when NSE does not list it. The refresh walks back up to
+seven days over weekends and holidays; the price is dated by the file's
+`TradDt`, never by the day it was fetched. Both files were last modified about
+16:35 IST on 13-11-2026, so the equity refresh waits until 18:00 IST; the time
+on other days is [unverified].
+
+Only the file is requested, with a generic `User-Agent: Mozilla/5.0`: no
+symbol, holding or anything about the household leaves the server. One download
+per exchange per trading day serves every holding; days are kept in memory
+(four at most), a day with no file is remembered, and each exchange is asked
+at most twelve times a day however often Refresh is pressed, which also bounds
+what visitors can cause on the public demo. A file over 8 MB, a ZIP that
+unpacks past 32 MB or past its own declared size, or one that is encrypted,
+multi-part, ZIP64 or compressed other than stored or deflated, is refused.
+`BHAVCOPY_PRICES=false` turns it off.
 
 The scheduled refresh takes its time (a jittered, backed-off fetch per held
 instrument). The Refresh button does not: each request gets at most 4 seconds,

@@ -717,8 +717,12 @@ export function renderHoldingDetail(opts: {
   accountName: string;
   history: { asOf: IsoDate; price: number; source: string }[];
   today: IsoDate;
+  /** PRICES-1 · Whether the exchanges' closing files are read (BHAVCOPY_PRICES). Omitted is on. */
+  bhavcopy?: boolean;
 }): SafeHtml {
   const v = opts.view;
+  const exchangePriced = (v.instrument.kind === "equity" || v.instrument.kind === "etf") &&
+    v.instrument.currency === "INR" && v.instrument.provider !== "mfapi";
 
   return html`
     <div class="row-between" style="margin-bottom:1rem">
@@ -809,6 +813,36 @@ export function renderHoldingDetail(opts: {
                 ? "Held over 12 months, a gain above ₹1.25 lakh a year is taxed at 12.5% (s112A); sooner, at 20% (s111A). Untick it for a share of an unlisted company."
                 : "An unlisted share is long-term after 24 months: then 12.5% without indexation and no ₹1.25 lakh exemption (s112); sooner, at your slab rate."}
             </p>
+          </div>
+          <button type="submit" class="button-small">Save</button>
+        </form>
+      </section>
+    `)}
+
+    ${when(exchangePriced, () => html`
+      <!-- PRICES-1 · What the exchanges know it by, so its closing price can be fetched. -->
+      <section class="card">
+        <h2>Where its price comes from</h2>
+        <p class="faint">
+          ${v.instrument.manual_only
+            ? "Pinned to the prices you enter; nothing is fetched for it."
+            : opts.bhavcopy === false
+              ? "Fetching closing prices from the exchanges is switched off on this server, so enter its price by hand."
+              : v.instrument.isin || v.instrument.symbol
+                ? "Priced each evening from NSE's closing prices, or BSE's when NSE does not list it, dated the trading day they are for."
+                : "Add its ISIN or NSE symbol and it is priced each evening from the exchanges' closing prices. Until then, enter its price by hand."}
+        </p>
+        <form method="post" action="/portfolio/instrument/${v.instrument.id}/identifier">
+          <input type="hidden" name="holding_id" value="${v.holding.id}">
+          <div class="grid-2">
+            <div class="field">
+              <label for="isin">ISIN</label>
+              <input id="isin" name="isin" value="${v.instrument.isin ?? ""}" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="INE002A01018">
+            </div>
+            <div class="field">
+              <label for="symbol">NSE symbol or BSE code</label>
+              <input id="symbol" name="symbol" value="${v.instrument.symbol ?? ""}" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="RELIANCE or 500325">
+            </div>
           </div>
           <button type="submit" class="button-small">Save</button>
         </form>
@@ -1373,6 +1407,22 @@ export function renderAddHolding(opts: {
                   </select>
                 </div>
               </div>
+              <!-- PRICES-1 · Either one lets the evening refresh price a share or ETF. -->
+              <div class="grid-2">
+                <div class="field">
+                  <label for="isin">ISIN <span class="faint">(shares and ETFs, optional)</span></label>
+                  <input id="isin" name="isin" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="INE002A01018">
+                </div>
+                <div class="field">
+                  <label for="symbol">NSE symbol or BSE code <span class="faint">(optional)</span></label>
+                  <input id="symbol" name="symbol" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="RELIANCE or 500325">
+                </div>
+              </div>
+              <p class="field-hint">
+                With either, a share or ETF bought in rupees is priced each evening
+                from NSE's and BSE's published closing prices. No key or account is
+                needed, and nothing about your holding is sent.
+              </p>
               <div class="field">
                 <label class="row">
                   <input type="checkbox" name="listed" value="1">
