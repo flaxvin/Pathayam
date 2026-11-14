@@ -65,7 +65,9 @@ v1.0.0 · 3100 tests · 0 runtime dependencies · 75 migrations · 252 routes
   a tax return nor advice.
   Home-loan interest under 24(b) comes from the loan ledger; TDS, advance tax
   and self-assessment payments are netted to a balance due or a refund; each
-  advance-tax instalment is checked against what was paid by its date. FY
+  advance-tax instalment is checked against what was paid by its date. Your
+  own Annual Information Statement PDF can be uploaded to read its TDS,
+  interest and dividends instead of typing them. FY
   2024-25 gains are split at 23-07-2024, and listed bonds held over a year
   are taxed at 12.5%. Slabs are data keyed by financial year, so a year the
   app does not have rates for is refused rather than computed with last year's.
