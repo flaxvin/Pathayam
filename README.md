@@ -69,6 +69,9 @@ v1.0.0 · 3100 tests · 0 runtime dependencies · 75 migrations · 252 routes
   2024-25 gains are split at 23-07-2024, and listed bonds held over a year
   are taxed at 12.5%. Slabs are data keyed by financial year, so a year the
   app does not have rates for is refused rather than computed with last year's.
+  For the year in progress it shows how much of the ₹1,25,000 s112A exemption
+  on long-term listed equity is still unused, and how many units of each
+  holding could be sold, oldest lots first, to use it without crossing it.
 - **Financial independence.** A target based on what the household actually
   spent, measured against the assets that could fund it (your home belongs on
   the net worth statement, not here). It assumes no further earnings, and

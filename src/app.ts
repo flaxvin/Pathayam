@@ -207,6 +207,7 @@ import {
 } from "./web/pages/manage.ts";
 import { renderPrivacy, renderTerms, type LegalMode } from "./web/pages/legal.ts";
 import { Refusal } from "./core/refusal.ts";
+import { ltcgHarvestHint } from "./domain/ltcg-harvest.ts";
 import {
   checkPassword, checkAbsentPassword, setPassword, anyPasswordSet, hasPassword,
 } from "./auth/passwords.ts";
@@ -9336,9 +9337,20 @@ export function buildApp(deps: AppDeps): {
   router.get("/portfolio", (ctx) => {
     requireAssets();
     const scope = holderScopeParam(ctx);
+    // HARVEST-1 · The viewer's own exemption, whatever scope the list shows:
+    // a member's s112A figures are theirs alone. Tax off, it is not offered.
+    const me = viewer(ctx);
+    let harvest = null;
+    if (me && config.features.tax) {
+      try {
+        harvest = ltcgHarvestHint(db, me);
+      } catch (err) {
+        if (!(err instanceof Refusal)) throw err;
+      }
+    }
     return render(
       ctx, "Portfolio",
-      renderPortfolio(portfolioData(db, { viewerMemberId: viewer(ctx), scope })),
+      renderPortfolio({ ...portfolioData(db, { viewerMemberId: me, scope }), harvest }),
     );
   });
 

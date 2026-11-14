@@ -908,6 +908,11 @@ dialog::backdrop { background: rgba(0,0,0,.45); }
   }
   .print-keep .field { margin-bottom: .5rem; }
 
+  /* HARVEST-1 · The caveats belong with the figures they qualify: a sheet
+     carrying "sell up to" without "not advice" beneath it is the wrong sheet. */
+  .harvest-caveats { break-inside: avoid; page-break-inside: avoid; break-before: avoid; }
+  .harvest .table-scroll { break-after: avoid; }
+
   .print-footer {
     display: block; margin-top: 1.25rem; padding-top: .4rem;
     border-top: 1px solid #000; font-size: 8.5pt; color: #2b2b2b;

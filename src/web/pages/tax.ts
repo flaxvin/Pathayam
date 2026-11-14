@@ -18,6 +18,8 @@ import type {
 } from "../../domain/tax.ts";
 import { hraFiftyPercentCities } from "../../domain/tax.ts";
 import type { GainsTax } from "../../domain/capital-gains-tax.ts";
+import type { HarvestHint } from "../../domain/ltcg-harvest.ts";
+import { formatPrice, UNIT_SCALE } from "../../portfolio/holdings.ts";
 import type { HomeLoanInterest } from "../../domain/home-loan-interest.ts";
 import type { PolicyTaxSuggestion } from "../../domain/insurance.ts";
 import { renderPolicySuggestion } from "./insurance.ts";
@@ -56,6 +58,8 @@ export interface TaxPageProps {
   settlement: { old: Settlement; new: Settlement } | null;
   /** TAX-3 · The year's advance-tax threshold. */
   advanceThreshold: Paise;
+  /** HARVEST-1 · The s112A exemption left this year; null for any other year. */
+  harvest?: HarvestHint | null;
 }
 
 /**
@@ -416,6 +420,8 @@ export function renderTax(p: TaxPageProps): SafeHtml {
         `
       : html``}
 
+    ${p.harvest && p.features?.assets !== false ? harvestCard(p.harvest) : html``}
+
     ${paidSection(p)}
 
     ${p.advance.length > 0
@@ -649,6 +655,103 @@ function paidSection(p: TaxPageProps): SafeHtml {
         </div>
         <button type="submit">Record a payment</button>
       </form>
+    </section>
+  `;
+}
+
+/** Shares and ETF units are whole; fund units carry three decimals. */
+function showUnits(u: number, kind: string): string {
+  const n = u / UNIT_SCALE;
+  return kind === "mutual-fund"
+    ? n.toLocaleString("en-IN", { minimumFractionDigits: 3, maximumFractionDigits: 3 })
+    : n.toLocaleString("en-IN", { maximumFractionDigits: 3 });
+}
+
+/**
+ * HARVEST-1 · What is left of the s112A exemption this year, and what could be
+ * sold, oldest lots first, to use it. Arithmetic on stored prices; the caveats
+ * are on the card, not in a footnote, for the reason the page gives at its foot.
+ */
+export function harvestCard(h: HarvestHint): SafeHtml {
+  const anyStale = h.lines.some((l) => l.priceStale);
+  return html`
+    <section class="card harvest" id="harvest">
+      <h2>Tax-free long-term gains left this year</h2>
+      <p>
+        Long-term gains on listed shares and equity funds are exempt up to
+        <strong>${formatPaise(h.exemption)}</strong> a year (s112A). So far in
+        ${formatFiscalYear(h.fy)} you have realised <strong>${formatPaise(h.realised)}</strong> of them,
+        which leaves <strong>${formatPaise(h.unused)}</strong> unused.
+        ${h.daysLeft >= 0
+          ? html`<strong>${h.daysLeft}</strong> ${h.daysLeft === 1 ? "day" : "days"} to ${formatDate(h.fyEnd)}; what is unused then does not carry over.`
+          : html``}
+      </p>
+      ${when(h.unplaced !== 0, () => html`
+        <div class="notice notice-warning">
+          ${formatPaise(h.unplaced)} of this year's gains could not be placed (see Capital gains above).
+          If any of it is long-term listed equity, less of the exemption is left than shown.
+        </div>
+      `)}
+      ${h.lines.length > 0
+        ? html`
+            <div class="table-scroll">
+              <table>
+                <thead>
+                  <tr>
+                    <th scope="col">Holding</th>
+                    <th scope="col" class="amount">Price</th>
+                    <th scope="col" class="amount">Long-term units</th>
+                    <th scope="col" class="amount">Their gain</th>
+                    <th scope="col" class="amount">Short-term units</th>
+                    <th scope="col" class="amount">Sell up to</th>
+                    <th scope="col" class="amount">Gain realised</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  ${h.lines.map((l) => html`
+                    <tr>
+                      <td>${l.instrument}<br><span class="faint">${l.accountName}</span></td>
+                      <td class="amount">
+                        ₹${formatPrice(l.price)}<br>
+                        <span class="faint">${formatDate(l.priceAsOf)}</span>
+                        ${when(l.priceStale, () => html`<span class="chip chip-warning">stale</span>`)}
+                      </td>
+                      <td class="amount">${showUnits(l.longTermUnits, l.kind)}</td>
+                      <td class="amount">${formatPaise(l.longTermGain)}</td>
+                      <td class="amount">
+                        ${showUnits(l.shortTermUnits, l.kind)}
+                        ${l.nextLongTermOn
+                          ? html`<br><span class="faint">first long-term ${formatDate(l.nextLongTermOn)}</span>`
+                          : html``}
+                      </td>
+                      <td class="amount">${l.suggestUnits > 0 ? html`<strong>${showUnits(l.suggestUnits, l.kind)}</strong>` : html`<span class="faint">—</span>`}</td>
+                      <td class="amount">${l.suggestUnits > 0 ? formatPaise(l.suggestGain) : html`<span class="faint">—</span>`}</td>
+                    </tr>
+                  `)}
+                </tbody>
+              </table>
+            </div>
+            <p class="field-hint">
+              Taken together the suggestions realise ${formatPaise(h.suggestedGain)}, within what
+              is left. Each counts lots held more than ${h.longTermMonths} months, and is the
+              number of units a sale here would take oldest first — so it stops before any
+              short-term lot, and takes a long-term lot at a loss in its turn.
+            </p>
+          `
+        : html`<p class="muted">You hold no listed shares or equity funds of your own that this can work out.</p>`}
+      ${when(h.excluded.length > 0, () => html`
+        <h3>Left out</h3>
+        <ul>
+          ${h.excluded.map((e) => html`<li><strong>${e.instrument}</strong> <span class="faint">(${e.accountName})</span>: ${e.reason}.</li>`)}
+        </ul>
+      `)}
+      <ul class="checks harvest-caveats">
+        <li><strong>An estimate, not advice.</strong> Whether to sell, and whether to buy back, is your choice.</li>
+        <li><strong>At the last stored price${anyStale ? ", and some are stale" : ""}.</strong> The price on the day you sell will differ; each row shows its price's date.</li>
+        <li><strong>Exit loads, STT and brokerage are not included.</strong></li>
+        <li><strong>Losses are not set off between heads.</strong> A short-term loss could absorb these gains; that is not modelled.</li>
+        <li><strong>Only holdings in accounts you are named holder of.</strong> Unlisted shares, hybrid funds, international holdings and anything without a price are never suggested.</li>
+      </ul>
     </section>
   `;
 }

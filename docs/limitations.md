@@ -183,6 +183,19 @@ index and will not invent one. The gains rates are keyed by year like the
 slabs; a sale in a year the app has no rates for (it has 2024-25 to 2026-27)
 is refused rather than given another year's.
 
+The tax page's "tax-free long-term gains" card (HARVEST-1) is arithmetic on
+stored prices, not advice. Its "sell up to" figure follows the app's FIFO and
+stops before any short-term lot; it uses the last stored price (dated, and
+marked when stale), and leaves out exit loads, STT and brokerage, and any
+short-term loss that could absorb the gain. It covers only listed equity and
+equity-classed funds and ETFs priced in rupees, in accounts the member is named
+holder of; unlisted shares, hybrid funds, international holdings, anything
+without a price, and a lot bought before 01-02-2018 with no 31-01-2018 price
+are listed as left out. Whether a fund is "equity-oriented" under s112A is
+taken from the asset class the household set, not from the fund's portfolio.
+Buying back after selling is the person's choice; the card says nothing about
+it.
+
 Losses are floored at zero per bucket rather than set off between heads, so a
 year with losses is overstated. The gains are measured against the rest of the
 person's income the way the Act does it: the 87A ceiling and the surcharge

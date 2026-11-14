@@ -14,6 +14,7 @@ import { html, raw, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, formatCompact, type Paise } from "../../core/money.ts";
 import { formatDate, type IsoDate } from "../../core/dates.ts";
 import { formatUnits, formatPrice } from "../../portfolio/holdings.ts";
+import type { HarvestHint } from "../../domain/ltcg-harvest.ts";
 import type { HoldingView, AssetEvent } from "../../domain/assets.ts";
 import { ASSET_LABELS, ASSET_SUBTYPES, type AssetSubtype } from "../../domain/assets.ts";
 import { SUBTYPE_LABELS, REVALUABLE_SUBTYPES } from "../../domain/accounts.ts";
@@ -37,6 +38,8 @@ export function renderPortfolio(opts: {
     valued: boolean;
   }[];
   portfolioXirr: number | null;
+  /** HARVEST-1 · The viewer's own s112A exemption left this year; absent when tax is off. */
+  harvest?: HarvestHint | null;
 }): SafeHtml {
   const invested = opts.rows.reduce((sum, r) => sum + r.view.costBasis, 0);
   const value = opts.rows.reduce((sum, r) => sum + r.view.marketValue, 0);
@@ -102,6 +105,23 @@ export function renderPortfolio(opts: {
         `)}
       </div>
     </div>
+
+    ${when(opts.harvest && opts.harvest.lines.some((l) => l.longTermGain > 0), () => {
+      const h = opts.harvest!;
+      const held = h.lines.reduce((sum, l) => sum + Math.max(0, l.longTermGain), 0);
+      return html`
+        <section class="card harvest-summary">
+          <h2>Tax-free long-term gains</h2>
+          <p>
+            ${formatPaise(h.unused)} of your ${formatPaise(h.exemption)} s112A exemption is unused
+            this year, ${h.daysLeft} ${h.daysLeft === 1 ? "day" : "days"} before ${formatDate(h.fyEnd)}.
+            Your long-term listed equity holds ${formatPaise(held as Paise)} of unrealised gain.
+            <a href="/tax#harvest">What could be sold, oldest lots first</a>
+            <span class="faint">· an estimate at stored prices, not advice</span>
+          </p>
+        </section>
+      `;
+    })}
 
     ${when(opts.rows.length > 1, () => html`
       <section class="card">

@@ -67,7 +67,7 @@ financial year is named by its first year (`2026` is FY 2026-27).
 | `loans`, `loan_schedule` | Outstanding, rate, EMI, tenure; one loan's instalments. |
 | `portfolio`, `realised_gains` | Holdings, value, gain, XIRR, allocation; gains by financial year. |
 | `net_worth` | The statement and its history. |
-| `tax_estimate` | Both regimes for a financial year, as on the Tax screen. A year without rates is refused. |
+| `tax_estimate` | Both regimes for a financial year, as on the Tax screen. For the year in progress, `ltcg_harvest` adds the s112A exemption still unused and, per holding of the member's own, the units that could be sold oldest-first without crossing it. A year without rates is refused. |
 | `cashflow` | Schedules, card dues and maturities in the coming days (30 by default). |
 | `insurance`, `goals`, `financial_independence` | The registers and estimates behind those screens. |
 | `explain` | How Ready to Assign, or one envelope's available amount, was reached. |

@@ -18,7 +18,7 @@ import { queryAll, queryOne } from "../db/db.ts";
 import type { Paise } from "../core/money.ts";
 import { Refusal } from "../core/refusal.ts";
 import {
-  todayIST, addDays, addMonths, monthOf, lastDayOfMonth, daysBetween, type MonthKey,
+  todayIST, fiscalYearOf, addDays, addMonths, monthOf, lastDayOfMonth, daysBetween, type MonthKey,
 } from "../core/dates.ts";
 import { listMembers } from "../auth/sessions.ts";
 import {
@@ -46,6 +46,7 @@ import {
 } from "../domain/tax.ts";
 import { homeLoanInterestFor } from "../domain/home-loan-interest.ts";
 import { capitalGainsTaxFor, type GainsTax } from "../domain/capital-gains-tax.ts";
+import { ltcgHarvestHint, type HarvestHint } from "../domain/ltcg-harvest.ts";
 import { accountBalances, creditOutstanding } from "../engine/repository.ts";
 import { cardFunding } from "../engine/engine.ts";
 import { xirr } from "../portfolio/holdings.ts";
@@ -547,6 +548,17 @@ export function taxPageModel(
     }
   }
 
+  // HARVEST-1 · Only the year in progress has an exemption left to use, and
+  // only its prices mean anything for a sale that has not happened yet.
+  let harvest: HarvestHint | null = null;
+  if (fy === fiscalYearOf(todayIST()) && !gainsRefusal) {
+    try {
+      harvest = ltcgHarvestHint(db, memberId);
+    } catch (err) {
+      if (!(err instanceof Refusal)) throw err;
+    }
+  }
+
   // TAX-1 · Interest on loans this member holds for a house they live in,
   // accrued in the year from the loan's ledger — unless they gave their own.
   const homeLoan = homeLoanInterestFor(db, fy, memberId);
@@ -573,7 +585,7 @@ export function taxPageModel(
   }
 
   return {
-    fy, gross, ledgerIncome, estimate, advance, gains, gainsRefusal, slabsRefusal, fromPolicies,
+    fy, gross, ledgerIncome, estimate, advance, gains, gainsRefusal, slabsRefusal, fromPolicies, harvest,
     applyPolicies: apply,
     deductions: apply ? applyPolicySuggestion(stored, fromPolicies) : stored,
     homeLoan, s24bOverride: stored.s24bOverride ?? null, payments, paid, settlement,
