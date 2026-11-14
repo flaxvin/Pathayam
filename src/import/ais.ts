@@ -171,6 +171,25 @@ export function categoryOf(code: string | null, label: string): AisCategory {
   return "unread";
 }
 
+/** The not-read part a TCS line is counted under. */
+export const TCS_PART = "TCS (tax collected at source)";
+
+/** A TCS line: its code (TCS-206C…), or a description that says so. */
+export function isTcs(code: string | null, label: string): boolean {
+  return /^TCS-/i.test(code ?? "") || /tax collected at source|\btcs\b/i.test(label);
+}
+
+/**
+ * Whether a line's deducted amount is TDS beyond doubt: a TDS-… code, or no
+ * code and a category this reads. An uncategorised line without a TDS code
+ * is shown, never summed into the TDS box (review 2).
+ */
+export function isClearlyTds(line: { code: string | null; label: string; category: AisCategory }): boolean {
+  if (isTcs(line.code, line.label)) return false;
+  if (line.code !== null) return /^TDS-/i.test(line.code);
+  return line.category !== "unread";
+}
+
 /** Header rows and page furniture, which are expected and not "unread". */
 function isFurniture(line: string): boolean {
   const t = line.toLowerCase();
@@ -218,6 +237,7 @@ export function parseAisText(text: string): AisStatement {
   let section: AisSection | "general" | "unknown" | null = null;
   let part = "Before Part A";
   let current: AisLine | null = null;
+  let skippingTcs = false;
 
   for (const raw of rawLines) {
     const line = raw.trim();
@@ -238,9 +258,12 @@ export function parseAisText(text: string): AisStatement {
 
     // A detail row under the last information line: a date, then amounts.
     const dateAt = cells.findIndex((c) => DATE.test(c));
+    // The dated rows under a TCS line belong to it and are not read either.
+    if (skippingTcs && dateAt >= 0) continue;
+    skippingTcs = false;
     if (current && dateAt >= 0) {
       const amounts = cells.slice(dateAt + 1).map(amountOf).filter((a): a is Paise => a !== null);
-      if (current.section === "tds" && amounts.length >= 2) {
+      if (current.section === "tds" && amounts.length >= 2 && isClearlyTds(current)) {
         // [unverified] amount paid/credited, TDS deducted, TDS deposited: the last is what was deposited.
         current.tds = (current.tds + amounts[amounts.length - 1]!) as Paise;
       }
@@ -250,6 +273,15 @@ export function parseAisText(text: string): AisStatement {
     }
 
     const main = informationLine(cells);
+    // Tax collected at source shares the part with TDS but is not TDS: it is
+    // not read (docs/limitations.md), and never summed into the TDS box
+    // (review 2). Counted as not read, under its own name.
+    if (main && section === "tds" && isTcs(main.code, main.label)) {
+      current = null;
+      skippingTcs = true;
+      unread(TCS_PART);
+      continue;
+    }
     if (main && (section === "tds" || section === "sft" || section === "other")) {
       const category = categoryOf(main.code, main.label);
       current = {

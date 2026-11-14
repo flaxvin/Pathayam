@@ -144,7 +144,10 @@ March 2022). What is not modelled:
 - **Parts not read:** TCS, payment of taxes, demand and refund, and every other
   category (rent, cash deposits, purchases, foreign remittances and the rest).
   Each shows on the page as not used, with its amount where it had one, or as a
-  count of lines.
+  count of lines. TCS lines (codes TCS-206C…) sit in the same part as TDS and are
+  counted as not read under their own name; tax collected is never added to the
+  TDS offered. A line in that part of a kind this does not read keeps its TDS
+  only when its code says TDS.
 - **Duplicates** are handled as the Handbook describes: the same income reported
   by one bank or company twice (with its TDS and in its SFT return) is counted
   once, at the higher figure. Two names for one source that differ by more than

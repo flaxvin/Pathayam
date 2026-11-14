@@ -9,7 +9,7 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { parseAisPdf, parseAisText, aisPassword, categoryOf, WrongPassword } from "./ais.ts";
+import { parseAisPdf, parseAisText, aisPassword, categoryOf, WrongPassword, TCS_PART } from "./ais.ts";
 import { aisPdf, aisText, sampleAis, AIS_PAN, AIS_DOB, AIS_PASSWORD } from "./ais.test-data.ts";
 import { Refusal } from "../core/refusal.ts";
 
@@ -57,6 +57,37 @@ describe("TAX-AIS · Part B1, TDS/TCS information", () => {
     assert.equal(dividend.category, "dividend");
     assert.equal(dividend.amount, 8_000_00);
     assert.equal(dividend.tds, 800_00);
+  });
+});
+
+describe("REV-2 · TCS and uncategorised lines never feed TDS", () => {
+  const withTcs = () => {
+    const lines = sampleAis();
+    const at = lines.findIndex((l) => typeof l === "string" && /Part B2/.test(l));
+    lines.splice(at, 0,
+      ["4", "TCS-206CQ", "Remittance under LRS for purposes other than education or medical treatment", "SAMPLE BANK (MUMS00000B)", "1", "8,00,000.00"],
+      ["", "Q2", "20/07/2025", "8,00,000.00", "1,60,000.00", "1,60,000.00"],
+      ["5", "TDS-194C", "Payment to contractors", "EXAMPLE BUILDERS LTD (MUME00000D)", "1", "1,00,000.00"],
+      ["", "Q2", "20/08/2025", "1,00,000.00", "1,000.00", "1,000.00"],
+      ["6", "Something unlisted", "EXAMPLE TRUST (MUME00000E)", "1", "20,000.00"],
+      ["", "Q2", "20/08/2025", "20,000.00", "2,000.00", "2,000.00"],
+    );
+    return parseAisText(aisText(lines));
+  };
+
+  test("a TCS-206C line is not read: no line, no TDS, counted as TCS", () => {
+    const s = withTcs();
+    assert.equal(s.lines.find((l) => /^TCS-/.test(l.code ?? "")), undefined);
+    assert.equal(s.lines.reduce((t, l) => t + l.tds, 0), 80_000_00 + 5_000_00 + 800_00 + 1_000_00);
+    assert.deepEqual(s.notRead.find((n) => n.part === TCS_PART), { part: TCS_PART, lines: 1 });
+  });
+
+  test("a TDS-coded line of an unread kind keeps its TDS; one with no code does not", () => {
+    const s = withTcs();
+    assert.equal(byCode(s, "TDS-194C")!.tds, 1_000_00);
+    const odd = s.lines.find((l) => l.label === "Something unlisted")!;
+    assert.equal(odd.category, "unread");
+    assert.equal(odd.tds, 0);
   });
 });
 

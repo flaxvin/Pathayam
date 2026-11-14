@@ -25,6 +25,7 @@ import { Refusal } from "../core/refusal.ts";
 import { assertKnownYear } from "./tax.ts";
 import { getIdentity } from "../import/identity.ts";
 import type { AisCategory, AisLine, AisStatement } from "../import/ais.ts";
+import { isClearlyTds } from "../import/ais.ts";
 
 /** A PAN shown masked, the way the identity screen shows it. */
 function maskPan(pan: string): string {
@@ -174,7 +175,9 @@ export function aisSummary(db: DB, memberId: string, fy: number): AisSummary | n
 
   const tds = new Map<string, AisSourceTotal>();
   for (const r of rows) {
-    if (r.tds <= 0) continue;
+    // Rows stored before review 2 may carry TCS or an uncategorised line's
+    // figure in tds; neither is offered to the TDS box.
+    if (r.tds <= 0 || !isClearlyTds(r)) continue;
     const key = sourceKey(r.source);
     const t = tds.get(key) ?? { source: r.source, amount: 0 as Paise, tds: 0 as Paise };
     t.amount = (t.amount + r.amount) as Paise;

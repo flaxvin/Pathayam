@@ -129,6 +129,19 @@ describe("TAX-AIS · the summary", () => {
     assert.deepEqual(s.notRead, [{ part: "Payment of taxes", lines: 1 }]);
   });
 
+  test("REV-2 · a stored TCS line, or an uncategorised one, is not offered as TDS", () => {
+    const db = setup();
+    const statement = sample();
+    statement.lines.push(
+      { section: "tds", category: "unread", code: "TCS-206CQ", label: "Remittance under LRS", source: "SAMPLE BANK (MUMS00000B)", amount: 8_00_000_00 as Paise, tds: 1_60_000_00 as Paise },
+      { section: "tds", category: "unread", code: null, label: "Something unlisted", source: "EXAMPLE TRUST", amount: 20_000_00 as Paise, tds: 2_000_00 as Paise },
+    );
+    replaceAis(db, "m", 2025, statement, checkAis(db, "m", 2025, statement));
+    const s = aisSummary(db, "m", 2025)!;
+    assert.equal(s.tdsBySource.reduce((t, x) => t + x.tds, 0), 80_000_00 + 5_000_00 + 800_00);
+    assert.ok(!s.tdsBySource.some((t) => t.source === "EXAMPLE TRUST"));
+  });
+
   test("the app's own sale proceeds for the member's holdings sit beside the AIS's sales", () => {
     const db = setup();
     const ravi = { memberId: "m", source: "ui" as const };
