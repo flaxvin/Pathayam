@@ -12,14 +12,17 @@ import {
 } from "../domain/assets.ts";
 import { units, price } from "../portfolio/holdings.ts";
 import { rupees } from "../core/money.ts";
+import { aiTaxEstimate } from "../ai/analysis.ts";
+import { STYLESHEET as STYLES } from "./styles.ts";
 import { addDays, fiscalYearOf, todayIST } from "../core/dates.ts";
 
 const actor = { memberId: "m", source: "ui" as const };
 let app: TestApp;
 let priya: TestApp;
+let db: ReturnType<typeof freshDb>;
 
 before(async () => {
-  const db = freshDb();
+  db = freshDb();
   seedMember(db, "m", "Ravi");
   seedMember(db, "p", "Priya");
   const today = todayIST();
@@ -87,4 +90,17 @@ test("Portfolio points to the Tax page's card", async () => {
   const page = (await (await app.get("/portfolio")).text()).replace(/\s+/g, " ");
   assert.match(page, /Tax-free long-term gains/);
   assert.match(page, /href="\/tax#harvest"/);
+});
+
+test("the AI tax estimate carries the same figures, and only the member's own", () => {
+  const mine = aiTaxEstimate(db, "m", {}) as { ltcg_harvest: { unused: number; holdings: { instrument_name: string; suggest_units: number }[] } };
+  assert.equal(mine.ltcg_harvest.unused, 125000);
+  assert.deepEqual(mine.ltcg_harvest.holdings.map((h) => [h.instrument_name, h.suggest_units]), [["Fictional Harvest Co", 416]]);
+  const hers = aiTaxEstimate(db, "p", {}) as { ltcg_harvest: { holdings: unknown[] } };
+  assert.deepEqual(hers.ltcg_harvest.holdings, []);
+});
+
+test("printing keeps the caveats with the card", () => {
+  const print = STYLES.slice(STYLES.indexOf("@media print"));
+  assert.match(print, /\.harvest-caveats \{[^}]*break-inside: avoid/);
 });
