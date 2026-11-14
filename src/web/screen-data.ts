@@ -37,7 +37,7 @@ import { listSchedules, projectCashflow, describeCashflow } from "../domain/sche
 import { policiesDueBy, policyTaxSuggestion, applyPolicySuggestion } from "../domain/insurance.ts";
 import { envelopeSpendByMonth } from "../domain/reports.ts";
 import { spendingInsights } from "../domain/insights.ts";
-import { cameWithTheCard } from "../domain/card-shortfall.ts";
+import { cameWithTheCard, cardPaymentsSinceOpening } from "../domain/card-shortfall.ts";
 import {
   staleRatesWarning, assertKnownYear, RATES_VERIFIED_ON, RATES_SOURCE, RULES, ADVANCE_TAX_RULES,
   estimateTax, advanceTaxSchedule, getDeclaration, hasDeclaration,
@@ -195,6 +195,7 @@ export function cardsDue(
   const outstanding = creditOutstanding(db, month);
   const owedNow = month < monthOf(todayIST()) ? creditOutstanding(db) : outstanding;
   const today = todayIST();
+  const paidSinceOpening = cardPaymentsSinceOpening(db, lastDayOfMonth(month));
 
   return listAccounts(db, { viewerMemberId })
     .filter((a) => a.kind === "credit" && a.budget_id === scope)
@@ -208,6 +209,7 @@ export function cardsDue(
         funded,
         view.monthState.unfundedByAccount[account.id] ?? 0,
         account.opening_balance,
+        paidSinceOpening.get(account.id) ?? 0,
       );
       const statement = lastCardStatement(db, account.id);
       const owed = Math.max(0, -(owedNow.get(account.id) ?? 0)) as Paise;

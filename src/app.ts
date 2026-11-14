@@ -63,6 +63,7 @@ import {
   type WeekdayOrdinal,
 } from "./core/dates.ts";
 import { buildBudgetView, reviewCount } from "./web/viewmodel.ts";
+import { cardPaymentsSinceOpening } from "./domain/card-shortfall.ts";
 import { renderBudget } from "./web/pages/budget.ts";
 import {
   renderAccountList, renderAccountDetail, renderNewAccountForm, renderManageCards,
@@ -101,6 +102,7 @@ import {
 } from "./web/pages/reconcile.ts";
 import {
   reconcile, reconciliationStatus, listCheckpoints, clearedBalanceAsOf,
+  isOwedAccount, owedFigureToBalance,
   guardHistoricalEdit, breakCheckpoints, CheckpointConfirmationRequired,
   intactCheckpointBalances, checkpointsMovedSince, previewReconciliation, type Checkpoint,
 } from "./domain/reconciliation.ts";
@@ -2901,8 +2903,56 @@ export function buildApp(deps: AppDeps): {
     );
   });
 
-  router.post("/move", (ctx) =>
-    mutate(ctx, (a) => {
+  router.post("/move", (ctx) => {
+    /*
+     * Decision 7 (UI-8) · A move that takes the source below zero, beyond what
+     * it holds, is refused unless "Allow it to go below zero" is ticked. Moving
+     * ₹99,999 out of a Groceries holding ₹7,310 said "Money moved." and left it
+     * at −₹92,689, which Auto-assign then offered to refill from income.
+     * Covering an overspent envelope moves money *into* it, so it is only
+     * refused when the envelope it comes from cannot spare the amount.
+     *
+     * Read before writing, so a refusal without the script re-shows the form
+     * with what was typed rather than an error page.
+     */
+    auth(ctx);
+    const fromRaw = field(ctx.body, "from_category_id");
+    if (fromRaw && fromRaw !== "rta" && field(ctx.body, "allow_below_zero") !== "1") {
+      const month = monthParam(ctx);
+      const fromId = requireVisibleCategory(ctx, fromRaw)!;
+      requireVisibleCategory(ctx, requiredField(ctx.body, "to_category_id"));
+      const amount = amountField(field(ctx.body, "amount"));
+      const budgetId = getCategory(db, fromId)?.budget_id ?? householdBudgetId(db);
+      const view = buildBudgetView(db, month, budgetId, viewer(ctx));
+      const source = view.categories.get(fromId);
+      const holds = source?.state.balance ?? 0;
+      if (source && amount > 0 && amount > Math.max(0, holds)) {
+        const error =
+          (holds > 0
+            ? `${source.name} holds ${formatPaise(holds)}, so moving ${formatPaise(amount)} ` +
+              `would leave it at ${formatPaise(holds - amount)}. Move ${formatPaise(holds)} or less, `
+            : `${source.name} holds ${formatPaise(holds)}, so moving ${formatPaise(amount)} ` +
+              `would leave it at ${formatPaise(holds - amount)}. Move from an envelope that has money in it, `) +
+          `or tick "Allow it to go below zero" to move it anyway.`;
+        if (wantsJson(ctx)) throw new Refusal(error);
+        const toRaw = field(ctx.body, "to_category_id")!;
+        return {
+          ...render(ctx, "Move money", renderMoveMoney({
+            month,
+            categories: [...view.categories.values()].filter((c) => !c.hidden),
+            toCategoryId: toRaw,
+            fromCategoryId: fromId,
+            amount,
+            suggestions: [],
+            readyToAssign: view.monthState.readyToAssign,
+            error,
+          })),
+          status: 422,
+        };
+      }
+    }
+
+    return mutate(ctx, (a) => {
       const month = monthParam(ctx);
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
       // "rta" is the screen's own first source and is not an envelope, so it
@@ -2935,8 +2985,8 @@ export function buildApp(deps: AppDeps): {
           }),
       );
       return { redirect: `/?month=${month}`, message: "Money moved." + rippleNote(recompute) };
-    }),
-  );
+    });
+  });
 
   router.get("/hold", (ctx) => {
     const month = monthParam(ctx);
@@ -3516,6 +3566,8 @@ export function buildApp(deps: AppDeps): {
                 funded,
                 view?.monthState.unfundedByAccount[account.id] ?? 0,
                 account.opening_balance,
+                // UI-7 · Payments since clear the opening balance first.
+                cardPaymentsSinceOpening(db, todayIST()).get(account.id) ?? 0,
               )
             : null,
         paymentCategoryName: paymentCategory?.name ?? null,
@@ -5360,7 +5412,18 @@ export function buildApp(deps: AppDeps): {
 
     const asOfRaw = field(ctx.body, "as_of");
     const asOf = dateField(asOfRaw, "As of");
-    const bankBalance = amountField(field(ctx.body, "bank_balance"), "The bank's balance");
+    const bankRaw = field(ctx.body, "bank_balance");
+    let bankBalance = amountField(bankRaw, "The bank's balance");
+    if (isOwedAccount(account)) {
+      // Decision 3 (E4) · The field asks how much you owe, so the figure is
+      // owed whichever way it is written. In credit is the tick, or the
+      // statement's own "Cr" marker — told from crore shorthand ("3Cr") by
+      // reading the figure again without it: a credit marker leaves the
+      // amount the same, crore does not.
+      const crMarked = bankBalance > 0 && /cr\.?\s*$/i.test(bankRaw ?? "") &&
+        parseAmount((bankRaw ?? "").trim().replace(/\s*cr\.?$/i, "")) === bankBalance;
+      bankBalance = owedFigureToBalance(bankBalance, field(ctx.body, "in_credit") === "1" || crMarked);
+    }
     const clearIds = fieldList(ctx.body, "clear");
     const allowAdjustment = field(ctx.body, "allow_adjustment") === "1";
 
@@ -7676,7 +7739,7 @@ export function buildApp(deps: AppDeps): {
     const mine = budgetsFor(db, viewer(ctx));
     const view = buildBudgetView(db, undefined, scope, viewer(ctx));
     const balances = new Map(
-      [...view.categories].map(([id, c]) => [id, { name: c.name, balance: c.state.balance }]),
+      [...view.categories].map(([id, c]) => [id, { name: c.name, balance: c.state.balance, opening: c.state.opening }]),
     );
 
     return render(
