@@ -174,3 +174,23 @@ describe("REV-3 · an ISIN reveals nothing held privately by another member", ()
     }
   });
 });
+
+describe("REV-4 · undoing an ISIN change", () => {
+  test("is refused when the old ISIN has since gone to another instrument", async () => {
+    const { db, app, demat, actor } = await setup();
+    try {
+      await app.post("/portfolio/add", buy(demat, { name: "First Co", kind: "equity", isin: "INE111A01011" }));
+      const first = queryOne<{ id: string }>(db, `SELECT id FROM instruments WHERE name = 'First Co'`)!.id;
+      await app.post(`/portfolio/instrument/${first}/identifier`, { isin: "INE222A01012" });
+      await app.post("/portfolio/add", buy(demat, { name: "Second Co", kind: "equity", isin: "INE111A01011" }));
+      const event = queryOne<{ id: string }>(
+        db, `SELECT id FROM events WHERE entity = 'instrument' AND action = 'identify'`,
+      )!;
+      assert.throws(() => undoEvent(db, event.id, actor, { force: true }), /now belongs to another instrument/);
+      assert.equal(idsOf(db, "First Co").isin, "INE222A01012");
+      assert.equal(queryOne<{ n: number }>(db, `SELECT COUNT(*) AS n FROM instruments WHERE isin = 'INE111A01011'`)!.n, 1);
+    } finally {
+      await app.close();
+    }
+  });
+});

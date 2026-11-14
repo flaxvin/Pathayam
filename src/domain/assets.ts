@@ -1902,6 +1902,13 @@ registerUndoHandler("instrument", (db, event) => {
   }
   if (event.action === "identify") {
     const before = (event.before ?? {}) as { isin?: string | null; symbol?: string | null };
+    // R24.6 · Review 4: the old ISIN may since have gone to another
+    // instrument; putting it back would leave two sharing one.
+    if (before.isin && isinTaken(db, before.isin, id)) {
+      throw new UndoRefused(
+        "That ISIN now belongs to another instrument, so it cannot be put back. Change this instrument's ISIN on its holding page instead.",
+      );
+    }
     execute(
       db, `UPDATE instruments SET isin = ?, symbol = ? WHERE id = ?`,
       before.isin ?? null, before.symbol ?? null, id,
