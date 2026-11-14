@@ -63,6 +63,7 @@ import {
   type WeekdayOrdinal,
 } from "./core/dates.ts";
 import { buildBudgetView, reviewCount } from "./web/viewmodel.ts";
+import { cardPaymentsSinceOpening } from "./domain/card-shortfall.ts";
 import { renderBudget } from "./web/pages/budget.ts";
 import {
   renderAccountList, renderAccountDetail, renderNewAccountForm, renderManageCards,
@@ -3565,6 +3566,8 @@ export function buildApp(deps: AppDeps): {
                 funded,
                 view?.monthState.unfundedByAccount[account.id] ?? 0,
                 account.opening_balance,
+                // UI-7 · Payments since clear the opening balance first.
+                cardPaymentsSinceOpening(db, todayIST()).get(account.id) ?? 0,
               )
             : null,
         paymentCategoryName: paymentCategory?.name ?? null,
