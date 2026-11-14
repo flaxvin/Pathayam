@@ -17,9 +17,9 @@
 
 import { html, when, type SafeHtml } from "../../http/html.ts";
 import { formatPaise, type Paise } from "../../core/money.ts";
-import { formatMonth } from "../../core/dates.ts";
+import { formatMonth, formatDate } from "../../core/dates.ts";
 import { progressRing } from "../charts.ts";
-import type { FireProjection, CorpusLine } from "../../domain/fire.ts";
+import { FIRE_MIN_HISTORY_DAYS, type FireProjection, type CorpusLine } from "../../domain/fire.ts";
 
 const EXCLUDED_REASON: Record<string, string> = {
   physical: "a home or vehicle — you cannot sell a tenth of it each year",
@@ -67,7 +67,22 @@ export function renderFire(opts: { projection: FireProjection }): SafeHtml {
       <h1>Financial independence</h1>
     </div>
 
-    ${when(p.annualExpenses === 0, () => html`
+    ${when(!p.estimateReady, () => html`
+      <div class="card empty-state" data-testid="fire-not-ready">
+        <div class="empty-icon" aria-hidden="true">△</div>
+        <h2>Not enough history yet</h2>
+        <p>
+          Your estimate appears once there are ${FIRE_MIN_HISTORY_DAYS} days of
+          spending history${p.estimateReadyOn
+            ? html` — on <strong>${formatDate(p.estimateReadyOn)}</strong>`
+            : html``}.
+          A few days of spending scaled up to a year gives a target that means
+          nothing, so none is shown before then.
+        </p>
+      </div>
+    `)}
+
+    ${when(p.estimateReady && p.annualExpenses === 0, () => html`
       <div class="card empty-state">
         <div class="empty-icon" aria-hidden="true">△</div>
         <h2>Nothing spent yet</h2>
@@ -79,7 +94,7 @@ export function renderFire(opts: { projection: FireProjection }): SafeHtml {
       </div>
     `)}
 
-    ${when(p.annualExpenses > 0, () => html`
+    ${when(p.estimateReady && p.annualExpenses > 0, () => html`
       <section class="card">
         <div class="row-between" style="align-items:center;gap:1.5rem;flex-wrap:wrap">
           <div>
@@ -88,6 +103,11 @@ export function renderFire(opts: { projection: FireProjection }): SafeHtml {
             <p class="faint" style="margin:0">
               to draw ${formatPaise(p.annualExpenses)} a year at ${rate}%, indefinitely.
             </p>
+            ${when(p.basedOn !== null, () => html`
+              <p class="faint" style="margin:.2rem 0 0" data-testid="fire-based-on">
+                Estimate based on ${p.basedOn}.
+              </p>
+            `)}
           </div>
           ${progressRing({
             percent: p.progressPct,

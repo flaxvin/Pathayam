@@ -187,3 +187,46 @@ describe("REV-22 · the tax page says a hand-valued asset's gain is not in it", 
     }
   });
 });
+
+describe("E5 · the starting gross lists the accounts it was summed from", () => {
+  test("names each visible account and its receipts; another member's private account is not named", async () => {
+    const { db, app, bank } = await setup();
+    try {
+      const priya = { memberId: "p", source: "ui" as const };
+      const joint = createAccount(db, ravi, {
+        name: "Joint savings", kind: "budget", subtype: "savings", openingDate: "2025-01-01", openingBalance: 0 as Paise,
+      }).id;
+      const { ensurePersonalBudget } = await import("../domain/budgets.ts");
+      const priyaBudget = ensurePersonalBudget(db, "p", "Priya's").id;
+      const priyaOwn = createAccount(db, priya, {
+        name: "Priya secret salary", kind: "budget", subtype: "savings", openingDate: "2025-01-01",
+        openingBalance: 0 as Paise, holderMemberId: "p", visibility: "private", budgetId: priyaBudget,
+      }).id;
+      createTransaction(db, ravi, { accountId: bank, amount: rupees(300_000), date: "2025-05-10", memo: "Salary" });
+      createTransaction(db, priya, { accountId: joint, amount: rupees(500_000), date: "2025-06-10", memo: "Priya's salary" });
+      createTransaction(db, priya, { accountId: priyaOwn, amount: rupees(700_000), date: "2025-06-10", memo: "Bonus" });
+
+      const page = await (await app.get("/tax?fy=2025")).text();
+      // The calculation is unchanged: everything Ravi can see, summed.
+      assert.equal(grossField(page), "800000.00");
+      const list = /data-testid="ledger-income-accounts">([\s\S]*?)<\/p>/.exec(page)?.[1] ?? "";
+      assert.match(list, /Joint savings ₹5,00,000\b/);
+      assert.match(list, /Bank ₹3,00,000\b/);
+      assert.ok(list.indexOf("Joint savings") < list.indexOf("Bank"), "largest first");
+      assert.doesNotMatch(page, /Priya secret salary/);
+      assert.doesNotMatch(list, /7,00,000/);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("shows no list when nothing arrived", async () => {
+    const { app } = await setup();
+    try {
+      const page = await (await app.get("/tax?fy=2025")).text();
+      assert.doesNotMatch(page, /ledger-income-accounts/);
+    } finally {
+      await app.close();
+    }
+  });
+});
