@@ -235,6 +235,17 @@ Where a statement prints both an opening and a closing balance, the parse is
 checked against them: `opening + Σ amounts − closing` must be zero. The result is
 exposed on `StatementParse.reconciliation` and reported after import.
 
+### Reading in a worker
+
+Every PDF the app reads (statements, CAS, SafeGold, the AIS, Gmail and
+forwarded attachments, held statements) goes through `src/import/pdf-read.ts`,
+which runs the reader in a worker thread with a 10-second deadline and a
+256 MB heap, one file at a time, so a heavy or hostile file cannot hold up
+other requests. An upload that arrives while another file is being read gets
+503 "Another statement is being read, try again in a moment"; background reads
+wait their turn. In `DEMO_MODE` an upload waits its turn instead, with at most
+five from one address being read or waiting at once.
+
 ### Unreadable files
 
 A PDF with no extractable text is refused with an explanation, as it is a scan.
@@ -360,6 +371,13 @@ A rule has a stage, conditions, and actions.
   A stored condition that still has one is read tolerantly: a lone value for
   `oneOf`/`notOneOf` is a list of one, and `between` without a pair matches
   nothing. An import never fails on it.
+- **Patterns** (`matches`) are checked when a rule is saved or tried
+  (`/rules/new`, `/rules/test`): one that does not compile, is over 200
+  characters, repeats something that itself repeats (`(a+)+`), repeats a choice
+  whose options can start alike (`(a|ab)+`), or has more than two open-ended
+  repeats is refused with the reason. At match time only the first 500
+  characters of a narration are tested, and a bad pattern stored earlier is
+  skipped with a logged warning.
 - **Actions:** `setCategory`, `setPayee`, `setMemo` (set, prepend or append),
   `addTag`, `removeTag`, `setOwner`, `setCleared`, `setAccount`, `setDate`,
   `splitFixed`, plus flags to mark for review or ignore.

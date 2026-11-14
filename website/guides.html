@@ -55,7 +55,7 @@
       <p class="eyebrow">Guides</p>
       <h1 style="font-size:var(--step-5);max-width:18ch;margin-inline:auto">How to use Pathayam</h1>
       <p class="lede" style="font-size:var(--step-2);max-width:56ch">
-        43 guides covering every screen in the app, in the order you'll need
+        48 guides covering every screen in the app, in the order you'll need
         them, including <a href="#connect-ai">asking Claude, ChatGPT or
         Gemini about your own figures</a>. Start at the top if you're new, or go
         straight to the topic you need.
@@ -112,11 +112,14 @@
             <li><a href="#connect-ai">Connect Claude, ChatGPT or Gemini</a></li>
           <li class="rail-part">Investments and net worth</li>
             <li><a href="#portfolio">Portfolio</a></li>
+            <li><a href="#share-prices">Prices for Indian shares without a key</a></li>
             <li><a href="#valuations">Hand-valued assets</a></li>
             <li><a href="#allocation">Allocation</a></li>
             <li><a href="#networth">Net worth</a></li>
             <li><a href="#fire">Financial independence</a></li>
             <li><a href="#tax">Tax estimate</a></li>
+            <li><a href="#ais">Read your AIS into the tax estimate</a></li>
+            <li><a href="#tax-free-gains">Use your tax-free gains before 31 March</a></li>
             <li><a href="#insurance">Keep an insurance register</a></li>
             <li><a href="#assets-life">Gold, property and the like</a></li>
             <li><a href="#deposits">Give a deposit its terms</a></li>
@@ -289,6 +292,9 @@ change</strong>, because the total assigned stays the same.
 This is how you cover an overspend: if eating out comes from the holiday fund, the
 budget now shows it. Both envelopes have to be in the same budget:
 money between two budgets is a transfer between their accounts, not a move.</p>
+<p>A move larger than the envelope holds is stopped, with the most you can move. If
+you really do mean to take it below zero, tick <em>Allow it to go below zero</em> and
+move it anyway.</p>
 <h3>Hold</h3>
 <p>Takes money out of this month's Ready to Assign and places it at the top of next
 month's. This is how you get a month ahead. See its own guide.</p>
@@ -645,6 +651,11 @@ account does not have them: the import form comes back with a box for the digits
 Once the statement opens with them they are saved on the card's account, so the next
 one, uploaded or from Gmail, opens by itself. A card account keeps up to the last
 eight digits of its number.</p>
+<p>A PDF is read on its own, away from the rest of the app, with a time limit and a
+memory limit, so an unusually heavy file is stopped rather than slowing everything
+down for everyone else. One file is read at a time; an upload that arrives while
+another is being read is told to try again in a moment, and on the public demo it waits
+its turn instead, up to five at once from one address.</p>
 <div class="note"><b>Every parse is verified</b> against the statement's own closing
 balance. If the two disagree, the app tells you instead of importing something
 wrong. On a real 848-row statement it reconciles to the paisa.</div>
@@ -726,6 +737,11 @@ change undoes as one step.</p>
 address, the channel, the imported payee, the amount in rupees, or the card's last
 four digits) and files what it matches into an envelope. <em>Try it on my history</em>
 shows what it would change among the transactions you can see, before you save it.</p>
+<p>A condition can also <em>match a pattern</em>, a regular expression. Patterns that
+could take minutes to give up on a long description, such as <code>(a+)+</code>, are
+refused when you save or try the rule, with the reason and a safer way to write it.
+A pattern can be up to 200 characters, and is tested against the first 500 characters
+of a description.</p>
 <h3>Why it learns from filing rather than importing</h3>
 <p>Filing counts wherever it happens: the review queue, the transaction screen or
 anywhere else. If you file the same delivery service by hand many times, the app
@@ -896,6 +912,14 @@ top: total owed, total not funded, and how many fall due within a week.</p>
 </ol>
 <div class="note"><b>Record a statement</b> (amount, date, due date and minimum) and
 the card shows its real due dates.</div>
+<p><strong>Reconciling a card</strong> (or a loan) asks <em>How much does the
+statement say you owe?</em> Type the figure as the statement prints it:
+<code>10,000</code>, <code>10,000 Dr</code> and <code>(10,000)</code> all mean the
+same. A card in credit is ticked as <em>It's in credit</em>, or typed with the
+statement's own <code>Cr</code>. A statement that matches shows no gap.</p>
+<p>A card added with a balance already owing says how much of what is not funded
+<em>came with the card</em>. Payments clear that opening balance first, and once it is
+paid off the sentence goes.</p>
 <h3>Add-on cards</h3>
 <p>A second card on someone else's account shares one limit, one statement and one
 payment. Add it as a card <em>on</em> that account rather than as an account of its
@@ -970,6 +994,12 @@ figures are on the screen before you choose.</div>
 owe and in net worth. A household loan is visible to everyone in the household. The
 owner is shown on the list as well as on the detail page, so you can see at a glance
 whose debt it is.</p>
+<p>A private loan's payment envelope lives in its holder's own budget, not the
+household's, so nobody else meets its name, its monthly target or its instalments on
+the budget, in Reports or in Activity. If you have no budget of your own yet, one is
+opened for it. Switching a loan between shared and private moves its envelope with it
+while the envelope is still untouched. Once it holds money or payments the switch is
+refused; to make such a loan private, add it again as a private loan.</p>
 <h3>Disbursements</h3>
 <p>A loan paid out in tranches records each one with its destination. A
 builder-paid tranche raises the liability without ever touching your budget; a personal
@@ -1212,7 +1242,9 @@ change what the months you have been watching meant.</p>
 goal doesn't clutter the screen you use every week.</p>
 <p>Each goal has a target amount and optionally a date. The app works out what that
 means per month, shows progress as a ring, and tells you whether you are on track or
-what you would have to raise it to.</p>
+what you would have to raise it to. The monthly figure starts from what was saved at
+the start of the month: once this month's share is in, it says so and spreads the
+rest from next month, so the months left still add up to the target on time.</p>
 <p>When a goal is reached, completing it offers three endings: <strong>Spend it</strong>
 leaves the money in the envelope for the thing you saved for, <strong>Back to Ready to
 Assign</strong> returns the balance to be given another job, and <strong>Roll into a
@@ -1387,7 +1419,9 @@ true return figure possible.</p>
 <h3>Getting holdings in</h3>
 <p>The monthly consolidated statement is the primary route: it already covers every
 fund folio and demat holding, and rows reconcile against lots you already have rather
-than duplicating them. Prices for funds and currencies refresh automatically.</p>
+than duplicating them. Prices for funds, currencies, and Indian shares and ETFs that
+carry an ISIN or NSE symbol refresh automatically, with no key to set up (see
+<a href="#share-prices">Prices for Indian shares without a key</a>).</p>
 <h3>Digital gold from SafeGold</h3>
 <p><strong>Import SafeGold</strong> on Portfolio reads SafeGold's monthly statement
 (also recognised when dropped on Import or fetched from Gmail) and shows
@@ -1408,6 +1442,50 @@ says it has nothing to import.</p>
                 <figcaption>Holdings as units, with XIRR.</figcaption>
               </figure>
             </div>
+          </article>
+          <article class="guide" id="share-prices">
+            <h2>Prices for Indian shares without a key</h2>
+<p>NSE and BSE publish a file of every share's closing price at the end of each
+trading day. Pathayam reads those files, so a share or ETF you hold in rupees can be
+priced every evening without an API key, an account or a subscription.</p>
+<p>All it needs is to know which share it is. Give it the <strong>ISIN</strong>, the
+<strong>NSE symbol</strong> or the <strong>BSE scrip code</strong>; any one of them
+is enough.</p>
+<ol class="steps">
+  <li><div><strong>For a new holding</strong>, go to Portfolio, then <em>Add a
+    holding</em>, and choose Equity or ETF as the kind. Fill in <em>ISIN</em> or
+    <em>NSE symbol or BSE code</em> beside the name.</div></li>
+  <li><div><strong>For a share you already hold</strong>, open its holding page. The
+    card <em>Where its price comes from</em> has the same two boxes. Type one and
+    press Save.</div></li>
+  <li><div><strong>Wait for the evening</strong>, or press <em>Refresh prices</em> on
+    Portfolio. The price arrives dated by the trading day it closed on, not the day
+    it was fetched.</div></li>
+</ol>
+<p>The ISIN is twelve characters and starts with IN for an Indian share (Reliance
+Industries is <code>INE002A01018</code>). It is printed on your contract notes, your
+consolidated account statement and your broker's holdings page. The NSE symbol is the
+ticker you would search for on NSE, such as <code>RELIANCE</code> or
+<code>NIFTYBEES</code>; a BSE code is six digits, such as <code>500325</code>.</p>
+<h3>How it works</h3>
+<ul>
+  <li><strong>NSE first, then BSE.</strong> A share on both is priced at NSE's close;
+    one NSE does not list is looked up in BSE's file.</li>
+  <li><strong>Matched by ISIN or symbol, never by name</strong>, so two companies with
+    similar names cannot be confused.</li>
+  <li><strong>Nothing about what you hold is sent.</strong> The server downloads the
+    day's whole file, the same one for everybody, and looks your holdings up in it.
+    One download per exchange per day prices every holding in the household.</li>
+  <li><strong>The day's close, not live prices.</strong> The files come out in the
+    evening, so the refresh waits until after 18:00 IST. A share that did not trade
+    that day is not in the file and keeps its last price, with that price's date.</li>
+</ul>
+<div class="note"><b>Foreign shares are different.</b> The exchanges' files cover
+Indian listings only, so a share bought in dollars still needs an Alpha Vantage key
+on the server. Mutual funds were already priced without one, from their scheme
+code.</div>
+<p>A share you have marked as not listed is never looked up in the files, and an ISIN
+that already belongs to another instrument is refused rather than quietly moved.</p>
           </article>
           <article class="guide" id="valuations">
             <h2>Hand-valued assets</h2>
@@ -1511,6 +1589,10 @@ count again.</p>
     Each is listed with the reason, so you can see why the figure differs
     from net worth</li>
 </ul>
+<p>A household only a few days old has too little spending to go on, so the target
+appears once there are 30 days of history, and the page says the date it will. Until
+five years of history, the target says what it is based on, such as four months of
+spending.</p>
 <div class="note note--good"><b>No further earnings are assumed.</b> The corpus grows
 on its own return and nothing else, with no salary or continued saving. It shows
 when what you already hold will be enough, not when you could stop if you keep saving at
@@ -1540,6 +1622,10 @@ will do.</div>
             <h2>Tax estimate</h2>
 <p>What the year looks like under each regime, side by side, so you can compare
 them by the numbers.</p>
+<p>Under the gross income box, the page shows what your ledger saw arrive in the year
+and lists the accounts it was summed from, with what each brought in. A shared
+account is counted in full, so if a joint account's salary is not all yours, take
+that out of the figure you enter; the box is what the estimate uses.</p>
 <p>It models the old regime's deductions: 80C, 80D, and the HRA exemption,
 which is the least of three figures and the one people most often get wrong
 (paying no rent exempts nothing, however much HRA was received). The new regime
@@ -1567,8 +1653,9 @@ set against is not something the app knows. The lender's interest certificate is
 the number for the return; type it in <em>Your own figure, if different</em> and it
 is used instead.</p>
 <h3>Tax already paid</h3>
-<p>Enter the year's TDS as one figure, from Form 16 or 26AS (nothing is read from
-either), and each advance or self-assessment tax challan with its date. Each
+<p>Enter the year's TDS as one figure, from Form 16 or 26AS, or let your Annual
+Information Statement fill it in (see <a href="#ais">Read your AIS into the tax
+estimate</a>). Add each advance or self-assessment tax challan with its date. Each
 regime's estimate, less all three, is shown as a balance to pay or a refund.</p>
 <p>Where the year's tax under the lower regime, less TDS, is ₹10,000 or more, the
 four <b>advance tax</b> instalments are shown (15%, 45%, 75% and 100% of it by
@@ -1608,6 +1695,9 @@ February 2018 with no price for 31 January 2018, or an account that names no hol
 in a household of more than one are left out of the
 computation and listed on the screen for you to resolve, because a gain in the
 wrong column would be taxed at the wrong rate.</div>
+<p>For the year in progress, the page also shows how much of the ₹1,25,000 long-term
+equity exemption you have left, and what could be sold to use it. See
+<a href="#tax-free-gains">Use your tax-free gains before 31 March</a>.</p>
             <div class="shots ">
               <figure class="frame">
                 <picture>
@@ -1617,6 +1707,102 @@ wrong column would be taxed at the wrong rate.</div>
                 <figcaption>Both regimes side by side, with the working.</figcaption>
               </figure>
             </div>
+          </article>
+          <article class="guide" id="ais">
+            <h2>Read your AIS into the tax estimate</h2>
+<p>Your Annual Information Statement is what the Income Tax Department already knows
+about your year: the TDS your employer and bank deducted, the interest and dividends
+they reported, and the shares and fund units you sold. Upload it on the Tax page and
+those figures are read for you instead of typed.</p>
+<h3>Download it</h3>
+<ol class="steps">
+  <li><div>Sign in to the income tax e-filing portal, open <strong>Services</strong>,
+    then <strong>Annual Information Statement (AIS)</strong>, and press Proceed.</div></li>
+  <li><div>On the AIS page, choose the financial year, open <strong>Annual
+    Information Statement</strong> and download it as <strong>PDF</strong>. The JSON
+    and CSV downloads are not read.</div></li>
+</ol>
+<p>The PDF is locked. Its password is your <strong>PAN in lower case</strong>
+followed by your <strong>date of birth as DDMMYYYY</strong>, with no space: for PAN
+AAAAA1234A and a birthday of 21 January 1991, it is <code>aaaaa1234a21011991</code>.
+If your PAN and date of birth are saved in Settings for opening statements, leave the
+password box empty and it is worked out for you.</p>
+<h3>Upload it</h3>
+<p>On the Tax page, pick the same financial year at the top, then choose the file
+under <em>Annual Information Statement</em> and press <strong>Read it</strong>. The
+page then shows:</p>
+<ul>
+  <li><strong>TDS by deductor</strong>: each employer, bank or company that deducted
+    tax, what it paid you and what it deducted.</li>
+  <li><strong>Salary, interest and dividends</strong>: savings interest and deposit
+    interest separately, then the total. Where a bank reported the same interest
+    twice (once with its TDS and once in its own return), it is counted once, at the
+    higher figure.</li>
+  <li><strong>Securities and fund units sold</strong>, set beside the sale proceeds
+    recorded here for your own holdings, so a sale you forgot to record stands out.
+    Your capital gains still come from the sales recorded here.</li>
+  <li><strong>Not used</strong>: anything the estimate does not read, such as rent,
+    deposits opened, tax collected at source or your challans, listed so you can
+    decide about it yourself. Tax collected at source is never counted as TDS.</li>
+</ul>
+<p>Press <strong>Use these figures</strong> and the form's gross income and TDS are
+raised to at least the AIS's. A figure already higher is left alone, nothing is
+lowered, and nothing is saved until you press Save.</p>
+<div class="note"><b>Only the figures are kept, and only for you.</b> The file is read
+and thrown away. Each member uploads their own AIS, signed in as themselves; one whose
+PAN is not the PAN saved for you is refused, and nobody else in the household can see
+or remove yours. <em>Forget this AIS</em> deletes it.</div>
+<p>A year's AIS fills in as the year goes on, so upload a newer one whenever you
+like; it replaces the last. A line in a shape the reader does not recognise is counted
+as not read rather than guessed at. The public demo shows an invented AIS and refuses
+uploads, because everyone visiting shares one household.</p>
+          </article>
+          <article class="guide" id="tax-free-gains">
+            <h2>Use your tax-free gains before 31 March</h2>
+<p>Long-term gains on listed shares and equity funds are tax-free up to
+<strong>₹1,25,000 a year</strong> under section 112A. An allowance not used by
+31 March is gone; it does not carry over. If your holdings have gains you have not
+taken, selling some before the year ends can use the allowance you would otherwise
+lose.</p>
+<p>The card <strong>Tax-free long-term gains left this year</strong> on the Tax page
+works this out from your own holdings. It shows how much you have realised so far,
+how much of the allowance is left, and how many days remain. Portfolio shows the
+same figure in a line, with a link to the card.</p>
+<h3>Reading the card</h3>
+<p>Each holding gets one row:</p>
+<ul>
+  <li><strong>Long-term units</strong> and <strong>their gain</strong>: units held
+    more than twelve months, valued at the latest stored price.</li>
+  <li><strong>Short-term units</strong>, with the date the next one turns long-term.
+    These are never suggested.</li>
+  <li><strong>Sell up to</strong>: how many units a sale could take, oldest first,
+    without the gain going over what is left. Shares and ETFs are suggested in whole
+    units, fund units to three decimals.</li>
+</ul>
+<p>A sale always takes the oldest lots first, so a suggestion stops before the first
+short-term lot, and a long-term lot standing at a loss is taken in its turn and nets
+against the gain. Taken together, the suggestions never add up to more than the
+allowance you have left, starting with the holding that has the most gain.</p>
+<ol class="steps">
+  <li><div><strong>Check the prices are today's.</strong> Each row shows its price's
+    date and marks an old one. <em>Refresh prices</em> on Portfolio updates
+    them.</div></li>
+  <li><div><strong>Sell on Portfolio</strong>, if you decide to. The sale preview names
+    the exact lots it will take before you confirm.</div></li>
+  <li><div><strong>Come back to the card.</strong> The sale now counts as realised,
+    and what is left goes down.</div></li>
+</ol>
+<div class="note"><b>Arithmetic, not advice.</b> It works at the last stored price,
+and leaves out exit loads, STT and brokerage, and any short-term loss that could
+absorb the gain. Whether to sell, and whether to buy back afterwards, is your
+decision.</div>
+<p>Only holdings in accounts you are named holder of are counted, and only listed
+shares, ETFs and funds classed as equity, priced in rupees. Unlisted shares, hybrid
+funds, international holdings and anything without a price are listed as left out,
+with the reason. Whether a fund counts as equity comes from the asset class you set
+on it, so check that once.</p>
+<p>The card needs investments switched on, so it appears when you run Pathayam
+yourself and on the hosted Household and Power plans, not on Solo.</p>
           </article>
           <article class="guide" id="insurance">
             <h2>Keep an insurance register</h2>

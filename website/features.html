@@ -229,6 +229,7 @@
         <ul class="checks" style="margin-top:1.5rem">
           <li>A budget of your own, with its own envelopes and its own Ready to Assign</li>
           <li>Private accounts and cards, kept out of lists, totals, exports and the activity log</li>
+          <li>A private loan&rsquo;s EMI envelope sits in your own budget, out of everyone else&rsquo;s sight</li>
           <li>Commit ₹40,000 a month by assigning it, not by transferring it</li>
           <li>Pay a shared bill from your own account and your commitment falls</li>
           <li>Shared cards, add-on cards and split receipts all land in the right budget</li>
@@ -294,6 +295,7 @@
           <thead><tr><th>Feature</th><th>What it does</th></tr></thead>
           <tbody>
           <tr><td>Statement PDFs</td><td>Twelve banks plus broker contract notes. Password-protected files are opened in-process: no external tool, no library.</td></tr>
+          <tr><td>Heavy files, read safely</td><td>Each PDF is read on its own, away from the rest of the app, with a ten-second limit and a cap on memory, so one awkward file cannot slow the app for everyone else. One is read at a time; on the public demo uploads queue, up to five at once from one address.</td></tr>
           <tr><td>Password derivation</td><td>Work the password out from your saved name, date of birth, PAN, mobile or card digits, so nobody types one. Axis and HDFC account statements open with the customer ID you save in Settings, and HSBC card statements with the card&rsquo;s last six. A card statement locked with digits its account lacks asks for them on import, and keeps them for next time. Opt-in, shown masked, never exported, never logged.</td></tr>
           <tr><td>Reconciliation check</td><td>Every parse is verified against the statement's own closing balance. On a real 848-row statement it reconciles to the paisa.</td></tr>
           <tr><td>CSV import</td><td>Header detection, Indian amount formats, a Dr / Cr column beside an unsigned amount, UPI narration extraction, saved per-bank column mappings. When the dates could be day or month first, it asks how they are written.</td></tr>
@@ -378,6 +380,8 @@
           <tr><td>Foreclosure</td><td>Settling early records the lender's charge against an account and an envelope, so the saving you compare against is the one actually on offer.</td></tr>
           <tr><td>The EMI is budgeted</td><td>A loan's payment envelope carries a monthly target equal to its EMI from the day the loan exists, rate changes move it, and closing the loan clears it.</td></tr>
           <tr><td>Drift</td><td>The app projects, the lender reconciles. When the two disagree, it says so rather than silently adopting either.</td></tr>
+          <tr><td>Reconcile what you owe</td><td>Reconciling a card or a loan asks how much the statement says you owe, typed as printed (10,000 Dr or (10,000) both work), so a statement that matches shows no gap.</td></tr>
+          <tr><td>Private loans</td><td>A loan marked private keeps its payment envelope, EMI target and instalments in its holder&rsquo;s own budget, out of the household&rsquo;s budget, Reports and Activity.</td></tr>
           <tr><td>Card EMIs</td><td>A purchase turned into instalments becomes its own loan on the card, with the processing fee and its GST charged up front and 18% GST on each instalment&rsquo;s interest posted as a separate card charge, as the statement shows it.</td></tr>
           <tr><td>Family lending</td><td>Lent and borrowed, derived balances, write-off.</td></tr>
           <tr><td>Merging envelopes</td><td>Two categories that turned out to be one. Assignments are added month by month rather than one of them being dropped, so the balance is kept and the books still balance. A test checks this.</td></tr>
@@ -396,10 +400,11 @@
         <ul class="checks" style="margin-top:1.5rem">
           <li>XIRR as the headline return, not a simple percentage</li>
           <li>Selling shows the exact lots it will consume before you confirm</li>
+          <li>Indian shares and ETFs priced each evening from NSE&rsquo;s and BSE&rsquo;s own files, with no API key</li>
           <li>Unrealised gains are never income</li>
           <li>A financial-independence target built from what you actually spent</li>
         </ul>
-        <p class="guide-link"><span>Guides</span><a href="guides.html#portfolio">Portfolio</a> · <a href="guides.html#networth">Net worth</a> · <a href="guides.html#fire">Independence</a> · <a href="guides.html#tax">Tax</a> · <a href="guides.html#valuations">Hand-valued assets</a></p>
+        <p class="guide-link"><span>Guides</span><a href="guides.html#portfolio">Portfolio</a> · <a href="guides.html#share-prices">Share prices</a> · <a href="guides.html#networth">Net worth</a> · <a href="guides.html#fire">Independence</a> · <a href="guides.html#tax">Tax</a> · <a href="guides.html#valuations">Hand-valued assets</a></p>
       </div>
       <figure class="frame">
         <picture>
@@ -466,7 +471,7 @@
           <tr><td>Financial independence</td><td>A target from a trailing year of real spending, divided by a withdrawal rate you set. Counts only assets that can actually be drawn down (a home is on the net-worth statement, not here) and lists what it left out, with the reason.</td></tr>
           <tr><td>The provident-fund bridge</td><td>EPF and NPS cannot be touched before 58&ndash;60. They are counted apart, and the years between stopping and that unlock are reported as a gap the drawable corpus has to cover alone.</td></tr>
           <tr><td>Units and lots</td><td>Holdings as units with FIFO lots, so cost basis, the realised split and XIRR are derived rather than estimated.</td></tr>
-          <tr><td>Price feeds</td><td>Mutual funds and currency refresh from keyless public APIs; equities use a free-tier key. Every price carries its date.</td></tr>
+          <tr><td>Price feeds</td><td>Mutual funds and currency refresh from keyless public sources. Indian shares and ETFs, given an ISIN or NSE symbol, take each evening&rsquo;s close from NSE&rsquo;s and BSE&rsquo;s published end-of-day files: no key, and nothing about your holdings is sent. Foreign shares use a free-tier Alpha Vantage key. Every price carries its date.</td></tr>
           <tr><td>Hand-valued pots</td><td>Gold, retirement, anything outside the consolidated statement, all updated in one sitting. A deposit given its terms values itself: the same screen shows its computed figure, and a figure typed there still wins until the next contribution.</td></tr>
           <tr><td>Net worth</td><td>The figure with its as-of date and history, counting money owed to family and other liabilities beside loans and cards. The change is split into money saved, market movement, exchange rate, debt repaid, other assets, and what was repaid to family and on other liabilities, and the parts add up to the total. Snapshots taken before the last two were recorded say so, rather than hiding the difference.</td></tr>
           <tr><td>The firewall</td><td>Portfolio value never appears on the budget screen, in any form. Growth is not income, and an acceptance test checks this.</td></tr>
@@ -481,16 +486,18 @@
     <div class="row2">
       <div class="row2__text">
         <h2>Tax, from what is already in the books</h2>
-        <p class="lede">Both regimes side by side for one financial year, drawing on what the books already hold: home-loan interest, capital gains, the tax you have paid and your insurance premiums. An estimate, not a return and not advice.</p>
+        <p class="lede">Both regimes side by side for one financial year, drawing on what the books already hold (home-loan interest, capital gains, the tax you have paid, your insurance premiums) and on what the department already holds, from your Annual Information Statement. An estimate, not a return and not advice.</p>
         <ul class="checks" style="margin-top:1.5rem">
           <li>Home-loan interest under 24(b) from the loans you mark lived in</li>
+          <li>Your AIS read for TDS by deductor, salary, interest and dividends</li>
           <li>TDS, advance and self-assessment tax netted to a balance due or a refund</li>
           <li>Each advance-tax instalment checked against what was paid by its date</li>
           <li>Capital gains at their own rates, in the period they were sold in</li>
           <li>Employer NPS under 80CCD(2), in both regimes</li>
+          <li>How much of the ₹1.25 lakh tax-free equity gain is left before 31 March</li>
           <li>Prints as a document, caveat included</li>
         </ul>
-        <p class="guide-link"><span>Guides</span><a href="guides.html#tax">Tax</a></p>
+        <p class="guide-link"><span>Guides</span><a href="guides.html#tax">Tax</a> · <a href="guides.html#ais">Your AIS</a> · <a href="guides.html#tax-free-gains">Tax-free gains</a></p>
       </div>
       <figure class="frame">
         <picture>
@@ -527,7 +534,9 @@
           <tbody>
           <tr><td>Tax estimate</td><td>Both regimes side by side for one financial year, with 80C, 80D and the HRA exemption, and a plain list of what it does not model. An estimate on figures you enter and figures the ledger holds, not a return and not advice.</td></tr>
           <tr><td>Home-loan interest</td><td>Mark a loan&rsquo;s house as lived in or let out. A lived-in house&rsquo;s interest for the year is deducted under 24(b) in the old regime, up to ₹2,00,000; a let-out house is shown and not deducted. The figure can be overridden.</td></tr>
-          <tr><td>Tax already paid</td><td>TDS from Form 16 and 26AS, and each advance or self-assessment payment with its date, are taken off the year&rsquo;s tax to show what is left to pay or what comes back.</td></tr>
+          <tr><td>Tax already paid</td><td>TDS from Form 16, 26AS or your AIS, and each advance or self-assessment payment with its date, are taken off the year&rsquo;s tax to show what is left to pay or what comes back.</td></tr>
+          <tr><td>Annual Information Statement</td><td>Upload your own AIS PDF on the Tax page; it opens with your saved PAN and date of birth. TDS by deductor, salary, interest, dividends and securities sold are read and shown, with the sales set beside what you recorded. <em>Use these figures</em> raises your gross income and TDS to the AIS&rsquo;s, never lowers them, and saves nothing until you do. Only the figures are kept, never the file, and only you see them.</td></tr>
+          <tr><td>Tax-free long-term gains</td><td>For the year in progress: how much of the ₹1,25,000 s112A exemption on listed equity is used and left, the days to 31 March, and for each holding of your own how many units could be sold, oldest lots first, without going over. Unlisted shares, hybrid funds, international holdings and anything without a price are listed as left out, never suggested.</td></tr>
           <tr><td>Advance tax dates</td><td>The four instalments (15%, 45%, 75% and 100% by 15 June, September, December and March) when the year&rsquo;s tax after TDS is ₹10,000 or more. Each is checked against what was paid by its date, with the shortfall. Interest under 234B and 234C is named, not worked out.</td></tr>
           <tr><td>Capital gains, taxed properly</td><td>Sorted by asset class and holding period, then taxed at their own rates: 12.5% above the ₹1,25,000 exemption on long-held equity listed in India, 20% short, 12.5% on a listed bond held over a year, slab rates on debt and foreign shares held under two years. 2024-25 is split at 23-07-2024: a sale before it is taxed at the old rates. A year it has no rates for is refused, and anything it cannot place it refuses to place, and says why.</td></tr>
           <tr><td>80C and 80D from your policies</td><td>The premiums falling due in the year, grouped as 80C, 80D for the family and 80D for parents, are shown beside the figures you typed. Applying them fills the form; it is yours to save.</td></tr>
