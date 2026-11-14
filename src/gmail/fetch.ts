@@ -28,9 +28,10 @@ import { accountsByLast4For, cardsByLast4For } from "../domain/accounts.ts";
 import { hiddenAccountSql } from "../domain/member-scope.ts";
 import { ALERT_PROFILES, parseAlert, looksLikeUnreadAlert } from "../import/email-alerts.ts";
 import {
-  senderFor, parseStatementPdf, WrongPassword, STATEMENT_SENDERS, bankForInstitution, SAFEGOLD_DISTRIBUTOR_BALANCE,
+  senderFor, STATEMENT_SENDERS, bankForInstitution, SAFEGOLD_DISTRIBUTOR_BALANCE,
 } from "../import/pdf-statements.ts";
 import { passwordCandidates, missingDetailFor, cardDigitsNeeded } from "../import/statement-passwords.ts";
+import { readStatementPdf } from "../import/pdf-read.ts";
 import { cardNumberDigits } from "../domain/card-digits.ts";
 import { getIdentity } from "../import/identity.ts";
 import { getConnection, markFetched, refreshTokenOf, type GmailConnection } from "./connection.ts";
@@ -438,14 +439,11 @@ async function handleStatement(
     // attachment's alone. Thrown, it lost every alert read so far and left the
     // fetch unmarked, so the same file failed every fetch in its window.
     let unreadable: string | null = null;
-    for (const candidate of candidates) {
-      try { parsed = parseStatementPdf(bytes, candidate); break; }
-      catch (e) {
-        if (e instanceof WrongPassword) continue;
-        unreadable = (e as Error).message;
-        break;
-      }
-    }
+    // PDF-1 · Read in the worker, every candidate in one go. Nobody is waiting
+    // to "try again", so a fetch or a forwarded message waits its turn rather
+    // than being told the reader is busy. A file past the deadline is unreadable.
+    try { parsed = (await readStatementPdf(bytes, candidates, { wait: true }))?.parse; }
+    catch (e) { unreadable = (e as Error).message; }
     if (!parsed) {
       result.statements.locked++;
       result.notes.push(`Could not open ${pdf.filename}${unreadable ? `: ${unreadable}` : ""}`);
