@@ -461,7 +461,9 @@ async function download(exchange: Exchange, date: IsoDate, opts: FetchOptions): 
 }
 
 /** One exchange's file for one date, from memory when it can be. */
-async function dayFor(exchange: Exchange, date: IsoDate, opts: FetchOptions, now: Date): Promise<DayResult> {
+async function dayFor(
+  exchange: Exchange, date: IsoDate, opts: FetchOptions, now: Date, cachedOnly = false,
+): Promise<DayResult> {
   const key = `${exchange}|${date}`;
   const hit = cache.days.get(key);
   if (hit) {
@@ -477,6 +479,7 @@ async function dayFor(exchange: Exchange, date: IsoDate, opts: FetchOptions, now
   }
   const pending = cache.inflight.get(key);
   if (pending) return pending;
+  if (cachedOnly) return { kind: "missing" };
 
   const countKey = `${exchange}|${todayIST(now)}`;
   const used = cache.downloads.get(countKey) ?? 0;
@@ -513,11 +516,16 @@ async function latestDay(
   exchange: Exchange, opts: FetchOptions, now: Date,
 ): Promise<{ day: BhavDay } | { failure: { reason: PriceFailure["reason"]; message: string } }> {
   const today = todayIST(now);
+  let failure: { reason: PriceFailure["reason"]; message: string } | null = null;
   for (let back = 0; back <= LIMITS.walkBackDays; back++) {
-    const result = await dayFor(exchange, addDays(today, -back), opts, now);
+    // After a failure, only what is already in memory: an outage or the
+    // ceiling must not turn into a week of further requests, but a file read
+    // earlier today still prices the holding, dated as it is.
+    const result = await dayFor(exchange, addDays(today, -back), opts, now, failure !== null);
     if (result.kind === "day") return { day: result.day };
-    if (result.kind === "failed") return { failure: { reason: result.reason, message: result.message } };
+    if (result.kind === "failed") failure ??= { reason: result.reason, message: result.message };
   }
+  if (failure) return { failure };
   return {
     failure: {
       reason: "unavailable",
