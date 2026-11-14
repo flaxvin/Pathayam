@@ -498,6 +498,13 @@ export function findOrCreateInstrument(
      */
     listed?: boolean | null;
   },
+  /**
+   * The viewer's hidden instruments (memberScope().instruments), when a
+   * member typed the ISIN or symbol. One held only in another member's
+   * private accounts is never matched — attaching to it would show its name,
+   * kind and prices — and a new instrument is made instead (review 3).
+   */
+  hidden?: ReadonlySet<string>,
 ): Instrument {
   // WEALTH-39 · An unknown kind reached the table's CHECK and answered 500.
   if (!(INSTRUMENT_KINDS as readonly string[]).includes(input.kind)) {
@@ -505,15 +512,19 @@ export function findOrCreateInstrument(
   }
   return transact(db, () => {
     // R24.6: match on ISIN first — it survives a change of price provider.
+    const visible = (rows: Instrument[]): Instrument | null =>
+      rows.find((i) => !hidden?.has(i.id)) ?? null;
     const existing =
       (input.isin
-        ? queryOne<Instrument>(db, `SELECT * FROM instruments WHERE isin = ?`, input.isin)
+        ? visible(queryAll<Instrument>(
+            db, `SELECT * FROM instruments WHERE isin = ? ORDER BY created_at, id`, input.isin,
+          ))
         : null) ??
       (input.symbol
-        ? queryOne<Instrument>(
-            db, `SELECT * FROM instruments WHERE symbol = ? AND provider = ?`,
+        ? visible(queryAll<Instrument>(
+            db, `SELECT * FROM instruments WHERE symbol = ? AND provider = ? ORDER BY created_at, id`,
             input.symbol, input.provider ?? "manual",
-          )
+          ))
         : null);
     if (existing) return existing;
 
@@ -647,6 +658,17 @@ export function setInstrumentListed(
   });
 }
 
+/** The one refusal for an ISIN already in use, whoever holds it. */
+const ISIN_TAKEN =
+  "Another instrument already has that ISIN, and two cannot share one. If it is yours, buy more of it instead of a second instrument.";
+
+/** Whether an instrument other than `exceptId` already has `isin`. */
+function isinTaken(db: DB, isin: string, exceptId: string): boolean {
+  return queryOne<{ x: number }>(
+    db, `SELECT 1 AS x FROM instruments WHERE isin = ? AND id <> ? LIMIT 1`, isin, exceptId,
+  ) !== null;
+}
+
 /** Any ISIN's shape: country, nine characters, a check digit. */
 const ISIN_SHAPE = /^[A-Z]{2}[A-Z0-9]{9}[0-9]$/;
 
@@ -681,10 +703,9 @@ export function setInstrumentIdentifier(
     }
     if (isin && isin !== before.isin) {
       // R24.6 · The ISIN is how an instrument is found again; two cannot share one.
-      const other = queryOne<{ name: string }>(
-        db, `SELECT name FROM instruments WHERE isin = ? AND id <> ?`, isin, instrumentId,
-      );
-      if (other) throw new Refusal(`${other.name} already has that ISIN. Buy more of it instead of a second instrument.`);
+      // Review 3: the refusal names nothing — the other may be held only in
+      // another member's private account, and its name is theirs.
+      if (isinTaken(db, isin, instrumentId)) throw new Refusal(ISIN_TAKEN);
     }
     if (before.isin === isin && before.symbol === symbol) return;
 

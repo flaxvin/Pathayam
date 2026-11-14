@@ -9671,15 +9671,17 @@ export function buildApp(deps: AppDeps): {
           throw new Refusal(`"${isin}" is not an ISIN: two letters, nine letters or digits, then a digit (INE002A01018).`);
         }
         // WEALTH-11 · The same name typed again is the same instrument.
-        const found = symbol || isin ? null : findManualInstrument(db, typed, memberScope(db, viewer(ctx)).instruments);
+        const hidden = memberScope(db, viewer(ctx)).instruments;
+        const found = symbol || isin ? null : findManualInstrument(db, typed, hidden);
         if (found) {
           if (listed !== null) setInstrumentListed(db, actor, found.id, listed);
           return getInstrument(db, found.id)!;
         }
+        // Review 3: an ISIN or symbol matches only instruments this member can see.
         return findOrCreateInstrument(db, actor, {
           ...typed, symbol: symbol ? symbol.trim().toUpperCase() || null : null, isin, listed,
           provider: schemeCode ? "mfapi" : "manual",
-        });
+        }, hidden);
       };
       const instrument = chosenId
         ? getInstrument(db, requireVisibleInstrument(ctx, chosenId))!

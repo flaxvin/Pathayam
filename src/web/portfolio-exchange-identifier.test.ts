@@ -106,10 +106,69 @@ describe("PRICES-1 · the holding page", () => {
       const bad = await app.post(`/portfolio/instrument/${other}/identifier`, { symbol: "not a symbol!" });
       assert.match(await bad.text(), /not an exchange symbol/);
       const taken = await app.post(`/portfolio/instrument/${other}/identifier`, { isin: "INE002A01018" });
-      assert.match(await taken.text(), /Reliance already has that ISIN/);
+      assert.match(await taken.text(), /Another instrument already has that ISIN/);
       const notShare = await app.post(`/portfolio/instrument/${fund}/identifier`, { symbol: "RELIANCE" });
       assert.match(await notShare.text(), /Only a share or an ETF/);
       assert.equal(idsOf(db, "Other Co").isin, null);
+    } finally {
+      await app.close();
+    }
+  });
+});
+
+describe("REV-3 · an ISIN reveals nothing held privately by another member", () => {
+  async function twoMembers() {
+    const db = freshDb();
+    seedMember(db, "m", "Ravi");
+    seedMember(db, "p", "Priya");
+    const ravi = { memberId: "m", source: "ui" as const };
+    const priya = { memberId: "p", source: "ui" as const };
+    for (const actor of [ravi, priya]) {
+      createAccount(db, actor, {
+        name: `Bank ${actor.memberId}`, kind: "budget", subtype: "savings", openingDate: "2024-01-01", openingBalance: rupees(500_000),
+      });
+    }
+    const secret = createAssetAccount(db, priya, {
+      name: "Priya's demat", subtype: "investment", holderMemberId: "p", visibility: "private",
+    }).id;
+    const demat = createAssetAccount(db, ravi, { name: "Ravi's demat", subtype: "investment" }).id;
+    const asPriya = await startTestApp(db, { memberId: "p" });
+    try {
+      const r = await asPriya.post("/portfolio/add", buy(secret, { name: "Hidden Holdings Ltd", kind: "equity", isin: "INE999Z01011" }));
+      assert.equal(r.status, 303);
+    } finally {
+      await asPriya.close();
+    }
+    const hiddenId = queryOne<{ id: string }>(db, `SELECT id FROM instruments WHERE name = 'Hidden Holdings Ltd'`)!.id;
+    const app = await startTestApp(db, { memberId: "m" });
+    return { db, app, demat, hiddenId };
+  }
+
+  test("the identifier route refuses without naming the other instrument", async () => {
+    const { db, app, demat } = await twoMembers();
+    try {
+      await app.post("/portfolio/add", buy(demat, { name: "Mine Co", kind: "equity" }));
+      const mine = queryOne<{ id: string }>(db, `SELECT id FROM instruments WHERE name = 'Mine Co'`)!.id;
+      const body = await (await app.post(`/portfolio/instrument/${mine}/identifier`, { isin: "INE999Z01011" })).text();
+      assert.match(body, /Another instrument already has that ISIN/);
+      assert.doesNotMatch(body, /Hidden Holdings/);
+      assert.equal(idsOf(db, "Mine Co").isin, null);
+    } finally {
+      await app.close();
+    }
+  });
+
+  test("the add form makes a new instrument rather than attach to the hidden one", async () => {
+    const { db, app, demat, hiddenId } = await twoMembers();
+    try {
+      const r = await app.post("/portfolio/add", buy(demat, { name: "My Typed Name", kind: "etf", isin: "INE999Z01011" }));
+      assert.equal(r.status, 303);
+      const holding = listHoldings(db, demat)[0]!;
+      assert.notEqual(holding.instrument_id, hiddenId);
+      const made = queryOne<{ name: string; kind: string }>(db, `SELECT name, kind FROM instruments WHERE id = ?`, holding.instrument_id)!;
+      assert.deepEqual({ ...made }, { name: "My Typed Name", kind: "etf" });
+      const page = await (await app.get(`/portfolio/${holding.id}`)).text();
+      assert.doesNotMatch(page, /Hidden Holdings/);
     } finally {
       await app.close();
     }

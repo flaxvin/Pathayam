@@ -320,7 +320,10 @@ ISIN, then by symbol and provider; one typed by hand (no symbol or ISIN) is
 found again by the same name, ignoring case, with the same kind and currency,
 so a second purchase typed by hand adds a lot to the same holding. A holding's
 **Buy more** and a scheme chosen from the search both carry the instrument to
-the purchase form instead.
+the purchase form instead. On the add form, an ISIN or symbol only finds an
+instrument the member can see: one held only in another member's private
+account is never matched (a new instrument is made), and giving an
+instrument an ISIN another already has is refused without naming it.
 
 A bond carries a **listed** flag (`instruments.listed`, migration 0065), set
 from its holding page. It decides the tax on a sale: a listed bond held more
