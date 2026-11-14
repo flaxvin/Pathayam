@@ -842,6 +842,9 @@ export function renderHoldingDetail(opts: {
             <div class="field">
               <label for="symbol">NSE symbol or BSE code</label>
               <input id="symbol" name="symbol" value="${v.instrument.symbol ?? ""}" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="RELIANCE or 500325">
+              ${when(v.instrument.provider === "alphavantage", () => html`
+                <p class="field-hint">Also what Alpha Vantage is asked for when the exchanges' files cannot price it, so it is kept as a BSE ticker (RELIANCE.BSE).</p>
+              `)}
             </div>
           </div>
           <button type="submit" class="button-small">Save</button>

@@ -194,3 +194,31 @@ describe("REV-4 · undoing an ISIN change", () => {
     }
   });
 });
+
+describe("REV-6 · the identifier of an Alpha Vantage share", () => {
+  test("keeps Alpha Vantage's form, so its fallback asks for the right ticker", async () => {
+    const { db, app, demat, actor } = await setup();
+    try {
+      const { findOrCreateInstrument, recordPurchase } = await import("../domain/assets.ts");
+      const av = findOrCreateInstrument(db, actor, { name: "Reliance AV", kind: "equity", symbol: "RELIANCE.BSE", provider: "alphavantage" });
+      recordPurchase(db, actor, { accountId: demat, instrumentId: av.id, tradeDate: "2025-09-01", price: 1_000_000, units: 10_000 });
+      const holding = listHoldings(db, demat).find((h) => h.instrument_id === av.id)!;
+      const page = await (await app.get(`/portfolio/${holding.id}`)).text();
+      assert.match(page, /value="RELIANCE.BSE"/);
+      assert.match(page, /Alpha Vantage is asked for/);
+
+      // The user strips the suffix: saved back in Alpha Vantage's form.
+      await app.post(`/portfolio/instrument/${av.id}/identifier`, { holding_id: holding.id, symbol: "RELIANCE" });
+      assert.equal(idsOf(db, "Reliance AV").symbol, "RELIANCE.BSE");
+      await app.post(`/portfolio/instrument/${av.id}/identifier`, { holding_id: holding.id, symbol: "BSE:TCS" });
+      assert.equal(idsOf(db, "Reliance AV").symbol, "TCS.BSE");
+      // An NSE name Alpha Vantage would not know is refused, not saved over it.
+      const nse = await app.post(`/portfolio/instrument/${av.id}/identifier`, { holding_id: holding.id, symbol: "NSE:TCS" });
+      assert.match(await nse.text(), /knows it by its BSE ticker/);
+      assert.equal(idsOf(db, "Reliance AV").symbol, "TCS.BSE");
+      assert.equal(idsOf(db, "Reliance AV").provider, "alphavantage");
+    } finally {
+      await app.close();
+    }
+  });
+});

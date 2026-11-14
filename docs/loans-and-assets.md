@@ -389,7 +389,11 @@ shares and ETFs are priced from the exchanges' own end-of-day files (the
 symbol or BSE scrip code (on the add form, or under "Where its price comes
 from" on its holding page) gets the closing price of the latest trading day.
 Foreign shares, and an instrument set up for Alpha Vantage that the files
-cannot price, use Alpha Vantage when a key is configured. Prices are stored
+cannot price, use Alpha Vantage when a key is configured. On such a rupee
+share the one symbol serves both, kept in Alpha Vantage's form (`RELIANCE.BSE`,
+which the files read as a BSE ticker): a bare ticker or `BSE:…` saved under
+"Where its price comes from" is stored that way, and an NSE name or scrip code
+is refused rather than saved over the ticker the fallback asks for. Prices are stored
 with their date; `price_fetches` records outcomes. Instruments may be marked
 `manual_only`, and are then never fetched.
 

@@ -691,7 +691,7 @@ export function setInstrumentIdentifier(
       throw new Refusal("Only a share or an ETF is looked up on the exchanges by its ISIN or symbol.");
     }
     const isin = (input.isin ?? "").trim().toUpperCase() || null;
-    const symbol = (input.symbol ?? "").trim().toUpperCase() || null;
+    let symbol = (input.symbol ?? "").trim().toUpperCase() || null;
     if (isin && !ISIN_SHAPE.test(isin)) {
       throw new Refusal(`"${isin}" is not an ISIN: two letters, nine letters or digits, then a digit (INE002A01018).`);
     }
@@ -699,6 +699,24 @@ export function setInstrumentIdentifier(
       const id = parseIdentifier(null, symbol);
       if (!id.symbol && !id.bseCode && !id.isin) {
         throw new Refusal(`"${symbol}" is not an exchange symbol (RELIANCE, NSE:RELIANCE) or a BSE scrip code (500325).`);
+      }
+      /*
+       * Review 6 · An Alpha Vantage share's symbol is also what the refresh
+       * asks Alpha Vantage for when the exchange files cannot price it, in
+       * Alpha Vantage's own form (RELIANCE.BSE) — which the files read too,
+       * as a BSE ticker. A ticker typed bare or as BSE:… is kept in that
+       * form, so the fallback still asks for the right one; an NSE name or a
+       * scrip code is one Alpha Vantage would not know, so it is refused
+       * rather than saved over the symbol the fallback uses. A foreign share
+       * (AAPL) is not on the exchange files and is left as typed.
+       */
+      if (before.provider === "alphavantage" && before.currency === "INR") {
+        if (!id.symbol || id.symbolExchange === "NSE") {
+          throw new Refusal(
+            `${before.name} is also priced from Alpha Vantage, which knows it by its BSE ticker (RELIANCE or RELIANCE.BSE), not "${symbol}".`,
+          );
+        }
+        symbol = `${id.symbol}.BSE`;
       }
     }
     if (isin && isin !== before.isin) {
