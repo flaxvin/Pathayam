@@ -393,11 +393,14 @@ function providerFor(name: string): Provider | null {
 
 /**
  * PRICES-1 · Whether the exchanges' end-of-day files can price this: a
- * rupee share or ETF with an ISIN or exchange symbol, that is not set up for
+ * rupee share or ETF, not recorded as unlisted, with an ISIN or exchange symbol, that is not set up for
  * a mutual-fund provider. Pinning it to manual pricing (R26.6) is checked
  * before this is asked.
  */
 export function bhavcopyCanPrice(instrument: Instrument): boolean {
+  // Review 5: a share recorded as not listed (ENG-15) is on no exchange's
+  // file; a symbol that happens to equal a listed ticker is not its price.
+  if (instrument.listed === 0) return false;
   return (instrument.kind === "equity" || instrument.kind === "etf") &&
     instrument.currency === "INR" &&
     (instrument.provider === "manual" || instrument.provider === "alphavantage") &&

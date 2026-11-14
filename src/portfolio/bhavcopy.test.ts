@@ -436,6 +436,21 @@ describe("PRICES-1 · the refresh uses it for Indian shares and ETFs", () => {
     db.close();
   });
 
+  test("REV-5 · a share recorded as not listed is never priced from the files", async () => {
+    const { db, hold } = setup();
+    const unlisted = hold({ name: "Family Co", kind: "equity", symbol: "RELIANCE", listed: false });
+    const { impl, calls } = exchanges({
+      [nse("2026-11-16")]: { body: nseZip("2026-11-16"), type: "application/zip" },
+      [bse("2026-11-16")]: { body: bseCsv("2026-11-16") },
+    });
+    await refreshPrices(db, actor, {
+      fetchImpl: impl, force: true, sleep: async () => {}, random: () => 0, now: MONDAY_EVENING,
+    });
+    assert.equal(latestPrice(db, unlisted.id, "2026-11-16"), null);
+    assert.equal(calls.length, 0);
+    db.close();
+  });
+
   test("BHAVCOPY_PRICES=false: nothing goes to the exchanges", async () => {
     const { db, hold } = setup();
     hold({ name: "Reliance", kind: "equity", isin: "INE002A01018" });
