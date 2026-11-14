@@ -75,7 +75,7 @@ import {
 } from "./web/pages/actions.ts";
 import { renderReview, renderImport, renderMapping, renderBudgetAppMapping } from "./web/pages/review.ts";
 import {
-  parseStatementPdf, openStatement, BANKS, bankForInstitution, SAFEGOLD_DISTRIBUTOR_BALANCE,
+  BANKS, bankForInstitution, SAFEGOLD_DISTRIBUTOR_BALANCE,
   WrongPassword as StatementWrongPassword,
 } from "./import/pdf-statements.ts";
 import {
@@ -325,7 +325,8 @@ import {
   renderAddHolding, renderCasUpload, renderCasReview, renderNewAssetForm, renderRevalueAsset,
   renderManualPrice, renderSplitForm, renderMergerForm, renderValuations, type CasReviewScheme,
 } from "./web/pages/portfolio.ts";
-import { parseCasPdf, WrongPassword } from "./import/cas.ts";
+import { WrongPassword } from "./import/cas.ts";
+import { readStatementPdf, readCasPdf, PdfBusy, PdfReadFailed } from "./import/pdf-read.ts";
 import { parseSafeGoldText, isSafeGoldText, type SafeGoldStatement } from "./import/safegold.ts";
 import {
   planSafeGoldImport, applySafeGoldPlan, stashSafeGoldPlan, peekSafeGoldPlan, takeSafeGoldPlan,
@@ -453,6 +454,14 @@ const PUBLIC_BODY_BYTES = 64 * 1024;
 function refuseInDemo(config: Config, what: string): void {
   if (!config.demoMode) return;
   throw new HttpError(403, `${what} is disabled on the demo. Run your own copy to use it.`);
+}
+
+/**
+ * PDF-1 · An upload that arrived while another file was being read: the same
+ * page with the notice, as 503 so a script knows to retry.
+ */
+function pdfBusy(response: Response): Response {
+  return { ...response, status: 503, headers: { ...(response.headers ?? {}), "Retry-After": "5" } };
 }
 
 export function buildApp(deps: AppDeps): {
@@ -5915,7 +5924,7 @@ export function buildApp(deps: AppDeps): {
    * review queue and the auto-approve gate are shared rather than reimplemented
    * — `04` §1's whole point.
    */
-  router.post("/import/pdf", (ctx) => {
+  router.post("/import/pdf", async (ctx) => {
     const a = auth(ctx);
     const accountId = requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id;
     const upload = fileField(ctx.req, "statement");
@@ -5953,7 +5962,10 @@ export function buildApp(deps: AppDeps): {
     const account = getAccount(db, accountId);
     try {
       if (typed !== "") {
-        parsed = parseStatementPdf(upload.bytes, typed);
+        // PDF-1 · Read in the worker; a typed password is the one candidate.
+        const result = await readStatementPdf(upload.bytes, [typed]);
+        if (!result) throw new StatementWrongPassword();
+        parsed = result.parse;
       } else if (identity) {
         // F2.9 · The destination account already stores the card/account's
         // last four digits (for SMS matching), which is exactly what Canara's
@@ -5972,7 +5984,7 @@ export function buildApp(deps: AppDeps): {
           throw new StatementWrongPassword();
         }
         const withTyped = tryDigits ? [...cardDigits, tryDigits] : cardDigits;
-        const result = openStatement(
+        const result = await readStatementPdf(
           upload.bytes,
           passwordCandidates(identity, bank, { cardDigits: withTyped }),
         );
@@ -6001,9 +6013,14 @@ export function buildApp(deps: AppDeps): {
           opened = " It opened with the card's digits.";
         }
       } else {
-        parsed = parseStatementPdf(upload.bytes, "");
+        const result = await readStatementPdf(upload.bytes, [""]);
+        if (!result) throw new StatementWrongPassword();
+        parsed = result.parse;
       }
     } catch (error) {
+      // PDF-1 · Another file is being read: try again, nothing is wrong with this one.
+      if (error instanceof PdfBusy) return pdfBusy(importPage(ctx, error.message));
+      if (error instanceof PdfReadFailed) return importPage(ctx, error.message);
       if (error instanceof StatementWrongPassword && askDigits) {
         const which = askDigits === 6 ? "last six" : "last four";
         return importPage(ctx, null, {
@@ -9382,7 +9399,7 @@ export function buildApp(deps: AppDeps): {
     }));
   });
 
-  router.post("/portfolio/cas", (ctx) => {
+  router.post("/portfolio/cas", async (ctx) => {
     requireAssets();
     const a = auth(ctx);
 
@@ -9402,16 +9419,19 @@ export function buildApp(deps: AppDeps): {
 
     let statement;
     try {
-      statement = parseCasPdf(upload.bytes, password);
+      statement = await readCasPdf(upload.bytes, password);
     } catch (error) {
       // A wrong password is the one failure worth naming precisely; everything
       // else is a file this app could not read, which is the same to the user.
       const message = error instanceof WrongPassword
         ? "That password did not open the statement. It is usually your PAN, in capitals."
-        : `That file could not be read as a CAS. ${(error as Error).message}`;
-      return render(ctx, "Import a CAS", renderCasUpload({
+        : error instanceof PdfBusy || error instanceof PdfReadFailed
+          ? error.message
+          : `That file could not be read as a CAS. ${(error as Error).message}`;
+      const page = render(ctx, "Import a CAS", renderCasUpload({
         accounts: casDestinations(db, viewer(ctx)), error: message,
       }));
+      return error instanceof PdfBusy ? pdfBusy(page) : page;
     }
 
     if (statement.schemes.length === 0) {
@@ -9526,7 +9546,7 @@ export function buildApp(deps: AppDeps): {
     }));
   });
 
-  router.post("/portfolio/safegold", (ctx) => {
+  router.post("/portfolio/safegold", async (ctx) => {
     requireAssets();
     const a = auth(ctx);
     const again = (error: string) =>
@@ -9541,17 +9561,18 @@ export function buildApp(deps: AppDeps): {
     let statement: SafeGoldStatement | null = null;
     let text = "";
     let notAStatement: string | null = null;
-    for (const candidate of candidates) {
-      try {
-        const parsed = parseStatementPdf(upload.bytes, candidate);
-        text = parsed.text;
-        notAStatement = parsed.notAStatement ?? null;
+    // PDF-1 · Every candidate in one read, in the worker.
+    try {
+      const opened = await readStatementPdf(upload.bytes, candidates);
+      if (opened) {
+        text = opened.parse.text;
+        notAStatement = opened.parse.notAStatement ?? null;
         statement = isSafeGoldText(text) ? parseSafeGoldText(text) : null;
-        break;
-      } catch (error) {
-        if (error instanceof StatementWrongPassword || error instanceof WrongPassword) continue;
-        return again(`That file could not be read. ${(error as Error).message}`);
       }
+    } catch (error) {
+      if (error instanceof PdfBusy) return pdfBusy(again(error.message));
+      if (error instanceof PdfReadFailed) return again(error.message);
+      return again(`That file could not be read. ${(error as Error).message}`);
     }
     if (!text && !statement) {
       return again(identity && typed === ""
