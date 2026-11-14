@@ -420,9 +420,12 @@ on other days is [unverified].
 Only the file is requested, with a generic `User-Agent: Mozilla/5.0`: no
 symbol, holding or anything about the household leaves the server. One download
 per exchange per trading day serves every holding; days are kept in memory
-(four at most), a day with no file is remembered, and each exchange is asked
-at most twelve times a day however often Refresh is pressed, which also bounds
-what visitors can cause on the public demo. A file over 8 MB, a ZIP that
+(four at most), a day with no file is remembered (one found missing on its own
+day, before it was published, is asked for again after an hour), and each
+exchange is asked at most twelve times a day however often Refresh is pressed,
+which also bounds what visitors can cause on the public demo. The count is kept
+in memory, per running process: a restart starts it again, so twelve a day
+holds for one process, not across restarts. A file over 8 MB, a ZIP that
 unpacks past 32 MB or past its own declared size, or one that is encrypted,
 multi-part, ZIP64 or compressed other than stored or deflated, is refused.
 `BHAVCOPY_PRICES=false` turns it off.
