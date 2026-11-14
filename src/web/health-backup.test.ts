@@ -9,7 +9,7 @@
 
 import { test, describe } from "node:test";
 import assert from "node:assert/strict";
-import { mkdtempSync, rmSync, writeFileSync, mkdirSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync, mkdirSync, utimesSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { freshDb, seedMember, startTestApp, testConfig } from "./harness.test-data.ts";
@@ -51,6 +51,32 @@ describe("SECURITY-OPS-24 · manual backups", () => {
       const res = await app.post("/health/backup", {});
       assert.equal(res.status, 303);
       assert.equal(listBackups(dir).length, 14);
+      assert.deepEqual(app.failures, []);
+    } finally {
+      await app.close();
+      rmSync(dir, { recursive: true, force: true });
+    }
+  });
+
+  test("WEB-9 · on a plan with BACKUP_RETENTION_DAYS it keeps what the job keeps", async () => {
+    const dir = mkdtempSync(join(tmpdir(), "budget-health-"));
+    const DAY = 24 * 60 * 60 * 1000;
+    const now = Date.now();
+    // A daily backup for the last 60 days: all inside a 365-day plan's window.
+    for (let d = 60; d >= 3; d--) {
+      const path = join(dir, `budget-day-${String(d).padStart(2, "0")}.sqlite`);
+      writeFileSync(path, "x");
+      utimesSync(path, new Date(now - d * DAY), new Date(now - d * DAY));
+    }
+    const db = freshDb();
+    seedMember(db, "m-ravi", "Ravi");
+    const app = await startTestApp(db, {
+      memberId: "m-ravi",
+      config: testConfig({ backupDir: dir, limits: { maxMembers: null, backupRetentionDays: 365 } }),
+    });
+    try {
+      assert.equal((await app.post("/health/backup", {})).status, 303);
+      assert.equal(listBackups(dir).length, 59, "every daily backup is still inside the retention window");
       assert.deepEqual(app.failures, []);
     } finally {
       await app.close();

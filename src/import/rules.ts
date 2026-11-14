@@ -374,16 +374,181 @@ export function evaluateCondition(subject: RuleSubject, condition: Condition): b
     case "endsWith": return text.endsWith(needle);
     case "oneOf": return valueList(value).some((v) => v === text);
     case "notOneOf": return !valueList(value).some((v) => v === text);
-    case "matches":
+    case "matches": {
+      /*
+       * Decision 10 (P2) · A pattern runs over every narration of every
+       * import, and on the demo anyone can write one. One saved before
+       * patternProblem existed is skipped, not run; and only the first
+       * PATTERN_INPUT_LIMIT characters are tested, so even an accepted pattern
+       * has a bounded amount of text to backtrack over.
+       */
+      const pattern = String(value);
+      const problem = patternProblem(pattern);
+      if (problem) {
+        warnSkippedPattern(pattern, problem);
+        return false;
+      }
       try {
-        // A rule is written by a household member, not an attacker, but a
-        // malformed pattern must not take the whole import down.
-        return new RegExp(String(value), "i").test(actual === null ? "" : String(actual));
+        const subjectText = actual === null ? "" : String(actual);
+        return new RegExp(pattern, "i").test(subjectText.slice(0, PATTERN_INPUT_LIMIT));
       } catch {
         return false;
       }
+    }
     default: return false;
   }
+}
+
+/** Decision 10 · The longest pattern a rule may hold. */
+export const PATTERN_MAX_LENGTH = 200;
+/** Decision 10 · How much of a narration (or any field) a pattern is tested against. */
+export const PATTERN_INPUT_LIMIT = 500;
+/**
+ * Decision 10 · How many open-ended repeats (`*`, `+`, `{n,}`, or `{n,m}` with
+ * m over 20) one pattern may hold. Two is "UPI.*SWIGGY.*"; three, even with
+ * text between them (".*a.*a.*x"), backtracks for over ten seconds on a
+ * crafted 500-character narration.
+ */
+export const PATTERN_MAX_OPEN_REPEATS = 2;
+
+const warnedPatterns = new Set<string>();
+function warnSkippedPattern(pattern: string, problem: string): void {
+  if (warnedPatterns.has(pattern)) return;
+  warnedPatterns.add(pattern);
+  console.warn(`rules: skipped a "matches a pattern" condition (${problem}): ${JSON.stringify(pattern.slice(0, 80))}`);
+}
+
+/** A first atom that could start the same text as another: any class, ., or a letter escape (\w, \x61). */
+const BROAD_ATOM = /^(\.|\\[a-zA-Z0-9]|\[)/;
+
+/**
+ * Decision 10 (P2) · Why a "matches a pattern" value cannot be saved, or null.
+ *
+ * Refused: a pattern that is not one; longer than PATTERN_MAX_LENGTH; a
+ * repeat inside a repeat — `(a+)+`, `(\w*)*`, `(\d{1,3})+` — or a repeated
+ * alternation whose branches can start alike — `(a|a)+`, `(a|ab)*`, `(.|x)+`
+ * — the shapes that backtrack exponentially; or more than
+ * PATTERN_MAX_OPEN_REPEATS open-ended repeats, which backtrack polynomially.
+ * Read the way a reader would, not as a full regex parser: it errs on refusing.
+ */
+export function patternProblem(pattern: string): string | null {
+  if (pattern.length > PATTERN_MAX_LENGTH) {
+    return `A pattern can be at most ${PATTERN_MAX_LENGTH} characters long; this one is ${pattern.length}.`;
+  }
+  try {
+    new RegExp(pattern, "i");
+  } catch {
+    return `"${pattern}" isn't a pattern I can read.`;
+  }
+
+  interface Frame { repeats: boolean; branches: string[]; current: string | null; atomsInBranch: number }
+  const newFrame = (): Frame => ({ repeats: false, branches: [], current: null, atomsInBranch: 0 });
+  const stack: Frame[] = [newFrame()];
+  let openRepeats = 0;
+  const nested =
+    "A pattern can't repeat something that itself repeats (like (a+)+ or (\\w*)*): " +
+    "on a long narration it can take minutes to give up. Repeat the inside once, e.g. (a+) or a+.";
+  const overlapping =
+    "A pattern can't repeat a choice whose options can start the same way (like (a|ab)+ or (.|x)*): " +
+    "on a long narration it can take minutes to give up.";
+
+  /** Reads a quantifier at i; returns its length and kind, or null. */
+  const quantifierAt = (i: number): { len: number; repeats: boolean; open: boolean } | null => {
+    const c = pattern[i];
+    let len = 0, repeats = false, open = false;
+    if (c === "*" || c === "+") { len = 1; repeats = true; open = true; }
+    else if (c === "?") { len = 1; }
+    else if (c === "{") {
+      const m = /^\{(\d+)(,(\d*))?\}/.exec(pattern.slice(i));
+      if (!m) return null;
+      len = m[0].length;
+      const lo = Number(m[1]);
+      const hi = m[2] === undefined ? lo : m[3] === "" ? Infinity : Number(m[3]);
+      repeats = hi > 1 && hi !== lo;
+      open = hi > 20;
+    } else return null;
+    if (pattern[i + len] === "?") len++; // lazy
+    return { len, repeats, open };
+  };
+
+  /** One atom was read, its text `atom`, ending before i. Applies any quantifier; returns the new i. */
+  const afterAtom = (i: number, atom: string, inner: Frame | null): number => {
+    const frame = stack[stack.length - 1]!;
+    if (frame.atomsInBranch === 0) frame.current = atom;
+    frame.atomsInBranch++;
+    const q = quantifierAt(i);
+    if (!q) {
+      if (inner?.repeats) frame.repeats = true;
+      return i;
+    }
+    if (q.open) openRepeats++;
+    if (q.repeats && inner) {
+      if (inner.repeats) throw new Error(nested);
+      const firsts = [...inner.branches, inner.atomsInBranch > 0 ? inner.current! : ""];
+      if (firsts.length > 1) {
+        const lowered = firsts.map((f) => f.toLowerCase());
+        if (lowered.some((f) => f === "" || BROAD_ATOM.test(f) || f.startsWith("("))
+            || new Set(lowered).size < lowered.length) {
+          throw new Error(overlapping);
+        }
+      }
+    }
+    if (q.repeats || inner?.repeats) frame.repeats = true;
+    return i + q.len;
+  };
+
+  try {
+    let i = 0;
+    while (i < pattern.length) {
+      const c = pattern[i]!;
+      if (c === "\\") {
+        let end = i + 2;
+        const next = pattern[i + 1];
+        if ((next === "p" || next === "P" || next === "u") && pattern[end] === "{") end = pattern.indexOf("}", end) + 1 || pattern.length;
+        else if (next === "k" && pattern[end] === "<") end = pattern.indexOf(">", end) + 1 || pattern.length;
+        else if (next === "x") end = i + 4;
+        else if (next === "u") end = i + 6;
+        else if (next === "c") end = i + 3;
+        i = afterAtom(end, pattern.slice(i, end), null);
+      } else if (c === "[") {
+        let j = i + 1;
+        if (pattern[j] === "^") j++;
+        if (pattern[j] === "]") j++;
+        while (j < pattern.length && pattern[j] !== "]") j += pattern[j] === "\\" ? 2 : 1;
+        i = afterAtom(j + 1, pattern.slice(i, j + 1), null);
+      } else if (c === "(") {
+        stack.push(newFrame());
+        i++;
+        if (pattern[i] === "?") {
+          const m = /^\?(:|=|!|<=|<!|<[^>]*>)/.exec(pattern.slice(i));
+          i += m ? m[0].length : 1;
+        }
+      } else if (c === ")") {
+        const inner = stack.pop()!;
+        if (stack.length === 0) return `"${pattern}" isn't a pattern I can read.`;
+        i = afterAtom(i + 1, `(`, inner);
+      } else if (c === "|") {
+        const frame = stack[stack.length - 1]!;
+        frame.branches.push(frame.atomsInBranch > 0 ? frame.current! : "");
+        frame.atomsInBranch = 0;
+        frame.current = null;
+        i++;
+      } else if (c === "^" || c === "$") {
+        i++;
+      } else if (quantifierAt(i)) {
+        i += quantifierAt(i)!.len; // stray; the RegExp check above would have refused most
+      } else {
+        i = afterAtom(i + 1, c, null);
+      }
+    }
+  } catch (e) {
+    return (e as Error).message;
+  }
+  if (openRepeats > PATTERN_MAX_OPEN_REPEATS) {
+    return `A pattern can use open-ended repeats (*, + or {n,}) at most ${PATTERN_MAX_OPEN_REPEATS} times; ` +
+      `this one has ${openRepeats}. More can take minutes to give up on a long narration.`;
+  }
+  return null;
 }
 
 export function ruleMatches(subject: RuleSubject, rule: Rule): boolean {

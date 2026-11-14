@@ -344,6 +344,11 @@ export function parseDate(input: string, reference: IsoDate = todayIST()): IsoDa
     for (const c of candidates) {
       if (Math.abs(daysBetween(reference, c)) < Math.abs(daysBetween(reference, best))) best = c;
     }
+    // A real day-month always has an occurrence within half a year. Only
+    // 29-02 outside a leap year lands further off ("29-02" on 02-01-2027 would
+    // be 29-02-2028, fourteen months ahead) — that is a guess, not the
+    // nearest date, so refuse it.
+    if (Math.abs(daysBetween(reference, best)) > 183) return null;
     return best;
   }
 

@@ -1071,7 +1071,7 @@ export function aiGoals(db: DB, viewerMemberId: string, _args: Record<string, ne
   const goals = visibleBudgets(db, viewerMemberId).flatMap((b) => {
     const view = buildBudgetView(db, undefined, b.id, viewerMemberId);
     const balances = new Map(
-      visibleCategories(view, hidden).map((c) => [c.id, { name: c.name, balance: c.state.balance }]),
+      visibleCategories(view, hidden).map((c) => [c.id, { name: c.name, balance: c.state.balance, opening: c.state.opening }]),
     );
     return goalProgress(db, balances, todayIST(), [b.id]).map((g) => ({
       goal_id: g.goal.id,
@@ -1084,6 +1084,8 @@ export function aiGoals(db: DB, viewerMemberId: string, _args: Record<string, ne
       percent: round(g.percent, 1),
       required_monthly: inr(g.requiredMonthly),
       months_remaining: g.monthsRemaining,
+      monthly_from: g.monthlyFrom,
+      still_this_month: inr(g.stillThisMonth),
       reached: g.reached,
       completed_on: isoDay(g.goal.completed_at),
       envelopes: g.categories.map((c) => ({ category_id: c.id, name: c.name, available: inr(c.balance) })),
@@ -1097,6 +1099,7 @@ export function aiGoals(db: DB, viewerMemberId: string, _args: Record<string, ne
 export function aiFire(db: DB, viewerMemberId: string, _args: Record<string, never> = {}, opts: AnalysisOptions = {}) {
   if (!assetsOn(opts)) return DISABLED_ASSETS;
   const f = fireProjection(db, { viewerMemberId, scope: "household" });
+  const ready = f.estimateReady;
   const lines = (list: { label: string; accountId: string; value: number; subtype: string }[]) =>
     list.map((l) => ({ name: l.label, account_id: l.accountId, type: l.subtype, value: inr(l.value) }));
   return {
@@ -1105,20 +1108,26 @@ export function aiFire(db: DB, viewerMemberId: string, _args: Record<string, nev
     as_of: f.asOf,
     window_days: f.windowDays,
     window_is_short: f.windowIsShort,
-    annual_expenses: inr(f.annualExpenses),
-    annual_income: inr(f.annualIncome),
-    annual_savings: inr(f.annualSavings),
-    savings_rate_pct: round(f.savingsRatePct, 1),
+    // UI-12 · Under 30 days of history the annualised figures and the target
+    // are not given, as on the page: a few days times 182 is not a year.
+    history_days: f.historyDays,
+    estimate_ready: f.estimateReady,
+    estimate_appears_on: f.estimateReady ? null : f.estimateReadyOn,
+    estimate_based_on: f.basedOn,
+    annual_expenses: ready ? inr(f.annualExpenses) : null,
+    annual_income: ready ? inr(f.annualIncome) : null,
+    annual_savings: ready ? inr(f.annualSavings) : null,
+    savings_rate_pct: ready ? round(f.savingsRatePct, 1) : null,
     corpus: inr(f.corpus),
     drawable_now: inr(f.drawableNow),
     locked_until_retirement: inr(f.lockedUntilRetirement),
     excluded: inr(f.excluded),
-    fire_number: inr(f.fireNumber),
-    fire_number_at_4_pct: inr(f.fireNumberAtFourPercent),
-    progress_pct: round(f.progressPct, 1),
-    shortfall: inr(f.shortfall),
-    years_to_fire: round(f.yearsToFire, 1),
-    fire_month: f.fireMonth,
+    fire_number: ready ? inr(f.fireNumber) : null,
+    fire_number_at_4_pct: ready ? inr(f.fireNumberAtFourPercent) : null,
+    progress_pct: ready ? round(f.progressPct, 1) : null,
+    shortfall: ready ? inr(f.shortfall) : null,
+    years_to_fire: ready ? round(f.yearsToFire, 1) : null,
+    fire_month: ready ? f.fireMonth : null,
     assumptions: {
       withdrawal_rate_pct: f.assumptions.withdrawalRateBp / 100,
       real_return_pct: f.assumptions.realReturnBp / 100,

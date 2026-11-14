@@ -63,6 +63,7 @@ import {
   type WeekdayOrdinal,
 } from "./core/dates.ts";
 import { buildBudgetView, reviewCount } from "./web/viewmodel.ts";
+import { cardPaymentsSinceOpening } from "./domain/card-shortfall.ts";
 import { renderBudget } from "./web/pages/budget.ts";
 import {
   renderAccountList, renderAccountDetail, renderNewAccountForm, renderManageCards,
@@ -75,7 +76,7 @@ import {
 } from "./web/pages/actions.ts";
 import { renderReview, renderImport, renderMapping, renderBudgetAppMapping } from "./web/pages/review.ts";
 import {
-  parseStatementPdf, openStatement, BANKS, bankForInstitution, SAFEGOLD_DISTRIBUTOR_BALANCE,
+  BANKS, bankForInstitution, SAFEGOLD_DISTRIBUTOR_BALANCE,
   WrongPassword as StatementWrongPassword,
 } from "./import/pdf-statements.ts";
 import {
@@ -101,6 +102,7 @@ import {
 } from "./web/pages/reconcile.ts";
 import {
   reconcile, reconciliationStatus, listCheckpoints, clearedBalanceAsOf,
+  isOwedAccount, owedFigureToBalance,
   guardHistoricalEdit, breakCheckpoints, CheckpointConfirmationRequired,
   intactCheckpointBalances, checkpointsMovedSince, previewReconciliation, type Checkpoint,
 } from "./domain/reconciliation.ts";
@@ -163,7 +165,7 @@ import {
   renderHealth, overallState, type HealthGroup,
 } from "./web/pages/health.ts";
 import {
-  createBackup, pruneBackups, verifyRestore, listBackups, lastJobRun, recordJobRun,
+  createBackup, pruneForRetention, verifyRestore, listBackups, lastJobRun, recordJobRun,
   pingHeartbeat,
 } from "./ops/backup.ts";
 import {
@@ -171,7 +173,7 @@ import {
   renderPrepaymentComparison, renderLoanStatementForm, renderRateReset,
 } from "./web/pages/loans.ts";
 import {
-  createLoan, listLoans, getLoan, projectLoan, recordInstalment, listPayments, closeLoan,
+  createLoan, setLoanVisibility, listLoans, getLoan, projectLoan, recordInstalment, listPayments, closeLoan,
   recordDisbursement, recordLoanStatement, recordRateChange, recordPrepayment, canSeeLoan, checkAnnualRate, loanPaymentBudgetId,
   setLoanPropertyUse, gstOnInterest,
   listDisbursements, listRatePeriods, debtOverview, type LoanType,
@@ -283,7 +285,7 @@ function needsPasswordLink(db: DB, config: Config, memberId: string): boolean {
 const LEGAL_UPDATED = "19 September 2026";
 import { loadRules } from "./import/pipeline.ts";
 import {
-  testRule, type Rule, type RuleSubject, extractNarrationFields, CONDITION_FIELDS, OPERATORS, LIST_OPERATORS,
+  testRule, type Rule, type RuleSubject, extractNarrationFields, CONDITION_FIELDS, OPERATORS, LIST_OPERATORS, patternProblem,
 } from "./import/rules.ts";
 import {
   applyStartingTemplate, startBlank,
@@ -325,7 +327,8 @@ import {
   renderAddHolding, renderCasUpload, renderCasReview, renderNewAssetForm, renderRevalueAsset,
   renderManualPrice, renderSplitForm, renderMergerForm, renderValuations, type CasReviewScheme,
 } from "./web/pages/portfolio.ts";
-import { parseCasPdf, WrongPassword } from "./import/cas.ts";
+import { WrongPassword } from "./import/cas.ts";
+import { readStatementPdf, readCasPdf, PdfBusy, PdfReadFailed } from "./import/pdf-read.ts";
 import { parseSafeGoldText, isSafeGoldText, type SafeGoldStatement } from "./import/safegold.ts";
 import {
   planSafeGoldImport, applySafeGoldPlan, stashSafeGoldPlan, peekSafeGoldPlan, takeSafeGoldPlan,
@@ -453,6 +456,14 @@ const PUBLIC_BODY_BYTES = 64 * 1024;
 function refuseInDemo(config: Config, what: string): void {
   if (!config.demoMode) return;
   throw new HttpError(403, `${what} is disabled on the demo. Run your own copy to use it.`);
+}
+
+/**
+ * PDF-1 · An upload that arrived while another file was being read: the same
+ * page with the notice, as 503 so a script knows to retry.
+ */
+function pdfBusy(response: Response): Response {
+  return { ...response, status: 503, headers: { ...(response.headers ?? {}), "Retry-After": "5" } };
 }
 
 export function buildApp(deps: AppDeps): {
@@ -1460,7 +1471,20 @@ export function buildApp(deps: AppDeps): {
 
       const result = outcome.body as { redirect?: string; message?: string };
       if (wantsJson(ctx)) {
-        return { json: { redirect: result.redirect, message: result.message ?? "Saved." } };
+        /*
+         * td-UI-1 · location is the redirect with the notice signed in. The
+         * script swaps pages in place and shows the message itself, but when it
+         * has to navigate for real (a bare first-run screen to a full one) the
+         * message only survives in the address.
+         */
+        const message = result.message ?? "Saved.";
+        return {
+          json: {
+            redirect: result.redirect,
+            message,
+            ...(result.redirect ? { location: withNotice(result.redirect, result.message) } : {}),
+          },
+        };
       }
       return { redirect: withNotice(result.redirect ?? ctx.url.pathname, result.message) };
     } catch (err) {
@@ -2879,8 +2903,56 @@ export function buildApp(deps: AppDeps): {
     );
   });
 
-  router.post("/move", (ctx) =>
-    mutate(ctx, (a) => {
+  router.post("/move", (ctx) => {
+    /*
+     * Decision 7 (UI-8) · A move that takes the source below zero, beyond what
+     * it holds, is refused unless "Allow it to go below zero" is ticked. Moving
+     * ₹99,999 out of a Groceries holding ₹7,310 said "Money moved." and left it
+     * at −₹92,689, which Auto-assign then offered to refill from income.
+     * Covering an overspent envelope moves money *into* it, so it is only
+     * refused when the envelope it comes from cannot spare the amount.
+     *
+     * Read before writing, so a refusal without the script re-shows the form
+     * with what was typed rather than an error page.
+     */
+    auth(ctx);
+    const fromRaw = field(ctx.body, "from_category_id");
+    if (fromRaw && fromRaw !== "rta" && field(ctx.body, "allow_below_zero") !== "1") {
+      const month = monthParam(ctx);
+      const fromId = requireVisibleCategory(ctx, fromRaw)!;
+      requireVisibleCategory(ctx, requiredField(ctx.body, "to_category_id"));
+      const amount = amountField(field(ctx.body, "amount"));
+      const budgetId = getCategory(db, fromId)?.budget_id ?? householdBudgetId(db);
+      const view = buildBudgetView(db, month, budgetId, viewer(ctx));
+      const source = view.categories.get(fromId);
+      const holds = source?.state.balance ?? 0;
+      if (source && amount > 0 && amount > Math.max(0, holds)) {
+        const error =
+          (holds > 0
+            ? `${source.name} holds ${formatPaise(holds)}, so moving ${formatPaise(amount)} ` +
+              `would leave it at ${formatPaise(holds - amount)}. Move ${formatPaise(holds)} or less, `
+            : `${source.name} holds ${formatPaise(holds)}, so moving ${formatPaise(amount)} ` +
+              `would leave it at ${formatPaise(holds - amount)}. Move from an envelope that has money in it, `) +
+          `or tick "Allow it to go below zero" to move it anyway.`;
+        if (wantsJson(ctx)) throw new Refusal(error);
+        const toRaw = field(ctx.body, "to_category_id")!;
+        return {
+          ...render(ctx, "Move money", renderMoveMoney({
+            month,
+            categories: [...view.categories.values()].filter((c) => !c.hidden),
+            toCategoryId: toRaw,
+            fromCategoryId: fromId,
+            amount,
+            suggestions: [],
+            readyToAssign: view.monthState.readyToAssign,
+            error,
+          })),
+          status: 422,
+        };
+      }
+    }
+
+    return mutate(ctx, (a) => {
       const month = monthParam(ctx);
       const actor = actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string);
       // "rta" is the screen's own first source and is not an envelope, so it
@@ -2913,8 +2985,8 @@ export function buildApp(deps: AppDeps): {
           }),
       );
       return { redirect: `/?month=${month}`, message: "Money moved." + rippleNote(recompute) };
-    }),
-  );
+    });
+  });
 
   router.get("/hold", (ctx) => {
     const month = monthParam(ctx);
@@ -3494,6 +3566,8 @@ export function buildApp(deps: AppDeps): {
                 funded,
                 view?.monthState.unfundedByAccount[account.id] ?? 0,
                 account.opening_balance,
+                // UI-7 · Payments since clear the opening balance first.
+                cardPaymentsSinceOpening(db, todayIST()).get(account.id) ?? 0,
               )
             : null,
         paymentCategoryName: paymentCategory?.name ?? null,
@@ -4944,7 +5018,7 @@ export function buildApp(deps: AppDeps): {
       const renamed = newPayee !== "" && newPayee !== previousPayee;
       const removed = payeeRaw !== undefined && newPayee === "" && transaction.payee_id !== null;
       const payeeId = renamed
-        ? resolvePayee(db, actor, newPayee, transaction.raw_narration).id
+        ? resolvePayee(db, actor, newPayee, transaction.raw_narration, { forRow: true, byName: true }).id
         : removed ? null : undefined;
 
       /*
@@ -5080,8 +5154,20 @@ export function buildApp(deps: AppDeps): {
       // raw string to the clean name, so next month's identical narration
       // arrives already named. Only for imported rows: a manually typed
       // transaction has no bank string to key a rule on.
+      //
+      // WEB-1 · Only for a row every member may see. A rule is household-wide
+      // and its name and reason quote both names ("UPI-DRSHARMA → Dr Sharma"),
+      // so renaming a payee on a private account or in a personal envelope
+      // published where somebody spent on /rules, /review and /activity.
       let learned = "";
-      if (renamed && transaction.raw_narration && learningEnabled(db)) {
+      const seenByAll = (): boolean => {
+        const hidden = hiddenTransactionSql("t", null);
+        return !queryOne<{ x: number }>(
+          db, `SELECT 1 AS x FROM transactions t WHERE t.id = ? AND ${hidden.sql}`,
+          transaction.id, ...hidden.params,
+        );
+      };
+      if (renamed && transaction.raw_narration && learningEnabled(db) && seenByAll()) {
         const proposal = proposePayeeRule(db, actorFor(a), {
           rawNarration: transaction.raw_narration, cleanName: newPayee,
         });
@@ -5326,7 +5412,18 @@ export function buildApp(deps: AppDeps): {
 
     const asOfRaw = field(ctx.body, "as_of");
     const asOf = dateField(asOfRaw, "As of");
-    const bankBalance = amountField(field(ctx.body, "bank_balance"), "The bank's balance");
+    const bankRaw = field(ctx.body, "bank_balance");
+    let bankBalance = amountField(bankRaw, "The bank's balance");
+    if (isOwedAccount(account)) {
+      // Decision 3 (E4) · The field asks how much you owe, so the figure is
+      // owed whichever way it is written. In credit is the tick, or the
+      // statement's own "Cr" marker — told from crore shorthand ("3Cr") by
+      // reading the figure again without it: a credit marker leaves the
+      // amount the same, crore does not.
+      const crMarked = bankBalance > 0 && /cr\.?\s*$/i.test(bankRaw ?? "") &&
+        parseAmount((bankRaw ?? "").trim().replace(/\s*cr\.?$/i, "")) === bankBalance;
+      bankBalance = owedFigureToBalance(bankBalance, field(ctx.body, "in_credit") === "1" || crMarked);
+    }
     const clearIds = fieldList(ctx.body, "clear");
     const allowAdjustment = field(ctx.body, "allow_adjustment") === "1";
 
@@ -5890,7 +5987,7 @@ export function buildApp(deps: AppDeps): {
    * review queue and the auto-approve gate are shared rather than reimplemented
    * — `04` §1's whole point.
    */
-  router.post("/import/pdf", (ctx) => {
+  router.post("/import/pdf", async (ctx) => {
     const a = auth(ctx);
     const accountId = requireVisibleAccount(ctx, requiredField(ctx.body, "account_id")).id;
     const upload = fileField(ctx.req, "statement");
@@ -5928,7 +6025,10 @@ export function buildApp(deps: AppDeps): {
     const account = getAccount(db, accountId);
     try {
       if (typed !== "") {
-        parsed = parseStatementPdf(upload.bytes, typed);
+        // PDF-1 · Read in the worker; a typed password is the one candidate.
+        const result = await readStatementPdf(upload.bytes, [typed]);
+        if (!result) throw new StatementWrongPassword();
+        parsed = result.parse;
       } else if (identity) {
         // F2.9 · The destination account already stores the card/account's
         // last four digits (for SMS matching), which is exactly what Canara's
@@ -5947,7 +6047,7 @@ export function buildApp(deps: AppDeps): {
           throw new StatementWrongPassword();
         }
         const withTyped = tryDigits ? [...cardDigits, tryDigits] : cardDigits;
-        const result = openStatement(
+        const result = await readStatementPdf(
           upload.bytes,
           passwordCandidates(identity, bank, { cardDigits: withTyped }),
         );
@@ -5976,9 +6076,14 @@ export function buildApp(deps: AppDeps): {
           opened = " It opened with the card's digits.";
         }
       } else {
-        parsed = parseStatementPdf(upload.bytes, "");
+        const result = await readStatementPdf(upload.bytes, [""]);
+        if (!result) throw new StatementWrongPassword();
+        parsed = result.parse;
       }
     } catch (error) {
+      // PDF-1 · Another file is being read: try again, nothing is wrong with this one.
+      if (error instanceof PdfBusy) return pdfBusy(importPage(ctx, error.message));
+      if (error instanceof PdfReadFailed) return importPage(ctx, error.message);
       if (error instanceof StatementWrongPassword && askDigits) {
         const which = askDigits === 6 ? "last six" : "last four";
         return importPage(ctx, null, {
@@ -6612,9 +6717,11 @@ export function buildApp(deps: AppDeps): {
       refuseForeignPrivate(
         a, getAccount(db, loan.account_id)?.holder_member_id ?? null, holder, visibility, "loan",
       );
-      updateAccount(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
+      // UI-14 · Through the loan, so its envelope follows it into (or out of)
+      // the holder's own budget.
+      setLoanVisibility(db, actorFor(a, "ui", ctx.req.headers["idempotency-key"] as string),
         // REV-3 · A sole member's form has no holder field: keep them as holder.
-        loan.account_id, { holder_member_id: holderOrSoleMember(holder), visibility });
+        loan.id, { holderMemberId: holderOrSoleMember(holder), visibility });
       return { redirect: `/loans/${loan.id}`, message: "Saved." };
     }),
   );
@@ -7632,7 +7739,7 @@ export function buildApp(deps: AppDeps): {
     const mine = budgetsFor(db, viewer(ctx));
     const view = buildBudgetView(db, undefined, scope, viewer(ctx));
     const balances = new Map(
-      [...view.categories].map(([id, c]) => [id, { name: c.name, balance: c.state.balance }]),
+      [...view.categories].map(([id, c]) => [id, { name: c.name, balance: c.state.balance, opening: c.state.opening }]),
     );
 
     return render(
@@ -7874,6 +7981,15 @@ export function buildApp(deps: AppDeps): {
       const paise = parseAmount(value);
       if (paise === null) throw new HttpError(422, `"${value}" isn't an amount I can read.`);
       value = conditionField === "absoluteAmount" ? Math.abs(paise) : paise;
+    }
+    /*
+     * Decision 10 (P2) · A pattern runs over every narration of every import;
+     * one that backtracks without end (on the demo, anyone's) stalled them all.
+     * Refused here, before it is tested against history or saved.
+     */
+    if (op === "matches") {
+      const problem = patternProblem(String(value));
+      if (problem) throw new HttpError(422, problem);
     }
     return {
       id: "draft",
@@ -9357,7 +9473,7 @@ export function buildApp(deps: AppDeps): {
     }));
   });
 
-  router.post("/portfolio/cas", (ctx) => {
+  router.post("/portfolio/cas", async (ctx) => {
     requireAssets();
     const a = auth(ctx);
 
@@ -9377,16 +9493,19 @@ export function buildApp(deps: AppDeps): {
 
     let statement;
     try {
-      statement = parseCasPdf(upload.bytes, password);
+      statement = await readCasPdf(upload.bytes, password);
     } catch (error) {
       // A wrong password is the one failure worth naming precisely; everything
       // else is a file this app could not read, which is the same to the user.
       const message = error instanceof WrongPassword
         ? "That password did not open the statement. It is usually your PAN, in capitals."
-        : `That file could not be read as a CAS. ${(error as Error).message}`;
-      return render(ctx, "Import a CAS", renderCasUpload({
+        : error instanceof PdfBusy || error instanceof PdfReadFailed
+          ? error.message
+          : `That file could not be read as a CAS. ${(error as Error).message}`;
+      const page = render(ctx, "Import a CAS", renderCasUpload({
         accounts: casDestinations(db, viewer(ctx)), error: message,
       }));
+      return error instanceof PdfBusy ? pdfBusy(page) : page;
     }
 
     if (statement.schemes.length === 0) {
@@ -9501,7 +9620,7 @@ export function buildApp(deps: AppDeps): {
     }));
   });
 
-  router.post("/portfolio/safegold", (ctx) => {
+  router.post("/portfolio/safegold", async (ctx) => {
     requireAssets();
     const a = auth(ctx);
     const again = (error: string) =>
@@ -9516,17 +9635,18 @@ export function buildApp(deps: AppDeps): {
     let statement: SafeGoldStatement | null = null;
     let text = "";
     let notAStatement: string | null = null;
-    for (const candidate of candidates) {
-      try {
-        const parsed = parseStatementPdf(upload.bytes, candidate);
-        text = parsed.text;
-        notAStatement = parsed.notAStatement ?? null;
+    // PDF-1 · Every candidate in one read, in the worker.
+    try {
+      const opened = await readStatementPdf(upload.bytes, candidates);
+      if (opened) {
+        text = opened.parse.text;
+        notAStatement = opened.parse.notAStatement ?? null;
         statement = isSafeGoldText(text) ? parseSafeGoldText(text) : null;
-        break;
-      } catch (error) {
-        if (error instanceof StatementWrongPassword || error instanceof WrongPassword) continue;
-        return again(`That file could not be read. ${(error as Error).message}`);
       }
+    } catch (error) {
+      if (error instanceof PdfBusy) return pdfBusy(again(error.message));
+      if (error instanceof PdfReadFailed) return again(error.message);
+      return again(`That file could not be read. ${(error as Error).message}`);
     }
     if (!text && !statement) {
       return again(identity && typed === ""
@@ -10607,7 +10727,10 @@ export function buildApp(deps: AppDeps): {
     mutate(ctx, (a) => {
       refuseInDemo(config, "Taking backups");
       const backup = createBackup(db, config.backupDir);
-      pruneBackups(config.backupDir);
+      // WEB-9 · The plan's retention, as the scheduled job prunes. This kept
+      // the newest 14 whatever BACKUP_RETENTION_DAYS said, so one press of
+      // "Back up now" on a 365-day plan deleted all but three and a half days.
+      pruneForRetention(config.backupDir, config.limits.backupRetentionDays);
       recordJobRun(db, "backup", "ok", `${backup.path} (${backup.bytes} bytes)`);
       appendEvent(db, actorFor(a, "job"), {
         entity: "backup", entityId: backup.path, action: "create",

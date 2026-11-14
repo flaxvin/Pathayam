@@ -351,7 +351,9 @@ export function parseAmount(input: string, context: AmountContext = "typed"): Pa
  * usual precedence. Returns null on anything it does not fully understand.
  */
 export function evaluateAmountExpression(input: string): Paise | null {
-  const src = input.trim().replace(/[₹,\s]/g, "");
+  // Commas stay: each operand is read by parseAmount, so "1,23+5" is refused
+  // as "1,23" is, rather than stripped to 123+5.
+  const src = input.trim().replace(/[₹\s]/g, "");
   if (src === "") return null;
 
   // A plain amount (possibly with a L/Cr/K suffix) is not an expression.
@@ -420,10 +422,12 @@ export function evaluateAmountExpression(input: string): Paise | null {
       return v;
     }
     const start = pos;
-    while (pos < src.length && /[\d.]/.test(src[pos]!)) pos++;
+    while (pos < src.length && /[\d.,]/.test(src[pos]!)) pos++;
     if (pos === start) return null;
-    const num = Number(src.slice(start, pos));
-    return Number.isFinite(num) ? num : null;
+    // Same rules as a plain amount: grouping must be valid and no more than
+    // two decimals ("1.234" and "0.005" are refused, not rounded).
+    const operand = parseAmount(src.slice(start, pos));
+    return operand === null ? null : operand / RUPEE;
   }
 
   const result = parseExpr();

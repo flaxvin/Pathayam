@@ -200,7 +200,11 @@ export const CLIENT_SCRIPT = String.raw`
 
   // UI-18 · markup, when given, is a page a post already answered with: it is
   // shown as it came back, from the top, at the address the form was on.
-  function updatePage(url, message, kind, onFail, markup) {
+  // td-UI-1 · noticeUrl is the same address with the message signed into it
+  // by the server: a real navigation (a bare screen to a full one, or a swap
+  // that failed) goes there, so the message survives the page load.
+  function updatePage(url, message, kind, onFail, markup, noticeUrl) {
+    var away = noticeUrl || url;
     var rendered = typeof markup === "string";
     var stayPut = !rendered && samePage(url);
     var link = resolve(url);
@@ -233,7 +237,7 @@ export const CLIENT_SCRIPT = String.raw`
         var hadChrome = Boolean(document.querySelector(".with-sidebar"));
         var wantsChrome = Boolean(doc.querySelector(".with-sidebar"));
         if (hadChrome !== wantsChrome) {
-          window.location.href = url;
+          window.location.href = away;
           return;
         }
 
@@ -285,7 +289,7 @@ export const CLIENT_SCRIPT = String.raw`
         // If anything about the swap fails, fall back to the plain navigation
         // rather than leaving a stale page on screen (R35.3).
         if (onFail) onFail();
-        window.location.href = url;
+        window.location.href = away;
       });
   }
 
@@ -697,7 +701,12 @@ export const CLIENT_SCRIPT = String.raw`
                 // Clear the form's own status first — the message is about to
                 // be shown against the refreshed page instead.
                 finish("", null);
-                updatePage(payload.redirect, payload.message || "Saved.", "success");
+                // td-UI-6 · A redirect that already carries its notice (an
+                // edit's "Saved.", a delete's "Deleted. You can restore it…")
+                // shows it on the page it fetches; adding "Saved." here put
+                // two notices on screen, the first one wrong after a delete.
+                var carriesNotice = /[?&]notice=/.test(payload.redirect);
+                updatePage(payload.redirect, payload.message || (carriesNotice ? null : "Saved."), "success", null, undefined, payload.location);
                 return;
               }
               finish(payload.message || "Saved.", "success");

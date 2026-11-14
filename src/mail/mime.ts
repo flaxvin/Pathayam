@@ -100,7 +100,14 @@ function splitEntity(s: string): Entity {
     if ((line[0] === " " || line[0] === "\t") && last) {
       last.value += line; // unfold: the line break goes, the whitespace stays
     } else {
-      const m = line.match(/^([^:\s]+)[ \t]*:(.*)$/);
+      /*
+       * IMPORT-2 · The same rule as DKIM's reader (dkim.ts splitMessage): any
+       * line with a colon after its first character is a field. This one used
+       * to stop at a name with a space in it, so "Amount Debited: INR 90,000"
+       * slipped among a bank's headers was an unsigned field to DKIM, which
+       * passed, and the start of the message's text here.
+       */
+      const m = line.match(/^([^:]+?)[ \t]*:(.*)$/);
       if (m) headers.push({ name: m[1]!, value: m[2]! });
       else if (!(first && line.startsWith("From "))) {
         // Not a header and not an mbox "From " line: the header block ended without a blank line.

@@ -9,7 +9,8 @@ import type { DB } from "../db/db.ts";
 import { queryAll } from "../db/db.ts";
 import type { Paise } from "../core/money.ts";
 import type { MonthKey, IsoDate } from "../core/dates.ts";
-import { todayIST, monthOf, formatMonth } from "../core/dates.ts";
+import { todayIST, monthOf, formatMonth, lastDayOfMonth } from "../core/dates.ts";
+import { cardPaymentsSinceOpening } from "../domain/card-shortfall.ts";
 import { Refusal } from "../core/refusal.ts";
 import { budgetsFor } from "../domain/budgets.ts";
 import { listCategories, firstBudgetMonth } from "../domain/budget.ts";
@@ -204,6 +205,7 @@ export function buildBudgetView(
 
   // WEBUX-2 · The debt as it stood in the month being viewed, not today's.
   const outstanding = creditOutstanding(db, target);
+  const paidSinceOpening = cardPaymentsSinceOpening(db, lastDayOfMonth(target));
   const cards: CardFunding[] = [];
   for (const c of categories.values()) {
     if (!c.paymentAccountId) continue;
@@ -216,8 +218,20 @@ export function buildBudgetView(
         // N7 · So the warning can say which part of the shortfall came with the
         // card and therefore has no spending behind it to look at.
         input.creditOpeningBalances?.[c.paymentAccountId] ?? 0,
+        // UI-7 · Payments since clear the opening balance first.
+        paidSinceOpening.get(c.paymentAccountId) ?? 0,
       ),
     );
+    /*
+     * td-UI-5 · A card charged from an empty envelope put that charge in the
+     * payment envelope, and the row read "Funded" with a balance, right under
+     * "₹24,449 of your card balance isn't funded yet" — and the Cards page
+     * said Set aside ₹0. The row says what the card says.
+     */
+    const card = cards[cards.length - 1]!;
+    if (card.unfunded > 0 && c.state.balance >= 0) {
+      c.stateLabel = card.setAside > 0 ? "Partly funded" : "Not funded";
+    }
   }
 
   return {
@@ -250,7 +264,12 @@ export function buildBudgetView(
      * courses is over by ₹2,300": an envelope without a target that has gone
      * below zero is not funded either.
      */
-    fullyFunded: isFullyFunded(progressList, monthState.readyToAssign)
+    /*
+     * td-UI-2 · A household with no envelopes at all is not "fully funded":
+     * the banner sat above "Nothing to budget yet" on the very first screen.
+     */
+    fullyFunded: categories.size > 0
+      && isFullyFunded(progressList, monthState.readyToAssign)
       && ![...categories.values()].some((c) => c.state.balance < 0),
     cards,
     futureCaveat: futureMonthCaveat(target, currentMonth),

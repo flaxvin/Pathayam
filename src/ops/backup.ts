@@ -24,7 +24,7 @@
  */
 
 import { DatabaseSync } from "node:sqlite";
-import { mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
+import { chmodSync, mkdirSync, readdirSync, statSync, unlinkSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import type { DB } from "../db/db.ts";
 import { queryAll, queryOne, queryValue, execute } from "../db/db.ts";
@@ -188,7 +188,14 @@ export interface BackupResult {
  * — which is what makes R40.7 true rather than aspirational.
  */
 export function createBackup(db: DB, backupDir: string, now = new Date()): BackupResult {
-  mkdirSync(backupDir, { recursive: true });
+  /*
+   * WEB-4 · A backup is the whole household — PAN and date of birth from a
+   * statement password, card digits, a Gmail refresh token when SECRETS_KEY is
+   * unset — and under the usual umask it was written 0644 in a 0755 folder,
+   * readable by every account on a shared box. Owner only, as the ACME files
+   * already are. A folder that exists keeps the mode its operator gave it.
+   */
+  mkdirSync(backupDir, { recursive: true, mode: 0o700 });
 
   const stamp = nowIST(now).replace(/[:.]/g, "-").replace("+05-30", "IST");
   const path = join(backupDir, `budget-${stamp}.sqlite`);
@@ -196,6 +203,7 @@ export function createBackup(db: DB, backupDir: string, now = new Date()): Backu
   // The path is interpolated because SQLite does not accept a bound parameter
   // here; it is built from a timestamp and configuration, never user input.
   db.exec(`VACUUM INTO '${path.replace(/'/g, "''")}'`);
+  chmodSync(path, 0o600);
 
   return {
     path,
@@ -558,9 +566,23 @@ export async function runBackupJob(
     await reportFailure(opts.webhookUrl, verification, opts.fetchImpl);
   }
 
-  if (opts.retentionDays) pruneBackupsByAge(opts.backupDir, opts.retentionDays);
-  else pruneBackups(opts.backupDir, opts.keep);
+  /*
+   * WEB-5 · Only after a backup that restored. Pruning counts every file, so a
+   * run of unverifiable backups (a full disk, a corrupt copy) pushed the last
+   * good ones out: fourteen failed runs, three and a half days, left nothing
+   * that restores. Until one verifies, nothing is deleted; the failure has
+   * already been reported above.
+   */
+  if (verification.ok) pruneForRetention(opts.backupDir, opts.retentionDays ?? null, opts.keep);
   return verification;
+}
+
+/**
+ * The one pruning rule, for the scheduled job and "Back up now" alike: by age
+ * when the plan sets BACKUP_RETENTION_DAYS, else the newest `keep`.
+ */
+export function pruneForRetention(backupDir: string, retentionDays: number | null, keep?: number): number {
+  return retentionDays ? pruneBackupsByAge(backupDir, retentionDays) : pruneBackups(backupDir, keep);
 }
 
 // ---------------------------------------------------------------------------
@@ -641,7 +663,7 @@ export function exportEverything(db: DB): Record<string, unknown> {
 
 export function writeExport(db: DB, path: string): { path: string; bytes: number } {
   const payload = JSON.stringify(exportEverything(db), null, 2);
-  writeFileSync(path, payload, "utf8");
+  writeFileSync(path, payload, { encoding: "utf8", mode: 0o600 });
   return { path, bytes: Buffer.byteLength(payload) };
 }
 
