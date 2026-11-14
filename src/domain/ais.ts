@@ -48,13 +48,15 @@ export interface AisCheck {
  * has nothing to check it against.
  */
 export function checkAis(db: DB, memberId: string, fy: number, statement: AisStatement): AisCheck {
+  // The file's year first: sending somebody to a year with no slabs would
+  // only end in this refusal there.
+  assertKnownYear(statement.fy);
   if (statement.fy !== fy) {
     throw new Refusal(
       `That AIS is for ${formatFiscalYear(statement.fy)}, and this page is ${formatFiscalYear(fy)}. ` +
       `Switch to ${formatFiscalYear(statement.fy)} above and upload it there. Nothing was imported.`,
     );
   }
-  assertKnownYear(fy);
 
   const saved = getIdentity(db, memberId)?.pan ?? null;
   if (saved) {
