@@ -74,6 +74,8 @@ import {
 } from "../domain/assets.ts";
 import { setDepositTerms, removeDepositTerms } from "../domain/deposits.ts";
 import { assertKnownYear, saveDeclaration, addTaxPayment } from "../domain/tax.ts";
+import { checkAis, replaceAis } from "../domain/ais.ts";
+import type { AisLine, AisStatement } from "../import/ais.ts";
 import { snapshotNetWorth } from "../domain/networth.ts";
 import { closeMonth, reopenMonth } from "../domain/month-close.ts";
 import { householdBudgetId, ensurePersonalBudget, listBudgets } from "../domain/budgets.ts";
@@ -379,10 +381,39 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
     loanId: homeLoan.id, date: `${months[9]!}-05`, amount: rupees(9_00_000),
     destination: "third-party", note: "Builder — slab 1",
   }));
+  /*
+   * UI-14 · A loan only Ravi sees: a two-wheeler loan paid to the dealer and
+   * repaid from his own account. Marked private, its payment envelope moves
+   * out of the household budget into his own, so nobody else meets its name,
+   * its EMI target or its instalments on the budget, in Reports or in Activity.
+   * Made shared first and then made private, the way the loan page does it.
+   */
+  const bikeTakenIn = months[22]!;
+  const bikeLoan = did("createLoan", () => createLoan(db, actor, {
+    lender: "IDFC First Bank", nickname: "Bike loan", loanType: "other",
+    interestModel: "reducing", annualRatePct: 9.5,
+    sanctioned: rupees(90_000), sanctionDate: `${bikeTakenIn}-18`,
+    tenureMonths: 24, firstInstalmentDate: `${addMonths(bikeTakenIn, 1)}-05`,
+    repaymentAccountId: acc.hisOwn, holderMemberId: ravi.id,
+  }));
+  did("setLoanVisibility", () => setLoanVisibility(db, actor, bikeLoan.id, {
+    holderMemberId: ravi.id, visibility: "private",
+  }));
+  did("recordDisbursement", () => recordDisbursement(db, actor, {
+    loanId: bikeLoan.id, date: `${bikeTakenIn}-18`, amount: rupees(90_000),
+    destination: "third-party", note: "Paid to the dealer",
+  }));
 
   // ------------------------------------------------------------- investments
+  /*
+   * HARVEST-1 · Ravi's, named. A demat account that names no holder in a
+   * household of four is nobody's in particular, so its long-term gains used
+   * nobody's s112A exemption and the tax page could only list them as left
+   * out. Named, they count in his estimate and the tax-free gains card has
+   * something to suggest.
+   */
   const demat = did("createAssetAccount", () =>
-    createAssetAccount(db, actor, { name: "Zerodha", subtype: "investment" }));
+    createAssetAccount(db, actor, { name: "Zerodha", subtype: "investment", holderMemberId: ravi.id }));
   const gold = did("createAssetAccount", () =>
     createAssetAccount(db, actor, { name: "Gold (SafeGold)", subtype: "commodity" }));
   const nps = did("createAssetAccount", () =>
@@ -425,6 +456,37 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
    */
   did("classifyInstrument", () =>
     classifyInstrument(db, actor, index.id, { assetClass: "equity", region: "domestic" }));
+
+  /*
+   * PRICES-1 · A share and an ETF listed in India, known by their ISIN and NSE
+   * symbol, so their holding pages show "Where its price comes from" with the
+   * exchanges' end-of-day files. Here their prices are recorded like every
+   * other price in this file (source "sim"); a running instance with
+   * BHAVCOPY_PRICES on replaces them with the day's close, as it does the
+   * funds' NAVs. The identifiers are the instruments' public ones; the units,
+   * dates and prices bought at are invented.
+   */
+  const infosys = did("findOrCreateInstrument", () => findOrCreateInstrument(db, actor, {
+    name: "Infosys Ltd", kind: "equity", currency: "INR", provider: "manual", listed: true,
+  }));
+  did("setInstrumentIdentifier", () =>
+    setInstrumentIdentifier(db, actor, infosys.id, { isin: "INE009A01021", symbol: "INFY" }));
+  const niftyBees = did("findOrCreateInstrument", () => findOrCreateInstrument(db, actor, {
+    name: "Nippon India ETF Nifty 50 BeES", kind: "etf", currency: "INR", provider: "manual",
+  }));
+  did("setInstrumentIdentifier", () =>
+    setInstrumentIdentifier(db, actor, niftyBees.id, { isin: "INF204KB14I2", symbol: "NIFTYBEES" }));
+  did("classifyInstrument", () =>
+    classifyInstrument(db, actor, infosys.id, { assetClass: "equity", region: "domestic" }));
+  did("classifyInstrument", () =>
+    classifyInstrument(db, actor, niftyBees.id, { assetClass: "equity", region: "domestic" }));
+  /*
+   * Their prices follow a fixed path rather than `rand()`: drawing from the
+   * generator here would shift every figure drawn after it, and the rest of the
+   * household would come out different from the one the suite was built on.
+   */
+  const infosysOn = (ix: number): number => 1_380 * (1 + 0.004 * ix) + 45 * Math.sin(ix / 2);
+  const niftyBeesOn = (ix: number): number => 218 * (1 + 0.011 * ix) + 6 * Math.sin(ix / 3);
 
   let flexiNav = 58, indexNav = 112, applePrice = 168, usdInr = 82.5, sgdInr = 61.2;
   let goldValue = 1_90_000, npsValue = 2_40_000;
@@ -1085,8 +1147,26 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
       did("recordPrice", () => recordPrice(db, { instrumentId: flexi.id, price: toPrice(flexiNav), asOf: day(month, 7), source: "sim" }));
       did("recordPrice", () => recordPrice(db, { instrumentId: index.id, price: toPrice(indexNav), asOf: day(month, 7), source: "sim" }));
       did("recordPrice", () => recordPrice(db, { instrumentId: apple.id, price: toPrice(applePrice), asOf: day(month, 7), source: "sim" }));
+      did("recordPrice", () => recordPrice(db, { instrumentId: infosys.id, price: toPrice(infosysOn(ix)), asOf: day(month, 7), source: "sim" }));
+      did("recordPrice", () => recordPrice(db, { instrumentId: niftyBees.id, price: toPrice(niftyBeesOn(ix)), asOf: day(month, 7), source: "sim" }));
       did("recordFxRate", () => recordFxRate(db, { base: "USD", quote: "INR", rate: usdInr, asOf: day(month, 7), source: "sim" }));
       did("recordFxRate", () => recordFxRate(db, { base: "SGD", quote: "INR", rate: sgdInr, asOf: day(month, 7), source: "sim" }));
+    }
+    /*
+     * HARVEST-1 · The rupee prices again on the last weekday before today, at
+     * the same figures, so the tax-free gains card is not marked as working
+     * from stale prices on the day the demo is seeded. Values do not move.
+     */
+    if (ix === MONTHS - 1) {
+      let recent = addDays(today, -1);
+      while ([0, 6].includes(new Date(`${recent}T00:00:00Z`).getUTCDay())) recent = addDays(recent, -1);
+      if (recent > day(month, 7) && recent.startsWith(month)) {
+        for (const [instrumentId, px] of [
+          [flexi.id, flexiNav], [index.id, indexNav], [infosys.id, infosysOn(ix)], [niftyBees.id, niftyBeesOn(ix)],
+        ] as const) {
+          did("recordPrice", () => recordPrice(db, { instrumentId, price: toPrice(px), asOf: recent, source: "sim" }));
+        }
+      }
     }
     // A monthly SIP into each fund.
     if (live(6)) {
@@ -1102,6 +1182,24 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
       did("recordPurchase", () => recordPurchase(db, actor, {
         accountId: demat.id, instrumentId: apple.id, tradeDate: day(month, 9),
         price: toPrice(applePrice), units: toUnits(12), fxRate: usdInr,
+      }));
+    }
+    /*
+     * HARVEST-1 · Bought in lumps over the three years, so the tax-free gains
+     * card has long-term lots to suggest from and one lot still short-term,
+     * which it says turns long-term on a date and never suggests. No
+     * fromAccountId, like the Apple shares: bought before the budget began.
+     */
+    const lumps: [number, string, number, number][] = [
+      [1, infosys.id, 25, infosysOn(ix)], [12, infosys.id, 15, infosysOn(ix)],
+      [2, niftyBees.id, 1_200, niftyBeesOn(ix)], [15, niftyBees.id, 300, niftyBeesOn(ix)],
+      [30, niftyBees.id, 200, niftyBeesOn(ix)],
+    ];
+    for (const [at, instrumentId, n, px] of lumps) {
+      if (ix !== at || !live(10)) continue;
+      did("recordPurchase", () => recordPurchase(db, actor, {
+        accountId: demat.id, instrumentId, tradeDate: day(month, 10),
+        price: toPrice(px), units: toUnits(n),
       }));
     }
     if (ix === 22 && live(11)) {
@@ -1570,6 +1668,25 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
     // DDMMYYYY, which is what a bank asks for and what the password is built from.
     name: "Ravi Menon", pan: "ABCDE1234F", dob: "01011990", mobile: "9000000000",
   }));
+  /*
+   * TAX-AIS · Ravi's Annual Information Statement for the year so far, as the
+   * reader would have taken it from the PDF: TDS on his salary, interest the
+   * bank reported, a dividend, a deposit opened (a kind the estimate does not
+   * use), and the advance-tax challans below counted as a part not read.
+   * Imported while his PAN is saved, so the ownership check runs as it would
+   * for him. Every name and figure is invented; the demo itself refuses an
+   * upload, since its visitors share one household.
+   */
+  {
+    const fy = fiscalYearOf(today);
+    let knownYear = true;
+    try { assertKnownYear(fy); } catch { knownYear = false; }
+    if (knownYear) {
+      const statement = demoAis(fy, today, "ABCDE1234F");
+      const check = did("checkAis", () => checkAis(db, ravi.id, fy, statement));
+      did("replaceAis", () => replaceAis(db, ravi.id, fy, statement, check));
+    }
+  }
   did("clearIdentity", () => clearIdentity(db, actor));
 
   /*
@@ -1691,6 +1808,56 @@ export function simulateHousehold(db: DB, opts: SimOptions = {}): SimResult {
     calls,
     log,
     monthsBuilt,
+  };
+}
+
+/**
+ * TAX-AIS · An invented AIS for the demo's signed-in member, scaled to the
+ * months of the financial year already past, so a demo seeded in May shows a
+ * thin statement and one seeded in February a full one. Nothing in it comes
+ * from a real statement: "Example" names, round figures.
+ */
+export function demoAis(fy: number, today: IsoDate, pan: string): AisStatement {
+  const [y, m] = today.split("-").map(Number) as [number, number];
+  // Whole months since 1 April, which is how far the employer's TDS returns reach.
+  const past = Math.max(0, Math.min(12, (y - fy) * 12 + m - 4));
+  const quarters = Math.floor(past / 3);
+  const lines: AisLine[] = [];
+  const line = (l: Omit<AisLine, "amount" | "tds"> & { amount: number; tds?: number }): void => {
+    if (l.amount > 0) lines.push({ ...l, amount: rupees(l.amount), tds: rupees(l.tds ?? 0) });
+  };
+  line({
+    section: "tds", category: "salary", code: fy >= 2026 ? "TDS-392" : "TDS-192",
+    label: fy >= 2026 ? "Salary received (Section 392)" : "Salary received (Section 192)",
+    source: "EXAMPLE TECHNOLOGIES PVT LTD (BLRE00000X)",
+    amount: 1_75_000 * past, tds: 13_500 * past,
+  });
+  line({
+    section: "sft", category: "interest-savings", code: "SFT-016(SB)",
+    label: "Interest income (SFT-016) - Savings", source: "EXAMPLE BANK (AAAAA0000A.AB000)",
+    amount: 960 * past,
+  });
+  line({
+    section: "sft", category: "interest-deposit", code: "SFT-016(TD)",
+    label: "Interest income (SFT-016) - Term Deposit", source: "EXAMPLE BANK (AAAAA0000A.AB000)",
+    amount: 4_350 * quarters,
+  });
+  line({
+    section: "sft", category: "dividend", code: "SFT-015",
+    label: "Dividend income (SFT-015)", source: "EXAMPLE INDUSTRIES LTD (AAAAA0000B.AB001)",
+    amount: past >= 3 ? 2_400 : 0,
+  });
+  line({
+    section: "sft", category: "unread", code: "SFT-005",
+    label: "Time deposits (SFT-005)", source: "EXAMPLE BANK (AAAAA0000A.AB000)",
+    amount: past >= 2 ? 2_00_000 : 0,
+  });
+  // The challans the scenario pays (15 June, 15 September...) sit in Part B3.
+  const challans = [`${fy}-06-14`, `${fy}-09-13`, `${fy}-12-13`, `${fy + 1}-03-13`]
+    .filter((d) => d <= today).length;
+  return {
+    fy, pan, lines,
+    notRead: challans > 0 ? [{ part: "Payment of taxes", lines: challans }] : [],
   };
 }
 

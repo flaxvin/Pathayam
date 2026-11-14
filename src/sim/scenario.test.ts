@@ -40,6 +40,12 @@ import { computeBudget, identityResidual } from "../engine/engine.ts";
 import { listBudgets } from "../domain/budgets.ts";
 import { listMembers } from "../auth/sessions.ts";
 import { netWorthStatement, assetAllocation } from "../domain/networth.ts";
+import { aisSummary } from "../domain/ais.ts";
+import { ltcgHarvestHint } from "../domain/ltcg-harvest.ts";
+import { getInstrument } from "../domain/assets.ts";
+import { fiscalYearOf } from "../core/dates.ts";
+import { bhavcopyCanPrice } from "../portfolio/refresh.ts";
+import { paymentCategoryForLoan } from "../domain/loans.ts";
 import {
   simulateHousehold, DEPARTURE_AT, RETURN_AT, SIGNED_IN_AS, type SimResult,
 } from "./scenario.ts";
@@ -544,5 +550,55 @@ describe("top-down · the features that leave a trace", () => {
       )!.n > 1,
       "one tag used once is not a tagging feature being exercised",
     );
+  });
+});
+
+/*
+ * What the demo shows of the newer screens. The demo is this household, so a
+ * card that would open empty there is a feature nobody visiting can see.
+ */
+describe("top-down · the demo has something on the newer screens", () => {
+  const me = () => sim.members[SIGNED_IN_AS].id;
+
+  test("TAX-AIS · the signed-in member has an AIS for this year, read and checked", () => {
+    const fy = fiscalYearOf(todayIST());
+    const s = aisSummary(db, me(), fy);
+    assert.ok(s, "no AIS for the year in progress");
+    assert.equal(s.panChecked, true);
+    // Invented sources only, never a real statement's.
+    for (const t of s.tdsBySource) assert.match(t.source, /^EXAMPLE /);
+    if (todayIST() >= `${fy}-05-01`) {
+      assert.ok(s.tdsTotal > 0, "no TDS to show by deductor");
+      assert.ok(s.incomeOffer > 0, "no salary, interest or dividends to offer");
+    }
+  });
+
+  test("HARVEST-1 · the tax-free gains card suggests a sale, within the exemption", () => {
+    const hint = ltcgHarvestHint(db, me());
+    const suggested = hint.lines.filter((l) => l.suggestUnits > 0);
+    assert.ok(suggested.length > 0, "nothing suggested: the card would only say there is nothing to do");
+    assert.ok(hint.suggestedGain > 0 && hint.suggestedGain <= hint.unused);
+    assert.ok(hint.lines.some((l) => l.shortTermUnits > 0 && l.nextLongTermOn),
+      "no lot still short-term, so the card never shows when one turns long-term");
+    assert.ok(!hint.excluded.some((e) => /names no holder/.test(e.reason)),
+      "the demat account names no holder, so its gains use nobody's exemption");
+  });
+
+  test("PRICES-1 · a held Indian share and ETF are priced from the exchanges' files", () => {
+    const held = queryAll<{ instrument_id: string }>(
+      db, `SELECT DISTINCT instrument_id FROM holdings`,
+    ).map((r) => getInstrument(db, r.instrument_id)!);
+    const priced = held.filter((i) => bhavcopyCanPrice(i) && i.isin && i.symbol);
+    assert.deepEqual(priced.map((i) => i.kind).sort(), ["equity", "etf"]);
+  });
+
+  test("UI-14 · a private loan's envelope is in its holder's own budget", () => {
+    const loan = queryOne<{ id: string }>(
+      db, `SELECT l.id FROM loans l JOIN accounts a ON a.id = l.account_id WHERE a.visibility = 'private'`,
+    );
+    assert.ok(loan, "no private loan");
+    const envelope = paymentCategoryForLoan(db, loan.id)!;
+    const row = queryOne<{ budget: string }>(db, `SELECT budget_id AS budget FROM categories WHERE id = ?`, envelope.id);
+    assert.equal(row?.budget, sim.budgets.ravi);
   });
 });
