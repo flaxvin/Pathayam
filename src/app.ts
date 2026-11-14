@@ -326,6 +326,8 @@ import {
   renderManualPrice, renderSplitForm, renderMergerForm, renderValuations, type CasReviewScheme,
 } from "./web/pages/portfolio.ts";
 import { parseCasPdf, WrongPassword } from "./import/cas.ts";
+import { parseAisPdf, aisPassword, WrongPassword as AisWrongPassword } from "./import/ais.ts";
+import { checkAis, replaceAis, deleteAis } from "./domain/ais.ts";
 import { parseSafeGoldText, isSafeGoldText, type SafeGoldStatement } from "./import/safegold.ts";
 import {
   planSafeGoldImport, applySafeGoldPlan, stashSafeGoldPlan, peekSafeGoldPlan, takeSafeGoldPlan,
@@ -10927,17 +10929,30 @@ export function buildApp(deps: AppDeps): {
   // income tax in India is assessed on an individual — a household figure
   // would mix one member's salary into another's estimate.
   // -------------------------------------------------------------------------
-  function taxPageProps(ctx: RequestContext, a: ReturnType<typeof auth>) {
-    const fyParam = Number(ctx.query.get("fy"));
+  function taxPageProps(ctx: RequestContext, a: ReturnType<typeof auth>, fyOverride?: number) {
+    const fyParam = fyOverride ?? Number(ctx.query.get("fy"));
     // FRESH-WEB-3 · 1e308 is an integer too; past year 9998 a date stops being one.
     const fy = Number.isInteger(fyParam) && fyParam > 2000 && fyParam < 9999
       ? fyParam : fiscalYearOf(todayIST());
 
     const insurance = config.features.insurance;
-    const model = taxPageModel(db, a.member.id, fy, insurance && ctx.query.get("from") === "policies");
+    // "from" names what to fill the form in from: policies, the AIS, or both.
+    const from = new Set((ctx.query.get("from") ?? "").split(","));
+    const model = taxPageModel(db, a.member.id, fy, insurance && from.has("policies"), from.has("ais"));
     // PLAN-1 · Without the insurance module there are no policies to suggest from.
-    return { ...model, fromPolicies: insurance ? model.fromPolicies : undefined, features: config.features };
+    return {
+      ...model, fromPolicies: insurance ? model.fromPolicies : undefined, features: config.features,
+      aisDisabled: config.demoMode ? AIS_DEMO_REFUSAL : null,
+    };
   }
+
+  /*
+   * TAX-AIS · R38 · The demo is public, and an AIS is somebody's whole tax
+   * year: a visitor trying the feature with their own would leave their
+   * salary and bank interest on a shared server. So the upload is refused
+   * there, the same way saving a statement identity is.
+   */
+  const AIS_DEMO_REFUSAL = "Reading an Annual Information Statement is disabled on the demo. Run your own copy to use it.";
 
   router.get("/tax", (ctx) => {
     const a = auth(ctx);
@@ -10985,6 +11000,76 @@ export function buildApp(deps: AppDeps): {
       });
 
       return { redirect: `/tax?fy=${fy}`, message: "Saved. The estimate is recalculated." };
+    }),
+  );
+
+  /*
+   * TAX-AIS · The member's own AIS, read from its PDF. Always the signed-in
+   * member's — there is no member to choose, so no way to file one member's
+   * AIS under another — and checked against their saved PAN where there is
+   * one. The file and its password live for this request only (PR5); what
+   * is kept is figures (src/domain/ais.ts). A re-import replaces the year.
+   */
+  router.post("/tax/ais", (ctx) => {
+    refuseInDemo(config, "Reading an Annual Information Statement");
+    const a = auth(ctx);
+    const fy = Number(field(ctx.body, "fy"));
+    if (!Number.isInteger(fy) || fy < 2000 || fy > 9998) throw new Refusal("Pick a financial year.");
+    const again = (error: string) => render(ctx, "Tax estimate", renderTax({
+      ...taxPageProps(ctx, a, fy), aisError: error,
+    }), { print: { caveat: TAX_PRINT_CAVEAT } });
+
+    const upload = fileField(ctx.req, "statement");
+    if (!upload) return again("Choose your AIS PDF first.");
+
+    const typed = field(ctx.body, "password") ?? "";
+    const identity = getIdentity(db, a.member.id);
+    const derived = identity?.pan && identity.dob ? aisPassword(identity.pan, identity.dob) : null;
+    const candidates = typed !== "" ? [typed] : derived ? [derived, ""] : [""];
+
+    let statement = null;
+    for (const candidate of candidates) {
+      try {
+        statement = parseAisPdf(upload.bytes, candidate);
+        break;
+      } catch (error) {
+        if (error instanceof AisWrongPassword) continue;
+        if (error instanceof Refusal) return again(error.message);
+        return again(`That file could not be read as an AIS. ${(error as Error).message}`);
+      }
+    }
+    if (!statement) {
+      return again(typed === "" && derived
+        ? "The password worked out from your saved PAN and date of birth did not open it. Type it above."
+        : "That password did not open it. It is your PAN in small letters followed by your date of " +
+          "birth as DDMMYYYY — abcde1234f01011990, for example.");
+    }
+
+    let check;
+    try {
+      check = checkAis(db, a.member.id, fy, statement);
+    } catch (error) {
+      if (error instanceof Refusal) return again(error.message);
+      throw error;
+    }
+    const read = statement;
+    return mutate(ctx, (auth) => {
+      replaceAis(db, auth.member.id, fy, read, check);
+      const used = read.lines.filter((l) => l.category !== "unread").length;
+      return {
+        redirect: `/tax?fy=${fy}#ais`,
+        message: [`Read ${used} ${used === 1 ? "line" : "lines"} from your AIS. Nothing in the form below has changed yet.`,
+          ...check.warnings].join(" "),
+      };
+    });
+  });
+
+  router.post("/tax/ais/delete", (ctx) =>
+    mutate(ctx, (a) => {
+      const fy = Number(field(ctx.body, "fy"));
+      if (!Number.isInteger(fy)) throw new Refusal("Pick a financial year.");
+      deleteAis(db, a.member.id, fy);
+      return { redirect: `/tax?fy=${fy}`, message: "Forgotten. Figures you already saved below are unchanged." };
     }),
   );
 

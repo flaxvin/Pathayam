@@ -21,6 +21,7 @@ import type { GainsTax } from "../../domain/capital-gains-tax.ts";
 import type { HomeLoanInterest } from "../../domain/home-loan-interest.ts";
 import type { PolicyTaxSuggestion } from "../../domain/insurance.ts";
 import { renderPolicySuggestion } from "./insurance.ts";
+import type { AisSummary } from "../../domain/ais.ts";
 
 export interface TaxPageProps {
   /** PLAN-1 · Omitted is everything on. */
@@ -56,6 +57,17 @@ export interface TaxPageProps {
   settlement: { old: Settlement; new: Settlement } | null;
   /** TAX-3 · The year's advance-tax threshold. */
   advanceThreshold: Paise;
+  /** TAX-AIS · The member's own AIS for the year, as figures, or null. */
+  fromAis?: AisSummary | null;
+  /** Whether the gross and TDS below were raised to the AIS's (not yet saved). */
+  applyAis?: boolean;
+  /** What the form's gross and TDS boxes show: the saved figures, or the AIS's when applied. */
+  formGross?: Paise;
+  formTds?: Paise;
+  /** Why the last upload was not imported. */
+  aisError?: string | null;
+  /** Why uploading is off here (the demo), or null. */
+  aisDisabled?: string | null;
 }
 
 /**
@@ -192,6 +204,8 @@ export function renderTax(p: TaxPageProps): SafeHtml {
         `
       : html`<p class="muted">Enter a gross income to see an estimate.</p>`}
 
+    ${renderAis(p)}
+
     <!--
       PRINT-1 · The one form that prints. Its inputs are the figures the
       estimate is arithmetic on, and a printed estimate without them is a total
@@ -203,7 +217,10 @@ export function renderTax(p: TaxPageProps): SafeHtml {
 
       <div class="field">
         <label for="gross">Gross income for the year</label>
-        <input id="gross" name="gross" inputmode="decimal" value="${(p.gross / 100).toFixed(2)}">
+        <input id="gross" name="gross" inputmode="decimal" value="${((p.formGross ?? p.gross) / 100).toFixed(2)}">
+        ${p.applyAis && (p.formGross ?? p.gross) !== p.gross
+          ? html`<p class="field-hint"><strong>Raised from ${formatPaise(p.gross)} to your AIS's salary, interest and dividends.</strong> Not saved until you press Save.</p>`
+          : html``}
         <p class="field-hint">
           Your ledger shows ${formatPaise(p.ledgerIncome)} of income in this
           financial year across accounts you can see. That is money that arrived,
@@ -293,11 +310,15 @@ export function renderTax(p: TaxPageProps): SafeHtml {
       <h3>Tax deducted at source</h3>
       <div class="field">
         <label for="tds">TDS for the year</label>
-        <input id="tds" name="tds" inputmode="decimal" value="${(p.paid.tds / 100).toFixed(2)}">
+        <input id="tds" name="tds" inputmode="decimal" value="${((p.formTds ?? p.paid.tds) / 100).toFixed(2)}">
+        ${p.applyAis && (p.formTds ?? p.paid.tds) !== p.paid.tds
+          ? html`<p class="field-hint"><strong>Raised from ${formatPaise(p.paid.tds)} to the TDS in your AIS.</strong> Not saved until you press Save.</p>`
+          : html``}
         <p class="field-hint">
           The total from your Form 16, or from 26AS where more than one employer
-          or bank deducted. It is netted against the estimate below, and comes
-          off before the advance-tax threshold is tested.
+          or bank deducted — or read from your Annual Information Statement,
+          above. It is netted against the estimate below, and comes off before
+          the advance-tax threshold is tested.
         </p>
       </div>
 
@@ -483,7 +504,7 @@ export function renderTax(p: TaxPageProps): SafeHtml {
         <li><strong>Losses</strong> set off or carried forward, and clubbing. A let-out house's loss, and its rent, are not here at all.</li>
         <li><strong>Home loan interest beyond the plain case.</strong> Interest before a house is finished (claimed in five parts afterwards), the ₹30,000 limit on a loan taken before April 1999 or for repairs, and a joint loan's split between borrowers — each needs the figure entered by hand.</li>
         <li><strong>Interest for paying late or short</strong> — 234A, 234B and 234C — and the senior citizen's exemption from advance tax.</li>
-        <li><strong>TDS line by line.</strong> It is one figure, as entered; nothing is read from Form 16 or 26AS.</li>
+        <li><strong>TDS line by line.</strong> It is one figure, as entered or offered from your AIS; nothing is read from Form 16 or 26AS, and the AIS's TCS, its tax payments and its demands and refunds are not read.</li>
         <li><strong>Anything foreign</strong> beyond the gain on a sale — foreign income, dividends, Schedule FA, or relief under a treaty. A foreign share's gain is taxed as the Act taxes an unlisted one: slab rates up to 24 months, s112 after.</li>
         <li><strong>Presumptive schemes</strong> under 44AD or 44ADA.</li>
       </ul>
@@ -650,5 +671,133 @@ function paidSection(p: TaxPageProps): SafeHtml {
         <button type="submit">Record a payment</button>
       </form>
     </section>
+  `;
+}
+
+/**
+ * TAX-AIS · The member's own Annual Information Statement: the upload, and
+ * what was read from it. Shown only to the member it belongs to — the page is
+ * always the signed-in member's own (Q31), and so is this.
+ */
+function renderAis(p: TaxPageProps): SafeHtml {
+  const s = p.fromAis ?? null;
+  const fy = formatFiscalYear(p.fy);
+  const upload = p.aisDisabled
+    ? html`<p class="faint">${p.aisDisabled}</p>`
+    : html`
+        <form method="post" action="/tax/ais" enctype="multipart/form-data" class="no-print">
+          <input type="hidden" name="fy" value="${p.fy}">
+          <div class="row" style="gap:1rem;align-items:flex-end;flex-wrap:wrap">
+            <div class="field" style="margin:0">
+              <label for="ais-file">${s ? "Replace it with a newer one" : `Your AIS for ${fy}, as PDF`}</label>
+              <input id="ais-file" name="statement" type="file" accept="application/pdf,.pdf" required>
+            </div>
+            <div class="field" style="margin:0">
+              <label for="ais-password">Its password</label>
+              <input id="ais-password" name="password" type="password" autocomplete="off" spellcheck="false">
+            </div>
+            <button type="submit">Read it</button>
+          </div>
+          <p class="field-hint">
+            From the e-filing portal: AIS, then Annual Information Statement, then
+            download as PDF. Its password is your PAN in small letters followed by
+            your date of birth as DDMMYYYY; leave it empty if your PAN and date of
+            birth are saved in Settings. The file is read and thrown away — only the
+            figures are kept, and only for you.
+          </p>
+        </form>
+      `;
+
+  return html`
+    <section class="card" id="ais">
+      <h2>Annual Information Statement</h2>
+      ${p.aisError ? html`<div class="notice notice-danger">${p.aisError}</div>` : html``}
+      ${s ? renderAisSummary(p, s) : html`
+        <p class="faint">
+          What the Income Tax Department already knows about your year — TDS,
+          interest and dividends banks and companies reported, salary from your
+          employer's TDS return — read from your own AIS instead of typed.
+        </p>`}
+      ${upload}
+    </section>
+  `;
+}
+
+function renderAisSummary(p: TaxPageProps, s: AisSummary): SafeHtml {
+  const interest = (s.interestSavings + s.interestDeposit + s.interestOther) as Paise;
+  const diff = (s.securitiesSold - s.appSaleProceeds) as Paise;
+  return html`
+    <p class="faint">
+      Read ${formatDate(s.importedAt.slice(0, 10))}.
+      ${s.panChecked ? "Its PAN matched the one saved for you." : "No PAN was saved for you, so it was not checked as yours."}
+    </p>
+
+    <div class="table-scroll">
+      <table>
+        <thead><tr><th>Deducted at source by</th><th class="amount">Paid or credited</th><th class="amount">TDS</th></tr></thead>
+        <tbody>
+          ${s.tdsBySource.length === 0
+            ? html`<tr><td colspan="3" class="faint">No TDS was read from it.</td></tr>`
+            : s.tdsBySource.map((t) => html`
+                <tr><td>${t.source}</td><td class="amount">${formatPaise(t.amount)}</td><td class="amount">${formatPaise(t.tds)}</td></tr>
+              `)}
+          <tr><td><strong>Total TDS</strong></td><td></td><td class="amount"><strong>${formatPaise(s.tdsTotal)}</strong></td></tr>
+        </tbody>
+      </table>
+    </div>
+
+    <div class="table-scroll">
+      <table>
+        <tbody>
+          ${row("Salary reported", s.salary)}
+          ${row("Interest, savings bank", s.interestSavings, { muted: true })}
+          ${row("Interest, deposits", s.interestDeposit, { muted: true })}
+          ${s.interestOther > 0 ? row("Interest, other", s.interestOther, { muted: true }) : html``}
+          ${row("Interest in all", interest)}
+          ${row("Dividends", s.dividends)}
+          ${row("Salary, interest and dividends", s.incomeOffer, { strong: true })}
+        </tbody>
+      </table>
+    </div>
+    <p class="field-hint">
+      Where a bank or company reported the same income twice — once with its TDS
+      and once in its SFT return — the higher of the two is counted, as the
+      department's own AIS Handbook does, not both.
+    </p>
+
+    ${s.securitiesSold > 0 || s.appSaleProceeds > 0 ? html`
+      <h3>Securities and fund units sold</h3>
+      <p>
+        The AIS reports ${formatPaise(s.securitiesSold)} of sales; this app recorded
+        ${formatPaise(s.appSaleProceeds)} of sale proceeds in your own holdings this year.
+        ${diff === 0 ? html`They agree.` : html`
+          A difference of ${formatPaise(Math.abs(diff) as Paise)} is worth a look: a sale not
+          recorded here, or one recorded in the wrong year or under someone else's account.
+          Proceeds here are after charges, so a small gap is expected.`}
+      </p>
+      <p class="field-hint">For information only. Your capital gains below come from the sales recorded here, not from the AIS.</p>
+    ` : html``}
+
+    ${s.unread.length > 0 || s.notRead.length > 0 ? html`
+      <h3>Not used</h3>
+      <ul>
+        ${s.unread.map((u) => html`<li>${u.label} — ${u.source}, ${formatPaise(u.amount)}. Not part of this estimate; add it to your gross income yourself if it is taxable.</li>`)}
+        ${s.notRead.map((n) => html`<li>${n.part}: ${n.lines} ${n.lines === 1 ? "line" : "lines"} not read.</li>`)}
+      </ul>
+    ` : html``}
+
+    ${p.applyAis
+      ? html`<div class="notice notice-warning">Filled in below where they were higher than your figures. Nothing is saved until you press Save.</div>`
+      : html`
+          <p>
+            <a href="/tax?fy=${p.fy}&amp;from=ais#gross">Use these figures</a>
+            <span class="faint">— raises your gross income to at least ${formatPaise(s.incomeOffer)} and your
+            TDS to at least ${formatPaise(s.tdsTotal)}, never lowers either, and saves nothing on its own.</span>
+          </p>`}
+
+    <form method="post" action="/tax/ais/delete" class="no-print" style="margin:.5rem 0 1rem">
+      <input type="hidden" name="fy" value="${p.fy}">
+      <button class="button-small button-danger" type="submit">Forget this AIS</button>
+    </form>
   `;
 }

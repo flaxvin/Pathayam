@@ -147,9 +147,11 @@ function headingOf(line: string): { part: string; section: AisSection | "general
 
 /**
  * The category, from the description first (the Handbook's own words) and
- * the code second. Section 192 is salary, 194 dividend, 194A interest other
- * than on securities (Handbook §4.1, §4.3, §4.5) — a 194A line is only
- * "interest-other" here, since the code alone does not say deposit or not.
+ * the code second. Section 192 is salary (Handbook §4.1) and 194 dividend
+ * (§4.3). The Handbook files 194A deductions under "Interest from deposit"
+ * (§4.5) alongside SFT-016's term and recurring deposit interest, so a 194A
+ * line is deposit interest here too — which is what lets the summary keep the
+ * higher of a bank's two reports of the same interest instead of adding both.
  */
 export function categoryOf(code: string | null, label: string): AisCategory {
   const d = label.toLowerCase();
@@ -158,8 +160,10 @@ export function categoryOf(code: string | null, label: string): AisCategory {
   if (/purchase/.test(d)) return "unread";
   if (/\bsalary\b/.test(d) || c === "TDS-192") return "salary";
   if (/interest from savings bank|savings bank interest|interest on savings/.test(d)) return "interest-savings";
-  if (/interest from deposit|interest on (?:time|term|fixed|recurring) deposit/.test(d)) return "interest-deposit";
-  if (/\binterest\b/.test(d) || c === "TDS-194A" || c === "TDS-193") return "interest-other";
+  if (/interest from deposit|interest on (?:time|term|fixed|recurring) deposit/.test(d) || c === "TDS-194A") {
+    return "interest-deposit";
+  }
+  if (/\binterest\b/.test(d) || c === "TDS-193") return "interest-other";
   if (/\bdividend\b/.test(d) || c === "TDS-194" || c === "SFT-015" || c === "SFT-018") return "dividend";
   return "unread";
 }

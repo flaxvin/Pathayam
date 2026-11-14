@@ -35,6 +35,7 @@ import { getDepositTerms, listMaturities } from "../domain/deposits.ts";
 import { netWorthStatement, netWorthHistory } from "../domain/networth.ts";
 import { listSchedules, projectCashflow, describeCashflow } from "../domain/schedules.ts";
 import { policiesDueBy, policyTaxSuggestion, applyPolicySuggestion } from "../domain/insurance.ts";
+import { aisSummary, applyAisSuggestion } from "../domain/ais.ts";
 import { envelopeSpendByMonth } from "../domain/reports.ts";
 import { spendingInsights } from "../domain/insights.ts";
 import { cameWithTheCard } from "../domain/card-shortfall.ts";
@@ -503,10 +504,11 @@ export function portfolioData(
  *
  * Per member, because income tax in India is assessed on an individual — a
  * household figure would mix one member's salary into another's estimate.
- * `applyPolicies` is the page's "fill in from my policies" (INSURANCE-1).
+ * `applyPolicies` is the page's "fill in from my policies" (INSURANCE-1), and
+ * `applyAis` its "use these figures" from the member's own AIS (TAX-AIS).
  */
 export function taxPageModel(
-  db: DB, memberId: string, fy: number, applyPolicies: boolean,
+  db: DB, memberId: string, fy: number, applyPolicies: boolean, applyAis = false,
 ): TaxPageProps {
   const stored = getDeclaration(db, memberId, fy);
   // INSURANCE-1 · What the member's policies come to; filled in only when asked.
@@ -572,9 +574,18 @@ export function taxPageModel(
     advance = advanceTaxSchedule(fy, liability, payments.filter((p) => p.kind === "advance"));
   }
 
+  // TAX-AIS · The member's own AIS for the year, if imported; offered into the
+  // form only when asked, and saved only when the form is.
+  const fromAis = aisSummary(db, memberId, fy);
+  const aisApplied = applyAis && fromAis !== null;
+  const offered = aisApplied ? applyAisSuggestion({ gross, tds: paid.tds }, fromAis) : null;
+
   return {
     fy, gross, ledgerIncome, estimate, advance, gains, gainsRefusal, slabsRefusal, fromPolicies,
     applyPolicies: apply,
+    fromAis, applyAis: aisApplied,
+    formGross: offered?.gross ?? gross,
+    formTds: offered?.tds ?? paid.tds,
     deductions: apply ? applyPolicySuggestion(stored, fromPolicies) : stored,
     homeLoan, s24bOverride: stored.s24bOverride ?? null, payments, paid, settlement,
     advanceThreshold: (ADVANCE_TAX_RULES[fy] ?? ADVANCE_TAX_RULES[2025]!).threshold,
