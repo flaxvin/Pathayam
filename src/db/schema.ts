@@ -3297,7 +3297,24 @@ ALTER TABLE asset_valuations ADD COLUMN proceeds_transaction_id TEXT REFERENCES 
 `,
   },
   {
-    name: "0076-the-tax-page-reads-the-annual-information-statement",
+    name: "0076-a-payee-knows-whether-it-began-in-private",
+    sql: `
+--------------------------------------------------------------------------------
+-- Decision 6 (P-1) · A payee first seen on a row some member cannot see is that
+-- member's merchant, not a household name. 1 = its first row was hidden from
+-- somebody; 0 = its first row was one everyone can see (or it predates this);
+-- NULL = created and not yet placed on any row.
+--
+-- Such a payee, once nothing uses it any more (its only row renamed, purged or
+-- taken back by undo), is deleted rather than left "used nowhere" and so listed
+-- to every member. Payees from before this stay 0: nothing recorded where they
+-- began.
+--------------------------------------------------------------------------------
+ALTER TABLE payees ADD COLUMN hidden_origin INTEGER DEFAULT 0;
+`,
+  },
+  {
+    name: "0077-the-tax-page-reads-the-annual-information-statement",
     sql: `
 --------------------------------------------------------------------------------
 -- TAX-AIS · What the department's Annual Information Statement says, read from

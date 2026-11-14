@@ -19,7 +19,7 @@ import { Missing, Refusal } from "../core/refusal.ts";
 import { setTarget, clearTarget, moveMoney } from "./budget.ts";
 import { nowIST, todayIST, formatDate, monthOf, type IsoDate, type MonthKey } from "../core/dates.ts";
 import { formatPaise, type Paise } from "../core/money.ts";
-import { createAccount, getAccount } from "./accounts.ts";
+import { createAccount, getAccount, updateAccount } from "./accounts.ts";
 import { createTransaction, createTransfer, eraseTransaction, UndoRefused } from "./transactions.ts";
 import { familyLoanNetWorth } from "./family-loans.ts";
 import { latestValuation } from "./assets.ts";
@@ -28,7 +28,8 @@ import {
   lifetimeMetrics, MAX_ANNUAL_RATE_PCT, MAX_TENURE_MONTHS,
   type Schedule, type InterestModel, type LifetimeMetrics,
 } from "../loans/amortisation.ts";
-import { householdBudgetId } from "./budgets.ts";
+import { householdBudgetId, ensurePersonalBudget } from "./budgets.ts";
+import { ensureCommitmentEnvelope } from "./commitments.ts";
 import { dependantsOf } from "./dependants.ts";
 
 export type LoanType =
@@ -126,6 +127,12 @@ export interface Disbursement {
   note: string | null;
   /** ENG-22 · The money it paid into a budget account or card, when it did. */
   transaction_id: string | null;
+  /**
+   * td-UI-9 · The kind and name of the account it was credited to, so the
+   * screen can tell money to assign from a card balance paid down.
+   */
+  destination_kind?: string | null;
+  destination_name?: string | null;
 }
 
 export interface RatePeriod {
@@ -374,6 +381,41 @@ export function createLoan(db: DB, actor: Actor, input: CreateLoanInput): Loan {
 
 export const LOAN_PAYMENTS_GROUP = "Loan Payments";
 
+/**
+ * UI-14 · The personal budget a private loan's envelope belongs in, created if
+ * the holder has none yet — with its envelope for the household, as
+ * /budgets/personal opens it, so that an instalment paid from a shared account
+ * has the claim it needs. Null for a loan that is not private.
+ */
+function privateLoanBudget(
+  db: DB, actor: Actor, account: { visibility: string; holder_member_id: string | null },
+): string | null {
+  if (account.visibility !== "private" || !account.holder_member_id) return null;
+  const member = queryOne<{ name: string }>(
+    db, `SELECT name FROM members WHERE id = ?`, account.holder_member_id,
+  );
+  const budget = ensurePersonalBudget(db, account.holder_member_id, member?.name ?? "My budget");
+  ensureCommitmentEnvelope(db, actor, budget.id);
+  return budget.id;
+}
+
+/** The budget's Loan Payments group, made the first time a loan needs it. */
+function loanPaymentsGroup(db: DB, budget: string): string {
+  const group = queryOne<{ id: string }>(
+    db, `SELECT id FROM category_groups WHERE kind = 'loan-payments' AND budget_id = ? LIMIT 1`,
+    budget,
+  );
+  if (group) return group.id;
+  const groupId = newId();
+  execute(
+    db,
+    `INSERT INTO category_groups (id,name,kind,sort,created_at,budget_id)
+       VALUES (?,?,'loan-payments',?,?,?)`,
+    groupId, LOAN_PAYMENTS_GROUP, 0, nowIST(), budget,
+  );
+  return groupId;
+}
+
 function createLoanPaymentCategory(
   db: DB, actor: Actor, loanId: string, name: string, fallbackBudgetId: string | null,
 ): string {
@@ -381,30 +423,30 @@ function createLoanPaymentCategory(
    * 15 · The envelope follows the account that repays the loan — that is whose
    * money is going out every month. A loan with no repayment account set is the
    * household's until somebody says otherwise (ENG-14: a card EMI plan says the
-   * card's budget).
+   * card's budget, and that wins: its instalments are charged to the card).
+   *
+   * UI-14 · …unless the loan is private. Its envelope in the household budget
+   * put the loan's name, its EMI target and every instalment on everybody's
+   * budget, pickers, reports, activity and the paying account's register, while
+   * the form promised "nobody else sees it at all". It goes in the holder's own
+   * budget; paid from a shared account, that is an ordinary cross-budget filing
+   * — the holder owes the household the instalment (15 §3A.4).
    */
-  const budget = queryOne<{ budget_id: string | null }>(
+  const row = queryOne<{ budget_id: string | null; visibility: string; holder_member_id: string | null }>(
     db,
-    `SELECT a.budget_id AS budget_id FROM loans l
-       LEFT JOIN accounts a ON a.id = l.repayment_account_id
+    `SELECT r.budget_id AS budget_id, a.visibility AS visibility, a.holder_member_id AS holder_member_id
+       FROM loans l
+       JOIN accounts a ON a.id = l.account_id
+       LEFT JOIN accounts r ON r.id = l.repayment_account_id
       WHERE l.id = ?`,
     loanId,
-  )?.budget_id ?? fallbackBudgetId ?? householdBudgetId(db);
-
-  let group = queryOne<{ id: string }>(
-    db, `SELECT id FROM category_groups WHERE kind = 'loan-payments' AND budget_id = ? LIMIT 1`,
-    budget,
   );
-  if (!group) {
-    const groupId = newId();
-    execute(
-      db,
-      `INSERT INTO category_groups (id,name,kind,sort,created_at,budget_id)
-         VALUES (?,?,'loan-payments',?,?,?)`,
-      groupId, LOAN_PAYMENTS_GROUP, 0, nowIST(), budget,
-    );
-    group = { id: groupId };
-  }
+  const budget = fallbackBudgetId
+    ?? (row ? privateLoanBudget(db, actor, row) : null)
+    ?? row?.budget_id
+    ?? householdBudgetId(db);
+
+  const group = { id: loanPaymentsGroup(db, budget) };
 
   const id = newId();
   execute(
@@ -419,6 +461,141 @@ function createLoanPaymentCategory(
     summary: `Created the payment category for ${name}`,
   });
   return id;
+}
+
+/**
+ * UI-14 · Whether an envelope can change budget without rewriting history:
+ * nothing ever assigned to it and nothing ever filed to it, deleted rows
+ * included (a restore would bring them back into the wrong budget).
+ *
+ * An envelope with money or history cannot simply be relabelled. What was
+ * assigned to it came out of one budget's Ready to Assign, and every instalment
+ * already paid from a shared account would turn, after the fact, into a debt
+ * between two budgets — past months of both would change under the household.
+ */
+function envelopeIsUntouched(db: DB, categoryId: string): boolean {
+  return !queryOne<{ n: number }>(
+    db,
+    `SELECT (SELECT COUNT(*) FROM assignments WHERE category_id = ? AND amount <> 0)
+          + (SELECT COUNT(*) FROM transactions WHERE category_id = ?)
+          + (SELECT COUNT(*) FROM transaction_splits WHERE category_id = ?) AS n`,
+    categoryId, categoryId, categoryId,
+  )?.n;
+}
+
+/** UI-14 · Moves an untouched loan envelope into `budget`'s Loan Payments group. */
+function moveLoanEnvelope(db: DB, categoryId: string, budget: string): void {
+  execute(
+    db, `UPDATE categories SET budget_id = ?, group_id = ? WHERE id = ?`,
+    budget, loanPaymentsGroup(db, budget), categoryId,
+  );
+  // The rollup cache is keyed by envelope; an envelope changing budget makes
+  // it wrong for both (as moveCategoryToGroup and B74 say).
+  execute(db, `DELETE FROM month_rollups`);
+  execute(db, `DELETE FROM month_rollup_state`);
+}
+
+/**
+ * H2.2 / UI-14 · Whose a loan is and who can see it — and where its envelope
+ * lives as a result.
+ *
+ * Made private, the envelope moves to the holder's own budget; made shared, back
+ * to the budget of the account that repays it (or the household's). Only while
+ * the envelope is untouched: otherwise the change is refused, naming why, and
+ * nothing moves. A card EMI plan's envelope stays beside its card (ENG-14).
+ */
+export function setLoanVisibility(
+  db: DB, actor: Actor, loanId: string,
+  input: { holderMemberId: string | null; visibility: "household" | "private" },
+): void {
+  transact(db, () => {
+    const loan = getLoan(db, loanId);
+    if (!loan) throw new Missing("That loan does not exist.");
+    const payment = paymentCategoryForLoan(db, loanId);
+    const current = payment ? budgetOfCategory(db, payment.id) : null;
+
+    let target: string | null = current;
+    const cardPlan = loan.loan_type === "credit-card-emi" || Boolean(
+      queryOne<{ card_id: string | null }>(db, `SELECT card_id FROM loans WHERE id = ?`, loanId)?.card_id,
+    );
+    if (payment && !cardPlan) {
+      if (input.visibility === "private" && input.holderMemberId) {
+        const member = queryOne<{ name: string }>(
+          db, `SELECT name FROM members WHERE id = ?`, input.holderMemberId,
+        );
+        target = queryOne<{ id: string }>(
+          db, `SELECT id FROM budgets WHERE member_id = ?`, input.holderMemberId,
+        )?.id ?? `new:${member?.name ?? ""}`;
+      } else if (input.visibility === "household") {
+        const repaying = loan.repayment_account_id ? getAccount(db, loan.repayment_account_id) : null;
+        target = repaying?.budget_id ?? householdBudgetId(db);
+      }
+    }
+
+    if (payment && target !== current) {
+      if (!envelopeIsUntouched(db, payment.id)) {
+        throw new Refusal(
+          `${payment.name}'s envelope already holds money or payments, so it cannot move ` +
+          (input.visibility === "private"
+            ? "into your own budget — and left in the household's budget everyone would " +
+              "still see it. Keep the loan shared, or add it again as a private loan."
+            : "back into the household's budget. Keep the loan private."),
+        );
+      }
+    }
+
+    updateAccount(db, actor, loan.account_id, {
+      holder_member_id: input.holderMemberId, visibility: input.visibility,
+    });
+
+    if (payment && target !== current) {
+      const budget = target!.startsWith("new:")
+        ? privateLoanBudget(db, actor, { visibility: "private", holder_member_id: input.holderMemberId })!
+        : target!;
+      if (input.visibility === "private") ensureCommitmentEnvelope(db, actor, budget);
+      moveLoanEnvelope(db, payment.id, budget);
+      appendEvent(db, actor, {
+        entity: "category", entityId: payment.id, action: "update",
+        summary: input.visibility === "private"
+          ? `Moved ${payment.name} into its holder's own budget`
+          : `Moved ${payment.name} back into the household budget`,
+      });
+    }
+  });
+}
+
+/**
+ * UI-14 · One-time move, run at startup, for loans made private before their
+ * envelope followed them: each private loan whose envelope sits outside its
+ * holder's budget and is untouched moves there. One with money or history is
+ * left where it is and returned, because moving it would rewrite both budgets'
+ * past months (see envelopeIsUntouched). Idempotent.
+ */
+export function movePrivateLoanEnvelopes(db: DB): { moved: number; left: string[] } {
+  const actor: Actor = { memberId: null, source: "system" };
+  const rows = queryAll<{ loan_id: string; category_id: string; budget_id: string | null; holder: string }>(
+    db,
+    `SELECT l.id AS loan_id, c.id AS category_id, c.budget_id AS budget_id, a.holder_member_id AS holder
+       FROM loans l
+       JOIN accounts a ON a.id = l.account_id
+       JOIN categories c ON c.id = l.payment_category_id
+      WHERE a.visibility = 'private' AND a.holder_member_id IS NOT NULL
+        AND l.loan_type <> 'credit-card-emi' AND l.card_id IS NULL
+        AND c.deleted_at IS NULL
+        AND (c.budget_id IS NULL OR c.budget_id NOT IN
+             (SELECT id FROM budgets WHERE member_id = a.holder_member_id))`,
+  );
+  let moved = 0;
+  const left: string[] = [];
+  for (const row of rows) {
+    if (!envelopeIsUntouched(db, row.category_id)) { left.push(row.loan_id); continue; }
+    transact(db, () => {
+      const budget = privateLoanBudget(db, actor, { visibility: "private", holder_member_id: row.holder })!;
+      moveLoanEnvelope(db, row.category_id, budget);
+    });
+    moved++;
+  }
+  return { moved, left };
 }
 
 /**
@@ -638,7 +815,11 @@ export function recordDisbursement(
 
 export function listDisbursements(db: DB, loanId: string): Disbursement[] {
   return queryAll<Disbursement>(
-    db, `SELECT * FROM loan_disbursements WHERE loan_id = ? ORDER BY date`, loanId,
+    db,
+    `SELECT d.*, a.kind AS destination_kind, a.name AS destination_name
+       FROM loan_disbursements d LEFT JOIN accounts a ON a.id = d.destination_account_id
+      WHERE d.loan_id = ? ORDER BY d.date`,
+    loanId,
   );
 }
 

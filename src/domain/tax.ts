@@ -945,6 +945,40 @@ export function incomeInFinancialYear(db: DB, fy: number, visibleAccountIds: str
   return (row?.total ?? 0) as Paise;
 }
 
+/**
+ * E5 · The same receipts as incomeInFinancialYear, account by account, so the
+ * tax page can say which accounts its starting figure was summed from — a
+ * joint account's salary is counted there, and the member should see that.
+ * Only the accounts passed in (those the member can already see), and only
+ * the ones with something in them, largest first. The amounts add up to
+ * incomeInFinancialYear for the same accounts.
+ */
+export function incomeByAccountInFinancialYear(
+  db: DB, fy: number, visibleAccountIds: string[],
+): { accountId: string; name: string; amount: Paise }[] {
+  if (visibleAccountIds.length === 0) return [];
+  const { from, to } = fiscalYearRange(fy);
+  const placeholders = visibleAccountIds.map(() => "?").join(",");
+  return queryAll<{ accountId: string; name: string; amount: Paise }>(
+    db,
+    `SELECT a.id AS accountId, COALESCE(NULLIF(a.nickname, ''), a.name) AS name,
+            SUM(t.amount) AS amount
+       FROM transactions t
+       JOIN accounts a ON a.id = t.account_id
+      WHERE t.deleted_at IS NULL
+        AND t.amount > 0
+        AND t.transfer_pair_id IS NULL
+        AND NOT ${notIncomeRowSql("t")}
+        AND a.kind = 'budget'
+        AND t.account_id IN (${placeholders})
+        AND t.date BETWEEN ? AND ?
+      GROUP BY a.id
+     HAVING SUM(t.amount) > 0
+      ORDER BY amount DESC, name`,
+    ...visibleAccountIds, from, to,
+  );
+}
+
 // ---------------------------------------------------------------------------
 // TAX-2 · Advance and self-assessment tax paid
 // ---------------------------------------------------------------------------

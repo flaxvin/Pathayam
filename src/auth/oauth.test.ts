@@ -226,3 +226,20 @@ describe("OAUTH · codes and tokens", () => {
     assert.equal(tokenMayReach("/export.json"), true);
   });
 });
+
+describe("WEB-7 · the OAuth rate limiter is bounded", () => {
+  test("a flood from fresh addresses never holds more than the cap", async () => {
+    const { checkOAuthRateLimit, resetOAuthRateLimits, oauthRateLimitSize, OAUTH_LIMIT_CAP } = await import("./oauth.ts");
+    resetOAuthRateLimits();
+    const now = 1_000_000;
+    for (let i = 0; i < OAUTH_LIMIT_CAP + 500; i++) checkOAuthRateLimit("token", `2001:db8::${i.toString(16)}`, now);
+    assert.equal(oauthRateLimitSize(), OAUTH_LIMIT_CAP);
+    // A busy address within its window is still counted.
+    for (let i = 0; i < 60; i++) assert.equal(checkOAuthRateLimit("token", "198.51.100.7", now).allowed, true);
+    assert.equal(checkOAuthRateLimit("token", "198.51.100.7", now).allowed, false);
+    // Finished windows are the first to go.
+    checkOAuthRateLimit("token", "203.0.113.1", now + 61_000);
+    assert.ok(oauthRateLimitSize() <= 2);
+    resetOAuthRateLimits();
+  });
+});

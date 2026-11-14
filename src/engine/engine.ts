@@ -443,6 +443,12 @@ export function cardFunding(
    * have it, which is every caller that does not word a warning.
    */
   openingBalance: Paise = 0,
+  /**
+   * Decision 9 (UI-7) · Card payments made since the card was added. They clear
+   * the opening balance first (oldest debt first), so only what is left of it
+   * after them can be said to have come with the card.
+   */
+  paymentsSinceOpening: Paise = 0,
 ): CardFunding {
   const owed = Math.max(0, -outstanding);
   const reallyFunded = paymentCategoryBalance - attributedOverspend;
@@ -454,7 +460,12 @@ export function cardFunding(
     funded: paymentCategoryBalance,
     // Bounded by the debt for B92's reason: a household can disprove a figure
     // larger than the balance it describes, and that costs more than it buys.
-    startingDebt: Math.min(owed, Math.max(0, -openingBalance)),
+    //
+    // Decision 9 (UI-7) · Less the payments made since. A card added owing
+    // ₹18,450 and paid ₹18,450 has nothing left that came with it; the old
+    // figure, min(owed, opening), still called ₹2,880 of a later shortfall
+    // "came with the card when you added it".
+    startingDebt: Math.min(owed, Math.max(0, -openingBalance - Math.max(0, paymentsSinceOpening))),
     /*
      * B92 · Bounded by the debt itself. However the shortfall is arrived at, a
      * card cannot be short by more than it owes — and a figure larger than the

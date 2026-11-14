@@ -378,16 +378,35 @@ export function readDocument(bytes: Uint8Array): PdfDocument {
   const objects = new Map<number, PdfValue>();
   const text = latin1(bytes);
 
+  /*
+   * IMPORT-5 · Each object is read no further than its own "endobj", and an
+   * "obj" inside what was just read is not read again. Every match used to be
+   * parsed from where it stood, and an unclosed string runs to the end of the
+   * file: "1 0 obj (" repeated read the rest of the file once per repeat, and
+   * 112 KB held the server for 18 seconds.
+   */
+  let endobjFrom = -1;
+  let endobjAt = -1;
+  const endOfObject = (from: number): number => {
+    if (endobjFrom < 0 || from < endobjFrom || (endobjAt !== -1 && from > endobjAt)) {
+      endobjFrom = from;
+      endobjAt = text.indexOf("endobj", from);
+    }
+    return endobjAt === -1 ? bytes.length : endobjAt;
+  };
+
   const objRe = /(\d+)\s+(\d+)\s+obj\b/g;
   let m: RegExpExecArray | null;
   while ((m = objRe.exec(text)) !== null) {
     const num = Number(m[1]);
-    const lexer = new Lexer(bytes, m.index + m[0].length);
+    const start = m.index + m[0].length;
+    const lexer = new Lexer(bytes.subarray(0, endOfObject(start)), start);
     try {
       objects.set(num, lexer.parseValue());
     } catch {
       // One unreadable object must not cost the whole document.
     }
+    if (lexer.pos > objRe.lastIndex) objRe.lastIndex = lexer.pos;
   }
 
   // Trailers accumulate: an incrementally updated file has several, and later
@@ -395,8 +414,10 @@ export function readDocument(bytes: Uint8Array): PdfDocument {
   const trailer: PdfDict = new Map();
   const trailerRe = /trailer\b/g;
   while ((m = trailerRe.exec(text)) !== null) {
-    const parsed = new Lexer(bytes, m.index + m[0].length).parseValue();
+    const lexer = new Lexer(bytes, m.index + m[0].length);
+    const parsed = lexer.parseValue();
     if (isDict(parsed)) for (const [k, v] of parsed) trailer.set(k, v);
+    if (lexer.pos > trailerRe.lastIndex) trailerRe.lastIndex = lexer.pos;
   }
 
   // A cross-reference *stream* carries the same keys in its dictionary.
@@ -462,12 +483,16 @@ function decodeUncharged(doc: PdfDocument, stream: PdfStream, data?: Uint8Array)
   const filter = dictGet(doc, stream.dict, "Filter");
   const filters = Array.isArray(filter) ? filter : filter === null ? [] : [filter];
 
+  // IMPORT-1 · Every step is held to what the document has left, not only the
+  // end of the chain: ASCII85 turns each "z" into four bytes, so 32 MB of
+  // inflated "z"s became 128 million array slots, and a 30 KB upload ran the
+  // server out of memory before the budget was ever checked.
+  const limit = Math.max(1, decodeBudget.get(doc) ?? MAX_DECODED_BYTES);
   for (const f of filters) {
     if (!isName(f)) continue;
     if (f.name === "FlateDecode" || f.name === "Fl") {
       try {
         // Never inflated past what the document has left to spend.
-        const limit = Math.max(1, decodeBudget.get(doc) ?? MAX_DECODED_BYTES);
         bytes = new Uint8Array(inflateSync(Buffer.from(bytes), { maxOutputLength: limit }));
       } catch (error) {
         // Over budget once is over budget for good: the next reference to the
@@ -478,7 +503,12 @@ function decodeUncharged(doc: PdfDocument, stream: PdfStream, data?: Uint8Array)
     } else if (f.name === "ASCIIHexDecode" || f.name === "AHx") {
       bytes = asciiHexDecode(bytes);
     } else if (f.name === "ASCII85Decode" || f.name === "A85") {
-      bytes = ascii85Decode(bytes);
+      const decoded = ascii85Decode(bytes, limit);
+      if (decoded === null) {
+        decodeBudget.set(doc, 0);
+        return new Uint8Array(0);
+      }
+      bytes = decoded;
     } else {
       return bytes;
     }
@@ -503,21 +533,42 @@ function decodeUncharged(doc: PdfDocument, stream: PdfStream, data?: Uint8Array)
 }
 
 function asciiHexDecode(bytes: Uint8Array): Uint8Array {
-  let digits = "";
+  // Never longer than half its input, so it needs no budget of its own.
+  const out = new Uint8Array(Math.ceil(bytes.length / 2));
+  let n = 0;
+  let high = -1;
   for (const b of bytes) {
-    const c = String.fromCharCode(b);
-    if (c === ">") break;
-    if (/[0-9a-fA-F]/.test(c)) digits += c;
+    if (b === 0x3e) break; // '>'
+    const v = b >= 0x30 && b <= 0x39 ? b - 0x30
+      : b >= 0x41 && b <= 0x46 ? b - 0x37
+      : b >= 0x61 && b <= 0x66 ? b - 0x57 : -1;
+    if (v < 0) continue;
+    if (high < 0) {
+      high = v;
+    } else {
+      out[n++] = (high << 4) | v;
+      high = -1;
+    }
   }
-  if (digits.length % 2 === 1) digits += "0";
-  const out = new Uint8Array(digits.length / 2);
-  for (let i = 0; i < out.length; i++) out[i] = parseInt(digits.slice(i * 2, i * 2 + 2), 16);
-  return out;
+  if (high >= 0) out[n++] = high << 4;
+  return out.subarray(0, n);
 }
 
-function ascii85Decode(bytes: Uint8Array): Uint8Array {
-  const out: number[] = [];
-  let group: number[] = [];
+/** ASCII85 bytes, or null when they decode to more than `limit` bytes. */
+function ascii85Decode(bytes: Uint8Array, limit: number): Uint8Array | null {
+  let out = new Uint8Array(Math.min(limit, Math.max(16, bytes.length)));
+  let n = 0;
+  const push = (word: number, count: number): boolean => {
+    if (n + count > limit) return false;
+    if (n + count > out.length) {
+      const grown = new Uint8Array(Math.min(limit, Math.max(out.length * 2, n + count)));
+      grown.set(out.subarray(0, n));
+      out = grown;
+    }
+    for (let k = 0; k < count; k++) out[n++] = (word >>> (24 - 8 * k)) & 0xff;
+    return true;
+  };
+  const group: number[] = [];
 
   for (let i = 0; i < bytes.length; i++) {
     const c = bytes[i]!;
@@ -526,7 +577,7 @@ function ascii85Decode(bytes: Uint8Array): Uint8Array {
 
     // 'z' is shorthand for four zero bytes, valid only between groups.
     if (c === 0x7a && group.length === 0) {
-      out.push(0, 0, 0, 0);
+      if (!push(0, 4)) return null;
       continue;
     }
     if (c < 0x21 || c > 0x75) continue;
@@ -535,29 +586,31 @@ function ascii85Decode(bytes: Uint8Array): Uint8Array {
     if (group.length === 5) {
       let value = 0;
       for (const d of group) value = value * 85 + d;
-      out.push((value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff);
-      group = [];
+      if (!push(value >>> 0, 4)) return null;
+      group.length = 0;
     }
   }
 
   // A short final group is padded with 'u', and yields one byte fewer than
   // its length.
   if (group.length > 1) {
-    const n = group.length;
+    const count = group.length - 1;
     while (group.length < 5) group.push(84);
     let value = 0;
     for (const d of group) value = value * 85 + d;
-    const full = [(value >>> 24) & 0xff, (value >>> 16) & 0xff, (value >>> 8) & 0xff, value & 0xff];
-    out.push(...full.slice(0, n - 1));
+    if (!push(value >>> 0, count)) return null;
   }
 
-  return new Uint8Array(out);
+  return out.subarray(0, n);
 }
 
 /** PNG predictors, needed for cross-reference streams. */
 function undoPngPredictor(bytes: Uint8Array, columns: number, colors: number): Uint8Array {
-  const bpp = Math.max(1, colors);
-  const rowLength = columns * bpp;
+  const bpp = Math.max(1, Math.floor(colors) || 1);
+  const rowLength = Math.max(1, Math.floor(columns) || 1) * bpp;
+  // A row wider than the data holds nothing. /Columns 2000000000 used to
+  // allocate a row that size before finding out.
+  if (rowLength + 1 > bytes.length) return new Uint8Array(0);
   const rows = Math.floor(bytes.length / (rowLength + 1));
   const out = new Uint8Array(rows * rowLength);
   let prev = new Uint8Array(rowLength);

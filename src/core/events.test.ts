@@ -210,6 +210,20 @@ describe("undo — R37.8, R37.9", () => {
     assert.ok(undoEvent(db, first.id, ui(RAVI), { force: true }).ok);
   });
 
+  // A later change that was itself undone no longer alters the record, but
+  // checkUndo still counted it: undoing A after B was undone warned
+  // "altered 1 time since" and asked to discard a change already gone.
+  test("a later change that was already undone does not count as superseding", () => {
+    const first = setValue(db, ui(RAVI), "c1", 10);
+    const second = setValue(db, ui(PRIYA), "c1", 50);
+    assert.ok(undoEvent(db, second.id, ui(PRIYA)).ok);
+
+    const check = checkUndo(db, first.id);
+    assert.equal(check.ok, true);
+    assert.deepEqual(check.supersededBy, []);
+    assert.ok(undoEvent(db, first.id, ui(RAVI)).ok);
+  });
+
   test("refuses outside the 30-day window (Q25)", () => {
     const e = setValue(db, ui(RAVI), "c1", 10);
     const long = addDays(todayIST(), 31);

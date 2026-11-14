@@ -24,6 +24,8 @@ interface Piece {
   text: string;
   /** Width in text space, so a column gap can be told from a kerning gap. */
   width: number;
+  /** Whether `text` ends in a space, kept so a growing piece is never re-read. */
+  spaced: boolean;
 }
 
 type Encoding = {
@@ -66,8 +68,16 @@ function findPages(doc: PdfDocument): PdfDict[] {
   const root = dictGet(doc, doc.trailer, "Root");
   const pagesNode = isDict(root) ? dictGet(doc, root, "Pages") : null;
 
+  /*
+   * IMPORT-4 · Each node once. A page tree is a tree, but a file can list the
+   * same node twice in /Kids at every level: twenty levels of [next next] is
+   * 1.4 KB that walks a million pages, and a few more levels ran the server
+   * out of memory.
+   */
+  const visited = new Set<PdfDict>();
   const walk = (node: PdfValue, depth: number, inherited: PdfDict): void => {
-    if (depth > 64 || !isDict(node)) return;
+    if (depth > 64 || !isDict(node) || visited.has(node)) return;
+    visited.add(node);
 
     // /Resources and /MediaBox are inheritable; carry them down.
     const carried: PdfDict = new Map(inherited);
@@ -391,6 +401,14 @@ const MAX_FORMS_PER_PAGE = 64;
 const MAX_FORM_DEPTH = 8;
 
 /**
+ * IMPORT-6 · How many pieces of text one page may hold. A page has room for
+ * about a hundred lines of two hundred characters, so even a generator that
+ * places every glyph on its own stays far under this. Uncapped, a 58 KB file
+ * drawing "(a) Tj" two million times asked for 900 MB.
+ */
+const MAX_PIECES_PER_PAGE = 100_000;
+
+/**
  * Collect positioned text from one content stream into `pieces`.
  *
  * `ctm` is the transform in force when this stream starts: identity for a
@@ -457,7 +475,22 @@ function extractPieces(
     // drawn directly on the page.
     const x = tm[4]! * ctm[0]! + tm[5]! * ctm[2]! + ctm[4]!;
     const y = tm[4]! * ctm[1]! + tm[5]! * ctm[3]! + ctm[5]!;
-    pieces.push({ x, y, text, width: advance * Math.abs(a) });
+    const width = advance * Math.abs(a);
+    // Text set glyph by glyph, each starting exactly where the last ended, is
+    // one piece: `layout` would join them anyway, and kept apart they count
+    // against the cap below.
+    const last = pieces[pieces.length - 1];
+    const spaced = text.endsWith(" ");
+    // Up to a line's worth: past that a fresh piece, which layout joins too,
+    // so one piece is never a string built from millions of tiny parts.
+    if (last && last.y === y && Math.abs(last.x + last.width - x) < 1e-6 && !last.spaced
+      && last.text.length < 2_000) {
+      last.text += text;
+      last.width += width;
+      last.spaced = spaced;
+    } else if (pieces.length < MAX_PIECES_PER_PAGE) {
+      pieces.push({ x, y, text, width, spaced });
+    }
     tm = multiply([1, 0, 0, 1, advance, 0], tm);
   };
 
@@ -491,6 +524,10 @@ function extractPieces(
 
     if (isOperand) {
       const before = lexer.pos;
+      // IMPORT-6 · No operator takes more than a handful of operands; a
+      // stream of millions with no operator between them is not text, and
+      // kept, 27 KB of PDF asked for half a gigabyte.
+      if (stack.length >= 1024) stack.length = 0;
       stack.push(lexer.parseValue());
       if (lexer.pos === before) lexer.pos++;
       continue;

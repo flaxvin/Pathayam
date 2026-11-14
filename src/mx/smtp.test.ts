@@ -240,6 +240,28 @@ test("happy path: dot-unstuffing, CRLF body, envelope handed over, log has no co
   assert.doesNotMatch(JSON.stringify(h.logs), /Secret|leading dot/);
 });
 
+// A Gmail auto-forward's envelope sender is the member's own mailbox with a
+// "+caf_=" suffix naming the forwarding address; the operator log carried it
+// whole on every message. Only the domain is logged now.
+test("the message log names the sender's domain, never the mailbox", async (t) => {
+  const h = await start(t);
+  const c = await h.client();
+  await c.command("EHLO sender.example", 250);
+  await c.command("MAIL FROM:<ravi.k+caf_=ab.tok=in.test@gmail.example>", 250);
+  await c.command("RCPT TO:<ab.tok@in.test>", 250);
+  await c.command("DATA", 354);
+  c.send("hi\r\n.\r\n");
+  await c.expect(250);
+  assert.equal(h.delivered[0]!.mailFrom, "ravi.k+caf_=ab.tok=in.test@gmail.example");
+  await c.command("QUIT", 221);
+  await c.waitClosed();
+
+  const entry = h.logs.find((e) => e.msg === "message");
+  assert.ok(entry);
+  assert.equal(entry.mailFromDomain, "gmail.example");
+  assert.doesNotMatch(JSON.stringify(h.logs), /ravi|caf_|ab\.tok/);
+});
+
 test("null sender and HELO are accepted", async (t) => {
   const h = await start(t);
   const c = await h.client();

@@ -127,7 +127,14 @@ export function createRequestListener(options: ServerOptions): (req: IncomingMes
     const ctx: RequestContext = {
       req,
       res,
-      method: req.method ?? "GET",
+      /*
+       * WEB-8 · HEAD is GET without the body (RFC 9110 §9.3.2), and every
+       * route here is registered for GET only, so HEAD /healthz answered 405 —
+       * and an uptime monitor that probes with HEAD (several do by default)
+       * reported a healthy instance as down. Routed and judged as the GET it
+       * stands for; Node leaves the body off a response to a HEAD request.
+       */
+      method: req.method === "HEAD" ? "GET" : req.method ?? "GET",
       url,
       params: {},
       query: url.searchParams,

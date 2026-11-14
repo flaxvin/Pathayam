@@ -312,6 +312,21 @@ function loanBalanceSection(p: LoanProjection): SafeHtml {
  * that draws in tranches. Only shown when there is more than one draw or an
  * undrawn balance remains, since a single-shot loan has nothing to plot.
  */
+/**
+ * td-UI-9 · Where a disbursement went, in words. A card EMI is credited to
+ * the card — it pays that balance down and Ready to Assign never sees it —
+ * and the screen said "arrived as money to assign" for it all the same.
+ */
+function disbursementDestination(d: Disbursement): string {
+  if (d.destination === "third-party") return "Paid directly to a third party — never entered your budget";
+  if (d.destination_kind && d.destination_kind !== "budget") {
+    return `Credited to ${d.destination_name ?? "a card or tracking account"} — it paid that balance down and never entered Ready to Assign`;
+  }
+  return d.destination_name
+    ? `Credited to ${d.destination_name} — arrived as money to assign`
+    : "Credited to an account — arrived as money to assign";
+}
+
 function loanDrawdownSection(p: LoanProjection, disbursements: Disbursement[]): SafeHtml {
   if (disbursements.length < 2 && p.undrawn <= 0) return raw("");
   if (disbursements.length === 0) return raw("");
@@ -641,9 +656,7 @@ export function renderLoanDetail(opts: {
                 <strong>${formatPaise(d.amount)}</strong>
                 <span class="faint"> · ${formatDate(d.date)}</span>
                 <div class="faint">
-                  ${d.destination === "third-party"
-                    ? "Paid directly to a third party — never entered your budget"
-                    : "Credited to an account — arrived as money to assign"}
+                  ${disbursementDestination(d)}
                 </div>
               </div>
             </div>

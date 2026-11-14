@@ -44,3 +44,14 @@ describe("UI-PASS-11 · a month with an overspent envelope is not fully funded",
     assert.equal(after.fullyFunded, false);
   });
 });
+
+describe("td-UI-2 · an empty household is not fully funded", () => {
+  test("no accounts and no envelopes: no 'Fully funded' banner over 'Nothing to budget yet'", () => {
+    const db = freshDb();
+    seedMember(db, RAVI, "Ravi");
+    const view = buildBudgetView(db, monthOf(todayIST()), undefined, RAVI);
+    assert.equal(view.monthState.readyToAssign, 0);
+    assert.equal(view.categories.size, 0);
+    assert.equal(view.fullyFunded, false);
+  });
+});

@@ -140,9 +140,9 @@ export function page(options: LayoutOptions, content: SafeHtml): string {
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 </head>
 <body data-features="${bare ? "" : enabledFeatureNames(features).join(" ")}"${memberId && !bare ? ` data-member="${escape(memberId)}"` : ""}>
+<a class="skip-link" href="#main">Skip to content</a>
 ${String(renderBanners(impersonating, devMode, demoMode, path))}
 ${bare ? "" : String(renderHeader(theme, memberName, budgets, currentBudgetId, path))}
-<a class="skip-link" href="#main">Skip to content</a>
 ${bare
     ? `<main id="main">${String(renderNotice(notice))}${content}</main>`
     : `<div class="with-sidebar">

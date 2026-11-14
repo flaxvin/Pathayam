@@ -14,7 +14,9 @@
 import type { DB } from "../db/db.ts";
 import { newId, transact, queryAll, queryOne, execute } from "../db/db.ts";
 import { appendEvent, registerUndoHandler, type Actor } from "../core/events.ts";
-import { nowIST, todayIST, monthOf, monthsBetween, type IsoDate } from "../core/dates.ts";
+import {
+  nowIST, todayIST, monthOf, monthsBetween, addMonths, formatMonth, type IsoDate, type MonthKey,
+} from "../core/dates.ts";
 import { formatPaise, allocate, type Paise } from "../core/money.ts";
 import { Missing, Refusal } from "../core/refusal.ts";
 import { householdBudgetId } from "./budgets.ts";
@@ -46,7 +48,15 @@ export interface GoalProgress {
   percent: number;
   /** F11.2: what it takes each month to arrive on time. */
   requiredMonthly: Paise | null;
+  /** How many months `requiredMonthly` is asked for, starting at `monthlyFrom`. */
   monthsRemaining: number | null;
+  /**
+   * Decision 5 (E1) · The month the monthly figure starts: this month, or next
+   * month once this month's share is already in.
+   */
+  monthlyFrom: MonthKey | null;
+  /** What is still to go in this month to keep its share; 0 once covered. */
+  stillThisMonth: Paise;
   /** True once the linked categories hold the target. */
   reached: boolean;
   /** Stated plainly, because a bare percentage does not tell you what to do. */
@@ -210,10 +220,20 @@ export function listGoals(
  *
  * Balances are passed in rather than fetched, so this stays a pure reading of
  * the same figures the budget screen shows — the two can never disagree.
+ *
+ * Decision 5 (E1) · The monthly figure is worked out from what was saved at
+ * the start of this month (the envelope's opening), the by-date target's own
+ * rule. It used to count this month's assignment as already saved and still
+ * spread the rest over this month too: ₹1,20,000 due in December with ₹60,000
+ * assigned in November read "₹30,000 aside each month for the next 2", and
+ * following it left December ₹30,000 short. Now November's share is ₹60,000;
+ * once it is in, the rest is spread from next month: "₹60,000 in December".
+ * A caller without openings (`opening` left out) is read as if everything was
+ * there at the start of the month.
  */
 export function goalProgress(
-  db: DB, categoryBalances: Map<string, { name: string; balance: Paise }>, today = todayIST(),
-  budgetIds?: string[],
+  db: DB, categoryBalances: Map<string, { name: string; balance: Paise; opening?: Paise }>,
+  today = todayIST(), budgetIds?: string[],
 ): GoalProgress[] {
   return listGoals(db, { budgetIds }).map((goal) => {
     const linked = queryAll<{ category_id: string }>(
@@ -223,43 +243,83 @@ export function goalProgress(
     const categories = linked
       .map((l) => {
         const entry = categoryBalances.get(l.category_id);
-        return entry ? { id: l.category_id, name: entry.name, balance: entry.balance } : null;
+        return entry
+          ? { id: l.category_id, name: entry.name, balance: entry.balance, opening: entry.opening ?? entry.balance }
+          : null;
       })
-      .filter((c): c is { id: string; name: string; balance: Paise } => c !== null);
+      .filter((c): c is { id: string; name: string; balance: Paise; opening: Paise } => c !== null);
 
     const saved = categories.reduce((sum, c) => sum + Math.max(0, c.balance), 0);
+    const savedAtStart = categories.reduce((sum, c) => sum + Math.max(0, c.opening), 0);
     const remaining = Math.max(0, goal.target_amount - saved);
     const percent = goal.target_amount > 0 ? Math.min(100, (saved / goal.target_amount) * 100) : 0;
     const reached = saved >= goal.target_amount;
 
+    const month = monthOf(today);
     let monthsRemaining: number | null = null;
     let requiredMonthly: Paise | null = null;
+    let monthlyFrom: MonthKey | null = null;
+    let stillThisMonth: Paise = 0;
     if (goal.target_date) {
-      monthsRemaining = Math.max(0, monthsBetween(monthOf(today), monthOf(goal.target_date)) + 1);
-      if (monthsRemaining > 0 && remaining > 0) {
+      const monthsLeft = Math.max(0, monthsBetween(month, monthOf(goal.target_date)) + 1);
+      monthsRemaining = monthsLeft;
+      if (monthsLeft > 0 && remaining > 0) {
         // allocate() so the monthly figures sum back to exactly the target.
-        requiredMonthly = allocate(remaining, monthsRemaining)[0] ?? 0;
+        const remainingAtStart = Math.max(0, goal.target_amount - savedAtStart);
+        const thisMonthShare = allocate(remainingAtStart, monthsLeft)[0] ?? 0;
+        const putInThisMonth = saved - savedAtStart;
+        if (monthsLeft > 1 && putInThisMonth >= thisMonthShare) {
+          // This month's share is covered: the rest goes from next month.
+          monthsRemaining = monthsLeft - 1;
+          requiredMonthly = allocate(remaining, monthsRemaining)[0] ?? 0;
+          monthlyFrom = addMonths(month, 1);
+        } else if (thisMonthShare === 0) {
+          // The month opened with the target held, and some has gone since.
+          requiredMonthly = allocate(remaining, monthsLeft)[0] ?? 0;
+          monthlyFrom = month;
+          stillThisMonth = requiredMonthly;
+        } else {
+          requiredMonthly = thisMonthShare;
+          monthlyFrom = month;
+          stillThisMonth = Math.min(remaining, Math.max(0, thisMonthShare - Math.max(0, putInThisMonth)));
+        }
       }
     }
 
     return {
-      goal, categories, saved, remaining, percent, requiredMonthly, monthsRemaining, reached,
-      reading: describe(goal, saved, remaining, requiredMonthly, monthsRemaining, reached),
+      goal, categories: categories.map(({ id, name, balance }) => ({ id, name, balance })),
+      saved, remaining, percent, requiredMonthly, monthsRemaining, monthlyFrom, stillThisMonth, reached,
+      reading: describe(goal, saved, remaining, requiredMonthly, monthsRemaining, monthlyFrom, stillThisMonth, month, reached),
     };
   });
 }
 
 function describe(
   goal: Goal, saved: Paise, remaining: Paise,
-  requiredMonthly: Paise | null, monthsRemaining: number | null, reached: boolean,
+  requiredMonthly: Paise | null, monthsRemaining: number | null, monthlyFrom: MonthKey | null,
+  stillThisMonth: Paise, month: MonthKey, reached: boolean,
 ): string {
   if (reached) {
     return `Done — ${formatPaise(saved)} set aside. Spend it, roll it into something else, or send it back to Ready to Assign.`;
   }
-  if (requiredMonthly !== null && monthsRemaining !== null) {
+  if (requiredMonthly !== null && monthsRemaining !== null && monthlyFrom !== null) {
+    const monthName = (m: MonthKey) => formatMonth(m).split(" ")[0];
+    if (monthlyFrom !== month) {
+      // This month's share is already in.
+      const plan = monthsRemaining === 1
+        ? `${formatPaise(requiredMonthly)} in ${monthName(monthlyFrom)}`
+        : `${formatPaise(requiredMonthly)} a month from ${monthName(monthlyFrom)}, for ${monthsRemaining} months,`;
+      return `${formatPaise(remaining)} to go. This month's share is in; ${plan} gets you there on time.`;
+    }
+    const more = stillThisMonth > 0 && stillThisMonth < requiredMonthly
+      ? ` ${formatPaise(stillThisMonth)} more this month keeps you on track.`
+      : "";
+    if (monthsRemaining === 1) {
+      return `${formatPaise(remaining)} to go, and it's due this month.`;
+    }
     return (
       `${formatPaise(remaining)} to go. Putting ${formatPaise(requiredMonthly)} aside each month ` +
-      `for the next ${monthsRemaining} gets you there on time.`
+      `for the next ${monthsRemaining} gets you there on time.${more}`
     );
   }
   if (goal.target_date && monthsRemaining === 0) {
