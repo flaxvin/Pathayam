@@ -283,7 +283,7 @@ function needsPasswordLink(db: DB, config: Config, memberId: string): boolean {
 const LEGAL_UPDATED = "19 September 2026";
 import { loadRules } from "./import/pipeline.ts";
 import {
-  testRule, type Rule, type RuleSubject, extractNarrationFields, CONDITION_FIELDS, OPERATORS, LIST_OPERATORS,
+  testRule, type Rule, type RuleSubject, extractNarrationFields, CONDITION_FIELDS, OPERATORS, LIST_OPERATORS, patternProblem,
 } from "./import/rules.ts";
 import {
   applyStartingTemplate, startBlank,
@@ -7918,6 +7918,15 @@ export function buildApp(deps: AppDeps): {
       const paise = parseAmount(value);
       if (paise === null) throw new HttpError(422, `"${value}" isn't an amount I can read.`);
       value = conditionField === "absoluteAmount" ? Math.abs(paise) : paise;
+    }
+    /*
+     * Decision 10 (P2) · A pattern runs over every narration of every import;
+     * one that backtracks without end (on the demo, anyone's) stalled them all.
+     * Refused here, before it is tested against history or saved.
+     */
+    if (op === "matches") {
+      const problem = patternProblem(String(value));
+      if (problem) throw new HttpError(422, problem);
     }
     return {
       id: "draft",
