@@ -61,10 +61,9 @@ describe("WEB-1 · renaming a payee on a private account proposes no household r
       for (const path of ["/rules", "/review", "/activity"]) {
         const html = await (await asPriya.get(path)).text();
         assert.doesNotMatch(html, /Dr Sharma Psychiatry Secret/, path);
-        // The rule's own words name the bank string too. (/activity still
-        // lists "Added the payee UPI-DRSHARMAPSYCH" once the old payee is used
-        // nowhere: a separate, open question.)
-        if (path !== "/activity") assert.doesNotMatch(html, /DRSHARMA/, path);
+        // The rule's own words name the bank string too, and (Decision 6) the
+        // old payee, used nowhere now, is gone rather than "Added" in /activity.
+        assert.doesNotMatch(html, /DRSHARMA/, path);
       }
       // A rename on a row everyone can see still teaches a rule.
       await asRavi.post(`/transaction/${jointTx}`, { payee: "DMart" });

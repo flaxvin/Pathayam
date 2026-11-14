@@ -4966,7 +4966,7 @@ export function buildApp(deps: AppDeps): {
       const renamed = newPayee !== "" && newPayee !== previousPayee;
       const removed = payeeRaw !== undefined && newPayee === "" && transaction.payee_id !== null;
       const payeeId = renamed
-        ? resolvePayee(db, actor, newPayee, transaction.raw_narration).id
+        ? resolvePayee(db, actor, newPayee, transaction.raw_narration, { forRow: true }).id
         : removed ? null : undefined;
 
       /*
