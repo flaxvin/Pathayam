@@ -1071,7 +1071,7 @@ export function aiGoals(db: DB, viewerMemberId: string, _args: Record<string, ne
   const goals = visibleBudgets(db, viewerMemberId).flatMap((b) => {
     const view = buildBudgetView(db, undefined, b.id, viewerMemberId);
     const balances = new Map(
-      visibleCategories(view, hidden).map((c) => [c.id, { name: c.name, balance: c.state.balance }]),
+      visibleCategories(view, hidden).map((c) => [c.id, { name: c.name, balance: c.state.balance, opening: c.state.opening }]),
     );
     return goalProgress(db, balances, todayIST(), [b.id]).map((g) => ({
       goal_id: g.goal.id,
@@ -1084,6 +1084,8 @@ export function aiGoals(db: DB, viewerMemberId: string, _args: Record<string, ne
       percent: round(g.percent, 1),
       required_monthly: inr(g.requiredMonthly),
       months_remaining: g.monthsRemaining,
+      monthly_from: g.monthlyFrom,
+      still_this_month: inr(g.stillThisMonth),
       reached: g.reached,
       completed_on: isoDay(g.goal.completed_at),
       envelopes: g.categories.map((c) => ({ category_id: c.id, name: c.name, available: inr(c.balance) })),

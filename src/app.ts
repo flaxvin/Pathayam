@@ -7688,7 +7688,7 @@ export function buildApp(deps: AppDeps): {
     const mine = budgetsFor(db, viewer(ctx));
     const view = buildBudgetView(db, undefined, scope, viewer(ctx));
     const balances = new Map(
-      [...view.categories].map(([id, c]) => [id, { name: c.name, balance: c.state.balance }]),
+      [...view.categories].map(([id, c]) => [id, { name: c.name, balance: c.state.balance, opening: c.state.opening }]),
     );
 
     return render(
