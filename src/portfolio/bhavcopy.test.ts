@@ -338,6 +338,29 @@ describe("PRICES-1 · one download serves every holding", () => {
     assert.equal(calls.length, 4, "Mon, Sun, Sat (missing) and Fri, each once");
   });
 
+  test("REV-1 · a day missing while it was today is asked again once it is past", async () => {
+    // Friday 17:00 IST: Friday's file is not out yet; Thursday's is.
+    const files: Record<string, Reply> = {
+      [nse("2026-11-12")]: { body: nseZip("2026-11-12"), type: "application/zip" },
+    };
+    const { impl, calls } = exchanges(files);
+    const fri = await priceFromBhavcopy("INE002A01018", null, { fetchImpl: impl, now: new Date("2026-11-13T11:30:00Z") });
+    assert.ok(fri.ok && fri.asOf === "2026-11-12");
+    // Friday's file appears that evening; Saturday 10:00 IST must read it.
+    files[nse("2026-11-13")] = { body: nseZip("2026-11-13"), type: "application/zip" };
+    const sat = await priceFromBhavcopy("INE002A01018", null, { fetchImpl: impl, now: new Date("2026-11-14T04:30:00Z") });
+    assert.ok(sat.ok);
+    assert.equal(sat.asOf, "2026-11-13");
+    assert.equal(calls.filter((c) => c.url === nse("2026-11-13")).length, 2);
+    // A day already past when found missing (Sunday, asked on Monday) stays missing.
+    const before = calls.length;
+    await priceFromBhavcopy("INE002A01018", null, { fetchImpl: impl, now: new Date("2026-11-16T13:30:00Z") });
+    const mid = calls.length;
+    await priceFromBhavcopy("INE002A01018", null, { fetchImpl: impl, now: new Date("2026-11-17T13:30:00Z") });
+    assert.equal(calls.slice(mid).filter((c) => c.url === nse("2026-11-15")).length, 0);
+    assert.ok(mid > before);
+  });
+
   test("P5 · a ceiling on downloads per exchange per day, however often asked", async () => {
     // A today with no file yet, asked again every two hours (past the TTL).
     const { impl } = exchanges({

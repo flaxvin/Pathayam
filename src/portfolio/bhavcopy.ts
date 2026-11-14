@@ -365,7 +365,13 @@ type DayResult =
 
 interface CacheState {
   days: Map<string, BhavDay>; // insertion order is recency
-  missing: Map<string, number>; // key -> when learned
+  /**
+   * key -> when learned, and whether it was learned on that file's own day.
+   * A past day's absence is permanent (a holiday stays a holiday); an
+   * absence learned while the day was still "today" only means "not out
+   * yet", so it keeps the TTL even after the date has passed (review 1).
+   */
+  missing: Map<string, { at: number; sameDay: boolean }>;
   inflight: Map<string, Promise<DayResult>>;
   downloads: Map<string, number>; // `${exchange}|${istDay}` -> count
 }
@@ -471,10 +477,9 @@ async function dayFor(
     cache.days.set(key, hit);
     return { kind: "day", day: hit };
   }
-  const missingAt = cache.missing.get(key);
-  if (missingAt !== undefined) {
-    const today = todayIST(now);
-    if (date < today || now.getTime() - missingAt < LIMITS.missingTodayTtlMs) return { kind: "missing" };
+  const missing = cache.missing.get(key);
+  if (missing !== undefined) {
+    if (!missing.sameDay || now.getTime() - missing.at < LIMITS.missingTodayTtlMs) return { kind: "missing" };
     cache.missing.delete(key);
   }
   const pending = cache.inflight.get(key);
@@ -499,7 +504,7 @@ async function dayFor(
       cache.days.set(key, result.day);
       while (cache.days.size > LIMITS.cachedDays) cache.days.delete(cache.days.keys().next().value!);
     } else if (result.kind === "missing") {
-      cache.missing.set(key, now.getTime());
+      cache.missing.set(key, { at: now.getTime(), sameDay: date >= todayIST(now) });
       if (cache.missing.size > 64) cache.missing.delete(cache.missing.keys().next().value!);
     }
     return result;
