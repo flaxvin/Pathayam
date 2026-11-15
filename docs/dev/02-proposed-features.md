@@ -13,8 +13,7 @@ back to the original list.
 
 One day is one engineer-day by someone familiar with this codebase,
 **including the tests and documentation this project requires**. Those account
-for most of the number. The repository is 115 source files against 119 test files and 1,426
-tests; every behavioural rule carries a test that fails when the rule is
+for most of the number. Every behavioural rule carries a test that fails when the rule is
 removed, and every non-obvious decision is written down. A change that is two
 hours of typing is routinely a day and a half of work here, and the estimates
 below reflect that.

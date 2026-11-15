@@ -149,7 +149,7 @@ programme**, for a single household feature.
 
 ### 4.4 The risk that is not in the table
 
-Every one of the 827 tests currently asserts the behaviour of a shared budget.
+Every test currently asserts the behaviour of a shared budget.
 Reworking them is in the estimate; what is not is that the identity test — the
 single thing that has caught the most serious bugs in this project — has to be
 re-derived for N scopes before it can guard anything. Until that is done and
