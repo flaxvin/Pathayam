@@ -17,7 +17,7 @@ answer 404 when the viewer may not see the entity
 | `GET /auto-assign` | Plan filling the viewed budget's targets from that budget's Ready to Assign. |
 | `POST /assign` | Set one envelope's assignment for a month. |
 | `POST /copy-last-month` | Copy the previous month's assignments. |
-| `POST /move` | Move money between envelopes, including to cover an overspend. |
+| `POST /move` | Move money between envelopes, including to cover an overspend. A move larger than the source holds is refused unless `allow_below_zero` ("Allow it to go below zero") is ticked. |
 | `GET /explain/ready-to-assign`, `GET /explain/category/:id` | Derivation of a displayed figure. |
 | `GET /months`, `GET /months/:month/close`, `POST /months/:month/close`, `POST /months/:month/reopen` | Month close ritual and history. |
 
@@ -29,7 +29,7 @@ answer 404 when the viewer may not see the entity
 | `GET /accounts/:id` | Register with running balance. |
 | `POST /accounts/:id/edit`, `/close`, `/reopen` | |
 | `POST /accounts/:id/deposit`, `POST /accounts/:id/deposit/remove` | A deposit's terms, on its account page: what they make it worth today ("computed from terms" or "valued by hand"), its maturity, and forms to change or remove them. |
-| `GET /accounts/:id/reconcile`, `POST` | Reconcile against a bank balance. |
+| `GET /accounts/:id/reconcile`, `POST` | Reconcile against a bank balance; on a card, loan, EMI or liability account, against what the statement says you owe (with an "It's in credit" tick, or the statement's `Cr`). |
 | `GET /accounts/:id/cards`, `POST`, `POST /accounts/:id/cards/:cardId/close` | Physical cards on a credit account. |
 | `GET /accounts/:id/statement`, `POST` | Record a card statement. |
 | `GET /add`, `POST /add` | Money in, money out. With no signal, the entry is kept on the device and sent later (`10` §3.7). |

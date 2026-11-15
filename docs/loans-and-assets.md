@@ -6,6 +6,15 @@ A loan creates a tracking account of subtype `loan` (or `emi`) whose balance is
 derived, and a payment envelope in the budget carrying a `debt-payoff` target
 equal to the current instalment.
 
+A loan marked private to its holder (UI-14) keeps that envelope in the holder's
+personal budget, made if needed with its household commitment envelope, so its
+name, target and instalments never reach another member's budget, pickers,
+Query, Reports, Activity, Payees or the paying account's register. Switching a
+loan's visibility on its page moves an untouched envelope either way and
+refuses one that already holds money or payments; at startup, untouched
+envelopes of loans already private are moved. A card EMI plan's envelope stays
+beside its card.
+
 ### Fields
 
 | Field | Notes |

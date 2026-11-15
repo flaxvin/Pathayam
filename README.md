@@ -12,7 +12,7 @@ A product of [Flaxvin Technologies](https://flaxvin.tech).
 harvest, then drawn from carefully through the year.
 
 ```
-v1.0.0 · 3300 tests · 0 runtime dependencies · 77 migrations · 255 routes
+v1.0.0 · 3400 tests · 0 runtime dependencies · 77 migrations · 255 routes
 ```
 
 **Status: production-ready.** 1.0.0 is the first stable release; see
@@ -40,7 +40,9 @@ v1.0.0 · 3300 tests · 0 runtime dependencies · 77 migrations · 255 routes
   UPI IDs, phone numbers and PAN by default. Every question and change is
   logged, and every change can be undone.
 - **Indian banking.** Statement PDFs from twelve banks, with passwords derived
-  from name, date of birth, PAN, mobile and customer ID. UPI narration
+  from name, date of birth, PAN, mobile and customer ID, each read in a worker
+  thread with a deadline and a memory cap so one heavy file cannot hold up the
+  app. UPI narration
   parsing. Reducing-balance and flat loans, rate changes, prepayment
   comparison, EMI conversion (with the 18% GST on each instalment's interest charged as its own card
   line). CAS portfolio import. Realised gains by financial year. Mutual funds,
@@ -56,7 +58,9 @@ v1.0.0 · 3300 tests · 0 runtime dependencies · 77 migrations · 255 routes
   splits intact.
 - **Per-member privacy.** A shared household budget plus an optional personal
   budget per member, excluded from the other members' lists, reports, exports,
-  activity log and totals.
+  activity log and totals. A private loan's payment envelope lives in its
+  holder's own budget, and a private payee nobody uses any more is not shown
+  to the others.
 - **Schedules that split.** A salary into provident fund, tax and what landed;
   rent into rent and maintenance. The first envelope takes whatever the later
   lines do not claim, so a recurring split cannot be quietly wrong every month,
@@ -68,8 +72,9 @@ v1.0.0 · 3300 tests · 0 runtime dependencies · 77 migrations · 255 routes
   Home-loan interest under 24(b) comes from the loan ledger; TDS, advance tax
   and self-assessment payments are netted to a balance due or a refund; each
   advance-tax instalment is checked against what was paid by its date. Your
-  own Annual Information Statement PDF can be uploaded to read its TDS,
-  interest and dividends instead of typing them. FY
+  own Annual Information Statement PDF can be uploaded to read its TDS by
+  deductor, salary, interest and dividends instead of typing them; only the
+  figures are kept, never the file, and only for the member who uploaded it. FY
   2024-25 gains are split at 23-07-2024, and listed bonds held over a year
   are taxed at 12.5%. Slabs are data keyed by financial year, so a year the
   app does not have rates for is refused rather than computed with last year's.

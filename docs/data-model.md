@@ -1,6 +1,6 @@
 # Data model
 
-68 tables. Money columns are integer paise; dates are `YYYY-MM-DD`; months are
+78 tables. Money columns are integer paise; dates are `YYYY-MM-DD`; months are
 `YYYY-MM`; timestamps are IST strings.
 
 ## Household and people
@@ -31,7 +31,7 @@
 | `transactions` | `id`, `account_id`, `card_id`, `date`, `amount`, `payee_id`, `category_id`, `is_split`, `memo`, `cleared`, `owner_member_id`, `transfer_pair_id`, `reimbursable`, `source`, `import_batch_id`, `source_id`, `raw_*`, `deleted_at` | Negative is outflow. Deletion is soft. |
 | `transaction_splits` | `id`, `transaction_id`, `category_id`, `amount`, `memo`, `sort` | Must sum to the transaction amount. |
 | `transaction_tags`, `tags` | `tag_id`, `name`, `budget_amount`, `starts_on`, `ends_on` | Tags may carry their own budget over a period. |
-| `payees`, `payee_aliases` | `id`, `name`, `default_account_id`, `merged_into_id`; `payee_id`, `raw` | Merging sets `merged_into_id`. |
+| `payees`, `payee_aliases` | `id`, `name`, `default_account_id`, `merged_into_id`, `hidden_origin`; `payee_id`, `raw` | Merging sets `merged_into_id`. `hidden_origin` (0076) is 1 when the first row a payee landed on was private: such a payee is listed to nobody while nothing names it, and is deleted with its aliases once a rename, purge, erase or undo leaves it unused. |
 | `attachments` | `id`, `transaction_id`, `filename`, `mime`, `size`, `sha256`, `bytes` | Blob storage. Images and PDF only, 10 MB cap. |
 | `reconciliations` | `id`, `account_id`, `as_of`, `bank_balance`, `app_balance`, `adjustment_transaction_id`, `broken_at`, `broken_reason` | A checkpoint breaks when a transaction before `as_of` changes. |
 
@@ -81,6 +81,7 @@ A unique index on `transactions(account_id, source, source_id)` where
 |---|---|---|
 | `tax_declarations` | `member_id`, `fy`, `gross`, `s80c`, `s80d`, `s80d_senior`, `s80d_parents`, `s80d_parents_senior`, `s80d_checkup`, `s80d_parents_checkup`, `other`, `hra_*`, `s24b_override`, `tds` | One per member per financial year. `s24b_override` and `tds` were added in 0064. `s24b_override` null uses the interest accrued on the member's self-occupied home loans; `tds` is the year's total from Form 16 or 26AS. |
 | `tax_payments` | `id`, `member_id`, `fy`, `kind`, `date`, `amount`, `note` | Advance (`advance`) or self-assessment (`self-assessment`) tax paid, one row a challan (0064). A member's own; no event is written, as for a declaration. |
+| `ais_imports`, `ais_lines` | `member_id`, `fy`, `imported_at`, `pan_checked`, `not_read`; `id`, `member_id`, `fy`, `section`, `category`, `code`, `label`, `source`, `amount`, `tds` | TAX-AIS (0077). A member's own Annual Information Statement for a year, as figures: one import per member and year, replaced whole by a re-import, and its lines (`category` one of salary, interest-savings, interest-deposit, interest-other, dividend, securities-sale, unread). `not_read` holds counts by part, never text. The file, PAN, name and account numbers are not kept. |
 
 ## Assets
 

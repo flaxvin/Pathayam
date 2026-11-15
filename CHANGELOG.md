@@ -43,6 +43,23 @@ public surface: a change that breaks one of them is a major version.
   set up for it. The equity refresh now runs after 18:00 IST, once the files
   are out. New: `BHAVCOPY_PRICES` (default `true`). No migration.
 
+- **A top-down pass through the app (#27).** 31 fixes from a review of every
+  screen, and ten decisions taken with it. A private loan's payment envelope
+  lives in its holder's own budget (moved by `setLoanVisibility`, and at
+  startup for loans already private). Statement, CAS, SafeGold and AIS PDFs are
+  read in a worker thread with a 10-second deadline and a 256 MB heap, one at a
+  time; a second upload is told to try again, and on the demo waits its turn,
+  at most five per address. A private payee nobody uses any more is no longer
+  listed to other members (migration 0076). A "matches a pattern" rule that
+  could backtrack for minutes is refused when saved. Reconciling a card or loan
+  asks how much the statement says you owe; a move larger than an envelope
+  holds is refused unless "Allow it to go below zero" is ticked; payments clear
+  a card's opening balance first; a goal's monthly figure starts from what was
+  saved at the start of the month; the FIRE target waits for 30 days of
+  history; the tax page names the accounts its starting gross was summed from.
+  The demo household now carries an AIS, a tax-free gains suggestion,
+  exchange-priced holdings and a private loan.
+
 - **Forwarding address.** Each member can have an address
   (`<route>.<token>@INBOUND_DOMAIN`) to forward bank mail to with a filter;
   alerts and statements land in Review as they arrive, through the Gmail

@@ -11,13 +11,13 @@ does, not how it came to do it.
 | [accounts.md](accounts.md) | Account kinds and subtypes, transactions, transfers, splits, reconciliation. |
 | [money-in.md](money-in.md) | CSV import, YNAB and Actual Budget exports, PDF statements, Gmail, duplicate detection, transfers in Review, rules, learning, undoing an import. |
 | [forwarding.md](forwarding.md) | The forwarding address: the receiver, the checks on a forwarded message, what is kept and for how long, setting it up. |
-| [loans-and-assets.md](loans-and-assets.md) | Loans, amortisation, EMI conversion, home loan interest for the tax estimate, family lending, insurance, deposits that value themselves, portfolio, net worth, financial independence. |
+| [loans-and-assets.md](loans-and-assets.md) | Loans (private loans in their holder's budget), amortisation, EMI conversion, home loan interest for the tax estimate, family lending, insurance, deposits that value themselves, portfolio, prices (Indian shares and ETFs from the exchanges' end-of-day files), net worth, financial independence. |
 | [privacy.md](privacy.md) | Budgets, visibility, and how access is enforced. |
 | [security.md](security.md) | Authentication, authorisation, transport, input handling. |
 | [screens.md](screens.md) | Every route the application serves, and what prints. |
 | [operations.md](operations.md) | Deployment, configuration, backup, restore, health. |
 | [testing.md](testing.md) | Running the suite; what is covered and what is not. |
-| [limitations.md](limitations.md) | Known constraints and unsupported cases. |
+| [limitations.md](limitations.md) | Known constraints and unsupported cases, including what the tax estimate reads from the Annual Information Statement and what the tax-free gains card leaves out. |
 | [API.md](API.md) | HTTP API and personal access tokens. |
 | [ai.md](ai.md) | Connecting Claude, ChatGPT, Gemini and other MCP clients: tools, masking, the access log. |
 | [dev/01-engine-derivation.md](dev/01-engine-derivation.md) | Derivation of the accounting identity. Cited from the engine source. |
