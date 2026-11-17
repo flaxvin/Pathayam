@@ -102,12 +102,17 @@ const CHANNELS = ["UPI", "IMPS", "NEFT", "RTGS", "POS", "ATM", "ECS", "NACH", "A
  * 431202847592 and merchant SWIGGY — so a rule can say "merchant contains
  * SWIGGY" and keep working when the order id changes, which it does every time.
  */
-export function extractNarrationFields(narration: string): {
+export function extractNarrationFields(fullNarration: string): {
   channel: string | null;
   vpa: string | null;
   merchant: string | null;
   reference: string | null;
 } {
+  // Weekly 18-11 · The patterns below backtrack over a long run of one kind
+  // of character, and this runs on the request thread for every imported
+  // row: a 40 KB cell of digits took three seconds, a 400 KB one minutes.
+  // A real narration is a few hundred characters; only its start is read.
+  const narration = fullNarration.slice(0, NARRATION_READ_LIMIT);
   const upper = narration.toUpperCase();
 
   const channel = CHANNELS.find((c) => new RegExp(`(^|[^A-Z])${c}([^A-Z]|$)`).test(upper)) ?? null;
@@ -398,6 +403,9 @@ export function evaluateCondition(subject: RuleSubject, condition: Condition): b
     default: return false;
   }
 }
+
+/** Weekly 18-11 · How much of a narration its channel, VPA, merchant and reference are read from. */
+export const NARRATION_READ_LIMIT = 500;
 
 /** Decision 10 · The longest pattern a rule may hold. */
 export const PATTERN_MAX_LENGTH = 200;
