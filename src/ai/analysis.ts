@@ -940,8 +940,10 @@ export function aiTaxEstimate(
         paid_by_then: inr(a.paidByThen), short_by: inr(a.shortBy),
       })),
       // HARVEST-1 · The s112A exemption left in the year in progress, as the
-      // Tax page's card shows it; null for any other year.
-      ltcg_harvest: p.harvest
+      // Tax page's card shows it; null for any other year. WEB-1 · And null
+      // with FEATURE_ASSETS off, as the page leaves the card out: it lists
+      // holdings, units and prices, which that deployment does not offer.
+      ltcg_harvest: p.harvest && assetsOn(opts)
         ? {
             exemption: inr(p.harvest.exemption), realised_112a: inr(p.harvest.realised), unused: inr(p.harvest.unused),
             days_left: p.harvest.daysLeft, year_ends: p.harvest.fyEnd,

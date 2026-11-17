@@ -249,7 +249,7 @@ function isFurniture(line: string): boolean {
  * reader's, because it is the part worth testing line by line.
  */
 export function parseAisText(text: string): AisStatement {
-  const rawLines = text.split("\n").map((l) => l.replace(/\s+$/, ""));
+  const rawLines = text.split("\n").map((l) => l.trimEnd());
   const all = rawLines.join("\n");
 
   if (!/annual information statement/i.test(all)) {

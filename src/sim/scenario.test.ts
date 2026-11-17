@@ -44,6 +44,7 @@ import { aisSummary } from "../domain/ais.ts";
 import { ltcgHarvestHint } from "../domain/ltcg-harvest.ts";
 import { getInstrument } from "../domain/assets.ts";
 import { fiscalYearOf } from "../core/dates.ts";
+import { GAINS_RULES } from "../domain/capital-gains-tax.ts";
 import { bhavcopyCanPrice } from "../portfolio/refresh.ts";
 import { paymentCategoryForLoan } from "../domain/loans.ts";
 import {
@@ -560,7 +561,12 @@ describe("top-down · the features that leave a trace", () => {
 describe("top-down · the demo has something on the newer screens", () => {
   const me = () => sim.members[SIGNED_IN_AS].id;
 
-  test("TAX-AIS · the signed-in member has an AIS for this year, read and checked", () => {
+  // ENGINE-2 · From 1 April until the new year's rates are added, the seed has
+  // no year to put an AIS or a harvest suggestion in (both refuse an unknown year).
+  const NO_RULES = !(fiscalYearOf(todayIST()) in GAINS_RULES)
+    && "this financial year's tax and gains rules are not in the app yet";
+
+  test("TAX-AIS · the signed-in member has an AIS for this year, read and checked", { skip: NO_RULES }, () => {
     const fy = fiscalYearOf(todayIST());
     const s = aisSummary(db, me(), fy);
     assert.ok(s, "no AIS for the year in progress");
@@ -573,7 +579,7 @@ describe("top-down · the demo has something on the newer screens", () => {
     }
   });
 
-  test("HARVEST-1 · the tax-free gains card suggests a sale, within the exemption", () => {
+  test("HARVEST-1 · the tax-free gains card suggests a sale, within the exemption", { skip: NO_RULES }, () => {
     const hint = ltcgHarvestHint(db, me());
     const suggested = hint.lines.filter((l) => l.suggestUnits > 0);
     assert.ok(suggested.length > 0, "nothing suggested: the card would only say there is nothing to do");

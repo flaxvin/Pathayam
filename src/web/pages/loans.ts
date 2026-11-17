@@ -489,8 +489,10 @@ export function renderLoanDetail(opts: {
       nothing said and nothing to do: closeLoan was written and reachable from
       nowhere. Closing is a statement about attention, like a month close — it
       files the loan away and keeps every figure.
+      W18-UI-1 · Only once something was drawn: a loan added before the dealer
+      is paid owes nothing yet either, and was offered "Close it" at birth.
     -->
-    ${when(p.outstanding <= 0 && !loan.closed_at, () => html`
+    ${when(p.outstanding <= 0 && p.disbursed > 0 && !loan.closed_at, () => html`
       <div class="notice notice-good row-between" style="align-items:center">
         <span>
           <strong>This is paid off.</strong> Closing it files it away and keeps

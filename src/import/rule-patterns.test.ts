@@ -52,8 +52,23 @@ describe("Decision 10 · which patterns a rule may hold", () => {
     for (const fine of [
       "SWIGGY", "^UPI.*SWIGGY.*$", "AMAZON|FLIPKART", "(foo|bar)+", "\\d{2}-\\d{2}", "^NEFT/[A-Z0-9]+/",
       "(\\d{2})+", "colou?r", "a{2,5}", "\\(a+\\)+", "[(a+)+]", "(?<n>ab)c\\k<n>", "a".repeat(200),
+      "^UPI.*SWIGGY.*INSTA ?MART", "AMAZON ?PAY", "[A-Z]{3,20}/\\d{4,12}", "(?:\\d{2})?\\d{4}",
     ]) {
       assert.equal(patternProblem(fine), null, fine);
+    }
+  });
+
+  test("weekly 18-11 · what it accepts gives up quickly on a hostile 500-character narration", () => {
+    // Bounded repeats and ? used to pass uncounted: \w{0,20} eight times ran for minutes.
+    // The near-limit shapes that are still accepted must answer in well under a second or two.
+    const hostile = "a".repeat(PATTERN_INPUT_LIMIT);
+    for (const nearLimit of [
+      "\\w*\\s?\\w*\\s?!", "\\w*\\w*!", "\\w{0,20}\\w{0,20}\\w{0,20}!", "\\w?".repeat(14) + "!",
+    ]) {
+      assert.equal(patternProblem(nearLimit), null, nearLimit);
+      const started = Date.now();
+      new RegExp(nearLimit, "i").test(hostile);
+      assert.ok(Date.now() - started < 2_000, `${nearLimit} took ${Date.now() - started} ms`);
     }
   });
 
